@@ -189,6 +189,12 @@ impl Window for TradeWindow {
         }
     }
 
+    fn accepts_unlisted(&self, pick: &Pick) -> bool {
+        // The proposer's question takes a deal the proposer names: a registered free-form one is not among the options.
+        self.stage == TStage::Proposing
+            && matches!(pick, Pick::Opt(COpt::Trade(Opt::Deal(Shape::Free(i)))) if self.facts.free.get(usize::from(*i)).is_some_and(Option::is_some))
+    }
+
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         let Pick::Opt(opt) = pick else { return Err(Illegal) };
         match self.stage {
@@ -197,7 +203,9 @@ impl Window for TradeWindow {
                     return self.end(Outcome::NothingOffered);
                 }
                 let COpt::Trade(Opt::Deal(shape)) = opt else { return Err(Illegal) };
-                if !deals(sx.state, &self.facts, self.proposer, self.partner).contains(&shape) {
+                // A listed deal, or a free-form one the adapter registered (the proposer names it, it is never listed).
+                let free = matches!(shape, Shape::Free(i) if self.facts.free.get(usize::from(i)).is_some_and(Option::is_some));
+                if !free && !deals(sx.state, &self.facts, self.proposer, self.partner).contains(&shape) {
                     return Err(Illegal);
                 }
                 // Legality is checked before the partner is troubled with it.

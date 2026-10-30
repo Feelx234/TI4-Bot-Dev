@@ -50,7 +50,7 @@ pub fn planet_values() -> &'static [u8] {
 }
 
 /// The shape a deal option id names (the inverse of [`deal_option`]'s id), or `None` for an id the core has no shape
-/// for (a free-form deal, a Pride of Kenara planet card, an unknown note). `swap` names the two factions of the
+/// for (a free-form deal: the renderer's table names it, a Pride of Kenara planet card, an unknown note). `swap` names the two factions of the
 /// Support swap, whose id does not.
 #[must_use]
 pub fn shape_of(id: &str, swap: Option<(ti4_engine_core::generated::Faction, ti4_engine_core::generated::Faction)>) -> Option<Shape> {
@@ -135,6 +135,19 @@ pub fn shape_of(id: &str, swap: Option<(ti4_engine_core::generated::Faction, ti4
     Some(Shape::Goods { give, want })
 }
 
+/// [`deal_option`] with the renderer's table: a free-form deal reads its id from it (it is never listed; the option is what the
+/// proposer's answer is compared as).
+#[must_use]
+pub fn deal_option_in(r: &Render, shape: Shape) -> ChoiceOption {
+    match shape {
+        Shape::Free(i) => {
+            let id = r.free_id(i);
+            ChoiceOption::labelled(id.clone(), OFFER_KIND, id)
+        }
+        _ => deal_option(shape),
+    }
+}
+
 /// The option the string engine lists for a deal (`offer_options`): id, label, payload and prices.
 #[must_use]
 pub fn deal_option(shape: Shape) -> ChoiceOption {
@@ -217,6 +230,8 @@ pub fn deal_option(shape: Shape) -> ChoiceOption {
             payload.insert("received_planet".to_owned(), text(p));
             (format!("kq{p}>{t}:{price}"), format!("pay {price} trade goods for the planet {p}, their units to {t}"))
         }
+        // A free-form deal is named by its proposer, never listed: `deal_option_in` writes its id from the renderer's table.
+        Shape::Free(_) => (FREE_FORM_PREFIX.to_owned(), "a free-form deal".to_owned()),
     };
     let (net, their_net) = nets(shape);
     payload.insert("net".to_owned(), Value::from(net));
@@ -244,7 +259,7 @@ impl Family for Fam {
                     _ => "",
                 };
                 let names = |who: &ti4_model::id::PlayerId| if *who == me { from.as_str().to_owned() } else { to.to_owned() };
-                let offer = crate::transactions::offer_from_with(&names, &deal_option(*deal).id, &me, &other)
+                let offer = crate::transactions::offer_from_with(&names, &deal_option_in(r, *deal).id, &me, &other)
                     .expect("a core deal is an id the string engine reads");
                 format!("{} -- accept?", offer.describe_as(from.as_str()))
             }
@@ -259,19 +274,24 @@ impl Family for Fam {
         .to_owned()
     }
 
-    fn option(_: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
+    fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match o {
-            Opt::Deal(shape) => deal_option(*shape),
+            Opt::Deal(shape) => deal_option_in(r, *shape),
             Opt::Accept => {
                 let Ask::Answer { deal, .. } = a else { panic!("accept in a proposal") };
-                ChoiceOption::labelled("accept", ANSWER_KIND, "accept").with("net", nets(*deal).1)
+                let net = match deal {
+                    // The string's own number: a free-form deal is priced where it was parsed.
+                    Shape::Free(i) => r.free_net(*i),
+                    _ => nets(*deal).1,
+                };
+                ChoiceOption::labelled("accept", ANSWER_KIND, "accept").with("net", net)
             }
             Opt::Refuse => ChoiceOption::labelled("refuse", DECLINE_KIND, "refuse"),
             Opt::Counter => ChoiceOption::labelled("counter", ANSWER_KIND, "counter-offer"),
         }
     }
 
-    fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
+    fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
             Ask::Answer { .. } => match id {
                 "refuse" => Some(Opt::Refuse),
@@ -279,9 +299,9 @@ impl Family for Fam {
                 "accept" => Some(Opt::Accept),
                 _ => None,
             },
-            // A deal is read back by matching the id against the options of this very question
-            // (`dual_window::drive_positioned` does).
-            Ask::Propose { .. } => None,
+            // A listed deal is read back by matching the id against the options of this very question
+            // (`dual_window::drive_positioned` does); a free-form one by the table the adapter registered it in.
+            Ask::Propose { .. } => id.starts_with(FREE_FORM_PREFIX).then(|| r.free_index(id)).flatten().map(|i| Opt::Deal(Shape::Free(i))),
         }
     }
 

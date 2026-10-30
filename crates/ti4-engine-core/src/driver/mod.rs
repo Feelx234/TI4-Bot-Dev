@@ -167,7 +167,7 @@ impl<W: Window> Driver<W> {
             Awaiting::Stage(choice) => {
                 let counts = matches!(choice.ask, crate::choice::Ask::Generic(crate::choice::generic::Ask::Count { .. }));
                 let legal = match pick {
-                    Pick::Opt(o) => choice.opts.iter().any(|x| *x == o),
+                    Pick::Opt(o) => choice.opts.iter().any(|x| *x == o) || self.window.accepts_unlisted(&pick),
                     Pick::Number(_) => counts,
                 };
                 if !legal {

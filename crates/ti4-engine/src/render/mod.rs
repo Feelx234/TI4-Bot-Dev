@@ -77,12 +77,43 @@ pub struct Render {
     position: RefCell<Option<Position>>,
     /// Option shapes of areas whose options the string engine still builds (the strategy waivers, trade deals, waivers), by index.
     shapes: RefCell<Vec<ChoiceOption>>,
+    /// The free-form deals of a transaction window (`Shape::Free(i)`): the id text and the net the partner's accept option reports.
+    free: RefCell<Vec<(String, f64)>>,
 }
 
 impl Render {
     #[must_use]
     pub fn new(seats: Vec<String>) -> Self {
-        Self { seats, factions: Vec::new(), codes: RefCell::new(Vec::new()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()) }
+        Self { seats, factions: Vec::new(), codes: RefCell::new(Vec::new()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()), free: RefCell::new(Vec::new()) }
+    }
+
+    /// Register a free-form deal of the window (its `x;...` id and the net the partner's accept option reports); the index
+    /// is the core's `Shape::Free`. The same id registers once.
+    pub fn register_free(&self, id: &str, their_net: f64) -> u8 {
+        let mut free = self.free.borrow_mut();
+        let at = free.iter().position(|(known, _)| known == id).unwrap_or_else(|| {
+            free.push((id.to_owned(), their_net));
+            free.len() - 1
+        });
+        u8::try_from(at).unwrap_or(u8::MAX)
+    }
+
+    /// The registered index of a free-form id.
+    #[must_use]
+    pub fn free_index(&self, id: &str) -> Option<u8> {
+        self.free.borrow().iter().position(|(known, _)| known == id).and_then(|i| u8::try_from(i).ok())
+    }
+
+    /// The id text of a registered free-form deal.
+    #[must_use]
+    pub fn free_id(&self, index: u8) -> String {
+        self.free.borrow().get(usize::from(index)).map(|(id, _)| id.clone()).unwrap_or_default()
+    }
+
+    /// The net the partner's accept option reports for a registered free-form deal.
+    #[must_use]
+    pub fn free_net(&self, index: u8) -> f64 {
+        self.free.borrow().get(usize::from(index)).map_or(0.0, |(_, net)| *net)
     }
 
     /// Set the position the following `prompt`/`option`/`details` calls render in; `None` clears it.

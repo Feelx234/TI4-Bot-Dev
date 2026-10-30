@@ -291,17 +291,91 @@ fn an_alliance_is_withheld_until_its_commanders_unlock_and_mahact_cannot_be_give
 
 // -- what the core leaves to the string ------------------------------------------------------------
 
+fn terms(goods: i32, commodities: i32) -> crate::transactions::Terms {
+    crate::transactions::Terms { trade_goods: goods, commodities, ..Default::default() }
+}
+
+/// A free-form deal (package W15): the proposer names both sides, the core reads the terms the adapter parsed from the id.
+/// Was a bail ("a free-form deal") at both steps; now both steps are compared and the state agrees.
 #[test]
-fn a_free_form_deal_is_left_to_the_string_engine() {
+fn a_free_form_deal_is_followed_by_the_core_and_struck_in_lockstep() {
     let (state, hub) = sol_hacan();
-    let id = crate::transactions::free_form_id(
-        &crate::transactions::Terms { trade_goods: 1, ..Default::default() },
-        &crate::transactions::Terms { commodities: 2, ..Default::default() },
-    );
+    // Not on the listed menu (it stops at three): 5 trade goods for 2 commodities, with the holdings to pay it.
+    let mut state = state;
+    state.player_mut(&a()).unwrap().trade_goods = 6;
+    state.player_mut(&b()).unwrap().commodities = 4;
+    state.player_mut(&b()).unwrap().trade_goods = 0;
+    let id = crate::transactions::free_form_id(&terms(5, 0), &terms(0, 2));
     let done = plain(state, &hub, &[&id, "accept"]);
-    assert_eq!(done.traded.len(), 2);
-    assert_eq!((done.compared, done.bailed), (0, 2), "the core cannot read a free-form id, at either step");
-    assert!(done.reasons.iter().any(|(k, n)| k.contains("a free-form deal") && *n == 2), "both steps are the free-form bail: {:?}", done.reasons);
+    assert_eq!(done.traded, [Traded::Offered, Traded::Resolved]);
+    assert_eq!((done.compared, done.bailed), (2, 0), "the core followed both steps: {:?}", done.reasons);
+    assert_eq!(goods(&done.state, "a"), 1 + 2, "the commodities arrive as trade goods");
+    assert_eq!(goods(&done.state, "b"), 5);
+    assert_eq!(done.state.player(&b()).unwrap().commodities, 2);
+}
+
+#[test]
+fn free_form_deals_with_every_kind_of_term_agree_with_the_string() {
+    // Notes: a's Political Secret for b's Trade Agreement plus a trade good; a relic fragment; both sides at once.
+    let (mut state, hub) = sol_hacan();
+    state.player_mut(&a()).unwrap().relic_fragments.insert("CULTURAL".to_owned(), 2);
+    let notes = |gs: &GameState, who: &str| crate::promissory::available_notes(gs, ContentStore::embedded(), &PlayerId::new(who));
+    let (mine, theirs) = (notes(&state, "a"), notes(&state, "b"));
+    assert!(!mine.is_empty() && !theirs.is_empty());
+    let with_note = |note: &str, goods: i32| crate::transactions::Terms { promissory: Some(note.to_owned()), trade_goods: goods, ..Default::default() };
+    let with_fragments = crate::transactions::Terms { fragments: vec!["CULTURAL".to_owned(), "CULTURAL".to_owned()], ..Default::default() };
+    for (given, received) in [
+        (with_note(&mine[0], 1), with_note(&theirs[0], 0)),
+        (with_fragments.clone(), terms(2, 0)),
+        (with_note(&mine[0], 0), terms(0, 3)),
+        (terms(1, 1), with_note(&theirs[0], 1)),
+    ] {
+        let id = crate::transactions::free_form_id(&given, &received);
+        let done = plain(state.clone(), &hub, &[&id, "accept"]);
+        assert_eq!(done.traded.first(), Some(&Traded::Offered), "{id}: {:?}", done.traded);
+        assert_eq!(done.compared + done.bailed, done.traded.len() as u64, "{id}");
+        assert_eq!(done.bailed, 0, "{id}: {:?}", done.reasons);
+    }
+}
+
+#[test]
+fn an_illegal_free_form_deal_is_rejected_the_same_way_and_a_refusal_or_counter_follows() {
+    let (state, hub) = sol_hacan();
+    // More trade goods than a holds (2): rejected before the partner is asked; nothing is offered.
+    let id = crate::transactions::free_form_id(&terms(9, 0), &terms(0, 0));
+    let done = plain(state.clone(), &hub, &[&id]);
+    assert_eq!(done.traded, [Traded::Rejected(OfferError::CannotPay(a()))]);
+    assert_eq!((done.compared, done.bailed), (1, 0), "{:?}", done.reasons);
+    // A planet card nobody could trade (the planets are not even real): cannot pay, the same on both sides.
+    let planet = crate::transactions::Terms {
+        planet: Some(crate::transactions::PlanetTerm { planet: ti4_model::id::PlanetId::new("nowhere"), moves_to: ti4_model::id::PlanetId::new("nothing") }),
+        ..Default::default()
+    };
+    let done = plain(state.clone(), &hub, &[&crate::transactions::free_form_id(&planet, &terms(0, 1))]);
+    assert_eq!(done.traded, [Traded::Rejected(OfferError::CannotPay(a()))]);
+    assert_eq!(done.bailed, 0, "{:?}", done.reasons);
+    // The partner refuses; or counters with a free-form deal of its own (the chairs swap).
+    let id = crate::transactions::free_form_id(&terms(1, 0), &terms(0, 1));
+    let done = plain(state.clone(), &hub, &[&id, "refuse"]);
+    assert_eq!(done.traded, [Traded::Offered, Traded::Refused]);
+    assert_eq!((done.compared, done.bailed), (2, 0), "{:?}", done.reasons);
+    let back = crate::transactions::free_form_id(&terms(0, 2), &terms(2, 0));
+    let done = plain(state, &hub, &[&id, "counter", &back, "accept"]);
+    assert_eq!(done.traded.len(), 4, "{:?}", done.traded);
+    assert_eq!(done.bailed, 0, "{:?}", done.reasons);
+}
+
+/// Hostile text: an id the string does not read offers nothing, and the core does not follow (it never sees a deal).
+#[test]
+fn a_free_form_id_the_string_does_not_read_is_a_bail_and_offers_nothing() {
+    let (state, hub) = sol_hacan();
+    for id in ["x;gt=-2;", "x;gt=2;gt=3;", "x;zz=1;", "x;gt=99999;", "x;rc=;"] {
+        let done = plain(state.clone(), &hub, &[id]);
+        assert_eq!(done.traded.len(), 1, "{id}");
+        assert_eq!(done.traded, [Traded::NothingOffered], "{id}: the string offers nothing");
+        assert_eq!((done.compared, done.bailed), (0, 1), "{id}");
+        assert!(done.reasons.iter().any(|(k, _)| k.contains("a free-form deal the string does not read or the core tables do not name")), "{id}: {:?}", done.reasons);
+    }
 }
 
 #[test]
@@ -411,6 +485,70 @@ fn random_tables_list_and_price_the_same_deals_on_both_sides() {
     assert!(settled > 10, "{settled} deals settled");
 }
 
+/// Random terms over what the table holds (and a little that it does not, so some deals are illegal).
+fn random_terms(rng: &mut Xor, state: &GameState, who: &str) -> crate::transactions::Terms {
+    let seat = state.player(&PlayerId::new(who)).unwrap();
+    let mut terms = crate::transactions::Terms::default();
+    if rng.below(2) == 0 {
+        terms.trade_goods = rng.below(seat.trade_goods.max(0) as usize + 2) as i32;
+    }
+    if rng.below(2) == 0 {
+        terms.commodities = rng.below(seat.commodities.max(0) as usize + 2) as i32;
+    }
+    if rng.below(4) == 0 {
+        let held: Vec<&String> = seat.relic_fragments.keys().collect();
+        if !held.is_empty() {
+            terms.fragments = vec![held[rng.below(held.len())].clone()];
+        }
+    }
+    if rng.below(3) == 0 {
+        let notes: Vec<String> = crate::promissory::available_notes(state, ContentStore::embedded(), &PlayerId::new(who));
+        if rng.below(5) == 0 {
+            terms.promissory = Some(crate::promissory::support(seat.faction.as_str()));
+        } else if !notes.is_empty() {
+            terms.promissory = Some(notes[rng.below(notes.len())].clone());
+        }
+    }
+    if rng.below(5) == 0 {
+        terms.action_card = seat.action_cards.first().cloned();
+    }
+    if rng.below(6) == 0 {
+        terms.secret = seat.secret_objectives.first().cloned();
+    }
+    terms
+}
+
+/// The free-form deals of random tables, struck, refused or countered: both sides agree on the question, the legality, the state.
+/// (Nobody sends one but a human at the trade desk, so the golden games never reach them.)
+#[test]
+fn random_free_form_deals_agree_on_both_sides() {
+    let mut rng = Xor(0xD1B5_4A32_D192_ED03);
+    let (mut compared, mut bailed, mut settled, mut rejected) = (0, 0, 0, 0);
+    for _ in 0..40 {
+        let (state, hub) = random_table(&mut rng);
+        for (x, y) in [("a", "b"), ("b", "a"), ("c", "d"), ("d", "c"), ("a", "c"), ("b", "d")] {
+            let (from, to) = (PlayerId::new(x), PlayerId::new(y));
+            let given = random_terms(&mut rng, &state, x);
+            let received = random_terms(&mut rng, &state, y);
+            if given.is_empty() && received.is_empty() {
+                continue;
+            }
+            let id = crate::transactions::free_form_id(&given, &received);
+            let then = ["accept", "counter", "refuse"][rng.below(3)];
+            let back = crate::transactions::free_form_id(&random_terms(&mut rng, &state, y), &random_terms(&mut rng, &state, x));
+            let script: Vec<&str> = if back == "x;" { vec![&id, then] } else { vec![&id, then, &back, "accept"] };
+            let done = negotiate_pair(state.clone(), &hub, &from, &to, &script);
+            compared += done.compared;
+            bailed += done.bailed;
+            settled += done.traded.iter().filter(|t| **t == Traded::Resolved).count();
+            rejected += done.traded.iter().filter(|t| matches!(t, Traded::Rejected(_))).count();
+        }
+    }
+    eprintln!("free-form census: compared {compared} bailed {bailed} settled {settled} rejected {rejected}");
+    assert!(compared > 150, "the core followed {compared} steps, left {bailed}");
+    assert!(settled > 5 && rejected > 5, "{settled} settled, {rejected} rejected");
+}
+
 /// [`negotiate`] for any two seats.
 fn negotiate_pair(state: GameState, hub: &crate::fixtures::Hub, from: &PlayerId, to: &PlayerId, script: &[&str]) -> Done {
     let _guard = crate::dual::tests::serial();
@@ -428,7 +566,7 @@ fn negotiate_pair(state: GameState, hub: &crate::fixtures::Hub, from: &PlayerId,
                 Some(n) => deals[n.parse::<usize>().unwrap() % deals.len()].to_owned(),
                 None => (*want).to_owned(),
             };
-            let id = if choice.option(&id).is_some() { id } else { deals[0].to_owned() };
+            let id = if choice.option(&id).is_some() || id.starts_with(crate::transactions::FREE_FORM_PREFIX) { id } else { deals[0].to_owned() };
             let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([id])));
             let answer = |c: &crate::choice::Choice, s: &mut GameState| table.ask_seeing(c, &crate::choice::Observed::new(s, content, POK, Some(&hub.galaxy)));
             traded.push(window.answer_with(&mut state, content, &hub.galaxy, &choice, answer).expect("answered"));
