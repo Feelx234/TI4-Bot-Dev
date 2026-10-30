@@ -19,7 +19,7 @@ mod real {
     use ti4_engine_core::generated::Technology;
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::technology_windows::{Psychoarchaeology, TurnEnd};
+    use ti4_engine_core::rules::technology_windows::{Psychoarchaeology, ProductionUsed, TurnEnd};
     use ti4_engine_core::state::Slice;
     use ti4_model::id::PlayerId;
     use ti4_model::state::GameState;
@@ -115,6 +115,26 @@ mod real {
         drive_one(gs, player, script, |seat, r| Psychoarchaeology::new(seat, r.code("psychoarchaeology")))
     }
 
+    /// The core half of `technology::production_used`.
+    pub fn production_used(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+        const WRITES_TRANSIENT: Footprint =
+            Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Transient, Slice::Pending], &[Slice::Players, Slice::Transient]);
+        let _ = WINDOW;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let mut driver = Driver::new(ProductionUsed::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = with_core(gs, &mut cx, Sources::default(), WRITES_TRANSIENT, |core, _| drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
+            .why(crate::dual::reason::NOT_LENDABLE)?
+            .why(crate::dual::reason::DRIVER_REFUSED)?;
+        Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     /// The core half of `technology::end_turn`.
     pub fn end_turn(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
         let _ = Technology::BioStims;
@@ -143,6 +163,9 @@ mod stub {
         None
     }
     pub fn end_turn(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn production_used(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
 }
@@ -401,5 +424,53 @@ mod tests {
         // Any other faction: a card it does not own is simply not exhausted.
         let mut other = game(&[], &[]);
         assert_eq!(super::exhaust_text(&mut other, &a(), "pi"), Some(false));
+    }
+
+    fn run_production_used(state: &mut GameState, answers: &[&str]) {
+        let mut table = Table::with_default(Box::new(Scripted::new(answers.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>())));
+        crate::technology::production_used(state, ContentStore::embedded(), POK, None, &mut table, &a()).expect("answered");
+    }
+
+    #[test]
+    fn sarween_tools_and_ai_development_algorithm_set_the_discount_of_a_use_in_lockstep() {
+        let label = "technology::production_used";
+        // Nothing owned: the field is written zero (a value left over from an earlier use is overwritten).
+        let (state, counts, bails) = lockstep(label, || {
+            let mut state = game(&[], &[]);
+            state.production_discount_remaining = 5;
+            run_production_used(&mut state, &[]);
+            state
+        });
+        assert_eq!((counts, state.production_discount_remaining), ((1, 0), 0), "{bails:?}");
+        // Sarween alone: a flat 1, no question.
+        let (state, counts, _) = lockstep(label, || {
+            let mut state = game(&["st"], &[]);
+            run_production_used(&mut state, &[]);
+            state
+        });
+        assert_eq!((counts, state.production_discount_remaining), ((1, 0), 1));
+        // Both and two unit upgrades: exhaust for 1 + 2; or decline for 1; the card is spent only when used.
+        for (answer, discount, spent) in [("exhaust", 3, true), ("decline", 1, false)] {
+            let (state, counts, bails) = lockstep(label, || {
+                let mut state = game(&["st", "aida", "inf2", "ff2"], &[]);
+                run_production_used(&mut state, &[answer]);
+                state
+            });
+            assert_eq!(counts, (1, 0), "{answer}: {bails:?}");
+            assert_eq!(state.production_discount_remaining, discount, "{answer}");
+            assert_eq!(state.player(&a()).unwrap().exhausted_technologies.contains(&TechnologyId::new("aida")), spent, "{answer}");
+        }
+        // No unit upgrade owned, or the card already spent: no question.
+        for (techs, exhausted) in [(&["aida"][..], false), (&["aida", "inf2"][..], true)] {
+            let (state, counts, _) = lockstep(label, || {
+                let mut state = game(techs, &[]);
+                if exhausted {
+                    state.player_mut(&a()).unwrap().exhausted_technologies.insert(TechnologyId::new("aida"));
+                }
+                run_production_used(&mut state, &[]);
+                state
+            });
+            assert_eq!((counts, state.production_discount_remaining), ((1, 0), 0));
+        }
     }
 }

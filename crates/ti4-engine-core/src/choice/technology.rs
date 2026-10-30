@@ -15,6 +15,8 @@ pub enum Ask {
     Restack,
     /// "Bio-Stims".
     BioStims,
+    /// "AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}".
+    Aida { upgrades: u8 },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -26,6 +28,8 @@ pub enum Opt {
     Move { from: Pool, to: Pool },
     /// Bio-Stims readies an exhausted technology.
     ReadyTechnology(Technology),
+    /// Exhaust AI Development Algorithm for the discount.
+    Exhaust,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -34,4 +38,5 @@ pub enum Subtype {
     PsychoarchaeologyExhaustSpecialty,
     PredictiveIntelligenceRedistribute,
     BioStimsReady,
+    AidaExhaustForProductionDiscount,
 }

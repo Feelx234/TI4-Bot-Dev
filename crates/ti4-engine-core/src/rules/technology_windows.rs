@@ -301,13 +301,97 @@ impl Window for TurnEnd {
                             p.tech.exhausted.remove(tech);
                         }
                     }
-                    TOpt::Move { .. } => return Err(Illegal),
+                    TOpt::Move { .. } | TOpt::Exhaust => return Err(Illegal),
                 }
                 fx_exhaust(sx.state, self.who, Technology::BioStims);
                 self.stage = EStage::Done;
             }
             _ => return Err(Illegal),
         }
+        Ok(())
+    }
+}
+
+// -- Sarween Tools and AI Development Algorithm: "when 1 or more of your units use PRODUCTION" ----------------------------
+
+/// The suspension points of [`ProductionUsed`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PStage {
+    Start,
+    Asking,
+    Done,
+}
+
+/// `technology::production_used`: Sarween Tools flat 1 while owned; AI Development Algorithm asks to exhaust for a discount of
+/// the unit upgrades owned (a "may": it forecloses its other ability). The result lands in `transient.production.discount_remaining`,
+/// written, not added: a value left from an earlier use must not leak into this one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProductionUsed {
+    pub who: Seat,
+    stage: PStage,
+    discount: i32,
+    upgrades: u8,
+}
+
+impl ProductionUsed {
+    #[must_use]
+    pub const fn new(who: Seat) -> Self {
+        Self { who, stage: PStage::Start, discount: 0, upgrades: 0 }
+    }
+
+    fn settle(&mut self, s: &mut CoreState) {
+        s.transient_mut().production.discount_remaining = self.discount;
+        self.stage = PStage::Done;
+    }
+}
+
+impl Window for ProductionUsed {
+    type Stage = PStage;
+
+    fn stage(&self) -> PStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == PStage::Start {
+            self.discount = i32::from(owns(sx.state, self.who, Technology::SarweenTools));
+            let upgrades = sx
+                .state
+                .players()
+                .by_seat(self.who)
+                .map_or(0, |p| p.tech.owned.iter().filter(|t| crate::query::tech::is_unit_upgrade(*t)).count());
+            if ready_card(sx.state, self.who, Technology::AIDevelopmentAlgorithm) && upgrades > 0 {
+                self.upgrades = u8::try_from(upgrades).unwrap_or(u8::MAX);
+                self.stage = PStage::Asking;
+            } else {
+                self.settle(sx.state);
+            }
+        }
+        if self.stage == PStage::Asking { Next::Continue(Ask::Technology(TAsk::Aida { upgrades: self.upgrades })) } else { Next::Done }
+    }
+
+    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == PStage::Asking).then(|| Choice {
+            actor: self.who,
+            ask: Ask::Technology(TAsk::Aida { upgrades: self.upgrades }),
+            ctx: ctx(Technology::AIDevelopmentAlgorithm, TSub::AidaExhaustForProductionDiscount),
+            opts: [Opt::Technology(TOpt::Exhaust), Opt::Decline].into_iter().collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage != PStage::Asking {
+            return Err(Illegal);
+        }
+        match pick {
+            Pick::Opt(Opt::Technology(TOpt::Exhaust)) => {
+                fx_exhaust(sx.state, self.who, Technology::AIDevelopmentAlgorithm);
+                self.discount += i32::from(self.upgrades);
+            }
+            Pick::Opt(Opt::Decline) => {}
+            _ => return Err(Illegal),
+        }
+        self.settle(sx.state);
         Ok(())
     }
 }

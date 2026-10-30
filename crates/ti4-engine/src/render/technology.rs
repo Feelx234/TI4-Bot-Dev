@@ -38,6 +38,7 @@ impl Family for Fam {
             Ask::Psychoarchaeology => "Psychoarchaeology: exhaust a specialty for 1 trade good",
             Ask::Restack => "Predictive Intelligence: redistribute command tokens",
             Ask::BioStims => "Bio-Stims",
+            Ask::Aida { upgrades } => return format!("AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}"),
         }
         .to_owned()
     }
@@ -47,12 +48,17 @@ impl Family for Fam {
             Subtype::PsychoarchaeologyExhaustSpecialty => "psychoarchaeology_exhaust_specialty",
             Subtype::PredictiveIntelligenceRedistribute => "predictive_intelligence_redistribute",
             Subtype::BioStimsReady => "bio_stims_ready",
+            Subtype::AidaExhaustForProductionDiscount => "exhaust_for_production_discount",
         }
         .to_owned()
     }
 
     fn option(_: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match (a, o) {
+            (Ask::Aida { upgrades }, Opt::Exhaust) => ChoiceOption::labelled("exhaust", "production_discount", format!("exhaust to reduce the combined cost by {upgrades}"))
+                .with("technology", "aida")
+                .with("discount_offered", i64::from(*upgrades)),
+            (_, Opt::Exhaust) => ChoiceOption::labelled("exhaust", "production_discount", "exhaust"),
             (Ask::Psychoarchaeology, Opt::Planet(planet, shown)) => {
                 let id = planet.as_str();
                 ChoiceOption::labelled(id, "ability", format!("exhaust {id}")).with("planet", id).with("technology", "pa").with_planet(id, shown.system.map(|s| s.as_str()))
@@ -85,6 +91,7 @@ impl Family for Fam {
                 let (from, to) = id.split_once('|')?;
                 Some(Opt::Move { from: pool_of(from)?, to: pool_of(to)? })
             }
+            Ask::Aida { .. } => (id == "exhaust").then_some(Opt::Exhaust),
             Ask::BioStims => {
                 if let Some(planet) = id.strip_prefix("ready|planet|") {
                     return Planet::from_id(planet).map(|p| Opt::Planet(p, ti4_engine_core::choice::agenda::Shown::default()));

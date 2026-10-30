@@ -631,6 +631,29 @@ pub fn production_used(
     table: &mut Table,
     player: &PlayerId,
 ) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "technology::production_used",
+        state,
+        |state: &mut GameState| {
+            result = production_used_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::production_used(state, player, script)
+    );
+    result
+}
+
+/// [`production_used`] on the string engine: the oracle of the dual run.
+fn production_used_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
     let sarween = TechnologyId::new("st");
     let mut discount: i32 = i32::from(
         state
