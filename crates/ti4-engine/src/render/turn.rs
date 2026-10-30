@@ -26,6 +26,7 @@ impl Family for Fam {
             Ask::ActionMenu => "action phase".to_owned(),
             Ask::Closing { second: true } => "end your turn, or take your second action".to_owned(),
             Ask::Closing { second: false } => "end your turn".to_owned(),
+            Ask::MinisterToken => "which command token comes back".to_owned(),
         }
     }
 
@@ -33,6 +34,7 @@ impl Family for Fam {
         match s {
             Subtype::ActionMenu => "action_menu".to_owned(),
             Subtype::EndTurn => "end_turn".to_owned(),
+            Subtype::MinisterToken => "minister_token".to_owned(),
         }
     }
 
@@ -48,10 +50,14 @@ impl Family for Fam {
             ),
             Opt::EndTurn => ChoiceOption::labelled(END_TURN_ID, END_TURN_KIND, "end your turn"),
             Opt::Lent(_) => ChoiceOption::labelled(LENT_ID, "lent", "lent"),
+            Opt::Token(system) => ChoiceOption::labelled(system.as_str(), "system", format!("retrieve your token from {}", system.as_str())),
         }
     }
 
-    fn parse(_: &Render, _: &Ask, id: &str) -> Option<Opt> {
+    fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
+        if *a == Ask::MinisterToken {
+            return ti4_engine_core::generated::System::from_id(id).map(Opt::Token);
+        }
         match id {
             "pass" => Some(Opt::Pass),
             TACTICAL_ACTION_ID => Some(Opt::Tactical),

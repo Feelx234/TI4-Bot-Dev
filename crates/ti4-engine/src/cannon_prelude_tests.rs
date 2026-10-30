@@ -283,3 +283,59 @@ fn a_table_inside_its_limits_asks_nothing_and_the_core_window_agrees() {
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     assert!(r.windows.get(ALL).map_or(0, |w| w.compared) >= 1, "{:?}", r.windows);
 }
+
+const MINISTER: &str = "turn::minister_of_war";
+
+/// Declines every offer (the first option that is a decline), else takes the first option.
+struct Declines;
+impl crate::choice::Decider for Declines {
+    fn choose(&mut self, choice: &crate::choice::Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+        choice
+            .options
+            .iter()
+            .find(|o| o.is_decline())
+            .or_else(|| choice.options.first())
+            .cloned()
+            .ok_or_else(|| crate::choice::IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+    }
+}
+
+fn minister(decider: Box<dyn crate::choice::Decider>, with_token: bool) -> (super::Game<'static>, crate::dual::DualReport) {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+    state.laws.insert("minister_war".to_owned(), "a".to_owned());
+    let (system, _) = crate::fixtures::a_placed_planet();
+    if with_token {
+        state.system_mut(&system).command_tokens.insert(a());
+    }
+    state.phase = ti4_model::state::Phase::Action;
+    state.active = Some(a());
+    let mut game = super::Game::with_table(state, ContentStore::embedded(), Table::with_default(decider));
+    with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || game.minister_of_war());
+    let r = report();
+    let _ = take_report();
+    (game, r)
+}
+
+#[test]
+fn minister_of_war_discards_for_a_token_and_an_additional_action_in_both_halves() {
+    let (game, r) = minister(Box::new(crate::choice::FirstOption), true);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(MINISTER).map_or(0, |w| w.compared) >= 1, "the core window ran: {:?}", r.windows);
+    assert!(game.state.transient_flags.has(ti4_model::state::TransientFlags::ADDITIONAL_ACTION), "the turn is retained");
+    assert!(!game.state.laws.contains_key("minister_war"), "the law was discarded");
+    let (system, _) = crate::fixtures::a_placed_planet();
+    assert!(!game.state.system_state(&system).command_tokens.contains(&a()), "the token left the board");
+}
+
+#[test]
+fn minister_of_war_declined_changes_nothing_and_without_a_token_nothing_is_asked() {
+    let (game, r) = minister(Box::new(Declines), true);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(MINISTER).map_or(0, |w| w.compared) >= 1, "{:?}", r.windows);
+    assert!(game.state.laws.contains_key("minister_war") && !game.state.transient_flags.has(ti4_model::state::TransientFlags::ADDITIONAL_ACTION));
+    let (game, r) = minister(Box::new(crate::choice::FirstOption), false);
+    assert_eq!(r.total_differences(), 0);
+    assert!(r.windows.get(MINISTER).is_none() && game.state.laws.contains_key("minister_war"), "22.3: no token on the board, no offer: {:?}", r.windows);
+}

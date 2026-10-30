@@ -385,3 +385,70 @@ pub fn enforce_everywhere(gs: &mut GameState, content: &ContentStore, sources: S
     };
     Some(CoreWindow { run: Run::new(Some(driver.window.removed as usize)).with_events_vec(Vec::new()), questions: driven.rendered })
 }
+
+// --- Minister of War ----------------------------------------------------------------------------------------
+
+/// The label of the Minister of War window in the dual report.
+pub const MINISTER_LABEL: &str = "turn::minister_of_war";
+
+/// What the Minister of War leaves besides the state: whether the law was discarded and the system the token came back from.
+pub type MinisterOut = (bool, Option<String>);
+
+const MINISTER: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Transient],
+    &[Slice::Players, Slice::Board, Slice::Agenda, Slice::Transient],
+);
+
+/// The core half of `Game::minister_of_war` (called once the string found a token on the board). `None` for a law that is blanked
+/// or not elected, nested activity, or a position the codecs refuse.
+#[must_use]
+pub fn minister_of_war(gs: &mut GameState, script: &Recording) -> Option<CoreWindow<MinisterOut>> {
+    use ti4_engine_core::driver::windows::minister::MinisterOfWar;
+    use ti4_engine_core::generated::Agenda;
+    if script.nested || crate::laws::blanked(gs) {
+        return None;
+    }
+    let owner_id = PlayerId::new(crate::laws::elected(gs, "minister_war")?.clone());
+    let (mut cx, r) = tables(gs)?;
+    let owner = r.seat(owner_id.as_str())?;
+    let mut systems = Vec::new();
+    for (system, here) in &gs.board {
+        if here.command_tokens.contains(&owner_id) {
+            systems.push(<ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?);
+        }
+    }
+    let window = MinisterOfWar::new(
+        owner,
+        systems,
+        Agenda::MinisterOfWar,
+        r.code("Minister of War: discard to retrieve a command token and act again"),
+        r.code("minister_war"),
+    );
+    let before = gs.clone();
+    let kernel = ti4_engine_core::kernel::Kernel::plain();
+    let mut driver = Driver::new(window, Resolver::new(&[owner], Some(owner)), AbilityTable::default(), 1);
+    let recorded: Vec<_> = script.questions.iter().map(|q| q.choice.details.clone()).collect();
+    let asked = std::cell::Cell::new(0_usize);
+    let driven = with_core(gs, &mut cx, Sources::default(), MINISTER, |core, _| {
+        crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|choice, _, rendered| {
+            let at = asked.get();
+            asked.set(at + 1);
+            // The display facts under the offer are the recorded question's (the caller's caption).
+            if matches!(choice.ask, ti4_engine_core::choice::Ask::Agenda(_)) {
+                if let Some(details) = recorded.get(at) {
+                    rendered.details = details.clone();
+                }
+            }
+        })
+    });
+    let driven = match driven {
+        Ok(Ok(driven)) => driven,
+        _ => {
+            note_bail(MINISTER_LABEL, "a position the codecs refuse");
+            return None;
+        }
+    };
+    let w = &driver.window;
+    let value: MinisterOut = (w.discarded, w.retrieved.map(|s| s.as_str().to_owned()));
+    Some(CoreWindow { run: Run::new(value).with_events_vec(Vec::new()), questions: driven.rendered })
+}

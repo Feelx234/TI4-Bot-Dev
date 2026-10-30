@@ -3,7 +3,7 @@
 //! technologies, faction and mapped component actions, leaders, action cards) are LENT AS READS: their options come as
 //! [`Opt::Lent`], the code of the option the string engine lists, and the adapter renders them from that list.
 
-use crate::generated::StrategyCard;
+use crate::generated::{StrategyCard, System};
 use crate::state::Code;
 
 /// What the area asks. Parameters only; the option list is assembled by `driver::menu`.
@@ -13,6 +13,8 @@ pub enum Ask {
     ActionMenu,
     /// The closing menu after an action: "end your turn", or with `second` "end your turn, or take your second action".
     Closing { second: bool },
+    /// Minister of War: "which command token comes back".
+    MinisterToken,
 }
 
 /// The machine identifier of the question.
@@ -20,6 +22,7 @@ pub enum Ask {
 pub enum Subtype {
     ActionMenu,
     EndTurn,
+    MinisterToken,
 }
 
 /// One answer the area offers.
@@ -36,4 +39,6 @@ pub enum Opt {
     /// An option of a source that is not ported: the interned id of the option the string lists (the adapter's table holds the
     /// option itself).
     Lent(Code),
+    /// Minister of War: retrieve the command token from this system.
+    Token(System),
 }

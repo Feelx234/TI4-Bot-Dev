@@ -6792,11 +6792,37 @@ impl<'a> Game<'a> {
     /// Returns nothing -- the additional action is signalled through `ADDITIONAL_ACTION`, the same
     /// flag the action cards use, so one mechanism grants extra turns rather than two.
     fn minister_of_war(&mut self) {
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.clone();
+        let table = &mut self.table;
+        let state = &mut self.state;
+        if crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual {
+            Self::minister_of_war_text(state, content, sources, table, galaxy.as_ref());
+            return;
+        }
+        // On `driver=dual` the offer and the question run as one core window (`driver::windows::minister`).
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "turn::minister_of_war",
+            state,
+            |s: &mut GameState| crate::dual::Run::new(Self::minister_of_war_text(s, content, sources, table, galaxy.as_ref())),
+            |s: &mut GameState, script: &crate::dual_window::Recording| crate::cannon_dual::minister_of_war(s, script)
+        );
+    }
+
+    /// The string body of [`Self::minister_of_war`]: whether the law was discarded and the system the token came back from.
+    fn minister_of_war_text(
+        state: &mut GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        table: &mut Table,
+        galaxy: Option<&Galaxy>,
+    ) -> (bool, Option<String>) {
         // `laws::elected`, not the raw map: Law's Order (Keleres) blanks every law for a turn.
-        let placed: Vec<SystemId> = crate::laws::elected(&self.state, "minister_war")
+        let placed: Vec<SystemId> = crate::laws::elected(state, "minister_war")
             .map(|owner| PlayerId::new(owner.clone()))
             .map(|owner| {
-                self.state
+                state
                     .board
                     .iter()
                     .filter(|(_, here)| here.command_tokens.contains(&owner))
@@ -6805,14 +6831,14 @@ impl<'a> Game<'a> {
             })
             .unwrap_or_default();
         if placed.is_empty() {
-            return; // 22.3: no token on the board means the card cannot do what it says
+            return (false, None); // 22.3: no token on the board means the card cannot do what it says
         }
         let Some(owner) = crate::laws::offer_discard(
-            &mut self.state,
-            self.content,
-            self.sources,
-            &mut self.table,
-            self.galaxy.as_ref(),
+            state,
+            content,
+            sources,
+            table,
+            galaxy,
             "minister_war",
             "Minister of War: discard to retrieve a command token and act again",
             &crate::laws::DiscardPresentation {
@@ -6820,7 +6846,7 @@ impl<'a> Game<'a> {
                 facts: Vec::new(),
             },
         ) else {
-            return;
+            return (false, None);
         };
         let options: Vec<crate::choice::ChoiceOption> = placed
             .iter()
@@ -6834,26 +6860,19 @@ impl<'a> Game<'a> {
             .collect();
         let choice =
             crate::choice::Choice::new(owner.clone(), "which command token comes back", options);
-        let Ok(answer) = self.table.ask_seeing(
+        let Ok(answer) = table.ask_seeing(
             &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
+            &crate::choice::Observed::new(state, content, sources, galaxy),
         ) else {
-            return;
+            return (true, None);
         };
         let system = SystemId::new(answer.id);
-        if let Some(here) = self.state.board.get_mut(&system) {
+        if let Some(here) = state.board.get_mut(&system) {
             here.command_tokens.remove(&owner);
         }
-        self.state
-            .gain_token(&owner, ti4_model::state::TokenPool::Tactic, 1);
-        self.state
-            .transient_flags
-            .set(TransientFlags::ADDITIONAL_ACTION);
+        state.gain_token(&owner, ti4_model::state::TokenPool::Tactic, 1);
+        state.transient_flags.set(TransientFlags::ADDITIONAL_ACTION);
+        (true, Some(system.to_string()))
     }
 
     /// Imperial Arbiter, offered at the end of the strategy phase.
