@@ -63,3 +63,34 @@ fn instinct_training_is_not_offered_for_the_holders_own_card_without_a_token_or_
     rig.run();
     assert!(rig.is_done(), "the technology is exhausted");
 }
+
+#[test]
+fn the_driver_says_whether_the_question_is_a_nested_one_what_it_was_asked_about_and_whether_it_ended() {
+    covers!("driver::Driver");
+    let mut rig = Rig::new(xxcha_table(2), card_played_by(1)).with_abilities(table());
+    assert!(!rig.driver.is_done() && rig.driver.nested_facts().is_none() && rig.driver.nested_state().is_none(), "before the first step");
+    rig.run();
+    let facts = rig.driver.nested_facts().expect("the reaction window's question is a nested one");
+    assert_eq!(facts.event.kind, EventKind::ActionCardPlayed);
+    assert!(rig.driver.nested_state().is_some(), "the state the question was put in is kept for rendering it");
+    assert!(!rig.driver.is_done());
+    assert!(rig.driver.unknown().is_none());
+    let use_it = rig.pick(0).opts().iter().position(|o| *o != Opt::Decline).expect("a use option");
+    rig.pick(use_it);
+    assert!(rig.driver.is_done());
+    assert!(rig.driver.nested_facts().is_none(), "the last report was the end of the window");
+}
+
+#[test]
+fn a_driver_is_seeded_only_when_given_seeds_and_without_them_every_stream_is_zeros() {
+    covers!("driver::Driver");
+    use ti4_engine_core::driver::NoSeeds;
+    use ti4_engine_core::state::{RngDomain, SeedSource};
+    let plain = Rig::new(xxcha_table(2), card_played_by(1));
+    assert!(!plain.driver.is_seeded());
+    let seeded = Rig::new(xxcha_table(2), card_played_by(1)).seeded(7);
+    assert!(seeded.driver.is_seeded());
+    for domain in [RngDomain::Dice, RngDomain::Agendas, RngDomain::Galaxy] {
+        assert_eq!(NoSeeds.seed_for(3, domain), [0u8; 32]);
+    }
+}
