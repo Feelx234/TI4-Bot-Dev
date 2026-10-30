@@ -82,7 +82,10 @@ fn a_free_tactical_action_activates_without_a_token_and_without_a_question() {
     assert!(!rig.state.board().sys(tiles[2]).cmd.contains(Seat(0)), "no token placed");
     assert_eq!(token_pools(&rig.state), (3, 3, 2));
     assert!(rig.driver.window.plain.contains(&Plain::FreeActivated) && rig.driver.window.plain.contains(&Plain::FreeTactical));
-    assert_eq!(rig.asked().ask, Ask::Tactical(TAsk::Move { seat: Seat(0) }), "straight on to the movement step");
+    assert!(rig.is_done(), "the activation itself asks nothing");
+    let mut next = Rig::from_parts(rig.state.clone(), rig.kernel.clone(), Machine::moving(Seat(0), facts()).single());
+    next.run();
+    assert_eq!(next.asked().ask, Ask::Tactical(TAsk::Move { seat: Seat(0) }), "straight on to the movement step");
 }
 
 // ---- movement ---------------------------------------------------------------------------------
