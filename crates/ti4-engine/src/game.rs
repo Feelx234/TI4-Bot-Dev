@@ -51,10 +51,20 @@ mod d1_pending {
 
     pub(super) fn probed(_: &super::Game<'_>, _: &mut Option<serde_json::Value>, _: &str) {}
 
+    pub(super) fn note_ask(_: &'static str) {}
+
+    pub(super) fn snapshot_facts(_: &mut super::Game<'_>) {}
+
     #[derive(Debug, Clone, Default)]
     pub(super) struct Shadow {
         pub(super) outcome: Option<crate::strategy::StepOutcome>,
         pub(super) scoring: Option<(bool, crate::objectives::Book, Option<ti4_model::id::ObjectiveId>)>,
+    }
+
+    impl Shadow {
+        pub(super) fn note_arm(&mut self, _: &'static str) {}
+
+        pub(super) fn note_ask_seen(&mut self) {}
     }
 }
 
@@ -2006,18 +2016,23 @@ impl<'a> Game<'a> {
     #[must_use]
     pub fn legal_options(&self) -> Option<Choice> {
         if self.state.finished || self.blocked.is_some() {
+            d1_pending::note_ask("none");
             return None;
         }
         if let Some((choices, _)) = &self.leader_followers {
+            d1_pending::note_ask("leader_followers");
             return choices.first().cloned();
         }
         if let Some(window) = &self.event_scoring {
+            d1_pending::note_ask("event_scoring");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if let Some(window) = &self.scoring {
+            d1_pending::note_ask("scoring");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if let Some((window, _)) = &self.tokens {
+            d1_pending::note_ask("tokens");
             return window.pending_choice().map(|choice| {
                 let actor = choice.player.clone();
                 let choice = choice.contextualized(DecisionContext::new(
@@ -2036,31 +2051,43 @@ impl<'a> Game<'a> {
             });
         }
         if let Some((window, _)) = &self.voting {
+            d1_pending::note_ask("voting");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         // An open contact comes first: one opened at the aftermath's negotiation pause must finish
         // before the action moves on, or its deal is settled against a board that has changed.
         if let Some(window) = &self.diplomacy {
+            d1_pending::note_ask("diplomacy");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if let Some(window) = &self.aftermath {
+            d1_pending::note_ask("aftermath");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if self.agenda_talks.is_some() {
+            d1_pending::note_ask("agenda_talks");
             return self.agenda_talks_choice();
         }
         if let Some(window) = &self.tactical {
+            d1_pending::note_ask("tactical");
             return self.tactical_choice(window);
         }
         // Starting technology is chosen before anything else in the game (setup, before the first
         // card is drafted); a game made without the choice has no picks.
         if !self.state.starting_tech_picks.is_empty() {
+            d1_pending::note_ask("starting_tech");
             return crate::starting_tech::choice(&self.state, self.content, self.sources);
         }
         match self.state.phase {
-            Phase::Strategy => strategy_options(&self.state, self.content),
+            Phase::Strategy => {
+                d1_pending::note_ask("draft");
+                strategy_options(&self.state, self.content)
+            }
             Phase::Action => self.action_options(),
-            Phase::Status | Phase::Agenda => None,
+            Phase::Status | Phase::Agenda => {
+                d1_pending::note_ask("nothing");
+                None
+            }
         }
     }
 
@@ -2174,7 +2201,9 @@ impl<'a> Game<'a> {
         }
         d1_pending::probed(self, &mut probe, "faction_techs::roll_spec_ops");
 
+        d1_pending::snapshot_facts(self);
         if self.state.finished {
+            self.d1.note_arm("finished");
             self.complete_leader_strategy();
             self.secondary = None;
             if let Err(error) = crate::diplomacy::settle_game_end(&mut self.state) {
@@ -2183,47 +2212,60 @@ impl<'a> Game<'a> {
             return self.result(false, None);
         }
         if let Some(error) = self.blocked.clone() {
+            self.d1.note_arm("blocked");
             return self.result(false, Some(error));
         }
 
         if self.leader_followers.is_some() {
+            self.d1.note_arm("leader_followers");
             return self.step_leader_followers();
         }
         if self.secondary.is_some() {
+            self.d1.note_arm("secondary");
             return self.step_secondary();
         }
         if self.event_scoring.is_some() {
+            self.d1.note_arm("event_scoring");
             return self.step_event_scoring();
         }
         if self.scoring.is_some() {
+            self.d1.note_arm("scoring");
             return self.step_scoring();
         }
         if self.tokens.is_some() {
+            self.d1.note_arm("tokens");
             return self.step_token_gain();
         }
         if self.voting.is_some() {
+            self.d1.note_arm("voting");
             return self.step_vote();
         }
         // Same precedence as `legal_options`: an open contact before the aftermath it paused.
         if self.diplomacy.is_some() {
+            self.d1.note_arm("diplomacy");
             return self.step_diplomacy();
         }
         if self.aftermath.is_some() {
+            self.d1.note_arm("aftermath");
             return self.step_aftermath();
         }
         if self.agenda_talks.is_some() {
+            self.d1.note_arm("agenda_talks");
             return self.step_agenda_talks();
         }
         if self.trade.is_some() {
+            self.d1.note_arm("trade");
             return self.step_trade();
         }
         if self.tactical.is_some() {
+            self.d1.note_arm("tactical");
             return self.step_tactical();
         }
         if self.state.phase == Phase::Action
             && self.prepared_turn_seq != Some(self.state.turn_seq)
             && let Some(active) = self.state.active.clone()
         {
+            self.d1.note_arm("turn_prelude");
             if let Err(error) = crate::technology::start_turn(
                 &mut self.state,
                 self.content,
@@ -2262,9 +2304,11 @@ impl<'a> Game<'a> {
             }
         }
         if self.state.phase == Phase::Status && !self.status_resolved {
+            self.d1.note_arm("status");
             return self.step_status();
         }
         if self.state.phase == Phase::Agenda && !self.agenda_resolved {
+            self.d1.note_arm("agenda");
             return self.step_agenda();
         }
         if self.state.phase == Phase::Strategy
@@ -2273,15 +2317,20 @@ impl<'a> Game<'a> {
             && self.state.starting_tech_picks.is_empty()
         {
             self.strategy_phase_announced = true;
+            self.d1.note_arm("strategy_announce");
             self.sync_timing_context();
             if let Err(error) = self.emit_typed("STRATEGY_PHASE_BEGAN", BTreeMap::new()) {
                 return self.result(false, Some(error));
             }
         }
 
-        let Some(choice) = self.legal_options() else {
+        let asked = self.legal_options();
+        self.d1.note_ask_seen();
+        let Some(choice) = asked else {
+            self.d1.note_arm("phase");
             return self.step_phase();
         };
+        self.d1.note_arm("ask");
         // The last strategy card is not a choice: the picker takes it and is told so. Never
         // journaled, so a replay reaches the same pick by the same route.
         let is_draft = choice
@@ -2360,11 +2409,14 @@ impl<'a> Game<'a> {
 
     fn action_options(&self) -> Option<Choice> {
         if let Some(window) = &self.secondary {
+            d1_pending::note_ask("secondary");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if let Some(player) = &self.turn_closing {
+            d1_pending::note_ask("closing");
             return Some(self.with_turn_menu(self.closing_options(player), true));
         }
+        d1_pending::note_ask("action_menu");
         self.turn_options()
             .map(|choice| self.with_turn_menu(choice, false))
     }

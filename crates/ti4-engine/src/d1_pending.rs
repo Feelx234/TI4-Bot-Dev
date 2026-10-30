@@ -51,6 +51,105 @@ pub(super) struct Shadow {
     /// The book of the scoring window after the core half of this step's scoring answer (`event`: the event window),
     /// set by `Game::score_step`, taken by [`check`].
     pub(super) scoring: Option<(bool, Book, Option<ti4_model::id::ObjectiveId>)>,
+    /// The facts the step loop read before choosing its arm, and the name of the arm the string took (package D1b-7).
+    facts: Option<ti4_engine_core::driver::session::Facts>,
+    arm: Option<&'static str>,
+    /// The source of the question the step put to the table (`Game::legal_options`), when it did.
+    ask: Option<&'static str>,
+}
+
+impl Shadow {
+    /// The string took the arm `name` of `Game::step_flow`.
+    pub(super) fn note_arm(&mut self, name: &'static str) {
+        if active() {
+            // The first arm only: the turn prelude and the announcement fall through to the question of the same step.
+            self.arm.get_or_insert(name);
+        }
+    }
+
+    /// The question of the step came from `legal_options`: read what the last call of this thread said.
+    pub(super) fn note_ask_seen(&mut self) {
+        if active() {
+            self.ask = ASK.with(std::cell::Cell::take);
+        }
+    }
+}
+
+thread_local! {
+    /// The source `Game::legal_options` answered from in its last call on this thread.
+    static ASK: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
+}
+
+/// `Game::legal_options` answered from `source` (a name of `AskArm`).
+pub(super) fn note_ask(source: &'static str) {
+    if active() {
+        ASK.with(|c| c.set(Some(source)));
+    }
+}
+
+/// Read the facts the arm of this step is chosen from (after the reconcile hooks) and keep them for [`check`].
+pub(super) fn snapshot_facts(g: &mut Game<'_>) {
+    if !active() {
+        return;
+    }
+    use ti4_engine_core::driver::session::{Facts, bit};
+    let open = [
+        (g.leader_followers.is_some(), WindowKind::LeaderFollowers),
+        (g.secondary.is_some(), WindowKind::StrategySecondary),
+        (g.event_scoring.is_some(), WindowKind::EventScoring),
+        (g.scoring.is_some(), WindowKind::Scoring),
+        (g.tokens.is_some(), WindowKind::Tokens),
+        (g.voting.is_some(), WindowKind::Voting),
+        (g.diplomacy.is_some(), WindowKind::Diplomacy),
+        (g.aftermath.is_some(), WindowKind::Aftermath),
+        (g.agenda_talks.is_some(), WindowKind::AgendaTalks),
+        (g.trade.is_some(), WindowKind::Trade),
+        (g.tactical.is_some(), WindowKind::Tactical),
+    ]
+    .into_iter()
+    .filter(|(is_open, _)| *is_open)
+    .fold(0, |acc, (_, kind)| acc | bit(kind));
+    let phase = match g.state.phase {
+        ti4_model::state::Phase::Strategy => ti4_engine_core::state::Phase::Strategy,
+        ti4_model::state::Phase::Action => ti4_engine_core::state::Phase::Action,
+        ti4_model::state::Phase::Status => ti4_engine_core::state::Phase::Status,
+        ti4_model::state::Phase::Agenda => ti4_engine_core::state::Phase::Agenda,
+    };
+    g.d1.arm = None;
+    g.d1.ask = None;
+    g.d1.facts = Some(Facts {
+        finished: g.state.finished,
+        blocked: g.blocked.is_some(),
+        open,
+        phase,
+        turn_prepared: g.prepared_turn_seq == Some(g.state.turn_seq),
+        has_active: g.state.active.is_some(),
+        status_resolved: g.status_resolved,
+        agenda_resolved: g.agenda_resolved,
+        strategy_announced: g.strategy_phase_announced,
+        round: g.state.round,
+        starting_picks_done: g.state.starting_tech_picks.is_empty(),
+        turn_closing: g.turn_closing.is_some(),
+    });
+}
+
+/// Compare the arm the string took with the core's precedence over the same facts (`d1::step.arm`, `d1::step.ask`).
+fn check_arm(g: &mut Game<'_>) {
+    use ti4_engine_core::driver::session::{ask_arm, step_arm};
+    let (Some(facts), Some(arm)) = (g.d1.facts.take(), g.d1.arm.take()) else {
+        g.d1.ask = None;
+        return;
+    };
+    let ask = g.d1.ask.take();
+    let core = step_arm(&facts, arm == "ask").name();
+    let _ = compare_value(Area::Driver, "d1::step.arm", &arm, &core);
+    if arm == "ask" || arm == "phase" {
+        // A step that put a question to the table: the source of the question is the core's too. A step that found nothing
+        // to ask (`phase`) asked `legal_options` as well, and it answered `None`.
+        if let Some(string) = ask {
+            let _ = compare_value(Area::Driver, "d1::step.ask", &string, &ask_arm(&facts).name());
+        }
+    }
 }
 
 /// Whether the D1 dual is on for this thread.
@@ -411,6 +510,7 @@ pub(super) fn probed(g: &Game<'_>, probe: &mut Option<serde_json::Value>, hook: 
 /// Compare the held `Pending` with the string fields after `Game::step`, then re-seed it from them.
 pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
     let outcome = g.d1.outcome.take();
+    check_arm(g);
     let pushed = crate::dual_window::step_capture_take();
     for field in untyped_open(g) {
         note_bail("d1::pending.untyped", field);
@@ -1131,5 +1231,53 @@ mod tests {
         let read = super::action::capitals_of(&w.before_combat);
         let sides: Vec<String> = w.before_combat.sides().iter().map(ToString::to_string).collect();
         assert_eq!(read.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>(), sides, "one entry per side, in the map's order");
+    }
+
+    // --- the precedence of the step loop (package D1b-7) -----------------------------------------------------------------------
+
+    #[test]
+    fn the_arm_of_every_step_of_a_whole_round_is_the_one_the_core_precedence_picks() {
+        let _serial = crate::dual::tests::serial();
+        let players = [PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c")];
+        let state = crate::setup::start_game(ContentStore::embedded(), &players, ti4_model::content_types::POK, None).unwrap();
+        let _ = take_report();
+        let steps = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            let mut g = Game::with_seeded_random(state, ContentStore::embedded(), 42);
+            let mut steps = 0;
+            while g.state.round < 2 && !g.state.finished && steps < 3000 {
+                let r = g.step();
+                assert!(r.error.is_none(), "{:?}", r.error);
+                steps += 1;
+            }
+            steps
+        });
+        let r = report();
+        let _ = take_report();
+        assert!(steps > 50, "a round is many steps: {steps}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let compared: u64 = r.areas.get(&Area::Driver).map_or(0, |c| c.compared.iter().sum());
+        assert!(compared >= steps as u64, "every step compared its arm: {compared} of {steps}");
+    }
+
+    #[test]
+    fn an_arm_the_core_does_not_pick_is_a_difference() {
+        use ti4_engine_core::driver::session::{Facts, step_arm};
+        let _serial = crate::dual::tests::serial();
+        let state = dealt(&F3, "Politics");
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        let _ = take_report();
+        let ok = with_mask(both(), || {
+            snapshot_facts(&mut g);
+            let facts: Facts = g.d1.facts.unwrap();
+            // The string is made to say it took the status arm in the action phase: a difference.
+            g.d1.arm = Some("status");
+            let before = step_arm(&facts, true).name();
+            check_arm(&mut g);
+            before
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(ok, "turn_prelude", "the dealt position has an active seat whose turn is not prepared");
+        assert_eq!(r.total_differences(), 1, "{:?}", r.differences);
     }
 }
