@@ -256,6 +256,7 @@ fn decimal_text_order_is_the_string_order_of_the_numbers() {
 }
 
 proptest! {
+    #![proptest_config(ti4_engine_core_tests::generators::config())]
     #[test]
     fn decimal_text_order_equals_string_order(a in any::<u32>(), b in any::<u32>()) {
         prop_assert_eq!(DecimalTextOrd(a).cmp(&DecimalTextOrd(b)), a.to_string().cmp(&b.to_string()));

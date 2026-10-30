@@ -82,7 +82,8 @@ fn printed_capacity_and_the_cost_in_capacity() {
     assert_eq!(capacity(Unit::InfantryI), 0);
     assert_eq!(capacity_cost(Unit::FighterI), 1);
     assert_eq!(capacity_cost(Unit::InfantryI), 1);
-    assert_eq!(capacity_cost(Unit::CarrierI), 0);
+    assert_eq!(capacity_cost(Unit::CarrierI), 1, "printed 'capacity used' of a carrier; it still consumes none, see `consumes_capacity`");
+    assert!(!consumes_capacity(Unit::CarrierI));
 }
 
 #[test]

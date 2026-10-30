@@ -77,8 +77,7 @@ fn delta_reports_a_piece_that_moved() {
     let a = Scenario::lobby(2).unit(system, Some(planet), Unit::InfantryI, 0, 1).state();
     let b = Scenario::lobby(2).unit(system, Some(planet), Unit::InfantryI, 0, 2).state();
     let d = delta(&a, &b);
-    assert!(d.starts_with(&format!("planet[{planet:?}]")), "{d}");
-    assert!(d.lines().all(|l| l.contains("->")), "{d}");
+    assert_eq!(d.trim(), format!("planet[{planet:?}]: control None units [1xInfantryI/s0] attach [] coexist {{}} placed_in None flags 0 -> control None units [2xInfantryI/s0] attach [] coexist {{}} placed_in None flags 0"));
 }
 
 #[test]

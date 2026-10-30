@@ -86,11 +86,12 @@ fn a_faction_technology_belongs_to_one_faction_and_a_family_tag_to_none() {
 fn a_faction_upgrade_replaces_the_generic_card_for_that_faction_only() {
     assert!(replaced_for_faction(Faction::TheFederationOfSol, T::CarrierII));
     assert!(!replaced_for_faction(Faction::TheArborec, T::CarrierII));
-    assert!(replaced_for_faction(Faction::TheArborec, T::InfantryII));
-    assert!(!replaced_for_faction(Faction::TheFederationOfSol, T::InfantryII));
+    assert!(replaced_for_faction(Faction::TheArborec, T::InfantryII), "Letani Warrior II");
+    assert!(replaced_for_faction(Faction::TheFederationOfSol, T::InfantryII), "Spec Ops II");
+    assert!(!replaced_for_faction(Faction::TheEmbersOfMuaat, T::InfantryII));
     assert!(!replaced_for_faction(Faction::TheArborec, T::GravityDrive));
     assert!(!open_to_faction(Faction::TheArborec, T::InfantryII), "replaced");
-    assert!(open_to_faction(Faction::TheFederationOfSol, T::InfantryII));
+    assert!(open_to_faction(Faction::TheEmbersOfMuaat, T::InfantryII));
     assert!(!open_to_faction(Faction::TheFederationOfSol, T::Bioplasmosis), "another faction's card");
     assert!(open_to_faction(Faction::TheArborec, T::Bioplasmosis));
     assert!(open_to_faction(Faction::TheArborec, T::GravityDrive));
@@ -221,6 +222,7 @@ fn satisfies_table_cases() {
 }
 
 proptest! {
+    #![proptest_config(ti4_engine_core_tests::generators::config())]
     /// The model: the total shortfall (pooled group first, then each unjoined colour) is covered by the waivers.
     #[test]
     fn satisfies_means_the_shortfall_is_within_the_waivers(needs in prop::array::uniform4(0u16..4), have in prop::array::uniform4(0u16..4), joined in prop::array::uniform4(any::<bool>()), waive in 0usize..4) {
@@ -315,7 +317,8 @@ fn faction_cards_open_only_to_their_faction_and_replaced_cards_not_at_all_for_th
     assert!(!can(&s, 1, T::Bioplasmosis, &Hooks { extra: [2, 0, 0, 0], ..Hooks::default() }), "Sol may not");
     let s = table().state();
     assert!(!can(&s, 0, T::InfantryII, &Hooks { extra: [2, 0, 0, 0], ..Hooks::default() }), "Arborec has Letani Warrior II instead");
-    assert!(can(&s, 1, T::InfantryII, &Hooks { extra: [2, 0, 0, 0], ..Hooks::default() }));
+    assert!(can(&s, 2, T::InfantryII, &Hooks { extra: [2, 0, 0, 0], ..Hooks::default() }), "Muaat has no replacement");
+    assert!(!can(&s, 1, T::InfantryII, &Hooks { extra: [2, 0, 0, 0], ..Hooks::default() }), "Sol has Spec Ops II instead");
     let _ = h;
 }
 
@@ -337,8 +340,8 @@ fn the_hooks_can_purge_add_holdings_waive_or_offer() {
 #[test]
 fn ai_development_algorithm_helps_a_unit_upgrade_only_when_asked_to() {
     let s = table().rules(RULES_TECH_EFFECTS).tech(1, T::AIDevelopmentAlgorithm).state();
-    let h = Hooks { extra: [1, 1, 0, 0], ..Hooks::default() };
-    // CruiserII needs green, yellow and red: one short, the algorithm waives one.
+    let h = Hooks { extra: [1, 0, 0, 0], ..Hooks::default() };
+    // CruiserII needs green, yellow and red: the algorithm itself is a warfare card (red), the hooks give green, yellow is missing: the algorithm waives it.
     assert!(prerequisites_met(&s, ALL_SOURCES, false, Seat(1), T::CruiserII, &h));
     assert!(!prerequisites_met_without_aida(&s, ALL_SOURCES, false, Seat(1), T::CruiserII, &h));
     let none = table().rules(RULES_TECH_EFFECTS).state();

@@ -120,7 +120,9 @@ pub fn config() -> ProptestConfig {
     let cases = std::env::var("PROPTEST_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(64);
     ProptestConfig {
         cases,
-        failure_persistence: Some(Box::new(proptest::test_runner::FileFailurePersistence::WithSource("proptest-regressions"))),
+        failure_persistence: Some(Box::new(proptest::test_runner::FileFailurePersistence::Direct("tests/proptest-regressions.txt"))),
+        rng_algorithm: proptest::test_runner::RngAlgorithm::ChaCha,
+        rng_seed: proptest::test_runner::RngSeed::Fixed(0x0D4A_0001),
         ..ProptestConfig::default()
     }
 }

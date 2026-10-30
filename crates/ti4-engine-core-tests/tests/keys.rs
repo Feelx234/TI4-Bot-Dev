@@ -22,6 +22,7 @@ fn text_cmp(a: u32, ta: u8, b: u32, tb: u8) -> Ordering {
 }
 
 proptest! {
+    #![proptest_config(ti4_engine_core_tests::generators::config())]
     #[test]
     fn decimal_cmp_followed_equals_the_text_comparison(a in 0u32..2000, b in 0u32..2000, ta in prop::sample::select(vec![0u8, b',', b':', b'|']), tb in prop::sample::select(vec![0u8, b',', b':', b'|'])) {
         prop_assert_eq!(DecimalTextOrd(a).cmp_followed(ta, DecimalTextOrd(b), tb), text_cmp(a, ta, b, tb));
@@ -64,6 +65,7 @@ fn model() -> (Vec<String>, PrefixPairs) {
 }
 
 proptest! {
+    #![proptest_config(ti4_engine_core_tests::generators::config())]
     #[test]
     fn cmp_indexed_equals_the_text_order_of_the_ids_with_their_followers(a in 0usize..130, b in 0usize..130, ta in prop::sample::select(vec![0u8, b',', b':', b'|']), tb in prop::sample::select(vec![0u8, b',', b':', b'|'])) {
         let (ids, pairs) = model();

@@ -14,7 +14,7 @@ use ti4_engine_core::state::CoreState;
 fn leaves(text: &str) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let mut stack: Vec<(String, usize)> = Vec::new();
-    let path_of = |stack: &[(String, usize)]| stack.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(".");
+    let path_of = |stack: &[(String, usize)]| stack.iter().map(|(n, _)| n.as_str()).filter(|n| !n.is_empty()).collect::<Vec<_>>().join(".");
     for raw in text.lines() {
         let line = raw.trim();
         if line.is_empty() {
@@ -37,14 +37,15 @@ fn leaves(text: &str) -> BTreeMap<String, String> {
                     *counter += 1;
                     format!("[{i}]")
                 }
-                None => "$".to_string(),
+                // The root value itself: no name of its own.
+                None => String::new(),
             },
         };
         if opens {
             stack.push((key, 0));
         } else {
             let mut p = path_of(&stack);
-            if !p.is_empty() {
+            if !p.is_empty() && !key.is_empty() {
                 p.push('.');
             }
             p.push_str(&key);
@@ -77,6 +78,36 @@ fn diff_values<T: Debug + PartialEq>(label: &str, before: &T, after: &T, out: &m
     }
 }
 
+/// The pieces of a list as `2xCruiserI/s0, 1xInfantryI/s1` (grouped, in list order of first appearance; `*` sustained, `^` galvanized).
+fn pieces_text(units: &[ti4_engine_core::state::Piece]) -> String {
+    let mut groups: Vec<(String, usize)> = Vec::new();
+    for p in units {
+        let label = format!("{:?}/s{}{}{}", p.kind(), p.owner().0, if p.sustained() { "*" } else { "" }, if p.galvanized() { "^" } else { "" });
+        match groups.iter_mut().find(|(l, _)| *l == label) {
+            Some((_, n)) => *n += 1,
+            None => groups.push((label, 1)),
+        }
+    }
+    groups.sort();
+    format!("[{}]", groups.iter().map(|(l, n)| format!("{n}x{l}")).collect::<Vec<_>>().join(", "))
+}
+
+fn sys_text(c: &ti4_engine_core::state::SysCell) -> String {
+    format!("units {} tokens {:?} flags {}", pieces_text(c.units.as_slice()), c.cmd, c.flags.0)
+}
+
+fn planet_text(c: &ti4_engine_core::state::PlanetCell) -> String {
+    format!(
+        "control {:?} units {} attach {:?} coexist {:?} placed_in {:?} flags {}",
+        c.control.map(|s| s.0),
+        pieces_text(c.units.as_slice()),
+        c.attach.as_slice(),
+        c.coexist,
+        c.placed_in,
+        c.flags.0
+    )
+}
+
 /// What changed from `before` to `after`.
 #[must_use]
 pub fn delta(before: &CoreState, after: &CoreState) -> String {
@@ -91,10 +122,16 @@ pub fn delta(before: &CoreState, after: &CoreState) -> String {
         }
     }
     for s in System::ALL {
-        diff_values(&format!("sys[{s:?}]"), before.board.sys(s), after.board.sys(s), &mut out);
+        let (a, b) = (before.board.sys(s), after.board.sys(s));
+        if a != b {
+            let _ = writeln!(out, "sys[{s:?}]: {} -> {}", sys_text(a), sys_text(b));
+        }
     }
     for p in Planet::ALL {
-        diff_values(&format!("planet[{p:?}]"), before.board.planet(p), after.board.planet(p), &mut out);
+        let (a, b) = (before.board.planet(p), after.board.planet(p));
+        if a != b {
+            let _ = writeln!(out, "planet[{p:?}]: {} -> {}", planet_text(a), planet_text(b));
+        }
     }
     if before.map != after.map {
         let _ = writeln!(out, "map: changed");

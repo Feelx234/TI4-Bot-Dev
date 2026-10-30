@@ -57,10 +57,10 @@ fn xxcha_with_two_asks_which_refuses_a_planet_that_is_not_exhausted_and_readies_
     let other = planets_of_plain_systems(3)[2].1;
     rig.expect_illegal(Pick::Opt(Opt::Leaders(LOpt::Planet(other, ti4_engine_core::choice::agenda::Shown::default()))));
     let before = rig.state.clone();
-    rig.pick(1);
+    rig.pick_where(|o| matches!(o, Opt::Leaders(LOpt::Planet(p, _)) if *p == ps[1]));
     assert!(rig.is_done());
     let exhausted: Vec<Planet> = ps.iter().copied().filter(|p| rig.state.board().planet(*p).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED)).collect();
-    assert_eq!(exhausted, vec![ps[0]], "the second option readied the second planet");
+    assert_eq!(exhausted, vec![ps[0]], "the planet picked was readied, the other stays exhausted");
     assert!(delta(&before, &rig.state).lines().count() >= 1);
 }
 

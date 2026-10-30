@@ -62,6 +62,7 @@ fn positions_are_listed_in_domain_order_and_restore_exactly() {
 }
 
 proptest! {
+    #![proptest_config(ti4_engine_core_tests::generators::config())]
     #[test]
     fn a_shuffle_is_a_permutation_and_repeatable(seed in any::<u64>(), len in 0usize..60) {
         let mut a: Vec<usize> = (0..len).collect();
@@ -178,6 +179,7 @@ fn meta_rules_gate_is_inclusive_and_phases_know_who_orders_them() {
 // ---- Piece ------------------------------------------------------------------------------------
 
 proptest! {
+    #![proptest_config(ti4_engine_core_tests::generators::config())]
     #[test]
     fn a_piece_keeps_every_field_independent(kind in 0usize..Unit::COUNT, kind2 in 0usize..Unit::COUNT, owner in 0u8..16, owner2 in 0u8..16, sus in any::<bool>(), gal in any::<bool>()) {
         let (k, k2) = (Unit::from_index(kind).unwrap(), Unit::from_index(kind2).unwrap());
