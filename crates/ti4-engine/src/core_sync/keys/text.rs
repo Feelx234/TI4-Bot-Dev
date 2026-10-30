@@ -5,7 +5,9 @@ use ti4_engine_core::generated::{
     ActionCard, Agenda, Breakthrough, Faction, Leader, Planet, PromissoryNote, Relic,
     SecretObjective, System, Technology, Unit,
 };
+use ti4_engine_core::containers::Interner;
 use ti4_engine_core::keys::{Atom, DecimalTextOrd, Word};
+use ti4_engine_core::state::BLOB_CAPACITY;
 
 use super::word_text::{word_from, word_text};
 use crate::generated::IdStr;
@@ -55,52 +57,18 @@ impl Owners {
     }
 }
 
-/// Texts of values whose structure belongs to a later package (staged events, borrowed-agent
-/// records, a sustain target), interned: `Atom::Blob(i)` is `texts[i]`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Blobs {
-    texts: Vec<String>,
-}
-
-impl Blobs {
-    pub fn intern(&mut self, text: &str) -> u32 {
-        if let Some(i) = self.texts.iter().position(|t| t == text) {
-            return i as u32;
-        }
-        self.texts.push(text.to_owned());
-        (self.texts.len() - 1) as u32
-    }
-
-    #[must_use]
-    pub fn get(&self, index: u32) -> Option<&str> {
-        self.texts.get(index as usize).map(String::as_str)
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.texts.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.texts.is_empty()
-    }
-}
-
-/// Everything the text of a piece depends on: the owner table, the blob table.
+/// Everything the text of a piece depends on: the owner table. The table of opaque value texts
+/// (`Atom::Blob(i)` is the `i`-th text of `CoreState::texts.blobs`) is the state's, not the codec's:
+/// the parsing methods take it as `blobs`.
 #[derive(Debug, Clone, Default)]
 pub struct Codec {
     pub owners: Option<Owners>,
-    pub blobs: Blobs,
 }
 
 impl Codec {
     #[must_use]
     pub fn new(owners: Owners) -> Self {
-        Self {
-            owners: Some(owners),
-            blobs: Blobs::default(),
-        }
+        Self { owners: Some(owners) }
     }
 }
 
@@ -130,7 +98,7 @@ pub enum K {
     Word(&'static [Word]),
     Outcome,
     Destroy,
-    /// An uninterpreted text (see [`Blobs`]).
+    /// An uninterpreted text (the state's blob table).
     Blob,
     /// The empty text.
     Empty,
@@ -175,7 +143,7 @@ fn parse_padded(text: &str, width: u8) -> Option<u32> {
 
 impl Codec {
     /// The piece of this kind with this text.
-    pub fn parse_atom(&mut self, kind: K, text: &str) -> Option<Atom> {
+    pub fn parse_atom(&self, blobs: &mut Interner, kind: K, text: &str) -> Option<Atom> {
         Some(match kind {
             K::Seat => Atom::Seat(self.owners.as_ref()?.seat(text)?),
             K::System => Atom::System(System::from_id(text)?),
@@ -196,7 +164,7 @@ impl Codec {
             K::Word(allowed) => Atom::Word(word_from(text, allowed)?),
             K::Outcome => Atom::Outcome(self.parse_outcome(text, None)?),
             K::Destroy => Atom::Destroy(super::other::parse_destroy(text)?),
-            K::Blob => Atom::Blob(self.blobs.intern(text)),
+            K::Blob => Atom::Blob(blobs.intern(text.as_bytes(), BLOB_CAPACITY)?),
             K::Empty => {
                 if !text.is_empty() {
                     return None;
@@ -207,14 +175,14 @@ impl Codec {
                 if text.is_empty() {
                     Atom::Absent
                 } else {
-                    self.parse_atom(*inner, text)?
+                    self.parse_atom(blobs, *inner, text)?
                 }
             }
         })
     }
 
     /// Append the text of a piece of this kind; `None` when the piece is not of that kind.
-    pub fn render_atom(&self, kind: K, atom: Atom, out: &mut String) -> Option<()> {
+    pub fn render_atom(&self, blobs: &Interner, kind: K, atom: Atom, out: &mut String) -> Option<()> {
         match (kind, atom) {
             (K::Seat, Atom::Seat(s)) => out.push_str(self.owners.as_ref()?.id(s)?),
             (K::System, Atom::System(x)) => out.push_str(x.as_str()),
@@ -239,9 +207,9 @@ impl Codec {
             }
             (K::Outcome, Atom::Outcome(o)) => out.push_str(&self.render_outcome(o)?),
             (K::Destroy, Atom::Destroy(d)) => out.push_str(&super::other::render_destroy(d)),
-            (K::Blob, Atom::Blob(i)) => out.push_str(self.blobs.get(i)?),
+            (K::Blob, Atom::Blob(i)) => out.push_str(std::str::from_utf8(blobs.get(i)?).ok()?),
             (K::Empty, Atom::Absent) | (K::Opt(_), Atom::Absent) => {}
-            (K::Opt(inner), atom) => return self.render_atom(*inner, atom, out),
+            (K::Opt(inner), atom) => return self.render_atom(blobs, *inner, atom, out),
             _ => return None,
         }
         Some(())

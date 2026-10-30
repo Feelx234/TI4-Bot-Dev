@@ -3,7 +3,8 @@
 //!
 //! * [`Ctx`]: the per-game tables the codecs need and the core must not hold: the owner table
 //!   ([`Owners`], seat `i` = the `i`-th owner id in text order) and the interner for open texts
-//!   ([`Texts`], the `Code(u16)` values of the state).
+//!   ([`Texts`], the `Code(u16)` values of the state; the tables themselves are `CoreState::texts`,
+//!   `Ctx` only stages them between lends).
 //! * [`codec`]: one file per slice. `load` converts the slice from a `GameState` (other slices stay
 //!   default, flagged unloaded); `store` writes the slice back **through the existing `GameState`
 //!   structs**, so the JSON is still produced by the old serialiser from an old state.
@@ -20,6 +21,8 @@ mod error;
 mod footprint;
 pub mod guard;
 mod lend;
+pub mod materialize;
+pub mod texts;
 pub mod unmapped;
 pub mod unsupported;
 
@@ -28,8 +31,8 @@ pub mod codec;
 pub mod keys;
 
 pub use ctx::{Ctx, Owners, Texts};
-pub use error::{Unmapped, R};
-pub(crate) use error::bad;
+pub use texts::TextCodes;
+pub use error::{Unmapped, R, bad};
 pub use footprint::Footprint;
 pub use codec::{Codec, Sources, SliceCodec};
 pub use lend::{CoreView, Kernel, Lend, LendStats, Region, SliceCost, region, with_core};

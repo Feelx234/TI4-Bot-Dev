@@ -1,5 +1,6 @@
 //! `faction_marks` values: the schema of each family and the parse / render of a value tree.
 
+use ti4_engine_core::containers::Interner;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal, Word};
 
 use crate::factions::borrowed_round_agents::RoundBonus;
@@ -211,9 +212,9 @@ pub fn schema(key: &MarkKey) -> Sh {
 
 impl Codec {
     /// The tree of a value text of this shape.
-    pub fn parse_shape(&mut self, shape: Sh, text: &str) -> Option<MarkVal> {
+    pub fn parse_shape(&self, blobs: &mut Interner, shape: Sh, text: &str) -> Option<MarkVal> {
         match shape {
-            Sh::A(kind) => self.parse_atom(kind, text).map(MarkVal::Atom),
+            Sh::A(kind) => self.parse_atom(blobs, kind, text).map(MarkVal::Atom),
             Sh::Rec(sep, fields) => {
                 let parts: Vec<&str> = text.split(char::from(sep)).collect();
                 if parts.len() != fields.len() {
@@ -221,7 +222,7 @@ impl Codec {
                 }
                 let mut out = Vec::with_capacity(parts.len());
                 for (part, field) in parts.into_iter().zip(fields) {
-                    out.push(self.parse_shape(*field, part)?);
+                    out.push(self.parse_shape(blobs, *field, part)?);
                 }
                 Some(MarkVal::Rec(out))
             }
@@ -231,70 +232,70 @@ impl Codec {
                 }
                 let mut out = Vec::new();
                 for part in text.split(char::from(sep)) {
-                    out.push(self.parse_shape(*item, part)?);
+                    out.push(self.parse_shape(blobs, *item, part)?);
                 }
                 Some(MarkVal::List(out))
             }
-            Sh::Alt(shapes) => shapes.iter().find_map(|s| self.parse_shape(*s, text)),
-            Sh::RoundBonus => self.parse_round_bonus(text),
-            Sh::SustainTarget => self.parse_sustain_target(text),
+            Sh::Alt(shapes) => shapes.iter().find_map(|s| self.parse_shape(blobs, *s, text)),
+            Sh::RoundBonus => self.parse_round_bonus(blobs, text),
+            Sh::SustainTarget => self.parse_sustain_target(blobs, text),
         }
     }
 
     /// The twelve fields of a round bonus; `None` unless the text is exactly what [`Self::render_round_bonus`]
     /// writes back.
-    fn parse_round_bonus(&mut self, text: &str) -> Option<MarkVal> {
+    fn parse_round_bonus(&self, blobs: &mut Interner, text: &str) -> Option<MarkVal> {
         let b: RoundBonus = serde_json::from_str(text).ok()?;
-        let leader = |me: &mut Self, t: &str| me.parse_atom(K::Leader, t).map(MarkVal::Atom);
-        let planet = |me: &mut Self, p: &Option<ti4_model::id::PlanetId>| match p {
-            Some(p) => me.parse_atom(K::Planet, p.as_str()).map(MarkVal::Atom),
+        let leader = |me: &Self, blobs: &mut Interner, t: &str| me.parse_atom(blobs, K::Leader, t).map(MarkVal::Atom);
+        let planet = |me: &Self, blobs: &mut Interner, p: &Option<ti4_model::id::PlanetId>| match p {
+            Some(p) => me.parse_atom(blobs, K::Planet, p.as_str()).map(MarkVal::Atom),
             None => Some(MarkVal::Atom(Atom::Absent)),
         };
         let num = |n: u64| u32::try_from(n).ok().map(|n| MarkVal::Atom(Atom::Num(n)));
         let value = MarkVal::Rec(vec![
-            self.parse_atom(K::Seat, b.borrower.as_str()).map(MarkVal::Atom)?,
-            self.parse_atom(K::Seat, b.source_owner.as_str()).map(MarkVal::Atom)?,
-            leader(self, &b.source_agent)?,
-            self.parse_atom(K::System, b.system.as_str()).map(MarkVal::Atom)?,
-            planet(self, &b.combat_planet)?,
-            planet(self, &b.unit_planet)?,
-            self.parse_atom(K::Seat, b.unit_owner.as_str()).map(MarkVal::Atom)?,
-            self.parse_atom(K::Unit, b.unit_type.as_str()).map(MarkVal::Atom)?,
+            self.parse_atom(blobs, K::Seat, b.borrower.as_str()).map(MarkVal::Atom)?,
+            self.parse_atom(blobs, K::Seat, b.source_owner.as_str()).map(MarkVal::Atom)?,
+            leader(self, blobs, &b.source_agent)?,
+            self.parse_atom(blobs, K::System, b.system.as_str()).map(MarkVal::Atom)?,
+            planet(self, blobs, &b.combat_planet)?,
+            planet(self, blobs, &b.unit_planet)?,
+            self.parse_atom(blobs, K::Seat, b.unit_owner.as_str()).map(MarkVal::Atom)?,
+            self.parse_atom(blobs, K::Unit, b.unit_type.as_str()).map(MarkVal::Atom)?,
             num(u64::from(b.sustained_damage))?,
             num(u64::from(b.galvanized))?,
             num(u64::try_from(b.unit_index).ok()?)?,
             num(u64::from(b.round_seq))?,
         ]);
-        (self.render_round_bonus(&value).as_deref() == Some(text)).then_some(value)
+        (self.render_round_bonus(blobs, &value).as_deref() == Some(text)).then_some(value)
     }
 
     /// The six fields of a sustain target; `None` unless the text is exactly what [`Self::render_sustain_target`] writes back.
-    fn parse_sustain_target(&mut self, text: &str) -> Option<MarkVal> {
+    fn parse_sustain_target(&self, blobs: &mut Interner, text: &str) -> Option<MarkVal> {
         let v: serde_json::Value = serde_json::from_str(text).ok()?;
         let unit = v.get("unit")?;
         let planet = match v.get("planet")? {
             serde_json::Value::Null => MarkVal::Atom(Atom::Absent),
-            p => self.parse_atom(K::Planet, p.as_str()?).map(MarkVal::Atom)?,
+            p => self.parse_atom(blobs, K::Planet, p.as_str()?).map(MarkVal::Atom)?,
         };
         let flag = |b: bool| MarkVal::Atom(Atom::Num(u32::from(b)));
         let value = MarkVal::Rec(vec![
-            self.parse_atom(K::System, v.get("system")?.as_str()?).map(MarkVal::Atom)?,
+            self.parse_atom(blobs, K::System, v.get("system")?.as_str()?).map(MarkVal::Atom)?,
             planet,
-            self.parse_atom(K::Seat, unit.get("owner")?.as_str()?).map(MarkVal::Atom)?,
-            self.parse_atom(K::Unit, unit.get("type_id")?.as_str()?).map(MarkVal::Atom)?,
+            self.parse_atom(blobs, K::Seat, unit.get("owner")?.as_str()?).map(MarkVal::Atom)?,
+            self.parse_atom(blobs, K::Unit, unit.get("type_id")?.as_str()?).map(MarkVal::Atom)?,
             flag(unit.get("sustained_damage")?.as_bool()?),
             flag(unit.get("galvanized")?.as_bool()?),
         ]);
-        (self.render_sustain_target(&value).as_deref() == Some(text)).then_some(value)
+        (self.render_sustain_target(blobs, &value).as_deref() == Some(text)).then_some(value)
     }
 
-    fn render_sustain_target(&self, value: &MarkVal) -> Option<String> {
+    fn render_sustain_target(&self, blobs: &Interner, value: &MarkVal) -> Option<String> {
         let MarkVal::Rec(f) = value else { return None };
         let [system, planet, owner, unit, sustained, galvanized] = f.as_slice() else { return None };
         let text = |kind: K, v: &MarkVal| -> Option<String> {
             let MarkVal::Atom(a) = v else { return None };
             let mut out = String::new();
-            self.render_atom(kind, *a, &mut out)?;
+            self.render_atom(blobs, kind, *a, &mut out)?;
             Some(out)
         };
         let flag = |v: &MarkVal| match v {
@@ -314,7 +315,7 @@ impl Codec {
         Some(serde_json::json!({"system": text(K::System, system)?, "planet": planet, "unit": unit}).to_string())
     }
 
-    fn render_round_bonus(&self, value: &MarkVal) -> Option<String> {
+    fn render_round_bonus(&self, blobs: &Interner, value: &MarkVal) -> Option<String> {
         let MarkVal::Rec(f) = value else { return None };
         let [borrower, source_owner, agent, system, combat_planet, unit_planet, unit_owner, unit, sustained, galvanized, index, round] = f.as_slice() else {
             return None;
@@ -322,7 +323,7 @@ impl Codec {
         let text = |kind: K, v: &MarkVal| -> Option<String> {
             let MarkVal::Atom(a) = v else { return None };
             let mut out = String::new();
-            self.render_atom(kind, *a, &mut out)?;
+            self.render_atom(blobs, kind, *a, &mut out)?;
             Some(out)
         };
         let planet = |v: &MarkVal| -> Option<Option<ti4_model::id::PlanetId>> {
@@ -356,11 +357,11 @@ impl Codec {
 
     /// The text of a tree of this shape.
     #[must_use]
-    pub fn render_shape(&self, shape: Sh, value: &MarkVal) -> Option<String> {
+    pub fn render_shape(&self, blobs: &Interner, shape: Sh, value: &MarkVal) -> Option<String> {
         match (shape, value) {
             (Sh::A(kind), MarkVal::Atom(atom)) => {
                 let mut out = String::new();
-                self.render_atom(kind, *atom, &mut out)?;
+                self.render_atom(blobs, kind, *atom, &mut out)?;
                 Some(out)
             }
             (Sh::Rec(sep, fields), MarkVal::Rec(values)) if fields.len() == values.len() => {
@@ -369,7 +370,7 @@ impl Codec {
                     if i > 0 {
                         out.push(char::from(sep));
                     }
-                    out.push_str(&self.render_shape(*field, value)?);
+                    out.push_str(&self.render_shape(blobs, *field, value)?);
                 }
                 Some(out)
             }
@@ -379,41 +380,41 @@ impl Codec {
                     if i > 0 {
                         out.push(char::from(sep));
                     }
-                    out.push_str(&self.render_shape(*item, value)?);
+                    out.push_str(&self.render_shape(blobs, *item, value)?);
                 }
                 Some(out)
             }
-            (Sh::Alt(shapes), value) => shapes.iter().find_map(|s| self.render_shape(*s, value)),
-            (Sh::RoundBonus, value) => self.render_round_bonus(value),
-            (Sh::SustainTarget, value) => self.render_sustain_target(value),
+            (Sh::Alt(shapes), value) => shapes.iter().find_map(|s| self.render_shape(blobs, *s, value)),
+            (Sh::RoundBonus, value) => self.render_round_bonus(blobs, value),
+            (Sh::SustainTarget, value) => self.render_sustain_target(blobs, value),
             _ => None,
         }
     }
 
     /// The typed value of a mark with this key.
-    pub fn parse_mark_value(&mut self, key: &MarkKey, text: &str) -> Option<MarkVal> {
-        self.parse_shape(schema(key), text)
+    pub fn parse_mark_value(&self, blobs: &mut Interner, key: &MarkKey, text: &str) -> Option<MarkVal> {
+        self.parse_shape(blobs, schema(key), text)
     }
 
     /// The text of a typed value of a mark with this key.
     #[must_use]
-    pub fn render_mark_value(&self, key: &MarkKey, value: &MarkVal) -> Option<String> {
-        self.render_shape(schema(key), value)
+    pub fn render_mark_value(&self, blobs: &Interner, key: &MarkKey, value: &MarkVal) -> Option<String> {
+        self.render_shape(blobs, schema(key), value)
     }
 
     /// A whole mark, key and value.
-    pub fn parse_mark(&mut self, key: &str, value: &str) -> Option<(MarkKey, MarkVal)> {
-        let key = self.parse_mark_key(key)?;
-        let value = self.parse_mark_value(&key, value)?;
+    pub fn parse_mark(&self, blobs: &mut Interner, key: &str, value: &str) -> Option<(MarkKey, MarkVal)> {
+        let key = self.parse_mark_key(blobs, key)?;
+        let value = self.parse_mark_value(blobs, &key, value)?;
         Some((key, value))
     }
 
     /// The texts of a whole mark.
     #[must_use]
-    pub fn render_mark(&self, key: &MarkKey, value: &MarkVal) -> Option<(String, String)> {
+    pub fn render_mark(&self, blobs: &Interner, key: &MarkKey, value: &MarkVal) -> Option<(String, String)> {
         Some((
-            self.render_mark_key(key)?,
-            self.render_mark_value(key, value)?,
+            self.render_mark_key(blobs, key)?,
+            self.render_mark_value(blobs, key, value)?,
         ))
     }
 }

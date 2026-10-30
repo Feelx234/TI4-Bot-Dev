@@ -752,6 +752,89 @@ impl Resolver {
         }
     }
 
+    // ---- the resolver image (`resolver_sync`, D2-4a): additive accessors, no behaviour ------------------
+
+    /// The spent frequency keys in the order they were spent.
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn used_keys(&self) -> &[(String, FrequencyScope)] {
+        &self.used.order
+    }
+
+    /// Spend a frequency key (a no-op when it is already spent), as an emission does.
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn spend_key(&mut self, id: String, scope: FrequencyScope) {
+        self.used.insert((id, scope));
+    }
+
+    /// The open emissions, outermost first.
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn emission_stack(&self) -> &[(String, u64)] {
+        &self.emission_stack
+    }
+
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn set_emission_stack(&mut self, stack: Vec<(String, u64)>) {
+        self.emission_stack = stack;
+    }
+
+    /// The initiative order the resolver was made with (fixed at `Game::new`, never refreshed).
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn initiative_order(&self) -> &[PlayerId] {
+        &self.initiative_order
+    }
+
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn seating_order(&self) -> &[PlayerId] {
+        &self.seating_order
+    }
+
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn active_player(&self) -> Option<&PlayerId> {
+        self.active_player.as_ref()
+    }
+
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn speaker(&self) -> Option<&PlayerId> {
+        self.speaker.as_ref()
+    }
+
+    #[cfg(feature = "typed-core")]
+    pub(crate) const fn phase(&self) -> Phase {
+        self.phase
+    }
+
+    /// `(round, turn)` as the resolver counts them.
+    #[cfg(feature = "typed-core")]
+    pub(crate) const fn counters(&self) -> (u64, u64) {
+        (self.round_number, self.turn_number)
+    }
+
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn set_counters(&mut self, round: u64, turn: u64) {
+        self.round_number = round;
+        self.turn_number = turn;
+    }
+
+    #[cfg(feature = "typed-core")]
+    pub(crate) const fn maximum_depth(&self) -> usize {
+        self.maximum_depth
+    }
+
+    /// Replace the trace and the event journal (a rebuilt resolver continues the old one's).
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn set_journal(&mut self, log: Vec<String>, applied: Vec<Event>) {
+        self.log = log;
+        self.applied_events = applied;
+    }
+
+    /// The registered ability ids and the prohibition labels, in registration order.
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn registry_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.registry.abilities.iter().map(|a| a.id.clone()).collect();
+        ids.extend(self.registry.cannot.iter().map(|c| format!("cannot:{}", c.label)));
+        ids
+    }
+
     /// Configure the game phase used to select window priority order.
     pub fn set_phase(&mut self, phase: Phase) {
         self.phase = phase;
@@ -1047,6 +1130,7 @@ impl Resolver {
         let guard = crate::dual_window::enter_emit();
         let result = self.emit_with_context_inner_raw(context, event, resolve);
         crate::dual_window::leave_emit(guard, result.as_ref().ok());
+        crate::dual_window::note_resolver_after(guard, || self.core_cfg(&context.sources));
         result
     }
 
@@ -1560,7 +1644,7 @@ impl Resolver {
             .collect()
     }
 
-    fn player_order(&self) -> Vec<PlayerId> {
+    pub(crate) fn player_order(&self) -> Vec<PlayerId> {
         let (sequence, first) = if self.phase.uses_speaker_order() {
             let sequence = if self.seating_order.is_empty() {
                 &self.initiative_order
@@ -1640,7 +1724,7 @@ pub enum TimingError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum FrequencyScope {
+pub(crate) enum FrequencyScope {
     Trigger(u64),
     Turn(u64),
     Round(u64),

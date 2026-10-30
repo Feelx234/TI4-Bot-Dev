@@ -1,13 +1,14 @@
 //! The per-game tables of the codecs: the owner table and the text interner.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::state::{Code, Slice};
+use ti4_engine_core::state::{Code, CoreState, OwnerTable, ResolverState, Slice, Texts as CoreTexts};
 use ti4_model::state::GameState;
 
 use super::error::{R, bad};
 use super::keys::{Codec as KeysCodec, Owners as KeyOwners};
+use super::texts::TextCodes;
 
 /// The owners of one table in text order: seat `i` is the `i`-th (docs 1.3). At most 16.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -91,58 +92,51 @@ impl Owners {
     }
 }
 
-/// Interner for the open texts of the state (`Code(u16)`): reason texts, presentation phases,
-/// faction-mark keys and values, promise texts. Persistent for a game, so codes stay stable between
-/// lends; package X1 replaces a use by an enum when its set closes. `Code(0)` is the diplomacy rules
-/// tag, so a default `Diplomacy` equals a loaded default `DiplomacyState`.
-#[derive(Debug, Clone)]
+/// The text codes a Ctx hands to the cores it loads: the lineage's tables **between** lends.
+///
+/// The tables belong to the state (`CoreState::texts`, D2-3); a core loaded through this `Ctx` starts
+/// from a clone of them and the codecs intern into the core. Adapter code that needs a code *before* a
+/// core exists (the facts of a window, built from the string position) mints it here, and the next load
+/// carries it into the core; after a load or a lend the `Ctx` adopts the core's tables, so a code minted
+/// by either side resolves on both. `Code(0)` is the diplomacy rules tag, so a default `Diplomacy` equals
+/// a loaded default `DiplomacyState`. Until the flip (D2-8) a `Ctx` is rebuilt for every lend; after it the
+/// state is the only owner and this field goes away.
+#[derive(Debug, Clone, Default)]
 pub struct Texts {
-    items: Vec<Box<str>>,
-    index: HashMap<Box<str>, u16>,
-}
-
-impl Default for Texts {
-    fn default() -> Self {
-        let mut t = Self { items: Vec::new(), index: HashMap::new() };
-        t.intern_unchecked(ti4_model::diplomacy::DIPLOMACY_RULES_V1);
-        t
-    }
+    inner: CoreTexts,
 }
 
 impl Texts {
-    fn intern_unchecked(&mut self, text: &str) -> Code {
-        if let Some(i) = self.index.get(text) {
-            return Code(*i);
-        }
-        let i = self.items.len() as u16;
-        self.items.push(text.into());
-        self.index.insert(text.into(), i);
-        Code(i)
-    }
-
     /// # Errors
     /// More than 65 535 distinct texts.
     pub fn intern(&mut self, slice: Slice, text: &str) -> R<Code> {
-        if !self.index.contains_key(text) && self.items.len() >= usize::from(u16::MAX) {
-            return Err(bad(slice, "text table full", text));
-        }
-        Ok(self.intern_unchecked(text))
+        self.inner.intern_code(slice, text)
     }
 
     /// # Errors
     /// A code this table never issued.
     pub fn text(&self, slice: Slice, code: Code) -> R<&str> {
-        self.items.get(usize::from(code.0)).map(|b| &**b).ok_or_else(|| bad(slice, "unknown text code", code.0))
+        self.inner.code_text(slice, code)
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.items.len()
+        self.inner.codes.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
+        self.inner.codes.is_empty()
+    }
+
+    /// The tables as the state holds them.
+    #[must_use]
+    pub const fn tables(&self) -> &CoreTexts {
+        &self.inner
+    }
+
+    pub(crate) fn tables_mut(&mut self) -> &mut CoreTexts {
+        &mut self.inner
     }
 }
 
@@ -153,9 +147,14 @@ pub struct Ctx {
     pub texts: Texts,
     /// The text codec of the typed keys (marks, outcomes, ledger reasons): the owner table in the
     /// keys' own form (`None` while an owner id is a proper prefix of another, which the key order
-    /// cannot represent: the marks and outcomes of that game stay unmapped) and the table of opaque
-    /// value texts (`Atom::Blob`), persistent for the game so blob indices stay stable between lends.
+    /// cannot represent: the marks and outcomes of that game stay unmapped).
     pub keys: KeysCodec,
+    /// The persistent part of the timing resolver the cores of this game start from (D2-4b): the `Pending` codec loads it
+    /// into `pending.resolver`, every load or lend adopts what the core's `Pending` holds afterwards. `None` until the
+    /// caller sets one (the string engine keeps its resolver in `Game`, not in `GameState`; a reverse lend hands it in).
+    pub resolver: Option<ResolverState>,
+    /// `owners` as the state holds them; every core loaded through this `Ctx` shares it.
+    owner_table: OwnerTable,
     /// Owners the table holds although the position does not (yet): the neutral owner of a card that places units for it.
     extra: Vec<String>,
 }
@@ -175,22 +174,49 @@ impl Ctx {
         let owners = Owners::with_extra(state, extra)?;
         let mut keys = KeysCodec::default();
         keys.owners = key_owners(&owners);
-        Ok(Self { owners, texts: Texts::default(), keys, extra: extra.iter().map(|e| (*e).to_owned()).collect() })
+        let owner_table = owner_table(&owners);
+        Ok(Self { owners, texts: Texts::default(), keys, resolver: None, owner_table, extra: extra.iter().map(|e| (*e).to_owned()).collect() })
     }
 
-    /// Rebuild the owner table for `state` (an owner may have appeared since the last lend), keeping
-    /// the text codes.
+    /// Check that `state` still has the owners of this table: players are fixed for a game, the
+    /// table of a state never changes (D2-3).
     ///
     /// # Errors
-    /// More than 16 owners.
+    /// More than 16 owners, or an owner the table does not hold (or one it holds that the position lost).
     pub fn refresh(&mut self, state: &GameState) -> R<()> {
         let extra: Vec<&str> = self.extra.iter().map(String::as_str).collect();
         let owners = Owners::with_extra(state, &extra)?;
         if owners != self.owners {
-            self.keys.owners = key_owners(&owners);
-            self.owners = owners;
+            let id = owners.ids().iter().find(|id| self.owners.seat(id).is_none()).or_else(|| self.owners.ids().first());
+            return Err(bad(Slice::Seats, "owner not in the game's table", id.map_or("", String::as_str)));
         }
         Ok(())
+    }
+
+    /// Run `f` with the staged text tables out of the `Ctx` (so a codec helper can take the owner table
+    /// by `&Ctx` and the texts by `&mut`).
+    pub fn minting<T>(&mut self, f: impl FnOnce(&Self, &mut CoreTexts) -> T) -> T {
+        let mut tables = std::mem::take(&mut self.texts.inner);
+        let out = f(self, &mut tables);
+        self.texts.inner = tables;
+        out
+    }
+
+    /// Give a freshly made core the tables of this lineage: the owners and the texts.
+    pub fn attach(&self, core: &mut CoreState) {
+        core.owners = self.owner_table.clone();
+        core.texts = self.texts.inner.clone();
+    }
+
+    /// Take over the tables of a core this `Ctx` attached (and the codecs and the call grew): what a core
+    /// minted resolves here from now on.
+    pub fn adopt(&mut self, core: &CoreState) {
+        debug_assert!(core.texts.codes.extends(&self.texts.inner.codes), "a core's code table must continue the lineage's");
+        debug_assert!(core.texts.blobs.extends(&self.texts.inner.blobs), "a core's blob table must continue the lineage's");
+        self.texts.inner = core.texts.clone();
+        if core.loaded.has(Slice::Pending) && (self.resolver.is_some() || core.pending.resolver != ResolverState::default()) {
+            self.resolver = Some(core.pending.resolver.clone());
+        }
     }
 
     pub(crate) fn seat(&self, slice: Slice, id: &str) -> R<Seat> {
@@ -200,6 +226,10 @@ impl Ctx {
     pub(crate) fn owner(&self, slice: Slice, seat: Seat) -> R<&str> {
         self.owners.id(seat).ok_or_else(|| bad(slice, "seat not in the table", seat.0))
     }
+}
+
+fn owner_table(owners: &Owners) -> OwnerTable {
+    OwnerTable::new(owners.ids().iter().map(String::as_bytes))
 }
 
 fn key_owners(owners: &Owners) -> Option<KeyOwners> {

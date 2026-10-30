@@ -7,6 +7,7 @@ use ti4_model::state::{AgendaCast, AgendaRecord, GameState};
 use super::{Sources, SliceCodec};
 use crate::core_sync::conv::{id, txt};
 use crate::core_sync::ctx::Ctx;
+use crate::core_sync::texts::TextCodes;
 use crate::core_sync::error::{R, bad};
 
 const S: Slice = Slice::Agenda;
@@ -89,7 +90,7 @@ impl SliceCodec for Agenda {
                 enacted: r.enacted,
                 discarded: r.discarded,
                 redirected_to: r.redirected_to.as_deref().map(|o| outcome(cx, S, o)).transpose()?,
-                discard_reason: r.discard_reason.as_deref().map(|t| cx.texts.intern(S, t)).transpose()?,
+                discard_reason: r.discard_reason.as_deref().map(|t| core.texts.intern_code(S, t)).transpose()?,
             });
         }
         a.log = log;
@@ -143,7 +144,7 @@ impl SliceCodec for Agenda {
                     enacted: r.enacted,
                     discarded: r.discarded,
                     redirected_to: r.redirected_to.map(|o| outcome_text(cx, S, o)).transpose()?,
-                    discard_reason: r.discard_reason.map(|c| cx.texts.text(S, c).map(str::to_owned)).transpose()?,
+                    discard_reason: r.discard_reason.map(|c| core.texts.code_text(S, c).map(str::to_owned)).transpose()?,
                 })
             })
             .collect::<R<_>>()?;

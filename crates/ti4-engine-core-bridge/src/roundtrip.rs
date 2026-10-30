@@ -170,6 +170,7 @@ impl Checker {
         };
         let src = Sources { galaxy: Some(galaxy), rng: None };
         let mut core = CoreState::with_loaded(SliceSet::EMPTY);
+        cx.attach(&mut core);
         let mut ok = true;
         let value = json(state);
         for slice in Slice::ALL {
@@ -205,8 +206,10 @@ impl Checker {
         }
         stats.loaded += 1;
         stats.max_owners = stats.max_owners.max(cx.owners.len());
-        stats.max_texts = stats.max_texts.max(cx.texts.len());
-        stats.max_blobs = stats.max_blobs.max(cx.keys.blobs.len());
+        // The tables travel with the state (D2-3): the lineage adopts them, and the high-water marks are the state's.
+        cx.adopt(&core);
+        stats.max_texts = stats.max_texts.max(core.texts.codes.len());
+        stats.max_blobs = stats.max_blobs.max(core.texts.blobs.len());
         let mut back = self.previous.clone().unwrap_or_else(|| state.clone());
         for slice in Slice::ALL {
             let t = Instant::now();

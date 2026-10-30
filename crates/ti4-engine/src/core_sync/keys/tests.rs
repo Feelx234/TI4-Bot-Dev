@@ -7,6 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use ti4_engine_core::containers::Interner;
 use ti4_engine_core::generated::{
     ActionCard, Agenda, Faction, Leader, Planet, PromissoryNote, Relic, SecretObjective,
     StrategyCard, System, Technology, Unit, Wormhole,
@@ -272,18 +273,19 @@ fn id_namespaces_that_share_a_text_position_are_disjoint() {
 /// (systems and planets a test invents). Nothing else may fail.
 #[test]
 fn every_observed_mark_round_trips_or_is_a_listed_exception() {
-    let mut codec = codec();
+    let mut blobs = Interner::default();
+    let codec = codec();
     let mut typed = 0usize;
     let mut unmapped = BTreeSet::new();
     for (key, value) in marks() {
-        match codec.parse_mark(&key, &value) {
+        match codec.parse_mark(&mut blobs, &key, &value) {
             Some((k, v)) => {
-                let (rk, rv) = codec.render_mark(&k, &v).expect("a parsed mark renders");
+                let (rk, rv) = codec.render_mark(&blobs, &k, &v).expect("a parsed mark renders");
                 assert_eq!((rk.as_str(), rv.as_str()), (key.as_str(), value.as_str()));
                 typed += 1;
             }
             None => {
-                let reason = match codec.parse_mark_key(&key) {
+                let reason = match codec.parse_mark_key(&mut blobs, &key) {
                     None => "key",
                     Some(_) => "value",
                 };
@@ -325,13 +327,14 @@ fn every_observed_mark_round_trips_or_is_a_listed_exception() {
 
 #[test]
 fn every_observed_key_text_is_typed_or_a_listed_exception() {
-    let mut codec = codec();
+    let mut blobs = Interner::default();
+    let codec = codec();
     let mut keys: BTreeSet<String> = marks().into_iter().map(|(k, _)| k).collect();
     keys.insert("allow_pass".to_owned());
     let mut untyped = Vec::new();
     for key in &keys {
-        match codec.parse_mark_key(key) {
-            Some(typed) => assert_eq!(codec.render_mark_key(&typed).as_deref(), Some(key.as_str())),
+        match codec.parse_mark_key(&mut blobs, key) {
+            Some(typed) => assert_eq!(codec.render_mark_key(&blobs, &typed).as_deref(), Some(key.as_str())),
             None => untyped.push(key.clone()),
         }
     }
@@ -345,10 +348,11 @@ fn every_observed_key_text_is_typed_or_a_listed_exception() {
 
 #[test]
 fn every_family_is_in_the_corpus() {
-    let mut codec = codec();
+    let mut blobs = Interner::default();
+    let codec = codec();
     let mut seen = BTreeSet::new();
     for (key, _) in marks() {
-        if let Some(k) = codec.parse_mark_key(&key) {
+        if let Some(k) = codec.parse_mark_key(&mut blobs, &key) {
             seen.insert(k.family());
         }
     }
@@ -495,13 +499,14 @@ fn observed_deck_and_slice_keys_round_trip() {
 
 /// Iterating a `BTreeMap<MarkKey, _>` visits the keys in the order the `BTreeMap<String, _>` does.
 fn assert_same_order(codec: &Codec, texts: &BTreeSet<String>, label: &str) {
-    let mut codec = codec.clone();
+    let mut blobs = Interner::default();
+    let codec = codec.clone();
     let strings: BTreeMap<String, ()> = texts.iter().map(|t| (t.clone(), ())).collect();
     let mut typed: BTreeMap<MarkKey, ()> = BTreeMap::new();
     for text in texts {
         typed.insert(
             codec
-                .parse_mark_key(text)
+                .parse_mark_key(&mut blobs, text)
                 .unwrap_or_else(|| panic!("{label}: {text}")),
             (),
         );
@@ -509,7 +514,7 @@ fn assert_same_order(codec: &Codec, texts: &BTreeSet<String>, label: &str) {
     assert_eq!(typed.len(), strings.len(), "{label}: two texts, one key");
     let rendered: Vec<String> = typed
         .keys()
-        .map(|k| codec.render_mark_key(k).expect("renders"))
+        .map(|k| codec.render_mark_key(&blobs, k).expect("renders"))
         .collect();
     let expected: Vec<&String> = strings.keys().collect();
     let got: Vec<&String> = rendered.iter().collect();
@@ -525,12 +530,13 @@ fn assert_same_order(codec: &Codec, texts: &BTreeSet<String>, label: &str) {
 
 #[test]
 fn observed_keys_iterate_in_text_order() {
+    let mut blobs = Interner::default();
     let codec = codec();
-    let mut parse = codec.clone();
+    let parse = codec.clone();
     let texts: BTreeSet<String> = marks()
         .into_iter()
         .map(|(k, _)| k)
-        .filter(|k| parse.parse_mark_key(k).is_some())
+        .filter(|k| parse.parse_mark_key(&mut blobs, k).is_some())
         .collect();
     assert!(texts.len() > 800, "{}", texts.len());
     assert_same_order(&codec, &texts, "corpus");
@@ -556,8 +562,9 @@ fn pool<T: IdStr>(extra: usize) -> Vec<&'static str> {
 /// Every family with its fields drawn from small pools that contain the prefix-colliding ids.
 #[test]
 fn constructed_keys_iterate_in_text_order() {
+    let mut blobs = Interner::default();
     let codec = codec();
-    let mut parse = codec.clone();
+    let parse = codec.clone();
     let systems: Vec<&str> = {
         let mut p = pool::<System>(3);
         p.truncate(7);
@@ -616,7 +623,7 @@ fn constructed_keys_iterate_in_text_order() {
                 .map(|(i, p)| p[*i].as_str())
                 .collect();
             let text = fill(segs, &fields);
-            if parse.parse_mark_key(&text).is_some() {
+            if parse.parse_mark_key(&mut blobs, &text).is_some() {
                 all.insert(text);
                 count += 1;
             }
@@ -715,27 +722,29 @@ fn fill(segs: &[Seg], fields: &[&str]) -> String {
 
 #[test]
 fn a_following_byte_decides_between_prefix_ids() {
+    let mut blobs = Interner::default();
     // The known trap: system 10 is a prefix of system 100, and `:` sorts after every digit.
-    let mut codec = codec();
+    let codec = codec();
     let low = "bastion:lost:100:a:cruiser";
     let high = "bastion:lost:10:a:cruiser";
     assert!(low < high, "text order");
     let (low_key, high_key) = (
-        codec.parse_mark_key(low).unwrap(),
-        codec.parse_mark_key(high).unwrap(),
+        codec.parse_mark_key(&mut blobs, low).unwrap(),
+        codec.parse_mark_key(&mut blobs, high).unwrap(),
     );
     assert!(low_key < high_key);
     // At the end of the key the shorter id comes first.
     let (a, b) = (
-        codec.parse_mark_key("crimson:breach:active:10").unwrap(),
-        codec.parse_mark_key("crimson:breach:active:100").unwrap(),
+        codec.parse_mark_key(&mut blobs, "crimson:breach:active:10").unwrap(),
+        codec.parse_mark_key(&mut blobs, "crimson:breach:active:100").unwrap(),
     );
     assert!(a < b);
 }
 
 #[test]
 fn decimal_keys_sort_as_text() {
-    let mut codec = codec();
+    let mut blobs = Interner::default();
+    let codec = codec();
     let texts = [
         "private:#moved:1",
         "private:#moved:10",
@@ -744,32 +753,33 @@ fn decimal_keys_sort_as_text() {
     ];
     let mut keys: Vec<MarkKey> = texts
         .iter()
-        .map(|t| codec.parse_mark_key(t).unwrap())
+        .map(|t| codec.parse_mark_key(&mut blobs, t).unwrap())
         .collect();
     keys.reverse();
     keys.sort();
     let sorted: Vec<String> = keys
         .iter()
-        .map(|k| codec.render_mark_key(k).unwrap())
+        .map(|k| codec.render_mark_key(&blobs, k).unwrap())
         .collect();
     assert_eq!(sorted, texts);
     assert_eq!(
-        codec.parse_mark_key("private:#moved:2"),
+        codec.parse_mark_key(&mut blobs, "private:#moved:2"),
         Some(MarkKey::PrivateMoved(DecimalTextOrd(2)))
     );
     // Not canonical numbers do not parse.
-    assert!(codec.parse_mark_key("private:#moved:02").is_none());
-    assert!(codec.parse_mark_key("private:#moved:").is_none());
+    assert!(codec.parse_mark_key(&mut blobs, "private:#moved:02").is_none());
+    assert!(codec.parse_mark_key(&mut blobs, "private:#moved:").is_none());
 }
 
 #[test]
 fn atoms_of_a_key_are_what_its_fields_say() {
-    let mut codec = codec();
-    let key = codec.parse_mark_key("cabal:devour:06|0.0.0").unwrap();
+    let mut blobs = Interner::default();
+    let codec = codec();
+    let key = codec.parse_mark_key(&mut blobs, "cabal:devour:06|0.0.0").unwrap();
     let (atoms, n) = key.atoms();
     assert_eq!(n, 2);
     assert!(matches!(atoms[0], Atom::System(_)) && matches!(atoms[1], Atom::Planet(_)));
-    let bare = codec.parse_mark_key("cabal:devour:06").unwrap();
+    let bare = codec.parse_mark_key(&mut blobs, "cabal:devour:06").unwrap();
     assert!(matches!(bare.atoms().0[1], Atom::Absent));
     assert!(bare < key);
     assert_eq!(MarkKey::from_atoms(key.family(), &atoms[..n]), Some(key));

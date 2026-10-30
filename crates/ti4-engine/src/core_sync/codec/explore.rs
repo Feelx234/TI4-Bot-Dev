@@ -7,6 +7,7 @@ use ti4_model::state::{ExplorationRecord, GameState};
 use super::{Sources, SliceCodec};
 use crate::core_sync::conv::{explore_key, explore_type, id, txt};
 use crate::core_sync::ctx::Ctx;
+use crate::core_sync::texts::TextCodes;
 use crate::core_sync::error::{R, bad};
 
 const S: Slice = Slice::Explore;
@@ -51,11 +52,11 @@ impl SliceCodec for Explore {
         for r in &gs.exploration_log {
             let mut gains = SortedMap::new();
             for (k, v) in &r.gains {
-                gains.insert(cx.texts.intern(S, k)?, *v);
+                gains.insert(core.texts.intern_code(S, k)?, *v);
             }
             let mut placed: SmallList<_, 2> = SmallList::new();
             for p in &r.placed {
-                placed.push(cx.texts.intern(S, p)?);
+                placed.push(core.texts.intern_code(S, p)?);
             }
             log.push(ExploreRec {
                 round: r.round,
@@ -63,10 +64,10 @@ impl SliceCodec for Explore {
                 deck: explore_type(S, &r.deck)?,
                 card: id::<ExploreCard>(S, "exploration card", &r.card)?,
                 planet: r.planet.as_ref().map(|p| id::<Planet>(S, "planet", p.as_str())).transpose()?,
-                outcome: cx.texts.intern(S, &r.outcome)?,
+                outcome: core.texts.intern_code(S, &r.outcome)?,
                 system: r.system.as_deref().map(|s| id::<System>(S, "system", s)).transpose()?,
                 // An empty result text is not written (`skip_serializing_if`): `None`.
-                result: if r.result.is_empty() { None } else { Some(cx.texts.intern(S, &r.result)?) },
+                result: if r.result.is_empty() { None } else { Some(core.texts.intern_code(S, &r.result)?) },
                 gains,
                 placed,
             });
@@ -99,11 +100,11 @@ impl SliceCodec for Explore {
                     deck: explore_key(r.deck),
                     card: txt(r.card).to_owned(),
                     planet: r.planet.map(|p| PlanetId::new(txt(p))),
-                    outcome: cx.texts.text(S, r.outcome)?.to_owned(),
+                    outcome: core.texts.code_text(S, r.outcome)?.to_owned(),
                     system: r.system.map(|s| txt(s).to_owned()),
-                    result: r.result.map(|c| cx.texts.text(S, c).map(str::to_owned)).transpose()?.unwrap_or_default(),
-                    gains: r.gains.iter().map(|(k, v)| Ok((cx.texts.text(S, *k)?.to_owned(), *v))).collect::<R<_>>()?,
-                    placed: r.placed.iter().map(|c| cx.texts.text(S, *c).map(str::to_owned)).collect::<R<_>>()?,
+                    result: r.result.map(|c| core.texts.code_text(S, c).map(str::to_owned)).transpose()?.unwrap_or_default(),
+                    gains: r.gains.iter().map(|(k, v)| Ok((core.texts.code_text(S, *k)?.to_owned(), *v))).collect::<R<_>>()?,
+                    placed: r.placed.iter().map(|c| core.texts.code_text(S, *c).map(str::to_owned)).collect::<R<_>>()?,
                 })
             })
             .collect::<R<_>>()?;

@@ -2196,6 +2196,45 @@ impl<'a> Game<'a> {
         &mut self.timing
     }
 
+    /// Replace the timing resolver by one rebuilt from its image (the `TI4_CHURN=resolver` step).
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn churn_resolver(&mut self) {
+        crate::resolver_sync::churn(&self.state, &mut self.timing, &mut self.event_sequence);
+    }
+
+    /// `state := materialize(load(state))` and the stream positions through the codec (the `TI4_CHURN=state` step). The map
+    /// slice is loaded when the game has a string galaxy. Loud on anything the core cannot hold or hand back unchanged.
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn churn_state(&mut self) {
+        use crate::core_sync::{Codec, Ctx, SliceSet, Sources, materialize};
+        let mut slices = SliceSet::ALL;
+        if self.galaxy.is_none() {
+            slices = SliceSet(slices.0 & !(1 << crate::core_sync::Slice::Map as u32));
+        }
+        let positions = self.rng.positions();
+        let src = Sources { galaxy: self.galaxy.as_ref(), rng: Some(&positions) };
+        fn loud(what: &str, e: &dyn std::fmt::Display) -> ! {
+            panic!("TI4_CHURN=state: {what}: {e}")
+        }
+        let mut cx = Ctx::of(&self.state).unwrap_or_else(|e| loud("owners", &e));
+        let core = Codec::load(&mut cx, &self.state, src, slices).unwrap_or_else(|e| loud("load", &e));
+        let state = materialize::materialize(&core, &cx, &self.state).unwrap_or_else(|e| loud("store", &e));
+        let after = materialize::rng_positions(&core).unwrap_or_else(|e| loud("rng positions", &e));
+        if state != self.state {
+            let (a, b) = (serde_json::to_value(&self.state).unwrap_or_default(), serde_json::to_value(&state).unwrap_or_default());
+            let differing: Vec<String> = a.as_object().into_iter().flatten().filter(|(k, v)| b.get(k.as_str()) != Some(v)).map(|(k, _)| k.clone()).collect();
+            panic!("TI4_CHURN=state: store(load(state)) differs from the state in {differing:?}");
+        }
+        assert_eq!(after, positions, "TI4_CHURN=state: the stream positions changed on the way through the core");
+        self.state = state;
+        self.rng.set_positions(&after);
+    }
+
+    #[cfg(all(test, feature = "typed-core"))]
+    pub(crate) const fn event_sequence(&self) -> &EventSequence {
+        &self.event_sequence
+    }
+
     /// Access the game dice roller and its roll history.
     #[must_use]
     pub const fn dice(&self) -> &Dice {
@@ -2315,6 +2354,16 @@ impl<'a> Game<'a> {
     /// Resolve one generated decision, or one choice-free phase/window transition.
     #[must_use]
     pub fn step(&mut self) -> StepResult {
+        // `TI4_CHURN=resolver`: the timing resolver is rebuilt from its image before every step (D2-4a).
+        #[cfg(feature = "typed-core")]
+        if crate::churn::resolver() {
+            self.churn_resolver();
+        }
+        // `TI4_CHURN=state`: the state and the dice streams go through the core before every step (D2-5).
+        #[cfg(feature = "typed-core")]
+        if crate::churn::state() {
+            self.churn_state();
+        }
         #[cfg(feature = "typed-core")]
         if d1_pending::active() {
             self.d1.outcome = None;

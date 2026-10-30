@@ -109,6 +109,13 @@ pub struct Recording {
     pub cfg: Option<ResolverCfg>,
     /// The trace id of the first event the window emitted (the core numbers its own from there).
     pub first_event_id: Option<u64>,
+    /// The resolver as the window's own last emission left it (D2-4b: what the core's resolver state must equal).
+    pub after: Option<ResolverCfg>,
+    /// How many emissions of the window (at any depth) finished with an event: the string numbers its trace ids
+    /// consecutively, so the next id is `first_event_id + finished` unless an emission failed.
+    pub finished: u64,
+    /// Some emission of the window ended in an error (it may have spent an id that no event shows).
+    pub failed_emit: bool,
     /// The destinations a Skilled Retreat found for `(player, system)`, as the string's map computed them (the core is lent
     /// no galaxy): an input of the card, noted by its effect.
     pub withdraw: Vec<(String, String, Vec<String>)>,
@@ -419,6 +426,17 @@ pub fn note_resolver(first_event_id: u64, make: impl FnOnce() -> ResolverCfg) {
     });
 }
 
+/// The emission that began at depth `began` ended: when it is the window's own, the resolver as it left it.
+pub fn note_resolver_after(began: u32, make: impl FnOnce() -> ResolverCfg) {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            if rec.base == began && rec.cfg.is_some() {
+                rec.after = Some(make());
+            }
+        }
+    });
+}
+
 /// The abilities one seat found eligible in one window pass (the resolver's `eligible`).
 pub fn note_eligible<'a>(abilities: impl IntoIterator<Item = &'a str>) {
     REC.with(|r| {
@@ -448,6 +466,11 @@ pub fn leave_emit(began: u32, done: Option<&Event>) {
     DEPTH.with(|d| d.set(began));
     REC.with(|r| {
         if let Some(rec) = r.borrow_mut().as_mut() {
+            if done.is_some() {
+                rec.finished += 1;
+            } else {
+                rec.failed_emit = true;
+            }
             if began > rec.base {
                 rec.nested = true;
                 if rec.effect_depth == 0 {
@@ -650,6 +673,13 @@ pub fn drive_windowed<W: Window>(
             if let Some(id) = script.first_event_id {
                 driver.next_id = id;
             }
+            // D2-4b: the persistent part of the resolver travels in the state the window runs on (`Pending` is in the
+            // footprint of every window that follows nested activity).
+            if core.loaded.has(Slice::Pending) {
+                if let Some(state) = script.cfg.as_ref().and_then(|cfg| crate::resolver_sync::cfg_state(r, cfg, driver.next_id)) {
+                    core.pending_mut().resolver = state;
+                }
+            }
         }
         Ok(None) => {}
         Err(why) => {
@@ -686,6 +716,7 @@ pub fn drive_windowed<W: Window>(
                 out.finished = true;
                 compare_ability_dice(core, script);
                 compare_nested_events(r, driver, script);
+                compare_resolver(r, driver, core, script);
                 return Ok(out);
             }
             Status::Asking(choice) => {
@@ -769,6 +800,25 @@ fn compare_nested_events<W: Window>(r: &Render, driver: &Driver<W>, script: &Rec
     let mut string: Vec<String> = script.nested_kinds.iter().filter(|k| !k.starts_with("ask:")).cloned().collect();
     string.sort();
     crate::dual::compare_value(crate::dual::Area::Driver, "nested.events", &string, &core);
+}
+
+/// The persistent part of the resolver after the window (D2-4b): what the string resolver's last emission of the window left
+/// (spent frequency keys in order, initiative order, open emissions, the next trace id) against the core's. The core side
+/// goes through the state when the window was lent `Pending` (the driver stores its resolver there), else it is the driver's.
+/// Only a window that followed nested activity runs a resolver with a registry; the others spent nothing worth comparing.
+fn compare_resolver<W: Window>(r: &Render, driver: &Driver<W>, core: &mut CoreState, script: &Recording) {
+    if !script.nested || script.failed_emit {
+        return;
+    }
+    let (Some(after), Some(first)) = (script.after.as_ref(), script.first_event_id) else { return };
+    let Some(string) = crate::resolver_sync::cfg_state(r, after, first + script.finished) else { return };
+    let core_side = if core.loaded.has(Slice::Pending) {
+        driver.store(core);
+        core.pending().resolver.clone()
+    } else {
+        driver.resolver.into_state(driver.next_id)
+    };
+    crate::dual::compare_value(crate::dual::Area::Driver, "resolver.state", &format!("{string:?}"), &format!("{core_side:?}"));
 }
 
 /// The dice the abilities of the string run rolled, against the ones the core abilities rolled (the ledger rows
@@ -2946,7 +2996,7 @@ pub fn bombard(
         };
         plan.push(Entry {
             planet: planet_of(&e.planet)?,
-            template: crate::core_sync::codec::transient::invasion_step(&mut cx, &template).ok()?,
+            template: cx.minting(|c, tx| crate::core_sync::codec::transient::invasion_step(c, tx, &template)).ok()?,
             groups: SmallList::from_slice(&e.groups),
             held: e.held,
             victims: seats(&e.victims)?,
@@ -3295,7 +3345,7 @@ pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceS
         hits: std::collections::BTreeMap::new(),
         harrow_hits: 0,
     };
-    let template = crate::core_sync::codec::transient::invasion_step(&mut cx, &template).ok()?;
+    let template = cx.minting(|c, tx| crate::core_sync::codec::transient::invasion_step(c, tx, &template)).ok()?;
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
     let facts = Facts {
@@ -3995,4 +4045,119 @@ pub fn with_composed<T>(on: bool, body: impl FnOnce() -> T) -> T {
     let out = body();
     COMPOSED.with(|c| c.set(before));
     out
+}
+
+#[cfg(test)]
+mod resolver_state_tests {
+    use ti4_engine_core::Seat;
+    use ti4_engine_core::choice::{Choice as CoreChoice, Pick};
+    use ti4_engine_core::kernel::stage::{Illegal, Sx};
+    use ti4_engine_core::kernel::{Kernel, Next};
+
+    use super::*;
+
+    /// A window that ends at once: the driver and its resolver are all there is to compare.
+    #[derive(Clone)]
+    struct Idle;
+
+    impl Window for Idle {
+        type Stage = ();
+        fn stage(&self) {}
+        fn step(&mut self, _: &mut Sx<'_>) -> Next {
+            Next::Done
+        }
+        fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<CoreChoice> {
+            None
+        }
+        fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
+            Err(Illegal)
+        }
+    }
+
+    fn cfg(used: &[(&str, &str)]) -> ResolverCfg {
+        ResolverCfg {
+            initiative: vec!["a".into(), "b".into()],
+            seating: Vec::new(),
+            active: Some("a".into()),
+            speaker: None,
+            phase: ti4_model::state::Phase::Action,
+            round: 1,
+            turn: 1,
+            max_depth: 100,
+            used: used.iter().map(|(a, b)| ((*a).into(), (*b).into())).collect(),
+            sources: ti4_model::content_types::POK,
+            stack: Vec::new(),
+        }
+    }
+
+    /// The differences the comparison finds for a window that left `after_used` spent in the string resolver while the
+    /// core driver spent nothing, and the next trace id the state ends with.
+    fn run(nested: bool, after_used: &[(&str, &str)]) -> (usize, u64) {
+        run_at(nested, after_used, 0, 5)
+    }
+
+    /// [`run`] for a window that finished `finished` emissions and whose driver numbered its events up to `driver_next`.
+    fn run_at(nested: bool, after_used: &[(&str, &str)], finished: u64, driver_next: u64) -> (usize, u64) {
+        let _serial = crate::dual::tests::serial();
+        crate::dual::take_report();
+        let r = Render::new(vec!["a".into(), "b".into()]);
+        let driver = Driver::new(Idle, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), driver_next);
+        let mut core = CoreState::all_loaded();
+        let script = Recording {
+            nested,
+            cfg: Some(cfg(&[])),
+            after: Some(cfg(after_used)),
+            first_event_id: Some(5),
+            finished,
+            ..Recording::default()
+        };
+        compare_resolver(&r, &driver, &mut core, &script);
+        (crate::dual::take_report().differences.len(), core.pending().resolver.next_id)
+    }
+
+    #[test]
+    fn a_window_that_leaves_the_resolver_as_the_string_did_agrees() {
+        assert_eq!(run(true, &[]), (0, 5), "same keys, same initiative, the counter where the string left it; stored in the state");
+    }
+
+    #[test]
+    fn a_key_the_string_spent_and_the_core_did_not_is_a_difference() {
+        assert_eq!(run(true, &[("ability:x", "Round(1)")]).0, 1);
+    }
+
+    #[test]
+    fn the_next_trace_id_is_the_first_plus_the_emissions_that_finished() {
+        assert_eq!(run_at(true, &[], 2, 7), (0, 7), "5 + 2 emissions");
+        assert_eq!(run_at(true, &[], 2, 5).0, 1, "a core that numbered fewer events differs");
+    }
+
+    #[test]
+    fn the_recording_keeps_the_resolver_after_the_windows_own_last_emission_only() {
+        assert!(start());
+        let ev = |id| Event::new(id, "E", std::collections::BTreeMap::new());
+        note_resolver(5, || cfg(&[]));
+        // the window's own emission, with a nested one inside it
+        let outer = enter_emit();
+        let inner = enter_emit();
+        leave_emit(inner, Some(&ev(6)));
+        note_resolver_after(inner, || cfg(&[("ability:nested", "Round(1)")]));
+        leave_emit(outer, Some(&ev(5)));
+        note_resolver_after(outer, || cfg(&[("ability:own", "Round(1)")]));
+        let rec = finish();
+        assert_eq!(rec.after.map(|c| c.used), Some(vec![("ability:own".to_owned(), "Round(1)".to_owned())]));
+        assert_eq!(rec.finished, 2);
+        assert!(!rec.failed_emit);
+        // an emission that failed is noted, and a recording that saw no resolver keeps no `after`
+        assert!(start());
+        let g = enter_emit();
+        leave_emit(g, None);
+        note_resolver_after(g, || cfg(&[]));
+        let rec = finish();
+        assert!(rec.failed_emit && rec.after.is_none());
+    }
+
+    #[test]
+    fn a_window_that_followed_no_nested_activity_is_not_compared() {
+        assert_eq!(run(false, &[("ability:x", "Round(1)")]), (0, 1), "nothing compared, nothing stored");
+    }
 }

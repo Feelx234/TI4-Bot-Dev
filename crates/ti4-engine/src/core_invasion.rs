@@ -117,7 +117,7 @@ impl InvasionView<'_> {
         for (t, p) in positions {
             typed_pos.push((crate::core_sync::codec::rng::domain(&mut self.cx, t).ok()?, *p));
         }
-        let seeds = crate::core_sync::codec::rng::TextSeeds(&self.cx);
+        let seeds = crate::core_sync::codec::rng::TextSeeds::of(&self.cx);
         let mut rng = CoreRng::new(seed);
         rng.set_positions(&typed_pos, &seeds as &dyn SeedSource);
         let plan = ci::bombard_plan(self.rd_for(gs, invader)?, sys, seat);

@@ -358,7 +358,7 @@ impl<'g> CombatView<'g> {
         for (t, p) in positions {
             typed_pos.push((crate::core_sync::codec::rng::domain(&mut self.cx, t).ok()?, *p));
         }
-        let seeds = crate::core_sync::codec::rng::TextSeeds(&self.cx);
+        let seeds = crate::core_sync::codec::rng::TextSeeds::of(&self.cx);
         let mut rng = CoreRng::new(seed);
         rng.set_positions(&typed_pos, &seeds as &dyn SeedSource);
         let rolls = self.with(|rd| f(rd, &mut rng, &seeds));
@@ -446,14 +446,14 @@ impl<'g> CombatView<'g> {
         for (player, set) in sides {
             let seat = self.seat(player)?;
             let set = match set {
-                Some(s) => Some(tc::reroll_set(&mut self.cx, s).ok()?),
+                Some(s) => Some(self.cx.minting(|cx, tx| tc::reroll_set(cx, tx, s)).ok()?),
                 None => None,
             };
             sets.push((seat, set));
         }
         let args: Vec<_> = sets.iter().map(|(seat, set)| (*seat, set.as_ref())).collect();
         let dice = cc::round_dice(&args);
-        dice.iter().map(|d| tc::die_back(&self.cx, d).ok()).collect()
+        dice.iter().map(|d| tc::die_back(&self.cx, self.cx.texts.tables(), d).ok()).collect()
     }
 
     /// `combat::sustains_in_space`.

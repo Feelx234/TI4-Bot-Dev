@@ -142,6 +142,21 @@ impl<W: Window> Driver<W> {
         }
     }
 
+    /// A driver whose resolver and trace counter are the state's own (D2-4b): the persistent part of the
+    /// resolver is `state.pending.resolver`, the registry is the caller's (derived, see
+    /// `AbilityTable::registry`), and the clock and the seats are set by the caller as for [`Self::new`].
+    #[must_use]
+    pub fn from_state(window: W, state: &CoreState, registry: crate::containers::Cow<crate::kernel::Registry>, table: AbilityTable) -> Self {
+        let carried = &state.pending().resolver;
+        Self::new(window, Resolver::from_state(carried, registry), table, carried.next_id)
+    }
+
+    /// Write the resolver's persistent part and the trace counter back into the state (what a driver that
+    /// was made by [`Self::from_state`] owes the state when its window ends or asks).
+    pub fn store(&self, state: &mut CoreState) {
+        state.pending_mut().resolver = self.resolver.into_state(self.next_id);
+    }
+
     /// The same driver drawing its dice from streams seeded by `seeds`.
     #[must_use]
     pub fn with_seeds(mut self, seeds: std::rc::Rc<dyn SeedSource>) -> Self {
@@ -404,6 +419,26 @@ mod tests {
         assert_eq!(d.emitted.len(), 1);
         assert_eq!(d.emitted[0].id, 10, "trace ids come from the driver");
         assert_eq!(d.next_id, 11);
+    }
+
+    #[test]
+    fn a_driver_made_from_the_state_continues_the_trace_ids_and_the_spent_keys() {
+        let (mut s, k, mut d) = setup();
+        d.run(&mut s, &k).unwrap();
+        d.resume(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+        assert!(!d.resolver.used_keys().is_empty(), "the window spent a once-per-trigger key");
+        assert_eq!(s.pending().resolver.next_id, 1, "nothing is stored before the driver says so");
+        d.store(&mut s);
+        assert_eq!(s.pending().resolver.next_id, 11);
+        assert_eq!(s.pending().resolver.initiative.as_slice(), &[Seat(0)]);
+        // the next window of the game starts from the state alone
+        let (_, _, fresh) = setup();
+        let next = Driver::from_state(Announce { done: false }, &s, crate::containers::Cow::new(d.resolver.registry().clone()), fresh.table);
+        assert_eq!(next.next_id, 11, "trace ids continue");
+        assert_eq!(next.resolver.used_keys(), d.resolver.used_keys(), "spent keys carry over, in order");
+        // a checkpoint of the state carries it too
+        assert_eq!(s.clone().pending().resolver, s.pending().resolver);
     }
 
     #[test]

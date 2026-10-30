@@ -18,7 +18,7 @@ use ti4_model::state::GameState;
 use ti4_engine_core_factions::cb_economy::cabal::timing as cabal;
 
 use crate::dual_window::{Recording, ResolverCfg};
-use crate::kernel_sync::text::{ability_id, event_kind, event_text, relation_text};
+use crate::kernel_sync::text::{ability_id, event_text, relation_text};
 use crate::render::Render;
 
 /// One ported ability rule, named: the registered id of an owner is `{kind}:{owner}:{card}:{EVENT}:{rel}`; the
@@ -414,28 +414,19 @@ fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {
     crate::render::generic::core_phase(p)
 }
 
-/// A core resolver configured as the string one was (no registry).
+/// A core resolver configured as the string one was (no registry): made from the persistent part the state
+/// carries (`ResolverState`, D2-4b), the clock and the seats set as the string resolver had them.
 #[must_use]
 pub fn resolver_of(r: &Render, cfg: &ResolverCfg) -> Option<Resolver> {
-    use ti4_engine_core::kernel::resolver::UsedScope;
     let seats = |v: &[String]| -> Option<Vec<Seat>> { v.iter().map(|s| r.seat(s)).collect() };
-    let mut core = Resolver::new(&seats(&cfg.initiative)?, cfg.active.as_deref().and_then(|s| r.seat(s)));
+    let state = crate::resolver_sync::cfg_state(r, cfg, 1)?;
+    let mut core = Resolver::from_state(&state, ti4_engine_core::containers::Cow::new(ti4_engine_core::kernel::Registry::default()));
+    core.set_active_player(cfg.active.as_deref().and_then(|s| r.seat(s)));
     core.set_phase(phase_of(cfg.phase));
     core.set_seating_order(&seats(&cfg.seating)?);
     core.set_speaker(cfg.speaker.as_deref().and_then(|s| r.seat(s)));
     core.set_counters(cfg.round, cfg.turn);
-    core.set_emission_stack(&cfg.stack.iter().map(|(kind, id)| (event_kind(r, kind), *id)).collect::<Vec<_>>());
     core.set_maximum_depth(cfg.max_depth);
-    for (id, scope) in &cfg.used {
-        let Some((kind, rest)) = scope.split_once('(') else { continue };
-        let n: u64 = rest.trim_end_matches(')').parse().unwrap_or(0);
-        let kind = match kind {
-            "Trigger" => UsedScope::Trigger,
-            "Turn" => UsedScope::Turn,
-            _ => UsedScope::Round,
-        };
-        core.spend(ability_id(r, id), kind, n);
-    }
     Some(core)
 }
 

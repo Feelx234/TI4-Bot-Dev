@@ -2,8 +2,9 @@
 //! `GameState` (docs/ENGINE_CORE_STATE.md, table 1.8), as pure `parse` / `render` functions over
 //! the typed enums of `ti4_engine_core::keys`.
 //!
-//! * [`Codec`] holds what the text depends on: the owner table ([`Owners`]) and the table of
-//!   uninterpreted value texts ([`Blobs`]).
+//! * [`Codec`] holds what the text depends on: the owner table ([`Owners`]). The table of
+//!   uninterpreted value texts (`Atom::Blob`) is the state's (`CoreState::texts.blobs`); the parsing
+//!   methods that can mint a blob take it as `blobs`.
 //! * Marks: `Codec::{parse,render}_mark{,_key,_value}`; the families and their value shapes are
 //!   `marks.rs` and `mark_values.rs`.
 //! * Outcomes, ledger reasons, destruction causes and the deck / slice keys: `other.rs`.
@@ -27,4 +28,4 @@ pub use other::{
     parse_destroy, parse_expedition, parse_explore_deck, parse_ledger, render_destroy,
     render_expedition, render_explore_deck, render_ledger,
 };
-pub use text::{Blobs, Codec, K, Owners};
+pub use text::{Codec, K, Owners};

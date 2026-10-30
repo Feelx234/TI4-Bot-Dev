@@ -2,7 +2,7 @@ use ti4_engine_core::containers::{Cow, Log, SmallList, SortedMap};
 use ti4_engine_core::generated::{ActionCard, Planet, StrategyCard, System, Technology, Unit};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::state as c;
-use ti4_engine_core::state::{CoreState, Slice};
+use ti4_engine_core::state::{CoreState, Slice, Texts};
 use ti4_model::id::{ActionCardId, PlanetId, PlayerId, StrategyCardId, SystemId, TechnologyId, UnitTypeId};
 use ti4_model::state as m;
 use ti4_model::state::GameState;
@@ -11,6 +11,7 @@ use super::board::{pieces, units};
 use super::{Sources, SliceCodec};
 use crate::core_sync::conv::{id, narrow, txt};
 use crate::core_sync::ctx::Ctx;
+use crate::core_sync::texts::TextCodes;
 use crate::core_sync::error::{R, bad};
 
 const S: Slice = Slice::Transient;
@@ -60,21 +61,21 @@ fn seat_counts_usize_back(cx: &Ctx, m: &SortedMap<Seat, u32, 4>) -> R<std::colle
     m.iter().map(|(k, v)| Ok((PlayerId::new(cx.owner(S, *k)?), *v as usize))).collect()
 }
 
-pub(crate) fn die(cx: &mut Ctx, r: &m::CombatRollRecord) -> R<c::CombatDie> {
-    Ok(c::CombatDie { player: cx.seat(S, r.player.as_str())?, unit: cx.texts.intern(S, &r.unit)?, roll: r.roll, target: r.target, hit: r.hit })
+pub(crate) fn die(cx: &Ctx, tx: &mut Texts, r: &m::CombatRollRecord) -> R<c::CombatDie> {
+    Ok(c::CombatDie { player: cx.seat(S, r.player.as_str())?, unit: tx.intern_code(S, &r.unit)?, roll: r.roll, target: r.target, hit: r.hit })
 }
 
-pub(crate) fn die_back(cx: &Ctx, d: &c::CombatDie) -> R<m::CombatRollRecord> {
+pub(crate) fn die_back(cx: &Ctx, tx: &Texts, d: &c::CombatDie) -> R<m::CombatRollRecord> {
     Ok(m::CombatRollRecord {
         player: PlayerId::new(cx.owner(S, d.player)?),
-        unit: cx.texts.text(S, d.unit)?.to_owned(),
+        unit: tx.code_text(S, d.unit)?.to_owned(),
         roll: d.roll,
         target: d.target,
         hit: d.hit,
     })
 }
 
-pub(crate) fn reroll_set(cx: &mut Ctx, r: &m::RerollSet) -> R<c::RerollSet> {
+pub(crate) fn reroll_set(_cx: &Ctx, tx: &mut Texts, r: &m::RerollSet) -> R<c::RerollSet> {
     let mut rolls = Vec::with_capacity(r.rolls.len());
     for e in &r.rolls {
         let mut rerolled = 0u64;
@@ -90,10 +91,10 @@ pub(crate) fn reroll_set(cx: &mut Ctx, r: &m::RerollSet) -> R<c::RerollSet> {
         }
         let mut unit_types = SortedMap::new();
         for (k, v) in &e.unit_types {
-            unit_types.insert(cx.texts.intern(S, k)?, *v);
+            unit_types.insert(tx.intern_code(S, k)?, *v);
         }
         rolls.push(c::RerollEntry {
-            unit: cx.texts.intern(S, &e.unit)?,
+            unit: tx.intern_code(S, &e.unit)?,
             planet: e.planet.as_ref().map(planet).transpose()?,
             hits_on: e.hits_on.map(|h| narrow::<u32, u8>(S, "hits_on", h)).transpose()?,
             faces: e.faces.iter().map(|f| narrow::<u32, u8>(S, "face", *f)).collect::<R<_>>()?,
@@ -102,14 +103,14 @@ pub(crate) fn reroll_set(cx: &mut Ctx, r: &m::RerollSet) -> R<c::RerollSet> {
             unit_types,
         });
     }
-    Ok(c::RerollSet { kind: cx.texts.intern(S, &r.kind)?, system: sys(&r.system)?, rolls })
+    Ok(c::RerollSet { kind: tx.intern_code(S, &r.kind)?, system: sys(&r.system)?, rolls })
 }
 
-pub(crate) fn reroll_set_back(cx: &Ctx, r: &c::RerollSet) -> R<m::RerollSet> {
+pub(crate) fn reroll_set_back(_cx: &Ctx, tx: &Texts, r: &c::RerollSet) -> R<m::RerollSet> {
     let mut rolls = Vec::with_capacity(r.rolls.len());
     for e in &r.rolls {
         rolls.push(m::RerollEntry {
-            unit: cx.texts.text(S, e.unit)?.to_owned(),
+            unit: tx.code_text(S, e.unit)?.to_owned(),
             planet: e.planet.map(pid),
             hits_on: e.hits_on.map(u32::from),
             faces: e.faces.iter().map(|f| u32::from(*f)).collect(),
@@ -118,17 +119,17 @@ pub(crate) fn reroll_set_back(cx: &Ctx, r: &c::RerollSet) -> R<m::RerollSet> {
             unit_types: e
                 .unit_types
                 .iter()
-                .map(|(k, v)| Ok((cx.texts.text(S, *k)?.to_owned(), *v)))
+                .map(|(k, v)| Ok((tx.code_text(S, *k)?.to_owned(), *v)))
                 .collect::<R<_>>()?,
         });
     }
-    Ok(m::RerollSet { kind: cx.texts.text(S, r.kind)?.to_owned(), system: sid(r.system), rolls })
+    Ok(m::RerollSet { kind: tx.code_text(S, r.kind)?.to_owned(), system: sid(r.system), rolls })
 }
 
-pub(crate) fn invasion_step(cx: &mut Ctx, s: &m::InvasionStep) -> R<c::InvasionStep> {
+pub(crate) fn invasion_step(cx: &Ctx, tx: &mut Texts, s: &m::InvasionStep) -> R<c::InvasionStep> {
     Ok(c::InvasionStep {
         planet: planet(&s.planet)?,
-        kind: cx.texts.intern(S, &s.kind)?,
+        kind: tx.intern_code(S, &s.kind)?,
         round: s.round,
         before: pieces(cx, &s.before)?.to_vec(),
         after: pieces(cx, &s.after)?.to_vec(),
@@ -139,7 +140,7 @@ pub(crate) fn invasion_step(cx: &mut Ctx, s: &m::InvasionStep) -> R<c::InvasionS
                 Ok(c::InvasionDie {
                     planet: planet(&d.planet)?,
                     player: cx.seat(S, d.player.as_str())?,
-                    group: cx.texts.intern(S, &d.group)?,
+                    group: tx.intern_code(S, &d.group)?,
                     face: d.face,
                     target: d.target,
                     hit: d.hit,
@@ -151,10 +152,10 @@ pub(crate) fn invasion_step(cx: &mut Ctx, s: &m::InvasionStep) -> R<c::InvasionS
     })
 }
 
-fn invasion_step_back(cx: &Ctx, s: &c::InvasionStep) -> R<m::InvasionStep> {
+fn invasion_step_back(cx: &Ctx, tx: &Texts, s: &c::InvasionStep) -> R<m::InvasionStep> {
     Ok(m::InvasionStep {
         planet: pid(s.planet),
-        kind: cx.texts.text(S, s.kind)?.to_owned(),
+        kind: tx.code_text(S, s.kind)?.to_owned(),
         round: s.round,
         before: units(cx, &s.before)?,
         after: units(cx, &s.after)?,
@@ -165,7 +166,7 @@ fn invasion_step_back(cx: &Ctx, s: &c::InvasionStep) -> R<m::InvasionStep> {
                 Ok(m::InvasionDie {
                     planet: pid(d.planet),
                     player: PlayerId::new(cx.owner(S, d.player)?),
-                    group: cx.texts.text(S, d.group)?.to_owned(),
+                    group: tx.code_text(S, d.group)?.to_owned(),
                     face: d.face,
                     target: d.target,
                     hit: d.hit,
@@ -199,7 +200,7 @@ impl SliceCodec for Transient {
         let cb = &mut t.combat;
         let mut staging = Vec::new();
         for (p, set) in &gs.reroll_staging {
-            staging.push((cx.seat(S, p.as_str())?, reroll_set(cx, set)?));
+            staging.push((cx.seat(S, p.as_str())?, reroll_set(cx, &mut core.texts, set)?));
         }
         cb.reroll_staging = Cow::new(staging);
         cb.last_reroll_player = gs.last_reroll_player.as_ref().map(|p| cx.seat(S, p.as_str())).transpose()?;
@@ -221,7 +222,7 @@ impl SliceCodec for Transient {
                 system: sys(s)?,
                 owner: cx.seat(S, o.as_str())?,
                 unit: unit(u)?,
-                reason: cx.texts.intern(S, reason)?,
+                reason: core.texts.intern_code(S, reason)?,
                 during_space_combat: *during,
             });
         }
@@ -253,18 +254,18 @@ impl SliceCodec for Transient {
         cb.combat_round_hits = seat_counts(cx, &gs.combat_round_hits)?;
         let mut dice = Log::new();
         for d in &gs.combat_round_dice {
-            dice.push(die(cx, d)?);
+            dice.push(die(cx, &mut core.texts, d)?);
         }
         cb.combat_round_dice = dice;
         let p = &gs.combat_presentation;
         cb.presentation = Cow::new(c::CombatPresentation {
             battle_seq: p.battle_seq,
-            phase: cx.texts.intern(S, &p.phase)?,
+            phase: core.texts.intern_code(S, &p.phase)?,
             round: p.round,
             round_start: pieces(cx, &p.round_start)?.to_vec(),
             barrage_start: pieces(cx, &p.barrage_start)?.to_vec(),
             barrage_hits: seat_counts(cx, &p.barrage_hits)?,
-            barrage_dice: p.barrage_dice.iter().map(|d| die(cx, d)).collect::<R<_>>()?,
+            barrage_dice: p.barrage_dice.iter().map(|d| die(cx, &mut core.texts, d)).collect::<R<_>>()?,
             remaining_hits: seat_counts_usize(cx, &p.remaining_hits)?,
         });
         cb.pending_reflective_hits = gs
@@ -286,11 +287,11 @@ impl SliceCodec for Transient {
                     system: sys(&a.system)?,
                     invader: cx.seat(S, a.invader.as_str())?,
                     seq: a.seq,
-                    phase: cx.texts.intern(S, &a.phase)?,
+                    phase: core.texts.intern_code(S, &a.phase)?,
                     planet: a.planet.as_ref().map(planet).transpose()?,
                     defender: a.defender.as_ref().map(|d| cx.seat(S, d.as_str())).transpose()?,
                     ground_round: a.ground_round,
-                    last_step: a.last_step.as_ref().map(|s| invasion_step(cx, s)).transpose()?,
+                    last_step: a.last_step.as_ref().map(|s| invasion_step(cx, &mut core.texts, s)).transpose()?,
                 }))
             })
             .transpose()?;
@@ -340,7 +341,7 @@ impl SliceCodec for Transient {
         gs.reroll_staging = cb
             .reroll_staging
             .iter()
-            .map(|(s, set)| Ok((PlayerId::new(cx.owner(S, *s)?), reroll_set_back(cx, set)?)))
+            .map(|(s, set)| Ok((PlayerId::new(cx.owner(S, *s)?), reroll_set_back(cx, &core.texts, set)?)))
             .collect::<R<_>>()?;
         gs.last_reroll_player = cb.last_reroll_player.map(|s| cx.owner(S, s).map(PlayerId::new)).transpose()?;
         gs.last_committed_unit = cb
@@ -364,7 +365,7 @@ impl SliceCodec for Transient {
                     sid(d.system),
                     PlayerId::new(cx.owner(S, d.owner)?),
                     uid(d.unit),
-                    cx.texts.text(S, d.reason)?.to_owned(),
+                    core.texts.code_text(S, d.reason)?.to_owned(),
                     d.during_space_combat,
                 ))
             })
@@ -394,16 +395,16 @@ impl SliceCodec for Transient {
             .map(|(s, a, d)| Ok((sid(s), PlayerId::new(cx.owner(S, a)?), PlayerId::new(cx.owner(S, d)?))))
             .transpose()?;
         gs.combat_round_hits = seat_counts_back(cx, &cb.combat_round_hits)?;
-        gs.combat_round_dice = cb.combat_round_dice.iter().map(|d| die_back(cx, d)).collect::<R<_>>()?;
+        gs.combat_round_dice = cb.combat_round_dice.iter().map(|d| die_back(cx, &core.texts, d)).collect::<R<_>>()?;
         let p = &cb.presentation;
         gs.combat_presentation = m::CombatPresentation {
             battle_seq: p.battle_seq,
-            phase: cx.texts.text(S, p.phase)?.to_owned(),
+            phase: core.texts.code_text(S, p.phase)?.to_owned(),
             round: p.round,
             round_start: units(cx, &p.round_start)?,
             barrage_start: units(cx, &p.barrage_start)?,
             barrage_hits: seat_counts_back(cx, &p.barrage_hits)?,
-            barrage_dice: p.barrage_dice.iter().map(|d| die_back(cx, d)).collect::<R<_>>()?,
+            barrage_dice: p.barrage_dice.iter().map(|d| die_back(cx, &core.texts, d)).collect::<R<_>>()?,
             remaining_hits: seat_counts_usize_back(cx, &p.remaining_hits)?,
         };
         gs.pending_reflective_hits = cb
@@ -424,11 +425,11 @@ impl SliceCodec for Transient {
                     system: sid(a.system),
                     invader: PlayerId::new(cx.owner(S, a.invader)?),
                     seq: a.seq,
-                    phase: cx.texts.text(S, a.phase)?.to_owned(),
+                    phase: core.texts.code_text(S, a.phase)?.to_owned(),
                     planet: a.planet.map(pid),
                     defender: a.defender.map(|d| cx.owner(S, d).map(PlayerId::new)).transpose()?,
                     ground_round: a.ground_round,
-                    last_step: a.last_step.as_ref().map(|s| invasion_step_back(cx, s)).transpose()?,
+                    last_step: a.last_step.as_ref().map(|s| invasion_step_back(cx, &core.texts, s)).transpose()?,
                 })
             })
             .transpose()?;

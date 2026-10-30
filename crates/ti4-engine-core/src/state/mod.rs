@@ -25,10 +25,12 @@ mod plain;
 mod piece;
 mod player;
 mod players;
+mod resolver;
 mod rng;
 mod seats;
 mod strategy;
 mod tactical;
+mod texts;
 mod trade;
 mod transient;
 
@@ -55,17 +57,19 @@ pub use player::{
     PlayerLeaders, PlayerMisc, PlayerTech, ProductionTimers, ReactionMode, TechSet, Timers,
 };
 pub use players::Players;
+pub use resolver::{ResolverState, UsedScope};
 pub use rng::{Rng, RngDomain, SeedSource};
 pub use seats::{MAX_PLAYERS, Seats};
 pub use strategy::StrategyState;
 pub use tactical::{TStage, Tactical};
+pub use texts::{BLOB_CAPACITY, CODE_CAPACITY, DIPLOMACY_RULES_V1, OwnerTable, Texts};
 pub use trade::*;
 pub use transient::*;
 
 use crate::containers::Cow;
 
 /// An open-ended text of the string state that has no closed set yet (reason texts, presentation
-/// phases, promise texts): an index into a table the adapter owns. Each use is listed in
+/// phases, promise texts): an index into `CoreState::texts.codes` (D2-3: the table travels with the state). Each use is listed in
 /// `docs/ENGINE_CORE_STATE_FIELDS.md`; package X1 replaces a `Code` by an enum when the set closes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Code(pub u16);
@@ -175,6 +179,10 @@ pub struct CoreState {
     pub pending: Pending,
     pub rng: Rng,
     pub ledger: Ledger,
+    /// The open texts behind `Code` and `Atom::Blob`. Not a slice: always valid, shared by clones.
+    pub texts: Texts,
+    /// The owner ids behind `Seat`, set when the state is loaded. Not a slice.
+    pub owners: OwnerTable,
     /// Which slices hold real data (the others are defaults). Not part of the game: excluded from `==`
     /// would be wrong for tests, so it is compared too; checkpoints keep it.
     pub loaded: SliceSet,
@@ -272,6 +280,24 @@ mod tests {
         assert_eq!(a.board.shared_chunks(&b.board), 24);
         assert_eq!(b.players.get(2).econ.trade_goods, 0);
         assert!(b.board.sys(System::ALL[40]).units.is_empty());
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn clone_shares_the_text_tables_and_diverges_on_new_texts() {
+        let mut a = CoreState::all_loaded();
+        a.owners = OwnerTable::new([&b"p1"[..], b"p2"]);
+        a.texts.codes.intern(b"first", CODE_CAPACITY);
+        a.texts.compact();
+        let mut b = a.clone();
+        assert!(a.texts.codes.shares_base_with(&b.texts.codes));
+        assert!(a.owners.shares_with(&b.owners));
+        assert_eq!(a, b);
+        let ca = a.texts.codes.intern(b"only a", CODE_CAPACITY).unwrap();
+        let cb = b.texts.codes.intern(b"only b", CODE_CAPACITY).unwrap();
+        assert_eq!(ca, cb, "the same code ...");
+        assert_eq!(a.texts.codes.get(ca), Some(&b"only a"[..]), "... names each lineage's own text");
+        assert_eq!(b.texts.codes.get(cb), Some(&b"only b"[..]));
         assert_ne!(a, b);
     }
 
