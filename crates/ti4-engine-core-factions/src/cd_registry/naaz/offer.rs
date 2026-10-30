@@ -3,7 +3,7 @@
 //! | point | string function | status |
 //! |---|---|---|
 //! | the Eidolon Maximum is repaired and Supercharge is offered at the start of a ground combat round | `naaz::ground_combat_round_started` (`repair_voltron`, `offer_supercharge`) | ported (package W1/W2): `ground.ground_combat_round_started`, called by the `BeginGroundRound` window; the question is `Ask::Supercharge` |
-//! | the same at the start of a space combat round | `naaz::space_combat_round_started` | open: the space `BeginRound` window flips the dual-form units and keeps the fleet of the start (W2) |
+//! | the same at the start of a space combat round | `naaz::space_combat_round_started` | ported (package W2): `general.space_combat_round_started`, called by the `BeginRound` window (which also flips the ground-form dual-form units to their ship form in round 1; the machine adds them to the fleet of the start) |
 //! | Garv and Gunn, Hesh and Prit, Dart and Tai, Visz El Vir synergy asks | `component_actions`, `perform_component`, `leader_action`, `use_leader`, `timing_abilities`, `commander` | B7 (leaders, component actions, timing abilities) |
 //! | Absolute Synergy flip and the survivor choice | `flip_synergy`, `survivor_choices` | B7 + the events window |
 
@@ -22,17 +22,42 @@ use super::query::is_naaz;
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
     t.ground.ground_combat_round_started.push(ground_round_started);
+    t.general.space_combat_round_started.push(space_round_started);
+}
+
+/// `naaz::space_combat_round_started`: the Eidolon Maximum of the active system is repaired ("repair it at the start of every combat
+/// round": in the space area, and on the planets of the system while its owner has a ship in space), then the Supercharge offer.
+pub fn space_round_started(cx: &mut Cx<'_>, who: Seat) {
+    if is_naaz(cx.state, who)
+        && let Some(system) = cx.state.meta().active_system
+    {
+        let scope = ti4_engine_core::tables::Scope(u32::from(cx.kernel.sources.0));
+        let ship = |kind: Unit| scope.unit(kind).is_some_and(|d| d.ship);
+        let participates = cx.state.board().sys(system).units.iter().any(|p| p.owner() == who && ship(p.kind()));
+        if participates {
+            let planets: Vec<Planet> = ti4_engine_core::query::board::planets_of(cx.state, system).collect();
+            for planet in planets {
+                repair_maximum(cx.state.board_mut().planet_mut(planet).units.as_mut_slice(), who);
+            }
+        }
+        repair_maximum(cx.state.board_mut().sys_mut(system).units.as_mut_slice(), who);
+    }
+    offer_supercharge(cx, who, Word::Space);
+}
+
+fn repair_maximum(pieces: &mut [ti4_engine_core::state::Piece], who: Seat) {
+    for piece in pieces {
+        if piece.owner() == who && piece.kind() == Unit::EidolonMaximum {
+            *piece = piece.with_sustained(false);
+        }
+    }
 }
 
 /// `naaz::ground_combat_round_started`: "repair it at the start of every combat round" (the Eidolon Maximum on the planet), then the
 /// Supercharge offer of every participant (the string asks for each of them; only a holder of the technology is asked).
 pub fn ground_round_started(cx: &mut Cx<'_>, who: Seat, _system: System, planet: Planet) {
     if is_naaz(cx.state, who) {
-        for piece in cx.state.board_mut().planet_mut(planet).units.as_mut_slice() {
-            if piece.owner() == who && piece.kind() == Unit::EidolonMaximum {
-                *piece = piece.with_sustained(false);
-            }
-        }
+        repair_maximum(cx.state.board_mut().planet_mut(planet).units.as_mut_slice(), who);
     }
     offer_supercharge(cx, who, Word::Ground);
 }

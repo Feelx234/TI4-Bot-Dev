@@ -414,7 +414,9 @@ mod real {
     /// and the system of the free tactical action. `systems` are the string's (the map and the systems in play).
     /// The value is the chosen system. `None` as for Warfare's redistribution, inside a battle or an invasion.
     pub fn warfare_te(gs: &mut GameState, player: &PlayerId, systems: &[String], script: &Recording) -> Option<CoreWindow<Option<String>>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+        // A command token in a Mahact fleet pool is not in the reinforcements: the core's count of them differs (found by the census of
+        // `golden-lent.json`, a Mahact at the table: `details.reinforcements` one too many in 8 games of 19).
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)")) {
             crate::dual::note_bail_here(why);
             return None;
         }
@@ -999,6 +1001,19 @@ mod tests {
             s.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
         };
         assert_eq!(run(label, &F3, held, &["26", "tactic_tokens", "3|3|3"], primary("pok6warfare")), (0, 1));
+    }
+
+    /// Found by the census of `tools/rulebot/golden-lent.json` (a Mahact at the table): the Thunder's Edge Warfare is asked the
+    /// reinforcements of the user, which the core counts without the tokens in a Mahact fleet pool (one too many). Like the
+    /// Warfare primary, the window declines with such a token.
+    #[test]
+    fn the_thunders_edge_warfare_declines_with_a_token_in_a_mahact_pool() {
+        let label = "strategy_cards::te6_warfare";
+        let held = |s: &mut GameState| {
+            token_in(s, "26");
+            s.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
+        };
+        assert_eq!(run(label, &F3, held, &[], primary("te6warfare")), (0, 1));
     }
 
     #[test]

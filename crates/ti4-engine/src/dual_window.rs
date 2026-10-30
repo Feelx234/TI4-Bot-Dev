@@ -1811,10 +1811,14 @@ pub fn round_opening_why(gs: &GameState, content: &ti4_content::ContentStore, a:
     if gs.diplomacy.enabled {
         return Some("diplomacy (attack promises)");
     }
+    // A Naaz side (the Eidolon flip, the repair of the Maximum, Supercharge) is carried by the core window since package W2; a
+    // Supercharge a Valefar Assimilator carries is the text of another card, which the hook does not read.
     for id in [a.attacker, a.defender] {
+        if crate::factions::nekro::assimilated_card(gs, id, "sc").is_some() {
+            return Some("Supercharge carried by a Valefar Assimilator");
+        }
         match gs.player(id).map(|p| p.faction.as_str()) {
             None => return Some("a side that is not a seated player"),
-            Some("naaz") => return Some("a Naaz side (Voltron repair, Supercharge, the Eidolon flip)"),
             Some("letnev") => return Some("a Letnev side (Munitions, the self-repairing flagship)"),
             Some(_) => {}
         }
@@ -1854,8 +1858,14 @@ pub fn begin_round(
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let mut driver = Driver::new(BeginRound::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BEGIN_ROUND, script), |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+    let battle = |_: &ti4_engine_core::choice::Choice, _: &ti4_engine_core::state::CoreState, rendered: &mut Choice| {
+        // A question of the opening (Supercharge) is asked inside the battle: the string table adds the battle to its context.
+        if let Some(ctx) = rendered.context.take() {
+            rendered.context = Some(ctx.about_battle(&before));
+        }
+    };
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ROUND_OPENING, script), |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &battle);
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })
@@ -1875,9 +1885,10 @@ const END_ANNOUNCE: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Board],
 );
 
-const BEGIN_ROUND: Footprint = Footprint::new(
+/// The opening of a round also flips the dual-form units (the board), repairs the Maximum and exhausts Supercharge (players, marks).
+const ROUND_OPENING: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
-    &[Slice::Meta, Slice::Transient, Slice::Pending],
+    &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Board, Slice::Players, Slice::Marks],
 );
 
 /// Whether a retreat holds something the core window does not carry: a Last Bastion seat (its retreat note; dropped by

@@ -416,6 +416,13 @@ impl Machine {
         let e = &self.env;
         let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce, round_seq_listens: e.round_seq_listens });
         let _ = w.step(sx);
+        // A unit that took its ship form joins the fleet the end announcement measures the losses against.
+        for (owner, form) in w.flipped {
+            if let Some((_, fleet)) = self.fields.at_start.iter_mut().find(|(s, _)| *s == owner) {
+                fleet.push(form);
+                fleet.sort_by_key(|u| u.as_str());
+            }
+        }
     }
 
     fn barrage(&mut self, sx: &mut Sx<'_>, round: u32) {

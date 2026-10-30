@@ -10510,6 +10510,38 @@ mod tests {
         assert!(built[1] > 0, "a Corsair was salvaged");
     }
 
+    /// Package W2: a Naaz side no longer gates the opening of a space round. In round 1 the ground-form mechs in the space area take their
+    /// ship form (and join the fleet the end announcement measures the losses against), the Eidolon Maximum is repaired, and Supercharge
+    /// is offered (both answers); the whole composed machine runs in the core and agrees with the string.
+    #[test]
+    fn a_naaz_side_opens_its_space_rounds_in_the_core_machine_in_lockstep() {
+        let (mut compared_settle, mut asked_sc, mut used) = (0, 0, 0);
+        for seed in 0..8_u64 {
+            let (state, windows, differences, nested) = hub_fight(
+                seed,
+                &["naaz", "hacan"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "naaz_mech", &attacker(), 2);
+                    put(s, system, "cruiser", &defender(), 2);
+                    put(s, system, "destroyer", &defender(), 1);
+                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("sc"));
+                },
+                |seed, _, c| if c.prompt.starts_with("Supercharge") { usize::from(seed % 2 == 1) } else { 0 },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("a Naaz side")), "seed {seed}: {windows:?}");
+            compared_settle += windows.get("combat::settle").map_or(0, |w| w.compared);
+            let units = &state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units;
+            assert!(!units.iter().any(|u| u.type_id.as_str() == "naaz_mech_space"), "seed {seed}: no ship form survives the battle");
+            asked_sc += usize::from(nested.iter().any(|k| k.contains("ask:Supercharge")));
+            used += usize::from(state.player(&attacker()).unwrap().exhausted_technologies.contains(ti4_model::id::text(&"sc")));
+        }
+        assert!(compared_settle > 0, "the composed machine ran: {compared_settle}");
+        assert!(asked_sc > 0, "Supercharge was offered");
+        assert!(used > 0, "and used");
+    }
+
     /// The core sees what the Mentak seat of the salvage tests holds: Cruiser II and The Table's Grace.
     #[test]
     fn the_core_sees_cruiser_two_and_the_tables_grace_of_a_mentak_seat() {

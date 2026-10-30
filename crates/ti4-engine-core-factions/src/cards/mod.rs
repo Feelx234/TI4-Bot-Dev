@@ -645,6 +645,30 @@ mod tests {
         assert_eq!(kinds(&s, system, Seat(0)), [], "the fleet left");
     }
 
+    /// A Floating Factory (a structure that moves like a ship) leaves under its own power, and an Eidolon Maximum on a planet joins the
+    /// retreat only while its owner has a ship in the space area (`planetary_maximum_participates`).
+    #[test]
+    fn a_floating_factory_moves_and_a_maximum_follows_only_a_fleet_with_a_ship() {
+        let to = System::ALL[1];
+        let planet = ti4_engine_core::generated::Planet::ALL[0];
+        let (mut s, t, system) = retreat_fight(&[to]);
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::FloatingFactoryI, Seat(0)));
+        let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert_eq!(unknown, None);
+        assert!(s.board().sys(to).units.iter().any(|p| p.owner() == Seat(0) && p.kind() == Unit::FloatingFactoryI), "the factory left");
+        assert!(!s.board().sys(system).units.iter().any(|p| p.owner() == Seat(0) && p.kind() == Unit::FloatingFactoryI), "and is no longer there");
+        // No ship in the space area: the Maximum stays on its planet.
+        let (mut s, t, system) = retreat_fight(&[to]);
+        s.board_mut().sys_mut(system).units.retain(|p| p.owner() != Seat(0));
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::InfantryI, Seat(0)));
+        s.board_mut().planet_mut(planet).placed_in = Some(system);
+        s.board_mut().planet_mut(planet).units.push(Piece::new(Unit::EidolonMaximum, Seat(0)));
+        let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert_eq!(unknown, None);
+        assert!(s.board().planet(planet).units.iter().any(|p| p.kind() == Unit::EidolonMaximum), "the Maximum stayed: its owner had no ship in space");
+        assert!(!s.board().sys(to).units.iter().any(|p| p.kind() == Unit::EidolonMaximum));
+    }
+
     #[test]
     fn parley_returns_a_landed_naaz_mech_to_space_in_its_ship_form() {
         let (mut s, _) = table(&[Faction::TheNaazRokhaAlliance, Faction::TheEmiratesOfHacan]);
