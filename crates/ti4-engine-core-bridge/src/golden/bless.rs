@@ -123,11 +123,14 @@ pub fn find_set(root: &Path, name: &str) -> Result<(PathBuf, SetMeta), String> {
     Err(format!("no set `{name}` under {}", root.display()))
 }
 
+/// A set directory, its meta, and the games that diverge (name, first divergence).
+pub type SetDiff = (PathBuf, SetMeta, Vec<(String, Divergence)>);
+
 /// The per-game table of `golden diff`: the games that do not reproduce.
 ///
 /// # Errors
 /// A set that cannot be read or a game that errors (not diverges).
-pub fn diff_set(root: &Path, set: &str, replayer: &dyn Replayer, only: &[String], threads: usize) -> Result<(PathBuf, SetMeta, Vec<(String, Divergence)>), String> {
+pub fn diff_set(root: &Path, set: &str, replayer: &dyn Replayer, only: &[String], threads: usize) -> Result<SetDiff, String> {
     let (dir, meta) = find_set(root, set)?;
     let mut diffs = Vec::new();
     for r in replay::check_set(&dir, &meta, replayer, only, false, threads)? {

@@ -59,7 +59,8 @@ pub fn record_games(opts: &RecordOpts, jobs: &[RecordJob], replayer: &dyn Replay
     let next = AtomicUsize::new(0);
     // Each game is saved the moment it is recorded (a run that is killed keeps what it has; `golden ladder` skips
     // the versions that exist).
-    let results: Vec<Mutex<Option<Result<Option<String>, String>>>> = todo.iter().map(|_| Mutex::new(None)).collect();
+    type Recorded = Mutex<Option<Result<Option<String>, String>>>;
+    let results: Vec<Recorded> = todo.iter().map(|_| Mutex::new(None)).collect();
     let excluded: Mutex<Vec<(usize, String)>> = Mutex::new(Vec::new());
     std::thread::scope(|scope| {
         for _ in 0..workers {
@@ -204,11 +205,14 @@ pub struct ImportInput {
     pub lines: Vec<String>,
 }
 
+/// The imported games of a source: (set, source, (game name, file)).
+pub type Imported = Vec<(String, String, Vec<(String, GameFile)>)>;
+
 /// Split one X2 source per game, lines byte-identical. Returns `(set name, relative dir, games)` per rules version.
 ///
 /// # Errors
 /// A source whose lines do not hash to the manifest, or a game with no plan entry.
-pub fn import_games(input: &ImportInput) -> Result<Vec<(String, String, Vec<(String, GameFile)>)>, String> {
+pub fn import_games(input: &ImportInput) -> Result<Imported, String> {
     // The proof of byte identity: the lines in file order hash to the manifest's sha256.
     let mut h = Sha256::new();
     for l in &input.lines {
