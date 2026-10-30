@@ -635,9 +635,11 @@ pub fn play_window(
     let mut row = None;
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         if lends_map && core.galaxy().is_none() {
+            crate::dual::note_bail_here("the map could not be lent to the core");
             return None;
         }
         if technology && !crate::strategy_cards_core::research_hooks_agree(core, &before, ti4_content::ContentStore::embedded(), sources.clone(), player, seat) {
+            crate::dual::note_bail_here("the research hooks of the string and the core disagree (a hook the core does not carry)");
             return None;
         }
         let mut env = env;
@@ -671,9 +673,9 @@ pub fn play_window(
     }
     crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
     stage_placed_tokens(gs, &r, placed_tokens);
-    let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+    let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
     let positions = match rng_after {
-        Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
+        Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).why("the random streams could not be read back")?),
         None => None,
     };
     Some(crate::dual::CoreWindow { run: crate::dual::Run::new((faces, positions)).with_events_vec(events), questions: driven.rendered })
@@ -819,16 +821,22 @@ pub fn announce_window(
     let performing = performing_of(&before, sources, player, seat, card, &r);
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         if lends_map && core.galaxy().is_none() {
+            crate::dual::note_bail_here("the map could not be lent to the core");
             return None;
         }
         if technology && !crate::strategy_cards_core::research_hooks_agree(core, &before, ti4_content::ContentStore::embedded(), sources.clone(), player, seat) {
+            crate::dual::note_bail_here("the research hooks of the string and the core disagree (a hook the core does not carry)");
             return None;
         }
         let mut env = env;
         if performs {
             env.facts.carried = carried_of(core, &before, sources, player, seat, &r);
         }
-        let announce = rules::announce::Announce::of(core, card, seat, env, has_effect, false)?;
+        let announce = rules::announce::Announce::of(core, card, seat, env, has_effect, false);
+        if announce.is_none() {
+            crate::dual::note_bail_here("a card the core announce window does not play");
+        }
+        let announce = announce?;
         let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
         if let Some(seeds) = seeds {
             driver = driver.with_seeds(seeds);
@@ -865,16 +873,17 @@ pub fn announce_window(
         emitted = std::mem::take(&mut driver.emitted);
         Some(driven)
     })
-    .ok()??
-    .ok()?;
+    .why(crate::dual::reason::NOT_LENDABLE)?
+    .why(crate::dual::reason::NOT_LENDABLE)?
+    .why(crate::dual::reason::DRIVER_REFUSED)?;
     if let Some(row) = &row {
-        close_row(gs, player, row)?;
+        close_row(gs, player, row).why("the exploration row of the card could not be closed")?;
     }
     crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
     stage_placed_tokens(gs, &r, placed_tokens);
-    let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+    let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
     let positions = match rng_after {
-        Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
+        Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).why("the random streams could not be read back")?),
         None => None,
     };
     Some(crate::dual::CoreWindow { run: crate::dual::Run::new((played, (faces, positions))).with_events_vec(events), questions: driven.rendered })
