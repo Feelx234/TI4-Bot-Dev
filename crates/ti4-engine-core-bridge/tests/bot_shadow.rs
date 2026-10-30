@@ -174,3 +174,33 @@ fn the_typed_view_agrees_with_the_string_view() {
     assert!(p.compared > 5000, "accessor answers compared: {}", p.compared);
     assert!(p.mismatches.is_empty(), "{:#?}", &p.mismatches[..p.mismatches.len().min(20)]);
 }
+
+/// `profile-20` with Thunder's Edge on (the game's source scope then differs from the full scope of the hook kernel,
+/// and the Fracture's planets hold neutral units though they are not in that scope): the typed view must read the
+/// game's scope and the scope-free planets of a system. Found by the first Thunder's Edge parity run.
+fn thunders_edge_config(max_steps: usize) -> String {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tools/engine_profile/profile-20.json");
+    let mut value: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root).unwrap()).unwrap();
+    value["limits"]["max_steps"] = serde_json::json!(max_steps);
+    for setup in value["setups"].as_array_mut().unwrap() {
+        setup["thunders_edge"] = serde_json::json!(true);
+        setup["seeds"] = serde_json::json!("1..3");
+    }
+    let path = std::env::temp_dir().join(format!("bot_shadow_te_{}.json", std::process::id()));
+    std::fs::write(&path, value.to_string()).unwrap();
+    path.to_string_lossy().into_owned()
+}
+
+#[test]
+fn the_typed_view_agrees_with_the_string_view_in_thunders_edge_games() {
+    let config = thunders_edge_config(9000);
+    let cfg = Config { seen_stride: 15, ..Config::default() };
+    // games 2 and 3 of the config: the Fracture is in play and holds neutral units late in the game, and a seat controls
+    // planets outside the game's scope
+    let report = run(&config, &[2, 3], &cfg);
+    let p = &report.parity;
+    assert!(p.positions > 50, "positions: {}", p.positions);
+    assert!(p.mismatches.is_empty(), "{:#?}", &p.mismatches[..p.mismatches.len().min(20)]);
+    // positions whose Transient names an owner outside the table are the documented bail D3-bail-08
+    assert!(p.unmapped.keys().all(|k| k.starts_with("Transient: owner not in the table")), "{:?}", p.unmapped);
+}
