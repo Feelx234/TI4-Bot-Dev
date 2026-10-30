@@ -125,3 +125,83 @@ fn a_generic_fixture_is_refused_not_silently_accepted() {
     let p = Position { label: "generic fixture".into(), state: gs, galaxy, sources: ti4_model::content_types::POK };
     assert!(round_trip(&p, None).is_err(), "a table with the faction `generic` must not map");
 }
+
+// ---- P9: hidden information does not leak into the rendered question (report-only) ------------------------------------------
+
+mod leak_scan {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use ti4_engine::choice::{Choice, ChoiceOption, Decider};
+
+    use super::*;
+
+    type Seen = Rc<RefCell<Vec<(String, String)>>>;
+
+    /// Takes the first option of every question and keeps `(asked player, the question as JSON)`.
+    struct Capture(Seen);
+
+    impl Decider for Capture {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, ti4_engine::choice::IllegalChoice> {
+            let json = serde_json::to_string(choice).expect("a question serialises");
+            self.0.borrow_mut().push((serde_json::to_value(choice).expect("json")["player"].as_str().unwrap_or("?").to_string(), json));
+            Ok(choice.options.first().cloned().expect("a question has options"))
+        }
+    }
+
+    fn ids(value: &serde_json::Value, key: &str) -> Vec<String> {
+        value.as_array().map_or_else(Vec::new, |players| {
+            players.iter().flat_map(|p| p[key].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string))).collect()
+        })
+    }
+
+    fn contains_word(text: &str, word: &str) -> bool {
+        let bytes = text.as_bytes();
+        let mut from = 0;
+        while let Some(at) = text[from..].find(word) {
+            let (s, e) = (from + at, from + at + word.len());
+            let word_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+            if (s == 0 || !word_char(bytes[s - 1])) && (e >= bytes.len() || !word_char(bytes[e])) {
+                return true;
+            }
+            from = e;
+        }
+        false
+    }
+
+    /// P9 on one golden game: for every question, no card or secret objective id that sits only in ANOTHER seat's hand appears in the
+    /// rendered question of the asked player. Report-only (prints the findings; the exception list of public reveals is still to be written).
+    #[test]
+    fn p9_the_rendered_question_names_no_card_that_only_another_seat_holds() {
+        let (_, specs) = ti4_engine_core_bridge::workload::specs(GOLDEN_CONFIG).expect("the golden config");
+        let mut game = specs[0].build().expect("a game");
+        let seen: Seen = Rc::default();
+        game.table.set_default(Box::new(Capture(seen.clone())));
+        let (mut scanned, mut findings) = (0usize, Vec::<String>::new());
+        for step in 0..300 {
+            if game.state.finished {
+                break;
+            }
+            let before = serde_json::to_value(&game.state).expect("state");
+            let result = game.step();
+            assert!(result.error.is_none(), "step {step}: {:?}", result.error);
+            let asked = std::mem::take(&mut *seen.borrow_mut());
+            let players = &before["players"];
+            for (who, json) in asked {
+                scanned += 1;
+                let mine: Vec<String> = players.as_array().into_iter().flatten().filter(|p| p["id"].as_str() == Some(who.as_str())).flat_map(|p| ["action_cards", "secret_objectives"].into_iter().flat_map(|k| ids(&serde_json::json!([p]), k)).collect::<Vec<_>>()).collect();
+                let others: Vec<String> = players.as_array().into_iter().flatten().filter(|p| p["id"].as_str() != Some(who.as_str())).flat_map(|p| ["action_cards", "secret_objectives"].into_iter().flat_map(|k| ids(&serde_json::json!([p]), k)).collect::<Vec<_>>()).collect();
+                for id in others.iter().filter(|id| !mine.contains(id)) {
+                    if contains_word(&json, id) {
+                        findings.push(format!("step {step}: the question of {who} names {id}, which another seat holds"));
+                    }
+                }
+            }
+        }
+        eprintln!("P9: {scanned} questions scanned, {} findings", findings.len());
+        for f in findings.iter().take(20) {
+            eprintln!("P9 FINDING {f}");
+        }
+        assert!(scanned >= 50, "only {scanned} questions were scanned: the scan is vacuous");
+    }
+}
