@@ -66,6 +66,9 @@ pub fn ground_round_started(cx: &mut Cx<'_>, who: Seat, _system: System, planet:
 /// combat rolls during this combat round." The mark names the kind of combat and the round sequence, so it lapses by itself.
 fn offer_supercharge(cx: &mut Cx<'_>, who: Seat, word: Word) {
     let key = MarkKey::NaazSupercharge(who);
+    if std::env::var_os("TI4_W_DEBUG").is_some() {
+        eprintln!("W-DEBUG offer_supercharge who {who:?} seq {} mark {:?} owned {:?} exhausted {:?}", cx.state.meta().combat_round_seq, cx.state.marks().tail.get(&key), cx.state.players().by_seat(who).map(|p| p.tech.owned.contains(Technology::Supercharge)), cx.state.players().by_seat(who).map(|p| p.tech.exhausted.contains(Technology::Supercharge)));
+    }
     cx.state.marks_mut().tail.edit().remove(&key);
     let ready = cx.state.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(Technology::Supercharge) && !p.tech.exhausted.contains(Technology::Supercharge));
     if !ready {
