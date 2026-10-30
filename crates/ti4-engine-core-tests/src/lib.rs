@@ -27,6 +27,7 @@ pub mod scenario;
 pub mod smoke;
 pub mod snap;
 
+pub use kernel::{kernel_all, kernel_plain};
 pub use snap::assert_snapshot;
 
 /// What nearly every test imports.
