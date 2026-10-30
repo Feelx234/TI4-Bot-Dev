@@ -266,7 +266,7 @@ mod unsupported_tests {
         ] {
             let (s, _) = table(&[Faction::TheArborec, f]);
             assert!(with_policy(Policy::Off, || is_faction(&s, Seat(1), f)), "{f:?} off");
-            assert!(panics_with(name, || with_policy(Policy::Panic, || { is_faction(&s, Seat(1), f); })), "{f:?}");
+            assert!(panics_with(name, || with_policy(Policy::Panic, || { let _ = is_faction(&s, Seat(1), f); })), "{f:?}");
             // asking about another faction at the same table does not touch the switched-off seat
             assert!(!with_policy(Policy::Panic, || is_faction(&s, Seat(0), Faction::TheEmiratesOfHacan)));
         }
