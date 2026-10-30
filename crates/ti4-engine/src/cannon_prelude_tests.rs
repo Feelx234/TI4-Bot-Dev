@@ -409,15 +409,23 @@ fn anomalies() -> Vec<SystemId> {
         .collect()
 }
 
-/// A system that is no anomaly and is nobody's home.
+/// A system that is no anomaly, holds no unit at the start of a game and is nobody's home.
 fn a_plain_system() -> SystemId {
     let content = ContentStore::embedded();
+    let state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+    let homes: Vec<SystemId> = state.players.iter().filter_map(|p| p.home_system.clone()).collect();
     let found = ti4_content::galaxy::all_systems(content, ti4_model::content_types::DEFAULT)
         .iter()
-        .find(|(_, s)| !s.is_anomaly())
-        .map(|(id, _)| (*id).to_owned())
-        .expect("the corpus has a plain system");
-    SystemId::new(found)
+        .map(|(id, s)| (SystemId::new(*id), s))
+        .find(|(id, s)| {
+            !s.is_anomaly()
+                && !homes.contains(id)
+                && state.system_state(id).units.is_empty()
+                && state.system_state(id).planet_units.values().all(Vec::is_empty)
+        })
+        .map(|(id, _)| id)
+        .expect("the corpus has a quiet plain system");
+    found
 }
 
 /// `a` and `b` fight in `system`; `setup` places the fleets (and may seat facts such as a home system) before the snapshot, `lose`
