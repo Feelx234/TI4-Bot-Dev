@@ -9896,6 +9896,51 @@ mod tests {
         let _ = take_report();
     }
 
+    /// The ship The Cavalry lends the Nomad flagship's ANTI-FIGHTER BARRAGE (Memoria II has one) rolls it in the round-1 barrage that
+    /// follows the play; the note is played inside the window, so the lent stats are read from the core state, not from the position
+    /// the window started in; found by the soak (a Hacan carrier, game 10 of the Thunder's Edge slice).
+    #[test]
+    fn the_cavalry_ship_rolls_the_lent_barrage_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut barrages = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for seed in 1..=6_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sol"), ("c", "nomad")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("c")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("m2"));
+                crate::promissory::take(&mut state, ContentStore::embedded(), &defender(), "cavalry:nomad");
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 3);
+                put(&mut state, &system, "carrier", &defender(), 1);
+                put(&mut state, &system, "fighter", &attacker(), 2);
+                state.active_system = Some(system.clone());
+                state.active = Some(attacker());
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                barrages += dice.history().iter().filter(|r| r.reason.starts_with("anti")).count();
+            }
+        });
+        let r = report();
+        assert!(barrages > 0, "the lent barrage was rolled");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
     /// Ipswitch, Loose Cannon (the Mentak hero): purged at the start of the combat, it places a ship of the type of every
     /// other player's ship destroyed in it, and the record of the combat is cleared at its end.
     #[test]

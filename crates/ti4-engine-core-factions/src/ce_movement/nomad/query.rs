@@ -28,11 +28,16 @@ use crate::common::{is_faction, mark, player, rec, scope, system, unit};
 const SOURCE: Source = Source::Faction(Faction::TheNomad);
 pub(crate) const CAVALRY: NoteKey = NoteKey { note: PromissoryNote::TheCavalry, faction: Faction::TheNomad };
 
+/// Only the lent stats of The Cavalry (`borrowed_stats`), for a kernel that registers the other slots another way.
+pub fn register_borrowed(t: &mut HookTable) {
+    t.seam.borrowed_stats.push(Replacement { source: SOURCE, step: Step::BorrowedStats, offer: borrowed_offer, perform: |_, _, _| Next::Done });
+}
+
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
     t.cards.transaction_reach.push(transaction_reach);
     t.seam.grants_sustain.push(SOURCE, grants_sustain_rule);
-    t.seam.borrowed_stats.push(Replacement { source: SOURCE, step: Step::BorrowedStats, offer: borrowed_offer, perform: |_, _, _| Next::Done });
+    register_borrowed(t);
     t.direct.nomad_watches_agent_exhaustion.push(watches_agent_exhaustion);
     t.direct.nomad_agents_watches_roll_step.push(watches_roll_step);
 }
@@ -102,7 +107,7 @@ fn borrowed_offer(q: Q<'_>, site: &SeatSystemSite) -> Option<BorrowedStats> {
 /// The Cavalry: the Nomad flagship's combat value and ANTI-FIGHTER BARRAGE for the chosen ship. Only the combat *value*
 /// is lent (the ship keeps its own number of dice). The card lends the barrage *value* only: a borrower that already
 /// has a barrage keeps its own number of dice; one with none fires the flagship's number of dice. `None` when the ship
-/// type is not in the space area. The barrage is `(dice, hits_on)`.
+/// type is not in the space area. The barrage is `(hits_on, dice)`, as `BorrowedStats` has it.
 pub fn borrowed_stats(s: &CoreState, k: &Kernel, who: Seat, at: System) -> Option<BorrowedStats> {
     let kind = cavalry_ship_type(s, who, at)?;
     let flagship = scope(k).unit(nomad_flagship(s, k)?)?;
@@ -118,7 +123,7 @@ pub fn borrowed_stats(s: &CoreState, k: &Kernel, who: Seat, at: System) -> Optio
         sustained: piece.sustained(),
         galvanized: piece.galvanized(),
         hits_on: flagship.combat.filter(|r| r.hits_on > 0).map(|r| r.hits_on as i8),
-        barrage: flagship_barrage.map(|r| (dice as i8, r.hits_on as i8)),
+        barrage: flagship_barrage.map(|r| (r.hits_on as i8, dice as i8)),
     })
 }
 
@@ -174,7 +179,7 @@ mod tests {
         let got = borrowed_stats(&s, &k, Seat(1), at).expect("lends");
         assert_eq!(got.unit, Unit::DestroyerI);
         assert_eq!(got.hits_on, flagship.combat.map(|r| r.hits_on as i8));
-        assert_eq!(got.barrage, flagship.anti_fighter_barrage.map(|r| (Unit::DestroyerI.data().anti_fighter_barrage.unwrap().dice as i8, r.hits_on as i8)));
+        assert_eq!(got.barrage, flagship.anti_fighter_barrage.map(|r| (r.hits_on as i8, Unit::DestroyerI.data().anti_fighter_barrage.unwrap().dice as i8)));
         s.players_mut().edit(0).tech.owned.insert(Technology::MemoriaII);
         assert_eq!(borrowed_stats(&s, &k, Seat(1), at).unwrap().hits_on, Unit::MemoriaII.data().combat.map(|r| r.hits_on as i8), "the upgrade");
     }
