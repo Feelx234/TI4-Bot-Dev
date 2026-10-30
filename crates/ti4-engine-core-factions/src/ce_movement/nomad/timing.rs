@@ -1,22 +1,23 @@
 //! nomad: the timing abilities (the reaction windows), docs/ENGINE_REACTIONS.md. Ported: The Cavalry, a promissory note of
 //! the Nomad: played by its holder at the start of a space combat (the holder picks the non-fighter ship type that takes
 //! the flagship's abilities; one type is not a question; the note stays faceup with them), and returned to the Nomad
-//! when the combat ends. Not ported: Artuno, Mercer, The Thundarian, Temporal Command Suite.
+//! when the combat ends. The Thundarian (agent, package W2): "after the Roll Dice step of combat: you may exhaust this card; if you
+//! do, return to the start of that step" (the replay mark the roll step reads). Not ported: Artuno, Mercer, Temporal Command Suite.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub};
 use ti4_engine_core::choice::generic::Content;
 use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use ti4_engine_core::containers::SmallList;
-use ti4_engine_core::generated::{Faction, System, Unit, UnitBaseType};
+use ti4_engine_core::generated::{Faction, Leader, System, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
-use ti4_engine_core::kernel::fx;
+use ti4_engine_core::kernel::{fx, fx_strategy};
 use ti4_engine_core::kernel::read::Rd;
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::query::reach;
 use ti4_engine_core::rules::combat;
-use ti4_engine_core::state::{CoreState, EventKind, Key};
+use ti4_engine_core::state::{CoreState, EventKind, Key, LeaderStatus};
 
 use super::query::{cavalry_ship_type, CAVALRY};
 
@@ -115,7 +116,34 @@ fn give_back(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+/// The Thundarian at the end of the "Roll Dice" step of a space combat (`leader:*:nomadagentthundarian:SPACE_COMBAT_ROLL_STEP_ENDED:after`).
+pub const THUNDARIAN_SPACE: Slot = Slot(10_003);
+/// ... and of a ground combat (`GROUND_COMBAT_ROLL_STEP_ENDED`).
+pub const THUNDARIAN_GROUND: Slot = Slot(10_004);
+
+/// A readied The Thundarian in hand, and no replay already asked for in this step.
+fn thundarian_condition(c: &CondCx<'_>) -> bool {
+    c.state.players().by_seat(c.def.owner).is_some_and(|p| p.leaders.status.get(&Leader::TheThundarian) == Some(&LeaderStatus::Readied))
+        && !c.state.marks().tail.contains_key(&MarkKey::PrivateCombatReplayRoll())
+}
+
+/// Exhaust the card and ask for the step to be played again (`combat::request_roll_replay`). A Nomad that hears every agent exhausted
+/// (Temporal Command Suite) is told by an event the core does not emit: that position is the string's.
+fn thundarian(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let owner = eff.owner();
+    let (s, k) = eff.read();
+    if k.hooks.direct.nomad_watches_agent_exhaustion(s) {
+        eff.unknown(ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion);
+    }
+    if fx_strategy::exhaust_leader(eff.state(), owner, Leader::TheThundarian) {
+        eff.state().marks_mut().tail.edit().insert(MarkKey::PrivateCombatReplayRoll(), MarkVal::Atom(Atom::Absent));
+    }
+    Ok(())
+}
+
 pub fn register_abilities(t: &mut AbilityTable) {
+    t.add(Spec::new(THUNDARIAN_SPACE, AbilityKind::Leader, EventKind::SpaceCombatRollStepEnded, Relation::After, thundarian).when(thundarian_condition).optional());
+    t.add(Spec::new(THUNDARIAN_GROUND, AbilityKind::Leader, EventKind::GroundCombatRollStepEnded, Relation::After, thundarian).when(thundarian_condition).optional());
     t.add(Spec::new(CAVALRY_PLAY, AbilityKind::Promissory, EventKind::SpaceCombatStarted, Relation::After, play).when(play_condition).optional());
     t.add(Spec::new(CAVALRY_RETURN, AbilityKind::Promissory, EventKind::SpaceCombatEnded, Relation::After, give_back).when(return_condition));
 }

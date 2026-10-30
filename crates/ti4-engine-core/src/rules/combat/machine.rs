@@ -518,6 +518,7 @@ impl Machine {
             attacker: e.attacker,
             defender: e.defender,
             system: e.system,
+            round,
             phase: e.phases[2],
             names: self.names(sx)?,
             munitions_after: e.munitions_after,

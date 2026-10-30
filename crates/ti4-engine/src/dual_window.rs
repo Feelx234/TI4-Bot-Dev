@@ -2244,6 +2244,7 @@ const BARRAGE_STEP: Footprint = Footprint::new(
 /// What the string `CombatWindow::roll_round` was called with.
 #[derive(Debug, Clone, Copy)]
 pub struct RollArgs<'a> {
+    pub round: u32,
     pub attacker: &'a PlayerId,
     pub defender: &'a PlayerId,
     pub system: &'a ti4_model::id::SystemId,
@@ -2321,6 +2322,7 @@ pub fn roll_step(
         attacker,
         defender,
         system,
+        round: a.round,
         phase: cx.texts.intern(Slice::Transient, "resolving_hits").why("the text table of the typed state is full")?,
         names,
         munitions_after: a.munitions_after,

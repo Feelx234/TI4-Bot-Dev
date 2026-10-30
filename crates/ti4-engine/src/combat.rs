@@ -6439,7 +6439,7 @@ impl CombatWindow {
                 if failed.get() {
                     return None;
                 }
-                let args = crate::dual_window::RollArgs { attacker: &attacker, defender: &defender, system: &system, reproducible, munitions_after, announce: ctx_announce };
+                let args = crate::dual_window::RollArgs { round, attacker: &attacker, defender: &defender, system: &system, reproducible, munitions_after, announce: ctx_announce };
                 crate::dual_window::roll_step(s, content, sources, args, &rng_before, script)
             }
         );
@@ -6462,9 +6462,8 @@ impl CombatWindow {
         if crate::neutral_units::is_neutral(&self.attacker) || crate::neutral_units::is_neutral(&self.defender) {
             return Some("a neutral side");
         }
-        if crate::factions::nomad_agents::watches_roll_step(state) {
-            return Some("The Thundarian watches the Roll Dice step (Nomad agent, or a Yssaril copy)");
-        }
+        // A readied The Thundarian is an ability of the core table since package W2 (its window and the replay of the step are the
+        // core roll step's); a Yssaril copy of it is not, and bails as "nested (unported ability ...)" when it is offered.
         sides
             .into_iter()
             .any(|side| {
@@ -11382,14 +11381,7 @@ mod tests {
         // Hits a module makes at the start of a combat (Mentak's Ambush, Assault Cannon, Dimensional Splicer,
         // Impulse Core): the string asks the modules, the core ability table is empty.
         assert!(settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("mentak")).opening_unported);
-        // The Thundarian (a roll-step reaction): the roll is the string's.
-        assert!(settle_gates(&|state, _| {
-            state.player_mut(&attacker()).unwrap().leaders.insert(
-                ti4_model::id::LeaderId::new("nomadagentthundarian"),
-                ti4_model::state::LeaderStatus::Readied,
-            );
-        })
-        .roll_unported);
+        // The Thundarian is an ability of the core table since package W2 (`a_readied_thundarian_replays_the_roll_step_in_the_core_window_in_lockstep`).
         // A Last Bastion seat's retreat note is what the retreat gate (`retreat_unported`) still names.
         let retreat = |setup: &dyn Fn(&mut GameState, &SystemId)| {
             let (mut state, system) = arena();
@@ -11683,16 +11675,76 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Package W2: a readied The Thundarian is an ability of the core table: the roll step emits the step-ended event, offers the card to
+    /// its holder and, when it is used, plays the step again (the dice thrown away, the card exhausted, one replay per card). The roll
+    /// window, the composed settle and the replays agree with the string. Fails on the pre-W2 gate (`roll_why` named the card).
     #[test]
-    fn a_readied_thundarian_keeps_the_roll_step_in_the_string() {
-        // The core ability table is empty: the roll step with a readied The Thundarian runs bare.
+    fn a_readied_thundarian_replays_the_roll_step_in_the_core_window_in_lockstep() {
         assert!(!roll_unported_after(&|_, _| {}));
-        assert!(roll_unported_after(&|state, _| {
-            state.player_mut(&attacker()).unwrap().leaders.insert(
-                ti4_model::id::LeaderId::new("nomadagentthundarian"),
-                ti4_model::state::LeaderStatus::Readied,
-            );
+        assert!(!roll_unported_after(&|state, _| {
+            state.player_mut(&attacker()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentthundarian"), ti4_model::state::LeaderStatus::Readied);
         }));
+        fn answer(seed: u64, nth: usize, c: &Choice) -> usize {
+            let at = c.options.iter().position(|o| o.id.contains("nomadagentthundarian"));
+            match at {
+                Some(at) if (seed + nth as u64) % 3 != 1 => at,
+                Some(_) => c.options.len() - 1,
+                None => 0,
+            }
+        }
+        let (mut used, mut compared) = (0, 0);
+        for (seed, composed) in (0..10_u64).flat_map(|s| [(s, false), (s, true)]) {
+            let (state, windows, differences, _) = hub_fight_composed(
+                composed,
+                seed,
+                &["nomad", "hacan"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "destroyer", &defender(), 2);
+                    put(s, system, "cruiser", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentthundarian"), ti4_model::state::LeaderStatus::Readied);
+                },
+                answer,
+            );
+            assert_eq!(differences, 0, "seed {seed} composed {composed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("Thundarian")), "seed {seed}: {windows:?}");
+            let label = if composed { "combat::settle" } else { "combat::roll_round" };
+            let w = windows.get(label).copied().unwrap_or_default();
+            assert_eq!(w.bailed, 0, "seed {seed} composed {composed}: {windows:?}");
+            compared += w.compared;
+            used += usize::from(state.player(&attacker()).unwrap().leaders.get(ti4_model::id::text(&"nomadagentthundarian")) == Some(&ti4_model::state::LeaderStatus::Exhausted));
+        }
+        assert!(compared > 0, "the roll ran in the core: {compared}");
+        assert!(used > 0, "the card was used and the step replayed");
+    }
+
+    /// A readied Ssruu next to a Nomad's card: the step-ended event is emitted (a Yssaril copy of the card could hear it) and the string
+    /// registers no copy of a Nomad agent, so the core roll window agrees with it (no bail, no difference).
+    #[test]
+    fn a_yssaril_ssruu_next_to_a_thundarian_runs_the_roll_window_in_lockstep() {
+        fn any_offer(_: u64, _: usize, c: &Choice) -> usize {
+            c.options.iter().position(|o| o.id.contains("ssruu-copy") || o.id.contains("nomadagentthundarian")).unwrap_or(0)
+        }
+        let mut compared = 0;
+        for seed in 0..6_u64 {
+            let (_, windows, differences, _) = hub_fight_composed(
+                false,
+                seed,
+                &["yssaril", "nomad"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "cruiser", &defender(), 3);
+                    s.player_mut(&attacker()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yssarilagent"), ti4_model::state::LeaderStatus::Readied);
+                    s.player_mut(&defender()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentthundarian"), ti4_model::state::LeaderStatus::Readied);
+                },
+                any_offer,
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            let w = windows.get("combat::roll_round").copied().unwrap_or_default();
+            assert_eq!(w.bailed, 0, "seed {seed}: {windows:?}");
+            compared += w.compared;
+        }
+        assert!(compared > 0);
     }
 
     #[test]
