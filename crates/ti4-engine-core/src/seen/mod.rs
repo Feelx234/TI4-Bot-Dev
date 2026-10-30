@@ -39,11 +39,13 @@ mod board;
 mod facts;
 mod hand;
 mod objectives;
+mod reach;
 
 pub use agenda::{AgendaFacts, InvasionFacts};
 pub use board::{PlanetView, SystemView};
 pub use facts::SeatView;
 pub use objectives::{ProgressRow, RowFamily};
+pub use reach::MoveCache;
 
 use std::cell::RefCell;
 
@@ -83,6 +85,7 @@ pub struct Seen<'a> {
 #[derive(Default)]
 pub(crate) struct Memo {
     pub(crate) facts: objectives::FactsMemo,
+    pub(crate) moves: reach::MoveCache,
 }
 
 impl<'a> Seen<'a> {

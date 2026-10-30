@@ -81,6 +81,7 @@ pub fn check(seen: &SeatObservation<'_>, owned: &SeenOwned) -> Found {
     agenda(&mut c, obs, &typed);
     hand(&mut c, seen, &typed);
     objectives(&mut c, seen, &typed);
+    movement(&mut c, seen, &typed);
     found
 }
 
@@ -445,5 +446,76 @@ fn objectives(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
                 t.objectives_implicating_system(me, typed).as_slice().iter().map(|o| o.as_str().to_owned()).collect::<Vec<_>>(),
             );
         }
+    }
+}
+
+/// Destinations and origins worth asking about: the active system, a few systems with units of any seat, and Mecatol.
+fn movement(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
+    let obs = seen.observed();
+    let mut dests: Vec<SystemId> = Vec::new();
+    if let Some(active) = obs.active_system() {
+        dests.push(active.clone());
+    }
+    dests.extend(obs.board().iter().filter(|(_, s)| !s.units.is_empty()).map(|(id, _)| id.clone()).take(4));
+    dests.push(SystemId::new("18"));
+    dests.sort();
+    dests.dedup();
+    let me = seen.bound_seat();
+    let Some(my_seat) = c.owned.seat(me) else { return };
+    let origins: Vec<SystemId> = obs.systems_with_units_of(me).into_iter().take(4).cloned().collect();
+    for dest in &dests {
+        let Some(typed_dest) = System::from_id(dest.as_str()) else { continue };
+        let string = obs.movable_into(me, dest);
+        let typed = t.movable_into(my_seat, typed_dest);
+        c.eq(
+            &format!("movable_into({dest})"),
+            string.iter().map(|m| (m.origin.as_str().to_owned(), m.index, m.unit.type_id.as_str().to_owned(), m.capacity, m.gravity_drive, m.ionian)).collect::<Vec<_>>(),
+            typed.iter().map(|m| (m.origin.as_str().to_owned(), usize::from(m.index), m.kind.as_str().to_owned(), m.capacity, m.gravity_drive, m.ionian)).collect::<Vec<_>>(),
+        );
+        for m in string.iter() {
+            let Some(kind) = ti4_engine_core::generated::Unit::from_id(m.unit.type_id.as_str()) else { continue };
+            let Some(origin) = System::from_id(m.origin.as_str()) else { continue };
+            for boosts in [(false, false), (m.gravity_drive, m.ionian)] {
+                c.eq(
+                    &format!("rift_exits_into({} -> {dest}, {boosts:?})", m.origin),
+                    obs.rift_exits_into(me, &m.origin, m.unit.type_id.as_str(), boosts, dest),
+                    t.rift_exits_into(my_seat, origin, kind, boosts, typed_dest),
+                );
+            }
+        }
+        for origin in &origins {
+            let Some(typed_origin) = System::from_id(origin.as_str()) else { continue };
+            for value in [1, 2, 3] {
+                c.eq(
+                    &format!("can_reach({origin} -> {dest}, {value})"),
+                    obs.can_reach(me, origin, dest, value),
+                    t.can_reach(my_seat, typed_origin, typed_dest, value),
+                );
+            }
+        }
+    }
+    for origin in &origins {
+        let Some(typed_origin) = System::from_id(origin.as_str()) else { continue };
+        c.eq(
+            &format!("loadable({origin})"),
+            obs.loadable(me, origin)
+                .iter()
+                .map(|l| {
+                    (
+                        l.unit.type_id.as_str().to_owned(),
+                        l.unit.owner.as_str().to_owned(),
+                        match &l.source {
+                            ti4_engine::transit::CargoSource::Space => None,
+                            ti4_engine::transit::CargoSource::Planet(p) => Some(p.as_str().to_owned()),
+                        },
+                        l.system.as_str().to_owned(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            t.loadable(my_seat, typed_origin)
+                .iter()
+                .map(|l| (l.piece.kind().as_str().to_owned(), c.pid(l.piece.owner()), l.source.map(|p| p.as_str().to_owned()), l.system.as_str().to_owned()))
+                .collect::<Vec<_>>(),
+        );
     }
 }
