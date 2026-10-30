@@ -70,6 +70,9 @@ pub enum Ask {
     Sacrifice { devotion: bool },
     /// Dimensional Splicer (Ghost): produce 1 hit at the start of a combat in a system with a wormhole.
     Splicer,
+    /// The Dunlain Reaper (Letnev): "at the start of a round of ground combat, you may spend 2 resources to replace 1 of your infantry
+    /// in that combat with 1 mech from your reinforcements".
+    DeployMech { planet: Planet },
 }
 
 /// Which card asked the per-die reroll question.
@@ -119,6 +122,8 @@ pub enum Opt {
     Sacrifice { unit: Unit },
     /// Produce the hit.
     ProduceHit,
+    /// Deploy the mech.
+    DeployMech,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -144,4 +149,6 @@ pub enum Subtype {
     Sacrifice { devotion: bool },
     /// `dimensional_splicer`.
     Splicer,
+    /// `deploy_mech`.
+    DeployMech,
 }

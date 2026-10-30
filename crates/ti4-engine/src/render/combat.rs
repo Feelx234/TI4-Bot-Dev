@@ -81,6 +81,7 @@ impl Family for Fam {
             Ask::Sacrifice { devotion: false } => "Impulse Core: destroy a cruiser or destroyer to produce 1 hit".to_owned(),
             Ask::Sacrifice { devotion: true } => "Devotion: destroy a cruiser or destroyer to produce 1 hit".to_owned(),
             Ask::Splicer => "Dimensional Splicer: produce 1 hit against your opponent's ships".to_owned(),
+            Ask::DeployMech { planet } => format!("Dunlain Reaper: spend 2 resources to replace an infantry on {}", planet.as_str()),
         }
     }
 
@@ -104,6 +105,7 @@ impl Family for Fam {
             Subtype::Sacrifice { devotion: false } => "impulse_core_sacrifice".to_owned(),
             Subtype::Sacrifice { devotion: true } => "devotion_sacrifice".to_owned(),
             Subtype::Splicer => "dimensional_splicer".to_owned(),
+            Subtype::DeployMech => "deploy_mech".to_owned(),
         }
     }
 
@@ -153,6 +155,7 @@ impl Family for Fam {
             Opt::Sacrifice { unit } => {
                 return ChoiceOption::labelled(unit.as_str().to_owned(), "destroy_own_ship", format!("destroy 1 {} to produce 1 hit", unit.as_str()));
             }
+            Opt::DeployMech => return ChoiceOption::labelled("deploy", "unit", "deploy the mech"),
             Opt::ProduceHit => {
                 return ChoiceOption::labelled("produce_hit", "produce_hit", "produce 1 hit and assign it to 1 of your opponent's ships");
             }
@@ -247,6 +250,7 @@ impl Family for Fam {
             }
             Ask::Sacrifice { .. } => Some(Opt::Sacrifice { unit: <Unit as crate::generated::IdStr>::from_id(id)? }),
             Ask::Splicer => (id == "produce_hit").then_some(Opt::ProduceHit),
+            Ask::DeployMech { .. } => (id == "deploy").then_some(Opt::DeployMech),
             _ => None,
         }
     }
@@ -262,7 +266,7 @@ impl Family for Fam {
                 Ask::RerollDie { unit, .. } => {
                     w.payload.insert("unit".to_owned(), serde_json::Value::String(_r.code_text(*unit)));
                 }
-                Ask::HeartIxth | Ask::WarFunding | Ask::Wrath | Ask::MunitionsRoll | Ask::Supercharge | Ask::Ambush | Ask::Sacrifice { .. } | Ask::Splicer => {}
+                Ask::HeartIxth | Ask::WarFunding | Ask::Wrath | Ask::MunitionsRoll | Ask::Supercharge | Ask::Ambush | Ask::Sacrifice { .. } | Ask::Splicer | Ask::DeployMech { .. } => {}
                 _ => {
                     w.label = Some("take the hit".to_owned());
                     if let Ask::CancelHit { window: Some(own), .. } = a {

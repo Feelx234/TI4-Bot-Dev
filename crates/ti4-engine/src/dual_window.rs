@@ -3570,17 +3570,15 @@ pub fn begin_ground_unported(gs: &GameState, a: &BeginGroundArgs<'_>) -> Option<
     if crate::factions::bastion_units::watches_ground_round(gs, &sides) {
         return Some("Proxima Targeting VI");
     }
-    let infantry = |id: &PlayerId| gs.system_state(a.system).on_planet_of(a.planet, id).into_iter().any(|u| u.type_id.as_str().contains("infantry"));
-    if sides.into_iter().any(|id| faction(id) == "letnev" && infantry(id)) {
-        return Some("Dunlain Reaper");
-    }
+    // The Dunlain Reaper (a question, a payment and a replaced infantry) is carried by the core window since package W2.
+    let _ = faction;
     None
 }
 
 /// (The faction hooks of the start of the round write the board (the Maximum is repaired), the players (Supercharge is exhausted)
 /// and the marks (the Supercharge mark).)
 const BEGIN_GROUND: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Strategy, Slice::Trade, Slice::Explore],
     &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Board, Slice::Players, Slice::Marks],
 );
 
@@ -3598,10 +3596,18 @@ pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Record
     let before = gs.clone();
     let numbered = gs.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS;
     let env = crate::core_invasion::ground_env(&before, &cx, a.sources).why("the invasion environment could not be built from the position")?;
-    let mut driver = Driver::new(BeginGroundRound::new(Facts { system, planet, invader, defender, copied: a.copied_round, numbered }), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
+    let content = ti4_content::ContentStore::embedded();
+    let can_pay = [a.invader, a.defender].map(|id| {
+        gs.player(id).is_some_and(|p| p.faction.as_str() == "letnev") && crate::production::available(gs, content, a.sources, id, crate::production::Spend::Resources) >= 2
+    });
+    let facts = Facts { system, planet, invader, defender, copied: a.copied_round, numbered, can_pay, dunlain: r.code("dunlain_reaper") };
+    // The Reaper's payment is a child window of the production area: the table carries the links to it.
+    let mut table = AbilityTable::default();
+    ti4_engine_core::driver::children::register(&mut table);
+    let mut driver = Driver::new(BeginGroundRound::new(facts), Resolver::new(&[invader, defender], Some(invader)), table, 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BEGIN_GROUND, script), |core, _| {
-        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        let driven = drive_positioned(&mut driver, core, &env.kernel, Some(crate::production_view::kernel()), &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })

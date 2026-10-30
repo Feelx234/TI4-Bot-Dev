@@ -7042,6 +7042,57 @@ mod tests {
         }
     }
 
+    /// Package W2: the Dunlain Reaper (Letnev) runs in the core window of the start of a ground round: the question, the payment of 2
+    /// resources (a child window of the production area, its questions are the payment's own) and the infantry replaced by the mech;
+    /// declined, unaffordable and spent-out cases are compared too. Fails on the pre-W2 gate (`begin_ground_round` bailed "Dunlain Reaper").
+    #[test]
+    fn the_dunlain_reaper_runs_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Reaper(u64);
+        impl crate::choice::Decider for Reaper {
+            fn choose(&mut self, c: &Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+                let i = if c.prompt.starts_with("Dunlain Reaper") && self.0 % 3 == 1 { c.options.len() - 1 } else { 0 };
+                Ok(c.options[i].clone())
+            }
+        }
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let (mut deployed, mut declined_or_poor) = (0, 0);
+        with_mask(mask, || {
+            for seed in 1..=9_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "letnev")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+                // The seeds 7-9 cannot pay: no trade goods and every planet exhausted.
+                state.player_mut(&PlayerId::new("b")).unwrap().trade_goods = if seed >= 7 { 0 } else { 5 };
+                if seed >= 7 {
+                    for (_, p) in state.controlled_planets(&PlayerId::new("b")).into_iter().map(|(s, p)| (s.clone(), p.clone())).collect::<Vec<_>>() {
+                        state.exhausted_planets.insert(p);
+                    }
+                }
+                run_invasion_with(&mut state, seed, &system, Box::new(Reaper(seed)));
+                let mechs = state.system_state(&system).planet_units.values().flatten().filter(|u| u.type_id.as_str() == "letnev_mech").count();
+                if mechs > 0 {
+                    deployed += 1;
+                } else {
+                    declined_or_poor += 1;
+                }
+            }
+        });
+        let r = report();
+        let w = r.windows.get("invasion::begin_ground_round").copied().unwrap_or_default();
+        assert!(w.compared >= 9 && w.bailed == 0, "{:?}", r.windows);
+        assert!(deployed > 0 && declined_or_poor > 0, "deployed {deployed}, not {declined_or_poor}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
     /// Evelyn De Louis (the Sol agent) is an ability of the core table: at the start of each ground combat round the
     /// readied agent offers the units of the system, the chosen one is marked for the round and the card is
     /// exhausted. The core resolver asks the same question (options, captions) and writes the same mark.
@@ -13347,11 +13398,11 @@ mod core_ground_round_prechecks {
         // A Naaz side is carried since package W1 (Supercharge and the Maximum's repair are a hook of the core window).
         let (state, s, p) = game("naaz", "hacan");
         assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
-        // Letnev only offers the Dunlain Reaper with infantry on the planet.
+        // The Dunlain Reaper is carried by the core window since package W2 (`the_dunlain_reaper_runs_in_the_core_window_in_lockstep`).
         let (mut state, s, p) = game("sol", "letnev");
         assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
         state.system_mut(&s).planet_units.entry(p.clone()).or_default().push(Unit::new(UnitTypeId::new("infantry"), b.clone()));
-        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), Some("Dunlain Reaper"));
+        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
         let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
         assert_eq!(begin_ground_unported(&state, &begin(&neutral, &b, &s, &p, false)), Some("neutral side"));
     }
