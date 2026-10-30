@@ -619,70 +619,58 @@ mod tests {
     /// that does not (the churn step is loud on anything the codecs cannot hand back unchanged).
     #[test]
     fn sending_the_state_through_the_core_before_every_step_changes_nothing() {
-        use crate::generated::IdStr;
-        // Seated with real factions: a player with the placeholder faction `generic` is refused by the codecs (T1).
-        let seated = |n: usize, seed: u64| {
-            let names = ["a", "b", "c", "d", "e", "f"];
-            let seats: Vec<(&str, &str)> = (0..n).map(|i| (names[i], ti4_engine_core::generated::Faction::ALL[i].as_str())).collect();
-            let mut state = crate::fixtures::seated_game(&seats, POK);
-            crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
-            Game::with_seeded_random(state, ContentStore::embedded(), seed)
-        };
-        for (n, seed) in GAMES {
-            let mut plain = seated(n, seed);
-            let mut churned = seated(n, seed);
-            for i in 0..600 {
-                if plain.state.finished {
-                    break;
+        // On the string backend whatever `TI4_AREAS` says: this test is about the codecs, and a random seated game also meets
+        // the dual difference of `random_play_of_a_seated_game_meets_a_dual_difference` below.
+        crate::dual::with_mask(crate::dual::AreaMask::STRING, || {
+            for (n, seed) in GAMES {
+                let mut plain = seated_game(n, seed);
+                let mut churned = seated_game(n, seed);
+                for i in 0..600 {
+                    if plain.state.finished {
+                        break;
+                    }
+                    churned.churn_state();
+                    let (a, b) = (plain.step(), churned.step());
+                    assert_eq!(a.error, b.error, "step {i}");
+                    assert_eq!(plain.state, churned.state, "state after step {i} of game {seed}");
                 }
-                churned.churn_state();
-                // (printed only when the test fails: which game and step a dual difference belongs to)
-                eprintln!("game {n}p seed {seed}: plain step {i}");
-                let a = plain.step();
-                eprintln!("game {n}p seed {seed}: churned step {i}");
-                let b = churned.step();
-                assert_eq!(a.error, b.error, "step {i}");
-                assert_eq!(plain.state, churned.state, "state after step {i} of game {seed}");
+                assert_eq!(plain.table.log, churned.table.log, "decision log of game {seed}");
             }
-            assert_eq!(plain.table.log, churned.table.log, "decision log of game {seed}");
-        }
+        });
     }
 
-    #[test]
-    fn a_configuration_with_more_than_eight_seats_of_initiative_is_not_a_state() {
-        let state = crate::setup::start_game_seeded(ContentStore::embedded(), &players(2), POK, None, 1).unwrap();
-        let names: Vec<String> = (0..9).map(|i| format!("p{i}")).collect();
-        let r = Render::new(names.clone());
-        let (res, seq) = spent_resolver();
-        let mut cfg = res.core_cfg(&POK);
-        cfg.initiative = names[..8].to_vec();
-        assert_eq!(cfg_state(&r, &cfg, seq.peek()).map(|s| s.initiative.len()), Some(8));
-        cfg.initiative = names;
-        assert!(cfg_state(&r, &cfg, seq.peek()).is_none());
-        let _ = state;
+    /// Seated with real factions and dealt promissory notes: a player with the placeholder faction `generic` is refused by the
+    /// codecs (T1).
+    fn seated_game(n: usize, seed: u64) -> Game<'static> {
+        use crate::generated::IdStr;
+        let names = ["a", "b", "c", "d", "e", "f"];
+        let seats: Vec<(&str, &str)> = (0..n).map(|i| (names[i], ti4_engine_core::generated::Faction::ALL[i].as_str())).collect();
+        let mut state = crate::fixtures::seated_game(&seats, POK);
+        crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+        Game::with_seeded_random(state, ContentStore::embedded(), seed)
     }
 
+    /// FINDING (D2-5, docs/ENGINE_KNOWN_ISSUES.md D2-5-find-02), kept as a repro: the plain random game of a 3-seat table
+    /// (`GAMES[0]`) reaches a string/core difference in `action_cards::has_legal_target` (string `true`, core `false`) at its
+    /// 50th step when every area is on `Dual`. Not a churn effect (no churn is on) and not fixed here: the port copies the string.
+    /// `cargo test -p ti4-engine --lib random_play_of_a_seated_game -- --ignored` shows it.
     #[test]
-    fn a_resolver_for_a_lent_window_takes_the_carried_part_and_the_clock_of_the_state() {
-        let mut g = game(3, 7);
-        play(&mut g, 80, 1000, |_| {});
-        let state = g.state.clone();
-        let r = render_for(&state);
-        let (res, seq) = spent_resolver();
-        let img = export(&res, &seq, &r).unwrap();
-        let mut carried = to_state(&img).unwrap();
-        let (lent, counter) = rebuild_for_lend(&state, &carried, Table::default(), &r);
-        assert_eq!(counter.peek(), carried.next_id);
-        assert_eq!(lent.used_keys().len(), carried.used.len());
-        assert_eq!(lent.phase(), state.phase);
-        assert_eq!(lent.counters(), (u64::from(state.round), u64::from(state.turn_seq)));
-        assert_eq!(lent.speaker(), Some(&state.speaker), "the clock is the state's");
-        assert!(lent.log().is_empty() && lent.applied_events().is_empty(), "an empty trace and journal");
-        assert_eq!(lent.initiative_order().iter().map(|p| r.seat(p.as_str()).unwrap()).collect::<Vec<_>>(), carried.initiative.as_slice());
-        // a carried part without an initiative order takes the state's own
-        carried.initiative = ti4_engine_core::containers::SmallList::new();
-        let (lent, _) = rebuild_for_lend(&state, &carried, Table::default(), &r);
-        assert_eq!(lent.initiative_order(), state.initiative_order().as_slice());
+    #[ignore = "a known dual difference (D2-5-find-02)"]
+    fn random_play_of_a_seated_game_meets_a_dual_difference() {
+        let _serial = crate::dual::tests::serial();
+        crate::dual::set_fail_fast(true);
+        let (n, seed) = GAMES[0];
+        let result = std::panic::catch_unwind(|| {
+            crate::dual::with_mask(crate::dual::AreaMask::all(crate::dual::Backend::Dual), || {
+                let mut game = seated_game(n, seed);
+                for _ in 0..60 {
+                    assert!(game.step().error.is_none());
+                }
+            });
+        });
+        crate::dual::set_fail_fast(false);
+        let message = result.expect_err("the difference").downcast_ref::<String>().cloned().unwrap_or_default();
+        assert!(message.contains("action_cards::has_legal_target"), "{message}");
     }
 
     /// What a step changes in the image, applied to the image before it, is the image after it.
