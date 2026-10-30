@@ -274,7 +274,7 @@ mod tests {
     fn the_firmament_plot_helper_panics_for_a_firmament_seat() {
         let s = table(&[Faction::TheArborec, Faction::TheFirmament]);
         assert!(with_policy(Policy::Off, || crate::kernel::fx_plots::is_firmament(&s, Seat(1))));
-        assert!(panic_text(|| with_policy(Policy::Panic, || { crate::kernel::fx_plots::is_firmament(&s, Seat(1)); })).is_some_and(|t| t.contains("Firmament")));
+        assert!(panic_text(|| with_policy(Policy::Panic, || { let _ = crate::kernel::fx_plots::is_firmament(&s, Seat(1)); })).is_some_and(|t| t.contains("Firmament")));
         with_policy(Policy::Panic, || assert!(!crate::kernel::fx_plots::is_firmament(&s, Seat(0))));
     }
 }

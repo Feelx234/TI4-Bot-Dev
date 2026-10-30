@@ -149,5 +149,5 @@ fn a_ported_write_at_a_switched_off_table_bails_under_bail_and_runs_under_off() 
     let ran = |gs: &mut GameState| crate::dual_window::lend(gs, Footprint::new(&[Slice::Players], &[]), None, |_, _| ());
     assert!(with_disabled_policy(Policy::Off, || ran(&mut gs.clone())).is_some());
     assert!(with_disabled_policy(Policy::Bail, || ran(&mut gs.clone())).is_none());
-    assert!(panic_text(|| with_disabled_policy(Policy::Panic, || drop(ran(&mut gs.clone())))).is_some_and(|t| t.contains("LastBastion")));
+    assert!(panic_text(|| with_disabled_policy(Policy::Panic, || { let _ = ran(&mut gs.clone()); })).is_some_and(|t| t.contains("LastBastion")));
 }
