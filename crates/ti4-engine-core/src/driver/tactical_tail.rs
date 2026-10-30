@@ -80,4 +80,73 @@ mod tests {
         assert_eq!(then(false, true), Then::Secondary);
         assert_eq!(then(false, false), Then::FinishAction);
     }
+
+    fn three_seats() -> CoreState {
+        use crate::generated::Faction;
+        use crate::state::{Player, Players};
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec((0..3).map(|i| Player::new(Seat(i), Faction::ALL[usize::from(i)])).collect());
+        s
+    }
+
+    #[test]
+    fn dark_energy_tap_needs_a_frontier_token_the_technology_and_a_ship_of_the_seat() {
+        let system = System::ALL[0];
+        let mut s = three_seats();
+        assert!(!det_fires(&s, Seat(0), system));
+        s.explore.frontier.insert(system);
+        s.players.edit(0).tech.owned.insert(Technology::DarkEnergyTap);
+        assert!(!det_fires(&s, Seat(0), system), "no ship there");
+        s.board.sys_mut(system).units.push(crate::state::Piece::new(crate::generated::Unit::ALL[0], Seat(1)));
+        assert!(!det_fires(&s, Seat(0), system), "somebody else's ship");
+        s.board.sys_mut(system).units.push(crate::state::Piece::new(crate::generated::Unit::ALL[0], Seat(0)));
+        assert!(det_fires(&s, Seat(0), system));
+        s.explore.frontier.remove(system);
+        assert!(!det_fires(&s, Seat(0), system), "no token");
+        s.explore.frontier.insert(system);
+        s.players.edit(0).tech.owned.remove(Technology::DarkEnergyTap);
+        assert!(!det_fires(&s, Seat(0), system), "no technology");
+    }
+
+    #[test]
+    fn the_tro_window_is_open_for_a_readied_agent_anywhere_or_a_borrowed_one() {
+        let mut s = three_seats();
+        assert!(!tro_window(&s, false));
+        assert!(tro_window(&s, true), "Ssruu lends one");
+        s.players.edit(2).leaders.status.insert(Leader::Tro, LeaderStatus::Exhausted);
+        assert!(!tro_window(&s, false), "an exhausted agent does not listen");
+        s.players.edit(2).leaders.status.insert(Leader::Tro, LeaderStatus::Readied);
+        assert!(tro_window(&s, false));
+        s.players.edit(2).leaders.status.insert(Leader::Tro, LeaderStatus::Exhausted);
+        s.players.edit(1).leaders.status.insert(Leader::FieldMarshalMercer, LeaderStatus::Readied);
+        assert!(tro_window(&s, false), "Field Marshal Mercer reads the same moment");
+    }
+
+    #[test]
+    fn the_crown_offers_only_with_a_ready_crown_and_a_planet_with_a_trait() {
+        let scope = Scope(u32::MAX);
+        let mut s = three_seats();
+        assert!(!crown_offers(&s, Seat(0), scope), "no Crown");
+        s.players.edit(0).cards.relics.push(crate::generated::Relic::TheCrownOfEmphidia);
+        assert!(!crown_offers(&s, Seat(0), scope), "no planet to explore");
+        let planet = crate::generated::Planet::ALL.iter().copied().find(|p| !p.data().traits.is_empty()).expect("a planet with a trait");
+        s.board.planet_mut(planet).control = Some(Seat(0));
+        assert!(crown_offers(&s, Seat(0), scope));
+        assert!(!crown_offers(&s, Seat(1), scope), "not the holder");
+        s.players.edit(0).cards.relics_exhausted.insert(crate::generated::Relic::TheCrownOfEmphidia);
+        assert!(!crown_offers(&s, Seat(0), scope), "exhausted");
+    }
+
+    #[test]
+    fn the_close_clears_the_aftermath_the_system_and_the_pending_tag() {
+        let mut s = three_seats();
+        s.meta.active_system = Some(System::ALL[0]);
+        s.pending.tag = Some(crate::state::PendingTag::Move);
+        s.pending.stack.push(crate::state::Window::Untyped { kind: WindowKind::Aftermath, actor: None, data: [0; 3] });
+        s.pending.stack.push(crate::state::Window::Untyped { kind: WindowKind::Trade, actor: None, data: [0; 3] });
+        close_writes(&mut s);
+        assert_eq!((s.meta.active_system, s.pending.tag), (None, None));
+        assert_eq!(s.pending.stack.len(), 1, "only the aftermath goes");
+        assert_eq!(s.pending.stack[0].kind(), WindowKind::Trade);
+    }
 }

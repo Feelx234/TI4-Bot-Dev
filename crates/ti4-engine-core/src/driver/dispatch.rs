@@ -85,4 +85,39 @@ mod tests {
         assert_eq!(dispatch(Opt::Lent(Code(3))), Dispatch::Lend);
         assert_eq!(dispatch(Opt::Token(crate::generated::System::ALL[0])), Dispatch::Token);
     }
+
+    fn two_seats() -> CoreState {
+        use crate::generated::Faction;
+        use crate::state::{Player, Players};
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::ALL[0]), Player::new(Seat(1), Faction::ALL[1])]);
+        s
+    }
+
+    #[test]
+    fn a_pass_marks_the_seat_and_only_the_last_seat_to_pass_records_prove_endurance() {
+        let mut s = two_seats();
+        mark_passed(&mut s, Seat(0));
+        assert!(s.players.edit(0).econ.passed && !s.players.edit(1).econ.passed);
+        assert_eq!(last_to_pass(&mut s, Seat(0)), None, "the other seat has yet to pass");
+        assert_eq!(s.meta.feat_occurrence_seq, 0, "no occurrence was begun");
+        mark_passed(&mut s, Seat(1));
+        s.meta.feat_occurrence_seq = 4;
+        assert_eq!(last_to_pass(&mut s, Seat(1)), Some(5), "a fresh occurrence");
+        assert_eq!(s.meta.feat_occurrence_seq, 5);
+        assert_eq!(s.players.edit(1).misc.event_feats.as_slice(), &[(Feat::LastToPass, 5)]);
+        assert!(s.players.edit(0).misc.event_feats.as_slice().is_empty(), "only the passer scores it");
+        // The same occurrence is never recorded twice.
+        s.meta.feat_occurrence_seq = 4;
+        assert_eq!(last_to_pass(&mut s, Seat(1)), Some(5));
+        assert_eq!(s.players.edit(1).misc.event_feats.as_slice().len(), 1);
+    }
+
+    #[test]
+    fn an_explicit_pass_declines_the_additional_action() {
+        let mut s = two_seats();
+        s.transient.misc.flags.set(TransientFlags::ADDITIONAL_ACTION);
+        decline_additional_action(&mut s);
+        assert!(!s.transient.misc.flags.has(TransientFlags::ADDITIONAL_ACTION));
+    }
 }
