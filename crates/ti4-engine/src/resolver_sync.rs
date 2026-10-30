@@ -648,6 +648,43 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_configuration_with_more_than_eight_seats_of_initiative_is_not_a_state() {
+        let state = crate::setup::start_game_seeded(ContentStore::embedded(), &players(2), POK, None, 1).unwrap();
+        let names: Vec<String> = (0..9).map(|i| format!("p{i}")).collect();
+        let r = Render::new(names.clone());
+        let (res, seq) = spent_resolver();
+        let mut cfg = res.core_cfg(&POK);
+        cfg.initiative = names[..8].to_vec();
+        assert_eq!(cfg_state(&r, &cfg, seq.peek()).map(|s| s.initiative.len()), Some(8));
+        cfg.initiative = names;
+        assert!(cfg_state(&r, &cfg, seq.peek()).is_none());
+        let _ = state;
+    }
+
+    #[test]
+    fn a_resolver_for_a_lent_window_takes_the_carried_part_and_the_clock_of_the_state() {
+        let mut g = game(3, 7);
+        play(&mut g, 80, 1000, |_| {});
+        let state = g.state.clone();
+        let r = render_for(&state);
+        let (res, seq) = spent_resolver();
+        let img = export(&res, &seq, &r).unwrap();
+        let mut carried = to_state(&img).unwrap();
+        let (lent, counter) = rebuild_for_lend(&state, &carried, Table::default(), &r);
+        assert_eq!(counter.peek(), carried.next_id);
+        assert_eq!(lent.used_keys().len(), carried.used.len());
+        assert_eq!(lent.phase(), state.phase);
+        assert_eq!(lent.counters(), (u64::from(state.round), u64::from(state.turn_seq)));
+        assert_eq!(lent.speaker(), Some(&state.speaker), "the clock is the state's");
+        assert!(lent.log().is_empty() && lent.applied_events().is_empty(), "an empty trace and journal");
+        assert_eq!(lent.initiative_order().iter().map(|p| r.seat(p.as_str()).unwrap()).collect::<Vec<_>>(), carried.initiative.as_slice());
+        // a carried part without an initiative order takes the state's own
+        carried.initiative = ti4_engine_core::containers::SmallList::new();
+        let (lent, _) = rebuild_for_lend(&state, &carried, Table::default(), &r);
+        assert_eq!(lent.initiative_order(), state.initiative_order().as_slice());
+    }
+
     /// What a step changes in the image, applied to the image before it, is the image after it.
     #[test]
     fn a_delta_applied_to_the_image_before_gives_the_image_after() {

@@ -3986,17 +3986,22 @@ mod resolver_state_tests {
     /// The differences the comparison finds for a window that left `after_used` spent in the string resolver while the
     /// core driver spent nothing, and the next trace id the state ends with.
     fn run(nested: bool, after_used: &[(&str, &str)]) -> (usize, u64) {
+        run_at(nested, after_used, 0, 5)
+    }
+
+    /// [`run`] for a window that finished `finished` emissions and whose driver numbered its events up to `driver_next`.
+    fn run_at(nested: bool, after_used: &[(&str, &str)], finished: u64, driver_next: u64) -> (usize, u64) {
         let _serial = crate::dual::tests::serial();
         crate::dual::take_report();
         let r = Render::new(vec!["a".into(), "b".into()]);
-        let driver = Driver::new(Idle, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 5);
+        let driver = Driver::new(Idle, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), driver_next);
         let mut core = CoreState::all_loaded();
         let script = Recording {
             nested,
             cfg: Some(cfg(&[])),
             after: Some(cfg(after_used)),
             first_event_id: Some(5),
-            finished: 0,
+            finished,
             ..Recording::default()
         };
         compare_resolver(&r, &driver, &mut core, &script);
@@ -4011,6 +4016,37 @@ mod resolver_state_tests {
     #[test]
     fn a_key_the_string_spent_and_the_core_did_not_is_a_difference() {
         assert_eq!(run(true, &[("ability:x", "Round(1)")]).0, 1);
+    }
+
+    #[test]
+    fn the_next_trace_id_is_the_first_plus_the_emissions_that_finished() {
+        assert_eq!(run_at(true, &[], 2, 7), (0, 7), "5 + 2 emissions");
+        assert_eq!(run_at(true, &[], 2, 5).0, 1, "a core that numbered fewer events differs");
+    }
+
+    #[test]
+    fn the_recording_keeps_the_resolver_after_the_windows_own_last_emission_only() {
+        assert!(start());
+        let ev = |id| Event::new(id, "E", std::collections::BTreeMap::new());
+        note_resolver(5, || cfg(&[]));
+        // the window's own emission, with a nested one inside it
+        let outer = enter_emit();
+        let inner = enter_emit();
+        leave_emit(inner, Some(&ev(6)));
+        note_resolver_after(inner, || cfg(&[("ability:nested", "Round(1)")]));
+        leave_emit(outer, Some(&ev(5)));
+        note_resolver_after(outer, || cfg(&[("ability:own", "Round(1)")]));
+        let rec = finish();
+        assert_eq!(rec.after.map(|c| c.used), Some(vec![("ability:own".to_owned(), "Round(1)".to_owned())]));
+        assert_eq!(rec.finished, 2);
+        assert!(!rec.failed_emit);
+        // an emission that failed is noted, and a recording that saw no resolver keeps no `after`
+        assert!(start());
+        let g = enter_emit();
+        leave_emit(g, None);
+        note_resolver_after(g, || cfg(&[]));
+        let rec = finish();
+        assert!(rec.failed_emit && rec.after.is_none());
     }
 
     #[test]
