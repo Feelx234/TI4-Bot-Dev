@@ -240,7 +240,7 @@ fn a_planet_of_an_expansion_out_of_scope_is_found_only_when_it_has_an_entry() {
     assert_eq!(board::system_of(&s, base_only, pok), None);
     let mut c = s.clone();
     c.board_mut().planet_mut(pok).control = Some(Seat(0));
-    assert_eq!(board::system_of(&c, base_only, pok), system_of(pok).into(), "controlled: it is in play whatever the scope");
+    assert_eq!(board::system_of(&c, base_only, pok), Some(system_of(pok)), "controlled: it is in play whatever the scope");
     let mut e = s.clone();
     e.board_mut().planet_mut(pok).flags.set(PlanetFlags::UNITS_ENTRY, true);
     assert_eq!(board::system_of(&e, base_only, pok), Some(system_of(pok)));
