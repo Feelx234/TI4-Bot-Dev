@@ -25,6 +25,7 @@ pub fn begin_action_turn(core: &mut CoreState, seat: Seat) {
 
 /// `GameState::all_passed`.
 #[must_use]
+// mutants:skip: `advance_turn` would walk the order and find nobody all the same; the shortcut changes no result.
 pub fn all_passed(core: &CoreState) -> bool {
     core.players().iter().all(|p| p.econ.passed)
 }

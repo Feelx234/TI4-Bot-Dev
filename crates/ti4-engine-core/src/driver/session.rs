@@ -232,6 +232,41 @@ mod tests {
     }
 
     #[test]
+    fn the_facts_of_a_core_position_are_read_from_its_meta_and_pending() {
+        use crate::ids::Seat;
+        use crate::state::{DriverFlags, Secondary, Window};
+        let mut s = CoreState::all_loaded();
+        s.meta.round = 1;
+        s.meta.phase = Phase::Strategy;
+        s.meta.active = Some(Seat(1));
+        s.pending.driver.set(DriverFlags::STATUS_RESOLVED, true);
+        s.pending.driver.set(DriverFlags::STRATEGY_PHASE_ANNOUNCED, true);
+        s.pending.stack.push(Window::LeaderStrategy { player: Seat(0), leader: crate::generated::Leader::ALL[0], card: crate::generated::StrategyCard::ALL[0] });
+        s.pending.stack.push(Window::StrategySecondary(Secondary {
+            primary: Seat(0),
+            card: crate::generated::StrategyCard::ALL[0],
+            followers: Default::default(),
+            next: 0,
+            resolved: Default::default(),
+            exhausts_card: false,
+        }));
+        let f = Facts::of(&s, true, true, false, true);
+        assert_eq!(f.open, bit(WindowKind::LeaderStrategy) | bit(WindowKind::StrategySecondary), "two windows, not their overlap");
+        assert_eq!((f.phase, f.round, f.has_active), (Phase::Strategy, 1, true));
+        assert_eq!((f.status_resolved, f.agenda_resolved, f.strategy_announced), (true, false, true));
+        assert_eq!((f.blocked, f.turn_prepared, f.turn_closing, f.starting_picks_done, f.finished), (true, true, false, true, false));
+        assert_eq!(Facts::of(&CoreState::all_loaded(), false, false, false, false).open, 0, "no window, no bit");
+    }
+
+    #[test]
+    fn the_turn_prelude_belongs_to_the_action_phase_only() {
+        let f = Facts { turn_prepared: false, ..quiet() };
+        assert_eq!(step_arm(&Facts { phase: Phase::Status, ..f }, false), Arm::Status);
+        assert_eq!(step_arm(&Facts { phase: Phase::Strategy, round: 2, ..f }, false), Arm::Phase);
+        assert_eq!(step_arm(&Facts { phase: Phase::Action, turn_prepared: true, ..f }, false), Arm::Phase);
+    }
+
+    #[test]
     fn the_windows_are_tried_in_the_order_of_the_string_chain() {
         use WindowKind as K;
         let order = [
