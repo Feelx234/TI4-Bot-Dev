@@ -408,3 +408,80 @@ fn a_draw_scores_only_the_feats_that_do_not_ask_for_a_winner_and_a_fight_of_no_r
     assert!(!noted && state.player(&a()).unwrap().event_feats.is_empty());
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
 }
+
+const OVER: &str = "aftermath::fight_over";
+
+fn over_run(seed: u64, winner: Option<PlayerId>, rounds: u32, setup: impl Fn(&mut GameState, &SystemId)) -> (GameState, (bool, bool), Vec<String>, crate::dual::DualReport) {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+    state.promissory_notes.clear();
+    state.promissory_faceup.clear();
+    state.rng_seed = seed;
+    let (system, _) = crate::fixtures::a_placed_planet();
+    state.active = Some(a());
+    state.active_system = Some(system.clone());
+    crate::fixtures::put(&mut state, &system, "cruiser", &a(), 2);
+    crate::fixtures::put(&mut state, &system, "cruiser", &b(), 2);
+    let content = ContentStore::embedded();
+    let before = crate::combat::before_combat(&state, content, ti4_model::content_types::DEFAULT, &system);
+    state.system_mut(&system).units.retain(|u| u.owner != b());
+    state.active_space_combat = Some((system.clone(), a(), b()));
+    setup(&mut state, &system);
+    let outcome = crate::combat::CombatOutcome { winner, rounds };
+    let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+    let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+    let mut resolver = crate::fixtures::armed_resolver(&state);
+    let mut sequence = crate::event::EventSequence::new();
+    let mut log = Vec::new();
+    let result = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+        let mut ctx = Resolving {
+            content,
+            sources: ti4_model::content_types::DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+        };
+        AftermathWindow::fight_over(&mut state, &mut ctx, &a(), &system, &before, &outcome, &mut log).unwrap()
+    });
+    let r = report();
+    let _ = take_report();
+    (state, result, log, r)
+}
+
+#[test]
+fn the_end_of_a_won_fight_runs_in_the_core_with_the_win_the_scratch_and_the_enforcement() {
+    let (state, (holds, contacts), log, r) = over_run(1, Some(a()), 2, |s, system| {
+        // Fighters with no carrier are over capacity: the owner is asked which go.
+        crate::fixtures::put(s, system, "fighter", &a(), 7);
+    });
+    assert_eq!((holds, contacts), (true, false), "a still has ships there");
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(OVER).map_or(0, |w| w.compared) >= 1, "the core window ran: {:?}", r.windows);
+    assert!(state.active_space_combat.is_none() && state.last_combat_sides.as_ref().is_some_and(|(_, sides)| sides == &vec![b()]));
+    assert_eq!(log, ["SPACE_COMBAT_RESOLVED"]);
+    assert!(state.system_state(&crate::fixtures::a_placed_planet().0).units.len() < 9, "the stranded fighters went");
+}
+
+#[test]
+fn a_fight_of_no_rounds_and_a_draw_open_no_win_window_and_a_lost_fight_does_not_hold_the_space() {
+    let (state, (holds, _), log, r) = over_run(2, None, 0, |_, _| {});
+    assert!(holds);
+    assert!(log.is_empty() && state.last_combat_sides.is_none());
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    let (_, (holds, _), log, r) = over_run(3, None, 2, |s, system| s.system_mut(system).units.retain(|u| u.owner != a()));
+    assert!(!holds, "a has nothing left there");
+    assert_eq!(log, ["SPACE_COMBAT_RESOLVED"]);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(OVER).map_or(0, |w| w.compared) >= 1, "{:?}", r.windows);
+}
+
+#[test]
+fn shard_of_the_throne_and_a_titans_seat_keep_the_end_of_the_fight_on_the_string_and_say_why() {
+    let (_, _, _, r) = over_run(4, Some(a()), 2, |s, _| {
+        s.laws.insert("shard_of_the_throne".to_owned(), "b".to_owned());
+    });
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.iter().any(|(k, w)| k.starts_with(OVER) && k.contains("[bail: Shard of the Throne") && w.bailed > 0), "{:?}", r.windows);
+}
