@@ -146,6 +146,11 @@ pub struct Codes {
     pub salvage: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
+    /// The `source` `future_sight` of the trade good the Nomad's ability gains.
+    pub future_sight: crate::state::Code,
+    /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
+    /// `trade_agreement`, `artuno` (Artuno the Betrayer does not copy them).
+    pub not_from_supply: [crate::state::Code; 5],
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of

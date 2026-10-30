@@ -20,8 +20,12 @@ fn p(id: &str) -> PlayerId {
 
 /// Three real factions with their promissory notes dealt, in the agenda phase.
 fn position() -> GameState {
+    position_of(&[("a", "hacan"), ("b", "xxcha"), ("c", "arborec")])
+}
+
+fn position_of(seats: &[(&str, &str)]) -> GameState {
     let content = ContentStore::embedded();
-    let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "xxcha"), ("c", "arborec")], DEFAULT);
+    let mut state = crate::fixtures::seated_game(seats, DEFAULT);
     crate::promissory::deal(&mut state, content, DEFAULT);
     state.phase = Phase::Agenda;
     for seat in &mut state.players {
@@ -576,4 +580,93 @@ fn the_plain_events_of_a_covert_close_with_a_prediction_are_counted_and_compared
     for name in ["AGENDA_RESOLVED", "COVERT_AGENDA_RESOLVED", "AGENDA_PREDICTION_CORRECT", "LAW_ENACTED"] {
         assert_eq!(report.plain.get(&format!("{LABEL} | {name}")), Some(&1), "{name}: {:?}", report.plain);
     }
+}
+
+// -- Future Sight (package W9): the Nomad's trade good after an outcome it voted for or predicted ----------------------------
+
+/// A Nomad (a), Xxcha (b) and Arborec (c) in the agenda phase.
+fn nomad_position() -> GameState {
+    position_of(&[("a", "nomad"), ("b", "xxcha"), ("c", "arborec")])
+}
+
+fn goods(state: &GameState, id: &str) -> i32 {
+    state.player(&p(id)).unwrap().trade_goods
+}
+
+#[test]
+fn future_sight_pays_the_nomad_one_trade_good_for_the_outcome_it_backed_in_lockstep() {
+    // a backed "for" and it wins: one trade good, announced; b (no Future Sight) gets nothing for backing "against".
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let before = nomad_position();
+        let paid = goods(&before, "a");
+        let g = close(game(before, &[]), law_vote("checks", Some("for")));
+        assert_eq!(goods(&g.state, "a"), paid + 1);
+        g
+    });
+    ok(compared, bailed, &diff);
+    assert!(g.events.iter().any(|e| e.starts_with("TRADE_GOODS_GAINED")), "{:?}", g.events);
+    // a backed "for" but "against" wins: nothing.
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let before = nomad_position();
+        let paid = goods(&before, "a");
+        let g = close(game(before, &[]), law_vote("checks", Some("against")));
+        assert_eq!(goods(&g.state, "a"), paid);
+        g
+    });
+    ok(compared, bailed, &diff);
+    drop(g);
+}
+
+#[test]
+fn future_sight_pays_for_a_bare_prediction_and_not_for_a_riders_tagged_one() {
+    // The Nomad did not vote and predicted "for" plainly: paid. A rider's prediction is the text `for|trade_rider`: not.
+    for (text, pays) in [("for", 1), ("for|trade_rider", 0), ("against", 0)] {
+        let (g, compared, bailed, diff) = lockstep(|| {
+            let mut s = nomad_position();
+            predict(&mut s, "a", text);
+            let paid = goods(&s, "a");
+            let window = VoteWindow::finished("checks", &["for", "against"], &[("b", "for"), ("c", "against")], &[("for", 3), ("against", 1)], Some("for"));
+            let g = close(game(s, &[]), window);
+            let gained = goods(&g.state, "a") - paid;
+            // A trade rider pays five trade goods to the seat that predicted: only its own payout is added on top.
+            assert_eq!(gained, if text == "for|trade_rider" { 5 } else { pays }, "{text}");
+            g
+        });
+        ok(compared, bailed, &diff);
+        drop(g);
+    }
+}
+
+#[test]
+fn bail_future_sight_of_a_nomad_is_followed_only_with_the_ability_in_the_table() {
+    // The ability is in the core table and keyed like the string's id; a deadly plot's discard stops it (string rule, copied).
+    let t = crate::reactions_core::table();
+    let id = "ability:nomad:future_sight:AGENDA_RESOLVED:after";
+    let slot = crate::reactions_core::slot_of(id).expect("future sight has a slot");
+    assert!(t.of_slot(slot).is_some_and(|spec| spec.effect_ported));
+}
+
+fn artuno() -> ti4_model::id::LeaderId {
+    ti4_model::id::LeaderId::new("nomadagentartuno")
+}
+
+/// Artuno the Betrayer (package W9): the trade good Future Sight gains is a gain from the supply, so a readied Artuno may exhaust to
+/// copy it on its card. The reaction window of the gain is followed by the core (it was a nested bail before); a decline keeps the card.
+#[test]
+fn artuno_copies_a_gain_from_the_supply_onto_its_card_in_lockstep() {
+    let readied = |state: &GameState| crate::leaders::status(state, &p("a"), &artuno());
+    let before = nomad_position();
+    assert_eq!(readied(&before), Some(ti4_model::state::LeaderStatus::Readied), "the Nomad starts with a readied Artuno");
+    // The first option of the window is the ability itself: Artuno is exhausted and the one trade good is on the card.
+    let (g, compared, bailed, diff) = lockstep(|| close(game(nomad_position(), &[]), law_vote("checks", Some("for"))));
+    ok(compared, bailed, &diff);
+    let used = readied(&g.state) == Some(ti4_model::state::LeaderStatus::Exhausted);
+    // The other answer: decline (the id of the decline option).
+    let (g2, compared, bailed, diff) = lockstep(|| close(game(nomad_position(), &["decline"]), law_vote("checks", Some("for"))));
+    ok(compared, bailed, &diff);
+    let declined = readied(&g2.state);
+    assert!(used || declined == Some(ti4_model::state::LeaderStatus::Readied), "one of the two answers used Artuno");
+    assert_ne!(used, declined == Some(ti4_model::state::LeaderStatus::Exhausted), "the two answers differ: {used} {declined:?}");
+    let pile = |s: &GameState| crate::factions::nomad_agents::artuno_pile(s, &p("a"));
+    assert_eq!(pile(&g.state) + pile(&g2.state), 1, "the card holds the one trade good the Future Sight gain made");
 }

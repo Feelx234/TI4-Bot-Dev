@@ -3034,28 +3034,37 @@ mod relic_window_tests {
         let _ = take_report();
     }
 
-    /// "gain which technology" for the Enigmatic Device and the Maw of Worlds.
+    /// "gain which technology" for the Enigmatic Device and the Maw of Worlds, and (package W13) for the sources that are no relic:
+    /// Research Team's grant and an agenda's. All run in the core window; a technology option the core tables do not know stays
+    /// the string's (the bail test below).
     #[test]
     fn the_technology_question_runs_in_lockstep_with_the_core() {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let content = ti4_content::ContentStore::embedded();
+        crate::dual::reset_thread_windows();
         dual(|| {
-            for source in ["enigmaticdevice", "mawofworlds"] {
+            for source in ["enigmaticdevice", "mawofworlds", "researchteam", "grant_reallocation"] {
                 let state = seated();
                 let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
                 let got = ask_technology(&state, content, POK, &mut table, None, &me(), None, source, false);
-                assert!(got.is_some());
+                assert!(got.is_some(), "{source}");
             }
-            // A source that is no relic (an agenda's research) is the string question alone.
-            let state = seated();
-            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
-            assert!(ask_technology(&state, content, POK, &mut table, None, &me(), None, "researchteam", false).is_some());
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("relics::ask_technology").0 >= 2 && counts("relics::ask_technology").1 >= 1, "{r:?}");
+        assert_eq!(crate::dual::thread_window_counts("relics::ask_technology"), (4, 0), "{r:?}");
         let _ = take_report();
+    }
+
+    /// The question of a source that is no relic keeps the string's wording: the subtype and the origin carry the source's text
+    /// (found by the lockstep run above: the compared window would differ otherwise).
+    #[test]
+    fn the_question_of_a_source_that_is_no_relic_is_worded_by_its_source() {
+        let render = crate::render::Render::new(Vec::new());
+        let code = render.code("researchteam");
+        let sub = ti4_engine_core::choice::relic::Subtype::ChooseTechnologyFrom(code);
+        assert_eq!(<crate::render::relic::Fam as crate::render::Family>::subtype(&render, &sub), "researchteam_choose_technology");
     }
 
     /// The effects of the Maw of Worlds (every planet exhausted), the Book of Latvinia (a point or the speaker)

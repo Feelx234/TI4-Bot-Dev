@@ -360,6 +360,34 @@ mod real {
         details: &dyn Fn(&ti4_engine_core::choice::Choice, &CoreState, &mut crate::choice::Choice),
         value: impl FnOnce(&W) -> Option<T>,
     ) -> Option<CoreWindow<T>> {
+        drive_window_r(gs, fp, player, |s, _| window(s), script, details, value)
+    }
+
+    /// [`drive_window`] for a window that names a text the renderer interns (the source of a question).
+    #[allow(clippy::too_many_arguments)]
+    fn drive_window_coded<W: ti4_engine_core::kernel::stage::Window + Clone + InInvasion, T>(
+        gs: &mut GameState,
+        fp: Footprint,
+        player: &PlayerId,
+        text: &str,
+        window: impl FnOnce(Seat, ti4_engine_core::state::Code) -> W,
+        script: &Recording,
+        details: &dyn Fn(&ti4_engine_core::choice::Choice, &CoreState, &mut crate::choice::Choice),
+        value: impl FnOnce(&W) -> Option<T>,
+    ) -> Option<CoreWindow<T>> {
+        drive_window_r(gs, fp, player, |s, r| window(s, r.code(text)), script, details, value)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn drive_window_r<W: ti4_engine_core::kernel::stage::Window + Clone + InInvasion, T>(
+        gs: &mut GameState,
+        fp: Footprint,
+        player: &PlayerId,
+        window: impl FnOnce(Seat, &crate::render::Render) -> W,
+        script: &Recording,
+        details: &dyn Fn(&ti4_engine_core::choice::Choice, &CoreState, &mut crate::choice::Choice),
+        value: impl FnOnce(&W) -> Option<T>,
+    ) -> Option<CoreWindow<T>> {
         if let Some(why) = outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
@@ -368,7 +396,7 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(window(seat).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = Driver::new(window(seat, &r).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, details)
         })
@@ -471,12 +499,21 @@ mod real {
         options: &[String],
         script: &Recording,
     ) -> Option<CoreWindow<Option<String>>> {
-        let relic = typed::<Relic>(relic).why("a source that is no relic (Research Team, an agenda: the string question alone)")?;
         let list: Option<Vec<Technology>> = options.iter().map(|t| typed::<Technology>(t)).collect();
         let list = list.why("a technology option the core tables do not know")?;
-        drive_window(gs, RELIC_WINDOW, player, |s| GainTechnology::new(s, relic, &list), script, &no_details, |w| {
-            Some(w.chosen.map(|t| t.as_str().to_owned()))
-        })
+        // A relic (Enigmatic Device, Maw of Worlds) is the question's origin by its id; any other source (Research Team, an
+        // agenda's grant) by its interned text (package W13).
+        match typed::<Relic>(relic) {
+            Some(relic) => drive_window(gs, RELIC_WINDOW, player, |s| GainTechnology::new(s, relic, &list), script, &no_details, |w| {
+                Some(w.chosen.map(|t| t.as_str().to_owned()))
+            }),
+            None => {
+                let source = relic;
+                drive_window_coded(gs, RELIC_WINDOW, player, source, |s, code| GainTechnology::from_source(s, code, &list), script, &no_details, |w| {
+                    Some(w.chosen.map(|t| t.as_str().to_owned()))
+                })
+            }
+        }
     }
 
     /// The core half of `exploration::pay_with_mech_or_infantry` (the value: the card was paid for).

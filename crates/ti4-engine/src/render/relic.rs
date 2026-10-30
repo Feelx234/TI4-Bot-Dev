@@ -30,11 +30,11 @@ impl Family for Fam {
             Ask::Codex => "The Codex: take which action card".to_owned(),
             Ask::TitanPrototype => "Titan Prototype: which player may build".to_owned(),
             Ask::StellarConverter => "Stellar Converter: destroy which planet".to_owned(),
-            Ask::GainTechnology { .. } => "gain which technology".to_owned(),
+            Ask::GainTechnology { .. } | Ask::GainTechnologyFrom { .. } => "gain which technology".to_owned(),
         }
     }
 
-    fn subtype(_: &Render, s: &Subtype) -> String {
+    fn subtype(r: &Render, s: &Subtype) -> String {
         match s {
             Subtype::DominusOrbPurgeToMove => "dominus_orb_purge_to_move",
             Subtype::CrownOfEmphidiaChoosePlanet => "crown_of_emphidia_choose_planet",
@@ -43,6 +43,7 @@ impl Family for Fam {
             Subtype::TitanPrototypeChooseBuilder => "titan_prototype_choose_builder",
             Subtype::StellarConverterChooseTarget => "stellar_converter_choose_target",
             Subtype::ChooseTechnology(relic) => return format!("{}_choose_technology", relic.as_str()),
+            Subtype::ChooseTechnologyFrom(source) => return format!("{}_choose_technology", r.code_text(*source)),
         }
         .to_owned()
     }
@@ -86,7 +87,7 @@ impl Family for Fam {
             Ask::Codex => ActionCard::from_id(id).map(|c| Opt::Take(c, Shown::default())),
             Ask::TitanPrototype => r.seat(id).map(Opt::Builder),
             Ask::StellarConverter => Planet::from_id(id).map(|p| Opt::Destroy(p, Shown::default())),
-            Ask::GainTechnology { .. } => Technology::from_id(id).map(Opt::Tech),
+            Ask::GainTechnology { .. } | Ask::GainTechnologyFrom { .. } => Technology::from_id(id).map(Opt::Tech),
         }
     }
 }

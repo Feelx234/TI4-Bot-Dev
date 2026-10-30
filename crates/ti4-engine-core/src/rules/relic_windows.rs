@@ -14,7 +14,7 @@ use crate::generated::{Planet, PublicObjective, Relic, System, Technology};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
-use crate::state::CoreState;
+use crate::state::{Code, CoreState};
 
 use super::explore;
 use super::explore_windows::{InInvasion, XStage, in_invasion, relic_ctx};
@@ -295,6 +295,8 @@ impl Window for StellarConverter {
 pub struct GainTechnology {
     pub who: Seat,
     relic: Relic,
+    /// A source that is no relic (Research Team, an agenda): the interned text; `relic` is then not read.
+    from: Option<Code>,
     options: Vec<Technology>,
     stage: XStage,
     pub chosen: Option<Technology>,
@@ -305,11 +307,35 @@ impl GainTechnology {
     /// `relic` is the card the question is about (`enigmaticdevice`, `mawofworlds`).
     #[must_use]
     pub fn new(who: Seat, relic: Relic, options: &[Technology]) -> Self {
-        Self { who, relic, options: options.to_vec(), stage: XStage::Start, chosen: None, inv: None }
+        Self { who, relic, from: None, options: options.to_vec(), stage: XStage::Start, chosen: None, inv: None }
+    }
+
+    /// The same question for a source that is no relic (`researchteam`, an agenda's grant): `source` is its interned text.
+    #[must_use]
+    pub fn from_source(who: Seat, source: Code, options: &[Technology]) -> Self {
+        Self { who, relic: Relic::ALL[0], from: Some(source), options: options.to_vec(), stage: XStage::Start, chosen: None, inv: None }
     }
 
     const fn ask(&self) -> Ask {
-        Ask::Relic(RAsk::GainTechnology { relic: self.relic })
+        match self.from {
+            Some(source) => Ask::Relic(RAsk::GainTechnologyFrom { source }),
+            None => Ask::Relic(RAsk::GainTechnology { relic: self.relic }),
+        }
+    }
+
+    fn ctx(&self) -> crate::choice::Ctx {
+        match self.from {
+            Some(source) => crate::choice::Ctx {
+                origin: crate::choice::Origin::Content(crate::choice::generic::Content::Other(source)),
+                subtype: crate::choice::Subtype::Relic(RSub::ChooseTechnologyFrom(source)),
+                optional: false,
+                target: None,
+                outstanding: crate::containers::SmallList::new(),
+                space_battle: false,
+                invasion_seq: self.inv,
+            },
+            None => relic_ctx(self.relic, RSub::ChooseTechnology(self.relic), self.inv),
+        }
     }
 }
 
@@ -331,7 +357,7 @@ impl Window for GainTechnology {
         (self.stage == XStage::Asking).then(|| Choice {
             actor: self.who,
             ask: self.ask(),
-            ctx: relic_ctx(self.relic, RSub::ChooseTechnology(self.relic), self.inv),
+            ctx: self.ctx(),
             opts: opts(self.options.iter().map(|t| ROpt::Tech(*t))),
         })
     }
