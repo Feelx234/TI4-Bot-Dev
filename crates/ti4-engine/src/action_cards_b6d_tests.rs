@@ -1617,7 +1617,7 @@ fn bail_politics_when_a_hook_changes_the_draw() {
     assert_eq!(bails_picking("strategize4", &politics, "pok3politics", 0), (1, 0));
 }
 
-/// Bail: a research at a table the research window does not carry (a Mentak seat: the Corsair's form), below the rules version
+/// Bail: a research at a table the research window does not carry (a Mentak seat with The Table's Grace: the Corsair's form), below the rules version
 /// that asked the payment, is the string's, for both abilities of Technology.
 #[test]
 fn bail_technology_at_a_table_the_research_window_does_not_carry() {
@@ -1625,6 +1625,8 @@ fn bail_technology_at_a_table_the_research_window_does_not_carry() {
     let research = strategy_on(research_position(), &["pok7technology"], &[], &[], &[]);
     let mut mentak = research.clone();
     mentak.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("mentak");
+    let plain_mentak = mentak.clone();
+    mentak.player_mut(&PlayerId::new("c")).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("mentakbt"));
     let mut old = research.clone();
     old.rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE - 1;
     // A faction effect the core table does not hold (here a waiver of prerequisites the string offers): the hooks disagree.
@@ -1635,7 +1637,8 @@ fn bail_technology_at_a_table_the_research_window_does_not_carry() {
     for alias in ["strategize1", "overrule"] {
         let declined = crate::factions::hooks_strategy::with_test_hooks(waiver, || bails_picking(alias, &research, "pok7technology", 0));
         assert_eq!(declined, (0, 1), "{alias} where the string modules and the core table disagree on the hooks of a research");
-        assert_eq!(bails_picking(alias, &mentak, "pok7technology", 0), (0, 1), "{alias} at a table with Mentak");
+        assert_eq!(bails_picking(alias, &mentak, "pok7technology", 0), (0, 1), "{alias} at a table with a Mentak who holds The Table's Grace");
+        assert_eq!(bails_picking(alias, &plain_mentak, "pok7technology", 0), (1, 0), "{alias} at a table with a Mentak without it is carried (W6)");
         assert_eq!(bails_picking(alias, &old, "pok7technology", 0), (0, 1), "{alias} below the rules version of the payment plan");
         assert_eq!(bails_picking(alias, &research, "pok7technology", 0), (1, 0), "{alias} is carried at a plain table");
     }

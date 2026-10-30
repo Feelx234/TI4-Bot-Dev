@@ -866,7 +866,9 @@ mod tests {
     #[test]
     fn imperial_secondary_asks_which_secret_to_return_over_the_limit() {
         let mut s = drawing(&FULL, &[Sec::BraveTheVoid, Sec::CutSupplyLines]);
+        assert!(!ImperialSecondary::new(Seat(0)).stage(), "not started");
         let (status, mut d) = start(ImperialSecondary::new(Seat(0)), &mut s, true);
+        assert!(d.window.stage(), "started once the draw is made");
         let Status::Asking(choice) = status else { panic!("the hand is over its limit: a question") };
         assert_eq!(choice.opts.len(), 4, "the three held and the one drawn");
         let pick = choice.opts.iter().position(|o| matches!(o, Opt::Objectives(crate::choice::objectives::Opt::Return(Sec::BetrayAFriend)))).unwrap();
@@ -918,5 +920,6 @@ mod tests {
         let (status, _) = start(ImperialPrimary::new(Seat(0), SmallList::new()), &mut s, true);
         assert!(matches!(status, Status::Done), "a point for Mecatol Rex, no draw");
         assert_eq!(s.decks().secret.len(), 1);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.victory_points, 1, "exactly one point");
     }
 }

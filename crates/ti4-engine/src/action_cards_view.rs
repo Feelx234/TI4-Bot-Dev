@@ -997,7 +997,7 @@ fn reveal_set(state: &GameState, player: &PlayerId, sources: &ti4_model::content
 /// Corsair form is the string's).
 fn technology_unported(gs: &GameState, sources: &ti4_model::content_types::SourceSet, player: &PlayerId) -> bool {
     let content = ti4_content::ContentStore::embedded();
-    gs.players.iter().any(|p| matches!(p.faction.as_str(), "deepwrought" | "mentak") || p.faction.as_str().starts_with("keleres"))
+    gs.players.iter().any(|p| p.faction.as_str() == "deepwrought" || p.faction.as_str().starts_with("keleres") || crate::factions::mentak::corsair_form(gs, &p.id))
         || crate::strategy_cards_core::research_unported(gs, content, sources.clone(), player)
 }
 

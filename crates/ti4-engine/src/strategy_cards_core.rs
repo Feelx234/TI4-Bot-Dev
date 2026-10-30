@@ -461,12 +461,13 @@ mod real {
     // -- Technology ----------------------------------------------------------------------------------------
 
     /// The seats whose own effects on a research are questions or forms the window does not carry: an own Deepwrought
-    /// (Doctor Carrina's window opens around every research), Keleres (the agent's offer in the payment) or Mentak (the
-    /// Corsair's unit form), The payment hooks of Naaz, Nomad and Yssaril are the production window's own (tier W).
+    /// (Doctor Carrina's window opens around every research), Keleres (the agent's offer in the payment) or a Mentak with
+    /// The Table's Grace (the Corsair's unit form, Thunder's Edge only: package W6 narrowed it from every Mentak seat, whose
+    /// research has no effect of its own). The payment hooks of Naaz, Nomad and Yssaril are the production window's own (tier W).
     fn research_seat_unported(gs: &GameState, player: &PlayerId) -> bool {
-        use crate::factions::{deepwrought, keleres, mentak};
-        let own = [deepwrought::MODULE.alias, keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias, mentak::MODULE.alias];
-        gs.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
+        use crate::factions::{deepwrought, keleres};
+        let own = [deepwrought::MODULE.alias, keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias];
+        gs.player(player).is_some_and(|p| own.contains(&p.faction.as_str())) || crate::factions::mentak::corsair_form(gs, player)
     }
 
     /// Whether the position holds an effect on a research the core `Research` window does not carry: what
@@ -513,7 +514,7 @@ mod real {
     ) -> Option<CoreWindow<bool>> {
         if let Some(why) = crate::dual_window::outside_why(gs, script)
             .or_else(|| (gs.rules_version < ti4_model::state::RULES_TECH_PAYMENT_CHOICE).then_some("a game below the technology payment choice"))
-            .or_else(|| research_unported(gs, content, sources, player).then_some("a seat whose own effects on a research are questions or forms (Deepwrought, Keleres, Mentak, Last Bastion, Crimson) or a purged technology"))
+            .or_else(|| research_unported(gs, content, sources, player).then_some("a seat whose own effects on a research are questions or forms (Deepwrought, Keleres, a Mentak with The Table's Grace, Last Bastion, Crimson) or a purged technology"))
         {
             crate::dual::note_bail_here(why);
             return None;

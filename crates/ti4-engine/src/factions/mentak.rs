@@ -245,6 +245,13 @@ pub(crate) fn unit_form_override(
     .then(|| UnitTypeId::new(CORSAIR))
 }
 
+/// Whether `player` plays the Corsair form: a Mentak seat that holds The Table's Grace (Thunder's Edge). Without the
+/// breakthrough the Mentak's effects on a research are none, and the core's research window carries it like any seat.
+#[must_use]
+pub(crate) fn corsair_form(state: &GameState, player: &PlayerId) -> bool {
+    is_mentak(state, player) && crate::breakthroughs::holds(state, player, BREAKTHROUGH)
+}
+
 /// Whether `event` announces that `player` gained The Table's Grace.
 fn grace_gained(event: &Event, state: &GameState, player: &PlayerId) -> bool {
     event.text("player") == Some(player.as_str())
