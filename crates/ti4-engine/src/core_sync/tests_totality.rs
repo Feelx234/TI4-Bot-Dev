@@ -159,6 +159,9 @@ fn a_test_that_refuses_on_purpose_suspends_strict_mode_and_is_still_counted() {
 
 // --- the refusal audit: one test per reachable class (see the table in `error.rs`) ----------------------------
 
+/// An id that is in no corpus category.
+const BOGUS: &str = "zzz";
+
 fn refuses(label: &str, slice: Slice, what: &str, mutate: impl FnOnce(&mut GameState)) {
     let mut gs = crate::fixtures::real_game(&["a", "b", "c"]);
     mutate(&mut gs);
@@ -183,7 +186,7 @@ fn a_content_id_outside_the_corpus_is_refused_by_the_slice_that_holds_it() {
         gs.system_mut(&sys).units.push(ti4_model::units::Unit::new(UnitTypeId::new("zzz"), PlayerId::new("a")));
     });
     refuses("planet", Slice::Board, "planet", |gs| {
-        gs.exhausted_planets.insert(PlanetId::new("zzz"));
+        gs.exhausted_planets.insert(PlanetId::new(BOGUS));
     });
     refuses("technology", Slice::Players, "technology", |gs| {
         gs.players[0].technologies.insert(TechnologyId::new("zzz"));

@@ -53,12 +53,9 @@ fn store_game(dir: &std::path::Path, n: usize) -> FileGameStore {
             map_template: setup.map.stored(),
         })
         .unwrap();
-    let mut lines = String::new();
     for r in records {
-        lines.push_str(&serde_json::to_string(r).unwrap());
-        lines.push('\n');
+        storage.append_decision(GAME, r).unwrap();
     }
-    std::fs::write(storage.game_dir(GAME).unwrap().join("decisions.jsonl"), lines).unwrap();
     storage
 }
 

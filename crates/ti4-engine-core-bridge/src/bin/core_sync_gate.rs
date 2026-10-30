@@ -55,6 +55,14 @@ fn main() {
 
     let (mut positions, refused) = template_openings();
     println!("template openings {} (refused {})", positions.len(), refused.len());
+    // why the specs were refused (the spec does not build: not a codec refusal), one line per distinct message
+    let mut why: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for r in &refused {
+        *why.entry(r.rsplit_once("): ").map_or(r.as_str(), |(_, m)| m)).or_default() += 1;
+    }
+    for (message, n) in &why {
+        println!("  template refused x{n}: {message}");
+    }
     let templates = positions.len();
     let galaxy = positions.first().expect("a template").galaxy.clone();
     positions.extend(fixtures(&galaxy));
