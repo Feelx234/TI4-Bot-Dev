@@ -110,6 +110,7 @@ pub mod core_sync;
 #[cfg(feature = "typed-core")]
 pub mod technology_core;
 pub mod technology_dual;
+pub mod promissory_dual;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod board_view;

@@ -269,7 +269,7 @@ macro_rules! uninhabited {
 }
 uninhabited!(
     tokens,
-    legendary, promissory
+    legendary
 );
 
 impl<A: Uninhabited, O: Uninhabited, S: Uninhabited> Family for Unported<A, O, S> {
@@ -369,7 +369,7 @@ registry! {
     Explore => explore::Fam,
     Relic => relic::Fam,
     Legendary => unported!(legendary),
-    Promissory => unported!(promissory),
+    Promissory => promissory::Fam,
     Cards => cards::Fam,
     Leaders => leaders::Fam,
     Strategy => strategy::Fam,

@@ -28,6 +28,7 @@ pub mod objective_windows;
 pub mod scoring_book;
 pub mod objectives;
 pub mod production;
+pub mod promissory_windows;
 pub mod reactions;
 pub mod relic_windows;
 pub mod strategy;
