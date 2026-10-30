@@ -295,6 +295,24 @@ mod text_tables {
     }
 
     #[test]
+    fn the_staged_tables_count_what_was_minted_and_the_owner_table_stops_at_sixteen() {
+        let gs = game();
+        let mut cx = Ctx::of(&gs).unwrap();
+        assert_eq!((cx.texts.len(), cx.texts.is_empty()), (1, false), "only the diplomacy tag");
+        cx.texts.intern(Slice::Transient, "one").unwrap();
+        cx.texts.intern(Slice::Transient, "two").unwrap();
+        cx.texts.intern(Slice::Transient, "one").unwrap();
+        assert_eq!(cx.texts.len(), 3);
+        assert_eq!((cx.owners.len(), cx.owners.is_empty()), (4, false));
+        let names: Vec<String> = (0..12).map(|i| format!("extra{i:02}")).collect();
+        let sixteen: Vec<&str> = names.iter().map(String::as_str).collect();
+        assert_eq!(Owners::with_extra(&gs, &sixteen).unwrap().len(), 16, "sixteen owners fit");
+        let mut seventeen = sixteen.clone();
+        seventeen.push("one too many");
+        assert!(Owners::with_extra(&gs, &seventeen).is_err());
+    }
+
+    #[test]
     fn a_loaded_state_carries_the_owner_table_and_clones_share_it() {
         let gs = game();
         let mut cx = Ctx::of(&gs).unwrap();
