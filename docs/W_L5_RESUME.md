@@ -56,7 +56,7 @@ lockstep tests named above, single-file mutation checks by Haiku runners on a co
 
 Equivalent mutants (the driver rejects a pick that is not among the offered options before `answer` runs): the optional check and the
 spot check of `PlaceUnits::answer`, the first-system check and the second-differs check of `RiftwalkerMeian::answer`; the box check of Lazax
-Gate Folding for the infantry (uncapped: no plastic).
+Gate Folding for the infantry (uncapped: no plastic); the Mecatol system fact of Lazax Gate Folding (the fixtures only have the base Mecatol tile).
 
 Not run (by the directive: no heavy work before the end of D1): `verify_package`/gate, golden or wide dual run, census re-run (the counted
 gates above and the census tables of `LENT_CENSUS.md` are by reading, not measured), bench, soak, mutation ratchet, workspace clippy,
