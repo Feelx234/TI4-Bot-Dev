@@ -1058,7 +1058,7 @@ pub(crate) fn outside_why(gs: &GameState, script: &Recording) -> Option<&'static
     }
 }
 
-/// [`outside`] without the diplomacy clause (the structured negotiation window is the diplomacy feature itself).
+/// The reason of a battle-bound window, without the diplomacy clause (the structured negotiation window is the diplomacy feature itself).
 pub(crate) fn outside_battle(gs: &GameState, script: &Recording) -> bool {
     script.nested || gs.active_space_combat.is_some() || gs.active_invasion.is_some()
 }
