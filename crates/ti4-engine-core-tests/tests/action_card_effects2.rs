@@ -48,6 +48,15 @@ fn rig(card: ActionCard, st: CoreState) -> Rig<Play> {
     solo(card, st, 1).unwrap_or_else(|| panic!("{card:?} has a play"))
 }
 
+use ti4_engine_core::choice::cards::{Ask as CAsk, What};
+
+fn what(r: &Rig<Play>) -> What {
+    match &r.asked().ask {
+        Ask::Cards(CAsk::Pick { what, .. }) => *what,
+        other => panic!("not a pick: {other:?}"),
+    }
+}
+
 fn o(x: CO) -> Opt {
     Opt::Cards(x)
 }
@@ -87,6 +96,7 @@ fn assassinate_representative_bars_the_chosen_player_from_voting_unless_they_pre
     covers_card!(ActionCard::AssassinateRepresentative);
     let mut r = rig(ActionCard::AssassinateRepresentative, four().state());
     r.run();
+    assert_eq!(what(&r), What::Player);
     assert_eq!(seats_of(&r), vec![0, 1, 2, 3], "every player, the holder too");
     r.assert_options_sound();
     r.pick_opt(o(CO::Seat(Seat(2))));
@@ -106,6 +116,7 @@ fn confusing_legal_text_elects_the_player_the_holder_names() {
     covers_card!(ActionCard::ConfusingLegalText);
     let mut r = rig(ActionCard::ConfusingLegalText, four().state());
     r.run();
+    assert_eq!(what(&r), What::Elect);
     assert_eq!(seats_of(&r), vec![1, 2, 3], "the other players");
     r.assert_options_sound();
     r.pick_opt(o(CO::Seat(Seat(3))));
@@ -242,6 +253,7 @@ fn in_the_silence_of_space_lets_ships_of_a_system_move_through_enemy_ships_this_
     st.meta_mut().activation_seq = 9;
     let mut r = rig(ActionCard::InTheSilenceOfSpace, st);
     r.run();
+    assert_eq!(what(&r), What::Silence);
     assert_eq!(r.opts(), vec![o(CO::System(sys(1))), o(CO::System(sys(3)))], "the systems with our ships, in id order");
     r.assert_options_sound();
     r.pick(1);
@@ -266,7 +278,9 @@ fn diplomatic_pressure_takes_a_promissory_note_from_the_hand_of_the_chosen_playe
     r.run();
     assert_eq!(seats_of(&r), vec![1, 2, 3], "any other player");
     r.assert_options_sound();
+    assert_eq!(what(&r), What::Player);
     r.pick_opt(o(CO::Seat(Seat(2))));
+    assert_eq!(what(&r), What::Note);
     // The victim chooses which note goes.
     assert_eq!(r.asked().actor, Seat(2));
     assert_eq!(r.opts().len(), 2);
@@ -322,6 +336,7 @@ fn rescue_moves_a_ship_of_ours_from_another_system_into_the_active_system_where_
         .state();
     let mut r = rig(ActionCard::Rescue, st.clone());
     r.run();
+    assert_eq!(what(&r), What::Rescue);
     assert_eq!(r.opts(), vec![o(CO::System(sys(2))), o(CO::System(sys(4)))], "systems without our token that hold a ship of ours, not the active one");
     r.assert_options_sound();
     r.pick(0);
@@ -385,6 +400,7 @@ fn repeal_law_removes_the_law_the_holder_names() {
     st.agenda_mut().laws.insert(Agenda::ExecutiveSanctions, Outcome::Empty);
     let mut r = rig(ActionCard::RepealLaw, st);
     r.run();
+    assert_eq!(what(&r), What::Law);
     assert_eq!(r.opts().len(), 2);
     r.assert_options_sound();
     r.pick_opt(o(CO::Law(Agenda::FleetRegulations)));
@@ -400,6 +416,7 @@ fn spy_takes_a_random_card_from_the_hand_of_the_chosen_player_by_the_die() {
     let st = four().hand(1, &hand).hand(2, &[ActionCard::ALL[9]]).state();
     let mut r = rig(ActionCard::Spy, st.clone());
     r.run();
+    assert_eq!(what(&r), What::Player);
     assert_eq!(seats_of(&r), vec![1, 2], "players holding a card");
     r.assert_options_sound();
     r.pick_opt(o(CO::Seat(Seat(1))));
@@ -431,6 +448,7 @@ fn lucky_shot_destroys_a_ship_of_another_player_in_a_system_where_the_holder_has
         .state();
     let mut r = rig(ActionCard::LuckyShot, st);
     r.run();
+    assert_eq!(what(&r), What::Hull);
     assert_eq!(r.opts().len(), 2, "the destroyer, and the dreadnought once");
     r.assert_options_sound();
     r.pick(1);
@@ -450,8 +468,10 @@ fn exchange_program_lets_both_players_land_infantry_on_a_planet_if_the_other_acc
     let mut r = rig(ActionCard::ExchangeProgram, st);
     r.run();
     assert_eq!(seats_of(&r), vec![1, 2, 3]);
+    assert_eq!(what(&r), What::Player);
     r.pick_opt(o(CO::Seat(Seat(2))));
     // Only planets of the other player with their own ground forces are offered; one candidate: taken unasked, then the other answers.
+    assert_eq!(what(&r), What::Accept);
     assert_eq!(r.asked().actor, Seat(2), "the other player accepts or refuses");
     assert_eq!(r.opts(), vec![o(CO::Answer(true)), o(CO::Answer(false))]);
     r.pick(0);
@@ -477,6 +497,7 @@ fn reparations_exhausts_a_planet_of_the_new_controller_and_readies_one_of_ours()
     let mut r = rig(ActionCard::Reparations, st.clone());
     r.run();
     // The new controller chooses which of their planets is exhausted.
+    assert_eq!(what(&r), What::Exhaust);
     assert_eq!(r.asked().actor, Seat(1));
     assert_eq!(r.opts().len(), 2);
     r.assert_options_sound();
@@ -510,6 +531,7 @@ fn public_disgrace_takes_the_strategy_card_the_other_player_just_picked_and_make
     r.run();
     // The card went back to the mat and the picker chooses another, not the same.
     assert_eq!(r.asked().actor, Seat(1));
+    assert_eq!(what(&r), What::Redraft { first: StrategyCard::Leadership, by: Seat(0) });
     assert_eq!(r.opts(), vec![o(CO::Strat(StrategyCard::Politics)), o(CO::Strat(StrategyCard::Trade))]);
     r.assert_options_sound();
     r.pick_opt(o(CO::Strat(StrategyCard::Trade)));
@@ -573,6 +595,7 @@ fn bribery_spends_trade_goods_for_extra_votes_on_this_agenda() {
     st.meta_mut().agenda_seq = 2;
     let mut r = rig(ActionCard::Bribery, st.clone());
     r.run();
+    assert_eq!(what(&r), What::Spend);
     assert_eq!(r.opts(), (0..=3).map(|n| o(CO::Count(n))).collect::<Vec<_>>(), "any number, zero included");
     r.assert_options_sound();
     r.pick_opt(o(CO::Count(2)));
@@ -610,6 +633,7 @@ fn lie_in_wait_takes_one_action_card_from_each_of_two_trading_neighbours() {
     let play = Play::of(&st, ActionCard::LieInWait, Seat(0), e).expect("a play");
     let mut r = Rig::from_parts(st, ti4_engine_core_tests::kernel_all(), play).with_table(linked()).seeded(1);
     r.run();
+    assert_eq!(what(&r), What::Lie { from: Seat(1) });
     assert_eq!(r.opts().len(), 2, "the two cards of the first trader");
     r.assert_options_sound();
     r.pick_opt(o(CO::Card(ActionCard::ALL[4])));
@@ -645,6 +669,7 @@ fn seize_artifact_takes_a_relic_fragment_from_a_neighbour_who_holds_one() {
     let mut r = rig(ActionCard::SeizeArtifact, st);
     r.run();
     // Seat 1 is the only neighbour (seats 3 and 1) with a fragment: taken unasked; then which kind.
+    assert_eq!(what(&r), What::Fragment);
     assert_eq!(r.opts(), vec![o(CO::Fragment(ExploreType::Cultural)), o(CO::Fragment(ExploreType::Hazardous))]);
     r.assert_options_sound();
     r.pick_opt(o(CO::Fragment(ExploreType::Hazardous)));

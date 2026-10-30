@@ -63,6 +63,15 @@ fn rig(card: ActionCard, st: CoreState) -> Rig<Play> {
     rig_env(card, st, env())
 }
 
+use ti4_engine_core::choice::cards::{Ask as CAsk, What};
+
+fn what(r: &Rig<Play>) -> What {
+    match &r.asked().ask {
+        Ask::Cards(CAsk::Pick { what, .. }) => *what,
+        other => panic!("not a pick: {other:?}"),
+    }
+}
+
 fn o(x: CO) -> Opt {
     Opt::Cards(x)
 }
@@ -102,6 +111,7 @@ fn pirate_contract_puts_a_neutral_destroyer_in_a_system_nobody_has_ships_in_outs
     let mut r = rig(ActionCard::PirateContract1, st);
     r.run();
     // sys(2) and sys(4) hold a seated player's ships; sys(5) was never touched; the home system is excluded.
+    assert_eq!(what(&r), What::Pirate);
     assert_eq!(r.opts(), vec![o(CO::System(sys(1))), o(CO::System(sys(3)))].into_iter().collect::<Vec<_>>());
     r.assert_options_sound();
     r.pick(1);
@@ -196,6 +206,7 @@ fn ghost_ship_puts_a_destroyer_into_a_wormhole_system_without_enemy_ships_outsid
     let both = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).map_hexes(&[(p[0], Hex::new(0, 0)), (beta, Hex::new(1, 0)), (alpha, Hex::new(2, 0))]);
     let mut r2 = rig(ActionCard::GhostShip, both.state());
     r2.run();
+    assert_eq!(what(&r2), What::Ghost);
     assert_eq!(r2.opts(), vec![o(CO::System(beta)), o(CO::System(alpha))]);
     r2.assert_options_sound();
     r2.pick(1);
@@ -227,6 +238,7 @@ fn ghost_squad_moves_all_ground_forces_of_one_type_between_the_planets_we_contro
         .collect();
     assert_eq!(moves.len(), 3);
     assert!(moves.contains(&(a, b, Unit::InfantryI, 3)) && moves.contains(&(a, b, Unit::FactionlessMech, 1)) && moves.contains(&(b, a, Unit::InfantryI, 1)));
+    assert_eq!(what(&r), What::Squad { system: two });
     assert!(r.asked().opts.iter().any(|x| matches!(x, Opt::Decline)), "the holder may stop");
     r.assert_options_sound();
     r.pick_opt(o(CO::Move { from: a, to: b, kind: Unit::InfantryI, count: 3 }));
@@ -248,10 +260,12 @@ fn refit_troops_replaces_up_to_two_infantry_by_mechs_in_place() {
     let st = four().control(planet(1), 0).unit(sys(1), Some(planet(1)), Unit::InfantryI, 0, 2).control(planet(2), 0).unit(sys(2), Some(planet(2)), Unit::InfantryI, 0, 1).unit(sys(2), Some(planet(2)), Unit::InfantryI, 1, 3).state();
     let mut r = rig(ActionCard::RefitTroops, st.clone());
     r.run();
+    assert_eq!(what(&r), What::Troops { second: false });
     assert_eq!(r.opts().len(), 3, "each infantry of ours, never a rival's");
     r.assert_options_sound();
     r.pick(0);
     // The second question also offers to stop, and the infantry just chosen is not offered again.
+    assert_eq!(what(&r), What::Troops { second: true });
     assert_eq!(r.opts().len(), 3);
     assert!(r.opts().contains(&o(CO::Stop)));
     r.pick(0);
@@ -295,13 +309,16 @@ fn decoy_operation_moves_up_to_two_ground_forces_onto_a_planet_we_control_in_the
         .unit(other, Some(other.data().planets[0]), Unit::InfantryI, 1, 4);
     let mut r = rig(ActionCard::DecoyOperation, sc.clone().state());
     r.run();
+    assert_eq!(what(&r), What::Pull { second: false });
     assert_eq!(r.opts().len(), 4, "every ground force of ours on the board, the rival's not");
     r.assert_options_sound();
     r.pick(1);
+    assert_eq!(what(&r), What::Pull { second: true });
     assert!(r.opts().contains(&o(CO::Stop)), "the second pull may stop");
     assert_eq!(r.opts().len(), 4, "three others and the stop");
     r.pick(0);
     // Where to: the planets of ours in the active system.
+    assert_eq!(what(&r), What::Land);
     assert_eq!(r.opts().len(), 2);
     r.assert_options_sound();
     r.pick_opt(o(CO::Spot(two, b)));
@@ -344,10 +361,12 @@ fn crash_landing_lands_a_ground_force_from_the_space_area_of_the_system_the_last
     st.transient_mut().combat.last_ship_destroyed = Some((two, Seat(0), Unit::CruiserI));
     let mut r = rig(ActionCard::CrashLanding, st.clone());
     r.run();
+    assert_eq!(what(&r), What::Crash { system: two, second: false });
     assert_eq!(r.opts().len(), 2, "the kinds of ground force of ours in space: infantry and mech");
     r.assert_options_sound();
     let infantry = r.opts().iter().position(|x| matches!(x, Opt::Cards(CO::Kind(Unit::InfantryI)))).unwrap();
     r.pick(infantry);
+    assert_eq!(what(&r), What::Crash { system: two, second: true });
     assert_eq!(r.opts(), vec![o(CO::Spot(two, a)), o(CO::Spot(two, b))]);
     r.pick(0);
     assert!(r.is_done());
@@ -397,6 +416,7 @@ fn focused_research_pays_four_trade_goods_and_researches_the_chosen_technology()
     let options: Vec<Technology> = r.opts().iter().filter_map(|x| if let Opt::Cards(CO::Tech(t)) = x { Some(*t) } else { None }).collect();
     assert!(!options.is_empty());
     assert!(options.contains(&Technology::NeuralMotivator), "a technology without prerequisites is on offer");
+    assert_eq!(what(&r), What::Focus);
     assert!(!options.contains(&Technology::CruiserII), "a unit upgrade needs prerequisites the seat does not have");
     r.assert_options_sound();
     r.pick_opt(o(CO::Tech(Technology::NeuralMotivator)));
@@ -423,6 +443,7 @@ fn divert_funding_returns_one_technology_and_researches_another() {
     kept.sort();
     assert_eq!(now, kept, "the neural motivator was returned at once");
     // Then a technology to research: the returned one is researchable again.
+    assert_eq!(what(&r), What::Funding);
     assert!(r.opts().contains(&o(CO::Tech(Technology::NeuralMotivator))));
     assert!(!r.opts().contains(&o(CO::Tech(Technology::CruiserII))), "already owned");
     r.assert_options_sound();
@@ -488,6 +509,7 @@ fn plagiarize_takes_a_non_faction_technology_from_a_neighbour_for_five_influence
         r2.pick(0);
     }
     let steals: Vec<(u8, Technology)> = r2.opts().iter().filter_map(|x| if let Opt::Cards(CO::Steal { from, tech }) = x { Some((from.0, *tech)) } else { None }).collect();
+    assert_eq!(what(&r2), What::Steal);
     assert_eq!(steals, vec![(3, Technology::AntimassDeflectors), (1, Technology::NeuralMotivator)]);
     r2.assert_options_sound();
     r2.pick(0);
@@ -529,6 +551,7 @@ fn brilliance_gives_a_player_without_a_breakthrough_their_own() {
     st.players_mut().by_seat_mut(Seat(1)).unwrap().cards.breakthrough = Some(Breakthrough::Mindsieve);
     let mut r = rig_env(ActionCard::Brilliance, st.clone(), e);
     r.run();
+    assert_eq!(what(&r), What::Gain);
     assert_eq!(r.opts(), vec![o(CO::Seat(Seat(0))), o(CO::Seat(Seat(2))), o(CO::Seat(Seat(3)))], "every player without one, the holder too");
     r.assert_options_sound();
     r.pick_opt(o(CO::Seat(Seat(2))));
@@ -560,6 +583,7 @@ fn strategize_performs_the_secondary_of_a_strategy_card_another_player_holds_or_
         let mut r = rig(card, st.clone());
         r.run();
         // Other seats' ready cards in seating order, then those on the mat; ours and the exhausted ones are left out.
+        assert_eq!(what(&r), What::Perform);
         assert_eq!(
             r.opts(),
             vec![
@@ -628,6 +652,7 @@ fn reveal_prototype_pays_four_resources_and_researches_a_unit_upgrade_of_the_lin
     let mut r = rig_env(ActionCard::RevealPrototype, st.clone(), e);
     r.run();
     let techs: Vec<Technology> = r.opts().iter().filter_map(|x| if let Opt::Cards(CO::Tech(t)) = x { Some(*t) } else { None }).collect();
+    assert_eq!(what(&r), What::Prototype);
     assert_eq!(techs, vec![Technology::FighterII, Technology::LetaniWarriorII], "{}", r.transcript());
     r.assert_options_sound();
     r.pick(0);
@@ -646,4 +671,89 @@ fn reveal_prototype_pays_four_resources_and_researches_a_unit_upgrade_of_the_lin
     let mut one = rig_env(ActionCard::RevealPrototype, st, e2);
     one.run();
     assert!(matches!(one.asked().ask, Ask::Production(_)));
+}
+
+// ---- Summit and Exploration Probe -------------------------------------------------------------------------------------------------
+
+#[test]
+fn summit_gains_two_command_tokens_each_into_the_pool_of_the_holders_choice() {
+    use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
+    covers_card!(ActionCard::Summit);
+    let st = four().tokens(0, 1, 1, 1).state();
+    let mut r = rig(ActionCard::Summit, st.clone());
+    r.run();
+    assert_eq!(r.asked().ask, Ask::Strategy(SAsk::GainPool { left: 2 }));
+    assert_eq!(r.opts(), vec![Opt::Strategy(SOpt::Pool(Pool::Tactic)), Opt::Strategy(SOpt::Pool(Pool::Fleet)), Opt::Strategy(SOpt::Pool(Pool::Strategic))]);
+    r.assert_options_sound();
+    r.pick(2);
+    assert_eq!(r.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }));
+    r.expect_illegal(Pick::Opt(o(CO::Seat(Seat(1)))));
+    r.pick(0);
+    assert!(r.is_done());
+    let e = r.state.players().by_seat(Seat(0)).unwrap().econ;
+    assert_eq!((e.tactic_tokens, e.fleet_tokens, e.strategic_tokens), (2, 1, 2));
+}
+
+fn probe_state(deck: &[Explore]) -> CoreState {
+    let mut s = four().state();
+    s.board_mut().sys_mut(sys(1)).units.push(ti4_engine_core::state::Piece::new(Unit::CruiserI, Seat(0)));
+    s.explore_mut().frontier.insert(sys(1));
+    s.decks_mut().explore[ExploreType::Frontier as usize] = ti4_engine_core::containers::Deck::new(deck.to_vec());
+    s.decks_mut().explore_present |= 1 << ExploreType::Frontier as u8;
+    s.meta_mut().active_system = Some(sys(1));
+    s
+}
+
+use ti4_engine_core::generated::{Explore, ExploreType};
+
+#[test]
+fn exploration_probe_explores_a_frontier_token_next_to_our_ships_and_the_card_drawn_resolves() {
+    covers_card!(ActionCard::ExplorationProbe);
+    // A relic fragment: gained, the token gone, the card out of the deck.
+    let mut r = rig(ActionCard::ExplorationProbe, probe_state(&[Explore::UnknownRelicFragment1, Explore::MinorEntropicField]));
+    r.run();
+    assert!(r.is_done(), "one token near a ship of ours: taken unasked");
+    assert!(r.state.explore().frontier.is_empty(), "the token is taken");
+    assert_eq!(r.state.players().by_seat(Seat(0)).unwrap().cards.fragments.get(ExploreType::Frontier), Some(1));
+    assert_eq!(r.state.decks().explore[ExploreType::Frontier as usize].cards().len(), 1);
+    assert!(matches!(r.driver.window.explored().map(|p| p.outcome), Some(ti4_engine_core::rules::action_cards::effects::Explored::Fragment(ExploreType::Frontier))));
+    // An entropic field: a command token and trade goods (the card says so).
+    let mut e = rig(ActionCard::ExplorationProbe, probe_state(&[Explore::EntropicField]).tap_tokens());
+    e.run();
+    assert!(matches!(e.asked().ask, Ask::Strategy(_)), "the command token's pool");
+    e.pick(0);
+    assert!(e.is_done());
+    assert_eq!(goods(&e.state, 0), 2, "an entropic field gives two trade goods with its command token");
+    // A dead world: a relic from the relic deck.
+    let mut dead = probe_state(&[Explore::DeadWorld]);
+    dead.decks_mut().relic = ti4_engine_core::containers::Deck::new(vec![ti4_engine_core::generated::Relic::ALL[0], ti4_engine_core::generated::Relic::ALL[1]]);
+    let mut d = rig(ActionCard::ExplorationProbe, dead);
+    d.run();
+    assert!(d.is_done());
+    assert_eq!(d.state.players().by_seat(Seat(0)).unwrap().cards.relics.len(), 1);
+    // A token with no ship of ours near it, or none at all: nothing is asked and nothing is taken.
+    let mut far = probe_state(&[Explore::UnknownRelicFragment1]);
+    far.board_mut().sys_mut(sys(1)).units.clear();
+    let mut r2 = rig(ActionCard::ExplorationProbe, far.clone());
+    r2.run();
+    assert!(r2.is_done() && r2.state == far);
+    // An empty deck: the token is taken for nothing.
+    let mut empty = rig(ActionCard::ExplorationProbe, probe_state(&[]));
+    empty.run();
+    assert!(empty.state.explore().frontier.is_empty() || empty.is_done());
+}
+
+trait Tap {
+    fn tap_tokens(self) -> CoreState;
+}
+impl Tap for CoreState {
+    fn tap_tokens(mut self) -> CoreState {
+        let e = &mut self.players_mut().by_seat_mut(Seat(0)).unwrap().econ;
+        (e.tactic_tokens, e.fleet_tokens, e.strategic_tokens) = (1, 1, 1);
+        self
+    }
+}
+
+fn goods(s: &CoreState, seat: u8) -> i16 {
+    s.players().by_seat(Seat(seat)).unwrap().econ.trade_goods
 }
