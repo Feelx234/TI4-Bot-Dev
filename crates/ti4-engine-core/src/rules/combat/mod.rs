@@ -23,6 +23,7 @@ pub mod end;
 pub mod end_announce;
 pub mod flow;
 pub mod machine;
+pub mod produce;
 pub mod raid_formation;
 pub mod retreat;
 pub mod roll;

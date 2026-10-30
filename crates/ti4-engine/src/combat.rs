@@ -5530,6 +5530,59 @@ impl CombatWindow {
         round: u32,
         moment: CombatMoment,
     ) -> Result<[ProducedHits; 2], CombatError> {
+        let sources = ctx.sources;
+        let announce = ctx.timing.is_some();
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
+        let mut outcome = None;
+        let ctx = std::cell::RefCell::new(ctx);
+        let failed = std::cell::Cell::new(false);
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::produce_hits",
+            state,
+            |s: &mut GameState| {
+                let mut ctx = ctx.borrow_mut();
+                let result = self.produce_hits_string(s, &mut **ctx, round, moment);
+                failed.set(result.is_err());
+                let value: crate::dual_window::ProduceOut = match &result {
+                    Ok(made) => (
+                        [(made[0].any_ship, made[0].producer_assigned, made[0].non_fighter), (made[1].any_ship, made[1].producer_assigned, made[1].non_fighter)],
+                        ctx.dice
+                            .history()
+                            .iter()
+                            .skip(history_start)
+                            .filter(|roll| roll.reason == "ambush")
+                            .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                            .collect(),
+                        ctx.rng.positions(),
+                    ),
+                    Err(_) => ([(0, 0, 0); 2], Vec::new(), ctx.rng.positions()),
+                };
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::ProduceArgs { attacker: &attacker, defender: &defender, system: &system, at_start: moment == CombatMoment::CombatStart, reproducible, announce };
+                crate::dual_window::produce_hits(s, sources, args, &rng_before, script)
+            }
+        );
+        outcome.unwrap_or_else(|| Ok([ProducedHits::NONE; 2]))
+    }
+
+    /// The string body of [`Self::produce_hits`].
+    fn produce_hits_string(
+        &self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        round: u32,
+        moment: CombatMoment,
+    ) -> Result<[ProducedHits; 2], CombatError> {
         let mut produced = [ProducedHits::NONE; 2];
         let sides = [
             (&self.attacker, &self.defender),
@@ -10592,6 +10645,61 @@ mod tests {
             repaired_at_start += 1;
         }
         assert!(compared > 0 && repaired_at_start == 16, "the opening ran in the core: {compared}");
+    }
+
+    /// Package W2: the hits the modules produce at the start of a combat and after a round run in the core window `ProduceHits` in
+    /// lockstep: Mentak's Ambush (which ships roll; each against its own combat value), Yin's Impulse Core and Devotion (a ship is
+    /// destroyed for a hit), Ghost's Dimensional Splicer (a wormhole in the system). Answers: the first offer, the decline, the last offer.
+    #[test]
+    fn the_modules_hits_at_the_start_and_after_a_round_run_in_the_core_window_in_lockstep() {
+        static PUT: [std::sync::atomic::AtomicUsize; 4] = [const { std::sync::atomic::AtomicUsize::new(0) }; 4];
+        fn answer(seed: u64, nth: usize, c: &Choice) -> usize {
+            let Some(which) = ["Ambush", "Impulse Core", "Devotion", "Dimensional Splicer"].iter().position(|p| c.prompt.starts_with(p)) else {
+                return 0;
+            };
+            PUT[which].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            match (seed + nth as u64) % 3 {
+                0 => 0,
+                1 => c.options.len() - 1,
+                _ => c.options.len().saturating_sub(2),
+            }
+        }
+        let cases: [(&str, &[&str], &str); 4] = [
+            ("ambush", &["mentak", "hacan"], "Ambush"),
+            ("impulse core", &["yin", "hacan"], "Impulse Core"),
+            ("devotion", &["yin", "hacan"], "Devotion"),
+            ("dimensional splicer", &["ghost", "hacan"], "Dimensional Splicer"),
+        ];
+        for (which, (name, factions, _prompt)) in cases.into_iter().enumerate() {
+            let mut compared = 0;
+            for seed in 0..12_u64 {
+                let (_, windows, differences, _) = hub_fight_composed(
+                    false,
+                    seed,
+                    factions,
+                    |s, system| {
+                        put(s, system, "cruiser", &attacker(), 2);
+                        put(s, system, "destroyer", &attacker(), 2);
+                        put(s, system, "cruiser", &defender(), 3);
+                        put(s, system, "dreadnought", &defender(), 1);
+                        if name == "impulse core" {
+                            s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ic"));
+                        }
+                        if name == "dimensional splicer" {
+                            s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ds"));
+                            s.wormhole_tokens.insert("ALPHA".to_owned(), system.clone());
+                        }
+                    },
+                    answer,
+                );
+                assert_eq!(differences, 0, "{name} seed {seed}: {windows:?}");
+                let w = windows.get("combat::produce_hits").copied().unwrap_or_default();
+                assert_eq!(w.bailed, 0, "{name} seed {seed}: {windows:?}");
+                compared += w.compared;
+            }
+            assert!(compared > 0, "{name}: the window ran: {compared}");
+            assert!(PUT[which].load(std::sync::atomic::Ordering::Relaxed) > 0, "{name}: the offer was put");
+        }
     }
 
     /// The core sees what the Mentak seat of the salvage tests holds: Cruiser II and The Table's Grace.
