@@ -7,4 +7,5 @@ pub mod check;
 pub mod dual_shard;
 pub mod check_leaders;
 pub mod workload;
+pub mod shadow;
 pub mod check_tech;

@@ -14,12 +14,20 @@ strum.workspace = true
 # The golden games and the benchmark play bot games exactly as `selfplay run` does.
 ti4-selfplay = { path = "../ti4-selfplay" }
 ti4-rule-bot.workspace = true
+# The typed bot (D3) and its shadow harness `shadow` / `bot_shadow`.
+ti4-rule-bot-typed.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
 ti4-host.workspace = true
 ti4-wasm = { path = "../ti4-wasm" }
 serde_json.workspace = true
 sha2.workspace = true
 zstd.workspace = true
 mimalloc.workspace = true
+
+[features]
+# Count the view calls of the string bot per decision subtype (`ti4_model::count`); `bot_shadow` prints them.
+observed-count = ["ti4-engine/observed-count", "ti4-model/observed-count"]
 
 [lints]
 workspace = true

@@ -678,11 +678,13 @@ impl<'a> Observed<'a> {
     /// The public battle boundary at this exact decision, including the victory window.
     #[must_use]
     pub fn space_battle(&self) -> Option<(SystemId, PlayerId, PlayerId)> {
+        ti4_model::count::bump("Observed::space_battle");
         self.state.active_space_combat.clone()
     }
 
     /// The public invasion boundary at this exact decision, including nested reactions.
     pub fn invasion(&self) -> Option<ti4_model::state::ActiveInvasion> {
+        ti4_model::count::bump("Observed::invasion");
         self.state.active_invasion.clone()
     }
 
@@ -715,6 +717,7 @@ impl<'a> Observed<'a> {
     /// The typed objectives view of this position, when the objectives area is not on the string
     /// path and the position can be expressed (`objectives_core`). Built on first use.
     pub(crate) fn objective_view(&self) -> Option<&std::rc::Rc<crate::objectives_core::ObjView>> {
+        ti4_model::count::bump("Observed::objective_view");
         if crate::dual::backend(crate::dual::Area::Objectives) == crate::dual::Backend::String {
             return None;
         }
@@ -749,6 +752,7 @@ impl<'a> Observed<'a> {
         boosts: (bool, bool),
         destination: &SystemId,
     ) -> Option<usize> {
+        ti4_model::count::bump("Observed::typed_rift_exits");
         use crate::core_adapter as adapter;
         let pos = self.typed_position()?;
         let kind = adapter::unit_ix(unit_type)?;
@@ -777,6 +781,7 @@ impl<'a> Observed<'a> {
         player: &PlayerId,
         destination: &SystemId,
     ) -> Option<Vec<crate::tactical::Movable>> {
+        ti4_model::count::bump("Observed::typed_movable_into");
         use crate::core_adapter as adapter;
         let pos = self.typed_position()?;
         let to = adapter::system_ix(destination.as_str())?;
@@ -817,12 +822,14 @@ impl<'a> Observed<'a> {
         observer: &PlayerId,
         subject: &PlayerId,
     ) -> ti4_model::Relationship {
+        ti4_model::count::bump("Observed::diplomacy_relationship");
         self.state.diplomacy.relationship(observer, subject)
     }
 
     /// Active public structured deals involving a seat.
     #[must_use]
     pub fn active_diplomacy_deals(&self, player: &PlayerId) -> Vec<&'a ti4_model::Deal> {
+        ti4_model::count::bump("Observed::active_diplomacy_deals");
         self.state
             .diplomacy
             .active_deals
@@ -833,12 +840,14 @@ impl<'a> Observed<'a> {
 
     /// Every active structured deal. Deals are public in diplomacy v1.
     pub fn public_diplomacy_deals(&self) -> impl Iterator<Item = &'a ti4_model::Deal> + '_ {
+        ti4_model::count::bump("Observed::public_diplomacy_deals");
         self.state.diplomacy.active_deals.values()
     }
 
     /// Unexpired public signals involving a seat.
     #[must_use]
     pub fn recent_diplomacy_signals(&self, player: &PlayerId) -> Vec<&'a ti4_model::Signal> {
+        ti4_model::count::bump("Observed::recent_diplomacy_signals");
         self.state
             .diplomacy
             .recent_signals
@@ -849,16 +858,19 @@ impl<'a> Observed<'a> {
 
     /// Every unexpired signal. Signals are public in diplomacy v1.
     pub fn public_diplomacy_signals(&self) -> impl Iterator<Item = &'a ti4_model::Signal> + '_ {
+        ti4_model::count::bump("Observed::public_diplomacy_signals");
         self.state.diplomacy.recent_signals.iter()
     }
 
     #[must_use]
     pub fn recent_diplomacy_attack(&self, observer: &PlayerId, subject: &PlayerId) -> bool {
+        ti4_model::count::bump("Observed::recent_diplomacy_attack");
         crate::diplomacy::recent_attack(self.state, observer, subject)
     }
 
     #[must_use]
     pub fn recent_diplomacy_breach(&self, observer: &PlayerId, subject: &PlayerId) -> bool {
+        ti4_model::count::bump("Observed::recent_diplomacy_breach");
         crate::diplomacy::recent_breach(self.state, observer, subject)
     }
 
@@ -872,6 +884,7 @@ impl<'a> Observed<'a> {
         player: &PlayerId,
         system: &SystemId,
     ) -> Vec<ti4_model::id::ObjectiveId> {
+        ti4_model::count::bump("Observed::objectives_implicating_system");
         let Some(galaxy) = self.galaxy else {
             return Vec::new();
         };
@@ -919,12 +932,14 @@ impl<'a> Observed<'a> {
     /// Players in the public strategy-card initiative order.
     #[must_use]
     pub fn initiative_order(&self) -> Vec<PlayerId> {
+        ti4_model::count::bump("Observed::initiative_order");
         self.state.initiative_order()
     }
 
     /// The named step of the tactical action currently awaiting resolution.
     #[must_use]
     pub fn pending_step(&self) -> Option<&'a str> {
+        ti4_model::count::bump("Observed::pending_step");
         self.state.pending.as_deref()
     }
 
@@ -947,6 +962,7 @@ impl<'a> Observed<'a> {
     /// The outcome elected for one law, if that law is in play.
     #[must_use]
     pub fn law_outcome(&self, alias: &str) -> Option<&'a str> {
+        ti4_model::count::bump("Observed::law_outcome");
         self.state.laws.get(alias).map(String::as_str)
     }
 
@@ -959,6 +975,7 @@ impl<'a> Observed<'a> {
     /// One system's contents.
     #[must_use]
     pub fn system(&self, system: &SystemId) -> SystemState {
+        ti4_model::count::bump("Observed::system");
         self.state.system_state(system)
     }
 
@@ -968,6 +985,7 @@ impl<'a> Observed<'a> {
     /// movement options it was offered without handing it the game state that owns the choice.
     #[must_use]
     pub fn active_system(&self) -> Option<&'a SystemId> {
+        ti4_model::count::bump("Observed::active_system");
         self.state.active_system.as_ref()
     }
 
@@ -985,6 +1003,7 @@ impl<'a> Observed<'a> {
         destination: &SystemId,
         move_value: i32,
     ) -> bool {
+        ti4_model::count::bump("Observed::can_reach");
         let Some(galaxy) = self.galaxy else {
             return false;
         };
@@ -1031,6 +1050,7 @@ impl<'a> Observed<'a> {
         boosts: (bool, bool),
         destination: &SystemId,
     ) -> Vec<crate::tactical::MoveRoute> {
+        ti4_model::count::bump("Observed::ship_routes_into");
         let Some(galaxy) = self.galaxy else {
             return Vec::new();
         };
@@ -1062,6 +1082,7 @@ impl<'a> Observed<'a> {
         player: &PlayerId,
         destination: &SystemId,
     ) -> Vec<crate::tactical::Movable> {
+        ti4_model::count::bump("Observed::movable_into");
         self.movable_into_shared(player, destination).to_vec()
     }
 
@@ -1072,6 +1093,7 @@ impl<'a> Observed<'a> {
         player: &PlayerId,
         destination: &SystemId,
     ) -> std::rc::Rc<[crate::tactical::Movable]> {
+        ti4_model::count::bump("Observed::movable_into_shared");
         let Some(galaxy) = self.galaxy else {
             return std::rc::Rc::from(Vec::new());
         };
@@ -1128,6 +1150,7 @@ impl<'a> Observed<'a> {
         boosts: (bool, bool),
         destination: &SystemId,
     ) -> usize {
+        ti4_model::count::bump("Observed::rift_exits_into");
         let Some(galaxy) = self.galaxy else {
             return 0;
         };
@@ -1187,18 +1210,21 @@ impl<'a> Observed<'a> {
     /// units.
     #[must_use]
     pub fn loadable(&self, player: &PlayerId, origin: &SystemId) -> Vec<crate::transit::Cargo> {
+        ti4_model::count::bump("Observed::loadable");
         crate::transit::loadable(self.state, self.content, self.sources, player, origin)
     }
 
     /// `(system, planet)` for every planet a player controls.
     #[must_use]
     pub fn controlled_planets(&self, player: &PlayerId) -> Vec<(&'a SystemId, &'a PlanetId)> {
+        ti4_model::count::bump("Observed::controlled_planets");
         self.state.controlled_planets(player)
     }
 
     /// Whether a public planet card is ready and can contribute its printed values.
     #[must_use]
     pub fn planet_is_ready(&self, planet: &PlanetId) -> bool {
+        ti4_model::count::bump("Observed::planet_is_ready");
         !self.state.exhausted_planets.contains(planet)
     }
 
@@ -1209,12 +1235,14 @@ impl<'a> Observed<'a> {
     /// the exact payment accounting used by policy and later factual feature capture.
     #[must_use]
     pub fn available_spend(&self, player: &PlayerId, kind: crate::production::Spend) -> i64 {
+        ti4_model::count::bump("Observed::available_spend");
         crate::production::available(self.state, self.content, self.sources, player, kind)
     }
 
     /// The public fleet-supply limit after laws and standing faction abilities.
     #[must_use]
     pub fn fleet_supply_limit(&self, player: &PlayerId) -> i32 {
+        ti4_model::count::bump("Observed::fleet_supply_limit");
         crate::fleet::limit(self.state, self.content, player)
     }
 
@@ -1225,6 +1253,7 @@ impl<'a> Observed<'a> {
     /// The catalogue is built once for the whole board scan rather than once per system.
     #[must_use]
     pub fn production_system_count(&self, player: &PlayerId) -> usize {
+        ti4_model::count::bump("Observed::production_system_count");
         let types = ti4_content::units::catalogue(self.content, self.sources);
         self.state
             .board
@@ -1247,12 +1276,14 @@ impl<'a> Observed<'a> {
     /// Systems holding any of a player's units.
     #[must_use]
     pub fn systems_with_units_of(&self, player: &PlayerId) -> BTreeSet<&'a SystemId> {
+        ti4_model::count::bump("Observed::systems_with_units_of");
         self.state.systems_with_units_of(player)
     }
 
     /// Systems already holding a player's command token, which 89.1 forbids activating.
     #[must_use]
     pub fn systems_with_token(&self, player: &PlayerId) -> BTreeSet<&'a SystemId> {
+        ti4_model::count::bump("Observed::systems_with_token");
         self.state.systems_with_token(player)
     }
 
@@ -1260,6 +1291,7 @@ impl<'a> Observed<'a> {
     /// tokens are on the table in the owner's colour.
     #[must_use]
     pub fn mahact_fleet_pool_owners(&self, mahact: &PlayerId) -> Vec<PlayerId> {
+        ti4_model::count::bump("Observed::mahact_fleet_pool_owners");
         crate::factions::mahact::fleet_pool_owners(self.state, mahact)
     }
 
@@ -1267,6 +1299,7 @@ impl<'a> Observed<'a> {
     /// which the Heaven's Eye reads. Public: the tokens sit on faceup cards.
     #[must_use]
     pub fn firmament_puppets(&self, owner: &PlayerId) -> BTreeSet<PlayerId> {
+        ti4_model::count::bump("Observed::firmament_puppets");
         crate::factions::firmament::puppeted(self.state, owner)
     }
 
@@ -1274,6 +1307,7 @@ impl<'a> Observed<'a> {
     /// shows.
     #[must_use]
     pub fn active_breach_in(&self, system: &SystemId) -> bool {
+        ti4_model::count::bump("Observed::active_breach_in");
         crate::factions::crimson::active_breaches(self.state).contains(system)
     }
 
@@ -1281,6 +1315,7 @@ impl<'a> Observed<'a> {
     /// reads. Public: control is on the board.
     #[must_use]
     pub fn non_home_systems_with_planets(&self, player: &PlayerId) -> usize {
+        ti4_model::count::bump("Observed::non_home_systems_with_planets");
         crate::factions::bastion_units::non_home_systems_with_planets(
             self.state,
             self.content,
@@ -1292,6 +1327,7 @@ impl<'a> Observed<'a> {
     /// A seat's public standing: what anybody at the table can count.
     #[must_use]
     pub fn seat(&self, player: &PlayerId) -> Option<PublicSeat<'a>> {
+        ti4_model::count::bump("Observed::seat");
         self.state.player(player).map(|seat| PublicSeat {
             faction: &seat.faction,
             victory_points: seat.victory_points,
@@ -1321,12 +1357,14 @@ impl<'a> Observed<'a> {
     /// The agenda being voted on (public: it is revealed), while its vote is open.
     #[must_use]
     pub fn agenda_in_play(&self) -> Option<&str> {
+        ti4_model::count::bump("Observed::agenda_in_play");
         self.state.agenda_in_play.as_deref()
     }
 
     /// How many agendas have already been resolved in the current round (public history).
     #[must_use]
     pub fn agendas_resolved_this_round(&self) -> usize {
+        ti4_model::count::bump("Observed::agendas_resolved_this_round");
         self.state
             .agenda_log
             .iter()
@@ -1340,6 +1378,7 @@ impl<'a> Observed<'a> {
     /// the card is played face up and the prediction is aloud).
     #[must_use]
     pub fn agenda_prediction_of(&self, player: &PlayerId) -> Option<&str> {
+        ti4_model::count::bump("Observed::agenda_prediction_of");
         self.state
             .agenda_predictions
             .get(player)
@@ -1349,6 +1388,7 @@ impl<'a> Observed<'a> {
     /// The seats, in seating order.
     #[must_use]
     pub fn players(&self) -> Vec<&'a PlayerId> {
+        ti4_model::count::bump("Observed::players");
         self.state.players.iter().map(|seat| &seat.id).collect()
     }
 
@@ -1363,6 +1403,7 @@ impl<'a> Observed<'a> {
         player: &PlayerId,
         other: &PlayerId,
     ) -> OpponentRelationship {
+        ti4_model::count::bump("Observed::opponent_relationship");
         if self
             .state
             .board
@@ -1400,6 +1441,7 @@ impl<'a> Observed<'a> {
     /// seat in a game that has the same relative structure produces the same slot assignment.
     #[must_use]
     pub fn opponent_slots(&self, player: &PlayerId) -> Vec<&'a PlayerId> {
+        ti4_model::count::bump("Observed::opponent_slots");
         let seating = self.players();
         let Some(seat_index) = seating.iter().position(|seat| *seat == player) else {
             return Vec::new();
@@ -1440,6 +1482,7 @@ impl<'a> Observed<'a> {
     /// explicitly, at visible cost (F-M09-021-1 AA1).
     #[must_use]
     pub fn promissory_notes(&self) -> BTreeMap<String, PlayerId> {
+        ti4_model::count::bump("Observed::promissory_notes");
         self.state
             .promissory_notes
             .iter()
@@ -1461,6 +1504,7 @@ impl<'a> Observed<'a> {
     /// The draft head could not see it, so a card was chosen from its identity alone.
     #[must_use]
     pub fn card_initiative(&self, card: &ti4_model::id::StrategyCardId) -> Option<i32> {
+        ti4_model::count::bump("Observed::card_initiative");
         self.state.card_initiative.get(card).copied()
     }
 
@@ -1469,6 +1513,7 @@ impl<'a> Observed<'a> {
     /// Public, on the table, and one of the two reasons to take a card you do not otherwise want.
     #[must_use]
     pub fn strategy_card_goods(&self, card: &ti4_model::id::StrategyCardId) -> i32 {
+        ti4_model::count::bump("Observed::strategy_card_goods");
         self.state
             .strategy_card_goods
             .get(card)
@@ -1479,6 +1524,7 @@ impl<'a> Observed<'a> {
     /// What a player has already scored, which is public once scored (61.18).
     #[must_use]
     pub fn scored_by(&self, player: &PlayerId) -> BTreeSet<ObjectiveId> {
+        ti4_model::count::bump("Observed::scored_by");
         self.state.scored_by(player)
     }
 
@@ -1488,6 +1534,7 @@ impl<'a> Observed<'a> {
     /// only the space area makes "the seat built something" mean "the seat built a ship".
     #[must_use]
     pub fn units_held(&self, player: &PlayerId) -> usize {
+        ti4_model::count::bump("Observed::units_held");
         self.state
             .board
             .values()
@@ -1511,6 +1558,7 @@ impl<'a> Observed<'a> {
     /// fleet-composition bar.
     #[must_use]
     pub fn opening_fleet(&self, player: &PlayerId) -> (usize, usize) {
+        ti4_model::count::bump("Observed::opening_fleet");
         crate::opening::fleet_of(self.state, player, self.content, self.sources)
     }
 
@@ -1525,6 +1573,7 @@ impl<'a> Observed<'a> {
     /// contributes nothing rather than guessing.
     #[must_use]
     pub fn fleet_value_permille(&self, player: &PlayerId) -> i64 {
+        ti4_model::count::bump("Observed::fleet_value_permille");
         let types = ti4_content::units::catalogue(self.content, self.sources);
         self.state
             .board
@@ -1578,6 +1627,7 @@ impl<'a> Observed<'a> {
     /// Used only by training progress; it does not add a policy observation feature.
     #[must_use]
     pub fn is_fracture_system(&self, system: &SystemId) -> bool {
+        ti4_model::count::bump("Observed::is_fracture_system");
         self.state.fracture_in_play
             && crate::fracture::is_fracture_system(self.content, self.sources, system)
     }
@@ -1586,6 +1636,7 @@ impl<'a> Observed<'a> {
     /// Used only by training progress; it does not add a policy observation feature.
     #[must_use]
     pub fn has_units_in_fracture(&self, player: &PlayerId) -> bool {
+        ti4_model::count::bump("Observed::has_units_in_fracture");
         if !self.state.fracture_in_play {
             return false;
         }
@@ -1616,6 +1667,7 @@ impl<'a> Observed<'a> {
     /// victory points per faction, which is far too sparse to learn from on its own.
     #[must_use]
     pub fn scoreable_public(&self, player: &PlayerId) -> usize {
+        ti4_model::count::bump("Observed::scoreable_public");
         crate::objectives_core::scoped(self.objective_view(), || {
             crate::objectives::scoreable_on(self.state, self.content, self.sources, player, self.galaxy)
                 .len()
@@ -1628,6 +1680,7 @@ impl<'a> Observed<'a> {
     /// reading a hand is not reading somebody else's.
     #[must_use]
     pub fn scoreable_secret(&self, player: &PlayerId) -> usize {
+        ti4_model::count::bump("Observed::scoreable_secret");
         crate::objectives_core::scoped(self.objective_view(), || {
             crate::secrets::scoreable_on(self.state, self.content, self.sources, player, self.galaxy)
                 .len()
@@ -1646,6 +1699,7 @@ impl<'a> Observed<'a> {
         &self,
         player: &PlayerId,
     ) -> Vec<crate::objectives::CardProgress> {
+        ti4_model::count::bump("Observed::revealed_objective_progress");
         self.revealed_objective_progress_gaining(player, &[])
     }
 
@@ -1664,6 +1718,7 @@ impl<'a> Observed<'a> {
         player: &PlayerId,
         gained: &[PlanetId],
     ) -> Vec<crate::objectives::CardProgress> {
+        ti4_model::count::bump("Observed::revealed_objective_progress_gaining");
         self.revealed_objective_progress_imagining(
             player,
             &crate::objectives::Imagined {
@@ -1686,6 +1741,7 @@ impl<'a> Observed<'a> {
         player: &PlayerId,
         imagined: &crate::objectives::Imagined<'_>,
     ) -> Vec<crate::objectives::CardProgress> {
+        ti4_model::count::bump("Observed::revealed_objective_progress_imagining");
         crate::dual_typed!(
             crate::dual::Area::Objectives,
             "choice::revealed_objective_progress_imagining",
@@ -1712,6 +1768,7 @@ impl<'a> Observed<'a> {
         player: &PlayerId,
         imagined: &crate::objectives::Imagined<'_>,
     ) -> Vec<crate::objectives::CardProgress> {
+        ti4_model::count::bump("Observed::revealed_objective_progress_text");
         let mut position = crate::objectives::Position::imagining_all(
             self.state,
             self.content,
@@ -1830,6 +1887,7 @@ impl<'a> SeatObservation<'a> {
     /// state is a state handle, and it made every other seat mintable through `ask_private`.)
     #[must_use]
     pub fn held_secrets(&self) -> Vec<SecretObjectiveId> {
+        ti4_model::count::bump("SeatObservation::held_secrets");
         self.observed
             .state
             .player(&self.acting_seat)
@@ -1844,6 +1902,7 @@ impl<'a> SeatObservation<'a> {
     /// contents, which only their holder can.
     #[must_use]
     pub fn held_action_cards(&self) -> Vec<ti4_model::id::ActionCardId> {
+        ti4_model::count::bump("SeatObservation::held_action_cards");
         self.observed
             .state
             .player(&self.acting_seat)
@@ -1857,6 +1916,7 @@ impl<'a> SeatObservation<'a> {
     /// what a seat can still offer in a transaction is exactly what it holds unplayed.
     #[must_use]
     pub fn held_promissory_notes(&self) -> Vec<String> {
+        ti4_model::count::bump("SeatObservation::held_promissory_notes");
         self.observed
             .state
             .promissory_notes
@@ -1877,6 +1937,7 @@ impl<'a> SeatObservation<'a> {
     /// has no accessor for it. A card its owner no longer holds is not reported.
     #[must_use]
     pub fn revealed_cards(&self) -> Vec<crate::factions::hooks_cards::Revealed> {
+        ti4_model::count::bump("SeatObservation::revealed_cards");
         let state = self.observed.state;
         let mut revealed = crate::factions::hooks_cards::revealed_to(state, &self.acting_seat);
         // Standing hand permissions are read from the current board and current leader state.
@@ -1927,6 +1988,7 @@ impl<'a> SeatObservation<'a> {
     /// The order and cards are read live from the position; no reveal is stored.
     #[must_use]
     pub fn agenda_deck_ends(&self) -> Option<(String, String)> {
+        ti4_model::count::bump("SeatObservation::agenda_deck_ends");
         let state = self.observed.state;
         if !crate::factions::naalu::commander_has_peek(state, &self.acting_seat) {
             return None;
@@ -1941,6 +2003,7 @@ impl<'a> SeatObservation<'a> {
     /// See [`SeatObservation::revealed_cards`].
     #[must_use]
     pub fn revealed_action_cards(&self) -> Vec<(PlayerId, Vec<ti4_model::id::ActionCardId>)> {
+        ti4_model::count::bump("SeatObservation::revealed_action_cards");
         self.revealed_of(crate::factions::hooks_cards::RevealKind::ActionCards)
             .into_iter()
             .map(|(owner, ids)| {
@@ -1958,6 +2021,7 @@ impl<'a> SeatObservation<'a> {
     /// See [`SeatObservation::revealed_cards`].
     #[must_use]
     pub fn revealed_promissory_notes(&self) -> Vec<(PlayerId, Vec<String>)> {
+        ti4_model::count::bump("SeatObservation::revealed_promissory_notes");
         self.revealed_of(crate::factions::hooks_cards::RevealKind::PromissoryNotes)
     }
 
@@ -1965,6 +2029,7 @@ impl<'a> SeatObservation<'a> {
     /// [`SeatObservation::revealed_cards`].
     #[must_use]
     pub fn revealed_secret_objectives(&self) -> Vec<(PlayerId, Vec<SecretObjectiveId>)> {
+        ti4_model::count::bump("SeatObservation::revealed_secret_objectives");
         self.revealed_of(crate::factions::hooks_cards::RevealKind::SecretObjectives)
             .into_iter()
             .map(|(owner, ids)| (owner, ids.into_iter().map(SecretObjectiveId::new).collect()))
@@ -1989,6 +2054,7 @@ impl<'a> SeatObservation<'a> {
     /// representation and are omitted rather than zero-filled.
     #[must_use]
     pub fn held_secret_progress(&self) -> Vec<crate::objectives::CardProgress> {
+        ti4_model::count::bump("SeatObservation::held_secret_progress");
         held_secret_records(
             self.observed.state,
             self.observed.content,
@@ -2015,6 +2081,7 @@ impl<'a> SeatObservation<'a> {
         &self,
         imagined: &crate::objectives::Imagined<'_>,
     ) -> Vec<crate::objectives::CardProgress> {
+        ti4_model::count::bump("SeatObservation::held_secret_progress_imagining");
         held_secret_records(
             self.observed.state,
             self.observed.content,

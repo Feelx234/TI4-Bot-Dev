@@ -16,6 +16,8 @@ ts-rs = { workspace = true, optional = true }
 # The TypeScript types of the wire (`ti4_wasm::wire_ts`); off but in the tests of the browser game.
 [features]
 ts = ["dep:ts-rs"]
+# Call counters of the rule bot's view side (`count`); docs/todo/D3-bots.md D3-0. Off: empty inline functions.
+observed-count = []
 
 [lints]
 workspace = true

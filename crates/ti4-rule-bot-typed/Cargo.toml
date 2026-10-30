@@ -1,0 +1,17 @@
+[package]
+name = "ti4-rule-bot-typed"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The rule bot on the typed core (docs/todo/D3-bots.md): its own crate, so the string bot (ti4-rule-bot) stays as it is. Shadow/test only until D3-9."
+
+[lints]
+workspace = true
+
+[dependencies]
+# The string bot stays the oracle and the fallback for everything not ported yet (`Verdict::NotPorted`).
+ti4-rule-bot = { workspace = true }
+ti4-engine = { workspace = true }
+ti4-model = { workspace = true }
+# No default features, as in `ti4-rule-bot`: this crate will be linked into the wasm build.
+rand_chacha = { workspace = true }
