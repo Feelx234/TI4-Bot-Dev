@@ -1198,4 +1198,170 @@ mod tests {
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert!(d.window.used);
     }
+
+    // -- Gurno Aggero and Riftwalker Meian ---------------------------------------------------------
+
+    /// Real systems with a planet, in system order: `(system, its first planet)`.
+    fn with_planet(n: usize) -> Vec<(System, Planet)> {
+        let mut found: Vec<(System, Planet)> = Vec::new();
+        for planet in Planet::ALL {
+            if let Some(system) = planet.data().system
+                && !found.iter().any(|(s, _)| *s == system)
+            {
+                found.push((system, planet));
+            }
+        }
+        found.sort_unstable();
+        found.truncate(n);
+        found
+    }
+
+    /// A map with `systems` in a row, one hex apart, in the order given.
+    fn row(s: &mut CoreState, systems: &[System]) {
+        let mut galaxy = crate::galaxy::CoreGalaxy::new(&[]);
+        for (i, system) in systems.iter().enumerate() {
+            galaxy.place(crate::ids::system_at(*system as usize), crate::hex::Hex::new(i as i32, 0)).expect("on the grid");
+        }
+        s.map_mut().set_galaxy(galaxy);
+    }
+
+    fn unit_of(base: UnitBaseType, seat: Seat) -> crate::state::Piece {
+        let unit = Unit::ALL.iter().copied().find(|u| u.data().base_type == base && u.data().faction.is_none()).expect("a plain unit");
+        crate::state::Piece::new(unit, seat)
+    }
+
+    fn systems_offered(c: &Choice) -> Vec<System> {
+        c.opts.as_slice().iter().filter_map(|o| if let Opt::Leaders(LOpt::System(s)) = o { Some(*s) } else { None }).collect()
+    }
+
+    #[test]
+    fn the_saar_hero_offers_the_systems_next_to_a_dock_and_destroys_only_other_seats_fighters_and_infantry_there() {
+        let (k, mut s) = (kernel(), table(2));
+        let planets = with_planet(4);
+        let [a, b, c, far] = [planets[0], planets[1], planets[2], planets[3]];
+        // b - a - c in a row, the dock on a planet of `a`; `far` two hexes beyond `c`.
+        row(&mut s, &[b.0, a.0, c.0, planets[3].0]);
+        s.board_mut().planet_mut(a.1).units.push(unit_of(UnitBaseType::Spacedock, Seat(0)));
+        // The other seat's fighters, infantry and a cruiser; the hero's own infantry.
+        for (system, planet) in [b, c, far] {
+            s.board_mut().sys_mut(system).units.push(unit_of(UnitBaseType::Fighter, Seat(1)));
+            s.board_mut().sys_mut(system).units.push(unit_of(UnitBaseType::Cruiser, Seat(1)));
+            s.board_mut().planet_mut(planet).units.push(unit_of(UnitBaseType::Infantry, Seat(1)));
+            s.board_mut().planet_mut(planet).units.push(unit_of(UnitBaseType::Mech, Seat(1)));
+            s.board_mut().planet_mut(planet).units.push(unit_of(UnitBaseType::Infantry, Seat(0)));
+        }
+        s.board_mut().sys_mut(b.0).units.push(unit_of(UnitBaseType::Fighter, Seat(0)));
+        let mut d = driver(ArmageddonRelay::new(Seat(0), true));
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        let mut expected = vec![b.0, c.0];
+        expected.sort_unstable();
+        assert_eq!(systems_offered(&q), expected, "the dock's own system and a far one are not offered");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(far.0)))), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)), Err(DriverError::Illegal), "the question is not a may");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(b.0)))).unwrap(), Status::Done);
+        assert!(d.window.used);
+        let kinds = |system: System, planet: Planet, seat: Seat| -> Vec<UnitBaseType> {
+            let mut all: Vec<UnitBaseType> = s.board().sys(system).units.as_slice().iter().chain(s.board().planet(planet).units.as_slice()).filter(|p| p.owner() == seat).map(|p| p.kind().data().base_type).collect();
+            all.sort_unstable_by_key(|b| *b as usize);
+            all
+        };
+        assert_eq!(kinds(b.0, b.1, Seat(1)), vec![UnitBaseType::Cruiser, UnitBaseType::Mech], "the other seat keeps what is neither fighter nor infantry");
+        assert_eq!(kinds(b.0, b.1, Seat(0)), vec![UnitBaseType::Fighter, UnitBaseType::Infantry], "the hero's own units stay");
+        assert_eq!(kinds(c.0, c.1, Seat(1)).len(), 4, "a system not chosen is untouched");
+        assert_eq!(kinds(far.0, far.1, Seat(1)).len(), 4);
+    }
+
+    #[test]
+    fn the_saar_hero_is_not_offered_without_a_map_or_a_dock_with_a_neighbour() {
+        let (k, planets) = (kernel(), with_planet(2));
+        let mut s = table(2);
+        row(&mut s, &[planets[0].0, planets[1].0]);
+        let mut d = driver(ArmageddonRelay::new(Seat(0), true));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.used, "no dock");
+        s.board_mut().sys_mut(planets[0].0).units.push(unit_of(UnitBaseType::Spacedock, Seat(0)));
+        let mut d = driver(ArmageddonRelay::new(Seat(0), false));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.used, "the string arm had no map");
+        let mut d = driver(ArmageddonRelay::new(Seat(0), true));
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("a dock in space counts") };
+        assert_eq!(systems_offered(&q), vec![planets[1].0]);
+    }
+
+    fn swap_facts(allowed: &[System], wormholes: &[System]) -> SwapFacts {
+        let set = |list: &[System]| {
+            let mut out = crate::bits::SysSet::EMPTY;
+            for system in list {
+                out.insert(system.index());
+            }
+            out
+        };
+        SwapFacts { allowed: set(allowed), wormholes: set(wormholes) }
+    }
+
+    fn map_edits(s: &CoreState) -> Vec<(u32, crate::keys::MarkVal)> {
+        s.marks().tail.iter().filter_map(|(k, v)| if let crate::keys::MarkKey::MapEdit(n) = k { Some((*n, v.clone())) } else { None }).collect()
+    }
+
+    #[test]
+    fn the_ghost_hero_offers_wormhole_systems_and_those_with_its_units_in_the_order_of_the_map_and_records_the_swap() {
+        use crate::keys::{Atom, MarkVal, Word};
+        let (k, mut s) = (kernel(), table(2));
+        let p = with_planet(6);
+        let [s0, s1, s2, s3, s4, s5] = [p[0].0, p[1].0, p[2].0, p[3].0, p[4].0, p[5].0];
+        // The map order is not the system order: s3 first, then s1, s5, s0, s4, s2.
+        row(&mut s, &[s3, s1, s5, s0, s4, s2]);
+        s.board_mut().sys_mut(s1).units.push(unit_of(UnitBaseType::Cruiser, Seat(0)));
+        s.board_mut().planet_mut(p[2].1).units.push(unit_of(UnitBaseType::Infantry, Seat(0)));
+        s.board_mut().sys_mut(s4).units.push(unit_of(UnitBaseType::Cruiser, Seat(1)));
+        let facts = swap_facts(&[s0, s1, s2, s3, s5], &[s5]);
+        let mut d = driver(RiftwalkerMeian::new(Seat(0), true, facts));
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!(q.ask, Ask::Leaders(LAsk::GhostSwapFirst));
+        // s1 (its ship), s5 (a wormhole), s2 (its infantry on a planet) in the order of the map; s4 holds only the other seat's ship
+        // and s3, s0 hold nothing.
+        assert_eq!(systems_offered(&q), vec![s1, s5, s2]);
+        assert_eq!(q.opts.as_slice().last(), Some(&Opt::Decline), "each question may be declined");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s4)))), Err(DriverError::Illegal));
+        let Status::Asking(q2) = d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s5)))).unwrap() else { panic!("asks again") };
+        assert_eq!(q2.ask, Ask::Leaders(LAsk::GhostSwapSecond));
+        assert_eq!(systems_offered(&q2), vec![s1, s2], "not the first system again");
+        assert!(map_edits(&s).is_empty(), "nothing is written before the second answer");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s5)))), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s2)))).unwrap(), Status::Done);
+        assert!(d.window.used);
+        let rec = |a: System, b: System| MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Swap)), MarkVal::Atom(Atom::System(a)), MarkVal::Atom(Atom::System(b))]);
+        assert_eq!(map_edits(&s), vec![(0, rec(s5, s2))]);
+        // The next edit is the next mark.
+        let mut d = driver(RiftwalkerMeian::new(Seat(0), true, facts));
+        d.run(&mut s, &k).unwrap();
+        d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s1)))).unwrap();
+        d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s2)))).unwrap();
+        assert_eq!(map_edits(&s), vec![(0, rec(s5, s2)), (1, rec(s1, s2))]);
+    }
+
+    #[test]
+    fn the_ghost_hero_resolves_nothing_when_declined_without_a_map_or_with_fewer_than_two_systems() {
+        let (k, p) = (kernel(), with_planet(3));
+        let facts = swap_facts(&[p[0].0, p[1].0, p[2].0], &[p[0].0, p[1].0]);
+        for declines in [0, 1] {
+            let mut s = table(2);
+            row(&mut s, &[p[0].0, p[1].0, p[2].0]);
+            let mut d = driver(RiftwalkerMeian::new(Seat(0), true, facts));
+            d.run(&mut s, &k).unwrap();
+            if declines == 1 {
+                d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(p[0].0)))).unwrap();
+            }
+            assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+            assert!(!d.window.used);
+            assert!(map_edits(&s).is_empty());
+        }
+        let mut s = table(2);
+        row(&mut s, &[p[0].0, p[1].0, p[2].0]);
+        let mut d = driver(RiftwalkerMeian::new(Seat(0), false, facts));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done, "the string arm had no map");
+        let mut d = driver(RiftwalkerMeian::new(Seat(0), true, swap_facts(&[p[0].0, p[1].0, p[2].0], &[p[0].0])));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done, "one system only");
+        assert!(!d.window.used);
+    }
 }

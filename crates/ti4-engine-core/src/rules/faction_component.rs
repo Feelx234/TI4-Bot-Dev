@@ -30,3 +30,82 @@ pub fn lazax_gate_folding(core: &mut CoreState, scope: Scope, who: Seat, mecatol
     fx::place_unit(core, who, mecatol, Some(planet), unit);
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generated::{Faction, Planet, UnitBaseType};
+    use crate::state::{Player, Players};
+
+    fn table() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        let list = (0..2u8).map(|i| Player::new(Seat(i), Faction::from_index(usize::from(i)).unwrap())).collect();
+        s.players = Players::from_vec(list);
+        s
+    }
+
+    fn infantry() -> Unit {
+        Unit::ALL.iter().copied().find(|u| u.data().base_type == UnitBaseType::Infantry && u.data().faction.is_none()).expect("infantry")
+    }
+
+    /// Two systems with a planet each, in system order.
+    fn two() -> [(System, Planet); 2] {
+        let mut found: Vec<(System, Planet)> = Vec::new();
+        for planet in Planet::ALL {
+            if let Some(system) = planet.data().system
+                && !found.iter().any(|(s, _)| *s == system)
+            {
+                found.push((system, planet));
+            }
+        }
+        found.sort_unstable();
+        [found[0], found[1]]
+    }
+
+    fn ready(s: &mut CoreState) {
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::LazaxGateFolding);
+    }
+
+    fn standing(s: &CoreState, planet: Planet) -> usize {
+        s.board().planet(planet).units.as_slice().iter().filter(|p| p.owner() == Seat(0)).count()
+    }
+
+    #[test]
+    fn lazax_gate_folding_exhausts_the_card_and_places_the_infantry_on_the_planet_held_in_the_mecatol_system() {
+        let [(mecatol, planet), (other, elsewhere)] = two();
+        let mut s = table();
+        ready(&mut s);
+        for p in [planet, elsewhere] {
+            s.board_mut().planet_mut(p).control = Some(Seat(0));
+        }
+        assert!(lazax_gate_folding(&mut s, Scope(u32::MAX), Seat(0), mecatol, Some(infantry())));
+        assert_eq!((standing(&s, planet), standing(&s, elsewhere)), (1, 0), "on the planet of that system only");
+        assert!(s.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::LazaxGateFolding));
+        assert!(!lazax_gate_folding(&mut s, Scope(u32::MAX), Seat(0), mecatol, Some(infantry())), "exhausted");
+        assert_eq!(standing(&s, planet), 1);
+        assert_ne!(other, mecatol);
+    }
+
+    #[test]
+    fn lazax_gate_folding_changes_nothing_without_the_card_the_planet_or_a_unit_to_place() {
+        let [(mecatol, planet), (other, elsewhere)] = two();
+        let run = |own: bool, held: Option<Planet>, form: Option<Unit>| {
+            let mut s = table();
+            if own {
+                ready(&mut s);
+            }
+            if let Some(p) = held {
+                s.board_mut().planet_mut(p).control = Some(Seat(0));
+            }
+            let before = s.clone();
+            let done = lazax_gate_folding(&mut s, Scope(u32::MAX), Seat(0), mecatol, form);
+            assert!(!done);
+            assert_eq!(s, before, "nothing written");
+        };
+        run(false, Some(planet), Some(infantry()));
+        run(true, None, Some(infantry()));
+        run(true, Some(elsewhere), Some(infantry()));
+        run(true, Some(planet), None);
+        assert_ne!(other, mecatol);
+    }
+}
