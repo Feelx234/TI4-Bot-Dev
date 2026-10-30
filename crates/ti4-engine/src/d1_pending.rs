@@ -638,10 +638,6 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
         compared = true;
         ok &= roundtrip(g, &observed, &r, &cx);
     }
-    if !compared {
-        // A step that leaves no window of the held kinds open and moves none: nothing to compare (the census names it).
-        note_bail(LABEL, "no pending window to compare (none open, none moved)");
-    }
     note_window(LABEL, compared);
     let _ = ok;
     g.d1.pending.stack = observed;

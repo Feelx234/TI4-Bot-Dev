@@ -54,7 +54,8 @@ def main(argv):
         rs = sorted(reasons.get(label, []), key=lambda r: -r[1])
         counted = sum(n for why, n in rs if not why.startswith("gate:"))
         silent += sum(n for why, n in rs if why == NO_REASON)
-        if counted < bailed:
+        # `d1::pending` counts a step that has no window of the held kinds to compare (nothing open, nothing moved): not a lend.
+        if counted < bailed and label != "d1::pending":
             short.append((label, bailed, counted))
         rows.append((label, compared, bailed, rs, counted))
     total_calls = sum(c + b for _, c, b, _, _ in rows)

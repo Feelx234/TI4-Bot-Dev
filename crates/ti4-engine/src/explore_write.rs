@@ -332,15 +332,23 @@ mod real {
         &[Slice::Board],
     );
 
-    /// What a window of this file cannot follow: a question asked inside a battle or an invasion (its context
-    /// carries the battle), diplomacy promises a favour keeps, a nested emission, a question nobody answered
+    /// What a window of this file cannot follow: a question asked inside a space battle (its context
+    /// carries the battle; an invasion is followed), diplomacy promises a favour keeps, a nested emission, a question nobody answered
     /// yet (the string window unwound; its value is not an answer).
-    fn outside(gs: &GameState, script: &Recording) -> bool {
-        gs.deck_reserve.is_some()
-            || script.nested
-            || gs.active_space_combat.is_some()
-            || gs.diplomacy.enabled
-            || script.questions.iter().any(|q| q.answer.is_none())
+    fn outside_why(gs: &GameState, script: &Recording) -> Option<&'static str> {
+        if gs.deck_reserve.is_some() {
+            Some("deck reserve (a turn redo replays the draws)")
+        } else if script.nested {
+            Some("nested activity (a card or an ability played inside the window)")
+        } else if gs.active_space_combat.is_some() {
+            Some("a question asked inside a space battle (its context carries the battle)")
+        } else if gs.diplomacy.enabled {
+            Some("diplomacy on")
+        } else if script.questions.iter().any(|q| q.answer.is_none()) {
+            Some("a question nobody answered yet (the string window unwound)")
+        } else {
+            None
+        }
     }
 
     fn drive_window<W: ti4_engine_core::kernel::stage::Window + Clone + InInvasion, T>(
@@ -352,7 +360,7 @@ mod real {
         details: &dyn Fn(&ti4_engine_core::choice::Choice, &CoreState, &mut crate::choice::Choice),
         value: impl FnOnce(&W) -> Option<T>,
     ) -> Option<CoreWindow<T>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+        if let Some(why) = outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }

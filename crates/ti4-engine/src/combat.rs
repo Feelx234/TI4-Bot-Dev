@@ -10506,6 +10506,22 @@ mod tests {
         assert!(built[1] > 0, "a Corsair was salvaged");
     }
 
+    /// The core sees what the Mentak seat of the salvage tests holds: Cruiser II and The Table's Grace.
+    #[test]
+    fn the_core_sees_cruiser_two_and_the_tables_grace_of_a_mentak_seat() {
+        let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+        state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("cr2"));
+        state.player_mut(&attacker()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("mentakbt"));
+        let (mut cx, r) = crate::dual_window::tables_for_tests(&state).unwrap();
+        let view = crate::core_sync::CoreView::of(&state, &mut cx, crate::core_sync::Sources { galaxy: None::<&ti4_content::galaxy::Galaxy>, rng: None }, crate::production_view::READS)
+            .unwrap()
+            .into_state();
+        let seat = r.seat("a").unwrap();
+        let p = view.players().by_seat(seat).unwrap();
+        assert!(p.tech.owned.contains(ti4_engine_core::generated::Technology::CruiserII), "Cruiser II");
+        assert_eq!(p.cards.breakthrough, Some(ti4_engine_core::generated::Breakthrough::TheTablesGrace), "The Table's Grace");
+    }
+
     /// Package W3: the end announcement flips the survivors of a dual form back to their ground form in the core window
     /// (`fx_strategy::flip_space_area` before the report is announced), compared with the string. A Z-Grav Eidolon fights in
     /// the fleet and does not outlive the battle as a ship.
