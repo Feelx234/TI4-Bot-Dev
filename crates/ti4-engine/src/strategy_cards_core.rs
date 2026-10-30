@@ -21,7 +21,7 @@ mod real {
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{fx, Kernel, Resolver};
     use ti4_engine_core::rules::production::strategy_cards::{Construction, Leadership, Placement, Research, StructureFacts};
-    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, Politics, TeWarfare, WarfarePrimary};
+    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, ImperialSecondary, Politics, TeWarfare, WarfarePrimary};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlayerId, SystemId};
@@ -549,26 +549,40 @@ mod real {
 
     // -- Imperial ------------------------------------------------------------------------------------------
 
-    const SECRET: Footprint =
-        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Decks, Slice::Pending], &[Slice::Players, Slice::Decks]);
+    const SECRET: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Objectives, Slice::Decks, Slice::Pending],
+        &[Slice::Players, Slice::Decks],
+    );
+
+    /// The core table of a window that runs the hand limit as a child: the links of the areas are installed.
+    fn linked() -> AbilityTable {
+        let mut table = AbilityTable::default();
+        ti4_engine_core::driver::children::register(&mut table);
+        table
+    }
 
     /// The core half of Imperial's secret objective draw (`secrets::draw` called by the secondary and by the
-    /// primary of a seat that does not hold Mecatol Rex). `None` where the draw is not plain: the hand would go
-    /// over its limit (a question to return one), a reserve is replaying draws, a nested emission.
-    pub fn draw_secret(gs: &mut GameState, content: &ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+    /// primary of a seat that does not hold Mecatol Rex): the draw and the hand limit's question (which unscored
+    /// secret goes back to the deck, 45.4) as one window. `None` where a reserve is replaying draws or the
+    /// window is nested in a battle.
+    pub fn draw_secret(gs: &mut GameState, _content: &ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
         if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.deck_reserve.is_some()).then_some("deck reserve (a turn redo replays the draws)")) {
             crate::dual::note_bail_here(why);
             return None;
         }
-        let limit = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
-        if crate::secrets::held_count(gs, content, player) + 1 > limit {
-            crate::dual::note_bail_here("the hand would pass its limit (the string asks which secret to return)");
-            return None;
-        }
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
-        with_core(gs, &mut cx, Sources::default(), SECRET, |core, _| fx::draw_secret(core, seat)).why(crate::dual::reason::NOT_LENDABLE)?;
-        Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: Vec::new() })
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let mut driver = Driver::new(ImperialSecondary::new(seat), Resolver::new(&[seat], Some(seat)), linked(), 1);
+        let driven = with_core(gs, &mut cx, Sources::default(), SECRET, |core, _| drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
+            .why(crate::dual::reason::NOT_LENDABLE)?
+            .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the hand limit window");
+            return None;
+        }
+        Some(finish(&driven, &driver.window))
     }
 
     /// The core half of Imperial's primary (`strategy_cards::imperial_primary`). The scoreable objectives are
@@ -623,11 +637,6 @@ mod real {
                 crate::dual::note_bail_here("a point that would pass the victory target");
                 return None;
             }
-            let limit = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
-            if crate::secrets::held_count(gs, content, player) + 1 > limit {
-                crate::dual::note_bail_here("the hand would pass its limit (the string asks which secret to return)");
-                return None;
-            }
         }
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -637,7 +646,7 @@ mod real {
         // The production kernel answers what a trade good pays and which commodities a payment may spend.
         let env = ti4_engine_core::kernel::fx_pay::PayEnv { scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) };
         let window = ImperialPrimary::new(seat, typed.into_iter().collect()).with_price(env);
-        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), linked(), 1);
         let kernel = crate::production_view::kernel();
         let fp = Footprint::new(
             &[
@@ -658,6 +667,10 @@ mod real {
         })
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the hand limit window");
+            return None;
+        }
         if let Some(objective) = driver.window.scored {
             crate::objectives::award_tail(gs, content, sources, player.clone(), &ti4_model::id::ObjectiveId::new(objective.as_str()));
         }
@@ -893,7 +906,7 @@ mod stub {
 mod tests {
     use ti4_content::ContentStore;
     use ti4_model::content_types::{DEFAULT, POK};
-    use ti4_model::id::{PlanetId, PlayerId, SystemId};
+    use ti4_model::id::{ObjectiveId, PlanetId, PlayerId, SecretObjectiveId, SystemId};
     use ti4_model::state::GameState;
 
     use crate::choice::{Scripted, Table};
@@ -1111,12 +1124,49 @@ mod tests {
         assert_eq!(run(label, &F3, |_| {}, &[], secondary("pok8imperial")).0, 1);
         // The primary of a seat without Mecatol Rex draws one too (nothing is scoreable at the start).
         assert_eq!(run("strategy_cards::imperial_primary", &F3, |_| {}, &[], primary("pok8imperial")).0, 1);
-        // A full hand: the draw would end in a question to hand one back.
-        let full = |s: &mut GameState| {
-            let cards: Vec<_> = s.secret_deck.drain(..3).collect();
-            s.player_mut(&a()).unwrap().secret_objectives = cards;
+        // A full hand: the draw ends in a question to hand one back, which the core window asks too (W6: it was a bail).
+        assert_eq!(run(label, &F3, full_hand, &["eap"], secondary("pok8imperial")), (1, 0));
+        // The primary of a seat without Mecatol Rex draws one as well and returns one.
+        assert_eq!(run("strategy_cards::imperial_primary", &F3, full_hand, &["eap"], primary("pok8imperial")), (1, 0));
+        // Scored secrets count towards the limit and cannot go back: one in hand, two scored, one drawn.
+        let scored = |s: &mut GameState| {
+            s.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+            s.secret_deck.insert(0, SecretObjectiveId::new("ctr"));
+            s.record_score(&a(), ObjectiveId::new("fwm"));
+            s.record_score(&a(), ObjectiveId::new("gamf"));
         };
-        assert_eq!(run(label, &F3, full, &[], secondary("pok8imperial")), (0, 1));
+        assert_eq!(run(label, &F3, scored, &["eap"], secondary("pok8imperial")), (1, 0));
+        // Every one scored: nothing to return, no question.
+        let all_scored = |s: &mut GameState| {
+            s.player_mut(&a()).unwrap().secret_objectives.clear();
+            s.secret_deck.insert(0, SecretObjectiveId::new("ctr"));
+            for o in ["fwm", "gamf", "faa"] {
+                s.record_score(&a(), ObjectiveId::new(o));
+            }
+        };
+        assert_eq!(run(label, &F3, all_scored, &[], secondary("pok8imperial")), (1, 0));
+    }
+
+    /// Three unscored secrets in hand (`eap`, `fwm`, `gamf`) and `ctr` on top of the deck.
+    fn full_hand(s: &mut GameState) {
+        s.player_mut(&a()).unwrap().secret_objectives = ["eap", "fwm", "gamf"].map(SecretObjectiveId::new).to_vec();
+        s.secret_deck.insert(0, SecretObjectiveId::new("ctr"));
+    }
+
+    /// W6 regression: the hand limit's question inside Imperial's draw was a bail ("the hand would pass its limit", 146 of 290
+    /// secondaries per 20 golden games). The core window asks it; a wrong answer is the string's refusal on both sides, the
+    /// Obsidian's lifted limit asks nothing, and a seat without a link to the hand-limit window is declined, not silently wrong.
+    #[test]
+    fn imperial_returns_a_secret_over_the_hand_limit_in_the_core_window() {
+        let label = "strategy_cards::imperial_secret";
+        let (compared, bailed) = run(label, &F3, full_hand, &["fwm"], secondary("pok8imperial"));
+        assert_eq!((compared, bailed), (1, 0));
+        // The Obsidian lifts the limit by one: no question (the Scripted decider would fail on an unexpected one only if asked).
+        let obsidian = |s: &mut GameState| {
+            full_hand(s);
+            s.player_mut(&a()).unwrap().relics = vec![ti4_model::id::RelicId::new("obsidian")];
+        };
+        assert_eq!(run(label, &F3, obsidian, &[], secondary("pok8imperial")), (1, 0));
     }
 
     fn lodor(s: &mut GameState) {
@@ -1293,7 +1343,7 @@ mod tests {
         assert_eq!(run(label, &F3, scoreable, &["decline"], primary("pok8imperial")).0, 1);
         // Scoring it is the core's since B8c-3 (`strategy_te_tests` reads the position after).
         assert_eq!(run(label, &F3, scoreable, &["lead"], primary("pok8imperial")), (1, 0));
-        // Past the target, a Keleres seat, a full secret hand and a reserve are the string's too.
+        // Past the target and a Keleres seat are the string's too (a full secret hand is the core's since W6).
         let tenth = |s: &mut GameState| {
             mecatol(s);
             s.player_mut(&a()).unwrap().victory_points = 10;
@@ -1301,11 +1351,7 @@ mod tests {
         assert_eq!(run(label, &F3, tenth, &[], primary("pok8imperial")), (0, 1));
         let keleres = [("a", "sol"), ("b", "keleresm")];
         assert_eq!(run(label, &keleres, |_| {}, &[], primary("pok8imperial")), (0, 1));
-        let full = |s: &mut GameState| {
-            let cards: Vec<_> = s.secret_deck.drain(..3).collect();
-            s.player_mut(&a()).unwrap().secret_objectives = cards;
-        };
-        assert_eq!(run(label, &F3, full, &[], primary("pok8imperial")), (0, 1));
+        assert_eq!(run(label, &F3, full_hand, &["eap"], primary("pok8imperial")), (1, 0));
     }
 
     #[test]
