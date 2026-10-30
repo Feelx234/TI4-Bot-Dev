@@ -323,6 +323,18 @@ def workspace_tests(root):
     return names
 
 
+def census_row_arms(root):
+    """The lent arms from the `D1b-census-01` row of KNOWN_ISSUES (20 golden games), for a census that predates D1b-8."""
+    p = os.path.join(root, "docs", "ENGINE_KNOWN_ISSUES.md")
+    if not os.path.exists(p):
+        return {}
+    for line in open(p, encoding="utf-8", errors="replace"):
+        if line.lstrip("| ").startswith("D1b-census-01"):
+            body = line.split(":", 1)[-1]
+            return {a: int(n.replace(" ", "")) for a, n in re.findall(r"([a-z_][a-z_.]*) (\d{1,3}(?: \d{3})*)\b", body)}
+    return {}
+
+
 def bail_registry(root):
     rows = bail_rows(root)
     fns = workspace_tests(root)
@@ -501,7 +513,9 @@ def render(r, root):
     for arm, n in sorted(cen["arms"].items(), key=lambda x: -x[1]):
         L.append(f"| {arm} | {n:,} |")
     if not cen["arms"]:
-        L.append("| (none in the census: the soak ran with a mask that leaves `driver` off dual) | |")
+        L.append("| (the census has no `d1::step` rows: it predates D1b-8; the figures below are the D1b-census-01 row of KNOWN_ISSUES, 20 golden games) | |")
+        for arm, n in sorted(census_row_arms(root).items(), key=lambda x: -x[1]):
+            L.append(f"| {arm} | {n:,} |")
     seen = set(cen["labels"])
     never = [l for l in inv["dual_labels"] if l not in seen]
     L += ["", f"## 6. Dual window labels in the source that the census never saw ({len(never)} of {len(inv['dual_labels'])})", ""]
