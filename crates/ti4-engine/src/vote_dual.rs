@@ -214,7 +214,7 @@ fn supported(state: &GameState, choices: &[String], order: &[PlayerId], spender:
 
 #[cfg(feature = "typed-core")]
 fn replay(inner: &Inner, now: &GameState, winner: Option<&str>, counts: &std::collections::BTreeMap<String, i64>) {
-    let compared = replay_inner(inner, now, winner, counts).is_some();
+    let compared = crate::dual_window::with_label("vote::VoteWindow", || crate::dual::reasoned("vote::VoteWindow", || replay_inner(inner, now, winner, counts))).is_some();
     crate::dual::note_window("vote::VoteWindow", compared);
     #[cfg(test)]
     REPLAYS.with(|r| {

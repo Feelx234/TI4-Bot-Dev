@@ -3897,7 +3897,7 @@ impl ProductionWindow {
         }
     }
 
-    /// The window as the core window starts from it (`None`: something is outside what the core holds).
+    /// The window as the core window starts from it (`Err`: what is outside what the core holds; the census reason).
     #[cfg(feature = "typed-core")]
     pub(crate) fn to_core(
         &self,
@@ -3906,22 +3906,28 @@ impl ProductionWindow {
         sources: SourceSet,
         seat: ti4_engine_core::Seat,
         emit_timing: bool,
-    ) -> Option<ti4_engine_core::rules::production::window::ProductionWindow> {
+    ) -> Result<ti4_engine_core::rules::production::window::ProductionWindow, &'static str> {
         use ti4_engine_core::generated::{System, Unit};
         use ti4_engine_core::rules::production::window as cw;
-        let unit = |id: &str| <Unit as crate::generated::IdStr>::from_id(id);
-        if self.ability || self.settled || self.fixed_limit.is_some() {
-            return None;
+        let unit = |id: &str| <Unit as crate::generated::IdStr>::from_id(id).ok_or("a unit id the core tables do not know");
+        if self.ability {
+            return Err("a production by an ability (the window of a card or an ability, not a production use)");
         }
-        let narrow = |n: i64| i32::try_from(n).ok();
+        if self.settled {
+            return Err("a window already settled");
+        }
+        if self.fixed_limit.is_some() {
+            return Err("a window with a fixed limit");
+        }
+        let narrow = |n: i64| i32::try_from(n).map_err(|_| "a count beyond 32 bits");
         let fleet_limit = if crate::fleet::is_unlimited(state, &self.player) {
             crate::fleet::UNLIMITED_FLEET_BILL
         } else {
             i64::from(crate::fleet::limit(state, content, &self.player)).max(0)
         };
-        let buildable_ids = crate::production_view::buildable_for(state, content, sources, &self.player)?;
+        let buildable_ids = crate::production_view::buildable_for(state, content, sources, &self.player).ok_or("the buildable units are not known to the core")?;
         if buildable_ids.len() > 9 {
-            return None;
+            return Err("more than nine buildable units");
         }
         let mut buildable = [None; 9];
         for (slot, id) in buildable.iter_mut().zip(&buildable_ids) {
@@ -3929,23 +3935,24 @@ impl ProductionWindow {
         }
         let mut produced = ti4_engine_core::containers::SmallList::new();
         for (id, at) in &self.report.produced {
-            produced.push((unit(id.as_str())?, crate::render::production::spot_of(at)?));
+            produced.push((unit(id.as_str())?, crate::render::production::spot_of(at).ok_or("a spot the core window cannot name")?));
         }
+        let small = "a count the window cannot hold";
         let stage = match &self.stage {
             Stage::Choosing => cw::Stage::Choosing,
             Stage::Paying { id, owed, made, cost, paid } => cw::Stage::Paying {
                 unit: unit(id)?,
                 owed: narrow(*owed)?,
-                made: u8::try_from(*made).ok()?,
+                made: u8::try_from(*made).map_err(|_| small)?,
                 cost: narrow(*cost)?,
                 paid: narrow(*paid)?,
             },
-            Stage::Placing { id, made } => cw::Stage::Placing { unit: unit(id)?, made: u8::try_from(*made).ok()? },
+            Stage::Placing { id, made } => cw::Stage::Placing { unit: unit(id)?, made: u8::try_from(*made).map_err(|_| small)? },
             Stage::Done => cw::Stage::Done,
         };
-        Some(cw::ProductionWindow {
+        Ok(cw::ProductionWindow {
             who: seat,
-            system: <System as crate::generated::IdStr>::from_id(self.system.as_str())?,
+            system: <System as crate::generated::IdStr>::from_id(self.system.as_str()).ok_or("a system the core tables do not know")?,
             stage,
             limit: narrow(self.limit)?,
             remaining: narrow(self.remaining)?,
@@ -3954,7 +3961,7 @@ impl ProductionWindow {
             credit: narrow(self.credit)?,
             discount_remaining: narrow(self.discount_remaining)?,
             fleet_limit: narrow(fleet_limit)?,
-            armada: i32::try_from(crate::faction_abilities::armada_bonus(state, content, &self.player)).ok()?,
+            armada: i32::try_from(crate::faction_abilities::armada_bonus(state, content, &self.player)).map_err(|_| small)?,
             free_this_use: self.free_this_use,
             flagship_free: crate::promissory::has_commander_ability(state, &self.player, "nomadcommander"),
             only_unit: match &self.only_unit {

@@ -19,11 +19,15 @@ use ti4_model::state::GameState;
 use ti4_content::ContentStore;
 
 use crate::core_sync::{Footprint, Sources, with_core};
-use crate::dual::{CoreWindow, Run};
+use crate::dual::reason::{DRIVER_REFUSED, EVENT_UNTYPED, NOT_LENDABLE, NO_SEAT, NO_TABLES, STAGED_UNAPPLIED};
+use crate::dual::{CoreWindow, Run, Why};
 use crate::dual_window::{Recording, drive, event_of, nested_check, nested_fp, tables};
 use crate::event::Event;
 use crate::production::{ProductionWindow, WindowSnap};
 use crate::render::{self, Position, Typed};
+
+/// The reasons of the bails of the production adapters (package W0: every `None` of an adapter names one).
+const UNPORTED_PRODUCER: &str = "a Mentak producer (the Corsair form is not in the core window)";
 
 const FOOTPRINT: Footprint = Footprint {
     reads: crate::production_view::READS.union(SliceSet::of(&[Slice::Pending])),
@@ -44,11 +48,18 @@ pub fn step(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<CoreWindow<WindowSnap>> {
     if crate::production_view::unported_production(gs, player) {
+        crate::dual::note_bail_here(UNPORTED_PRODUCER);
         return None;
     }
-    let (mut cx, r) = tables(gs)?;
-    let seat = r.seat(player.as_str())?;
-    let window = before.to_core(gs, content, sources, seat, emit_timing)?;
+    let (mut cx, r) = tables(gs).why(NO_TABLES)?;
+    let seat = r.seat(player.as_str()).why(NO_SEAT)?;
+    let window = match before.to_core(gs, content, sources, seat, emit_timing) {
+        Ok(w) => w,
+        Err(why) => {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+    };
     let kernel = crate::production_view::kernel();
     let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     // The systems the producing player sees as adjacent to the producing system (Argent's agent reads them; the
@@ -71,10 +82,10 @@ pub fn step(
             driven.map(|_| ())
         })
     })
-    .ok()?;
-    driven.ok()?;
-    crate::dual_window::apply_staged(gs, &r, &staged)?;
-    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    .why(NOT_LENDABLE)?;
+    driven.why(DRIVER_REFUSED)?;
+    crate::dual_window::apply_staged(gs, &r, &staged).why(STAGED_UNAPPLIED)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(EVENT_UNTYPED)?;
     let w = &driver.window;
     let unit = |u: ti4_engine_core::generated::Unit| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::as_str(u).to_owned();
     let stage = match w.stage {
@@ -118,10 +129,11 @@ pub fn pay_step(
     use ti4_engine_core::query::economy::Spend as CoreSpend;
     use ti4_engine_core::rules::production::pay::{PayStep, Stage};
     if crate::production_view::unported_production(gs, player) {
+        crate::dual::note_bail_here(UNPORTED_PRODUCER);
         return None;
     }
-    let (mut cx, r) = tables(gs)?;
-    let seat = r.seat(player.as_str())?;
+    let (mut cx, r) = tables(gs).why(NO_TABLES)?;
+    let seat = r.seat(player.as_str()).why(NO_SEAT)?;
     let kernel = crate::production_view::kernel();
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     let window = PayStep {
@@ -150,8 +162,8 @@ pub fn pay_step(
         }
         Ok(())
     })
-    .ok()?
-    .ok()?;
+    .why(NOT_LENDABLE)?
+    .why(DRIVER_REFUSED)?;
     Some(CoreWindow { run: Run::new(driver.window.took), questions: rendered })
 }
 
@@ -162,13 +174,14 @@ const TRIGGERED_FOOTPRINT: Footprint = Footprint {
 
 /// The seat's buildable units as the windows carry them (`None`: more than nine, or an id the tables do not know).
 fn buildable_of(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Option<[Option<ti4_engine_core::generated::Unit>; 9]> {
-    let ids = crate::production_view::buildable_for(gs, content, sources, player)?;
+    let ids = crate::production_view::buildable_for(gs, content, sources, player).why("the buildable units are not known to the core")?;
     if ids.len() > 9 {
+        crate::dual::note_bail_here("more than nine buildable units");
         return None;
     }
     let mut out = [None; 9];
     for (slot, id) in out.iter_mut().zip(&ids) {
-        *slot = Some(<ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id(id)?);
+        *slot = Some(<ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id(id).why("a unit id the core tables do not know")?);
     }
     Some(out)
 }
@@ -184,11 +197,12 @@ fn run_triggered<W: ti4_engine_core::kernel::stage::Window>(
     value: impl FnOnce(&W) -> bool,
 ) -> Option<CoreWindow<bool>> {
     if declined(gs, player) {
+        crate::dual::note_bail_here("a table whose seats the triggered production does not carry (Mentak, Naaz, Nomad, Yssaril, Keleres, Deepwrought)");
         return None;
     }
-    let (mut cx, r) = tables(gs)?;
-    let seat = r.seat(player.as_str())?;
-    let window = window(seat)?;
+    let (mut cx, r) = tables(gs).why(NO_TABLES)?;
+    let seat = r.seat(player.as_str()).why(NO_SEAT)?;
+    let window = window(seat).why("the window cannot be built from the position")?;
     let kernel = crate::production_view::kernel();
     let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let before_state = gs.clone();
@@ -200,9 +214,9 @@ fn run_triggered<W: ti4_engine_core::kernel::stage::Window>(
         }
         driven.map(|_| ())
     })
-    .ok()?
-    .ok()?;
-    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    .why(NOT_LENDABLE)?
+    .why(DRIVER_REFUSED)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(EVENT_UNTYPED)?;
     Some(CoreWindow { run: Run::new(value(&driver.window)).with_events_vec(events), questions: rendered })
 }
 
@@ -236,8 +250,8 @@ pub fn integrated_economy(
     use crate::generated::IdStr;
     let buildable = buildable_of(gs, content, sources, player)?;
     let fleet_limit = crate::fleet::limit_for_enforcement(gs, content, player);
-    let (system, planet) = (ti4_engine_core::generated::System::from_id(system.as_str())?, ti4_engine_core::generated::Planet::from_id(planet.as_str())?);
-    let (budget, fleet_limit) = (i32::try_from(budget).ok()?, i32::try_from(fleet_limit).ok()?);
+    let (system, planet) = (ti4_engine_core::generated::System::from_id(system.as_str()).why("a system the core tables do not know")?, ti4_engine_core::generated::Planet::from_id(planet.as_str()).why("a planet the core tables do not know")?);
+    let (budget, fleet_limit) = (i32::try_from(budget).why("a count beyond 32 bits")?, i32::try_from(fleet_limit).why("a count beyond 32 bits")?);
     run_triggered(
         gs,
         player,
@@ -273,12 +287,12 @@ const OFFER_FOOTPRINT: Footprint = Footprint {
 #[must_use]
 pub fn agent_offer(gs: &mut GameState, payer: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::production::offers::AgentOffer;
-    let (mut cx, r) = tables(gs)?;
+    let (mut cx, r) = tables(gs).why(NO_TABLES)?;
     nested_check(script)?;
-    let seat = r.seat(payer.as_str())?;
+    let seat = r.seat(payer.as_str()).why(NO_SEAT)?;
     let before = gs.clone();
     let kernel = crate::production_view::kernel();
     let mut driver = Driver::new(AgentOffer::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
-    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OFFER_FOOTPRINT, script), |core, _| drive(&mut driver, core, kernel, &r, &before, script)).ok()?.ok()?;
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OFFER_FOOTPRINT, script), |core, _| drive(&mut driver, core, kernel, &r, &before, script)).why(NOT_LENDABLE)?.why(DRIVER_REFUSED)?;
     Some(CoreWindow { run: Run::new(driver.window.opened), questions: driven.rendered })
 }
