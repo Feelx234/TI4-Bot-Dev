@@ -1,0 +1,47 @@
+# survivors of core/state: 46 of 142 points (67% killed)
+crates/ti4-engine-core/src/state/board.rs:34:13	[SysFlags::set]	assign	self.0 &= !flag  =>  self.0 |= !flag
+crates/ti4-engine-core/src/state/event.rs:263:55	[Payload::set_list]	body	set_list(&mut self, key: Key, list: List) {  =>  { return (); }
+crates/ti4-engine-core/src/state/event.rs:264:65	[Payload::set_list]	cmp	*k == key  =>  *k != key
+crates/ti4-engine-core/src/state/event.rs:278:52	[Payload::list]	body	list(&self, key: Key) -> Option<&List> {  =>  { return None; }
+crates/ti4-engine-core/src/state/event.rs:279:41	[Payload::list]	cmp	*k == key  =>  *k != key
+crates/ti4-engine-core/src/state/marks.rs:32:37	[MarkMap::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/state/meta.rs:83:28	[Meta::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/meta.rs:86:27	[Meta::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/meta.rs:90:30	[Meta::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/meta.rs:91:40	[Meta::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/meta.rs:98:29	[Meta::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/meta.rs:103:34	[Meta::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/pending.rs:165:13	[DriverFlags::set]	assign	self.0 &= !flag  =>  self.0 |= !flag
+crates/ti4-engine-core/src/state/pending.rs:173:64	[Pending::window]	body	window(&self, kind: WindowKind) -> Option<&Window> {  =>  { return None; }
+crates/ti4-engine-core/src/state/pending.rs:174:36	[Pending::window]	cmp	w.kind() == kind  =>  w.kind() != kind
+crates/ti4-engine-core/src/state/pending.rs:178:76	[Pending::window_mut]	body	window_mut(&mut self, kind: WindowKind) -> Option<&mut Window> {  =>  { return None; }
+crates/ti4-engine-core/src/state/pending.rs:179:40	[Pending::window_mut]	cmp	w.kind() == kind  =>  w.kind() != kind
+crates/ti4-engine-core/src/state/pending.rs:183:45	[Pending::open]	body	open(&mut self, window: Window) {  =>  { return (); }
+crates/ti4-engine-core/src/state/pending.rs:191:66	[Pending::close]	body	close(&mut self, kind: WindowKind) -> Option<Window> {  =>  { return None; }
+crates/ti4-engine-core/src/state/pending.rs:192:49	[Pending::close]	cmp	w.kind() == kind  =>  w.kind() != kind
+crates/ti4-engine-core/src/state/player/cards.rs:53:38	[FragmentCounts::remove]	lit	0  =>  1
+crates/ti4-engine-core/src/state/player/mod.rs:53:24	[Player::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/player/mod.rs:53:48	[Player::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/player/round_marks.rs:33:66	[RoundMarks::contains]	body	contains(&self, kind: RoundKind, value: u32) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/state/player/round_marks.rs:33:66	[RoundMarks::contains]	body	contains(&self, kind: RoundKind, value: u32) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/state/player/round_marks.rs:34:40	[RoundMarks::contains]	logic	*k == kind && *n == value  =>  *k == kind || *n == value
+crates/ti4-engine-core/src/state/player/round_marks.rs:34:40	[RoundMarks::contains]	cmp	*k == kind  =>  *k != kind
+crates/ti4-engine-core/src/state/player/round_marks.rs:34:54	[RoundMarks::contains]	cmp	*n == value  =>  *n != value
+crates/ti4-engine-core/src/state/player/round_marks.rs:42:47	[RoundMarks::clear]	body	clear(&mut self, kind: RoundKind) {  =>  { return (); }
+crates/ti4-engine-core/src/state/player/round_marks.rs:43:36	[RoundMarks::clear]	cmp	*k != kind  =>  *k == kind
+crates/ti4-engine-core/src/state/player/round_marks.rs:47:83	[RoundMarks::retain]	body	retain(&mut self, kind: RoundKind, mut keep: impl FnMut(u32) -> bool) ...  =>  { return (); }
+crates/ti4-engine-core/src/state/player/round_marks.rs:48:36	[RoundMarks::retain]	logic	*k != kind || keep(*n)  =>  *k != kind && keep(*n)
+crates/ti4-engine-core/src/state/player/round_marks.rs:48:36	[RoundMarks::retain]	cmp	*k != kind  =>  *k == kind
+crates/ti4-engine-core/src/state/player/round_marks.rs:52:37	[RoundMarks::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/state/player/round_marks.rs:52:37	[RoundMarks::is_empty]	body	is_empty(&self) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/state/rng.rs:89:19	[Rng::shuffle]	lit	1  =>  2
+crates/ti4-engine-core/src/state/seats.rs:31:23	[Seats::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/seats.rs:32:35	[Seats::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/seats.rs:34:34	[Seats::default]	lit	0  =>  1
+crates/ti4-engine-core/src/state/trade/diplomacy.rs:193:22	[Diplomacy::default]	lit	false  =>  true
+crates/ti4-engine-core/src/state/trade/diplomacy.rs:200:27	[Diplomacy::default]	lit	1  =>  2
+crates/ti4-engine-core/src/state/trade/diplomacy.rs:201:29	[Diplomacy::default]	lit	1  =>  2
+crates/ti4-engine-core/src/state/transient/misc.rs:47:61	[TechList::from_slice]	body	from_slice(list: &[Technology]) -> Option<Self> {  =>  { return None; }
+crates/ti4-engine-core/src/state/transient/misc.rs:48:12	[TechList::from_slice]	cond	list.len() > Self::CAP  =>  !(list.len() > Self::CAP)
+crates/ti4-engine-core/src/state/transient/misc.rs:48:12	[TechList::from_slice]	cmp	list.len() > Self::CAP  =>  list.len() >= Self::CAP
+crates/ti4-engine-core/src/state/transient/misc.rs:51:42	[TechList::from_slice]	lit	0  =>  1

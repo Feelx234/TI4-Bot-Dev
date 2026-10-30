@@ -1,0 +1,27 @@
+# survivors of core/containers: 26 of 288 points (90% killed)
+crates/ti4-engine-core/src/containers/decimal.rs:9:13	[digits]	lit	0  =>  1
+crates/ti4-engine-core/src/containers/decimal.rs:10:13	[digits]	lit	0  =>  1
+crates/ti4-engine-core/src/containers/decimal.rs:11:16	[digits]	lit	1  =>  2
+crates/ti4-engine-core/src/containers/decimal.rs:14:20	[digits]	lit	0u8  =>  1u8
+crates/ti4-engine-core/src/containers/decimal.rs:28:32	[DecimalTextOrd::cmp]	lit	0u8  =>  1u8
+crates/ti4-engine-core/src/containers/decimal.rs:28:43	[DecimalTextOrd::cmp]	lit	0u8  =>  1u8
+crates/ti4-engine-core/src/containers/idx.rs:44:30	[Seat::index]	body	index(self) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/containers/idx.rs:44:30	[Seat::index]	body	index(self) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/containers/idx.rs:49:12	[Seat::from_index]	cmp	index < MAX_OWNERS  =>  index <= MAX_OWNERS
+crates/ti4-engine-core/src/containers/log.rs:76:12	[Log::get]	cmp	index >= self.len()  =>  index > self.len()
+crates/ti4-engine-core/src/containers/log.rs:95:12	[Log::get_mut]	cmp	index >= self.len()  =>  index > self.len()
+crates/ti4-engine-core/src/containers/log.rs:120:78	[Log::iter]	lit	1  =>  2
+crates/ti4-engine-core/src/containers/log.rs:141:29	[Log::shares_prefix_with]	lit	true  =>  false
+crates/ti4-engine-core/src/containers/log.rs:143:18	[Log::shares_prefix_with]	lit	false  =>  true
+crates/ti4-engine-core/src/containers/log.rs:151:29	[Log::shares_tail_with]	lit	true  =>  false
+crates/ti4-engine-core/src/containers/log.rs:153:18	[Log::shares_tail_with]	lit	false  =>  true
+crates/ti4-engine-core/src/containers/log.rs:170:41	[Log::eq]	body	eq(&self, other: &Self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/containers/log.rs:171:9	[Log::eq]	logic	self.len == other.len && self.iter().zip(other.iter()).all(|(a, b...  =>  self.len == other.len || self.iter().zip(other.iter()).all(|(a, b...
+crates/ti4-engine-core/src/containers/set.rs:49:41	[Set::remove]	lit	6  =>  7
+crates/ti4-engine-core/src/containers/set.rs:60:37	[Set::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/containers/set.rs:144:47	[Set::hash]	body	hash<H: Hasher>(&self, state: &mut H) {  =>  { return (); }
+crates/ti4-engine-core/src/containers/small_list.rs:61:28	[SmallList::push]	cmp	N > 0  =>  N >= 0
+crates/ti4-engine-core/src/containers/small_list.rs:61:32	[SmallList::push]	lit	0  =>  1
+crates/ti4-engine-core/src/containers/small_list.rs:68:52	[SmallList::push]	arith	N * 2  =>  N + 2
+crates/ti4-engine-core/src/containers/small_list.rs:68:56	[SmallList::push]	lit	2  =>  3
+crates/ti4-engine-core/src/containers/small_list.rs:166:47	[SmallList::hash]	body	hash<H: Hasher>(&self, state: &mut H) {  =>  { return (); }

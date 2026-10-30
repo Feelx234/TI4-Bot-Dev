@@ -1,0 +1,740 @@
+# survivors of core/query: 739 of 1621 points (54% killed)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:60:88	[Draft::new]	lit	false  =>  true
+crates/ti4-engine-core/src/query/diplomacy_items.rs:60:106	[Draft::new]	lit	false  =>  true
+crates/ti4-engine-core/src/query/diplomacy_items.rs:60:135	[Draft::new]	lit	0  =>  1
+crates/ti4-engine-core/src/query/diplomacy_items.rs:66:12	[Draft::side]	cond	self.asking  =>  !(self.asking)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:70:12	[Draft::side_mut]	cond	self.asking  =>  !(self.asking)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:79:37	[Draft::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:79:37	[Draft::is_empty]	body	is_empty(&self) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:80:9	[Draft::is_empty]	logic	self.give.is_empty() && self.take.is_empty()  =>  self.give.is_empty() || self.take.is_empty()
+crates/ti4-engine-core/src/query/diplomacy_items.rs:113:65	[held]	body	held(core: &CoreState, kind: Counted, seat: Seat) -> u8 {  =>  { return 0; }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:113:65	[held]	body	held(core: &CoreState, kind: Counted, seat: Seat) -> u8 {  =>  { return 1; }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:114:62	[held]	lit	0  =>  1
+crates/ti4-engine-core/src/query/diplomacy_items.rs:123:28	[held]	lit	0  =>  1
+crates/ti4-engine-core/src/query/diplomacy_items.rs:123:62	[held]	lit	0  =>  1
+crates/ti4-engine-core/src/query/diplomacy_items.rs:126:71	[fragments]	body	fragments(core: &CoreState, seat: Seat, kind: ExploreType) -> i32 {  =>  { return 0; }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:126:71	[fragments]	body	fragments(core: &CoreState, seat: Seat, kind: ExploreType) -> i32 {  =>  { return 1; }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:127:83	[fragments]	lit	0  =>  1
+crates/ti4-engine-core/src/query/diplomacy_items.rs:133:30	[term_of]	cond	late  =>  !(late)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:133:58	[term_of]	lit	1  =>  2
+crates/ti4-engine-core/src/query/diplomacy_items.rs:139:115	[term_of]	lit	1  =>  2
+crates/ti4-engine-core/src/query/diplomacy_items.rs:145:64	[holds_unplayed_trade]	body	holds_unplayed_trade(core: &CoreState, seat: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:145:64	[holds_unplayed_trade]	body	holds_unplayed_trade(core: &CoreState, seat: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:146:84	[holds_unplayed_trade]	logic	!p.strat_exhausted.contains(*c) && c.data().kind == StrategyCardKind::Trade  =>  !p.strat_exhausted.contains(*c) || c.data().kind == StrategyCardKind::Trade
+crates/ti4-engine-core/src/query/diplomacy_items.rs:146:119	[holds_unplayed_trade]	cmp	c.data().kind == StrategyCardKind::Trade  =>  c.data().kind != StrategyCardKind::Trade
+crates/ti4-engine-core/src/query/diplomacy_items.rs:149:73	[has]	body	has(terms: &[DealTerm], wanted: impl Fn(&DealTerm) -> bool) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:149:73	[has]	body	has(terms: &[DealTerm], wanted: impl Fn(&DealTerm) -> bool) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:156:86	[items]	body	items(core: &CoreState, f: &DipFacts, scope: &Scope, d: &Draft) -> Vec...  =>  { return Vec::new(); }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:160:8	[items]	cond	!d.can_edit()  =>  !(!d.can_edit())
+crates/ti4-engine-core/src/query/diplomacy_items.rs:163:16	[items]	cmp	terms.len() >= MAX_TERMS_PER_SIDE  =>  terms.len() > MAX_TERMS_PER_SIDE
+crates/ti4-engine-core/src/query/diplomacy_items.rs:164:8	[items]	cond	!full && scope.physical  =>  !(!full && scope.physical)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:164:8	[items]	logic	!full && scope.physical  =>  !full || scope.physical
+crates/ti4-engine-core/src/query/diplomacy_items.rs:167:16	[items]	cond	held(core, kind, giver) > 0 && !already  =>  !(held(core, kind, giver) > 0 && !already)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:167:16	[items]	logic	held(core, kind, giver) > 0 && !already  =>  held(core, kind, giver) > 0 || !already
+crates/ti4-engine-core/src/query/diplomacy_items.rs:167:16	[items]	cmp	held(core, kind, giver) > 0  =>  held(core, kind, giver) >= 0
+crates/ti4-engine-core/src/query/diplomacy_items.rs:167:42	[items]	lit	0  =>  1
+crates/ti4-engine-core/src/query/diplomacy_items.rs:172:12	[items]	cond	!has(terms, |t| matches!(t, DealTerm::ImmediateTransfer(TransferAsset::Promissor...  =>  !(!has(terms, |t| matches!(t, DealTerm::ImmediateTransfer(TransferAsset::Promissor...)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:185:12	[items]	logic	!d.asking && !card_on_side && (f.deal.arbiter(giver) || f.deal.arbiter...  =>  !d.asking && !card_on_side || (f.deal.arbiter(giver) || f.deal.arbiter...
+crates/ti4-engine-core/src/query/diplomacy_items.rs:185:12	[items]	logic	!d.asking && !card_on_side  =>  !d.asking || !card_on_side
+crates/ti4-engine-core/src/query/diplomacy_items.rs:187:17	[items]	logic	f.deal.arbiter(giver) || f.deal.arbiter(receiver)  =>  f.deal.arbiter(giver) && f.deal.arbiter(receiver)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:194:20	[items]	cond	!has(terms, |t| matches!(t, DealTerm::ImmediateTransfer(TransferAsset::ActionCar...  =>  !(!has(terms, |t| matches!(t, DealTerm::ImmediateTransfer(TransferAsset::ActionCar...)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:200:8	[items]	cond	!full  =>  !(!full)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:202:16	[items]	cond	!has(terms, |t| matches!(t, DealTerm::FuturePayment { asset, .. } if counted_of(...  =>  !(!has(terms, |t| matches!(t, DealTerm::FuturePayment { asset, .. } if counted_of(...)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:207:16	[items]	cond	!terms.contains(&term_of(pledge, round, receiver))  =>  !(!terms.contains(&term_of(pledge, round, receiver)))
+crates/ti4-engine-core/src/query/diplomacy_items.rs:211:22	[items]	lit	false  =>  true
+crates/ti4-engine-core/src/query/diplomacy_items.rs:211:29	[items]	lit	true  =>  false
+crates/ti4-engine-core/src/query/diplomacy_items.rs:215:26	[items]	lit	false  =>  true
+crates/ti4-engine-core/src/query/diplomacy_items.rs:215:33	[items]	lit	true  =>  false
+crates/ti4-engine-core/src/query/diplomacy_items.rs:219:70	[items]	logic	**t != giver && **t != receiver  =>  **t != giver || **t != receiver
+crates/ti4-engine-core/src/query/diplomacy_items.rs:219:70	[items]	cmp	**t != giver  =>  **t == giver
+crates/ti4-engine-core/src/query/diplomacy_items.rs:219:86	[items]	cmp	**t != receiver  =>  **t == receiver
+crates/ti4-engine-core/src/query/diplomacy_items.rs:220:26	[items]	lit	false  =>  true
+crates/ti4-engine-core/src/query/diplomacy_items.rs:220:33	[items]	lit	true  =>  false
+crates/ti4-engine-core/src/query/diplomacy_items.rs:232:12	[items]	cond	holds_unplayed_trade(core, giver)  =>  !(holds_unplayed_trade(core, giver))
+crates/ti4-engine-core/src/query/diplomacy_items.rs:237:20	[items]	cond	f.agents.contains(leader) && *status == LeaderStatus::Readied  =>  !(f.agents.contains(leader) && *status == LeaderStatus::Readied)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:237:20	[items]	logic	f.agents.contains(leader) && *status == LeaderStatus::Readied  =>  f.agents.contains(leader) || *status == LeaderStatus::Readied
+crates/ti4-engine-core/src/query/diplomacy_items.rs:237:49	[items]	cmp	*status == LeaderStatus::Readied  =>  *status != LeaderStatus::Readied
+crates/ti4-engine-core/src/query/diplomacy_items.rs:248:40	[removals]	body	removals(d: &Draft) -> Vec<u8> {  =>  { return Vec::new(); }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:249:8	[removals]	cond	!d.can_edit()  =>  !(!d.can_edit())
+crates/ti4-engine-core/src/query/diplomacy_items.rs:252:6	[removals]	lit	0  =>  1
+crates/ti4-engine-core/src/query/diplomacy_items.rs:257:57	[amounts]	body	amounts(core: &CoreState, d: &Draft) -> Vec<u8> {  =>  { return Vec::new(); }
+crates/ti4-engine-core/src/query/diplomacy_items.rs:260:19	[amounts]	cond	later  =>  !(later)
+crates/ti4-engine-core/src/query/diplomacy_items.rs:261:6	[amounts]	lit	1  =>  2
+crates/ti4-engine-core/src/query/economy.rs:50:24	[attachment_bonus]	lit	0  =>  1
+crates/ti4-engine-core/src/query/economy.rs:83:56	[tokens_in_reinforcements]	lit	0  =>  1
+crates/ti4-engine-core/src/query/economy.rs:94:64	[can_place_command_token]	lit	0  =>  1
+crates/ti4-engine-core/src/query/explore.rs:167:26	[holdings]	logic	cell.control.is_some() || cell.flags.has(crate::state::PlanetFlags...  =>  cell.control.is_some() && cell.flags.has(crate::state::PlanetFlags...
+crates/ti4-engine-core/src/query/fleet.rs:51:81	[held_on_board]	logic	*owner == seat && matches(*unit)  =>  *owner == seat || matches(*unit)
+crates/ti4-engine-core/src/query/fleet.rs:74:5	[counts_against_supply]	logic	d.ship && d.base_type != UnitBaseType::F... && !consumes_capacity(unit)  =>  d.ship && d.base_type != UnitBaseType::F... || !consumes_capacity(unit)
+crates/ti4-engine-core/src/query/fleet.rs:74:5	[counts_against_supply]	logic	d.ship && d.base_type != UnitBaseType::Fighter  =>  d.ship || d.base_type != UnitBaseType::Fighter
+crates/ti4-engine-core/src/query/fleet.rs:99:42	[capacity_cost]	body	capacity_cost(unit: Unit) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/query/fleet.rs:100:51	[capacity_cost]	lit	0  =>  1
+crates/ti4-engine-core/src/query/fleet.rs:226:58	[standing]	lit	2  =>  3
+crates/ti4-engine-core/src/query/laws.rs:175:103	[research_team_waivers]	body	research_team_waivers(core: &CoreState, blanked: bool, seat: Seat, col...  =>  { return 0; }
+crates/ti4-engine-core/src/query/laws.rs:181:41	[research_team_waivers]	lit	0  =>  1
+crates/ti4-engine-core/src/query/laws.rs:186:8	[research_team_waivers]	cond	board::exhausted(core, planet)  =>  !(board::exhausted(core, planet))
+crates/ti4-engine-core/src/query/laws.rs:187:16	[research_team_waivers]	lit	0  =>  1
+crates/ti4-engine-core/src/query/laws.rs:189:86	[research_team_waivers]	cmp	*p == planet  =>  *p != planet
+crates/ti4-engine-core/src/query/laws.rs:200:71	[wormholes_suppressed]	body	wormholes_suppressed(core: &CoreState, blanked: bool) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/laws.rs:200:71	[wormholes_suppressed]	body	wormholes_suppressed(core: &CoreState, blanked: bool) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/laws.rs:206:74	[wormholes_all_connected]	body	wormholes_all_connected(core: &CoreState, blanked: bool) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/laws.rs:206:74	[wormholes_all_connected]	body	wormholes_all_connected(core: &CoreState, blanked: bool) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/laws.rs:212:82	[draws_at_status_end]	body	draws_at_status_end(core: &CoreState, blanked: bool, seat: Seat) -> bo...  =>  { return true; }
+crates/ti4-engine-core/src/query/laws.rs:212:82	[draws_at_status_end]	body	draws_at_status_end(core: &CoreState, blanked: bool, seat: Seat) -> bo...  =>  { return false; }
+crates/ti4-engine-core/src/query/objectives.rs:251:41	[is_ground_force]	body	is_ground_force(unit: Unit) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/objectives.rs:251:41	[is_ground_force]	body	is_ground_force(unit: Unit) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/objectives.rs:252:5	[is_ground_force]	logic	matches!(unit.data().base_type, UnitBase... || matches!(unit, Unit::HelTitanI | Unit::H...  =>  matches!(unit.data().base_type, UnitBase... && matches!(unit, Unit::HelTitanI | Unit::H...
+crates/ti4-engine-core/src/query/objectives.rs:272:26	[SeatFacts::of]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:274:23	[SeatFacts::of]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:275:23	[SeatFacts::of]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:277:25	[SeatFacts::of]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:282:16	[SeatFacts::of]	cond	cell.flags.has(SysFlags::TOUCHED)  =>  !(cell.flags.has(SysFlags::TOUCHED))
+crates/ti4-engine-core/src/query/objectives.rs:285:29	[SeatFacts::of]	lit	0u16  =>  1u16
+crates/ti4-engine-core/src/query/objectives.rs:287:20	[SeatFacts::of]	cond	piece.owner() != seat  =>  !(piece.owner() != seat)
+crates/ti4-engine-core/src/query/objectives.rs:287:20	[SeatFacts::of]	cmp	piece.owner() != seat  =>  piece.owner() == seat
+crates/ti4-engine-core/src/query/objectives.rs:293:20	[SeatFacts::of]	cond	data.ship  =>  !(data.ship)
+crates/ti4-engine-core/src/query/objectives.rs:295:24	[SeatFacts::of]	cond	data.base_type != UnitBaseType::Fighter  =>  !(data.base_type != UnitBaseType::Fighter)
+crates/ti4-engine-core/src/query/objectives.rs:295:24	[SeatFacts::of]	cmp	data.base_type != UnitBaseType::Fighter  =>  data.base_type == UnitBaseType::Fighter
+crates/ti4-engine-core/src/query/objectives.rs:296:25	[SeatFacts::of]	assign	ships += 1  =>  ships -= 1
+crates/ti4-engine-core/src/query/objectives.rs:296:34	[SeatFacts::of]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:299:20	[SeatFacts::of]	cond	matches!(data.base_type, UnitBaseType::Flagship | UnitBaseType::Warsun)  =>  !(matches!(data.base_type, UnitBaseType::Flagship | UnitBaseType::Warsun))
+crates/ti4-engine-core/src/query/objectives.rs:302:17	[SeatFacts::of]	assign	f.by_base[data.base_type.index()] += 1  =>  f.by_base[data.base_type.index()] -= 1
+crates/ti4-engine-core/src/query/objectives.rs:302:54	[SeatFacts::of]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:304:16	[SeatFacts::of]	cond	ships > 0  =>  !(ships > 0)
+crates/ti4-engine-core/src/query/objectives.rs:304:16	[SeatFacts::of]	cmp	ships > 0  =>  ships >= 0
+crates/ti4-engine-core/src/query/objectives.rs:304:24	[SeatFacts::of]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:310:30	[SeatFacts::of]	lit	0u16  =>  1u16
+crates/ti4-engine-core/src/query/objectives.rs:312:20	[SeatFacts::of]	cond	piece.owner() != seat  =>  !(piece.owner() != seat)
+crates/ti4-engine-core/src/query/objectives.rs:312:20	[SeatFacts::of]	cmp	piece.owner() != seat  =>  piece.owner() == seat
+crates/ti4-engine-core/src/query/objectives.rs:317:17	[SeatFacts::of]	assign	f.by_base[data.base_type.index()] += 1  =>  f.by_base[data.base_type.index()] -= 1
+crates/ti4-engine-core/src/query/objectives.rs:317:54	[SeatFacts::of]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:318:20	[SeatFacts::of]	cond	data.structure  =>  !(data.structure)
+crates/ti4-engine-core/src/query/objectives.rs:321:20	[SeatFacts::of]	cond	data.base_type == UnitBaseType::Mech  =>  !(data.base_type == UnitBaseType::Mech)
+crates/ti4-engine-core/src/query/objectives.rs:321:20	[SeatFacts::of]	cmp	data.base_type == UnitBaseType::Mech  =>  data.base_type != UnitBaseType::Mech
+crates/ti4-engine-core/src/query/objectives.rs:324:20	[SeatFacts::of]	cond	is_ground_force(piece.kind())  =>  !(is_ground_force(piece.kind()))
+crates/ti4-engine-core/src/query/objectives.rs:325:21	[SeatFacts::of]	assign	ground += 1  =>  ground -= 1
+crates/ti4-engine-core/src/query/objectives.rs:325:31	[SeatFacts::of]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:335:21	[SeatFacts::of]	assign	f.tech_types[*kind as usize] += 1  =>  f.tech_types[*kind as usize] -= 1
+crates/ti4-engine-core/src/query/objectives.rs:335:53	[SeatFacts::of]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:341:21	[SeatFacts::of]	assign	f.colours[i] += 1  =>  f.colours[i] -= 1
+crates/ti4-engine-core/src/query/objectives.rs:341:37	[SeatFacts::of]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:384:63	[Pos::imagined_planets]	logic	in_scope_planet(scope, *p) && !is_space_station(*p)  =>  in_scope_planet(scope, *p) || !is_space_station(*p)
+crates/ti4-engine-core/src/query/objectives.rs:388:40	[Pos::controlled_len]	body	controlled_len(&self) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:388:40	[Pos::controlled_len]	body	controlled_len(&self) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:389:9	[Pos::controlled_len]	arith	self.facts.controlled.len() + self.imagined_planets().count()  =>  self.facts.controlled.len() - self.imagined_planets().count()
+crates/ti4-engine-core/src/query/objectives.rs:392:59	[Pos::controlled_each]	body	controlled_each(&self, mut f: impl FnMut(Planet)) {  =>  { return (); }
+crates/ti4-engine-core/src/query/objectives.rs:402:48	[Pos::systems_holding_units]	body	systems_holding_units(&self) -> SysSet {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/objectives.rs:411:45	[Pos::systems_with_ships]	body	systems_with_ships(&self) -> SysSet {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/objectives.rs:419:52	[Pos::imagined_in]	body	imagined_in(&self, system: System) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/objectives.rs:419:52	[Pos::imagined_in]	body	imagined_in(&self, system: System) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/objectives.rs:424:60	[Pos::technology_types]	body	technology_types(&self, wanted: TechType) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:424:60	[Pos::technology_types]	body	technology_types(&self, wanted: TechType) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:428:16	[Pos::technology_types]	cond	!self.facts.owned.contains(*tech) && tech.data().types.contains(&wanted)  =>  !(!self.facts.owned.contains(*tech) && tech.data().types.contains(&wanted))
+crates/ti4-engine-core/src/query/objectives.rs:428:16	[Pos::technology_types]	logic	!self.facts.owned.contains(*tech) && tech.data().types.contains(&wanted)  =>  !self.facts.owned.contains(*tech) || tech.data().types.contains(&wanted)
+crates/ti4-engine-core/src/query/objectives.rs:429:17	[Pos::technology_types]	assign	n += 1  =>  n -= 1
+crates/ti4-engine-core/src/query/objectives.rs:429:22	[Pos::technology_types]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:436:69	[Pos::structure_entries]	body	structure_entries(&self) -> SmallList<(System, Planet), 24> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/objectives.rs:443:16	[Pos::structure_entries]	cond	!held.as_slice().contains(planet)  =>  !(!held.as_slice().contains(planet))
+crates/ti4-engine-core/src/query/objectives.rs:507:63	[near_mecatol]	body	near_mecatol(core: &CoreState, presence: &SysSet) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/objectives.rs:507:63	[near_mecatol]	body	near_mecatol(core: &CoreState, presence: &SysSet) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/objectives.rs:509:8	[near_mecatol]	cond	presence.contains(mecatol.index())  =>  !(presence.contains(mecatol.index()))
+crates/ti4-engine-core/src/query/objectives.rs:510:16	[near_mecatol]	lit	true  =>  false
+crates/ti4-engine-core/src/query/objectives.rs:515:79	[present_together]	body	present_together(core: &CoreState, here: &SysSet, there: &SysSet) -> b...  =>  { return true; }
+crates/ti4-engine-core/src/query/objectives.rs:515:79	[present_together]	body	present_together(core: &CoreState, here: &SysSet, there: &SysSet) -> b...  =>  { return false; }
+crates/ti4-engine-core/src/query/objectives.rs:516:8	[present_together]	cond	here.intersects(there)  =>  !(here.intersects(there))
+crates/ti4-engine-core/src/query/objectives.rs:517:16	[present_together]	lit	true  =>  false
+crates/ti4-engine-core/src/query/objectives.rs:519:47	[present_together]	lit	false  =>  true
+crates/ti4-engine-core/src/query/objectives.rs:525:87	[neighbours]	body	neighbours(core: &CoreState, terms: &Terms, seat: Seat) -> SmallList<S...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/objectives.rs:530:12	[neighbours]	cond	other == seat  =>  !(other == seat)
+crates/ti4-engine-core/src/query/objectives.rs:530:12	[neighbours]	cmp	other == seat  =>  other != seat
+crates/ti4-engine-core/src/query/objectives.rs:535:23	[neighbours]	logic	(terms.iihq.contains(seat) && near_mecat... || (terms.iihq.contains(other) && near_meca...  =>  (terms.iihq.contains(seat) && near_mecat... && (terms.iihq.contains(other) && near_meca...
+crates/ti4-engine-core/src/query/objectives.rs:535:24	[neighbours]	logic	terms.iihq.contains(seat) && near_mecatol(core, &theirs)  =>  terms.iihq.contains(seat) || near_mecatol(core, &theirs)
+crates/ti4-engine-core/src/query/objectives.rs:536:17	[neighbours]	logic	terms.iihq.contains(other) && near_mecatol(core, &mine)  =>  terms.iihq.contains(other) || near_mecatol(core, &mine)
+crates/ti4-engine-core/src/query/objectives.rs:537:12	[neighbours]	cond	mecatol || present_together(core, &mine, &theirs)  =>  !(mecatol || present_together(core, &mine, &theirs))
+crates/ti4-engine-core/src/query/objectives.rs:537:12	[neighbours]	logic	mecatol || present_together(core, &mine, &theirs)  =>  mecatol && present_together(core, &mine, &theirs)
+crates/ti4-engine-core/src/query/objectives.rs:629:38	[non_home]	body	non_home(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:629:38	[non_home]	body	non_home(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:630:17	[non_home]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:631:29	[non_home]	assign	n += usize::from(p.data().homeworld_of.is_non...  =>  n -= usize::from(p.data().homeworld_of.is_non...
+crates/ti4-engine-core/src/query/objectives.rs:635:63	[on_the_rim]	body	on_the_rim(pos: &Pos<'_>, edge: &SysSet) -> Option<usize> {  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:636:8	[on_the_rim]	cond	!pos.map  =>  !(!pos.map)
+crates/ti4-engine-core/src/query/objectives.rs:640:33	[on_the_rim]	logic	edge.contains(*s) && Some(crate::ids::system_at(*s)) != pos.f...  =>  edge.contains(*s) || Some(crate::ids::system_at(*s)) != pos.f...
+crates/ti4-engine-core/src/query/objectives.rs:640:54	[on_the_rim]	cmp	Some(crate::ids::system_at(*s)) != pos.facts.home  =>  Some(crate::ids::system_at(*s)) == pos.facts.home
+crates/ti4-engine-core/src/query/objectives.rs:643:40	[same_trait]	body	same_trait(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:643:40	[same_trait]	body	same_trait(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:644:23	[same_trait]	lit	0usize  =>  1usize
+crates/ti4-engine-core/src/query/objectives.rs:649:42	[same_trait]	assign	counts[0] += 1  =>  counts[0] -= 1
+crates/ti4-engine-core/src/query/objectives.rs:649:49	[same_trait]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:649:55	[same_trait]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:650:43	[same_trait]	assign	counts[1] += 1  =>  counts[1] -= 1
+crates/ti4-engine-core/src/query/objectives.rs:650:50	[same_trait]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:650:56	[same_trait]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:651:44	[same_trait]	assign	counts[2] += 1  =>  counts[2] -= 1
+crates/ti4-engine-core/src/query/objectives.rs:651:51	[same_trait]	lit	2  =>  3
+crates/ti4-engine-core/src/query/objectives.rs:651:57	[same_trait]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:656:40	[same_trait]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:659:46	[tech_specialties]	body	tech_specialties(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:659:46	[tech_specialties]	body	tech_specialties(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:660:17	[tech_specialties]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:664:12	[tech_specialties]	cond	printed || board::attachments(pos.core, p).as_slice().iter().any(|a| !a.data().s...  =>  !(printed || board::attachments(pos.core, p).as_slice().iter().any(|a| !a.data().s...)
+crates/ti4-engine-core/src/query/objectives.rs:664:12	[tech_specialties]	logic	printed || board::attachments(pos.core, p).as_slice...  =>  printed && board::attachments(pos.core, p).as_slice...
+crates/ti4-engine-core/src/query/objectives.rs:665:13	[tech_specialties]	assign	n += 1  =>  n -= 1
+crates/ti4-engine-core/src/query/objectives.rs:665:18	[tech_specialties]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:671:56	[colours]	body	colours(pos: &Pos<'_>, per_colour: usize) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:671:56	[colours]	body	colours(pos: &Pos<'_>, per_colour: usize) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:674:21	[colours]	cmp	pos.technology_types(*c) >= per_colour  =>  pos.technology_types(*c) > per_colour
+crates/ti4-engine-core/src/query/objectives.rs:678:45	[structures_away]	body	structures_away(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:678:45	[structures_away]	body	structures_away(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:681:12	[structures_away]	cond	Some(*system) != pos.facts.home  =>  !(Some(*system) != pos.facts.home)
+crates/ti4-engine-core/src/query/objectives.rs:681:12	[structures_away]	cmp	Some(*system) != pos.facts.home  =>  Some(*system) == pos.facts.home
+crates/ti4-engine-core/src/query/objectives.rs:688:49	[fleet_in_one_system]	body	fleet_in_one_system(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:688:49	[fleet_in_one_system]	body	fleet_in_one_system(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:690:20	[fleet_in_one_system]	lit	0usize  =>  1usize
+crates/ti4-engine-core/src/query/objectives.rs:692:25	[fleet_in_one_system]	arith	usize::from(*n) + usize::from(pos.imagined_in(*system))  =>  usize::from(*n) - usize::from(pos.imagined_in(*system))
+crates/ti4-engine-core/src/query/objectives.rs:694:8	[fleet_in_one_system]	cond	pos.imagined.systems.iter().any(|s| pos.facts.touched.contains(s.index()))  =>  !(pos.imagined.systems.iter().any(|s| pos.facts.touched.contains(s.index())))
+crates/ti4-engine-core/src/query/objectives.rs:695:25	[fleet_in_one_system]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:700:48	[planetless_systems]	body	planetless_systems(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:700:48	[planetless_systems]	body	planetless_systems(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:708:46	[attached_planets]	body	attached_planets(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:708:46	[attached_planets]	body	attached_planets(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:714:48	[in_notable_systems]	body	in_notable_systems(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:714:48	[in_notable_systems]	body	in_notable_systems(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:720:16	[in_notable_systems]	cond	is_mecatol(system)  =>  !(is_mecatol(system))
+crates/ti4-engine-core/src/query/objectives.rs:721:24	[in_notable_systems]	lit	true  =>  false
+crates/ti4-engine-core/src/query/objectives.rs:723:62	[in_notable_systems]	lit	false  =>  true
+crates/ti4-engine-core/src/query/objectives.rs:725:13	[in_notable_systems]	logic	a.nebula || a.supernova || a.scar || a.a... || d.planets.iter().any(|p| in_scope_planet...  =>  a.nebula || a.supernova || a.scar || a.a... && d.planets.iter().any(|p| in_scope_planet...
+crates/ti4-engine-core/src/query/objectives.rs:725:13	[in_notable_systems]	logic	a.nebula || a.supernova || a.scar || a.a... || a.gravity_rift  =>  a.nebula || a.supernova || a.scar || a.a... && a.gravity_rift
+crates/ti4-engine-core/src/query/objectives.rs:725:13	[in_notable_systems]	logic	a.nebula || a.supernova || a.scar || a.asteroid_field  =>  a.nebula || a.supernova || a.scar && a.asteroid_field
+crates/ti4-engine-core/src/query/objectives.rs:725:13	[in_notable_systems]	logic	a.nebula || a.supernova || a.scar  =>  a.nebula || a.supernova && a.scar
+crates/ti4-engine-core/src/query/objectives.rs:725:13	[in_notable_systems]	logic	a.nebula || a.supernova  =>  a.nebula && a.supernova
+crates/ti4-engine-core/src/query/objectives.rs:730:45	[in_notable_systems]	logic	in_scope_planet(scope, *p) && p.data().legendary  =>  in_scope_planet(scope, *p) || p.data().legendary
+crates/ti4-engine-core/src/query/objectives.rs:736:57	[rival_home_planets]	body	rival_home_planets(pos: &Pos<'_>) -> Set<Planet, 3> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/objectives.rs:739:12	[rival_home_planets]	cond	player.seat == pos.seat()  =>  !(player.seat == pos.seat())
+crates/ti4-engine-core/src/query/objectives.rs:739:12	[rival_home_planets]	cmp	player.seat == pos.seat()  =>  player.seat != pos.seat()
+crates/ti4-engine-core/src/query/objectives.rs:742:12	[rival_home_planets]	cond	!player.home_planets.is_empty()  =>  !(!player.home_planets.is_empty())
+crates/ti4-engine-core/src/query/objectives.rs:756:49	[rival_home_systems]	body	rival_home_systems(pos: &Pos<'_>) -> SysSet {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/objectives.rs:759:12	[rival_home_systems]	cond	player.seat == pos.seat()  =>  !(player.seat == pos.seat())
+crates/ti4-engine-core/src/query/objectives.rs:759:12	[rival_home_systems]	cmp	player.seat == pos.seat()  =>  player.seat != pos.seat()
+crates/ti4-engine-core/src/query/objectives.rs:769:54	[rival_home_planets_count]	body	rival_home_planets_count(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:769:54	[rival_home_planets_count]	body	rival_home_planets_count(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:771:17	[rival_home_planets_count]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:772:29	[rival_home_planets_count]	assign	n += usize::from(rivals.contains(p))  =>  n -= usize::from(rivals.contains(p))
+crates/ti4-engine-core/src/query/objectives.rs:776:68	[capital_ships_in_rival_home_or_mecatol]	body	capital_ships_in_rival_home_or_mecatol(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:776:68	[capital_ships_in_rival_home_or_mecatol]	body	capital_ships_in_rival_home_or_mecatol(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:782:63	[ships_adjacent_to_mecatol]	body	ships_adjacent_to_mecatol(pos: &Pos<'_>) -> Option<usize> {  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:783:8	[ships_adjacent_to_mecatol]	cond	!pos.map  =>  !(!pos.map)
+crates/ti4-engine-core/src/query/objectives.rs:792:55	[weaker_neighbours]	body	weaker_neighbours(pos: &Pos<'_>) -> Option<usize> {  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:793:8	[weaker_neighbours]	cond	!pos.map  =>  !(!pos.map)
+crates/ti4-engine-core/src/query/objectives.rs:801:29	[weaker_neighbours]	cmp	mine > scoring_planets(pos.core, pos.scope(), *...  =>  mine >= scoring_planets(pos.core, pos.scope(), *...
+crates/ti4-engine-core/src/query/objectives.rs:806:65	[distinct_rival_home_reaches]	body	distinct_rival_home_reaches(pos: &Pos<'_>) -> Option<usize> {  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:807:8	[distinct_rival_home_reaches]	cond	!pos.map  =>  !(!pos.map)
+crates/ti4-engine-core/src/query/objectives.rs:815:17	[distinct_rival_home_reaches]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:817:12	[distinct_rival_home_reaches]	cond	player.seat == pos.seat()  =>  !(player.seat == pos.seat())
+crates/ti4-engine-core/src/query/objectives.rs:817:12	[distinct_rival_home_reaches]	cmp	player.seat == pos.seat()  =>  player.seat != pos.seat()
+crates/ti4-engine-core/src/query/objectives.rs:823:12	[distinct_rival_home_reaches]	cond	held.intersects(&reach)  =>  !(held.intersects(&reach))
+crates/ti4-engine-core/src/query/objectives.rs:824:13	[distinct_rival_home_reaches]	assign	n += 1  =>  n -= 1
+crates/ti4-engine-core/src/query/objectives.rs:824:18	[distinct_rival_home_reaches]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:832:99	[counting_progress]	body	counting_progress(pos: &Pos<'_>, edge: &SysSet, obj: PublicObjective) ...  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:854:94	[remaining_position_progress]	body	remaining_position_progress(pos: &Pos<'_>, obj: PublicObjective) -> Op...  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:899:80	[useful_planets]	cmp	p == planet  =>  p != planet
+crates/ti4-engine-core/src/query/objectives.rs:899:100	[useful_planets]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:903:12	[useful_planets]	cmp	worth > 0  =>  worth >= 0
+crates/ti4-engine-core/src/query/objectives.rs:917:45	[plans]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:917:83	[plans]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:919:24	[plans]	lit	0i64  =>  1i64
+crates/ti4-engine-core/src/query/objectives.rs:921:16	[plans]	cond	mask & (1 << index) != 0  =>  !(mask & (1 << index) != 0)
+crates/ti4-engine-core/src/query/objectives.rs:921:16	[plans]	cmp	mask & (1 << index) != 0  =>  mask & (1 << index) == 0
+crates/ti4-engine-core/src/query/objectives.rs:960:20	[can_afford]	body	can_afford( core: &CoreState, f: &SeatFacts, cost: Cost, useful: &Usef...  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:964:16	[can_afford]	cond	amount <= 0  =>  !(amount <= 0)
+crates/ti4-engine-core/src/query/objectives.rs:964:16	[can_afford]	cmp	amount <= 0  =>  amount < 0
+crates/ti4-engine-core/src/query/objectives.rs:964:26	[can_afford]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:965:29	[can_afford]	lit	true  =>  false
+crates/ti4-engine-core/src/query/objectives.rs:970:60	[can_afford]	cmp	i32::from(p.econ.trade_goods) >= amount  =>  i32::from(p.econ.trade_goods) > amount
+crates/ti4-engine-core/src/query/objectives.rs:971:33	[can_afford]	logic	player.is_some() && token_pool(core, f.seat) >= amount  =>  player.is_some() || token_pool(core, f.seat) >= amount
+crates/ti4-engine-core/src/query/objectives.rs:971:53	[can_afford]	cmp	token_pool(core, f.seat) >= amount  =>  token_pool(core, f.seat) > amount
+crates/ti4-engine-core/src/query/objectives.rs:984:138	[all_three_from]	body	all_three_from(core: &CoreState, f: &SeatFacts, res: &[(Planet, i64)],...  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:992:16	[all_three_from]	cond	!disjoint  =>  !(!disjoint)
+crates/ti4-engine-core/src/query/objectives.rs:995:32	[all_three_from]	arith	i64::from(r.trade_goods) + i64::from(i.t... + amount  =>  i64::from(r.trade_goods) + i64::from(i.t... - amount
+crates/ti4-engine-core/src/query/objectives.rs:995:32	[all_three_from]	arith	i64::from(r.trade_goods) + i64::from(i.trade_goods)  =>  i64::from(r.trade_goods) - i64::from(i.trade_goods)
+crates/ti4-engine-core/src/query/objectives.rs:996:16	[all_three_from]	cond	goods_needed <= held  =>  !(goods_needed <= held)
+crates/ti4-engine-core/src/query/objectives.rs:996:16	[all_three_from]	cmp	goods_needed <= held  =>  goods_needed < held
+crates/ti4-engine-core/src/query/objectives.rs:1005:64	[goods_of]	body	goods_of(core: &CoreState, f: &SeatFacts, per: i64) -> i64 {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1005:64	[goods_of]	body	goods_of(core: &CoreState, f: &SeatFacts, per: i64) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1006:5	[goods_of]	arith	(core.players().by_seat(f.seat).map_or(0... * per  =>  (core.players().by_seat(f.seat).map_or(0... + per
+crates/ti4-engine-core/src/query/objectives.rs:1006:6	[goods_of]	arith	core.players().by_seat(f.seat).map_or(0,... + f.terms.commodities  =>  core.players().by_seat(f.seat).map_or(0,... - f.terms.commodities
+crates/ti4-engine-core/src/query/objectives.rs:1006:44	[goods_of]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1019:96	[all_three_plan]	body	all_three_plan(core: &CoreState, f: &SeatFacts, amount: i64) -> Option...  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:1031:72	[Useful::of]	body	of(&self, kind: Spend) -> Option<&SmallList<(Planet, i64), 8>> {  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:1051:109	[bought_progress_base]	body	bought_progress_base(core: &CoreState, f: &SeatFacts, obj: PublicObjec...  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:1059:8	[bought_progress_base]	cond	target <= 0  =>  !(target <= 0)
+crates/ti4-engine-core/src/query/objectives.rs:1059:8	[bought_progress_base]	cmp	target <= 0  =>  target < 0
+crates/ti4-engine-core/src/query/objectives.rs:1059:18	[bought_progress_base]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1074:36	[bought_progress_base]	cond	useful.of(kind).is_none()  =>  !(useful.of(kind).is_none())
+crates/ti4-engine-core/src/query/objectives.rs:1075:33	[bought_progress_base]	cond	useful.resources.is_none() || useful.influence.is_none()  =>  !(useful.resources.is_none() || useful.influence.is_none())
+crates/ti4-engine-core/src/query/objectives.rs:1075:33	[bought_progress_base]	logic	useful.resources.is_none() || useful.influence.is_none()  =>  useful.resources.is_none() && useful.influence.is_none()
+crates/ti4-engine-core/src/query/objectives.rs:1078:20	[bought_progress_base]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1079:20	[bought_progress_base]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1080:12	[bought_progress_base]	cond	can_afford(core, f, scaled(family, amount), &useful)?  =>  !(can_afford(core, f, scaled(family, amount), &useful)?)
+crates/ti4-engine-core/src/query/objectives.rs:1090:64	[imagined_spending_bonus]	body	imagined_spending_bonus(pos: &Pos<'_>, kind: Spend) -> i64 {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1090:64	[imagined_spending_bonus]	body	imagined_spending_bonus(pos: &Pos<'_>, kind: Spend) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1091:21	[imagined_spending_bonus]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1094:12	[imagined_spending_bonus]	cond	!real.as_slice().iter().any(|(_, r)| *r == p)  =>  !(!real.as_slice().iter().any(|(_, r)| *r == p))
+crates/ti4-engine-core/src/query/objectives.rs:1094:49	[imagined_spending_bonus]	cmp	*r == p  =>  *r != p
+crates/ti4-engine-core/src/query/objectives.rs:1096:13	[imagined_spending_bonus]	assign	total += i64::from(match kind { Spend::Resources ...  =>  total -= i64::from(match kind { Spend::Resources ...
+crates/ti4-engine-core/src/query/objectives.rs:1107:86	[bought_progress]	body	bought_progress(pos: &Pos<'_>, obj: PublicObjective) -> Option<CostPro...  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:1111:79	[bought_progress]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1113:8	[bought_progress]	cond	bonus <= 0  =>  !(bonus <= 0)
+crates/ti4-engine-core/src/query/objectives.rs:1113:8	[bought_progress]	cmp	bonus <= 0  =>  bonus < 0
+crates/ti4-engine-core/src/query/objectives.rs:1113:17	[bought_progress]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1116:53	[bought_progress]	arith	base.have + bonus  =>  base.have - bonus
+crates/ti4-engine-core/src/query/objectives.rs:1138:70	[secret_row]	lit	4  =>  5
+crates/ti4-engine-core/src/query/objectives.rs:1139:74	[secret_row]	lit	3  =>  4
+crates/ti4-engine-core/src/query/objectives.rs:1140:77	[secret_row]	lit	5  =>  6
+crates/ti4-engine-core/src/query/objectives.rs:1141:57	[secret_row]	lit	6  =>  7
+crates/ti4-engine-core/src/query/objectives.rs:1142:79	[secret_row]	lit	4  =>  5
+crates/ti4-engine-core/src/query/objectives.rs:1143:79	[secret_row]	lit	4  =>  5
+crates/ti4-engine-core/src/query/objectives.rs:1144:86	[secret_row]	lit	4  =>  5
+crates/ti4-engine-core/src/query/objectives.rs:1145:71	[secret_row]	lit	4  =>  5
+crates/ti4-engine-core/src/query/objectives.rs:1146:69	[secret_row]	lit	4  =>  5
+crates/ti4-engine-core/src/query/objectives.rs:1147:65	[secret_row]	lit	9  =>  10
+crates/ti4-engine-core/src/query/objectives.rs:1148:66	[secret_row]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:1149:62	[secret_row]	lit	2  =>  3
+crates/ti4-engine-core/src/query/objectives.rs:1150:53	[secret_row]	lit	5  =>  6
+crates/ti4-engine-core/src/query/objectives.rs:1151:77	[secret_row]	lit	3  =>  4
+crates/ti4-engine-core/src/query/objectives.rs:1152:68	[secret_row]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:1153:51	[secret_row]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1154:55	[secret_row]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:1155:59	[secret_row]	lit	2  =>  3
+crates/ti4-engine-core/src/query/objectives.rs:1156:64	[secret_row]	lit	2  =>  3
+crates/ti4-engine-core/src/query/objectives.rs:1157:44	[secret_row]	lit	3  =>  4
+crates/ti4-engine-core/src/query/objectives.rs:1158:60	[secret_row]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:1159:54	[secret_row]	lit	1  =>  2
+crates/ti4-engine-core/src/query/objectives.rs:1160:79	[secret_row]	lit	3  =>  4
+crates/ti4-engine-core/src/query/objectives.rs:1161:75	[secret_row]	lit	12  =>  13
+crates/ti4-engine-core/src/query/objectives.rs:1162:75	[secret_row]	lit	12  =>  13
+crates/ti4-engine-core/src/query/objectives.rs:1171:56	[secret_controlled]	body	secret_controlled(pos: &Pos<'_>) -> Set<Planet, 3> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/objectives.rs:1185:48	[ship_systems_real]	body	ship_systems_real(pos: &Pos<'_>) -> SysSet {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/objectives.rs:1190:53	[secret_ships_in_systems]	body	secret_ships_in_systems(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1190:53	[secret_ships_in_systems]	body	secret_ships_in_systems(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1194:54	[fragments]	body	fragments(core: &CoreState, seat: Seat) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1194:54	[fragments]	body	fragments(core: &CoreState, seat: Seat) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1195:41	[fragments]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1200:25	[fragments]	cmp	*n > 0  =>  *n >= 0
+crates/ti4-engine-core/src/query/objectives.rs:1200:30	[fragments]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1201:51	[fragments]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1206:59	[rival_dock_systems_with_ships]	body	rival_dock_systems_with_ships(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1206:59	[rival_dock_systems_with_ships]	body	rival_dock_systems_with_ships(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1214:21	[rival_dock_systems_with_ships]	logic	u.owner() != pos.seat() && scope.unit(u.kind()).is_some_and(|d| d.b...  =>  u.owner() != pos.seat() || scope.unit(u.kind()).is_some_and(|d| d.b...
+crates/ti4-engine-core/src/query/objectives.rs:1214:21	[rival_dock_systems_with_ships]	cmp	u.owner() != pos.seat()  =>  u.owner() == pos.seat()
+crates/ti4-engine-core/src/query/objectives.rs:1215:65	[rival_dock_systems_with_ships]	cmp	d.base_type == UnitBaseType::Spacedock  =>  d.base_type != UnitBaseType::Spacedock
+crates/ti4-engine-core/src/query/objectives.rs:1222:65	[ship_systems_beside_anomaly]	body	ship_systems_beside_anomaly(pos: &Pos<'_>) -> Option<usize> {  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:1223:8	[ship_systems_beside_anomaly]	cond	!pos.map  =>  !(!pos.map)
+crates/ti4-engine-core/src/query/objectives.rs:1235:25	[ship_systems_beside_anomaly]	logic	a.nebula || a.supernova || a.scar || a.a... || a.gravity_rift  =>  a.nebula || a.supernova || a.scar || a.a... && a.gravity_rift
+crates/ti4-engine-core/src/query/objectives.rs:1235:25	[ship_systems_beside_anomaly]	logic	a.nebula || a.supernova || a.scar || a.asteroid_field  =>  a.nebula || a.supernova || a.scar && a.asteroid_field
+crates/ti4-engine-core/src/query/objectives.rs:1235:25	[ship_systems_beside_anomaly]	logic	a.nebula || a.supernova || a.scar  =>  a.nebula || a.supernova && a.scar
+crates/ti4-engine-core/src/query/objectives.rs:1235:25	[ship_systems_beside_anomaly]	logic	a.nebula || a.supernova  =>  a.nebula && a.supernova
+crates/ti4-engine-core/src/query/objectives.rs:1243:68	[ship_systems_beside_rival_home]	body	ship_systems_beside_rival_home(pos: &Pos<'_>) -> Option<usize> {  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:1244:8	[ship_systems_beside_rival_home]	cond	!pos.map  =>  !(!pos.map)
+crates/ti4-engine-core/src/query/objectives.rs:1257:29	[ship_systems_beside_rival_home]	logic	in_scope_planet(scope, *planet) && planet.data().homeworld_of.is_some_and(|...  =>  in_scope_planet(scope, *planet) || planet.data().homeworld_of.is_some_and(|...
+crates/ti4-engine-core/src/query/objectives.rs:1258:81	[ship_systems_beside_rival_home]	cmp	Some(tag) != mine  =>  Some(tag) == mine
+crates/ti4-engine-core/src/query/objectives.rs:1267:65	[neighbour_progress]	body	neighbour_progress(pos: &Pos<'_>) -> Option<(usize, usize)> {  =>  { return None; }
+crates/ti4-engine-core/src/query/objectives.rs:1268:8	[neighbour_progress]	cond	!pos.map  =>  !(!pos.map)
+crates/ti4-engine-core/src/query/objectives.rs:1271:55	[neighbour_progress]	cmp	p.seat != pos.seat()  =>  p.seat == pos.seat()
+crates/ti4-engine-core/src/query/objectives.rs:1272:8	[neighbour_progress]	cond	others == 0  =>  !(others == 0)
+crates/ti4-engine-core/src/query/objectives.rs:1272:8	[neighbour_progress]	cmp	others == 0  =>  others != 0
+crates/ti4-engine-core/src/query/objectives.rs:1272:18	[neighbour_progress]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1280:21	[neighbour_progress]	logic	p.seat != pos.seat() && reached.as_slice().contains(&p.seat)  =>  p.seat != pos.seat() || reached.as_slice().contains(&p.seat)
+crates/ti4-engine-core/src/query/objectives.rs:1280:21	[neighbour_progress]	cmp	p.seat != pos.seat()  =>  p.seat == pos.seat()
+crates/ti4-engine-core/src/query/objectives.rs:1285:44	[units_in_nexus]	body	units_in_nexus(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1285:44	[units_in_nexus]	body	units_in_nexus(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1290:68	[units_in_nexus]	cmp	u.owner() == pos.seat()  =>  u.owner() != pos.seat()
+crates/ti4-engine-core/src/query/objectives.rs:1294:44	[wormhole_kinds]	body	wormhole_kinds(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1294:44	[wormhole_kinds]	body	wormhole_kinds(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1296:21	[wormhole_kinds]	lit	0u8  =>  1u8
+crates/ti4-engine-core/src/query/objectives.rs:1299:12	[wormhole_kinds]	cond	scope.system(system).is_some()  =>  !(scope.system(system).is_some())
+crates/ti4-engine-core/src/query/objectives.rs:1300:13	[wormhole_kinds]	assign	kinds |= crate::tables::printed_wormholes(system)  =>  kinds &= crate::tables::printed_wormholes(system)
+crates/ti4-engine-core/src/query/objectives.rs:1305:13	[wormhole_kinds]	assign	kinds |= g.wormhole_kinds(system)  =>  kinds &= g.wormhole_kinds(system)
+crates/ti4-engine-core/src/query/objectives.rs:1308:6	[wormhole_kinds]	arith	kinds & crate::tables::WH_ALPHA_BETA  =>  kinds | crate::tables::WH_ALPHA_BETA
+crates/ti4-engine-core/src/query/objectives.rs:1311:51	[shared_planet_systems]	body	shared_planet_systems(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1311:51	[shared_planet_systems]	body	shared_planet_systems(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1316:12	[shared_planet_systems]	cond	owner == pos.seat() || firm.contains(planet)  =>  !(owner == pos.seat() || firm.contains(planet))
+crates/ti4-engine-core/src/query/objectives.rs:1316:12	[shared_planet_systems]	logic	owner == pos.seat() || firm.contains(planet)  =>  owner == pos.seat() && firm.contains(planet)
+crates/ti4-engine-core/src/query/objectives.rs:1316:12	[shared_planet_systems]	cmp	owner == pos.seat()  =>  owner != pos.seat()
+crates/ti4-engine-core/src/query/objectives.rs:1319:12	[shared_planet_systems]	cond	owner != pos.seat() && !firm.contains(planet)  =>  !(owner != pos.seat() && !firm.contains(planet))
+crates/ti4-engine-core/src/query/objectives.rs:1319:12	[shared_planet_systems]	logic	owner != pos.seat() && !firm.contains(planet)  =>  owner != pos.seat() || !firm.contains(planet)
+crates/ti4-engine-core/src/query/objectives.rs:1319:12	[shared_planet_systems]	cmp	owner != pos.seat()  =>  owner == pos.seat()
+crates/ti4-engine-core/src/query/objectives.rs:1326:61	[mecatol_ships_while_controlling]	body	mecatol_ships_while_controlling(pos: &Pos<'_>) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1326:61	[mecatol_ships_while_controlling]	body	mecatol_ships_while_controlling(pos: &Pos<'_>) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1329:20	[mecatol_ships_while_controlling]	logic	board::controls_a_planet_in(pos.core, me... || board::planets_of(pos.core, mecatol).any...  =>  board::controls_a_planet_in(pos.core, me... && board::planets_of(pos.core, mecatol).any...
+crates/ti4-engine-core/src/query/objectives.rs:1330:57	[mecatol_ships_while_controlling]	logic	board::control(pos.core, p).is_some() && firm.contains(p)  =>  board::control(pos.core, p).is_some() || firm.contains(p)
+crates/ti4-engine-core/src/query/objectives.rs:1331:8	[mecatol_ships_while_controlling]	cond	!controls  =>  !(!controls)
+crates/ti4-engine-core/src/query/objectives.rs:1332:16	[mecatol_ships_while_controlling]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1337:21	[mecatol_ships_while_controlling]	logic	u.owner() == pos.seat() && scope.unit(u.kind()).is_some_and(|d| d.s...  =>  u.owner() == pos.seat() || scope.unit(u.kind()).is_some_and(|d| d.s...
+crates/ti4-engine-core/src/query/objectives.rs:1337:21	[mecatol_ships_while_controlling]	cmp	u.owner() == pos.seat()  =>  u.owner() != pos.seat()
+crates/ti4-engine-core/src/query/objectives.rs:1341:55	[combined_value]	body	combined_value(pos: &Pos<'_>, kind: Spend) -> i64 {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1341:55	[combined_value]	body	combined_value(pos: &Pos<'_>, kind: Spend) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1352:8	[secret_progress]	cond	pos.facts.terms.unmapped  =>  !(pos.facts.terms.unmapped)
+crates/ti4-engine-core/src/query/objectives.rs:1361:25	[secret_progress]	logic	in_scope_planet(scope, *p) && p.data().traits.contains(&t)  =>  in_scope_planet(scope, *p) || p.data().traits.contains(&t)
+crates/ti4-engine-core/src/query/objectives.rs:1363:101	[secret_progress]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1368:78	[secret_progress]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1390:54	[secret_progress]	logic	in_scope_planet(scope, *p) && p.data().legendary  =>  in_scope_planet(scope, *p) || p.data().legendary
+crates/ti4-engine-core/src/query/objectives.rs:1393:93	[secret_progress]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1402:51	[secret_points]	body	secret_points(obj: SecretObjective) -> u8 {  =>  { return 0; }
+crates/ti4-engine-core/src/query/objectives.rs:1402:51	[secret_points]	body	secret_points(obj: SecretObjective) -> u8 {  =>  { return 1; }
+crates/ti4-engine-core/src/query/objectives.rs:1423:41	[secrets_held]	lit	0  =>  1
+crates/ti4-engine-core/src/query/objectives.rs:1431:16	[hand_step]	arith	HAND_LIMIT + crate::query::relic::secret_objective_bo...  =>  HAND_LIMIT - crate::query::relic::secret_objective_bo...
+crates/ti4-engine-core/src/query/promissory.rs:45:68	[is_play_area]	body	is_play_area(note: PromissoryNote, owner: Faction) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/promissory.rs:45:68	[is_play_area]	body	is_play_area(note: PromissoryNote, owner: Faction) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/promissory.rs:48:22	[is_play_area]	logic	d.play_area && matches!(tag.factions(), [only] if *only...  =>  d.play_area || matches!(tag.factions(), [only] if *only...
+crates/ti4-engine-core/src/query/promissory.rs:72:52	[held_foreign]	logic	**h == seat && k.note == note  =>  **h == seat || k.note == note
+crates/ti4-engine-core/src/query/promissory.rs:114:63	[denies_movement_into]	lit	false  =>  true
+crates/ti4-engine-core/src/query/promissory.rs:119:8	[denies_movement_into]	logic	holder == mover || faction_of(core, holder) == Some(faction...  =>  holder == mover && faction_of(core, holder) == Some(faction...
+crates/ti4-engine-core/src/query/reach.rs:34:43	[blanked]	body	blanked(core: &CoreState) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/reach.rs:35:5	[blanked]	cmp	core.meta().phase == Phase::Action  =>  core.meta().phase != Phase::Action
+crates/ti4-engine-core/src/query/reach.rs:48:86	[live_token]	body	live_token(core: &CoreState, seat: Seat, card: Technology) -> Option<T...  =>  { return None; }
+crates/ti4-engine-core/src/query/reach.rs:50:8	[live_token]	cond	p.faction != Faction::TheNekroVirus || !p.tech.owned.contains(card)  =>  !(p.faction != Faction::TheNekroVirus || !p.tech.owned.contains(card))
+crates/ti4-engine-core/src/query/reach.rs:50:8	[live_token]	logic	p.faction != Faction::TheNekroVirus || !p.tech.owned.contains(card)  =>  p.faction != Faction::TheNekroVirus && !p.tech.owned.contains(card)
+crates/ti4-engine-core/src/query/reach.rs:50:8	[live_token]	cmp	p.faction != Faction::TheNekroVirus  =>  p.faction == Faction::TheNekroVirus
+crates/ti4-engine-core/src/query/reach.rs:54:35	[live_token]	logic	o.seat != seat && o.tech.owned.contains(target)  =>  o.seat != seat || o.tech.owned.contains(target)
+crates/ti4-engine-core/src/query/reach.rs:54:35	[live_token]	cmp	o.seat != seat  =>  o.seat == seat
+crates/ti4-engine-core/src/query/reach.rs:76:59	[fracture_systems]	cmp	d.tile_back == Some(TileBack::Fracture)  =>  d.tile_back != Some(TileBack::Fracture)
+crates/ti4-engine-core/src/query/reach.rs:80:34	[is_egress]	body	is_egress(s: System) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/reach.rs:80:34	[is_egress]	body	is_egress(s: System) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/reach.rs:84:72	[link]	body	link(list: &mut Vec<(SystemIx, SysSet)>, a: SystemIx, b: SystemIx) {  =>  { return (); }
+crates/ti4-engine-core/src/query/reach.rs:86:45	[link]	cmp	*k == from  =>  *k != from
+crates/ti4-engine-core/src/query/reach.rs:131:12	[SeatReach::new]	cond	!severed.is_empty() || allowed.is_some() || !extras.is_empty()  =>  !(!severed.is_empty() || allowed.is_some() || !extras.is_empty())
+crates/ti4-engine-core/src/query/reach.rs:131:12	[SeatReach::new]	logic	!severed.is_empty() || allowed.is_some() || !extras.is_empty()  =>  !severed.is_empty() || allowed.is_some() && !extras.is_empty()
+crates/ti4-engine-core/src/query/reach.rs:131:12	[SeatReach::new]	logic	!severed.is_empty() || allowed.is_some()  =>  !severed.is_empty() && allowed.is_some()
+crates/ti4-engine-core/src/query/reach.rs:140:64	[SeatReach::new]	lit	0  =>  1
+crates/ti4-engine-core/src/query/reach.rs:140:74	[SeatReach::new]	arith	m | crate::tables::wormhole_bit(w)  =>  m & crate::tables::wormhole_bit(w)
+crates/ti4-engine-core/src/query/reach.rs:143:16	[SeatReach::new]	cond	moved != **base  =>  !(moved != **base)
+crates/ti4-engine-core/src/query/reach.rs:143:16	[SeatReach::new]	cmp	moved != **base  =>  moved == **base
+crates/ti4-engine-core/src/query/reach.rs:163:77	[SeatReach::new]	lit	0  =>  1
+crates/ti4-engine-core/src/query/reach.rs:169:12	[SeatReach::new]	cond	technology_text(core, seat, Technology::AntimassDeflectors)  =>  !(technology_text(core, seat, Technology::AntimassDeflectors))
+crates/ti4-engine-core/src/query/reach.rs:170:42	[SeatReach::new]	lit	true  =>  false
+crates/ti4-engine-core/src/query/reach.rs:180:68	[SeatReach::new]	cmp	*k == from  =>  *k != from
+crates/ti4-engine-core/src/query/reach.rs:196:12	[SeatReach::new]	cond	!owners.is_empty()  =>  !(!owners.is_empty())
+crates/ti4-engine-core/src/query/reach.rs:207:37	[SeatReach::new]	logic	p.owner() != seat && scope.unit(p.kind()).is_some_and(|d| d.s...  =>  p.owner() != seat || scope.unit(p.kind()).is_some_and(|d| d.s...
+crates/ti4-engine-core/src/query/reach.rs:207:37	[SeatReach::new]	cmp	p.owner() != seat  =>  p.owner() == seat
+crates/ti4-engine-core/src/query/reach.rs:209:21	[SeatReach::new]	logic	foreign.peek().is_some() && foreign.all(|p| owners.as_slice().contai...  =>  foreign.peek().is_some() || foreign.all(|p| owners.as_slice().contai...
+crates/ti4-engine-core/src/query/reach.rs:217:12	[SeatReach::new]	cond	!hooks.blocks_passage.is_empty()  =>  !(!hooks.blocks_passage.is_empty())
+crates/ti4-engine-core/src/query/reach.rs:219:20	[SeatReach::new]	logic	cell.flags.has(SysFlags::TOUCHED) && hooks.blocks_passage(core, k, seat, syst...  =>  cell.flags.has(SysFlags::TOUCHED) || hooks.blocks_passage(core, k, seat, syst...
+crates/ti4-engine-core/src/query/reach.rs:228:29	[SeatReach::new]	lit	false  =>  true
+crates/ti4-engine-core/src/query/reach.rs:229:62	[SeatReach::new]	cmp	p.owner() == seat  =>  p.owner() != seat
+crates/ti4-engine-core/src/query/reach.rs:231:25	[SeatReach::new]	lit	true  =>  false
+crates/ti4-engine-core/src/query/reach.rs:233:16	[SeatReach::new]	cond	holds  =>  !(holds)
+crates/ti4-engine-core/src/query/reach.rs:238:53	[SeatReach::new]	cmp	p.owner() == seat  =>  p.owner() != seat
+crates/ti4-engine-core/src/query/reach.rs:250:93	[SeatReach::new]	lit	0  =>  1
+crates/ti4-engine-core/src/query/reach.rs:254:16	[SeatReach::new]	cond	!near.is_empty()  =>  !(!near.is_empty())
+crates/ti4-engine-core/src/query/reach.rs:261:16	[SeatReach::new]	cond	hooks.ignores_command_tokens(core, k, seat, ship)  =>  !(hooks.ignores_command_tokens(core, k, seat, ship))
+crates/ti4-engine-core/src/query/reach.rs:265:12	[SeatReach::new]	cond	!rules.own_passage_types.is_empty()  =>  !(!rules.own_passage_types.is_empty())
+crates/ti4-engine-core/src/query/reach.rs:269:12	[SeatReach::new]	cond	core.meta().flags.has(crate::state::MetaFlags::FRACTURE_IN_PLAY)  =>  !(core.meta().flags.has(crate::state::MetaFlags::FRACTURE_IN_PLAY))
+crates/ti4-engine-core/src/query/reach.rs:271:39	[SeatReach::new]	lit	2  =>  3
+crates/ti4-engine-core/src/query/reach.rs:272:39	[SeatReach::new]	lit	0  =>  1
+crates/ti4-engine-core/src/query/reach.rs:272:48	[SeatReach::new]	lit	1  =>  2
+crates/ti4-engine-core/src/query/reach.rs:283:12	[SeatReach::new]	cond	effects  =>  !(effects)
+crates/ti4-engine-core/src/query/reach.rs:291:88	[SeatReach::apply_effects]	body	apply_effects(core: &CoreState, k: &Kernel, seat: Seat, rules: &mut Co...  =>  { return (); }
+crates/ti4-engine-core/src/query/reach.rs:296:12	[SeatReach::apply_effects]	cond	hooks.rift_crucible(core, seat)  =>  !(hooks.rift_crucible(core, seat))
+crates/ti4-engine-core/src/query/reach.rs:297:35	[SeatReach::apply_effects]	lit	true  =>  false
+crates/ti4-engine-core/src/query/reach.rs:298:38	[SeatReach::apply_effects]	lit	1  =>  2
+crates/ti4-engine-core/src/query/reach.rs:301:16	[SeatReach::apply_effects]	cond	hooks.rift_roll_exempt(core, seat, *system)  =>  !(hooks.rift_roll_exempt(core, seat, *system))
+crates/ti4-engine-core/src/query/reach.rs:309:40	[SeatReach::apply_effects]	lit	true  =>  false
+crates/ti4-engine-core/src/query/reach.rs:311:12	[SeatReach::apply_effects]	cond	p.card_timers.anomalies_ignored_activation.is(activation)  =>  !(p.card_timers.anomalies_ignored_activation.is(activation))
+crates/ti4-engine-core/src/query/reach.rs:312:39	[SeatReach::apply_effects]	lit	true  =>  false
+crates/ti4-engine-core/src/query/reach.rs:314:12	[SeatReach::apply_effects]	cond	p.round_marks.contains(RoundKind::DominusOrb, activation)  =>  !(p.round_marks.contains(RoundKind::DominusOrb, activation))
+crates/ti4-engine-core/src/query/reach.rs:315:44	[SeatReach::apply_effects]	lit	true  =>  false
+crates/ti4-engine-core/src/query/reach.rs:317:12	[SeatReach::apply_effects]	cond	p.card_timers.silence_activation.is(activation)  =>  !(p.card_timers.silence_activation.is(activation))
+crates/ti4-engine-core/src/query/reach.rs:341:12	[SeatReach::rules_for]	cond	self.per_destination  =>  !(self.per_destination)
+crates/ti4-engine-core/src/query/reach.rs:397:15	[ship_value]	arith	i32::from(movement.unwrap_or(0)) + flank... + k.hooks.movement.move_bonus(core, MoveSi...  =>  i32::from(movement.unwrap_or(0)) + flank... - k.hooks.movement.move_bonus(core, MoveSi...
+crates/ti4-engine-core/src/query/reach.rs:397:44	[ship_value]	lit	0  =>  1
+crates/ti4-engine-core/src/query/reach.rs:402:8	[ship_value]	cond	player.is_some_and(|p| p.cards.breakthrough == Some(Breakthrough::GravleashManeu...  =>  !(player.is_some_and(|p| p.cards.breakthrough == Some(Breakthrough::GravleashManeu...)
+crates/ti4-engine-core/src/query/reach.rs:402:8	[ship_value]	logic	player.is_some_and(|p| p.cards.breakthro... && base_type != crate::generated::UnitBaseT...  =>  player.is_some_and(|p| p.cards.breakthro... || base_type != crate::generated::UnitBaseT...
+crates/ti4-engine-core/src/query/reach.rs:402:31	[ship_value]	cmp	p.cards.breakthrough == Some(Breakthrough::GravleashManeuvers)  =>  p.cards.breakthrough != Some(Breakthrough::GravleashManeuvers)
+crates/ti4-engine-core/src/query/reach.rs:403:12	[ship_value]	cmp	base_type != crate::generated::UnitBaseType::Fighter  =>  base_type == crate::generated::UnitBaseType::Fighter
+crates/ti4-engine-core/src/query/reach.rs:405:97	[ship_value]	lit	0  =>  1
+crates/ti4-engine-core/src/query/reach.rs:446:59	[anchor_move_value]	lit	0  =>  1
+crates/ti4-engine-core/src/query/reach.rs:450:5	[anchor_move_value]	arith	i32::from(data.movement.unwrap_or(0)) + ... + flank  =>  i32::from(data.movement.unwrap_or(0)) + ... - flank
+crates/ti4-engine-core/src/query/reach.rs:450:5	[anchor_move_value]	arith	i32::from(data.movement.unwrap_or(0)) + k.hooks.movement.move_bonus(core, MoveSi...  =>  i32::from(data.movement.unwrap_or(0)) - k.hooks.movement.move_bonus(core, MoveSi...
+crates/ti4-engine-core/src/query/reach.rs:450:39	[anchor_move_value]	lit	0  =>  1
+crates/ti4-engine-core/src/query/reach.rs:509:34	[SeatFleet::movable]	lit	1  =>  2
+crates/ti4-engine-core/src/query/reach.rs:509:40	[SeatFleet::movable]	lit	false  =>  true
+crates/ti4-engine-core/src/query/reach.rs:509:54	[SeatFleet::movable]	lit	2  =>  3
+crates/ti4-engine-core/src/query/reach.rs:509:60	[SeatFleet::movable]	lit	true  =>  false
+crates/ti4-engine-core/src/query/reach.rs:509:66	[SeatFleet::movable]	lit	true  =>  false
+crates/ti4-engine-core/src/query/reach.rs:509:73	[SeatFleet::movable]	lit	3  =>  4
+crates/ti4-engine-core/src/query/relic.rs:42:42	[triad_value]	lit	0  =>  1
+crates/ti4-engine-core/src/query/relic.rs:43:45	[triad_value]	lit	0  =>  1
+crates/ti4-engine-core/src/query/seats.rs:60:103	[initiative_order]	lit	99  =>  100
+crates/ti4-engine-core/src/query/seats.rs:60:124	[initiative_order]	lit	99  =>  100
+crates/ti4-engine-core/src/query/seats.rs:68:24	[initiative_order]	cmp	(items[j - 1].0, items[j - 1].1) > (items[j].0, items[j].1)  =>  (items[j - 1].0, items[j - 1].1) >= (items[j].0, items[j].1)
+crates/ti4-engine-core/src/query/tech.rs:201:16	[specialties_of]	cond	!found.as_slice().contains(s)  =>  !(!found.as_slice().contains(s))
+crates/ti4-engine-core/src/query/tech.rs:263:12	[synergy_joined]	cmp	scope.0 & source_bit(d.source) != 0  =>  scope.0 & source_bit(d.source) == 0
+crates/ti4-engine-core/src/query/tech.rs:263:12	[synergy_joined]	arith	scope.0 & source_bit(d.source)  =>  scope.0 | source_bit(d.source)
+crates/ti4-engine-core/src/query/tech.rs:263:46	[synergy_joined]	lit	0  =>  1
+crates/ti4-engine-core/src/query/tech.rs:268:33	[synergy_joined]	lit	true  =>  false
+crates/ti4-engine-core/src/query/tech.rs:281:61	[satisfies]	cmp	needs[*i] > 0  =>  needs[*i] >= 0
+crates/ti4-engine-core/src/query/tech.rs:282:12	[satisfies]	cmp	wanted > 0  =>  wanted >= 0
+crates/ti4-engine-core/src/query/tech.rs:282:21	[satisfies]	lit	0  =>  1
+crates/ti4-engine-core/src/query/tech.rs:284:16	[satisfies]	cmp	pooled < wanted  =>  pooled <= wanted
+crates/ti4-engine-core/src/query/tech.rs:299:12	[satisfies]	cmp	have >= need  =>  have > need
+crates/ti4-engine-core/src/query/tech.rs:335:46	[NoHooks::purged]	body	purged(&self, _: Technology) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/tech.rs:335:46	[NoHooks::purged]	body	purged(&self, _: Technology) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/tech.rs:336:9	[NoHooks::purged]	lit	false  =>  true
+crates/ti4-engine-core/src/query/tech.rs:338:61	[NoHooks::waived_prerequisites]	body	waived_prerequisites(&self, _: Technology) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/query/tech.rs:338:61	[NoHooks::waived_prerequisites]	body	waived_prerequisites(&self, _: Technology) -> usize {  =>  { return 1; }
+crates/ti4-engine-core/src/query/tech.rs:339:9	[NoHooks::waived_prerequisites]	lit	0  =>  1
+crates/ti4-engine-core/src/query/tech.rs:341:41	[NoHooks::extra_colours]	body	extra_colours(&self) -> Colours {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/tech.rs:342:10	[NoHooks::extra_colours]	lit	0  =>  1
+crates/ti4-engine-core/src/query/tech.rs:344:47	[NoHooks::inheritance_affordable]	body	inheritance_affordable(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/tech.rs:344:47	[NoHooks::inheritance_affordable]	body	inheritance_affordable(&self) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/tech.rs:345:9	[NoHooks::inheritance_affordable]	lit	false  =>  true
+crates/ti4-engine-core/src/query/tech.rs:347:52	[NoHooks::waiver_offer]	body	waiver_offer(&self, _: Technology) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/tech.rs:347:52	[NoHooks::waiver_offer]	body	waiver_offer(&self, _: Technology) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/tech.rs:348:9	[NoHooks::waiver_offer]	lit	false  =>  true
+crates/ti4-engine-core/src/query/tech.rs:358:97	[war_sun_prerequisites_waived]	body	war_sun_prerequisites_waived(core: &CoreState, blanked: bool, tech: Te...  =>  { return false; }
+crates/ti4-engine-core/src/query/tech.rs:359:5	[war_sun_prerequisites_waived]	logic	tech == WAR_SUN && laws::active(core, bl... && core.players().iter().any(|p| p.tech.own...  =>  tech == WAR_SUN && laws::active(core, bl... || core.players().iter().any(|p| p.tech.own...
+crates/ti4-engine-core/src/query/tech.rs:359:5	[war_sun_prerequisites_waived]	logic	tech == WAR_SUN && laws::active(core, blanked, Agenda::Publ...  =>  tech == WAR_SUN || laws::active(core, blanked, Agenda::Publ...
+crates/ti4-engine-core/src/query/tech.rs:359:5	[war_sun_prerequisites_waived]	cmp	tech == WAR_SUN  =>  tech != WAR_SUN
+crates/ti4-engine-core/src/query/tech.rs:419:29	[ResearchCtx::of]	lit	0u16  =>  1u16
+crates/ti4-engine-core/src/query/tech.rs:425:13	[ResearchCtx::of]	assign	waivable += laws::research_team_waivers(core, blanke...  =>  waivable -= laws::research_team_waivers(core, blanke...
+crates/ti4-engine-core/src/query/tech.rs:442:28	[ResearchCtx::prerequisites_met]	arith	hooks.waived_prerequisites(tech) + self.waivable  =>  hooks.waived_prerequisites(tech) - self.waivable
+crates/ti4-engine-core/src/query/tech.rs:444:25	[ResearchCtx::prerequisites_met]	lit	1  =>  2
+crates/ti4-engine-core/src/query/tech.rs:446:12	[ResearchCtx::prerequisites_met]	cmp	tech == WAR_SUN  =>  tech != WAR_SUN
+crates/ti4-engine-core/src/query/tech.rs:447:20	[ResearchCtx::prerequisites_met]	lit	true  =>  false
+crates/ti4-engine-core/src/query/tech.rs:458:45	[ResearchCtx::can_research]	lit	true  =>  false
+crates/ti4-engine-core/src/query/tech.rs:471:102	[ResearchCtx::researchable_by_prerequisites]	body	researchable_by_prerequisites(&self, scope: Scope, hooks: &dyn Researc...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/tech.rs:474:91	[ResearchCtx::researchable_by_prerequisites]	lit	true  =>  false
+crates/ti4-engine-core/src/query/tech.rs:501:12	[prerequisites_met_without_aida]	body	prerequisites_met_without_aida( core: &CoreState, scope: Scope, blanke...  =>  { return false; }
+crates/ti4-engine-core/src/query/tech.rs:540:15	[researchable_by_prerequisites]	body	researchable_by_prerequisites( core: &CoreState, scope: Scope, blanked...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/tech.rs:649:13	[unowned_faction_technologies_of]	arith	scope.0 & source_bit(d.source)  =>  scope.0 | source_bit(d.source)
+crates/ti4-engine-core/src/query/trade.rs:68:79	[presence]	cmp	u.owner() == seat  =>  u.owner() != seat
+crates/ti4-engine-core/src/query/trade.rs:85:55	[near_mecatol]	body	near_mecatol(cx: &Cx<'_>, seat: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/trade.rs:89:61	[near_mecatol_of]	body	near_mecatol_of(cx: &Cx<'_>, presence: &SysSet) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/trade.rs:107:16	[are_neighbours]	lit	true  =>  false
+crates/ti4-engine-core/src/query/trade.rs:137:72	[neighbours_who_transacted]	body	neighbours_who_transacted(cx: &Cx<'_>, seat: Seat) -> SeatList {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/trade.rs:142:16	[neighbours_who_transacted]	cond	who != seat && mine.as_slice().contains(&who) && !seen.as_slice().contains(&who)  =>  !(who != seat && mine.as_slice().contains(&who) && !seen.as_slice().contains(&who))
+crates/ti4-engine-core/src/query/trade.rs:142:16	[neighbours_who_transacted]	logic	who != seat && mine.as_slice().contains(... && !seen.as_slice().contains(&who)  =>  who != seat && mine.as_slice().contains(... || !seen.as_slice().contains(&who)
+crates/ti4-engine-core/src/query/trade.rs:142:16	[neighbours_who_transacted]	logic	who != seat && mine.as_slice().contains(&who)  =>  who != seat || mine.as_slice().contains(&who)
+crates/ti4-engine-core/src/query/trade.rs:142:16	[neighbours_who_transacted]	cmp	who != seat  =>  who == seat
+crates/ti4-engine-core/src/query/trade.rs:176:13	[may_transact]	logic	proposer != partner && seated(cx.core, proposer)  =>  proposer != partner || seated(cx.core, proposer)
+crates/ti4-engine-core/src/query/trade.rs:201:68	[may_initiate_negotiation]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade.rs:207:60	[open_partners]	body	open_partners(cx: &Cx<'_>, seat: Seat) -> SeatList {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/query/trade.rs:209:8	[open_partners]	cond	cx.core.trade().diplomacy.enabled || !may_initiate_negotiation(cx, seat)  =>  !(cx.core.trade().diplomacy.enabled || !may_initiate_negotiation(cx, seat))
+crates/ti4-engine-core/src/query/trade.rs:209:8	[open_partners]	logic	cx.core.trade().diplomacy.enabled || !may_initiate_negotiation(cx, seat)  =>  cx.core.trade().diplomacy.enabled && !may_initiate_negotiation(cx, seat)
+crates/ti4-engine-core/src/query/trade.rs:213:12	[open_partners]	cond	other != seat && may_transact(cx, seat, other) && may_open_again(cx, seat, other...  =>  !(other != seat && may_transact(cx, seat, other) && may_open_again(cx, seat, other...)
+crates/ti4-engine-core/src/query/trade.rs:213:12	[open_partners]	logic	other != seat && may_transact(cx, seat, ... && may_open_again(cx, seat, other)  =>  other != seat && may_transact(cx, seat, ... || may_open_again(cx, seat, other)
+crates/ti4-engine-core/src/query/trade.rs:213:12	[open_partners]	logic	other != seat && may_transact(cx, seat, other)  =>  other != seat || may_transact(cx, seat, other)
+crates/ti4-engine-core/src/query/trade.rs:213:12	[open_partners]	cmp	other != seat  =>  other == seat
+crates/ti4-engine-core/src/query/trade.rs:267:37	[Terms::is_empty]	body	is_empty(&self) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/trade.rs:270:46	[Terms::is_empty]	cmp	*n == 0  =>  *n != 0
+crates/ti4-engine-core/src/query/trade.rs:270:52	[Terms::is_empty]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade.rs:308:75	[fragment_held]	body	fragment_held(core: &CoreState, seat: Seat, kind: ExploreType) -> i32 ...  =>  { return 0; }
+crates/ti4-engine-core/src/query/trade.rs:308:75	[fragment_held]	body	fragment_held(core: &CoreState, seat: Seat, kind: ExploreType) -> i32 ...  =>  { return 1; }
+crates/ti4-engine-core/src/query/trade.rs:309:83	[fragment_held]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade.rs:314:70	[can_pay]	body	can_pay(core: &CoreState, seat: Seat, terms: &Terms) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/trade.rs:316:16	[can_pay]	lit	false  =>  true
+crates/ti4-engine-core/src/query/trade.rs:318:8	[can_pay]	logic	terms.trade_goods > i32::from(p.econ.tra... || terms.commodities > i32::from(p.econ.com...  =>  terms.trade_goods > i32::from(p.econ.tra... && terms.commodities > i32::from(p.econ.com...
+crates/ti4-engine-core/src/query/trade.rs:319:16	[can_pay]	lit	false  =>  true
+crates/ti4-engine-core/src/query/trade.rs:322:16	[can_pay]	lit	false  =>  true
+crates/ti4-engine-core/src/query/trade.rs:325:16	[can_pay]	lit	false  =>  true
+crates/ti4-engine-core/src/query/trade.rs:329:12	[can_pay]	logic	need > 0 && fragment_held(core, seat, kind) < need  =>  need > 0 || fragment_held(core, seat, kind) < need
+crates/ti4-engine-core/src/query/trade.rs:329:12	[can_pay]	cmp	need > 0  =>  need >= 0
+crates/ti4-engine-core/src/query/trade.rs:329:19	[can_pay]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade.rs:329:24	[can_pay]	cmp	fragment_held(core, seat, kind) < need  =>  fragment_held(core, seat, kind) <= need
+crates/ti4-engine-core/src/query/trade.rs:330:20	[can_pay]	lit	false  =>  true
+crates/ti4-engine-core/src/query/trade.rs:336:16	[can_pay]	lit	false  =>  true
+crates/ti4-engine-core/src/query/trade.rs:343:68	[why_illegal]	body	why_illegal(cx: &Cx<'_>, offer: &Offer) -> Option<Illegal> {  =>  { return None; }
+crates/ti4-engine-core/src/query/trade.rs:356:23	[why_illegal_with]	body	why_illegal_with( core: &CoreState, may_transact: impl FnOnce() -> boo...  =>  { return None; }
+crates/ti4-engine-core/src/query/trade.rs:368:8	[why_illegal_with]	cmp	core.meta().phase != Phase::Agenda  =>  core.meta().phase == Phase::Agenda
+crates/ti4-engine-core/src/query/trade.rs:382:8	[why_illegal_with]	logic	offer.given.action_card.is_some() || offer.received.action_card.is_some()  =>  offer.given.action_card.is_some() && offer.received.action_card.is_some()
+crates/ti4-engine-core/src/query/trade.rs:383:24	[why_illegal_with]	logic	black_market() || trades_action_cards(of... || trades_action_cards(offer.partner)  =>  black_market() || trades_action_cards(of... && trades_action_cards(offer.partner)
+crates/ti4-engine-core/src/query/trade.rs:383:24	[why_illegal_with]	logic	black_market() || trades_action_cards(offer.proposer)  =>  black_market() && trades_action_cards(offer.proposer)
+crates/ti4-engine-core/src/query/trade.rs:384:12	[why_illegal_with]	cond	!arbiters  =>  !(!arbiters)
+crates/ti4-engine-core/src/query/trade_deals.rs:49:49	[DealFacts::may_from]	body	may_from(&self, from: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/trade_deals.rs:50:30	[DealFacts::may_from]	cmp	from != self.pair.0  =>  from == self.pair.0
+crates/ti4-engine-core/src/query/trade_deals.rs:55:48	[DealFacts::arbiter]	body	arbiter(&self, seat: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/trade_deals.rs:55:48	[DealFacts::arbiter]	body	arbiter(&self, seat: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/trade_deals.rs:56:35	[DealFacts::arbiter]	cmp	seat != self.pair.0  =>  seat == self.pair.0
+crates/ti4-engine-core/src/query/trade_deals.rs:67:41	[DealFacts::eq]	body	eq(&self, other: &Self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/trade_deals.rs:67:41	[DealFacts::eq]	body	eq(&self, other: &Self) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/trade_deals.rs:68:9	[DealFacts::eq]	logic	self.unlocked == other.unlocked && self.... && self.arbiters == other.arbiters  =>  self.unlocked == other.unlocked && self.... || self.arbiters == other.arbiters
+crates/ti4-engine-core/src/query/trade_deals.rs:68:9	[DealFacts::eq]	logic	self.unlocked == other.unlocked && self.... && self.may == other.may  =>  self.unlocked == other.unlocked && self.... || self.may == other.may
+crates/ti4-engine-core/src/query/trade_deals.rs:68:9	[DealFacts::eq]	logic	self.unlocked == other.unlocked && self.pair == other.pair  =>  self.unlocked == other.unlocked || self.pair == other.pair
+crates/ti4-engine-core/src/query/trade_deals.rs:68:9	[DealFacts::eq]	cmp	self.unlocked == other.unlocked  =>  self.unlocked != other.unlocked
+crates/ti4-engine-core/src/query/trade_deals.rs:68:44	[DealFacts::eq]	cmp	self.pair == other.pair  =>  self.pair != other.pair
+crates/ti4-engine-core/src/query/trade_deals.rs:68:71	[DealFacts::eq]	cmp	self.may == other.may  =>  self.may != other.may
+crates/ti4-engine-core/src/query/trade_deals.rs:68:96	[DealFacts::eq]	cmp	self.arbiters == other.arbiters  =>  self.arbiters != other.arbiters
+crates/ti4-engine-core/src/query/trade_deals.rs:143:22	[py_round_half_even]	cmp	(floor + 0.5 - value).abs() <= 1e-9  =>  (floor + 0.5 - value).abs() < 1e-9
+crates/ti4-engine-core/src/query/trade_deals.rs:156:9	[Side::worth]	arith	f64::from(self.goods) + f64::from(self.c... + self.planet.map_or(0.0, f64::from)  =>  f64::from(self.goods) + f64::from(self.c... - self.planet.map_or(0.0, f64::from)
+crates/ti4-engine-core/src/query/trade_deals.rs:156:9	[Side::worth]	arith	f64::from(self.goods) + f64::from(self.c... + f64::from(u8::from(self.secret))  =>  f64::from(self.goods) + f64::from(self.c... - f64::from(u8::from(self.secret))
+crates/ti4-engine-core/src/query/trade_deals.rs:156:9	[Side::worth]	arith	f64::from(self.goods) + f64::from(self.c... + f64::from(u8::from(self.card))  =>  f64::from(self.goods) + f64::from(self.c... - f64::from(u8::from(self.card))
+crates/ti4-engine-core/src/query/trade_deals.rs:169:9	[Side::cost]	arith	f64::from(self.goods) + 0.2 * f64::from(... + self.planet.map_or(0.0, |_| PLANET_GIVIN...  =>  f64::from(self.goods) + 0.2 * f64::from(... - self.planet.map_or(0.0, |_| PLANET_GIVIN...
+crates/ti4-engine-core/src/query/trade_deals.rs:169:9	[Side::cost]	arith	f64::from(self.goods) + 0.2 * f64::from(... + f64::from(u8::from(self.secret))  =>  f64::from(self.goods) + 0.2 * f64::from(... - f64::from(u8::from(self.secret))
+crates/ti4-engine-core/src/query/trade_deals.rs:169:9	[Side::cost]	arith	f64::from(self.goods) + 0.2 * f64::from(... + f64::from(u8::from(self.card))  =>  f64::from(self.goods) + 0.2 * f64::from(... - f64::from(u8::from(self.card))
+crates/ti4-engine-core/src/query/trade_deals.rs:198:49	[sides]	lit	true  =>  false
+crates/ti4-engine-core/src/query/trade_deals.rs:198:82	[sides]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:199:61	[sides]	lit	true  =>  false
+crates/ti4-engine-core/src/query/trade_deals.rs:200:53	[sides]	lit	true  =>  false
+crates/ti4-engine-core/src/query/trade_deals.rs:200:86	[sides]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:203:40	[sides]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:203:56	[sides]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:228:42	[econ]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:228:45	[econ]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:236:65	[seat_of]	body	seat_of(core: &CoreState, faction: Faction) -> Option<Seat> {  =>  { return None; }
+crates/ti4-engine-core/src/query/trade_deals.rs:237:59	[seat_of]	cmp	qn::faction_of(core, *s) == Some(faction)  =>  qn::faction_of(core, *s) != Some(faction)
+crates/ti4-engine-core/src/query/trade_deals.rs:243:86	[available_notes]	body	available_notes(core: &CoreState, f: &DealFacts, seat: Seat) -> Vec<No...  =>  { return Vec::new(); }
+crates/ti4-engine-core/src/query/trade_deals.rs:248:13	[available_notes]	logic	k.note != PromissoryNote::Alliance || seat_of(core, k.faction).is_some_and(|ow...  =>  k.note != PromissoryNote::Alliance && seat_of(core, k.faction).is_some_and(|ow...
+crates/ti4-engine-core/src/query/trade_deals.rs:248:13	[available_notes]	cmp	k.note != PromissoryNote::Alliance  =>  k.note == PromissoryNote::Alliance
+crates/ti4-engine-core/src/query/trade_deals.rs:248:96	[available_notes]	cmp	f.unlocked & (1 << owner.0) != 0  =>  f.unlocked & (1 << owner.0) == 0
+crates/ti4-engine-core/src/query/trade_deals.rs:248:96	[available_notes]	arith	f.unlocked & (1 << owner.0)  =>  f.unlocked | (1 << owner.0)
+crates/ti4-engine-core/src/query/trade_deals.rs:248:110	[available_notes]	arith	1 << owner.0  =>  1 >> owner.0
+crates/ti4-engine-core/src/query/trade_deals.rs:248:110	[available_notes]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:248:127	[available_notes]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:264:44	[black_market]	body	black_market(core: &CoreState) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/query/trade_deals.rs:264:44	[black_market]	body	black_market(core: &CoreState) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/query/trade_deals.rs:282:12	[deals]	cond	!qn::may_receive(core, partner, key.note)  =>  !(!qn::may_receive(core, partner, key.note))
+crates/ti4-engine-core/src/query/trade_deals.rs:286:12	[deals]	cond	price > 0 && their_goods < price  =>  !(price > 0 && their_goods < price)
+crates/ti4-engine-core/src/query/trade_deals.rs:286:12	[deals]	logic	price > 0 && their_goods < price  =>  price > 0 || their_goods < price
+crates/ti4-engine-core/src/query/trade_deals.rs:286:12	[deals]	cmp	price > 0  =>  price >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:286:20	[deals]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:286:25	[deals]	cmp	their_goods < price  =>  their_goods <= price
+crates/ti4-engine-core/src/query/trade_deals.rs:287:55	[deals]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:289:12	[deals]	cond	price > 0 && their_goods >= price  =>  !(price > 0 && their_goods >= price)
+crates/ti4-engine-core/src/query/trade_deals.rs:289:12	[deals]	logic	price > 0 && their_goods >= price  =>  price > 0 || their_goods >= price
+crates/ti4-engine-core/src/query/trade_deals.rs:289:12	[deals]	cmp	price > 0  =>  price >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:289:20	[deals]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:289:25	[deals]	cmp	their_goods >= price  =>  their_goods > price
+crates/ti4-engine-core/src/query/trade_deals.rs:295:21	[deals]	logic	black_market(core) || f.arbiters[0] || f.arbiters[1]  =>  black_market(core) || f.arbiters[0] && f.arbiters[1]
+crates/ti4-engine-core/src/query/trade_deals.rs:295:21	[deals]	logic	black_market(core) || f.arbiters[0]  =>  black_market(core) && f.arbiters[0]
+crates/ti4-engine-core/src/query/trade_deals.rs:295:54	[deals]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:299:12	[deals]	cond	their_goods >= 1  =>  !(their_goods >= 1)
+crates/ti4-engine-core/src/query/trade_deals.rs:299:12	[deals]	cmp	their_goods >= 1  =>  their_goods > 1
+crates/ti4-engine-core/src/query/trade_deals.rs:299:27	[deals]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:302:91	[deals]	lit	3  =>  4
+crates/ti4-engine-core/src/query/trade_deals.rs:311:16	[deals]	cond	their_goods >= 1  =>  !(their_goods >= 1)
+crates/ti4-engine-core/src/query/trade_deals.rs:311:16	[deals]	cmp	their_goods >= 1  =>  their_goods > 1
+crates/ti4-engine-core/src/query/trade_deals.rs:311:31	[deals]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:316:16	[deals]	cond	p.cards.fragments.get(kind).is_some_and(|n| n > 0) && their_goods >= 1  =>  !(p.cards.fragments.get(kind).is_some_and(|n| n > 0) && their_goods >= 1)
+crates/ti4-engine-core/src/query/trade_deals.rs:316:16	[deals]	logic	p.cards.fragments.get(kind).is_some_and(... && their_goods >= 1  =>  p.cards.fragments.get(kind).is_some_and(... || their_goods >= 1
+crates/ti4-engine-core/src/query/trade_deals.rs:316:60	[deals]	cmp	n > 0  =>  n >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:316:64	[deals]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:316:70	[deals]	cmp	their_goods >= 1  =>  their_goods > 1
+crates/ti4-engine-core/src/query/trade_deals.rs:316:85	[deals]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:325:19	[deals]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:329:8	[deals]	logic	mine_commodities > 0 && their_goods > 0  =>  mine_commodities > 0 || their_goods > 0
+crates/ti4-engine-core/src/query/trade_deals.rs:329:8	[deals]	cmp	mine_commodities > 0  =>  mine_commodities >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:329:27	[deals]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:329:32	[deals]	cmp	their_goods > 0  =>  their_goods >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:330:41	[deals]	lit	3  =>  4
+crates/ti4-engine-core/src/query/trade_deals.rs:332:12	[deals]	cmp	want > 0  =>  want >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:336:8	[deals]	logic	their_commodities > 0 && mine_goods > 0  =>  their_commodities > 0 || mine_goods > 0
+crates/ti4-engine-core/src/query/trade_deals.rs:336:8	[deals]	cmp	their_commodities > 0  =>  their_commodities >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:336:33	[deals]	cmp	mine_goods > 0  =>  mine_goods >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:336:46	[deals]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:337:42	[deals]	lit	3  =>  4
+crates/ti4-engine-core/src/query/trade_deals.rs:339:12	[deals]	cmp	give > 0  =>  give >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:343:36	[deals]	lit	3  =>  4
+crates/ti4-engine-core/src/query/trade_deals.rs:344:41	[deals]	lit	3  =>  4
+crates/ti4-engine-core/src/query/trade_deals.rs:351:27	[deals]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:364:84	[kenara_planets]	body	kenara_planets(core: &CoreState, seat: Seat) -> Vec<(Planet, Vec<Plane...  =>  { return Vec::new(); }
+crates/ti4-engine-core/src/query/trade_deals.rs:365:8	[kenara_planets]	cond	!core.loaded.has(crate::state::Slice::Board) || core.meta().rules_version < RULE...  =>  !(!core.loaded.has(crate::state::Slice::Board) || core.meta().rules_version < RULE...)
+crates/ti4-engine-core/src/query/trade_deals.rs:365:8	[kenara_planets]	logic	!core.loaded.has(crate::state::Slice::Bo... || core.meta().rules_version < RULES_FACTIO...  =>  !core.loaded.has(crate::state::Slice::Bo... && core.meta().rules_version < RULES_FACTIO...
+crates/ti4-engine-core/src/query/trade_deals.rs:365:56	[kenara_planets]	cmp	core.meta().rules_version < RULES_FACTION_BUGFIXES  =>  core.meta().rules_version <= RULES_FACTION_BUGFIXES
+crates/ti4-engine-core/src/query/trade_deals.rs:372:92	[kenara_planets]	logic	u.kind() == Unit::PrideOfKenara && u.owner() == seat  =>  u.kind() == Unit::PrideOfKenara || u.owner() == seat
+crates/ti4-engine-core/src/query/trade_deals.rs:372:92	[kenara_planets]	cmp	u.kind() == Unit::PrideOfKenara  =>  u.kind() != Unit::PrideOfKenara
+crates/ti4-engine-core/src/query/trade_deals.rs:372:127	[kenara_planets]	cmp	u.owner() == seat  =>  u.owner() != seat
+crates/ti4-engine-core/src/query/trade_deals.rs:374:102	[kenara_planets]	cmp	other != planet  =>  other == planet
+crates/ti4-engine-core/src/query/trade_deals.rs:384:105	[planet_shapes]	body	planet_shapes(core: &CoreState, f: &DealFacts, proposer: Seat, partner...  =>  { return (); }
+crates/ti4-engine-core/src/query/trade_deals.rs:387:89	[planet_shapes]	lit	2  =>  3
+crates/ti4-engine-core/src/query/trade_deals.rs:391:61	[planet_shapes]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:392:16	[planet_shapes]	cond	their_goods >= i32::from(price)  =>  !(their_goods >= i32::from(price))
+crates/ti4-engine-core/src/query/trade_deals.rs:392:16	[planet_shapes]	cmp	their_goods >= i32::from(price)  =>  their_goods > i32::from(price)
+crates/ti4-engine-core/src/query/trade_deals.rs:399:12	[planet_shapes]	cond	my_goods < i32::from(price)  =>  !(my_goods < i32::from(price))
+crates/ti4-engine-core/src/query/trade_deals.rs:399:12	[planet_shapes]	cmp	my_goods < i32::from(price)  =>  my_goods <= i32::from(price)
+crates/ti4-engine-core/src/query/trade_deals.rs:409:144	[partner_assets]	body	partner_assets(core: &CoreState, f: &DealFacts, proposer: Seat, partne...  =>  { return (); }
+crates/ti4-engine-core/src/query/trade_deals.rs:418:12	[partner_assets]	cond	p > 0 && my_goods >= p  =>  !(p > 0 && my_goods >= p)
+crates/ti4-engine-core/src/query/trade_deals.rs:418:12	[partner_assets]	logic	p > 0 && my_goods >= p  =>  p > 0 || my_goods >= p
+crates/ti4-engine-core/src/query/trade_deals.rs:418:12	[partner_assets]	cmp	p > 0  =>  p >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:418:16	[partner_assets]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:418:21	[partner_assets]	cmp	my_goods >= p  =>  my_goods > p
+crates/ti4-engine-core/src/query/trade_deals.rs:421:12	[partner_assets]	cond	p > 0 && my_commodities >= p  =>  !(p > 0 && my_commodities >= p)
+crates/ti4-engine-core/src/query/trade_deals.rs:421:12	[partner_assets]	logic	p > 0 && my_commodities >= p  =>  p > 0 || my_commodities >= p
+crates/ti4-engine-core/src/query/trade_deals.rs:421:12	[partner_assets]	cmp	p > 0  =>  p >= 0
+crates/ti4-engine-core/src/query/trade_deals.rs:421:16	[partner_assets]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:421:21	[partner_assets]	cmp	my_commodities >= p  =>  my_commodities > p
+crates/ti4-engine-core/src/query/trade_deals.rs:426:81	[partner_assets]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:427:12	[partner_assets]	cond	paid <= 0  =>  !(paid <= 0)
+crates/ti4-engine-core/src/query/trade_deals.rs:427:12	[partner_assets]	cmp	paid <= 0  =>  paid < 0
+crates/ti4-engine-core/src/query/trade_deals.rs:427:20	[partner_assets]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:436:16	[partner_assets]	cond	want.note == owed.note  =>  !(want.note == owed.note)
+crates/ti4-engine-core/src/query/trade_deals.rs:436:16	[partner_assets]	cmp	want.note == owed.note  =>  want.note != owed.note
+crates/ti4-engine-core/src/query/trade_deals.rs:439:23	[partner_assets]	arith	note_worth(Held::Note(*want)) - note_cost(Held::Note(*owed))  =>  note_worth(Held::Note(*want)) + note_cost(Held::Note(*owed))
+crates/ti4-engine-core/src/query/trade_deals.rs:440:16	[partner_assets]	cond	net >= 0.0  =>  !(net >= 0.0)
+crates/ti4-engine-core/src/query/trade_deals.rs:440:16	[partner_assets]	cmp	net >= 0.0  =>  net > 0.0
+crates/ti4-engine-core/src/query/trade_deals.rs:446:51	[partner_assets]	lit	4  =>  5
+crates/ti4-engine-core/src/query/trade_deals.rs:454:20	[fragments_of]	lit	0  =>  1
+crates/ti4-engine-core/src/query/trade_deals.rs:455:26	[fragments_of]	lit	1  =>  2
+crates/ti4-engine-core/src/query/trade_deals.rs:470:51	[offer_of]	lit	false  =>  true
+crates/ti4-engine-core/src/query/trade_deals.rs:470:70	[offer_of]	lit	true  =>  false
+crates/ti4-engine-core/src/query/trade_deals.rs:494:71	[planet_leg]	logic	*p == planet && moves.contains(&to)  =>  *p == planet || moves.contains(&to)
+crates/ti4-engine-core/src/query/trade_deals.rs:494:71	[planet_leg]	cmp	*p == planet  =>  *p != planet
+crates/ti4-engine-core/src/query/transit.rs:35:14	[activatable]	cmp	core.meta().rules_version >= RULES_NEXUS_ACTIVATION  =>  core.meta().rules_version > RULES_NEXUS_ACTIVATION
+crates/ti4-engine-core/src/query/transit.rs:49:32	[activatable]	lit	true  =>  false
+crates/ti4-engine-core/src/query/transit.rs:81:8	[loadable]	logic	!ignore_tokens && core.meta().active_system != Some(origin...  =>  !ignore_tokens || core.meta().active_system != Some(origin...
+crates/ti4-engine-core/src/query/transit.rs:81:26	[loadable]	cmp	core.meta().active_system != Some(origin)  =>  core.meta().active_system == Some(origin)
+crates/ti4-engine-core/src/query/transit.rs:86:66	[loadable]	lit	false  =>  true
+crates/ti4-engine-core/src/query/transit.rs:86:82	[loadable]	lit	false  =>  true
+crates/ti4-engine-core/src/query/transit.rs:86:95	[loadable]	lit	false  =>  true
+crates/ti4-engine-core/src/query/transit.rs:88:65	[loadable]	cmp	p.owner() == seat  =>  p.owner() != seat
+crates/ti4-engine-core/src/query/transit.rs:94:70	[loadable]	logic	p.owner() == seat && consumes(k, p.kind())  =>  p.owner() == seat || consumes(k, p.kind())
+crates/ti4-engine-core/src/query/transit.rs:128:61	[Hold::for_ship]	lit	0  =>  1
+crates/ti4-engine-core/src/query/transit.rs:133:16	[Hold::for_ship]	cond	seen.contains(step)  =>  !(seen.contains(step))
+crates/ti4-engine-core/src/query/transit.rs:140:12	[Hold::for_ship]	cmp	capacity <= 0  =>  capacity < 0
+crates/ti4-engine-core/src/query/transit.rs:140:24	[Hold::for_ship]	lit	0  =>  1
+crates/ti4-engine-core/src/query/transit.rs:148:22	[Hold::for_ship]	logic	any_hook && k.hooks.movement.free_cargo(core, k, c.p...  =>  any_hook || k.hooks.movement.free_cargo(core, k, c.p...
+crates/ti4-engine-core/src/query/transit.rs:151:67	[Hold::for_ship]	cmp	capacity <= 0  =>  capacity < 0
+crates/ti4-engine-core/src/query/transit.rs:151:79	[Hold::for_ship]	lit	0  =>  1
+crates/ti4-engine-core/src/query/transit.rs:156:9	[Hold::slots_left]	arith	self.capacity - i64::try_from(used).unwrap_or(i64::MAX)  =>  self.capacity + i64::try_from(used).unwrap_or(i64::MAX)
+crates/ti4-engine-core/src/query/transit.rs:167:20	[Hold::free]	cmp	self.slots_left() > 0  =>  self.slots_left() >= 0
+crates/ti4-engine-core/src/query/transit.rs:167:40	[Hold::free]	lit	0  =>  1
+crates/ti4-engine-core/src/query/transit.rs:171:17	[Hold::free]	logic	!self.loaded.contains(&i) && (room || self.cands[usize::from(i)].free...  =>  !self.loaded.contains(&i) || (room || self.cands[usize::from(i)].free...
+crates/ti4-engine-core/src/query/transit.rs:180:24	[Hold::is_complete]	cmp	self.loaded.len() >= self.cands.len()  =>  self.loaded.len() > self.cands.len()
+crates/ti4-engine-core/src/query/transit.rs:180:66	[Hold::is_complete]	logic	self.slots_left() <= 0 && self.free().is_empty()  =>  self.slots_left() <= 0 || self.free().is_empty()
+crates/ti4-engine-core/src/query/transit.rs:180:66	[Hold::is_complete]	cmp	self.slots_left() <= 0  =>  self.slots_left() < 0
+crates/ti4-engine-core/src/query/transit.rs:180:87	[Hold::is_complete]	lit	0  =>  1
+crates/ti4-engine-core/src/query/transit.rs:183:58	[Hold::count]	body	count(&self, pick: impl Fn(&Cand) -> bool) -> u8 {  =>  { return 0; }
+crates/ti4-engine-core/src/query/transit.rs:183:58	[Hold::count]	body	count(&self, pick: impl Fn(&Cand) -> bool) -> u8 {  =>  { return 1; }
+crates/ti4-engine-core/src/query/transit.rs:217:63	[Hold::load]	lit	false  =>  true
+crates/ti4-engine-core/src/query/transit.rs:219:20	[Hold::load]	lit	false  =>  true
+crates/ti4-engine-core/src/query/transit.rs:228:20	[Hold::close]	lit	false  =>  true
+crates/ti4-engine-core/src/query/transit.rs:245:101	[wormhole_hops]	body	wormhole_hops(core: &CoreState, seat: Seat, origin: System, path: &[Sy...  =>  { return None; }
+crates/ti4-engine-core/src/query/transit.rs:250:64	[wormhole_hops]	cmp	p.faction == crate::generated::Faction::TheGhostsOfCr...  =>  p.faction != crate::generated::Faction::TheGhostsOfCr...
+crates/ti4-engine-core/src/query/transit.rs:252:8	[wormhole_hops]	cond	quantum && map.nexus_wormholes_off  =>  !(quantum && map.nexus_wormholes_off)
+crates/ti4-engine-core/src/query/transit.rs:252:8	[wormhole_hops]	logic	quantum && map.nexus_wormholes_off  =>  quantum || map.nexus_wormholes_off
+crates/ti4-engine-core/src/query/transit.rs:253:43	[wormhole_hops]	lit	false  =>  true
+crates/ti4-engine-core/src/query/transit.rs:255:41	[wormhole_hops]	cmp	quantum_map.wormhole_kinds(s) & WH_ALPHA... != 0  =>  quantum_map.wormhole_kinds(s) & WH_ALPHA... == 0
+crates/ti4-engine-core/src/query/transit.rs:255:41	[wormhole_hops]	arith	quantum_map.wormhole_kinds(s) & WH_ALPHA_BETA  =>  quantum_map.wormhole_kinds(s) | WH_ALPHA_BETA
+crates/ti4-engine-core/src/query/transit.rs:255:90	[wormhole_hops]	lit	0  =>  1
+crates/ti4-engine-core/src/query/transit.rs:258:25	[wormhole_hops]	arith	a.q - b.q  =>  a.q + b.q
+crates/ti4-engine-core/src/query/transit.rs:258:36	[wormhole_hops]	arith	a.r - b.r  =>  a.r + b.r
+crates/ti4-engine-core/src/query/transit.rs:259:14	[wormhole_hops]	arith	(dq.abs() + dr.abs() + (dq + dr).abs()) / 2  =>  (dq.abs() + dr.abs() + (dq + dr).abs()) * 2
+crates/ti4-engine-core/src/query/transit.rs:259:15	[wormhole_hops]	arith	dq.abs() + dr.abs() + (dq + dr).abs()  =>  dq.abs() + dr.abs() - (dq + dr).abs()
+crates/ti4-engine-core/src/query/transit.rs:259:15	[wormhole_hops]	arith	dq.abs() + dr.abs()  =>  dq.abs() - dr.abs()
+crates/ti4-engine-core/src/query/transit.rs:259:38	[wormhole_hops]	arith	dq + dr  =>  dq - dr
+crates/ti4-engine-core/src/query/transit.rs:259:56	[wormhole_hops]	lit	2  =>  3
+crates/ti4-engine-core/src/query/transit.rs:262:20	[wormhole_hops]	lit	0_u32  =>  1u32
+crates/ti4-engine-core/src/query/transit.rs:264:12	[wormhole_hops]	cond	*step != previous && distance(previous, *step) != Some(1)  =>  !(*step != previous && distance(previous, *step) != Some(1))
+crates/ti4-engine-core/src/query/transit.rs:264:12	[wormhole_hops]	logic	*step != previous && distance(previous, *step) != Some(1)  =>  *step != previous || distance(previous, *step) != Some(1)
+crates/ti4-engine-core/src/query/transit.rs:264:12	[wormhole_hops]	cmp	*step != previous  =>  *step == previous
+crates/ti4-engine-core/src/query/transit.rs:264:33	[wormhole_hops]	cmp	distance(previous, *step) != Some(1)  =>  distance(previous, *step) == Some(1)
+crates/ti4-engine-core/src/query/transit.rs:264:67	[wormhole_hops]	lit	1  =>  2
+crates/ti4-engine-core/src/query/transit.rs:265:28	[wormhole_hops]	logic	map.adjacent(previous).contains(step.ind... && map.wormhole_kinds(*step) != 0  =>  map.adjacent(previous).contains(step.ind... || map.wormhole_kinds(*step) != 0
+crates/ti4-engine-core/src/query/transit.rs:265:28	[wormhole_hops]	logic	map.adjacent(previous).contains(step.ind... && map.wormhole_kinds(previous) != 0  =>  map.adjacent(previous).contains(step.ind... || map.wormhole_kinds(previous) != 0
+crates/ti4-engine-core/src/query/transit.rs:265:77	[wormhole_hops]	cmp	map.wormhole_kinds(previous) != 0  =>  map.wormhole_kinds(previous) == 0
+crates/ti4-engine-core/src/query/transit.rs:265:109	[wormhole_hops]	lit	0  =>  1
+crates/ti4-engine-core/src/query/transit.rs:265:114	[wormhole_hops]	cmp	map.wormhole_kinds(*step) != 0  =>  map.wormhole_kinds(*step) == 0
+crates/ti4-engine-core/src/query/transit.rs:265:143	[wormhole_hops]	lit	0  =>  1
+crates/ti4-engine-core/src/query/transit.rs:266:29	[wormhole_hops]	logic	quantum && has_alpha_or_beta(previous) && has_alpha_or_beta(*step)  =>  quantum && has_alpha_or_beta(previous) || has_alpha_or_beta(*step)
+crates/ti4-engine-core/src/query/transit.rs:266:29	[wormhole_hops]	logic	quantum && has_alpha_or_beta(previous)  =>  quantum || has_alpha_or_beta(previous)
+crates/ti4-engine-core/src/query/transit.rs:267:13	[wormhole_hops]	assign	hops += u32::from(ordinary || entangled)  =>  hops -= u32::from(ordinary || entangled)
+crates/ti4-engine-core/src/query/transit.rs:267:31	[wormhole_hops]	logic	ordinary || entangled  =>  ordinary && entangled

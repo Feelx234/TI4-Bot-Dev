@@ -1,0 +1,427 @@
+# survivors of core/rules/agenda: 426 of 761 points (44% killed)
+crates/ti4-engine-core/src/rules/agenda/close.rs:113:23	[Close::new]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/close.rs:114:19	[Close::new]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/close.rs:118:21	[Close::new]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/close.rs:186:34	[Close::start]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/close.rs:188:27	[Close::start]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/close.rs:261:24	[Close::pay]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/close.rs:275:52	[Close::pay]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/close.rs:277:28	[Close::pay]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/covert.rs:69:68	[CovertDraw::ask_of]	body	ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/agenda/covert.rs:73:75	[CovertDraw::answer]	body	answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/agenda/deadly_plot.rs:58:68	[DeadlyPlot::ask_of]	body	ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/agenda/deadly_plot.rs:62:75	[DeadlyPlot::answer]	body	answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/agenda/effects.rs:135:72	[Resolve::of]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/effects.rs:136:71	[Resolve::of]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/agenda/effects.rs:170:58	[Resolve::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/effects.rs:170:78	[Resolve::of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects.rs:170:91	[Resolve::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/effects.rs:170:124	[Resolve::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/effects.rs:170:163	[Resolve::of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects.rs:180:79	[Resolve::of_facts]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/effects.rs:181:68	[Resolve::of_facts]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/effects.rs:189:69	[Resolve::of_facts]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/effects.rs:189:105	[Resolve::of_facts]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects.rs:189:118	[Resolve::of_facts]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/effects.rs:189:166	[Resolve::of_facts]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/effects.rs:189:205	[Resolve::of_facts]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects.rs:192:23	[Resolve::of_facts]	cond	deferred  =>  !(deferred)
+crates/ti4-engine-core/src/rules/agenda/effects.rs:193:78	[Resolve::of_facts]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/effects.rs:193:98	[Resolve::of_facts]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects.rs:193:111	[Resolve::of_facts]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/effects.rs:193:198	[Resolve::of_facts]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects.rs:248:44	[Resolve::crater]	arith	scope.0 & crate::tables::source_bit(d.source)  =>  scope.0 | crate::tables::source_bit(d.source)
+crates/ti4-engine-core/src/rules/agenda/effects.rs:273:16	[Resolve::draw]	cond	self.checking || self.stage == Stage::Asking  =>  !(self.checking || self.stage == Stage::Asking)
+crates/ti4-engine-core/src/rules/agenda/effects.rs:273:16	[Resolve::draw]	logic	self.checking || self.stage == Stage::Asking  =>  self.checking && self.stage == Stage::Asking
+crates/ti4-engine-core/src/rules/agenda/effects.rs:273:33	[Resolve::draw]	cmp	self.stage == Stage::Asking  =>  self.stage != Stage::Asking
+crates/ti4-engine-core/src/rules/agenda/effects.rs:276:41	[Resolve::draw]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/effects.rs:287:16	[Resolve::draw]	cond	self.drawn >= count  =>  !(self.drawn >= count)
+crates/ti4-engine-core/src/rules/agenda/effects.rs:287:16	[Resolve::draw]	cmp	self.drawn >= count  =>  self.drawn > count
+crates/ti4-engine-core/src/rules/agenda/effects.rs:291:13	[Resolve::draw]	assign	self.drawn += 1  =>  self.drawn -= 1
+crates/ti4-engine-core/src/rules/agenda/effects.rs:291:27	[Resolve::draw]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/effects.rs:345:89	[Resolve::step]	logic	s == tile && c.flags.has(SysFlags::TOUCHED)  =>  s == tile || c.flags.has(SysFlags::TOUCHED)
+crates/ti4-engine-core/src/rules/agenda/effects.rs:345:89	[Resolve::step]	cmp	s == tile  =>  s != tile
+crates/ti4-engine-core/src/rules/agenda/effects.rs:346:38	[Resolve::step]	cond	placed(System::MecatolRex112)  =>  !(placed(System::MecatolRex112))
+crates/ti4-engine-core/src/rules/agenda/effects.rs:353:77	[Resolve::step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects.rs:360:81	[Resolve::step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects.rs:372:44	[Resolve::step]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/effects.rs:386:24	[Resolve::step]	cond	!revealed.as_slice().contains(&card)  =>  !(!revealed.as_slice().contains(&card))
+crates/ti4-engine-core/src/rules/agenda/effects.rs:396:68	[Resolve::ask_of]	body	ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/agenda/effects.rs:403:12	[Resolve::ask_of]	cond	self.stage != Stage::Asking  =>  !(self.stage != Stage::Asking)
+crates/ti4-engine-core/src/rules/agenda/effects.rs:403:12	[Resolve::ask_of]	cmp	self.stage != Stage::Asking  =>  self.stage == Stage::Asking
+crates/ti4-engine-core/src/rules/agenda/effects.rs:412:79	[Resolve::answer]	body	answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/agenda/effects.rs:421:20	[Resolve::answer]	cond	self.stage == Stage::Asking && sx.state.players().by_seat(who).is_some_and(|p| p...  =>  !(self.stage == Stage::Asking && sx.state.players().by_seat(who).is_some_and(|p| p...)
+crates/ti4-engine-core/src/rules/agenda/effects.rs:421:20	[Resolve::answer]	logic	self.stage == Stage::Asking && sx.state.players().by_seat(who).is_some_...  =>  self.stage == Stage::Asking || sx.state.players().by_seat(who).is_some_...
+crates/ti4-engine-core/src/rules/agenda/effects.rs:421:20	[Resolve::answer]	cmp	self.stage == Stage::Asking  =>  self.stage != Stage::Asking
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:20:102	[pds_of]	body	pds_of(core: &CoreState, scope: crate::tables::Scope, who: Seat) -> Sm...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:26:16	[pds_of]	cond	piece.owner() == who && data.base_type == UnitBaseType::Pds && scope.0 & crate::...  =>  !(piece.owner() == who && data.base_type == UnitBaseType::Pds && scope.0 & crate::...)
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:26:16	[pds_of]	logic	piece.owner() == who && data.base_type =... && scope.0 & crate::tables::source_bit(data...  =>  piece.owner() == who && data.base_type =... || scope.0 & crate::tables::source_bit(data...
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:26:16	[pds_of]	logic	piece.owner() == who && data.base_type == UnitBaseType::Pds  =>  piece.owner() == who || data.base_type == UnitBaseType::Pds
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:26:16	[pds_of]	cmp	piece.owner() == who  =>  piece.owner() != who
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:26:40	[pds_of]	cmp	data.base_type == UnitBaseType::Pds  =>  data.base_type != UnitBaseType::Pds
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:26:79	[pds_of]	cmp	scope.0 & crate::tables::source_bit(data... != 0  =>  scope.0 & crate::tables::source_bit(data... == 0
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:26:79	[pds_of]	arith	scope.0 & crate::tables::source_bit(data.source)  =>  scope.0 | crate::tables::source_bit(data.source)
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:26:131	[pds_of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:39:12	[Resolve::seed]	cond	self.stage == Stage::Apply  =>  !(self.stage == Stage::Apply)
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:39:12	[Resolve::seed]	cmp	self.stage == Stage::Apply  =>  self.stage != Stage::Apply
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:47:29	[Resolve::seed]	cond	high  =>  !(high)
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:52:66	[Resolve::seed]	cmp	*n == target  =>  *n != target
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:54:54	[Resolve::seed]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:66:74	[Resolve::seed_question]	body	seed_question(&self, s: &CoreState) -> Option<Choice> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:67:12	[Resolve::seed_question]	cond	self.stage != Stage::Asking  =>  !(self.stage != Stage::Asking)
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:67:12	[Resolve::seed_question]	cmp	self.stage != Stage::Asking  =>  self.stage == Stage::Asking
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:77:111	[Resolve::seed_answer]	body	seed_answer(&mut self, sx: &mut Sx<'_>, agenda: Agenda, pick: Pick) ->...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:79:58	[Resolve::seed_answer]	cond	self.stage == Stage::Asking && self.tied.as_slice().contains(&seat)  =>  !(self.stage == Stage::Asking && self.tied.as_slice().contains(&seat))
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:79:58	[Resolve::seed_answer]	logic	self.stage == Stage::Asking && self.tied.as_slice().contains(&seat)  =>  self.stage == Stage::Asking || self.tied.as_slice().contains(&seat)
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:79:58	[Resolve::seed_answer]	cmp	self.stage == Stage::Asking  =>  self.stage != Stage::Asking
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:80:53	[Resolve::seed_answer]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:91:69	[Resolve::defense]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:100:23	[Resolve::defense]	assign	self.cursor += 1  =>  self.cursor -= 1
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:100:38	[Resolve::defense]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:103:21	[Resolve::defense]	assign	self.cursor += 1  =>  self.cursor -= 1
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:103:36	[Resolve::defense]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:113:77	[Resolve::destroy_structure]	body	destroy_structure(core: &mut CoreState, (_, planet, at): Structure) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:115:12	[Resolve::destroy_structure]	cond	usize::from(at) < units.len()  =>  !(usize::from(at) < units.len())
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:115:12	[Resolve::destroy_structure]	cmp	usize::from(at) < units.len()  =>  usize::from(at) <= units.len()
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:120:77	[Resolve::defense_question]	body	defense_question(&self, s: &CoreState) -> Option<Choice> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:121:12	[Resolve::defense_question]	cond	self.stage != Stage::Asking  =>  !(self.stage != Stage::Asking)
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:121:12	[Resolve::defense_question]	cmp	self.stage != Stage::Asking  =>  self.stage == Stage::Asking
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:124:69	[Resolve::defense_question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:134:98	[Resolve::defense_answer]	body	defense_answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), I...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:135:69	[Resolve::defense_answer]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:138:82	[Resolve::defense_answer]	cond	self.stage == Stage::Asking  =>  !(self.stage == Stage::Asking)
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:138:82	[Resolve::defense_answer]	cmp	self.stage == Stage::Asking  =>  self.stage != Stage::Asking
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:141:20	[Resolve::defense_answer]	cond	chosen.0 != system || chosen.1 != planet  =>  !(chosen.0 != system || chosen.1 != planet)
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:141:20	[Resolve::defense_answer]	logic	chosen.0 != system || chosen.1 != planet  =>  chosen.0 != system && chosen.1 != planet
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:141:20	[Resolve::defense_answer]	cmp	chosen.0 != system  =>  chosen.0 == system
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:141:42	[Resolve::defense_answer]	cmp	chosen.1 != planet  =>  chosen.1 == planet
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:145:17	[Resolve::defense_answer]	assign	self.cursor += 1  =>  self.cursor -= 1
+crates/ti4-engine-core/src/rules/agenda/effects/questions.rs:145:32	[Resolve::defense_answer]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/mod.rs:124:20	[outcomes]	cond	kind == AgendaElects::NonHomeNonMecatolPlanet  =>  !(kind == AgendaElects::NonHomeNonMecatolPlanet)
+crates/ti4-engine-core/src/rules/agenda/mod.rs:124:20	[outcomes]	cmp	kind == AgendaElects::NonHomeNonMecatolPlanet  =>  kind != AgendaElects::NonHomeNonMecatolPlanet
+crates/ti4-engine-core/src/rules/agenda/mod.rs:127:36	[outcomes]	cmp	cx.scope.0 & source_bit(data.source) != 0  =>  cx.scope.0 & source_bit(data.source) == 0
+crates/ti4-engine-core/src/rules/agenda/mod.rs:127:36	[outcomes]	arith	cx.scope.0 & source_bit(data.source)  =>  cx.scope.0 | source_bit(data.source)
+crates/ti4-engine-core/src/rules/agenda/mod.rs:127:76	[outcomes]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/mod.rs:128:24	[outcomes]	cond	mecatol || (in_scope && data.homeworld_of.is_some())  =>  !(mecatol || (in_scope && data.homeworld_of.is_some()))
+crates/ti4-engine-core/src/rules/agenda/mod.rs:128:24	[outcomes]	logic	mecatol || (in_scope && data.homeworld_of.is_some()...  =>  mecatol && (in_scope && data.homeworld_of.is_some()...
+crates/ti4-engine-core/src/rules/agenda/mod.rs:128:36	[outcomes]	logic	in_scope && data.homeworld_of.is_some()  =>  in_scope || data.homeworld_of.is_some()
+crates/ti4-engine-core/src/rules/agenda/mod.rs:142:39	[outcomes]	cond	core.meta().rules_at_least(RULES_CRISIS_PACT)  =>  !(core.meta().rules_at_least(RULES_CRISIS_PACT))
+crates/ti4-engine-core/src/rules/agenda/mod.rs:153:48	[outcomes]	cond	core.meta().rules_at_least(RULES_CLASSIFIED_LEAKS)  =>  !(core.meta().rules_at_least(RULES_CLASSIFIED_LEAKS))
+crates/ti4-engine-core/src/rules/agenda/mod.rs:158:24	[outcomes]	cond	!objectives.revealed.as_slice().contains(&ObjectiveRef::Secret(s))  =>  !(!objectives.revealed.as_slice().contains(&ObjectiveRef::Secret(s)))
+crates/ti4-engine-core/src/rules/agenda/mod.rs:166:20	[outcomes]	cond	last != Some(*s)  =>  !(last != Some(*s))
+crates/ti4-engine-core/src/rules/agenda/mod.rs:166:20	[outcomes]	cmp	last != Some(*s)  =>  last == Some(*s)
+crates/ti4-engine-core/src/rules/agenda/mod.rs:208:50	[votable_planets]	cmp	influence_of(cx, planet) > 0  =>  influence_of(cx, planet) >= 0
+crates/ti4-engine-core/src/rules/agenda/mod.rs:302:52	[best]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/mod.rs:313:69	[undisputed_winner]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/mod.rs:344:87	[tiebreak_candidates]	cmp	*c > 0  =>  *c >= 0
+crates/ti4-engine-core/src/rules/agenda/mod.rs:372:12	[planet_offers]	cmp	influence > 0  =>  influence >= 0
+crates/ti4-engine-core/src/rules/agenda/mod.rs:373:48	[planet_offers]	arith	influence + qanoj  =>  influence - qanoj
+crates/ti4-engine-core/src/rules/agenda/mod.rs:378:16	[planet_offers]	cond	resources > 0  =>  !(resources > 0)
+crates/ti4-engine-core/src/rules/agenda/mod.rs:378:16	[planet_offers]	cmp	resources > 0  =>  resources >= 0
+crates/ti4-engine-core/src/rules/agenda/mod.rs:378:28	[planet_offers]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/mod.rs:379:52	[planet_offers]	arith	resources + qanoj  =>  resources - qanoj
+crates/ti4-engine-core/src/rules/agenda/mod.rs:389:98	[frame]	cmp	actor == core.meta().speaker  =>  actor != core.meta().speaker
+crates/ti4-engine-core/src/rules/agenda/mod.rs:400:19	[question]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/mod.rs:403:23	[question]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/mod.rs:438:38	[vote_question]	cmp	forced == *o  =>  forced != *o
+crates/ti4-engine-core/src/rules/agenda/mod.rs:500:36	[trade_goods_question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/mod.rs:502:18	[trade_goods_question]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/mod.rs:506:21	[trade_goods_question]	cond	rate == 2  =>  !(rate == 2)
+crates/ti4-engine-core/src/rules/agenda/mod.rs:506:21	[trade_goods_question]	cmp	rate == 2  =>  rate != 2
+crates/ti4-engine-core/src/rules/agenda/mod.rs:506:29	[trade_goods_question]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/agenda/mod.rs:546:140	[tribute_question]	body	tribute_question(core: &CoreState, agenda: Agenda, voter: Seat, outcom...  =>  { return None; }
+crates/ti4-engine-core/src/rules/agenda/mod.rs:548:8	[tribute_question]	cond	can_vote  =>  !(can_vote)
+crates/ti4-engine-core/src/rules/agenda/mod.rs:551:8	[tribute_question]	cond	can_pay  =>  !(can_pay)
+crates/ti4-engine-core/src/rules/agenda/mod.rs:554:8	[tribute_question]	cond	opts.is_empty()  =>  !(opts.is_empty())
+crates/ti4-engine-core/src/rules/agenda/mod.rs:567:32	[tiebreak_question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:99:17	[Reveal::new]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:100:21	[Reveal::new]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:134:20	[Reveal::top]	cond	!sx.state.meta().rules_at_least(RULES_AGENDA_GRANT_REVEAL)  =>  !(!sx.state.meta().rules_at_least(RULES_AGENDA_GRANT_REVEAL))
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:135:28	[Reveal::top]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:138:83	[Reveal::top]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:153:31	[Reveal::top]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:154:24	[Reveal::top]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:225:75	[Reveal::replace]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:279:39	[Reveal::step]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:291:91	[Reveal::step]	cmp	p.econ.strategic_tokens > 0  =>  p.econ.strategic_tokens >= 0
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:292:28	[Reveal::step]	logic	payable && !sx.state.decks().agenda.is_empty()  =>  payable || !sx.state.decks().agenda.is_empty()
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:295:25	[Reveal::step]	assign	self.at += 1  =>  self.at -= 1
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:295:36	[Reveal::step]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:314:39	[Reveal::step]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:325:36	[Reveal::step]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:335:12	[Reveal::ask_of]	logic	!matches!(self.stage, Stage::Quash | Sta... || self.at >= self.offers.len()  =>  !matches!(self.stage, Stage::Quash | Sta... && self.at >= self.offers.len()
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:335:82	[Reveal::ask_of]	cmp	self.at >= self.offers.len()  =>  self.at > self.offers.len()
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:352:12	[Reveal::answer]	logic	!matches!(self.stage, Stage::Quash | Sta... || self.at >= self.offers.len()  =>  !matches!(self.stage, Stage::Quash | Sta... && self.at >= self.offers.len()
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:352:82	[Reveal::answer]	cmp	self.at >= self.offers.len()  =>  self.at > self.offers.len()
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:357:51	[Reveal::answer]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/reveal.rs:389:32	[Reveal::answer]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:129:62	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:130:64	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:131:87	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:132:78	[Table::of]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:132:86	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:133:73	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:133:82	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:134:62	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:135:70	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:136:69	[Table::of]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:136:77	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:137:73	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:137:82	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:138:67	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:139:59	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:140:74	[Table::of]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:141:62	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:142:75	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:143:76	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:144:71	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:145:76	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:146:71	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:147:78	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:148:60	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:149:71	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:150:68	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:151:78	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:152:65	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:153:63	[Table::of]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:154:67	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:155:81	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:156:67	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:157:63	[Table::of]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:157:67	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:158:58	[Table::of]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:158:62	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:159:63	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:160:51	[Table::of]	cond	has_galaxy  =>  !(has_galaxy)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:160:83	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:161:67	[Table::of]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:162:46	[Table::of]	cond	has_galaxy  =>  !(has_galaxy)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:162:82	[Table::of]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:163:57	[Table::of]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:164:68	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:165:78	[Table::of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:192:46	[Table::apply]	arith	usize::from(seat.0) & 7  =>  usize::from(seat.0) | 7
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:192:68	[Table::apply]	lit	7  =>  8
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:193:24	[Table::apply]	cmp	economy::tokens_in_reinforcements(core, ... > 0  =>  economy::tokens_in_reinforcements(core, ... >= 0
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:193:79	[Table::apply]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:196:25	[Table::apply]	assign	p.econ.fleet_tokens += 1  =>  p.econ.fleet_tokens -= 1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:196:48	[Table::apply]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:203:46	[Table::apply]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:206:20	[Table::apply]	cond	pay  =>  !(pay)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:208:66	[Table::apply]	lit	5  =>  6
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:214:62	[Table::apply]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:219:20	[Table::apply]	cond	core.meta().speaker == who  =>  !(core.meta().speaker == who)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:219:20	[Table::apply]	cmp	core.meta().speaker == who  =>  core.meta().speaker != who
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:221:62	[Table::apply]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:240:36	[Table::apply]	arith	1 << u16::from(seat.0)  =>  1 >> u16::from(seat.0)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:256:24	[Table::apply]	cond	owns  =>  !(owns)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:271:24	[Table::apply]	cond	!in_scope(f.scope, system.data().source) || system.data().wormholes.is_empty()  =>  !(!in_scope(f.scope, system.data().source) || system.data().wormholes.is_empty())
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:271:24	[Table::apply]	logic	!in_scope(f.scope, system.data().source) || system.data().wormholes.is_empty()  =>  !in_scope(f.scope, system.data().source) && system.data().wormholes.is_empty()
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:275:28	[Table::apply]	cond	board::has_space_units_of(core, system, *seat)  =>  !(board::has_space_units_of(core, system, *seat))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:283:81	[Table::apply]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:284:77	[Table::apply]	lit	4  =>  5
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:291:61	[Table::apply]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:293:24	[Table::apply]	cmp	destroyed > 0  =>  destroyed >= 0
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:293:36	[Table::apply]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:300:20	[Table::apply]	cond	clear_planet(core, f, planet, |b| b == UnitBaseType::Infantry, Some(1), Agenda::...  =>  !(clear_planet(core, f, planet, |b| b == UnitBaseType::Infantry, Some(1), Agenda::...)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:300:54	[Table::apply]	cmp	b == UnitBaseType::Infantry  =>  b != UnitBaseType::Infantry
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:300:88	[Table::apply]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:301:28	[Table::apply]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:305:20	[Table::apply]	cond	clear_planet(core, f, planet, |_| true, None, Agenda::DemilitarizedZone).is_err(...  =>  !(clear_planet(core, f, planet, |_| true, None, Agenda::DemilitarizedZone).is_err(...)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:305:54	[Table::apply]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:306:28	[Table::apply]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:320:54	[everyone]	body	everyone(core: &CoreState) -> SmallList<Seat, 8> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:325:71	[clockwise_from]	body	clockwise_from(core: &CoreState, who: Seat) -> SmallList<Seat, 8> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:327:49	[clockwise_from]	cmp	*s == who  =>  *s != who
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:331:70	[in_scope]	body	in_scope(scope: Scope, source: crate::generated::Source) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:331:70	[in_scope]	body	in_scope(scope: Scope, source: crate::generated::Source) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:332:5	[in_scope]	cmp	scope.0 & crate::tables::source_bit(sour... != 0  =>  scope.0 & crate::tables::source_bit(sour... == 0
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:332:5	[in_scope]	arith	scope.0 & crate::tables::source_bit(source)  =>  scope.0 | crate::tables::source_bit(source)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:332:52	[in_scope]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:337:49	[clear_hand]	body	clear_hand(core: &mut CoreState, who: Seat) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:343:50	[standardize]	body	standardize(core: &mut CoreState, who: Seat) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:345:58	[standardize]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:345:89	[standardize]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:345:124	[standardize]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:346:12	[standardize]	cond	*tokens < target  =>  !(*tokens < target)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:346:12	[standardize]	cmp	*tokens < target  =>  *tokens <= target
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:361:51	[clandestine]	body	clandestine(core: &mut CoreState, both: bool) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:364:12	[clandestine]	cond	both  =>  !(both)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:365:22	[clandestine]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:365:25	[clandestine]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:367:35	[clandestine]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:368:27	[clandestine]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:368:30	[clandestine]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:369:24	[clandestine]	cond	*pool(p, at) >= *pool(p, fullest)  =>  !(*pool(p, at) >= *pool(p, fullest))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:374:20	[clandestine]	cond	*held > 0  =>  !(*held > 0)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:374:20	[clandestine]	cmp	*held > 0  =>  *held >= 0
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:374:28	[clandestine]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:375:21	[clandestine]	assign	*held -= 1  =>  *held += 1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:375:30	[clandestine]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:378:19	[clandestine]	cond	p.econ.fleet_tokens > 0  =>  !(p.econ.fleet_tokens > 0)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:378:19	[clandestine]	cmp	p.econ.fleet_tokens > 0  =>  p.econ.fleet_tokens >= 0
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:378:41	[clandestine]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:379:13	[clandestine]	assign	p.econ.fleet_tokens -= 1  =>  p.econ.fleet_tokens += 1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:379:36	[clandestine]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:385:83	[place_token]	body	place_token(core: &mut CoreState, who: Seat, system: System, f: &Effec...  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:386:8	[place_token]	cond	fx::place_command_token(core, who, system)  =>  !(fx::place_command_token(core, who, system))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:394:96	[cull_ships]	body	cull_ships(core: &mut CoreState, scope: Scope, who: Seat, base: UnitBa...  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:397:9	[cull_ships]	logic	p.owner() == who && data.base_type == ba... && in_scope(scope, data.source)  =>  p.owner() == who && data.base_type == ba... || in_scope(scope, data.source)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:397:9	[cull_ships]	logic	p.owner() == who && data.base_type == base  =>  p.owner() == who || data.base_type == base
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:397:9	[cull_ships]	cmp	p.owner() == who  =>  p.owner() != who
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:397:29	[cull_ships]	cmp	data.base_type == base  =>  data.base_type != base
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:401:8	[cull_ships]	cond	over == 0  =>  !(over == 0)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:401:8	[cull_ships]	cmp	over == 0  =>  over != 0
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:401:16	[cull_ships]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:405:12	[cull_ships]	cond	over == 0  =>  !(over == 0)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:405:12	[cull_ships]	cmp	over == 0  =>  over != 0
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:405:20	[cull_ships]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:408:12	[cull_ships]	cond	!core.board().sys(system).units.as_slice().iter().any(&matches)  =>  !(!core.board().sys(system).units.as_slice().iter().any(&matches))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:412:16	[cull_ships]	cond	over > 0 && matches(p)  =>  !(over > 0 && matches(p))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:412:16	[cull_ships]	logic	over > 0 && matches(p)  =>  over > 0 || matches(p)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:412:16	[cull_ships]	cmp	over > 0  =>  over >= 0
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:412:23	[cull_ships]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:413:17	[cull_ships]	assign	over -= 1  =>  over += 1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:413:25	[cull_ships]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:414:24	[cull_ships]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:416:13	[cull_ships]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:422:47	[rearm]	body	rearm(core: &mut CoreState, scope: Scope) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:426:13	[rearm]	logic	data.base_type == UnitBaseType::Mech && in_scope(scope, data.source)  =>  data.base_type == UnitBaseType::Mech || in_scope(scope, data.source)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:426:13	[rearm]	cmp	data.base_type == UnitBaseType::Mech  =>  data.base_type != UnitBaseType::Mech
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:428:12	[rearm]	cond	!core.board().planet(planet).units.as_slice().iter().any(is_mech)  =>  !(!core.board().planet(planet).units.as_slice().iter().any(is_mech))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:432:16	[rearm]	cond	is_mech(piece)  =>  !(is_mech(piece))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:440:42	[next_ground]	body	next_ground(core: &CoreState) -> u32 {  =>  { return 0; }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:440:42	[next_ground]	body	next_ground(core: &CoreState) -> u32 {  =>  { return 1; }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:446:17	[next_ground]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:446:24	[next_ground]	arith	n + 1  =>  n - 1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:446:28	[next_ground]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:450:122	[stage_destroyed]	body	stage_destroyed(core: &mut CoreState, system: System, planet: Planet, ...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:451:8	[stage_destroyed]	cond	piece.galvanized()  =>  !(piece.galvanized())
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:478:81	[clear_planet]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:480:67	[clear_planet]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:481:8	[clear_planet]	cond	!core.board().planet(planet).flags.has(PlanetFlags::UNITS_ENTRY)  =>  !(!core.board().planet(planet).flags.has(PlanetFlags::UNITS_ENTRY))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:482:19	[clear_planet]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:484:25	[clear_planet]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:487:12	[clear_planet]	cond	limit.is_some_and(|cap| destroyed >= cap)  =>  !(limit.is_some_and(|cap| destroyed >= cap))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:487:36	[clear_planet]	cmp	destroyed >= cap  =>  destroyed > cap
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:488:20	[clear_planet]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:491:19	[clear_planet]	logic	in_scope(f.scope, data.source) && doomed(data.base_type)  =>  in_scope(f.scope, data.source) || doomed(data.base_type)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:492:12	[clear_planet]	cond	hit  =>  !(hit)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:493:13	[clear_planet]	assign	destroyed += 1  =>  destroyed -= 1
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:493:26	[clear_planet]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:494:16	[clear_planet]	cond	matches!(data.base_type, UnitBaseType::Infantry | UnitBaseType::Mech)  =>  !(matches!(data.base_type, UnitBaseType::Infantry | UnitBaseType::Mech))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:507:63	[plowshares]	body	plowshares(core: &mut CoreState, f: &EffectFacts) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:507:63	[plowshares]	body	plowshares(core: &mut CoreState, f: &EffectFacts) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:509:29	[plowshares]	lit	0usize  =>  1usize
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:512:76	[plowshares]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:522:21	[plowshares]	logic	p.owner() == *seat && data.base_type == ... && in_scope(f.scope, data.source)  =>  p.owner() == *seat && data.base_type == ... || in_scope(f.scope, data.source)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:522:21	[plowshares]	logic	p.owner() == *seat && data.base_type == UnitBaseType::Infantry  =>  p.owner() == *seat || data.base_type == UnitBaseType::Infantry
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:522:21	[plowshares]	cmp	p.owner() == *seat  =>  p.owner() != *seat
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:522:43	[plowshares]	cmp	data.base_type == UnitBaseType::Infantry  =>  data.base_type != UnitBaseType::Infantry
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:526:46	[plowshares]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:527:16	[plowshares]	cond	!core.board().planet(*planet).flags.has(PlanetFlags::UNITS_ENTRY)  =>  !(!core.board().planet(*planet).flags.has(PlanetFlags::UNITS_ENTRY))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:536:20	[plowshares]	cond	stage_destroyed(core, *system, *planet, *piece, Agenda::SwordsToPlowshares).is_e...  =>  !(stage_destroyed(core, *system, *planet, *piece, Agenda::SwordsToPlowshares).is_e...)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:537:28	[plowshares]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:540:13	[plowshares]	assign	destroyed += losses  =>  destroyed -= losses
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:542:12	[plowshares]	cond	core.players().by_seat(*seat).is_some()  =>  !(core.players().by_seat(*seat).is_some())
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:547:5	[plowshares]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:551:55	[on_map]	body	on_map(core: &CoreState) -> SmallList<System, 64> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:557:55	[travel_ban]	body	travel_ban(core: &mut CoreState, f: &EffectFacts) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:558:24	[travel_ban]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:561:12	[travel_ban]	cond	!in_scope(f.scope, data.source) || data.wormholes.is_empty()  =>  !(!in_scope(f.scope, data.source) || data.wormholes.is_empty())
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:561:12	[travel_ban]	logic	!in_scope(f.scope, data.source) || data.wormholes.is_empty()  =>  !in_scope(f.scope, data.source) && data.wormholes.is_empty()
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:564:35	[travel_ban]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:567:20	[travel_ban]	cond	other < System::COUNT  =>  !(other < System::COUNT)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:567:20	[travel_ban]	cmp	other < System::COUNT  =>  other <= System::COUNT
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:568:38	[travel_ban]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:576:12	[travel_ban]	cond	!exposed[system.index()] || !core.board().sys(system).flags.has(SysFlags::TOUCHE...  =>  !(!exposed[system.index()] || !core.board().sys(system).flags.has(SysFlags::TOUCHE...)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:576:12	[travel_ban]	logic	!exposed[system.index()] || !core.board().sys(system).flags.has(SysF...  =>  !exposed[system.index()] && !core.board().sys(system).flags.has(SysF...
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:581:13	[travel_ban]	logic	data.base_type == UnitBaseType::Pds && in_scope(f.scope, data.source)  =>  data.base_type == UnitBaseType::Pds || in_scope(f.scope, data.source)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:581:13	[travel_ban]	cmp	data.base_type == UnitBaseType::Pds  =>  data.base_type != UnitBaseType::Pds
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:583:12	[travel_ban]	cond	core.board().planet(planet).units.as_slice().iter().any(is_pds)  =>  !(core.board().planet(planet).units.as_slice().iter().any(is_pds))
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:590:59	[wormhole_ships]	body	wormhole_ships(core: &mut CoreState, f: &EffectFacts) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:594:12	[wormhole_ships]	cond	!in_scope(f.scope, data.source) || !hole || !core.board().sys(*system).flags.has...  =>  !(!in_scope(f.scope, data.source) || !hole || !core.board().sys(*system).flags.has...)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:594:12	[wormhole_ships]	logic	!in_scope(f.scope, data.source) || !hole || !core.board().sys(*system).flags.has(Sys...  =>  !in_scope(f.scope, data.source) || !hole && !core.board().sys(*system).flags.has(Sys...
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:594:12	[wormhole_ships]	logic	!in_scope(f.scope, data.source) || !hole  =>  !in_scope(f.scope, data.source) && !hole
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:599:13	[wormhole_ships]	logic	d.ship && in_scope(f.scope, d.source)  =>  d.ship || in_scope(f.scope, d.source)
+crates/ti4-engine-core/src/rules/agenda/table_effects.rs:601:12	[wormhole_ships]	cond	core.board().sys(*system).units.as_slice().iter().any(is_ship)  =>  !(core.board().sys(*system).units.as_slice().iter().any(is_ship))
+crates/ti4-engine-core/src/rules/agenda/window.rs:62:42	[KernelEnv::is_nekro]	body	is_nekro(&self, _: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:62:42	[KernelEnv::is_nekro]	body	is_nekro(&self, _: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:64:9	[KernelEnv::is_nekro]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/agenda/window.rs:66:47	[KernelEnv::elder_qanoj]	body	elder_qanoj(&self, who: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:69:47	[KernelEnv::votes_first]	body	votes_first(&self, who: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:69:47	[KernelEnv::votes_first]	body	votes_first(&self, who: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:72:58	[KernelEnv::oceans]	body	oceans(&self, who: Seat) -> SmallList<Planet, 4> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/agenda/window.rs:75:54	[KernelEnv::resource_bonus]	body	resource_bonus(&self, planet: Planet) -> i64 {  =>  { return 0; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:75:54	[KernelEnv::resource_bonus]	body	resource_bonus(&self, planet: Planet) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:119:22	[Vote::new]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:180:12	[Vote::rate]	cmp	votes > 0  =>  votes >= 0
+crates/ti4-engine-core/src/rules/agenda/window.rs:180:20	[Vote::rate]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:181:13	[Vote::rate]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/agenda/window.rs:188:64	[Vote::goods]	body	goods(core: &CoreState, k: &Kernel, seat: Seat) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:189:9	[Vote::goods]	arith	core.players().by_seat(seat).map_or(0, |... + k.hooks.direct.keleres_spendable_commodi...  =>  core.players().by_seat(seat).map_or(0, |... - k.hooks.direct.keleres_spendable_commodi...
+crates/ti4-engine-core/src/rules/agenda/window.rs:189:45	[Vote::goods]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:189:85	[Vote::goods]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:193:74	[Vote::potential_goods]	body	potential_goods(core: &CoreState, k: &Kernel, seat: Seat) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:194:26	[Vote::potential_goods]	cond	k.hooks.direct.keleres_agent_could_grant(core, seat)  =>  !(k.hooks.direct.keleres_agent_could_grant(core, seat))
+crates/ti4-engine-core/src/rules/agenda/window.rs:195:49	[Vote::potential_goods]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:195:89	[Vote::potential_goods]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:197:13	[Vote::potential_goods]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:199:9	[Vote::potential_goods]	arith	Self::goods(core, k, seat) + granted  =>  Self::goods(core, k, seat) - granted
+crates/ti4-engine-core/src/rules/agenda/window.rs:203:80	[Vote::spend_goods]	body	spend_goods(core: &mut CoreState, k: &Kernel, seat: Seat, amount: i64)...  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/window.rs:207:13	[Vote::spend_goods]	assign	p.econ.commodities -= i16::try_from(from_commodities).unwrap_o...  =>  p.econ.commodities += i16::try_from(from_commodities).unwrap_o...
+crates/ti4-engine-core/src/rules/agenda/window.rs:207:77	[Vote::spend_goods]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:208:13	[Vote::spend_goods]	assign	p.econ.trade_goods -= i16::try_from(amount - from_commodities)...  =>  p.econ.trade_goods += i16::try_from(amount - from_commodities)...
+crates/ti4-engine-core/src/rules/agenda/window.rs:208:49	[Vote::spend_goods]	arith	amount - from_commodities  =>  amount + from_commodities
+crates/ti4-engine-core/src/rules/agenda/window.rs:208:86	[Vote::spend_goods]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:213:63	[Vote::holder]	body	holder(core: &CoreState, voter: Seat) -> Option<Seat> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:216:23	[Vote::holder]	cmp	p.seat != voter  =>  p.seat == voter
+crates/ti4-engine-core/src/rules/agenda/window.rs:220:56	[Vote::can_pay]	body	can_pay(core: &CoreState, voter: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:220:56	[Vote::can_pay]	body	can_pay(core: &CoreState, voter: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:221:55	[Vote::can_pay]	cmp	p.econ.fleet_tokens > 0  =>  p.econ.fleet_tokens >= 0
+crates/ti4-engine-core/src/rules/agenda/window.rs:221:77	[Vote::can_pay]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:225:64	[Vote::predictive_ready]	body	predictive_ready(core: &CoreState, seat: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/agenda/window.rs:244:62	[Vote::question_in]	cmp	*at == index  =>  *at != index
+crates/ti4-engine-core/src/rules/agenda/window.rs:254:67	[Vote::question_in]	cmp	*at == index  =>  *at != index
+crates/ti4-engine-core/src/rules/agenda/window.rs:259:33	[Vote::question_in]	cmp	votes == 0  =>  votes != 0
+crates/ti4-engine-core/src/rules/agenda/window.rs:259:42	[Vote::question_in]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:259:90	[Vote::question_in]	logic	at == index && backed == outcome  =>  at == index || backed == outcome
+crates/ti4-engine-core/src/rules/agenda/window.rs:259:90	[Vote::question_in]	cmp	at == index  =>  at != index
+crates/ti4-engine-core/src/rules/agenda/window.rs:259:105	[Vote::question_in]	cmp	backed == outcome  =>  backed != outcome
+crates/ti4-engine-core/src/rules/agenda/window.rs:297:92	[Vote::finish_planets]	cmp	Self::potential_goods(core, k, v) > 0  =>  Self::potential_goods(core, k, v) >= 0
+crates/ti4-engine-core/src/rules/agenda/window.rs:297:128	[Vote::finish_planets]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:308:12	[Vote::bank]	cmp	votes > 0  =>  votes >= 0
+crates/ti4-engine-core/src/rules/agenda/window.rs:308:20	[Vote::bank]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:319:12	[Vote::record]	cmp	votes <= 0  =>  votes < 0
+crates/ti4-engine-core/src/rules/agenda/window.rs:322:36	[Vote::record]	arith	usize::from(seat.0) & 7  =>  usize::from(seat.0) | 7
+crates/ti4-engine-core/src/rules/agenda/window.rs:322:58	[Vote::record]	lit	7  =>  8
+crates/ti4-engine-core/src/rules/agenda/window.rs:324:29	[Vote::record]	cmp	self.ballot.get(other) == Some(&outcome)  =>  self.ballot.get(other) != Some(&outcome)
+crates/ti4-engine-core/src/rules/agenda/window.rs:326:21	[Vote::record]	arith	votes + k.hooks.general.vote_bonus(core,... + BLOOD_PACT_VOTES * i64::try_from(pact).u...  =>  votes + k.hooks.general.vote_bonus(core,... - BLOOD_PACT_VOTES * i64::try_from(pact).u...
+crates/ti4-engine-core/src/rules/agenda/window.rs:326:21	[Vote::record]	arith	votes + k.hooks.general.vote_bonus(core,... + super::extra_votes(core, seat)  =>  votes + k.hooks.general.vote_bonus(core,... - super::extra_votes(core, seat)
+crates/ti4-engine-core/src/rules/agenda/window.rs:326:21	[Vote::record]	arith	votes + k.hooks.general.vote_bonus(core,... + k.hooks.cards.vote_bonus_with_content(co...  =>  votes + k.hooks.general.vote_bonus(core,... - k.hooks.cards.vote_bonus_with_content(co...
+crates/ti4-engine-core/src/rules/agenda/window.rs:326:21	[Vote::record]	arith	votes + k.hooks.general.vote_bonus(core, seat)  =>  votes - k.hooks.general.vote_bonus(core, seat)
+crates/ti4-engine-core/src/rules/agenda/window.rs:330:64	[Vote::record]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:350:61	[Vote::settle_predictions]	body	settle_predictions(&mut self, core: &mut CoreState) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/window.rs:353:16	[Vote::settle_predictions]	cmp	winner != Some(*backed)  =>  winner == Some(*backed)
+crates/ti4-engine-core/src/rules/agenda/window.rs:362:56	[Vote::pay_tribute]	body	pay_tribute(core: &mut CoreState, voter: Seat) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/agenda/window.rs:364:16	[Vote::pay_tribute]	cmp	p.econ.fleet_tokens > 0  =>  p.econ.fleet_tokens >= 0
+crates/ti4-engine-core/src/rules/agenda/window.rs:364:38	[Vote::pay_tribute]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:366:13	[Vote::pay_tribute]	assign	p.econ.fleet_tokens -= 1  =>  p.econ.fleet_tokens += 1
+crates/ti4-engine-core/src/rules/agenda/window.rs:366:36	[Vote::pay_tribute]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/window.rs:382:20	[Vote::step]	cmp	usize::from(index) < self.order.len()  =>  usize::from(index) <= self.order.len()
+crates/ti4-engine-core/src/rules/agenda/window.rs:383:20	[Vote::step]	cmp	self.offered & (1 << index) == 0  =>  self.offered & (1 << index) != 0
+crates/ti4-engine-core/src/rules/agenda/window.rs:383:20	[Vote::step]	arith	self.offered & (1 << index)  =>  self.offered | (1 << index)
+crates/ti4-engine-core/src/rules/agenda/window.rs:383:36	[Vote::step]	arith	1 << index  =>  1 >> index
+crates/ti4-engine-core/src/rules/agenda/window.rs:383:36	[Vote::step]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/window.rs:383:51	[Vote::step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/agenda/window.rs:385:17	[Vote::step]	assign	self.offered |= 1 << index  =>  self.offered &= 1 << index
+crates/ti4-engine-core/src/rules/agenda/window.rs:385:33	[Vote::step]	arith	1 << index  =>  1 >> index
+crates/ti4-engine-core/src/rules/agenda/window.rs:385:33	[Vote::step]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/window.rs:466:39	[Vote::answer]	logic	*p == planet && *f == face  =>  *p == planet || *f == face
+crates/ti4-engine-core/src/rules/agenda/window.rs:477:64	[Vote::answer]	arith	votes + rate * i64::from(spent)  =>  votes - rate * i64::from(spent)
+crates/ti4-engine-core/src/rules/agenda/window.rs:477:72	[Vote::answer]	arith	rate * i64::from(spent)  =>  rate + i64::from(spent)
+crates/ti4-engine-core/src/rules/agenda/window.rs:481:45	[Vote::answer]	arith	index + 1  =>  index - 1
+crates/ti4-engine-core/src/rules/agenda/window.rs:481:53	[Vote::answer]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/agenda/window.rs:486:66	[Vote::answer]	arith	votes + PREDICTIVE_VOTES  =>  votes - PREDICTIVE_VOTES
+crates/ti4-engine-core/src/rules/agenda/window.rs:487:45	[Vote::answer]	arith	index + 1  =>  index - 1
+crates/ti4-engine-core/src/rules/agenda/window.rs:487:53	[Vote::answer]	lit	1  =>  2

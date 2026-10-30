@@ -1,0 +1,2 @@
+# survivors of core/driver: 1 of 117 points (99% killed)
+crates/ti4-engine-core/src/driver/children.rs:39:27	[spawn]	cond	*primary  =>  !(*primary)

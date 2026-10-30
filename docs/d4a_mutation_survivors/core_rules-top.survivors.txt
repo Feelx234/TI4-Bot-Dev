@@ -1,0 +1,631 @@
+# survivors of core/rules-top: 630 of 1460 points (56% killed)
+crates/ti4-engine-core/src/rules/abilities.rs:83:62	[held_cybernetic]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/abilities.rs:88:31	[held_cybernetic]	logic	**holder == who && k.note == crate::generated::PromissoryNo...  =>  **holder == who || k.note == crate::generated::PromissoryNo...
+crates/ti4-engine-core/src/rules/abilities.rs:90:35	[held_cybernetic]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:36:110	[adjusted]	body	adjusted(r: Relationship, trust: i16, threat: i16, cooperation: i16, h...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/diplomacy.rs:38:17	[adjusted]	arith	r.trust + trust  =>  r.trust - trust
+crates/ti4-engine-core/src/rules/diplomacy.rs:38:41	[adjusted]	lit	100  =>  101
+crates/ti4-engine-core/src/rules/diplomacy.rs:38:46	[adjusted]	lit	100  =>  101
+crates/ti4-engine-core/src/rules/diplomacy.rs:39:31	[adjusted]	arith	i16::from(r.threat) + threat  =>  i16::from(r.threat) - threat
+crates/ti4-engine-core/src/rules/diplomacy.rs:39:67	[adjusted]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:39:70	[adjusted]	lit	100  =>  101
+crates/ti4-engine-core/src/rules/diplomacy.rs:40:23	[adjusted]	arith	r.cooperation + cooperation  =>  r.cooperation - cooperation
+crates/ti4-engine-core/src/rules/diplomacy.rs:40:59	[adjusted]	lit	100  =>  101
+crates/ti4-engine-core/src/rules/diplomacy.rs:40:64	[adjusted]	lit	100  =>  101
+crates/ti4-engine-core/src/rules/diplomacy.rs:41:34	[adjusted]	arith	i16::from(r.hostility) + hostility  =>  i16::from(r.hostility) - hostility
+crates/ti4-engine-core/src/rules/diplomacy.rs:41:76	[adjusted]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:41:79	[adjusted]	lit	100  =>  101
+crates/ti4-engine-core/src/rules/diplomacy.rs:47:50	[decayed]	body	decayed(r: Relationship) -> Relationship {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/diplomacy.rs:49:16	[decayed]	arith	r.trust * 90 / 100  =>  r.trust * 90 * 100
+crates/ti4-engine-core/src/rules/diplomacy.rs:49:16	[decayed]	arith	r.trust * 90  =>  r.trust + 90
+crates/ti4-engine-core/src/rules/diplomacy.rs:49:26	[decayed]	lit	90  =>  91
+crates/ti4-engine-core/src/rules/diplomacy.rs:49:31	[decayed]	lit	100  =>  101
+crates/ti4-engine-core/src/rules/diplomacy.rs:50:22	[decayed]	arith	r.cooperation * 90 / 100  =>  r.cooperation * 90 * 100
+crates/ti4-engine-core/src/rules/diplomacy.rs:50:22	[decayed]	arith	r.cooperation * 90  =>  r.cooperation + 90
+crates/ti4-engine-core/src/rules/diplomacy.rs:50:38	[decayed]	lit	90  =>  91
+crates/ti4-engine-core/src/rules/diplomacy.rs:50:43	[decayed]	lit	100  =>  101
+crates/ti4-engine-core/src/rules/diplomacy.rs:51:30	[decayed]	arith	u16::from(r.threat) * 80 / 100  =>  u16::from(r.threat) * 80 * 100
+crates/ti4-engine-core/src/rules/diplomacy.rs:51:30	[decayed]	arith	u16::from(r.threat) * 80  =>  u16::from(r.threat) + 80
+crates/ti4-engine-core/src/rules/diplomacy.rs:51:52	[decayed]	lit	80  =>  81
+crates/ti4-engine-core/src/rules/diplomacy.rs:51:57	[decayed]	lit	100  =>  101
+crates/ti4-engine-core/src/rules/diplomacy.rs:52:33	[decayed]	arith	u16::from(r.hostility) * 80 / 100  =>  u16::from(r.hostility) * 80 * 100
+crates/ti4-engine-core/src/rules/diplomacy.rs:52:33	[decayed]	arith	u16::from(r.hostility) * 80  =>  u16::from(r.hostility) + 80
+crates/ti4-engine-core/src/rules/diplomacy.rs:52:58	[decayed]	lit	80  =>  81
+crates/ti4-engine-core/src/rules/diplomacy.rs:52:63	[decayed]	lit	100  =>  101
+crates/ti4-engine-core/src/rules/diplomacy.rs:56:102	[adjust]	body	adjust(core: &mut CoreState, observer: Seat, subject: Seat, d: [i16; 4...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy.rs:57:8	[adjust]	cond	observer == subject  =>  !(observer == subject)
+crates/ti4-engine-core/src/rules/diplomacy.rs:57:8	[adjust]	cmp	observer == subject  =>  observer != subject
+crates/ti4-engine-core/src/rules/diplomacy.rs:61:29	[adjust]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:61:35	[adjust]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy.rs:61:41	[adjust]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/diplomacy.rs:61:47	[adjust]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/diplomacy.rs:66:50	[has_row]	body	has_row(core: &CoreState, who: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/diplomacy.rs:66:50	[has_row]	body	has_row(core: &CoreState, who: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/diplomacy.rs:67:69	[has_row]	cmp	observer == who  =>  observer != who
+crates/ti4-engine-core/src/rules/diplomacy.rs:92:97	[apply_relationship_event]	body	apply_relationship_event(core: &mut CoreState, event: RelEvent) -> Res...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy.rs:94:8	[apply_relationship_event]	cond	!core.trade().diplomacy.enabled || !named(&event).into_iter().flatten().all(|s| ...  =>  !(!core.trade().diplomacy.enabled || !named(&event).into_iter().flatten().all(|s| ...)
+crates/ti4-engine-core/src/rules/diplomacy.rs:94:8	[apply_relationship_event]	logic	!core.trade().diplomacy.enabled || !named(&event).into_iter().flatten().all...  =>  !core.trade().diplomacy.enabled && !named(&event).into_iter().flatten().all...
+crates/ti4-engine-core/src/rules/diplomacy.rs:100:33	[apply_relationship_event]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/diplomacy.rs:100:36	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:100:39	[apply_relationship_event]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/diplomacy.rs:100:42	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:101:33	[apply_relationship_event]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/diplomacy.rs:101:36	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:101:39	[apply_relationship_event]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/diplomacy.rs:101:42	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:104:33	[apply_relationship_event]	lit	5  =>  6
+crates/ti4-engine-core/src/rules/diplomacy.rs:104:36	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:104:39	[apply_relationship_event]	lit	5  =>  6
+crates/ti4-engine-core/src/rules/diplomacy.rs:104:42	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:105:33	[apply_relationship_event]	lit	5  =>  6
+crates/ti4-engine-core/src/rules/diplomacy.rs:105:36	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:105:39	[apply_relationship_event]	lit	5  =>  6
+crates/ti4-engine-core/src/rules/diplomacy.rs:105:42	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:107:92	[apply_relationship_event]	lit	20  =>  21
+crates/ti4-engine-core/src/rules/diplomacy.rs:107:96	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:107:99	[apply_relationship_event]	lit	15  =>  16
+crates/ti4-engine-core/src/rules/diplomacy.rs:107:103	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:109:51	[apply_relationship_event]	lit	40  =>  41
+crates/ti4-engine-core/src/rules/diplomacy.rs:109:55	[apply_relationship_event]	lit	15  =>  16
+crates/ti4-engine-core/src/rules/diplomacy.rs:109:59	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:109:62	[apply_relationship_event]	lit	25  =>  26
+crates/ti4-engine-core/src/rules/diplomacy.rs:115:16	[apply_relationship_event]	cond	d.judged_attacks.insert((activation_seq, attacker, victim), ()).is_some()  =>  !(d.judged_attacks.insert((activation_seq, attacker, victim), ()).is_some())
+crates/ti4-engine-core/src/rules/diplomacy.rs:118:46	[apply_relationship_event]	lit	10  =>  11
+crates/ti4-engine-core/src/rules/diplomacy.rs:118:50	[apply_relationship_event]	lit	15  =>  16
+crates/ti4-engine-core/src/rules/diplomacy.rs:118:54	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:118:57	[apply_relationship_event]	lit	20  =>  21
+crates/ti4-engine-core/src/rules/diplomacy.rs:123:66	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:123:69	[apply_relationship_event]	lit	10  =>  11
+crates/ti4-engine-core/src/rules/diplomacy.rs:123:73	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:123:76	[apply_relationship_event]	lit	5  =>  6
+crates/ti4-engine-core/src/rules/diplomacy.rs:124:67	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:124:70	[apply_relationship_event]	lit	4  =>  5
+crates/ti4-engine-core/src/rules/diplomacy.rs:124:73	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:124:76	[apply_relationship_event]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/diplomacy.rs:125:69	[apply_relationship_event]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/diplomacy.rs:125:72	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:125:75	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:125:78	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:128:77	[apply_relationship_event]	lit	8  =>  9
+crates/ti4-engine-core/src/rules/diplomacy.rs:128:80	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:128:83	[apply_relationship_event]	lit	4  =>  5
+crates/ti4-engine-core/src/rules/diplomacy.rs:128:86	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:130:45	[apply_relationship_event]	lit	25  =>  26
+crates/ti4-engine-core/src/rules/diplomacy.rs:130:49	[apply_relationship_event]	lit	10  =>  11
+crates/ti4-engine-core/src/rules/diplomacy.rs:130:53	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:130:56	[apply_relationship_event]	lit	10  =>  11
+crates/ti4-engine-core/src/rules/diplomacy.rs:134:77	[apply_relationship_event]	lit	4  =>  5
+crates/ti4-engine-core/src/rules/diplomacy.rs:134:80	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:134:83	[apply_relationship_event]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/diplomacy.rs:134:86	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:135:79	[apply_relationship_event]	lit	5  =>  6
+crates/ti4-engine-core/src/rules/diplomacy.rs:135:82	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:135:85	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:135:88	[apply_relationship_event]	lit	5  =>  6
+crates/ti4-engine-core/src/rules/diplomacy.rs:136:80	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:136:83	[apply_relationship_event]	lit	10  =>  11
+crates/ti4-engine-core/src/rules/diplomacy.rs:136:87	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:136:90	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:137:77	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:137:81	[apply_relationship_event]	lit	10  =>  11
+crates/ti4-engine-core/src/rules/diplomacy.rs:137:85	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:137:88	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:139:43	[apply_relationship_event]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/diplomacy.rs:139:46	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:139:49	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:139:52	[apply_relationship_event]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/diplomacy.rs:140:46	[apply_relationship_event]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/diplomacy.rs:140:49	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:140:52	[apply_relationship_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy.rs:140:55	[apply_relationship_event]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/diplomacy.rs:147:51	[decay_relationships]	body	decay_relationships(core: &mut CoreState) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/diplomacy.rs:148:8	[decay_relationships]	cond	!core.trade().diplomacy.enabled  =>  !(!core.trade().diplomacy.enabled)
+crates/ti4-engine-core/src/rules/diplomacy.rs:151:49	[decay_relationships]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy.rs:157:33	[decay_relationships]	cmp	s.expires_round >= next  =>  s.expires_round > next
+crates/ti4-engine-core/src/rules/diplomacy.rs:161:85	[consume_initiation]	body	consume_initiation(core: &mut CoreState, actor: Seat, target: Seat) ->...  =>  { return true; }
+crates/ti4-engine-core/src/rules/diplomacy.rs:161:85	[consume_initiation]	body	consume_initiation(core: &mut CoreState, actor: Seat, target: Seat) ->...  =>  { return false; }
+crates/ti4-engine-core/src/rules/diplomacy.rs:162:5	[consume_initiation]	logic	actor != target && core.trade_mut().diplomacy.edit().initia...  =>  actor != target || core.trade_mut().diplomacy.edit().initia...
+crates/ti4-engine-core/src/rules/diplomacy.rs:162:5	[consume_initiation]	cmp	actor != target  =>  actor == target
+crates/ti4-engine-core/src/rules/diplomacy.rs:167:54	[clear_turn_initiations]	body	clear_turn_initiations(core: &mut CoreState) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:48:8	[pending]	cond	matches!(term, DealTerm::ImmediateTransfer(_))  =>  !(matches!(term, DealTerm::ImmediateTransfer(_)))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:68:48	[valid_asset]	body	valid_asset(asset: &TransferAsset) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:68:48	[valid_asset]	body	valid_asset(asset: &TransferAsset) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:75:49	[valid_asset]	cmp	n > 0  =>  n >= 0
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:75:53	[valid_asset]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:76:112	[valid_asset]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:85:8	[new_revision]	cond	proposer_terms.len() > MAX_TERMS_PER_SIDE || recipient_terms.len() > MAX_TERMS_P...  =>  !(proposer_terms.len() > MAX_TERMS_PER_SIDE || recipient_terms.len() > MAX_TERMS_P...)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:85:8	[new_revision]	logic	proposer_terms.len() > MAX_TERMS_PER_SID... || recipient_terms.len() > MAX_TERMS_PER_SI...  =>  proposer_terms.len() > MAX_TERMS_PER_SID... && recipient_terms.len() > MAX_TERMS_PER_SI...
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:85:8	[new_revision]	cmp	proposer_terms.len() > MAX_TERMS_PER_SIDE  =>  proposer_terms.len() >= MAX_TERMS_PER_SIDE
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:85:53	[new_revision]	cmp	recipient_terms.len() > MAX_TERMS_PER_SIDE  =>  recipient_terms.len() >= MAX_TERMS_PER_SIDE
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:88:8	[new_revision]	cond	proposer_terms.is_empty() && recipient_terms.is_empty()  =>  !(proposer_terms.is_empty() && recipient_terms.is_empty())
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:88:8	[new_revision]	logic	proposer_terms.is_empty() && recipient_terms.is_empty()  =>  proposer_terms.is_empty() || recipient_terms.is_empty()
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:92:8	[new_revision]	cond	all().filter_map(deadline).any(|d| d < round || d > round.saturating_add(1))  =>  !(all().filter_map(deadline).any(|d| d < round || d > round.saturating_add(1)))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:92:43	[new_revision]	logic	d < round || d > round.saturating_add(1)  =>  d < round && d > round.saturating_add(1)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:92:43	[new_revision]	cmp	d < round  =>  d <= round
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:92:56	[new_revision]	cmp	d > round.saturating_add(1)  =>  d >= round.saturating_add(1)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:92:81	[new_revision]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:99:8	[new_revision]	cond	assets.into_iter().any(|a| !valid_asset(a))  =>  !(assets.into_iter().any(|a| !valid_asset(a)))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:118:50	[has_row]	body	has_row(core: &CoreState, who: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:118:50	[has_row]	body	has_row(core: &CoreState, who: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:119:69	[has_row]	cmp	observer == who  =>  observer != who
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:122:70	[relationship]	body	relationship(core: &CoreState, a: Seat, b: Seat) -> Relationship {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:126:58	[journal]	body	journal(core: &mut CoreState, event: DiplomacyEvent) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:131:60	[deal_of]	body	deal_of(core: &CoreState, id: DealId) -> Option<&Deal> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:132:57	[deal_of]	cmp	d.id == id  =>  d.id != id
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:135:69	[deal_mut]	body	deal_mut(core: &mut CoreState, id: DealId) -> Option<&mut Deal> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:136:72	[deal_mut]	cmp	d.id == id  =>  d.id != id
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:148:8	[create_deal]	cond	proposer == recipient  =>  !(proposer == recipient)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:148:8	[create_deal]	cmp	proposer == recipient  =>  proposer != recipient
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:151:8	[create_deal]	cond	!has_row(core, proposer) || !has_row(core, recipient)  =>  !(!has_row(core, proposer) || !has_row(core, recipient))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:151:8	[create_deal]	logic	!has_row(core, proposer) || !has_row(core, recipient)  =>  !has_row(core, proposer) && !has_row(core, recipient)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:154:8	[create_deal]	cond	revision.author != proposer || revision.number != 0  =>  !(revision.author != proposer || revision.number != 0)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:154:8	[create_deal]	logic	revision.author != proposer || revision.number != 0  =>  revision.author != proposer && revision.number != 0
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:154:8	[create_deal]	cmp	revision.author != proposer  =>  revision.author == proposer
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:154:39	[create_deal]	cmp	revision.number != 0  =>  revision.number == 0
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:154:58	[create_deal]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:158:33	[create_deal]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:174:100	[counter]	body	counter(core: &mut CoreState, id: DealId, revision: DealRevision) -> R...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:176:8	[counter]	cond	deal.status != DealStatus::Proposed  =>  !(deal.status != DealStatus::Proposed)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:176:8	[counter]	cmp	deal.status != DealStatus::Proposed  =>  deal.status == DealStatus::Proposed
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:179:8	[counter]	cond	deal.revisions.len().saturating_sub(1) >= usize::from(MAX_COUNTERS)  =>  !(deal.revisions.len().saturating_sub(1) >= usize::from(MAX_COUNTERS))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:179:8	[counter]	cmp	deal.revisions.len().saturating_sub(1) >= usize::from(MAX_COUNTERS)  =>  deal.revisions.len().saturating_sub(1) > usize::from(MAX_COUNTERS)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:179:44	[counter]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:183:8	[counter]	cond	revision.number != expected || (revision.author != deal.proposer && revision.aut...  =>  !(revision.number != expected || (revision.author != deal.proposer && revision.aut...)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:183:8	[counter]	logic	revision.number != expected || (revision.author != deal.proposer && rev...  =>  revision.number != expected && (revision.author != deal.proposer && rev...
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:183:8	[counter]	cmp	revision.number != expected  =>  revision.number == expected
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:183:40	[counter]	logic	revision.author != deal.proposer && revision.author != deal.recipient  =>  revision.author != deal.proposer || revision.author != deal.recipient
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:183:40	[counter]	cmp	revision.author != deal.proposer  =>  revision.author == deal.proposer
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:183:76	[counter]	cmp	revision.author != deal.recipient  =>  revision.author == deal.recipient
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:195:93	[archive_deal]	body	archive_deal(core: &mut CoreState, id: DealId, round: u32) -> Result<(...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:197:8	[archive_deal]	cond	!terminal(deal.status)  =>  !(!terminal(deal.status))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:201:49	[archive_deal]	cmp	x.id == id  =>  x.id != id
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:214:8	[archive_deal]	cond	d.history.len() > MAX_TERMINAL_HISTORY  =>  !(d.history.len() > MAX_TERMINAL_HISTORY)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:214:8	[archive_deal]	cmp	d.history.len() > MAX_TERMINAL_HISTORY  =>  d.history.len() >= MAX_TERMINAL_HISTORY
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:215:26	[archive_deal]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:224:89	[decline]	body	decline(core: &mut CoreState, id: DealId, actor: Seat) -> Result<(), B...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:227:49	[decline]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:239:100	[accept]	body	accept(core: &mut CoreState, id: DealId, actor: Seat, fair: bool) -> R...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:246:12	[accept]	cond	matches!(term, DealTerm::ImmediateTransfer(_))  =>  !(matches!(term, DealTerm::ImmediateTransfer(_)))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:251:67	[accept]	cond	future  =>  !(future)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:253:8	[accept]	cond	future  =>  !(future)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:255:15	[accept]	cond	fair  =>  !(fair)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:260:16	[accept]	cmp	target != a  =>  target == a
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:261:16	[accept]	cmp	target != b  =>  target == b
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:266:8	[accept]	cond	!future  =>  !(!future)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:303:8	[emit_signal]	cond	!core.trade().diplomacy.enabled  =>  !(!core.trade().diplomacy.enabled)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:306:8	[emit_signal]	cond	speaker == target  =>  !(speaker == target)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:306:8	[emit_signal]	cmp	speaker == target  =>  speaker != target
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:309:8	[emit_signal]	cond	core.seats().player_of(speaker).is_none() || core.seats().player_of(target).is_n...  =>  !(core.seats().player_of(speaker).is_none() || core.seats().player_of(target).is_n...)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:309:8	[emit_signal]	logic	core.seats().player_of(speaker).is_none(... || core.seats().player_of(target).is_none()  =>  core.seats().player_of(speaker).is_none(... && core.seats().player_of(target).is_none()
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:313:8	[emit_signal]	cond	expires_round < round || expires_round > round.saturating_add(1)  =>  !(expires_round < round || expires_round > round.saturating_add(1))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:313:8	[emit_signal]	logic	expires_round < round || expires_round > round.saturating_add(1)  =>  expires_round < round && expires_round > round.saturating_add(1)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:313:8	[emit_signal]	cmp	expires_round < round  =>  expires_round <= round
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:313:33	[emit_signal]	cmp	expires_round > round.saturating_add(1)  =>  expires_round >= round.saturating_add(1)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:313:70	[emit_signal]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:316:8	[emit_signal]	cond	consume_allowance && !consume_initiation(core, speaker, target)  =>  !(consume_allowance && !consume_initiation(core, speaker, target))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:316:8	[emit_signal]	logic	consume_allowance && !consume_initiation(core, speaker, targe...  =>  consume_allowance || !consume_initiation(core, speaker, targe...
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:320:33	[emit_signal]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:330:46	[is_settled]	body	is_settled(status: SignalStatus) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:330:46	[is_settled]	body	is_settled(status: SignalStatus) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:334:94	[judge]	body	judge(core: &mut CoreState, index: usize, status: SignalStatus) -> Res...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:345:33	[judge]	cond	signal.kind == SignalKind::Request  =>  !(signal.kind == SignalKind::Request)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:345:33	[judge]	cmp	signal.kind == SignalKind::Request  =>  signal.kind != SignalKind::Request
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:367:81	[voted]	body	voted(core: &CoreState, seat: Seat, outcome: crate::state::Outcome) ->...  =>  { return true; }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:367:81	[voted]	body	voted(core: &CoreState, seat: Seat, outcome: crate::state::Outcome) ->...  =>  { return false; }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:368:52	[voted]	cmp	*v == outcome  =>  *v != outcome
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:375:84	[judge_event]	body	judge_event(core: &mut CoreState, moment: Moment) -> Result<(), BookEr...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:379:12	[judge_event]	cond	round > signal.expires_round  =>  !(round > signal.expires_round)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:379:12	[judge_event]	cmp	round > signal.expires_round  =>  round >= signal.expires_round
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:384:126	[judge_event]	cond	agenda == actual  =>  !(agenda == actual)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:384:126	[judge_event]	cmp	agenda == actual  =>  agenda != actual
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:385:25	[judge_event]	cond	voted(core, speaker, outcome)  =>  !(voted(core, speaker, outcome))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:388:20	[judge_event]	cond	attacker == speaker && victim == target  =>  !(attacker == speaker && victim == target)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:388:20	[judge_event]	logic	attacker == speaker && victim == target  =>  attacker == speaker || victim == target
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:388:20	[judge_event]	cmp	attacker == speaker  =>  attacker != speaker
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:388:43	[judge_event]	cmp	victim == target  =>  victim != target
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:393:20	[judge_event]	cond	player == target && activated == system  =>  !(player == target && activated == system)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:393:20	[judge_event]	logic	player == target && activated == system  =>  player == target || activated == system
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:393:20	[judge_event]	cmp	player == target  =>  player != target
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:393:40	[judge_event]	cmp	activated == system  =>  activated != system
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:413:93	[settle_signals]	body	settle_signals(core: &mut CoreState, completed_round: u32) -> Result<(...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:420:26	[settle_signals]	logic	s.expires_round <= completed_round && !is_settled(s.status)  =>  s.expires_round <= completed_round || !is_settled(s.status)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:420:26	[settle_signals]	cmp	s.expires_round <= completed_round  =>  s.expires_round < completed_round
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:464:187	[settle_term]	body	settle_term(core: &mut CoreState, id: DealId, proposer_side: bool, ind...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:467:23	[settle_term]	cond	proposer_side  =>  !(proposer_side)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:469:8	[settle_term]	cond	*slot != PromiseStatus::Pending  =>  !(*slot != PromiseStatus::Pending)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:469:8	[settle_term]	cmp	*slot != PromiseStatus::Pending  =>  *slot == PromiseStatus::Pending
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:482:83	[update_terminal]	body	update_terminal(core: &mut CoreState, id: DealId) -> Result<(), Promis...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:486:21	[update_terminal]	cond	all.contains(&PromiseStatus::Broken)  =>  !(all.contains(&PromiseStatus::Broken))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:488:15	[update_terminal]	cond	all.iter().all(|s| *s == PromiseStatus::Fulfilled)  =>  !(all.iter().all(|s| *s == PromiseStatus::Fulfilled))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:488:34	[update_terminal]	cmp	*s == PromiseStatus::Fulfilled  =>  *s != PromiseStatus::Fulfilled
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:490:15	[update_terminal]	cond	all.iter().all(|s| *s != PromiseStatus::Pending)  =>  !(all.iter().all(|s| *s != PromiseStatus::Pending))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:490:34	[update_terminal]	cmp	*s != PromiseStatus::Pending  =>  *s == PromiseStatus::Pending
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:504:189	[inspect]	body	inspect(core: &CoreState, moment: Moment, terms: &[DealTerm], statuses...  =>  { return (); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:506:12	[inspect]	cond	*status != PromiseStatus::Pending  =>  !(*status != PromiseStatus::Pending)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:506:12	[inspect]	cmp	*status != PromiseStatus::Pending  =>  *status == PromiseStatus::Pending
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:510:109	[inspect]	cond	player == promiser && actual == system  =>  !(player == promiser && actual == system)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:510:109	[inspect]	logic	player == promiser && actual == system  =>  player == promiser || actual == system
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:510:109	[inspect]	cmp	player == promiser  =>  player != promiser
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:510:131	[inspect]	cmp	actual == system  =>  actual != system
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:513:107	[inspect]	cond	attacker == promiser && victim == player  =>  !(attacker == promiser && victim == player)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:513:107	[inspect]	logic	attacker == promiser && victim == player  =>  attacker == promiser || victim == player
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:513:107	[inspect]	cmp	attacker == promiser  =>  attacker != promiser
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:513:131	[inspect]	cmp	victim == player  =>  victim != player
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:516:102	[inspect]	cond	attacker == promiser && victim == player  =>  !(attacker == promiser && victim == player)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:516:102	[inspect]	logic	attacker == promiser && victim == player  =>  attacker == promiser || victim == player
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:516:102	[inspect]	cmp	attacker == promiser  =>  attacker != promiser
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:516:126	[inspect]	cmp	victim == player  =>  victim != player
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:519:99	[inspect]	cond	agenda == actual && voted(core, promiser, outcome)  =>  !(agenda == actual && voted(core, promiser, outcome))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:519:99	[inspect]	logic	agenda == actual && voted(core, promiser, outcome)  =>  agenda == actual || voted(core, promiser, outcome)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:519:99	[inspect]	cmp	agenda == actual  =>  agenda != actual
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:522:128	[inspect]	cond	by == promiser && who == promised  =>  !(by == promiser && who == promised)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:522:128	[inspect]	logic	by == promiser && who == promised  =>  by == promiser || who == promised
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:522:128	[inspect]	cmp	by == promiser  =>  by != promiser
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:522:146	[inspect]	cmp	who == promised  =>  who != promised
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:526:20	[inspect]	cond	user == promiser && used == leader && actual == helped  =>  !(user == promiser && used == leader && actual == helped)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:526:20	[inspect]	logic	user == promiser && used == leader && actual == helped  =>  user == promiser && used == leader || actual == helped
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:526:20	[inspect]	logic	user == promiser && used == leader  =>  user == promiser || used == leader
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:526:20	[inspect]	cmp	user == promiser  =>  user != promiser
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:526:40	[inspect]	cmp	used == leader  =>  used != leader
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:526:58	[inspect]	cmp	actual == helped  =>  actual != helped
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:533:45	[inspect]	arith	offset + index  =>  offset - index
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:543:90	[evaluate_event]	body	evaluate_event(core: &mut CoreState, moment: Moment) -> Result<(), Pro...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:544:8	[evaluate_event]	cond	!core.trade().diplomacy.enabled  =>  !(!core.trade().diplomacy.enabled)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:553:12	[evaluate_event]	cond	deal.status != DealStatus::Active  =>  !(deal.status != DealStatus::Active)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:553:12	[evaluate_event]	cmp	deal.status != DealStatus::Active  =>  deal.status == DealStatus::Active
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:558:127	[evaluate_event]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:558:133	[evaluate_event]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:559:129	[evaluate_event]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:569:86	[settle_due]	body	settle_due(core: &mut CoreState, until: Option<u32>) -> Result<(), Pro...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:570:8	[settle_due]	cond	!core.trade().diplomacy.enabled  =>  !(!core.trade().diplomacy.enabled)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:576:12	[settle_due]	cond	deal.status != DealStatus::Active  =>  !(deal.status != DealStatus::Active)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:576:12	[settle_due]	cmp	deal.status != DealStatus::Active  =>  deal.status == DealStatus::Active
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:582:110	[settle_due]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:582:116	[settle_due]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:583:112	[settle_due]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:586:20	[settle_due]	cond	*status != PromiseStatus::Pending  =>  !(*status != PromiseStatus::Pending)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:586:20	[settle_due]	cmp	*status != PromiseStatus::Pending  =>  *status == PromiseStatus::Pending
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:589:84	[settle_due]	cmp	d <= round  =>  d < round
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:590:33	[settle_due]	cond	due  =>  !(due)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:595:27	[settle_due]	cond	until.is_none()  =>  !(until.is_none())
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:600:42	[settle_due]	arith	offset + index  =>  offset - index
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:615:98	[settle_deadlines]	body	settle_deadlines(core: &mut CoreState, completed_round: u32) -> Result...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:617:8	[settle_deadlines]	cond	core.trade().diplomacy.enabled  =>  !(core.trade().diplomacy.enabled)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:627:75	[settle_game_end]	body	settle_game_end(core: &mut CoreState) -> Result<(), PromiseError> {  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:638:8	[payment_due]	cond	deal.status != DealStatus::Active  =>  !(deal.status != DealStatus::Active)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:638:8	[payment_due]	cmp	deal.status != DealStatus::Active  =>  deal.status == DealStatus::Active
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:643:64	[payment_due]	cond	term_index < count  =>  !(term_index < count)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:643:64	[payment_due]	cmp	term_index < count  =>  term_index <= count
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:644:10	[payment_due]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:646:21	[payment_due]	arith	term_index - count  =>  term_index + count
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:647:10	[payment_due]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:649:23	[payment_due]	cond	proposer_side  =>  !(proposer_side)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:650:8	[payment_due]	cond	expected != promiser  =>  !(expected != promiser)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:650:8	[payment_due]	cmp	expected != promiser  =>  expected == promiser
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:653:8	[payment_due]	cond	status != Some(&PromiseStatus::Pending)  =>  !(status != Some(&PromiseStatus::Pending))
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:653:8	[payment_due]	cmp	status != Some(&PromiseStatus::Pending)  =>  status == Some(&PromiseStatus::Pending)
+crates/ti4-engine-core/src/rules/diplomacy_book.rs:673:119	[payment_made]	body	payment_made(core: &mut CoreState, id: DealId, promiser: Seat, term_in...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:84:130	[DiplomacyWindow::at]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:84:146	[DiplomacyWindow::at]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:90:23	[DiplomacyWindow::single]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:101:12	[DiplomacyWindow::actor]	cond	self.responses.is_multiple_of(2)  =>  !(self.responses.is_multiple_of(2))
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:101:42	[DiplomacyWindow::actor]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:106:52	[DiplomacyWindow::revision]	cond	d.builder == self.proposer  =>  !(d.builder == self.proposer)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:106:52	[DiplomacyWindow::revision]	cmp	d.builder == self.proposer  =>  d.builder != self.proposer
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:108:25	[DiplomacyWindow::revision]	cond	self.deal_id.is_some()  =>  !(self.deal_id.is_some())
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:108:80	[DiplomacyWindow::revision]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:108:92	[DiplomacyWindow::revision]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:116:23	[DiplomacyWindow::ctx]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:119:27	[DiplomacyWindow::ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:124:59	[DiplomacyWindow::opts]	body	opts(list: impl IntoIterator<Item = Opt>) -> Opts {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:129:58	[DiplomacyWindow::building]	body	building(&self, s: &CoreState) -> Option<Choice> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:136:12	[DiplomacyWindow::building]	cond	d.reviewing  =>  !(d.reviewing)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:138:16	[DiplomacyWindow::building]	cond	!d.is_empty()  =>  !(!d.is_empty())
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:141:16	[DiplomacyWindow::building]	cond	d.can_edit()  =>  !(d.can_edit())
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:152:12	[DiplomacyWindow::building]	cond	self.current.is_none() && d.is_empty() && !d.asking  =>  !(self.current.is_none() && d.is_empty() && !d.asking)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:152:12	[DiplomacyWindow::building]	logic	self.current.is_none() && d.is_empty() && !d.asking  =>  self.current.is_none() && d.is_empty() || !d.asking
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:152:12	[DiplomacyWindow::building]	logic	self.current.is_none() && d.is_empty()  =>  self.current.is_none() || d.is_empty()
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:153:26	[DiplomacyWindow::building]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:156:34	[DiplomacyWindow::building]	cond	d.asking  =>  !(d.asking)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:161:65	[DiplomacyWindow::apply_item]	body	apply_item(round: u32, d: &mut Draft, opt: Opt) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:161:65	[DiplomacyWindow::apply_item]	body	apply_item(round: u32, d: &mut Draft, opt: Opt) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:164:41	[DiplomacyWindow::apply_item]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:165:17	[DiplomacyWindow::apply_item]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:168:41	[DiplomacyWindow::apply_item]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:169:17	[DiplomacyWindow::apply_item]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:172:74	[DiplomacyWindow::apply_item]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:174:31	[DiplomacyWindow::apply_item]	cond	later  =>  !(later)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:174:109	[DiplomacyWindow::apply_item]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:176:17	[DiplomacyWindow::apply_item]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:180:17	[DiplomacyWindow::apply_item]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:184:17	[DiplomacyWindow::apply_item]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:189:17	[DiplomacyWindow::apply_item]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:191:31	[DiplomacyWindow::apply_item]	cond	usize::from(i) < d.side().2.len()  =>  !(usize::from(i) < d.side().2.len())
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:191:31	[DiplomacyWindow::apply_item]	cmp	usize::from(i) < d.side().2.len()  =>  usize::from(i) <= d.side().2.len()
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:193:17	[DiplomacyWindow::apply_item]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:195:18	[DiplomacyWindow::apply_item]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:198:12	[DiplomacyWindow::apply_item]	cond	applied && !matches!(opt, Opt::Amount(_))  =>  !(applied && !matches!(opt, Opt::Amount(_)))
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:198:12	[DiplomacyWindow::apply_item]	logic	applied && !matches!(opt, Opt::Amount(_))  =>  applied || !matches!(opt, Opt::Amount(_))
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:199:46	[DiplomacyWindow::apply_item]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:206:102	[DiplomacyWindow::terms]	body	terms(&self, s: &CoreState, list: &[DealTerm], giver: Seat, receiver: ...  =>  { return None; }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:208:49	[DiplomacyWindow::terms]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:208:56	[DiplomacyWindow::terms]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:208:63	[DiplomacyWindow::terms]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:212:49	[DiplomacyWindow::terms]	assign	out.trade_goods += i32::from(n)  =>  out.trade_goods -= i32::from(n)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:213:50	[DiplomacyWindow::terms]	assign	out.commodities += i32::from(n)  =>  out.commodities -= i32::from(n)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:214:56	[DiplomacyWindow::terms]	assign	out.fragments[ExploreType::Cultural as u... += i32::from(n)  =>  out.fragments[ExploreType::Cultural as u... -= i32::from(n)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:215:57	[DiplomacyWindow::terms]	assign	out.fragments[ExploreType::Hazardous as ... += i32::from(n)  =>  out.fragments[ExploreType::Hazardous as ... -= i32::from(n)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:216:58	[DiplomacyWindow::terms]	assign	out.fragments[ExploreType::Industrial as... += i32::from(n)  =>  out.fragments[ExploreType::Industrial as... -= i32::from(n)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:217:55	[DiplomacyWindow::terms]	assign	out.fragments[ExploreType::Frontier as u... += i32::from(n)  =>  out.fragments[ExploreType::Frontier as u... -= i32::from(n)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:218:55	[DiplomacyWindow::terms]	cond	!note  =>  !(!note)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:219:28	[DiplomacyWindow::terms]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:222:49	[DiplomacyWindow::terms]	cond	!card  =>  !(!card)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:223:28	[DiplomacyWindow::terms]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:226:54	[DiplomacyWindow::terms]	cond	!secret  =>  !(!secret)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:227:30	[DiplomacyWindow::terms]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:236:98	[DiplomacyWindow::note_facts]	body	note_facts(&self, s: &CoreState, key: NoteKey, giver: Seat, receiver: ...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:237:12	[DiplomacyWindow::note_facts]	cond	key.note == PromissoryNote::SupportForTheThrone  =>  !(key.note == PromissoryNote::SupportForTheThrone)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:237:12	[DiplomacyWindow::note_facts]	cmp	key.note == PromissoryNote::SupportForTheThrone  =>  key.note != PromissoryNote::SupportForTheThrone
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:238:34	[DiplomacyWindow::note_facts]	cmp	deals_q::available_support(s, giver) == Some(key.faction)  =>  deals_q::available_support(s, giver) != Some(key.faction)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:238:105	[DiplomacyWindow::note_facts]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:249:41	[DiplomacyWindow::side]	body	side(list: &[DealTerm]) -> Side {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:254:49	[DiplomacyWindow::side]	assign	side.goods += i32::from(n)  =>  side.goods -= i32::from(n)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:255:50	[DiplomacyWindow::side]	assign	side.commodities += i32::from(n)  =>  side.commodities -= i32::from(n)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:259:57	[DiplomacyWindow::side]	assign	side.fragments += i32::from(n)  =>  side.fragments -= i32::from(n)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:261:48	[DiplomacyWindow::side]	cond	key.note == PromissoryNote::SupportForTheThrone  =>  !(key.note == PromissoryNote::SupportForTheThrone)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:261:48	[DiplomacyWindow::side]	cmp	key.note == PromissoryNote::SupportForTheThrone  =>  key.note != PromissoryNote::SupportForTheThrone
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:263:61	[DiplomacyWindow::side]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:264:68	[DiplomacyWindow::side]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:272:73	[DiplomacyWindow::accept]	body	accept(&self, s: &mut CoreState, actor: Seat) -> Result<(), ()> {  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:274:69	[DiplomacyWindow::accept]	cmp	d.id == id  =>  d.id != id
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:279:20	[DiplomacyWindow::accept]	cmp	(Self::side(revision.proposer_terms.as_s... <= 0.5  =>  (Self::side(revision.proposer_terms.as_s... < 0.5
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:279:21	[DiplomacyWindow::accept]	arith	Self::side(revision.proposer_terms.as_sl... - Self::side(revision.recipient_terms.as_s...  =>  Self::side(revision.proposer_terms.as_sl... + Self::side(revision.recipient_terms.as_s...
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:280:12	[DiplomacyWindow::accept]	cond	!given.is_empty() || !received.is_empty()  =>  !(!given.is_empty() || !received.is_empty())
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:280:12	[DiplomacyWindow::accept]	logic	!given.is_empty() || !received.is_empty()  =>  !given.is_empty() && !received.is_empty()
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:284:16	[DiplomacyWindow::accept]	cond	q::why_illegal_with(s, || reach, || s.transient().misc.flags.has(crate::state::T...  =>  !(q::why_illegal_with(s, || reach, || s.transient().misc.flags.has(crate::state::T...)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:293:24	[DiplomacyWindow::end]	body	end(&mut self) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:313:68	[DiplomacyWindow::ask_of]	body	ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:314:12	[DiplomacyWindow::ask_of]	cond	self.single && self.stepped  =>  !(self.single && self.stepped)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:314:12	[DiplomacyWindow::ask_of]	logic	self.single && self.stepped  =>  self.single || self.stepped
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:322:32	[DiplomacyWindow::ask_of]	cond	self.responses.is_multiple_of(2)  =>  !(self.responses.is_multiple_of(2))
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:322:62	[DiplomacyWindow::ask_of]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:323:35	[DiplomacyWindow::ask_of]	logic	self.responses < MAX_COUNTERS && self.cu... && !self.counter_abandoned  =>  self.responses < MAX_COUNTERS && self.cu... || !self.counter_abandoned
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:323:35	[DiplomacyWindow::ask_of]	logic	self.responses < MAX_COUNTERS && self.current.is_some()  =>  self.responses < MAX_COUNTERS || self.current.is_some()
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:323:35	[DiplomacyWindow::ask_of]	cmp	self.responses < MAX_COUNTERS  =>  self.responses <= MAX_COUNTERS
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:325:20	[DiplomacyWindow::ask_of]	cond	may_counter  =>  !(may_counter)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:338:79	[DiplomacyWindow::answer]	body	answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:341:24	[DiplomacyWindow::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:350:42	[DiplomacyWindow::answer]	cond	matches!(statement, SignalStatement::WillVote { .. })  =>  !(matches!(statement, SignalStatement::WillVote { .. }))
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:350:134	[DiplomacyWindow::answer]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:351:104	[DiplomacyWindow::answer]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:355:34	[DiplomacyWindow::answer]	cond	!d.asking  =>  !(!d.asking)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:355:58	[DiplomacyWindow::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:356:48	[DiplomacyWindow::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:358:39	[DiplomacyWindow::answer]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:359:36	[DiplomacyWindow::answer]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:365:28	[DiplomacyWindow::answer]	cond	self.current.is_some()  =>  !(self.current.is_some())
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:366:54	[DiplomacyWindow::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:369:41	[DiplomacyWindow::answer]	cond	self.current.is_some()  =>  !(self.current.is_some())
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:376:29	[DiplomacyWindow::answer]	assign	self.responses += 1  =>  self.responses -= 1
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:376:47	[DiplomacyWindow::answer]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:387:28	[DiplomacyWindow::answer]	cond	!Self::apply_item(round, &mut d, other)  =>  !(!Self::apply_item(round, &mut d, other))
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:399:32	[DiplomacyWindow::answer]	logic	opt == Opt::Accept && self.accept(sx.state, actor).is_ok()  =>  opt == Opt::Accept || self.accept(sx.state, actor).is_ok()
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:399:32	[DiplomacyWindow::answer]	cmp	opt == Opt::Accept  =>  opt != Opt::Accept
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:400:20	[DiplomacyWindow::answer]	cond	accepted  =>  !(accepted)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:402:27	[DiplomacyWindow::answer]	cond	matches!(opt, Opt::Decline | Opt::Accept)  =>  !(matches!(opt, Opt::Decline | Opt::Accept))
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:405:27	[DiplomacyWindow::answer]	cond	opt == Opt::Counter  =>  !(opt == Opt::Counter)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:405:27	[DiplomacyWindow::answer]	cmp	opt == Opt::Counter  =>  opt != Opt::Counter
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:408:43	[DiplomacyWindow::answer]	cond	actor == self.proposer  =>  !(actor == self.proposer)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:408:43	[DiplomacyWindow::answer]	cmp	actor == self.proposer  =>  actor != self.proposer
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:409:36	[DiplomacyWindow::answer]	cond	actor == self.proposer  =>  !(actor == self.proposer)
+crates/ti4-engine-core/src/rules/diplomacy_window.rs:409:36	[DiplomacyWindow::answer]	cmp	actor == self.proposer  =>  actor != self.proposer
+crates/ti4-engine-core/src/rules/explore.rs:37:68	[purge_for_relic]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/explore.rs:46:54	[purge_for_relic]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/explore.rs:48:8	[purge_for_relic]	cmp	from_frontier > 0  =>  from_frontier >= 0
+crates/ti4-engine-core/src/rules/explore.rs:49:75	[purge_for_relic]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/explore.rs:60:70	[relic_gain]	body	relic_gain(core: &mut CoreState, who: Seat) -> Option<Relic> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/explore.rs:179:96	[book_of_latvinia]	body	book_of_latvinia(core: &mut CoreState, who: Seat, scope: crate::tables...  =>  { return true; }
+crates/ti4-engine-core/src/rules/explore.rs:179:96	[book_of_latvinia]	body	book_of_latvinia(core: &mut CoreState, who: Seat, scope: crate::tables...  =>  { return false; }
+crates/ti4-engine-core/src/rules/explore.rs:183:16	[book_of_latvinia]	cond	!found.contains(s)  =>  !(!found.contains(s))
+crates/ti4-engine-core/src/rules/explore.rs:188:8	[book_of_latvinia]	cond	found.len() >= 4  =>  !(found.len() >= 4)
+crates/ti4-engine-core/src/rules/explore.rs:188:8	[book_of_latvinia]	cmp	found.len() >= 4  =>  found.len() > 4
+crates/ti4-engine-core/src/rules/explore.rs:188:23	[book_of_latvinia]	lit	4  =>  5
+crates/ti4-engine-core/src/rules/explore.rs:190:9	[book_of_latvinia]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/explore.rs:193:9	[book_of_latvinia]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/explore.rs:217:34	[silver_flame]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/explore.rs:223:53	[silver_flame]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/explore.rs:231:8	[remove_unit_at]	cmp	index < units.len()  =>  index <= units.len()
+crates/ti4-engine-core/src/rules/explore.rs:278:81	[place_planet]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/explore.rs:305:54	[demilitarize]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/explore_windows.rs:31:19	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/explore_windows.rs:34:23	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/explore_windows.rs:354:27	[PayMechOrInfantry::infantry]	logic	u.owner() == self.who && u.kind().data().base_type == UnitBaseTyp...  =>  u.owner() == self.who || u.kind().data().base_type == UnitBaseTyp...
+crates/ti4-engine-core/src/rules/explore_windows.rs:368:31	[PayMechOrInfantry::step]	logic	cell.flags.has(crate::state::PlanetFlags... || cell.control.is_some()  =>  cell.flags.has(crate::state::PlanetFlags... && cell.control.is_some()
+crates/ti4-engine-core/src/rules/explore_windows.rs:418:19	[relic_ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/explore_windows.rs:421:23	[relic_ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/explore_windows.rs:532:17	[CrownExplore::options]	logic	crate::tables::source_bit(d.source) & se... && !d.traits.is_empty()  =>  crate::tables::source_bit(d.source) & se... || !d.traits.is_empty()
+crates/ti4-engine-core/src/rules/explore_windows.rs:532:17	[CrownExplore::options]	arith	crate::tables::source_bit(d.source) & self.scope.0  =>  crate::tables::source_bit(d.source) | self.scope.0
+crates/ti4-engine-core/src/rules/explore_windows.rs:532:71	[CrownExplore::options]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/explore_windows.rs:561:68	[CrownExplore::ask_of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/leader_windows.rs:37:19	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leader_windows.rs:40:23	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leader_windows.rs:89:85	[XxchaAgent::offers_removal]	body	offers_removal(&self, core: &CoreState, k: &Kernel, planet: Planet) ->...  =>  { return false; }
+crates/ti4-engine-core/src/rules/leader_windows.rs:90:12	[XxchaAgent::offers_removal]	cond	!self.has_map  =>  !(!self.has_map)
+crates/ti4-engine-core/src/rules/leader_windows.rs:94:12	[XxchaAgent::offers_removal]	cond	!cell.flags.has(PlanetFlags::UNITS_ENTRY)  =>  !(!cell.flags.has(PlanetFlags::UNITS_ENTRY))
+crates/ti4-engine-core/src/rules/leader_windows.rs:95:20	[XxchaAgent::offers_removal]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leader_windows.rs:97:73	[XxchaAgent::offers_removal]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leader_windows.rs:98:70	[XxchaAgent::offers_removal]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leader_windows.rs:102:30	[XxchaAgent::offers_removal]	cmp	c.control == Some(self.who)  =>  c.control != Some(self.who)
+crates/ti4-engine-core/src/rules/leader_windows.rs:105:12	[XxchaAgent::offers_removal]	cond	!touches_mine  =>  !(!touches_mine)
+crates/ti4-engine-core/src/rules/leader_windows.rs:106:20	[XxchaAgent::offers_removal]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leader_windows.rs:110:13	[XxchaAgent::offers_removal]	logic	u.owner() == self.who && scope.unit(u.kind()).is_some_and(|d| d.b...  =>  u.owner() == self.who || scope.unit(u.kind()).is_some_and(|d| d.b...
+crates/ti4-engine-core/src/rules/leader_windows.rs:110:13	[XxchaAgent::offers_removal]	cmp	u.owner() == self.who  =>  u.owner() != self.who
+crates/ti4-engine-core/src/rules/leader_windows.rs:110:75	[XxchaAgent::offers_removal]	cmp	d.base_type == UnitBaseType::Infantry  =>  d.base_type != UnitBaseType::Infantry
+crates/ti4-engine-core/src/rules/leader_windows.rs:117:12	[XxchaAgent::finish]	cond	remove  =>  !(remove)
+crates/ti4-engine-core/src/rules/leader_windows.rs:124:31	[XxchaAgent::finish]	logic	u.owner() == who && scope.unit(u.kind()).is_some_and(|d| d.b...  =>  u.owner() == who || scope.unit(u.kind()).is_some_and(|d| d.b...
+crates/ti4-engine-core/src/rules/leader_windows.rs:124:31	[XxchaAgent::finish]	cmp	u.owner() == who  =>  u.owner() != who
+crates/ti4-engine-core/src/rules/leader_windows.rs:124:88	[XxchaAgent::finish]	cmp	d.base_type == UnitBaseType::Infantry  =>  d.base_type != UnitBaseType::Infantry
+crates/ti4-engine-core/src/rules/leader_windows.rs:160:41	[XxchaAgent::step]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leader_windows.rs:179:74	[XxchaAgent::ask_of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/leader_windows.rs:200:33	[XxchaAgent::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/leader_windows.rs:204:33	[XxchaAgent::answer]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leader_windows.rs:472:118	[RinHero::new]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leader_windows.rs:486:17	[RinHero::replacements]	arith	crate::tables::source_bit(d.source) & scope.0  =>  crate::tables::source_bit(d.source) | scope.0
+crates/ti4-engine-core/src/rules/leader_windows.rs:486:66	[RinHero::replacements]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/leader_windows.rs:625:34	[XxchaHeroTe::new]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/leader_windows.rs:705:103	[XxchaHeroTe::ask_of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/leader_windows.rs:724:50	[XxchaHeroTe::answer]	cmp	*left > 0  =>  *left >= 0
+crates/ti4-engine-core/src/rules/leaders.rs:120:82	[has_commander_ability]	body	has_commander_ability(cx: &Cx<'_>, who: Seat, commander: Leader) -> bo...  =>  { return true; }
+crates/ti4-engine-core/src/rules/leaders.rs:120:82	[has_commander_ability]	body	has_commander_ability(cx: &Cx<'_>, who: Seat, commander: Leader) -> bo...  =>  { return false; }
+crates/ti4-engine-core/src/rules/leaders.rs:125:67	[controlled_total]	body	controlled_total(cx: &Cx<'_>, who: Seat, spend: Spend) -> i64 {  =>  { return 0; }
+crates/ti4-engine-core/src/rules/leaders.rs:125:67	[controlled_total]	body	controlled_total(cx: &Cx<'_>, who: Seat, spend: Spend) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/rules/leaders.rs:130:28	[controlled_total]	cond	spend == Spend::Resources  =>  !(spend == Spend::Resources)
+crates/ti4-engine-core/src/rules/leaders.rs:130:28	[controlled_total]	cmp	spend == Spend::Resources  =>  spend != Spend::Resources
+crates/ti4-engine-core/src/rules/leaders.rs:130:91	[controlled_total]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/leaders.rs:137:101	[units_in_space]	cmp	u.owner() == who  =>  u.owner() != who
+crates/ti4-engine-core/src/rules/leaders.rs:141:41	[is_ground_force]	body	is_ground_force(unit: Unit) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/leaders.rs:141:41	[is_ground_force]	body	is_ground_force(unit: Unit) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/leaders.rs:142:5	[is_ground_force]	logic	matches!(unit.data().base_type, UnitBase... || matches!(unit, Unit::HelTitanI | Unit::H...  =>  matches!(unit.data().base_type, UnitBase... && matches!(unit, Unit::HelTitanI | Unit::H...
+crates/ti4-engine-core/src/rules/leaders.rs:148:84	[commander_unlocked]	body	commander_unlocked(cx: &Cx<'_>, who: Seat, leader: Leader) -> Option<b...  =>  { return None; }
+crates/ti4-engine-core/src/rules/leaders.rs:152:33	[commander_unlocked]	cmp	controlled_total(cx, who, Spend::Resourc... >= 12  =>  controlled_total(cx, who, Spend::Resourc... > 12
+crates/ti4-engine-core/src/rules/leaders.rs:152:80	[commander_unlocked]	lit	12  =>  13
+crates/ti4-engine-core/src/rules/leaders.rs:153:31	[commander_unlocked]	cmp	controlled_total(cx, who, Spend::Influen... >= 12  =>  controlled_total(cx, who, Spend::Influen... > 12
+crates/ti4-engine-core/src/rules/leaders.rs:153:78	[commander_unlocked]	lit	12  =>  13
+crates/ti4-engine-core/src/rules/leaders.rs:154:63	[commander_unlocked]	cmp	p.econ.trade_goods >= 10  =>  p.econ.trade_goods > 10
+crates/ti4-engine-core/src/rules/leaders.rs:154:85	[commander_unlocked]	lit	10  =>  11
+crates/ti4-engine-core/src/rules/leaders.rs:155:53	[commander_unlocked]	cmp	p.tech.owned.len() >= 8  =>  p.tech.owned.len() > 8
+crates/ti4-engine-core/src/rules/leaders.rs:155:75	[commander_unlocked]	lit	8  =>  9
+crates/ti4-engine-core/src/rules/leaders.rs:157:13	[commander_unlocked]	cmp	units_in_space(core, who).filter(|(_, u)... >= 4  =>  units_in_space(core, who).filter(|(_, u)... > 4
+crates/ti4-engine-core/src/rules/leaders.rs:157:55	[commander_unlocked]	cmp	u.kind().data().base_type == UnitBaseType::Dreadnought  =>  u.kind().data().base_type != UnitBaseType::Dreadnought
+crates/ti4-engine-core/src/rules/leaders.rs:157:122	[commander_unlocked]	lit	4  =>  5
+crates/ti4-engine-core/src/rules/leaders.rs:161:13	[commander_unlocked]	cmp	cell.units .as_slice() .iter() .filter(|... >= 5  =>  cell.units .as_slice() .iter() .filter(|... > 5
+crates/ti4-engine-core/src/rules/leaders.rs:164:29	[commander_unlocked]	cmp	u.owner() == who  =>  u.owner() != who
+crates/ti4-engine-core/src/rules/leaders.rs:167:21	[commander_unlocked]	logic	d.ship && d.base_type != UnitBaseType::Fighter  =>  d.ship || d.base_type != UnitBaseType::Fighter
+crates/ti4-engine-core/src/rules/leaders.rs:167:31	[commander_unlocked]	cmp	d.base_type != UnitBaseType::Fighter  =>  d.base_type == UnitBaseType::Fighter
+crates/ti4-engine-core/src/rules/leaders.rs:170:20	[commander_unlocked]	lit	5  =>  6
+crates/ti4-engine-core/src/rules/leaders.rs:174:29	[commander_unlocked]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leaders.rs:177:87	[commander_unlocked]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/leaders.rs:178:17	[commander_unlocked]	logic	board::space_units(core, sys).iter().any... || board::planets_of(core, sys) .any(|pl| b...  =>  board::space_units(core, sys).iter().any... && board::planets_of(core, sys) .any(|pl| b...
+crates/ti4-engine-core/src/rules/leaders.rs:178:62	[commander_unlocked]	logic	u.owner() == who && is_ground_force(u.kind())  =>  u.owner() == who || is_ground_force(u.kind())
+crates/ti4-engine-core/src/rules/leaders.rs:178:62	[commander_unlocked]	cmp	u.owner() == who  =>  u.owner() != who
+crates/ti4-engine-core/src/rules/leaders.rs:180:80	[commander_unlocked]	logic	u.owner() == who && is_ground_force(u.kind())  =>  u.owner() == who || is_ground_force(u.kind())
+crates/ti4-engine-core/src/rules/leaders.rs:180:80	[commander_unlocked]	cmp	u.owner() == who  =>  u.owner() != who
+crates/ti4-engine-core/src/rules/leaders.rs:183:32	[commander_unlocked]	cond	core.meta().rules_version >= RULES_FACTION_EFFECTS  =>  !(core.meta().rules_version >= RULES_FACTION_EFFECTS)
+crates/ti4-engine-core/src/rules/leaders.rs:183:32	[commander_unlocked]	cmp	core.meta().rules_version >= RULES_FACTION_EFFECTS  =>  core.meta().rules_version > RULES_FACTION_EFFECTS
+crates/ti4-engine-core/src/rules/leaders.rs:184:86	[commander_unlocked]	cmp	*f == Feat::LastToPass  =>  *f != Feat::LastToPass
+crates/ti4-engine-core/src/rules/leaders.rs:205:12	[unlockable]	cmp	*status == LeaderStatus::Locked  =>  *status != LeaderStatus::Locked
+crates/ti4-engine-core/src/rules/leaders.rs:212:16	[unlockable]	logic	*status == LeaderStatus::Locked && kind(... && !out.as_slice()[..commanders].contains(l...  =>  *status == LeaderStatus::Locked && kind(... || !out.as_slice()[..commanders].contains(l...
+crates/ti4-engine-core/src/rules/leaders.rs:212:16	[unlockable]	logic	*status == LeaderStatus::Locked && kind(*leader) == LeaderType::Hero  =>  *status == LeaderStatus::Locked || kind(*leader) == LeaderType::Hero
+crates/ti4-engine-core/src/rules/leaders.rs:360:72	[can_resolve_action]	body	can_resolve_action(cx: &Cx<'_>, who: Seat, leader: Leader) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/leaders.rs:360:72	[can_resolve_action]	body	can_resolve_action(cx: &Cx<'_>, who: Seat, leader: Leader) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/leaders.rs:366:69	[can_resolve_action]	cmp	i16::from(p.faction.data().commodities) > p.econ.commodities  =>  i16::from(p.faction.data().commodities) >= p.econ.commodities
+crates/ti4-engine-core/src/rules/leaders.rs:371:30	[can_resolve_action]	cmp	p.production_timers.fleet_supply_unlimit... != Some(core.meta().round)  =>  p.production_timers.fleet_supply_unlimit... == Some(core.meta().round)
+crates/ti4-engine-core/src/rules/leaders.rs:373:61	[can_resolve_action]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/leaders.rs:381:98	[action_candidates]	body	action_candidates(cx: &Cx<'_>, who: Seat, delivered: impl Fn(Leader) -...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/leaders.rs:386:12	[action_candidates]	cond	usable_now(leader, *status) && is_action_window(leader) && (delivered(leader) ||...  =>  !(usable_now(leader, *status) && is_action_window(leader) && (delivered(leader) ||...)
+crates/ti4-engine-core/src/rules/leaders.rs:386:12	[action_candidates]	logic	usable_now(leader, *status) && is_action... && can_resolve_action(cx, who, leader)  =>  usable_now(leader, *status) && is_action... || can_resolve_action(cx, who, leader)
+crates/ti4-engine-core/src/rules/leaders.rs:386:12	[action_candidates]	logic	usable_now(leader, *status) && is_action... && (delivered(leader) || cx.env.leader_acti...  =>  usable_now(leader, *status) && is_action... || (delivered(leader) || cx.env.leader_acti...
+crates/ti4-engine-core/src/rules/leaders.rs:386:12	[action_candidates]	logic	usable_now(leader, *status) && is_action_window(leader)  =>  usable_now(leader, *status) || is_action_window(leader)
+crates/ti4-engine-core/src/rules/leaders.rs:388:17	[action_candidates]	logic	delivered(leader) || cx.env.leader_action(who, leader).is_som...  =>  delivered(leader) && cx.env.leader_action(who, leader).is_som...
+crates/ti4-engine-core/src/rules/objective_windows.rs:24:47	[points]	body	points(core: &CoreState, who: Seat) -> u8 {  =>  { return 0; }
+crates/ti4-engine-core/src/rules/objective_windows.rs:25:40	[points]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/objective_windows.rs:73:74	[ScoreOne::pay_public]	body	pay_public(&self, sx: &mut Sx<'_>, obj: PublicObjective) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/objective_windows.rs:87:9	[ScoreOne::priced_ok]	logic	self.price.is_some() && fx_pay::pay_secret(sx.state, self.who, s...  =>  self.price.is_some() || fx_pay::pay_secret(sx.state, self.who, s...
+crates/ti4-engine-core/src/rules/objective_windows.rs:121:73	[ScoreOne::answer]	cond	self.offers.as_slice().contains(&Offer::Plot { secret, token })  =>  !(self.offers.as_slice().contains(&Offer::Plot { secret, token }))
+crates/ti4-engine-core/src/rules/objective_windows.rs:124:20	[ScoreOne::answer]	cond	!fx_plots::score_as_plot(sx.state, self.who, secret, token)  =>  !(!fx_plots::score_as_plot(sx.state, self.who, secret, token))
+crates/ti4-engine-core/src/rules/objective_windows.rs:129:26	[ScoreOne::answer]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/objective_windows.rs:210:68	[PlaceCard::ask_of]	body	ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/objective_windows.rs:211:10	[PlaceCard::ask_of]	cmp	self.stage == PStage::Asking  =>  self.stage != PStage::Asking
+crates/ti4-engine-core/src/rules/objective_windows.rs:214:79	[PlaceCard::answer]	body	answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/objective_windows.rs:216:84	[PlaceCard::answer]	cond	fx_plots::place_card(sx.state, self.who, card, self.token)  =>  !(fx_plots::place_card(sx.state, self.who, card, self.token))
+crates/ti4-engine-core/src/rules/objective_windows.rs:295:78	[hand_holds]	body	hand_holds(core: &CoreState, who: Seat, secret: SecretObjective) -> bo...  =>  { return true; }
+crates/ti4-engine-core/src/rules/relic_windows.rs:138:61	[Codex::ask_of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/scoring_book.rs:102:35	[ScoringBook::restore]	logic	one_per_player && has_occurrence  =>  one_per_player || has_occurrence
+crates/ti4-engine-core/src/rules/scoring_book.rs:162:47	[ScoringBook::keeps_place]	logic	next.offset == asked.offset && next.seat == asked.seat  =>  next.offset == asked.offset || next.seat == asked.seat
+crates/ti4-engine-core/src/rules/scoring_book.rs:166:20	[ScoringBook::truncate_keep]	arith	self.pending.len() - asked.offset  =>  self.pending.len() + asked.offset
+crates/ti4-engine-core/src/rules/strategy.rs:90:8	[next_picker]	cmp	picks >= order.len()  =>  picks > order.len()
+crates/ti4-engine-core/src/rules/strategy.rs:170:13	[can_do_something]	logic	cx.kernel.hooks.general.substitutes_prim... || cx.env.substitutes_primary(who, Some(kin...  =>  cx.kernel.hooks.general.substitutes_prim... && cx.env.substitutes_primary(who, Some(kin...
+crates/ti4-engine-core/src/rules/strategy.rs:175:39	[can_do_something]	cmp	cx.core.meta().rules_version >= RULES_IMPERIAL_SECRET_CAP  =>  cx.core.meta().rules_version > RULES_IMPERIAL_SECRET_CAP
+crates/ti4-engine-core/src/rules/strategy_flow.rs:16:58	[sorted_by_initiative]	lit	99  =>  100
+crates/ti4-engine-core/src/rules/strategy_flow.rs:65:8	[exchange]	logic	a == b || card_a == card_b  =>  a == b && card_a == card_b
+crates/ti4-engine-core/src/rules/strategy_flow.rs:95:8	[take_card]	cmp	goods > 0  =>  goods >= 0
+crates/ti4-engine-core/src/rules/strategy_flow.rs:95:16	[take_card]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/strategy_flow.rs:114:59	[replenish]	body	replenish(core: &mut CoreState, who: Seat) -> i32 {  =>  { return 0; }
+crates/ti4-engine-core/src/rules/strategy_flow.rs:114:59	[replenish]	body	replenish(core: &mut CoreState, who: Seat) -> i32 {  =>  { return 1; }
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:126:12	[WarfarePrimary::step]	cmp	self.stage == WStage::Redistribute  =>  self.stage != WStage::Redistribute
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:126:85	[WarfarePrimary::step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:139:44	[WarfarePrimary::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:144:45	[WarfarePrimary::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:296:37	[Diplomacy::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:419:50	[Politics::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:425:50	[Politics::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:543:103	[ImperialPrimary::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:607:71	[TeWarfare::floor]	cmp	p.faction == Faction::TheBaronyOfLetnev  =>  p.faction != Faction::TheBaronyOfLetnev
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:608:12	[TeWarfare::floor]	logic	letnev && self.letnev_zero_floor  =>  letnev || self.letnev_zero_floor
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:608:47	[TeWarfare::floor]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:632:63	[TeWarfare::step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:649:49	[TeWarfare::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:658:31	[TeWarfare::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/strategy_primaries.rs:661:35	[TeWarfare::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/strategy_secondary.rs:173:81	[SecondaryStep::new]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/strategy_secondary.rs:270:14	[SecondaryStep::ask_of]	logic	f.costs_token && !f.waivers.is_empty()  =>  f.costs_token || !f.waivers.is_empty()
+crates/ti4-engine-core/src/rules/strategy_secondary.rs:283:26	[SecondaryStep::ask_of]	cmp	self.card.data().kind == StrategyCardKind::Leadership  =>  self.card.data().kind != StrategyCardKind::Leadership
+crates/ti4-engine-core/src/rules/strategy_secondary.rs:288:21	[SecondaryStep::ask_of]	cond	leadership  =>  !(leadership)
+crates/ti4-engine-core/src/rules/strategy_secondary.rs:288:109	[SecondaryStep::ask_of]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/strategy_secondary.rs:316:37	[SecondaryStep::answer]	logic	!f.costs_token && f.primary_instead  =>  !f.costs_token || f.primary_instead
+crates/ti4-engine-core/src/rules/strategy_secondary.rs:328:42	[SecondaryStep::answer]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/strategy_windows.rs:88:43	[TradePrimary::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/trade.rs:23:42	[KernelEnv::has_iihq]	body	has_iihq(&self, _: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/trade.rs:23:42	[KernelEnv::has_iihq]	body	has_iihq(&self, _: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/trade.rs:24:9	[KernelEnv::has_iihq]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/trade.rs:26:40	[KernelEnv::wide]	body	wide(&self, who: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/trade.rs:26:40	[KernelEnv::wide]	body	wide(&self, who: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/trade.rs:29:60	[KernelEnv::transaction_reach]	body	transaction_reach(&self, _: Seat, _: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/trade.rs:29:60	[KernelEnv::transaction_reach]	body	transaction_reach(&self, _: Seat, _: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/trade.rs:30:9	[KernelEnv::transaction_reach]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/trade.rs:32:60	[KernelEnv::exempt_from_limit]	body	exempt_from_limit(&self, _: Seat, _: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/trade.rs:32:60	[KernelEnv::exempt_from_limit]	body	exempt_from_limit(&self, _: Seat, _: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/trade.rs:33:9	[KernelEnv::exempt_from_limit]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/trade.rs:35:55	[KernelEnv::trades_action_cards]	body	trades_action_cards(&self, who: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/trade.rs:35:55	[KernelEnv::trades_action_cards]	body	trades_action_cards(&self, who: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/trade.rs:38:37	[KernelEnv::black_market]	body	black_market(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/trade.rs:38:37	[KernelEnv::black_market]	body	black_market(&self) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/trade.rs:62:70	[take]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/trade.rs:63:70	[take]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/trade.rs:66:12	[take]	cmp	n > 0  =>  n >= 0
+crates/ti4-engine-core/src/rules/trade.rs:69:75	[take]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/trade.rs:82:85	[move_planet_units]	body	move_planet_units(core: &mut CoreState, seat: Seat, planet: Planet, to...  =>  { return (); }
+crates/ti4-engine-core/src/rules/trade.rs:84:8	[move_planet_units]	cond	b.planet(planet).control != Some(seat) || b.planet(to).control != Some(seat)  =>  !(b.planet(planet).control != Some(seat) || b.planet(to).control != Some(seat))
+crates/ti4-engine-core/src/rules/trade.rs:84:8	[move_planet_units]	logic	b.planet(planet).control != Some(seat) || b.planet(to).control != Some(seat)  =>  b.planet(planet).control != Some(seat) && b.planet(to).control != Some(seat)
+crates/ti4-engine-core/src/rules/trade.rs:84:8	[move_planet_units]	cmp	b.planet(planet).control != Some(seat)  =>  b.planet(planet).control == Some(seat)
+crates/ti4-engine-core/src/rules/trade.rs:84:50	[move_planet_units]	cmp	b.planet(to).control != Some(seat)  =>  b.planet(to).control == Some(seat)
+crates/ti4-engine-core/src/rules/trade.rs:90:72	[move_planet_units]	cmp	u.owner() == seat  =>  u.owner() != seat
+crates/ti4-engine-core/src/rules/trade.rs:101:60	[move_planet_units]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/trade.rs:103:85	[move_planet_units]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/trade.rs:113:12	[give]	cond	!cell.flags.has(crate::state::PlanetFlags::PURGED)  =>  !(!cell.flags.has(crate::state::PlanetFlags::PURGED))
+crates/ti4-engine-core/src/rules/trade.rs:127:20	[give]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/trade.rs:129:79	[give]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/trade.rs:200:8	[take_note]	cond	qn::is_play_area(key.note, key.faction) && !qn::is_action_placed(core, key.note)...  =>  !(qn::is_play_area(key.note, key.faction) && !qn::is_action_placed(core, key.note)...)
+crates/ti4-engine-core/src/rules/trade.rs:200:8	[take_note]	logic	qn::is_play_area(key.note, key.faction) ... && key.note != PromissoryNote::Antivirus  =>  qn::is_play_area(key.note, key.faction) ... || key.note != PromissoryNote::Antivirus
+crates/ti4-engine-core/src/rules/trade.rs:200:8	[take_note]	logic	qn::is_play_area(key.note, key.faction) && !qn::is_action_placed(core, key.note)  =>  qn::is_play_area(key.note, key.faction) || !qn::is_action_placed(core, key.note)
+crates/ti4-engine-core/src/rules/trade.rs:200:92	[take_note]	cmp	key.note != PromissoryNote::Antivirus  =>  key.note == PromissoryNote::Antivirus
+crates/ti4-engine-core/src/rules/trade.rs:219:82	[play_action_note]	body	play_action_note(core: &mut CoreState, seat: Seat, key: NoteKey) -> bo...  =>  { return true; }
+crates/ti4-engine-core/src/rules/trade.rs:219:82	[play_action_note]	body	play_action_note(core: &mut CoreState, seat: Seat, key: NoteKey) -> bo...  =>  { return false; }
+crates/ti4-engine-core/src/rules/trade.rs:220:8	[play_action_note]	cond	!qn::action_notes_in_hand(core, seat).contains(&key)  =>  !(!qn::action_notes_in_hand(core, seat).contains(&key))
+crates/ti4-engine-core/src/rules/trade.rs:221:16	[play_action_note]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/trade.rs:224:5	[play_action_note]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/trade.rs:229:107	[play_convoys]	body	play_convoys<K: Ord>(core: &mut CoreState, seat: Seat, text_order: imp...  =>  { return true; }
+crates/ti4-engine-core/src/rules/trade.rs:229:107	[play_convoys]	body	play_convoys<K: Ord>(core: &mut CoreState, seat: Seat, text_order: imp...  =>  { return false; }
+crates/ti4-engine-core/src/rules/trade.rs:232:21	[play_convoys]	cmp	k.note == PromissoryNote::TradeConvoys  =>  k.note != PromissoryNote::TradeConvoys
+crates/ti4-engine-core/src/rules/trade.rs:235:16	[play_convoys]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/trade.rs:238:5	[play_convoys]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/trade.rs:252:64	[receive_support]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/trade.rs:253:66	[receive_support]	arith	after - before  =>  after + before
+crates/ti4-engine-core/src/rules/trade.rs:264:31	[return_support]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/trade.rs:265:64	[return_support]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/trade.rs:302:17	[trade_agreement]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/trade.rs:307:91	[trade_agreement]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/trade_window.rs:91:21	[TradeWindow::at]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/trade_window.rs:114:75	[TradeWindow::why_illegal]	body	why_illegal(&self, core: &CoreState, shape: Shape) -> Option<Why> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/trade_window.rs:267:19	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/trade_window.rs:270:23	[ctx]	lit	false  =>  true

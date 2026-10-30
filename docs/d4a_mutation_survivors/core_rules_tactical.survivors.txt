@@ -1,0 +1,56 @@
+# survivors of core/rules/tactical: 55 of 126 points (56% killed)
+crates/ti4-engine-core/src/rules/tactical/activate.rs:18:32	[ask]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/tactical/activate.rs:28:47	[run]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/tactical/activate.rs:60:60	[present]	body	present(core: &CoreState, system: System) -> Vec<Seat> {  =>  { return Vec::new(); }
+crates/ti4-engine-core/src/rules/tactical/activate.rs:71:84	[owner_of]	body	owner_of(core: &CoreState, faction: crate::generated::Faction) -> Opti...  =>  { return None; }
+crates/ti4-engine-core/src/rules/tactical/activate.rs:72:54	[owner_of]	cmp	p.faction == faction  =>  p.faction != faction
+crates/ti4-engine-core/src/rules/tactical/activate.rs:80:98	[spend_support]	body	spend_support(core: &mut CoreState, activator: Seat, system: System) -...  =>  { return Vec::new(); }
+crates/ti4-engine-core/src/rules/tactical/activate.rs:86:35	[spend_support]	logic	**holder == activator && here.contains(owner)  =>  **holder == activator || here.contains(owner)
+crates/ti4-engine-core/src/rules/tactical/activate.rs:86:35	[spend_support]	cmp	**holder == activator  =>  **holder != activator
+crates/ti4-engine-core/src/rules/tactical/activate.rs:98:17	[spend_support]	logic	**holder == activator && key.note == not... && owner_of(core, key.faction).is_some_and(...  =>  **holder == activator && key.note == not... || owner_of(core, key.faction).is_some_and(...
+crates/ti4-engine-core/src/rules/tactical/activate.rs:98:17	[spend_support]	logic	**holder == activator && key.note == not... && core.cards().promissory_faceup.contains_...  =>  **holder == activator && key.note == not... || core.cards().promissory_faceup.contains_...
+crates/ti4-engine-core/src/rules/tactical/activate.rs:98:17	[spend_support]	logic	**holder == activator && key.note == note  =>  **holder == activator || key.note == note
+crates/ti4-engine-core/src/rules/tactical/activate.rs:98:17	[spend_support]	cmp	**holder == activator  =>  **holder != activator
+crates/ti4-engine-core/src/rules/tactical/activate.rs:99:24	[spend_support]	cmp	key.note == note  =>  key.note != note
+crates/ti4-engine-core/src/rules/tactical/activate.rs:101:72	[spend_support]	logic	owner != activator && here.contains(&owner)  =>  owner != activator || here.contains(&owner)
+crates/ti4-engine-core/src/rules/tactical/activate.rs:101:72	[spend_support]	cmp	owner != activator  =>  owner == activator
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:52:14	[answer]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:74:59	[sail]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:78:8	[sail]	cond	!(rules.anomalies_ignored || rules.rifts_ignored)  =>  !(!(rules.anomalies_ignored || rules.rifts_ignored))
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:78:10	[sail]	logic	rules.anomalies_ignored || rules.rifts_ignored  =>  rules.anomalies_ignored && rules.rifts_ignored
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:84:20	[sail]	cond	face <= RIFT_DESTROYS_ON  =>  !(face <= RIFT_DESTROYS_ON)
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:84:20	[sail]	cmp	face <= RIFT_DESTROYS_ON  =>  face < RIFT_DESTROYS_ON
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:85:32	[sail]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:120:50	[arrived]	logic	*o == piece.owner() && *u == piece.kind()  =>  *o == piece.owner() || *u == piece.kind()
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:120:50	[arrived]	cmp	*o == piece.owner()  =>  *o != piece.owner()
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:120:73	[arrived]	cmp	*u == piece.kind()  =>  *u != piece.kind()
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:121:28	[arrived]	assign	entry.2 += 1  =>  entry.2 -= 1
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:121:39	[arrived]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/tactical/cargo.rs:122:63	[arrived]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/tactical/finish.rs:25:70	[close]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/tactical/finish.rs:34:46	[close]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:53:41	[Enforce::half]	body	half(&self, unit: Unit) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:53:41	[Enforce::half]	body	half(&self, unit: Unit) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:58:31	[Enforce::standing]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:60:84	[Enforce::standing]	cond	halves  =>  !(halves)
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:78:73	[Enforce::excess]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:79:54	[Enforce::excess]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:79:57	[Enforce::excess]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:91:16	[Enforce::settle]	logic	self.excess(core, k, over) > 0 && !self.candidates(core, over).is_empty()  =>  self.excess(core, k, over) > 0 || !self.candidates(core, over).is_empty()
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:91:16	[Enforce::settle]	cmp	self.excess(core, k, over) > 0  =>  self.excess(core, k, over) >= 0
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:129:12	[Enforce::ask_of]	logic	cands.is_empty() || self.excess(s, k, over) <= 0  =>  cands.is_empty() && self.excess(s, k, over) <= 0
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:129:32	[Enforce::ask_of]	cmp	self.excess(s, k, over) <= 0  =>  self.excess(s, k, over) < 0
+crates/ti4-engine-core/src/rules/tactical/fleet.rs:132:60	[Enforce::ask_of]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/tactical/mod.rs:138:69	[Machine::new]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/tactical/mod.rs:234:106	[Machine::done_next]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/tactical/mod.rs:248:42	[Machine::hold]	body	hold(&self) -> Option<&Hold> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/tactical/mod.rs:258:83	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/tactical/mod.rs:258:143	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/tactical/mod.rs:275:28	[Machine::step]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/tactical/mod.rs:298:12	[Machine::ask_of]	logic	self.finished() || self.free.is_some()  =>  self.finished() && self.free.is_some()
+crates/ti4-engine-core/src/rules/tactical/movement.rs:29:51	[ask]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/tactical/movement.rs:84:59	[begin_one_move]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/tactical/movement.rs:92:12	[begin_one_move]	cond	pick.path.first() != Some(&origin) || pick.path.last() != Some(&active)  =>  !(pick.path.first() != Some(&origin) || pick.path.last() != Some(&active))
+crates/ti4-engine-core/src/rules/tactical/movement.rs:92:12	[begin_one_move]	logic	pick.path.first() != Some(&origin) || pick.path.last() != Some(&active)  =>  pick.path.first() != Some(&origin) && pick.path.last() != Some(&active)
+crates/ti4-engine-core/src/rules/tactical/movement.rs:92:12	[begin_one_move]	cmp	pick.path.first() != Some(&origin)  =>  pick.path.first() == Some(&origin)
+crates/ti4-engine-core/src/rules/tactical/movement.rs:92:50	[begin_one_move]	cmp	pick.path.last() != Some(&active)  =>  pick.path.last() == Some(&active)
