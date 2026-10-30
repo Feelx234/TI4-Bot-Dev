@@ -5516,12 +5516,11 @@ impl<'a> Game<'a> {
         } else {
             2
         };
-        let ssruu_any = self.state.players.iter().any(|seat| !crate::factions::hooks_cards::borrowable_agents(&self.state, self.content, &seat.id).is_empty());
         crate::turn_write::check_close(
             &self.state,
             self.sources,
             (crown, det, tro),
-            ssruu_any,
+            ssruu_lends,
             (self.leader_strategy.is_some(), self.secondary_after_tactical.is_some(), chosen),
         );
     }

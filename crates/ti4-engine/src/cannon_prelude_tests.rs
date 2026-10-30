@@ -779,3 +779,23 @@ fn a_planetary_maximum_is_never_assigned_the_hits_of_the_guns_in_lockstep() {
         "the Maximum was never lost to the guns"
     );
 }
+
+/// A Yssaril seat with Ssruu readied can copy the agent of another seat, but only the Sardakk agent makes the end of a tactical
+/// action a window for T'ro: the core is told whether Ssruu lends THAT agent, not whether it lends any.
+#[test]
+fn ssruu_borrowing_another_agent_does_not_open_the_tro_window() {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let state = crate::fixtures::seated_game(&[("a", "yssaril"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+    let content = ContentStore::embedded();
+    assert!(
+        !crate::factions::hooks_cards::borrowable_agents(&state, content, &a()).is_empty(),
+        "Ssruu is readied and b's agent can be copied"
+    );
+    let mut game = super::Game::with_table(state, content, Table::with_default(Box::new(crate::choice::FirstOption)));
+    game.state.active = Some(a());
+    with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || game.check_close_gates());
+    let r = report();
+    let _ = take_report();
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+}
