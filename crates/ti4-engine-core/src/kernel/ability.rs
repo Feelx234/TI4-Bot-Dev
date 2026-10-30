@@ -195,7 +195,7 @@ pub struct AdapterFacts {
     /// `supply::staging_enabled` of the position (a registered faction module is seated): losses are announced and a Direct
     /// Hit removes the exact sustained ship.
     pub staging: bool,
-    withdraw: Vec<(Seat, crate::generated::System, u64, Vec<crate::generated::System>)>,
+    withdraw: Vec<(Seat, crate::generated::System, u32, Vec<crate::generated::System>)>,
     /// The kernel whose economy hooks a payment inside an ability reads (the production kernel; the combat kernel holds none of
     /// the faction hooks of a payment). Set by the adapter.
     pub pay_kernel: Option<fn() -> &'static Kernel>,
@@ -231,14 +231,14 @@ impl AdapterFacts {
     /// Record the systems Skilled Retreat may withdraw `who` to from `system` (the map's part: the adapter computed them).
     /// One play is named by its player, the system and the combat round sequence (a window can hold several plays, the map changes
     /// between them).
-    pub fn set_withdraw(&mut self, who: Seat, system: crate::generated::System, round_seq: u64, destinations: Vec<crate::generated::System>) {
+    pub fn set_withdraw(&mut self, who: Seat, system: crate::generated::System, round_seq: u32, destinations: Vec<crate::generated::System>) {
         self.withdraw.retain(|(w, s, n, _)| !(*w == who && *s == system && *n == round_seq));
         self.withdraw.push((who, system, round_seq, destinations));
     }
 
     /// The withdrawal destinations of `who` leaving `system`, if the string's card looked for them.
     #[must_use]
-    pub fn withdraw(&self, who: Seat, system: crate::generated::System, round_seq: u64) -> Option<&[crate::generated::System]> {
+    pub fn withdraw(&self, who: Seat, system: crate::generated::System, round_seq: u32) -> Option<&[crate::generated::System]> {
         self.withdraw.iter().find(|(w, s, n, _)| *w == who && *s == system && *n == round_seq).map(|(.., d)| d.as_slice())
     }
 

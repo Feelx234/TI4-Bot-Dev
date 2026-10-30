@@ -113,7 +113,7 @@ pub struct Recording {
     /// The destinations a Skilled Retreat found for `(player, system)`, as the string's map computed them (the core is lent
     /// no galaxy): an input of the card, noted by its effect.
     /// Skilled Retreat plays in order: (player, system, `combat_round_seq` of the play, destinations).
-    pub withdraw: Vec<(String, String, u64, Vec<String>)>,
+    pub withdraw: Vec<(String, String, u32, Vec<String>)>,
     /// The plain events (`Game::emit`, `Live::emit`) the string pushed to `Game::events` while the window ran, as pushed
     /// (`NAME` or `NAME:argument`), in order (package P1.1).
     pub plain: Vec<String>,
@@ -395,7 +395,7 @@ impl Drop for PickGuard {
 }
 
 /// Skilled Retreat found these destinations for `player` leaving `system` (the map is the string's).
-pub fn note_withdraw(player: &str, system: &str, round_seq: u64, destinations: &[ti4_model::id::SystemId]) {
+pub fn note_withdraw(player: &str, system: &str, round_seq: u32, destinations: &[ti4_model::id::SystemId]) {
     REC.with(|r| {
         if let Some(rec) = r.borrow_mut().as_mut() {
             rec.withdraw.push((player.to_owned(), system.to_owned(), round_seq, destinations.iter().map(ToString::to_string).collect()));
