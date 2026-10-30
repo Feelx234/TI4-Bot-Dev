@@ -38,10 +38,14 @@ mod agenda;
 mod board;
 mod facts;
 mod hand;
+mod objectives;
 
 pub use agenda::{AgendaFacts, InvasionFacts};
 pub use board::{PlanetView, SystemView};
 pub use facts::SeatView;
+pub use objectives::{ProgressRow, RowFamily};
+
+use std::cell::RefCell;
 
 use crate::ids::Seat;
 use crate::kernel::Kernel;
@@ -72,6 +76,13 @@ pub struct Seen<'a> {
     kernel: &'a Kernel,
     me: Seat,
     blanked: bool,
+    memo: RefCell<Memo>,
+}
+
+/// What a position computes once: the objectives scan per seat (and, with the movement accessors, the reach).
+#[derive(Default)]
+pub(crate) struct Memo {
+    pub(crate) facts: objectives::FactsMemo,
 }
 
 impl<'a> Seen<'a> {
@@ -79,7 +90,7 @@ impl<'a> Seen<'a> {
     /// source scope.
     #[must_use]
     pub fn new(state: &'a CoreState, kernel: &'a Kernel, me: Seat) -> Self {
-        Self { state, kernel, me, blanked: false }
+        Self { state, kernel, me, blanked: false, memo: RefCell::new(Memo::default()) }
     }
 
     /// The same view with "all laws are blank this turn" (Law's Order) as the caller computes it.
@@ -105,6 +116,10 @@ impl<'a> Seen<'a> {
 
     pub(crate) const fn blanked(&self) -> bool {
         self.blanked
+    }
+
+    pub(crate) fn memo(&self) -> &RefCell<Memo> {
+        &self.memo
     }
 
     pub(crate) fn scope(&self) -> Scope {

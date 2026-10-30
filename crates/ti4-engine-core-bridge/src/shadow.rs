@@ -167,6 +167,7 @@ pub struct Parity {
     pub positions: u64,
     pub unmapped: BTreeMap<String, u64>,
     pub compared: u64,
+    pub skipped: u64,
     pub mismatches: Vec<String>,
 }
 
@@ -274,6 +275,7 @@ impl Shadow {
             Ok(owned) => {
                 let found = crate::seen_parity::check(seen, &owned);
                 p.compared += found.compared;
+                p.skipped += found.skipped;
                 for m in found.mismatches {
                     if p.mismatches.len() < 200 {
                         p.mismatches.push(format!("game {} decision {decision} ({subtype}): {m}", self.game));
@@ -424,6 +426,7 @@ fn merge(into: &mut Report, from: Report) {
     into.mismatches.extend(from.mismatches);
     into.parity.positions += from.parity.positions;
     into.parity.compared += from.parity.compared;
+    into.parity.skipped += from.parity.skipped;
     for (k, n) in from.parity.unmapped {
         *into.parity.unmapped.entry(k).or_default() += n;
     }
@@ -469,10 +472,11 @@ pub fn render(report: &Report, mode: Mode) -> String {
         let p = &report.parity;
         let _ = writeln!(
             out,
-            "seen parity: {} positions, {} unmapped, {} accessor answers compared, {} differences",
+            "seen parity: {} positions, {} unmapped, {} accessor answers compared ({} bailed to the string side), {} differences",
             p.positions,
             p.unmapped.values().sum::<u64>(),
             p.compared,
+            p.skipped,
             p.mismatches.len()
         );
         for (reason, n) in &p.unmapped {

@@ -13,7 +13,8 @@ use ti4_engine::seen_load::SeenOwned;
 use ti4_engine_core::generated::{Agenda, StrategyCard, System};
 use ti4_engine_core::keys::{Outcome, Prediction};
 use ti4_engine_core::query::economy::Spend as CoreSpend;
-use ti4_engine_core::seen::Seen;
+use ti4_engine_core::seen::{ProgressRow, RowFamily, Seen};
+use ti4_engine_core::state::ObjectiveRef;
 use ti4_engine_core::Seat;
 use ti4_model::id::{PlanetId, SystemId};
 
@@ -24,6 +25,8 @@ pub struct Found {
     pub compared: u64,
     /// `accessor: string answer vs typed answer`.
     pub mismatches: Vec<String>,
+    /// Accessor answers the typed side bails on (it returns `None`; the string side falls back to its own engine).
+    pub skipped: u64,
 }
 
 struct Cmp<'a> {
@@ -77,6 +80,7 @@ pub fn check(seen: &SeatObservation<'_>, owned: &SeenOwned) -> Found {
     board(&mut c, obs, &typed);
     agenda(&mut c, obs, &typed);
     hand(&mut c, seen, &typed);
+    objectives(&mut c, seen, &typed);
     found
 }
 
@@ -342,3 +346,104 @@ fn hand(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
     c.eq("held_promissory_notes (count)", seen.held_promissory_notes().len(), t.my_notes().len());
 }
 
+
+fn card_rows(rows: &[ti4_engine::objectives::CardProgress]) -> Vec<(String, String, u64, u64, bool, Option<u8>)> {
+    rows.iter()
+        .map(|r| (r.alias.clone(), r.family_token.clone(), r.have.to_bits(), r.threshold.to_bits(), r.satisfied, r.stage))
+        .collect()
+}
+
+fn typed_rows(rows: &[ProgressRow]) -> Vec<(String, String, u64, u64, bool, Option<u8>)> {
+    use ti4_engine::objectives_core as oc;
+    rows.iter()
+        .map(|r| {
+            let alias = match r.objective {
+                ObjectiveRef::Public(o) => o.as_str().to_owned(),
+                ObjectiveRef::Secret(o) => o.as_str().to_owned(),
+            };
+            let token = match r.family {
+                RowFamily::Count(f) => ti4_engine::objectives::family_token(&oc::family(f)),
+                RowFamily::Cost(f) => {
+                    let p = oc::cost_progress(ti4_engine_core::query::objectives::CostProgress { family: f, have: r.have, target: r.threshold });
+                    ti4_engine::objectives::cost_family_token(&p.family)
+                }
+            };
+            (alias, token, (r.have as f64).to_bits(), (r.threshold as f64).to_bits(), r.satisfied, r.stage)
+        })
+        .collect()
+}
+
+fn objectives(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
+    use ti4_engine::objectives::Imagined as SImagined;
+    use ti4_engine_core::query::objectives::Imagined as TImagined;
+    let obs = seen.observed();
+    c.eq(
+        "revealed_objectives",
+        obs.revealed_objectives().iter().map(|o| o.as_str().to_owned()).collect::<Vec<_>>(),
+        t.revealed_objectives()
+            .iter()
+            .map(|r| match r {
+                ObjectiveRef::Public(o) => o.as_str().to_owned(),
+                ObjectiveRef::Secret(o) => o.as_str().to_owned(),
+            })
+            .collect::<Vec<_>>(),
+    );
+    for player in obs.players() {
+        let Some(seat) = c.owned.seat(player) else { continue };
+        let scored = t.scored_by(seat);
+        let mut typed_scored: Vec<String> = scored.public.iter().map(|o| o.as_str().to_owned()).chain(scored.secret.iter().map(|o| o.as_str().to_owned())).collect();
+        typed_scored.sort();
+        c.eq(&format!("scored_by({player})"), obs.scored_by(player).iter().map(|o| o.as_str().to_owned()).collect::<Vec<_>>(), typed_scored);
+
+        // Planets the option would take: the first two planets other seats control (the counterfactual of an invasion).
+        let theirs: Vec<PlanetId> = obs
+            .board()
+            .values()
+            .flat_map(|s| s.planet_control.iter())
+            .filter(|(_, owner)| *owner != player)
+            .map(|(p, _)| p.clone())
+            .take(2)
+            .collect();
+        let typed_planets: Vec<ti4_engine_core::generated::Planet> = theirs.iter().filter_map(|p| IdStr::from_id(p.as_str())).collect();
+        let tech = ti4_engine_core::generated::Technology::ALL[3];
+        let systems = vec!["18".to_owned()];
+        let techs = vec![tech.as_str().to_owned()];
+        let string_options = [
+            SImagined::NONE,
+            SImagined { planets: &theirs, systems: &systems, technologies: &techs, structures: &[] },
+        ];
+        let typed_options = [
+            TImagined::NONE,
+            TImagined { planets: &typed_planets, systems: &[System::from_id("18").unwrap_or(System::ALL[0])], technologies: &[tech], structures: &[] },
+        ];
+        for (n, (si, ti)) in string_options.iter().zip(typed_options).enumerate() {
+            let string = obs.revealed_objective_progress_imagining(player, si);
+            match t.revealed_objective_progress(seat, ti) {
+                Some(rows) => c.eq(&format!("revealed_objective_progress({player}, imagined {n})"), card_rows(&string), typed_rows(&rows)),
+                None => c.found.skipped += 1,
+            }
+        }
+    }
+    // The bound seat's secrets.
+    let me = c.owned.seat(seen.bound_seat());
+    if me.is_some() {
+        let string = seen.held_secret_progress_imagining(&ti4_engine::objectives::Imagined::NONE);
+        match t.my_secret_progress(ti4_engine_core::query::objectives::Imagined::NONE) {
+            Some(rows) => c.eq("held_secret_progress", card_rows(&string), typed_rows(&rows)),
+            None => c.found.skipped += 1,
+        }
+    }
+    // Systems the map-shaped objectives name.
+    if let Some(me) = me {
+        let mut systems: BTreeSet<SystemId> = obs.board().keys().cloned().collect();
+        systems.extend(System::ALL.iter().take(40).map(|s| SystemId::new(s.as_str())));
+        for id in systems {
+            let Some(typed) = System::from_id(id.as_str()) else { continue };
+            c.eq(
+                &format!("objectives_implicating_system({id})"),
+                obs.objectives_implicating_system(seen.bound_seat(), &id).iter().map(|o| o.as_str().to_owned()).collect::<Vec<_>>(),
+                t.objectives_implicating_system(me, typed).as_slice().iter().map(|o| o.as_str().to_owned()).collect::<Vec<_>>(),
+            );
+        }
+    }
+}
