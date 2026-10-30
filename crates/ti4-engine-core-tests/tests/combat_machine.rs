@@ -364,10 +364,16 @@ fn a_combat_whose_other_side_dies_to_the_barrage_alone_is_over_with_no_round_fou
         fight.pause_at_scoring = true;
         let stop = fight.settle(Policy::First);
         seen.push(format!("seed {seed}: {stop:?}, defender ships {}, outcome {:?}", fight.ships(1, sys()), fight.fields.outcome));
-        if stop == Some(Stop::Scoring) {
+        // The feat's scoring pause comes only when the barrage kills the last fighter of a seat that scores it; since W2 the plain kill runs straight to Over.
+        let over = if stop == Some(Stop::Scoring) {
             fight.fields.scoring = false;
             let again = fight.settle(Policy::First);
             assert_eq!(again, Some(Stop::Over));
+            true
+        } else {
+            stop == Some(Stop::Over)
+        };
+        if over {
             if fight.ships(1, sys()) == 0 && fight.fields.outcome.map(|o| o.1) == Some(0) {
                 ended_early = true;
                 assert_eq!(fight.fields.outcome.unwrap().0, Some(Seat(0)));
