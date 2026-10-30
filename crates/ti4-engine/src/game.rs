@@ -5420,8 +5420,46 @@ impl<'a> Game<'a> {
         self.result(true, None)
     }
 
+    /// The gates and the continuation of [`Self::close_tactical`] against the core's (`driver::tactical_tail`; D1b2).
+    fn check_close_gates(&self) {
+        let player = self.state.active.clone();
+        let crown = player
+            .as_ref()
+            .is_some_and(|player| crate::relics::crown_of_emphidia_offers(&self.state, self.content, self.sources, player));
+        let det = matches!((&player, &self.state.active_system), (Some(player), Some(system))
+            if self.state.frontier_tokens.contains(system)
+                && crate::technology::owns_det(&self.state, player)
+                && self.state.system_state(system).units.iter().any(|unit| &unit.owner == player));
+        let ssruu_lends = self.state.players.iter().any(|seat| {
+            crate::factions::hooks_cards::borrowable_agents(&self.state, self.content, &seat.id).iter().any(|(_, agent)| agent.as_str() == "sardakkagent")
+        });
+        let tro = self.state.players.iter().any(|seat| {
+            ["sardakkagent", "nomadagentmercer"]
+                .iter()
+                .any(|agent| seat.leaders.get(ti4_model::id::text(&*agent)) == Some(&ti4_model::state::LeaderStatus::Readied))
+        }) || ssruu_lends;
+        let chosen = if self.leader_strategy.is_some() {
+            0
+        } else if self.secondary_after_tactical.is_some() {
+            1
+        } else {
+            2
+        };
+        let ssruu_any = self.state.players.iter().any(|seat| !crate::factions::hooks_cards::borrowable_agents(&self.state, self.content, &seat.id).is_empty());
+        crate::turn_write::check_close(
+            &self.state,
+            self.sources,
+            (crown, det, tro),
+            ssruu_any,
+            (self.leader_strategy.is_some(), self.secondary_after_tactical.is_some(), chosen),
+        );
+    }
+
     /// Close the action and pass the turn.
     fn close_tactical(&mut self) -> StepResult {
+        if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual {
+            self.check_close_gates();
+        }
         // The Crown of Emphidia: "After you perform a tactical action, you may exhaust this card to
         // explore 1 planet you control." Here rather than in `finish_tactical`, because a tactical
         // action can end down either path and only this one is common to both.
@@ -5534,8 +5572,7 @@ impl<'a> Game<'a> {
             }
         }
         self.aftermath = None;
-        self.state.active_system = None;
-        self.state.pending = None;
+        crate::turn_write::close_tactical_writes(&mut self.state);
         self.emit("TACTICAL_ACTION_COMPLETE");
         if self.leader_strategy.is_some() {
             // Thunder's Edge Warfare: "...redistribute your command tokens ... after this action."

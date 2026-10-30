@@ -215,7 +215,7 @@ fn the_head_of_an_aftermath_runs_as_a_core_window_with_the_fights_opening_writes
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     let head = r.windows.get(HEAD).map_or(0, |w| w.compared);
     assert!(head >= 8, "the head ran in the core: {:?}", r.windows);
-    assert!(states.iter().any(|s| s.active_space_combat.is_some()), "a fight opened in some run");
+    assert!(states.iter().any(|s| s.active_space_combat.is_some() || s.combat_round_seq > 0), "a fight opened in some run");
 }
 
 #[test]

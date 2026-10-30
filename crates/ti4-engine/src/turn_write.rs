@@ -93,6 +93,40 @@ pub fn check_pass_on(before: &GameState, after: &GameState, ended: Option<&Playe
     crate::dual::compare_value(Area::Driver, "turn::pass_on", &string, &core);
 }
 
+/// The writes of the close of a tactical action (`Game::close_tactical`): no system is active and the legacy pending tag is
+/// cleared (the aftermath window, a field of `Game`, is dropped by the caller).
+pub fn close_tactical_writes(state: &mut GameState) {
+    write(
+        Area::Driver,
+        state,
+        "turn::close_tactical",
+        |s| {
+            s.active_system = None;
+            s.pending = None;
+        },
+        real::close_tactical_writes,
+    );
+}
+
+/// What `close_tactical` decides from the position, as the string decides it: does the Crown of Emphidia offer an
+/// exploration, does Dark Energy Tap fire, does anyone listen for the end of the action (T'ro and its kin).
+pub type CloseGates = (bool, bool, bool);
+
+/// Compare the three gates of `close_tactical` and its continuation with the core's (`driver::tactical_tail`). `ssruu_lends`:
+/// a Yssaril seat with a readied Ssruu could copy an agent (the string's `borrowable_agents`), which the core does not know.
+pub fn check_close(state: &GameState, sources: ti4_model::content_types::SourceSet, string: CloseGates, ssruu_lends: bool, then: (bool, bool, u8)) {
+    if crate::dual::backend(Area::Driver) != crate::dual::Backend::Dual {
+        return;
+    }
+    let Some(core) = real::close_gates(state, sources, ssruu_lends) else {
+        crate::dual::note_bail("turn::close_gates", "the position is outside the tables");
+        return;
+    };
+    crate::dual::compare_value(Area::Driver, "turn::close_gates", &string, &core);
+    let (leader_strategy, secondary, chosen) = then;
+    crate::dual::compare_value(Area::Driver, "turn::close_then", &chosen, &real::then(leader_strategy, secondary));
+}
+
 /// The sources of the action menu as the string marks them: the position in `driver::menu::ORDER`.
 pub mod src {
     pub const STRATEGIC: u8 = 0;
@@ -200,6 +234,44 @@ mod real {
         crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| f(core, &r)).ok()
     }
 
+    const CLOSE: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards, Slice::Explore], &[]);
+    const CLOSE_WRITES: Footprint = Footprint::new(&[Slice::Meta, Slice::Pending], &[Slice::Meta, Slice::Pending]);
+
+    pub fn close_tactical_writes(gs: &mut GameState) -> Option<()> {
+        lend_with(gs, CLOSE_WRITES, |core, _| ti4_engine_core::driver::tactical_tail::close_writes(core))
+    }
+
+    /// `(crown, det, tro)` on a copy of the position.
+    pub fn close_gates(before: &GameState, sources: ti4_model::content_types::SourceSet, ssruu_lends: bool) -> Option<super::CloseGates> {
+        use ti4_engine_core::driver::tactical_tail as tail;
+        let mut gs = before.clone();
+        let scope = crate::core_adapter::scope(sources);
+        let active = gs.active.clone();
+        let system = gs.active_system.clone();
+        lend_with(&mut gs, CLOSE, |core, r| {
+            let seat = match &active {
+                Some(p) => Some(r.seat(p.as_str())?),
+                None => None,
+            };
+            let system = match &system {
+                Some(s) => Some(<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(s.as_str())?),
+                None => None,
+            };
+            let crown = seat.is_some_and(|seat| tail::crown_offers(core, seat, scope));
+            let det = seat.zip(system).is_some_and(|(seat, system)| tail::det_fires(core, seat, system));
+            Some((crown, det, tail::tro_window(core, ssruu_lends)))
+        })?
+    }
+
+    pub fn then(leader_strategy: bool, secondary: bool) -> u8 {
+        use ti4_engine_core::driver::tactical_tail::{Then, then};
+        match then(leader_strategy, secondary) {
+            Then::LeaderStrategy => 0,
+            Then::Secondary => 1,
+            Then::FinishAction => 2,
+        }
+    }
+
     pub fn begin_action_turn(gs: &mut GameState, p: &PlayerId) -> Option<()> {
         lend(gs, |core, r| r.seat(p.as_str()).map(|seat| rules::begin_action_turn(core, seat)))?
     }
@@ -293,6 +365,15 @@ mod real {
     use ti4_model::id::PlayerId;
     use ti4_model::state::GameState;
 
+    pub fn close_tactical_writes(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn close_gates(_: &GameState, _: ti4_model::content_types::SourceSet, _: bool) -> Option<super::CloseGates> {
+        None
+    }
+    pub fn then(_: bool, _: bool) -> u8 {
+        0
+    }
     pub fn begin_action_turn(_: &mut GameState, _: &PlayerId) -> Option<()> {
         None
     }
@@ -510,5 +591,53 @@ mod tests {
         for (mark, source) in marks {
             assert_eq!(ORDER[usize::from(mark)], source);
         }
+    }
+
+    fn close_position() -> GameState {
+        let mut state = table();
+        state.active_system = Some(ti4_model::id::SystemId::new("18"));
+        state.pending = Some("move".to_owned());
+        state
+    }
+
+    #[test]
+    fn the_close_of_a_tactical_action_clears_the_system_and_the_pending_tag_in_both_halves() {
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = close_position();
+        with_mask(driver(), || close_tactical_writes(&mut state));
+        let r = report();
+        let _ = take_report();
+        assert_eq!((state.active_system.clone(), state.pending.clone()), (None, None));
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.windows.get("turn::close_tactical").map_or(0, |w| w.compared) >= 1, "the core half ran: {:?}", r.windows);
+    }
+
+    #[test]
+    fn a_tro_listener_dark_energy_tap_and_the_crown_are_read_from_the_position_by_the_core() {
+        let _serial = crate::dual::tests::serial();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = close_position();
+        let system = ti4_model::id::SystemId::new("18");
+        let probe = |state: &GameState| real::close_gates(state, sources, false);
+        assert_eq!(probe(&state), Some((false, false, false)), "nothing listens at a plain table");
+        // A readied Sardakk agent listens for the end of the action.
+        state.player_mut(&pid("b")).unwrap().leaders.insert(ti4_model::id::text("sardakkagent"), ti4_model::state::LeaderStatus::Readied);
+        assert_eq!(probe(&state), Some((false, false, true)));
+        // Dark Energy Tap fires for a ship of the active seat in a system with a frontier token.
+        state.frontier_tokens.insert(system.clone());
+        state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("det"));
+        assert_eq!(probe(&state), Some((false, false, true)), "no ship there yet");
+        crate::fixtures::put(&mut state, &system, "cruiser", &pid("a"), 1);
+        assert_eq!(probe(&state), Some((false, true, true)));
+        // Every gate and the continuation are compared against the string's in one call.
+        let _ = take_report();
+        with_mask(driver(), || {
+            check_close(&state, sources, (false, true, true), false, (false, true, 1));
+            check_close(&state, sources, (false, false, true), false, (false, false, 2));
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(r.total_differences(), 1, "only the gate the string got wrong differs: {:?}", r.differences);
     }
 }
