@@ -26,7 +26,13 @@ pub struct Found {
     /// `accessor: string answer vs typed answer`.
     pub mismatches: Vec<String>,
     /// Accessor answers the typed side bails on (it returns `None`; the string side falls back to its own engine).
-    pub skipped: u64,
+    pub skipped: std::collections::BTreeMap<&'static str, u64>,
+}
+
+impl Found {
+    fn skip(&mut self, accessor: &'static str) {
+        *self.skipped.entry(accessor).or_default() += 1;
+    }
 }
 
 struct Cmp<'a> {
@@ -406,6 +412,10 @@ fn objectives(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
         let scored = t.scored_by(seat);
         let mut typed_scored: Vec<String> = scored.public.iter().map(|o| o.as_str().to_owned()).chain(scored.secret.iter().map(|o| o.as_str().to_owned())).collect();
         typed_scored.sort();
+        match t.scoreable_public(seat) {
+            Some(n) => c.eq(&format!("scoreable_public({player})"), obs.scoreable_public(player), n),
+            None => c.found.skip("scoreable_public"),
+        }
         c.eq(&format!("scored_by({player})"), obs.scored_by(player).iter().map(|o| o.as_str().to_owned()).collect::<Vec<_>>(), typed_scored);
 
         // Planets the option would take: the first two planets other seats control (the counterfactual of an invasion).
@@ -433,7 +443,7 @@ fn objectives(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
             let string = obs.revealed_objective_progress_imagining(player, si);
             match t.revealed_objective_progress(seat, ti) {
                 Some(rows) => c.eq(&format!("revealed_objective_progress({player}, imagined {n})"), card_rows(&string), typed_rows(&rows)),
-                None => c.found.skipped += 1,
+                None => c.found.skip("revealed_objective_progress"),
             }
         }
     }
@@ -443,7 +453,7 @@ fn objectives(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
         let string = seen.held_secret_progress_imagining(&ti4_engine::objectives::Imagined::NONE);
         match t.my_secret_progress(ti4_engine_core::query::objectives::Imagined::NONE) {
             Some(rows) => c.eq("held_secret_progress", card_rows(&string), typed_rows(&rows)),
-            None => c.found.skipped += 1,
+            None => c.found.skip("held_secret_progress"),
         }
     }
     // Systems the map-shaped objectives name.

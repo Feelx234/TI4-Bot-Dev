@@ -6,8 +6,7 @@
 //! hook terms of a seat ([`Terms`]) come from the hook table; Keleres' IIHQ is empty because no Keleres seat can be
 //! seated in the lobby.
 //!
-//! Not here (bail `D3-bail-02`): `scoreable_public` / `scoreable_secret` (the 61.16 home-control test with
-//! `scores_without_home`, and the secrets' string-side scoring checks have no core twin yet).
+//! Not here (bail `D3-bail-02`): `scoreable_secret` (the bot never calls it).
 
 use std::rc::Rc;
 
@@ -190,6 +189,54 @@ impl Seen<'_> {
             }
         }
         out
+    }
+
+    /// How many revealed public objectives the seat could score right now (`Observed::scoreable_public`): none while a
+    /// home planet is lost (61.16, unless the faction scores without its home), a bought objective when it can be
+    /// afforded, a position objective when its requirement is met, a leaked secret by its position requirement.
+    /// `None`: a secret the core cannot answer.
+    #[must_use]
+    pub fn scoreable_public(&self, seat: Seat) -> Option<usize> {
+        let core = self.st();
+        let Some(player) = core.players().by_seat(seat) else { return Some(0) };
+        let scores_without_home = self.kernel().hooks.strategy.scores_without_home(core, seat);
+        let home_held = player.home_planets.as_slice().iter().all(|p| board::controls(core, seat, *p));
+        if !(scores_without_home || home_held) {
+            return Some(0);
+        }
+        let scored = self.scored_by(seat);
+        let facts = self.facts(seat);
+        let pos = Pos::new(core, &facts, self.has_map(), Imagined::NONE);
+        let edge = self.edge();
+        let mut n = 0;
+        for r in core.objectives().revealed.iter() {
+            match r {
+                ObjectiveRef::Public(obj) => {
+                    if scored.public.contains(*obj) {
+                        continue;
+                    }
+                    let met = if q::cost_of(*obj).is_none() {
+                        q::counting_progress(&pos, &edge, *obj)
+                            .or_else(|| q::remaining_position_progress(&pos, *obj))
+                            .is_some_and(|p| p.satisfied())
+                    } else {
+                        q::bought_progress(&pos, *obj).is_some_and(|c| c.satisfied())
+                    };
+                    n += usize::from(met);
+                }
+                ObjectiveRef::Secret(obj) => {
+                    if scored.secret.contains(*obj) {
+                        continue;
+                    }
+                    match q::secret_progress(&pos, *obj) {
+                        Ok(Some(p)) => n += usize::from(p.satisfied()),
+                        Ok(None) => {}
+                        Err(q::Unsupported) => return None,
+                    }
+                }
+            }
+        }
+        Some(n)
     }
 
     /// The value of a planet to spend (re-exported helper of the economy for the progress tests).
