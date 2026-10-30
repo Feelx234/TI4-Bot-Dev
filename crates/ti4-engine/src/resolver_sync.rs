@@ -620,7 +620,7 @@ mod tests {
     #[test]
     fn sending_the_state_through_the_core_before_every_step_changes_nothing() {
         // On the string backend whatever `TI4_AREAS` says: this test is about the codecs, and a random seated game also meets
-        // the dual difference of `random_play_of_a_seated_game_meets_a_dual_difference` below.
+        // a dual difference of its own would be `random_play_of_a_seated_game_has_no_dual_difference` below.
         crate::dual::with_mask(crate::dual::AreaMask::STRING, || {
             for (n, seed) in GAMES {
                 let mut plain = seated_game(n, seed);
@@ -650,53 +650,28 @@ mod tests {
         Game::with_seeded_random(state, ContentStore::embedded(), seed)
     }
 
-    /// Diagnostic for D2-5-find-02: which card and which seat disagree at the first position where it happens.
+    /// D2-5-find-02, kept as a regression test: the plain random game of a 3-seat table (`GAMES[0]`, factions `Faction::ALL[0..3]`
+    /// under `POK`, one of them a Thunder's Edge faction) met a string/core difference in `action_cards::has_legal_target` at its
+    /// 50th step with every area on `Dual`: the core answered in the scope of ALL sources, the string in the game's. Fixed by
+    /// passing the game's sources to the core; this plays the game again under the dual with fail-fast.
     #[test]
-    #[ignore = "diagnostic"]
-    fn diag_has_legal_target() {
-        crate::dual::with_mask(crate::dual::AreaMask::STRING, || {
-            use crate::generated::IdStr;
-            let (n, seed) = GAMES[0];
-            let mut game = seated_game(n, seed);
-            for step in 0..60 {
-                for p in game.state.players.clone() {
-                    for card in ti4_engine_core::generated::ActionCard::ALL {
-                        let alias = ti4_model::id::ActionCardId::new(card.as_str());
-                        let typed = crate::action_cards_typed::has_legal_target(&game.state, &p.id, &alias);
-                        let string = crate::action_cards::has_legal_target_text(&game.state, ContentStore::embedded(), POK, &p.id, &alias);
-                        if let Some(t) = typed {
-                            if t != string {
-                                eprintln!("DIAG step {step} seat {} card {} string {string} core {t}", p.id, card.as_str());
-                            }
-                        }
-                    }
-                }
-                assert!(game.step().error.is_none());
-            }
-        });
-    }
-
-    /// FINDING (D2-5, docs/ENGINE_KNOWN_ISSUES.md D2-5-find-02), kept as a repro: the plain random game of a 3-seat table
-    /// (`GAMES[0]`) reaches a string/core difference in `action_cards::has_legal_target` (string `true`, core `false`) at its
-    /// 50th step when every area is on `Dual`. Not a churn effect (no churn is on) and not fixed here: the port copies the string.
-    /// `cargo test -p ti4-engine --lib random_play_of_a_seated_game -- --ignored` shows it.
-    #[test]
-    #[ignore = "a known dual difference (D2-5-find-02)"]
-    fn random_play_of_a_seated_game_meets_a_dual_difference() {
+    fn random_play_of_a_seated_game_has_no_dual_difference() {
         let _serial = crate::dual::tests::serial();
         crate::dual::set_fail_fast(true);
         let (n, seed) = GAMES[0];
         let result = std::panic::catch_unwind(|| {
             crate::dual::with_mask(crate::dual::AreaMask::all(crate::dual::Backend::Dual), || {
                 let mut game = seated_game(n, seed);
-                for _ in 0..60 {
+                for _ in 0..80 {
                     assert!(game.step().error.is_none());
                 }
             });
         });
         crate::dual::set_fail_fast(false);
-        let message = result.expect_err("the difference").downcast_ref::<String>().cloned().unwrap_or_default();
-        assert!(message.contains("action_cards::has_legal_target"), "{message}");
+        if let Err(payload) = result {
+            let message = payload.downcast_ref::<String>().cloned().unwrap_or_default();
+            panic!("a dual difference in a random seated game: {message}");
+        }
     }
 
     /// What a step changes in the image, applied to the image before it, is the image after it.

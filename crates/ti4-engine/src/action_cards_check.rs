@@ -68,7 +68,7 @@ pub fn compare(label: &str, gs: &GameState, out: &mut ActionCardsCheck) {
                 None => out.bailed += 1,
                 typed => out.eq(label, &format!("cost_is_payable {card}"), &crate::action_cards::cost_is_payable_text(gs, content, ti4_model::content_types::FULL, &p, card), &typed),
             }
-            match v.has_legal_target(&p, card) {
+            match v.has_legal_target(&p, card, ti4_model::content_types::FULL) {
                 None => out.bailed += 1,
                 typed => out.eq(label, &format!("has_legal_target {card}"), &crate::action_cards::has_legal_target_text(gs, content, ti4_model::content_types::FULL, &p, card), &typed),
             }

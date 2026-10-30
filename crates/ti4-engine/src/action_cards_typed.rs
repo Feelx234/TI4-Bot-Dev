@@ -47,14 +47,14 @@ pub(crate) fn may_play(state: &GameState, player: &PlayerId) -> Option<bool> {
 }
 
 /// `action_cards::has_legal_target` (`None` for the cards the core does not answer).
-pub(crate) fn has_legal_target(state: &GameState, player: &PlayerId, alias: &ActionCardId) -> Option<bool> {
+pub(crate) fn has_legal_target(state: &GameState, player: &PlayerId, alias: &ActionCardId, sources: ti4_model::content_types::SourceSet) -> Option<bool> {
     #[cfg(feature = "typed-core")]
     {
-        crate::action_cards_view::ActionView::of(state)?.has_legal_target(player, alias)
+        crate::action_cards_view::ActionView::of(state)?.has_legal_target(player, alias, sources)
     }
     #[cfg(not(feature = "typed-core"))]
     {
-        let _ = (state, player, alias);
+        let _ = (state, player, alias, sources);
         None
     }
 }

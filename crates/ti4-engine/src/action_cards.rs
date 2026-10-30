@@ -688,7 +688,7 @@ fn has_legal_target(
     crate::dual_typed!(
         crate::dual::Area::ActionCards,
         "action_cards::has_legal_target",
-        crate::action_cards_typed::has_legal_target(state, player, alias),
+        crate::action_cards_typed::has_legal_target(state, player, alias, sources),
         has_legal_target_text(state, content, sources, player, alias)
     )
 }
@@ -8615,6 +8615,35 @@ pub(crate) mod tests {
         }
         let report = crate::dual::take_report();
         assert!(report.differences.is_empty(), "{:?}", report.differences.first());
+    }
+
+    /// D2-5-find-02: the core answers `has_legal_target` in the scope of the game, as the string does. A seat of a Thunder's Edge
+    /// faction at a Pok table (the fixture seats whatever it is told) has a home system the Pok scope does not know; the core
+    /// used to answer in the scope of ALL sources and called it a home system, the string did not.
+    #[test]
+    #[cfg(feature = "typed-core")]
+    fn has_legal_target_follows_the_scope_of_the_game_not_all_sources() {
+        use crate::dual::{AreaMask, Backend, with_mask};
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{ActionCard as Card, Faction};
+        let _serial = crate::dual::tests::serial();
+        let mask = AreaMask::all(Backend::String).with(crate::dual::Area::ActionCards, Backend::Dual);
+        let seats = [("a", Faction::TheArborec.as_str()), ("b", Faction::TheArgentFlight.as_str()), ("c", Faction::LastBastion.as_str())];
+        let state = crate::fixtures::seated_game(&seats, ti4_model::content_types::POK);
+        let _ = crate::dual::take_report();
+        let mut yes = 0;
+        for (name, _) in seats {
+            for card in [Card::Uprising, Card::ReactorMeltdown, Card::UnstablePlanet, Card::WarEffort] {
+                let alias = ActionCardId::new(card.as_str());
+                let player = PlayerId::new(name);
+                let got = with_mask(mask, || has_legal_target(&state, ContentStore::embedded(), ti4_model::content_types::POK, &player, &alias));
+                yes += usize::from(got);
+            }
+        }
+        let report = crate::dual::take_report();
+        assert!(report.differences.is_empty(), "{:?}", report.differences.first());
+        assert!(report.areas.values().map(|a| a.compared.iter().sum::<u64>()).sum::<u64>() > 0, "the core answered, so something was compared");
+        assert!(yes > 0, "at the opening some seat has a legal target (the Bastion's home system is not a home system at a Pok table)");
     }
 
     #[cfg(feature = "typed-core")]

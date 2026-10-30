@@ -73,9 +73,11 @@ impl<'a> ActionView<'a> {
 
     /// `action_cards::has_legal_target` for the cards the core answers; `None` is the documented bail.
     #[must_use]
-    pub fn has_legal_target(&self, player: &PlayerId, alias: &ActionCardId) -> Option<bool> {
+    pub fn has_legal_target(&self, player: &PlayerId, alias: &ActionCardId, sources: ti4_model::content_types::SourceSet) -> Option<bool> {
         let seat = self.cx.owners.seat(player.as_str())?;
-        rules::has_legal_target(&self.view, self.blanked, crate::core_adapter::scope(ti4_model::content_types::SourceSet::all()), seat, ActionCard::from_id(alias.as_str())?)
+        // The scope of the GAME: a home system outside it is not a home system (the string's `is_home_system` reads the same
+        // `sources`), so a seat of a faction of another expansion makes `all()` and the game's scope disagree (D2-5-find-02).
+        rules::has_legal_target(&self.view, self.blanked, crate::core_adapter::scope(sources), seat, ActionCard::from_id(alias.as_str())?)
     }
 
     /// `action_cards::reaction_can_matter` after the cost check, for a window naming `system`; `None` is
