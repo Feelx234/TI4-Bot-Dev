@@ -488,7 +488,8 @@ pub(super) fn check(g: &mut Game<'_>, result: &StepResult) {
 #[cfg(test)]
 mod tests {
     use ti4_content::ContentStore;
-    use ti4_model::id::PlayerId;
+    use ti4_model::id::{PlayerId, SystemId};
+    use ti4_model::units::Unit;
 
     use super::*;
     use crate::choice::Table;
@@ -967,5 +968,168 @@ mod tests {
         assert_eq!(keys, ["d1::reconcile [bail: nexus_unlocked]"], "{:?}", r.windows);
         // Off the dual the probe is free: nothing is taken.
         with_mask(AreaMask::STRING, || assert!(probe(&g).is_none()));
+    }
+
+    // --- the windows of the action phase: tactical and aftermath (package D1b-1) -----------------------------------------------
+
+    fn notes() -> crate::combat::NoteHoldings {
+        std::iter::once((pid("a"), std::iter::once(pid("b")).collect())).collect()
+    }
+
+    fn tactical_game(stage: impl FnOnce(&Game<'static>) -> super::super::TacticalStage) -> Game<'static> {
+        let state = dealt(&F3, "Politics");
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        let stage = stage(&g);
+        g.tactical = Some(super::super::TacticalWindow { player: pid("a"), stage, notes_at_start: notes() });
+        g
+    }
+
+    fn held_tactical(g: &mut Game<'static>) -> ti4_engine_core::state::Tactical {
+        let (r, held) = checked(g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(!r.windows.keys().any(|k| k.contains("[bail")), "{:?}", r.windows);
+        match held.window(WindowKind::Tactical) {
+            Some(Window::Tactical(t)) => t.clone(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_tactical_action_is_typed_in_the_activating_and_moving_stages_with_its_note_holdings() {
+        use ti4_engine_core::state::TStage;
+        let _serial = crate::dual::tests::serial();
+        let mut g = tactical_game(|_| super::super::TacticalStage::Activating);
+        let t = held_tactical(&mut g);
+        assert_eq!((t.player, t.stage.clone(), t.notes_at_start.as_slice()), (Seat(0), TStage::Activating, &[(Seat(0), Seat(1))][..]));
+        g.tactical.as_mut().unwrap().stage = super::super::TacticalStage::Moving;
+        assert_eq!(held_tactical(&mut g).stage, TStage::Moving);
+        g.tactical = None;
+        let (r, held) = checked(&mut g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(held.stack.is_empty());
+    }
+
+    #[test]
+    fn a_tactical_action_with_a_hold_open_keeps_the_ship_its_route_and_what_is_aboard() {
+        use ti4_engine_core::state::TStage;
+        let _serial = crate::dual::tests::serial();
+        let mut g = tactical_game(|g| {
+            let home = g.state.player(&pid("a")).unwrap().home_system.clone().unwrap();
+            let ship = Unit::new(ti4_model::id::UnitTypeId::new("carrier"), pid("a"));
+            let hold = crate::transit::CargoWindow::for_ship(&g.state, g.content, g.sources, &pid("a"), &home, &ship, &[]);
+            super::super::TacticalStage::Loading { origin: home, ship: Box::new(ship.sustained()), path: vec!["18".to_owned()], window: Box::new(hold) }
+        });
+        let t = held_tactical(&mut g);
+        let TStage::Loading { ship, path, loaded, closed, .. } = t.stage else { panic!("{:?}", t.stage) };
+        assert!(ship.sustained() && !ship.galvanized());
+        assert_eq!((path.len(), loaded.len(), closed), (1, 0, false));
+    }
+
+    #[test]
+    fn a_tactical_payload_that_forgets_the_hold_or_the_notes_is_a_difference_of_the_roundtrip() {
+        let _serial = crate::dual::tests::serial();
+        let mut g = tactical_game(|_| super::super::TacticalStage::Moving);
+        let cx = crate::core_sync::Ctx::of(&g.state).unwrap();
+        let r = Render::new(cx.owners.ids().to_vec());
+        let Some(Window::Tactical(t)) = super::action::tactical_of(&g, &r).unwrap() else { panic!() };
+        let mut no_notes = t.clone();
+        no_notes.notes_at_start = SmallList::new();
+        let mut other_stage = t.clone();
+        other_stage.stage = ti4_engine_core::state::TStage::Activating;
+        let _ = take_report();
+        let verdict = with_mask(both(), || {
+            [Window::Tactical(t), Window::Tactical(no_notes), Window::Tactical(other_stage)].map(|w| roundtrip(&g, &[w], &r, &cx))
+        });
+        let _ = take_report();
+        assert_eq!(verdict, [true, false, false]);
+        g.tactical = None;
+    }
+
+    fn aftermath_game(stage: impl FnOnce(&mut Game<'static>, &SystemId) -> super::super::Aftermath, pause: bool) -> Game<'static> {
+        let state = dealt(&F3, "Politics");
+        let mut g = Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(Followers { follow: "yes" })));
+        let system = g.state.player(&pid("a")).unwrap().home_system.clone().unwrap();
+        let stage = stage(&mut g, &system);
+        let before_combat = crate::combat::before_combat_with_notes(&g.state, g.content, g.sources, &system, notes());
+        g.aftermath = Some(super::super::AftermathWindow {
+            player: pid("a"),
+            system,
+            stage,
+            log: Vec::new(),
+            before_combat,
+            feats_noted: true,
+            pending_event_scoring: pause.then_some((ti4_model::state::FeatOccurrence(7), crate::objectives::EventScoreLimit::OnePerPlayer)),
+            notes_at_tactical_start: notes(),
+        });
+        g
+    }
+
+    fn held_aftermath(g: &mut Game<'static>) -> ti4_engine_core::state::Aftermath {
+        let (r, held) = checked(g);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(!r.windows.keys().any(|k| k.contains("[bail")), "{:?}", r.windows);
+        match held.window(WindowKind::Aftermath) {
+            Some(Window::Aftermath(a)) => (**a).clone(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_aftermath_is_typed_in_each_stage_with_the_system_before_the_fight() {
+        use ti4_engine_core::state::{AStage, PauseLimit};
+        let _serial = crate::dual::tests::serial();
+        type A = super::super::Aftermath;
+        let mut g = aftermath_game(|g, system| A::Fighting(Box::new(crate::combat::CombatWindow::new(&g.state, g.content, g.sources, system))), false);
+        let a = held_aftermath(&mut g);
+        assert_eq!((a.stage, a.player, a.feats_noted, a.event_scoring), (AStage::Fighting, Seat(0), true, None));
+        assert_eq!(a.before_combat.sides.len(), 1, "only the owner has ships at home");
+        assert_eq!(a.before_combat.notes.as_slice(), &[(Seat(0), Seat(1))]);
+        assert_eq!(a.notes_at_start, a.before_combat.notes);
+        let mut g = aftermath_game(|_, _| A::Negotiating { invade: true }, true);
+        let a = held_aftermath(&mut g);
+        assert_eq!((a.stage, a.event_scoring), (AStage::Negotiating { invade: true }, Some((7, PauseLimit::OnePerPlayer))));
+        let mut g = aftermath_game(|g, system| A::Invading(Box::new(crate::invasion::InvasionWindow::at_commit_step(&mut g.state, &pid("a"), system))), false);
+        assert_eq!(held_aftermath(&mut g).stage, AStage::Invading);
+        let mut g = aftermath_game(|g, system| A::Producing(Box::new(crate::production::ProductionWindow::new(&g.state, g.content, g.sources, &pid("a"), system))), false);
+        assert_eq!(held_aftermath(&mut g).stage, AStage::Producing);
+        let mut g = aftermath_game(|_, _| A::Done, false);
+        assert_eq!(held_aftermath(&mut g).stage, AStage::Done);
+    }
+
+    #[test]
+    fn an_aftermath_payload_with_the_invade_flag_swapped_or_the_pause_dropped_is_a_difference_of_the_roundtrip() {
+        use ti4_engine_core::state::AStage;
+        let _serial = crate::dual::tests::serial();
+        let g = aftermath_game(|_, _| super::super::Aftermath::Negotiating { invade: true }, true);
+        let cx = crate::core_sync::Ctx::of(&g.state).unwrap();
+        let r = Render::new(cx.owners.ids().to_vec());
+        let Some(Window::Aftermath(a)) = super::action::aftermath_of(&g, &r).unwrap() else { panic!() };
+        let mut swapped = a.clone();
+        swapped.stage = AStage::Negotiating { invade: false };
+        let mut no_pause = a.clone();
+        no_pause.event_scoring = None;
+        let mut feats = a.clone();
+        feats.feats_noted = false;
+        let mut capitals = a.clone();
+        capitals.before_combat.capitals.push((Seat(1), 1));
+        let _ = take_report();
+        let verdict = with_mask(both(), || {
+            [a, swapped, no_pause, feats, capitals].map(|w| roundtrip(&g, &[Window::Aftermath(w)], &r, &cx))
+        });
+        let _ = take_report();
+        assert_eq!(verdict, [true, false, false, false, false]);
+    }
+
+    #[test]
+    fn the_capitals_of_a_before_combat_are_read_back_from_its_debug_form() {
+        let _serial = crate::dual::tests::serial();
+        let mut g = aftermath_game(|_, _| super::super::Aftermath::Done, false);
+        let system = g.state.player(&pid("a")).unwrap().home_system.clone().unwrap();
+        // A war sun and a flagship count as capitals: give the owner one of each.
+        let (_, _) = (&mut g, &system);
+        let w = g.aftermath.as_ref().unwrap();
+        let read = super::action::capitals_of(&w.before_combat);
+        let sides: Vec<String> = w.before_combat.sides().iter().map(ToString::to_string).collect();
+        assert_eq!(read.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>(), sides, "one entry per side, in the map's order");
     }
 }
