@@ -618,7 +618,7 @@ pub fn play_window(
     if lent.is_some() {
         driver_seeds = Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?)));
     }
-    let letnev = gs.player(player)?.faction.as_str() == "letnev";
+    let letnev = gs.player(player).why(crate::dual::reason::NO_SEAT)?.faction.as_str() == "letnev";
     let performing = performing_of(&before, sources, player, seat, card, &r);
     let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
         recorded_details(c, script, rendered);
@@ -738,25 +738,25 @@ pub fn announce_window(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<(Option<bool>, crate::action_cards_typed::Rolled)>> {
     use ti4_engine_core::driver::Driver;
-    let card = ActionCard::from_id(alias.as_str())?;
+    let card = ActionCard::from_id(alias.as_str()).why("an action card the core tables do not know")?;
     if !rules::announce::plays(card) && crate::action_cards::effect_for(alias).is_some() {
         return None;
     }
-    let (mut cx, r) = tables_of(gs, card)?;
+    let (mut cx, r) = tables_of(gs, card).why(crate::dual::reason::NO_TABLES)?;
     let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let mut env = env_of(gs, player, sources, &r);
-    env.infantry = placed(gs, player, sources, "infantry")?;
-    env.cruiser = placed(gs, player, sources, "cruiser")?;
-    env.facts.destroyer = placed(gs, player, sources, "destroyer")?;
-    env.facts.pds = placed(gs, player, sources, "pds")?;
-    env.facts.spacedock = placed(gs, player, sources, "spacedock")?;
+    env.infantry = placed(gs, player, sources, "infantry").why("the unit a seat places for infantry is not a unit of the core tables")?;
+    env.cruiser = placed(gs, player, sources, "cruiser").why("the unit a seat places for cruiser is not a unit of the core tables")?;
+    env.facts.destroyer = placed(gs, player, sources, "destroyer").why("the unit a seat places for destroyer is not a unit of the core tables")?;
+    env.facts.pds = placed(gs, player, sources, "pds").why("the unit a seat places for pds is not a unit of the core tables")?;
+    env.facts.spacedock = placed(gs, player, sources, "spacedock").why("the unit a seat places for spacedock is not a unit of the core tables")?;
     if matches!(rules::effects::Fx::of(card), Some(rules::effects::Fx::Reroll | rules::effects::Fx::Scramble)) {
-        env.facts.reroll = Some(reroll_facts(gs, &mut cx, &r, player)?);
+        env.facts.reroll = Some(reroll_facts(gs, &mut cx, &r, player).why("the staged dice of the position could not be read for the reroll")?);
     }
     env.facts.traders = traders_of(gs, galaxy, player, &r);
     env.facts.mech = rules::Placed {
         // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).
-        unit: (gs.player(player)?.faction.as_str() != "naaz").then(|| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("mech")).flatten(),
+        unit: (gs.player(player).why(crate::dual::reason::NO_SEAT)?.faction.as_str() != "naaz").then(|| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("mech")).flatten(),
         on_card: crate::factions::crimson_cards::held_on_card(gs, ti4_content::ContentStore::embedded(), sources.clone(), player, "mech"),
     };
     env.facts.dreadnought = rules::Placed {
@@ -765,9 +765,9 @@ pub fn announce_window(
     };
     let probe = is_probe(card);
     if probe {
-        probe_facts(gs, &mut cx, player, galaxy, &mut env.facts)?;
+        probe_facts(gs, &mut cx, player, galaxy, &mut env.facts).why("the map facts of an Exploration Probe could not be computed")?;
     }
-    hit_facts(gs, &r, &mut cx, card, galaxy, true, &mut env.facts)?;
+    hit_facts(gs, &r, &mut cx, card, galaxy, true, &mut env.facts).why("the facts of a hit card could not be computed")?;
     let hitting = hits_card(card);
     if crate::factions::ralnel_cards::skimmer_holder(gs).is_some() {
         crate::dual::note_bail("action_cards::announce", SKIMMER_BAIL);
@@ -775,7 +775,7 @@ pub fn announce_window(
     }
     let has_effect = crate::action_cards::effect_for(alias).is_some();
     let lent = lend_rolls(alias, before_rolls, "action_cards::announce")?;
-    let letnev = gs.player(player)?.faction.as_str() == "letnev";
+    let letnev = gs.player(player).why(crate::dual::reason::NO_SEAT)?.faction.as_str() == "letnev";
     let before = gs.clone();
     let window = crate::core_combat::window_env(gs, &cx, sources.clone()).why("the combat environment could not be built from the position (a value the codecs refuse)")?;
     let technology = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::technology);

@@ -10512,6 +10512,8 @@ mod tests {
         let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
         state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("cr2"));
         state.player_mut(&attacker()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("mentakbt"));
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
         let (mut cx, r) = crate::dual_window::tables_for_tests(&state).unwrap();
         let view = crate::core_sync::CoreView::of(&state, &mut cx, crate::core_sync::Sources { galaxy: None::<&ti4_content::galaxy::Galaxy>, rng: None }, crate::production_view::READS)
             .unwrap()
