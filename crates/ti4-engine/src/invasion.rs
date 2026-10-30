@@ -3599,11 +3599,13 @@ impl InvasionWindow {
         ctx: &mut Resolving<'_>,
     ) -> Result<(), IllegalChoice> {
         let planets = self.report.committed.clone();
-        crate::dual::note_gate(
-            crate::dual::Area::Invasion,
-            "invasion::finish_committing",
-            "the Research Team offer and the forced combats of the commitment are the string's (5b)",
-        );
+        // Package W8, 5b: for the seats the lobby can seat the tail of the commitment is a composition of windows (the announcement and
+        // the space cannon defense of each planet, the choice of the next fight, the rest of the fight), so it is not a gate. What stays
+        // the string's is counted: the offers of Research Team and Viper EX-23 (Deepwrought and Firmament, which the lobby cannot seat)
+        // and the combats a faction rule forces (Titans' Coalescence, with Slumberstate Computing's question).
+        if let Some(why) = self.commit_tail_unported(state, ctx, &planets) {
+            crate::dual::note_gate(crate::dual::Area::Invasion, "invasion::finish_committing", why);
+        }
         // Research Team: "When ground forces are committed", before anything else follows.
         self.offer_research_team(state, ctx, &planets)?;
         self.announce_and_defend_windowed(state, ctx, &planets);
@@ -3615,6 +3617,22 @@ impl InvasionWindow {
             self.advance_fighting(state, ctx, &planets, 0);
         }
         Ok(())
+    }
+
+    /// What the tail of a commitment hands to the string bare: the coexistence offers of Research Team and Viper EX-23 on a committed
+    /// planet, and the planets a faction rule forces the invader to fight on.
+    fn commit_tail_unported(&self, state: &GameState, ctx: &Resolving<'_>, planets: &[PlanetId]) -> Option<&'static str> {
+        let (content, sources) = (ctx.content, ctx.sources);
+        if planets.iter().any(|planet| {
+            crate::factions::deepwrought::research_team_open(state, content, &self.invader, &self.system, planet)
+                || crate::factions::firmament::viper_open(state, &self.invader, &self.system, planet)
+        }) {
+            Some("the Research Team / Viper EX-23 offer of a committed planet (Deepwrought, Firmament: not seatable)")
+        } else if !crate::factions::hooks_ground::forced_combat_planets(state, content, sources, &self.invader, &self.system).is_empty() {
+            Some("a combat a faction rule forces (Titans' Coalescence)")
+        } else {
+            None
+        }
     }
 
     /// The commitment announcement and the space cannon defense of every committed planet, which on
@@ -7406,6 +7424,8 @@ mod tests {
         });
         let r = report();
         assert!(coexisted > 0, "the invader coexisted");
+        // Package W8, 5b: the offer is a counted gate of the commitment's tail.
+        assert!(r.windows.keys().any(|k| k.starts_with("invasion::finish_committing [gate: the Research Team")), "{:?}", r.windows.keys().collect::<Vec<_>>());
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
         let _ = take_report();
     }
@@ -7448,6 +7468,9 @@ mod tests {
         assert!(converted > 0, "an L1Z1X invader assimilated the PDS and the space dock");
         let w = r.windows.get("invasion::finish_control_gain").copied().unwrap_or_default();
         assert!(w.compared >= u64::try_from(captured).unwrap() && w.bailed == 0, "{:?}", r.windows);
+        // Package W8, 5b: a plain commitment (no Research Team, no forced combat) is a composition of windows, not a gate (the pre-W8 code
+        // counted every commitment under `invasion::finish_committing [gate: ...]`).
+        assert!(r.windows.keys().all(|k| !k.starts_with("invasion::finish_committing [gate")), "{:?}", r.windows.keys().collect::<Vec<_>>());
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
         let _ = take_report();
     }
