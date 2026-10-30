@@ -80,6 +80,11 @@ pub fn check_pass_on(before: &GameState, after: &GameState, ended: Option<&Playe
     if crate::dual::backend(Area::Driver) != crate::dual::Backend::Dual {
         return;
     }
+    if announced.iter().any(|a| a == "TAINTED") {
+        // A reaction window of `TURN_PASSED` changed the turn (Crisis): the core's tail ran on the position before it.
+        crate::dual::note_bail("turn::pass_on", "a reaction window of TURN_PASSED changed the turn");
+        return;
+    }
     let Some(core) = real::pass_on(before, ended) else {
         crate::dual::note_bail("turn::pass_on", "the position is outside the tables");
         return;
@@ -386,6 +391,24 @@ mod tests {
         assert_eq!((state.phase, state.active.clone()), (Phase::Status, None));
         assert!(!state.transient_flags.has(TransientFlags::BLACK_MARKET));
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+    }
+
+    #[test]
+    fn a_tail_in_which_a_reaction_window_changed_the_turn_is_a_bail_not_a_difference() {
+        let _serial = crate::dual::tests::serial();
+        let before = table();
+        let mut after = before.clone();
+        super::super::phase::advance_turn_text(&mut after);
+        after.transient_flags.set(TransientFlags::SKIP_NEXT_TURN);
+        let _ = take_report();
+        with_mask(driver(), || {
+            check_pass_on(&before, &after, Some(&pid("a")), &vec!["PASSED:a".to_owned(), "TAINTED".to_owned()]);
+            check_pass_on(&before, &after, Some(&pid("a")), &vec!["PASSED:a".to_owned()]);
+        });
+        let r = report();
+        let _ = take_report();
+        assert!(r.windows.keys().any(|k| k == "turn::pass_on [bail: a reaction window of TURN_PASSED changed the turn]"), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 1, "only the untainted tail with the flag set differs: {:?}", r.differences);
     }
 
     #[test]

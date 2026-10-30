@@ -7223,6 +7223,23 @@ impl<'a> Game<'a> {
         result
     }
 
+    /// `emit_typed`, noting in `announced` when a reaction window of the event changed the turn (the active seat, the turn
+    /// counter or a transient flag such as Crisis's skip): the core's tail runs on the position before the event and cannot
+    /// follow that, so the D1 turn-flow dual leaves the step alone (`TAINTED`).
+    fn emit_typed_watching(
+        &mut self,
+        name: &str,
+        payload: BTreeMap<String, serde_json::Value>,
+        announced: &mut Vec<String>,
+    ) -> Result<(), GameError> {
+        let before = (self.state.active.clone(), self.state.turn_seq, self.state.transient_flags);
+        let result = self.emit_typed(name, payload).map(|_| ());
+        if (self.state.active.clone(), self.state.turn_seq, self.state.transient_flags) != before {
+            announced.push("TAINTED".to_owned());
+        }
+        result
+    }
+
     /// The choice-free tail of [`Self::advance_turn_inner`]: the turn passes on, its end is announced (`TURN_PASSED`), the
     /// seat Crisis names is skipped and a Puppets on a String grant gives the passer a fresh turn. `announced` lists what
     /// was announced, for the D1 turn-flow dual.
@@ -7243,7 +7260,7 @@ impl<'a> Game<'a> {
                     "player".to_owned(),
                     serde_json::Value::String(ended.to_string()),
                 );
-                self.emit_typed("TURN_PASSED", payload)?;
+                self.emit_typed_watching("TURN_PASSED", payload, announced)?;
             }
             return Ok(());
         }
@@ -7257,7 +7274,7 @@ impl<'a> Game<'a> {
             "player".to_owned(),
             serde_json::Value::String(ended.to_string()),
         );
-        self.emit_typed("TURN_PASSED", payload)?;
+        self.emit_typed_watching("TURN_PASSED", payload, announced)?;
         if self
             .state
             .transient_flags
