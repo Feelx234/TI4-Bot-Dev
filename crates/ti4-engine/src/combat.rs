@@ -6248,7 +6248,7 @@ impl CombatWindow {
         // Positions the window does not carry run bare, so the windows inside (fighter removal, Raid
         // Formation) are compared on their own.
         if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual {
-            if let Some(why) = crate::dual_window::barrage_why(state, &probe) {
+            if let Some(why) = crate::dual_window::barrage_step_why(state, &probe) {
                 crate::dual::note_gate(crate::dual::Area::Driver, "combat::barrage_step", why);
                 return self.barrage_step_string(state, ctx, round);
             }
@@ -11911,6 +11911,10 @@ mod tests {
         }
         let r = report();
         assert!(damaged > 0, "Raid Formation damaged something");
+        // Package W2: the barrage STEP carries an Argent side (Raid Formation is a child of the window), so the whole step is compared; the
+        // pre-W2 code gated it ("an Argent side") and compared the ability's window on its own.
+        let w = r.windows.get("combat::barrage_step").copied().unwrap_or_default();
+        assert!(w.compared >= 12 && w.bailed == 0, "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

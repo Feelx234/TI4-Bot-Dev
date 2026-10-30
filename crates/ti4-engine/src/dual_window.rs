@@ -2042,13 +2042,24 @@ pub fn barrage_unported(gs: &GameState, a: &BarrageArgs<'_>) -> bool {
 /// [`barrage_unported`] with the reason.
 #[must_use]
 pub fn barrage_why(gs: &GameState, a: &BarrageArgs<'_>) -> Option<&'static str> {
+    barrage_why_with(gs, a, true)
+}
+
+/// [`barrage_why`] for the barrage STEP window, which carries an Argent side's excess hits (Raid Formation is a child of the window
+/// since package W2); the composed machine keeps the gate.
+#[must_use]
+pub fn barrage_step_why(gs: &GameState, a: &BarrageArgs<'_>) -> Option<&'static str> {
+    barrage_why_with(gs, a, false)
+}
+
+fn barrage_why_with(gs: &GameState, a: &BarrageArgs<'_>, argent: bool) -> Option<&'static str> {
     let heart = ti4_model::id::RelicId::new("heartofixth");
     if gs.players.iter().any(|p| crate::relics::holds(gs, &p.id, &heart)) {
         return Some("the Heart of Ixth (Thunder's Edge relic)");
     }
     for id in [a.attacker, a.defender] {
         let Some(p) = gs.player(id) else { return Some("a side that is not a seated player") };
-        if p.faction.as_str() == "argent" {
+        if argent && p.faction.as_str() == "argent" {
             return Some("an Argent side (the excess hits of the barrage)");
         }
         if p.waylay_barrage_round.is_some_and(|r| r == gs.combat_round_seq) {
@@ -2092,7 +2103,7 @@ pub fn barrage_step(
         crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
         return None;
     }
-    if let Some(why) = barrage_why(gs, &a) {
+    if let Some(why) = barrage_step_why(gs, &a) {
         crate::dual::note_bail_here(why);
         return None;
     }
@@ -2124,6 +2135,7 @@ pub fn barrage_step(
         kind: r.code("anti_fighter_barrage"),
         extra: cx.texts.intern(Slice::Transient, "extra barrage").why("the text table of the typed state is full")?,
         unit_codes,
+        raid: Some(r.code("raid_formation_damage")),
     };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
@@ -2132,7 +2144,12 @@ pub fn barrage_step(
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let driven = with_core(gs, &mut cx, src, nested_fp(BARRAGE_STEP, script), |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        // Raid Formation's question is asked in the battle it is fought in (`TimingContext::ask_seeing`): the position names it.
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, rendered| {
+            if let Some(context) = rendered.context.take() {
+                rendered.context = Some(context.about_battle(&before));
+            }
+        });
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
         driven

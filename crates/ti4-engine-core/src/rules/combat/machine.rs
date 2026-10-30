@@ -440,6 +440,7 @@ impl Machine {
             kind: e.barrage_kind,
             extra: e.barrage_extra,
             unit_codes: e.unit_codes.clone(),
+            raid: None,
         };
         let mut w = BarrageStep::new(facts);
         let _ = w.step(sx);
