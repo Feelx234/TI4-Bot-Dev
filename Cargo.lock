@@ -4137,6 +4137,7 @@ name = "ti4-engine-core-bridge"
 version = "0.1.0"
 dependencies = [
  "mimalloc",
+ "serde",
  "serde_json",
  "sha2",
  "strum",
