@@ -10,7 +10,9 @@
 use crate::containers::SmallList;
 use crate::ids::Seat;
 use crate::query::seats::initiative_order;
-use crate::rules::{diplomacy, trade};
+use crate::generated::StrategyCard;
+use crate::rules::diplomacy_book::PromiseError;
+use crate::rules::{diplomacy, diplomacy_book, leaders, strategy_flow, trade};
 use crate::state::{CoreState, Phase, TransientFlags};
 
 /// `phase::begin_action_turn`: the next turn of the phase, for `seat`.
@@ -62,6 +64,54 @@ pub fn action_phase_ended(core: &mut CoreState) {
     let meta = core.meta_mut();
     meta.phase = Phase::Status;
     meta.active = None;
+}
+
+/// `phase::begin_next_round`: the strategy phase of the next round, with `cards` laid out on the mat. The effects that end
+/// with the round run first, while the round number still names it (Darktalon Treilla's hero, due promises and signals,
+/// the relationships' decay); then the counters, the mat and the round's transaction tallies.
+///
+/// # Errors
+/// The settlement of a promise that cannot be settled (a broken book); the position is then partly changed, as the string's.
+pub fn begin_next_round(core: &mut CoreState, cards: &[StrategyCard]) -> Result<(), PromiseError> {
+    core.meta_mut().phase = Phase::Strategy;
+    leaders::end_of_round(core);
+    let round = core.meta().round;
+    diplomacy_book::settle_deadlines(core, round)?;
+    diplomacy::decay_relationships(core);
+    let meta = core.meta_mut();
+    meta.round += 1;
+    meta.action_turn = 0;
+    meta.active = None;
+    strategy_flow::lay_out_mat(core, cards);
+    trade::reset_round(core);
+    Ok(())
+}
+
+/// What the end of an action does with the turn (`Game::finish_action`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Finish {
+    /// The seat is offered the closing menu (`TURN_CLOSING`): something besides "end your turn" can still be done.
+    Closing,
+    /// The turn passes on (`advance_turn`).
+    Advance,
+}
+
+/// `Game::finish_action` after `ACTION_COMPLETED`: in the action phase, a turn that is not retained counts the action and
+/// offers the closing menu when it holds more than "end your turn" (`closing_len` options). Master Plan's additional action
+/// and every other phase pass on at once. Returns what the string does next; the position carries the seat in the menu.
+pub fn finish_action(core: &mut CoreState, closing_len: usize) -> Finish {
+    let Some(active) = core.meta().active else { return Finish::Advance };
+    let retained = core.transient().misc.flags.has(TransientFlags::ADDITIONAL_ACTION);
+    if core.meta().phase == Phase::Action && !retained {
+        let p = core.pending_mut();
+        p.actions_this_turn = p.actions_this_turn.saturating_add(1);
+        p.turn_closing = Some(active);
+        if closing_len > 1 {
+            return Finish::Closing;
+        }
+        p.turn_closing = None;
+    }
+    Finish::Advance
 }
 
 /// The top of `Game::advance_turn_inner`: an additional action (Master Plan and friends) keeps the turn. Returns whether the
@@ -252,6 +302,47 @@ mod tests {
         assert_eq!(out.as_slice(), &[Announce::Passed(Seat(1)), Announce::Puppet(Seat(1))]);
         assert_eq!((s.meta.active, s.meta.turn_seq), (Some(Seat(1)), seq + 1));
         assert!(s.players.get(1).econ.passed, "the grant is one action, not a return from pass");
+    }
+
+    #[test]
+    fn the_next_round_begins_in_the_strategy_phase_with_the_mat_laid_out_and_the_tallies_reset() {
+        let mut s = table();
+        s.meta.round = 3;
+        s.meta.action_turn = 7;
+        s.meta.phase = Phase::Status;
+        s.trade.negotiations_this_round.insert(Seat(0), 2);
+        let cards = &StrategyCard::ALL[..4];
+        // A seat under Political Stability keeps its card: it is not on the mat.
+        s.players.edit(1).econ.stability = true;
+        begin_next_round(&mut s, cards).unwrap();
+        assert_eq!((s.meta.phase, s.meta.round, s.meta.action_turn, s.meta.active), (Phase::Strategy, 4, 0, None));
+        assert_eq!(s.strategy.unclaimed.as_slice(), &[cards[0], cards[2], cards[3]][..], "the card of the kept seat stays off the mat");
+        assert!(s.trade.negotiations_this_round.is_empty());
+    }
+
+    #[test]
+    fn an_action_opens_the_closing_menu_only_when_more_than_ending_the_turn_is_offered() {
+        let mut s = table();
+        assert_eq!(finish_action(&mut s, 1), Finish::Advance);
+        assert_eq!((s.pending.turn_closing, s.pending.actions_this_turn), (None, 1), "counted, nothing to close");
+        assert_eq!(finish_action(&mut s, 2), Finish::Closing);
+        assert_eq!((s.pending.turn_closing, s.pending.actions_this_turn), (Some(Seat(0)), 2));
+    }
+
+    #[test]
+    fn a_retained_turn_or_another_phase_does_not_count_the_action_or_close() {
+        let mut s = table();
+        s.transient.misc.flags.set(TransientFlags::ADDITIONAL_ACTION);
+        assert_eq!(finish_action(&mut s, 5), Finish::Advance);
+        assert_eq!((s.pending.turn_closing, s.pending.actions_this_turn), (None, 0));
+        s.transient.misc.flags.clear(TransientFlags::ADDITIONAL_ACTION);
+        s.meta.phase = Phase::Agenda;
+        assert_eq!(finish_action(&mut s, 5), Finish::Advance);
+        assert_eq!(s.pending.actions_this_turn, 0);
+        s.meta.phase = Phase::Action;
+        s.meta.active = None;
+        assert_eq!(finish_action(&mut s, 5), Finish::Advance, "no one is active");
+        assert_eq!(s.pending.actions_this_turn, 0);
     }
 
     #[test]

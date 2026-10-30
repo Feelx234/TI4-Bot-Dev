@@ -6971,6 +6971,9 @@ impl<'a> Game<'a> {
     fn finish_action(&mut self) -> Result<(), GameError> {
         if let Some(active) = self.state.active.clone() {
             self.emit_action_completed(&active)?;
+            let before = (crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual)
+                .then(|| (self.state.clone(), self.actions_this_turn));
+            let mut closing_len = 0;
             // OP-08: the turn ends when its player says so, if there is anything left to say
             // it about. A retained turn (Master Plan and friends) keeps its own path.
             if self.state.phase == Phase::Action
@@ -6981,14 +6984,24 @@ impl<'a> Game<'a> {
             {
                 self.actions_this_turn = self.actions_this_turn.saturating_add(1);
                 self.turn_closing = Some(active.clone());
-                if self.closing_options(&active).options.len() > 1 {
+                closing_len = self.closing_options(&active).options.len();
+                if closing_len > 1 {
                     self.emit("TURN_CLOSING");
+                    self.check_finish(before, closing_len);
                     return Ok(());
                 }
                 self.turn_closing = None;
             }
+            self.check_finish(before, closing_len);
         }
         self.advance_turn()
+    }
+
+    /// The D1 turn-flow dual of the end of an action (see `turn_write::check_finish`).
+    fn check_finish(&self, before: Option<(GameState, u8)>, closing_len: usize) {
+        if let Some((state, actions)) = before {
+            crate::turn_write::check_finish(&state, actions, closing_len, (self.turn_closing.as_ref(), self.actions_this_turn));
+        }
     }
 
     /// Pass the turn on, unless the current player keeps it.

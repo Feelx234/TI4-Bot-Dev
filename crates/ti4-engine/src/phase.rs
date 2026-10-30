@@ -177,6 +177,11 @@ pub fn advance_turn_text(state: &mut GameState) -> Option<PlayerId> {
 /// # Panics
 /// Panics only if an internally-invalid diplomacy state cannot settle its due promises.
 pub fn begin_next_round(state: &mut GameState, strategy_cards: Vec<ti4_model::id::StrategyCardId>) {
+    crate::turn_write::begin_next_round(state, &strategy_cards, |s| begin_next_round_text(s, strategy_cards.clone()));
+}
+
+#[doc(hidden)]
+pub fn begin_next_round_text(state: &mut GameState, strategy_cards: Vec<ti4_model::id::StrategyCardId>) {
     state.phase = Phase::Strategy;
     // "At the end of that game round" — before the counter moves on, so the round number still
     // names the round whose effects expire here (Darktalon Treilla's hero and her flag).

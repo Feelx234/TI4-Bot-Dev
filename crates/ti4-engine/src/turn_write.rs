@@ -33,6 +33,20 @@ pub fn action_phase_ended(state: &mut GameState) {
     );
 }
 
+/// `phase::begin_next_round` (the caller supplies the strategy cards of the round). The core half bows out when a card id is
+/// unknown to the tables or the promise book cannot settle (`PromiseError` is the string's to report).
+pub fn begin_next_round(state: &mut GameState, cards: &[ti4_model::id::StrategyCardId], string: impl Fn(&mut GameState)) {
+    write(
+        Area::Driver,
+        state,
+        "turn::begin_next_round",
+        |s| {
+            string(s);
+        },
+        |s| real::begin_next_round(s, cards),
+    );
+}
+
 /// The retention check at the top of `Game::advance_turn_inner` (and its two repeats): an additional action keeps the
 /// turn; the flag is spent.
 pub fn take_retention(state: &mut GameState) -> bool {
@@ -74,6 +88,22 @@ pub fn check_pass_on(before: &GameState, after: &GameState, ended: Option<&Playe
     crate::dual::compare_value(Area::Driver, "turn::pass_on", &string, &core);
 }
 
+/// Compare `Game::finish_action` after `ACTION_COMPLETED` (`before`: the position then, `actions_before` the actions taken
+/// so far this turn, `closing_len` the options of the closing menu the string counted, `after`: what the string left in
+/// `(turn_closing, actions_this_turn)`) with the core's `finish_action`. `closing_len` is 0 when the string did not count
+/// (a retained turn, another phase).
+pub fn check_finish(before: &GameState, actions_before: u8, closing_len: usize, after: (Option<&PlayerId>, u8)) {
+    if crate::dual::backend(Area::Driver) != crate::dual::Backend::Dual {
+        return;
+    }
+    let Some(core) = real::finish_action(before, actions_before, closing_len) else {
+        crate::dual::note_bail("turn::finish_action", "the position is outside the tables");
+        return;
+    };
+    let string = (after.0.cloned(), after.1, after.0.is_some());
+    crate::dual::compare_value(Area::Driver, "turn::finish_action", &string, &core);
+}
+
 #[cfg(feature = "typed-core")]
 mod real {
     use ti4_engine_core::driver::turn_flow as rules;
@@ -89,9 +119,22 @@ mod real {
         &[Slice::Meta, Slice::Trade, Slice::Transient],
     );
 
+    /// The end of an action reads the phase, the active seat, the additional-action flag and the held counters.
+    const FINISH: Footprint = Footprint::new(&[Slice::Meta, Slice::Transient, Slice::Pending], &[]);
+
+    /// The round change reads and writes more: the leaders' statuses, the promise book, the relationships, the mat.
+    const ROUND: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Strategy, Slice::Trade, Slice::Transient],
+        &[Slice::Meta, Slice::Players, Slice::Strategy, Slice::Trade],
+    );
+
     fn lend<T>(gs: &mut GameState, f: impl FnOnce(&mut CoreState, &crate::render::Render) -> T) -> Option<T> {
+        lend_with(gs, TURN, f)
+    }
+
+    fn lend_with<T>(gs: &mut GameState, fp: Footprint, f: impl FnOnce(&mut CoreState, &crate::render::Render) -> T) -> Option<T> {
         let (mut cx, r) = crate::dual_window::tables(gs)?;
-        crate::core_sync::with_core(gs, &mut cx, Sources::default(), TURN, |core, _| f(core, &r)).ok()
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| f(core, &r)).ok()
     }
 
     pub fn begin_action_turn(gs: &mut GameState, p: &PlayerId) -> Option<()> {
@@ -110,8 +153,25 @@ mod real {
         lend(gs, |core, _| rules::take_retention(core))
     }
 
+    pub fn begin_next_round(gs: &mut GameState, cards: &[ti4_model::id::StrategyCardId]) -> Option<()> {
+        let list: Vec<ti4_engine_core::generated::StrategyCard> = cards.iter().map(|c| crate::core_adapter::typed(c.as_str())).collect::<Option<_>>()?;
+        lend_with(gs, ROUND, |core, _| rules::begin_next_round(core, &list).ok())?
+    }
+
     pub fn end_turn_scratch(gs: &mut GameState) -> Option<()> {
         lend(gs, |core, _| rules::end_turn_scratch(core))
+    }
+
+    /// `finish_action` on a copy of `before`: `(turn_closing, actions_this_turn, closing offered)`.
+    pub fn finish_action(before: &GameState, actions_before: u8, closing_len: usize) -> Option<(Option<PlayerId>, u8, bool)> {
+        let mut gs = before.clone();
+        lend_with(&mut gs, FINISH, |core, r| {
+            core.pending_mut().actions_this_turn = actions_before;
+            let out = rules::finish_action(core, closing_len);
+            let p = core.pending();
+            Some((p.turn_closing.map(|s| r.player(s)), p.actions_this_turn, out == rules::Finish::Closing))
+        })?
+        .map(|(closing, actions, offered)| (closing.clone(), actions, offered && closing.is_some()))
     }
 
     /// The tail on a copy of `before`: `(active, turn_seq, action_turn, flags, announced lines)`.
@@ -158,7 +218,13 @@ mod real {
     pub fn take_retention(_: &mut GameState) -> Option<bool> {
         None
     }
+    pub fn begin_next_round(_: &mut GameState, _: &[ti4_model::id::StrategyCardId]) -> Option<()> {
+        None
+    }
     pub fn end_turn_scratch(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn finish_action(_: &GameState, _: u8, _: usize) -> Option<(Option<PlayerId>, u8, bool)> {
         None
     }
     pub fn pass_on(_: &GameState, _: Option<&PlayerId>) -> Option<(Option<PlayerId>, u32, u32, ti4_model::state::TransientFlags, Vec<String>)> {

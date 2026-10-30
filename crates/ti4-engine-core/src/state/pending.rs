@@ -204,4 +204,10 @@ pub struct Pending {
     pub top: Option<PendingAsk>,
     pub tag: Option<PendingTag>,
     pub driver: DriverFlags,
+    /// `Game.turn_closing`: the seat in the closing menu of its turn (package D1b).
+    pub turn_closing: Option<Seat>,
+    /// `Game.actions_this_turn`: the actions the active seat has taken this turn.
+    pub actions_this_turn: u8,
+    /// `Game.prepared_turn_seq`: the turn whose start-of-turn work has run.
+    pub prepared_turn_seq: Option<u32>,
 }
