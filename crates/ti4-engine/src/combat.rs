@@ -6923,12 +6923,14 @@ impl CombatWindow {
         let [Some(n0), Some(n1)] = neighbors else { return None };
         let has_tech = |side: &PlayerId, id: &str| state.player(side).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&id)));
         let round_probe = crate::dual_window::BeginRoundArgs { attacker: &self.attacker, defender: &self.defender, system: &self.system, round: 1, announce };
+        // The hits the modules produce at the start of a combat (Ambush, Impulse Core, Dimensional Splicer) are the machine's window
+        // `ProduceHits` since package W2; Assault Cannon is not (it asks the casualty of its own window).
         let opening_why = crate::dual_window::round_opening_why(state, content, &round_probe).or_else(|| {
             sides.iter().find_map(|side| {
-                if state.player(side).is_none_or(|p| p.faction.as_str() == "mentak") {
-                    return Some("a Mentak side (Ambush at the start of the combat)");
+                if state.player(side).is_none() {
+                    return Some("a side that is not a seated player");
                 }
-                ["asc", "ds", "ic"].iter().any(|t| has_tech(side, t)).then_some("Assault Cannon, Dimensional Splicer or Impulse Core (start-of-combat hits)")
+                has_tech(side, "asc").then_some("Assault Cannon (start-of-combat hits)")
             })
         });
         let opening_unported = opening_why.is_some();
@@ -6956,9 +6958,10 @@ impl CombatWindow {
             !(crate::neutral_units::is_neutral(side) && !crate::neutral_units::may_retreat())
                 && !crate::factions::mahact_units::ship_movement_barred(state)
         });
+        // (A round that resumes after the hits the modules produced at the start of the combat has no occurrence yet either: the barrage
+        // begins it.)
         let begin_occurrence = occurrence.is_none()
-            && matches!(self.stage, Stage::Opening { round: 1 })
-            && !self.resuming_round
+            && (matches!(self.stage, Stage::Opening { round: 1 }) || (self.hit_phase == HitPhase::CombatStart && matches!(self.stage, Stage::Sustaining { .. })))
             && !self.over(state, content, sources);
         Some(crate::dual_window::SettleArgs {
             attacker: self.attacker.clone(),
@@ -10671,9 +10674,9 @@ mod tests {
         ];
         for (which, (name, factions, _prompt)) in cases.into_iter().enumerate() {
             let mut compared = 0;
-            for seed in 0..12_u64 {
+            for (seed, composed) in (0..12_u64).flat_map(|s| [(s, false), (s, true)]) {
                 let (_, windows, differences, _) = hub_fight_composed(
-                    false,
+                    composed,
                     seed,
                     factions,
                     |s, system| {
@@ -10692,8 +10695,9 @@ mod tests {
                     answer,
                 );
                 assert_eq!(differences, 0, "{name} seed {seed}: {windows:?}");
-                let w = windows.get("combat::produce_hits").copied().unwrap_or_default();
-                assert_eq!(w.bailed, 0, "{name} seed {seed}: {windows:?}");
+                // Compared one by one, or inside the composed machine (the settle window).
+                let w = windows.get(if composed { "combat::settle" } else { "combat::produce_hits" }).copied().unwrap_or_default();
+                assert_eq!(w.bailed, 0, "{name} seed {seed} composed {composed}: {windows:?}");
                 compared += w.compared;
             }
             assert!(compared > 0, "{name}: the window ran: {compared}");
@@ -11380,7 +11384,7 @@ mod tests {
         assert!(settle_gates(&|state, _| state.diplomacy.enabled = true).opening_unported);
         // Hits a module makes at the start of a combat (Mentak's Ambush, Assault Cannon, Dimensional Splicer,
         // Impulse Core): the string asks the modules, the core ability table is empty.
-        assert!(settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("mentak")).opening_unported);
+        assert!(!settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("mentak")).opening_unported);
         // The Thundarian is an ability of the core table since package W2 (`a_readied_thundarian_replays_the_roll_step_in_the_core_window_in_lockstep`).
         // A Last Bastion seat's retreat note is what the retreat gate (`retreat_unported`) still names.
         let retreat = |setup: &dyn Fn(&mut GameState, &SystemId)| {
@@ -11599,12 +11603,18 @@ mod tests {
     /// step is not), the Jol-Nar commander's reroll question and a Waylay played in the barrage.
     #[test]
     fn the_start_hits_and_the_barrage_tail_stay_string_with_their_reasons() {
-        for tech in ["asc", "ds", "ic"] {
+        // Assault Cannon asks its casualty in a window of its own, outside the composed machine; Ambush, Impulse Core and Dimensional
+        // Splicer are the machine's `ProduceHits` since package W2.
+        let g = settle_gates(&|state, _| {
+            state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("asc"));
+        });
+        assert!(g.opening_unported);
+        assert_eq!(g.gate_why, Some("Assault Cannon (start-of-combat hits)"));
+        for tech in ["ds", "ic"] {
             let g = settle_gates(&|state, _| {
                 state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
             });
-            assert!(g.opening_unported, "{tech}");
-            assert_eq!(g.gate_why, Some("Assault Cannon, Dimensional Splicer or Impulse Core (start-of-combat hits)"), "{tech}");
+            assert!(!g.opening_unported, "{tech}");
         }
         let barrage = |setup: &dyn Fn(&mut GameState)| {
             let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);

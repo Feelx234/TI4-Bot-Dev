@@ -4099,6 +4099,10 @@ fn settle_run(
         det: a.det,
         duranium: a.duranium,
         devotion: a.devotion,
+        wormhole: !crate::factions::hooks_movement::wormholes_at(&before, &a.system).is_empty(),
+        ambush: r.code("ambush"),
+        cause_core: r.code("technology:impulse_core"),
+        cause_devotion: r.code("faction_ability:devotion"),
         casualty: r.code("assign_casualty"),
         commander: r.code("letnevcommander"),
         end_codes: ti4_engine_core::rules::combat::end_announce::Codes {
@@ -4151,6 +4155,12 @@ fn settle_run(
     let content = ti4_content::ContentStore::embedded();
     let driven = with_core(gs, &mut cx, src, nested_fp(SETTLE, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
+            // The questions of the modules' hits are asked in the battle they are fought in (`TimingContext::ask_seeing`).
+            if matches!(&c.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::Ambush | ti4_engine_core::choice::combat::Ask::Sacrifice { .. } | ti4_engine_core::choice::combat::Ask::Splicer)) {
+                if let Some(context) = rendered.context.take() {
+                    rendered.context = Some(context.about_battle(&before));
+                }
+            }
             roll_details(content, &texts, c, st, rendered);
             if let ti4_engine_core::choice::Ask::Combat(ask @ ti4_engine_core::choice::combat::Ask::CancelHit { .. }) = &c.ask {
                 rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, c.actor));

@@ -26,6 +26,7 @@ use super::end::{finished, winner};
 use super::end_announce::{Codes as EndCodes, EndAnnounce, Facts as EndFacts};
 use super::flow::{Facts as FlowFacts, Flow, Out, Pend, Phase, Step, MAX_ROUNDS};
 use super::assign::{announce_loss, remove_ship};
+use super::produce::{Facts as ProduceFacts, ProduceHits};
 use super::retreat::{Facts as RetreatFacts, Retreat};
 use super::sustain_commander::SustainCommander;
 use super::sustain_offer::{emit_used, Offer};
@@ -39,6 +40,7 @@ use crate::kernel::fx;
 use crate::state::{EventKind, Key, Payload, Piece, Val};
 use crate::generated::{System, Unit};
 use crate::ids::Seat;
+use crate::kernel::hooks::CombatMoment;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::{board as qboard, reach};
@@ -94,7 +96,13 @@ pub struct Env {
     pub det: [bool; 2],
     /// Per side: Duranium Armor is owned; the Yin (Devotion) hits-after-a-round module is in the game.
     pub duranium: [bool; 2],
+    /// A Yin seat is in the game: the hits Devotion makes after a round are asked (the window `ProduceHits` at `RoundEnded`).
     pub devotion: bool,
+    /// The system holds a wormhole now (Dimensional Splicer), and the interned texts of the hits the modules produce.
+    pub wormhole: bool,
+    pub ambush: Code,
+    pub cause_core: Code,
+    pub cause_devotion: Code,
     pub end_codes: EndCodes,
     /// The interned subtype text of the casualty question (`"assign_casualty"`).
     pub casualty: Code,
@@ -146,6 +154,8 @@ pub enum Stop {
 pub enum Stage {
     Running,
     Rolling,
+    /// The hits the modules produce (`ProduceHits`) wait on a question.
+    Producing,
     /// The pending decision (or the commander's offer inside its answer) waits on the players.
     Asking,
     Done,
@@ -172,6 +182,10 @@ pub struct Machine {
     pub feat: Vec<Seat>,
     roll: Option<RollStep>,
     roll_round: u32,
+    /// The hits the modules produce at a moment of the round being played, and where they came from.
+    produce: Option<(ProduceHits, CombatMoment, u32)>,
+    /// The round whose end-of-round hits were produced already (the flow goes on to its end).
+    round_end_produced: Option<u32>,
     stage: Stage,
     /// Built for the answer to the decision the settle stopped at (`Machine::awaiting`).
     awaiting: bool,
@@ -192,6 +206,8 @@ impl Machine {
             feat: Vec::new(),
             roll: None,
             roll_round: 0,
+            produce: None,
+            round_end_produced: None,
             stage: Stage::Running,
             awaiting: false,
             answered: false,
@@ -325,9 +341,7 @@ impl Machine {
             }
             _ => {}
         }
-        if matches!(self.fields.step, Step::Retreating { ref leaving, .. } if leaving.is_empty()) && !over && env.devotion {
-            return None;
-        }
+        let _ = over;
         Some(FlowFacts {
             attacker: env.attacker,
             defender: env.defender,
@@ -355,6 +369,14 @@ impl Machine {
             return Some(false);
         }
         let over = self.over(sx);
+        // After a round (retreats included): the hits Devotion makes, produced once the fight is not decided.
+        if let Step::Retreating { round, leaving } = &self.fields.step {
+            if leaving.is_empty() && !over && self.env.devotion && self.round_end_produced != Some(*round) {
+                let round = *round;
+                self.start_produce(CombatMoment::RoundEnded, round);
+                return Some(false);
+            }
+        }
         let facts = self.flow_facts(sx, over)?;
         let before = self.fields.step.clone();
         let mut flow = Flow::new(facts, before.clone());
@@ -464,6 +486,11 @@ impl Machine {
                 self.conclude(sx, round);
                 return Some(true);
             }
+            if !resumed {
+                // "At the start of a space combat": the hits the modules produce come before the barrage; the round resumes there.
+                self.start_produce(CombatMoment::CombatStart, round);
+                return Some(false);
+            }
             if self.env.barrage_unported {
                 return None;
             }
@@ -532,6 +559,74 @@ impl Machine {
         None.or(Some(()))
     }
 
+    /// Start the window of the hits the modules produce at `moment` of `round` (string `produce_hits`).
+    fn start_produce(&mut self, moment: CombatMoment, round: u32) {
+        let e = &self.env;
+        let facts = ProduceFacts {
+            attacker: e.attacker,
+            defender: e.defender,
+            system: e.system,
+            moment,
+            announce: e.announce,
+            wormhole: e.wormhole,
+            ambush: e.ambush,
+            cause_core: e.cause_core,
+            cause_devotion: e.cause_devotion,
+        };
+        self.produce = Some((ProduceHits::new(facts), moment, round));
+    }
+
+    /// The hits queued for assignment from what each side produced (string `produced_queue`): forced non-fighter hits first, like a
+    /// round's own, then the producer-assigned ones. `produced` is `[attacker, defender]`.
+    fn produced_queue(&self, produced: &[crate::kernel::hooks::ProducedHits; 2]) -> Vec<Pend> {
+        let (a, d) = (self.env.attacker, self.env.defender);
+        let mut queue: Vec<Pend> = [
+            (d, produced[0].non_fighter, a, true),
+            (d, produced[0].any_ship, a, false),
+            (a, produced[1].non_fighter, d, true),
+            (a, produced[1].any_ship, d, false),
+        ]
+        .into_iter()
+        .filter(|(_, hits, _, _)| *hits > 0)
+        .map(|(player, hits, producer, non_fighters_only)| Pend { player, hits: u32::try_from(hits).unwrap_or(u32::MAX), producer, non_fighters_only, producer_assigns: false })
+        .collect();
+        queue.extend(
+            [(d, produced[0].producer_assigned, a), (a, produced[1].producer_assigned, d)]
+                .into_iter()
+                .filter(|(_, hits, _)| *hits > 0)
+                .map(|(player, hits, producer)| Pend { player, hits: u32::try_from(hits).unwrap_or(u32::MAX), producer, non_fighters_only: false, producer_assigns: true }),
+        );
+        queue
+    }
+
+    /// The window finished: its hits are the queue of the moment (`open_start_hits`, `open_round_end_hits`), or the round goes on.
+    fn finish_produce(&mut self) {
+        let Some((w, moment, round)) = self.produce.take() else { return };
+        self.drawn.extend(w.drawn.iter().cloned());
+        let queue = self.produced_queue(&w.produced);
+        match moment {
+            CombatMoment::CombatStart => {
+                if queue.is_empty() {
+                    // The round resumes at the barrage, as after a queue of start hits.
+                    self.fields.resuming = true;
+                } else {
+                    self.fields.phase = Phase::CombatStart;
+                    self.fields.step = Step::Queue { assigning: false, round, queue };
+                }
+            }
+            _ => {
+                self.round_end_produced = Some(round);
+                if !queue.is_empty() {
+                    self.fields.phase = Phase::RoundEnd;
+                    // Hits produced after the round are their own "before you assign hits" moment: the once-per-round guard on the
+                    // ordinary assignment must not swallow their announcement.
+                    self.fields.offered.retain(|(seen, _)| *seen != round);
+                    self.fields.step = Step::Queue { assigning: false, round, queue };
+                }
+            }
+        }
+    }
+
     /// The roll finished: its queue is the round's, and a roll that ended the fight is the string's.
     fn finish_roll(&mut self, sx: &mut Sx<'_>) -> Option<()> {
         let w = self.roll.take()?;
@@ -596,6 +691,19 @@ impl Machine {
     /// Run the loop. `None`: a position the machine does not carry (the reason is in `stop`).
     fn run(&mut self, sx: &mut Sx<'_>) -> Option<Next> {
         loop {
+            if let Some((produce, _, _)) = &mut self.produce {
+                match produce.step(sx) {
+                    Next::Continue(ask) => {
+                        self.stage = Stage::Producing;
+                        return Some(Next::Continue(ask));
+                    }
+                    _ => {
+                        self.stage = Stage::Running;
+                        self.finish_produce();
+                        continue;
+                    }
+                }
+            }
             if let Some(roll) = &mut self.roll {
                 match roll.step(sx) {
                     Next::Continue(ask) => {
@@ -722,6 +830,9 @@ impl Window for Machine {
             }
             return if self.answered { None } else { self.pending_choice(s, k) };
         }
+        if let Some((p, _, _)) = &self.produce {
+            return p.ask_of(s, k);
+        }
         self.roll.as_ref().and_then(|r| r.ask_of(s, k))
     }
 
@@ -734,6 +845,9 @@ impl Window for Machine {
                 return Err(Illegal);
             }
             return self.answer_pending(sx, pick);
+        }
+        if let Some((p, _, _)) = self.produce.as_mut() {
+            return p.answer(sx, pick);
         }
         match self.roll.as_mut() {
             Some(r) => r.answer(sx, pick),
