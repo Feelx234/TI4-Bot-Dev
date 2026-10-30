@@ -128,6 +128,7 @@ fn main() {
     let mut roundtrip_core_diff: Vec<String> = Vec::new();
     let mut costs = [Cost::default(); Slice::COUNT];
     let (mut loaded, mut checked_core) = (0usize, 0usize);
+    let (mut texts_max, mut blobs_max) = (0usize, 0usize);
     let mut previous: Option<GameState> = None;
 
     for p in &positions {
@@ -142,6 +143,7 @@ fn main() {
         };
         let src = Sources { galaxy: Some(&p.galaxy), rng: None };
         let mut core = CoreState::with_loaded(SliceSet::EMPTY);
+        cx.attach(&mut core);
         let mut ok = true;
         let value = json(&p.state);
         for slice in Slice::ALL {
@@ -173,6 +175,9 @@ fn main() {
             continue;
         }
         loaded += 1;
+        cx.adopt(&core);
+        texts_max = texts_max.max(core.texts.codes.len());
+        blobs_max = blobs_max.max(core.texts.blobs.len());
         let mut back = previous.clone().unwrap_or_else(|| p.state.clone());
         for slice in Slice::ALL {
             let t = Instant::now();
@@ -219,6 +224,7 @@ fn main() {
     for m in roundtrip_core_diff.iter().take(20) {
         println!("CORE DIFF {m}");
     }
+    println!("text tables high-water over {loaded} loaded positions: codes {texts_max}, blobs {blobs_max}");
     println!("size_of CoreState {} B, Player {} B", std::mem::size_of::<CoreState>(), std::mem::size_of::<ti4_engine_core::state::Player>());
     println!("\nlend cost per slice (mean over {loaded} loaded positions): string JSON bytes, typed inline bytes, load ns, store ns");
     let inline = |s: Slice| -> usize {

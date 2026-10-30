@@ -15,7 +15,7 @@ use super::footprint::Footprint;
 /// What a ported call gets besides the state: the seeding of random streams (the adapter's domain
 /// texts). The rule tables of the core are static; knobs join here as areas need them.
 pub struct Kernel<'a> {
-    pub seeds: TextSeeds<'a>,
+    pub seeds: &'a TextSeeds,
 }
 
 /// Count and time of the loads and stores of one slice.
@@ -42,6 +42,7 @@ impl LendStats {
 
 fn load(cx: &mut Ctx, gs: &GameState, src: Sources<'_>, slices: SliceSet, stats: &mut LendStats) -> R<CoreState> {
     let mut core = CoreState::with_loaded(SliceSet::EMPTY);
+    cx.attach(&mut core);
     for slice in Slice::ALL {
         if slices.has(slice) {
             let t = Instant::now();
@@ -51,6 +52,7 @@ fn load(cx: &mut Ctx, gs: &GameState, src: Sources<'_>, slices: SliceSet, stats:
             c.load_ns += t.elapsed().as_nanos() as u64;
         }
     }
+    cx.adopt(&core);
     Ok(core)
 }
 
@@ -88,8 +90,10 @@ impl<'g> Lend<'g> {
     pub fn with_core<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut CoreState, &Kernel<'_>) -> T) -> R<T> {
         self.cx.refresh(self.gs)?;
         let mut core = load(self.cx, self.gs, self.src, fp.loads(), &mut self.stats)?;
-        let out = f(&mut core, &Kernel { seeds: TextSeeds(self.cx) });
+        let seeds = TextSeeds(core.texts.clone());
+        let out = f(&mut core, &Kernel { seeds: &seeds });
         store(self.cx, &core, self.gs, fp.writes, &mut self.stats)?;
+        self.cx.adopt(&core);
         self.stats.lends += 1;
         Ok(out)
     }
@@ -99,13 +103,15 @@ impl<'g> Lend<'g> {
     ///
     /// # Errors
     /// As [`Self::with_core`].
-    pub fn region<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut Region<'_>) -> T) -> R<T> {
+    pub fn region<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut Region) -> T) -> R<T> {
         self.cx.refresh(self.gs)?;
         let core = load(self.cx, self.gs, self.src, fp.loads(), &mut self.stats)?;
-        let mut region = Region { core, fp, seeds: TextSeeds(self.cx) };
+        let seeds = TextSeeds(core.texts.clone());
+        let mut region = Region { core, fp, seeds };
         let out = f(&mut region);
         let core = region.core;
         store(self.cx, &core, self.gs, fp.writes, &mut self.stats)?;
+        self.cx.adopt(&core);
         self.stats.lends += 1;
         Ok(out)
     }
@@ -121,18 +127,18 @@ impl<'g> Lend<'g> {
 }
 
 /// An open region: one load, several calls, one store.
-pub struct Region<'a> {
+pub struct Region {
     core: CoreState,
     fp: Footprint,
-    seeds: TextSeeds<'a>,
+    seeds: TextSeeds,
 }
 
-impl Region<'_> {
+impl Region {
     /// One call inside the region; its footprint must lie inside the region's.
     pub fn call<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut CoreState, &Kernel<'_>) -> T) -> T {
         debug_assert!(self.fp.loads().contains_all(fp.loads()), "call reads a slice the region did not load");
         debug_assert!(self.fp.writes.contains_all(fp.writes), "call writes a slice the region does not store");
-        f(&mut self.core, &Kernel { seeds: TextSeeds(self.seeds.0) })
+        f(&mut self.core, &Kernel { seeds: &self.seeds })
     }
 
     #[must_use]
@@ -197,7 +203,7 @@ pub fn region<T>(
     cx: &mut Ctx,
     src: Sources<'_>,
     fp: Footprint,
-    f: impl FnOnce(&mut Region<'_>) -> T,
+    f: impl FnOnce(&mut Region) -> T,
 ) -> R<T> {
     Lend::new(gs, cx, src).region(fp, f)
 }

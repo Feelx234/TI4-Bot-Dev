@@ -1,5 +1,6 @@
 //! `faction_marks`: the text of every key family, and the schema of its value.
 
+use ti4_engine_core::containers::Interner;
 use ti4_engine_core::keys::{Atom, Family, MarkKey, Word};
 
 use super::text::{Codec, K};
@@ -320,11 +321,11 @@ fn field_count(segs: &[Seg]) -> usize {
 impl Codec {
     /// The typed key of a `faction_marks` key text; `None` for text no family has (a test key,
     /// an id outside the corpus, an owner outside the table).
-    pub fn parse_mark_key(&mut self, text: &str) -> Option<MarkKey> {
+    pub fn parse_mark_key(&self, blobs: &mut Interner, text: &str) -> Option<MarkKey> {
         for (family, segs) in &PATTERNS {
             let mut rest = text;
             let mut atoms = Vec::new();
-            if self.parse_segs(segs, &mut rest, &mut atoms, None).is_some() && rest.is_empty() {
+            if self.parse_segs(blobs, segs, &mut rest, &mut atoms, None).is_some() && rest.is_empty() {
                 if let Some(key) = MarkKey::from_atoms(*family, &atoms) {
                     return Some(key);
                 }
@@ -334,7 +335,8 @@ impl Codec {
     }
 
     fn parse_segs(
-        &mut self,
+        &self,
+        blobs: &mut Interner,
         segs: &[Seg],
         rest: &mut &str,
         atoms: &mut Vec<Atom>,
@@ -353,13 +355,13 @@ impl Codec {
                         None => rest.len(),
                     };
                     let (field, tail) = rest.split_at(end);
-                    atoms.push(self.parse_atom(*kind, field)?);
+                    atoms.push(self.parse_atom(blobs, *kind, field)?);
                     *rest = tail;
                 }
                 O(group) => {
                     let present = first_literal(group).is_some_and(|lit| rest.starts_with(lit));
                     if present {
-                        self.parse_segs(group, rest, atoms, follow)?;
+                        self.parse_segs(blobs, group, rest, atoms, follow)?;
                     } else {
                         atoms.extend(std::iter::repeat_n(Atom::Absent, field_count(group)));
                     }
@@ -371,17 +373,18 @@ impl Codec {
 
     /// The text of a typed key.
     #[must_use]
-    pub fn render_mark_key(&self, key: &MarkKey) -> Option<String> {
+    pub fn render_mark_key(&self, blobs: &Interner, key: &MarkKey) -> Option<String> {
         let (_, segs) = &PATTERNS[key.family().index()];
         let (atoms, n) = key.atoms();
         let mut out = String::new();
         let mut cursor = 0;
-        self.render_segs(segs, &atoms[..n], &mut cursor, &mut out)?;
+        self.render_segs(blobs, segs, &atoms[..n], &mut cursor, &mut out)?;
         (cursor == n).then_some(out)
     }
 
     fn render_segs(
         &self,
+        blobs: &Interner,
         segs: &[Seg],
         atoms: &[Atom],
         cursor: &mut usize,
@@ -391,14 +394,14 @@ impl Codec {
             match seg {
                 L(lit) => out.push_str(lit),
                 F(kind) => {
-                    self.render_atom(*kind, *atoms.get(*cursor)?, out)?;
+                    self.render_atom(blobs, *kind, *atoms.get(*cursor)?, out)?;
                     *cursor += 1;
                 }
                 O(group) => {
                     if atoms.get(*cursor) == Some(&Atom::Absent) {
                         *cursor += field_count(group);
                     } else {
-                        self.render_segs(group, atoms, cursor, out)?;
+                        self.render_segs(blobs, group, atoms, cursor, out)?;
                     }
                 }
             }

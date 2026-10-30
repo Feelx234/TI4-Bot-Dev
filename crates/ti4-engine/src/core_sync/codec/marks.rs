@@ -20,8 +20,8 @@ impl SliceCodec for Marks {
     fn load(cx: &mut Ctx, gs: &GameState, _: Sources<'_>, core: &mut CoreState) -> R<()> {
         let mut m = MarkMap::new();
         for (k, v) in &gs.faction_marks {
-            let (key, val) = cx.keys.parse_mark(k, v).ok_or_else(|| bad(S, "mark not typed", k))?;
-            if cx.keys.render_mark(&key, &val).is_none_or(|(rk, rv)| rk != *k || rv != *v) {
+            let (key, val) = cx.keys.parse_mark(&mut core.texts.blobs, k, v).ok_or_else(|| bad(S, "mark not typed", k))?;
+            if cx.keys.render_mark(&core.texts.blobs, &key, &val).is_none_or(|(rk, rv)| rk != *k || rv != *v) {
                 return Err(bad(S, "mark text is not canonical", k));
             }
             m.insert(key, val);
@@ -35,7 +35,7 @@ impl SliceCodec for Marks {
             .marks()
             .tail
             .iter()
-            .map(|(k, v)| cx.keys.render_mark(k, v).ok_or_else(|| bad(S, "mark without a text", format!("{k:?}"))))
+            .map(|(k, v)| cx.keys.render_mark(&core.texts.blobs, k, v).ok_or_else(|| bad(S, "mark without a text", format!("{k:?}"))))
             .collect::<R<_>>()?;
         Ok(())
     }

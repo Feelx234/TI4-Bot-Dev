@@ -97,11 +97,13 @@ impl Codec {
     /// A value the typed state cannot hold.
     pub fn load(cx: &mut Ctx, gs: &GameState, src: Sources<'_>, slices: SliceSet) -> R<CoreState> {
         let mut core = CoreState::with_loaded(SliceSet::EMPTY);
+        cx.attach(&mut core);
         for slice in Slice::ALL {
             if slices.has(slice) {
                 Self::load_slice(cx, gs, src, slice, &mut core)?;
             }
         }
+        cx.adopt(&core);
         Ok(core)
     }
 

@@ -701,7 +701,7 @@ fn load_reach(cx: &mut Ctx, gs: &GameState, galaxy: &Galaxy) -> Option<CoreState
     let mut marks = ti4_engine_core::state::MarkMap::new();
     for (key, value) in &gs.faction_marks {
         if REACH_MARKS.iter().any(|p| key.starts_with(p)) {
-            let (k, v) = cx.keys.parse_mark(key, value)?;
+            let (k, v) = cx.keys.parse_mark(&mut core.texts.blobs, key, value)?;
             marks.insert(k, v);
         }
     }

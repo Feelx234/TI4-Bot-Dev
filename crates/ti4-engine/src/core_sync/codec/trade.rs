@@ -2,7 +2,7 @@ use ti4_engine_core::containers::{Cow, SeatSet, SmallList, SortedMap};
 use ti4_engine_core::generated::{ActionCard, Agenda, Leader, SecretObjective, System};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::state as c;
-use ti4_engine_core::state::{CoreState, Slice};
+use ti4_engine_core::state::{CoreState, Slice, Texts};
 use ti4_model::diplomacy as md;
 use ti4_model::id::{ActionCardId, PlayerId, SystemId};
 use ti4_model::state::GameState;
@@ -12,6 +12,7 @@ use super::cards::{note_key, note_text};
 use super::{Sources, SliceCodec};
 use crate::core_sync::conv::{id, txt};
 use crate::core_sync::ctx::Ctx;
+use crate::core_sync::texts::TextCodes;
 use crate::core_sync::error::{R, bad};
 
 const S: Slice = Slice::Trade;
@@ -419,10 +420,10 @@ fn pair_map_back<V: Copy>(
     Ok(out)
 }
 
-fn diplomacy(cx: &mut Ctx, d: &md::DiplomacyState) -> R<c::Diplomacy> {
+fn diplomacy(cx: &mut Ctx, tx: &mut Texts, d: &md::DiplomacyState) -> R<c::Diplomacy> {
     let mut o = c::Diplomacy {
         enabled: d.enabled,
-        rules: cx.texts.intern(S, &d.rules_version)?,
+        rules: tx.intern_code(S, &d.rules_version)?,
         next_deal_id: d.next_deal_id,
         next_signal_id: d.next_signal_id,
         ..c::Diplomacy::default()
@@ -456,7 +457,7 @@ fn diplomacy(cx: &mut Ctx, d: &md::DiplomacyState) -> R<c::Diplomacy> {
             terminal_round: h.terminal_round,
             status: dstatus(h.status),
             latest_revision: h.latest_revision.as_ref().map(|r| revision(cx, r)).transpose()?,
-            legacy_promise: h.legacy_promise.as_deref().map(|t| cx.texts.intern(S, t)).transpose()?,
+            legacy_promise: h.legacy_promise.as_deref().map(|t| tx.intern_code(S, t)).transpose()?,
             legacy_status: h.legacy_status.map(pstatus),
         });
     }
@@ -480,11 +481,11 @@ fn diplomacy(cx: &mut Ctx, d: &md::DiplomacyState) -> R<c::Diplomacy> {
     Ok(o)
 }
 
-fn diplomacy_back(cx: &Ctx, d: &c::Diplomacy) -> R<md::DiplomacyState> {
+fn diplomacy_back(cx: &Ctx, tx: &Texts, d: &c::Diplomacy) -> R<md::DiplomacyState> {
     let none = std::collections::BTreeSet::new();
     let mut o = md::DiplomacyState {
         enabled: d.enabled,
-        rules_version: cx.texts.text(S, d.rules)?.to_owned(),
+        rules_version: tx.code_text(S, d.rules)?.to_owned(),
         next_deal_id: d.next_deal_id,
         next_signal_id: d.next_signal_id,
         ..md::DiplomacyState::default()
@@ -515,7 +516,7 @@ fn diplomacy_back(cx: &Ctx, d: &c::Diplomacy) -> R<md::DiplomacyState> {
             terminal_round: h.terminal_round,
             status: dstatus_back(h.status),
             latest_revision: h.latest_revision.as_ref().map(|r| revision_back(cx, r)).transpose()?,
-            legacy_promise: h.legacy_promise.map(|c| cx.texts.text(S, c).map(str::to_owned)).transpose()?,
+            legacy_promise: h.legacy_promise.map(|c| tx.code_text(S, c).map(str::to_owned)).transpose()?,
             legacy_status: h.legacy_status.map(pstatus_back),
         });
     }
@@ -588,13 +589,13 @@ impl SliceCodec for Trade {
         t.traded_goods_for_promissory = seat_map(cx, &gs.traded_goods_for_promissory)?;
         let mut promises = SortedMap::new();
         for ((a, b, text), kept) in &gs.promises {
-            promises.insert((cx.seat(S, a.as_str())?, cx.seat(S, b.as_str())?, cx.texts.intern(S, text)?), *kept);
+            promises.insert((cx.seat(S, a.as_str())?, cx.seat(S, b.as_str())?, core.texts.intern_code(S, text)?), *kept);
         }
         t.promises = Cow::new(promises);
         for (k, v) in &gs.support_holders {
             t.support_holders.insert(cx.seat(S, k.as_str())?, cx.seat(S, v.as_str())?);
         }
-        t.diplomacy = Cow::new(diplomacy(cx, &gs.diplomacy)?);
+        t.diplomacy = Cow::new(diplomacy(cx, &mut core.texts, &gs.diplomacy)?);
         core.trade = t;
         Ok(())
     }
@@ -625,7 +626,7 @@ impl SliceCodec for Trade {
             .iter()
             .map(|((a, b, text), kept)| {
                 Ok((
-                    (PlayerId::new(cx.owner(S, *a)?), PlayerId::new(cx.owner(S, *b)?), cx.texts.text(S, *text)?.to_owned()),
+                    (PlayerId::new(cx.owner(S, *a)?), PlayerId::new(cx.owner(S, *b)?), core.texts.code_text(S, *text)?.to_owned()),
                     *kept,
                 ))
             })
@@ -635,7 +636,7 @@ impl SliceCodec for Trade {
             .iter()
             .map(|(k, v)| Ok((PlayerId::new(cx.owner(S, *k)?), PlayerId::new(cx.owner(S, *v)?))))
             .collect::<R<_>>()?;
-        gs.diplomacy = diplomacy_back(cx, &t.diplomacy)?;
+        gs.diplomacy = diplomacy_back(cx, &core.texts, &t.diplomacy)?;
         Ok(())
     }
 }

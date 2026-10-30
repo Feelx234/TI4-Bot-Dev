@@ -2926,7 +2926,7 @@ pub fn bombard(
         };
         plan.push(Entry {
             planet: planet_of(&e.planet)?,
-            template: crate::core_sync::codec::transient::invasion_step(&mut cx, &template).ok()?,
+            template: cx.minting(|c, tx| crate::core_sync::codec::transient::invasion_step(c, tx, &template)).ok()?,
             groups: SmallList::from_slice(&e.groups),
             held: e.held,
             victims: seats(&e.victims)?,
@@ -3275,7 +3275,7 @@ pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceS
         hits: std::collections::BTreeMap::new(),
         harrow_hits: 0,
     };
-    let template = crate::core_sync::codec::transient::invasion_step(&mut cx, &template).ok()?;
+    let template = cx.minting(|c, tx| crate::core_sync::codec::transient::invasion_step(c, tx, &template)).ok()?;
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, sources)?;
     let facts = Facts {
