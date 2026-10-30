@@ -1,0 +1,263 @@
+//! The turn flow of the action phase (package D1b-5 and the Action -> Status step of D1b-6): who has the next turn, what
+//! a turn that ends leaves behind, and the three events that follow it. A function of the position only; the hooks that run
+//! between the steps (`technology::end_turn`, Minister of War, the fleet sweep, the `TURN_PASSED` reaction windows) stay with
+//! the string engine and are lent: the dual counts a step in which one of them changed the position.
+//!
+//! The string functions this mirrors: `phase::{begin_action_turn, advance_turn, advance_phase (Action arm)}` and the parts of
+//! `Game::advance_turn_inner` that are choice-free (`game.rs`). L5: composes `rules::trade`, `rules::diplomacy` and
+//! `query::seats`, which no area may import from another.
+
+use crate::containers::SmallList;
+use crate::ids::Seat;
+use crate::query::seats::initiative_order;
+use crate::rules::{diplomacy, trade};
+use crate::state::{CoreState, Phase, TransientFlags};
+
+/// `phase::begin_action_turn`: the next turn of the phase, for `seat`.
+pub fn begin_action_turn(core: &mut CoreState, seat: Seat) {
+    let meta = core.meta_mut();
+    meta.action_turn += 1;
+    meta.active = Some(seat);
+    meta.turn_seq += 1;
+}
+
+/// `GameState::all_passed`.
+#[must_use]
+pub fn all_passed(core: &CoreState) -> bool {
+    core.players().iter().all(|p| p.econ.passed)
+}
+
+/// `phase::advance_turn`: the next seat in initiative order that has not passed, or `None` when everyone has (the turn then
+/// belongs to nobody). Both per-turn tallies of the trade slice are restored first: one transaction per neighbour and one
+/// contact per seat each turn.
+pub fn advance_turn(core: &mut CoreState) -> Option<Seat> {
+    trade::clear_turn_transactions(core);
+    diplomacy::clear_turn_initiations(core);
+    if all_passed(core) {
+        core.meta_mut().active = None;
+        return None;
+    }
+    let order = initiative_order(core);
+    if order.is_empty() {
+        core.meta_mut().active = None;
+        return None;
+    }
+    // Initiative order is not seating order: advance by the current seat's place in it.
+    let order = order.as_slice();
+    let start = core.meta().active.and_then(|current| order.iter().position(|s| *s == current));
+    for step in 1..=order.len() {
+        let index = start.map_or(step - 1, |start| (start + step) % order.len());
+        let candidate = order[index];
+        if core.players().by_seat(candidate).is_some_and(|p| !p.econ.passed) {
+            begin_action_turn(core, candidate);
+            return Some(candidate);
+        }
+    }
+    core.meta_mut().active = None;
+    None
+}
+
+/// `phase::advance_phase`, Action arm: the status phase begins and the turn belongs to nobody.
+pub fn action_phase_ended(core: &mut CoreState) {
+    let meta = core.meta_mut();
+    meta.phase = Phase::Status;
+    meta.active = None;
+}
+
+/// The top of `Game::advance_turn_inner`: an additional action (Master Plan and friends) keeps the turn. Returns whether the
+/// turn is retained; the flag is spent.
+pub fn take_retention(core: &mut CoreState) -> bool {
+    let flags = &mut core.transient_mut().misc.flags;
+    let retained = flags.has(TransientFlags::ADDITIONAL_ACTION);
+    if retained {
+        flags.clear(TransientFlags::ADDITIONAL_ACTION);
+    }
+    retained
+}
+
+/// The scratch of a turn that really ends (`Game::advance_turn_inner` after the retention checks): a new turn is a new action
+/// for the negotiation limit, and a Black Market or Expedition marker outlives no turn.
+pub fn end_turn_scratch(core: &mut CoreState) {
+    trade::clear_action_negotiations(core);
+    let flags = &mut core.transient_mut().misc.flags;
+    flags.clear(TransientFlags::BLACK_MARKET);
+    flags.clear(TransientFlags::EXPEDITION_CLAIMED);
+}
+
+/// What the end of a turn announces, in the order the string pushes it. `Passed` is the plain `TURN_PASSED` and the typed event
+/// of the same name; `Skipped` and `Puppet` are the plain lines `TURN_SKIPPED:{seat}` and `TURN_PUPPET:{seat}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Announce {
+    Passed(Seat),
+    Skipped(Seat),
+    Puppet(Seat),
+}
+
+/// The choice-free tail of `Game::advance_turn_inner`, from `phase::advance_turn` on: pass the turn, announce that `ended`'s
+/// turn ended, skip the seat Crisis names, and give a Puppets on a String grant back to the passer.
+///
+/// `ended` is the seat whose turn it was (`None` when nobody was active: nothing is announced). The last turn of the phase
+/// still ends (its windows open) although there is no next turn, unless the passer holds a puppet grant.
+pub fn pass_on(core: &mut CoreState, ended: Option<Seat>) -> SmallList<Announce, 4> {
+    let mut out = SmallList::new();
+    let next = advance_turn(core);
+    let puppet = core.transient().misc.flags.has(TransientFlags::PUPPET_ACTION);
+    if next.is_none() && !puppet {
+        if let Some(ended) = ended {
+            out.push(Announce::Passed(ended));
+        }
+        return out;
+    }
+    let Some(ended) = ended else { return out };
+    out.push(Announce::Passed(ended));
+    if core.transient().misc.flags.has(TransientFlags::SKIP_NEXT_TURN) {
+        core.transient_mut().misc.flags.clear(TransientFlags::SKIP_NEXT_TURN);
+        if let Some(skipped) = core.meta().active {
+            out.push(Announce::Skipped(skipped));
+            let _ = advance_turn(core);
+        }
+    }
+    // A fresh turn for the passer (new turn counter, start-of-turn hooks run again), and the seat stays passed.
+    if core.transient().misc.flags.has(TransientFlags::PUPPET_ACTION) {
+        core.transient_mut().misc.flags.clear(TransientFlags::PUPPET_ACTION);
+        begin_action_turn(core, ended);
+        out.push(Announce::Puppet(ended));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generated::{Faction, StrategyCard};
+    use crate::state::{Player, Players};
+
+    /// Three seats, initiative by seat unless a test changes it.
+    fn table() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec((0..3).map(|i| Player::new(Seat(i), Faction::ALL[usize::from(i)])).collect());
+        s.seats = crate::state::Seats::new(&[Seat(0), Seat(1), Seat(2)], &[Seat(0), Seat(1), Seat(2)], 3);
+        for (i, c) in StrategyCard::ALL[..3].iter().enumerate() {
+            s.strategy.initiative.insert(*c, i as i32 + 1);
+            s.players.edit(i).strat.push(*c);
+        }
+        s.meta.active = Some(Seat(0));
+        s.meta.phase = Phase::Action;
+        s
+    }
+
+    fn pass(s: &mut CoreState, seat: u8) {
+        s.players.edit(usize::from(seat)).econ.passed = true;
+    }
+
+    #[test]
+    fn the_turn_goes_to_the_next_seat_in_initiative_order_and_counts_up() {
+        let mut s = table();
+        assert_eq!(advance_turn(&mut s), Some(Seat(1)));
+        assert_eq!((s.meta.active, s.meta.turn_seq, s.meta.action_turn), (Some(Seat(1)), 1, 1));
+        assert_eq!(advance_turn(&mut s), Some(Seat(2)));
+        assert_eq!(advance_turn(&mut s), Some(Seat(0)), "wraps round");
+        assert_eq!((s.meta.turn_seq, s.meta.action_turn), (3, 3));
+    }
+
+    #[test]
+    fn a_seat_that_passed_is_skipped_and_when_all_passed_nobody_has_the_turn() {
+        let mut s = table();
+        pass(&mut s, 1);
+        assert_eq!(advance_turn(&mut s), Some(Seat(2)));
+        pass(&mut s, 2);
+        assert_eq!(advance_turn(&mut s), Some(Seat(0)), "the only seat left keeps coming back");
+        pass(&mut s, 0);
+        let seq = s.meta.turn_seq;
+        assert_eq!(advance_turn(&mut s), None);
+        assert_eq!((s.meta.active, s.meta.turn_seq), (None, seq), "no turn begins");
+    }
+
+    #[test]
+    fn initiative_order_decides_not_seating() {
+        let mut s = table();
+        // Seat 2 holds the lowest initiative now.
+        s.strategy.initiative_overrides.insert(Seat(2), 0);
+        s.meta.active = Some(Seat(2));
+        assert_eq!(advance_turn(&mut s), Some(Seat(0)), "after the first in initiative comes the second");
+        s.meta.active = None;
+        assert_eq!(advance_turn(&mut s), Some(Seat(2)), "no active seat: the front of the order");
+    }
+
+    #[test]
+    fn the_per_turn_tallies_are_restored_even_when_the_turn_passes_to_nobody() {
+        let mut s = table();
+        s.trade.transactions_this_turn.insert(Seat(0), Default::default());
+        for i in 0..3 {
+            pass(&mut s, i);
+        }
+        assert_eq!(advance_turn(&mut s), None);
+        assert!(s.trade.transactions_this_turn.is_empty());
+    }
+
+    #[test]
+    fn a_retained_turn_spends_the_flag_and_changes_nothing_else() {
+        let mut s = table();
+        assert!(!take_retention(&mut s));
+        s.transient.misc.flags.set(TransientFlags::ADDITIONAL_ACTION);
+        assert!(take_retention(&mut s));
+        assert!(!s.transient.misc.flags.has(TransientFlags::ADDITIONAL_ACTION));
+        assert_eq!((s.meta.active, s.meta.turn_seq), (Some(Seat(0)), 0));
+    }
+
+    #[test]
+    fn the_scratch_of_an_ended_turn_clears_the_markers_that_outlive_no_turn() {
+        let mut s = table();
+        s.transient.misc.flags.set(TransientFlags::BLACK_MARKET);
+        s.transient.misc.flags.set(TransientFlags::EXPEDITION_CLAIMED);
+        s.transient.misc.flags.set(TransientFlags::SKIP_NEXT_TURN);
+        end_turn_scratch(&mut s);
+        assert_eq!(s.transient.misc.flags.0, TransientFlags::SKIP_NEXT_TURN, "only the two markers go");
+    }
+
+    #[test]
+    fn passing_on_announces_the_end_of_the_turn_that_ended() {
+        let mut s = table();
+        let out = pass_on(&mut s, Some(Seat(0)));
+        assert_eq!(out.as_slice(), &[Announce::Passed(Seat(0))]);
+        assert_eq!(s.meta.active, Some(Seat(1)));
+        // The last turn of the phase still ends.
+        for i in 0..3 {
+            pass(&mut s, i);
+        }
+        let out = pass_on(&mut s, Some(Seat(1)));
+        assert_eq!((out.as_slice(), s.meta.active), (&[Announce::Passed(Seat(1))][..], None));
+        assert!(pass_on(&mut s, None).is_empty(), "no one was active: nothing is announced");
+    }
+
+    #[test]
+    fn crisis_skips_the_seat_the_turn_arrived_at() {
+        let mut s = table();
+        s.transient.misc.flags.set(TransientFlags::SKIP_NEXT_TURN);
+        let out = pass_on(&mut s, Some(Seat(0)));
+        assert_eq!(out.as_slice(), &[Announce::Passed(Seat(0)), Announce::Skipped(Seat(1))]);
+        assert_eq!(s.meta.active, Some(Seat(2)));
+        assert!(!s.transient.misc.flags.has(TransientFlags::SKIP_NEXT_TURN));
+    }
+
+    #[test]
+    fn a_puppet_grant_gives_the_passer_a_fresh_turn_while_it_stays_passed() {
+        let mut s = table();
+        pass(&mut s, 0);
+        pass(&mut s, 1);
+        pass(&mut s, 2);
+        s.transient.misc.flags.set(TransientFlags::PUPPET_ACTION);
+        let seq = s.meta.turn_seq;
+        let out = pass_on(&mut s, Some(Seat(1)));
+        assert_eq!(out.as_slice(), &[Announce::Passed(Seat(1)), Announce::Puppet(Seat(1))]);
+        assert_eq!((s.meta.active, s.meta.turn_seq), (Some(Seat(1)), seq + 1));
+        assert!(s.players.get(1).econ.passed, "the grant is one action, not a return from pass");
+    }
+
+    #[test]
+    fn the_action_phase_ends_into_the_status_phase_with_no_active_seat() {
+        let mut s = table();
+        action_phase_ended(&mut s);
+        assert_eq!((s.meta.phase, s.meta.active), (Phase::Status, None));
+    }
+}
