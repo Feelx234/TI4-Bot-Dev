@@ -1,6 +1,6 @@
 //! D4-2c: `rules::abilities` (the faction abilities the core knows without a module), against the factions that print them.
 
-use ti4_engine_core::generated::{Ability, StrategyCardKind, TechType};
+use ti4_engine_core::generated::{Ability, StrategyCardKind};
 use ti4_engine_core::kernel::hooks::CombatCtx;
 use ti4_engine_core::rules::abilities::{self as ab, Cx, Env};
 use ti4_engine_core::state::NoteKey;
@@ -125,7 +125,6 @@ fn analytical_waives_one_prerequisite_of_a_technology_that_is_not_a_unit_upgrade
     assert_eq!(ab::waived_prerequisites(&cx, Seat(1), Technology::GravityDrive), 0);
     let hooked = Neutral { waived: 2, ..Neutral::default() };
     assert_eq!(ab::waived_prerequisites(&Cx { core: &s, env: &hooked }, Seat(0), Technology::GravityDrive), 3);
-    assert!(TechType::Unitupgrade as u8 >= 0);
 }
 
 #[test]
