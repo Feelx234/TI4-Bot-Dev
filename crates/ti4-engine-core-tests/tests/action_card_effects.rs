@@ -390,3 +390,58 @@ fn signal_jamming_puts_another_players_command_token_in_a_system_near_our_ships(
     assert_eq!(tokens_added, 1, "exactly one token is placed");
     assert!(!rig.state.board().sys(sys_of(0)).cmd.contains(Seat(0)), "never one of ours");
 }
+
+#[test]
+fn courageous_to_the_end_rolls_two_dice_and_costs_the_opponent_a_ship_for_each_die_at_the_lost_ships_combat_value() {
+    covers_card!(ActionCard::CourageousToTheEnd);
+    let (mut some, mut none) = (false, false);
+    for seed in 0..40u64 {
+        let mut st = four().map_ring(4).unit(sys_of(1), None, Unit::CruiserI, 1, 3).state();
+        st.transient_mut().combat.last_ship_destroyed = Some((sys_of(1), Seat(0), Unit::DreadnoughtI));
+        let mut rig = solo(ActionCard::CourageousToTheEnd, st, seed).expect("a play");
+        rig.run();
+        rig.auto(ti4_engine_core_tests::rig::Policy::First);
+        assert!(rig.is_done());
+        let faces = rig.driver.window.faces().to_vec();
+        assert_eq!(faces.len(), 2, "two dice");
+        let value = 5; // the dreadnought's combat value
+        let hits = faces.iter().filter(|f| **f >= value).count();
+        assert_eq!(count_in(&rig.state, sys_of(1), 1, Unit::CruiserI), 3 - hits, "seed {seed}: the opponent loses one ship for each die that reached {value}");
+        assert_eq!(rig.state.transient().combat.pending_destructions.len(), hits, "the losses wait for the announcement of the play");
+        some |= hits > 0;
+        none |= hits == 0;
+    }
+    assert!(some && none);
+    // The ship must be the holder's own and there must be an opponent with a ship there: otherwise no dice are rolled.
+    let mut other = four().map_ring(4).unit(sys_of(1), None, Unit::CruiserI, 1, 2).state();
+    other.transient_mut().combat.last_ship_destroyed = Some((sys_of(1), Seat(2), Unit::DreadnoughtI));
+    let mut rig = solo(ActionCard::CourageousToTheEnd, other, 1).expect("a play");
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.faces().is_empty(), "someone else's ship was destroyed");
+    let mut alone = four().map_ring(4).state();
+    alone.transient_mut().combat.last_ship_destroyed = Some((sys_of(1), Seat(0), Unit::DreadnoughtI));
+    let mut rig = solo(ActionCard::CourageousToTheEnd, alone, 1).expect("a play");
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.faces().is_empty(), "no opponent ship left");
+}
+
+#[test]
+fn experimental_battlestation_fires_three_dice_at_five_for_each_hit_the_active_player_loses_a_ship() {
+    covers_card!(ActionCard::ExperimentalBattlestation);
+    let mut seen = [false; 4];
+    for seed in 0..40u64 {
+        let planet = planet_of(1);
+        let st = four().map_ring(4).active(Some(1)).active_system(sys_of(1)).control(planet, 0).unit(sys_of(1), Some(planet), Unit::SpaceDockI, 0, 1).unit(sys_of(1), None, Unit::CruiserI, 1, 4).state();
+        let mut rig = solo(ActionCard::ExperimentalBattlestation, st, seed).expect("a play");
+        rig.run();
+        rig.auto(ti4_engine_core_tests::rig::Policy::First);
+        assert!(rig.is_done());
+        let faces = rig.driver.window.faces().to_vec();
+        assert_eq!(faces.len(), 3, "SPACE CANNON 5 (x3)");
+        let hits = faces.iter().filter(|f| **f >= 5).count();
+        seen[hits] = true;
+        assert_eq!(count_in(&rig.state, sys_of(1), 1, Unit::CruiserI), 4 - hits, "seed {seed}");
+        assert_eq!(count_in(&rig.state, sys_of(1), 0, Unit::CruiserI), 0);
+    }
+    assert!(seen.iter().all(|s| *s), "0..3 hits all occur: {seen:?}");
+}
