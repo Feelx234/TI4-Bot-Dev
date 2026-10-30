@@ -3939,3 +3939,82 @@ pub fn with_composed<T>(on: bool, body: impl FnOnce() -> T) -> T {
     COMPOSED.with(|c| c.set(before));
     out
 }
+
+#[cfg(test)]
+mod resolver_state_tests {
+    use ti4_engine_core::Seat;
+    use ti4_engine_core::choice::{Choice as CoreChoice, Pick};
+    use ti4_engine_core::kernel::stage::{Illegal, Sx};
+    use ti4_engine_core::kernel::{Kernel, Next};
+
+    use super::*;
+
+    /// A window that ends at once: the driver and its resolver are all there is to compare.
+    #[derive(Clone)]
+    struct Idle;
+
+    impl Window for Idle {
+        type Stage = ();
+        fn stage(&self) {}
+        fn step(&mut self, _: &mut Sx<'_>) -> Next {
+            Next::Done
+        }
+        fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<CoreChoice> {
+            None
+        }
+        fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
+            Err(Illegal)
+        }
+    }
+
+    fn cfg(used: &[(&str, &str)]) -> ResolverCfg {
+        ResolverCfg {
+            initiative: vec!["a".into(), "b".into()],
+            seating: Vec::new(),
+            active: Some("a".into()),
+            speaker: None,
+            phase: ti4_model::state::Phase::Action,
+            round: 1,
+            turn: 1,
+            max_depth: 100,
+            used: used.iter().map(|(a, b)| ((*a).into(), (*b).into())).collect(),
+            sources: ti4_model::content_types::POK,
+            stack: Vec::new(),
+        }
+    }
+
+    /// The differences the comparison finds for a window that left `after_used` spent in the string resolver while the
+    /// core driver spent nothing, and the next trace id the state ends with.
+    fn run(nested: bool, after_used: &[(&str, &str)]) -> (usize, u64) {
+        let _serial = crate::dual::tests::serial();
+        crate::dual::take_report();
+        let r = Render::new(vec!["a".into(), "b".into()]);
+        let driver = Driver::new(Idle, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 5);
+        let mut core = CoreState::all_loaded();
+        let script = Recording {
+            nested,
+            cfg: Some(cfg(&[])),
+            after: Some(cfg(after_used)),
+            first_event_id: Some(5),
+            finished: 0,
+            ..Recording::default()
+        };
+        compare_resolver(&r, &driver, &mut core, &script);
+        (crate::dual::take_report().differences.len(), core.pending().resolver.next_id)
+    }
+
+    #[test]
+    fn a_window_that_leaves_the_resolver_as_the_string_did_agrees() {
+        assert_eq!(run(true, &[]), (0, 5), "same keys, same initiative, the counter where the string left it; stored in the state");
+    }
+
+    #[test]
+    fn a_key_the_string_spent_and_the_core_did_not_is_a_difference() {
+        assert_eq!(run(true, &[("ability:x", "Round(1)")]).0, 1);
+    }
+
+    #[test]
+    fn a_window_that_followed_no_nested_activity_is_not_compared() {
+        assert_eq!(run(false, &[("ability:x", "Round(1)")]), (0, 1), "nothing compared, nothing stored");
+    }
+}
