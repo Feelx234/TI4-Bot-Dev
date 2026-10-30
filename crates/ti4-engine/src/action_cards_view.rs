@@ -740,6 +740,7 @@ pub fn announce_window(
     use ti4_engine_core::driver::Driver;
     let card = ActionCard::from_id(alias.as_str()).why("an action card the core tables do not know")?;
     if !rules::announce::plays(card) && crate::action_cards::effect_for(alias).is_some() {
+        crate::dual::note_bail_here("a card the announce window does not play (it has no core effect, or the table plays it inside a window)");
         return None;
     }
     let (mut cx, r) = tables_of(gs, card).why(crate::dual::reason::NO_TABLES)?;
