@@ -10529,6 +10529,10 @@ mod tests {
                 },
                 |seed, _, c| if c.prompt.starts_with("Supercharge") { usize::from(seed % 2 == 1) } else { 0 },
             );
+            if differences > 0 {
+                let marks: Vec<_> = state.faction_marks.iter().filter(|(k, _)| k.contains("supercharge")).collect();
+                eprintln!("seed {seed}: marks {marks:?}; exhausted {:?}; seq {}; nested {nested:?}", state.player(&attacker()).unwrap().exhausted_technologies, state.combat_round_seq);
+            }
             assert_eq!(differences, 0, "seed {seed}: {windows:?}");
             assert!(windows.keys().all(|k| !k.contains("a Naaz side")), "seed {seed}: {windows:?}");
             compared_settle += windows.get("combat::settle").map_or(0, |w| w.compared);
@@ -10578,9 +10582,10 @@ mod tests {
                 |_, _, _| 0,
             );
             assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            // The end is announced by the composed machine (inside `combat::settle`) or by the window of its own.
             let end = windows.get("combat::announce_end").copied().unwrap_or_default();
             assert_eq!(end.bailed, 0, "seed {seed}: the end is announced by the core: {windows:?}");
-            compared += end.compared;
+            compared += end.compared + windows.get("combat::settle").map_or(0, |w| w.compared);
             let units = &state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units;
             assert!(!units.iter().any(|u| u.type_id.as_str() == "naaz_mech_space"), "seed {seed}: no ship form survives");
             flipped += units.iter().filter(|u| u.owner == attacker() && u.type_id.as_str() == "naaz_mech").count();
@@ -11206,10 +11211,11 @@ mod tests {
         let plain = settle_gates(&|_, _| {});
         assert!(!plain.opening_unported && !plain.barrage_unported && !plain.roll_unported && !plain.retreat_unported);
         // Naaz and Letnev (Voltron repair, Supercharge, Munitions, the Eidolon flip), diplomacy.
-        for faction in ["naaz", "letnev"] {
-            let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new(faction));
-            assert!(g.opening_unported, "{faction}");
-        }
+        // (A Naaz side is carried by the core since package W2: the Eidolon flip, the repair of the Maximum, Supercharge.)
+        let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("letnev"));
+        assert!(g.opening_unported, "letnev");
+        let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("naaz"));
+        assert!(!g.opening_unported, "naaz");
         assert!(settle_gates(&|state, _| state.diplomacy.enabled = true).opening_unported);
         // Hits a module makes at the start of a combat (Mentak's Ambush, Assault Cannon, Dimensional Splicer,
         // Impulse Core): the string asks the modules, the core ability table is empty.
@@ -11435,8 +11441,8 @@ mod tests {
 
     #[test]
     fn the_round_opening_of_naaz_letnev_and_diplomacy_games_stays_string() {
-        // Voltron repair, Supercharge, Munitions, the Eidolon flip, the Letnev round agent and the attack
-        // promises are not in the core window: `begin_round` bails there and counts it.
+        // Munitions, the self-repairing flagship, the Letnev round agent and the attack promises are not in the core window:
+        // `begin_round` bails there and counts it (Voltron repair, Supercharge and the Eidolon flip are since package W2).
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         fn args<'a>(a: &'a PlayerId, d: &'a PlayerId, system: &'a SystemId) -> crate::dual_window::BeginRoundArgs<'a> {
             crate::dual_window::BeginRoundArgs { attacker: a, defender: d, system, round: 2, announce: false }
@@ -11445,10 +11451,10 @@ mod tests {
         let (a, d, system) = (attacker(), defender(), SystemId::new("18"));
         let plain = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
         assert!(!crate::dual_window::round_opening_unported(&plain, content, &args(&a, &d, &system)));
-        for faction in ["naaz", "letnev"] {
+        for (faction, unported) in [("naaz", false), ("letnev", true)] {
             let mut state = plain.clone();
             state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new(faction);
-            assert!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), "{faction}");
+            assert_eq!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), unported, "{faction}");
         }
         let mut state = plain.clone();
         state.diplomacy.enabled = true;

@@ -1013,7 +1013,11 @@ mod tests {
             token_in(s, "26");
             s.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
         };
-        assert_eq!(run(label, &F3, held, &[], primary("te6warfare")), (0, 1));
+        let sources = ti4_model::content_types::DEFAULT;
+        let act = move |state: &mut GameState, table: &mut Table| {
+            crate::strategy_cards::primary(state, ContentStore::embedded(), sources, None, table, &a(), "te6warfare").unwrap();
+        };
+        assert_eq!(run_in(sources, label, &F3, held, &[], act), (0, 1));
     }
 
     #[test]
