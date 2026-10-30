@@ -615,6 +615,26 @@ mod tests {
         assert!(cfg_state(&r, &bad, 1).is_none(), "a scope that is none of the three");
     }
 
+    /// `TI4_CHURN=state` in miniature: a game whose state and streams go through the core before every step plays the game
+    /// that does not (the churn step is loud on anything the codecs cannot hand back unchanged).
+    #[test]
+    fn sending_the_state_through_the_core_before_every_step_changes_nothing() {
+        for (n, seed) in GAMES {
+            let mut plain = game(n, seed);
+            let mut churned = game(n, seed);
+            for i in 0..600 {
+                if plain.state.finished {
+                    break;
+                }
+                churned.churn_state();
+                let (a, b) = (plain.step(), churned.step());
+                assert_eq!(a.error, b.error, "step {i}");
+                assert_eq!(plain.state, churned.state, "state after step {i} of game {seed}");
+            }
+            assert_eq!(plain.table.log, churned.table.log, "decision log of game {seed}");
+        }
+    }
+
     /// What a step changes in the image, applied to the image before it, is the image after it.
     #[test]
     fn a_delta_applied_to_the_image_before_gives_the_image_after() {

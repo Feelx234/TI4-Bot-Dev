@@ -1,12 +1,20 @@
 //! Churn modes (docs/todo/D2-prereqs.md D2-4a): rebuild a part of the game from its portable image
 //! before every `Game::step`, to prove that the image carries everything. Switched by the native
 //! environment variable `TI4_CHURN` (a comma list, read once): `resolver` rebuilds the timing resolver
-//! (`resolver_sync`). Never on in the browser build, and never on by default.
+//! (`resolver_sync`); `state` sends the game state and the dice streams through the core before every step
+//! (`state := materialize(load(state))`, D2-5 item 8: the flip, simulated). Never on in the browser build, and
+//! never on by default.
 
 /// Whether the timing resolver is rebuilt from its image before every step.
 #[must_use]
 pub fn resolver() -> bool {
     mode("resolver")
+}
+
+/// Whether the game state goes through the core before every step.
+#[must_use]
+pub fn state() -> bool {
+    mode("state")
 }
 
 #[cfg(not(target_arch = "wasm32"))]
