@@ -290,6 +290,61 @@ pub fn return_all_foreign(core: &mut CoreState, note: PromissoryNote) -> Option<
     Some(())
 }
 
+/// `promissory::use_ceasefire`: the Ceasefire of `mover`'s faction that is lent out (held by a seat of another faction) goes
+/// home. `Some(held)`; `None` (nothing written) when the owner's faction is played by two seats.
+pub fn use_ceasefire(core: &mut CoreState, mover: Seat) -> Option<bool> {
+    let faction = qn::faction_of(core, mover)?;
+    owner_of(core, faction)?;
+    if qn::holder_of(core, PromissoryNote::Ceasefire, mover).is_none() {
+        return Some(false);
+    }
+    give_back(core, NoteKey { note: PromissoryNote::Ceasefire, faction })?;
+    Some(true)
+}
+
+/// Whether `seat` has a unit in `system`: in its space area or on one of its planets.
+fn has_unit_in(core: &CoreState, seat: Seat, system: crate::generated::System) -> bool {
+    core.board().sys(system).units.as_slice().iter().any(|u| u.owner() == seat)
+        || core
+            .board()
+            .planets()
+            .any(|(planet, cell)| cell.placed_in.or(planet.data().system) == Some(system) && cell.units.as_slice().iter().any(|u| u.owner() == seat))
+}
+
+/// `promissory::spend_support_on_activation`: activating `system` sends home every Support for the Throne `activator` holds
+/// whose owner has a unit there (the point goes back with it), and the faceup Alliances, Trade Convoys, Blood Pacts, Dark Pacts
+/// and Antiviruses of such owners. Returns the owners whose Support was spent, in seat order (the string lists them in the order
+/// of their ids). `None` (nothing written) when two seats play one faction.
+pub fn spend_support_on_activation(core: &mut CoreState, activator: Seat, system: crate::generated::System) -> Option<crate::containers::SmallList<Seat, 8>> {
+    for p in core.players().iter() {
+        owner_of(core, p.faction)?;
+    }
+    let owners: crate::containers::SmallList<Seat, 8> = core
+        .trade()
+        .support_holders
+        .iter()
+        .filter(|(owner, holder)| **holder == activator && has_unit_in(core, **owner, system))
+        .map(|(owner, _)| *owner)
+        .collect();
+    for owner in owners.as_slice() {
+        return_support(core, *owner);
+    }
+    for note in [PromissoryNote::Alliance, PromissoryNote::TradeConvoys, PromissoryNote::BloodPact, PromissoryNote::DarkPact, PromissoryNote::Antivirus] {
+        let home: Vec<NoteKey> = core
+            .cards()
+            .promissory
+            .iter()
+            .filter(|(k, holder)| k.note == note && **holder == activator && core.cards().promissory_faceup.contains_key(*k))
+            .filter(|(k, _)| owner_of(core, k.faction).flatten().is_some_and(|owner| owner != activator && has_unit_in(core, owner, system)))
+            .map(|(k, _)| *k)
+            .collect();
+        for key in home {
+            give_back(core, key)?;
+        }
+    }
+    Some(owners)
+}
+
 /// `promissory::trade_agreement_on_replenish` without the Cabal observer and the staged event: when
 /// `owner` replenishes and another seat holds their Trade Agreement, the commodities become the holder's
 /// trade goods and the note goes home. `Some(Some((holder, goods)))` when it fired, `Some(None)` when it

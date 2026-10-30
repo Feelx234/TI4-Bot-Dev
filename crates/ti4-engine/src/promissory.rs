@@ -575,6 +575,20 @@ pub fn spend_support_on_activation(
     activator: &PlayerId,
     system: &ti4_model::id::SystemId,
 ) -> Vec<PlayerId> {
+    write(
+        state,
+        "promissory::spend_support_on_activation",
+        |s| spend_support_on_activation_text(s, activator, system),
+        |s| crate::trade_write::spend_on_activation(s, activator, system),
+    )
+}
+
+/// [`spend_support_on_activation`] on the string state: the oracle of the dual run.
+fn spend_support_on_activation_text(
+    state: &mut GameState,
+    activator: &PlayerId,
+    system: &ti4_model::id::SystemId,
+) -> Vec<PlayerId> {
     let owners = support_triggered_by_activation(state, activator, system);
     for owner in &owners {
         return_support(state, owner);
@@ -731,6 +745,11 @@ fn lent_out(state: &GameState, holder: &PlayerId, mover: &PlayerId, owner_name: 
 /// A note is a loan: it does its work once and goes home. Leaving it in the holder's play area
 /// would deny every future move into that system for the rest of the game.
 pub fn use_ceasefire(state: &mut GameState, mover: &PlayerId) -> bool {
+    write(state, "promissory::use_ceasefire", |s| use_ceasefire_text(s, mover), |s| crate::trade_write::use_ceasefire(s, mover))
+}
+
+/// [`use_ceasefire`] on the string state: the oracle of the dual run.
+fn use_ceasefire_text(state: &mut GameState, mover: &PlayerId) -> bool {
     let name = faction_name(state, mover);
     let note = note_id("cf", &name);
     let held = state
@@ -1825,5 +1844,90 @@ mod tests {
             "it is already in b's play area"
         );
         assert_eq!(state.player(&PlayerId::new("c")).unwrap().victory_points, 0);
+    }
+
+    // -- the notes an activation spends, and the Ceasefire, in lockstep with the core (package W14) ------------------------
+
+    fn dealt(seats: &[(&str, &str)]) -> GameState {
+        let mut state = crate::fixtures::seated_game(seats, POK);
+        deal(&mut state, ContentStore::embedded(), POK);
+        state
+    }
+
+    /// Run `body` under the dual backend of the notes (`Area::TradeDiplomacy`) and assert that the two sides never differed.
+    fn lockstep<T>(body: impl FnOnce() -> T) -> T {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let out = with_mask(AreaMask::STRING.with(Area::TradeDiplomacy, Backend::Dual), body);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+        out
+    }
+
+    #[test]
+    fn an_activation_sends_home_the_support_and_the_faceup_notes_of_an_owner_with_units_there_in_lockstep() {
+        let content = ContentStore::embedded();
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let mut state = dealt(&[("a", "hacan"), ("b", "jolnar"), ("c", "sol")]);
+        // b holds Hacan's Support (a point), Alliance, Trade Convoys and Antivirus (faceup, in its play area); Sol's Support too.
+        assert!(receive(&mut state, &b(), &support("hacan")));
+        assert!(receive(&mut state, &b(), &support("sol")));
+        for note in ["an:hacan", "convoys:hacan", "antivirus:hacan"] {
+            take(&mut state, content, &b(), note);
+            state.promissory_faceup.insert(note.to_owned());
+        }
+        let points = state.player(&b()).unwrap().victory_points;
+        // Hacan has a unit on a planet of the system (Sol none): only Hacan's loans go home.
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+        // The core half agrees with the string state, and ran (`Some`).
+        let mut by_core = state.clone();
+        let core_owners = crate::trade_write::spend_on_activation(&mut by_core, &b(), &system);
+        let owners = lockstep(|| spend_support_on_activation(&mut state, &b(), &system));
+        assert_eq!(core_owners, Some(owners.clone()), "the core half ran and returned the same owners");
+        assert_eq!(by_core, state, "and left the same position");
+        assert_eq!(owners, vec![a()]);
+        assert_eq!(state.support_holders.get(&a()), None, "Hacan's Support is back");
+        assert_eq!(state.support_holders.get(&PlayerId::new("c")), Some(&b()), "Sol has no unit there");
+        assert_eq!(state.player(&b()).unwrap().victory_points, points - 1, "the point went back with the card");
+        for note in ["an:hacan", "convoys:hacan", "antivirus:hacan"] {
+            assert_eq!(state.promissory_notes.get(note), Some(&a()), "{note} is home");
+            assert!(!state.promissory_faceup.contains(note));
+        }
+    }
+
+    #[test]
+    fn an_activation_with_nobody_present_changes_nothing_in_lockstep_and_two_seats_of_one_faction_bail() {
+        let (system, _) = crate::fixtures::a_placed_planet();
+        let mut state = dealt(&[("a", "hacan"), ("b", "jolnar")]);
+        assert!(receive(&mut state, &b(), &support("hacan")));
+        let mut by_core = state.clone();
+        assert_eq!(crate::trade_write::spend_on_activation(&mut by_core, &b(), &system), Some(Vec::new()));
+        assert!(lockstep(|| spend_support_on_activation(&mut state, &b(), &system)).is_empty());
+        assert_eq!(by_core, state);
+        assert_eq!(state.support_holders.get(&a()), Some(&b()));
+        // Two seats of one faction: the string decides, the core half answers `None` and writes nothing.
+        let mut twins = dealt(&[("a", "hacan"), ("b", "hacan")]);
+        let before = twins.clone();
+        assert_eq!(crate::trade_write::spend_on_activation(&mut twins, &b(), &system), None);
+        assert_eq!(twins, before);
+        let _ = lockstep(|| spend_support_on_activation(&mut twins, &b(), &system));
+    }
+
+    #[test]
+    fn a_spent_ceasefire_goes_home_in_lockstep_and_only_a_lent_one_is_spent() {
+        let content = ContentStore::embedded();
+        let mut state = dealt(&[("a", "hacan"), ("b", "jolnar")]);
+        let mut probe = state.clone();
+        assert_eq!(crate::trade_write::use_ceasefire(&mut probe, &a()), Some(false));
+        assert!(!lockstep(|| use_ceasefire(&mut state, &a())), "a holds its own copy: nothing lent");
+        take(&mut state, content, &b(), "cf:hacan");
+        let mut by_core = state.clone();
+        assert_eq!(crate::trade_write::use_ceasefire(&mut by_core, &a()), Some(true));
+        assert!(lockstep(|| use_ceasefire(&mut state, &a())));
+        assert_eq!(by_core, state);
+        assert_eq!(state.promissory_notes.get("cf:hacan"), Some(&a()), "back with its owner");
+        assert!(!lockstep(|| use_ceasefire(&mut state, &a())), "and not spent twice");
     }
 }
