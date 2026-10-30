@@ -6855,7 +6855,8 @@ impl<'a> Game<'a> {
         let galaxy = self.galaxy.clone();
         let table = &mut self.table;
         let state = &mut self.state;
-        if crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual {
+        // Not in play (or blanked): nothing happens on either side, and the census should not count a window for it.
+        if crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual || crate::laws::elected(state, "minister_war").is_none() {
             Self::minister_of_war_text(state, content, sources, table, galaxy.as_ref());
             return;
         }
