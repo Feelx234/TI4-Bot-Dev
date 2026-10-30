@@ -100,7 +100,7 @@ impl<W: Window> Rig<W> {
         let mut resolver = Resolver::new(order, active);
         if abilities {
             // Register the abilities of the table for every seat, named by their slot (the adapter's texts are not needed here).
-            let defs = table.registry(state, order, &mut |spec, _| AbilityId { kind: AbilityKind::Other, key: Code(spec.slot.0) });
+            let defs = table.registry(state, order, &mut |spec, _, _| AbilityId { kind: AbilityKind::Other, key: Code(spec.slot.0) });
             resolver.register(defs);
         }
         let d = Driver::new(window.clone(), resolver, table.clone(), 1);
