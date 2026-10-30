@@ -8,8 +8,9 @@
 //! A copied round agent (the Sol agent lent by Yssaril, or the Sol agent readied) makes the round numbered in any
 //! rules version and announces `GROUND_COMBAT_ROUND_STARTED`.
 //!
-//! Not covered (the adapter returns `None`, the string result stands): the faction round-start hooks (Naaz Supercharge), Proxima Targeting VI, the Dunlain Reaper, nested
-//! activity.
+//! The faction effects at the start of the round are the hooks of `ground_combat_round_started` (Naaz: the Eidolon Maximum is
+//! repaired and Supercharge is offered; the question rides on the tape of the step). Not covered (the adapter returns `None`, the
+//! string result stands): Proxima Targeting VI, the Dunlain Reaper, nested activity.
 
 use crate::choice::{Choice, Pick};
 use crate::generated::{Planet, System};
@@ -80,6 +81,12 @@ impl Window for BeginGroundRound {
                 .with(Key::Defender, Val::Seat(f.defender))
                 .with(Key::RoundSeq, Val::Int(i64::from(sx.state.meta().combat_round_seq)));
             let _ = sx.emit(fx::event(EventKind::GroundCombatRoundStarted, payload));
+        }
+        // The faction effects of the start of the round, for each participant (Naaz: the Eidolon Maximum is repaired and Supercharge is
+        // offered). A question goes to the tape: the step is run again with the answer.
+        for who in [f.invader, f.defender] {
+            let (k, mut cx) = (sx.kernel, sx.cx());
+            k.hooks.ground.ground_combat_round_started(&mut cx, who, f.system, f.planet);
         }
         self.stage = Stage::Done;
         Next::Done

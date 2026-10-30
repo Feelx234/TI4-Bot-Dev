@@ -3417,8 +3417,8 @@ pub struct BeginGroundArgs<'a> {
     pub sources: ti4_model::content_types::SourceSet,
 }
 
-/// Why the start of the round holds something the core window does not carry: a Naaz side
-/// (the Supercharge offer), Proxima Targeting VI, a Letnev side with infantry on the planet (the Dunlain Reaper),
+/// Why the start of the round holds something the core window does not carry: a Supercharge carried by a Valefar
+/// Assimilator, Proxima Targeting VI, a Letnev side with infantry on the planet (the Dunlain Reaper),
 /// a neutral side.
 #[must_use]
 pub fn begin_ground_unported(gs: &GameState, a: &BeginGroundArgs<'_>) -> Option<&'static str> {
@@ -3427,8 +3427,10 @@ pub fn begin_ground_unported(gs: &GameState, a: &BeginGroundArgs<'_>) -> Option<
         return Some("neutral side");
     }
     let faction = |id: &PlayerId| gs.player(id).map_or("", |p| p.faction.as_str());
-    if sides.into_iter().any(|id| faction(id) == "naaz") {
-        return Some("Naaz Supercharge");
+    // Naaz's Supercharge and the Eidolon Maximum's repair are the core hook since package W1; a Supercharge a Valefar Assimilator
+    // carries is the text of another card, which the core hook does not read.
+    if sides.into_iter().any(|id| crate::factions::nekro::assimilated_card(gs, id, "sc").is_some()) {
+        return Some("Supercharge carried by a Valefar Assimilator");
     }
     if crate::factions::bastion_units::watches_ground_round(gs, &sides) {
         return Some("Proxima Targeting VI");

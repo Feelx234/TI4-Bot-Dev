@@ -10591,6 +10591,63 @@ mod tests {
         }
     }
 
+    /// Package W1: Naaz's Supercharge and the repair of the Eidolon Maximum at the start of a ground round run in the core window
+    /// (`ground_combat_round_started` of the Naaz crate; the question rides on the tape of the step). Both answers, both sides
+    /// holding the technology, a damaged Maximum, with the invasion on `Dual`: no difference, the window ran in the core and the
+    /// +1 shows in the dice.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn naaz_supercharge_and_the_maximum_repair_run_in_the_core_begin_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b) = (invader(), holder());
+        for (answer, seed) in [("sc", 4_u64), ("decline", 4), ("sc", 9), ("decline", 9)] {
+            let (mut state, system, planet) = arena();
+            for (seat, faction) in state.players.iter_mut().zip(["naaz", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &a, 2);
+            on_planet(&mut state, &system, &planet, "naaz_voltron", &a, 1);
+            on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            for unit in state.system_mut(&system).planet_units.get_mut(&planet).unwrap() {
+                if unit.type_id.as_str() == "naaz_voltron" {
+                    unit.sustained_damage = true;
+                }
+            }
+            state.player_mut(&a).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("sc"));
+            state.rng_seed = seed;
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            let script = vec!["fight".to_owned(), answer.to_owned()];
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+            let asks = crate::dual::with_mask(mask, || {
+                drive_invasion(
+                    &mut state,
+                    &system,
+                    Stage::Fighting { planets: vec![planet.clone()], index: 0, defender: b.clone() },
+                    InvasionReport { committed: vec![planet.clone()], ..InvasionReport::default() },
+                    script,
+                    &mut dice,
+                    &mut rng,
+                )
+            });
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+            assert!(report.differences.is_empty(), "{answer}/{seed}: {shown}");
+            let w = report.windows.get("invasion::begin_ground_round").cloned().unwrap_or_default();
+            assert!(w.compared > 0 && w.bailed == 0, "{answer}/{seed}: the opening ran in the core: {:?}", report.windows);
+            assert!(asks.iter().any(|q| q.iter().any(|o| o == "sc")), "{answer}/{seed}: Supercharge was offered: {asks:?}");
+            assert_eq!(
+                state.player(&a).unwrap().exhausted_technologies.contains(ti4_model::id::text(&"sc")),
+                answer == "sc",
+                "{answer}/{seed}: the card is exhausted exactly when it was used"
+            );
+            let _ = crate::dual::take_report();
+        }
+    }
+
     /// A system with two non-station planets, so a relocation has somewhere to go.
     fn dual_arena() -> (GameState, SystemId, PlanetId, PlanetId) {
         let content = ContentStore::embedded();
@@ -12953,8 +13010,9 @@ mod core_ground_round_prechecks {
         assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
         // A copied round agent is carried (numbered and announced).
         assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, true)), None);
+        // A Naaz side is carried since package W1 (Supercharge and the Maximum's repair are a hook of the core window).
         let (state, s, p) = game("naaz", "hacan");
-        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), Some("Naaz Supercharge"));
+        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
         // Letnev only offers the Dunlain Reaper with infantry on the planet.
         let (mut state, s, p) = game("sol", "letnev");
         assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
