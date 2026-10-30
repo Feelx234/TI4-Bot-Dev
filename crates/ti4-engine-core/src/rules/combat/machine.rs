@@ -20,6 +20,7 @@
 //! A decision that is pending when the machine stops (`Stop::Pending`) is the string's `pending_choice`; the
 //! machine builds the same question in [`Machine::pending_ask`] and answers it in [`Machine::answer_pending`].
 
+use super::assault_cannon::{AssaultCannon, Facts as AcFacts};
 use super::barrage::{BarrageStep, Facts as BarrageFacts};
 use super::begin_round::{BeginRound, Facts as BeginFacts};
 use super::end::{finished, winner};
@@ -105,6 +106,10 @@ pub struct Env {
     pub cause_devotion: Code,
     /// The interned subtype `raid_formation_damage` of an Argent producer's excess barrage hits.
     pub raid: Code,
+    /// A side holds Assault Cannon (and none is a neutral side), and the interned subtype and cause of its loss.
+    pub ac: bool,
+    pub ac_subtype: Code,
+    pub ac_cause: Code,
     pub end_codes: EndCodes,
     /// The interned subtype text of the casualty question (`"assign_casualty"`).
     pub casualty: Code,
@@ -192,6 +197,9 @@ pub struct Machine {
     /// resumes after it.
     barrage_w: Option<BarrageStep>,
     barrage_done: bool,
+    /// Assault Cannon being resolved at the start of the combat, and whether it was (the opening goes on after it).
+    ac_w: Option<AssaultCannon>,
+    after_ac: bool,
     /// The round whose end-of-round hits were produced already (the flow goes on to its end).
     round_end_produced: Option<u32>,
     stage: Stage,
@@ -217,6 +225,8 @@ impl Machine {
             produce: None,
             barrage_w: None,
             barrage_done: false,
+            ac_w: None,
+            after_ac: false,
             round_end_produced: None,
             stage: Stage::Running,
             awaiting: false,
@@ -481,13 +491,20 @@ impl Machine {
     /// `Stage::Opening`: the string `open_round` (everything before the announcement of retreats).
     fn open_round(&mut self, sx: &mut Sx<'_>, round: u32) -> Option<bool> {
         let resumed = std::mem::take(&mut self.fields.resuming);
-        if !resumed {
+        if !resumed && !self.after_ac {
             if self.env.opening_unported {
                 return None;
             }
             self.begin(sx, round);
         }
         if round == 1 {
+            if !resumed && self.env.ac && !self.after_ac {
+                // Assault Cannon: "at the start of a space combat" the opponent of a holder destroys a non-fighter ship.
+                let e = &self.env;
+                self.ac_w = Some(AssaultCannon::new(AcFacts { attacker: e.attacker, defender: e.defender, system: e.system, subtype: e.ac_subtype, cause: e.ac_cause, announce: e.announce }));
+                return Some(false);
+            }
+            self.after_ac = false;
             // The string checks the fight after the round's opening (Assault Cannon, or a card played at its start, a
             // Skilled Retreat) before the barrage.
             if !resumed && self.over(sx) {
@@ -707,6 +724,20 @@ impl Machine {
     /// Run the loop. `None`: a position the machine does not carry (the reason is in `stop`).
     fn run(&mut self, sx: &mut Sx<'_>) -> Option<Next> {
         loop {
+            if let Some(ac) = &mut self.ac_w {
+                match ac.step(sx) {
+                    Next::Continue(ask) => {
+                        self.stage = Stage::Producing;
+                        return Some(Next::Continue(ask));
+                    }
+                    _ => {
+                        self.stage = Stage::Running;
+                        self.ac_w = None;
+                        self.after_ac = true;
+                        continue;
+                    }
+                }
+            }
             if let Some(barrage) = &mut self.barrage_w {
                 match barrage.step(sx) {
                     Next::Continue(ask) => {
@@ -864,6 +895,9 @@ impl Window for Machine {
             }
             return if self.answered { None } else { self.pending_choice(s, k) };
         }
+        if let Some(ac) = &self.ac_w {
+            return ac.ask_of(s, k);
+        }
         if let Some(b) = &self.barrage_w {
             return b.ask_of(s, k);
         }
@@ -882,6 +916,9 @@ impl Window for Machine {
                 return Err(Illegal);
             }
             return self.answer_pending(sx, pick);
+        }
+        if let Some(ac) = self.ac_w.as_mut() {
+            return ac.answer(sx, pick);
         }
         if let Some(b) = self.barrage_w.as_mut() {
             return b.answer(sx, pick);

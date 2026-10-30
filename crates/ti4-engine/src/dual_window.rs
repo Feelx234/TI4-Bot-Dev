@@ -3885,6 +3885,8 @@ pub struct SettleArgs {
     pub begin_occurrence: bool,
     pub munitions_after: [bool; 2],
     pub opening_unported: bool,
+    /// A side holds Assault Cannon (the machine's window resolves it at the start of the combat).
+    pub ac: bool,
     /// A Letnev round agent listens (`COMBAT_ROUND_STARTED` carries `round_seq`).
     pub round_seq_listens: bool,
     pub barrage_unported: bool,
@@ -4100,6 +4102,9 @@ fn settle_run(
         duranium: a.duranium,
         devotion: a.devotion,
         raid: r.code("raid_formation_damage"),
+        ac: a.ac,
+        ac_subtype: r.code("assault_cannon_destroy"),
+        ac_cause: r.code("technology:assault_cannon"),
         wormhole: !crate::factions::hooks_movement::wormholes_at(&before, &a.system).is_empty(),
         ambush: r.code("ambush"),
         cause_core: r.code("technology:impulse_core"),
@@ -4154,6 +4159,7 @@ fn settle_run(
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let content = ti4_content::ContentStore::embedded();
+    let (att_id, def_id) = (a.attacker.clone(), a.defender.clone());
     let driven = with_core(gs, &mut cx, src, nested_fp(SETTLE, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
             // The questions of the modules' hits are asked in the battle they are fought in (`TimingContext::ask_seeing`).
@@ -4165,6 +4171,18 @@ fn settle_run(
             roll_details(content, &texts, c, st, rendered);
             if let ti4_engine_core::choice::Ask::Combat(ask @ ti4_engine_core::choice::combat::Ask::CancelHit { .. }) = &c.ask {
                 rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, c.actor));
+            }
+            // Assault Cannon's loss is a destroy bound to a non-fighter ship, aimed by the holder (its question carries the card's subtype).
+            if rendered.context.as_ref().is_some_and(|ctx| ctx.subtype == "assault_cannon_destroy") {
+                let producer = if c.actor == attacker { def_id.clone() } else { att_id.clone() };
+                if let Some(context) = rendered.context.take() {
+                    rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
+                        cause: crate::decision_context::HitCause::AssaultCannon,
+                        destroy: true,
+                        restriction: crate::decision_context::HitRestriction::NonFighter,
+                        producer: Some(producer),
+                    }));
+                }
             }
         });
         staged = std::mem::take(&mut core.pending_mut().staged);

@@ -6930,9 +6930,12 @@ impl CombatWindow {
                 if state.player(side).is_none() {
                     return Some("a side that is not a seated player");
                 }
-                has_tech(side, "asc").then_some("Assault Cannon (start-of-combat hits)")
+                // Assault Cannon is the machine's window (`AssaultCannon`) except against a neutral side (its casualty order is the reference
+                // card's, string-only).
+                (has_tech(side, "asc") && sides.iter().any(|s| crate::neutral_units::is_neutral(s))).then_some("Assault Cannon at a neutral side")
             })
         });
+        let ac = sides.iter().any(|side| has_tech(side, "asc"));
         let opening_unported = opening_why.is_some();
         let occurrence = self.combat_occurrence.map(|o| o.0);
         let barrage_probe = crate::dual_window::BarrageArgs {
@@ -6988,6 +6991,7 @@ impl CombatWindow {
                 state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL && crate::faction_abilities::has(state, content, side, "munitions")
             }),
             opening_unported,
+            ac,
             round_seq_listens: crate::factions::borrowed_round_agents::has_round_copy(state, content, "letnevagent")
                 || crate::factions::borrowed_round_agents::has_owner_space_round_agent(state),
             barrage_unported,
@@ -11603,13 +11607,11 @@ mod tests {
     /// step is not), the Jol-Nar commander's reroll question and a Waylay played in the barrage.
     #[test]
     fn the_start_hits_and_the_barrage_tail_stay_string_with_their_reasons() {
-        // Assault Cannon asks its casualty in a window of its own, outside the composed machine; Ambush, Impulse Core and Dimensional
-        // Splicer are the machine's `ProduceHits` since package W2.
+        // Assault Cannon is the machine's window since package W2 (against a neutral side it stays string).
         let g = settle_gates(&|state, _| {
             state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("asc"));
         });
-        assert!(g.opening_unported);
-        assert_eq!(g.gate_why, Some("Assault Cannon (start-of-combat hits)"));
+        assert!(!g.opening_unported && g.ac);
         for tech in ["ds", "ic"] {
             let g = settle_gates(&|state, _| {
                 state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
@@ -11962,6 +11964,42 @@ mod tests {
         }
         assert!(compared > 0, "the composed machine ran: {compared}");
         assert!(damaged > 0, "Raid Formation damaged something");
+    }
+
+    /// Package W2: Assault Cannon at the start of a combat runs in the composed machine (the victim's casualty question carries the card's
+    /// hit detail), before the hits the modules produce and the barrage. Fails on the pre-W2 gate ("Assault Cannon").
+    #[test]
+    fn assault_cannon_runs_in_the_composed_machine_in_lockstep() {
+        fn pick(seed: u64, nth: usize, _: &Choice) -> usize {
+            usize::try_from(seed).unwrap_or(0) % 2 * nth % 2
+        }
+        let (mut compared, mut lost) = (0, 0);
+        for seed in 0..12_u64 {
+            let (state, windows, differences, _) = hub_fight_composed(
+                true,
+                seed,
+                &["hacan", "sol"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "dreadnought", &attacker(), 1);
+                    put(s, system, "cruiser", &defender(), 2);
+                    put(s, system, "destroyer", &defender(), 1);
+                    put(s, system, "fighter", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("asc"));
+                    if seed % 3 == 0 {
+                        s.player_mut(&defender()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("asc"));
+                        put(s, system, "dreadnought", &defender(), 1);
+                    }
+                },
+                pick,
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            let w = windows.get("combat::settle").copied().unwrap_or_default();
+            assert_eq!(w.bailed, 0, "seed {seed}: {windows:?}");
+            compared += w.compared;
+            lost += usize::from(state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units.iter().filter(|u| u.owner == defender()).count() < 6);
+        }
+        assert!(compared > 0 && lost > 0, "compared {compared}, lost {lost}");
     }
 
     #[test]
