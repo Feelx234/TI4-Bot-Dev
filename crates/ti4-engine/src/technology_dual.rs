@@ -64,6 +64,48 @@ mod real {
         Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
+    /// The leaf writes (`grant`, `purge`, `exhaust_technology_text`): the seat's technologies, the units of a purged upgrade.
+    const WRITES: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Players, Slice::Board]);
+
+    fn write<T>(gs: &mut GameState, player: &PlayerId, f: impl FnOnce(&mut ti4_engine_core::state::CoreState, ti4_engine_core::ids::Seat) -> Option<T>) -> Option<T> {
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        with_core(gs, &mut cx, Sources::default(), WRITES, |core, _| f(core, seat)).ok().flatten()
+    }
+
+    /// `technology::grant`.
+    pub fn grant(gs: &mut GameState, player: &PlayerId, alias: &str) -> Option<()> {
+        let tech = crate::core_adapter::typed::<Technology>(alias)?;
+        write(gs, player, |core, seat| {
+            ti4_engine_core::kernel::fx::grant_technology(core, seat, tech);
+            Some(())
+        })
+    }
+
+    /// `technology::purge`.
+    pub fn purge(gs: &mut GameState, sources: ti4_model::content_types::SourceSet, player: &PlayerId, alias: &str) -> Option<bool> {
+        let tech = crate::core_adapter::typed::<Technology>(alias)?;
+        let scope = crate::core_adapter::scope(sources);
+        write(gs, player, |core, seat| Some(ti4_engine_core::kernel::fx_strategy::purge_technology(core, ti4_engine_core::tables::Scope(u32::try_from(scope.0).ok()?), seat, tech)))
+    }
+
+    /// `technology::exhaust_technology_text`; a Nekro seat that does not own the card may carry its text on a Valefar Assimilator,
+    /// which the string decides.
+    pub fn exhaust_text(gs: &mut GameState, player: &PlayerId, alias: &str) -> Option<bool> {
+        let tech = crate::core_adapter::typed::<Technology>(alias)?;
+        write(gs, player, |core, seat| {
+            let p = core.players().by_seat(seat)?;
+            if !p.tech.owned.contains(tech) {
+                if p.faction == ti4_engine_core::generated::Faction::TheNekroVirus {
+                    return None;
+                }
+                return Some(false);
+            }
+            ti4_engine_core::kernel::fx_strategy::exhaust_technology(core, seat, tech);
+            Some(true)
+        })
+    }
+
     /// The core half of `technology::start_turn`.
     pub fn start_turn(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
         if owned_ready(gs, player, "td", true) || owned_ready(gs, player, "cm", false) {
@@ -89,6 +131,15 @@ mod stub {
     use crate::dual_window::Recording;
 
     pub fn start_turn(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn grant(_: &mut GameState, _: &PlayerId, _: &str) -> Option<()> {
+        None
+    }
+    pub fn purge(_: &mut GameState, _: ti4_model::content_types::SourceSet, _: &PlayerId, _: &str) -> Option<bool> {
+        None
+    }
+    pub fn exhaust_text(_: &mut GameState, _: &PlayerId, _: &str) -> Option<bool> {
         None
     }
     pub fn end_turn(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
@@ -298,5 +349,45 @@ mod tests {
         let seat = state.player(&a()).unwrap();
         assert!(!seat.exhausted_technologies.contains(&TechnologyId::new("pi")), "Bio-Stims readied it");
         assert!(seat.exhausted_technologies.contains(&TechnologyId::new("bs")));
+    }
+
+    #[test]
+    fn grant_exhaust_and_purge_write_the_same_position_on_both_sides() {
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let (state, counts, _) = lockstep("technology::none", || {
+            let mut state = game(&[], &[]);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 2);
+            let mut by_core = state.clone();
+            // Granting, then the upgrade reaches the units (string `apply_unit_upgrades`), then exhausting and purging.
+            assert_eq!(super::grant(&mut by_core, &a(), "inf2"), Some(()));
+            crate::technology::grant(&mut state, &a(), &TechnologyId::new("inf2"));
+            assert_eq!(by_core.player(&a()).unwrap().technologies, state.player(&a()).unwrap().technologies);
+            crate::technology::apply_unit_upgrades(&mut state, ContentStore::embedded(), POK, &a());
+            crate::technology::apply_unit_upgrades(&mut by_core, ContentStore::embedded(), POK, &a());
+            assert_eq!(by_core, state);
+            let upgraded = state.system_state(&system).planet_units.get(&PlanetId::new(planet.as_str())).unwrap()[0].type_id.to_string();
+            assert!(upgraded.contains('2') || upgraded != "infantry", "the units took the upgrade: {upgraded}");
+            // Exhaust: owned, then not owned (Hacan has no Magen).
+            let mut core_exhaust = state.clone();
+            assert_eq!(super::exhaust_text(&mut core_exhaust, &a(), "inf2"), Some(true));
+            assert!(crate::technology::exhaust_technology_text(&mut state, &a(), "inf2"));
+            assert_eq!(core_exhaust, state);
+            let mut not_owned = state.clone();
+            assert_eq!(super::exhaust_text(&mut not_owned, &a(), "pi"), Some(false));
+            assert!(!crate::technology::exhaust_technology_text(&mut state, &a(), "pi"));
+            assert_eq!(not_owned, state);
+            // Purge: the upgrade leaves with its unit form; a card the seat does not own is refused with nothing written.
+            let mut purged = state.clone();
+            assert_eq!(super::purge(&mut purged, POK, &a(), "inf2"), Some(true));
+            assert!(crate::technology::purge(&mut state, ContentStore::embedded(), POK, &a(), &TechnologyId::new("inf2")));
+            assert_eq!(purged, state, "the units went back to the form the card replaced");
+            assert!(!state.player(&a()).unwrap().exhausted_technologies.contains(&TechnologyId::new("inf2")));
+            let mut again = state.clone();
+            assert_eq!(super::purge(&mut again, POK, &a(), "inf2"), Some(false));
+            assert!(!crate::technology::purge(&mut state, ContentStore::embedded(), POK, &a(), &TechnologyId::new("inf2")));
+            assert_eq!(again, state);
+            state
+        });
+        let _ = (state, counts);
     }
 }

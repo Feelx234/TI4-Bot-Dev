@@ -1615,6 +1615,17 @@ pub fn technology_text_ready(state: &GameState, player: &PlayerId, alias: &str) 
 /// Exhaust the card that carries technology `alias`'s text for `player`: the technology itself, or
 /// the Valefar Assimilator carrying it. `false`, changing nothing, when the player has neither.
 pub fn exhaust_technology_text(state: &mut GameState, player: &PlayerId, alias: &str) -> bool {
+    crate::dual::write(
+        crate::dual::Area::Technology,
+        state,
+        "technology::exhaust_technology_text",
+        |s| exhaust_technology_text_string(s, player, alias),
+        |s| crate::technology_dual::exhaust_text(s, player, alias),
+    )
+}
+
+/// [`exhaust_technology_text`] on the string state: the oracle of the dual run.
+fn exhaust_technology_text_string(state: &mut GameState, player: &PlayerId, alias: &str) -> bool {
     let id = TechnologyId::new(alias);
     let carrier = if state
         .player(player)
@@ -1638,9 +1649,17 @@ pub fn exhaust_technology_text(state: &mut GameState, player: &PlayerId, alias: 
 /// Separate from [`research`] because gaining is not researching: several effects grant a
 /// technology directly, and the rules that fire on *research* must not fire for those.
 pub fn grant(state: &mut GameState, player: &PlayerId, alias: &TechnologyId) {
-    if let Some(seat) = state.player_mut(player) {
-        seat.technologies.insert(alias.clone());
-    }
+    crate::dual::write(
+        crate::dual::Area::Technology,
+        state,
+        "technology::grant",
+        |s| {
+            if let Some(seat) = s.player_mut(player) {
+                seat.technologies.insert(alias.clone());
+            }
+        },
+        |s| crate::technology_dual::grant(s, player, alias.as_str()),
+    );
 }
 
 /// Gain a technology by any route other than research, and let a unit upgrade reach the units
@@ -1662,6 +1681,26 @@ pub fn gain(
 /// purged takes its unit form with it: the player's units of the upgraded type on the board go back
 /// to the form the card replaced, as [`apply_unit_upgrades`] put them there.
 pub fn purge(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &TechnologyId,
+) -> bool {
+    if !content.is_embedded() {
+        return purge_string(state, content, sources, player, alias);
+    }
+    crate::dual::write(
+        crate::dual::Area::Technology,
+        state,
+        "technology::purge",
+        |s| purge_string(s, content, sources, player, alias),
+        |s| crate::technology_dual::purge(s, sources, player, alias.as_str()),
+    )
+}
+
+/// [`purge`] on the string state: the oracle of the dual run.
+fn purge_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
