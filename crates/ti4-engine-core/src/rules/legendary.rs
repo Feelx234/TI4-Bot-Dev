@@ -610,3 +610,145 @@ mod styx_tests {
         assert!(s.ledger().vp.is_empty() && s.meta().styx_holder.is_none());
     }
 }
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+    use crate::driver::{Driver, Status};
+    use crate::generated::Faction;
+    use crate::kernel::stage::AbilityTable;
+    use crate::kernel::Resolver;
+    use crate::state::{Piece, Player, Players};
+
+    const A: Seat = Seat(0);
+
+    fn game() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(A, Faction::ALL[9]), Player::new(Seat(1), Faction::ALL[10])]);
+        s
+    }
+
+    fn hold(s: &mut CoreState, planet: Planet) {
+        s.board_mut().planet_mut(planet).control = Some(A);
+    }
+
+    fn window(when: When) -> Legendary {
+        Legendary::new(A, when, Code(5), Scope(u32::MAX), Box::leak(Box::default()), false)
+    }
+
+    /// The questions in order (each answered with the option at `pick`), then the status.
+    fn run(w: Legendary, s: &mut CoreState, picks: &[usize]) -> (Vec<Choice>, Driver<Legendary>) {
+        let k = Kernel::plain();
+        let mut d = Driver::new(w, Resolver::new(&[A], Some(A)), AbilityTable::default(), 1);
+        let mut asked = Vec::new();
+        let mut status = d.run(s, &k).unwrap();
+        let mut picks = picks.iter();
+        while let Status::Asking(c) = status {
+            let i = picks.next().copied().unwrap_or(0);
+            let pick = c.pick(i).expect("an option");
+            asked.push(c);
+            status = d.resume(s, &k, pick).unwrap();
+        }
+        (asked, d)
+    }
+
+    fn ship_at(s: &mut CoreState) -> System {
+        let system = System::ALL[10];
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::CruiserI, A));
+        system
+    }
+
+    #[test]
+    fn nothing_ready_asks_nothing() {
+        let mut s = game();
+        let (asked, d) = run(window(When::EndOfTurn), &mut s, &[]);
+        assert!(asked.is_empty() && d.window.used == 0);
+    }
+
+    /// Mirage asks where only with a ship of the holder in a system; the fighters are two.
+    #[test]
+    fn mirage_needs_a_ship_and_places_two_fighters() {
+        let mut s = game();
+        hold(&mut s, Planet::Mirage);
+        let (asked, _) = run(window(When::EndOfTurn), &mut s, &[0, 0]);
+        assert_eq!(asked.len(), 1, "no ship, no placement question: only the offer");
+        let mut s = game();
+        hold(&mut s, Planet::Mirage);
+        let system = ship_at(&mut s);
+        let (asked, d) = run(window(When::EndOfTurn), &mut s, &[0, 0]);
+        assert_eq!(asked.len(), 2);
+        assert_eq!(asked[1].opts.as_slice(), &[Opt::Legendary(LOpt::InSystem(system))]);
+        assert_eq!(d.window.used, 1);
+        let fighters = s.board().sys(system).units.iter().filter(|p| p.owner() == A && p.kind() == Unit::FighterI).count();
+        assert_eq!(fighters, 2);
+    }
+
+    /// The Atrament asks where only when the holder controls a planet; it is exhausted before it resolves and not offered again.
+    #[test]
+    fn the_atrament_places_two_infantry_and_is_spent() {
+        let mut s = game();
+        hold(&mut s, Planet::Primor);
+        let (asked, _) = run(window(When::EndOfTurn), &mut s, &[0, 0]);
+        assert_eq!(asked.len(), 2, "offer, then the planet (Primor itself is controlled)");
+        assert!(s.players().by_seat(A).unwrap().cards.legendary_exhausted.contains_key(&Planet::Primor));
+        let infantry = s.board().planet(Planet::Primor).units.iter().filter(|p| p.kind() == Unit::InfantryI).count();
+        assert_eq!(infantry, 2);
+        // spent: the same window offers nothing now
+        let (asked, _) = run(window(When::EndOfTurn), &mut s, &[]);
+        assert!(asked.is_empty());
+    }
+
+    #[test]
+    fn exterrix_converts_every_commodity_and_stages_the_goods() {
+        let mut s = game();
+        hold(&mut s, Planet::Mallice);
+        s.players_mut().by_seat_mut(A).unwrap().econ.commodities = 3;
+        let (asked, _) = run(window(When::EndOfTurn), &mut s, &[0, 1]);
+        assert_eq!(asked.len(), 2);
+        assert_eq!(asked[1].ask, Ask::Legendary(LAsk::Exterrix { commodities: 3 }));
+        let seat = s.players().by_seat(A).unwrap();
+        assert_eq!((seat.econ.trade_goods, seat.econ.commodities), (3, 0));
+        assert_eq!(s.pending.staged.len(), 1);
+        // a conversion of nothing gains nothing and stages nothing
+        let mut s = game();
+        hold(&mut s, Planet::Mallice);
+        run(window(When::EndOfTurn), &mut s, &[0, 1]);
+        assert!(s.pending.staged.is_empty() && s.players().by_seat(A).unwrap().econ.trade_goods == 0);
+    }
+
+    #[test]
+    fn the_acropolis_readies_a_leader_only_when_it_was_exhausted() {
+        let mut s = game();
+        hold(&mut s, Planet::Emelpar);
+        s.players_mut().by_seat_mut(A).unwrap().leaders.status.insert(Leader::ALL[0], LeaderStatus::Exhausted);
+        let (asked, _) = run(window(When::EndOfTurn), &mut s, &[0, 0]);
+        assert_eq!(asked.len(), 2);
+        assert_eq!(s.players().by_seat(A).unwrap().leaders.status.get(&Leader::ALL[0]), Some(&LeaderStatus::Readied));
+        ready_leader(&mut s, A, Leader::ALL[0]);
+        assert_eq!(s.players().by_seat(A).unwrap().leaders.status.get(&Leader::ALL[0]), Some(&LeaderStatus::Readied), "a readied leader stays so");
+        s.players_mut().by_seat_mut(A).unwrap().leaders.status.insert(Leader::ALL[0], LeaderStatus::Unlocked);
+        ready_leader(&mut s, A, Leader::ALL[0]);
+        assert_eq!(s.players().by_seat(A).unwrap().leaders.status.get(&Leader::ALL[0]), Some(&LeaderStatus::Unlocked), "only an exhausted one is readied");
+    }
+
+    #[test]
+    fn the_salvage_yard_purge_needs_garbozia_and_the_card() {
+        let mut s = game();
+        s.cards_mut().salvage_yard.edit().push(ActionCard::MoraleBoost1);
+        assert!(!purge_salvaged(&mut s, A, ActionCard::MoraleBoost1), "not the holder");
+        hold(&mut s, Planet::Garbozia);
+        assert!(!purge_salvaged(&mut s, A, ActionCard::Sabotage1), "not on the yard");
+        assert!(purge_salvaged(&mut s, A, ActionCard::MoraleBoost1));
+        assert!(s.cards().salvage_yard.is_empty());
+    }
+
+    #[test]
+    fn an_answer_that_was_not_offered_is_refused() {
+        let mut s = game();
+        hold(&mut s, Planet::Mallice);
+        let k = Kernel::plain();
+        let mut d = Driver::new(window(When::EndOfTurn), Resolver::new(&[A], Some(A)), AbilityTable::default(), 1);
+        let Status::Asking(_) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert!(d.resume(&mut s, &k, Pick::Opt(Opt::Legendary(LOpt::Goods))).is_err(), "Goods is no answer to the offer");
+    }
+}

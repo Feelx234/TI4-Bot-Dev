@@ -160,4 +160,19 @@ mod tests {
             assert!(!reproducible(false, false, 7, 8));
         });
     }
+
+    #[test]
+    fn a_codec_refusal_panics_only_in_strict_mode() {
+        let why = crate::core_sync::Unmapped { slice: ti4_engine_core::state::Slice::Seats, what: "x", text: "y".to_owned() };
+        with_strict(false, || refused(&why));
+        let caught = std::panic::catch_unwind(|| with_strict(true, || refused(&why)));
+        assert!(caught.is_err());
+    }
+
+    #[test]
+    fn a_roll_that_cannot_be_reproduced_panics_in_strict_mode() {
+        let caught = std::panic::catch_unwind(|| with_strict(true, || reproducible(false, false, 1, 2)));
+        assert!(caught.is_err());
+        assert!(with_strict(true, || reproducible(false, false, 3, 3)));
+    }
 }
