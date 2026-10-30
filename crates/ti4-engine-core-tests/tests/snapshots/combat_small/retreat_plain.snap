@@ -1,0 +1,4 @@
+done
+--- delta ---
+sys[Tempesta]: units [2xCruiserI/s0] tokens {} flags 0 -> units [] tokens {} flags 0
+sys[Olergodt]: units [] tokens {} flags 0 -> units [2xCruiserI/s0] tokens {0} flags 1
