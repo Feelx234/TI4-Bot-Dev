@@ -7706,6 +7706,20 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Package W5, the documented tail (W5-bail-01): a production by an ability, or with a fixed limit, is not a window the core carries; the
+    /// census reason names it (`ProductionWindow::to_core`).
+    #[test]
+    fn a_production_by_an_ability_has_no_core_window_and_says_why() {
+        let content = ContentStore::embedded();
+        let (state, system, _) = seated();
+        let seat = ti4_engine_core::Seat(0);
+        let ability = ProductionWindow::for_ability(&state, content, POK, &player(), &system, Some(1));
+        assert_eq!(
+            ability.to_core(&state, content, POK, seat, false).err(),
+            Some("a production by an ability (the window of a card or an ability, not a production use)")
+        );
+    }
+
     /// Builds `unit` once, pays with trade goods and then declines.
     struct BuildOnce {
         build: &'static str,

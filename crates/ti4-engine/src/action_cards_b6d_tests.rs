@@ -1643,10 +1643,14 @@ fn bail_technology_at_a_table_the_research_window_does_not_carry() {
 fn bail_leadership_construction_and_warfare_where_the_production_rules_do_not_follow() {
     let _serial = crate::dual::tests::serial();
     let plain = strategy_position(&["pok1leadership"], &["pok4construction"], &[], &[]);
+    // Package W5: a Yssaril seat at the table is carried now; the Keleres own seat (dropped by decision) stays string.
     let mut yssaril = plain.clone();
     yssaril.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+    let mut keleres = plain.clone();
+    keleres.player_mut(&PlayerId::new("a")).unwrap().faction = ti4_model::id::FactionId::new("keleresm");
     for (alias, pick) in [("strategize1", "pok1leadership"), ("overrule", "pok1leadership"), ("strategize2", "pok4construction"), ("overrule", "pok4construction")] {
-        assert_eq!(bails_picking(alias, &yssaril, pick, 0), (0, 1), "{alias} performing {pick} at a table with Yssaril");
+        assert_eq!(bails_picking(alias, &yssaril, pick, 0), (1, 0), "{alias} performing {pick} at a table with Yssaril");
+        assert_eq!(bails_picking(alias, &keleres, pick, 0), (0, 1), "{alias} performing {pick} with a Keleres own seat");
         assert_eq!(bails_picking(alias, &plain, pick, 0), (1, 0), "{alias} performing {pick} at a plain table is carried");
     }
     let mut warfare = strategy_position(&["pok1leadership"], &["pok6warfare"], &[], &[]);

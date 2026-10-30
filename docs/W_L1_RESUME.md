@@ -1,6 +1,6 @@
 # W lane 1 resume note, branch `core-w-l1` (from `core-w` @ `4808a0ab`)
 
-Done: W5 (guard narrowing), W8 (5a window, 5b composition), W2 Letnev round opening. Open: see "Next".
+Done: W5 (guard narrowing), W8 (5a window, 5b composition), W2 Letnev round opening (+ the stale `have` of the Munitions question). Open: see "Next" (all of it pinned as counted gates with tests).
 Lines for `docs/ENGINE_KNOWN_ISSUES.md` are in the section "W lane 1" at its end.
 
 ## Gate deferred to the end of D1

@@ -11493,6 +11493,47 @@ mod tests {
         window.roll_unported(&state, ContentStore::embedded())
     }
 
+    /// Package W lane 1, the documented tail: each of these positions is a gate with its own reason (the windows inside are compared on their
+    /// own), pinned here so a port removes the line deliberately: the start-of-combat hits of Assault Cannon, Dimensional Splicer and Impulse
+    /// Core (`asc`, `ds`, `ic`; Mentak's Ambush above), an Argent side's excess barrage hits (Raid Formation is a window of its own, the
+    /// step is not), the Jol-Nar commander's reroll question and a Waylay played in the barrage.
+    #[test]
+    fn the_start_hits_and_the_barrage_tail_stay_string_with_their_reasons() {
+        for tech in ["asc", "ds", "ic"] {
+            let g = settle_gates(&|state, _| {
+                state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+            });
+            assert!(g.opening_unported, "{tech}");
+            assert_eq!(g.gate_why, Some("Assault Cannon, Dimensional Splicer or Impulse Core (start-of-combat hits)"), "{tech}");
+        }
+        let barrage = |setup: &dyn Fn(&mut GameState)| {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+            setup(&mut state);
+            let (a, d, system) = (attacker(), defender(), SystemId::new("18"));
+            let args = crate::dual_window::BarrageArgs { attacker: &a, defender: &d, system: &system, round: 1, occurrence: 0, staging: true, announce: false, reproducible: true };
+            crate::dual_window::barrage_why(&state, &args)
+        };
+        assert_eq!(barrage(&|_| {}), None);
+        assert_eq!(
+            barrage(&|s| s.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("argent")),
+            Some("an Argent side (the excess hits of the barrage)")
+        );
+        assert_eq!(
+            barrage(&|s| {
+                s.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("jolnar");
+                s.player_mut(&defender()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            }),
+            Some("the Jol-Nar commander (a reroll question in the barrage)")
+        );
+        assert_eq!(
+            barrage(&|s| {
+                s.combat_round_seq = 3;
+                s.player_mut(&attacker()).unwrap().waylay_barrage_round = Some(3);
+            }),
+            Some("Waylay played in this barrage")
+        );
+    }
+
     #[test]
     fn the_round_opening_of_naaz_letnev_and_diplomacy_games_stays_string() {
         // Munitions, the self-repairing flagship, the Letnev round agent and the attack promises are not in the core window:

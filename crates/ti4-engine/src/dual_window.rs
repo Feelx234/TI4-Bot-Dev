@@ -2245,10 +2245,9 @@ pub fn roll_step(
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
-    let held = |seat: ti4_engine_core::ids::Seat| before.player(&PlayerId::new(r.seats[usize::from(seat.0)].clone())).map_or(0, |p| i64::from(p.trade_goods.max(0)));
     let driven = with_core(gs, &mut cx, src, nested_fp(ROLL_STEP, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
-            roll_details(content, &texts, &held, c, st, rendered);
+            roll_details(content, &texts, c, st, rendered);
             if let ti4_engine_core::choice::Ask::Combat(ask @ ti4_engine_core::choice::combat::Ask::CancelHit { .. }) = &c.ask {
                 rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, c.actor));
             }
@@ -2284,11 +2283,11 @@ pub fn roll_step(
 }
 
 /// The display facts of a roll step's questions (`Choice.details`): the staged dice, which one is asked
-/// about, and Munitions Reserves' printed card and cost.
+/// about, and Munitions Reserves' printed card and cost (the goods held are read from the core state at the question: a composed settle
+/// pays Munitions in one round and asks again in the next).
 fn roll_details(
     content: &ti4_content::ContentStore,
     texts: &[(ti4_engine_core::state::Code, String)],
-    held: &dyn Fn(ti4_engine_core::ids::Seat) -> i64,
     c: &CoreChoice,
     st: &CoreState,
     rendered: &mut Choice,
@@ -2340,7 +2339,7 @@ fn roll_details(
                 .count();
             rendered.details.insert("kind".to_owned(), "ability_offer".into());
             rendered.details.insert("ability".to_owned(), crate::faction_abilities::ability_card(content, "munitions"));
-            rendered.details.insert("cost".to_owned(), serde_json::json!({ "trade_goods": crate::faction_abilities::MUNITIONS_COST, "have": held(c.actor) }));
+            rendered.details.insert("cost".to_owned(), serde_json::json!({ "trade_goods": crate::faction_abilities::MUNITIONS_COST, "have": st.players().by_seat(c.actor).map_or(0, |p| i64::from(p.econ.trade_goods.max(0))) }));
             rendered.details.insert("dice".to_owned(), serde_json::Value::Array(dice));
             rendered.details.insert("misses".to_owned(), misses.into());
         }
@@ -3647,7 +3646,7 @@ pub fn roll_tail(
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let driven = crate::reactions_core::with_reroll(reroll, || {
         with_core(gs, &mut cx, src, nested_fp(ROLL_TAIL, script), |core, _| {
-            let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| roll_details(ti4_content::ContentStore::embedded(), &texts, &|_| 0, c, st, rendered));
+            let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| roll_details(ti4_content::ContentStore::embedded(), &texts, c, st, rendered));
             staged = std::mem::take(&mut core.pending_mut().staged);
             rng_after = Some(core.rng().clone());
             driven
@@ -4035,11 +4034,10 @@ fn settle_run(
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
-    let held = |seat: ti4_engine_core::ids::Seat| before.player(&PlayerId::new(r.seats[usize::from(seat.0)].clone())).map_or(0, |p| i64::from(p.trade_goods.max(0)));
     let content = ti4_content::ContentStore::embedded();
     let driven = with_core(gs, &mut cx, src, nested_fp(SETTLE, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
-            roll_details(content, &texts, &held, c, st, rendered);
+            roll_details(content, &texts, c, st, rendered);
             if let ti4_engine_core::choice::Ask::Combat(ask @ ti4_engine_core::choice::combat::Ask::CancelHit { .. }) = &c.ask {
                 rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, c.actor));
             }
