@@ -8,6 +8,7 @@ use ti4_engine_core::rules::agenda::deadly_plot::DeadlyPlot;
 use ti4_engine_core::rules::agenda::offer_discard::OfferDiscard;
 use ti4_engine_core::state::{Code, Outcome, PlanetFlags, TransientFlags};
 use ti4_engine_core_tests::inv::ALL_SOURCES;
+use ti4_engine_core_tests::scenario::systems_of;
 use ti4_engine_core_tests::prelude::*;
 
 fn with_elects(kind: AgendaElects) -> Vec<Agenda> {

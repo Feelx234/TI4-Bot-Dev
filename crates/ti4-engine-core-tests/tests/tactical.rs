@@ -139,12 +139,12 @@ fn a_ship_that_is_chosen_sails_into_the_active_system_and_the_arrival_is_announc
 #[test]
 fn a_ship_out_of_range_or_a_move_that_was_not_offered_is_illegal() {
     covers!("rules::tactical::Machine");
-    let (sc, t) = moving_scenario();
+    let (sc, tiles) = moving_scenario();
     let mut rig = Rig::new(sc, Machine::moving(Seat(0), facts()).single());
     rig.run();
-    let far = TOpt::Move { origin: t[0], index: 0, kind: Unit::CruiserI, damaged: false, capacity: 0, gd: false, ionian: false, route: 0 };
+    let far = TOpt::Move { origin: tiles[0], index: 0, kind: Unit::CruiserI, damaged: false, capacity: 0, gd: false, ionian: false, route: 0 };
     rig.expect_illegal(Pick::Opt(t(far)));
-    rig.expect_illegal(Pick::Opt(t(TOpt::Activate(t[0]))));
+    rig.expect_illegal(Pick::Opt(t(TOpt::Activate(tiles[0]))));
 }
 
 #[test]

@@ -166,7 +166,7 @@ fn an_agent_that_grants_an_extra_die_records_the_round_and_the_unit() {
     let mut s = table().state();
     s.meta_mut().combat_round_seq = 7;
     assert!(l::extra_die_agent(&mut s, Seat(0), Unit::DreadnoughtI));
-    let t = s.players().by_seat(Seat(0)).unwrap().combat_timers;
+    let t = s.players().by_seat(Seat(0)).unwrap().combat_timers.clone();
     assert!(t.extra_die_round.is(7));
     assert_eq!(t.extra_die_unit, Some(Unit::DreadnoughtI));
     assert!(!l::extra_die_agent(&mut s, Seat(9), Unit::DreadnoughtI));
