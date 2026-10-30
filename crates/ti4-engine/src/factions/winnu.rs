@@ -570,6 +570,28 @@ fn perform_component(
     if option.id != LGF_ACTION {
         return false;
     }
+    // The whole action is a body of the core (`rules::faction_component::lazax_gate_folding`): no question, the exhaustion and the unit.
+    let crate::timing::TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::winnu::lazax_gate_folding",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(lazax_gate_folding_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let form = crate::action_cards::placed_unit_id(s, content, sources, player, "infantry")
+                .filter(|id| !crate::factions::hooks_economy::effect_placement_forbidden(s, content, sources, player, id));
+            let mecatol = crate::seating::mecatol_on(s);
+            crate::faction_dual::lazax_gate_folding(s, player, mecatol, form.as_ref(), sources, script)
+        }
+    )
+}
+
+/// [`perform_component`] of Lazax Gate Folding on the string engine: the oracle of the dual run.
+fn lazax_gate_folding_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let Some(planet) = lgf_ready(context.state, context.content, context.sources, player) else {
         return false;
     };
@@ -1993,6 +2015,49 @@ mod tests {
             component_actions(&state, content, &a()).is_empty(),
             "exhausted"
         );
+    }
+
+    /// Lazax Gate Folding is a body of the core: the card exhausted and the infantry placed on the planet held in the Mecatol
+    /// system, with no question. The core half agrees with the string when the action resolves, when the card is exhausted
+    /// already, when the seat does not hold Mecatol Rex and when the card is not owned, and it ran every time. Fails when the
+    /// core half is not reached or places the unit elsewhere.
+    #[test]
+    fn gate_folding_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let content = ContentStore::embedded();
+        let run = |own: bool, hold: bool, exhausted: bool| -> (bool, GameState) {
+            let mut state = game();
+            if own {
+                crate::technology::grant(&mut state, &a(), &TechnologyId::new("lgf"));
+            }
+            if hold {
+                take_mecatol(&mut state, &a());
+            }
+            if exhausted {
+                crate::technology::exhaust_technology_text(&mut state, &a(), "lgf");
+            }
+            let option = ChoiceOption::labelled(LGF_ACTION, crate::faction_abilities::ACTION_KIND, "Lazax Gate Folding");
+            let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+                crate::fixtures::with_context(&mut state, DEFAULT, None, &mut scripted(&[]), |ctx| perform_component(ctx, &a(), &option))
+            });
+            (done, state)
+        };
+        let (done, state) = run(true, true, false);
+        assert!(done);
+        let planet = mecatol_planets(&state, &a()).into_iter().next().expect("holds Mecatol Rex");
+        assert_eq!(count_on(&state, &mecatol(), &planet, &a(), "infantry"), 1);
+        assert!(!technology_ready(&state, &a(), "lgf"));
+        assert!(!run(true, true, true).0, "exhausted already");
+        assert!(!run(true, false, false).0, "no Mecatol Rex");
+        assert!(!run(false, true, false).0, "not owned");
+        let _ = content;
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::winnu::lazax_gate_folding"), (4, 0), "{r:?}");
+        let _ = take_report();
     }
 
     // -- Hegemonic Trade Policy ------------------------------------------------------------------

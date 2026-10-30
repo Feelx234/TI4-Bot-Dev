@@ -657,7 +657,6 @@ pub(crate) fn string_only_component(id: &str) -> Option<&'static str> {
         "saar" => "faction|saar: Deorbit Barrage's targets over the map, the hits and the dispatch of perform_component (D1b)",
         "titans" => "faction|titans: Terraform's planets and attachments, and the dispatch of perform_component (D1b)",
         "naaz" => "faction|naaz: the relic or token fabrication and the Mech factory's placement, and the dispatch of perform_component (D1b)",
-        "winnu" => "faction|winnu: Lazax Gate Folding's wormhole position over the map, and the dispatch of perform_component (D1b)",
         "yssaril" => "faction|yssaril: Stall Tactics' discard and Mageon Implants' reveal (the reveal rules are strings), and the dispatch of perform_component (D1b)",
         "cabal" => "faction|cabal: Vortex captures a ship of the map, and the dispatch of perform_component (D1b)",
         "arborec" => "faction|arborec: Psychospore's placement of ground forces from the reinforcements (the placement window), and the dispatch of perform_component (D1b)",
@@ -1950,12 +1949,12 @@ mod tests {
     #[test]
     fn the_component_actions_that_stay_in_the_string_are_counted() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
-        for id in ["faction|production_biomes", "faction|trade_convoys", "somethingelse"] {
+        for id in ["faction|production_biomes", "faction|trade_convoys", "faction|winnu|lgf", "somethingelse"] {
             assert_eq!(string_only_component(id), None, "{id}");
         }
         for id in [
             "faction|orbital_drop", "faction|muaat|star_forge", "faction|ghost|wg", "faction|saar|deorbit_barrage", "faction|titans|terraform|elysium",
-            "faction|naaz|bmf", "faction|winnu|lgf", "faction|yssaril|stall_tactics", "faction|cabal|vortex", "faction|arborec|psychospore",
+            "faction|naaz|bmf", "faction|yssaril|stall_tactics", "faction|cabal|vortex", "faction|arborec|psychospore",
             "faction|nekro|c4r|pds", "faction|mahact|x",
         ] {
             assert!(string_only_component(id).is_some_and(|why| why.starts_with(id.split('|').take(2).collect::<Vec<_>>().join("|").as_str())), "{id}");
