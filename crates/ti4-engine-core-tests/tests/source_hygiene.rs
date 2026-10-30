@@ -14,7 +14,8 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
                 continue;
             }
             walk(&p, out);
-        } else if p.extension().is_some_and(|e| e == "rs") {
+        } else if p.extension().is_some_and(|e| e == "rs") && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("__")) {
+            // `__mutant.rs` is the runtime switch that tools/engine_core/mutants.sh adds to a scratch copy of the tree (it reads the environment).
             out.push(p);
         }
     }
