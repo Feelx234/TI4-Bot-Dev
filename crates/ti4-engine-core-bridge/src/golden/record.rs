@@ -57,7 +57,10 @@ pub fn record_games(opts: &RecordOpts, jobs: &[RecordJob], replayer: &dyn Replay
     let todo: Vec<&RecordJob> = jobs.iter().filter(|j| opts.shard.is_none_or(|(i, n)| j.index % n == i)).collect();
     let workers = if replayer.serial() { 1 } else { opts.workers.max(1) };
     let next = AtomicUsize::new(0);
-    let results: Vec<Mutex<Option<Result<Recording, String>>>> = todo.iter().map(|_| Mutex::new(None)).collect();
+    // Each game is saved the moment it is recorded (a run that is killed keeps what it has; `golden ladder` skips
+    // the versions that exist).
+    let results: Vec<Mutex<Option<Result<Option<String>, String>>>> = todo.iter().map(|_| Mutex::new(None)).collect();
+    let excluded: Mutex<Vec<(usize, String)>> = Mutex::new(Vec::new());
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| {
@@ -66,7 +69,13 @@ pub fn record_games(opts: &RecordOpts, jobs: &[RecordJob], replayer: &dyn Replay
                     let Some(job) = todo.get(i) else { break };
                     let req = RecordReq { spec: job.spec.clone(), bot: opts.bot.clone(), limits: opts.limits.clone(), tier: opts.tier, source: job.source.clone(), game: job.game };
                     let started = std::time::Instant::now();
-                    let r = replayer.record(&req);
+                    let r = replayer.record(&req).and_then(|rec| match rec {
+                        Recording::Game(g) => save_games(&opts.dir, &[(stem(job.index), *g)]).map(|_| Some(stem(job.index))),
+                        Recording::Excluded(why) => {
+                            excluded.lock().expect("lock").push((job.index, why));
+                            Ok(None)
+                        }
+                    });
                     eprintln!("recorded {} in {:.1}s", stem(job.index), started.elapsed().as_secs_f64());
                     *results[i].lock().expect("lock") = Some(r);
                 }
@@ -74,15 +83,13 @@ pub fn record_games(opts: &RecordOpts, jobs: &[RecordJob], replayer: &dyn Replay
         }
     });
     let mut summary = RecordSummary::default();
-    for (job, cell) in todo.iter().zip(results) {
-        match cell.into_inner().expect("lock").expect("ran")? {
-            Recording::Game(g) => {
-                save_games(&opts.dir, &[(stem(job.index), *g)])?;
-                summary.recorded.push(stem(job.index));
-            }
-            Recording::Excluded(why) => summary.excluded.push((job.index, why)),
+    for cell in results {
+        if let Some(name) = cell.into_inner().expect("lock").expect("ran")? {
+            summary.recorded.push(name);
         }
     }
+    summary.excluded = excluded.into_inner().expect("lock");
+    summary.excluded.sort();
     if !summary.excluded.is_empty() {
         use std::io::Write as _;
         let mut f = std::fs::OpenOptions::new().create(true).append(true).open(opts.dir.join("excluded.txt")).map_err(|e| e.to_string())?;

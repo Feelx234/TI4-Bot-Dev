@@ -108,5 +108,16 @@
     "games": 20,
     "decisions": 42680,
     "pure_share_at_record": null
+  },
+  {
+    "name": "v35-std",
+    "dir": "v35-std",
+    "tier": "slim",
+    "rules_version": 35,
+    "frozen": false,
+    "source": "tools/engine_profile/soak/std-100.json",
+    "games": 3,
+    "decisions": 5771,
+    "pure_share_at_record": 126
   }
 ]

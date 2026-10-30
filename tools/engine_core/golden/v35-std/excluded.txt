@@ -1,0 +1,1 @@
+g055	1 dual difference(s); first: DUAL DIFFERENCE [invasion/State] invasion::bombard_step at `faction_marks.private:#staged:event:000000`: string = "{\"payload\":{\"amount\":1,\"player\":\"d\",\"source\":\"mahact_infantry\"},\"type\":\"TRADE_GOODS_GAINED\"}" | core = <absent>
