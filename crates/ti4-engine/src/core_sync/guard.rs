@@ -36,7 +36,8 @@ pub fn ids_supported(ids: &[PlayerId]) -> Result<(), String> {
                 return Err(format!("player id {a:?} is used twice"));
             }
             if b.starts_with(a) || a.starts_with(b) {
-                let (short, long) = if a.len() < b.len() { (a, b) } else { (b, a) };
+                // equal lengths cannot occur here: a prefix of equal length is the same id, refused as `used twice` above
+                let (short, long) = if a.len() < b.len() { (a, b) } else { (b, a) }; // mutants:skip
                 return Err(format!(
                     "player id {short:?} is a prefix of {long:?}: the typed keys cannot order the two seats"
                 ));
