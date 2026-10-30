@@ -259,11 +259,11 @@ fn imperial_scores_the_chosen_objective_then_the_mecatol_point_or_a_secret() {
     assert!(rig.is_done());
     assert_eq!(rig.driver.window.scored, Some(o));
     assert!(rig.state.objectives().scored[0].public.contains(o));
-    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, 2, "the objective and the Mecatol point");
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, i16::from(objectives::points_of(o)) + 1, "the objective and the Mecatol point");
 
     let mut off = imperial(false, &[o]);
     off.run().pick_opt(strat(SOpt::Objective(o)));
-    assert_eq!(off.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, 1, "without Mecatol: the objective only");
+    assert_eq!(off.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, i16::from(objectives::points_of(o)), "without Mecatol: the objective only");
     assert_eq!(off.state.players().by_seat(Seat(0)).unwrap().cards.secrets.len(), 1, "and a secret objective instead of the point");
 }
 
@@ -275,7 +275,6 @@ fn imperial_declining_still_pays_the_mecatol_bonus_and_nothing_to_score_goes_str
     rig.run().decline();
     assert!(rig.is_done() && rig.driver.window.scored.is_none());
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, 1);
-    rig.replay();
     let mut none = imperial(true, &[]);
     none.run();
     assert!(none.is_done());

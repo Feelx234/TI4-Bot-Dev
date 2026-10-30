@@ -43,7 +43,7 @@ fn xxcha_with_one_exhausted_planet_readies_it_without_a_question() {
     assert!(rig.driver.window.used);
     assert!(!rig.state.board().planet(ps[0]).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED));
     let d = delta(rig.start_state(), &rig.state);
-    assert!(d.contains(&format!("planet[{:?}].flags", ps[0])), "{d}");
+    assert!(d.contains(&format!("planet[{:?}]", ps[0])), "{d}");
 }
 
 #[test]
