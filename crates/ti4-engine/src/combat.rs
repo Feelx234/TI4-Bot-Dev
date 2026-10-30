@@ -14275,6 +14275,31 @@ mod tests {
     }
 
     #[test]
+    fn a_barrage_that_takes_the_last_ship_of_a_side_still_pauses_for_scoring_and_ends_the_fight_in_round_zero() {
+        // INT7 / D4A3: the core machine's test of the same position ends at `Over` with no scoring pause.
+        // The string engine is the reference: the barrage feat is scored and the pause is consumed even
+        // when the fighters were the defender's last ships, and the fight ends with no round fought.
+        let (mut state, system) = arena();
+        put(&mut state, &system, "destroyer", &attacker(), 3);
+        put(&mut state, &system, "fighter", &defender(), 1);
+        let mut table = Table::new();
+        let mut dice = Dice::from_faces([10, 10, 10, 10, 10, 10, 1]);
+        let mut rng = GameRng::new(1);
+        let (outcome, asks_before_pause) = stepped_fight(&mut state, &system, &mut table, &mut dice, &mut rng);
+        assert_eq!(asks_before_pause, Some(0), "the string pauses for the barrage feat although the defender has no ship left");
+        assert_eq!(outcome.winner, Some(attacker()));
+        assert_eq!(outcome.rounds, 0, "no round was fought");
+        assert!(
+            state
+                .player(&attacker())
+                .unwrap()
+                .event_feats
+                .iter()
+                .any(|(feat, _)| *feat == Feat::BarrageTookTheLastFighters)
+        );
+    }
+
+    #[test]
     fn hits_are_simultaneous() {
         // 78.6. Two single fighters both hitting must both die: resolving sequentially would
         // let the first casualty cancel return fire it had already earned.

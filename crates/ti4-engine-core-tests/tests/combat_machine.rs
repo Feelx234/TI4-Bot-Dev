@@ -363,22 +363,20 @@ fn a_combat_whose_other_side_dies_to_the_barrage_alone_is_over_with_no_round_fou
         let mut fight = Fight::new(sc(), env(), seed);
         fight.pause_at_scoring = true;
         let stop = fight.settle(Policy::First);
-        seen.push(format!("seed {seed}: {stop:?}, defender ships {}, outcome {:?}", fight.ships(1, sys()), fight.fields.outcome));
-        // The feat's scoring pause comes only when the barrage kills the last fighter of a seat that scores it; since W2 the plain kill runs straight to Over.
-        let over = if stop == Some(Stop::Scoring) {
+        let feat = !fight.state.players().by_seat(Seat(0)).unwrap().misc.event_feats.is_empty();
+        seen.push(format!("seed {seed}: {stop:?}, defender ships {}, outcome {:?}, feat {feat}", fight.ships(1, sys()), fight.fields.outcome));
+        // The string engine (`a_barrage_that_takes_the_last_ship_of_a_side_still_pauses_for_scoring_...`, combat.rs) pauses for the barrage
+        // feat although the fighters were the defender's last ships: the machine must pause too (it ended at `Over` before the fix, INT7).
+        assert_eq!(stop, if feat { Some(Stop::Scoring) } else { Some(Stop::Over) }, "seed {seed}");
+        if stop == Some(Stop::Scoring) {
             fight.fields.scoring = false;
             let again = fight.settle(Policy::First);
             assert_eq!(again, Some(Stop::Over));
-            true
-        } else {
-            stop == Some(Stop::Over)
-        };
-        if over {
-            if fight.ships(1, sys()) == 0 && fight.fields.outcome.map(|o| o.1) == Some(0) {
-                ended_early = true;
-                assert_eq!(fight.fields.outcome.unwrap().0, Some(Seat(0)));
-                assert_eq!(fight.state.ledger().dice.iter().filter(|r| r.purpose == ti4_engine_core::state::RollPurpose::SpaceCombat).count(), 0, "no combat dice were rolled");
-            }
+        }
+        if fight.ships(1, sys()) == 0 && fight.fields.outcome.map(|o| o.1) == Some(0) {
+            ended_early = true;
+            assert_eq!(fight.fields.outcome.unwrap().0, Some(Seat(0)));
+            assert_eq!(fight.state.ledger().dice.iter().filter(|r| r.purpose == ti4_engine_core::state::RollPurpose::SpaceCombat).count(), 0, "no combat dice were rolled");
         }
     }
     assert!(ended_early, "{:#?}", &seen[..seen.len().min(6)]);

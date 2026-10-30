@@ -801,7 +801,9 @@ impl Machine {
                     self.fields.step = Step::Announcing { round, asking: self.env.defender, announced: Vec::new() };
                 }
                 Step::Opening { round } => {
-                    if self.over(sx) {
+                    // The round resumes here once the barrage is played: the string scores the barrage feat (and pauses for it)
+                    // even when the barrage took the last ships of a side; the end of the fight is read after that pause.
+                    if !self.barrage_done && self.over(sx) {
                         self.conclude(sx, round - 1);
                         // The string returns here without another turn of the loop (no presentation): the phase of the stage stands.
                         self.end_announce(sx);
