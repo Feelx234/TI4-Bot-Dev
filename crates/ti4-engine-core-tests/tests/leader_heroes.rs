@@ -55,7 +55,7 @@ fn rin_trading_replaces_the_technology_and_keeping_changes_nothing_but_still_cou
     keep.run().pick_opt(Opt::Leaders(LOpt::Keep));
     assert!(keep.is_done() && keep.driver.window.used, "an opportunity declined is still a use");
     assert!(keep.state.players().by_seat(Seat(0)).unwrap().tech.owned.contains(held));
-    keep.replay();
+    let _ = keep.replay();
 }
 
 #[test]
