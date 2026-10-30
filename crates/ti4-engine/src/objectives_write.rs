@@ -315,7 +315,7 @@ mod real {
     /// (`StringOffers`), puts the question, takes the answer and updates the book from the position the
     /// answer left; `asked` is the question the string window put, against which the core's is compared.
     /// `None` where the core cannot follow (each reason is counted): a nested emission, diplomacy, a bought
-    /// objective with a Bastion or Crimson seat at the table, a position the codecs refuse.
+    /// objective for a payer holding ocean cards, a position the codecs refuse.
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub fn score_one(
         gs: &mut GameState,
@@ -369,7 +369,7 @@ mod real {
                 let offers: Vec<Offer> = next.offers.iter().copied().collect();
                 let priced = offers.iter().any(|o| matches!(o, Offer::Objective(x) if is_priced(*x)));
                 if priced && price_is_string(gs, &who) {
-                    return bail("a priced offer at a table with a Bastion or Crimson seat, or ocean cards");
+                    return bail("a priced offer for a payer holding ocean cards");
                 }
                 // The production kernel: its hooks answer what a trade good pays, which commodities a payment
                 // may spend and the ocean cards (`fx_pay::pay_facts`).
@@ -451,13 +451,10 @@ mod real {
         Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions })
     }
 
-    /// Where the price stays with the string: a table with a Last Bastion or a Crimson seat (their economy hooks
-    /// are not in the production kernel's reads, `production_view::unported_economy`), and a payer holding
-    /// Deepwrought ocean cards (planet cards off the map the core has no planets for).
+    /// Where the price stays with the string: a payer holding Deepwrought ocean cards (planet cards off the map the core has
+    /// no planets for). The Last Bastion's Helios bonus is in the payment facts, the Crimson has no economy hook.
     fn price_is_string(gs: &GameState, payer: &PlayerId) -> bool {
-        use crate::factions::{bastion, crimson};
-        gs.players.iter().any(|p| [bastion::MODULE.alias, crimson::MODULE.alias].contains(&p.faction.as_str()))
-            || !crate::factions::deepwrought::spendable_oceans(gs, payer).is_empty()
+        !crate::factions::deepwrought::spendable_oceans(gs, payer).is_empty()
     }
 
     fn before_revealed(gs: &GameState, obj: ObjectiveRef) -> bool {

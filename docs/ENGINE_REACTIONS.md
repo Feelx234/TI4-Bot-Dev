@@ -534,3 +534,144 @@ agent's mark, the exhaustion, the declined mark, the Nomad bail; the payment ext
 Tests per documented bail: `reactions_core::tests` (`bail_*`: the table-level bails, a card the core does not play, a card played at once, Data Skimmer, outside an ability), `cards::tests::{bail_direct_hit_on_ships_that_differ_by_their_galvanize_token,
 bail_skilled_retreat_with_a_dual_form_unit_or_the_last_bastion, bail_parley_of_a_naaz_mech_whose_form_flips}`, `invasion::tests::bail_the_crimson_legionnaire_with_a_siphoning_firmament_seat_is_counted`,
 `production::tests::bail_the_keleres_agent_with_a_listening_nomad_is_counted`, the cruiser bail in `the_mentak_hero_places_ships_in_the_core_window_in_lockstep`.
+
+## 10. Package B12 (branch `core-b12`, from `core-integration-3`): combat and invasion, nested bails after stage 3
+
+Status: **partial, not gated.** The area is not complete (see `docs/B12_RESUME.md`); the heavy gate has not run. What was
+ported, with its lockstep tests and mutation checks, and what stays string with its documented, tested bail:
+
+### 10.1 Ported
+
+| what | string id | core |
+|---|---|---|
+| Technological Singularity, the combat marks (open at the start, close at the end of a space and a ground combat) | `ability:*:technological_singularity_{open,close}:{SPACE,GROUND}_COMBAT_{STARTED,ENDED}:after` | `ca_combat/nekro/singularity.rs`, slots 2003-2006, `MarkKey::NekroTs(system, planet?)` = `{opponent}\|open` / `used` |
+| Technological Singularity (optional, once per combat) | `ability:*:technological_singularity:{SHIP,GROUND_FORCE}_DESTROYED:after` | slots 2007-2008; question `reaction::Ask::Assimilate` (prompt, subtype `assimilate`, options `Opt::Take { how: Gain/TokenX/TokenY, tech, source }`, ids `gain\|{source}\|{tech}` / `x\|..` / `y\|..`, kind `nekro_assimilate`); the options are the string's (`nekro::assimilation_options`) minus the Z token; effect: grant the technology or `tech.assimilated[card] = tech` |
+| The Terror Between registered for a Nekro seat (the string registers it there) | `unit:nekro:cabal_flagship:{SHIP,GROUND_FORCE}_DESTROYED:after` | `cabal/timing.rs`: `Applies::Held(terror_holder)`; the condition bails (`MissingFact`) when a Nekro flagship stands in the system and the Nekro holds the Z breakthrough |
+| Instinct Training carried by a Nekro Valefar Assimilator (was `Unknown::NekroCarriedCard`, now removed) | `technology:*:it:ACTION_CARD_PLAYED:when` | `rules/reactions/instinct_training.rs`: `carrier()` is the technology itself or the Valefar Assimilator (X before Y) whose token stands on it while another player owns it; that card is the one tested ready and exhausted |
+| Sh'val, Harbinger (Sardakk hero), the finish of the skip: remove the mark, purge, return the owner's ships of the space area | `leader:*:sardakkhero:GROUND_COMMITMENT_FINISHED:after` | `cd_registry/sardakk/timing.rs`, slot 12001; lives in `invasion::space_cannon_defense` (the window that announces the commitment) |
+
+Also: the end announcement of a space combat (`combat::settle`) bailed silently whenever the notes changed
+(`marks_changed`); the `nekro:ts:` marks are the table's, so they no longer count (the `combat::settle` of every Nekro fight
+is compared now; `combat::settle` bailed 1 of 6 runs of a Nekro combat before).
+
+Registry parity: the string registers Technological Singularity, its marks and (for a Nekro seat) The Terror Between for the
+seats it registers them for (every seat for the first, a Nekro seat for the last). `the_native_registry_equals_the_string_one_for_the_ported_abilities`
+now also seats a Nekro and a Sardakk.
+
+### 10.1b Second round (same branch): payment inside an ability, the map as an input, pair rules
+
+| what | string id | core |
+|---|---|---|
+| a payment loop inside an effect | (`production::pay_seeing`) | `rules/production/pay.rs::pay_in`: `PayStep` repeated through `Eff::ask`, a lone option taken, the kernel for payments lent by the adapter (`AdapterFacts::pay_kernel` = `production_view::kernel`; the combat kernel holds none of the economy hooks) |
+| the map as an input | `galaxy.adjacent` of `empyrean_units::near` | `Recording::adjacent` (each pair the string asked, `dual_window::note_adjacent`) -> `AdapterFacts::adjacent`; a pair the string did not ask makes the window unknown (`MissingFact`) |
+| Dynamo (Empyrean flagship), ships and ground forces | `unit:*:empyrean_flagship:{SUSTAIN_DAMAGE_USED,GROUND_FORCE_SUSTAINED}:after` | `ce_movement/empyrean/timing.rs`, slots 13001-13002; the 2 influence are paid by `pay_in` (planets and trade goods are real questions inside the ability) |
+| the Watcher (Empyrean mech) | `unit:*:empyrean_mech:ACTION_CARD_PLAYED:when` | slot 13003; `reaction::Ask::Watcher { actor }` (prompt, `watcher_remove`, options `Opt::Site { system, planet }`) when several mechs are in reach |
+| Salvage Operations, the produce half | `technology:*:so:SPACE_COMBAT_ENDED:produce` (registered as an `after` ability whose id ends `produce`: `reactions_core::rel_segment`) | `cc_ground/mentak/timing.rs`, slot 8005; `reaction::Ask::Salvage` / `Opt::Produce { unit, cost }` (option id = the base type, `.with("cost")`); the buildable list is an input (`Recording` -> `AdapterFacts::buildable`, from `production::buildable_for`); a cruiser or flagship is the string's form (`MissingFact`) |
+| pair rules (`Spec::pair`, `AbilityDef::pair_source`) | Ssruu copies | the registry walks the lender's seat and registers the copy for each borrower (`AbilityTable::registry`, `name(spec, owner, lender)`); `reactions_core::PAIRS` spells the two id shapes (`leader:{lender faction}:{lender}:yssarilagent:{agent}:EVENT:rel` and `leader:ssruu-copy:{borrower}:{agent}:{lender}:EVENT:after`) and `slot_of` parses them |
+| Ssruu copying Brother Milor (ships, ground), Evelyn De Louis, Viscount Unlenn, Trilossa Aun Mirik | see above | `cd_registry/yssaril/ssruu.rs`, slots 14001-14005; the originals are parameterized by the card exhausted (`yin::timing::place_by`, `borrowed::timing::copy_effect`, `argent::timing::copy_agent`) |
+| the round agents' extra die | `borrowed_round_agents::extra_die_for` | `borrowed::query::extra_die_for` reads the typed mark from the core state; the string-oracle snapshot of the window start could not see a mark written in the same window (the composed `combat::settle` rolled 3 dice where the string rolled 5: found by the Ssruu copy of Viscount Unlenn; test `the_letnev_agent_extra_die_is_read_in_the_window_that_writes_the_mark`) |
+
+### 10.1c Third round: the Icon and the card (dropped afterwards), unit swaps, the Sardakk mech, Fire Team
+
+| what | string id | core |
+|---|---|---|
+| a gained unit upgrade reaches the board | `technology::apply_unit_upgrades` | `common::apply_unit_upgrades` (the form a seat is entitled to: the upgrade, its faction's unit, the plain one; the roster is cached per scope: `yin::timing::roster`); Singularity uses it (a Mentak seat's Corsair form stays string, `MissingFact`) |
+| Valkyrie Exoskeleton (Sardakk mech) | `unit:*:sardakk_mech:GROUND_FORCE_SUSTAINED:after` | `cd_registry/sardakk/timing.rs`, slot 12003: the invasion's own hits step (`hits::apply`, `Batch`) and the staged events announced through `Eff::emit`; several opponents on the planet bail (`MissingFact`: the string picks the first in player-id order) |
+| Fire Team | `reaction:*:GROUND_ROLLS_MADE:after (card fire_team)` | `cards/mod.rs::fire_team`: one optional question per staged die (`RerollSource::FireTeam`, `fire_team_reroll`), the chosen dice drawn again from the dice stream (`redraw`); the ground roll tail window is lent the stream (`Sources::rng`, seeds) and compares the positions of the stream with the string's (`roll_tail`); the texts of the staged sets are an input (`AdapterFacts::reroll`, `reactions_core::with_reroll`); every other window leaves them unset, so the card bails (`MissingFact`) there |
+| 5c: the Icon and the Crimson card as spots of the core production window | `bastion::adjust_ship_spots`, `ship_placed`, `crimson_cards::offer_card_spot`, `put_on_card` | `Spot::Card`, `Icon`, the four hooks implemented, `fleet::remaining_all`, `unported_economy` removed. **Dropped by decision afterwards** (the Last Bastion, the Crimson Rebellion, structured diplomacy and the turn-redo reserve are disabled at the product edges); kept as committed, nothing more is ported for them |
+| 5a `FinalizingControl`, 5b `finish_committing`'s Research Team questions and `add_forced_combats` | string windows | documented bails, tested inside the dual run: `bail_the_control_gain_chain_is_the_strings_inside_the_dual_run`, `bail_the_research_team_coexistence_is_the_strings_inside_the_dual_run` (the Research Team / Viper eligibility queries are compared hook by hook) |
+
+### 10.2 Stays string (documented bail, one test per family)
+
+Test for the families that need no special reason: `reactions_core::tests::bail_every_family_that_stays_in_the_string_is_named`
+(the window bails with `nested (unported ability <id>)`); the specific bails have their own tests.
+
+| family | runs (pre-B12 census, section 10.4) | why it stays | what a port needs |
+|---|---|---|---|
+| Technological Singularity with the Z token | (inside the 31) | the Z option lends a flagship's text; `MissingFact`; test `bail_the_singularity_with_the_z_token` | the Z tables as core data (`common::flagship_has_text` already reads `NekroToken`) |
+| Dynamo / Salvage with an ocean-card seat (Deepwrought) | few | `payment::plans` pays with ocean cards too (`MissingFact`) | the ocean cards as planets of the plan |
+| Salvage producing a cruiser or a flagship | few | Mentak's Corsair form (`placed_unit_id` override); `bail_salvage_operations_of_a_cruiser_is_counted` | the form override as a core hook |
+| Sardakk: the stale-mark clean-up at `TURN_BEGAN` | 0 | no followed window announces `TURN_BEGAN` | a TURN_BEGAN window |
+| Reflective Shielding, Courageous to the End | 2 + 2 | child flows (the producer's two hits; the opponent's casualty question with the holder as producer) | 9.2 |
+| Scramble Frequency (and Fire Team in a window other than the ground roll tail) | 1 | the roll windows of the barrage, the space cannon and the bombardment are not lent the dice stream and the staged texts | the same plumbing as the ground roll tail (`roll_tail`) in those windows |
+| Reveal Prototype and the cost it makes the core not judge | 4 + 6 | a research choice by unit line and a 4-resource payment (`cost_is_payable` is `None` for it) | `pay_in` is there now; the research (`Research` window of B8c) as a callable piece |
+| Winnu commander unlock 1, Ambuscade 1, an adapter fact 1, a window lent no dice stream 1 | 4 | unchanged | one by one |
+
+### 10.4 The nested-bail census before B12 (the 20 golden games, `TI4_NESTED_LOG=1`, wide mask, SHARDS=4, pre-B12 binary)
+
+`/root/deploytmp/core-b12-agent/census.out`: 11 679 525 calls, 11 803 425 comparisons, 0 differences, hashes equal; `nested activity: 231
+signatures, 736 runs`. Bails by their first reason (runs): Technological Singularity open / close 13 + 12 + 4 + 2; Dynamo 13 + 1 + 1;
+the Ssruu copies of Brother Milor 9 + 5 + 4 + 1, of Viscount Unlenn 9 + 1 + 1 + 1, of Evelyn De Louis 5 + 4, of Trilossa 6 + 1; Salvage's
+produce half 8; Fire Team 6; Sardakk hero 4 and mech 2; a card cost the core does not judge 3 + 3; Reveal Prototype 3 + 1; the Watcher
+2 + 2 + 1 + 1 + 1; a Nekro-carried technology 2 + 1 + 1 + 1 + 1; Ambuscade, Courageous 1 + 1, Reflective 1 + 1, Scramble 1, the Winnu
+commander 1, an action card the core does not play 2, a window lent no dice stream 1, an adapter fact 1. B12 ported the Singularity, Dynamo, the
+Watcher, Salvage's produce half, the Ssruu copies of Brother Milor, Viscount Unlenn, Evelyn De Louis and Trilossa, Sh'val's finish and the
+Nekro-carried Instinct Training (10.1, 10.1b); the other Ssruu copies (Naaz, Winnu, Saar, Sardakk ... agents) are windows outside combat and
+invasion.
+
+### 10.3 Item 5c (Bastion and Crimson typed reads): not started
+
+Finding (read-only): `production_view::unported_economy` cannot be lifted by deleting the guard. The Crimson hero card is a
+production *spot* (`REMOTE_SEPARATOR` text `@`, `crimson_cards::offer_card_spot`/`put_on_card`) and the Last Bastion's Icon
+adjusts the spots of the produced ships (`bastion::adjust_ship_spots`, `ship_placed`). The core declares the four hooks
+(`kernel/hooks/direct.rs:78-127`: `bastion_adjust_ship_spots`, `bastion_ship_placed`, `crimson_cards_offer_card_spot`,
+`crimson_cards_put_on_card`) but nobody implements or calls them (`bastion/offer.rs` and `crimson/offer.rs` are empty), and
+`choice::production::Spot` has no card variant. Also `fleet::remaining(.., on_card)` is always called with `0` in the core
+(`rules/production/mod.rs:493`, `supply.rs:66`, `strategy_cards.rs:305`) while the string adds `held_on_card`. Estimate as in
+the prerequisites document: 4-6 h, own run; start with the Crimson card read (a typed `CrimsonCard` mark list exists:
+`MarkKey::CrimsonCard(owner)` = `Sh::List(UNIT)`), then the hooks, then a lockstep test of the production window with the
+two seats (copy `the_tier_w_factions_run_in_lockstep_on_the_core_production_window`).
+
+### 10.5 After the first gate: the soak and golden findings
+
+The first gate run (eecd1f37) passed the combat and invasion areas and failed the driver area's golden dual (and the wide mask) on one
+cause, and the user's soak corpus (core-integration-3 + dual-shards) found four more. All five are fixed with a regression test that
+fails on the code before the fix (checked by running the tests with the source change reverted):
+
+* **A payment an ability asks has no battle in its position** (`dual_window::nested_position`). The string puts a question of
+  `pay_seeing` (Dynamo, Salvage Operations; `Table::ask_seeing`) in the position of an invasion only; the other nested questions
+  (`TimingContext::ask_seeing`) name the battle too. The core rendered the battle on the payment as well (`context.target`,
+  `space_battle`, hence the canonical text and the V2 hash). The lockstep fixtures never set `active_space_combat`, which `Game` sets
+  for a fight, so they could not show it: `hub_fight` and the Raid Formation test set it now (all the `hub_fight` tests run in the
+  position of a real fight).
+* **Raid Formation's question is asked in its battle** (soak 1): the standalone window renders the context with `about_battle`.
+* **The Terror Between, Devour and Reanimator never capture a neutral's unit** (soak 2, `cabal::timing::destroyed_model`: the victim
+  must be a seated player), test `the_cabal_does_not_capture_the_neutral_in_lockstep`.
+* **A Waylay played in the barrage** (soak 3) sends the hits of that roll to every ship, which the core barrage step does not carry:
+  the Waylay is played inside the window the step opens before each roll, so the position cannot tell. `dual_window::waylay_check`
+  bails (counted, `[bail: Waylay played in the barrage ...]`) in `barrage_step` and in the composed settle that holds the barrage;
+  test `a_waylay_in_the_barrage_is_a_counted_bail_not_a_difference`. Known issue row B12-bail-07.
+* **Only the casualty question carries the hit detail** (soak 4, `dual_window::is_combat_ask`): the reaction window the loss of a ship
+  opens inside the assignment (Crash Landing, "when your last ship is destroyed") is a pick of the reaction area, not a hit's question;
+  the `assign_hits` and `assault_cannon` windows put the detail on it. Test `a_reaction_inside_the_hit_assignment_carries_no_hit_detail`.
+* **The order of the Ssruu copies** (found beside them): the string registers the borrowed round agents (Sol's and Letnev's agents
+  borrowed by the Yssaril) before it walks the seats, so a window offers the copy before the seat's standing card slot even when the
+  borrower is the earlier seat. `Spec::leads` / `Spec::leading()`, `AbilityTable::registry` registers those pair rules first; the
+  registry-parity test has the case (`yssaril` seat before `letnev`).
+
+### 10.6 The wide soak of 2026-10-29 (79 differences, 42 signatures, commit 79e5dcaa)
+
+The soak ran the wide mask over 100 games before the fixes of 10.5. Replaying every distinct repro line game by game
+(`dual_run CONFIG GAMES MASK --shard I/GAMES`: one game, one to two minutes; `soak_repro.sh --seed/--game` only selects what it prints) left these root
+causes after 10.5, all fixed, each with a test that fails without the fix unless noted:
+
+* **The Cavalry's lent stats** (settle, `barrage_dice` absent): the combat kernel read them from the string oracle's snapshot of the position the
+  window started in, which cannot see a Cavalry played inside the window; and `nomad::query::borrowed_stats` returned the barrage as
+  `(dice, hits_on)` where `BorrowedStats` says `(hits_on, dice)` (the adapter swapped it back, so the hook comparison never showed it). Now
+  native (`register_borrowed`) and in the stated order. Test `the_cavalry_ship_rolls_the_lent_barrage_in_the_core_window_in_lockstep`.
+* **Staged events written by an ability of the table** (`faction_marks.private:#staged:event:*`): the bombardment step dropped what its abilities
+  staged (a Crimson Legionnaire's trade good), `apply_staged` now writes it; the production window did not stage the Winnu agent's
+  `AGENT_EXHAUSTED` for a Nomad that listens (Temporal Command Suite). Tests `a_legionnaire_destroyed_by_a_bombardment_stages_its_trade_good_in_lockstep`,
+  `the_winnu_agent_exhaustion_is_staged_for_a_nomad_that_listens`.
+* **Technological Singularity with the Z token**: the token is an option even when the opponent owns nothing else to take, so the condition
+  bails (`MissingFact`) before it asks whether options exist (`ready_with`). Test `bail_the_singularity_with_the_z_token_and_nothing_else_to_take`. The
+  `ts`, `token:Z`, `ground_round_hits` and `settle` question-count signatures were this one cause.
+* **The phase of a fight that is over at the roll**: the string returns right after `conclude` in the `Opening` and `Rolling` arms (no turn of the
+  loop, so the stage's phase stands); the core machine took one more turn and presented `complete`. Test
+  `a_fight_over_at_the_roll_keeps_the_phase_of_its_stage_in_lockstep`.
+* **The Alastor participants** (`nekro:alastor|...` after `announce_end`): the end of the fight clears them (`Obs::ParticipantsCleared`); the core
+  end announcement now does (`nekro_units_alastor_clear`). The soak game (Thunder's Edge, game 13) is the evidence: its replay went from one
+  difference to none. The unit test `the_end_of_a_fight_clears_the_alastor_participants_in_lockstep` does NOT fail without the fix (the Alastor
+  ability is unported, so its whole settle bails and the end announcement is never compared alone); no smaller reproduction was found.
+
+No signature was a string bug.

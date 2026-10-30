@@ -49,7 +49,7 @@ const fn agent_of(ground: bool) -> Leader {
 }
 
 /// The units the owner may choose (`copy_plan`), in the string order, with the round the event names.
-struct Plan {
+pub(crate) struct Plan {
     system: System,
     combat_planet: Option<Planet>,
     round_seq: u32,
@@ -77,6 +77,11 @@ fn plan(s: &CoreState, k: &Kernel, event: &EventRec, owner: Seat, ground: bool) 
     if !(if ground { sol_holds(s, owner) } else { letnev_holds(s, owner) }) || !readied(s, owner, agent) {
         return None;
     }
+    plan_of(s, k, event, ground)
+}
+
+/// `copy_plan` without the right to the agent: the units of the system the event names, in the string's order.
+pub(crate) fn plan_of(s: &CoreState, k: &Kernel, event: &EventRec, ground: bool) -> Option<Plan> {
     let p = &event.payload;
     let system = p.system(Key::System)?;
     let round_seq = u32::try_from(p.int(Key::RoundSeq)?).ok()?;
@@ -121,6 +126,11 @@ fn condition(c: &CondCx<'_>, ground: bool) -> bool {
     if plan(c.state, c.kernel, c.event, c.def.owner, ground).is_none() {
         return false;
     }
+    nomad_quiet(c)
+}
+
+/// `leaders::exhaust` announces the exhaustion to a watching Nomad; the core does not.
+pub(crate) fn nomad_quiet(c: &CondCx<'_>) -> bool {
     // `leaders::exhaust` announces the exhaustion to a watching Nomad; the core does not.
     if c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.state) {
         return c.unknown(Unknown::NomadAgentExhaustion);
@@ -130,11 +140,11 @@ fn condition(c: &CondCx<'_>, ground: bool) -> bool {
 
 /// The value of the mark (`RoundBonus`): borrower, source owner, agent, system, combat planet, unit planet, unit
 /// owner, unit type, sustained, galvanized, ordinal, round. A planet that is absent is `Atom::Absent`.
-fn bonus(owner: Seat, agent: Leader, plan: &Plan, t: &RoundTarget) -> MarkVal {
+fn bonus(owner: Seat, source: Seat, agent: Leader, plan: &Plan, t: &RoundTarget) -> MarkVal {
     let planet = |p: Option<Planet>| MarkVal::Atom(p.map_or(Atom::Absent, Atom::Planet));
     MarkVal::Rec(vec![
         MarkVal::Atom(Atom::Seat(owner)),
-        MarkVal::Atom(Atom::Seat(owner)),
+        MarkVal::Atom(Atom::Seat(source)),
         MarkVal::Atom(Atom::Leader(agent)),
         MarkVal::Atom(Atom::System(plan.system)),
         planet(plan.combat_planet),
@@ -148,10 +158,10 @@ fn bonus(owner: Seat, agent: Leader, plan: &Plan, t: &RoundTarget) -> MarkVal {
     ])
 }
 
-fn question(owner: Seat, agent: Leader, plan: &Plan) -> Choice {
+fn question(owner: Seat, agent: Leader, copied: bool, plan: &Plan) -> Choice {
     Choice {
         actor: owner,
-        ask: Ask::Leaders(LAsk::RoundAgentUnit { agent }),
+        ask: Ask::Leaders(LAsk::RoundAgentUnit { agent, copied }),
         ctx: Ctx {
             origin: Origin::Content(Content::Leader(agent)),
             subtype: Subtype::Leaders(LSub::RoundAgentUnit),
@@ -167,21 +177,34 @@ fn question(owner: Seat, agent: Leader, plan: &Plan) -> Choice {
 
 fn effect(eff: &mut Eff<'_, '_>, ground: bool) -> Result<(), TimingError> {
     let owner = eff.owner();
-    let agent = agent_of(ground);
-    let Some(plan) = ({
+    let plan = {
         let (s, k) = eff.read();
         plan(s, k, eff.event, owner, ground)
-    }) else {
-        return Ok(());
     };
-    let Pick::Opt(Opt::Leaders(LOpt::RoundAgentUnit(chosen))) = eff.ask(&question(owner, agent, &plan)) else {
+    choose(eff, ground, plan, owner, agent_of(ground), false)
+}
+
+/// The Ssruu copy of the round agent (`source` lends it): the same choice and mark, the borrower's Ssruu is exhausted.
+pub(crate) fn copy_effect(eff: &mut Eff<'_, '_>, ground: bool) -> Result<(), TimingError> {
+    let owner = eff.owner();
+    let plan = {
+        let (s, k) = eff.read();
+        if crate::cd_registry::yssaril::ssruu::borrowable(s, owner, eff.def.pair_source(), agent_of(ground)) { plan_of(s, k, eff.event, ground) } else { None }
+    };
+    choose(eff, ground, plan, eff.def.pair_source().unwrap_or(owner), agent_of(ground), true)
+}
+
+fn choose(eff: &mut Eff<'_, '_>, _ground: bool, plan: Option<Plan>, source: Seat, agent: Leader, copied: bool) -> Result<(), TimingError> {
+    let owner = eff.owner();
+    let Some(plan) = plan else { return Ok(()) };
+    let Pick::Opt(Opt::Leaders(LOpt::RoundAgentUnit(chosen))) = eff.ask(&question(owner, agent, copied, &plan)) else {
         return Ok(());
     };
     if !plan.candidates.contains(&chosen) {
         return Ok(());
     }
     // The owner's earlier marks go, the new one is keyed by the round.
-    let value = bonus(owner, agent, &plan, &chosen);
+    let value = bonus(owner, source, agent, &plan, &chosen);
     let marks = eff.state().marks_mut().tail.edit();
     let old: Vec<MarkKey> = marks
         .iter()
@@ -193,7 +216,7 @@ fn effect(eff: &mut Eff<'_, '_>, ground: bool) -> Result<(), TimingError> {
     }
     marks.insert(MarkKey::YssarilSsruuRoundAgent(owner, agent, DecimalTextOrd(plan.round_seq)), value);
     if let Some(p) = eff.state().players_mut().by_seat_mut(owner) {
-        p.leaders.status.insert(agent, LeaderStatus::Exhausted);
+        p.leaders.status.insert(if copied { Leader::Ssruu } else { agent }, LeaderStatus::Exhausted);
     }
     Ok(())
 }

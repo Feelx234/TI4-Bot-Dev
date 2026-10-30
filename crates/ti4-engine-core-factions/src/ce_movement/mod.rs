@@ -36,6 +36,7 @@ pub(crate) use crate::common::testkit;
 /// The timing abilities of the package (the reaction windows), in the string registration order of the factions.
 pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
     arborec::timing::register_abilities(t);
+    empyrean::timing::register_abilities(t);
 }
 
 /// The abilities of the factions that come after Mentak and Nekro in the string order of the modules (Nomad).

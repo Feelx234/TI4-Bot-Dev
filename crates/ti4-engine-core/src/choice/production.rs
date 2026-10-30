@@ -60,6 +60,21 @@ pub enum Spot {
     Planet(Planet),
     /// A place in another system a module offers (`production_destinations`).
     Remote(System, Option<Planet>),
+    /// The Crimson hero card ("place any of those ships onto this card"): not a place on the board.
+    Card,
+}
+
+/// What this use of PRODUCTION has done with its ships so far, for the Last Bastion's Icon ("place those ships in a system that
+/// contains ..."): every ship of one use goes to one system, so the first remote ship fixes the spot and a ship placed in the
+/// producing system closes the Icon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Icon {
+    /// No ship placed yet.
+    Fresh,
+    /// A ship went to this remote spot: it is the only one left.
+    Remote(Spot),
+    /// A ship was placed in the producing system.
+    Local,
 }
 
 /// The placement question: where `made` bought copies of `unit` go, when there is more than one place.
@@ -70,6 +85,7 @@ pub struct PlaceAsk {
     pub unit: Unit,
     pub made: u8,
     pub fleet_limit: i32,
+    pub icon: Icon,
 }
 
 /// The production question: what to build now. The window's own numbers (the string `ProductionWindow`
@@ -101,6 +117,8 @@ pub struct ChooseAsk {
     pub armada: i32,
     /// What the seat may produce at all (`buildable_for`), in option order.
     pub buildable: [Option<Unit>; 9],
+    /// What the ships of this use have done so far (the Last Bastion's Icon).
+    pub icon: Icon,
 }
 
 /// Sling Relay's first question: in which dock system to produce (only asked with two or more).

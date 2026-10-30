@@ -114,7 +114,13 @@ fn ask(
 
 /// Whether `a` is `b` or next to it on the map. Without a map only the same system counts.
 fn near(galaxy: Option<&Galaxy>, a: &SystemId, b: &SystemId) -> bool {
-    a == b || galaxy.is_some_and(|galaxy| galaxy.adjacent(a.as_str()).contains(b.as_str()))
+    if a == b {
+        return true;
+    }
+    let adjacent = galaxy.is_some_and(|galaxy| galaxy.adjacent(a.as_str()).contains(b.as_str()));
+    // The core is lent no galaxy: the pair the map was asked about is an input of the abilities (`Recording::adjacent`).
+    crate::dual_window::note_adjacent(a.as_str(), b.as_str(), adjacent);
+    adjacent
 }
 
 // -- Dynamo -------------------------------------------------------------------------------------

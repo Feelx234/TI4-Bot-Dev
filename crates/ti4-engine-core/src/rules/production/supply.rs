@@ -63,7 +63,7 @@ pub fn capture_from_reinforcements(s: &mut CoreState, scope: Scope, captor: Seat
     if captor == owner
         || s.players().by_seat(captor).is_none()
         || s.players().by_seat(owner).is_none()
-        || fleet::remaining(s, scope, owner, unit, 0) == 0
+        || fleet::remaining_all(s, scope, owner, unit) == 0
     {
         return false;
     }

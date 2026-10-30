@@ -4240,6 +4240,8 @@ impl InvasionWindow {
                     crate::dual::note_bail("invasion::roll_ground_tail", why);
                     return self.roll_ground_tail_string(state, ctx, planet, defender, copied_round, hits);
                 }
+                let rng_before = ctx.rng.positions();
+                let string_after = std::cell::Cell::new(None);
                 let ctx = std::cell::RefCell::new(ctx);
                 let this = std::cell::RefCell::new(&mut *self);
                 return crate::dual_window!(
@@ -4248,9 +4250,10 @@ impl InvasionWindow {
                     state,
                     |s: &mut GameState| {
                         let out = this.borrow_mut().roll_ground_tail_string(s, &mut **ctx.borrow_mut(), planet, defender, copied_round, hits);
+                        string_after.set(Some(ctx.borrow().rng.positions()));
                         crate::dual::Run::new(out)
                     },
-                    |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::roll_tail(s, &args, script)
+                    |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::roll_tail(s, &args, &rng_before, &string_after, script)
                 );
             }
         }
@@ -6832,10 +6835,121 @@ mod tests {
         let _ = take_report();
     }
 
+    /// The Terror Between captures the units destroyed in its system but never a neutral's (Thunder's Edge): a bombardment
+    /// of neutral infantry under the Cabal flagship leaves the Cabal's sheet as it was, in the string and in the core window.
+    #[test]
+    fn the_cabal_does_not_capture_the_neutral_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
+        let mut destroyed = 0;
+        with_mask(mask, || {
+            for seed in 1..=8_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "cabal"), ("b", "sol")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "cabal_flagship", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "dreadnought", &PlayerId::new("a"), 3);
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 3);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &neutral, 6);
+                let before = state.system_state(&system).planet_units.values().flatten().filter(|u| u.owner == neutral).count();
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let content = ContentStore::embedded();
+                let mut resolver = armed_resolver(&state, vec![PlayerId::new("a"), PlayerId::new("b")]);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap();
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+                drop(ctx);
+                let after = state.system_state(&system).planet_units.values().flatten().filter(|u| u.owner == neutral).count();
+                destroyed += before.saturating_sub(after);
+                assert!(state.player(&PlayerId::new("a")).unwrap().captured_units.iter().all(|(owner, _)| *owner != neutral), "seed {seed}");
+            }
+        });
+        let r = report();
+        assert!(destroyed > 0, "neutral infantry was destroyed");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// A Crimson Legionnaire destroyed by a bombardment pays its trade good as a staged event (the string state keeps it as a mark):
+    /// the core step writes what the ability of the table staged back, instead of dropping it; found by the soak.
+    #[test]
+    fn a_legionnaire_destroyed_by_a_bombardment_stages_its_trade_good_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut staged = 0;
+        with_mask(mask, || {
+            for seed in 1..=8_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "muaat"), ("b", "mahact")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "dreadnought", &PlayerId::new("a"), 3);
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 2);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "mahact_infantry", &PlayerId::new("b"), 5);
+                // Only the conversion is possible: the commodities are at the limit.
+                state.player_mut(&PlayerId::new("b")).unwrap().commodities = 3;
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let content = ContentStore::embedded();
+                let mut resolver = armed_resolver(&state, vec![PlayerId::new("a"), PlayerId::new("b")]);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap();
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+                drop(ctx);
+                staged += state.faction_marks.iter().filter(|(k, v)| k.starts_with("private:#staged:event:") && v.contains("TRADE_GOODS_GAINED")).count();
+            }
+        });
+        let r = report();
+        assert!(staged > 0, "a Legionnaire paid a trade good");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
     /// Run the invasion of `system` by "a" to its end with the first option everywhere (the reaction slots
     /// declined), the resolver armed for "a" and "b". For the lockstep tests of the ability table.
     fn run_invasion_first_option(state: &mut GameState, seed: u64, system: &SystemId) {
-        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        run_invasion_with(state, seed, system, Box::new(crate::choice::FirstOption));
+    }
+
+    fn run_invasion_with(state: &mut GameState, seed: u64, system: &SystemId, decider: Box<dyn crate::choice::Decider>) {
+        let mut table = Table::with_default(decider);
         let mut dice = Dice::new();
         let mut rng = GameRng::new(seed);
         let content = ContentStore::embedded();
@@ -6890,6 +7004,83 @@ mod tests {
         assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:solagent")), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
+    }
+
+    /// A ground combat with a third seat holding Ssruu (Yssaril, readied) next to a lender: the borrower takes the copy of the
+    /// lender's agent (`prefer`: a substring of the ability id) and answers the questions with the option `seed` picks.
+    fn ssruu_ground(lender: &str, agent: &str, prefer: &'static str) -> (usize, usize, crate::dual::DualReport) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Pick(&'static str, u64);
+        impl crate::choice::Decider for Pick {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+                let i = choice.options.iter().position(|o| o.id.contains(self.0)).unwrap_or(if choice.prompt.starts_with("Ssruu copying") { self.1 as usize % choice.options.len() } else { 0 });
+                Ok(choice.options[i].clone())
+            }
+        }
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let (mut copied, mut placed) = (0, 0);
+        with_mask(mask, || {
+            for seed in 1..=6_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", lender), ("c", "yssaril")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("c")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yssarilagent"), ti4_model::state::LeaderStatus::Readied);
+                state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new(agent), ti4_model::state::LeaderStatus::Exhausted);
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+                let before: usize = state.system_state(&system).planet_units.values().flatten().count();
+                let mut table = Table::with_default(Box::new(Pick(prefer, seed)));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let content = ContentStore::embedded();
+                let order: Vec<PlayerId> = state.players.iter().map(|p| p.id.clone()).collect();
+                let mut resolver = armed_resolver(&state, order);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap();
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+                copied += usize::from(state.player(&PlayerId::new("c")).unwrap().leaders[&ti4_model::id::LeaderId::new("yssarilagent")] == ti4_model::state::LeaderStatus::Exhausted);
+                placed += usize::from(state.system_state(&system).planet_units.values().flatten().count() + 20 > before);
+            }
+        });
+        let r = report();
+        let _ = take_report();
+        (copied, placed, r)
+    }
+
+    /// Ssruu copies Evelyn De Louis (Sol): the copy chooses one ground force of the system for an extra die, the mark names
+    /// borrower and lender and the dice of the round read it from the core state.
+    #[test]
+    fn ssruu_copies_the_sol_agent_in_the_core_window_in_lockstep() {
+        let (copied, _, r) = ssruu_ground("sol", "solagent", "ssruu-copy");
+        assert!(copied > 0, "Ssruu was used");
+        assert!(r.windows.keys().all(|k| !k.contains("[bail:")), "{:?}", r.windows);
+        assert!(r.windows.get("invasion::begin_ground_round").is_some_and(|w| w.compared >= 1), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    }
+
+    /// Ssruu copies Brother Milor's ground branch: the owner of the destroyed ground force places 2 infantry.
+    #[test]
+    fn ssruu_copies_brother_milor_on_the_ground_in_the_core_window_in_lockstep() {
+        let (copied, _, r) = ssruu_ground("yin", "yinagent", "yssarilagent:yinagent");
+        assert!(copied > 0, "Ssruu was used");
+        assert!(r.windows.keys().all(|k| !k.contains("[bail:")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     }
 
     /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite) hears the Sol agent's exhaustion; the
@@ -7054,6 +7245,225 @@ mod tests {
         assert!(w.compared >= 1, "{:?}", r.windows);
         assert!(r.windows.keys().all(|k| !k.contains("unported ability unit:*:mahact_infantry")), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Technological Singularity in a ground combat: the Nekro invades a planet; after a ground force of the defender is
+    /// destroyed by the combat the ability asks which technology to take. The marks are keyed by system and planet.
+    #[test]
+    fn the_nekro_singularity_runs_in_a_ground_combat_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        struct Rotate(usize);
+        impl crate::choice::Decider for Rotate {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+                if choice.prompt == "gain a technology, or assimilate instead" {
+                    return Ok(choice.options[self.0 % choice.options.len()].clone());
+                }
+                crate::choice::FirstOption.choose(choice)
+            }
+        }
+        let (mut gained, mut tokens) = (0, 0);
+        with_mask(mask, || {
+            for seed in 1..=10_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "hacan")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                for tech in ["vax", "vay"] {
+                    state.player_mut(&PlayerId::new("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+                }
+                state.player_mut(&PlayerId::new("b")).unwrap().technologies.clear();
+                for tech in ["gd", "ie", "qdn"] {
+                    state.player_mut(&PlayerId::new("b")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+                }
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+                let mut table = Table::with_default(Box::new(Rotate(seed as usize)));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let content = ContentStore::embedded();
+                let order: Vec<PlayerId> = state.players.iter().map(|p| p.id.clone()).collect();
+                let mut resolver = armed_resolver(&state, order);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap();
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+                let nekro = state.player(&PlayerId::new("a")).unwrap();
+                gained += usize::from(nekro.technologies.contains(ti4_model::id::text(&"gd")) || nekro.technologies.contains(ti4_model::id::text(&"ie")));
+                tokens += nekro.assimilated_technologies.len();
+                assert!(state.faction_marks.keys().all(|k| !k.starts_with("nekro:ts:")), "the marks are closed with the combat");
+            }
+        });
+        let r = report();
+        assert!(gained > 0, "a technology was gained");
+        assert!(tokens > 0, "a token was placed");
+        assert!(r.windows.keys().all(|k| !k.contains("technological_singularity")), "{:?}", r.windows);
+        assert!(r.windows.get("invasion::ground_round_hits").is_some_and(|w| w.compared >= 1), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// Research Team (Deepwrought) and Slumberstate Computing (Titans) are string windows of `finish_committing`
+    /// (`offer_research_team`, `add_forced_combats`): the eligibility queries are compared hook by hook, the questions and the
+    /// coexistence writes are not core windows. A Deepwrought invader coexisting with the controller of a planet runs inside the
+    /// dual run without a difference, and the ground combat windows are not entered for the coexisting planet.
+    #[test]
+    fn bail_the_research_team_coexistence_is_the_strings_inside_the_dual_run() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Coexist;
+        impl crate::choice::Decider for Coexist {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+                let i = choice.options.iter().position(|o| o.id == "coexist").unwrap_or(0);
+                Ok(choice.options[i].clone())
+            }
+        }
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut coexisted = 0;
+        with_mask(mask, || {
+            for seed in 1..=3_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "deepwrought"), ("b", "hacan")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 3);
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 2);
+                run_invasion_with(&mut state, seed, &system, Box::new(Coexist));
+                coexisted += usize::from(crate::coexistence::is_coexisting(&state, &system, &planet, &PlayerId::new("a")));
+            }
+        });
+        let r = report();
+        assert!(coexisted > 0, "the invader coexisted");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
+    /// `FinalizingControl` (`finish_control_gain`: Assimilate, `PLANET_CONTROL_GAINED`, the destruction of the rival structures,
+    /// the technology windows, Jupiter Brain, the Fracture relic, the exploration) is the string's inside the dual run: a capture
+    /// of a planet holding a rival structure runs without a difference, the structure is destroyed and the control changes.
+    #[test]
+    fn bail_the_control_gain_chain_is_the_strings_inside_the_dual_run() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut captured = 0;
+        with_mask(mask, || {
+            for (seed, invader) in (1..=6_u64).zip(["hacan", "l1z1x", "hacan", "sol", "l1z1x", "sol"]) {
+                let mut state = crate::fixtures::seated_game(&[("a", invader), ("b", "sardakk")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 8);
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 1);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &PlayerId::new("b"), 1);
+                run_invasion_first_option(&mut state, seed, &system);
+                captured += usize::from(state.system_state(&system).planet_control.get(&planet) == Some(&PlayerId::new("a")));
+            }
+        });
+        let r = report();
+        assert!(captured > 0, "a planet changed hands");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
+    /// Valkyrie Exoskeleton (the Sardakk mech): when it sustains in a ground combat it produces 1 hit against the opponent's ground
+    /// forces; the core applies the invasion's own hits step and announces the events through the resolver.
+    #[test]
+    fn the_sardakk_mech_hits_back_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        with_mask(mask, || {
+            for seed in 1..=24_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "sardakk"), ("b", "hacan")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "sardakk_mech", &PlayerId::new("a"), 3);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 3);
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 6);
+                run_invasion_first_option(&mut state, seed, &system);
+            }
+        });
+        let r = report();
+        let followed: u64 = r.nested.iter().filter(|(k, _)| k.contains("unit:*:sardakk_mech:GROUND_FORCE_SUSTAINED:after")).map(|(_, n)| *n).sum();
+        assert!(followed > 0, "a mech sustained and hit back: {:?}", r.nested.keys().collect::<Vec<_>>());
+        assert!(r.windows.keys().all(|k| !k.contains("sardakk_mech")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
+    /// Fire Team ("reroll any number of your dice" after your ground forces roll): the card is played from the reaction slot of
+    /// `GROUND_ROLLS_MADE`, one optional question per staged die, the chosen dice are drawn again from the dice stream. The core
+    /// window rolls the same faces: the hits and the dice of the report and the position of the stream are compared.
+    #[test]
+    fn fire_team_rerolls_the_staged_dice_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Play(u64, usize);
+        impl crate::choice::Decider for Play {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+                self.1 += 1;
+                if choice.prompt.starts_with("reroll die") {
+                    let want = (self.0 as usize + self.1) % 2 == 0;
+                    let i = choice.options.iter().position(|o| o.id.starts_with("reroll|") == want).unwrap_or(0);
+                    return Ok(choice.options[i].clone());
+                }
+                let i = choice.options.iter().position(|o| o.id.starts_with("reaction:")).unwrap_or(0);
+                Ok(choice.options[i].clone())
+            }
+        }
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        with_mask(mask, || {
+            for seed in 1..=8_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sol")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("a")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("fire_team")];
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+                run_invasion_with(&mut state, seed, &system, Box::new(Play(seed, 0)));
+            }
+        });
+        let r = report();
+        let played: u64 = r.nested.iter().filter(|(k, _)| k.contains("GROUND_ROLLS_MADE")).map(|(_, n)| *n).sum();
+        assert!(played > 0, "Fire Team was offered inside the roll windows: {:?}", r.nested.keys().collect::<Vec<_>>());
+        assert!(r.nested.keys().any(|k| k.contains("ask:reroll die")), "the dice were asked about one by one: {:?}", r.nested.keys().collect::<Vec<_>>());
+        assert!(r.windows.keys().all(|k| !k.contains("[bail:")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
         let _ = take_report();
     }
 

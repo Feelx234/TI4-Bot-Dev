@@ -21,8 +21,8 @@ pub const AGENT: Slot = Slot(4001);
 
 const AGENT_LEADER: Leader = Leader::TrilossaAunMirik;
 
-fn ready(s: &CoreState, who: Seat) -> bool {
-    s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&AGENT_LEADER) == Some(&LeaderStatus::Readied))
+fn ready_card(s: &CoreState, who: Seat, card: Leader) -> bool {
+    s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&card) == Some(&LeaderStatus::Readied))
 }
 
 /// `agent_planets`: the planets `recipient` controls in a system adjacent to `producing`, not demilitarized and
@@ -43,9 +43,18 @@ fn destinations(s: &CoreState, facts: &ti4_engine_core::kernel::ability::Adapter
 }
 
 fn agent_when(c: &CondCx<'_>) -> bool {
+    when_by(c, AGENT_LEADER, true)
+}
+
+/// The Ssruu copy (`lent`: the lender's agent may be copied, tested by the caller): Ssruu is the card that is ready.
+pub(crate) fn copy_when(c: &CondCx<'_>) -> bool {
+    when_by(c, Leader::Ssruu, crate::cd_registry::yssaril::ssruu::borrowable(c.state, c.def.owner, c.def.pair_source(), AGENT_LEADER))
+}
+
+fn when_by(c: &CondCx<'_>, card: Leader, lent: bool) -> bool {
     let p = &c.event.payload;
     let (Some(recipient), Some(system), Some(count)) = (p.seat(Key::Player), p.system(Key::System), p.int(Key::Count)) else { return false };
-    if count <= 0 || !ready(c.state, c.def.owner) {
+    if count <= 0 || !lent || !ready_card(c.state, c.def.owner, card) {
         return false;
     }
     let Some(found) = destinations(c.state, c.facts, recipient, system) else { return c.unknown(Unknown::MissingFact) };
@@ -60,15 +69,28 @@ fn agent_when(c: &CondCx<'_>) -> bool {
 }
 
 fn agent(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    agent_by(eff, AGENT_LEADER)
+}
+
+/// The Ssruu copy of the grant.
+pub(crate) fn copy_agent(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let (me, lender) = (eff.owner(), eff.def.pair_source());
+    if !crate::cd_registry::yssaril::ssruu::borrowable(eff.state(), me, lender, AGENT_LEADER) {
+        return Ok(());
+    }
+    agent_by(eff, Leader::Ssruu)
+}
+
+fn agent_by(eff: &mut Eff<'_, '_>, card: Leader) -> Result<(), TimingError> {
     let owner = eff.owner();
     let (Some(recipient), Some(system)) = (eff.event.payload.seat(Key::Player), eff.event.payload.system(Key::System)) else { return Ok(()) };
     let facts = eff.adapter_facts().clone();
     let found = destinations(eff.state(), &facts, recipient, system).unwrap_or_default();
-    if found.is_empty() || !ready(eff.state(), owner) {
+    if found.is_empty() || !ready_card(eff.state(), owner, card) {
         return Ok(());
     }
     if let Some(p) = eff.state().players_mut().by_seat_mut(owner) {
-        p.leaders.status.insert(AGENT_LEADER, LeaderStatus::Exhausted);
+        p.leaders.status.insert(card, LeaderStatus::Exhausted);
     }
     let entries = found.into_iter().map(|(target, planet)| MarkVal::Rec(vec![MarkVal::Atom(Atom::System(target)), MarkVal::Atom(Atom::Planet(planet))])).collect();
     eff.state().marks_mut().tail.edit().insert(MarkKey::ArgentProduction(recipient, system), MarkVal::List(entries));

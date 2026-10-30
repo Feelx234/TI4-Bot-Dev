@@ -321,7 +321,7 @@ mod tests {
         let k = Kernel::plain();
         let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
         let order = [Seat(0), Seat(1)];
-        resolver.register(table.registry(&s, &order, &mut |spec, who| crate::choice::reaction::AbilityId { kind: spec.kind, key: crate::state::Code(spec.slot.0 * 4 + u16::from(who.0)) }));
+        resolver.register(table.registry(&s, &order, &mut |spec, who, _| crate::choice::reaction::AbilityId { kind: spec.kind, key: crate::state::Code(spec.slot.0 * 4 + u16::from(who.0)) }));
         let mut d = Driver::new(Activate, resolver, table, 1);
         let mut asked = Vec::new();
         let mut status = d.run(&mut s, &k).unwrap();

@@ -122,6 +122,8 @@ pub struct Recording {
     /// returns), so a plain event pushed after an emission is stored BEFORE that emission's names: only this sequence shows it.
     /// `plain` and `mirrored` are the two views of it.
     pub order: Vec<Pushed>,
+    /// The pairs of systems the string's abilities asked the map about (`near`): `(a, b, adjacent)`; the core is lent no galaxy.
+    pub adjacent: Vec<(String, String, bool)>,
     effect_depth: u32,
     in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
@@ -183,6 +185,17 @@ fn intern_label(label: &str) -> &'static str {
     let leaked: &'static str = Box::leak(label.to_owned().into_boxed_str());
     all.push(leaked);
     leaked
+}
+
+/// An ability asked the map whether `a` is next to `b` (`galaxy.adjacent`): an input of Dynamo and the Watcher.
+pub fn note_adjacent(a: &str, b: &str, adjacent: bool) {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            if !rec.adjacent.iter().any(|(x, y, _)| x == a && y == b) {
+                rec.adjacent.push((a.to_owned(), b.to_owned(), adjacent));
+            }
+        }
+    });
 }
 
 /// Begin a recording; `false` (and nothing changes) when one is running already.
@@ -640,7 +653,6 @@ pub fn drive_positioned<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
                 ti4_engine_core::kernel::ability::Unknown::ImmediateCardPlay => "an action card played at once",
                 ti4_engine_core::kernel::ability::Unknown::UnportedCard => "an action card the core does not play",
-                ti4_engine_core::kernel::ability::Unknown::NekroCarriedCard => "a technology carried by a Nekro Valefar Assimilator",
                 ti4_engine_core::kernel::ability::Unknown::MissingFact => "a fact the adapter did not compute for the window",
                 ti4_engine_core::kernel::ability::Unknown::PendingDestructions => "an action card that staged destructions",
                 ti4_engine_core::kernel::ability::Unknown::DataSkimmer => "a discard the Data Skimmer could take",
@@ -822,7 +834,7 @@ fn complete_nested(
         } else {
             ctx
         };
-        rendered.context = Some(ctx.about_battle(gs).about_invasion(gs));
+        rendered.context = Some(nested_position(choice, ctx, gs));
     }
     crate::render::leaders::complete_round_agent(r, choice, rendered);
     if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(ti4_engine_core::choice::reaction::Ask::Legionnaire { .. })) {
@@ -849,10 +861,26 @@ fn complete_nested(
 fn with_trigger_of(choice: &CoreChoice) -> bool {
     use ti4_engine_core::choice::reaction::Ask as RAsk;
     match choice.ask {
-        ti4_engine_core::choice::Ask::Reaction(a) => !matches!(a, RAsk::Legionnaire { .. } | RAsk::Cavalry),
+        ti4_engine_core::choice::Ask::Reaction(a) => !matches!(a, RAsk::Legionnaire { .. } | RAsk::Cavalry | RAsk::Assimilate | RAsk::Watcher { .. } | RAsk::Salvage),
         ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::PlayCard { .. }) => true,
         _ => false,
     }
+}
+
+/// The battle and invasion a nested question is asked in. The string puts a payment an ability asks (`pay_seeing`, the
+/// table's own `ask_seeing`) in the position of an invasion only, never of a battle; the other nested questions
+/// (`TimingContext::ask_seeing`) name both.
+fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionContext, gs: &GameState) -> crate::decision_context::DecisionContext {
+    if matches!(choice.ask, ti4_engine_core::choice::Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
+        ctx.about_invasion(gs)
+    } else {
+        ctx.about_battle(gs).about_invasion(gs)
+    }
+}
+
+/// Whether a question is the combat area's own (a casualty to choose), not one a reaction window or an ability asks inside it.
+fn is_combat_ask(choice: &CoreChoice) -> bool {
+    matches!(choice.ask, ti4_engine_core::choice::Ask::Combat(_))
 }
 
 /// Whether a nested question is the window's own pick (the one that carries the `active` detail of the action phase).
@@ -1368,7 +1396,11 @@ pub fn assign_hits(
         crate::decision_context::HitRestriction::Any
     };
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, rendered| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|choice, _, rendered| {
+            // Only the casualty question describes a hit: a reaction window the loss opens inside it (its pick) does not.
+            if !is_combat_ask(choice) {
+                return;
+            }
             if let Some(context) = rendered.context.take() {
                 rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
                     cause: a.cause_kind,
@@ -1689,6 +1721,9 @@ pub fn assault_cannon(
     let (att_id, def_id) = (a.attacker.clone(), a.defender.clone());
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|choice, _, rendered| {
+            if !is_combat_ask(choice) {
+                return;
+            }
             let producer = if choice.actor == attacker { def_id.clone() } else { att_id.clone() };
             if let Some(context) = rendered.context.take() {
                 rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
@@ -1927,6 +1962,17 @@ pub fn barrage_unported(gs: &GameState, a: &BarrageArgs<'_>) -> bool {
         })
 }
 
+/// A Waylay is played in the window a barrage opens before each roll (`ANTI_FIGHTER_BARRAGE_STARTED`), so the position
+/// cannot tell: the hits of that roll go to every ship (the target's owner assigns them, sustain first), which the core
+/// barrage step does not carry. A documented bail, counted.
+fn waylay_check(script: &Recording) -> Option<()> {
+    if script.played.iter().any(|card| card == "waylay") {
+        crate::dual::note_bail(LABEL.with(Cell::get), "Waylay played in the barrage (the hits go to every ship)");
+        return None;
+    }
+    Some(())
+}
+
 /// The core half of `CombatWindow::barrage_step`. `rng_before` is where the streams stood before the string
 /// step. `None` for the positions of [`barrage_unported`], neutral sides, irreproducible dice, reaction
 /// activity in the announcements, or a position the codecs refuse.
@@ -1948,6 +1994,7 @@ pub fn barrage_step(
     }
     let (mut cx, r) = tables(gs)?;
     nested_check(script)?;
+    waylay_check(script)?;
     let attacker = r.seat(a.attacker.as_str())?;
     let defender = r.seat(a.defender.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
@@ -2443,7 +2490,12 @@ pub fn raid_formation(
     let mut driver = Driver::new(RaidFormation::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        // The string asks it in the battle it is fought in (`TimingContext::ask_seeing`): the position names it.
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, rendered| {
+            if let Some(context) = rendered.context.take() {
+                rendered.context = Some(context.about_battle(&before));
+            }
+        });
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })
@@ -2915,13 +2967,16 @@ pub fn bombard(
             *c = crate::invasion::with_bombard_offer(taken, a.invader, &system, &planet, usize::from(hits), &present, before.system_state(&system).on_planet(&planet));
         }
     };
+    let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BOMBARD, script), |core, _| {
         let driven = drive_with(&mut driver, core, kernel, &r, &before, script, &complete);
-        core.pending_mut().staged.clear();
+        staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })
     .ok()?
     .ok()?;
+    // What an ability of the table staged inside the step (a Crimson Legionnaire's trade good): the string state holds it as a mark.
+    apply_staged(gs, &r, &staged)?;
     let w = &driver.window;
     let id_of = |s: ti4_engine_core::ids::Seat| PlayerId::new(r.seats.get(usize::from(s.0)).cloned().unwrap_or_default());
     let set_of = |set: SeatSet| set.iter().map(id_of).collect::<std::collections::BTreeSet<_>>();
@@ -3365,14 +3420,20 @@ pub fn roll_tail_unported(gs: &GameState, a: &RollTailArgs<'_>) -> Option<&'stat
 }
 
 const ROLL_TAIL: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
-    &[Slice::Meta, Slice::Transient, Slice::Pending],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng],
+    &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Rng],
 );
 
 /// The core half of `InvasionWindow::roll_ground_tail`. `None` for the positions of [`roll_tail_unported`], nested
 /// activity (a card played in a reroll window) and a position the codecs refuse.
 #[must_use]
-pub fn roll_tail(gs: &mut GameState, a: &RollTailArgs<'_>, script: &Recording) -> Option<CoreWindow<(usize, usize, Vec<ti4_model::state::InvasionDie>)>> {
+pub fn roll_tail(
+    gs: &mut GameState,
+    a: &RollTailArgs<'_>,
+    rng_before: &crate::rng::RngPositions,
+    string_after: &std::cell::Cell<Option<crate::rng::RngPositions>>,
+    script: &Recording,
+) -> Option<CoreWindow<(usize, usize, Vec<ti4_model::state::InvasionDie>)>> {
     use ti4_engine_core::rules::invasion::tail::{Facts, GroundRollTail};
     let (mut cx, r) = tables(gs)?;
     nested_check(script)?;
@@ -3383,16 +3444,28 @@ pub fn roll_tail(gs: &mut GameState, a: &RollTailArgs<'_>, script: &Recording) -
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default())?;
     let facts = Facts { invader, defender, system, planet, rolled: (u32::try_from(a.rolled.0).ok()?, u32::try_from(a.rolled.1).ok()?), bump: a.bump, announce: a.announce };
-    let mut driver = Driver::new(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let mut driver = Driver::new(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1).with_seeds(seeds);
+    // The cards that reroll the staged dice (Fire Team) read the texts of the staged sets.
+    let (reroll, texts) = reroll_facts(&mut cx, &r, &before)?;
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ROLL_TAIL, script), |core, _| {
-        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
-        staged = std::mem::take(&mut core.pending_mut().staged);
-        driven
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let driven = crate::reactions_core::with_reroll(reroll, || {
+        with_core(gs, &mut cx, src, nested_fp(ROLL_TAIL, script), |core, _| {
+            let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| roll_details(ti4_content::ContentStore::embedded(), &texts, &|_| 0, c, st, rendered));
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            rng_after = Some(core.rng().clone());
+            driven
+        })
     })
     .ok()?
     .ok()?;
     apply_staged(gs, &r, &staged)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    if let Some(string_side) = string_after.take() {
+        crate::dual::compare_value(crate::dual::Area::Invasion, "invasion::roll_ground_tail.rng", &string_side, &positions);
+    }
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let dice = driver
         .window
@@ -3411,6 +3484,26 @@ pub fn roll_tail(gs: &mut GameState, a: &RollTailArgs<'_>, script: &Recording) -
         .collect::<Option<Vec<_>>>()?;
     let (ah, dh) = driver.window.hits;
     Some(CoreWindow { run: Run::new((ah as usize, dh as usize, dice)).with_events_vec(events), questions: driven.rendered })
+}
+
+/// The texts of the staged sets of the position, for the cards that reroll them: the state texts of the kinds and, per unit
+/// group of a staged entry, the code a question shows it by.
+fn reroll_facts(cx: &mut Ctx, r: &Render, before: &GameState) -> Option<(ti4_engine_core::kernel::ability::RerollFacts, Vec<(ti4_engine_core::state::Code, String)>)> {
+    let mut facts = ti4_engine_core::kernel::ability::RerollFacts {
+        ground: cx.texts.intern(Slice::Transient, "ground").ok()?,
+        shown: Vec::new(),
+    };
+    let mut texts = Vec::new();
+    for set in before.reroll_staging.values() {
+        for roll in &set.rolls {
+            let state = cx.texts.intern(Slice::Transient, &roll.unit).ok()?;
+            if !facts.shown.iter().any(|(s, _)| *s == state) {
+                facts.shown.push((state, r.code(&roll.unit)));
+                texts.push((state, roll.unit.clone()));
+            }
+        }
+    }
+    Some((facts, texts))
 }
 
 // --- which planet the invasion fights on next (B2) -----------------------------------------------------
@@ -3576,6 +3669,7 @@ fn settle_run(
     let begin_occurrence = a.begin_occurrence && a.occurrence.is_none();
     let (mut cx, r) = tables(gs)?;
     nested_check(script)?;
+    waylay_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let seats = |l: &[PlayerId]| l.iter().map(seat).collect::<Option<Vec<_>>>();
     let (attacker, defender) = (seat(&a.attacker)?, seat(&a.defender)?);

@@ -3,8 +3,9 @@
 //! as with Sabotage. Registered for every seat (a technology can be gained mid-game), the condition limits it to the
 //! holder; WHEN `ACTION_CARD_PLAYED`.
 //!
-//! A card carried by a Nekro Valefar Assimilator is the string's (`Unknown`); the staged `STRATEGY_TOKEN_SPENT`
-//! (Muaat Magmus listens) is announced by the window's adapter.
+//! A Nekro may carry the card on a Valefar Assimilator (the X or Y token stands on it while another player owns it): the
+//! assimilator is then the card that is ready and that is exhausted (`technology_text_ready`). The staged
+//! `STRATEGY_TOKEN_SPENT` (Muaat Magmus listens) is announced by the window's adapter.
 
 use crate::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub};
 use crate::choice::generic::Content;
@@ -12,7 +13,7 @@ use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
 use crate::generated::{Faction, Technology};
 use crate::ids::Seat;
-use crate::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec, Unknown};
+use crate::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
 use crate::kernel::fx;
 use crate::kernel::resolver::TimingError;
 use crate::state::{CoreState, EventKind, EventRec, Key, Payload, Val};
@@ -22,13 +23,25 @@ pub const INSTINCT_TRAINING: Slot = Slot(5);
 
 const IT: Technology = Technology::InstinctTraining;
 
-/// Held, not exhausted and a strategy token to spend. `Err`: the card may be carried by a Nekro Valefar Assimilator.
-fn ready(s: &CoreState, who: Seat) -> Result<bool, Unknown> {
-    let Some(p) = s.players().by_seat(who) else { return Ok(false) };
-    if !p.tech.owned.contains(IT) {
-        return if p.faction == Faction::TheNekroVirus { Err(Unknown::NekroCarriedCard) } else { Ok(false) };
+/// The card that carries Instinct Training for `who`: the technology itself, or the Valefar Assimilator (X before Y) of a
+/// Nekro whose token stands on it while another player owns it (`nekro::assimilated_card`).
+fn carrier(s: &CoreState, who: Seat) -> Option<Technology> {
+    let p = s.players().by_seat(who)?;
+    if p.tech.owned.contains(IT) {
+        return Some(IT);
     }
-    Ok(!p.tech.exhausted.contains(IT) && p.econ.strategic_tokens > 0)
+    if p.faction != Faction::TheNekroVirus || !s.players().iter().any(|o| o.seat != who && o.tech.owned.contains(IT)) {
+        return None;
+    }
+    [Technology::ValefarAssimilatorX, Technology::ValefarAssimilatorY]
+        .into_iter()
+        .find(|card| p.tech.owned.contains(*card) && p.tech.assimilated.get(card) == Some(&IT))
+}
+
+/// Held (or carried), not exhausted and a strategy token to spend.
+fn ready(s: &CoreState, who: Seat) -> bool {
+    let (Some(p), Some(card)) = (s.players().by_seat(who), carrier(s, who)) else { return false };
+    !p.tech.exhausted.contains(card) && p.econ.strategic_tokens > 0
 }
 
 fn condition(c: &CondCx<'_>) -> bool {
@@ -36,10 +49,7 @@ fn condition(c: &CondCx<'_>) -> bool {
     if player == c.def.owner {
         return false;
     }
-    match ready(c.state, c.def.owner) {
-        Ok(ok) => ok,
-        Err(why) => c.unknown(why),
-    }
+    ready(c.state, c.def.owner)
 }
 
 fn cancel(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -60,12 +70,10 @@ fn cancel(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         opts: [Opt::Reaction(ROpt::Use), Opt::Decline].into_iter().collect::<Opts>(),
     };
     let Pick::Opt(Opt::Reaction(ROpt::Use)) = eff.ask(&choice) else { return Ok(()) };
-    if !matches!(ready(eff.state(), me), Ok(true)) {
-        return Ok(());
-    }
+    let Some(card) = carrier(eff.state(), me).filter(|_| ready(eff.state(), me)) else { return Ok(()) };
     if let Some(p) = eff.state().players_mut().by_seat_mut(me) {
         p.econ.strategic_tokens -= 1;
-        p.tech.exhausted.insert(IT);
+        p.tech.exhausted.insert(card);
     }
     let reason = eff.codes().instinct_training;
     fx::stage(
@@ -155,12 +163,46 @@ mod tests {
     }
 
     #[test]
-    fn a_nekro_seat_without_the_card_may_carry_it_and_the_window_is_unknown() {
-        let (mut s, k) = (game(2, false), Kernel::plain());
-        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheNekroVirus), Player::new(Seat(1), Faction::TheVuilraithCabal)]);
-        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.strategic_tokens = 2;
+    fn a_nekro_seat_carries_the_card_on_an_assimilator_and_exhausts_that_card() {
+        let k = Kernel::plain();
+        let nekro = |token: Option<Technology>| {
+            let mut s = game(2, false);
+            s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheNekroVirus), Player::new(Seat(1), Faction::TheXxchaKingdom)]);
+            s.players_mut().by_seat_mut(Seat(1)).unwrap().tech.owned.insert(IT);
+            let p = s.players_mut().by_seat_mut(Seat(0)).unwrap();
+            p.econ.strategic_tokens = 2;
+            p.tech.owned.insert(Technology::ValefarAssimilatorY);
+            if let Some(t) = token {
+                p.tech.assimilated.insert(Technology::ValefarAssimilatorY, t);
+            }
+            s
+        };
+        // No token on the card: nothing to ask (the card is not carried).
+        let mut s = nekro(None);
         let mut d = driver(table(), &s, &[Seat(1), Seat(0)], played_by(Seat(1)));
-        let _ = d.run(&mut s, &k).unwrap();
-        assert_eq!(d.unknown(), Some(Unknown::NekroCarriedCard));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        // The token stands on Instinct Training while the Xxcha owns it: the assimilator is the card that is spent.
+        let mut s = nekro(Some(IT));
+        let mut d = driver(table(), &s, &[Seat(1), Seat(0)], played_by(Seat(1)));
+        let Status::Asking(_) = d.run(&mut s, &k).unwrap() else { panic!("the carried card is offered") };
+        d.resume(&mut s, &k, pick_ability()).unwrap();
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Use))).unwrap(), Status::Done);
+        let p = s.players().by_seat(Seat(0)).unwrap();
+        assert_eq!((p.econ.strategic_tokens, p.tech.exhausted.contains(Technology::ValefarAssimilatorY), p.tech.exhausted.contains(IT)), (1, true, false));
+        assert!(d.emitted[0].cancelled);
+        // An exhausted assimilator is not ready; a token on a technology nobody else owns lends nothing.
+        let mut s = nekro(Some(IT));
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.exhausted.insert(Technology::ValefarAssimilatorY);
+        let mut d = driver(table(), &s, &[Seat(1), Seat(0)], played_by(Seat(1)));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        // A token entry of a card the Nekro does not own carries nothing.
+        let mut s = nekro(Some(IT));
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.remove(Technology::ValefarAssimilatorY);
+        let mut d = driver(table(), &s, &[Seat(1), Seat(0)], played_by(Seat(1)));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        let mut s = nekro(Some(IT));
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().tech.owned.remove(IT);
+        let mut d = driver(table(), &s, &[Seat(1), Seat(0)], played_by(Seat(1)));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
     }
 }

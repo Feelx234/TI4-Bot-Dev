@@ -256,7 +256,7 @@ pub fn hero_offer(gs: &mut GameState, player: &PlayerId, script: &Recording) -> 
     run_triggered(
         gs,
         player,
-        |s, _| crate::production_view::unported_economy(s),
+        |_, _| false,
         |seat| Some(ti4_engine_core::rules::production::triggered::HeroOffer::new(seat)),
         script,
         |w| w.used,

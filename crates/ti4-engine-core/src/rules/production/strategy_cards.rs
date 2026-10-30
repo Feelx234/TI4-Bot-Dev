@@ -304,7 +304,7 @@ impl Construction {
                 let Some((unit, in_space)) = self.placement(pds) else { continue };
                 let base = if pds { UnitBaseType::Pds } else { UnitBaseType::Spacedock };
                 if (in_space || prod::structure_allowed(&cx, self.who, *planet, base))
-                    && crate::query::fleet::remaining(s, cx.scope, self.who, unit, 0) >= 1
+                    && crate::query::fleet::remaining_all(s, cx.scope, self.who, unit) >= 1
                 {
                     out.push(SOpt::Structure { pds, system: *system, planet: *planet });
                 }

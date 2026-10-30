@@ -67,8 +67,6 @@ pub enum Unknown {
     HarnessOrInfiltrate,
     /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite): the exhaustion is announced.
     NomadAgentExhaustion,
-    /// Instinct Training may be carried by a Nekro Valefar Assimilator.
-    NekroCarriedCard,
     /// An action card played into a window at once (the Sabotage window, or a rules version before 3): the string path.
     ImmediateCardPlay,
     /// A played card whose effect is not one of the stamps the core plays, or one that comes from the salvage yard.
@@ -140,6 +138,12 @@ pub struct Codes {
     pub mahact_infantry2: crate::state::Code,
     /// The alias `cavalry`, the source of the question of The Cavalry.
     pub cavalry: crate::state::Code,
+    /// The name `technological_singularity`, the source of the question of the Nekro's ability.
+    pub technological_singularity: crate::state::Code,
+    /// The unit alias `empyrean_mech`, the source of the Watcher's question.
+    pub empyrean_mech: crate::state::Code,
+    /// The technology alias `so`, the source of Salvage Operations' question.
+    pub salvage: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
 }
@@ -192,6 +196,29 @@ pub struct AdapterFacts {
     /// Hit removes the exact sustained ship.
     pub staging: bool,
     withdraw: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
+    /// The kernel whose economy hooks a payment inside an ability reads (the production kernel; the combat kernel holds none of
+    /// the faction hooks of a payment). Set by the adapter.
+    pub pay_kernel: Option<fn() -> &'static Kernel>,
+    adjacent: Vec<(crate::generated::System, crate::generated::System, bool)>,
+    buildable: Vec<(Seat, Vec<crate::generated::Unit>)>,
+    /// The texts of the staged rerolls (Fire Team, Scramble Frequency), set by the adapter of a window that stages dice.
+    pub reroll: Option<RerollFacts>,
+}
+
+/// What the cards that reroll staged dice (Fire Team) need of the adapter: the state text of the ground kind, and for each
+/// unit-group text of a staged entry (a state text) the code the question shows it by (a render code).
+#[derive(Debug, Clone, Default)]
+pub struct RerollFacts {
+    pub ground: crate::state::Code,
+    pub shown: Vec<(crate::state::Code, crate::state::Code)>,
+}
+
+impl RerollFacts {
+    /// The code a question shows the unit group `state` by.
+    #[must_use]
+    pub fn shown_of(&self, state: crate::state::Code) -> Option<crate::state::Code> {
+        self.shown.iter().find(|(s, _)| *s == state).map(|(_, shown)| *shown)
+    }
 }
 
 impl AdapterFacts {
@@ -213,6 +240,31 @@ impl AdapterFacts {
         self.withdraw.iter().find(|(w, s, _)| *w == who && *s == system).map(|(_, _, d)| d.as_slice())
     }
 
+    /// Record that the map has `a` next to `b` (or not): an input of the abilities that look at the map (Dynamo, the Watcher).
+    pub fn set_adjacent(&mut self, a: crate::generated::System, b: crate::generated::System, adjacent: bool) {
+        if !self.adjacent.iter().any(|(x, y, _)| *x == a && *y == b) {
+            self.adjacent.push((a, b, adjacent));
+        }
+    }
+
+    /// The units `who` may build now (`production::buildable_for`, in the string's order): an input of Salvage Operations.
+    pub fn set_buildable(&mut self, who: Seat, units: Vec<crate::generated::Unit>) {
+        self.buildable.retain(|(w, _)| *w != who);
+        self.buildable.push((who, units));
+    }
+
+    /// The units `who` may build, if the adapter computed them.
+    #[must_use]
+    pub fn buildable(&self, who: Seat) -> Option<&[crate::generated::Unit]> {
+        self.buildable.iter().find(|(w, _)| *w == who).map(|(_, u)| u.as_slice())
+    }
+
+    /// Whether the map has `a` next to `b`, if the string's ability asked it.
+    #[must_use]
+    pub fn adjacent(&self, a: crate::generated::System, b: crate::generated::System) -> Option<bool> {
+        self.adjacent.iter().find(|(x, y, _)| *x == a && *y == b).map(|(_, _, v)| *v)
+    }
+
     /// The neighbours of `system` for `who`, if the adapter computed them.
     #[must_use]
     pub fn reach(&self, who: Seat, system: crate::generated::System) -> Option<&[crate::generated::System]> {
@@ -222,6 +274,8 @@ impl AdapterFacts {
 
 /// A rule-specific eligibility (`Host::condition`).
 pub type Condition = fn(&CondCx<'_>) -> bool;
+/// Whether `lender`'s rule is copied by `borrower` (Ssruu): `(state, borrower, lender)`.
+pub type Pair = fn(&CoreState, Seat, Seat) -> bool;
 /// The effect of a selected ability.
 pub type Effect = fn(&mut Eff<'_, '_>) -> Result<(), TimingError>;
 /// The close hook of a window (`AbilityTable::on_close`).
@@ -259,6 +313,12 @@ pub struct Spec {
     pub repeatable: bool,
     pub condition: Option<Condition>,
     pub effect: Effect,
+    /// A pair rule: registered for `(borrower, lender)` where this holds, owned by the borrower (`AbilityDef::pair_source` is
+    /// the lender). `applies` then tests the lender.
+    pub pair: Option<Pair>,
+    /// A pair rule the string registers before it walks the seats (`reactions::arm`: the borrowed round agents), so its
+    /// offers come before every seat's standing slots in a window.
+    pub leads: bool,
     /// The effect is the core's. `false`: only the eligibility is (the offer is rendered and a decline is
     /// followed); a run in which the string took the ability is not followed.
     pub effect_ported: bool,
@@ -285,6 +345,8 @@ impl Spec {
             repeatable: false,
             condition: None,
             effect,
+            pair: None,
+            leads: false,
             effect_ported: true,
         }
     }
@@ -307,6 +369,19 @@ impl Spec {
     #[must_use]
     pub const fn when(mut self, c: Condition) -> Self {
         self.condition = Some(c);
+        self
+    }
+
+    #[must_use]
+    pub const fn pair(mut self, lends: Pair) -> Self {
+        self.pair = Some(lends);
+        self
+    }
+
+    /// Registered before the seats' walk (see [`Spec::leads`]).
+    #[must_use]
+    pub const fn leading(mut self) -> Self {
+        self.leads = true;
         self
     }
 
@@ -414,14 +489,14 @@ impl AbilityTable {
     /// The spec behind a registry row (`arg` is the slot).
     #[must_use]
     pub fn of(&self, def: &AbilityDef) -> Option<&Spec> {
-        let slot = u16::try_from(def.arg).ok()?;
+        let slot = u16::try_from(def.slot_bits()).ok()?;
         self.of_slot(Slot(slot))
     }
 
     /// Whether the table has a rule for `arg`.
     #[must_use]
     pub fn knows(&self, arg: u32) -> bool {
-        u16::try_from(arg).ok().is_some_and(|s| self.of_slot(Slot(s)).is_some())
+        u16::try_from(arg & 0xFFFF).ok().is_some_and(|s| self.of_slot(Slot(s)).is_some())
     }
 
     /// The registry of a game: per seat of `order`, the specs that apply to it, in table order. `name` interns
@@ -430,13 +505,37 @@ impl AbilityTable {
         &self,
         s: &CoreState,
         order: &[Seat],
-        name: &mut dyn FnMut(&Spec, Seat) -> AbilityId,
+        name: &mut dyn FnMut(&Spec, Seat, Option<Seat>) -> AbilityId,
     ) -> Vec<AbilityDef> {
         let mut out = Vec::new();
-        for &who in order {
-            for spec in &self.specs {
-                if spec.applies.holds(s, who) {
-                    out.push(spec.def(name(spec, who), who));
+        // The pair rules the string registers first (`leads`), borrower by borrower, then each lender in seat order.
+        for &borrower in order {
+            for &lender in order {
+                for spec in self.specs.iter().filter(|spec| spec.leads) {
+                    if let Some(lends) = spec.pair {
+                        if borrower != lender && spec.applies.holds(s, lender) && lends(s, borrower, lender) {
+                            out.push(spec.def(name(spec, borrower, Some(lender)), borrower).with_pair_source(lender));
+                        }
+                    }
+                }
+            }
+        }
+        // The string registers while it walks the seats, each module's abilities for the seat it walks: a pair rule (a
+        // copy of this seat's agent by another seat) is registered for the borrower at the point of the lender's walk.
+        for &lender in order {
+            for spec in self.specs.iter().filter(|spec| !spec.leads) {
+                if !spec.applies.holds(s, lender) {
+                    continue;
+                }
+                match spec.pair {
+                    None => out.push(spec.def(name(spec, lender, None), lender)),
+                    Some(lends) => {
+                        for &borrower in order {
+                            if borrower != lender && lends(s, borrower, lender) {
+                                out.push(spec.def(name(spec, borrower, Some(lender)), borrower).with_pair_source(lender));
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -672,6 +771,12 @@ impl<'a> Eff<'_, 'a> {
     #[must_use]
     pub fn adapter_facts(&self) -> &AdapterFacts {
         &self.host.table.facts
+    }
+
+    /// The kernel a payment inside this ability reads, if the adapter lent one.
+    #[must_use]
+    pub fn pay_kernel(&self) -> Option<&'static Kernel> {
+        self.host.table.facts.pay_kernel.map(|f| f())
     }
 
     /// The state and the kernel, read together (`state()` borrows the effect mutably).

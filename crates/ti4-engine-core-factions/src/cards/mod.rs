@@ -24,6 +24,7 @@ pub fn register(t: &mut AbilityTable) {
     t.add_card_play(CardPlay { covers: |c| c == ActionCard::Parley, effect: parley });
     t.add_card_play(CardPlay { covers: direct_hit_covers, effect: direct_hit });
     t.add_card_play(CardPlay { covers: skilled_retreat_covers, effect: skilled_retreat });
+    t.add_card_play(CardPlay { covers: |c| c == ActionCard::FireTeam, effect: fire_team });
     register_after_play(t);
 }
 
@@ -32,6 +33,72 @@ pub fn register(t: &mut AbilityTable) {
 pub fn register_after_play(t: &mut AbilityTable) {
     t.after_play = Some(announce_destructions);
 }
+
+/// Draw the dice at `picks` (`(entry, die)`) of the staged set of `roller` again from the dice stream, in order
+/// (`combat::apply_reroll_dice`): the face is replaced, the die is marked rerolled and the adjustment it carried dies with it.
+fn redraw(host: &mut RulesHost<'_>, roller: Seat, picks: &[(usize, usize)]) {
+    use ti4_engine_core::state::RngDomain;
+    for (e, d) in picks {
+        let face = host.state.rng_mut().die(RngDomain::Dice, host.seeds, 10);
+        let staging = host.state.transient_mut().combat.reroll_staging.edit();
+        let Some((_, set)) = staging.iter_mut().find(|(s, _)| *s == roller) else { continue };
+        let Some(entry) = set.rolls.get_mut(*e) else { continue };
+        if *d >= entry.faces.len() {
+            continue;
+        }
+        entry.faces[*d] = u8::try_from(face).unwrap_or(u8::MAX);
+        if *d < 64 {
+            entry.rerolled |= 1 << *d;
+        }
+        entry.deltas.remove(&u8::try_from(*d).unwrap_or(u8::MAX));
+    }
+}
+
+/// Fire Team: "after your ground forces make combat rolls during a round of ground combat: reroll any number of your dice."
+/// One optional question per staged die, in the order of the staged entries; the chosen dice are drawn again.
+#[allow(clippy::unnecessary_wraps)]
+fn fire_team(host: &mut RulesHost<'_>, _: &mut Resolver, who: Seat, card: ActionCard) -> Result<(), TimingError> {
+    use ti4_engine_core::choice::combat::{Ask as CAsk, Opt as COpt, RerollSource, Subtype as CSub};
+    use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype, Target};
+    let Some(facts) = host.table.facts.reroll.clone() else {
+        host.tape.unknown.set(Some(Unknown::MissingFact));
+        return Ok(());
+    };
+    let Some(set) = host.state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == who).map(|(_, set)| set.clone()) else { return Ok(()) };
+    if set.kind != facts.ground {
+        return Ok(());
+    }
+    let mut picks = Vec::new();
+    for (e, entry) in set.rolls.iter().enumerate() {
+        for (d, face) in entry.faces.iter().enumerate() {
+            let Some(shown) = facts.shown_of(entry.unit) else {
+                host.tape.unknown.set(Some(Unknown::MissingFact));
+                return Ok(());
+            };
+            let (entry_no, die) = (u8::try_from(e).unwrap_or(u8::MAX), u8::try_from(d).unwrap_or(u8::MAX));
+            let choice = Choice {
+                actor: who,
+                ask: Ask::Combat(CAsk::RerollDie { source: RerollSource::FireTeam, unit: shown, die }),
+                ctx: Ctx {
+                    origin: Origin::ActionCard(card),
+                    subtype: Subtype::Combat(CSub::Reroll(RerollSource::FireTeam)),
+                    optional: false,
+                    target: Some(Target::System(set.system)),
+                    outstanding: ti4_engine_core::containers::SmallList::new(),
+                    space_battle: false,
+                    invasion_seq: None,
+                },
+                opts: [Opt::Combat(COpt::RerollDie { unit: shown, entry: entry_no, die, face: *face, hits_on: entry.hits_on }), Opt::Decline].into_iter().collect::<Opts>(),
+            };
+            if matches!(host.ask(&choice), Pick::Opt(Opt::Combat(COpt::RerollDie { .. }))) {
+                picks.push((e, d));
+            }
+        }
+    }
+    redraw(host, who, &picks);
+    Ok(())
+}
+
 
 const fn direct_hit_covers(card: ActionCard) -> bool {
     matches!(card, ActionCard::DirectHit1 | ActionCard::DirectHit2 | ActionCard::DirectHit3 | ActionCard::DirectHit4)
@@ -279,10 +346,10 @@ mod tests {
     #[test]
     fn the_registered_cards_are_the_ones_named() {
         let t = registered();
-        for card in [ActionCard::Sabotage1, ActionCard::Sabotage4, ActionCard::Intercept, ActionCard::Parley, ActionCard::DirectHit1, ActionCard::DirectHit4, ActionCard::SkilledRetreat1, ActionCard::SkilledRetreat4] {
+        for card in [ActionCard::FireTeam, ActionCard::Sabotage1, ActionCard::Sabotage4, ActionCard::Intercept, ActionCard::Parley, ActionCard::DirectHit1, ActionCard::DirectHit4, ActionCard::SkilledRetreat1, ActionCard::SkilledRetreat4] {
             assert!(t.card_play(card).is_some(), "{card:?}");
         }
-        for card in [ActionCard::FireTeam, ActionCard::MoraleBoost1] {
+        for card in [ActionCard::ScrambleFrequency, ActionCard::MoraleBoost1] {
             assert!(t.card_play(card).is_none(), "{card:?}");
         }
     }

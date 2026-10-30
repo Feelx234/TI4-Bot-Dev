@@ -34,22 +34,11 @@ pub struct ProdView<'a> {
     _position: std::marker::PhantomData<&'a GameState>,
 }
 
-/// The factions whose string modules still answer production questions with hooks the typed seams do not
-/// carry yet (package CB): the typed reads decline and the caller keeps the string answer.
-pub(crate) fn unported_economy(state: &GameState) -> bool {
-    use crate::factions::{bastion, crimson};
-    let held = [
-        bastion::MODULE.alias,
-        crimson::MODULE.alias,
-    ];
-    state.players.iter().any(|p| held.contains(&p.faction.as_str()))
-}
-
 /// Whether the producing seat or a seat that can act on it holds a faction whose production hooks the typed
 /// window does not carry yet, for the windows that pay and place themselves (the invasion's custodians and toll
 /// payments): the seat's own (Deepwrought oceans, Keleres commodities, Naaz mechs, Mentak's Corsair form) and the
 /// cross-seat ones (Yssaril's borrowed agents, Nomad's agent watch; Argent's agent is an ability of the core
-/// table), on top of [`unported_economy`].
+/// table).
 pub(crate) fn unported_window(state: &GameState, player: &PlayerId) -> bool {
     use crate::factions::{deepwrought, keleres, mentak, naaz, nomad, yssaril};
     let own = [
@@ -61,8 +50,7 @@ pub(crate) fn unported_window(state: &GameState, player: &PlayerId) -> bool {
         mentak::MODULE.alias,
     ];
     let cross = [nomad::MODULE.alias, yssaril::MODULE.alias];
-    unported_economy(state)
-        || state.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
+    state.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
         || state.players.iter().any(|p| cross.contains(&p.faction.as_str()))
 }
 
@@ -78,14 +66,14 @@ pub(crate) fn unported_triggered(state: &GameState, player: &PlayerId) -> bool {
 /// The same question for the production window and its payment steps, which follow the table's abilities and carry
 /// the faction hooks of the seats of Deepwrought, Keleres, Naaz, Nomad and Yssaril (the lockstep tests
 /// `the_tier_w_factions_run_in_lockstep_on_the_core_production_window` and the golden dual). Left to the string: the
-/// Last Bastion and the Crimson (`unported_economy`) and Mentak's Corsair form.
+/// Mentak's Corsair form (the Last Bastion's Icon and the Crimson card are spots of the core window since B12).
 pub(crate) fn unported_production(state: &GameState, player: &PlayerId) -> bool {
     use crate::factions::mentak;
-    unported_economy(state) || state.player(player).is_some_and(|p| p.faction.as_str() == mentak::MODULE.alias)
+    state.player(player).is_some_and(|p| p.faction.as_str() == mentak::MODULE.alias)
 }
 
 /// The kernel of the production reads: the seams of the laws and relics, and the bridge to the legacy
-/// hook slots (empty here: every faction that fills one is declined by [`unported_economy`]). Built once.
+/// hook slots (empty here), then every faction hook table. Built once.
 pub(crate) fn kernel() -> &'static Kernel {
     static KERNEL: std::sync::OnceLock<Kernel> = std::sync::OnceLock::new();
     KERNEL.get_or_init(|| {
@@ -103,9 +91,6 @@ impl<'a> ProdView<'a> {
     /// The view of a position; `None` when something is not mapped.
     #[must_use]
     pub fn of(state: &'a GameState, _content: &'a ContentStore, sources: SourceSet) -> Option<Self> {
-        if unported_economy(state) {
-            return None;
-        }
         let mut cx = Ctx::of(state).ok()?;
         let view = std::rc::Rc::new(CoreView::of(state, &mut cx, Sources { galaxy: None::<&Galaxy>, rng: None }, READS).ok()?.into_state());
         Some(Self {
@@ -199,6 +184,7 @@ impl<'a> ProdView<'a> {
                     Spot::Space => crate::production::SPACE.to_owned(),
                     Spot::Planet(p) => p.as_str().to_owned(),
                     Spot::Remote(system, at) => format!("{}{}{}", system.as_str(), crate::production::REMOTE_SEPARATOR, at.map_or(crate::production::SPACE, |p| p.as_str())),
+                    Spot::Card => crate::render::production::spot_text(*s),
                 })
                 .collect(),
         )
@@ -290,7 +276,7 @@ const fn engine_spend(s: ti4_engine_core::query::economy::Spend) -> crate::produ
 pub fn buildable_for(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Option<Vec<String>> {
     use ti4_engine_core::query::tech as q;
     // Mentak's Corsair form override (`unit_form_override`) is not a core hook yet.
-    if unported_economy(state) || state.player(player).is_some_and(|p| p.faction.as_str() == crate::factions::mentak::MODULE.alias) {
+    if state.player(player).is_some_and(|p| p.faction.as_str() == crate::factions::mentak::MODULE.alias) {
         return None;
     }
     let seat = state.player(player)?;
@@ -354,8 +340,9 @@ pub struct ChooseInputs<'a> {
     pub flagship_free: bool,
     pub only_unit: Option<&'a str>,
     pub max_unit_cost: Option<i64>,
-    /// Ids of the units produced so far in this use.
+    /// Ids of the units produced so far in this use, and where each went (`space`, a planet id, `system@at`).
     pub produced: Vec<&'a str>,
+    pub produced_at: Vec<&'a str>,
     pub armada: i64,
 }
 
@@ -392,6 +379,7 @@ impl ProdView<'_> {
                 None => None,
             },
             produced,
+            icon: icon_of(inp.produced.iter().copied().zip(inp.produced_at.iter().copied()))?,
             armada: i32::try_from(inp.armada).ok()?,
             buildable: {
                 let mut slots = [None; 9];
@@ -412,6 +400,25 @@ impl ProdView<'_> {
     }
 }
 
+/// What the ships of a use have done so far (`bastion::adjust_ship_spots` reads it): the first ship placed away from the producing
+/// system fixes the spot of the rest, a ship placed in the producing system closes the Icon. `None`: a unit or a spot the tables
+/// do not know.
+#[must_use]
+pub fn icon_of<'a>(produced: impl Iterator<Item = (&'a str, &'a str)>) -> Option<ti4_engine_core::choice::production::Icon> {
+    use ti4_engine_core::choice::production::Icon;
+    let mut placed = false;
+    for (id, at) in produced {
+        if !typed::<Unit>(id)?.data().ship {
+            continue;
+        }
+        if at.contains(crate::production::REMOTE_SEPARATOR) {
+            return Some(Icon::Remote(crate::render::production::spot_of(at)?));
+        }
+        placed = true;
+    }
+    Some(if placed { Icon::Local } else { Icon::Fresh })
+}
+
 /// The facts of one placement option in the renderer's position.
 #[must_use]
 pub fn placing_info(r: &crate::render::Render, ask: &ti4_engine_core::choice::production::PlaceAsk, spot: rules::Spot) -> Option<rules::PlaceInfo> {
@@ -425,7 +432,7 @@ pub fn placing_info(r: &crate::render::Render, ask: &ti4_engine_core::choice::pr
 impl ProdView<'_> {
     /// The placement question's options, rendered from the typed ones: empty with fewer than two spots.
     #[must_use]
-    pub fn placement_options(&self, player: &PlayerId, system: &SystemId, unit_id: &str, made: usize, fleet_limit: i64) -> Option<Vec<crate::choice::ChoiceOption>> {
+    pub fn placement_options(&self, player: &PlayerId, system: &SystemId, unit_id: &str, made: usize, fleet_limit: i64, produced: &[(UnitTypeId, String)]) -> Option<Vec<crate::choice::ChoiceOption>> {
         use ti4_engine_core::choice::{Ask as CoreAsk, Opt as CoreOpt, production as cp};
         let ask = cp::PlaceAsk {
             who: self.seat(player)?,
@@ -433,6 +440,7 @@ impl ProdView<'_> {
             unit: typed(unit_id)?,
             made: u8::try_from(made).ok()?,
             fleet_limit: i32::try_from(fleet_limit).ok()?,
+            icon: icon_of(produced.iter().map(|(id, at)| (id.as_str(), at.as_str())))?,
         };
         let opts = rules::place_opts(&self.rules_cx(), &ask);
         let render = crate::render::Render::default();

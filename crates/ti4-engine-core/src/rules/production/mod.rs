@@ -9,7 +9,7 @@
 //! replaces it when the factions are ported.
 
 use crate::containers::SmallList;
-use crate::choice::production::{PlaceAsk, ChooseAsk, Currency, Opt as PayOpt, PayAsk, Shown};
+use crate::choice::production::{ChooseAsk, Currency, Icon, Opt as PayOpt, PayAsk, PlaceAsk, Shown};
 use crate::query::fleet::{self, Arrival, Standing};
 use crate::generated::{Breakthrough, Leader, Planet, PlanetTrait, Relic, System, Unit, UnitBaseType};
 use crate::state::LeaderStatus;
@@ -469,7 +469,7 @@ const fn currency(s: Spend) -> Currency {
 /// Where the unit may go: the system's own spots, then the places modules add (`production_destinations`),
 /// the latter only when the unit has a spot here at all.
 #[must_use]
-pub fn spots_of(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallList<Spot, 12> {
+pub fn spots_of(cx: &Cx<'_>, who: Seat, system: System, unit: Unit, icon: Icon) -> SmallList<Spot, 12> {
     let mut spots: SmallList<Spot, 12> = SmallList::new();
     for s in placements(cx, who, system, unit).as_slice() {
         spots.push(*s);
@@ -479,6 +479,12 @@ pub fn spots_of(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallList
         // The producing system's own spots are `placements` (the string `production_destinations` drops it).
         for (sys, planet) in dests.as_slice().iter().filter(|(sys, _)| *sys != system) {
             spots.push(Spot::Remote(*sys, *planet));
+        }
+        if unit.data().ship {
+            // The Last Bastion's Icon shapes the spots of the whole use, then the Crimson hero offers its card.
+            let k = cx.q.k;
+            k.hooks.direct.bastion_adjust_ship_spots(cx.core(), k, who, system, icon, &mut spots);
+            k.hooks.direct.crimson_cards_offer_card_spot(cx.core(), who, &mut spots);
         }
     }
     spots
@@ -490,7 +496,7 @@ pub fn placed_of(cx: &Cx<'_>, who: Seat, unit: Unit, made: usize) -> usize {
     if cx.q.k.hooks.economy.effect_placement_forbidden(cx.core(), cx.q.k, who, unit) {
         0
     } else {
-        made.min(usize::try_from(fleet::remaining(cx.core(), cx.scope, who, unit, 0)).unwrap_or(0))
+        made.min(usize::try_from(fleet::remaining_all(cx.core(), cx.scope, who, unit)).unwrap_or(0))
     }
 }
 
@@ -503,9 +509,9 @@ pub struct PlaceInfo {
     pub after: Standing,
 }
 
-fn place_ask_standing(cx: &Cx<'_>, ask: &PlaceAsk, system: System, arriving: Option<Arrival>) -> Standing {
+fn place_ask_standing(cx: &Cx<'_>, ask: &PlaceAsk, system: Option<System>, arriving: Option<Arrival>) -> Standing {
     let half = |u: Unit| cx.q.k.hooks.combat.fighter_fleet_weight_halves(cx.core(), cx.q.k, ask.who, u);
-    fleet::standing(cx.core(), cx.scope, ask.who, system, i64::from(ask.fleet_limit), arriving, &half)
+    fleet::standing_in(cx.core(), cx.scope, ask.who, system, i64::from(ask.fleet_limit), arriving, &half)
 }
 
 /// The facts of the placement option for `spot`.
@@ -513,8 +519,9 @@ fn place_ask_standing(cx: &Cx<'_>, ask: &PlaceAsk, system: System, arriving: Opt
 pub fn place_info(cx: &Cx<'_>, ask: &PlaceAsk, spot: Spot) -> PlaceInfo {
     let placed = placed_of(cx, ask.who, ask.unit, usize::from(ask.made));
     let target = match spot {
-        Spot::Remote(system, _) => system,
-        _ => ask.system,
+        Spot::Remote(system, _) => Some(system),
+        Spot::Card => None,
+        _ => Some(ask.system),
     };
     let after = place_ask_standing(cx, ask, target, Some(Arrival { kind: ask.unit, count: placed as i64, in_space: spot_in_space(spot) }));
     PlaceInfo { placed, before: place_ask_standing(cx, ask, target, None), after }
@@ -523,13 +530,13 @@ pub fn place_info(cx: &Cx<'_>, ask: &PlaceAsk, spot: Spot) -> PlaceInfo {
 /// The standing of the producing system, for the question's context.
 #[must_use]
 pub fn place_home_standing(cx: &Cx<'_>, ask: &PlaceAsk) -> Standing {
-    place_ask_standing(cx, ask, ask.system, None)
+    place_ask_standing(cx, ask, Some(ask.system), None)
 }
 
 /// The placement question's options: one per spot, only when there are two or more.
 #[must_use]
 pub fn place_opts(cx: &Cx<'_>, ask: &PlaceAsk) -> SmallList<PayOpt, 18> {
-    let spots = spots_of(cx, ask.who, ask.system, ask.unit);
+    let spots = spots_of(cx, ask.who, ask.system, ask.unit, ask.icon);
     let mut out = SmallList::new();
     if spots.as_slice().len() >= 2 {
         for s in spots.as_slice() {
@@ -567,18 +574,19 @@ pub struct BuildInfo {
 
 /// The `Where` of a spot as the string engine writes it: `space`, a planet id, or `system@at`.
 fn spot_in_space(spot: Spot) -> bool {
-    matches!(spot, Spot::Space | Spot::Remote(_, None))
+    matches!(spot, Spot::Space | Spot::Remote(_, None) | Spot::Card)
 }
 
-fn standing_at(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, system: System, arriving: Option<Arrival>) -> Standing {
+fn standing_at(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, system: Option<System>, arriving: Option<Arrival>) -> Standing {
     let half = |u: Unit| cx.q.k.hooks.combat.fighter_fleet_weight_halves(cx.core(), cx.q.k, who, u);
-    fleet::standing(cx.core(), cx.scope, who, system, i64::from(ask.fleet_limit), arriving, &half)
+    fleet::standing_in(cx.core(), cx.scope, who, system, i64::from(ask.fleet_limit), arriving, &half)
 }
 
 fn standing_after(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, spot: Spot, count: i64) -> Standing {
     let target = match spot {
-        Spot::Remote(system, _) => system,
-        _ => ask.system,
+        Spot::Remote(system, _) => Some(system),
+        Spot::Card => None,
+        _ => Some(ask.system),
     };
     standing_at(cx, who, ask, target, Some(Arrival { kind: unit, count, in_space: spot_in_space(spot) }))
 }
@@ -598,7 +606,7 @@ fn post_build(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, count: i64) -
 /// Standing of the producing system before any option is taken.
 #[must_use]
 pub fn standing_before(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk) -> Standing {
-    standing_at(cx, who, ask, ask.system, None)
+    standing_at(cx, who, ask, Some(ask.system), None)
 }
 
 /// The Choosing question's facts for one unit; `None` when the unit is not offered.
@@ -625,7 +633,7 @@ pub fn build_for(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, ex: &Extra
     if !affordable && !exchange {
         return None;
     }
-    let spots = spots_of(cx, who, ask.system, unit);
+    let spots = spots_of(cx, who, ask.system, unit, ask.icon);
     if spots.as_slice().is_empty() {
         return None;
     }
@@ -676,7 +684,7 @@ pub fn build_for(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, ex: &Extra
 /// The Choosing question's options: for each buildable unit the paid build, then the exchange.
 #[must_use]
 pub fn build_opts(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, ex: &Extras<'_>) -> SmallList<PayOpt, 18> {
-    let before = standing_at(cx, who, ask, ask.system, None);
+    let before = standing_at(cx, who, ask, Some(ask.system), None);
     let spendable = available(cx, who, Spend::Resources, ex);
     let mut out = SmallList::new();
     for unit in ask.buildable.iter().flatten() {
@@ -719,7 +727,7 @@ mod tests {
         let mut s = CoreState::all_loaded();
         s.players = crate::state::Players::from_vec(vec![crate::state::Player::new(Seat(0), crate::generated::Faction::TheClanOfSaar)]);
         let cx = Cx::new(&s, &k, Scope(u32::from(k.sources.0)), false);
-        let spots = spots_of(&cx, Seat(0), here, Unit::CruiserI);
+        let spots = spots_of(&cx, Seat(0), here, Unit::CruiserI, Icon::Fresh);
         assert_eq!(spots.as_slice(), &[Spot::Space, Spot::Remote(there, None)]);
     }
 

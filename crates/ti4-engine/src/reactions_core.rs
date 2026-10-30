@@ -43,11 +43,23 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_SPACE, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_GROUND, kind: "promissory", card: "antivirus" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::SPACE, kind: "ability", card: "technological_singularity" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::GROUND, kind: "ability", card: "technological_singularity" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::OPEN_SPACE, kind: "ability", card: "technological_singularity_open" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::OPEN_GROUND, kind: "ability", card: "technological_singularity_open" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_SPACE, kind: "ability", card: "technological_singularity_close" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_GROUND, kind: "ability", card: "technological_singularity_close" },
+    Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::HERO_FINISH, kind: "leader", card: "sardakkhero" },
+    Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::MECH_HIT, kind: "unit", card: "sardakk_mech" },
+    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_SHIP, kind: "unit", card: "empyrean_flagship" },
+    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_GROUND, kind: "unit", card: "empyrean_flagship" },
+    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::WATCHER, kind: "unit", card: "empyrean_mech" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_PLAY, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_RETURN, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE_II, kind: "unit", card: "mahact_infantry2" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_TRADE_GOOD, kind: "technology", card: "so" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_SHIP, kind: "technology", card: "so" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_START, kind: "leader", card: "mentakhero" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_SHIPS, kind: "leader", card: "mentakhero" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_END, kind: "leader", card: "mentakhero" },
@@ -64,6 +76,28 @@ const NAMED: &[Named] = &[
     Named { slot: cabal::CLEAR_SPACE, kind: "ability", card: "devour_clear" },
     Named { slot: cabal::MARK_GROUND, kind: "ability", card: "devour_mark" },
     Named { slot: cabal::CLEAR_GROUND, kind: "ability", card: "devour_clear" },
+];
+
+/// The last segment of a registered id: the relation, except for Salvage Operations' produce half, which the string
+/// registers as `...:SPACE_COMBAT_ENDED:produce` although it is an `after` ability.
+fn rel_segment(spec: &Spec) -> &'static str {
+    if spec.slot == ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_SHIP { "produce" } else { relation_text(spec.relation) }
+}
+
+/// How the string spells the id of a pair rule (Ssruu's copies): `A` is `leader:{lender faction}:{lender}:yssarilagent:{agent}:EVENT:rel`,
+/// `B` is `leader:ssruu-copy:{borrower}:{agent}:{lender}:EVENT:after`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PairStyle {
+    A,
+    B,
+}
+
+const PAIRS: &[(Slot, &str, PairStyle)] = &[
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::YIN_SHIPS, "yinagent", PairStyle::A),
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::YIN_GROUND, "yinagent", PairStyle::A),
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::SOL, "solagent", PairStyle::B),
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::LETNEV, "letnevagent", PairStyle::B),
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::ARGENT, "argentagent", PairStyle::A),
 ];
 
 fn is_reaction_slot(slot: Slot) -> bool {
@@ -100,9 +134,28 @@ pub fn with_reach<T>(entries: Vec<(String, String, Vec<String>)>, body: impl FnO
     out
 }
 
+thread_local! {
+    /// The texts of the staged rerolls of the window being run (Fire Team, Scramble Frequency).
+    static REROLL: std::cell::RefCell<Option<ti4_engine_core::kernel::ability::RerollFacts>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `body` with the reroll texts of the window installed (read by [`follow`]).
+pub fn with_reroll<T>(facts: ti4_engine_core::kernel::ability::RerollFacts, body: impl FnOnce() -> T) -> T {
+    let before = REROLL.with(|v| v.replace(Some(facts)));
+    let out = body();
+    REROLL.with(|v| *v.borrow_mut() = before);
+    out
+}
+
 /// The registered id of `spec` for an owner called `owner`.
-fn id_text(r: &Render, spec: &Spec, owner: &str) -> String {
-    let (event, rel) = (event_text(r, spec.event), relation_text(spec.relation));
+fn id_text(r: &Render, spec: &Spec, owner: &str, owner_seat: &str, lender: Option<&(String, String)>) -> String {
+    let (event, rel) = (event_text(r, spec.event), rel_segment(spec));
+    if let (Some((lender_faction, lender_seat)), Some((_, agent, style))) = (lender, PAIRS.iter().find(|p| p.0 == spec.slot)) {
+        return match style {
+            PairStyle::A => format!("leader:{lender_faction}:{lender_seat}:yssarilagent:{agent}:{event}:{rel}"),
+            PairStyle::B => format!("leader:ssruu-copy:{owner_seat}:{agent}:{lender_seat}:{event}:{rel}"),
+        };
+    }
     if is_reaction_slot(spec.slot) {
         return format!("reaction:{owner}:{event}:{rel}");
     }
@@ -172,6 +225,20 @@ pub fn slot_of(id: &str) -> Option<Slot> {
         let at = w.iter().position(|(e, rel)| event_text(&r, *e) == parts[2] && relation_text(*rel) == parts[3])?;
         return Some(Slot(ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE + u16::try_from(at).ok()?));
     }
+    // Ssruu's copies: the lender and the agent are inside the id.
+    if parts.len() == 7 && parts[0] == "leader" {
+        let all = specs();
+        let found = if parts[1] == "ssruu-copy" {
+            PAIRS.iter().filter(|p| p.2 == PairStyle::B && p.1 == parts[3]).find(|p| all.iter().find(|s| s.slot == p.0).is_some_and(|s| event_text(&r, s.event) == parts[5] && relation_text(s.relation) == parts[6]))
+        } else if parts[3] == "yssarilagent" {
+            PAIRS.iter().filter(|p| p.2 == PairStyle::A && p.1 == parts[4]).find(|p| all.iter().find(|s| s.slot == p.0).is_some_and(|s| event_text(&r, s.event) == parts[5] && relation_text(s.relation) == parts[6]))
+        } else {
+            None
+        };
+        if let Some(p) = found {
+            return Some(p.0);
+        }
+    }
     if parts.len() < 5 {
         return None;
     }
@@ -181,7 +248,7 @@ pub fn slot_of(id: &str) -> Option<Slot> {
     let all = specs();
     NAMED.iter().filter(|n| n.kind == kind && n.card == card).find_map(|n| {
         let spec = all.iter().find(|s| s.slot == n.slot)?;
-        (event_text(&r, spec.event) == event && relation_text(spec.relation) == rel).then_some(n.slot)
+        (event_text(&r, spec.event) == event && rel_segment(spec) == rel).then_some(n.slot)
     })
 }
 
@@ -253,6 +320,11 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
         let destinations = destinations.iter().filter_map(|d| <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(d)).collect();
         table.facts.set_withdraw(who, system, destinations);
     }
+    table.facts.reroll = REROLL.with(|v| v.borrow().clone());
+    for (a, b, adjacent) in &script.adjacent {
+        let (Some(a), Some(b)) = (<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(a), <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(b)) else { continue };
+        table.facts.set_adjacent(a, b, *adjacent);
+    }
     // A played card: Data Skimmer takes another player's discard onto the breakthrough (a Ral Nel seat). A rules version
     // before 3 plays at once, which the core's play does too (B6: `reaction_slot::play`).
     if let Some(slot) = script.effects.iter().find(|e| e.starts_with("reaction:")) {
@@ -270,6 +342,18 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
         return Err("nested activity without a resolver".to_owned());
     };
     table.facts.plays = play_facts(r, gs, &cfg.sources);
+    // Salvage Operations reads the units its owner may build (`production::buildable_for`, in the string's order).
+    for i in 0..r.seats.len() {
+        let Some(who) = u8::try_from(i).ok().map(Seat) else { continue };
+        let player = ti4_model::id::PlayerId::new(r.seat_text(who));
+        if gs.player(&player).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"so"))) {
+            let ids = crate::production::buildable_for(gs, ti4_content::ContentStore::embedded(), cfg.sources.clone(), &player);
+            let units: Option<Vec<_>> = ids.iter().map(|id| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id(id)).collect();
+            if let Some(units) = units {
+                table.facts.set_buildable(who, units);
+            }
+        }
+    }
     let resolver = resolver_of(r, cfg).ok_or_else(|| "a resolver seat the tables do not know".to_owned())?;
     Ok(Some(Follow { table, resolver }))
 }
@@ -361,7 +445,7 @@ impl Follow {
     pub fn arm(&mut self, r: &Render, gs: &GameState, core: &CoreState) {
         let order: Vec<Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
         let owner_name = |who: Seat| crate::promissory::faction_name(gs, &ti4_model::id::PlayerId::new(r.seat_text(who)));
-        let mut name = |spec: &Spec, who: Seat| -> AbilityId { ability_id(r, &id_text(r, spec, &owner_name(who))) };
+        let mut name = |spec: &Spec, who: Seat, lender: Option<Seat>| -> AbilityId { ability_id(r, &id_text(r, spec, &owner_name(who), r.seat_text(who), lender.map(|l| (owner_name(l), r.seat_text(l).to_owned())).as_ref())) };
         self.table.codes.ground_combat = r.code("ground_combat");
         self.table.codes.harrow = r.code("harrow");
         self.table.codes.self_assembly = r.code("self_assembly_routines");
@@ -371,6 +455,10 @@ impl Follow {
         self.table.codes.instinct_training = r.code("instinct_training");
         self.table.codes.direct_hit = r.code("action_card:direct_hit");
         self.table.codes.cavalry = r.code("cavalry");
+        self.table.codes.technological_singularity = r.code("technological_singularity");
+        self.table.codes.empyrean_mech = r.code("empyrean_mech");
+        self.table.codes.salvage = r.code("so");
+        self.table.facts.pay_kernel = Some(crate::production_view::kernel);
         self.table.codes.mahact_infantry = r.code("mahact_infantry");
         self.table.codes.mahact_infantry2 = r.code("mahact_infantry2");
         self.table.codes.retreat_capacity = r.code("retreat_capacity");
@@ -399,18 +487,26 @@ mod tests {
         let t = table();
         for n in NAMED {
             let spec = t.of_slot(n.slot).expect("a named slot is in the table");
-            let id = id_text(&Render::new(Vec::new()), spec, "hacan");
+            let id = id_text(&Render::new(Vec::new()), spec, "hacan", "a", None);
             assert_eq!(slot_of(&id), Some(n.slot), "{id}");
         }
         let w = ti4_engine_core::rules::action_cards::reaction_slot::windows();
         for (i, _) in w.iter().enumerate() {
             let slot = Slot(ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE + u16::try_from(i).unwrap());
-            let id = id_text(&Render::new(Vec::new()), t.of_slot(slot).unwrap(), "sol");
+            let id = id_text(&Render::new(Vec::new()), t.of_slot(slot).unwrap(), "sol", "a", None);
             assert_eq!(slot_of(&id), Some(slot), "{id}");
         }
         assert!(slot_of("leader:sol:solagent:GROUND_COMBAT_ROUND_STARTED:after").is_some());
         assert_eq!(slot_of("leader:yssaril:a:solagent:b:GROUND_COMBAT_ROUND_STARTED:after"), None, "a Ssruu copy is another ability");
         assert_eq!(slot_of("technology:hacan:inf2:SHIP_DESTROYED:after"), None, "the event is part of the identity");
+    }
+
+    /// Technological Singularity offers an opponent's technologies in the order of the string's `BTreeSet<TechnologyId>`
+    /// (the ids' text order); the core walks a bit set in enum order.
+    #[test]
+    fn the_enum_order_of_the_technologies_is_the_text_order_of_their_ids() {
+        let ids = &crate::generated::technologies::TECHNOLOGY_IDS;
+        assert!(ids.windows(2).all(|w| w[0] < w[1]), "the core's technology order is the string's");
     }
 
     #[test]
@@ -422,6 +518,22 @@ mod tests {
         assert_eq!(rec(&["technology:hacan:inf2:GROUND_FORCE_DESTROYED:after"], &["technology:hacan:inf2:GROUND_FORCE_DESTROYED:after"]).unported(&t), None);
     }
 
+    /// Every nested-bail family B12 left in the string is named by the window that meets it (`unported ability ...`), none is
+    /// followed silently; the ids are the string's registrations (`docs/ENGINE_REACTIONS.md` 10 lists why each stays).
+    #[test]
+    fn bail_every_family_that_stays_in_the_string_is_named() {
+        let t = table();
+        for id in [
+            "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
+            "promissory:letnev:ambuscade:UNIT_ABILITY_ROLLED:when",
+            "leader:winnu:winnucommander_unlock:SPACE_COMBAT_STARTED:after",
+        ] {
+            assert_eq!(slot_of(id), None, "{id} is not in the table");
+            let why = rec(&[id], &[]).unported(&t).unwrap_or_default();
+            assert!(why.starts_with("unported ability "), "{id}: {why:?}");
+        }
+    }
+
     #[test]
     fn bail_a_declined_reaction_slot_is_followed_and_a_played_unported_card_is_not() {
         let t = table();
@@ -431,12 +543,10 @@ mod tests {
         let mut played = rec(&[id], &[id]);
         played.played = vec!["sh1".to_owned()];
         assert_eq!(played.unported(&t), None, "a Shields Holding is played by the core");
-        played.played = vec!["fire_team".to_owned()];
-        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card fire_team)"), "a card the core does not play");
-        // Fire Team and Scramble Frequency have a window of the play (their own facts), not a nested one: from inside another
-        // window they are still the string's.
+        // Scramble Frequency has a window of the play (`Fx::Scramble`), not a nested one: from inside another window it is still the
+        // string's. (Fire Team is a registered card play of the core, B12: it is followed here.)
         played.played = vec!["scramble".to_owned()];
-        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card scramble)"), "a card the core does not play nested");
+        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card scramble)"), "a card the core does not play");
     }
 
     #[test]
@@ -448,6 +558,10 @@ mod tests {
         assert_eq!(r.unported(&t), None, "a Morale Boost is a stamp the core plays");
         r.played = vec!["mb1".to_owned(), "reveal_prototype".to_owned()];
         assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card reveal_prototype)"));
+        for card in ["courageous", "scramble", "reflective"] {
+            r.played = vec![card.to_owned()];
+            assert_eq!(r.unported(&t).as_deref(), Some(&*format!("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card {card})")), "{card} stays the string's");
+        }
         r.played = vec!["s_retreat1".to_owned(), "intercept".to_owned(), "dh2".to_owned(), "parley".to_owned()];
         assert_eq!(r.unported(&t), None, "the cards of the card module are played by the core");
     }
@@ -546,7 +660,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
@@ -558,6 +672,19 @@ mod tests {
                 .filter(|a| slot_of(&a.id).is_some())
                 .map(|a| (a.id.clone(), a.owner.clone(), a.event.clone(), a.when, a.optional, a.repeatable, a.has_condition))
                 .collect();
+            // The copies of Ssruu are in the comparison (a pair rule: owned by the borrower, the lender in the id).
+            if factions == [("a", "yin"), ("b", "yssaril")] {
+                assert!(want.iter().any(|x| x.0 == "leader:yin:a:yssarilagent:yinagent:SHIP_DESTROYED:after" && x.1 == "b"), "{want:?}");
+            }
+            if factions == [("a", "yssaril"), ("b", "letnev")] {
+                // The string registers the borrowed round agents before any seat's slots, so the copy is offered first even when its borrower is
+                // the earlier seat (the order of a window pick).
+                let at = |id: &str| want.iter().position(|x| x.0 == id).unwrap_or_else(|| panic!("{id} in {want:?}"));
+                assert!(at("leader:ssruu-copy:a:letnevagent:b:COMBAT_ROUND_STARTED:after") < at("reaction:yssaril:COMBAT_ROUND_STARTED:after"), "{want:?}");
+            }
+            if factions == [("a", "yssaril"), ("b", "sol")] {
+                assert!(want.iter().any(|x| x.0 == "leader:ssruu-copy:a:solagent:b:GROUND_COMBAT_ROUND_STARTED:after" && x.1 == "a"), "{want:?}");
+            }
             let (mut cx, r) = crate::dual_window::tables(&gs).unwrap();
             let before = gs.clone();
             let mut fol = Follow { table: table(), resolver: Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))) };
@@ -566,8 +693,8 @@ mod tests {
             with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| {
                 let order: Vec<Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
                 fol.arm(&r, &before, core);
-                let defs = fol.table.registry(core, &order, &mut |spec, who| {
-                    ability_id(&r, &id_text(&r, spec, &crate::promissory::faction_name(&before, &ti4_model::id::PlayerId::new(r.seat_text(who)))))
+                let defs = fol.table.registry(core, &order, &mut |spec, who, lender| {
+                    ability_id(&r, &id_text(&r, spec, &crate::promissory::faction_name(&before, &ti4_model::id::PlayerId::new(r.seat_text(who))), r.seat_text(who), lender.map(|l| (crate::promissory::faction_name(&before, &ti4_model::id::PlayerId::new(r.seat_text(l))), r.seat_text(l).to_owned())).as_ref()))
                 });
                 for d in defs {
                     got.push((

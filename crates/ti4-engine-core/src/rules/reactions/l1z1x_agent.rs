@@ -48,7 +48,7 @@ fn faction_mech(s: &CoreState, target: Seat) -> Result<Option<Unit>, Unknown> {
 fn swap_site(s: &CoreState, target: Seat) -> Result<Option<(Planet, usize, Unit)>, Unknown> {
     let Some(system) = s.meta().active_system else { return Ok(None) };
     let Some(mech) = faction_mech(s, target)? else { return Ok(None) };
-    if fleet::remaining(s, Scope(u32::MAX), target, mech, 0) <= 0 {
+    if fleet::remaining_all(s, Scope(u32::MAX), target, mech) <= 0 {
         return Ok(None);
     }
     let mut planets: Vec<Planet> = board::planets_of(s, system).collect();

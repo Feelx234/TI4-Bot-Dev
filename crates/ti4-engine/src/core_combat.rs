@@ -17,9 +17,7 @@ use ti4_engine_core::kernel::hooks::{CombatCtx, CombatUnit};
 use ti4_engine_core::kernel::{Kernel, Sources as CoreSources};
 use ti4_engine_core::rules::combat as cc;
 use ti4_engine_core::rules::combat::Rd;
-use ti4_engine_core::kernel::hooks::BorrowedStats;
-use ti4_engine_core::kernel::seam::{adapters, providers, Delta, Layer, Replacement, RollKind, RollSite, RuleRef, SeatSystemSite, Seams, SetWhy, SilenceSite, Source, Step, Verdict};
-use ti4_engine_core::kernel::Next;
+use ti4_engine_core::kernel::seam::{adapters, providers, Delta, Layer, RollKind, RollSite, RuleRef, Seams, SetWhy, SilenceSite, Source, Verdict};
 use ti4_engine_core::state::{Piece, Slice, SliceSet};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
@@ -209,26 +207,11 @@ fn register_string_bridge(seams: &mut Seams) {
         .unwrap_or(acc);
         if to == acc { Delta::None } else { Delta::Set { to, why: SetWhy::LegacyFold } }
     });
-    seams.dice.push_add(STRINGS, Layer::Faction, |_, site: &RollSite, _| {
+    seams.dice.push_add(STRINGS, Layer::Faction, |q, site: &RollSite, _| {
         if site.kind == RollKind::Ground {
             // B2: the round agents' extra die of a ground force (the galvanized die and the Sol agent's die are
             // the invasion rule's own).
-            return add(with_oracle(|o| {
-                let player = o.player(site.unit.owner)?;
-                Some(crate::factions::borrowed_round_agents::extra_die_for(
-                    &o.gs,
-                    ContentStore::embedded(),
-                    o.sources,
-                    &SystemId::new(site.unit.system?.as_str()),
-                    site.unit.planet.map(|p| PlanetId::new(p.as_str())).as_ref(),
-                    &player,
-                    site.unit.unit.as_str(),
-                    usize::from(site.unit_index),
-                    o.gs.combat_round_seq,
-                ))
-            })
-            .flatten()
-            .unwrap_or(0));
+            return add(site.unit.system.map_or(0, |sys| ti4_engine_core_factions::cc_ground::borrowed::query::extra_die_for(q.s, q.k, sys, site.unit.planet, site.unit.owner, site.unit.unit, usize::from(site.unit_index), q.s.meta().combat_round_seq)));
         }
         if !matches!(site.kind, RollKind::Combat | RollKind::Barrage) {
             return Delta::None;
@@ -242,17 +225,8 @@ fn register_string_bridge(seams: &mut Seams) {
             let bastion = ships
                 .get(index)
                 .map_or(0, |unit| i64::try_from(crate::factions::bastion::extra_die(unit)).unwrap_or(0));
-            let agent = if !combat { 0 } else { crate::factions::borrowed_round_agents::extra_die_for(
-                &o.gs,
-                ContentStore::embedded(),
-                o.sources,
-                &sid,
-                None,
-                &player,
-                site.unit.unit.as_str(),
-                index,
-                o.gs.combat_round_seq,
-            ) };
+            // The round agents' extra die is read from the core state (a mark written in the same window is not in the oracle).
+            let agent = if !combat { 0 } else { site.unit.system.map_or(0, |sys| ti4_engine_core_factions::cc_ground::borrowed::query::extra_die_for(q.s, q.k, sys, None, site.unit.owner, site.unit.unit, index, q.s.meta().combat_round_seq)) };
             bastion + agent
         })
         .unwrap_or(0))
@@ -292,26 +266,6 @@ fn register_string_bridge(seams: &mut Seams) {
         .flatten()
         .unwrap_or(true);
         if allowed { Verdict::Abstain } else { Verdict::Forbid }
-    });
-    seams.borrowed_stats.push(Replacement {
-        source: STRINGS,
-        step: Step::BorrowedStats,
-        offer: |_, site: &SeatSystemSite| {
-            with_oracle(|o| {
-                let player = o.player(site.who)?;
-                let sid = SystemId::new(site.system.as_str());
-                let b = crate::factions::hooks_combat::borrowed_stats(&o.gs, ContentStore::embedded(), o.sources, &player, &sid)?;
-                Some(BorrowedStats {
-                    unit: typed::<Unit>(b.unit.type_id.as_str())?,
-                    sustained: b.unit.sustained_damage,
-                    galvanized: b.unit.galvanized,
-                    hits_on: b.hits_on.and_then(|v| i8::try_from(v).ok()),
-                    barrage: b.barrage.and_then(|(v, d)| Some((i8::try_from(v).ok()?, i8::try_from(d).ok()?))),
-                })
-            })
-            .flatten()
-        },
-        perform: |_, _, _| Next::Done,
     });
 }
 
@@ -914,6 +868,9 @@ pub fn combat_kernel(sources: SourceSet) -> Option<Kernel> {
     // Bastion's ship-lost bookkeeping and the Nekro Alastor queries and bookkeeping are native.
     ti4_engine_core_factions::ca_combat::bastion::register_observers(&mut kernel.hooks);
     ti4_engine_core_factions::ca_combat::nekro::register(&mut kernel.hooks);
+    // The Cavalry is played inside a window (the opening of the fight): the lent stats are read from the core state, which holds
+    // the choice, not from the snapshot of the position the window started in.
+    ti4_engine_core_factions::ce_movement::nomad::query::register_borrowed(&mut kernel.hooks);
     register_string_bridge(&mut kernel.hooks.seam);
     kernel.sources = CoreSources(u8::try_from(scope.0).ok()?);
     Some(kernel)

@@ -230,7 +230,7 @@ pub fn nomad_borrowed_stats(gs: &GameState, sources: SourceSet, who: &PlayerId, 
 
 fn nomad_borrowed_stats_at(p: &Pos, who: &PlayerId, sys: &SystemId) -> Option<Borrowed> {
     let found = nomad::query::borrowed_stats(p.s(), p.k, p.seat(who)?, system(sys)?);
-    Some(found.map(|b| (b.unit.as_str().to_owned(), b.hits_on.map(i64::from), b.barrage.map(|(dice, hits_on)| (i64::from(hits_on), i64::from(dice))))))
+    Some(found.map(|b| (b.unit.as_str().to_owned(), b.hits_on.map(i64::from), b.barrage.map(|(hits_on, dice)| (i64::from(hits_on), i64::from(dice))))))
 }
 
 // -- obsidian ---------------------------------------------------------------------------------------------

@@ -24,27 +24,48 @@ pub const MILOR_GROUND: Slot = Slot(7002);
 
 const AGENT: Leader = Leader::BrotherMilor;
 
-fn ready(s: &CoreState, who: Seat) -> bool {
-    s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&AGENT) == Some(&LeaderStatus::Readied))
+fn ready_card(s: &CoreState, who: Seat, card: Leader) -> bool {
+    s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&card) == Some(&LeaderStatus::Readied))
+}
+
+/// The faction units per faction and base type, as the source scope resolves them.
+pub fn roster(scope: Scope) -> tech::UnitRoster {
+    thread_local! {
+        static CACHE: std::cell::Cell<Option<(u32, tech::UnitRoster)>> = const { std::cell::Cell::new(None) };
+    }
+    if let Some((bits, roster)) = CACHE.with(std::cell::Cell::get)
+        && bits == scope.0
+    {
+        return roster;
+    }
+    let roster = build_roster(scope);
+    CACHE.with(|c| c.set(Some((scope.0, roster))));
+    roster
+}
+
+fn build_roster(scope: Scope) -> tech::UnitRoster {
+    let mut roster = tech::UnitRoster::default();
+    for faction in Faction::ALL {
+        for base in UnitBaseType::ALL {
+            let own = Unit::ALL.into_iter().find(|u| {
+                let d = u.data();
+                d.base_type == base && d.upgrades_from.is_none() && d.faction.is_some_and(|tag| tech::tag_is(tag, faction)) && scope.unit(*u).is_some()
+            });
+            roster.set(faction, base, own);
+        }
+    }
+    roster
 }
 
 /// `placed_unit_id` of a seat for a base type: the upgrade it owns, else its faction's own unit, else the plain one.
 pub fn placed_form(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
-    let mut roster = tech::UnitRoster::default();
-    for faction in Faction::ALL {
-        let own = Unit::ALL.into_iter().find(|u| {
-            let d = u.data();
-            d.base_type == base && d.upgrades_from.is_none() && d.faction.is_some_and(|tag| tech::tag_is(tag, faction)) && scope.unit(*u).is_some()
-        });
-        roster.set(faction, base, own);
-    }
-    tech::unit_form(s, scope, &roster, who, base)
+    tech::unit_form(s, scope, &roster(scope), who, base)
 }
 
 /// `in_reinforcements`: the form the player places, and one of it left in the box.
 fn in_reinforcements(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
     let unit = placed_form(s, scope, who, base)?;
-    (fleet::remaining(s, scope, who, unit, 0) > 0).then_some(unit)
+    (fleet::remaining_all(s, scope, who, unit) > 0).then_some(unit)
 }
 
 fn scope(k: &ti4_engine_core::kernel::Kernel) -> Scope {
@@ -52,25 +73,35 @@ fn scope(k: &ti4_engine_core::kernel::Kernel) -> Scope {
 }
 
 fn ship_when(c: &CondCx<'_>) -> bool {
+    ship_ok(c, AGENT)
+}
+
+/// The condition of the ship branch with `card` (Brother Milor, or Ssruu copying it) as the exhausted card.
+pub(crate) fn ship_ok(c: &CondCx<'_>, card: Leader) -> bool {
     let p = &c.event.payload;
     p.flag(Key::DuringSpaceCombat) == Some(true)
-        && ready(c.state, c.def.owner)
+        && ready_card(c.state, c.def.owner, card)
         && p.seat(Key::Player).is_some_and(|who| in_reinforcements(c.state, scope(c.kernel), who, UnitBaseType::Fighter).is_some())
         && nomad_quiet(c)
 }
 
 fn ground_when(c: &CondCx<'_>) -> bool {
+    ground_ok(c, AGENT)
+}
+
+/// The condition of the ground branch with `card` as the exhausted card.
+pub(crate) fn ground_ok(c: &CondCx<'_>, card: Leader) -> bool {
     let p = &c.event.payload;
     let cause = p.code(Key::Cause);
     (cause == Some(c.codes.ground_combat) || cause == Some(c.codes.harrow))
         && p.unit(Key::Unit).is_some()
-        && ready(c.state, c.def.owner)
+        && ready_card(c.state, c.def.owner, card)
         && p.seat(Key::Player).is_some_and(|who| in_reinforcements(c.state, scope(c.kernel), who, UnitBaseType::Infantry).is_some())
         && nomad_quiet(c)
 }
 
 /// `leaders::exhaust` announces the exhaustion to a watching Nomad; the core does not.
-fn nomad_quiet(c: &CondCx<'_>) -> bool {
+pub(crate) fn nomad_quiet(c: &CondCx<'_>) -> bool {
     if c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.state) {
         return c.unknown(Unknown::NomadAgentExhaustion);
     }
@@ -79,6 +110,11 @@ fn nomad_quiet(c: &CondCx<'_>) -> bool {
 
 /// `place_units_counted`: up to `count` units of the form, as many as the box holds, appended where they go.
 fn place(eff: &mut Eff<'_, '_>, base: UnitBaseType, on_planet: bool) -> Result<(), TimingError> {
+    place_by(eff, base, on_planet, AGENT)
+}
+
+/// [`place`] with `card` (Brother Milor, or Ssruu copying it) exhausted for the use.
+pub(crate) fn place_by(eff: &mut Eff<'_, '_>, base: UnitBaseType, on_planet: bool, card: Leader) -> Result<(), TimingError> {
     let owner = eff.owner();
     let p = &eff.event.payload;
     let (Some(system), Some(who)) = (p.system(Key::System), p.seat(Key::Player)) else { return Ok(()) };
@@ -86,15 +122,15 @@ fn place(eff: &mut Eff<'_, '_>, base: UnitBaseType, on_planet: bool) -> Result<(
     if on_planet && planet.is_none() {
         return Ok(());
     }
-    if !ready(eff.state(), owner) {
+    if !ready_card(eff.state(), owner, card) {
         return Ok(());
     }
     let scope = scope(eff.kernel());
     let Some(unit) = in_reinforcements(eff.state(), scope, who, base) else { return Ok(()) };
     if let Some(a) = eff.state().players_mut().by_seat_mut(owner) {
-        a.leaders.status.insert(AGENT, LeaderStatus::Exhausted);
+        a.leaders.status.insert(card, LeaderStatus::Exhausted);
     }
-    let count = fleet::remaining(eff.state(), scope, who, unit, 0).min(2);
+    let count = fleet::remaining_all(eff.state(), scope, who, unit).min(2);
     for _ in 0..count {
         fx::place_unit(eff.state(), who, system, planet, unit);
     }

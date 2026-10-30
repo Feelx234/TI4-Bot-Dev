@@ -18,14 +18,14 @@ use crate::dual_window::tables;
 use crate::generated::IdStr;
 
 const GOODS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Marks], &[Slice::Players]);
-const BOARD: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Players, Slice::Board]);
+const BOARD: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks], &[Slice::Players, Slice::Board]);
 const SHEET: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Marks], &[Slice::Players]);
-const BOX: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Players]);
+const BOX: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks], &[Slice::Players]);
 
-/// Whether the production hooks the typed supply writes need are all on the core table: the Crimson hero card
-/// holds ships off the board (`held_on_card`) and the Last Bastion has docks the typed reads do not carry.
-fn ported(state: &GameState) -> bool {
-    !crate::production_view::unported_economy(state)
+/// Whether the production hooks the typed supply writes need are all on the core table (every faction's are, since the Crimson
+/// hero card and the Last Bastion's Icon are spots of the core window).
+fn ported(_: &GameState) -> bool {
+    true
 }
 
 /// `supply::spend_goods`.

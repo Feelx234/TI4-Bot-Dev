@@ -37,7 +37,7 @@ pub enum Ask {
     /// Rin, the Masters' Legacy (Jol-Nar hero): replace this technology with another of its colour, or keep it.
     JolnarSwap { held: crate::generated::Technology },
     /// A round agent: "choose 1 unit in the active system: it rolls 1 additional die during this combat round".
-    RoundAgentUnit { agent: Leader },
+    RoundAgentUnit { agent: Leader, copied: bool },
     /// Xxekir Grom (Thunder's Edge Xxcha hero): place another PDS or mech, or stop ("how many more?").
     XxchaHeroPlace,
     /// Xxekir Grom: which planet gets the unit.

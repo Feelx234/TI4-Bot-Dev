@@ -552,3 +552,47 @@ fn a_card_announced_at_the_close_of_a_window_inside_an_emission_names_the_chain(
     assert_compared_clean(1);
     let _ = crate::dual::take_report();
 }
+
+/// Instinct Training carried by a Nekro's Valefar Assimilator (the token stands on the Arborec's card): the assimilator is
+/// the card that is ready and that is exhausted, the strategy token is spent and the play is cancelled; the core window
+/// follows it (it used to be the string's, `NekroCarriedCard`).
+#[test]
+fn a_nekro_cancels_a_card_with_an_instinct_training_its_assimilator_carries_in_the_core_window() {
+    struct UseIt;
+    impl Decider for UseIt {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            let pick = choice.options.iter().find(|o| o.id.starts_with("technology:") || o.id == "use");
+            pick.or_else(|| choice.options.last()).cloned().ok_or_else(|| IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+        }
+    }
+    let _serial = crate::dual::tests::serial();
+    let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+    for (token, exhausted, cancelled) in [(Some("it"), false, true), (Some("it"), true, false), (None, false, false)] {
+        let _ = crate::dual::take_report();
+        let mut state = question_position();
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("nekro");
+        state.player_mut(&a).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("it"));
+        let seat = state.player_mut(&b).unwrap();
+        seat.technologies.insert(ti4_model::id::TechnologyId::new("vay"));
+        seat.strategic_tokens = 2;
+        if let Some(t) = token {
+            seat.assimilated_technologies.insert("vay".to_owned(), ti4_model::id::TechnologyId::new(t));
+        }
+        if exhausted {
+            seat.exhausted_technologies.insert(ti4_model::id::TechnologyId::new("vay"));
+        }
+        state.player_mut(&a).unwrap().action_cards = vec![ActionCardId::new("insub")];
+        crate::action_cards::discard(&mut state, &a, 0);
+        let stood = with_mask(dual(), || announce(&mut state, "insub", &a, Box::new(UseIt)));
+        assert_eq!(!stood, cancelled, "{token:?} exhausted {exhausted}");
+        let seat = state.player(&b).unwrap();
+        assert_eq!(seat.strategic_tokens, if cancelled { 1 } else { 2 });
+        assert_eq!(seat.exhausted_technologies.contains(ti4_model::id::text(&"vay")), exhausted || cancelled);
+        assert!(!seat.exhausted_technologies.contains(ti4_model::id::text(&"it")), "the Nekro does not own the card");
+        let report = crate::dual::report();
+        assert!(report.differences.is_empty(), "{:?}", report.differences.first());
+        let (compared, bailed) = windows("action_cards::announce");
+        assert!(compared >= 1 && bailed == 0, "{:?}", report.windows);
+        let _ = crate::dual::take_report();
+    }
+}

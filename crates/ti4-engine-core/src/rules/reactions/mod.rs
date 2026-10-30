@@ -72,7 +72,7 @@ pub(crate) mod testkit {
     /// A driver over a window that emits `rec`, the registry of `table` for `seats` (ids are `Code(slot)`).
     pub fn driver(table: AbilityTable, s: &CoreState, seats: &[Seat], rec: EventRec) -> Driver<Emit> {
         let mut resolver = Resolver::new(seats, Some(seats[0]));
-        let defs = table.registry(s, seats, &mut |spec, _| AbilityId { kind: AbilityKind::Other, key: Code(spec.slot.0) });
+        let defs = table.registry(s, seats, &mut |spec, _, _| AbilityId { kind: AbilityKind::Other, key: Code(spec.slot.0) });
         resolver.register(defs);
         Driver::new(Emit { rec, done: false }, resolver, table, 10)
     }

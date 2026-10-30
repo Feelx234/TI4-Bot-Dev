@@ -485,7 +485,7 @@ mod price {
         let content = ContentStore::embedded();
         let mut compared = 0;
         let mut paid = 0;
-        for faction in ["letnev", "jolnar", "mentak", "keleresm"] {
+        for faction in ["letnev", "jolnar", "mentak", "keleresm", "bastion", "crimson"] {
             for planets in [0, 2, 5, 8] {
                 for goods in [0, 2, 5, 11] {
                     for tokens in [(0, 0, 0), (2, 1, 3), (5, 5, 0), (1, 0, 9)] {
@@ -572,9 +572,9 @@ mod price {
         game
     }
 
-    /// The step bails of the scoring window, each probed (a bail is silent in the lockstep): the price at a
-    /// table with a Last Bastion or a Crimson seat and for a payer holding ocean cards, a nested emission,
-    /// diplomacy. The unpriced offers of the same question are still followed.
+    /// The step bails of the scoring window, each probed (a bail is silent in the lockstep): the price for a payer
+    /// holding ocean cards, a nested emission, diplomacy. The price at a table with a Last Bastion or a Crimson seat is
+    /// followed (B12: it no longer bails). The unpriced offers of the same question are still followed.
     #[test]
     fn the_scoring_step_bails_stay_with_the_string_side() {
         let free = |state: &mut GameState| {
@@ -586,8 +586,8 @@ mod price {
             table.revealed_objectives = vec![ObjectiveId::new("amass_wealth")];
             free(&mut table);
             assert!(offered(&table, "amass_wealth"), "{faction}: the priced objective is on offer");
-            assert!(probe_score(&table, "amass_wealth").is_none(), "{faction} at the table: the price is the string's");
-            // The step bails when the question holds a priced offer; a question without one is followed.
+            assert!(probe_score(&table, "amass_wealth").is_some(), "{faction} at the table: the price is followed (B12)");
+            // A question without a priced offer is followed too.
             let mut unpriced = table.clone();
             unpriced.revealed_objectives.clear();
             assert!(probe_score(&unpriced, "eap").is_some(), "{faction}: an unpriced offer is not affected");
@@ -595,7 +595,7 @@ mod price {
             dhw.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("dhw")];
             dhw.player_mut(&a()).unwrap().relic_fragments = [("CULTURAL".to_owned(), 2)].into_iter().collect();
             assert!(offered(&dhw, "dhw"), "{faction}: the priced secret is on offer");
-            assert!(probe_score(&dhw, "dhw").is_none(), "{faction}: a priced secret too");
+            assert!(probe_score(&dhw, "dhw").is_some(), "{faction}: a priced secret too");
         }
         let mut oceans = scene(&Scene { faction: crate::factions::deepwrought::FACTION, planets: 6, goods: 12, tokens: (3, 3, 3) });
         let (system, planet) = crate::fixtures::a_placed_planet();
@@ -642,7 +642,7 @@ mod price {
         let _ = take_report();
         let priced = costs();
         assert_eq!(priced.len(), 10);
-        for faction in ["letnev", "jolnar", "mentak", "keleresm"] {
+        for faction in ["letnev", "jolnar", "mentak", "keleresm", "bastion", "crimson"] {
             for (id, cost) in &priced {
                 let mut state = rich(faction);
                 state.revealed_objectives = vec![ObjectiveId::new(id.as_str())];

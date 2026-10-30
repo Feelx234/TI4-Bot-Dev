@@ -7,6 +7,7 @@ use ti4_engine_core::hooks::HookTable;
 
 pub(crate) mod movement;
 mod observe;
+pub mod ssruu;
 mod offer;
 pub mod query;
 

@@ -451,12 +451,11 @@ mod real {
 
     /// The seats whose own effects on a research are questions or forms the window does not carry: an own Deepwrought
     /// (Doctor Carrina's window opens around every research), Keleres (the agent's offer in the payment) or Mentak (the
-    /// Corsair's unit form), and the economy the production kernel does not follow (`unported_economy`: Last Bastion,
-    /// Crimson). The payment hooks of Naaz, Nomad and Yssaril are the production window's own (tier W).
+    /// Corsair's unit form), The payment hooks of Naaz, Nomad and Yssaril are the production window's own (tier W).
     fn research_seat_unported(gs: &GameState, player: &PlayerId) -> bool {
         use crate::factions::{deepwrought, keleres, mentak};
         let own = [deepwrought::MODULE.alias, keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias, mentak::MODULE.alias];
-        crate::production_view::unported_economy(gs) || gs.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
+        gs.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
     }
 
     /// Whether the position holds an effect on a research the core `Research` window does not carry: what

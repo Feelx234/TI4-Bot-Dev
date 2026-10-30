@@ -74,6 +74,23 @@ pub enum Ask {
     Legionnaire { second: bool },
     /// The Cavalry (a promissory note of the Nomad): which non-fighter ship takes the Nomad flagship's abilities.
     Cavalry,
+    /// Technological Singularity (the Nekro): "gain a technology, or assimilate instead" (`nekro::take_from`).
+    Assimilate,
+    /// The Watcher (Empyrean mech): which of the mechs in reach cancels the action card `actor` played.
+    Watcher { actor: Seat },
+    /// Salvage Operations (Mentak): produce one ship of a type destroyed in the combat.
+    Salvage,
+}
+
+/// What a Nekro takes of an opponent's technology through an ability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Take {
+    /// Gain the technology (`gain|{source}|{tech}`).
+    Gain,
+    /// The X token of the Valefar Assimilator on it (`x|..`).
+    TokenX,
+    /// The Y token of the Valefar Assimilator on it (`y|..`).
+    TokenY,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -91,6 +108,12 @@ pub enum Opt {
     Convert,
     /// A ship type (The Cavalry).
     Ship(crate::generated::Unit),
+    /// A technology of `source` taken the way `how` says (Technological Singularity).
+    Take { how: Take, tech: crate::generated::Technology, source: Seat },
+    /// The place of a mech (the Watcher): a system and a planet, `None` for its space area.
+    Site { system: crate::generated::System, planet: Option<crate::generated::Planet> },
+    /// A ship to produce for `cost` resources (Salvage Operations); the option id is the unit's base type.
+    Produce { unit: crate::generated::Unit, cost: i16 },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -104,4 +127,10 @@ pub enum Subtype {
     Legionnaire,
     /// `cavalry_ship`.
     Cavalry,
+    /// `assimilate`.
+    Assimilate,
+    /// `watcher_remove`.
+    Watcher,
+    /// `salvage_produce`.
+    Salvage,
 }

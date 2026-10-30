@@ -5737,7 +5737,9 @@ impl CombatWindow {
         bail.set(bail.get() || !crate::production::destroy_blockaded_mobile_docks(state, ctx.content, ctx.sources, &self.system).is_empty());
         // The notes the announcement leaves (Cabal's marks, a staged event) are the core's when the string run had
         // nested activity: the abilities of the table write them, and the state comparison tells.
-        marks_changed.set(state.faction_marks != marks);
+        // (Technological Singularity's combat mark, `nekro:ts:`, is one of those: the ability that closes it is in the table.)
+        let own = |marks: &std::collections::BTreeMap<String, String>| marks.iter().filter(|(k, _)| !k.starts_with("nekro:ts:")).map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>();
+        marks_changed.set(own(&state.faction_marks) != own(&marks));
         self.machine_bail |= bail.get() || marks_changed.get();
         announce_staged_destructions(state, ctx);
                 crate::dual::Run::new(true)
@@ -9894,6 +9896,95 @@ mod tests {
         let _ = take_report();
     }
 
+    /// A fight that is over when the roll of a round is next (every ship of a side gone since the stage was entered) ends in the
+    /// `Rolling` stage, which the string leaves without another turn of its loop: the presentation keeps that stage's phase
+    /// (`resolving_hits`); the core machine used to take one more turn and say `complete`. Found by the soak.
+    #[test]
+    fn a_fight_over_at_the_roll_keeps_the_phase_of_its_stage_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
+            let content = ContentStore::embedded();
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = 1;
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 2);
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            state.active_system = Some(system.clone());
+            state.active = Some(attacker());
+            let mut window = CombatWindow::new(&state, content, ti4_model::content_types::DEFAULT, &system);
+            // The defender's ships are gone when the round is about to roll.
+            state.system_mut(&system).units.retain(|u| u.owner != defender());
+            window.stage = Stage::Rolling { round: 1 };
+            let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(1));
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut ctx = Resolving {
+                content,
+                sources: ti4_model::content_types::DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+            };
+            window.settle_open(&mut state, &mut ctx).unwrap();
+            assert_ne!(state.combat_presentation.phase, "complete", "the string leaves the stage's phase");
+        }));
+        let r = report();
+        assert!(r.windows.get("combat::settle").is_some_and(|w| w.compared > 0), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
+    /// The ship The Cavalry lends the Nomad flagship's ANTI-FIGHTER BARRAGE (Memoria II has one) rolls it in the round-1 barrage that
+    /// follows the play; the note is played inside the window, so the lent stats are read from the core state, not from the position
+    /// the window started in; found by the soak (a Hacan carrier, game 10 of the Thunder's Edge slice).
+    #[test]
+    fn the_cavalry_ship_rolls_the_lent_barrage_in_the_core_window_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut barrages = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for seed in 1..=6_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sol"), ("c", "nomad")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("c")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("m2"));
+                crate::promissory::take(&mut state, ContentStore::embedded(), &defender(), "cavalry:nomad");
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 3);
+                put(&mut state, &system, "carrier", &defender(), 1);
+                put(&mut state, &system, "fighter", &attacker(), 2);
+                state.active_system = Some(system.clone());
+                state.active = Some(attacker());
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                barrages += dice.history().iter().filter(|r| r.reason.starts_with("anti")).count();
+            }
+        });
+        let r = report();
+        assert!(barrages > 0, "the lent barrage was rolled");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
     /// Ipswitch, Loose Cannon (the Mentak hero): purged at the start of the combat, it places a ship of the type of every
     /// other player's ship destroyed in it, and the record of the combat is cleared at its end.
     #[test]
@@ -9950,6 +10041,570 @@ mod tests {
             assert_eq!(r.total_differences(), 0, "composed {composed}: {:?}", r.differences);
         }
         let _ = take_report();
+    }
+
+    /// One space fight of a Nekro (`a`) against a Hacan (`b`) who owns `theirs`; the Nekro owns the Valefar Assimilators.
+    /// The question of Technological Singularity is answered with the option `seed` picks (the other questions: the first).
+    /// `(the state after, the keys of the report's windows, the differences)`.
+    fn nekro_fight(seed: u64, theirs: &[&str], prepare: impl Fn(&mut GameState)) -> (GameState, Vec<String>, u64) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Rotate(usize);
+        impl crate::choice::Decider for Rotate {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                if choice.prompt == "gain a technology, or assimilate instead" {
+                    let pick = choice.options[self.0 % choice.options.len()].clone();
+                    return Ok(pick);
+                }
+                crate::choice::FirstOption.choose(choice)
+            }
+        }
+        let mut out = None;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            for tech in ["vax", "vay"] {
+                state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+            }
+            state.player_mut(&defender()).unwrap().technologies.clear();
+            for tech in theirs {
+                state.player_mut(&defender()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(*tech));
+            }
+            prepare(&mut state);
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 3);
+            put(&mut state, &system, "destroyer", &defender(), 3);
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            state.active_system = Some(system.clone());
+            state.active = Some(attacker());
+            let mut table = Table::with_default(Box::new(Rotate(seed as usize)));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: ti4_model::content_types::DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+            };
+            resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            out = Some(state);
+        }));
+        let r = report();
+        let bails = r.windows.keys().cloned().collect();
+        let differences = r.total_differences();
+        // The end announcement of a fight whose combat mark the table closes is no reason to keep the settle in the string.
+        if r.windows.keys().all(|k| !k.contains("[bail:")) {
+            assert_eq!(r.windows.get("combat::settle").map_or(0, |w| w.bailed), 0, "{:?}", r.windows);
+        }
+        if differences > 0 {
+            eprintln!("{:?}", r.differences.first());
+        }
+        let _ = take_report();
+        (out.unwrap(), bails, differences)
+    }
+
+    /// Technological Singularity (the Nekro): the marks open and close with the combat, the ability is offered after a
+    /// destroyed opponent ship and asks which technology to gain or which token to place; the core follows all of it.
+    #[test]
+    fn the_nekro_singularity_runs_in_the_core_window_in_lockstep() {
+        let (mut gained, mut tokens) = (0, 0);
+        for seed in 0..12_u64 {
+            let (state, bails, differences) = nekro_fight(seed, &["gd", "ie", "qdn", "pm"], |_| {});
+            assert_eq!(differences, 0, "seed {seed}");
+            assert!(bails.iter().all(|k| !k.contains("technological_singularity")), "seed {seed}: {bails:?}");
+            let nekro = state.player(&attacker()).unwrap();
+            gained += usize::from(nekro.technologies.contains(ti4_model::id::text(&"gd")) || nekro.technologies.contains(ti4_model::id::text(&"ie")));
+            tokens += nekro.assimilated_technologies.len();
+            assert!(state.faction_marks.keys().all(|k| !k.starts_with("nekro:ts:")), "the marks are closed with the combat");
+        }
+        assert!(gained > 0, "a technology was gained");
+        assert!(tokens > 0, "a token was placed");
+    }
+
+    /// Technological Singularity is barred by a faceup Antivirus in the opponent's area, and the X and Y tokens are not offered
+    /// on the technologies of a Last Bastion player whose commander (Nip and Tuck) is unlocked: the options the core derives
+    /// equal the string's (a difference in either would differ in the options of the question).
+    #[test]
+    fn the_singularity_respects_antivirus_and_nip_and_tuck_in_lockstep() {
+        let mut barred_runs = 0;
+        for seed in 0..8_u64 {
+            let (state, bails, differences) = nekro_fight(seed, &["gd", "qdn"], |s| {
+                let note = crate::promissory::note_id("antivirus", &crate::promissory::faction_name(s, &attacker()));
+                s.promissory_notes.insert(note.clone(), defender());
+                s.promissory_faceup.insert(note);
+            });
+            assert_eq!(differences, 0, "antivirus, seed {seed}");
+            assert!(bails.iter().all(|k| !k.contains("technological_singularity")), "{bails:?}");
+            let nekro = state.player(&attacker()).unwrap();
+            barred_runs += usize::from(!nekro.technologies.contains(ti4_model::id::text(&"gd")) && nekro.assimilated_technologies.is_empty());
+            let (state, _, differences) = nekro_fight(seed, &["gd", "qdn"], |s| {
+                s.player_mut(&defender()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("bastioncommander"), ti4_model::state::LeaderStatus::Unlocked);
+            });
+            assert_eq!(differences, 0, "nip and tuck, seed {seed}");
+            assert!(state.player(&attacker()).unwrap().assimilated_technologies.is_empty(), "no token goes on the technologies of that player");
+        }
+        assert_eq!(barred_runs, 8, "the faceup Antivirus bars the ability");
+    }
+
+    /// The tokens are placed once on a technology (one token per technology, one per card), and a token lends only a faction
+    /// technology that is not a unit upgrade nor Executive Order: all of it equal to the string's options.
+    #[test]
+    fn the_singularity_options_equal_the_strings_for_every_token_state() {
+        for seed in 0..10_u64 {
+            for theirs in [&["qdn", "pm", "gd"][..], &["executiveorder", "qdn"][..], &["hcf2", "gd", "ie"][..]] {
+                let (_, _, differences) = nekro_fight(seed, theirs, |s| {
+                    if seed % 3 == 0 {
+                        s.player_mut(&attacker()).unwrap().assimilated_technologies.insert("vax".to_owned(), ti4_model::id::TechnologyId::new("qdn"));
+                    }
+                    if seed % 5 == 0 {
+                        s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("gd"));
+                    }
+                });
+                assert_eq!(differences, 0, "seed {seed} {theirs:?}");
+            }
+        }
+    }
+
+    /// Gaining a unit upgrade through Technological Singularity reaches the units on the board (`technology::gain`): the Nekro's
+    /// cruisers become Cruiser II in the core window as in the string.
+    #[test]
+    fn the_singularity_gaining_a_unit_upgrade_swaps_the_units_in_lockstep() {
+        let (mut swapped, mut gained) = (0, 0);
+        for seed in 0..6_u64 {
+            let (state, windows, differences) = nekro_fight(seed, &["cr2"], |_| {});
+            assert_eq!(differences, 0, "seed {seed}");
+            assert!(windows.iter().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            gained += usize::from(state.player(&attacker()).unwrap().technologies.contains(ti4_model::id::text(&"cr2")));
+            swapped += state.system_state(&SystemId::new("18")).units.iter().filter(|u| u.owner == attacker() && u.type_id.as_str() == "cruiser2").count();
+        }
+        assert!(gained > 0 && swapped > 0, "the upgrade was gained ({gained}) and reached the board ({swapped})");
+    }
+
+    /// Documented bail of Technological Singularity: a Nekro who holds the Z token breakthrough (a flagship's text is lent).
+    #[test]
+    fn bail_the_singularity_with_the_z_token() {
+        let mut bailed = 0;
+        for seed in 0..6_u64 {
+            let (_, bails, differences) = nekro_fight(seed, &["gd", "qdn"], |s| {
+                s.player_mut(&attacker()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("nekrobt"));
+            });
+            assert_eq!(differences, 0, "seed {seed}");
+            bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
+        }
+        assert!(bailed > 0, "the Z token is the string's");
+    }
+
+    /// The ground forces an Alastor brought into the fight stop taking part when it ends: the marks that name them are cleared by the
+    /// announcement of the end, in the core window as in the string; found by the soak.
+    #[test]
+    fn the_end_of_a_fight_clears_the_alastor_participants_in_lockstep() {
+        let mut cleared = 0;
+        for seed in 0..8_u64 {
+            let (state, _bails, differences) = nekro_fight(seed, &["gd"], |s| {
+                let system = SystemId::new("18");
+                put(s, &system, "nekro_flagship", &attacker(), 1);
+                crate::fixtures::put_on_planet(s, &system, &ti4_model::id::PlanetId::new("mecatol_rex"), "nekro_mech", &attacker(), 2);
+            });
+            assert_eq!(differences, 0, "seed {seed}");
+            cleared += usize::from(state.faction_marks.keys().all(|k| !k.starts_with("nekro:alastor")));
+        }
+        assert!(cleared > 0, "the participants were cleared");
+    }
+
+    /// The Z token is an option of the Singularity even when the opponent owns nothing the Nekro could gain: the core cannot tell
+    /// whether the string offers it, so the window bails there too (counted); found by the soak.
+    #[test]
+    fn bail_the_singularity_with_the_z_token_and_nothing_else_to_take() {
+        let mut bailed = 0;
+        for seed in 0..6_u64 {
+            let (_, bails, differences) = nekro_fight(seed, &[], |s| {
+                s.player_mut(&attacker()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("nekrobt"));
+            });
+            assert_eq!(differences, 0, "seed {seed}");
+            bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
+        }
+        assert!(bailed > 0, "the Z token is the string's");
+    }
+
+    /// The string registers The Terror Between for a Nekro seat (its flagship carries the text through the Z token): the core
+    /// registers it too (the registry test) and bails when a Nekro flagship holding the Z token stands in the system.
+    #[test]
+    fn bail_the_terror_between_of_a_nekro_flagship_with_the_z_token() {
+        let (mut bailed, mut plain_bailed) = (0, 0);
+        for seed in 0..6_u64 {
+            let (_, bails, differences) = nekro_fight(seed, &[], |s| {
+                put(s, &SystemId::new("18"), "nekro_flagship", &attacker(), 1);
+                s.player_mut(&attacker()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("nekrobt"));
+            });
+            assert_eq!(differences, 0, "seed {seed}");
+            bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
+            // Without the Z token the flagship carries nothing: the window is followed.
+            let (_, bails, differences) = nekro_fight(seed, &[], |s| put(s, &SystemId::new("18"), "nekro_flagship", &attacker(), 1));
+            assert_eq!(differences, 0, "seed {seed}");
+            plain_bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
+        }
+        assert!(bailed > 0, "the Z token may lend the text: the string decides");
+        assert_eq!(plain_bailed, 0, "no Z token, no bail");
+    }
+
+    /// One space fight of `a` against `b` (real factions, the fixture's notes cleared) at the centre of a plain hub whose map is
+    /// lent to the combat, after `prepare`; every question is answered by `pick(seed, nth question of its prompt kind, choice)`.
+    /// `(the state after, the windows of the report, the number of differences)`.
+    fn hub_fight(
+        seed: u64,
+        factions: &[&str],
+        prepare: impl Fn(&mut GameState, &SystemId),
+        pick: fn(u64, usize, &Choice) -> usize,
+    ) -> (GameState, std::collections::BTreeMap<String, crate::dual::WindowCounts>, u64, Vec<String>) {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        struct Rotate(u64, usize, fn(u64, usize, &Choice) -> usize);
+        impl crate::choice::Decider for Rotate {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                self.1 += 1;
+                let i = (self.2)(self.0, self.1, choice).min(choice.options.len().saturating_sub(1));
+                choice.options.get(i).cloned().ok_or_else(|| IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+            }
+        }
+        let hub = crate::fixtures::plain_hub();
+        let mut out = None;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
+            let names = ["a", "b", "c", "d"];
+            let seats: Vec<(&str, &str)> = factions.iter().enumerate().map(|(i, f)| (names[i], *f)).collect();
+            let mut state = crate::fixtures::seated_game(&seats, ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let system = SystemId::new(hub.centre.clone());
+            prepare(&mut state, &system);
+            state.active_system = Some(system.clone());
+            state.active = Some(attacker());
+            // As `Game` runs a fight: the position names the battle, so the questions asked inside it carry it (`about_battle`).
+            state.active_space_combat = Some((system.clone(), attacker(), defender()));
+            let mut table = Table::with_default(Box::new(Rotate(seed, 0, pick)));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: ti4_model::content_types::DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: Some(&hub.galaxy) }),
+            };
+            resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+            out = Some(state);
+        }));
+        let r = report();
+        let differences = r.total_differences();
+        if differences > 0 {
+            eprintln!("{:?}", r.differences.first());
+        }
+        let windows = r.windows.clone();
+        let nested = r.nested.keys().cloned().collect();
+        let _ = take_report();
+        (out.unwrap(), windows, differences, nested)
+    }
+
+    /// Dynamo (the Empyrean flagship): after a defender's dreadnought sustains in the fight the Empyrean may spend 2 influence
+    /// to repair it; the planets are the payment's own questions, answered in turn.
+    #[test]
+    fn dynamo_repairs_in_the_core_window_in_lockstep() {
+        let (mut offered, mut paid_questions) = (0, 0);
+        for seed in 0..10_u64 {
+            let (_state, windows, differences, nested) = hub_fight(
+                seed,
+                &["empyrean", "hacan"],
+                |s, system| {
+                    // Half of the fights have the flagship in an adjacent system: the map is an input of the ability.
+                    let home = if s.rng_seed % 2 == 1 { SystemId::new(crate::fixtures::plain_hub().outer[0].clone()) } else { system.clone() };
+                    put(s, &home, "empyrean_flagship", &attacker(), 1);
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "dreadnought", &defender(), 3);
+                    put(s, system, "cruiser", &defender(), 1);
+                    // Trade goods beside the planets make the payment a real choice.
+                    s.player_mut(&attacker()).unwrap().trade_goods = 6;
+                },
+                |seed, nth, c| if c.prompt.starts_with("pay ") { (seed as usize + nth) % 3 } else { 0 },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            offered += nested.iter().filter(|k| k.contains("unit:*:empyrean_flagship:SUSTAIN_DAMAGE_USED:after")).count();
+            paid_questions += nested.iter().filter(|k| k.contains("ask:pay ")).count();
+        }
+        assert!(offered > 0, "Dynamo was offered and followed");
+        assert!(paid_questions > 0, "a payment question was put inside the ability");
+    }
+
+    /// The Watcher (the Empyrean mech): the opponent plays a reaction card in the fight; the Empyrean removes a mech in reach to
+    /// cancel it (a question when several mechs are in reach).
+    #[test]
+    fn the_watcher_cancels_a_card_in_the_core_window_in_lockstep() {
+        let (mut offered, mut asked) = (0, 0);
+        for seed in 0..8_u64 {
+            let (state, windows, differences, nested) = hub_fight(
+                seed,
+                &["empyrean", "hacan"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "empyrean_mech", &attacker(), 2);
+                    put(s, system, "dreadnought", &defender(), 2);
+                    let outer = SystemId::new(crate::fixtures::plain_hub().outer[0].clone());
+                    put(s, &outer, "empyrean_mech", &attacker(), 1);
+                    s.player_mut(&defender()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("mb1")];
+                },
+                |seed, _, c| {
+                    if let Some(i) = c.options.iter().position(|o| o.id.contains("empyrean_mech")) {
+                        return i;
+                    }
+                    if c.prompt.starts_with("Watcher") {
+                        return seed as usize;
+                    }
+                    c.options.iter().position(|o| o.id.starts_with("reaction:")).unwrap_or(0)
+                },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            offered += nested.iter().filter(|k| k.contains("unit:*:empyrean_mech:ACTION_CARD_PLAYED:when")).count();
+            asked += nested.iter().filter(|k| k.contains("ask:Watcher")).count();
+            let _ = state;
+        }
+        assert!(offered > 0, "the Watcher was offered and followed");
+        assert!(asked > 0, "several mechs were in reach: the Empyrean was asked which");
+    }
+
+    /// Salvage Operations, the produce half (Mentak): after a won fight the owner may pay the cost of a ship type destroyed in
+    /// it and place one; the payment is the pay loop inside the ability. A cruiser or a flagship is the string's (Corsair form).
+    #[test]
+    fn salvage_operations_produces_a_ship_in_the_core_window_in_lockstep() {
+        let (mut offered, mut paid_questions, mut built) = (0, 0, 0);
+        for seed in 0..12_u64 {
+            let (state, windows, differences, nested) = hub_fight(
+                seed,
+                &["mentak", "hacan"],
+                |s, system| {
+                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
+                    put(s, system, "dreadnought", &attacker(), 3);
+                    put(s, system, "carrier", &attacker(), 1);
+                    put(s, system, "destroyer", &defender(), 2);
+                    put(s, system, "fighter", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().trade_goods = 5;
+                },
+                |seed, nth, c| if c.prompt.starts_with("Salvage") { 0 } else if c.prompt.starts_with("pay ") { (seed as usize + nth) % 3 } else { 0 },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            offered += nested.iter().filter(|k| k.contains("technology:*:so:SPACE_COMBAT_ENDED:produce")).count();
+            paid_questions += nested.iter().filter(|k| k.contains("ask:pay ")).count();
+            built += usize::from(state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units.iter().filter(|u| u.owner == attacker()).count() > 4);
+        }
+        assert!(offered > 0, "Salvage Operations was offered and followed");
+        assert!(built > 0, "a ship was produced");
+        assert!(paid_questions > 0, "a payment question was put inside the ability");
+    }
+
+    /// Salvage Operations producing a cruiser is the string's (Mentak's Corsair form of the cruiser): the window bails, counted.
+    #[test]
+    fn bail_salvage_operations_of_a_cruiser_is_counted() {
+        let mut bailed = 0;
+        for seed in 0..6_u64 {
+            let (_state, windows, differences, _) = hub_fight(
+                seed,
+                &["mentak", "hacan"],
+                |s, system| {
+                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
+                    put(s, system, "dreadnought", &attacker(), 3);
+                    put(s, system, "carrier", &attacker(), 1);
+                    put(s, system, "cruiser", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().trade_goods = 5;
+                },
+                |_, _, _| 0,
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            bailed += usize::from(windows.keys().any(|k| k.contains("a fact the adapter did not compute")));
+        }
+        assert!(bailed > 0, "the cruiser is the string's");
+    }
+
+    /// Ssruu (the Yssaril agent) copies Brother Milor (Yin, a third seat) in a fight: when a ship is destroyed in combat the
+    /// borrower exhausts Ssruu and the owner of the ship places 2 fighters. A pair rule of the table: owned by the borrower, the
+    /// lender in the id.
+    #[test]
+    fn ssruu_copies_brother_milor_in_the_core_window_in_lockstep() {
+        let mut offered = 0;
+        for seed in 0..10_u64 {
+            let (state, windows, differences, nested) = hub_fight(
+                seed,
+                &["yssaril", "hacan", "yin"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "destroyer", &defender(), 3);
+                    put(s, system, "dreadnought", &defender(), 1);
+                },
+                |_, _, c| c.options.iter().position(|o| o.id.contains("yssarilagent:yinagent")).unwrap_or(0),
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            offered += nested.iter().filter(|k| k.contains("yssarilagent:yinagent:SHIP_DESTROYED:after")).count();
+            if state.player(&attacker()).unwrap().leaders.get(ti4_model::id::text(&"yssarilagent")) == Some(&ti4_model::state::LeaderStatus::Readied) {
+                continue;
+            }
+        }
+        assert!(offered > 0, "the copy was offered and followed");
+    }
+
+    /// Ssruu copies Viscount Unlenn (Letnev, a third seat) at the start of a space combat round: the borrower chooses one ship
+    /// for an extra die, the mark names borrower and lender.
+    #[test]
+    fn ssruu_copies_viscount_unlenn_in_the_core_window_in_lockstep() {
+        let (mut offered, mut asked) = (0, 0);
+        for seed in 0..8_u64 {
+            let (state, windows, differences, nested) = hub_fight(
+                seed,
+                &["yssaril", "hacan", "letnev"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "destroyer", &defender(), 3);
+                },
+                |seed, _, c| {
+                    if let Some(i) = c.options.iter().position(|o| o.id.contains("ssruu-copy")) {
+                        return i;
+                    }
+                    if c.prompt.starts_with("Ssruu copying") {
+                        return seed as usize;
+                    }
+                    0
+                },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            offered += nested.iter().filter(|k| k.contains(":letnevagent:c:COMBAT_ROUND_STARTED:after")).count();
+            asked += nested.iter().filter(|k| k.contains("ask:Ssruu copying")).count();
+            assert!(state.faction_marks.keys().any(|k| k.starts_with("yssaril:ssruu-round-agent:a:letnevagent:")) || offered == 0);
+        }
+        assert!(offered > 0 && asked > 0, "the copy was offered ({offered}) and asked ({asked})");
+    }
+
+    /// The extra die of a round agent is read from the core state: in the composed settle the mark is written and read in one
+    /// window, which the string-oracle snapshot of the position at its start could not see (the Ssruu copy of Viscount Unlenn
+    /// found it: 3 dice against 5).
+    #[test]
+    fn the_letnev_agent_extra_die_is_read_in_the_window_that_writes_the_mark() {
+        let mut marked = 0;
+        for seed in 0..6_u64 {
+            let (state, windows, differences, _) = hub_fight(
+                seed,
+                &["letnev", "hacan"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "destroyer", &defender(), 3);
+                },
+                |seed, _, c| if c.prompt.starts_with("leader") || c.prompt.contains("choose one unit") { seed as usize } else { 0 },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            marked += state.faction_marks.keys().filter(|k| k.starts_with("yssaril:ssruu-round-agent:a:letnevagent:")).count();
+        }
+        assert!(marked > 0, "the agent marked a ship");
+    }
+
+    /// The owner has nothing to spend: no planet ready, no trade goods or commodities.
+    fn starve(s: &mut GameState, who: &PlayerId) {
+        let planets: Vec<_> = s.controlled_planets(who).into_iter().map(|(_, p)| p.clone()).collect();
+        s.exhausted_planets.extend(planets);
+        let seat = s.player_mut(who).unwrap();
+        seat.trade_goods = 0;
+        seat.commodities = 0;
+    }
+
+    /// The conditions that keep Dynamo, the Watcher and Salvage Operations out of a window are the string's: a flagship owner who
+    /// cannot pay 2 influence, a card the Empyrean played itself, a mech out of reach, a Mentak who lost, a type with no
+    /// plastic left and a bill the Mentak cannot meet. The core derives each from the state, never from a snapshot.
+    #[test]
+    fn the_conditions_of_dynamo_the_watcher_and_salvage_equal_the_strings() {
+        for seed in 0..6_u64 {
+            // Dynamo without influence: not offered.
+            let (_, windows, differences, nested) = hub_fight(
+                seed,
+                &["empyrean", "hacan"],
+                |s, system| {
+                    put(s, system, "empyrean_flagship", &attacker(), 1);
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "dreadnought", &defender(), 3);
+                    starve(s, &attacker());
+                },
+                |_, _, _| 0,
+            );
+            assert_eq!(differences, 0, "dynamo, seed {seed}: {windows:?}");
+            assert!(nested.iter().all(|k| !k.contains("empyrean_flagship")), "an empyrean who cannot pay is offered nothing: {nested:?}");
+            // The Empyrean plays the card itself and has a far mech: no Watcher for its own card, none out of reach.
+            let (_, windows, differences, nested) = hub_fight(
+                seed,
+                &["empyrean", "hacan"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "dreadnought", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("mb1")];
+                    let hub = crate::fixtures::plain_hub();
+                    let far = crate::fixtures::plain_systems(9).into_iter().find(|id| id != &hub.centre && !hub.outer.contains(id)).unwrap();
+                    put(s, &SystemId::new(far), "empyrean_mech", &attacker(), 1);
+                },
+                |_, _, c| c.options.iter().position(|o| o.id.starts_with("reaction:")).unwrap_or(0),
+            );
+            assert_eq!(differences, 0, "watcher, seed {seed}: {windows:?}");
+            assert!(nested.iter().all(|k| !k.contains("empyrean_mech")), "no Watcher for its own card, none out of reach: {nested:?}");
+            // A Mentak who loses is owed its trade good and no ship; one with no resources is offered none; a type with no
+            // plastic left is not offered.
+            for (case, outcome) in [("loses", 0), ("starved", 1), ("no dreadnoughts left", 2)] {
+                let (_, windows, differences, nested) = hub_fight(
+                    seed,
+                    &["mentak", "hacan"],
+                    |s, system| {
+                        s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
+                        put(s, system, "carrier", &attacker(), 1);
+                        match outcome {
+                            0 => {
+                                put(s, system, "cruiser", &attacker(), 1);
+                                put(s, system, "dreadnought", &defender(), 4);
+                            }
+                            1 => {
+                                // The trade good the mandatory half pays first buys nothing of 4 resources.
+                                put(s, system, "dreadnought", &attacker(), 3);
+                                put(s, system, "dreadnought", &defender(), 1);
+                                starve(s, &attacker());
+                            }
+                            _ => {
+                                put(s, system, "dreadnought", &attacker(), 5);
+                                put(s, system, "dreadnought", &defender(), 1);
+                                s.player_mut(&attacker()).unwrap().trade_goods = 5;
+                            }
+                        }
+                    },
+                    |_, _, _| 0,
+                );
+                assert_eq!(differences, 0, "salvage {case}, seed {seed}: {windows:?}");
+                assert!(nested.iter().all(|k| !k.contains("so:SPACE_COMBAT_ENDED:produce")) || outcome == 2, "{case}: {nested:?}");
+            }
+        }
+    }
+
+    /// Courageous to the End stays the string's: its casualty question for the opponent has the holder as producer, which the
+    /// core question does not carry. The window that meets the card bails, named (Reveal Prototype's bail is the unit test of
+    /// `cost_is_payable`, `None` for it, and `bail_a_played_card_the_core_does_not_play_is_named`).
+    #[test]
+    fn bail_courageous_to_the_end_is_counted() {
+        let mut named = 0;
+        for seed in 1..=10_u64 {
+            let (_, _, bails) = declared_cards_fight(seed, &["courageous"], true);
+            named += bails.iter().filter(|k| k.contains("(card courageous)")).count();
+        }
+        assert!(named > 0, "a Courageous to the End was played and named");
     }
 
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
@@ -10133,6 +10788,78 @@ mod tests {
         assert!(killed > 0, "some barrage hit");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.areas[&Area::Driver].calls >= 20, "the steps were compared: {:?}", r.areas[&Area::Driver]);
+        let _ = take_report();
+    }
+
+    /// A Waylay played before a side's barrage roll sends its hits to every ship: the core barrage step does not carry it, so the
+    /// window bails (counted) instead of finishing with the fighters' removal; found by the soak (a sustained dreadnought).
+    #[test]
+    fn a_waylay_in_the_barrage_is_a_counted_bail_not_a_difference() {
+        let mut bailed = 0;
+        for seed in 0..10_u64 {
+            let (_state, windows, differences, _nested) = hub_fight(
+                seed,
+                &["sol", "hacan"],
+                |s, system| {
+                    put(s, system, &a_barrage_unit(), &attacker(), 3);
+                    put(s, system, "fighter", &defender(), 1);
+                    put(s, system, "dreadnought", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("waylay")];
+                },
+                |_, _, c| c.options.iter().position(|o| o.id.starts_with("reaction:")).unwrap_or(0),
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            bailed += windows.iter().filter(|(k, v)| k.contains("[bail: Waylay") && v.bailed > 0).count();
+        }
+        assert!(bailed > 0, "a Waylay was played in the barrage and the window bailed");
+    }
+
+    /// A reaction window the loss of a ship opens inside the hit assignment (Crash Landing, when the last ship falls) is not a hit's
+    /// question: its pick carries no hit detail, in the string and in the core window; found by the soak (space cannon hits).
+    #[test]
+    fn a_reaction_inside_the_hit_assignment_carries_no_hit_detail() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        struct Decline;
+        impl crate::choice::Decider for Decline {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                let i = choice.options.iter().position(|o| o.id == "decline").unwrap_or(0);
+                choice.options.get(i).cloned().ok_or_else(|| IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+            }
+        }
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        for seed in 0..4_u64 {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "mentak")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed;
+            let (system, _planet) = crate::fixtures::a_placed_planet();
+            state.active_system = Some(system.clone());
+            state.active = Some(attacker());
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            put(&mut state, &system, "infantry", &defender(), 1);
+            state.player_mut(&defender()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("crashlanding")];
+            with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+                let mut table = Table::with_default(Box::new(Decline));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                absorb_hits_seeing_with(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, None, &mut ctx, &defender(), &system, &attacker(), 1, false, HitOrigin::UnitAbility).unwrap();
+            });
+        }
+        let r = report();
+        let compared = r.windows.get("combat::assign_hits").map_or(0, |w| w.compared);
+        let offered = r.nested.keys().filter(|k| k.contains("reaction:*:SHIP_DESTROYED:when")).count();
+        assert!(offered > 0 && compared > 0, "Crash Landing was offered inside a compared assignment: {offered} {compared} {:?} {:?}", r.windows, r.nested);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
         let _ = take_report();
     }
 
@@ -10719,6 +11446,8 @@ mod tests {
             put(&mut state, &system, &a_barrage_unit(), &attacker(), 6);
             put(&mut state, &system, "fighter", &defender(), 1);
             put(&mut state, &system, "dreadnought", &defender(), 1);
+            // As `Game` runs a fight: the question of the ability is asked in the battle (`about_battle`).
+            state.active_space_combat = Some((system.clone(), attacker(), defender()));
             if seed % 2 == 0 {
                 put(&mut state, &system, "warsun", &defender(), 1);
             }
