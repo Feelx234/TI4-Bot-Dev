@@ -6890,6 +6890,58 @@ mod tests {
         let _ = take_report();
     }
 
+    /// A Crimson Legionnaire destroyed by a bombardment pays its trade good as a staged event (the string state keeps it as a mark):
+    /// the core step writes what the ability of the table staged back, instead of dropping it; found by the soak.
+    #[test]
+    fn a_legionnaire_destroyed_by_a_bombardment_stages_its_trade_good_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut staged = 0;
+        with_mask(mask, || {
+            for seed in 1..=8_u64 {
+                let mut state = crate::fixtures::seated_game(&[("a", "muaat"), ("b", "mahact")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "dreadnought", &PlayerId::new("a"), 3);
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 2);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "mahact_infantry", &PlayerId::new("b"), 5);
+                // Only the conversion is possible: the commodities are at the limit.
+                state.player_mut(&PlayerId::new("b")).unwrap().commodities = 3;
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let content = ContentStore::embedded();
+                let mut resolver = armed_resolver(&state, vec![PlayerId::new("a"), PlayerId::new("b")]);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &PlayerId::new("a"), &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap();
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+                drop(ctx);
+                staged += state.faction_marks.iter().filter(|(k, v)| k.starts_with("private:#staged:event:") && v.contains("TRADE_GOODS_GAINED")).count();
+            }
+        });
+        let r = report();
+        assert!(staged > 0, "a Legionnaire paid a trade good");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
     /// Run the invasion of `system` by "a" to its end with the first option everywhere (the reaction slots
     /// declined), the resolver armed for "a" and "b". For the lockstep tests of the ability table.
     fn run_invasion_first_option(state: &mut GameState, seed: u64, system: &SystemId) {

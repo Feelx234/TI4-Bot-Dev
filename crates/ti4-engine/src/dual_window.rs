@@ -2772,13 +2772,16 @@ pub fn bombard(
             *c = crate::invasion::with_bombard_offer(taken, a.invader, &system, &planet, usize::from(hits), &present, before.system_state(&system).on_planet(&planet));
         }
     };
+    let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BOMBARD, script), |core, _| {
         let driven = drive_with(&mut driver, core, kernel, &r, &before, script, &complete);
-        core.pending_mut().staged.clear();
+        staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })
     .ok()?
     .ok()?;
+    // What an ability of the table staged inside the step (a Crimson Legionnaire's trade good): the string state holds it as a mark.
+    apply_staged(gs, &r, &staged)?;
     let w = &driver.window;
     let id_of = |s: ti4_engine_core::ids::Seat| PlayerId::new(r.seats.get(usize::from(s.0)).cloned().unwrap_or_default());
     let set_of = |set: SeatSet| set.iter().map(id_of).collect::<std::collections::BTreeSet<_>>();
