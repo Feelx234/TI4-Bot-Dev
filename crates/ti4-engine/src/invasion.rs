@@ -10725,6 +10725,42 @@ mod tests {
         (asks, state)
     }
 
+    /// Package W3: Parley played by the holder returns a Naaz mech the invader landed to the space area in its SHIP form
+    /// (`naaz_mech_space`: a ground form is never in a space area). The play runs as a core card window on `Area::ActionCards`
+    /// with the invasion on the string, so the core effect (`cards::parley`, `fx_strategy::flip_form`) is compared with the string.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn parley_flips_a_landed_naaz_mech_in_the_core_play_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b) = (invader(), holder());
+        let (mut state, system, planet) = arena();
+        for (seat, faction) in state.players.iter_mut().zip(["naaz", "hacan"]) {
+            seat.faction = ti4_model::id::FactionId::new(faction);
+        }
+        state.promissory_notes.clear();
+        state.system_mut(&system).set_control(planet.clone(), b.clone());
+        on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+        in_space(&mut state, &system, "naaz_mech", &a, 1);
+        state.player_mut(&b).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("parley")];
+        state.rng_seed = 5;
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(5);
+        let script = vec![format!("commit|0|{planet}"), "reaction:generic:UNITS_COMMITTED:after".to_owned(), "done_committing".to_owned()];
+        let _ = crate::dual::take_report();
+        let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::ActionCards, crate::dual::Backend::Dual);
+        let _asks = crate::dual::with_mask(mask, || {
+            drive_invasion(&mut state, &system, Stage::Committing, InvasionReport::default(), script, &mut dice, &mut rng)
+        });
+        let report = crate::dual::report();
+        let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+        assert!(report.differences.is_empty(), "{shown}");
+        let w = report.windows.get("action_cards::announce").cloned().unwrap_or_default();
+        assert_eq!((w.compared, w.bailed), (1, 0), "Parley ran in the core: {:?}", report.windows);
+        let space: Vec<String> = state.system_state(&system).units_of(&a).into_iter().map(|u| u.type_id.to_string()).collect();
+        assert_eq!(space, ["naaz_mech_space"], "back in space in its ship form");
+        let _ = crate::dual::take_report();
+    }
+
     #[test]
     fn parley_returns_the_committed_unit_to_space() {
         // Parley: "Return the committed units to the space area." The invader lands one
