@@ -863,6 +863,8 @@ pub fn combat_kernel(sources: SourceSet) -> Option<Kernel> {
     cc::register_naaz_nomad(&mut kernel.hooks);
     // Transparasteel Plating: a passed player cannot play action cards on the holder's turn.
     kernel.hooks.economy.action_cards_forbidden.push(ti4_engine_core_factions::cd_registry::yssaril::query::action_cards_forbidden);
+    // The Table's Grace: the Corsair stands in for the Cruiser II a Mentak seat places (Salvage Operations, Ipswitch).
+    kernel.hooks.strategy.unit_form_override.push(ti4_engine_core_factions::cc_ground::mentak::query::unit_form_override);
     // The agents' exhaustion is announced to a Nomad that listens (the round agents read it).
     kernel.hooks.direct.nomad_watches_agent_exhaustion.push(ti4_engine_core_factions::ce_movement::nomad::query::watches_agent_exhaustion);
     // Bastion's ship-lost bookkeeping and the Nekro Alastor queries and bookkeeping are native.

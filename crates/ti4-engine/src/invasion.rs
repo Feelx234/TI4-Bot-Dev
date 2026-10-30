@@ -10539,6 +10539,58 @@ mod tests {
         assert_eq!(agent, Some(ti4_model::state::LeaderStatus::Readied));
     }
 
+    /// Package W1: a readied The Thundarian does not stop the tail of the ground roll step from running as a core window. The card
+    /// listens to the event that ends the step (outside the tail), and a replay rolls the pair and runs the tail again. The same
+    /// fight as `the_thundarian_replays_the_ground_roll_without_assigning_its_hits`, with the invasion on `Dual`.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_thundarian_watching_does_not_stop_the_tail_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b) = (invader(), holder());
+        for (holder_of_card, used) in [(false, false), (true, false), (true, true)] {
+            for nomad_seat in [a.clone(), b.clone()] {
+                let (mut state, system, planet) = arena();
+                state.system_mut(&system).set_control(planet.clone(), b.clone());
+                on_planet(&mut state, &system, &planet, "infantry", &a, 1);
+                on_planet(&mut state, &system, &planet, "infantry", &b, 1);
+                state.player_mut(&nomad_seat).unwrap().faction = ti4_model::id::FactionId::new("nomad");
+                if holder_of_card {
+                    state.player_mut(&nomad_seat).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentthundarian"), ti4_model::state::LeaderStatus::Readied);
+                }
+                let name = crate::promissory::faction_name(&state, &nomad_seat);
+                let window = format!("leader:{name}:nomadagentthundarian:GROUND_COMBAT_ROLL_STEP_ENDED:after");
+                let script = vec!["fight".to_owned(), if used { window } else { "decline".to_owned() }];
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(4);
+                state.rng_seed = 4;
+                let _ = crate::dual::take_report();
+                let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+                let asks = crate::dual::with_mask(mask, || {
+                    drive_invasion(
+                        &mut state,
+                        &system,
+                        Stage::Fighting { planets: vec![planet.clone()], index: 0, defender: b.clone() },
+                        InvasionReport { committed: vec![planet.clone()], ..InvasionReport::default() },
+                        script,
+                        &mut dice,
+                        &mut rng,
+                    )
+                });
+                let report = crate::dual::report();
+                let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+                assert!(report.differences.is_empty(), "{holder_of_card}/{used}/{nomad_seat}: {shown}");
+                let w = report.windows.get("invasion::roll_ground_tail").cloned().unwrap_or_default();
+                assert!(w.compared > 0, "{holder_of_card}/{used}/{nomad_seat}: the tail ran in the core: {:?} / {asks:?}", report.windows);
+                assert!(
+                    report.windows.keys().all(|k| !k.contains("invasion::roll_ground_tail [bail: The Thundarian")),
+                    "{holder_of_card}/{used}/{nomad_seat}: {:?}",
+                    report.windows
+                );
+                let _ = crate::dual::take_report();
+            }
+        }
+    }
+
     /// A system with two non-station planets, so a relocation has somewhere to go.
     fn dual_arena() -> (GameState, SystemId, PlanetId, PlanetId) {
         let content = ContentStore::embedded();

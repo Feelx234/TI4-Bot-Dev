@@ -3488,16 +3488,16 @@ pub struct RollTailArgs<'a> {
     pub announce: bool,
 }
 
-/// Why the tail holds something the core window does not carry: X-89 Bacterial Weapon (doubled staged hits), a
-/// readied The Thundarian (the step-ended event and its replays), a replay mark, a neutral side.
+/// Why the tail holds something the core window does not carry: X-89 Bacterial Weapon (doubled staged hits), a replay mark,
+/// a neutral side. A readied The Thundarian is no reason (package W1): it listens to the event that ENDS the "Roll Dice" step,
+/// which the string emits after the tail (`roll_ground_step`), outside this window; its replays run the tail again from the
+/// state the step left (the replay mark is cleared before the event, so the tail never sees one).
 #[must_use]
 pub fn roll_tail_unported(gs: &GameState, a: &RollTailArgs<'_>) -> Option<&'static str> {
     if crate::neutral_units::is_neutral(a.invader) || crate::neutral_units::is_neutral(a.defender) {
         Some("neutral side")
     } else if [a.invader, a.defender].into_iter().any(|id| gs.player(id).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"x89c4")))) {
         Some("X-89 Bacterial Weapon")
-    } else if crate::factions::nomad_agents::watches_roll_step(gs) {
-        Some("The Thundarian watches the roll step")
     } else if gs.faction_marks.contains_key(crate::combat::ROLL_REPLAY_MARK) {
         Some("roll replay mark")
     } else {
