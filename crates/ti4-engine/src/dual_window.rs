@@ -4198,7 +4198,6 @@ fn settle_run(
     nested_check(script)?;
     waylay_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
-    let seats = |l: &[PlayerId]| l.iter().map(seat).collect::<Option<Vec<_>>>();
     let (attacker, defender) = (seat(&a.attacker).why(crate::dual::reason::NO_SEAT)?, seat(&a.defender).why(crate::dual::reason::NO_SEAT)?);
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let unit_of = |k: &str| <ti4_engine_core::generated::Unit as IdStr>::from_id(k);

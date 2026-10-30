@@ -7,7 +7,7 @@
 //! * Intercept: the opponents of the holder in the active system cannot retreat in this round;
 //! * Parley: the unit just committed goes back to the space area.
 
-use ti4_engine_core::generated::{ActionCard, Faction, System, Unit, UnitBaseType};
+use ti4_engine_core::generated::{ActionCard, Faction, System};
 use ti4_engine_core::kernel::stage::Sx;
 use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::ids::Seat;
