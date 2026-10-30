@@ -102,8 +102,20 @@ fn play_rig(card: ActionCard) -> Option<Rig<Play>> {
 
 
 
+/// The environment with the plain units the string side would hand to the cards that place them.
+fn env_units() -> Env {
+    let mut e = env();
+    let placed = |u: Unit| Placed { unit: Some(u), on_card: 0 };
+    e.facts.destroyer = placed(Unit::DestroyerI);
+    e.facts.dreadnought = placed(Unit::DreadnoughtI);
+    e.facts.mech = placed(Unit::FactionlessMech);
+    e.facts.pds = placed(Unit::PDSI);
+    e.facts.spacedock = placed(Unit::SpaceDockI);
+    e
+}
+
 fn solo(card: ActionCard, st: CoreState, seed: u64) -> Option<Rig<Play>> {
-    let play = Play::of(&st, card, Seat(0), env())?;
+    let play = Play::of(&st, card, Seat(0), env_units())?;
     Some(Rig::from_parts(st, ti4_engine_core_tests::kernel_all(), play).with_table(linked()).seeded(seed))
 }
 
@@ -444,4 +456,93 @@ fn experimental_battlestation_fires_three_dice_at_five_for_each_hit_the_active_p
         assert_eq!(count_in(&rig.state, sys_of(1), 0, Unit::CruiserI), 0);
     }
     assert!(seen.iter().all(|s| *s), "0..3 hits all occur: {seen:?}");
+}
+
+fn tokens_of(s: &CoreState, seat: u8) -> (i16, i16, i16) {
+    let e = s.players().by_seat(Seat(seat)).unwrap().econ;
+    (e.tactic_tokens, e.fleet_tokens, e.strategic_tokens)
+}
+
+fn token_on(s: &CoreState, system: System, seat: u8) -> bool {
+    s.board().sys(system).cmd.contains(Seat(seat))
+}
+
+#[test]
+fn forward_supply_base_pays_three_goods_and_one_to_a_chosen_other_player() {
+    covers_card!(ActionCard::ForwardSupplyBase);
+    // Seat 1 activated a system that holds seat 0's ships.
+    let st = four().map_ring(4).active(Some(1)).active_system(sys_of(1)).unit(sys_of(1), None, Unit::CruiserI, 0, 1).goods(0, 2).goods(2, 5).state();
+    let mut rig = solo(ActionCard::ForwardSupplyBase, st, 1).expect("a play");
+    rig.run();
+    rig.assert_options_sound();
+    assert!(!rig.opts().contains(&Opt::Cards(ti4_engine_core::choice::cards::Opt::Seat(Seat(0)))), "another player gets the one trade good");
+    rig.pick_opt(Opt::Cards(ti4_engine_core::choice::cards::Opt::Seat(Seat(2))));
+    assert!(rig.is_done());
+    assert_eq!(goods(&rig.state, 0), 2 + 3);
+    assert_eq!(goods(&rig.state, 2), 5 + 1);
+    assert_eq!(goods(&rig.state, 1), 0);
+}
+
+#[test]
+fn counterstroke_returns_our_command_token_in_the_activated_system_to_our_tactic_pool() {
+    covers_card!(ActionCard::Counterstroke);
+    let st = four().map_ring(4).active(Some(1)).active_system(sys_of(2)).command_token(sys_of(2), 0).command_token(sys_of(3), 0).tokens(0, 1, 3, 2).state();
+    let mut rig = solo(ActionCard::Counterstroke, st, 1).expect("a play");
+    rig.run();
+    assert!(rig.is_done());
+    assert!(!token_on(&rig.state, sys_of(2), 0), "the token of the activated system is gone");
+    assert!(token_on(&rig.state, sys_of(3), 0), "the token elsewhere stays");
+    assert_eq!(tokens_of(&rig.state, 0), (2, 3, 2), "it went to the tactic pool");
+}
+
+#[test]
+fn upgrade_replaces_one_cruiser_in_the_activated_system_with_a_dreadnought() {
+    covers_card!(ActionCard::Upgrade);
+    let st = four().map_ring(4).active(Some(0)).active_system(sys_of(1)).unit(sys_of(1), None, Unit::CruiserI, 0, 2).unit(sys_of(1), None, Unit::DestroyerI, 0, 1).state();
+    let mut rig = solo(ActionCard::Upgrade, st, 1).expect("a play");
+    rig.run();
+    if !rig.is_done() {
+        rig.pick(0);
+    }
+    assert!(rig.is_done());
+    assert_eq!(count_in(&rig.state, sys_of(1), 0, Unit::CruiserI), 1, "one cruiser is replaced");
+    assert_eq!(count_in(&rig.state, sys_of(1), 0, Unit::DreadnoughtI), 1, "by a dreadnought");
+    assert_eq!(count_in(&rig.state, sys_of(1), 0, Unit::DestroyerI), 1);
+    // No cruiser there: nothing happens.
+    let none = four().map_ring(4).active(Some(0)).active_system(sys_of(1)).unit(sys_of(1), None, Unit::DestroyerI, 0, 1).state();
+    if let Some(mut rig) = solo(ActionCard::Upgrade, none, 1) {
+        rig.run();
+        assert!(rig.is_done() && count_in(&rig.state, sys_of(1), 0, Unit::DreadnoughtI) == 0);
+    }
+}
+
+#[test]
+fn harness_energy_replenishes_our_commodities_to_the_faction_value() {
+    covers_card!(ActionCard::HarnessEnergy);
+    let st = four().map_ring(4).active(Some(0)).active_system(sys_of(1)).commodities(0, 0).state();
+    let want = st.players().by_seat(Seat(0)).unwrap().faction.data().commodities;
+    let mut rig = solo(ActionCard::HarnessEnergy, st, 1).expect("a play");
+    rig.run();
+    assert!(rig.is_done());
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, i16::from(want), "back to the printed value");
+}
+
+#[test]
+fn infiltrate_swaps_the_pds_and_space_dock_of_a_planet_we_just_took_for_ours() {
+    covers_card!(ActionCard::Infiltrate);
+    let planet = planet_of(1);
+    let mut st = four().map_ring(4).control(planet, 0).unit(sys_of(1), Some(planet), Unit::PDSI, 1, 1).unit(sys_of(1), Some(planet), Unit::SpaceDockI, 1, 1).unit(sys_of(1), Some(planet), Unit::InfantryI, 1, 1).state();
+    st.transient_mut().combat.last_control_gained = Some((sys_of(1), planet, Seat(0), Some(Seat(1))));
+    let play = Play::of(&st, ActionCard::Infiltrate, Seat(0), env_units());
+    let play = play.expect("a play");
+    let mut rig = Rig::from_parts(st, ti4_engine_core_tests::kernel_all(), play).with_table(linked()).seeded(1);
+    rig.run();
+    if !rig.is_done() {
+        rig.pick(0);
+    }
+    rig.auto(ti4_engine_core_tests::rig::Policy::First);
+    let pds_ours = units_on(&rig.state, planet, 0).iter().filter(|u| matches!(u, Unit::PDSI | Unit::PDSII)).count();
+    let dock_ours = units_on(&rig.state, planet, 0).iter().filter(|u| matches!(u, Unit::SpaceDockI | Unit::SpaceDockII)).count();
+    assert_eq!((pds_ours, dock_ours), (1, 1), "our own PDS and space dock replace theirs");
+    assert!(units_on(&rig.state, planet, 1).iter().all(|u| *u == Unit::InfantryI), "their structures are gone, their infantry stays");
 }
