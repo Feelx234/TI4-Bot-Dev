@@ -359,7 +359,7 @@ fn feats_run(winner: Option<PlayerId>, rounds: u32) -> (GameState, bool, crate::
     state.promissory_faceup.clear();
     let system = an_anomaly();
     crate::fixtures::put(&mut state, &system, "warsun", &a(), 1);
-    crate::fixtures::put(&mut state, &system, "genesis", &a(), 1);
+    crate::fixtures::put(&mut state, &system, "sol_flagship", &a(), 1);
     crate::fixtures::put(&mut state, &system, "cruiser", &a(), 2);
     crate::fixtures::put(&mut state, &system, "dreadnought", &a(), 1);
     crate::fixtures::put(&mut state, &system, "warsun", &b(), 1);
