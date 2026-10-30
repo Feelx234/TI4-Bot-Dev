@@ -1860,9 +1860,9 @@ const BEGIN_ROUND: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Transient, Slice::Pending],
 );
 
-/// Whether a retreat holds something the core window does not carry: a unit that flips between its ship and
-/// its ground form (in the fleet or where it lands), a Voltron fighting from its planet, or a unit that moves
-/// like a ship without being one (Floating Factory), or a Last Bastion seat (its retreat note).
+/// Whether a retreat holds something the core window does not carry: a Last Bastion seat (its retreat note; dropped by
+/// decision). Since package W3 the window carries the units that flip between their ship and ground form, a Voltron
+/// fighting from its planet and a unit that moves like a ship without being one (Floating Factory).
 #[must_use]
 pub fn retreat_unported(
     gs: &GameState,
@@ -1890,24 +1890,10 @@ pub fn retreat_why(
     if gs.players.iter().any(|p| p.faction.as_str() == "bastion") {
         return Some("a Last Bastion seat (dropped by decision)");
     }
-    let types = ti4_content::units::catalogue(content, sources);
-    let mine = |id: &ti4_model::id::SystemId| gs.system_state(id).units_of(player).into_iter().cloned().collect::<Vec<_>>();
-    let dual_form = |u: &ti4_model::units::Unit| crate::fleet::other_form(&types, u.type_id.as_str()).is_some();
-    let loose = |u: &ti4_model::units::Unit| types.get(u.type_id.as_str()).is_some_and(|k| k.moves_as_ship() && !k.is_ship());
-    if mine(system).iter().any(dual_form) {
-        return Some("a unit with another form (Eidolon Maximum, Voltron) in the fleet");
-    }
-    if mine(system).iter().any(loose) {
-        return Some("a unit that moves like a ship without being one (Floating Factory)");
-    }
-    if mine(destination).iter().any(dual_form) {
-        return Some("a unit with another form where the retreat lands");
-    }
-    gs.system_state(system)
-        .planet_units
-        .values()
-        .any(|units| units.iter().any(|u| &u.owner == player && u.type_id.as_str() == "naaz_voltron"))
-        .then_some("a Voltron fighting from its planet")
+    // The dual-form units (Eidolon / Z-Grav Eidolon), an Eidolon Maximum on a planet and a Floating Factory are carried by the
+    // core retreat window since package W3.
+    let _ = (content, sources, player, system, destination);
+    None
 }
 
 /// What the string `retreat_to` was called with.

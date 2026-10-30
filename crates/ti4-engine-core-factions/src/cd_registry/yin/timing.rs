@@ -62,6 +62,11 @@ pub fn placed_form(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -
     tech::unit_form(s, scope, &roster(scope), who, base)
 }
 
+/// [`placed_form`] with the faction override of the hook table (`action_cards::placed_unit_id`: Mentak's Corsair).
+pub fn placed_form_overridden(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
+    ti4_engine_core::kernel::fx_strategy::placed_unit(s, k, scope, &roster(scope), who, base)
+}
+
 /// `in_reinforcements`: the form the player places, and one of it left in the box.
 fn in_reinforcements(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
     let unit = placed_form(s, scope, who, base)?;

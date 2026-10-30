@@ -6,9 +6,13 @@
 //! staging, a `retreat_capacity` destruction waits for its announcement), and a command token goes to the
 //! destination (with staging, `COMMAND_TOKEN_PLACED` is staged).
 //!
-//! Not covered (the adapter returns `None`, the string result stands; see `dual_window::retreat_to`): a Naaz
-//! player (Eidolon forms flip back where they land; a Voltron on a planet retreats with the fleet), a unit
-//! that moves like a ship without being one (Floating Factory), a unit type the core has no row for.
+//! Since package W3 the window also carries the dual-form units: an Eidolon Maximum on a planet of the system retreats
+//! with the fleet while its owner has a ship in the space area (it leaves its planet), a unit that moves like a ship
+//! without being one (the Floating Factory) is a mover, and every ship-form dual-form unit of the player in the
+//! destination takes its ground form there (Z-Grav Eidolon).
+//!
+//! Not covered (the adapter returns `None`, the string result stands; see `dual_window::retreat_to`): a unit type the
+//! core has no row for, and the Last Bastion.
 //!
 //! The Bastion note is the direct hook (`bastion_note_retreat`): the observer table's `ShipRetreated` carries
 //! no ship list, and a hook call at the same program point is the same bookkeeping.
@@ -16,7 +20,7 @@
 use super::assign::remove_ship;
 use super::Rd;
 use crate::choice::{Choice, Pick};
-use crate::generated::{System, UnitBaseType};
+use crate::generated::{System, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -76,11 +80,20 @@ impl Window for Retreat {
             k.hooks.direct.nekro_units_alastor_clear(&mut cx, f.system, Some(f.player));
         }
         let rd = Rd::new(sx.state, sx.kernel).with_blanked(reach::blanked(sx.state));
-        let own: Vec<Piece> = sx.state.board().sys(f.system).units.iter().filter(|p| p.owner() == f.player).copied().collect();
+        let scope = rd.scope();
+        let mut own: Vec<Piece> = sx.state.board().sys(f.system).units.iter().filter(|p| p.owner() == f.player).copied().collect();
+        // The Eidolon Maximum fights from its planet while its owner has a ship in the space area (`planetary_maximum_participates`).
+        let mut planetary: Vec<Piece> = Vec::new();
+        if own.iter().any(|p| rd.is_ship(p.kind())) {
+            for planet in super::planets_of_sorted(sx.state, f.system).iter() {
+                planetary.extend(sx.state.board().planet(*planet).units.iter().filter(|u| u.owner() == f.player && u.kind() == Unit::EidolonMaximum).copied());
+            }
+        }
+        own.extend(planetary.iter().copied());
         let (mut movers, mut carried) = (Vec::new(), Vec::new());
         for p in own {
             let Some(d) = rd.data(p.kind()) else { continue };
-            if d.ship && d.movement.unwrap_or(0) > 0 {
+            if crate::tables::moves_as_ship(d) && d.movement.unwrap_or(0) > 0 {
                 movers.push(p);
             } else if d.base_type == UnitBaseType::Fighter || matches!(d.base_type, UnitBaseType::Infantry | UnitBaseType::Mech) {
                 carried.push(p);
@@ -97,6 +110,16 @@ impl Window for Retreat {
             let (k, mut cx) = (sx.kernel, sx.cx());
             k.hooks.direct.bastion_note_retreat(&mut cx, f.system, f.destination, f.player, &ships);
         }
+        // The planet model leaves its planet explicitly (the move below takes from the space area only).
+        for p in planetary.iter().filter(|p| leaving.contains(p)) {
+            for planet in super::planets_of_sorted(sx.state, f.system).iter() {
+                let units = &mut sx.state.board_mut().planet_mut(*planet).units;
+                if let Some(at) = units.iter().position(|u| u == p) {
+                    units.remove(at);
+                    break;
+                }
+            }
+        }
         for p in &leaving {
             let units = &mut sx.state.board_mut().sys_mut(f.system).units;
             if let Some(at) = units.iter().position(|u| u == p) {
@@ -108,6 +131,9 @@ impl Window for Retreat {
             cell.units.push(*p);
             cell.flags.set(SysFlags::TOUCHED, true);
         }
+        // A dual-form unit is a ship only in the active system during its battle: one that retreats takes its ground form
+        // again where it lands (`fleet::flip_to_ground_forms`, for the retreating player alone).
+        crate::kernel::fx_strategy::flip_space_area(sx.state, scope, &[f.player], f.destination, false);
         for (p, was_ship) in stranded.iter().zip(&stranded_ships) {
             remove_ship(sx, f.system, f.player, *p);
             if f.staging && *was_ship {

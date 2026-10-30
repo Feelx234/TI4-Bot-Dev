@@ -1,0 +1,40 @@
+{
+  "limits": {
+    "max_rounds": 50,
+    "max_steps": 400000,
+    "max_seconds": 300,
+    "loop_steps": 5000
+  },
+  "setups": [
+    {
+      "name": "lent-a",
+      "players": 6,
+      "maps": ["6pStandard", "6pOuterRim"],
+      "map_policy": "cycle",
+      "factions": ["nomad", "naaz", "letnev", "yin", "mentak", "yssaril"],
+      "seeds": "1..8",
+      "starting_tech": true,
+      "rules_version": 23
+    },
+    {
+      "name": "lent-b",
+      "players": 6,
+      "maps": ["6pStandard", "6pOuterRim"],
+      "map_policy": "cycle",
+      "factions": ["argent", "jolnar", "sardakk", "mahact", "hacan", "titans"],
+      "seeds": "1..8",
+      "starting_tech": true,
+      "rules_version": 23
+    },
+    {
+      "name": "lent-c",
+      "players": 4,
+      "maps": ["4pHyperlanes", "4pOuterRim"],
+      "map_policy": "cycle",
+      "factions": ["nomad", "naaz", "letnev", "mentak"],
+      "seeds": "1..6",
+      "starting_tech": true,
+      "rules_version": 23
+    }
+  ]
+}

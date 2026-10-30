@@ -198,3 +198,108 @@ mod tests {
         assert_eq!(units[1].kind(), Unit::DestroyerI, "another owner's unit is not touched");
     }
 }
+
+// -- unit forms (package W3: the unit-form flip) -----------------------------------------------------------
+
+/// `action_cards::placed_unit_id` with the faction override: the form a seat places for a base type (the upgrade it owns,
+/// else its faction's own unit, else the plain one; then the override of the hook table, Mentak's Corsair).
+#[must_use]
+pub fn placed_unit(core: &CoreState, k: &Kernel, scope: Scope, roster: &UnitRoster, who: Seat, base: UnitBaseType) -> Option<Unit> {
+    let form = tech::unit_form(core, scope, roster, who, base)?;
+    Some(k.hooks.strategy.unit_form_override(core, k, who, base, form).unwrap_or(form))
+}
+
+/// `fleet::flip_form`: flip one unit of `who` of kind `from` to its other form, in place: in `system`'s space area when
+/// `planet` is `None`, on that planet otherwise. The first unit of that owner and kind in the list is the one (damage
+/// and galvanize stay with the piece). `None` with nothing changed: no twin, a flip to a ship form on a planet, or no
+/// such unit. Both forms are the same plastic, so no supply changes.
+pub fn flip_form(core: &mut CoreState, scope: Scope, who: Seat, system: System, planet: Option<Planet>, from: Unit) -> Option<Unit> {
+    let to = tech::other_form(from).filter(|t| scope.unit(*t).is_some())?;
+    if planet.is_some() && scope.unit(to).is_some_and(|d| d.ship) {
+        return None;
+    }
+    let pool = match planet {
+        Some(p) => core.board_mut().planet_mut(p).units.as_mut_slice(),
+        None => core.board_mut().sys_mut(system).units.as_mut_slice(),
+    };
+    let piece = pool.iter_mut().find(|u| u.owner() == who && u.kind() == from)?;
+    *piece = piece.with_kind(to);
+    Some(to)
+}
+
+/// `fleet::flip_to_ship_forms` (`to_ship`: "at the start of a space combat", the Naaz Eidolon) and `flip_to_ground_forms`
+/// (`!to_ship`: "at the end of a space battle", the Z-Grav Eidolon): every dual-form unit of `players` in the space area
+/// of `system` whose form is not (is) a ship takes its other form. Returns each flip as `(owner, new form)` in list order.
+pub fn flip_space_area(core: &mut CoreState, scope: Scope, players: &[Seat], system: System, to_ship: bool) -> Vec<(Seat, Unit)> {
+    let ship = |u: Unit| scope.unit(u).map(|d| d.ship);
+    let mut flipped = Vec::new();
+    for piece in core.board_mut().sys_mut(system).units.as_mut_slice() {
+        if !players.contains(&piece.owner()) || ship(piece.kind()) != Some(!to_ship) {
+            continue;
+        }
+        let Some(twin) = tech::other_form(piece.kind()).filter(|t| ship(*t) == Some(to_ship)) else { continue };
+        *piece = piece.with_kind(twin);
+        flipped.push((piece.owner(), twin));
+    }
+    flipped
+}
+
+#[cfg(test)]
+mod form_tests {
+    use super::*;
+    use crate::state::Piece;
+
+    fn scope() -> Scope {
+        Scope(u32::MAX)
+    }
+
+    #[test]
+    fn the_eidolon_and_the_z_grav_eidolon_are_twins_and_nothing_else_is() {
+        assert_eq!(tech::other_form(Unit::Eidolon), Some(Unit::ZGravEidolonNaazMechSpace));
+        assert_eq!(tech::other_form(Unit::ZGravEidolonNaazMechSpace), Some(Unit::Eidolon));
+        for u in Unit::ALL.into_iter().filter(|u| !matches!(u, Unit::Eidolon | Unit::ZGravEidolonNaazMechSpace)) {
+            assert_eq!(tech::other_form(u), None, "{u:?}");
+        }
+        // the twins are the same plastic: one base type, one faction
+        let (a, b) = (Unit::Eidolon.data(), Unit::ZGravEidolonNaazMechSpace.data());
+        assert!(a.base_type == b.base_type && a.faction == b.faction && !a.ship && b.ship);
+    }
+
+    #[test]
+    fn a_flip_changes_the_first_unit_of_the_kind_and_keeps_its_damage() {
+        let mut s = CoreState::all_loaded();
+        let (sys, planet) = (System::ALL[3], Planet::ALL[3]);
+        let who = Seat(0);
+        let damaged = Piece::new(Unit::Eidolon, who).with_sustained(true);
+        s.board_mut().sys_mut(sys).units.push(Piece::new(Unit::Eidolon, Seat(1)));
+        s.board_mut().sys_mut(sys).units.push(damaged);
+        s.board_mut().sys_mut(sys).units.push(Piece::new(Unit::Eidolon, who));
+        assert_eq!(flip_form(&mut s, scope(), who, sys, None, Unit::Eidolon), Some(Unit::ZGravEidolonNaazMechSpace));
+        let kinds: Vec<_> = s.board().sys(sys).units.iter().map(|p| (p.owner(), p.kind(), p.sustained())).collect();
+        assert_eq!(kinds, [(Seat(1), Unit::Eidolon, false), (who, Unit::ZGravEidolonNaazMechSpace, true), (who, Unit::Eidolon, false)]);
+        // a ship form is never on a planet; a unit without a twin or without a unit changes nothing
+        s.board_mut().planet_mut(planet).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, who));
+        assert_eq!(flip_form(&mut s, scope(), who, sys, Some(planet), Unit::ZGravEidolonNaazMechSpace), Some(Unit::Eidolon), "a flip to the ground form is legal on a planet");
+        s.board_mut().planet_mut(planet).units.push(Piece::new(Unit::Eidolon, who));
+        assert_eq!(flip_form(&mut s, scope(), who, sys, Some(planet), Unit::Eidolon), None, "to a ship form on a planet is refused");
+        assert_eq!(flip_form(&mut s, scope(), who, sys, None, Unit::InfantryI), None);
+        assert_eq!(flip_form(&mut s, scope(), Seat(2), sys, None, Unit::Eidolon), None);
+    }
+
+    #[test]
+    fn the_space_area_flips_every_matching_unit_of_the_players_only() {
+        let mut s = CoreState::all_loaded();
+        let sys = System::ALL[4];
+        let (a, b) = (Seat(0), Seat(1));
+        for p in [Piece::new(Unit::Eidolon, a), Piece::new(Unit::Eidolon, b), Piece::new(Unit::ZGravEidolonNaazMechSpace, a), Piece::new(Unit::CruiserI, a)] {
+            s.board_mut().sys_mut(sys).units.push(p);
+        }
+        // start of a combat: only a's ground-form mech becomes a ship
+        assert_eq!(flip_space_area(&mut s, scope(), &[a], sys, true), [(a, Unit::ZGravEidolonNaazMechSpace)]);
+        let kinds: Vec<_> = s.board().sys(sys).units.iter().map(|p| p.kind()).collect();
+        assert_eq!(kinds, [Unit::ZGravEidolonNaazMechSpace, Unit::Eidolon, Unit::ZGravEidolonNaazMechSpace, Unit::CruiserI]);
+        // end of the battle: both of a's ship forms go back
+        assert_eq!(flip_space_area(&mut s, scope(), &[a], sys, false), [(a, Unit::Eidolon), (a, Unit::Eidolon)]);
+        assert_eq!(flip_space_area(&mut s, scope(), &[a], sys, false), []);
+    }
+}

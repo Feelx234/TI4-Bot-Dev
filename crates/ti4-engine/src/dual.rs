@@ -1567,6 +1567,30 @@ pub(crate) mod tests {
         assert_eq!(with_mask(AreaMask::all(Backend::Dual), || mask().backend(Area::Kernel)), Backend::Dual);
     }
 
+    /// Package W0: a core half that bails (`None`) always leaves a reason in the report: its own when it names one
+    /// (`note_bail`, `Why`), `NO_REASON` otherwise, so a census can fail on a silent bail.
+    #[test]
+    fn a_core_half_that_bails_always_leaves_a_reason() {
+        let _guard = serial();
+        let _ = take_report();
+        let mut s = state();
+        let run = |s: &mut GameState, core: fn(&mut GameState, &crate::dual_window::Recording) -> Option<CoreWindow<u8>>| {
+            with_mask(AreaMask::all(Backend::Dual), || run_dual_window(Area::Driver, "w0::probe", s, |_| Run::new(1_u8), core))
+        };
+        assert_eq!(run(&mut s, |_, _| None), 1);
+        assert_eq!(run(&mut s, |_, _| {
+            note_bail_here("a reason of its own");
+            None
+        }), 1);
+        assert_eq!(run(&mut s, |_, _| None::<u8>.why("a reason from the helper").map(|_| unreachable!())), 1);
+        let r = take_report();
+        let count = |why: &str| r.windows.get(&format!("w0::probe [bail: {why}]")).map_or(0, |w| w.bailed);
+        assert_eq!(count(NO_REASON), 1, "{:?}", r.windows);
+        assert_eq!(count("a reason of its own"), 1);
+        assert_eq!(count("a reason from the helper"), 1);
+        assert_eq!(r.windows["w0::probe"].bailed, 3);
+    }
+
     #[test]
     fn diff_paths() {
         let a = json!({"players": [{"tech": [1, 2]}, {"tech": [3, 4]}], "board": {"38": {"units": [{"owner": "a"}, {"owner": "b"}]}}, "x": 1});
