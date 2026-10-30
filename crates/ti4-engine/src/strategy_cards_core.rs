@@ -1175,9 +1175,13 @@ mod tests {
         // table with an Argent seat is followed, not declined.
         let argent = [("a", "sol"), ("b", "argent")];
         assert_eq!(run(label, &argent, goods(4), &free, primary("pok1leadership")), (1, 0));
-        // Yssaril's borrowed agents are still the string's: that table is declined.
-        let yssaril = [("a", "sol"), ("b", "yssaril")];
-        assert_eq!(run(label, &yssaril, goods(4), &free, primary("pok1leadership")), (0, 1));
+        // Package W5: the Naaz, Nomad and Yssaril seats (own or at the table) are followed too: the payment window runs them in lockstep.
+        for table in [[("a", "sol"), ("b", "yssaril")], [("a", "sol"), ("b", "nomad")], [("a", "naaz"), ("b", "sol")], [("a", "yssaril"), ("b", "nomad")], [("a", "mentak"), ("b", "sol")]] {
+            assert_eq!(run(label, &table, goods(4), &free, primary("pok1leadership")), (1, 0), "{table:?}");
+        }
+        // Keleres' agent offer inside the payment stays string (the faction is dropped by decision).
+        let keleres = [("a", "keleresm"), ("b", "sol")];
+        assert_eq!(run(label, &keleres, goods(4), &free, primary("pok1leadership")), (0, 1));
     }
 
     #[test]
@@ -1248,6 +1252,25 @@ mod tests {
         assert_eq!(run(label, &F3, lodor, &["decline"], secondary("pok4construction")).0, 1);
         // No planet controlled but the home planet, whose dock is there: only a PDS can go.
         assert_eq!(run(label, &F3, |_| {}, &["pds|01|jord"], secondary("pok4construction")).0, 1);
+    }
+
+    /// Package W5: the Naaz, Nomad, Yssaril and Mentak seats (own or at the table) no longer bar the structure windows
+    /// (`production_view::unported_window` lists the dropped Keleres and Deepwrought seats only). Fails on the pre-W5 guard
+    /// (`(0, 1)`: the window was declined).
+    #[test]
+    fn construction_runs_at_tables_with_the_tier_w_seats() {
+        for table in [
+            [("a", "sol"), ("b", "yssaril")],
+            [("a", "sol"), ("b", "nomad")],
+            [("a", "naaz"), ("b", "sol")],
+            [("a", "yssaril"), ("b", "nomad")],
+            [("a", "mentak"), ("b", "naaz")],
+        ] {
+            assert_eq!(run("strategy_cards::construction_primary", &table, lodor, &["spacedock|26|lodor", "pds|26|lodor"], primary("pok4construction")), (1, 0), "{table:?}");
+            assert_eq!(run("strategy_cards::construction_secondary", &table, lodor, &["spacedock|26|lodor"], secondary("pok4construction")), (1, 0), "{table:?}");
+        }
+        // The Keleres seat stays string.
+        assert_eq!(run("strategy_cards::construction_secondary", &[("a", "keleresm"), ("b", "sol")], lodor, &["spacedock|26|lodor"], secondary("pok4construction")), (0, 1));
     }
 
     #[test]

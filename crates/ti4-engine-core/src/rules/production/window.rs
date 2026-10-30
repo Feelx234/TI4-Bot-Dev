@@ -65,6 +65,8 @@ pub struct ProductionWindow {
     pub agent_spent: bool,
     /// The caller has a timing handle: the ground-force production window is announced.
     pub emit_timing: bool,
+    /// The units come from an ability, not from the PRODUCTION of a unit (`ProductionWindow::for_ability`, package W5).
+    pub ability: bool,
 }
 
 fn small(n: i64) -> i32 {
@@ -100,11 +102,12 @@ impl ProductionWindow {
             armada: self.armada,
             buildable: self.buildable,
             icon: self.icon(),
+            ability: self.ability,
         }
     }
 
     fn place_ask(&self, unit: Unit, made: u8) -> PlaceAsk {
-        PlaceAsk { who: self.who, system: self.system, unit, made, fleet_limit: self.fleet_limit, icon: self.icon() }
+        PlaceAsk { who: self.who, system: self.system, unit, made, fleet_limit: self.fleet_limit, icon: self.icon(), ability: self.ability }
     }
 
     /// What the ships of this use have done so far (`bastion::adjust_ship_spots`): the first ship placed away from the
@@ -335,7 +338,7 @@ impl Window for ProductionWindow {
                         }
                         self.placement_timing_done = true;
                     }
-                    let spots = rules::spots_of(&self.cx(sx.state, sx.kernel), self.who, self.system, unit, self.icon());
+                    let spots = rules::spots_for(&self.cx(sx.state, sx.kernel), self.who, self.system, unit, self.icon(), self.ability);
                     match spots.as_slice() {
                         [only] => {
                             let only = *only;

@@ -86,6 +86,8 @@ pub struct PlaceAsk {
     pub made: u8,
     pub fleet_limit: i32,
     pub icon: Icon,
+    /// The units come from an ability, not from the PRODUCTION of a unit (package W5).
+    pub ability: bool,
 }
 
 /// The production question: what to build now. The window's own numbers (the string `ProductionWindow`
@@ -119,6 +121,9 @@ pub struct ChooseAsk {
     pub buildable: [Option<Unit>; 9],
     /// What the ships of this use have done so far (the Last Bastion's Icon).
     pub icon: Icon,
+    /// The units come from an ability, not from the PRODUCTION of a unit: ground forces go to the planets of the system the seat
+    /// controls, no producer bars a kind, and the window has no capacity of its own (package W5).
+    pub ability: bool,
 }
 
 /// Sling Relay's first question: in which dock system to produce (only asked with two or more).

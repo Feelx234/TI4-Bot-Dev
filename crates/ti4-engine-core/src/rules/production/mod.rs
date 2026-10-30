@@ -470,8 +470,45 @@ const fn currency(s: Spend) -> Currency {
 /// the latter only when the unit has a spot here at all.
 #[must_use]
 pub fn spots_of(cx: &Cx<'_>, who: Seat, system: System, unit: Unit, icon: Icon) -> SmallList<Spot, 12> {
+    spots_for(cx, who, system, unit, icon, false)
+}
+
+/// The spots of a unit an ABILITY produces (`ProductionWindow::local_spots`): ships as for PRODUCTION, ground forces and structures on
+/// any planet of the system the seat controls that is not demilitarized, no space station, and takes the structure (79.2); none where
+/// the abilities are off (entropic scars).
+#[must_use]
+pub fn ability_placements(cx: &Cx<'_>, who: Seat, system: System, unit: Unit) -> SmallList<Spot, 8> {
+    let d = unit.data();
+    if d.ship {
+        return placements(cx, who, system, unit);
+    }
+    let mut spots = SmallList::new();
+    if system.data().anomalies.scar {
+        return spots;
+    }
+    for (at, planet) in board::controlled_planets(cx.core(), who).as_slice() {
+        let planet = *planet;
+        if *at != system
+            || laws::planet_is_demilitarized(cx.core(), cx.blanked, planet)
+            || planet.data().traits.contains(&PlanetTrait::Spacestation)
+            || !structure_allowed(cx, who, planet, d.base_type)
+        {
+            continue;
+        }
+        let s = Spot::Planet(planet);
+        if !spots.as_slice().contains(&s) {
+            spots.push(s);
+        }
+    }
+    spots
+}
+
+/// [`spots_of`] for a window that produces by an ability (`ability`) or by PRODUCTION.
+#[must_use]
+pub fn spots_for(cx: &Cx<'_>, who: Seat, system: System, unit: Unit, icon: Icon, ability: bool) -> SmallList<Spot, 12> {
     let mut spots: SmallList<Spot, 12> = SmallList::new();
-    for s in placements(cx, who, system, unit).as_slice() {
+    let local = if ability { ability_placements(cx, who, system, unit) } else { placements(cx, who, system, unit) };
+    for s in local.as_slice() {
         spots.push(*s);
     }
     if !spots.as_slice().is_empty() {
@@ -536,7 +573,7 @@ pub fn place_home_standing(cx: &Cx<'_>, ask: &PlaceAsk) -> Standing {
 /// The placement question's options: one per spot, only when there are two or more.
 #[must_use]
 pub fn place_opts(cx: &Cx<'_>, ask: &PlaceAsk) -> SmallList<PayOpt, 18> {
-    let spots = spots_of(cx, ask.who, ask.system, ask.unit, ask.icon);
+    let spots = spots_for(cx, ask.who, ask.system, ask.unit, ask.icon, ask.ability);
     let mut out = SmallList::new();
     if spots.as_slice().len() >= 2 {
         for s in spots.as_slice() {
@@ -633,11 +670,16 @@ pub fn build_for(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, ex: &Extra
     if !affordable && !exchange {
         return None;
     }
-    let spots = spots_of(cx, who, ask.system, unit, ask.icon);
+    // A unit an ability produces is barred by a blanket ban only (the producer "ability" is no unit base type: a mech stands for it,
+    // which no module's ban names), and no producer bars capacity.
+    if ask.ability && cannot(cx, who, d.base_type, UnitBaseType::Mech) {
+        return None;
+    }
+    let spots = spots_for(cx, who, ask.system, unit, ask.icon, ask.ability);
     if spots.as_slice().is_empty() {
         return None;
     }
-    let barred = barred_capacity(cx, who, ask.system, d.base_type);
+    let barred = if ask.ability { 0 } else { barred_capacity(cx, who, ask.system, d.base_type) };
     let usable = if barred == 0 {
         i64::from(ask.remaining)
     } else {

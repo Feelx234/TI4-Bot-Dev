@@ -3,22 +3,22 @@
 //! the flagship's abilities; one type is not a question; the note stays faceup with them), and returned to the Nomad
 //! when the combat ends. Future Sight (package W9): a trade good after an outcome the Nomad voted for or predicted plainly is
 //! resolved. Artuno the Betrayer (package W9): the exhaust and the pile on the card; the payout when the card readies stays with the
-//! string's `leaders::ready` callers (`nomad_agents::agent_readied`). Not ported: Mercer, The Thundarian, Temporal Command Suite.
+//! string's `leaders::ready` callers (`nomad_agents::agent_readied`). The Thundarian (package W2): "after the Roll Dice step of combat: you may exhaust this card; if you do, return to the start of that step" (the replay mark the roll step reads). Not ported: Mercer, Temporal Command Suite.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub};
 use ti4_engine_core::choice::generic::Content;
 use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use ti4_engine_core::containers::SmallList;
-use ti4_engine_core::generated::{Faction, System, Unit, UnitBaseType};
+use ti4_engine_core::generated::{Faction, Leader, System, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
-use ti4_engine_core::kernel::fx;
+use ti4_engine_core::kernel::{fx, fx_strategy};
 use ti4_engine_core::kernel::read::Rd;
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::query::reach;
 use ti4_engine_core::rules::combat;
-use ti4_engine_core::generated::Leader;
+
 use ti4_engine_core::keys::{Outcome, Prediction};
 use ti4_engine_core::state::LeaderStatus;
 use ti4_engine_core::state::{CoreState, EventKind, Key, TransientFlags, Val};
@@ -121,7 +121,7 @@ fn give_back(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 }
 
 /// Future Sight (`ability:*:future_sight:AGENDA_RESOLVED:after`).
-pub const FUTURE_SIGHT: Slot = Slot(10_003);
+pub const FUTURE_SIGHT: Slot = Slot(10_005);
 
 /// The outcome an `AGENDA_RESOLVED` event names (`player`: the elected seat, else the outcome itself).
 fn resolved_outcome(p: &ti4_engine_core::state::Payload) -> Option<Outcome> {
@@ -161,7 +161,7 @@ fn future_sight(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 }
 
 /// Artuno the Betrayer (`leader:*:nomadagentartuno:TRADE_GOODS_GAINED:after`).
-pub const ARTUNO: Slot = Slot(10_004);
+pub const ARTUNO: Slot = Slot(10_006);
 
 /// The pile on Artuno's card (`nomad:artuno:{owner}`).
 fn pile(s: &CoreState, owner: Seat) -> u32 {
@@ -212,7 +212,34 @@ fn artuno(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+/// The Thundarian at the end of the "Roll Dice" step of a space combat (`leader:*:nomadagentthundarian:SPACE_COMBAT_ROLL_STEP_ENDED:after`).
+pub const THUNDARIAN_SPACE: Slot = Slot(10_003);
+/// ... and of a ground combat (`GROUND_COMBAT_ROLL_STEP_ENDED`).
+pub const THUNDARIAN_GROUND: Slot = Slot(10_004);
+
+/// A readied The Thundarian in hand, and no replay already asked for in this step.
+fn thundarian_condition(c: &CondCx<'_>) -> bool {
+    c.state.players().by_seat(c.def.owner).is_some_and(|p| p.leaders.status.get(&Leader::TheThundarian) == Some(&LeaderStatus::Readied))
+        && !c.state.marks().tail.contains_key(&MarkKey::PrivateCombatReplayRoll())
+}
+
+/// Exhaust the card and ask for the step to be played again (`combat::request_roll_replay`). A Nomad that hears every agent exhausted
+/// (Temporal Command Suite) is told by an event the core does not emit: that position is the string's.
+fn thundarian(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let owner = eff.owner();
+    let (s, k) = eff.read();
+    if k.hooks.direct.nomad_watches_agent_exhaustion(s) {
+        eff.unknown(ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion);
+    }
+    if fx_strategy::exhaust_leader(eff.state(), owner, Leader::TheThundarian) {
+        eff.state().marks_mut().tail.edit().insert(MarkKey::PrivateCombatReplayRoll(), MarkVal::Atom(Atom::Absent));
+    }
+    Ok(())
+}
+
 pub fn register_abilities(t: &mut AbilityTable) {
+    t.add(Spec::new(THUNDARIAN_SPACE, AbilityKind::Leader, EventKind::SpaceCombatRollStepEnded, Relation::After, thundarian).when(thundarian_condition).optional());
+    t.add(Spec::new(THUNDARIAN_GROUND, AbilityKind::Leader, EventKind::GroundCombatRollStepEnded, Relation::After, thundarian).when(thundarian_condition).optional());
     t.add(Spec::new(FUTURE_SIGHT, AbilityKind::Ability, EventKind::AgendaResolved, Relation::After, future_sight).when(future_sight_condition));
     t.add(Spec::new(ARTUNO, AbilityKind::Leader, EventKind::TradeGoodsGained, Relation::After, artuno).when(artuno_condition).optional());
     t.add(Spec::new(CAVALRY_PLAY, AbilityKind::Promissory, EventKind::SpaceCombatStarted, Relation::After, play).when(play_condition).optional());

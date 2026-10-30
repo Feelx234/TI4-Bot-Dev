@@ -56,9 +56,14 @@ pub enum Stage {
     SideDone,
     Funding,
     FundingAsking,
+    /// The end of the step (78.5): `SPACE_COMBAT_ROLL_STEP_ENDED` when someone listens, and the replay a Thundarian asked for.
+    StepEnd,
     Finish,
     Done,
 }
+
+/// Most replays of one step (`combat::MAX_ROLL_REPLAYS`).
+pub const MAX_ROLL_REPLAYS: u32 = 8;
 
 /// What names a roll group in the presentation and the questions.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +85,8 @@ pub struct Facts {
     pub attacker: Seat,
     pub defender: Seat,
     pub system: System,
+    /// The round (the step-ended event names it).
+    pub round: u32,
     /// The presentation phase `resolving_hits`.
     pub phase: Code,
     /// The text of every roll group the sides will roll: the group's unit types joined with `+` in id order.
@@ -141,6 +148,8 @@ pub struct RollStep {
     heart_holders: Vec<Seat>,
     heart_at: usize,
     funding_at: usize,
+    /// How many times the step was played again (a Thundarian).
+    replays: u32,
 }
 
 impl RollStep {
@@ -162,6 +171,7 @@ impl RollStep {
             heart_holders: Vec::new(),
             heart_at: 0,
             funding_at: 0,
+            replays: 0,
         }
     }
 
@@ -536,7 +546,7 @@ impl Window for RollStep {
                 }
                 Stage::Funding => {
                     if self.funding_at >= 2 {
-                        self.stage = Stage::Finish;
+                        self.stage = Stage::StepEnd;
                         continue;
                     }
                     let (holder, opponent) = (self.funding_at, 1 - self.funding_at);
@@ -551,6 +561,30 @@ impl Window for RollStep {
                     } else {
                         self.funding_at += 1;
                     }
+                }
+                Stage::StepEnd => {
+                    // Both sides' dice are final and nothing has landed. The event is emitted only when someone is listening (a readied
+                    // The Thundarian), so a game without one allocates no event id for it; its window may ask for the step to be rolled
+                    // afresh, which throws the dice away without producing or assigning a hit.
+                    sx.state.marks_mut().tail.edit().remove(&crate::keys::MarkKey::PrivateCombatReplayRoll());
+                    if self.f.announce && sx.kernel.hooks.direct.nomad_agents_watches_roll_step(sx.state) {
+                        let payload = crate::state::Payload::new()
+                            .with(crate::state::Key::System, crate::state::Val::System(self.f.system))
+                            .with(crate::state::Key::Round, crate::state::Val::Int(i64::from(self.f.round)))
+                            .with(crate::state::Key::Attacker, crate::state::Val::Seat(self.f.attacker))
+                            .with(crate::state::Key::Defender, crate::state::Val::Seat(self.f.defender));
+                        let _ = sx.emit(fx::event(crate::state::EventKind::SpaceCombatRollStepEnded, payload));
+                    }
+                    if sx.state.marks_mut().tail.edit().remove(&crate::keys::MarkKey::PrivateCombatReplayRoll()).is_some() {
+                        self.replays += 1;
+                        if self.replays <= MAX_ROLL_REPLAYS {
+                            self.staged = [None, None];
+                            self.stage = Stage::Start;
+                            continue;
+                        }
+                    }
+                    self.replays = 0;
+                    self.stage = Stage::Finish;
                 }
                 Stage::Finish => {
                     self.finish(sx);
