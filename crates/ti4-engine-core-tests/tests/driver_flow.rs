@@ -221,3 +221,12 @@ fn end_of_turn_scratch_clears_the_two_markers_only() {
     let f = s.transient().misc.flags;
     assert!(!f.has(TransientFlags::BLACK_MARKET) && !f.has(TransientFlags::EXPEDITION_CLAIMED) && f.has(TransientFlags::SKIP_NEXT_TURN));
 }
+
+#[test]
+fn the_children_table_is_complete_once_registered_and_empty_before() {
+    covers!("driver::children::register");
+    let mut table = ti4_engine_core::kernel::stage::AbilityTable::default();
+    assert!(!table.links.complete(), "a table nobody registered on declines its children");
+    ti4_engine_core::driver::children::register(&mut table);
+    assert!(table.links.complete());
+}
