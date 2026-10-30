@@ -38,7 +38,8 @@ caller (W14-design-02); Production Biomes (W11-design-01). Counted gates (named 
 * W10: the action leaders of W10-design-03 (named gates).
 * W11: the component actions of W11-open-01 (named gates); the listing `component_actions` and the dispatch `perform_component` are D1b's.
 * W12: Chaos Mapping at the start of a turn, Minister of Industry and Freelancers (lane 1's `produce_one`, W5 item 3, on no mergeable
-  branch), Sling Relay and Gravity Drive component actions (D1b dispatch).
+  branch); `technology::component_actions`/`perform_component` are composition (Sling Relay's production is the core's window; the
+  dispatch is D1b's); `control_gained` is Keleres (dropped).
 * W13: the composition of the exploration rewards (D1), `frln*` (production, lane 1).
 * W14: Military Support's placement (a generic `PlaceUnits` window and the turn prelude: W14-design-02).
 * Thunder's Edge content: undecided, nothing ported (as instructed).
