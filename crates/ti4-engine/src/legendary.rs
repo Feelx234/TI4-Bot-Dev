@@ -160,6 +160,20 @@ pub fn purge_salvaged(
     player: &PlayerId,
     alias: &ti4_model::id::ActionCardId,
 ) -> bool {
+    crate::exploration::dual_write(
+        state,
+        "legendary::purge_salvaged",
+        |s| purge_salvaged_text(s, player, alias),
+        |s| crate::legendary_core::purge_salvaged(s, player, alias.as_str()),
+    )
+}
+
+/// [`purge_salvaged`] on the string state: the oracle of the dual run.
+fn purge_salvaged_text(
+    state: &mut GameState,
+    player: &PlayerId,
+    alias: &ti4_model::id::ActionCardId,
+) -> bool {
     if !salvaged(state, player).contains(alias) {
         return false;
     }
@@ -223,6 +237,16 @@ pub fn use_ionian(state: &mut GameState, player: &PlayerId) -> bool {
 /// whose point they never actually banked, which is possible when Styx is taken from a seat that
 /// gained it while already at the cap.
 pub fn settle_control_points(state: &mut GameState) {
+    crate::exploration::dual_write(
+        state,
+        "legendary::settle_control_points",
+        settle_control_points_text,
+        crate::legendary_core::settle_styx,
+    );
+}
+
+/// [`settle_control_points`] on the string state: the oracle of the dual run.
+fn settle_control_points_text(state: &mut GameState) {
     let styx = PlanetId::new("styx");
     let holder = state
         .board
@@ -276,9 +300,42 @@ pub fn control_gained(
 
 /// Offer this seat's end-of-turn legendary abilities, one at a time.
 ///
+/// The core window `rules::legendary::Legendary` runs beside the string body on `exploration=dual` (package W16).
+///
 /// # Errors
 /// [`IllegalChoice`] if a decider answers with something that was not offered.
 pub fn end_turn(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut outcome = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "legendary::end_turn",
+        state,
+        |s: &mut GameState| {
+            outcome = end_turn_text(s, content, sources, galaxy, table, player);
+            crate::dual::Run::new(())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::legendary_core::window(
+            s,
+            content,
+            sources,
+            galaxy,
+            player,
+            ti4_engine_core::choice::legendary::When::EndOfTurn,
+            script
+        )
+    );
+    outcome
+}
+
+/// [`end_turn`] on the string state: the oracle of the dual run.
+fn end_turn_text(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -336,7 +393,43 @@ const WHEN_YOU_PASS: [(&str, &str); 3] = [
 /// Takes a [`crate::timing::TimingContext`] rather than the table alone because Maxis Central
 /// Control gains control of a planet, and gaining control explores the planet's trait -- which
 /// draws a card, which needs the dice and the random stream.
+///
+/// The core window `rules::legendary::Legendary` runs beside the string body on `exploration=dual` (package W16).
 pub fn pass(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    let crate::timing::TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "legendary::pass",
+        &mut **state,
+        |s: &mut GameState| {
+            let mut inner = crate::timing::TimingContext {
+                state: s,
+                content,
+                sources,
+                table: &mut **table,
+                dice: &mut **dice,
+                rng: &mut **rng,
+                event_sequence: &mut **event_sequence,
+                galaxy,
+            };
+            pass_text(&mut inner, player);
+            crate::dual::Run::new(())
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::legendary_core::window(
+            s,
+            content,
+            sources,
+            galaxy,
+            player,
+            ti4_engine_core::choice::legendary::When::Pass,
+            script
+        )
+    );
+}
+
+/// [`pass`] on the string state: the oracle of the dual run.
+fn pass_text(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     loop {
         let offers: Vec<PlanetId> = WHEN_YOU_PASS
             .iter()
@@ -405,7 +498,7 @@ pub fn pass(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// systems a fleet had visited. The [`Galaxy`] is the registry of what is in play, so it drives the
 /// list; the board still contributes, for systems the map does not hold — a Fracture system brought
 /// into play, or a game with no map at all in a unit test.
-fn maxis_candidates(
+pub(crate) fn maxis_candidates(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1855,5 +1948,356 @@ mod exhaust_tests {
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.total_calls() >= 2, "{r:?}");
         let _ = take_report();
+    }
+}
+
+/// The legendary abilities beside the core window `rules::legendary::Legendary`, lockstep on `Dual` (package W16): the offer, the
+/// question of each ability and what it changes, and every case the core leaves to the string (a counted bail with its reason).
+#[cfg(all(test, feature = "typed-core"))]
+mod lockstep {
+    use super::*;
+    use crate::choice::{FirstOption, Scripted};
+    use crate::dual::{Area, AreaMask, Backend, take_report, with_mask};
+    use crate::generated::IdStr;
+    use ti4_model::content_types::{FULL, POK};
+
+    fn me() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    /// The table: a Sol and a Letnev, the sources `sources`.
+    fn table_of(sources: SourceSet) -> GameState {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], sources);
+        // The notes dealt before the seats were seated carry the fixture faction `generic`, which the Cards codec refuses.
+        state.promissory_notes.clear();
+        state
+    }
+
+    /// The seat `a` controls `planet` (on its printed tile, or on `home` for a planet no tile prints).
+    fn hold(state: &mut GameState, planet: &str, home: &str) {
+        let printed = ti4_engine_core::generated::Planet::from_id(planet).and_then(|p| p.data().system);
+        let system = ti4_model::id::SystemId::new(printed.map_or(home, |s| s.as_str()));
+        state.board.entry(system.clone()).or_default();
+        if printed.is_some() {
+            state.system_mut(&system).set_control(PlanetId::new(planet), me());
+        } else {
+            assert!(crate::planets::place(state, &system, &PlanetId::new(planet), &me()));
+        }
+    }
+
+    fn same(a: &GameState, b: &GameState) -> bool {
+        serde_json::to_value(a).unwrap() == serde_json::to_value(b).unwrap()
+    }
+
+    fn mask() -> AreaMask {
+        AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual)
+    }
+
+    /// Run `body` on the dual with a clean report; the report of the window `label` and its differences afterwards.
+    fn dual<T>(label: &str, body: impl FnOnce() -> T) -> (T, u64, u64, Vec<String>) {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let out = with_mask(mask(), body);
+        let report = take_report();
+        let (compared, bailed) = crate::dual::local_windows(label);
+        let mut notes: Vec<String> = report.differences.iter().map(|d| format!("{d:?}")).collect();
+        notes.extend(report.windows.keys().filter(|k| k.contains("[bail")).cloned().map(|k| format!("(bail) {k}")));
+        if bailed > 0 {
+            eprintln!("{label}: {notes:?}");
+        }
+        (out, compared, bailed, notes)
+    }
+
+    fn end(state: &mut GameState, decider: Box<dyn crate::choice::Decider>) -> Result<(), IllegalChoice> {
+        let mut table = Table::with_default(decider);
+        end_turn(state, content(), FULL, None, &mut table, &me())
+    }
+
+    fn content() -> &'static ContentStore {
+        ContentStore::embedded()
+    }
+
+    fn scripted(answers: &[&str]) -> Box<dyn crate::choice::Decider> {
+        Box::new(Scripted::new(answers.iter().map(|a| (*a).to_owned())))
+    }
+
+    fn passing(state: &mut GameState, sources: SourceSet, decider: Box<dyn crate::choice::Decider>, galaxy: Option<&ti4_content::galaxy::Galaxy>) {
+        let mut table = Table::with_default(decider);
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut context = crate::timing::TimingContext { state, content: content(), sources, table: &mut table, dice: &mut dice, rng: &mut rng, event_sequence: &mut sequence, galaxy };
+        pass(&mut context, &me());
+    }
+
+    #[test]
+    fn a_table_with_no_ready_card_opens_a_window_without_a_question() {
+        let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+            let mut state = table_of(POK);
+            let before = state.clone();
+            end(&mut state, Box::new(FirstOption)).unwrap();
+            assert!(same(&state, &before));
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (1, 0));
+    }
+
+    #[test]
+    fn exterrix_gains_two_goods_or_converts_every_commodity() {
+        for (answer, gained, commodities) in [("goods", 2, 3), ("convert", 3, 0)] {
+            let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+                let mut state = table_of(POK);
+                hold(&mut state, "mallice", "82b");
+                state.player_mut(&me()).unwrap().commodities = 3;
+                let goods = state.player(&me()).unwrap().trade_goods;
+                end(&mut state, scripted(&["mallice", answer, "decline"])).unwrap();
+                let seat = state.player(&me()).unwrap();
+                assert_eq!((seat.trade_goods - goods, seat.commodities), (gained, commodities), "{answer}");
+                assert!(seat.exhausted_legendary.contains(&PlanetId::new("mallice")));
+            });
+            assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{answer}: {differences:?}");
+            assert_eq!((compared, bailed), (1, 0), "{answer}");
+        }
+    }
+
+    #[test]
+    fn the_atrament_places_two_infantry_on_a_planet_of_the_holder() {
+        let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+            let mut state = table_of(POK);
+            hold(&mut state, "primor", "26");
+            let count = |s: &GameState| s.board.values().flat_map(|here| here.planet_units.values().flatten()).filter(|u| u.owner == me()).count();
+            let before = count(&state);
+            end(&mut state, Box::new(FirstOption)).unwrap();
+            assert_eq!(count(&state), before + 2);
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (1, 0));
+    }
+
+    #[test]
+    fn the_imperial_arms_vault_places_a_mech_or_draws_a_card() {
+        for (answer, mechs, cards) in [("mech", 1, 0), ("card", 0, 1)] {
+            let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+                let mut state = table_of(POK);
+                hold(&mut state, "hopesend", "66");
+                let mech = |s: &GameState| s.board.values().flat_map(|here| here.planet_units.values().flatten()).filter(|u| u.owner == me() && u.type_id.as_str().contains("mech")).count();
+                let (m0, c0) = (mech(&state), state.player(&me()).unwrap().action_cards.len());
+                let decider: Box<dyn crate::choice::Decider> = if answer == "mech" { scripted(&["hopesend", "mech"]) } else { scripted(&["hopesend", "card"]) };
+                let mut table = Table::with_default(decider);
+                let _ = end_turn(&mut state, content(), FULL, None, &mut table, &me());
+                assert_eq!((mech(&state) - m0, state.player(&me()).unwrap().action_cards.len() - c0), (mechs, cards), "{answer}");
+            });
+            assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{answer}: {differences:?}");
+            assert_eq!((compared, bailed), (1, 0), "{answer}");
+        }
+    }
+
+    #[test]
+    fn mirage_places_two_fighters_in_a_system_with_a_ship() {
+        let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+            let mut state = table_of(POK);
+            hold(&mut state, "mirage", "26");
+            let fighters = |s: &GameState| s.board.values().flat_map(|here| here.units.iter()).filter(|u| u.owner == me() && u.type_id.as_str().contains("fighter")).count();
+            let before = fighters(&state);
+            end(&mut state, Box::new(FirstOption)).unwrap();
+            assert_eq!(fighters(&state), before + 2);
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (1, 0));
+    }
+
+    #[test]
+    fn the_acropolis_readies_a_planet_a_technology_or_another_ability_card() {
+        let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+            let mut state = table_of(POK);
+            hold(&mut state, "emelpar", "26");
+            hold(&mut state, "mallice", "82b");
+            let home: PlanetId = state.controlled_planets(&me()).into_iter().map(|(_, p)| p.clone()).find(|p| p.as_str() != "emelpar" && p.as_str() != "mallice").unwrap();
+            state.exhausted_planets.insert(home.clone());
+            state.player_mut(&me()).unwrap().exhausted_legendary.insert(PlanetId::new("mallice"));
+            let tech = state.player(&me()).unwrap().technologies.iter().next().cloned().unwrap();
+            state.player_mut(&me()).unwrap().exhausted_technologies.insert(tech.clone());
+            for answer in [format!("planet|{home}"), format!("technology|{tech}"), "legendary|mallice".to_owned()] {
+                let mut s = state.clone();
+                end(&mut s, scripted(&["emelpar", &answer, "decline"])).unwrap();
+                let seat = s.player(&me()).unwrap();
+                match answer.split_once('|').unwrap().0 {
+                    "planet" => assert!(!s.exhausted_planets.contains(&home)),
+                    "technology" => assert!(!seat.exhausted_technologies.contains(&tech)),
+                    _ => assert!(!seat.exhausted_legendary.contains(&PlanetId::new("mallice"))),
+                }
+            }
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (3, 0));
+    }
+
+    #[test]
+    fn the_galactic_council_swaps_a_secret_objective_for_the_next() {
+        let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+            let mut state = table_of(FULL);
+            hold(&mut state, "mrte", "18");
+            let held = state.player(&me()).unwrap().secret_objectives.clone();
+            assert!(!held.is_empty());
+            end(&mut state, Box::new(FirstOption)).unwrap();
+            let after = &state.player(&me()).unwrap().secret_objectives;
+            assert_eq!(after.len(), held.len());
+            assert_ne!(after, &held, "the secret went back and another came");
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (1, 0));
+    }
+
+    #[test]
+    fn jupiter_brain_keeps_the_turn_with_its_holder() {
+        let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+            let mut state = table_of(FULL);
+            hold(&mut state, "thundersedge", "18");
+            end(&mut state, Box::new(FirstOption)).unwrap();
+            assert!(state.transient_flags.has(ti4_model::state::TransientFlags::ADDITIONAL_ACTION));
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (1, 0));
+    }
+
+    #[test]
+    fn declining_the_offer_uses_nothing() {
+        let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+            let mut state = table_of(POK);
+            hold(&mut state, "mallice", "82b");
+            let before = state.clone();
+            end(&mut state, scripted(&["decline"])).unwrap();
+            assert!(same(&state, &before));
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (1, 0));
+    }
+
+    #[test]
+    fn two_abilities_are_used_one_after_the_other_each_exhausted_first() {
+        let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+            let mut state = table_of(POK);
+            hold(&mut state, "mallice", "82b");
+            hold(&mut state, "primor", "26");
+            end(&mut state, scripted(&["mallice", "goods", "primor"])).ok();
+            let seat = state.player(&me()).unwrap();
+            assert!(seat.exhausted_legendary.contains(&PlanetId::new("mallice")) && seat.exhausted_legendary.contains(&PlanetId::new("primor")));
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (1, 0));
+    }
+
+    #[test]
+    fn dok_n_pics_salvage_yard_stocks_a_card_of_the_discard_pile() {
+        let ((), compared, bailed, differences) = dual("legendary::pass", || {
+            let mut state = table_of(FULL);
+            hold(&mut state, "garbozia", "18");
+            state.discarded_action_cards = vec![ti4_model::id::ActionCardId::new("abs"), ti4_model::id::ActionCardId::new("bribery")];
+            passing(&mut state, FULL, Box::new(FirstOption), None);
+            assert_eq!((state.discarded_action_cards.len(), state.salvage_yard.len()), (1, 1));
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (1, 0));
+    }
+
+    #[test]
+    fn aurex_mechanica_places_the_ship_of_an_owned_unit_upgrade() {
+        let ((), compared, bailed, differences) = dual("legendary::pass", || {
+            let mut state = table_of(POK);
+            hold(&mut state, "industrex", "26");
+            state.player_mut(&me()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("cv2"));
+            let carriers = |s: &GameState| s.board.values().flat_map(|here| here.units.iter()).filter(|u| u.owner == me() && u.type_id.as_str() == "carrier2").count();
+            let before = carriers(&state);
+            passing(&mut state, POK, Box::new(FirstOption), None);
+            assert_eq!(carriers(&state), before + 1);
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (1, 0));
+    }
+
+    #[test]
+    fn maxis_central_control_declined_runs_in_lockstep_and_taken_is_a_counted_bail() {
+        let ids: Vec<String> = crate::seating::neutral_systems(content(), 7, POK).into_iter().map(|s| s.to_string()).collect();
+        let hub = crate::fixtures::hub_from(&ids);
+        for take in [false, true] {
+            let ((), compared, bailed, differences) = dual("legendary::pass", || {
+                let mut state = table_of(POK);
+                hold(&mut state, "faunus", "97");
+                let candidates = maxis_candidates(&state, content(), POK, &me(), Some(&hub.galaxy));
+                assert!(!candidates.is_empty());
+                let answers: Vec<String> = if take {
+                    let (system, planet) = candidates[0].clone();
+                    vec!["faunus".to_owned(), format!("{system}|{planet}"), "decline".to_owned(), "decline".to_owned(), "decline".to_owned()]
+                } else {
+                    vec!["faunus".to_owned(), "decline".to_owned()]
+                };
+                let mut table = Table::with_default(Box::new(Scripted::new(answers)));
+                let mut dice = crate::dice::Dice::new();
+                let mut rng = crate::rng::GameRng::new(0);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut context = crate::timing::TimingContext { state: &mut state, content: content(), sources: POK, table: &mut table, dice: &mut dice, rng: &mut rng, event_sequence: &mut sequence, galaxy: Some(&hub.galaxy) };
+                pass(&mut context, &me());
+            });
+            assert!(differences.iter().all(|d| d.starts_with("(bail)")), "take={take}: {differences:?}");
+            assert_eq!((compared, bailed), if take { (0, 1) } else { (1, 0) }, "take={take}");
+        }
+    }
+
+    #[test]
+    fn a_card_drawn_through_a_faction_hook_stays_the_strings() {
+        let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
+            let mut state = crate::fixtures::seated_game(&[("a", "yssaril"), ("b", "letnev")], POK);
+            state.promissory_notes.clear();
+            hold(&mut state, "hopesend", "66");
+            let mut table = Table::with_default(scripted(&["hopesend", "card"]));
+            let _ = end_turn(&mut state, content(), POK, None, &mut table, &me());
+        });
+        assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
+        assert_eq!((compared, bailed), (0, 1), "Yssaril's Scheming changes the draw");
+    }
+
+    #[test]
+    fn the_point_of_a_song_like_marrow_follows_control_of_styx_in_lockstep() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(mask(), || {
+            let mut state = table_of(POK);
+            let (a, b) = (me(), PlayerId::new("b"));
+            let points = |s: &GameState, who: &PlayerId| s.player(who).unwrap().victory_points;
+            let (a0, b0) = (points(&state, &a), points(&state, &b));
+            hold(&mut state, "styx", "26");
+            settle_control_points(&mut state);
+            assert_eq!((points(&state, &a), state.styx_holder.clone()), (a0 + 1, Some(a.clone())));
+            settle_control_points(&mut state);
+            assert_eq!(points(&state, &a), a0 + 1, "settled once");
+            let system = state.board.iter().find(|(_, here)| here.planet_control.contains_key(&PlanetId::new("styx"))).map(|(s, _)| s.clone()).unwrap();
+            state.system_mut(&system).set_control(PlanetId::new("styx"), b.clone());
+            settle_control_points(&mut state);
+            assert_eq!((points(&state, &a), points(&state, &b)), (a0, b0 + 1));
+        });
+        let r = take_report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.total_calls() >= 3, "{r:?}");
+    }
+
+    #[test]
+    fn playing_out_of_the_salvage_yard_purges_the_card_in_lockstep() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(mask(), || {
+            let mut state = table_of(FULL);
+            let (abs, bribery) = (ti4_model::id::ActionCardId::new("abs"), ti4_model::id::ActionCardId::new("bribery"));
+            state.salvage_yard = vec![abs.clone(), bribery.clone(), abs.clone()];
+            assert!(!purge_salvaged(&mut state, &me(), &abs), "the yard belongs to whoever holds Garbozia");
+            hold(&mut state, "garbozia", "18");
+            assert!(purge_salvaged(&mut state, &me(), &abs));
+            assert_eq!(state.salvage_yard, vec![bribery.clone(), abs.clone()], "the first copy went");
+            assert!(!purge_salvaged(&mut state, &me(), &ti4_model::id::ActionCardId::new("blitz")));
+            assert!(!purge_salvaged(&mut state, &PlayerId::new("b"), &bribery), "another seat holds nothing there");
+        });
+        let r = take_report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.total_calls() >= 4, "{r:?}");
     }
 }

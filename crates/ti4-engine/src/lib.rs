@@ -40,6 +40,7 @@ pub mod diplomacy;
 pub mod draft;
 pub mod entropic_scars;
 pub mod explore_core;
+pub mod legendary_core;
 pub mod explore_write;
 pub mod strategy_cards_core;
 pub mod strategy_core;
