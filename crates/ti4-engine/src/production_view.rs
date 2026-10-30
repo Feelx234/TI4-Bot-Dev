@@ -35,23 +35,16 @@ pub struct ProdView<'a> {
 }
 
 /// Whether the producing seat or a seat that can act on it holds a faction whose production hooks the typed
-/// window does not carry yet, for the windows that pay and place themselves (the invasion's custodians and toll
-/// payments): the seat's own (Deepwrought oceans, Keleres commodities, Naaz mechs; Mentak's Corsair form is a unit the
-/// buildable list names since package W3) and the
-/// cross-seat ones (Yssaril's borrowed agents, Nomad's agent watch; Argent's agent is an ability of the core
-/// table).
+/// window does not carry, for the windows that pay and place themselves (Leadership and Construction, the invasion's
+/// custodians and toll payments, the action cards that pay): the seats the lobby cannot seat (Deepwrought's oceans,
+/// Keleres' commodities and agent; package W5 of `docs/todo/lent-bodies.md` left them string on purpose: they are dropped
+/// by decision). Naaz (the mech's staged event), Mentak (the Corsair form, package W3), Nomad (the watch of agent
+/// exhaustion) and Yssaril (the borrowed agents) are carried: the payment window and the production window run them in
+/// lockstep (`the_tier_w_factions_run_in_lockstep_on_the_core_production_window`, `tier_w_tables_run_*`).
 pub(crate) fn unported_window(state: &GameState, player: &PlayerId) -> bool {
-    use crate::factions::{deepwrought, keleres, naaz, nomad, yssaril};
-    let own = [
-        deepwrought::MODULE.alias,
-        keleres::MODULE_M.alias,
-        keleres::MODULE_X.alias,
-        keleres::MODULE_A.alias,
-        naaz::MODULE.alias,
-    ];
-    let cross = [nomad::MODULE.alias, yssaril::MODULE.alias];
-    state.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
-        || state.players.iter().any(|p| cross.contains(&p.faction.as_str()))
+    use crate::factions::{deepwrought, keleres};
+    let dropped = [deepwrought::MODULE.alias, keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias];
+    state.player(player).is_some_and(|p| dropped.contains(&p.faction.as_str()))
 }
 
 /// [`unported_window`], and any Keleres seat at the table: the triggered productions (Sling Relay, Integrated

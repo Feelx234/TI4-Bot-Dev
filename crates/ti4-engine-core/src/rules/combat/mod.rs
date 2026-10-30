@@ -23,6 +23,7 @@ pub mod end;
 pub mod end_announce;
 pub mod flow;
 pub mod machine;
+pub mod produce;
 pub mod raid_formation;
 pub mod retreat;
 pub mod roll;
@@ -193,6 +194,8 @@ pub(crate) enum FlagshipText {
     L1z1x,
     /// Wrath of Kenara: the Hacan flagship.
     Hacan,
+    /// Arc Secundus: the Letnev flagship repairs itself at the start of each space combat round.
+    Letnev,
 }
 
 /// `factions::flagship_has_text`: the unit is the flagship, or a Nekro flagship whose Z token lends it.
@@ -201,6 +204,7 @@ pub(crate) fn flagship_has_text(s: &CoreState, who: Seat, unit: Unit, text: Flag
         FlagshipText::Jolnar => (Unit::JNSHylarim, Faction::TheUniversitiesOfJolNar),
         FlagshipText::L1z1x => (Unit::L1z1xFlagship, Faction::TheL1Z1XMindnet),
         FlagshipText::Hacan => (Unit::WrathOfKenara, Faction::TheEmiratesOfHacan),
+        FlagshipText::Letnev => (Unit::ArcSecundus, Faction::TheBaronyOfLetnev),
     };
     if unit == flagship {
         return true;
