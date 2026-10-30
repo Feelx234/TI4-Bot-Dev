@@ -411,6 +411,8 @@ mod resolver_state {
         assert!(cx.resolver.is_none());
         with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| core.pending_mut().resolver.next_id = 9).unwrap();
         assert_eq!(cx.resolver.as_ref().map(|r| r.next_id), Some(9), "a lend that changed it hands it over");
+    }
+}
 
 // -- W17: what the product never reaches ------------------------------------------------------------
 
