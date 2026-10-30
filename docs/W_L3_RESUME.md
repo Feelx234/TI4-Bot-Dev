@@ -22,19 +22,32 @@ violations), `lint_core.sh` (0 hits), single-file mutation checks (`/root/deploy
 | `transactions::answer` (free-form deals, never in the golden games) | followed by the core, random census 415 steps 0 bailed |
 | Nomad games: nested `unported ability` at every trade-good gain (Artuno), Winnu at Mecatol, Magen holders at every activation | followed |
 
-## Pieces not done, with the reason (each is pinned by a counted bail or by the string tests that exist)
+## Phase 2 (after the first report)
 
-* W9: Mercer, Thundarian (lane 1), Temporal Command Suite, Thunder's Paradox, Magen's ground-combat hit, Infantry II's TURN_BEGAN return,
-  Mahact Imperia, Ssruu copies outside combat, Ambuscade, Sardakk's TURN_BEGAN clean-up. `bail_every_family_that_stays_in_the_string_is_named`.
-* W10: every other leader arm asks over the map, a production or a nested card; `check_unlocks`/`award_tail`; Artuno's payout.
-* W11: nothing started; see W11-open-01.
-* W12: `production_used` (opening of the production window, lane 1), `self_assembly_after_production`, `component_actions`/
-  `perform_component` (lane 1 W5), `control_gained` (lane 1 W8), Transit Diodes and Chaos Mapping at the start of a turn (kept on the string
-  with a counted reason, test `a_turn_start_with_nothing_to_offer_asks_nothing_in_lockstep_and_chaos_mapping_stays_the_strings`).
-* W13: the effects behind the reward answers are already `dual_write`s in `exploration.rs` (commodities, tokens, placement); what is left is
-  the composition (D1) and `frln*` (production, lane 1); relic bodies: Neuraloop's pool check, Titan Prototype's payment and structure.
-* W14: Military Support's placement window, the commander reads (`has_commander_ability`, `commander_ability_from`).
+Merged `core-w-l2` (Galactic Threat is lane 2's, Future Sight and Artuno lane 3's, the Thundarian lane 1's; slots renumbered) and
+`core-w-l1`'s tip. Ported on top: `production_used`, `self_assembly_after_production`, Transit Diodes (W12-design-02); the Neuraloop's
+roll, purge and swap, the Titan Prototype's payment, structure and trade good (W13-design-02); the commander reads of every direct
+caller (W14-design-02); Production Biomes (W11-design-01). Counted gates (named in the census, each with a test): Military Support
+(W14-design-02), the action leaders of the string (W10-design-03), the faction component actions (W11-open-01).
+
+## Pieces not done, with the reason (each is pinned by a counted bail or gate, or by the string tests that exist)
+
+* W9: Mercer and Sardakk's agent (a core emission of `TACTICAL_ACTION_ENDED`: D1b tactical aftermath), Thunder's Paradox, Infantry II's return
+  and Sardakk's clean-up (a window announcing `TURN_BEGAN`: D1b turn prelude), Temporal Command Suite (the trade window as a child), Magen's
+  ground-combat hit, Mahact Imperia, Ssruu copies outside combat, Ambuscade. `bail_every_family_that_stays_in_the_string_is_named`.
+* W10: the action leaders of W10-design-03 (named gates).
+* W11: the component actions of W11-open-01 (named gates); the listing `component_actions` and the dispatch `perform_component` are D1b's.
+* W12: Chaos Mapping at the start of a turn, Minister of Industry and Freelancers (lane 1's `produce_one`, W5 item 3, on no mergeable
+  branch), Sling Relay and Gravity Drive component actions (D1b dispatch).
+* W13: the composition of the exploration rewards (D1), `frln*` (production, lane 1).
+* W14: Military Support's placement (a generic `PlaceUnits` window and the turn prelude: W14-design-02).
 * Thunder's Edge content: undecided, nothing ported (as instructed).
+
+## Not run (by the directive, and at the end)
+
+No `verify_package`/gate, no golden or wide dual run, no census re-run, no bench, no soak, no clippy, no mutation ratchet. Run: the
+targeted tests, `cargo test -p ti4-engine-core --lib`, `cargo test -p ti4-engine --lib` (full), `check_layers.py core`, `lint_core.sh`, and
+single-file mutation checks (see the final report).
 
 ## Merge notes
 
