@@ -41,6 +41,17 @@ pub struct DealFacts {
     /// The worth of each planet card, indexed by `Planet::index` (`planet_value`: resources plus influence, at
     /// least one; two for a planet the content does not know). Read by the Pride of Kenara deals only.
     pub planet_values: &'static [u8],
+    /// The free-form deals the window may meet (`Shape::Free(i)`): the terms the adapter parsed from their ids, each leg with the
+    /// facts of its note and planet (`transactions::terms`), relative to `pair.0` as proposer. At most the deal on the table and
+    /// the one the proposer names.
+    pub free: [Option<FreeDeal>; 2],
+}
+
+/// A free-form deal in typed form (`Shape::Free`): what the proposer gives and what they receive.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FreeDeal {
+    pub given: Terms,
+    pub received: Terms,
 }
 
 impl DealFacts {
@@ -65,7 +76,7 @@ impl core::fmt::Debug for DealFacts {
 
 impl PartialEq for DealFacts {
     fn eq(&self, other: &Self) -> bool {
-        self.unlocked == other.unlocked && self.pair == other.pair && self.may == other.may && self.arbiters == other.arbiters
+        self.unlocked == other.unlocked && self.pair == other.pair && self.may == other.may && self.arbiters == other.arbiters && self.free == other.free
     }
 }
 
@@ -211,6 +222,8 @@ pub fn sides(shape: Shape) -> (Side, Side) {
         Shape::NoteForNote { owed, want } => (note(owed), note(want)),
         Shape::PlanetSale { price, value, .. } => (Side { planet: Some(value), ..Side::default() }, goods(i(price))),
         Shape::PlanetBuy { price, value, .. } => (goods(i(price)), Side { planet: Some(value), ..Side::default() }),
+        // A free-form deal is priced by the adapter that parsed it (the renderer reads the net from the string's own numbers).
+        Shape::Free(_) => (Side::default(), Side::default()),
     }
 }
 
@@ -460,6 +473,11 @@ fn fragments_of(kind: ExploreType) -> [i32; 4] {
 /// adapter's `terms`): `None` for a deal the state cannot name (an owner that two seats play).
 #[must_use]
 pub fn offer_of(core: &CoreState, f: &DealFacts, shape: Shape, proposer: Seat, partner: Seat) -> Offer {
+    if let Shape::Free(i) = shape {
+        // An index the adapter registered; an empty deal otherwise (nothing changes hands: illegal as `Empty`).
+        let deal = f.free.get(usize::from(i)).copied().flatten();
+        return Offer { proposer, partner, given: deal.map_or_else(Terms::default, |d| d.given), received: deal.map_or_else(Terms::default, |d| d.received) };
+    }
     let leg = |held: Option<Held>, giver: Seat, receiver: Seat| {
         held.map(|h| match h {
             Held::Note(key) => NoteFacts {

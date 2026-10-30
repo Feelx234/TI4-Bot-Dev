@@ -43,14 +43,17 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_SPACE, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_GROUND, kind: "promissory", card: "antivirus" },
+    Named { slot: ti4_engine_core_factions::magen_defense::ACTIVATION, kind: "technology", card: "md" },
+    Named { slot: ti4_engine_core_factions::cb_economy::winnu::timing::UNLOCK_SPACE, kind: "leader", card: "winnucommander_unlock" },
+    Named { slot: ti4_engine_core_factions::cb_economy::winnu::timing::UNLOCK_GROUND, kind: "leader", card: "winnucommander_unlock" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::threat::PREDICT, kind: "ability", card: "galactic_threat" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::threat::PAYOUT, kind: "ability", card: "galactic_threat" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::SPACE, kind: "ability", card: "technological_singularity" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::GROUND, kind: "ability", card: "technological_singularity" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::OPEN_SPACE, kind: "ability", card: "technological_singularity_open" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::OPEN_GROUND, kind: "ability", card: "technological_singularity_open" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_SPACE, kind: "ability", card: "technological_singularity_close" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_GROUND, kind: "ability", card: "technological_singularity_close" },
-    Named { slot: ti4_engine_core_factions::ca_combat::nekro::threat::PREDICT, kind: "ability", card: "galactic_threat" },
-    Named { slot: ti4_engine_core_factions::ca_combat::nekro::threat::PAYOUT, kind: "ability", card: "galactic_threat" },
     Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::HERO_FINISH, kind: "leader", card: "sardakkhero" },
     Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::MECH_HIT, kind: "unit", card: "sardakk_mech" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_SHIP, kind: "unit", card: "empyrean_flagship" },
@@ -59,6 +62,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::FUTURE_SIGHT, kind: "ability", card: "future_sight" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_PLAY, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_RETURN, kind: "promissory", card: "cavalry" },
+    Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::ARTUNO, kind: "leader", card: "nomadagentartuno" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE_II, kind: "unit", card: "mahact_infantry2" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_TRADE_GOOD, kind: "technology", card: "so" },
@@ -182,6 +186,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::cc_ground::register_first(&mut t);
             ti4_engine_core::rules::action_cards::reaction_slot::register(&mut t);
             ti4_engine_core::rules::reactions::register(&mut t);
+            ti4_engine_core_factions::magen_defense::register_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
             ti4_engine_core_factions::ce_movement::register_abilities(&mut t);
             // The string order of the faction modules: only abilities of one window share a bucket, and Mahact's
@@ -190,6 +195,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::cc_ground::register_abilities(&mut t);
             ti4_engine_core_factions::ca_combat::register_abilities(&mut t);
             ti4_engine_core_factions::ce_movement::register_late_abilities(&mut t);
+            ti4_engine_core_factions::cb_economy::register_late_abilities(&mut t);
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             ti4_engine_core_factions::cards::register(&mut t);
@@ -491,6 +497,7 @@ impl Follow {
         self.table.codes.mahact_infantry2 = r.code("mahact_infantry2");
         self.table.codes.retreat_capacity = r.code("retreat_capacity");
         self.table.codes.reinforcements = r.code("reinforcements");
+        self.table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
         self.table.facts.staging = crate::supply::staging_enabled(gs);
         // Reveal Prototype researches: a seat whose research hooks the core table answers differently from the string modules is the string's.
         if let Some(plays) = self.table.facts.plays.as_mut() {
@@ -565,7 +572,13 @@ mod tests {
         for id in [
             "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
             "promissory:letnev:ambuscade:UNIT_ABILITY_ROLLED:when",
-            "leader:winnu:winnucommander_unlock:SPACE_COMBAT_STARTED:after",
+            "ability:sol:propagation:SPACE_COMBAT_ENDED:after",
+            // The Nomad's tail (package W9): Mercer hangs on the end of a tactical action and asks which ground forces move
+            // (an option list in the text order of the systems), the Thundarian replays the roll step (lane 1, ported), Temporal Command
+            // Suite readies an agent and may open a transaction window, Thunder's Paradox hangs on TURN_BEGAN.
+            "leader:nomad:nomadagentmercer:TACTICAL_ACTION_ENDED:after",
+            "technology:nomad:tcs:AGENT_EXHAUSTED:after",
+            "breakthrough:nomad:nomadbt:TURN_BEGAN:after",
         ] {
             assert_eq!(slot_of(id), None, "{id} is not in the table");
             let why = rec(&[id], &[]).unported(&t).unwrap_or_default();
@@ -701,7 +714,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();

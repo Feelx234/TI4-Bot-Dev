@@ -1331,7 +1331,6 @@ pub(crate) mod reason {
     pub const EVENT_UNTYPED: &str = "an event the core window emitted has no string form";
     pub const UNKNOWN_ID: &str = "an id the core tables do not know";
     pub const NEUTRAL: &str = "a neutral side";
-    pub const COUNT: &str = "a count the window cannot hold";
 }
 
 /// How many reasons this thread has counted (a test compares it before and after a core half that bailed).

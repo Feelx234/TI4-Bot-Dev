@@ -182,6 +182,33 @@ mod real {
         })
     }
 
+    /// [`NOTES`] and the board: the units that make an activation spend a note.
+    const ACTIVATION: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger, Slice::Board],
+        &[Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger],
+    );
+
+    /// `promissory::use_ceasefire`.
+    pub fn use_ceasefire(gs: &mut GameState, mover: &PlayerId) -> Option<bool> {
+        notes(gs, |core, cx| rules_notes::use_ceasefire(core, cx.owners.seat(mover.as_str())?))
+    }
+
+    /// `promissory::spend_support_on_activation`: the owners whose Support was spent, in the order of their ids.
+    pub fn spend_on_activation(gs: &mut GameState, activator: &PlayerId, system: &ti4_model::id::SystemId) -> Option<Vec<PlayerId>> {
+        let system = typed::<ti4_engine_core::generated::System>(system.as_str())?;
+        let ids = Ctx::of(gs).ok()?.owners.clone();
+        let mut cx = Ctx::of(gs).ok()?;
+        let seats = Ctx::of(gs).ok()?;
+        let owners = with_core(gs, &mut cx, Sources::default(), ACTIVATION, |core, _| {
+            rules_notes::spend_support_on_activation(core, seats.owners.seat(activator.as_str())?, system)
+        })
+        .ok()
+        .flatten()?;
+        let mut out: Vec<PlayerId> = owners.as_slice().iter().map(|s| ids.id(*s).map(PlayerId::new)).collect::<Option<_>>()?;
+        out.sort();
+        Some(out)
+    }
+
     /// `promissory::return_all_foreign`.
     pub fn return_all_foreign(gs: &mut GameState, alias: &str) -> Option<()> {
         let note = parse_note(alias)?;
@@ -236,6 +263,12 @@ mod stub {
         None
     }
     pub fn return_all_foreign(_: &mut GameState, _: &str) -> Option<()> {
+        None
+    }
+    pub fn use_ceasefire(_: &mut GameState, _: &PlayerId) -> Option<bool> {
+        None
+    }
+    pub fn spend_on_activation(_: &mut GameState, _: &PlayerId, _: &ti4_model::id::SystemId) -> Option<Vec<PlayerId>> {
         None
     }
     pub fn trade_agreement(_: &mut GameState, _: &PlayerId) -> Option<Option<(PlayerId, i32)>> {

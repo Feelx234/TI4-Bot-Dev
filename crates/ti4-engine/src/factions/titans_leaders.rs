@@ -424,18 +424,21 @@ fn use_leader(
     if leader.as_str() != HERO {
         return None;
     }
-    if !elysium_available(context.state) {
-        return Some(false);
-    }
-    let planet = PlanetId::new(ELYSIUM);
-    context.state.exhausted_planets.remove(&planet);
-    context
-        .state
-        .planet_attachments
-        .entry(planet)
-        .or_default()
-        .push(GEOFORM.to_owned());
-    Some(true)
+    Some(crate::dual::write(
+        crate::dual::Area::LeadersAbilities,
+        context.state,
+        "leaders::titans_hero",
+        |s| {
+            if !elysium_available(s) {
+                return false;
+            }
+            let planet = PlanetId::new(ELYSIUM);
+            s.exhausted_planets.remove(&planet);
+            s.planet_attachments.entry(planet).or_default().push(GEOFORM.to_owned());
+            true
+        },
+        |s| crate::leaders_core::titans_hero(s),
+    ))
 }
 
 // -- Terraform ---------------------------------------------------------------------------------

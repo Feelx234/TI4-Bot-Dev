@@ -75,7 +75,7 @@ mod real {
     // -- command tokens (52.4) -----------------------------------------------------------------------------
 
     /// `tokens::with_pool_details`: the pools as they stand now and what the question hands out or moves.
-    fn pool_details(core: &CoreState, seat: Seat, letnev: bool, mode: &str, to_place: Option<usize>) -> serde_json::Map<String, Value> {
+    pub(crate) fn pool_details(core: &CoreState, seat: Seat, letnev: bool, mode: &str, to_place: Option<usize>) -> serde_json::Map<String, Value> {
         let (tactic, fleet, strategic) = core
             .players()
             .by_seat(seat)
@@ -378,6 +378,58 @@ mod real {
         Some(finish(&driven, &window))
     }
 
+    /// The core half of `relics::titan_prototype`, the whole card: the owner names the player, who pays three resources for
+    /// a structure or takes a trade good. The value is whether a player was named (`None`: nobody) and whether a structure
+    /// was placed. `None` as for Construction, and for a window the table cannot start the build in.
+    pub fn titan_prototype(
+        gs: &mut GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+        script: &Recording,
+    ) -> Option<CoreWindow<Option<bool>>> {
+        use ti4_engine_core::rules::relic_windows::TitanPrototype;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        // The builder is the answer of the first question; the structure rules are read for that seat.
+        let builder = script.questions.first().and_then(|q| q.answer.clone());
+        let facts = match &builder {
+            Some(id) => Some(structure_facts(gs, content, sources, &PlayerId::new(id.as_str()), &r)?),
+            None => None,
+        };
+        let window = match facts {
+            Some(facts) => TitanPrototype::new(seat).with_build(facts, r.code("relic")),
+            None => TitanPrototype::new(seat),
+        };
+        let before = gs.clone();
+        let kernel = crate::production_view::kernel();
+        let mut table = AbilityTable::default();
+        ti4_engine_core::driver::children::register(&mut table);
+        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), table, 1);
+        let mut reads = crate::production_view::READS;
+        reads.insert(Slice::Pending);
+        let fp = Footprint { reads, writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Cards, Slice::Marks, Slice::Pending]) };
+        let mut staged = Vec::new();
+        let driven = with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
+            let driven = drive_at(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {});
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to start the Titan Prototype's build");
+            return None;
+        }
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        let value = driver.window.chosen.map(|_| driver.window.built);
+        Some(CoreWindow { run: Run::new(value).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     /// The core half of the primary of the Thunder's Edge Construction (`te4construction`): the choice of a structure
     /// or a production, then the structures. `systems` are the ones that can produce (the string's
     /// `production::capacity`). `None` as for [`construction`], and where the holder chooses the production: a whole
@@ -435,26 +487,31 @@ mod real {
     // -- Trade secondary ------------------------------------------------------------------------------------
 
     const REPLENISH: Footprint =
-        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
+        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Pending], &[Slice::Players, Slice::Cards]);
 
     /// The core half of the Trade secondary (`strategy_cards::replenish` for the follower): the commodities go
     /// to the printed value. `None` where a commodity change causes events the core does not hold (Cabal, a
     /// siphoning plot, a Trade Agreement), where the game's limit is not the faction's printed value, inside a
     /// battle, an invasion or a nested emission, and with diplomacy on.
     pub fn replenish_secondary(gs: &mut GameState, content: &ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (crate::leaders_core::replenish_causes_events(gs)).then_some("a replenishment that causes events the core does not hold (Cabal, a siphoning plot, a Trade Agreement)")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| crate::leaders_core::replenish_window_unported(gs)) {
             crate::dual::note_bail_here(why);
             return None;
         }
         let limit = crate::strategy_cards::commodity_limit(gs, content, player);
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let source = r.code("trade_agreement");
+        let mut staged = Vec::new();
         let same = with_core(gs, &mut cx, Sources::default(), REPLENISH, |core, _| {
             let printed = core.players().by_seat(seat).map(|p| i32::from(p.faction.data().commodities));
-            (printed == Some(limit)).then(|| fx::replenish_commodities(core, seat))
+            let done = (printed == Some(limit)).then(|| fx::replenish_announced(core, seat, source));
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            done
         })
         .why(crate::dual::reason::NOT_LENDABLE)?;
         same.why("the faction's printed commodity limit is not the game's")?;
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
         Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: Vec::new() })
     }
 
@@ -902,6 +959,10 @@ mod stub {
         _: bool,
         _: &Recording,
     ) -> Option<CoreWindow<bool>> {
+        None
+    }
+
+    pub fn titan_prototype(_: &mut GameState, _: &ContentStore, _: SourceSet, _: &PlayerId, _: &Recording) -> Option<CoreWindow<Option<bool>>> {
         None
     }
 
@@ -1440,9 +1501,51 @@ mod tests {
         assert_eq!(run(label, &F3, |_| {}, &[], secondary("pok5trade")).0, 1);
         let spent = |s: &mut GameState| s.player_mut(&a()).unwrap().commodities = 1;
         assert_eq!(run(label, &F3, spent, &[], secondary("pok5trade")).0, 1);
-        // A Cabal at the table: the replenish is announced to it.
+        // A Cabal at the table: the replenish is announced to it (a staged event, since package W10), compared in lockstep.
         let cabal = [("a", "sol"), ("b", "cabal")];
-        assert_eq!(run(label, &cabal, spent, &[], secondary("pok5trade")), (0, 1));
+        assert_eq!(run(label, &cabal, spent, &[], secondary("pok5trade")), (1, 0));
+        // A Trade Agreement of the follower held by another seat: the commodities become that seat's trade goods and the note goes home.
+        let lent = |s: &mut GameState| {
+            s.player_mut(&a()).unwrap().commodities = 1;
+            s.promissory_notes.insert("ta:sol".to_owned(), PlayerId::new("b"));
+        };
+        assert_eq!(run(label, &F3, lent, &[], secondary("pok5trade")), (1, 0));
+        // Both at once, and the note of another faction's owner (the follower is not the owner): nothing to pay.
+        let both = |s: &mut GameState| {
+            lent(s);
+            s.promissory_notes.insert("ta:hacan".to_owned(), PlayerId::new("a"));
+        };
+        let table4 = [("a", "sol"), ("b", "hacan"), ("c", "cabal")];
+        assert_eq!(run(label, &table4, both, &[], secondary("pok5trade")), (1, 0));
+        // Two seats of one faction (the note is keyed by faction): the string stands.
+        let twins = [("a", "sol"), ("b", "sol")];
+        assert_eq!(run(label, &twins, spent, &[], secondary("pok5trade")), (0, 1));
+    }
+
+    /// The outcome of the Trade secondary with a Trade Agreement lent out: pinned on the string state itself, so a core half
+    /// that skipped the payment would show here and as a difference (the dual compares the position, the staged events included).
+    #[test]
+    fn the_trade_secondary_pays_a_lent_trade_agreement_to_its_holder() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "cabal")], POK);
+            crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+            state.promissory_notes.insert("ta:sol".to_owned(), PlayerId::new("b"));
+            state.player_mut(&a()).unwrap().commodities = 1;
+            let goods = state.player(&PlayerId::new("b")).unwrap().trade_goods;
+            let mut table = Table::with_default(Box::new(Scripted::new(Vec::<String>::new())));
+            crate::strategy_cards::secondary(&mut state, ContentStore::embedded(), POK, None, &mut table, &a(), "pok5trade").unwrap();
+            assert_eq!(state.player(&a()).unwrap().commodities, 0);
+            assert_eq!(state.player(&PlayerId::new("b")).unwrap().trade_goods, goods + 4);
+            assert_eq!(state.promissory_notes.get("ta:sol"), Some(&a()), "the note went home");
+            let staged = crate::supply::staged_event_types(&state);
+            assert_eq!(staged, vec!["COMMODITIES_REPLENISHED".to_owned(), "TRADE_GOODS_GAINED".to_owned()], "Cabal first, then the Trade Agreement's gain");
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(counts("strategy_cards::trade_secondary"), (1, 0), "the core half ran");
+        let _ = take_report();
     }
 
     /// The technologies a fresh seat `a` can research that need nothing and are no unit upgrade.

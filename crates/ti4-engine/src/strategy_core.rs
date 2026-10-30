@@ -13,7 +13,7 @@ mod real {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::strategy_windows::{TradePrimary, TRADE_PRIMARY_GOODS};
+    use ti4_engine_core::rules::strategy_windows::TradePrimary;
     use ti4_engine_core::state::Slice;
     use ti4_model::id::PlayerId;
     use ti4_model::state::GameState;
@@ -21,7 +21,7 @@ mod real {
     use crate::core_sync::{Footprint, Sources};
     use crate::dual::{CoreWindow, Run, Why};
     use crate::dual_window::Recording;
-    use crate::leaders_core::replenish_causes_events;
+    use crate::leaders_core::replenish_window_unported;
 
     /// The tables of a window whose options name seats by faction. `None`: more than 16 owners, or two seats
     /// of one faction (the option ids would clash).
@@ -57,14 +57,14 @@ mod real {
     }
 
     const TRADE: Footprint =
-        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
+        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Pending], &[Slice::Players, Slice::Cards]);
 
     /// The core half of `strategy_cards::trade_primary`. `None` where the position is outside what the core
     /// holds: a question inside a battle or an invasion, diplomacy on (a favour keeps a promise), a commodity
     /// change that causes events (Cabal, Siphon, Trade Agreement), two seats of one faction (the options are
     /// named by faction), a seat the tables do not hold.
     pub fn trade_primary(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (replenish_causes_events(gs)).then_some("a replenishment that causes events the core does not hold (Cabal, a siphoning plot, a Trade Agreement)")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| replenish_window_unported(gs)) {
             crate::dual::note_bail_here(why);
             return None;
         }
@@ -72,14 +72,17 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(TradePrimary::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = Driver::new(TradePrimary::with_sources(seat, r.code("trade_primary"), r.code("trade_agreement")), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut staged = Vec::new();
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), TRADE, |core, _| {
-            crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, core, rendered| complete_trade(&r, core, rendered))
+            let driven = crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, core, rendered| complete_trade(&r, core, rendered));
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
         })
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        // The announcement of the three trade goods is staged on the string state (not a codec slice).
-        crate::supply::note_trade_goods_gained(gs, player, TRADE_PRIMARY_GOODS, "trade_primary");
+        // The announcements (the three trade goods, Cabal's note, the Trade Agreement) are staged events: written to the string state in order.
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
         Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 }
@@ -111,11 +114,18 @@ mod tests {
     }
 
     fn run(answers: &[&str], stock: &[i32], factions: &[(&str, &str)]) -> (u64, u64) {
+        run_with(answers, stock, factions, |_| {})
+    }
+
+    fn run_with(answers: &[&str], stock: &[i32], factions: &[(&str, &str)], setup: impl FnOnce(&mut ti4_model::state::GameState)) -> (u64, u64) {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
             let mut state = crate::fixtures::seated_game(factions, POK);
+            // The lobby deals the notes once the factions are seated (the typed cards slice has no generic faction).
+            crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+            setup(&mut state);
             for (seat, n) in factions.iter().zip(stock) {
                 state.player_mut(&PlayerId::new(seat.0)).unwrap().commodities = *n;
             }
@@ -142,20 +152,64 @@ mod tests {
         assert_eq!(run(&[], &[0, 99, 99], &f).0, 1);
     }
 
-    /// A Cabal, a Trade Agreement or two seats of one faction make the core half decline (the string stands);
-    /// probed directly, since the shared report is also fed by parallel tests.
+    /// The announcements of a replenish are the core's since package W10: a Cabal at the table (its agent listens to
+    /// `COMMODITIES_REPLENISHED`) and a Trade Agreement lent to another seat (the commodities become that seat's trade goods) are
+    /// compared in lockstep, for the holder's own replenish and for the seats it names. The staged events are pinned in order.
+    #[test]
+    fn a_cabal_and_a_lent_trade_agreement_are_followed_by_the_core() {
+        let f = [("a", "sol"), ("b", "hacan"), ("c", "cabal")];
+        assert_eq!(run(&["hacan", "cabal"], &[0, 0, 0], &f), (1, 0), "a Cabal at the table");
+        // The holder's own Trade Agreement lent out (hacan holds the note of sol): its replenish pays hacan.
+        let lent = |s: &mut ti4_model::state::GameState| {
+            s.promissory_notes.insert("ta:sol".to_owned(), PlayerId::new("b"));
+            s.promissory_notes.insert("ta:cabal".to_owned(), PlayerId::new("a"));
+        };
+        assert_eq!(run_with(&["hacan", "cabal"], &[0, 0, 0], &f, lent), (1, 0), "a Trade Agreement lent out, twice");
+        assert_eq!(run_with(&["done"], &[0, 0, 0], &f, lent), (1, 0), "the holder's own replenish alone");
+    }
+
+    /// Order and amounts of the announcements on the string state after the Trade primary: the three trade goods first, then for
+    /// each replenish Cabal's note and the Trade Agreement's gain.
+    #[test]
+    fn the_trade_primary_stages_its_announcements_in_the_strings_order() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "cabal")], POK);
+            crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+            state.promissory_notes.insert("ta:hacan".to_owned(), PlayerId::new("c"));
+            let mut table = Table::with_default(Box::new(Scripted::new(["hacan".to_owned(), "done".to_owned()])));
+            crate::strategy_cards::trade_primary(&mut state, ContentStore::embedded(), POK, None, &mut table, &PlayerId::new("a")).unwrap();
+            assert_eq!(
+                crate::supply::staged_event_types(&state),
+                ["TRADE_GOODS_GAINED", "COMMODITIES_REPLENISHED", "COMMODITIES_REPLENISHED", "TRADE_GOODS_GAINED"].map(str::to_owned),
+                "the primary's goods, sol's replenish (cabal hears it), hacan's replenish (cabal hears it, then the note pays cabal)"
+            );
+            assert_eq!(state.player(&PlayerId::new("b")).unwrap().commodities, 0, "hacan's commodities went to the Trade Agreement's holder");
+            assert_eq!(state.promissory_notes.get("ta:hacan"), Some(&PlayerId::new("b")), "the note went home");
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(counts("strategy_cards::trade_primary"), (1, 0), "the core half ran");
+        let _ = take_report();
+    }
+
+    /// Two seats of one faction (the options are named by faction) and diplomacy promises make the core half decline (the string
+    /// stands); probed directly, since the shared report is also fed by parallel tests.
     #[test]
     fn the_core_half_declines_where_the_position_holds_more() {
         let script = crate::dual_window::Recording::default();
         let a = PlayerId::new("a");
         let probe = |f: &[(&str, &str)]| {
             let mut state = crate::fixtures::seated_game(f, POK);
+            crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
             super::trade_primary(&mut state, &a, &script).is_some()
         };
         assert!(probe(&[("a", "sol"), ("b", "hacan"), ("c", "arborec")]));
-        assert!(!probe(&[("a", "sol"), ("b", "cabal"), ("c", "arborec")]));
+        assert!(probe(&[("a", "sol"), ("b", "cabal"), ("c", "arborec")]), "a Cabal is followed since package W10");
         assert!(!probe(&[("a", "sol"), ("b", "sol")]));
         let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+        crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
         state.diplomacy.enabled = true;
         assert!(super::trade_primary(&mut state, &a, &script).is_none());
     }

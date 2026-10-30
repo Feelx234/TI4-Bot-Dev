@@ -46,6 +46,28 @@ pub fn exhaust_technology(core: &mut CoreState, who: Seat, tech: Technology) -> 
     p.tech.owned.contains(tech) && p.tech.exhausted.insert(tech)
 }
 
+/// `technology::purge`: the technology leaves the seat (and its exhausted mark); a unit upgrade purged takes its unit form with it,
+/// the seat's units of the upgraded type on the board go back to the form the card replaced. `false` (nothing written) when the
+/// seat does not own it.
+pub fn purge_technology(core: &mut CoreState, scope: Scope, who: Seat, tech: Technology) -> bool {
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return false };
+    if !p.tech.owned.contains(tech) {
+        return false;
+    }
+    p.tech.owned.remove(tech);
+    p.tech.exhausted.remove(tech);
+    let downgrades: Vec<(Unit, Unit)> = Unit::ALL
+        .into_iter()
+        .filter(|u| scope.unit(*u).is_some())
+        .filter_map(|u| {
+            let d = u.data();
+            (d.required_technology == crate::generated::Requirement::Known(tech)).then_some(d.upgrades_from).flatten().map(|before| (u, before))
+        })
+        .collect();
+    apply_swaps(core, who, &downgrades);
+    true
+}
+
 /// `technology::unit_swaps`: for each unit form in scope the form `who` is entitled to instead (the upgrade owned, else
 /// the faction's own unit for a plain one, then the faction override of the hook table). Only the forms that change.
 #[must_use]

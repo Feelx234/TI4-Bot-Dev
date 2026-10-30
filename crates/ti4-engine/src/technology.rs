@@ -173,8 +173,9 @@ pub fn perform_component(
         return Ok(false);
     }
     let produced = crate::production::sling_relay(state, content, sources, galaxy, table, player)?;
-    if produced && let Some(seat) = state.player_mut(player) {
-        seat.exhausted_technologies.insert(TechnologyId::new("sr"));
+    if produced {
+        // The write is the dual-compared one (the production itself is the core's `SlingRelay` window).
+        exhaust_technology_text(state, player, "sr");
     }
     Ok(produced)
 }
@@ -191,6 +192,33 @@ pub fn perform_component(
     reason = "the start window sequences several independent optional technologies"
 )]
 pub fn start_turn(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "technology::start_turn",
+        state,
+        |state: &mut GameState| {
+            result = start_turn_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::start_turn(state, player, script)
+    );
+    result
+}
+
+/// [`start_turn`] on the string engine: the oracle of the dual run.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the start window sequences several independent optional technologies"
+)]
+fn start_turn_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -390,6 +418,33 @@ pub fn end_turn(
     table: &mut Table,
     player: &PlayerId,
 ) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "technology::end_turn",
+        state,
+        |state: &mut GameState| {
+            result = end_turn_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::end_turn(state, player, script)
+    );
+    result
+}
+
+/// [`end_turn`] on the string engine: the oracle of the dual run.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the end window sequences several independent optional technologies"
+)]
+fn end_turn_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
     let predictive = TechnologyId::new("pi");
     if state.player(player).is_some_and(|seat| {
         seat.technologies.contains(&predictive)
@@ -577,6 +632,29 @@ pub fn production_used(
     table: &mut Table,
     player: &PlayerId,
 ) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "technology::production_used",
+        state,
+        |state: &mut GameState| {
+            result = production_used_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::production_used(state, player, script)
+    );
+    result
+}
+
+/// [`production_used`] on the string engine: the oracle of the dual run.
+fn production_used_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
     let sarween = TechnologyId::new("st");
     let mut discount: i32 = i32::from(
         state
@@ -648,6 +726,28 @@ pub fn production_used(
 /// # Errors
 /// [`IllegalChoice`] if a decider answers with something not offered.
 pub fn self_assembly_after_production(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    let sources = ctx.sources;
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "technology::self_assembly",
+        state,
+        |state: &mut GameState| {
+            result = self_assembly_string(state, ctx, player, system);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::self_assembly(state, player, system, sources, script)
+    );
+    result
+}
+
+/// [`self_assembly_after_production`] on the string engine: the oracle of the dual run.
+fn self_assembly_string(
     state: &mut GameState,
     ctx: &mut crate::choice::Resolving<'_>,
     player: &PlayerId,
@@ -1561,6 +1661,17 @@ pub fn technology_text_ready(state: &GameState, player: &PlayerId, alias: &str) 
 /// Exhaust the card that carries technology `alias`'s text for `player`: the technology itself, or
 /// the Valefar Assimilator carrying it. `false`, changing nothing, when the player has neither.
 pub fn exhaust_technology_text(state: &mut GameState, player: &PlayerId, alias: &str) -> bool {
+    crate::dual::write(
+        crate::dual::Area::Technology,
+        state,
+        "technology::exhaust_technology_text",
+        |s| exhaust_technology_text_string(s, player, alias),
+        |s| crate::technology_dual::exhaust_text(s, player, alias),
+    )
+}
+
+/// [`exhaust_technology_text`] on the string state: the oracle of the dual run.
+fn exhaust_technology_text_string(state: &mut GameState, player: &PlayerId, alias: &str) -> bool {
     let id = TechnologyId::new(alias);
     let carrier = if state
         .player(player)
@@ -1584,9 +1695,17 @@ pub fn exhaust_technology_text(state: &mut GameState, player: &PlayerId, alias: 
 /// Separate from [`research`] because gaining is not researching: several effects grant a
 /// technology directly, and the rules that fire on *research* must not fire for those.
 pub fn grant(state: &mut GameState, player: &PlayerId, alias: &TechnologyId) {
-    if let Some(seat) = state.player_mut(player) {
-        seat.technologies.insert(alias.clone());
-    }
+    crate::dual::write(
+        crate::dual::Area::Technology,
+        state,
+        "technology::grant",
+        |s| {
+            if let Some(seat) = s.player_mut(player) {
+                seat.technologies.insert(alias.clone());
+            }
+        },
+        |s| crate::technology_dual::grant(s, player, alias.as_str()),
+    );
 }
 
 /// Gain a technology by any route other than research, and let a unit upgrade reach the units
@@ -1608,6 +1727,26 @@ pub fn gain(
 /// purged takes its unit form with it: the player's units of the upgraded type on the board go back
 /// to the form the card replaced, as [`apply_unit_upgrades`] put them there.
 pub fn purge(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &TechnologyId,
+) -> bool {
+    if !content.is_embedded() {
+        return purge_string(state, content, sources, player, alias);
+    }
+    crate::dual::write(
+        crate::dual::Area::Technology,
+        state,
+        "technology::purge",
+        |s| purge_string(s, content, sources, player, alias),
+        |s| crate::technology_dual::purge(s, sources, player, alias.as_str()),
+    )
+}
+
+/// [`purge`] on the string state: the oracle of the dual run.
+fn purge_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -3708,5 +3847,19 @@ mod bf_f3_tests {
             state.system_state(&system).units[0].type_id.as_str(),
             "mentak_cruiser3"
         );
+    }
+}
+
+#[cfg(test)]
+mod order_tests {
+    use crate::generated::IdStr;
+
+    /// The string walks planets and systems in the text order of their ids (its maps are ordered by text); the core walks the
+    /// enums. Windows that list planets (Psychoarchaeology, Bio-Stims) rely on the two being the same order.
+    #[test]
+    fn the_planet_and_system_enums_are_in_the_text_order_of_their_ids() {
+        use ti4_engine_core::generated::{Planet, System};
+        assert!(Planet::ALL.windows(2).all(|w| w[0].as_str() < w[1].as_str()));
+        assert!(System::ALL.windows(2).all(|w| w[0].as_str() < w[1].as_str()));
     }
 }

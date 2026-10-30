@@ -617,3 +617,51 @@ fn bail_galactic_threat_with_the_z_token_pays_in_the_string() {
     assert_eq!((r.0 - reveal_before.0, r.1 - reveal_before.1), (1, 0));
     assert_eq!((c.0 - close_before.0, c.1 - close_before.1), (0, 1));
 }
+
+// -- Galactic Threat (package W9): the Nekro predicts after a reveal ------------------------------------------------------------
+
+/// A Nekro (a), Xxcha (b) and Arborec (c), no strategic token to quash with.
+fn nekro_position_w9() -> GameState {
+    let content = ContentStore::embedded();
+    let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "xxcha"), ("c", "arborec")], DEFAULT);
+    crate::promissory::deal(&mut state, content, DEFAULT);
+    state.agenda_deck = vec!["committee".to_owned()];
+    for seat in &mut state.players {
+        let held = seat.tokens(TokenPool::Strategic);
+        seat.gain_token_uncapped(TokenPool::Strategic, -held);
+    }
+    state
+}
+
+#[test]
+fn the_nekro_may_predict_the_outcome_once_per_round_in_lockstep() {
+    // The first option of every question: the ability is used, the first outcome predicted.
+    let ((found, state), compared, bailed, diff) = lockstep(|| {
+        let mut g = game(nekro_position_w9(), &[]);
+        let found = reveal(&mut g, "checks");
+        (found, g.state)
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(found.map(|f| f.0), Some("checks".to_owned()));
+    let mark = state.faction_marks.get("nekro:threat:a").cloned();
+    assert!(mark.as_deref().is_some_and(|m| m.starts_with("1|")), "a prediction of agenda 1 is held: {mark:?}");
+    assert_eq!(state.faction_marks.get("nekro:threat_phase:a"), Some(&state.round.to_string()));
+    // Declined: nothing is held.
+    let ((_, state), compared, bailed, diff) = lockstep(|| {
+        let mut g = game(nekro_position_w9(), &["decline"]);
+        let found = reveal(&mut g, "checks");
+        (found, g.state)
+    });
+    ok(compared, bailed, &diff);
+    assert!(!state.faction_marks.contains_key("nekro:threat:a"));
+    // Already predicted this round: the ability is not offered again (no question, nothing held but the old mark).
+    let ((_, state), compared, bailed, diff) = lockstep(|| {
+        let mut s = nekro_position_w9();
+        s.faction_marks.insert("nekro:threat_phase:a".to_owned(), s.round.to_string());
+        let mut g = game(s, &[]);
+        let found = reveal(&mut g, "checks");
+        (found, g.state)
+    });
+    ok(compared, bailed, &diff);
+    assert!(!state.faction_marks.contains_key("nekro:threat:a"));
+}

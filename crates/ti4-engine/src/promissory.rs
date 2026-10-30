@@ -575,6 +575,20 @@ pub fn spend_support_on_activation(
     activator: &PlayerId,
     system: &ti4_model::id::SystemId,
 ) -> Vec<PlayerId> {
+    write(
+        state,
+        "promissory::spend_support_on_activation",
+        |s| spend_support_on_activation_text(s, activator, system),
+        |s| crate::trade_write::spend_on_activation(s, activator, system),
+    )
+}
+
+/// [`spend_support_on_activation`] on the string state: the oracle of the dual run.
+fn spend_support_on_activation_text(
+    state: &mut GameState,
+    activator: &PlayerId,
+    system: &ti4_model::id::SystemId,
+) -> Vec<PlayerId> {
     let owners = support_triggered_by_activation(state, activator, system);
     for owner in &owners {
         return_support(state, owner);
@@ -731,6 +745,11 @@ fn lent_out(state: &GameState, holder: &PlayerId, mover: &PlayerId, owner_name: 
 /// A note is a loan: it does its work once and goes home. Leaving it in the holder's play area
 /// would deny every future move into that system for the rest of the game.
 pub fn use_ceasefire(state: &mut GameState, mover: &PlayerId) -> bool {
+    write(state, "promissory::use_ceasefire", |s| use_ceasefire_text(s, mover), |s| crate::trade_write::use_ceasefire(s, mover))
+}
+
+/// [`use_ceasefire`] on the string state: the oracle of the dual run.
+fn use_ceasefire_text(state: &mut GameState, mover: &PlayerId) -> bool {
     let name = faction_name(state, mover);
     let note = note_id("cf", &name);
     let held = state
@@ -786,6 +805,31 @@ pub fn commander_unlocked(state: &GameState, content: &ContentStore, owner: &Pla
 /// A direct grant does not require the named faction to be seated or its commander to be unlocked.
 #[must_use]
 pub fn has_commander_ability(state: &GameState, player: &PlayerId, commander: &str) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::leaders_view::LeaderView::of(
+            state,
+            None,
+            ti4_model::content_types::FULL,
+            None,
+            crate::leaders_view::READS_ABILITY,
+        )
+        .and_then(|v| v.has_commander_ability(player, commander))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::commander_ability",
+        typed(),
+        has_commander_ability_text(state, player, commander)
+    )
+}
+
+/// [`has_commander_ability`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn has_commander_ability_text(state: &GameState, player: &PlayerId, commander: &str) -> bool {
     if state
         .faction_marks
         .contains_key(&commander_ability_mark(player, commander))
@@ -867,6 +911,14 @@ pub fn turn_started(
     let Some(holder) = holder_of(context.state, "ms", player) else {
         return Ok(false);
     };
+    // Counted, not silent (W14-design-02): the placement is `place_units_choosing`, a question with no window in the core (the
+    // spots of a controlled planet or a ship space under the fleet pool and capacity, the box, the unit form), and the only
+    // caller of this card is the turn prelude of the game step (D1b), which the core does not run yet.
+    crate::dual::note_gate(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::military_support",
+        "the placement of place_units_choosing and the turn prelude that calls it are not in the core",
+    );
     let placed = crate::action_cards::place_units_choosing(
         context,
         &holder,
@@ -1259,6 +1311,34 @@ mod tests {
         assert!(!has_commander_ability(&state, &a(), "jolnarcommander"));
     }
 
+    /// Every route to the commander read -- the direct callers of `promissory::has_commander_ability` (the vote, the tactical
+    /// action, Ghost's cards) as well as the leader rules -- is compared with the typed read. Fails on the code before the
+    /// comparison moved into `has_commander_ability` itself: no `leaders::commander_ability` call was compared by a direct
+    /// caller.
+    #[test]
+    fn the_commander_read_of_a_direct_caller_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ContentStore::embedded();
+        with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            let mut state = game_hacan_jolnar();
+            assert!(!has_commander_ability(&state, &a(), "hacancommander"));
+            state.player_mut(&a()).unwrap().leaders.insert(LeaderId::new("hacancommander"), LeaderStatus::Unlocked);
+            assert!(has_commander_ability(&state, &a(), "hacancommander"));
+            take(&mut state, content, &a(), "an:jolnar");
+            assert!(!has_commander_ability(&state, &a(), "jolnarcommander"));
+            state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("jolnarcommander"), LeaderStatus::Unlocked);
+            assert!(has_commander_ability(&state, &a(), "jolnarcommander"));
+            assert!(grant_commander_ability(&mut state, content, &a(), "ghostcommander"));
+            assert!(has_commander_ability(&state, &a(), "ghostcommander"));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas.get(&Area::LeadersAbilities).is_some_and(|c| c.calls == 5), "{r:?}");
+        let _ = take_report();
+    }
+
     #[test]
     fn direct_commander_grant_is_public_durable_and_does_not_mutate_owners() {
         use ti4_model::view::mark_visible_to;
@@ -1479,6 +1559,25 @@ mod tests {
         crate::fixtures::with_context(state, POK, None, &mut table, |context| {
             turn_started(context, &a()).expect("a legal answer")
         })
+    }
+
+    /// Military Support stays in the string, counted: the census shows the card resolving under its own gate label (and no window
+    /// of the core is opened for it) until the placement window and the turn prelude exist. Fails when the gate is removed.
+    #[test]
+    fn military_support_is_a_counted_gate_until_the_core_has_the_placement_window() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let (mut state, system, planet) = military_support_fixture();
+        with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), || {
+            assert!(run_turn_started(&mut state, &[&format!("{system}|{planet}")]));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with("promissory::military_support [gate: ")).map(|(_, c)| c.bailed).sum();
+        assert_eq!(gated, 1, "{r:?}");
+        assert!(!r.windows.keys().any(|label| label == "promissory::military_support"), "no window of the core is opened for it");
+        let _ = take_report();
     }
 
     #[test]
@@ -1825,5 +1924,106 @@ mod tests {
             "it is already in b's play area"
         );
         assert_eq!(state.player(&PlayerId::new("c")).unwrap().victory_points, 0);
+    }
+
+    // -- the notes an activation spends, and the Ceasefire, in lockstep with the core (package W14) ------------------------
+
+    fn dealt(seats: &[(&str, &str)]) -> GameState {
+        let mut state = crate::fixtures::seated_game(seats, POK);
+        deal(&mut state, ContentStore::embedded(), POK);
+        state
+    }
+
+    /// Run `body` under the dual backend of the notes (`Area::TradeDiplomacy`) and assert that the two sides never differed.
+    fn lockstep<T>(body: impl FnOnce() -> T) -> T {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let out = with_mask(AreaMask::STRING.with(Area::TradeDiplomacy, Backend::Dual), body);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+        out
+    }
+
+    #[test]
+    fn an_activation_sends_home_the_support_and_the_faceup_notes_of_an_owner_with_units_there_in_lockstep() {
+        let content = ContentStore::embedded();
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let mut state = dealt(&[("a", "hacan"), ("b", "jolnar"), ("c", "sol")]);
+        // b holds Hacan's Support (a point), Alliance, Trade Convoys and Antivirus (faceup, in its play area); Sol's Support too.
+        assert!(receive(&mut state, &b(), &support("hacan")));
+        assert!(receive(&mut state, &b(), &support("sol")));
+        for note in ["an:hacan", "convoys:hacan", "antivirus:hacan"] {
+            take(&mut state, content, &b(), note);
+            state.promissory_faceup.insert(note.to_owned());
+        }
+        let points = state.player(&b()).unwrap().victory_points;
+        // Hacan has a unit on a planet of the system (Sol none): only Hacan's loans go home.
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+        // The core half agrees with the string state, and ran (`Some`).
+        let mut by_core = state.clone();
+        let core_owners = crate::trade_write::spend_on_activation(&mut by_core, &b(), &system);
+        let owners = lockstep(|| spend_support_on_activation(&mut state, &b(), &system));
+        assert_eq!(core_owners, Some(owners.clone()), "the core half ran and returned the same owners");
+        assert_eq!(by_core, state, "and left the same position");
+        assert_eq!(owners, vec![a()]);
+        assert_eq!(state.support_holders.get(&a()), None, "Hacan's Support is back");
+        assert_eq!(state.support_holders.get(&PlayerId::new("c")), Some(&b()), "Sol has no unit there");
+        assert_eq!(state.player(&b()).unwrap().victory_points, points - 1, "the point went back with the card");
+        for note in ["an:hacan", "convoys:hacan", "antivirus:hacan"] {
+            assert_eq!(state.promissory_notes.get(note), Some(&a()), "{note} is home");
+            assert!(!state.promissory_faceup.contains(note));
+        }
+    }
+
+    #[test]
+    fn an_activation_with_nobody_present_changes_nothing_in_lockstep_and_two_seats_of_one_faction_bail() {
+        let (system, _) = crate::fixtures::a_placed_planet();
+        let mut state = dealt(&[("a", "hacan"), ("b", "jolnar")]);
+        assert!(receive(&mut state, &b(), &support("hacan")));
+        let mut by_core = state.clone();
+        assert_eq!(crate::trade_write::spend_on_activation(&mut by_core, &b(), &system), Some(Vec::new()));
+        assert!(lockstep(|| spend_support_on_activation(&mut state, &b(), &system)).is_empty());
+        assert_eq!(by_core, state);
+        assert_eq!(state.support_holders.get(&a()), Some(&b()));
+        // Two seats of one faction: the string decides, the core half answers `None` and writes nothing.
+        let mut twins = dealt(&[("a", "hacan"), ("b", "hacan")]);
+        let before = twins.clone();
+        assert_eq!(crate::trade_write::spend_on_activation(&mut twins, &b(), &system), None);
+        assert_eq!(twins, before);
+        let _ = lockstep(|| spend_support_on_activation(&mut twins, &b(), &system));
+    }
+
+    #[test]
+    fn a_spent_ceasefire_goes_home_in_lockstep_and_only_a_lent_one_is_spent() {
+        let content = ContentStore::embedded();
+        let mut state = dealt(&[("a", "hacan"), ("b", "jolnar")]);
+        let mut probe = state.clone();
+        assert_eq!(crate::trade_write::use_ceasefire(&mut probe, &a()), Some(false));
+        assert!(!lockstep(|| use_ceasefire(&mut state, &a())), "a holds its own copy: nothing lent");
+        take(&mut state, content, &b(), "cf:hacan");
+        let mut by_core = state.clone();
+        assert_eq!(crate::trade_write::use_ceasefire(&mut by_core, &a()), Some(true));
+        assert!(lockstep(|| use_ceasefire(&mut state, &a())));
+        assert_eq!(by_core, state);
+        assert_eq!(state.promissory_notes.get("cf:hacan"), Some(&a()), "back with its owner");
+        assert!(!lockstep(|| use_ceasefire(&mut state, &a())), "and not spent twice");
+    }
+
+    #[test]
+    fn a_faceup_note_of_the_activators_own_faction_is_not_sent_anywhere_in_lockstep() {
+        // The holder is the owner's own seat (a copy in its play area): "return it to the owner" is no move.
+        let content = ContentStore::embedded();
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let mut state = dealt(&[("a", "hacan"), ("b", "jolnar")]);
+        take(&mut state, content, &a(), "an:hacan");
+        state.promissory_faceup.insert("an:hacan".to_owned());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+        let mut by_core = state.clone();
+        assert_eq!(crate::trade_write::spend_on_activation(&mut by_core, &a(), &system), Some(Vec::new()));
+        assert!(lockstep(|| spend_support_on_activation(&mut state, &a(), &system)).is_empty());
+        assert_eq!(by_core, state);
+        assert!(state.promissory_faceup.contains("an:hacan"), "still in play");
     }
 }

@@ -53,6 +53,12 @@ pub trait Window: Clone {
     /// # Errors
     /// The pick is not an option of the question.
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal>;
+
+    /// An answer the question accepts although it is not among its options (a question that takes free text: the
+    /// transaction window's free-form deal, package W15). The driver lets such a pick through to [`Self::answer`].
+    fn accepts_unlisted(&self, _pick: &Pick) -> bool {
+        false
+    }
 }
 
 pub use super::ability::{Runner, AbilityTable, Applies, CondCx, Codes, Condition, Eff, Effect, Forbids, NestedFacts, RulesHost, Slot, Spec, Tape};

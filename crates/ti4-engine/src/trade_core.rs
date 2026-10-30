@@ -343,7 +343,7 @@ use crate::generated::IdStr;
 
     /// One side of a deal in typed form; the note and planet legs are the string engine's facts for
     /// this giver and receiver.
-    fn terms(state: &GameState, content: &ContentStore, giver: &PlayerId, receiver: &PlayerId, t: &Terms) -> Option<q::Terms> {
+    pub(crate) fn terms(state: &GameState, content: &ContentStore, giver: &PlayerId, receiver: &PlayerId, t: &Terms) -> Option<q::Terms> {
         let mut fragments = [0_i32; 4];
         for f in &t.fragments {
             fragments[kind_of(f)? as usize] += 1;

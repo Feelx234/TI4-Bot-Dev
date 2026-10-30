@@ -23,7 +23,7 @@ use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::board;
-use crate::state::{CoreState, PlanetFlags};
+use crate::state::{Code, CoreState, PlanetFlags};
 use crate::tables::Scope;
 
 fn scope(k: &Kernel) -> Scope {
@@ -223,6 +223,9 @@ pub enum HStage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HacanAgent {
     pub who: Seat,
+    /// The interned `"trade_agreement"`: the source of the staged `TRADE_GOODS_GAINED` of a Trade Agreement the replenish triggers
+    /// (`None`: the replenish announces nothing).
+    pub agreement: Option<Code>,
     stage: HStage,
     pub used: bool,
 }
@@ -236,7 +239,13 @@ pub fn others(core: &CoreState, who: Seat) -> SmallList<Seat, 8> {
 impl HacanAgent {
     #[must_use]
     pub const fn new(who: Seat) -> Self {
-        Self { who, stage: HStage::Start, used: false }
+        Self { who, agreement: None, stage: HStage::Start, used: false }
+    }
+
+    /// [`Self::new`] with the interned text of the Trade Agreement's source.
+    #[must_use]
+    pub const fn with_source(who: Seat, agreement: Code) -> Self {
+        Self { who, agreement: Some(agreement), stage: HStage::Start, used: false }
     }
 
     const ASK: Ask = Ask::Leaders(LAsk::HacanBranch);
@@ -283,8 +292,13 @@ impl Window for HacanAgent {
                 }
             }
             Pick::Opt(Opt::Leaders(LOpt::Replenish(target))) if others(sx.state, self.who).as_slice().contains(&target) => {
-                if let Some(p) = sx.state.players_mut().by_seat_mut(target) {
-                    p.econ.commodities = i16::from(p.faction.data().commodities);
+                match self.agreement {
+                    Some(source) => {
+                        fx::replenish_announced(sx.state, target, source);
+                    }
+                    None => {
+                        fx::replenish_commodities(sx.state, target);
+                    }
                 }
             }
             _ => return Err(Illegal),

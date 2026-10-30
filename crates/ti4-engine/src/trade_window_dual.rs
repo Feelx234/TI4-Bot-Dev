@@ -58,7 +58,7 @@ mod real {
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
     use ti4_engine_core::query::trade::Illegal as Why;
-    use ti4_engine_core::query::trade_deals::DealFacts;
+    use ti4_engine_core::query::trade_deals::{DealFacts, FreeDeal};
     use ti4_engine_core::rules::trade_window::{Outcome, TradeWindow};
     use ti4_engine_core::state::{NoteKey, Slice};
     use ti4_model::id::PlayerId;
@@ -138,7 +138,18 @@ mod real {
                 crate::transactions::trades_action_cards(gs, content, partner),
             ],
             planet_values: crate::render::trade::planet_values(),
+            free: [None, None],
         })
+    }
+
+    /// The free-form deal `id` in typed form, registered in the renderer's table with the net the partner's accept option reports
+    /// (the string's own number). `None` when the id is none the string reads (it offers nothing then) or a term has no typed form.
+    fn register_free(gs: &GameState, content: &ContentStore, r: &crate::render::Render, id: &str, proposer: &PlayerId, partner: &PlayerId) -> Option<(u8, FreeDeal)> {
+        let offer = crate::transactions::offer_from(gs, id, proposer, partner)?;
+        let given = crate::trade_core::terms(gs, content, proposer, partner, &offer.given)?;
+        let received = crate::trade_core::terms(gs, content, partner, proposer, &offer.received)?;
+        let net = offer.given.worth_to_receiver(gs, content) - offer.received.cost_to_giver(gs, content);
+        Some((r.register_free(id, net), FreeDeal { given, received }))
     }
 
     fn bail<T>(why: &str) -> Option<T> {
@@ -158,10 +169,6 @@ mod real {
             return None;
         }
         let answer = script.questions.first().and_then(|q| q.answer.clone())?;
-        if answer.starts_with(FREE_FORM_PREFIX) || at.offer.as_ref().is_some_and(|(_, id)| id.starts_with(FREE_FORM_PREFIX)) {
-            note_bail(LABEL, "a free-form deal");
-            return None;
-        }
         let pair = [&at.proposer, &at.partner];
         // A Pride of Kenara on either chair brings the board into the window (units move with the card).
         let kenara = pair.iter().any(|p| !crate::transactions::pride_of_kenara_planets(gs, p).is_empty());
@@ -174,7 +181,21 @@ mod real {
         }
         let Some((mut cx, r)) = tables(gs) else { return bail("a position the codecs refuse") };
         let (Some(sp), Some(sq)) = (r.seat(at.proposer.as_str()), r.seat(at.partner.as_str())) else { return bail("a seat the table does not know") };
-        let Some(facts) = facts_of(gs, content, galaxy, &r, &at.proposer, &at.partner) else { return bail("a seat the table does not know") };
+        let Some(mut facts) = facts_of(gs, content, galaxy, &r, &at.proposer, &at.partner) else { return bail("a seat the table does not know") };
+        // The free-form deals of this step: the one on the table, then the one the proposer names (the string reads the text, the
+        // core gets the terms). The same order the table registers them in: index 0 is the one on the table when there is one.
+        let mut slot = 0;
+        for id in at.offer.as_ref().map(|(_, id)| id.as_str()).into_iter().chain(std::iter::once(answer.as_str())).filter(|id| id.starts_with(FREE_FORM_PREFIX)) {
+            if r.free_index(id).is_some() {
+                continue;
+            }
+            let Some((index, deal)) = register_free(gs, content, &r, id, &at.proposer, &at.partner) else {
+                return bail("a free-form deal the string does not read or the core tables do not name");
+            };
+            debug_assert_eq!(usize::from(index), slot);
+            facts.free[slot] = Some(deal);
+            slot += 1;
+        }
         // The Support swap names the two factions; the id does not.
         let swap = {
             let faction = |p: &PlayerId| crate::core_adapter::typed::<ti4_engine_core::generated::Faction>(gs.player(p)?.faction.as_str());
@@ -184,6 +205,10 @@ mod real {
         let kernel = Kernel::plain();
         let driven = with_core(gs, &mut cx, Sources::default(), if kenara { WINDOW_BOARD } else { WINDOW }, |core, _| {
             let deal: Option<Shape> = match &at.offer {
+                Some((_, id)) if id.starts_with(FREE_FORM_PREFIX) => match r.free_index(id) {
+                    Some(i) => Some(Shape::Free(i)),
+                    None => return Err("a deal on the table the core has no shape for"),
+                },
                 Some((_, id)) => match shape_of(id, swap) {
                     Some(shape) => Some(shape),
                     None => return Err("a deal on the table the core has no shape for"),

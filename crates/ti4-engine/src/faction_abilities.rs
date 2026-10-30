@@ -567,16 +567,35 @@ pub fn component_actions(
 /// Production Biomes: "ACTION: Exhaust this card and spend 1 token from your strategy pool to gain
 /// 4 trade goods and choose 1 other player; that player gains 2 trade goods."
 fn production_biomes(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
-    let others: Vec<PlayerId> = context
-        .state
+    // The whole action is one core window (`rules::technology_windows::ProductionBiomes`): the question and what the answer pays.
+    let crate::timing::TimingContext { state, content, sources, table, galaxy, .. } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "faction_abilities::production_biomes",
+        state,
+        |s: &mut ti4_model::state::GameState| crate::dual::Run::new(production_biomes_string(s, content, sources, table, galaxy, player)),
+        |s: &mut ti4_model::state::GameState, script: &crate::dual_window::Recording| crate::technology_dual::production_biomes(s, player, script)
+    )
+}
+
+/// [`production_biomes`] on the string engine: the oracle of the dual run.
+fn production_biomes_string(
+    state: &mut ti4_model::state::GameState,
+    content: &ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> bool {
+    let others: Vec<PlayerId> = state
         .players
         .iter()
         .map(|seat| seat.id.clone())
         .filter(|seat| seat != player)
         .collect();
     if others.is_empty()
-        || context
-            .state
+        || state
             .player(player)
             .is_none_or(|seat| seat.tokens(ti4_model::state::TokenPool::Strategic) <= 0)
     {
@@ -596,29 +615,56 @@ fn production_biomes(context: &mut crate::timing::TimingContext<'_>, player: &Pl
         player.clone(),
         DecisionSource::Content("pm".to_owned()),
         "production_biomes_choose_player",
-        context.state.phase,
-        context.state.round,
+        state.phase,
+        state.round,
     ));
-    let Ok(answer) = context.ask_seeing(&choice) else {
+    // As `TimingContext::ask_seeing` asks it: the context knows the battle and the invasion it is asked in.
+    let mut choice = choice;
+    if let Some(context) = choice.context.take() {
+        choice.context = Some(context.about_battle(state).about_invasion(state));
+    }
+    let Ok(answer) = table.ask_seeing(&choice, &crate::choice::Observed::new(state, content, sources, galaxy)) else {
         return false;
     };
     let Some(chosen) = others.into_iter().find(|seat| seat.as_str() == answer.id) else {
         return false;
     };
-    context
-        .state
-        .gain_token(player, ti4_model::state::TokenPool::Strategic, -1);
-    crate::supply::note_strategy_token_spent(context.state, player, "production_biomes");
-    crate::technology::exhaust_technology_text(context.state, player, "pm");
-    if let Some(seat) = context.state.player_mut(player) {
+    state.gain_token(player, ti4_model::state::TokenPool::Strategic, -1);
+    crate::supply::note_strategy_token_spent(state, player, "production_biomes");
+    crate::technology::exhaust_technology_text(state, player, "pm");
+    if let Some(seat) = state.player_mut(player) {
         seat.trade_goods += 4;
     }
-    if let Some(seat) = context.state.player_mut(&chosen) {
+    if let Some(seat) = state.player_mut(&chosen) {
         seat.trade_goods += 2;
     }
-    crate::supply::note_trade_goods_gained(context.state, player, 4, "production_biomes");
-    crate::supply::note_trade_goods_gained(context.state, &chosen, 2, "production_biomes");
+    crate::supply::note_trade_goods_gained(state, player, 4, "production_biomes");
+    crate::supply::note_trade_goods_gained(state, &chosen, 2, "production_biomes");
     true
+}
+
+/// The component actions of the lobby factions that stay in the string (W11-open-01), counted at `perform_component` as
+/// `faction_abilities::perform_component [gate: <id>: ...]`. Production Biomes and Trade Convoys are the core's; every other body asks
+/// over the map (destinations, targets, systems), places units under the fleet pool and capacity or pays through the production
+/// window, and is dispatched by `perform_component` itself (D1b), which the core does not run.
+#[must_use]
+pub(crate) fn string_only_component(id: &str) -> Option<&'static str> {
+    let faction = id.strip_prefix("faction|")?;
+    Some(match faction.split('|').next()? {
+        "orbital_drop" => "faction|orbital_drop: two questions, the payment of the mech and the units placed on a planet (the payment child and the placement window), then the dispatch of perform_component (D1b)",
+        "muaat" => "faction|muaat: units placed or produced in a chosen system (the placement window and the production window of lane 1) and the dispatch of perform_component (D1b)",
+        "ghost" => "faction|ghost: the Wormhole Generator's destinations over the map and the dispatch of perform_component (D1b)",
+        "saar" => "faction|saar: Deorbit Barrage's targets over the map, the hits and the dispatch of perform_component (D1b)",
+        "titans" => "faction|titans: Terraform's planets and attachments, and the dispatch of perform_component (D1b)",
+        "naaz" => "faction|naaz: the relic or token fabrication and the Mech factory's placement, and the dispatch of perform_component (D1b)",
+        "winnu" => "faction|winnu: Lazax Gate Folding's wormhole position over the map, and the dispatch of perform_component (D1b)",
+        "yssaril" => "faction|yssaril: Stall Tactics' discard and Mageon Implants' reveal (the reveal rules are strings), and the dispatch of perform_component (D1b)",
+        "cabal" => "faction|cabal: Vortex captures a ship of the map, and the dispatch of perform_component (D1b)",
+        "arborec" => "faction|arborec: Psychospore's placement of ground forces from the reinforcements (the placement window), and the dispatch of perform_component (D1b)",
+        "nekro" => "faction|nekro: C4R's PDS placement, repair and draw, and the dispatch of perform_component (D1b)",
+        "mahact" => "faction|mahact: the Imperia and the command token of a seat in the fleet pool, and the dispatch of perform_component (D1b)",
+        _ => return None,
+    })
 }
 
 /// Perform a faction component action. Returns `false` for an option that is not one.
@@ -631,6 +677,9 @@ pub fn perform_component(
     player: &PlayerId,
     option: &crate::choice::ChoiceOption,
 ) -> bool {
+    if let Some(why) = string_only_component(&option.id) {
+        crate::dual::note_gate(crate::dual::Area::Factions, "faction_abilities::perform_component", why);
+    }
     if crate::factions::perform_component(context, player, option) {
         return true;
     }
@@ -1859,6 +1908,70 @@ mod tests {
                 .all(|option| option.id != "faction|production_biomes"),
             "exhausted, it is not offered again"
         );
+    }
+
+    /// Production Biomes is one core window: the choice of the player and everything the answer pays (the token and its
+    /// announcement, the card exhausted, 4 and 2 trade goods and their announcements); with no token or no other player nothing
+    /// is asked and nothing is paid; a Nekro seat without the card of its own bails to the string.
+    #[test]
+    fn production_biomes_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |tokens: i32, answers: &[&str], two_seats: bool| -> bool {
+            with_mask(AreaMask::STRING.with(Area::Technology, Backend::Dual), || {
+                let seated: &[(&str, &str)] = if two_seats { &[("a", "hacan"), ("b", "sol"), ("c", "arborec")] } else { &[("a", "hacan")] };
+                let mut state = crate::fixtures::seated_game(seated, POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                let hacan = PlayerId::new("a");
+                let seat = state.player_mut(&hacan).unwrap();
+                seat.technologies.insert(TechnologyId::new("pm"));
+                seat.strategic_tokens = tokens;
+                seat.trade_goods = 1;
+                let biomes = crate::choice::ChoiceOption::labelled("faction|production_biomes", ACTION_KIND, "Production Biomes");
+                let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(answers.iter().map(|a| (*a).to_owned()))));
+                with_table_context(&mut state, None, &mut table, |context| perform_component(context, &hacan, &biomes))
+            })
+        };
+        assert!(run(1, &["b"], true));
+        assert!(run(2, &["c"], true));
+        assert!(!run(0, &[], true), "no token: 22.3");
+        assert!(!run(1, &[], false), "nobody else to give the 2 to: 22.3");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("faction_abilities::production_biomes"), (4, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The component actions that stay in the string are counted at `perform_component` (W11-open-01); Production Biomes and Trade
+    /// Convoys are not among them. Fails when the gate is removed or a core port is listed as string-only.
+    #[test]
+    fn the_component_actions_that_stay_in_the_string_are_counted() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        for id in ["faction|production_biomes", "faction|trade_convoys", "somethingelse"] {
+            assert_eq!(string_only_component(id), None, "{id}");
+        }
+        for id in [
+            "faction|orbital_drop", "faction|muaat|star_forge", "faction|ghost|wg", "faction|saar|deorbit_barrage", "faction|titans|terraform|elysium",
+            "faction|naaz|bmf", "faction|winnu|lgf", "faction|yssaril|stall_tactics", "faction|cabal|vortex", "faction|arborec|psychospore",
+            "faction|nekro|c4r|pds", "faction|mahact|x",
+        ] {
+            assert!(string_only_component(id).is_some_and(|why| why.starts_with(id.split('|').take(2).collect::<Vec<_>>().join("|").as_str())), "{id}");
+        }
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+            let option = crate::choice::ChoiceOption::labelled("faction|ghost|wg", ACTION_KIND, "Wormhole Generator");
+            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+            let _ = with_table_context(&mut state, None, &mut table, |context| perform_component(context, &PlayerId::new("a"), &option));
+        });
+        let r = report();
+        let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with("faction_abilities::perform_component [gate: faction|ghost: ")).map(|(_, c)| c.bailed).sum();
+        assert_eq!(gated, 1, "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

@@ -8,6 +8,7 @@
 use super::agenda::Shown;
 use crate::generated::{ActionCard, Planet, PublicObjective, Relic, Technology};
 use crate::ids::Seat;
+use crate::state::Code;
 
 /// What the area asks. Parameters only; the options are the window's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -26,6 +27,9 @@ pub enum Ask {
     StellarConverter,
     /// "gain which technology" (the source relic is the question's origin).
     GainTechnology { relic: Relic },
+    /// "gain which technology" for a source that is no relic (Research Team, an agenda): the source's interned text is the
+    /// question's origin (package W13).
+    GainTechnologyFrom { source: Code },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -58,4 +62,6 @@ pub enum Subtype {
     StellarConverterChooseTarget,
     /// `{relic}_choose_technology`.
     ChooseTechnology(Relic),
+    /// `{source}_choose_technology` of a source that is no relic.
+    ChooseTechnologyFrom(Code),
 }

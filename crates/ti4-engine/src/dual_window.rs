@@ -1044,13 +1044,8 @@ pub(crate) fn lend<T>(
     with_core(gs, &mut cx, Sources::default(), fp, |core, _| f(core, who)).ok()
 }
 
-/// What a window of the mutation halves cannot follow: a question asked inside a battle or an invasion (its
-/// context carries the battle), diplomacy promises a favour keeps, a nested emission.
-pub(crate) fn outside(gs: &GameState, script: &Recording) -> bool {
-    outside_battle(gs, script) || gs.diplomacy.enabled
-}
-
-/// [`outside`] with the reason (the census text).
+/// What a window of the mutation halves cannot follow, with the reason (the census text): a question asked inside a battle or an
+/// invasion (its context carries the battle), diplomacy promises a favour keeps, a nested emission.
 pub(crate) fn outside_why(gs: &GameState, script: &Recording) -> Option<&'static str> {
     if script.nested {
         Some("nested activity (a card or an ability played inside the window)")
@@ -2091,6 +2086,9 @@ impl ti4_engine_core::state::SeedSource for DiceSeeds {
     fn seed_for(&self, seed: u64, domain: ti4_engine_core::state::RngDomain) -> [u8; 32] {
         if domain == ti4_engine_core::state::RngDomain::Dice {
             crate::rng::GameRng::derive_seed(seed, &self.0)
+        } else if domain == ti4_engine_core::state::RngDomain::Neuraloop {
+            // The Neuraloop's replacement objective (`relics::neuraloop`).
+            crate::rng::GameRng::derive_seed(seed, "neuraloop")
         } else if domain == ti4_engine_core::state::RngDomain::Fracture {
             // Brilliance's roll for the Fracture (`fracture::breakthrough_roll`).
             crate::rng::GameRng::derive_seed(seed, "fracture-breakthrough")

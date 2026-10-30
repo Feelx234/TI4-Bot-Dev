@@ -596,16 +596,31 @@ fn titan_prototype(
     // The only relic that asks somebody other than its owner. The owner picks who; that
     // player decides whether to build. "If they do not" covers both declining and being
     // unable to pay, so the trade good is the fallback on every path that does not place.
-    let Some(chosen) = crate::dual_window!(
+    // The whole card is one core window (`rules::relic_windows::TitanPrototype`, the build a
+    // child of the production area).
+    crate::dual_window!(
         crate::dual::Area::ExplorationRelics,
         "relics::titan_prototype",
         state,
-        |s: &mut GameState| crate::dual::Run::new(titan_choose_builder(s, content, sources, table, galaxy, player)),
-        |s: &mut GameState, script: &crate::dual_window::Recording| crate::explore_write::titan_prototype(s, player, script)
-    ) else {
-        return false;
-    };
-    let chosen = PlayerId::new(chosen);
+        |s: &mut GameState| crate::dual::Run::new(titan_build(s, content, sources, table, galaxy, player)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::strategy_cards_core::titan_prototype(s, content, sources, player, script)
+        }
+    )
+    .is_some()
+}
+
+/// The string half of the Titan Prototype: the question, then the named player's build. `None`: nobody was named;
+/// else whether a structure was placed.
+fn titan_build(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Option<bool> {
+    let chosen = PlayerId::new(titan_choose_builder(state, content, sources, table, galaxy, player)?);
 
     // Charged only once there is somewhere to build and the means to pay for it. Paying
     // first and finding nowhere to put it would spend three resources for the trade good
@@ -639,7 +654,7 @@ fn titan_prototype(
     if !built {
         crate::supply::gain_trade_goods_staged(state, &chosen, 1, "relic");
     }
-    true
+    Some(built)
 }
 
 /// The Stellar Converter's ACTION: choose a planet in range and destroy it.
@@ -1157,25 +1172,39 @@ pub fn neuraloop(
         state.phase,
         state.round,
     ));
-    // The question is one core window (`rules::relic_windows::Neuraloop`); the roll and the purge are below.
-    let chosen = crate::dual_window!(
+    // The whole card is one core window (`rules::relic_windows::Neuraloop`): the question, the roll on the Neuraloop's own
+    // stream, the purge and the swap of the objective. The string side is lent nothing it did not have: the streams are
+    // read before it rolls and compared after.
+    let rng_before = rng.positions();
+    crate::dual_window!(
         crate::dual::Area::ExplorationRelics,
         "relics::neuraloop",
         state,
-        |s: &mut GameState| crate::dual::Run::new(
-            table
+        |s: &mut GameState| {
+            let chosen = table
                 .ask_seeing(&choice, &Observed::new(s, content, sources, galaxy))
                 .ok()
                 .filter(|answer| !answer.is_decline())
-                .map(|answer| answer.id)
-        ),
+                .map(|answer| answer.id);
+            let replacement = chosen.and_then(|chosen| neuraloop_tail(s, rng, &holder, revealed, &chosen));
+            crate::dual::Run::new(replacement).with_rng(rng)
+        },
         |s: &mut GameState, script: &crate::dual_window::Recording| {
-            crate::explore_write::neuraloop(s, &holder, revealed.as_str(), script)
+            crate::explore_write::neuraloop(s, &holder, revealed.as_str(), &rng_before, script)
         }
-    )?;
+    )
+}
 
-    // Drawn before anything is purged: an empty pool means the card cannot resolve, and 22.3 says
-    // it should not have cost anything.
+/// What the Neuraloop does once a relic is named: drawn before anything is purged (an empty pool means the card cannot
+/// resolve, and 22.3 says it should not have cost anything), rolled on its own rng domain (so drawing here does not shift
+/// the stream any other effect reads), the relic purged, the revealed objective replaced.
+fn neuraloop_tail(
+    state: &mut GameState,
+    rng: &mut crate::rng::GameRng,
+    holder: &PlayerId,
+    revealed: &ti4_model::id::ObjectiveId,
+    chosen: &str,
+) -> Option<ti4_model::id::ObjectiveId> {
     let pool: Vec<ti4_model::id::ObjectiveId> = state
         .objective_deck
         .iter()
@@ -1190,11 +1219,10 @@ pub fn neuraloop(
     if pool.is_empty() {
         return None;
     }
-    // Its own rng domain, so drawing here does not shift the stream any other effect reads.
     let roll = rng.die("neuraloop", u32::try_from(pool.len()).unwrap_or(u32::MAX));
     let replacement = pool[(roll as usize).saturating_sub(1).min(pool.len() - 1)].clone();
 
-    purge(state, &holder, &RelicId::new(chosen));
+    purge_text(state, holder, &RelicId::new(chosen));
     state.revealed_objectives.retain(|alias| alias != revealed);
     state.objective_deck.retain(|alias| *alias != replacement);
     state
@@ -2889,27 +2917,49 @@ mod relic_window_tests {
         crate::rng::GameRng::new(5)
     }
 
-    /// The Neuraloop's question: a relic is named (the Neuraloop itself included) or the offer is declined.
+    /// The Neuraloop's card: a relic is named (the Neuraloop itself included) or the offer is declined; the roll, the purge
+    /// and the swap of the objective (a secret becomes public; an empty pool costs nothing) are the core's, the streams after
+    /// the roll are compared.
     #[test]
-    fn the_neuraloop_question_runs_in_lockstep_with_the_core() {
+    fn the_neuraloop_runs_in_lockstep_with_the_core() {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let content = ti4_content::ContentStore::embedded();
         dual(|| {
-            for (answer, replaced) in [("thetriad", true), ("neuraloop", true), (crate::choice::DECLINE_ID, false)] {
-                let mut state = seated();
-                state.player_mut(&me()).unwrap().relics = vec![RelicId::new("neuraloop"), RelicId::new("thetriad")];
-                state.objective_deck = ["amass_wealth", "build_defenses"].map(ti4_model::id::ObjectiveId::new).to_vec();
-                let revealed = ti4_model::id::ObjectiveId::new("become_legend");
-                state.revealed_objectives = vec![revealed.clone()];
-                let got = neuraloop(&mut state, content, POK, &mut table(&[answer]), None, &mut rng(), &revealed);
-                assert_eq!(got.is_some(), replaced);
-                assert_eq!(holds(&state, &me(), &RelicId::new("thetriad")), answer != "thetriad");
+            // (answer, public deck, secret deck, replaced)
+            let public = ["amass_wealth", "build_defenses"];
+            let cases: [(&str, &[&str], &[&str], bool); 6] = [
+                ("thetriad", &public, &[], true),
+                ("neuraloop", &public, &["ans"], true),
+                ("thetriad", &[], &["ans", "baf"], true),
+                ("thetriad", &["amass_wealth"], &[], true),
+                ("thetriad", &[], &[], false),
+                (crate::choice::DECLINE_ID, &public, &[], false),
+            ];
+            for (answer, deck, secrets, replaced) in cases {
+                for seed in [5, 6, 7] {
+                    let mut state = seated();
+                    state.player_mut(&me()).unwrap().relics = vec![RelicId::new("neuraloop"), RelicId::new("thetriad")];
+                    state.objective_deck = deck.iter().map(|o| ti4_model::id::ObjectiveId::new(*o)).collect();
+                    state.secret_deck = secrets.iter().map(|o| ti4_model::id::SecretObjectiveId::new(*o)).collect();
+                    let revealed = ti4_model::id::ObjectiveId::new("become_legend");
+                    state.revealed_objectives = vec![revealed.clone(), ti4_model::id::ObjectiveId::new("corner")];
+                    state.rng_seed = seed;
+                    let mut rng = crate::rng::GameRng::new(seed);
+                    let got = neuraloop(&mut state, content, POK, &mut table(&[answer]), None, &mut rng, &revealed);
+                    assert_eq!(got.is_some(), replaced);
+                    assert_eq!(holds(&state, &me(), &RelicId::new("thetriad")), answer != "thetriad" || !replaced);
+                    if let Some(got) = got {
+                        assert_eq!(state.revealed_objectives.last(), Some(&got));
+                        assert!(!state.revealed_objectives.contains(&revealed));
+                        assert_eq!(state.revealed_objectives.len(), 2);
+                    }
+                }
             }
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("relics::neuraloop").0 >= 3, "{r:?}");
+        assert_eq!(counts("relics::neuraloop").0, 18, "{r:?}");
         let _ = take_report();
     }
 
@@ -3000,21 +3050,74 @@ mod relic_window_tests {
         let _ = take_report();
     }
 
-    /// The Titan Prototype names who may build (every seat, the owner included).
+    /// The Titan Prototype's chooser: names `builder`, then takes the first option everywhere except the placement, which it
+    /// declines when `decline_build`.
+    struct Titan {
+        builder: &'static str,
+        decline_build: bool,
+    }
+
+    impl crate::choice::Decider for Titan {
+        fn choose(&mut self, choice: &crate::choice::Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            let wanted = if choice.prompt.starts_with("Titan Prototype") {
+                Some(self.builder)
+            } else if choice.prompt == "place a structure" && self.decline_build {
+                Some(crate::choice::DECLINE_ID)
+            } else {
+                None
+            };
+            match wanted.and_then(|id| choice.answer_for(id)) {
+                Some(option) => Ok(option),
+                None => crate::choice::FirstOption.choose(choice),
+            }
+        }
+    }
+
+    /// The Titan Prototype's whole card: the named player pays three resources for a structure, declines the placement (the
+    /// payment is kept and the trade good comes anyway), cannot pay (the trade good, no question) or has nowhere to build.
     #[test]
-    fn the_titan_prototype_question_runs_in_lockstep_with_the_core() {
+    fn the_titan_prototype_runs_in_lockstep_with_the_core() {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let content = ti4_content::ContentStore::embedded();
+        let b = || PlayerId::new("b");
+        let cases: [(&str, bool, &str); 6] = [
+            ("a", false, "builds"),
+            ("a", true, "pays then declines"),
+            ("b", false, "the other seat builds"),
+            ("b", true, "the other seat declines"),
+            ("a", false, "cannot pay"),
+            ("a", false, "nowhere to build"),
+        ];
         dual(|| {
-            for answer in ["a", "b"] {
+            for (builder, decline_build, case) in cases {
                 let mut state = seated();
-                assert!(titan_prototype(&mut state, content, POK, &mut table(&[answer]), None, &me()));
+                match case {
+                    "cannot pay" => {
+                        let planets: Vec<_> = state.controlled_planets(&me()).into_iter().map(|(_, p)| p.clone()).collect();
+                        state.exhausted_planets.extend(planets);
+                    }
+                    "nowhere to build" => {
+                        // Every PDS and space dock of the seat is on the board already.
+                        let far = SystemId::new("26");
+                        crate::fixtures::put(&mut state, &far, "pds", &me(), 6);
+                        crate::fixtures::put(&mut state, &far, "spacedock", &me(), 3);
+                    }
+                    _ => {}
+                }
+                let goods = |s: &GameState, who: &PlayerId| s.player(who).map_or(0, |p| p.trade_goods);
+                let (me_before, b_before) = (goods(&state, &me()), goods(&state, &b()));
+                let mut table = crate::choice::Table::with_default(Box::new(Titan { builder, decline_build }));
+                assert!(titan_prototype(&mut state, content, POK, &mut table, None, &me()), "{case}");
+                let named = if builder == "a" { me() } else { b() };
+                let gained = goods(&state, &named) - if builder == "a" { me_before } else { b_before };
+                // The trade good comes on every path that does not place (the payment of a build costs none).
+                assert_eq!(gained > 0, decline_build || case == "cannot pay" || case == "nowhere to build", "{case}: {gained}");
             }
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("relics::titan_prototype").0 >= 2, "{r:?}");
+        assert_eq!(counts("relics::titan_prototype"), (6, 0), "{r:?}");
         let _ = take_report();
     }
 
@@ -3048,28 +3151,37 @@ mod relic_window_tests {
         let _ = take_report();
     }
 
-    /// "gain which technology" for the Enigmatic Device and the Maw of Worlds.
+    /// "gain which technology" for the Enigmatic Device and the Maw of Worlds, and (package W13) for the sources that are no relic:
+    /// Research Team's grant and an agenda's. All run in the core window; a technology option the core tables do not know stays
+    /// the string's (the bail test below).
     #[test]
     fn the_technology_question_runs_in_lockstep_with_the_core() {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let content = ti4_content::ContentStore::embedded();
+        crate::dual::reset_thread_windows();
         dual(|| {
-            for source in ["enigmaticdevice", "mawofworlds"] {
+            for source in ["enigmaticdevice", "mawofworlds", "researchteam", "grant_reallocation"] {
                 let state = seated();
                 let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
                 let got = ask_technology(&state, content, POK, &mut table, None, &me(), None, source, false);
-                assert!(got.is_some());
+                assert!(got.is_some(), "{source}");
             }
-            // A source that is no relic (an agenda's research) is the string question alone.
-            let state = seated();
-            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
-            assert!(ask_technology(&state, content, POK, &mut table, None, &me(), None, "researchteam", false).is_some());
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("relics::ask_technology").0 >= 2 && counts("relics::ask_technology").1 >= 1, "{r:?}");
+        assert_eq!(crate::dual::thread_window_counts("relics::ask_technology"), (4, 0), "{r:?}");
         let _ = take_report();
+    }
+
+    /// The question of a source that is no relic keeps the string's wording: the subtype and the origin carry the source's text
+    /// (found by the lockstep run above: the compared window would differ otherwise).
+    #[test]
+    fn the_question_of_a_source_that_is_no_relic_is_worded_by_its_source() {
+        let render = crate::render::Render::new(Vec::new());
+        let code = render.code("researchteam");
+        let sub = ti4_engine_core::choice::relic::Subtype::ChooseTechnologyFrom(code);
+        assert_eq!(<crate::render::relic::Fam as crate::render::Family>::subtype(&render, &sub), "researchteam_choose_technology");
     }
 
     /// The effects of the Maw of Worlds (every planet exhausted), the Book of Latvinia (a point or the speaker)

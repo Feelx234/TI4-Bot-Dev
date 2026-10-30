@@ -308,6 +308,35 @@ pub fn sol_hero(core: &mut CoreState, who: Seat) -> bool {
     true
 }
 
+/// Ahk-Syl Siven (`nomadhero`): the effect runs through this game round, held as a mark naming the round. `false` (nothing
+/// written) when it is already running or the Nomad has no flagship on the board.
+pub fn nomad_hero(core: &mut CoreState, who: Seat) -> bool {
+    use crate::keys::{Atom, MarkKey, MarkVal};
+    let round = core.meta().round;
+    let running = matches!(core.marks().tail.get(&MarkKey::NomadHero(who)), Some(MarkVal::Atom(Atom::Num(r))) if *r == round);
+    let flagship = core.board().systems().any(|(_, cell)| cell.units.as_slice().iter().any(|u| u.owner() == who && u.kind().data().base_type == crate::generated::UnitBaseType::Flagship));
+    if running || !flagship {
+        return false;
+    }
+    core.marks_mut().tail.edit().insert(MarkKey::NomadHero(who), MarkVal::Atom(Atom::Num(round)));
+    true
+}
+
+/// Ul the Progenitor (`titanshero`, Geoform): Elysium is readied and wears the card. `false` (nothing written) when Elysium is
+/// not in play (controlled by somebody) or already wears Geoform.
+pub fn titans_hero(core: &mut CoreState) -> bool {
+    use crate::generated::{Attachment, Planet};
+    let available = core.board().planet(Planet::Elysium).control.is_some() && !board::attachments(core, Planet::Elysium).as_slice().contains(&Attachment::Geoform);
+    if !available {
+        return false;
+    }
+    crate::kernel::fx::ready_planet(core, Planet::Elysium);
+    let cell = core.board_mut().planet_mut(Planet::Elysium);
+    cell.flags.set(crate::state::PlanetFlags::ATTACH_ENTRY, true);
+    cell.attach.push(Attachment::Geoform);
+    true
+}
+
 /// I48S (`l1z1xagent`): one infantry of `target` on a planet of `system` becomes `mech`. The first planet (in
 /// planet order, the string map's key order) holding such an infantry is the one; the new unit is fresh (no
 /// damage). Whether a swap happened. As in the string arm the system's entry exists afterwards either way.

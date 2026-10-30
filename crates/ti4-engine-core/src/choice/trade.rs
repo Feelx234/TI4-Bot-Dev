@@ -3,8 +3,8 @@
 //!
 //! * [`Ask::Propose`]: the proposer picks a deal. The options are the deals the core derives
 //!   (`rules::trade_window::deals`, each a [`Shape`] with the proposer's and the partner's prices computed from
-//!   it, `query::trade_deals::nets`), then the generic decline. The question accepts a free-form deal; the core
-//!   does not (the free-form id is text, the core has none): the adapter keeps a window with one on the string.
+//!   it, `query::trade_deals::nets`), then the generic decline. The question accepts a free-form deal: [`Shape::Free`], an index into
+//!   the terms the adapter parsed from the id's text (the core has no text).
 //! * [`Ask::Answer`]: the partner answers the deal on the table: accept (its net worth is the deal's), refuse,
 //!   or counter.
 //!
@@ -58,6 +58,10 @@ pub enum Shape {
     /// `kq{planet}>{to}:{price}`: the partner's planet card (their units moving to their planet `to`) for `price` of
     /// the proposer's trade goods.
     PlanetBuy { planet: Planet, to: Planet, price: u8, value: u8 },
+    /// `x;gt=2;rc=1;...` (package W15): a deal the proposer named themselves instead of picking a listed shape. It is never
+    /// listed; the index names an entry of `query::trade_deals::DealFacts::free`, the terms the adapter parsed from the text
+    /// of the id (the core has no text).
+    Free(u8),
 }
 
 /// What the area asks. Parameters only; the option list is derived by the window.

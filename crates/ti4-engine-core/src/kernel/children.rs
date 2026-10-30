@@ -71,6 +71,8 @@ pub enum Report {
     Placed(System, SmallList<Seat, 8>),
     /// A ship was destroyed (its destruction is staged for the announcement of the play) or none could be.
     Destroyed(bool),
+    /// A structure was placed (the Titan Prototype).
+    Built(bool),
 }
 
 /// A window of another area, run as a child: the object-safe face of [`Window`] plus what the finished window reports.
@@ -203,6 +205,9 @@ pub enum Spawn {
     Leadership { who: Seat, primary: bool },
     /// The Construction ability.
     Construction { who: Seat, primary: bool, facts: StructureFacts },
+    /// The Titan Prototype's build for `who`: three resources for a structure, else a trade good (`goods` is the interned
+    /// source `relic`); reports [`Report::Built`].
+    TitanBuild { who: Seat, facts: StructureFacts, goods: Code },
     /// `action_cards::draw::DrawCards`: `who` draws `count` action cards and discards over the hand limit; reports
     /// [`Report::Left`] when the table gave no printed-name groups (the hand limit could not be asked).
     DrawCards { who: Seat, count: usize, drop_unofficial: bool },

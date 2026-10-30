@@ -150,6 +150,9 @@ pub struct Codes {
     pub salvage: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
+    /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
+    /// `trade_agreement`, `artuno` (Artuno the Betrayer does not copy them).
+    pub not_from_supply: [crate::state::Code; 5],
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of
@@ -763,6 +766,11 @@ impl<'a> Eff<'_, 'a> {
     #[must_use]
     pub fn kernel(&self) -> &Kernel {
         self.host.kernel
+    }
+
+    /// The state to write and the kernel to read at once (a placement asks the hooks while it writes).
+    pub fn state_and_kernel(&mut self) -> (&mut CoreState, &Kernel) {
+        (&mut *self.host.state, self.host.kernel)
     }
 
     /// Political Secret bars this ability's owner (`AbilityTable::bars`).

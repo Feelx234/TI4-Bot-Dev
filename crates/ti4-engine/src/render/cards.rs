@@ -34,12 +34,12 @@ impl Family for Fam {
                 Reason::Show { viewer } => format!("show {} 1 action card from your hand", r.seat_text(*viewer)),
             },
             Ask::HandLimit { held } => format!("over the hand limit — discard one of {held}"),
-            Ask::PredictThreat { .. } => "Galactic Threat: predict the agenda outcome".to_owned(),
             Ask::Pick { what: What::Crash { system, second }, .. } => format!("Crash Landing: choose a {} in {}", if *second { "planet" } else { "ground force" }, system.as_str()),
             Ask::Pick { what: What::Squad { system }, .. } => format!("Ghost Squad: move ground forces in {}", system.as_str()),
             Ask::Pick { what: What::JamWho { system }, .. } => format!("Signal Jamming: whose token goes into {}", system.as_str()),
             Ask::Pick { card, what } => pick_prompt(*card, *what).to_owned(),
             Ask::Predict { card, .. } => format!("{}: predict the agenda outcome", rider_name(*card)),
+            Ask::PredictThreat { .. } => "Galactic Threat: predict the agenda outcome".to_owned(),
             Ask::PlayCard { relation, event } => {
                 format!("play an action card ({} {})", crate::kernel_sync::text::relation_text(*relation), crate::kernel_sync::event_text(r, *event))
             }

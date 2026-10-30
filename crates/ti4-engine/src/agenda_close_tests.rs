@@ -20,8 +20,12 @@ fn p(id: &str) -> PlayerId {
 
 /// Three real factions with their promissory notes dealt, in the agenda phase.
 fn position() -> GameState {
+    position_of(&[("a", "hacan"), ("b", "xxcha"), ("c", "arborec")])
+}
+
+fn position_of(seats: &[(&str, &str)]) -> GameState {
     let content = ContentStore::embedded();
-    let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "xxcha"), ("c", "arborec")], DEFAULT);
+    let mut state = crate::fixtures::seated_game(seats, DEFAULT);
     crate::promissory::deal(&mut state, content, DEFAULT);
     state.phase = Phase::Agenda;
     for seat in &mut state.players {
@@ -647,19 +651,158 @@ fn future_sight_pays_a_trade_good_for_a_voted_or_a_plainly_predicted_outcome_in_
     assert_eq!(goods(&g, "b"), 0, "the Nomad backed the loser");
 }
 
-/// Bail: a Nomad whose agent Artuno is readied would be asked about the trade good Future Sight gains (Artuno's exhaust is an
-/// unported ability, package W9): the close is the string's, with the nested reason named.
+/// A Nomad whose agent Artuno is readied is asked about the trade good Future Sight gains: Artuno's exhaust is a core ability since
+/// package W9 (it was the nested bail of this close), so the close is followed and the string's gain is paid.
 #[test]
-fn bail_future_sight_with_artuno_readied_is_counted() {
-    let (g, compared, bailed, _) = lockstep(|| {
+fn future_sight_with_artuno_readied_is_followed_since_artuno_is_a_core_ability() {
+    let (g, compared, bailed, diff) = lockstep(|| {
         let mut s = nomad_table("a");
         s.player_mut(&p("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentartuno"), ti4_model::state::LeaderStatus::Readied);
-        let g = close(game(s, &[]), law_vote("checks", Some("for")));
-        assert_eq!(crate::dual::report().windows.get("game::close_vote [bail: nested (unported ability leader:*:nomadagentartuno:TRADE_GOODS_GAINED:after)]").map(|w| w.bailed), Some(1));
+        close(game(s, &[]), law_vote("checks", Some("for")))
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(g.state.player(&p("a")).unwrap().trade_goods, 1, "the gain is paid");
+}
+
+// -- Future Sight (package W9): the Nomad's trade good after an outcome it voted for or predicted ----------------------------
+
+/// A Nomad (a), Xxcha (b) and Arborec (c) in the agenda phase.
+fn nomad_position() -> GameState {
+    position_of(&[("a", "nomad"), ("b", "xxcha"), ("c", "arborec")])
+}
+
+fn goods(state: &GameState, id: &str) -> i32 {
+    state.player(&p(id)).unwrap().trade_goods
+}
+
+#[test]
+fn future_sight_pays_the_nomad_one_trade_good_for_the_outcome_it_backed_in_lockstep() {
+    // a backed "for" and it wins: one trade good, announced; b (no Future Sight) gets nothing for backing "against".
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let before = nomad_position();
+        let paid = goods(&before, "a");
+        let g = close(game(before, &[]), law_vote("checks", Some("for")));
+        assert_eq!(goods(&g.state, "a"), paid + 1);
         g
     });
-    assert_eq!((compared, bailed), (0, 1));
-    assert_eq!(g.state.player(&p("a")).unwrap().trade_goods, 1, "the string pays it");
+    ok(compared, bailed, &diff);
+    assert!(g.events.iter().any(|e| e.starts_with("TRADE_GOODS_GAINED")), "{:?}", g.events);
+    // a backed "for" but "against" wins: nothing.
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let before = nomad_position();
+        let paid = goods(&before, "a");
+        let g = close(game(before, &[]), law_vote("checks", Some("against")));
+        assert_eq!(goods(&g.state, "a"), paid);
+        g
+    });
+    ok(compared, bailed, &diff);
+    drop(g);
+}
+
+#[test]
+fn future_sight_pays_for_a_bare_prediction_and_not_for_a_riders_tagged_one() {
+    // The Nomad did not vote and predicted "for" plainly: paid. A rider's prediction is the text `for|trade_rider`: not.
+    for (text, pays) in [("for", 1), ("for|trade_rider", 0), ("against", 0)] {
+        let (g, compared, bailed, diff) = lockstep(|| {
+            let mut s = nomad_position();
+            predict(&mut s, "a", text);
+            let paid = goods(&s, "a");
+            let window = VoteWindow::finished("checks", &["for", "against"], &[("b", "for"), ("c", "against")], &[("for", 3), ("against", 1)], Some("for"));
+            let g = close(game(s, &[]), window);
+            let gained = goods(&g.state, "a") - paid;
+            // A trade rider pays five trade goods to the seat that predicted: only its own payout is added on top.
+            assert_eq!(gained, if text == "for|trade_rider" { 5 } else { pays }, "{text}");
+            g
+        });
+        ok(compared, bailed, &diff);
+        drop(g);
+    }
+}
+
+#[test]
+fn bail_future_sight_of_a_nomad_is_followed_only_with_the_ability_in_the_table() {
+    // The ability is in the core table and keyed like the string's id; a deadly plot's discard stops it (string rule, copied).
+    let t = crate::reactions_core::table();
+    let id = "ability:nomad:future_sight:AGENDA_RESOLVED:after";
+    let slot = crate::reactions_core::slot_of(id).expect("future sight has a slot");
+    assert!(t.of_slot(slot).is_some_and(|spec| spec.effect_ported));
+}
+
+fn artuno() -> ti4_model::id::LeaderId {
+    ti4_model::id::LeaderId::new("nomadagentartuno")
+}
+
+/// Artuno the Betrayer (package W9): the trade good Future Sight gains is a gain from the supply, so a readied Artuno may exhaust to
+/// copy it on its card. The reaction window of the gain is followed by the core (it was a nested bail before); a decline keeps the card.
+#[test]
+fn artuno_copies_a_gain_from_the_supply_onto_its_card_in_lockstep() {
+    let readied = |state: &GameState| crate::leaders::status(state, &p("a"), &artuno());
+    let before = nomad_position();
+    assert_eq!(readied(&before), Some(ti4_model::state::LeaderStatus::Readied), "the Nomad starts with a readied Artuno");
+    // The first option of the window is the ability itself: Artuno is exhausted and the one trade good is on the card.
+    let (g, compared, bailed, diff) = lockstep(|| close(game(nomad_position(), &[]), law_vote("checks", Some("for"))));
+    ok(compared, bailed, &diff);
+    let used = readied(&g.state) == Some(ti4_model::state::LeaderStatus::Exhausted);
+    // The other answer: decline (the id of the decline option).
+    let (g2, compared, bailed, diff) = lockstep(|| close(game(nomad_position(), &["decline"]), law_vote("checks", Some("for"))));
+    ok(compared, bailed, &diff);
+    let declined = readied(&g2.state);
+    assert!(used || declined == Some(ti4_model::state::LeaderStatus::Readied), "one of the two answers used Artuno");
+    assert_ne!(used, declined == Some(ti4_model::state::LeaderStatus::Exhausted), "the two answers differ: {used} {declined:?}");
+    let pile = |s: &GameState| crate::factions::nomad_agents::artuno_pile(s, &p("a"));
+    assert_eq!(pile(&g.state) + pile(&g2.state), 1, "the card holds the one trade good the Future Sight gain made");
+}
+
+// -- Galactic Threat (package W9): the Nekro's payout for a correct prediction ------------------------------------------------
+
+fn nekro_position() -> GameState {
+    position_of(&[("a", "nekro"), ("b", "hacan"), ("c", "arborec")])
+}
+
+fn techs(state: &GameState, id: &str) -> usize {
+    state.player(&p(id)).unwrap().technologies.len()
+}
+
+/// A correct prediction gains a technology owned by a player who voted that way (the question is asked and answered in the core
+/// window); a wrong one, a discarded agenda or a prediction of an earlier agenda pays nothing. The prediction mark is the string's.
+#[test]
+fn galactic_threat_pays_a_technology_for_a_correct_prediction_in_lockstep() {
+    let predicted = |state: &mut GameState, outcome: &str, seq: u32| {
+        state.faction_marks.insert("nekro:threat:a".to_owned(), format!("{seq}|{outcome}"));
+    };
+    // b voted against and the Nekro predicted against: a technology of b's is taken.
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let mut s = nekro_position();
+        let seq = s.agenda_seq;
+        predicted(&mut s, "against", seq);
+        let before = techs(&s, "a");
+        let g = close(game(s, &[]), law_vote("checks", Some("against")));
+        assert!(techs(&g.state, "a") > before, "a technology was gained");
+        assert!(!g.state.faction_marks.contains_key("nekro:threat:a"), "the prediction is spent");
+        g
+    });
+    ok(compared, bailed, &diff);
+    drop(g);
+    // The wrong outcome wins: nothing is gained, the mark stays (it names an agenda that is over; the string keeps it too).
+    let (_, compared, bailed, diff) = lockstep(|| {
+        let mut s = nekro_position();
+        let seq = s.agenda_seq;
+        predicted(&mut s, "for", seq);
+        let before = techs(&s, "a");
+        let g = close(game(s, &[]), law_vote("checks", Some("against")));
+        assert_eq!(techs(&g.state, "a"), before);
+    });
+    ok(compared, bailed, &diff);
+    // A prediction of another agenda (an earlier sequence number) pays nothing.
+    let (_, compared, bailed, diff) = lockstep(|| {
+        let mut s = nekro_position();
+        s.agenda_seq = 3;
+        predicted(&mut s, "against", 2);
+        let before = techs(&s, "a");
+        let g = close(game(s, &[]), law_vote("checks", Some("against")));
+        assert_eq!(techs(&g.state, "a"), before);
+    });
+    ok(compared, bailed, &diff);
 }
 
 // -- W4: the Technology Rider ------------------------------------------------------------------------

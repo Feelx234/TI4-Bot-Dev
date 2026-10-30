@@ -23,7 +23,7 @@ mod real {
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
     use ti4_engine_core::rules::explore as rules;
-    use ti4_engine_core::rules::relic_windows::{Codex, GainTechnology, Neuraloop, StellarConverter, TitanPrototype};
+    use ti4_engine_core::rules::relic_windows::{Codex, GainTechnology, Neuraloop, StellarConverter};
     use ti4_engine_core::rules::explore_windows::{PayMechOrInfantry, InInvasion, ChooseDeck, CrownExplore, DistantSuns, DominusOrb, IonStorm, Reward};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
@@ -360,6 +360,34 @@ mod real {
         details: &dyn Fn(&ti4_engine_core::choice::Choice, &CoreState, &mut crate::choice::Choice),
         value: impl FnOnce(&W) -> Option<T>,
     ) -> Option<CoreWindow<T>> {
+        drive_window_r(gs, fp, player, |s, _| window(s), script, details, value)
+    }
+
+    /// [`drive_window`] for a window that names a text the renderer interns (the source of a question).
+    #[allow(clippy::too_many_arguments)]
+    fn drive_window_coded<W: ti4_engine_core::kernel::stage::Window + Clone + InInvasion, T>(
+        gs: &mut GameState,
+        fp: Footprint,
+        player: &PlayerId,
+        text: &str,
+        window: impl FnOnce(Seat, ti4_engine_core::state::Code) -> W,
+        script: &Recording,
+        details: &dyn Fn(&ti4_engine_core::choice::Choice, &CoreState, &mut crate::choice::Choice),
+        value: impl FnOnce(&W) -> Option<T>,
+    ) -> Option<CoreWindow<T>> {
+        drive_window_r(gs, fp, player, |s, r| window(s, r.code(text)), script, details, value)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn drive_window_r<W: ti4_engine_core::kernel::stage::Window + Clone + InInvasion, T>(
+        gs: &mut GameState,
+        fp: Footprint,
+        player: &PlayerId,
+        window: impl FnOnce(Seat, &crate::render::Render) -> W,
+        script: &Recording,
+        details: &dyn Fn(&ti4_engine_core::choice::Choice, &CoreState, &mut crate::choice::Choice),
+        value: impl FnOnce(&W) -> Option<T>,
+    ) -> Option<CoreWindow<T>> {
         if let Some(why) = outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
@@ -368,7 +396,7 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(window(seat).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = Driver::new(window(seat, &r).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, details)
         })
@@ -427,25 +455,60 @@ mod real {
         })
     }
 
-    /// The core half of the Neuraloop's question (the value: the relic named, `None` for a decline).
-    pub fn neuraloop(gs: &mut GameState, holder: &PlayerId, revealed: &str, script: &Recording) -> Option<CoreWindow<Option<String>>> {
+    /// The core half of `relics::neuraloop` (the value: the objective that replaced the revealed one, `None` for a decline, an
+    /// empty pool or a seat that spent nothing). The window rolls on the Neuraloop's stream, lent at `rng_before` (where the
+    /// string stood before it rolled); the streams after are compared.
+    pub fn neuraloop(
+        gs: &mut GameState,
+        holder: &PlayerId,
+        revealed: &str,
+        rng_before: &crate::rng::RngPositions,
+        script: &Recording,
+    ) -> Option<CoreWindow<Option<ti4_model::id::ObjectiveId>>> {
+        use ti4_engine_core::state::ObjectiveRef;
         let revealed = typed::<PublicObjective>(revealed).why(crate::dual::reason::UNKNOWN_ID)?;
-        drive_window(gs, RELIC_WINDOW, holder, |s| Neuraloop::new(s, revealed), script, &no_details, |w| {
-            Some(w.chosen.map(|r| r.as_str().to_owned()))
+        if let Some(why) = outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(holder.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let seeds = std::rc::Rc::new(crate::dual_window::DiceSeeds(String::new()));
+        let mut driver = Driver::new(
+            Neuraloop::new(seat, revealed).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)),
+            Resolver::new(&[seat], Some(seat)),
+            AbilityTable::default(),
+            1,
+        )
+        .with_seeds(seeds);
+        let fp = Footprint::new(
+            &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Objectives, Slice::Rng, Slice::Pending],
+            &[Slice::Players, Slice::Decks, Slice::Objectives, Slice::Rng],
+        );
+        let mut after = None;
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy: None, rng: Some(rng_before) }, fp, |core, _| {
+            let driven = crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &no_details);
+            after = Some(core.rng().clone());
+            driven
         })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let positions = crate::core_sync::codec::rng::positions(&cx, &after?).why("the random streams could not be read back")?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+        let replacement = driver.window.replacement.map(|o| match o {
+            ObjectiveRef::Public(p) => ti4_model::id::ObjectiveId::new(p.as_str()),
+            ObjectiveRef::Secret(p) => ti4_model::id::ObjectiveId::new(p.as_str()),
+        });
+        let mut run = Run::new(replacement).with_events_vec(events);
+        run.rng = Some(positions);
+        Some(CoreWindow { run, questions: driven.rendered })
     }
 
     /// The core half of `relics::codex` (up to three cards from the discard pile into the hand).
     pub fn codex(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<()>> {
         drive_window(gs, CODEX_WINDOW, player, Codex::new, script, &no_details, |_| Some(()))
-    }
-
-    /// The core half of the Titan Prototype's question (the value: the player named).
-    pub fn titan_prototype(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<Option<String>>> {
-        let (_, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
-        drive_window(gs, RELIC_WINDOW, player, TitanPrototype::new, script, &no_details, |w| {
-            Some(w.chosen.map(|seat| r.seat_text(seat).to_owned()))
-        })
     }
 
     /// The core half of the Stellar Converter's choice and destruction (the value: the planet destroyed).
@@ -471,12 +534,21 @@ mod real {
         options: &[String],
         script: &Recording,
     ) -> Option<CoreWindow<Option<String>>> {
-        let relic = typed::<Relic>(relic).why("a source that is no relic (Research Team, an agenda: the string question alone)")?;
         let list: Option<Vec<Technology>> = options.iter().map(|t| typed::<Technology>(t)).collect();
         let list = list.why("a technology option the core tables do not know")?;
-        drive_window(gs, RELIC_WINDOW, player, |s| GainTechnology::new(s, relic, &list), script, &no_details, |w| {
-            Some(w.chosen.map(|t| t.as_str().to_owned()))
-        })
+        // A relic (Enigmatic Device, Maw of Worlds) is the question's origin by its id; any other source (Research Team, an
+        // agenda's grant) by its interned text (package W13).
+        match typed::<Relic>(relic) {
+            Some(relic) => drive_window(gs, RELIC_WINDOW, player, |s| GainTechnology::new(s, relic, &list), script, &no_details, |w| {
+                Some(w.chosen.map(|t| t.as_str().to_owned()))
+            }),
+            None => {
+                let source = relic;
+                drive_window_coded(gs, RELIC_WINDOW, player, source, |s, code| GainTechnology::from_source(s, code, &list), script, &no_details, |w| {
+                    Some(w.chosen.map(|t| t.as_str().to_owned()))
+                })
+            }
+        }
     }
 
     /// The core half of `exploration::pay_with_mech_or_infantry` (the value: the card was paid for).
@@ -673,13 +745,10 @@ mod stub {
     ) -> Option<CoreWindow<bool>> {
         None
     }
-    pub fn neuraloop(_: &mut GameState, _: &PlayerId, _: &str, _: &Recording) -> Option<CoreWindow<Option<String>>> {
+    pub fn neuraloop(_: &mut GameState, _: &PlayerId, _: &str, _: &crate::rng::RngPositions, _: &Recording) -> Option<CoreWindow<Option<ti4_model::id::ObjectiveId>>> {
         None
     }
     pub fn codex(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<()>> {
-        None
-    }
-    pub fn titan_prototype(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<Option<String>>> {
         None
     }
     pub fn stellar_converter(

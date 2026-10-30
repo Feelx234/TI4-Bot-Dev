@@ -3,9 +3,10 @@
 //!
 //! Each is the string function split at its questions: `step` runs to the next question, `answer` is the only
 //! place an answer changes the position. What the window cannot do stays with the string callers (the
-//! adapter bails): the `TRADE_GOODS_GAINED` event of the three trade goods (staged by the caller after the
-//! window), the Siphon / Cabal / Trade Agreement reactions to a replenish, the diplomacy promise a favour
-//! keeps, a question asked inside a battle or an invasion.
+//! adapter bails): the Siphon reaction to a replenish (an Obsidian plot), the diplomacy promise a favour
+//! keeps, a question asked inside a battle or an invasion. The `TRADE_GOODS_GAINED` event of the three trade goods and
+//! what a replenish announces (Cabal's `COMMODITIES_REPLENISHED`, the Trade Agreement) are staged by the window
+//! (`fx::replenish_announced`; package W10), for whoever flushes the staged events.
 
 use crate::choice::strategy::{ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
 use crate::choice::{Ask, Choice, Opt, Opts, Pick};
@@ -16,7 +17,7 @@ use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::Next;
 use crate::query::seats;
-use crate::state::CoreState;
+use crate::state::{Code, CoreState};
 
 /// The trade goods the Trade primary gives.
 pub const TRADE_PRIMARY_GOODS: i32 = 3;
@@ -35,6 +36,10 @@ pub enum TStage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TradePrimary {
     pub who: Seat,
+    /// The interned sources of the two staged `TRADE_GOODS_GAINED` events (`"trade_primary"`, `"trade_agreement"`), when the
+    /// window announces its gains itself ([`Self::with_sources`]); `None`: the caller announces the three trade goods (the
+    /// action cards' child) and the table is one a replenish announces nothing at.
+    pub sources: Option<(Code, Code)>,
     stage: TStage,
     /// The seats not yet asked about, in seating order.
     remaining: SmallList<Seat, 16>,
@@ -43,10 +48,39 @@ pub struct TradePrimary {
 impl TradePrimary {
     #[must_use]
     pub const fn new(who: Seat) -> Self {
-        Self { who, stage: TStage::Start, remaining: SmallList::new() }
+        Self { who, sources: None, stage: TStage::Start, remaining: SmallList::new() }
+    }
+
+    /// [`Self::new`] with the interned texts of the staged events' sources (`"trade_primary"`, `"trade_agreement"`).
+    #[must_use]
+    pub const fn with_sources(who: Seat, primary: Code, agreement: Code) -> Self {
+        Self { who, sources: Some((primary, agreement)), stage: TStage::Start, remaining: SmallList::new() }
     }
 
     const ASK: Ask = Ask::Strategy(SAsk::TradeReplenish);
+
+    fn gain_and_replenish(&self, s: &mut CoreState) {
+        match self.sources {
+            Some((primary, _)) => {
+                fx::gain_trade_goods_staged(s, self.who, TRADE_PRIMARY_GOODS, primary);
+            }
+            None => {
+                fx::gain_trade_goods(s, self.who, TRADE_PRIMARY_GOODS);
+            }
+        }
+        self.replenish(s, self.who);
+    }
+
+    fn replenish(&self, s: &mut CoreState, seat: Seat) {
+        match self.sources {
+            Some((_, agreement)) => {
+                fx::replenish_announced(s, seat, agreement);
+            }
+            None => {
+                fx::replenish_commodities(s, seat);
+            }
+        }
+    }
 
     /// Seats below their printed commodity value (the string `_replenishable`).
     fn needs(core: &CoreState, seat: Seat) -> bool {
@@ -63,8 +97,7 @@ impl Window for TradePrimary {
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if self.stage == TStage::Start {
-            fx::gain_trade_goods(sx.state, self.who, TRADE_PRIMARY_GOODS);
-            fx::replenish_commodities(sx.state, self.who);
+            self.gain_and_replenish(sx.state);
             self.remaining = seats::seating_order(sx.state).as_slice().iter().copied().filter(|s| *s != self.who).collect();
             self.stage = TStage::Pick;
         }
@@ -103,7 +136,7 @@ impl Window for TradePrimary {
         match pick {
             Pick::Opt(Opt::Done) => self.stage = TStage::Done,
             Pick::Opt(Opt::Strategy(SOpt::Replenish(seat))) if self.remaining.as_slice().contains(&seat) => {
-                fx::replenish_commodities(sx.state, seat);
+                self.replenish(sx.state, seat);
                 self.remaining.retain(|s| *s != seat);
             }
             _ => return Err(Illegal),

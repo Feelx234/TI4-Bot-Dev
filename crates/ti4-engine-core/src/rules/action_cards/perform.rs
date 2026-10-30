@@ -151,6 +151,6 @@ pub(super) fn finish(report: Report, s: &mut CoreState, env: Env) -> Finished {
             fx::stage(s, fx::trade_goods_gained(who, goods, env.facts.carried.trade_source));
             Finished { failed: false, tokens: None }
         }
-        Report::Nothing | Report::Paid(_) | Report::Chose(_) | Report::Destroyed(_) => Finished { failed: false, tokens: None },
+        Report::Nothing | Report::Paid(_) | Report::Chose(_) | Report::Destroyed(_) | Report::Built(_) => Finished { failed: false, tokens: None },
     }
 }

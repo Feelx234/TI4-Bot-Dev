@@ -44,3 +44,8 @@ pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable
     argent::timing::register_abilities(t);
     cabal::timing::register_abilities(t);
 }
+
+/// The abilities of the factions that come after Nomad in the string order of the modules (Winnu).
+pub fn register_late_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
+    winnu::timing::register_abilities(t);
+}
