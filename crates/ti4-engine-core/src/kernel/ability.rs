@@ -151,6 +151,8 @@ pub struct Codes {
     /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
     /// `trade_agreement`, `artuno` (Artuno the Betrayer does not copy them).
     pub not_from_supply: [crate::state::Code; 5],
+    /// The name `galactic_threat`, the source of the question of the Nekro's payout.
+    pub galactic_threat: crate::state::Code,
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of

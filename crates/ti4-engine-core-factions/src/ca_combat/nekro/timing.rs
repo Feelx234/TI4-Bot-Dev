@@ -1,6 +1,6 @@
 //! nekro: the timing abilities (the reaction windows), docs/ENGINE_REACTIONS.md. Ported: Antivirus, the placement half,
 //! "At the start of a combat: place this card faceup in your play area" (a holder of the note of another faction; the
-//! Nekro's own copy is not theirs to play). Technological Singularity is `singularity.rs`. Not ported: Galactic Threat, Propagation, the assimilation half.
+//! Nekro's own copy is not theirs to play). Technological Singularity is `singularity.rs`. Galactic Threat is `threat.rs` (package W9). Not ported: Propagation, the assimilation half.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::PromissoryNote;
@@ -42,5 +42,6 @@ pub fn register_abilities(t: &mut AbilityTable) {
     }
     // The string order of the Nekro's abilities: the Antivirus placements, then the Singularity marks (one bucket:
     // SPACE_COMBAT_STARTED / GROUND_COMBAT_STARTED, after).
+    super::threat::register_abilities(t);
     super::singularity::register_abilities(t);
 }

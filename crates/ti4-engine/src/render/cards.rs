@@ -38,6 +38,7 @@ impl Family for Fam {
             Ask::Pick { what: What::JamWho { system }, .. } => format!("Signal Jamming: whose token goes into {}", system.as_str()),
             Ask::Pick { card, what } => pick_prompt(*card, *what).to_owned(),
             Ask::Predict { card, .. } => format!("{}: predict the agenda outcome", rider_name(*card)),
+            Ask::PredictThreat { .. } => "Galactic Threat: predict the agenda outcome".to_owned(),
             Ask::PlayCard { relation, event } => {
                 format!("play an action card ({} {})", crate::kernel_sync::text::relation_text(*relation), crate::kernel_sync::event_text(r, *event))
             }
@@ -200,7 +201,7 @@ impl Family for Fam {
                 ChoiceOption::labelled(id.clone(), "promissory note", id)
             }
             Opt::Outcome(outcome) => {
-                let Ask::Predict { frame, .. } = a else { return ChoiceOption::labelled("", "", "") };
+                let (Ask::Predict { frame, .. } | Ask::PredictThreat { frame }) = a else { return ChoiceOption::labelled("", "", "") };
                 let named = super::agenda::outcome_label(r, frame, *outcome);
                 ChoiceOption::labelled(super::agenda::outcome_text(r, *outcome), "prediction", format!("predict {named}"))
             }
@@ -281,7 +282,7 @@ impl Family for Fam {
             Ask::Pick { what: What::Redraft { .. }, .. } => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::Strat),
             // The holder is the question's: the id is matched against the options of the question itself.
             Ask::Pick { what: What::Perform, .. } => None,
-            Ask::Predict { frame, .. } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
+            Ask::Predict { frame, .. } | Ask::PredictThreat { frame } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
         }
     }
 }
@@ -328,6 +329,7 @@ fn pick_of(a: &Ask) -> (ActionCard, What) {
     match a {
         Ask::Pick { card, what } => (*card, *what),
         Ask::Predict { card, .. } => (*card, What::Player),
+        Ask::PredictThreat { .. } => (ActionCard::Spy, What::Player),
         Ask::OwnHand { .. } | Ask::PlayCard { .. } => (ActionCard::Spy, What::Player),
     }
 }

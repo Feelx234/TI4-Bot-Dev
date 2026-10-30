@@ -132,6 +132,9 @@ pub enum Ask {
     Pick { card: ActionCard, what: What },
     /// `action_cards::predicted_outcome`: a Rider (or Sanction) names the outcome it predicts on the agenda in `frame`.
     Predict { card: ActionCard, frame: Frame },
+    /// The Nekro's Galactic Threat names the outcome it predicts on the agenda in `frame` (the same question as a Rider's, worded
+    /// by the ability: package W9).
+    PredictThreat { frame: Frame },
     /// The reaction slot's second question, when the seat could play cards of several names into the window of
     /// `event` (`reactions::slot`: "play an action card (when X)"); the options are one card per printed name, then decline.
     PlayCard { relation: Relation, event: EventKind },

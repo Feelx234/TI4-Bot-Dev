@@ -43,6 +43,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_SPACE, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_GROUND, kind: "promissory", card: "antivirus" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::threat::PREDICT, kind: "ability", card: "galactic_threat" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::threat::PAYOUT, kind: "ability", card: "galactic_threat" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::SPACE, kind: "ability", card: "technological_singularity" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::GROUND, kind: "ability", card: "technological_singularity" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::OPEN_SPACE, kind: "ability", card: "technological_singularity_open" },
@@ -466,6 +468,7 @@ impl Follow {
         self.table.codes.retreat_capacity = r.code("retreat_capacity");
         self.table.codes.reinforcements = r.code("reinforcements");
         self.table.codes.future_sight = r.code("future_sight");
+        self.table.codes.galactic_threat = r.code("galactic_threat");
         self.table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
         self.table.facts.staging = crate::supply::staging_enabled(gs);
         let defs = self.table.registry(core, &order, &mut name);

@@ -84,7 +84,7 @@ fn read(s: &CoreState, key: MarkKey) -> Option<(Seat, Word)> {
 }
 
 /// The string registers all six abilities for every seat (the condition names the Nekro), so the core does too.
-fn is_nekro(s: &CoreState, who: Seat) -> bool {
+pub(super) fn is_nekro(s: &CoreState, who: Seat) -> bool {
     s.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheNekroVirus)
 }
 
@@ -123,13 +123,13 @@ pub(super) fn live_token(s: &CoreState, who: Seat, card: Technology) -> Option<T
     s.players().iter().any(|o| o.seat != who && o.tech.owned.contains(target)).then_some(target)
 }
 
-fn holds_z(s: &CoreState, nekro: Seat) -> bool {
+pub(super) fn holds_z(s: &CoreState, nekro: Seat) -> bool {
     s.players().by_seat(nekro).is_some_and(|p| p.cards.breakthrough == Some(Breakthrough::ValefarAssimilatorZ))
 }
 
 /// `nekro::assimilation_options` without the Z token: what the Nekro can take of `source`'s technologies, in the string's
 /// order (technology order, the gain before the tokens).
-fn options(s: &CoreState, k: &Kernel, nekro: Seat, source: Seat) -> Vec<(Take, Technology)> {
+pub(super) fn options(s: &CoreState, k: &Kernel, nekro: Seat, source: Seat) -> Vec<(Take, Technology)> {
     use ti4_engine_core::query::tech;
     let (Some(me), Some(them)) = (s.players().by_seat(nekro), s.players().by_seat(source)) else { return Vec::new() };
     if nekro == source {
@@ -224,8 +224,16 @@ fn singularity(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     eff.state().marks_mut().tail.edit().insert(key, mark(opponent, Word::Used));
     let offered = {
         let (s, k) = eff.read();
-        options(s, k, me, opponent)
+        options(s, k, me, opponent).into_iter().map(|(how, tech)| (how, tech, opponent)).collect::<Vec<_>>()
     };
+    take(eff, &offered, codes.technological_singularity)
+}
+
+/// "Gain a technology, or assimilate instead" (`nekro::take_from`): ask the Nekro to pick one of `offered` (what it can take of the
+/// players the ability allows, in the order given) and apply it. The choice is mandatory once the ability is used; `source` is the
+/// interned name of the ability (the question's origin). Nothing happens for an empty list.
+pub(super) fn take(eff: &mut Eff<'_, '_>, offered: &[(Take, Technology, Seat)], source: ti4_engine_core::state::Code) -> Result<(), TimingError> {
+    let me = eff.owner();
     if offered.is_empty() {
         return Ok(());
     }
@@ -233,7 +241,7 @@ fn singularity(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         actor: me,
         ask: Ask::Reaction(RAsk::Assimilate),
         ctx: Ctx {
-            origin: Origin::FactionAbility(Content::Other(codes.technological_singularity)),
+            origin: Origin::FactionAbility(Content::Other(source)),
             subtype: Subtype::Reaction(RSub::Assimilate),
             optional: false,
             target: None,
@@ -241,7 +249,7 @@ fn singularity(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
             space_battle: false,
             invasion_seq: None,
         },
-        opts: offered.iter().map(|(how, tech)| Opt::Reaction(ROpt::Take { how: *how, tech: *tech, source: opponent })).collect::<Opts>(),
+        opts: offered.iter().map(|(how, tech, from)| Opt::Reaction(ROpt::Take { how: *how, tech: *tech, source: *from })).collect::<Opts>(),
     };
     let Pick::Opt(Opt::Reaction(ROpt::Take { how, tech, .. })) = eff.ask(&choice) else { return Ok(()) };
     match how {

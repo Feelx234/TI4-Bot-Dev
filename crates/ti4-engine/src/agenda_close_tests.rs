@@ -670,3 +670,55 @@ fn artuno_copies_a_gain_from_the_supply_onto_its_card_in_lockstep() {
     let pile = |s: &GameState| crate::factions::nomad_agents::artuno_pile(s, &p("a"));
     assert_eq!(pile(&g.state) + pile(&g2.state), 1, "the card holds the one trade good the Future Sight gain made");
 }
+
+// -- Galactic Threat (package W9): the Nekro's payout for a correct prediction ------------------------------------------------
+
+fn nekro_position() -> GameState {
+    position_of(&[("a", "nekro"), ("b", "hacan"), ("c", "arborec")])
+}
+
+fn techs(state: &GameState, id: &str) -> usize {
+    state.player(&p(id)).unwrap().technologies.len()
+}
+
+/// A correct prediction gains a technology owned by a player who voted that way (the question is asked and answered in the core
+/// window); a wrong one, a discarded agenda or a prediction of an earlier agenda pays nothing. The prediction mark is the string's.
+#[test]
+fn galactic_threat_pays_a_technology_for_a_correct_prediction_in_lockstep() {
+    let predicted = |state: &mut GameState, outcome: &str, seq: u32| {
+        state.faction_marks.insert("nekro:threat:a".to_owned(), format!("{seq}|{outcome}"));
+    };
+    // b voted against and the Nekro predicted against: a technology of b's is taken.
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let mut s = nekro_position();
+        let seq = s.agenda_seq;
+        predicted(&mut s, "against", seq);
+        let before = techs(&s, "a");
+        let g = close(game(s, &[]), law_vote("checks", Some("against")));
+        assert!(techs(&g.state, "a") > before, "a technology was gained");
+        assert!(!g.state.faction_marks.contains_key("nekro:threat:a"), "the prediction is spent");
+        g
+    });
+    ok(compared, bailed, &diff);
+    drop(g);
+    // The wrong outcome wins: nothing is gained, the mark stays (it names an agenda that is over; the string keeps it too).
+    let (_, compared, bailed, diff) = lockstep(|| {
+        let mut s = nekro_position();
+        let seq = s.agenda_seq;
+        predicted(&mut s, "for", seq);
+        let before = techs(&s, "a");
+        let g = close(game(s, &[]), law_vote("checks", Some("against")));
+        assert_eq!(techs(&g.state, "a"), before);
+    });
+    ok(compared, bailed, &diff);
+    // A prediction of another agenda (an earlier sequence number) pays nothing.
+    let (_, compared, bailed, diff) = lockstep(|| {
+        let mut s = nekro_position();
+        s.agenda_seq = 3;
+        predicted(&mut s, "against", 2);
+        let before = techs(&s, "a");
+        let g = close(game(s, &[]), law_vote("checks", Some("against")));
+        assert_eq!(techs(&g.state, "a"), before);
+    });
+    ok(compared, bailed, &diff);
+}
