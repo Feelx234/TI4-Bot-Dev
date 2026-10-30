@@ -16,6 +16,7 @@ pub mod advance;
 pub mod begin;
 pub mod bombard;
 pub mod commit;
+pub mod control;
 pub mod defense;
 pub mod harrow;
 pub mod hits;

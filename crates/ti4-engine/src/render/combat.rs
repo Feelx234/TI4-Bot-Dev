@@ -77,6 +77,11 @@ impl Family for Fam {
             Ask::Wrath => "Wrath of Kenara: spend trade goods to add 1 to dice".to_owned(),
             Ask::MunitionsRoll => "spend 2 trade goods for Munitions Reserves".to_owned(),
             Ask::Supercharge => "Supercharge: exhaust to apply +1 to each combat roll this round".to_owned(),
+            Ask::Ambush => "Ambush: choose up to 2 cruisers or destroyers to roll".to_owned(),
+            Ask::Sacrifice { devotion: false } => "Impulse Core: destroy a cruiser or destroyer to produce 1 hit".to_owned(),
+            Ask::Sacrifice { devotion: true } => "Devotion: destroy a cruiser or destroyer to produce 1 hit".to_owned(),
+            Ask::Splicer => "Dimensional Splicer: produce 1 hit against your opponent's ships".to_owned(),
+            Ask::DeployMech { planet } => format!("Dunlain Reaper: spend 2 resources to replace an infantry on {}", planet.as_str()),
         }
     }
 
@@ -96,6 +101,11 @@ impl Family for Fam {
             Subtype::WrathBump => "wrath_of_kenara_bump".to_owned(),
             Subtype::MunitionsRoll => "munitions_reserves_reroll".to_owned(),
             Subtype::Supercharge => "supercharge".to_owned(),
+            Subtype::Ambush => "ambush_roll".to_owned(),
+            Subtype::Sacrifice { devotion: false } => "impulse_core_sacrifice".to_owned(),
+            Subtype::Sacrifice { devotion: true } => "devotion_sacrifice".to_owned(),
+            Subtype::Splicer => "dimensional_splicer".to_owned(),
+            Subtype::DeployMech => "deploy_mech".to_owned(),
         }
     }
 
@@ -135,6 +145,20 @@ impl Family for Fam {
             }
             Opt::UseWarFunding => return ChoiceOption::labelled("use", "promissory_note", "use War Funding"),
             Opt::UseSupercharge => return ChoiceOption::labelled("sc", "technology", "exhaust Supercharge"),
+            Opt::Ambush { a, b } => {
+                let (id, names) = match b {
+                    Some(b) => (format!("{}+{}", a.as_str(), b.as_str()), format!("{} and {}", a.as_str(), b.as_str())),
+                    None => (a.as_str().to_owned(), a.as_str().to_owned()),
+                };
+                return ChoiceOption::labelled(id, "ambush_roll", format!("Ambush: roll for {names}"));
+            }
+            Opt::Sacrifice { unit } => {
+                return ChoiceOption::labelled(unit.as_str().to_owned(), "destroy_own_ship", format!("destroy 1 {} to produce 1 hit", unit.as_str()));
+            }
+            Opt::DeployMech => return ChoiceOption::labelled("deploy", "unit", "deploy the mech"),
+            Opt::ProduceHit => {
+                return ChoiceOption::labelled("produce_hit", "produce_hit", "produce 1 hit and assign it to 1 of your opponent's ships");
+            }
             Opt::Kenara { count } => {
                 return ChoiceOption::labelled(
                     format!("kenara|{count}"),
@@ -217,6 +241,16 @@ impl Family for Fam {
             Ask::RetreatTo { .. } => None,
             Ask::Withdraw { .. } => <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(id).map(|system| Opt::Withdraw { system, there: 0 }),
             Ask::RaidDamage { .. } => Some(Opt::RaidDamage { unit: <Unit as crate::generated::IdStr>::from_id(id)? }),
+            Ask::Ambush => {
+                let unit = |t: &str| <Unit as crate::generated::IdStr>::from_id(t);
+                match id.split_once('+') {
+                    Some((a, b)) => Some(Opt::Ambush { a: unit(a)?, b: Some(unit(b)?) }),
+                    None => Some(Opt::Ambush { a: unit(id)?, b: None }),
+                }
+            }
+            Ask::Sacrifice { .. } => Some(Opt::Sacrifice { unit: <Unit as crate::generated::IdStr>::from_id(id)? }),
+            Ask::Splicer => (id == "produce_hit").then_some(Opt::ProduceHit),
+            Ask::DeployMech { .. } => (id == "deploy").then_some(Opt::DeployMech),
             _ => None,
         }
     }
@@ -232,7 +266,7 @@ impl Family for Fam {
                 Ask::RerollDie { unit, .. } => {
                     w.payload.insert("unit".to_owned(), serde_json::Value::String(_r.code_text(*unit)));
                 }
-                Ask::HeartIxth | Ask::WarFunding | Ask::Wrath | Ask::MunitionsRoll | Ask::Supercharge => {}
+                Ask::HeartIxth | Ask::WarFunding | Ask::Wrath | Ask::MunitionsRoll | Ask::Supercharge | Ask::Ambush | Ask::Sacrifice { .. } | Ask::Splicer | Ask::DeployMech { .. } => {}
                 _ => {
                     w.label = Some("take the hit".to_owned());
                     if let Ask::CancelHit { window: Some(own), .. } = a {

@@ -147,6 +147,7 @@ fn tech_set(texts: impl IntoIterator<Item = impl AsRef<str>>) -> R<Set<Technolog
 pub fn load_player(cx: &Ctx, p: &m::Player) -> R<Player> {
     let seat = cx.seat(S, p.id.as_str())?;
     let faction = id::<Faction>(S, "faction", p.faction.as_str())?;
+    crate::product::lobby_faction(p.faction.as_str());
     let mut o = Player::new(seat, faction);
     o.home_system = p.home_system.as_ref().map(|s| id::<System>(S, "system", s.as_str())).transpose()?;
     o.home_planets = list(S, "planet", p.home_planets.iter().map(PlanetId::as_str))?;

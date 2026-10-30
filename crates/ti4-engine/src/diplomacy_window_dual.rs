@@ -122,10 +122,14 @@ mod real {
         if crate::dual_window::outside_battle(gs, script) || !content.is_embedded() {
             return None;
         }
-        let Some(galaxy) = galaxy else { return bail("a position with no map") };
+        let Some(galaxy) = galaxy else {
+            crate::product::unreachable_here("L19 (trade)", "a diplomacy window with no map");
+            return bail("a position with no map");
+        };
         let mut factions: Vec<&str> = gs.players.iter().map(|p| p.faction.as_str()).collect();
         factions.sort_unstable();
         if factions.windows(2).any(|w| w[0] == w[1]) {
+            crate::product::unreachable_here("L19 (trade)", "a faction played by two seats");
             return bail("a faction played by two seats");
         }
         let Some((mut cx, r)) = tables(gs) else { return bail("a position the codecs refuse") };

@@ -723,7 +723,7 @@ pub fn announce(
     let mut refused = None;
     // The dice of a card that rolls: only streams the core can reproduce (no test faces, no pending restore).
     let rolls = crate::action_cards_typed::rolls(alias);
-    let reproducible = !dice.is_preloaded() && !rng.sync_pending() && rng.seed() == state.rng_seed;
+    let reproducible = crate::product::reproducible(dice.is_preloaded(), rng.sync_pending(), rng.seed(), state.rng_seed);
     let rng_before = rng.positions();
     let history_start = dice.history().len();
     let (dice, rng) = (std::cell::RefCell::new(&mut **dice), std::cell::RefCell::new(&mut **rng));

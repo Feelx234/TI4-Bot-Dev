@@ -63,6 +63,16 @@ pub enum Ask {
     /// Supercharge (Naaz): "at the start of a combat round, you may exhaust this card to apply +1 to the results of all of your
     /// units' combat rolls during this combat round".
     Supercharge,
+    /// Ambush (Mentak): which (up to 2) cruisers or destroyers roll at the start of the combat.
+    Ambush,
+    /// Impulse Core (`devotion: false`, at the start of a combat) and Devotion (Yin, after a round): which cruiser or destroyer is
+    /// destroyed to produce 1 hit.
+    Sacrifice { devotion: bool },
+    /// Dimensional Splicer (Ghost): produce 1 hit at the start of a combat in a system with a wormhole.
+    Splicer,
+    /// The Dunlain Reaper (Letnev): "at the start of a round of ground combat, you may spend 2 resources to replace 1 of your infantry
+    /// in that combat with 1 mech from your reinforcements".
+    DeployMech { planet: Planet },
 }
 
 /// Which card asked the per-die reroll question.
@@ -106,6 +116,14 @@ pub enum Opt {
     Munitions { choose: bool, misses: u8 },
     /// Exhaust Supercharge.
     UseSupercharge,
+    /// Ambush: roll for one ship of type `a`, and for one of type `b` (the same type twice is two ships).
+    Ambush { a: Unit, b: Option<Unit> },
+    /// Destroy one of the listed type to produce a hit.
+    Sacrifice { unit: Unit },
+    /// Produce the hit.
+    ProduceHit,
+    /// Deploy the mech.
+    DeployMech,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -125,4 +143,12 @@ pub enum Subtype {
     WrathBump,
     MunitionsRoll,
     Supercharge,
+    /// `ambush_roll`.
+    Ambush,
+    /// `impulse_core_sacrifice` / `devotion_sacrifice`.
+    Sacrifice { devotion: bool },
+    /// `dimensional_splicer`.
+    Splicer,
+    /// `deploy_mech`.
+    DeployMech,
 }

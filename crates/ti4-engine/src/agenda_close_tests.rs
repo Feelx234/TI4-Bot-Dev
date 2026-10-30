@@ -305,7 +305,7 @@ fn politics_and_keleres_riders_draw_and_pay() {
 
 #[test]
 fn riders_the_core_does_not_pay_have_no_window() {
-    for rider in ["tech_rider", "const_rider", "diplo_rider", "war_rider"] {
+    for rider in ["const_rider", "diplo_rider", "war_rider"] {
         let (_, compared, bailed, _) = lockstep(|| {
             let mut s = position();
             predict(&mut s, "a", &format!("for|{rider}"));
@@ -660,4 +660,55 @@ fn bail_future_sight_with_artuno_readied_is_counted() {
     });
     assert_eq!((compared, bailed), (0, 1));
     assert_eq!(g.state.player(&p("a")).unwrap().trade_goods, 1, "the string pays it");
+}
+
+// -- W4: the Technology Rider ------------------------------------------------------------------------
+
+/// A correct Technology Rider is a free research asked as the card's own question (the Technology primary's first research), and
+/// nothing after it: the core window follows the string question for question.
+#[test]
+fn a_correct_technology_rider_researches_one_free_technology_in_lockstep() {
+    let ((g, owned), compared, bailed, diff) = lockstep(|| {
+        let mut s = position();
+        predict(&mut s, "a", "for|tech_rider");
+        let owned = s.player(&p("a")).unwrap().technologies.len();
+        (close(game(s, &[]), law_vote("checks", Some("for"))), owned)
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(g.state.player(&p("a")).unwrap().technologies.len(), owned + 1, "one technology, no paid second research");
+}
+
+/// A technology chosen by name: the card's question lists it and the research lands it.
+#[test]
+fn a_technology_rider_answer_lands_the_technology_it_names() {
+    let ((g, offered), compared, bailed, diff) = lockstep(|| {
+        let content = ContentStore::embedded();
+        let mut s = position();
+        predict(&mut s, "b", "for|tech_rider");
+        let offered = crate::technology::researchable(&s, content, DEFAULT, &p("b"));
+        let wanted = offered.last().expect("a technology is open").to_string();
+        (close(game(s, &[&wanted]), law_vote("checks", Some("for"))), wanted)
+    });
+    ok(compared, bailed, &diff);
+    assert!(g.state.player(&p("b")).unwrap().technologies.contains(&ti4_model::id::TechnologyId::new(offered)));
+}
+
+#[test]
+fn a_missed_technology_rider_pays_nothing_and_a_research_the_core_does_not_carry_stays_the_strings() {
+    let (_, compared, bailed, diff) = lockstep(|| {
+        let mut s = position();
+        predict(&mut s, "a", "against|tech_rider");
+        close(game(s, &[]), law_vote("checks", Some("for")))
+    });
+    ok(compared, bailed, &diff);
+    // A Deepwrought seat opens Doctor Carrina's window around every research: not the core's.
+    let (_, compared, bailed, _) = lockstep(|| {
+        let mut s = position();
+        s.player_mut(&p("a")).unwrap().faction = ti4_model::id::FactionId::new("deepwrought");
+        predict(&mut s, "a", "for|tech_rider");
+        let mut g = Game::new(s, ContentStore::embedded()).with_sources(DEFAULT);
+        g.put_vote(law_vote("checks", Some("for")));
+        let _ = g.close_vote();
+    });
+    assert_eq!((compared, bailed), (0, 1));
 }

@@ -67,6 +67,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_SHIPS, kind: "leader", card: "mentakhero" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::HERO_END, kind: "leader", card: "mentakhero" },
     Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
+    Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::THUNDARIAN_SPACE, kind: "leader", card: "nomadagentthundarian" },
+    Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::THUNDARIAN_GROUND, kind: "leader", card: "nomadagentthundarian" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::SOL_AGENT, kind: "leader", card: "solagent" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
@@ -297,6 +299,8 @@ impl Recording {
 pub struct Follow {
     pub table: AbilityTable,
     pub resolver: Resolver,
+    /// The sources in play when the window began (the research a played card runs reads the hooks of the string modules).
+    sources: ti4_model::content_types::SourceSet,
 }
 
 /// The resolver and table for a window that ran with `script`; `None` for a run without nested activity (the
@@ -359,7 +363,7 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
         }
     }
     let resolver = resolver_of(r, cfg).ok_or_else(|| "a resolver seat the tables do not know".to_owned())?;
-    Ok(Some(Follow { table, resolver }))
+    Ok(Some(Follow { table, resolver, sources: cfg.sources.clone() }))
 }
 
 /// The printed name of each card as the index of the first card with the same name, and whether the string side has
@@ -409,12 +413,20 @@ fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::So
         let player = ti4_model::id::PlayerId::new(r.seat_text(who));
         let infantry = crate::action_cards_view::placed(gs, &player, sources, "infantry")?;
         let cruiser = crate::action_cards_view::placed(gs, &player, sources, "cruiser")?;
+        // Reveal Prototype (package W4): carried for a seat whose research the core window carries (the hooks of the string modules and
+        // the core are compared in `Follow::arm`, which has the core state).
+        let content = ti4_content::ContentStore::embedded();
+        let researches = gs.rules_version >= ti4_model::state::RULES_TECH_PAYMENT_CHOICE && !crate::action_cards_view::technology_unported(gs, sources, &player);
         seats.push(SeatPlay {
             who,
             mahact_held: gs.tokens_held_by_mahact(&player),
             infantry: (infantry.unit, infantry.on_card),
             cruiser: (cruiser.unit, cruiser.on_card),
             fighter_on_card: crate::action_cards_view::fighter_on_card(gs, &player, sources),
+            reveal: researches.then(|| crate::action_cards_view::reveal_set(gs, &player, sources)),
+            reveal_payable: researches
+                && gs.player(&player).is_some_and(|p| p.action_cards.iter().any(|c| c.as_str() == "reveal_prototype"))
+                && crate::action_cards::cost_is_payable_text(gs, content, sources.clone(), &player, &ti4_model::id::ActionCardId::new("reveal_prototype")),
         });
     }
     Some(PlayFacts {
@@ -427,6 +439,9 @@ fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::So
         name_group,
         has_effect,
         skimmer: crate::factions::ralnel_cards::skimmer_holder(gs).is_some(),
+        roster: crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), sources.clone()),
+        rules_version: gs.rules_version,
+        tech_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
     })
 }
 
@@ -477,6 +492,17 @@ impl Follow {
         self.table.codes.retreat_capacity = r.code("retreat_capacity");
         self.table.codes.reinforcements = r.code("reinforcements");
         self.table.facts.staging = crate::supply::staging_enabled(gs);
+        // Reveal Prototype researches: a seat whose research hooks the core table answers differently from the string modules is the string's.
+        if let Some(plays) = self.table.facts.plays.as_mut() {
+            let content = ti4_content::ContentStore::embedded();
+            for seat in plays.seats.iter_mut().filter(|s| s.reveal.is_some()) {
+                let player = ti4_model::id::PlayerId::new(r.seat_text(seat.who));
+                if !crate::strategy_cards_core::research_hooks_agree(core, gs, content, self.sources.clone(), &player, seat.who) {
+                    seat.reveal = None;
+                    seat.reveal_payable = false;
+                }
+            }
+        }
         let defs = self.table.registry(core, &order, &mut name);
         self.resolver.register(defs);
     }
@@ -569,8 +595,10 @@ mod tests {
         let mut r = rec(&[slot], &[slot]);
         r.played = vec!["mb1".to_owned()];
         assert_eq!(r.unported(&t), None, "a Morale Boost is a stamp the core plays");
-        r.played = vec!["mb1".to_owned(), "reveal_prototype".to_owned()];
-        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card reveal_prototype)"));
+        r.played = vec!["mb1".to_owned(), "upgrade".to_owned()];
+        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card upgrade)"));
+        r.played = vec!["reveal_prototype".to_owned()];
+        assert_eq!(r.unported(&t), None, "W4: Reveal Prototype is played by the core");
         for card in ["courageous", "scramble", "reflective"] {
             r.played = vec![card.to_owned()];
             assert_eq!(r.unported(&t).as_deref(), Some(&*format!("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card {card})")), "{card} stays the string's");
@@ -585,7 +613,7 @@ mod tests {
         let mut r = rec(&[slot], &[slot]);
         r.played = vec!["sabo1".to_owned()];
         assert_eq!(r.unported(&table()), None, "a Sabotage is played at once by the core");
-        r.played = vec!["reveal_prototype".to_owned()];
+        r.played = vec!["upgrade".to_owned()];
         assert_eq!(r.unported(&table()).as_deref(), Some("unported ability reaction:*:ACTION_CARD_PLAYED:when (a card played at once)"));
     }
 
@@ -700,7 +728,7 @@ mod tests {
             }
             let (mut cx, r) = crate::dual_window::tables(&gs).unwrap();
             let before = gs.clone();
-            let mut fol = Follow { table: table(), resolver: Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))) };
+            let mut fol = Follow { table: table(), resolver: Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), sources: ti4_model::content_types::POK };
             let mut got = Vec::new();
             let fp = Footprint::reads(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards]);
             with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| {

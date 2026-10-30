@@ -7667,18 +7667,25 @@ mod tests {
         (state, system, planet)
     }
 
-    /// The documented bails of the triggered productions (docs/ENGINE_KNOWN_ISSUES.md, B3-bail-01..03): a Keleres
-    /// seat (the tier-W agent offer at the payment window), a Naaz producer (the staged `NAAZ_MECH_PLACED` event)
-    /// keep the string answer (a Bastion table is followed since B12); the dual reports a bail, not a
-    /// difference, and the string run is untouched.
+    /// The documented bail of the triggered productions (docs/ENGINE_KNOWN_ISSUES.md, B3-bail-01): a Keleres seat (the agent
+    /// offer at the payment window) keeps the string answer; the dual reports a bail, not a difference, and the string run is
+    /// untouched. Since package W5 a Naaz, Nomad, Yssaril or Mentak table is followed (it was the same bail before: the
+    /// second and later cases of this test fail on the pre-W5 guard).
     #[test]
     fn the_triggered_productions_bail_where_a_tier_w_offer_could_fire() {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let content = ContentStore::embedded();
         let _guard = crate::dual::tests::serial();
-        let _ = take_report();
-        with_mask(AreaMask::STRING.with(Area::Production, Backend::Dual), || {
-            for (mine, theirs) in [("sol", "keleresm"), ("naaz", "sardakk")] {
+        for (mine, theirs, followed) in [
+            ("sol", "keleresm", false),
+            ("keleresx", "sardakk", false),
+            ("naaz", "sardakk", true),
+            ("sol", "nomad", true),
+            ("sol", "yssaril", true),
+            ("mentak", "naaz", true),
+        ] {
+            let _ = take_report();
+            with_mask(AreaMask::STRING.with(Area::Production, Backend::Dual), || {
                 let (mut state, system, planet) = sling_table();
                 state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new(mine);
                 state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new(theirs);
@@ -7686,15 +7693,31 @@ mod tests {
                 let _ = sling_relay(&mut state.clone(), content, POK, None, &mut table, &player());
                 let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(["done_producing".to_owned()])));
                 let _ = integrated_economy(&mut state, content, POK, None, &mut table, &player(), &system, &planet);
+            });
+            let r = report();
+            for label in ["production::sling_relay", "production::integrated_economy"] {
+                let w = r.windows.get(label).copied().unwrap_or_default();
+                // Keleres is only an agent holder who is offered the payment window: `integrated_economy` is the Keleres own ability
+                // and runs only for a Keleres producer, a table with a Keleres seat bails it either way.
+                assert_eq!((w.compared, w.bailed), if followed { (1, 0) } else { (0, 1) }, "{mine}/{theirs} {label}: {:?}", r.windows);
             }
-        });
-        let r = report();
-        for label in ["production::sling_relay", "production::integrated_economy"] {
-            let w = r.windows.get(label).copied().unwrap_or_default();
-            assert_eq!((w.compared, w.bailed), (0, 2), "{label}: {:?}", r.windows);
+            assert_eq!(r.total_differences(), 0, "{mine}/{theirs}: {:?}", r.differences);
         }
-        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
+    }
+
+    /// Package W5, the documented tail (W5-bail-01): a production by an ability, or with a fixed limit, is not a window the core carries; the
+    /// census reason names it (`ProductionWindow::to_core`).
+    #[test]
+    fn a_production_by_an_ability_has_no_core_window_and_says_why() {
+        let content = ContentStore::embedded();
+        let (state, system, _) = seated();
+        let seat = ti4_engine_core::Seat(0);
+        let ability = ProductionWindow::for_ability(&state, content, POK, &player(), &system, Some(1));
+        assert_eq!(
+            ability.to_core(&state, content, POK, seat, false).err(),
+            Some("a production by an ability (the window of a card or an ability, not a production use)")
+        );
     }
 
     /// Builds `unit` once, pays with trade goods and then declines.

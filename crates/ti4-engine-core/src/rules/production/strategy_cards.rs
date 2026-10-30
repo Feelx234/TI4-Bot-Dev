@@ -512,13 +512,25 @@ pub struct Research {
     pub failed: bool,
     /// The technologies researched, in order.
     pub researched: SmallList<Technology, 2>,
+    /// Technology Rider (package W4; `strategy_cards::offer_free_research`): one free research asked as the card's own question,
+    /// and nothing after it (no paid second research).
+    rider: bool,
 }
 
 impl Research {
     /// `cost`: the resources the paid research costs (6 for the primary's second, 4 for the secondary).
     #[must_use]
     pub const fn new(who: Seat, primary: bool, cost: i64, scope: Scope) -> Self {
-        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new() }
+        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false }
+    }
+
+    /// Technology Rider ("research 1 technology", `strategy_cards::offer_free_research`): the Technology primary's free research,
+    /// asked with the card as the source of the question, and no paid research after it. Prerequisites apply, nothing is paid.
+    #[must_use]
+    pub const fn rider(who: Seat, scope: Scope) -> Self {
+        let mut window = Self::new(who, true, 0, scope);
+        window.rider = true;
+        window
     }
 
     /// The faction units of the scope (`ti4_content::units::faction_unit`), for the unit forms an upgrade changes.
@@ -699,12 +711,11 @@ impl Research {
             options.push(Opt::Decline);
         }
         let cost = if decline { u8::try_from(self.cost).unwrap_or(u8::MAX) } else { 0 };
-        Choice {
-            actor: self.who,
-            ask: ask(SAsk::ResearchTechnology { cost, owned, decline }),
-            ctx: crate::choice::strategy::ctx(StrategyCard::Technology, decline, SSub::ResearchTechnology),
-            opts: options,
+        let mut ctx = crate::choice::strategy::ctx(StrategyCard::Technology, decline, SSub::ResearchTechnology);
+        if self.rider {
+            ctx.origin = Origin::ActionCard(crate::generated::ActionCard::TechnologyRider);
         }
+        Choice { actor: self.who, ask: ask(SAsk::ResearchTechnology { cost, owned, decline }), ctx, opts: options }
     }
 }
 
@@ -737,6 +748,9 @@ impl Window for Research {
                 RStage::Start => {
                     if self.primary && !self.open(sx.state, sx.kernel).is_empty() {
                         self.stage = RStage::Free;
+                    } else if self.rider {
+                        // Nothing to research: the rider ends (the paid research is the primary's, not the card's).
+                        self.stage = RStage::Done;
                     } else {
                         self.begin_paid(sx.state, sx.kernel);
                     }
@@ -787,7 +801,11 @@ impl Window for Research {
             (RStage::Choose, Opt::Decline) => self.stage = RStage::Done,
             (RStage::Free, Opt::Strategy(SOpt::Research(t))) => {
                 if self.settle(sx.state, sx.kernel, t) {
-                    self.begin_paid(sx.state, sx.kernel);
+                    if self.rider {
+                        self.stage = RStage::Done;
+                    } else {
+                        self.begin_paid(sx.state, sx.kernel);
+                    }
                 } else {
                     self.failed = true;
                     self.stage = RStage::Done;

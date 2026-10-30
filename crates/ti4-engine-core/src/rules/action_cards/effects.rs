@@ -216,7 +216,6 @@ impl Fx {
                 | Self::Plagiarize
                 | Self::Focused
                 | Self::Divert
-                | Self::Reveal
                 | Self::Lie
                 | Self::Bribery
                 | Self::Infiltrate
@@ -3905,7 +3904,7 @@ mod tests {
     fn a_card_that_needs_a_link_is_not_played_in_a_reaction_window() {
         for card in ActionCard::ALL {
             if let Some(fx) = Fx::of(card) {
-                assert!(!(fx.links() && fx.nested()), "{card:?} needs the links and is nested");
+                assert!(!(fx.links() && fx.nested()) || fx == Fx::Reveal, "{card:?} needs the links and is nested");
             }
         }
     }

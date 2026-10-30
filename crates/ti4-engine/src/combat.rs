@@ -5535,6 +5535,59 @@ impl CombatWindow {
         round: u32,
         moment: CombatMoment,
     ) -> Result<[ProducedHits; 2], CombatError> {
+        let sources = ctx.sources;
+        let announce = ctx.timing.is_some();
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
+        let mut outcome = None;
+        let ctx = std::cell::RefCell::new(ctx);
+        let failed = std::cell::Cell::new(false);
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "combat::produce_hits",
+            state,
+            |s: &mut GameState| {
+                let mut ctx = ctx.borrow_mut();
+                let result = self.produce_hits_string(s, &mut **ctx, round, moment);
+                failed.set(result.is_err());
+                let value: crate::dual_window::ProduceOut = match &result {
+                    Ok(made) => (
+                        [(made[0].any_ship, made[0].producer_assigned, made[0].non_fighter), (made[1].any_ship, made[1].producer_assigned, made[1].non_fighter)],
+                        ctx.dice
+                            .history()
+                            .iter()
+                            .skip(history_start)
+                            .filter(|roll| roll.reason == "ambush")
+                            .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                            .collect(),
+                        ctx.rng.positions(),
+                    ),
+                    Err(_) => ([(0, 0, 0); 2], Vec::new(), ctx.rng.positions()),
+                };
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::dual_window::ProduceArgs { attacker: &attacker, defender: &defender, system: &system, at_start: moment == CombatMoment::CombatStart, reproducible, announce };
+                crate::dual_window::produce_hits(s, sources, args, &rng_before, script)
+            }
+        );
+        outcome.unwrap_or_else(|| Ok([ProducedHits::NONE; 2]))
+    }
+
+    /// The string body of [`Self::produce_hits`].
+    fn produce_hits_string(
+        &self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        round: u32,
+        moment: CombatMoment,
+    ) -> Result<[ProducedHits; 2], CombatError> {
         let mut produced = [ProducedHits::NONE; 2];
         let sides = [
             (&self.attacker, &self.defender),
@@ -6183,7 +6236,7 @@ impl CombatWindow {
         let failed = std::cell::Cell::new(false);
         let mut outcome = None;
         let announce = ctx.timing.is_some();
-        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed; // real games always match: Game::new and Game::from_state seed the rng from state.rng_seed (game.rs); only hand-built test rigs differ
+        let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed); // real games always match: Game::new and Game::from_state seed the rng from state.rng_seed (game.rs); only hand-built test rigs differ
         let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
         let occurrence = self.ensure_combat_occurrence(state).0;
         let staging = crate::supply::staging_enabled(state);
@@ -6200,7 +6253,7 @@ impl CombatWindow {
         // Positions the window does not carry run bare, so the windows inside (fighter removal, Raid
         // Formation) are compared on their own.
         if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual {
-            if let Some(why) = crate::dual_window::barrage_why(state, &probe) {
+            if let Some(why) = crate::dual_window::barrage_step_why(state, &probe) {
                 crate::dual::note_gate(crate::dual::Area::Driver, "combat::barrage_step", why);
                 return self.barrage_step_string(state, ctx, round);
             }
@@ -6342,7 +6395,7 @@ impl CombatWindow {
             state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL
                 && crate::faction_abilities::has(state, content, side, "munitions")
         });
-        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
         // Positions the window does not carry run bare, so the windows inside (the reroll questions) are
         // compared on their own.
         if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual && unported {
@@ -6391,7 +6444,7 @@ impl CombatWindow {
                 if failed.get() {
                     return None;
                 }
-                let args = crate::dual_window::RollArgs { attacker: &attacker, defender: &defender, system: &system, reproducible, munitions_after, announce: ctx_announce };
+                let args = crate::dual_window::RollArgs { round, attacker: &attacker, defender: &defender, system: &system, reproducible, munitions_after, announce: ctx_announce };
                 crate::dual_window::roll_step(s, content, sources, args, &rng_before, script)
             }
         );
@@ -6414,9 +6467,8 @@ impl CombatWindow {
         if crate::neutral_units::is_neutral(&self.attacker) || crate::neutral_units::is_neutral(&self.defender) {
             return Some("a neutral side");
         }
-        if crate::factions::nomad_agents::watches_roll_step(state) {
-            return Some("The Thundarian watches the Roll Dice step (Nomad agent, or a Yssaril copy)");
-        }
+        // A readied The Thundarian is an ability of the core table since package W2 (its window and the replay of the step are the
+        // core roll step's); a Yssaril copy of it is not, and bails as "nested (unported ability ...)" when it is offered.
         sides
             .into_iter()
             .any(|side| {
@@ -6890,7 +6942,7 @@ impl CombatWindow {
         let (content, sources) = (ctx.content, ctx.sources);
         let sides = [&self.attacker, &self.defender];
         let announce = ctx.timing.is_some();
-        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
         let galaxy = self.galaxy.as_ref();
         let neighbors = sides.map(|side| match galaxy {
             Some(g) => crate::core_combat::retreat_neighbors(state, sources, g, side, &self.system),
@@ -9958,6 +10010,21 @@ mod tests {
         assert!(withdrew > 0, "a Skilled Retreat was played");
     }
 
+    /// W4: Reveal Prototype is played from the standing slot at the start of the combat: its four resources are judged (by the adapter, the
+    /// string's own judge), the unit upgrade of a line of the holder's units in the system is researched and the bill paid, all in the core.
+    #[test]
+    fn reveal_prototype_is_played_from_the_slot_in_the_core_window_in_lockstep() {
+        let mut played = 0;
+        for seed in 1..=4_u64 {
+            let (_, _, bails, plays) = cards_fight_with(seed, ["hacan", "sol"], &[], &["reveal_prototype"], false, false, &|state, system| {
+                put(state, system, "fighter", &defender(), 2);
+            });
+            assert!(bails.iter().all(|k| !k.contains("nested") && !k.contains("(card ") && !k.contains("cost the core does not judge")), "the card is followed: {bails:?}");
+            played += usize::from(plays.iter().any(|c| c == "reveal_prototype"));
+        }
+        assert!(played > 0, "a Reveal Prototype was played");
+    }
+
     /// The promissory notes played at the start of a space combat: Antivirus (placed faceup) and The Cavalry (a ship type
     /// takes the flagship's abilities, the note goes home when the combat ends), both held by the defender.
     #[test]
@@ -10619,6 +10686,94 @@ mod tests {
         assert!(used > 0, "and used");
     }
 
+    /// Package W2: a Letnev side opens its space rounds in the core (round opening and composed machine): Arc Secundus repairs itself at
+    /// the start of each round, after the faction hooks of its owner. Fails on the pre-W2 gate ("a Letnev side": the window bailed and the
+    /// composed settle ran bare).
+    #[test]
+    fn a_letnev_side_repairs_its_flagship_at_each_round_opening_in_lockstep() {
+        let (mut compared, mut repaired_at_start) = (0, 0);
+        for (seed, composed) in (0..8_u64).flat_map(|s| [(s, false), (s, true)]) {
+            let (_, windows, differences, _) = hub_fight_composed(
+                composed,
+                seed,
+                &["letnev", "hacan"],
+                |s, system| {
+                    put(s, system, "letnev_flagship", &attacker(), 1);
+                    put(s, system, "cruiser", &attacker(), 1);
+                    put(s, system, "cruiser", &defender(), 3);
+                    for unit in &mut s.system_mut(system).units {
+                        if unit.type_id.as_str() == "letnev_flagship" {
+                            unit.sustained_damage = true;
+                        }
+                    }
+                },
+                |_, _, _| 0,
+            );
+            assert_eq!(differences, 0, "seed {seed} composed {composed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("a Letnev side")), "seed {seed}: {windows:?}");
+            let counts = windows.get(if composed { "combat::settle" } else { "combat::begin_round" }).copied().unwrap_or_default();
+            assert_eq!(counts.bailed, 0, "seed {seed} composed {composed}: {windows:?}");
+            compared += counts.compared;
+            repaired_at_start += 1;
+        }
+        assert!(compared > 0 && repaired_at_start == 16, "the opening ran in the core: {compared}");
+    }
+
+    /// Package W2: the hits the modules produce at the start of a combat and after a round run in the core window `ProduceHits` in
+    /// lockstep: Mentak's Ambush (which ships roll; each against its own combat value), Yin's Impulse Core and Devotion (a ship is
+    /// destroyed for a hit), Ghost's Dimensional Splicer (a wormhole in the system). Answers: the first offer, the decline, the last offer.
+    #[test]
+    fn the_modules_hits_at_the_start_and_after_a_round_run_in_the_core_window_in_lockstep() {
+        static PUT: [std::sync::atomic::AtomicUsize; 4] = [const { std::sync::atomic::AtomicUsize::new(0) }; 4];
+        fn answer(seed: u64, nth: usize, c: &Choice) -> usize {
+            let Some(which) = ["Ambush", "Impulse Core", "Devotion", "Dimensional Splicer"].iter().position(|p| c.prompt.starts_with(p)) else {
+                return 0;
+            };
+            PUT[which].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            match (seed + nth as u64) % 3 {
+                0 => 0,
+                1 => c.options.len() - 1,
+                _ => c.options.len().saturating_sub(2),
+            }
+        }
+        let cases: [(&str, &[&str], &str); 4] = [
+            ("ambush", &["mentak", "hacan"], "Ambush"),
+            ("impulse core", &["yin", "hacan"], "Impulse Core"),
+            ("devotion", &["yin", "hacan"], "Devotion"),
+            ("dimensional splicer", &["ghost", "hacan"], "Dimensional Splicer"),
+        ];
+        for (which, (name, factions, _prompt)) in cases.into_iter().enumerate() {
+            let mut compared = 0;
+            for seed in 0..12_u64 {
+                let (_, windows, differences, _) = hub_fight_composed(
+                    false,
+                    seed,
+                    factions,
+                    |s, system| {
+                        put(s, system, "cruiser", &attacker(), 2);
+                        put(s, system, "destroyer", &attacker(), 2);
+                        put(s, system, "cruiser", &defender(), 3);
+                        put(s, system, "dreadnought", &defender(), 1);
+                        if name == "impulse core" {
+                            s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ic"));
+                        }
+                        if name == "dimensional splicer" {
+                            s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ds"));
+                            s.wormhole_tokens.insert("ALPHA".to_owned(), system.clone());
+                        }
+                    },
+                    answer,
+                );
+                assert_eq!(differences, 0, "{name} seed {seed}: {windows:?}");
+                let w = windows.get("combat::produce_hits").copied().unwrap_or_default();
+                assert_eq!(w.bailed, 0, "{name} seed {seed}: {windows:?}");
+                compared += w.compared;
+            }
+            assert!(compared > 0, "{name}: the window ran: {compared}");
+            assert!(PUT[which].load(std::sync::atomic::Ordering::Relaxed) > 0, "{name}: the offer was put");
+        }
+    }
+
     /// The core sees what the Mentak seat of the salvage tests holds: Cruiser II and The Table's Grace.
     #[test]
     fn the_core_sees_cruiser_two_and_the_tables_grace_of_a_mentak_seat() {
@@ -10886,6 +11041,12 @@ mod tests {
     /// [`cards_fight`] on the centre of a plain hub, with its map lent to the combat (`hub`): the cards that look at the map
     /// (Skilled Retreat) find their destinations.
     fn cards_fight_at(seed: u64, factions: [&str; 2], attacker_hand: &[&str], hand: &[&str], damaged: bool, hub: bool) -> (usize, usize, Vec<String>, Vec<String>) {
+        cards_fight_with(seed, factions, attacker_hand, hand, damaged, hub, &|_, _| {})
+    }
+
+    /// [`cards_fight_at`] with `extra` to set the position further (units, technologies) before the fight.
+    #[allow(clippy::too_many_arguments)]
+    fn cards_fight_with(seed: u64, factions: [&str; 2], attacker_hand: &[&str], hand: &[&str], damaged: bool, hub: bool, extra: &dyn Fn(&mut GameState, &SystemId)) -> (usize, usize, Vec<String>, Vec<String>) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let hub_map = crate::fixtures::plain_hub();
         let _guard = crate::dual::tests::serial();
@@ -10910,6 +11071,7 @@ mod tests {
             for unit in state.system_mut(&system).units.iter_mut().filter(|u| u.owner == defender() && u.type_id.as_str() == "dreadnought") {
                 unit.sustained_damage = damaged;
             }
+            extra(&mut state, &system);
             let seen = std::rc::Rc::new(std::cell::RefCell::new(0));
             struct Count(std::rc::Rc<std::cell::RefCell<usize>>);
             impl crate::choice::Decider for Count {
@@ -11285,22 +11447,21 @@ mod tests {
         assert!(!plain.opening_unported && !plain.barrage_unported && !plain.roll_unported && !plain.retreat_unported);
         // Naaz and Letnev (Voltron repair, Supercharge, Munitions, the Eidolon flip), diplomacy.
         // (A Naaz side is carried by the core since package W2: the Eidolon flip, the repair of the Maximum, Supercharge.)
+        // (A Letnev side is carried since package W2 except for Munitions Reserves paid at the opening, below rules version 8.)
         let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("letnev"));
-        assert!(g.opening_unported, "letnev");
+        assert!(!g.opening_unported, "letnev");
+        let g = settle_gates(&|state, _| {
+            state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+            state.rules_version = 7;
+        });
+        assert!(g.opening_unported, "letnev below rules version 8");
         let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("naaz"));
         assert!(!g.opening_unported, "naaz");
         assert!(settle_gates(&|state, _| state.diplomacy.enabled = true).opening_unported);
         // Hits a module makes at the start of a combat (Mentak's Ambush, Assault Cannon, Dimensional Splicer,
         // Impulse Core): the string asks the modules, the core ability table is empty.
         assert!(settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("mentak")).opening_unported);
-        // The Thundarian (a roll-step reaction): the roll is the string's.
-        assert!(settle_gates(&|state, _| {
-            state.player_mut(&attacker()).unwrap().leaders.insert(
-                ti4_model::id::LeaderId::new("nomadagentthundarian"),
-                ti4_model::state::LeaderStatus::Readied,
-            );
-        })
-        .roll_unported);
+        // The Thundarian is an ability of the core table since package W2 (`a_readied_thundarian_replays_the_roll_step_in_the_core_window_in_lockstep`).
         // A Last Bastion seat's retreat note is what the retreat gate (`retreat_unported`) still names.
         let retreat = |setup: &dyn Fn(&mut GameState, &SystemId)| {
             let (mut state, system) = arena();
@@ -11512,6 +11673,47 @@ mod tests {
         window.roll_unported(&state, ContentStore::embedded())
     }
 
+    /// Package W lane 1, the documented tail: each of these positions is a gate with its own reason (the windows inside are compared on their
+    /// own), pinned here so a port removes the line deliberately: the start-of-combat hits of Assault Cannon, Dimensional Splicer and Impulse
+    /// Core (`asc`, `ds`, `ic`; Mentak's Ambush above), an Argent side's excess barrage hits (Raid Formation is a window of its own, the
+    /// step is not), the Jol-Nar commander's reroll question and a Waylay played in the barrage.
+    #[test]
+    fn the_start_hits_and_the_barrage_tail_stay_string_with_their_reasons() {
+        for tech in ["asc", "ds", "ic"] {
+            let g = settle_gates(&|state, _| {
+                state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+            });
+            assert!(g.opening_unported, "{tech}");
+            assert_eq!(g.gate_why, Some("Assault Cannon, Dimensional Splicer or Impulse Core (start-of-combat hits)"), "{tech}");
+        }
+        let barrage = |setup: &dyn Fn(&mut GameState)| {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+            setup(&mut state);
+            let (a, d, system) = (attacker(), defender(), SystemId::new("18"));
+            let args = crate::dual_window::BarrageArgs { attacker: &a, defender: &d, system: &system, round: 1, occurrence: 0, staging: true, announce: false, reproducible: true };
+            crate::dual_window::barrage_why(&state, &args)
+        };
+        assert_eq!(barrage(&|_| {}), None);
+        assert_eq!(
+            barrage(&|s| s.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("argent")),
+            Some("an Argent side (the excess hits of the barrage)")
+        );
+        assert_eq!(
+            barrage(&|s| {
+                s.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("jolnar");
+                s.player_mut(&defender()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            }),
+            Some("the Jol-Nar commander (a reroll question in the barrage)")
+        );
+        assert_eq!(
+            barrage(&|s| {
+                s.combat_round_seq = 3;
+                s.player_mut(&attacker()).unwrap().waylay_barrage_round = Some(3);
+            }),
+            Some("Waylay played in this barrage")
+        );
+    }
+
     #[test]
     fn the_round_opening_of_naaz_letnev_and_diplomacy_games_stays_string() {
         // Munitions, the self-repairing flagship, the Letnev round agent and the attack promises are not in the core window:
@@ -11524,10 +11726,11 @@ mod tests {
         let (a, d, system) = (attacker(), defender(), SystemId::new("18"));
         let plain = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
         assert!(!crate::dual_window::round_opening_unported(&plain, content, &args(&a, &d, &system)));
-        for (faction, unported) in [("naaz", false), ("letnev", true)] {
+        for (faction, version, unported) in [("naaz", plain.rules_version, false), ("letnev", plain.rules_version, false), ("letnev", 7, true), ("sol", 7, false)] {
             let mut state = plain.clone();
             state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new(faction);
-            assert_eq!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), unported, "{faction}");
+            state.rules_version = version;
+            assert_eq!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), unported, "{faction} {version}");
         }
         let mut state = plain.clone();
         state.diplomacy.enabled = true;
@@ -11536,6 +11739,7 @@ mod tests {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let mut state = plain.clone();
+        state.rules_version = 7;
         state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new("letnev");
         put(&mut state, &system, "cruiser", &a, 1);
         put(&mut state, &system, "cruiser", &d, 1);
@@ -11551,16 +11755,76 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Package W2: a readied The Thundarian is an ability of the core table: the roll step emits the step-ended event, offers the card to
+    /// its holder and, when it is used, plays the step again (the dice thrown away, the card exhausted, one replay per card). The roll
+    /// window, the composed settle and the replays agree with the string. Fails on the pre-W2 gate (`roll_why` named the card).
     #[test]
-    fn a_readied_thundarian_keeps_the_roll_step_in_the_string() {
-        // The core ability table is empty: the roll step with a readied The Thundarian runs bare.
+    fn a_readied_thundarian_replays_the_roll_step_in_the_core_window_in_lockstep() {
         assert!(!roll_unported_after(&|_, _| {}));
-        assert!(roll_unported_after(&|state, _| {
-            state.player_mut(&attacker()).unwrap().leaders.insert(
-                ti4_model::id::LeaderId::new("nomadagentthundarian"),
-                ti4_model::state::LeaderStatus::Readied,
-            );
+        assert!(!roll_unported_after(&|state, _| {
+            state.player_mut(&attacker()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentthundarian"), ti4_model::state::LeaderStatus::Readied);
         }));
+        fn answer(seed: u64, nth: usize, c: &Choice) -> usize {
+            let at = c.options.iter().position(|o| o.id.contains("nomadagentthundarian"));
+            match at {
+                Some(at) if (seed + nth as u64) % 3 != 1 => at,
+                Some(_) => c.options.len() - 1,
+                None => 0,
+            }
+        }
+        let (mut used, mut compared) = (0, 0);
+        for (seed, composed) in (0..10_u64).flat_map(|s| [(s, false), (s, true)]) {
+            let (state, windows, differences, _) = hub_fight_composed(
+                composed,
+                seed,
+                &["nomad", "hacan"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "destroyer", &defender(), 2);
+                    put(s, system, "cruiser", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentthundarian"), ti4_model::state::LeaderStatus::Readied);
+                },
+                answer,
+            );
+            assert_eq!(differences, 0, "seed {seed} composed {composed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("Thundarian")), "seed {seed}: {windows:?}");
+            let label = if composed { "combat::settle" } else { "combat::roll_round" };
+            let w = windows.get(label).copied().unwrap_or_default();
+            assert_eq!(w.bailed, 0, "seed {seed} composed {composed}: {windows:?}");
+            compared += w.compared;
+            used += usize::from(state.player(&attacker()).unwrap().leaders.get(ti4_model::id::text(&"nomadagentthundarian")) == Some(&ti4_model::state::LeaderStatus::Exhausted));
+        }
+        assert!(compared > 0, "the roll ran in the core: {compared}");
+        assert!(used > 0, "the card was used and the step replayed");
+    }
+
+    /// A readied Ssruu next to a Nomad's card: the step-ended event is emitted (a Yssaril copy of the card could hear it) and the string
+    /// registers no copy of a Nomad agent, so the core roll window agrees with it (no bail, no difference).
+    #[test]
+    fn a_yssaril_ssruu_next_to_a_thundarian_runs_the_roll_window_in_lockstep() {
+        fn any_offer(_: u64, _: usize, c: &Choice) -> usize {
+            c.options.iter().position(|o| o.id.contains("ssruu-copy") || o.id.contains("nomadagentthundarian")).unwrap_or(0)
+        }
+        let mut compared = 0;
+        for seed in 0..6_u64 {
+            let (_, windows, differences, _) = hub_fight_composed(
+                false,
+                seed,
+                &["yssaril", "nomad"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "cruiser", &defender(), 3);
+                    s.player_mut(&attacker()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yssarilagent"), ti4_model::state::LeaderStatus::Readied);
+                    s.player_mut(&defender()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentthundarian"), ti4_model::state::LeaderStatus::Readied);
+                },
+                any_offer,
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            let w = windows.get("combat::roll_round").copied().unwrap_or_default();
+            assert_eq!(w.bailed, 0, "seed {seed}: {windows:?}");
+            compared += w.compared;
+        }
+        assert!(compared > 0);
     }
 
     #[test]
@@ -11727,6 +11991,10 @@ mod tests {
         }
         let r = report();
         assert!(damaged > 0, "Raid Formation damaged something");
+        // Package W2: the barrage STEP carries an Argent side (Raid Formation is a child of the window), so the whole step is compared; the
+        // pre-W2 code gated it ("an Argent side") and compared the ability's window on its own.
+        let w = r.windows.get("combat::barrage_step").copied().unwrap_or_default();
+        assert!(w.compared >= 12 && w.bailed == 0, "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
