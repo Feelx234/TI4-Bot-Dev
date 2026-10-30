@@ -758,3 +758,24 @@ fn a_fight_of_one_round_is_a_fight_and_an_activator_without_ships_attacks_with_t
     assert!(r.windows.get(HEAD).map_or(0, |w| w.compared) >= 1, "{:?}", r.windows);
     assert_eq!(state.active_space_combat.map(|(_, attacker, defender)| (attacker, defender)), Some((a(), b())));
 }
+
+/// A Naaz planetary Maximum is a combat unit only beside a ship and is immune to the hits of a unit ability: the guns' hits go to
+/// the other ships (the `ability` flag of the absorption).
+#[test]
+fn a_planetary_maximum_is_never_assigned_the_hits_of_the_guns_in_lockstep() {
+    let naaz = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        crate::fixtures::put_on_planet(s, system, planet, "pds", &b(), 3);
+        crate::fixtures::put_on_planet(s, system, planet, "naaz_voltron", &a(), 1);
+        crate::fixtures::put(s, system, "cruiser", &a(), 1);
+    };
+    let (ran, r) = lockstep(0..30, &[("a", "naaz"), ("b", "hacan")], naaz);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(compared(&r) >= 20, "the core window ran: {:?}", r.windows);
+    assert!(
+        ran.iter().all(|x| {
+            let (system, planet) = crate::fixtures::a_placed_planet();
+            x.state.system_state(&system).on_planet(&planet).iter().any(|u| u.type_id.as_str() == "naaz_voltron")
+        }),
+        "the Maximum was never lost to the guns"
+    );
+}
