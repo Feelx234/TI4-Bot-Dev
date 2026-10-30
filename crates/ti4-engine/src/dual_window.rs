@@ -621,6 +621,25 @@ pub fn drive_positioned<W: Window>(
     script: &Recording,
     complete: &dyn Fn(&CoreChoice, &CoreState, &mut Choice),
 ) -> Result<Driven, DriverError> {
+    drive_windowed(driver, core, kernel, position, r, gs, script, &|_, c, s, rendered| complete(c, s, rendered))
+}
+
+/// [`drive_positioned`], letting the caller read the window too when it completes a question (a composed window knows which of
+/// its children asked, and for whom).
+///
+/// # Errors
+/// As [`drive`].
+#[allow(clippy::too_many_arguments)]
+pub fn drive_windowed<W: Window>(
+    driver: &mut Driver<W>,
+    core: &mut CoreState,
+    kernel: &Kernel,
+    position: Option<&'static Kernel>,
+    r: &Render,
+    gs: &GameState,
+    script: &Recording,
+    complete: &dyn Fn(&W, &CoreChoice, &CoreState, &mut Choice),
+) -> Result<Driven, DriverError> {
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     let mut out = Driven { questions: Vec::new(), rendered: Vec::new(), finished: false };
     match crate::reactions_core::follow(r, gs, script) {
@@ -676,7 +695,7 @@ pub fn drive_positioned<W: Window>(
                 };
                 out.questions.push(choice.clone());
                 let mut rendered = typed.rendered;
-                complete(&choice, core, &mut rendered);
+                complete(&driver.window, &choice, core, &mut rendered);
                 // A question the string builds with no `DecisionContext` (Sling Relay, Integrated Economy) is compared
                 // without one: a typed `Choice` always carries its context, and the string adds none to its own.
                 if script.questions.get(out.questions.len() - 1).is_some_and(|q| q.choice.context.is_none()) {
@@ -3554,6 +3573,114 @@ pub(crate) fn advance(gs: &mut GameState, a: &AdvanceArgs<'_>, script: &Recordin
     Some(CoreWindow { run: Run::new(pick), questions: driven.rendered })
 }
 
+/// The window fields of a string combat window as plain data, without the gates (`SettleArgs` carries both).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldsIn {
+    pub step: StepS,
+    /// 0 round, 1 combat start, 2 round end (`HitPhase`).
+    pub phase: u8,
+    pub resuming: bool,
+    pub pending_retreats: Vec<PlayerId>,
+    pub offered: Vec<(u32, PlayerId)>,
+    pub damaged: Vec<(PlayerId, Vec<String>)>,
+    pub fled: Vec<(PlayerId, Vec<String>)>,
+    pub at_start: Vec<(PlayerId, Vec<String>)>,
+    pub end_announced: bool,
+    /// `Stage::Done(outcome)`: the winner and the rounds fought.
+    pub outcome: Option<(Option<PlayerId>, u32)>,
+}
+
+/// The typed window fields of a string combat window (`state::CombatFields`, the payload of `Window::Combat`). `None`: a seat or
+/// a unit the tables do not know.
+#[must_use]
+pub fn fields_of(a: &FieldsIn, r: &Render) -> Option<ti4_engine_core::state::CombatFields> {
+    use ti4_engine_core::state::{CombatPend as Pend, CombatStep as Step, HitPhase as Phase};
+    let seat = |p: &PlayerId| r.seat(p.as_str());
+    let seats = |l: &[PlayerId]| l.iter().map(seat).collect::<Option<Vec<_>>>();
+    let unit_of = |k: &str| <ti4_engine_core::generated::Unit as IdStr>::from_id(k);
+    let units = |l: &[String]| l.iter().map(|k| unit_of(k)).collect::<Option<Vec<_>>>();
+    let step = match &a.step {
+        StepS::Opening(n) => Step::Opening { round: *n },
+        StepS::Announcing(n, who, done) => Step::Announcing { round: *n, asking: seat(who)?, announced: seats(done)? },
+        StepS::Rolling(n) => Step::Rolling { round: *n },
+        StepS::AfterBarrage(n) => Step::AfterBarrage { round: *n },
+        StepS::Queue(assigning, n, queue) => Step::Queue {
+            assigning: *assigning,
+            round: *n,
+            queue: queue
+                .iter()
+                .map(|p| Some(Pend { player: seat(&p.player)?, hits: u32::try_from(p.hits).ok()?, producer: seat(&p.producer)?, non_fighters_only: p.non_fighters_only, producer_assigns: p.producer_assigns }))
+                .collect::<Option<_>>()?,
+        },
+        StepS::Retreating(n, leaving) => Step::Retreating { round: *n, leaving: seats(leaving)? },
+        StepS::Done => Step::Done,
+    };
+    let pairs = |l: &[(PlayerId, Vec<String>)]| l.iter().map(|(p, k)| Some((seat(p)?, units(k)?))).collect::<Option<Vec<_>>>();
+    Some(ti4_engine_core::state::CombatFields {
+        step,
+        phase: match a.phase {
+            1 => Phase::CombatStart,
+            2 => Phase::RoundEnd,
+            _ => Phase::Round,
+        },
+        resuming: a.resuming,
+        pending_retreats: seats(&a.pending_retreats)?,
+        offered: a.offered.iter().map(|(n, p)| Some((*n, seat(p)?))).collect::<Option<_>>()?,
+        damaged: pairs(&a.damaged)?,
+        fled: pairs(&a.fled)?,
+        at_start: pairs(&a.at_start)?,
+        scoring: false,
+        outcome: match &a.outcome {
+            Some((winner, rounds)) => Some((match winner { Some(w) => Some(seat(w)?), None => None }, *rounds)),
+            None => None,
+        },
+        end_announced: a.end_announced,
+    })
+}
+
+/// The inverse of [`fields_of`]: the plain data a typed set of window fields stands for (the machine's `scoring` flag, which
+/// the string window does not keep, is dropped).
+#[must_use]
+pub fn fields_back(f: &ti4_engine_core::state::CombatFields, r: &Render) -> FieldsIn {
+    use ti4_engine_core::state::{CombatStep as Step, HitPhase as Phase};
+    let who = |s: &ti4_engine_core::ids::Seat| r.player(*s);
+    let step = match &f.step {
+        Step::Opening { round } => StepS::Opening(*round),
+        Step::Announcing { round, asking, announced } => StepS::Announcing(*round, who(asking), announced.iter().map(who).collect()),
+        Step::Rolling { round } => StepS::Rolling(*round),
+        Step::AfterBarrage { round } => StepS::AfterBarrage(*round),
+        Step::Queue { assigning, round, queue } => StepS::Queue(
+            *assigning,
+            *round,
+            queue
+                .iter()
+                .map(|p| PendS { player: who(&p.player), hits: p.hits as usize, producer: who(&p.producer), non_fighters_only: p.non_fighters_only, producer_assigns: p.producer_assigns })
+                .collect(),
+        ),
+        Step::Retreating { round, leaving } => StepS::Retreating(*round, leaving.iter().map(who).collect()),
+        Step::Done => StepS::Done,
+    };
+    let pairs = |l: &[(ti4_engine_core::ids::Seat, Vec<ti4_engine_core::generated::Unit>)]| -> Vec<(PlayerId, Vec<String>)> {
+        l.iter().map(|(s, k)| (who(s), k.iter().map(|u| u.as_str().to_owned()).collect())).collect()
+    };
+    FieldsIn {
+        step,
+        phase: match f.phase {
+            Phase::Round => 0,
+            Phase::CombatStart => 1,
+            Phase::RoundEnd => 2,
+        },
+        resuming: f.resuming,
+        pending_retreats: f.pending_retreats.iter().map(who).collect(),
+        offered: f.offered.iter().map(|(n, s)| (*n, who(s))).collect(),
+        damaged: pairs(&f.damaged),
+        fled: pairs(&f.fled),
+        at_start: pairs(&f.at_start),
+        end_announced: f.end_announced,
+        outcome: f.outcome.map(|(winner, rounds)| (winner.map(|s| who(&s)), rounds)),
+    }
+}
+
 /// What the string `CombatWindow::settle` starts from: the window's fields and the gates the string rules
 /// answer once for the whole settle (see `rules::combat::machine::Env`).
 #[derive(Debug, Clone)]
@@ -3660,8 +3787,8 @@ fn settle_run(
     script: &Recording,
     answering: Option<()>,
 ) -> Option<CoreWindow<SettleOut>> {
-    use ti4_engine_core::rules::combat::flow::{Pend, Phase, Step};
-    use ti4_engine_core::rules::combat::machine::{Env, Fields, Machine, Stop};
+    use ti4_engine_core::rules::combat::flow::{Phase, Step};
+    use ti4_engine_core::rules::combat::machine::{Env, Machine, Stop};
     if crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
         return None;
     }
@@ -3671,11 +3798,9 @@ fn settle_run(
     nested_check(script)?;
     waylay_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
-    let seats = |l: &[PlayerId]| l.iter().map(seat).collect::<Option<Vec<_>>>();
     let (attacker, defender) = (seat(&a.attacker)?, seat(&a.defender)?);
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let unit_of = |k: &str| <ti4_engine_core::generated::Unit as IdStr>::from_id(k);
-    let units = |l: &[String]| l.iter().map(|k| unit_of(k)).collect::<Option<Vec<_>>>();
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources)?;
     // The unit types present: every one a roll group or a barrage can name.
@@ -3757,40 +3882,21 @@ fn settle_run(
             reasons: [r.code("retreat"), r.code("draw"), r.code("destruction"), r.code("round_limit")],
         },
     };
-    let step = match &a.step {
-        StepS::Opening(n) => Step::Opening { round: *n },
-        StepS::Announcing(n, who, done) => Step::Announcing { round: *n, asking: seat(who)?, announced: seats(done)? },
-        StepS::Rolling(n) => Step::Rolling { round: *n },
-        StepS::AfterBarrage(n) => Step::AfterBarrage { round: *n },
-        StepS::Queue(assigning, n, queue) => Step::Queue {
-            assigning: *assigning,
-            round: *n,
-            queue: queue
-                .iter()
-                .map(|p| Some(Pend { player: seat(&p.player)?, hits: u32::try_from(p.hits).ok()?, producer: seat(&p.producer)?, non_fighters_only: p.non_fighters_only, producer_assigns: p.producer_assigns }))
-                .collect::<Option<_>>()?,
+    let fields = fields_of(
+        &FieldsIn {
+            step: a.step.clone(),
+            phase: a.phase,
+            resuming: a.resuming,
+            pending_retreats: a.pending_retreats.clone(),
+            offered: a.offered.clone(),
+            damaged: a.damaged.clone(),
+            fled: a.fled.clone(),
+            at_start: a.at_start.clone(),
+            end_announced: a.end_announced,
+            outcome: None,
         },
-        StepS::Retreating(n, leaving) => Step::Retreating { round: *n, leaving: seats(leaving)? },
-        StepS::Done => Step::Done,
-    };
-    let pairs = |l: &[(PlayerId, Vec<String>)]| l.iter().map(|(p, k)| Some((seat(p)?, units(k)?))).collect::<Option<Vec<_>>>();
-    let fields = Fields {
-        step,
-        phase: match a.phase {
-            1 => Phase::CombatStart,
-            2 => Phase::RoundEnd,
-            _ => Phase::Round,
-        },
-        resuming: a.resuming,
-        pending_retreats: seats(&a.pending_retreats)?,
-        offered: a.offered.iter().map(|(n, p)| Some((*n, seat(p)?))).collect::<Option<_>>()?,
-        damaged: pairs(&a.damaged)?,
-        fled: pairs(&a.fled)?,
-        at_start: pairs(&a.at_start)?,
-        scoring: false,
-        outcome: None,
-        end_announced: a.end_announced,
-    };
+        &r,
+    )?;
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let machine = if answering.is_some() { Machine::awaiting(menv, fields) } else { Machine::new(menv, fields) };

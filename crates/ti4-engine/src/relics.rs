@@ -908,6 +908,20 @@ fn crown_of_emphidia_choose(
     chosen.map(PlanetId::new)
 }
 
+/// Whether the Crown of Emphidia would put its question now: a ready Crown and a controlled planet with a trait to explore
+/// (the gate of `crown_of_emphidia_choose_text`, read by the D1b2 close-of-action dual).
+pub(crate) fn crown_of_emphidia_offers(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> bool {
+    ready_text(state, player, "emphidia")
+        && state.controlled_planets(player).into_iter().any(|(_, planet)| {
+            ti4_content::galaxy::planet(content, planet.as_str(), sources).is_some_and(|record| record.planet_type().is_some())
+        })
+}
+
 fn crown_of_emphidia_choose_text(
     state: &mut GameState,
     ctx: &mut crate::choice::Resolving<'_>,

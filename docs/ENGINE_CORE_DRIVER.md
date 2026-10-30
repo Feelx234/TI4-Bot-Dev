@@ -462,3 +462,23 @@ Not done in D1b (see the bail table): the aftermath composer that RUNS the chain
 and fleet enforcement prelude, A2b-10, which composes B12's files), the dispatcher of the chosen action (`apply_choice`), the
 tactical tail (`close_tactical`), a core `Session::step` that runs arms, the `Window` kinds `Combat`/`Invasion`/`Production` as
 stack entries.
+
+## 11. D1b2: the remainder of the action phase (branch `core-d1b2`)
+
+What D1b2 added on top of section 10 (rows `D1b2-*` of `docs/ENGINE_KNOWN_ISSUES.md`; state of the work in `docs/D1B2_RESUME.md`).
+
+* **Space cannon offense** (A2b-10b): `rules/combat/space_cannon_offense.rs`. One window for `combat::space_cannon_offense` and the loop of
+  `AftermathWindow::new` that follows it: the guns of `cannon_guns::{unit_guns, attachment_guns}` roll `cannon_plan` from the dice stream, a
+  gunner with hits gets its `UNIT_ABILITY_ROLLED`, then per gunner `SPACE_CANNON_HITS`, Graviton Laser System and the victim's absorption
+  (`effect_hits::Absorb::unit_ability`: cancellations, the SUSTAIN DAMAGE offer, casualties); the feat and its occurrence last. Adapter
+  `ti4-engine/src/cannon_dual.rs`; string site `AftermathWindow::cannon_prelude`.
+* **Aftermath head** (`driver/windows/aftermath.rs`, `Head`): fleet enforcement, the cannon offense, the `Before` snapshot and the opening
+  writes of the fight. String site `AftermathWindow::head` (used by `new` and `at_commit_step`), label `aftermath::head`.
+* **Window kinds**: `WindowKind::{Combat, Invasion, Production}`; `Window::Combat(Box<CombatFields>)` holds the combat machine's window
+  fields (`state::{CombatStep, CombatPend, HitPhase, CombatFields}`; `rules::combat::{flow, machine}` re-export them), observed from the
+  string window and round-tripped. The invasion and the production step have no machine state (`Untyped` placeholders).
+* **Tactical tail** (`driver/tactical_tail.rs`): the gates of `close_tactical` (Crown, Dark Energy Tap, T'ro listener), the continuation
+  and the closing writes. The explorations stay lent.
+* **Turn flow**: `driver/windows/enforce_all.rs` (`fleet::enforce_everywhere`), `turn_flow::{return_spec_ops, mark_prepared,
+  reset_stability, strategy_phase_flip, HOOKS}`, `driver/dispatch.rs` (`Dispatch`, the pass writes), `driver/step.rs` (`Session::step`).
+* **Typed menu**: `choice/turn.rs`, `render/turn.rs`, `driver::menu::{action_menu, closing_choice}`; compared by `menu_dual.rs`.

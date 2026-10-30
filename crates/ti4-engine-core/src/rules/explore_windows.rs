@@ -522,6 +522,12 @@ impl CrownExplore {
 
     const ASK: Ask = Ask::Relic(RAsk::CrownOfEmphidia);
 
+    /// A ready Crown and a planet to explore: the window would ask.
+    #[must_use]
+    pub fn offers(core: &CoreState, who: Seat, scope: Scope) -> bool {
+        crate::query::relic::ready(core, who, Relic::TheCrownOfEmphidia) && !Self::new(who, scope).options(core).is_empty()
+    }
+
     fn options(&self, core: &CoreState) -> Vec<Planet> {
         board::controlled_planets(core, self.who)
             .as_slice()

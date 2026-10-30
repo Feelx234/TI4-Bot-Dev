@@ -88,6 +88,73 @@ pub fn begin_next_round(core: &mut CoreState, cards: &[StrategyCard]) -> Result<
     Ok(())
 }
 
+/// `phase::advance_phase`, Strategy arm, the part that is not a faction hook: Political Stability is spent (the retention
+/// covered the strategy phase just played).
+pub fn reset_stability(core: &mut CoreState) {
+    let seats: SmallList<Seat, 8> = core.players().iter().map(|p| p.seat).collect();
+    for seat in seats.as_slice() {
+        if let Some(p) = core.players_mut().by_seat_mut(*seat) {
+            p.econ.stability = false;
+        }
+    }
+}
+
+/// `phase::advance_phase`, Strategy arm, after the faction hooks have placed their initiative tokens: the action phase begins
+/// with nobody active. Returns the seat first in initiative order, whose turn the caller then begins
+/// ([`begin_action_turn`]); `None` for a table without seats.
+pub fn strategy_phase_flip(core: &mut CoreState) -> Option<Seat> {
+    let first = initiative_order(core).as_slice().first().copied();
+    let meta = core.meta_mut();
+    meta.phase = Phase::Action;
+    meta.action_turn = 0;
+    meta.active = None;
+    first
+}
+
+/// The hooks between the steps of `Game::advance_turn_inner` that are still string bodies (they ask questions of the owners of
+/// cards the core does not run), in the order the string runs them. `fleet::enforce_everywhere` between them is a core window
+/// (`driver::windows::enforce_all`); the `TURN_PASSED` reaction windows are the A5 shim's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hook {
+    /// Minister of War: discard the law to retrieve a command token and act again (before the turn moves on).
+    MinisterOfWar,
+    /// `technology::end_turn`: the technologies that read "at the end of your turn".
+    TechnologyEndTurn,
+    /// `legendary::end_turn`: the legendary planets that read "at the end of your turn".
+    LegendaryEndTurn,
+}
+
+/// The hooks in the order `Game::advance_turn_inner` runs them.
+pub const HOOKS: [Hook; 3] = [Hook::MinisterOfWar, Hook::TechnologyEndTurn, Hook::LegendaryEndTurn];
+
+/// `faction_techs::return_spec_ops` (the turn prelude): "at the start of your next turn, place each unit that is on this card
+/// on a planet you control in your home system", on the first such planet (by id); with none controlled they wait on the card.
+/// `infantry` is the unit placed (`sol_infantry2`, the adapter's to name). Returns how many were placed.
+pub fn return_spec_ops(core: &mut CoreState, seat: Seat, infantry: crate::generated::Unit) -> u32 {
+    let Some(p) = core.players().by_seat(seat) else { return 0 };
+    let waiting = p.misc.spec_ops_card;
+    let Some(home) = p.home_system else { return 0 };
+    if waiting == 0 {
+        return 0;
+    }
+    let mut here: Vec<_> = crate::query::board::controlled_planets(core, seat).as_slice().iter().filter(|(system, _)| *system == home).map(|(_, planet)| *planet).collect();
+    here.sort_unstable();
+    let Some(planet) = here.first().copied() else { return 0 };
+    for _ in 0..waiting {
+        core.board_mut().planet_mut(planet).units.push(crate::state::Piece::new(infantry, seat));
+    }
+    if let Some(p) = core.players_mut().by_seat_mut(seat) {
+        p.misc.spec_ops_card = 0;
+    }
+    waiting
+}
+
+/// The turn prelude has run for the turn in progress (`Game::prepared_turn_seq`).
+pub fn mark_prepared(core: &mut CoreState) {
+    let turn = core.meta().turn_seq;
+    core.pending_mut().prepared_turn_seq = Some(turn);
+}
+
 /// What the end of an action does with the turn (`Game::finish_action`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Finish {
@@ -351,5 +418,51 @@ mod tests {
         let mut s = table();
         action_phase_ended(&mut s);
         assert_eq!((s.meta.phase, s.meta.active), (Phase::Status, None));
+    }
+
+    #[test]
+    fn the_lent_hooks_of_a_turn_end_run_in_the_order_of_the_string() {
+        assert_eq!(HOOKS, [Hook::MinisterOfWar, Hook::TechnologyEndTurn, Hook::LegendaryEndTurn]);
+    }
+
+    /// A planet with a system, and that system.
+    fn a_planet_with_a_system() -> (crate::generated::Planet, crate::generated::System) {
+        crate::generated::Planet::ALL.iter().find_map(|p| p.data().system.map(|s| (*p, s))).expect("a placed planet")
+    }
+
+    #[test]
+    fn spec_ops_wait_on_the_card_when_nothing_can_take_them() {
+        let unit = crate::generated::Unit::ALL[0];
+        let (planet, home) = a_planet_with_a_system();
+        let mut s = table();
+        s.players.edit(0).misc.spec_ops_card = 2;
+        assert_eq!(return_spec_ops(&mut s, Seat(0), unit), 0, "no home system");
+        s.players.edit(0).home_system = Some(home);
+        assert_eq!(return_spec_ops(&mut s, Seat(0), unit), 0, "no planet controlled there");
+        assert_eq!(s.players.edit(0).misc.spec_ops_card, 2, "they wait on the card");
+        s.players.edit(0).misc.spec_ops_card = 0;
+        s.board.planet_mut(planet).control = Some(Seat(0));
+        assert_eq!(return_spec_ops(&mut s, Seat(0), unit), 0, "nothing waiting");
+        assert!(s.board.planet_mut(planet).units.is_empty());
+        assert_eq!(return_spec_ops(&mut s, Seat(7), unit), 0, "a seat that is not seated");
+    }
+
+    #[test]
+    fn spec_ops_land_on_the_first_controlled_planet_of_the_home_system() {
+        let unit = crate::generated::Unit::ALL[0];
+        let (planet, home) = a_planet_with_a_system();
+        let mut s = table();
+        s.players.edit(1).home_system = Some(home);
+        s.players.edit(1).misc.spec_ops_card = 3;
+        s.board.planet_mut(planet).control = Some(Seat(1));
+        assert_eq!(return_spec_ops(&mut s, Seat(1), unit), 3);
+        assert_eq!(s.board.planet_mut(planet).units.len(), 3);
+        assert_eq!(s.players.edit(1).misc.spec_ops_card, 0);
+        // A single unit waiting lands too (the card is not read as a count of more than one).
+        s.players.edit(1).misc.spec_ops_card = 1;
+        assert_eq!(return_spec_ops(&mut s, Seat(1), unit), 1);
+        assert_eq!(s.board.planet_mut(planet).units.len(), 4);
+        mark_prepared(&mut s);
+        assert_eq!(s.pending.prepared_turn_seq, Some(s.meta.turn_seq));
     }
 }

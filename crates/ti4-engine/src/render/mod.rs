@@ -45,6 +45,7 @@ pub mod tactical;
 pub mod technology;
 pub mod tokens;
 pub mod trade;
+pub mod turn;
 
 /// The position a question is rendered in: the state and the kernel the window read when it built the
 /// question. A [`Family`] whose options show facts of the position (a build's cost, what a placement
@@ -343,6 +344,7 @@ registry! {
     Leaders => leaders::Fam,
     Strategy => strategy::Fam,
     Agenda => agenda::Fam,
+    Turn => turn::Fam,
 }
 
 /// Phase of the core to the wire phase.

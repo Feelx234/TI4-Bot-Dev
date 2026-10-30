@@ -10,7 +10,7 @@
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{System, Unit as CUnit};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::state::{AStage, Aftermath, Before, NoteHold, PauseLimit, Piece, TStage, Tactical, Window};
+use ti4_engine_core::state::{AStage, Aftermath, Before, NoteHold, PauseLimit, Piece, TStage, Tactical, Window, WindowKind};
 
 use super::super::{Aftermath as AStr, AftermathWindow, Game, TacticalStage, TacticalWindow};
 use crate::combat::NoteHoldings;
@@ -148,21 +148,9 @@ fn stage_of(s: &AStr) -> (u8, bool) {
     }
 }
 
-/// The captial counts of a `BeforeCombat`, read from its `Debug` form: the fields are private to `combat.rs` (a file of
-/// another package) and the type has no accessor for them. The form is `capitals: {PlayerId("a"): 1, ...}`.
+/// The capital counts of a `BeforeCombat` (`BeforeCombat::capitals`, in the map's order).
 pub(super) fn capitals_of(before: &crate::combat::BeforeCombat) -> Vec<(String, usize)> {
-    let text = format!("{before:?}");
-    let Some(at) = text.find("capitals: {") else { return Vec::new() };
-    let rest = &text[at + "capitals: {".len()..];
-    let Some(end) = rest.find('}') else { return Vec::new() };
-    rest[..end]
-        .split(", ")
-        .filter_map(|entry| {
-            let (key, n) = entry.split_once("): ")?;
-            let name = key.split_once("(\"")?.1.trim_end_matches('"');
-            Some((name.to_owned(), n.trim().parse().ok()?))
-        })
-        .collect()
+    before.capitals().map(|(player, n)| (player.to_string(), n)).collect()
 }
 
 pub(super) fn aftermath_key(w: &AftermathWindow) -> AKey {
@@ -265,4 +253,27 @@ pub(in super::super) fn transition(ended: Ended, to: &AStr) {
         Ended::Producing => Settled::Producing,
     };
     let _ = crate::dual::compare_value(crate::dual::Area::Driver, "d1::aftermath.next", &stage_of(to), &tag(next(settled)));
+}
+
+/// The sub-window of an aftermath, above its own entry (package D1b2): the space combat as the fields of its machine
+/// (`Window::Combat`), the invasion and the production step as untyped placeholders (no machine state exists for them: the
+/// string drives both; documented bail D1b2-bail-02).
+pub(super) fn sub_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
+    let Some(w) = &g.aftermath else { return Ok(None) };
+    Ok(match &w.stage {
+        AStr::Fighting(window) => {
+            Some(Window::Combat(Box::new(crate::dual_window::fields_of(&window.fields_in(), r).ok_or("a seat or unit the table does not know")?)))
+        }
+        AStr::Invading(_) => Some(Window::Untyped { kind: WindowKind::Invasion, actor: Some(seat(r, &w.player)?), data: [0; 3] }),
+        AStr::Producing(_) => Some(Window::Untyped { kind: WindowKind::Production, actor: Some(seat(r, &w.player)?), data: [0; 3] }),
+        AStr::Negotiating { .. } | AStr::Done => None,
+    })
+}
+
+/// The plain fields the string combat window holds, if the aftermath is fighting.
+pub(super) fn combat_key(g: &Game<'_>) -> Option<crate::dual_window::FieldsIn> {
+    match &g.aftermath.as_ref()?.stage {
+        AStr::Fighting(window) => Some(window.fields_in()),
+        _ => None,
+    }
 }

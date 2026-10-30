@@ -99,23 +99,7 @@ pub struct Env {
     pub commander: Code,
 }
 
-/// The window fields the string `CombatWindow` keeps between the stages.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Fields {
-    pub step: Step,
-    pub phase: Phase,
-    pub resuming: bool,
-    pub pending_retreats: Vec<Seat>,
-    pub offered: Vec<(u32, Seat)>,
-    pub damaged: Vec<(Seat, Vec<Unit>)>,
-    pub fled: Vec<(Seat, Vec<Unit>)>,
-    pub at_start: Vec<(Seat, Vec<Unit>)>,
-    /// The anti-fighter barrage scored a feat: the secret's scoring window opens before the round resumes.
-    pub scoring: bool,
-    /// `Stage::Done(outcome)`: the winner and the rounds fought.
-    pub outcome: Option<(Option<Seat>, u32)>,
-    pub end_announced: bool,
-}
+pub use crate::state::CombatFields as Fields;
 
 /// Why the machine stopped at a position it does not carry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

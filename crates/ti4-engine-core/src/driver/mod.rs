@@ -20,8 +20,11 @@ use crate::state::{CoreState, EventRec, RngDomain, SeedSource, Window as OpenWin
 
 pub mod aftermath;
 pub mod children;
+pub mod dispatch;
 pub mod menu;
 pub mod session;
+pub mod step;
+pub mod tactical_tail;
 pub mod turn_flow;
 pub mod windows;
 

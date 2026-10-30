@@ -39,6 +39,9 @@ use crate::vote::{VoteError, VoteWindow, is_law, outcomes};
 #[cfg(feature = "typed-core")]
 #[path = "d1_pending.rs"]
 mod d1_pending;
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "cannon_prelude_tests.rs"]
+mod cannon_prelude_tests;
 #[cfg(not(feature = "typed-core"))]
 mod d1_pending {
     pub(super) const fn active() -> bool {
@@ -220,6 +223,105 @@ impl AftermathWindow {
         galaxy: Option<&Galaxy>,
         notes_at_tactical_start: crate::combat::NoteHoldings,
     ) -> Result<Self, GameError> {
+        let (before_combat, pending_event_scoring) =
+            Self::head(state, ctx, player, system, galaxy, &notes_at_tactical_start, false)?;
+        let mut window = crate::combat::CombatWindow::new(state, ctx.content, ctx.sources, system);
+        if let Some(galaxy) = galaxy {
+            window = window.with_galaxy(galaxy.clone());
+        }
+        if pending_event_scoring.is_none() {
+            window.settle_open(state, ctx)?;
+        }
+        Ok(Self {
+            player: player.clone(),
+            system: system.clone(),
+            stage: Aftermath::Fighting(Box::new(window)),
+            log: Vec::new(),
+            before_combat,
+            feats_noted: false,
+            pending_event_scoring,
+            notes_at_tactical_start,
+        })
+    }
+
+    /// The head of the chain: the fleet enforcement, the space cannon offense (unless the action skipped to the commit step), the
+    /// snapshot of the system before the fight and the writes that open it.
+    ///
+    /// On `driver=dual` the whole head also runs as a core window (`driver::windows::aftermath::Head`) for the positions
+    /// `cannon_dual::unported` does not exclude.
+    fn head(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        galaxy: Option<&Galaxy>,
+        notes: &crate::combat::NoteHoldings,
+        skip_to_commit: bool,
+    ) -> Result<(crate::combat::BeforeCombat, Option<(FeatOccurrence, EventScoreLimit)>), GameError> {
+        if crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual {
+            return Self::head_string(state, ctx, player, system, galaxy, notes, skip_to_commit);
+        }
+        let (content, sources) = (ctx.content, ctx.sources);
+        let announce = ctx.timing.is_some();
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        // Positions the head does not carry run bare, so the windows inside (the enforcement, the offense) are compared on
+        // their own.
+        let probe = crate::cannon_dual::Args { active: player, system, announce, reproducible };
+        if let Some(why) = crate::cannon_dual::unported(state, &probe) {
+            crate::dual::note_bail(crate::cannon_dual::HEAD_LABEL, why);
+            return Self::head_string(state, ctx, player, system, galaxy, notes, skip_to_commit);
+        }
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            crate::cannon_dual::HEAD_LABEL,
+            state,
+            |s: &mut GameState| {
+                let result = Self::head_string(s, ctx, player, system, galaxy, notes, skip_to_commit);
+                failed.set(result.is_err());
+                let value: crate::cannon_dual::HeadOut = match &result {
+                    Ok((before, pending)) => (
+                        pending.as_ref().map(|(occurrence, _)| occurrence.0),
+                        before.sides().iter().map(ToString::to_string).collect(),
+                        before.capitals().map(|(p, n)| (p.to_string(), n)).collect(),
+                        ctx.dice
+                            .history()
+                            .iter()
+                            .skip(history_start)
+                            .filter(|roll| roll.reason == "space cannon")
+                            .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                            .collect(),
+                        ctx.rng.positions(),
+                    ),
+                    Err(_) => (None, Vec::new(), Vec::new(), Vec::new(), ctx.rng.positions()),
+                };
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::cannon_dual::HeadArgs { active: player, system, announce, reproducible, skip_to_commit };
+                crate::cannon_dual::aftermath_head(s, content, sources, galaxy, args, &rng_before, script)
+            }
+        );
+        outcome.expect("the string closure ran")
+    }
+
+    /// The string body of [`Self::head`].
+    fn head_string(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        galaxy: Option<&Galaxy>,
+        notes: &crate::combat::NoteHoldings,
+        skip_to_commit: bool,
+    ) -> Result<(crate::combat::BeforeCombat, Option<(FeatOccurrence, EventScoreLimit)>), GameError> {
         // Movement may take the only carrier out of a system and strand what it was holding, so
         // capacity is settled before anything shoots.
         crate::fleet::enforce_seeing(
@@ -232,7 +334,98 @@ impl AftermathWindow {
             system,
         )
         .map_err(GameError::IllegalChoice)?;
+        let pending_event_scoring = if skip_to_commit { None } else { Self::cannon_prelude(state, ctx, player, system, galaxy)? };
+        let before_combat = crate::combat::before_combat_with_notes(state, ctx.content, ctx.sources, system, notes.clone());
+        if !skip_to_commit {
+            let sides = crate::combat::combatants(state, ctx.content, ctx.sources, system);
+            state.active_space_combat = (sides.len() == 2).then(|| {
+                let attacker = state
+                    .active
+                    .clone()
+                    .filter(|seat| sides.contains(seat))
+                    .unwrap_or_else(|| sides[0].clone());
+                let defender = sides
+                    .iter()
+                    .find(|seat| **seat != attacker)
+                    .expect("two sides")
+                    .clone();
+                (system.clone(), attacker, defender)
+            });
+            if state.active_space_combat.is_some() {
+                state.combat_presentation = ti4_model::state::CombatPresentation {
+                    battle_seq: state.combat_round_seq.saturating_add(1),
+                    phase: "pre_roll".to_owned(),
+                    ..Default::default()
+                };
+                state.combat_round_hits.clear();
+                state.combat_round_dice.clear();
+            }
+        }
+        Ok((before_combat, pending_event_scoring))
+    }
 
+    /// The space cannon offense of the prelude, up to the event-scoring pause the feat opens: every gunner rolls, the reroll
+    /// windows, `SPACE_CANNON_HITS`, Graviton and the absorption (`rules::combat::space_cannon_offense`).
+    ///
+    /// On `driver=dual` the whole step also runs as a core window for the positions `cannon_dual::unported` does not exclude.
+    fn cannon_prelude(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        galaxy: Option<&Galaxy>,
+    ) -> Result<Option<(FeatOccurrence, EventScoreLimit)>, GameError> {
+        let (content, sources) = (ctx.content, ctx.sources);
+        let announce = ctx.timing.is_some();
+        // Real games always match: Game::new and Game::from_state seed the rng from state.rng_seed; only hand-built test rigs differ.
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        let args = crate::cannon_dual::Args { active: player, system, announce, reproducible };
+        if crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual {
+            return Self::cannon_prelude_string(state, ctx, player, system, galaxy);
+        }
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            crate::cannon_dual::LABEL,
+            state,
+            |s: &mut GameState| {
+                let result = Self::cannon_prelude_string(s, ctx, player, system, galaxy);
+                failed.set(result.is_err());
+                let value: crate::cannon_dual::Out = (
+                    result.as_ref().ok().and_then(|pending| pending.as_ref().map(|(occurrence, _)| occurrence.0)),
+                    ctx.dice
+                        .history()
+                        .iter()
+                        .skip(history_start)
+                        .filter(|roll| roll.reason == "space cannon")
+                        .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                        .collect(),
+                    ctx.rng.positions(),
+                );
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                crate::cannon_dual::space_cannon_offense(s, content, sources, galaxy, args, &rng_before, script)
+            }
+        );
+        outcome.unwrap_or(Ok(None))
+    }
+
+    /// The string body of [`Self::cannon_prelude`].
+    fn cannon_prelude_string(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        galaxy: Option<&Galaxy>,
+    ) -> Result<Option<(FeatOccurrence, EventScoreLimit)>, GameError> {
         // Fired before combat by every player with guns there; the active player's only at an
         // opponent's ships.
         let cannon = crate::combat::space_cannon_offense(
@@ -333,54 +526,7 @@ impl AftermathWindow {
             }
             pending_event_scoring = Some((occurrence, EventScoreLimit::AnyPerPlayer));
         }
-
-        let before_combat = crate::combat::before_combat_with_notes(
-            state,
-            ctx.content,
-            ctx.sources,
-            system,
-            notes_at_tactical_start.clone(),
-        );
-        let mut window = crate::combat::CombatWindow::new(state, ctx.content, ctx.sources, system);
-        let sides = crate::combat::combatants(state, ctx.content, ctx.sources, system);
-        state.active_space_combat = (sides.len() == 2).then(|| {
-            let attacker = state
-                .active
-                .clone()
-                .filter(|seat| sides.contains(seat))
-                .unwrap_or_else(|| sides[0].clone());
-            let defender = sides
-                .iter()
-                .find(|seat| **seat != attacker)
-                .expect("two sides")
-                .clone();
-            (system.clone(), attacker, defender)
-        });
-        if state.active_space_combat.is_some() {
-            state.combat_presentation = ti4_model::state::CombatPresentation {
-                battle_seq: state.combat_round_seq.saturating_add(1),
-                phase: "pre_roll".to_owned(),
-                ..Default::default()
-            };
-            state.combat_round_hits.clear();
-            state.combat_round_dice.clear();
-        }
-        if let Some(galaxy) = galaxy {
-            window = window.with_galaxy(galaxy.clone());
-        }
-        if pending_event_scoring.is_none() {
-            window.settle_open(state, ctx)?;
-        }
-        Ok(Self {
-            player: player.clone(),
-            system: system.clone(),
-            stage: Aftermath::Fighting(Box::new(window)),
-            log: Vec::new(),
-            before_combat,
-            feats_noted: false,
-            pending_event_scoring,
-            notes_at_tactical_start,
-        })
+        Ok(pending_event_scoring)
     }
 
     /// The aftermath of an action that skipped directly to "Commit Ground Forces" (Sardakk hero):
@@ -394,23 +540,7 @@ impl AftermathWindow {
         galaxy: Option<&Galaxy>,
         notes_at_tactical_start: crate::combat::NoteHoldings,
     ) -> Result<Self, GameError> {
-        crate::fleet::enforce_seeing(
-            state,
-            ctx.content,
-            ctx.sources,
-            galaxy,
-            ctx.table,
-            player,
-            system,
-        )
-        .map_err(GameError::IllegalChoice)?;
-        let before_combat = crate::combat::before_combat_with_notes(
-            state,
-            ctx.content,
-            ctx.sources,
-            system,
-            notes_at_tactical_start.clone(),
-        );
+        let (before_combat, _) = Self::head(state, ctx, player, system, galaxy, &notes_at_tactical_start, true)?;
         let mut invasion = crate::invasion::InvasionWindow::at_commit_step(state, player, system);
         if let Some(galaxy) = galaxy {
             invasion = invasion.with_galaxy(galaxy);
@@ -429,6 +559,187 @@ impl AftermathWindow {
 
     fn take_event_scoring(&mut self) -> Option<(FeatOccurrence, EventScoreLimit)> {
         self.pending_event_scoring.take()
+    }
+
+    /// The end of a space combat after its feats: whether the active seat holds the space, "after you win a space combat", the fight's
+    /// scratch cleared, every seat's fleet in the system enforced, whether a contact is possible. `(holds, contacts)`.
+    ///
+    /// On `driver=dual` the part up to the contacts also runs as a core window (`driver::windows::aftermath::FightOver`) for the
+    /// positions `cannon_dual::over_unported` does not exclude.
+    fn fight_over(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        before_combat: &crate::combat::BeforeCombat,
+        outcome: &crate::combat::CombatOutcome,
+        log: &mut Vec<String>,
+    ) -> Result<(bool, bool), crate::combat::CombatError> {
+        if crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual {
+            return Self::fight_over_text(state, ctx, player, system, before_combat, outcome, log);
+        }
+        let (content, sources) = (ctx.content, ctx.sources);
+        let announce = ctx.timing.is_some();
+        let args = crate::cannon_dual::OverArgs { active: player, system, before: before_combat, outcome, announce };
+        if let Some(why) = crate::cannon_dual::over_unported(state, &args) {
+            crate::dual::note_bail(crate::cannon_dual::OVER_LABEL, why);
+            return Self::fight_over_text(state, ctx, player, system, before_combat, outcome, log);
+        }
+        let failed = std::cell::Cell::new(false);
+        let mut result = None;
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            crate::cannon_dual::OVER_LABEL,
+            state,
+            |s: &mut GameState| {
+                let r = Self::fight_over_text(s, ctx, player, system, before_combat, outcome, log);
+                failed.set(r.is_err());
+                let value = r.as_ref().map_or((false, false), |v| *v);
+                result = Some(r);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                crate::cannon_dual::fight_over(s, content, sources, args, script)
+            }
+        );
+        result.expect("the string closure ran")
+    }
+
+    /// The string body of [`Self::fight_over`].
+    fn fight_over_text(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        before_combat: &crate::combat::BeforeCombat,
+        outcome: &crate::combat::CombatOutcome,
+        log: &mut Vec<String>,
+    ) -> Result<(bool, bool), crate::combat::CombatError> {
+        // 49: an invasion only happens if the active player still holds the space.
+        // Membership, not seating order: the activator may be seated behind a
+        // survivor, and only the activator's holding matters.
+        let holds =
+            crate::combat::combatants(state, ctx.content, ctx.sources, system)
+                .iter()
+                .any(|last| last == player);
+        // Coalescence (Titans of Ul): units the Awaken ability put beside rival ground
+        // forces must fight in the Ground Combat step even with no ship left to
+        // invade from, so the invasion step opens for them.
+        let holds = holds
+            || !crate::factions::hooks_ground::forced_combat_planets(
+                state,
+                ctx.content,
+                ctx.sources,
+                player,
+                system,
+            )
+            .is_empty();
+        // The Crimson Revenant's DEPLOY: "you may commit 1 mech, even if you have no
+        // units in the system", so the step opens for it when no ship holds the space.
+        let nobody_there =
+            crate::combat::combatants(state, ctx.content, ctx.sources, system)
+                .is_empty();
+        let holds = holds
+            || (nobody_there
+                && crate::factions::crimson::can_deploy(
+                    state,
+                    ctx.content,
+                    ctx.sources,
+                    player,
+                    system,
+                ));
+        if outcome.rounds > 0 {
+            // "After you win a space combat." A draw wins nothing, so a fight that
+            // ended without a winner opens no window — which is what Skilled Retreat
+            // is for.
+            if let Some(winner) = outcome.winner.clone() {
+                // The losers' ships are off the board by now, so the opponents
+                // are named from the snapshot the fight opened with: every side
+                // but the winner. A two-player fight — the common case — is
+                // exactly "your opponent"; a wider fight is each of the others.
+                // The handoff exists beside the payload because the window that
+                // follows cannot read the payload itself.
+                let opponents: Vec<_> = before_combat
+                    .sides()
+                    .iter()
+                    .filter(|side| **side != winner)
+                    .cloned()
+                    .collect();
+                state.last_combat_sides =
+                    Some((system.clone(), opponents.clone()));
+                let mut payload = BTreeMap::new();
+                payload.insert(
+                    "player".to_owned(),
+                    serde_json::Value::String(winner.to_string()),
+                );
+                payload.insert(
+                    "system".to_owned(),
+                    serde_json::Value::String(system.to_string()),
+                );
+                payload.insert(
+                    "opponents".to_owned(),
+                    serde_json::Value::Array(
+                        opponents
+                            .iter()
+                            .map(|side| serde_json::Value::String(side.to_string()))
+                            .collect(),
+                    ),
+                );
+                // Shard of the Throne moves to whoever beat its owner.
+                if opponents.iter().any(|side| {
+                    crate::laws::elected(state, "shard_of_the_throne")
+                        .is_some_and(|owner| *owner == side.to_string())
+                }) {
+                    crate::laws::steal_throne_card(
+                        state,
+                        "shard_of_the_throne",
+                        &winner,
+                    );
+                }
+                ctx.emit(state, "SPACE_COMBAT_WON", payload)?;
+            }
+            log.push("SPACE_COMBAT_RESOLVED".to_owned());
+        }
+        state.active_space_combat = None;
+        // 16.3 at the moment the carrier dies, not at the end of the turn.
+        //
+        // A space combat that destroys a carrier strands whatever it was holding:
+        // fighters, ground forces and mechs that no longer have capacity to sit in.
+        // Enforcement ran only at the end of the turn, so those units were still on the
+        // board for the invasion below and could capture a planet they should never
+        // have reached -- the rules had already removed them, and the board was only
+        // reconciled once the invasion was over. Both players' fleets are checked,
+        // because either can lose a carrier here.
+        //
+        // This asks the losing seat which units to drop, so it moves a decision earlier
+        // in the turn rather than adding a new kind of one. That perturbs recorded
+        // trajectories against policies trained before it; accepted deliberately on the
+        // owner's ruling, 2026-09-08.
+        let galaxy = ctx.timing.as_ref().and_then(|timing| timing.galaxy);
+        for seat in state
+            .players
+            .iter()
+            .map(|seat| seat.id.clone())
+            .collect::<Vec<_>>()
+        {
+            crate::fleet::enforce_seeing(
+                state,
+                ctx.content,
+                ctx.sources,
+                galaxy,
+                ctx.table,
+                &seat,
+                system,
+            )
+            .map_err(crate::combat::CombatError::from)?;
+        }
+        let contacts =
+            !crate::diplomacy::candidates::available_contacts(state, player)
+                .is_empty();
+        Ok((holds, contacts))
     }
 
     /// Open the step after combat (or after a negotiation pause): invasion when the active
@@ -613,39 +924,6 @@ impl AftermathWindow {
                         window.settle_open(state, ctx)?;
                         continue;
                     }
-                    // 49: an invasion only happens if the active player still holds the space.
-                    // Membership, not seating order: the activator may be seated behind a
-                    // survivor, and only the activator's holding matters.
-                    let holds =
-                        crate::combat::combatants(state, ctx.content, ctx.sources, &self.system)
-                            .iter()
-                            .any(|last| last == &self.player);
-                    // Coalescence (Titans of Ul): units the Awaken ability put beside rival ground
-                    // forces must fight in the Ground Combat step even with no ship left to
-                    // invade from, so the invasion step opens for them.
-                    let holds = holds
-                        || !crate::factions::hooks_ground::forced_combat_planets(
-                            state,
-                            ctx.content,
-                            ctx.sources,
-                            &self.player,
-                            &self.system,
-                        )
-                        .is_empty();
-                    // The Crimson Revenant's DEPLOY: "you may commit 1 mech, even if you have no
-                    // units in the system", so the step opens for it when no ship holds the space.
-                    let nobody_there =
-                        crate::combat::combatants(state, ctx.content, ctx.sources, &self.system)
-                            .is_empty();
-                    let holds = holds
-                        || (nobody_there
-                            && crate::factions::crimson::can_deploy(
-                                state,
-                                ctx.content,
-                                ctx.sources,
-                                &self.player,
-                                &self.system,
-                            ));
                     if let Some(outcome) = window.outcome()
                         && !self.feats_noted
                     {
@@ -666,97 +944,9 @@ impl AftermathWindow {
                             return Ok(());
                         }
                     }
-                    if let Some(outcome) = window.outcome()
-                        && outcome.rounds > 0
-                    {
-                        // "After you win a space combat." A draw wins nothing, so a fight that
-                        // ended without a winner opens no window — which is what Skilled Retreat
-                        // is for.
-                        if let Some(winner) = outcome.winner.clone() {
-                            // The losers' ships are off the board by now, so the opponents
-                            // are named from the snapshot the fight opened with: every side
-                            // but the winner. A two-player fight — the common case — is
-                            // exactly "your opponent"; a wider fight is each of the others.
-                            // The handoff exists beside the payload because the window that
-                            // follows cannot read the payload itself.
-                            let opponents: Vec<_> = self
-                                .before_combat
-                                .sides()
-                                .iter()
-                                .filter(|side| **side != winner)
-                                .cloned()
-                                .collect();
-                            state.last_combat_sides =
-                                Some((self.system.clone(), opponents.clone()));
-                            let mut payload = BTreeMap::new();
-                            payload.insert(
-                                "player".to_owned(),
-                                serde_json::Value::String(winner.to_string()),
-                            );
-                            payload.insert(
-                                "system".to_owned(),
-                                serde_json::Value::String(self.system.to_string()),
-                            );
-                            payload.insert(
-                                "opponents".to_owned(),
-                                serde_json::Value::Array(
-                                    opponents
-                                        .iter()
-                                        .map(|side| serde_json::Value::String(side.to_string()))
-                                        .collect(),
-                                ),
-                            );
-                            // Shard of the Throne moves to whoever beat its owner.
-                            if opponents.iter().any(|side| {
-                                crate::laws::elected(state, "shard_of_the_throne")
-                                    .is_some_and(|owner| *owner == side.to_string())
-                            }) {
-                                crate::laws::steal_throne_card(
-                                    state,
-                                    "shard_of_the_throne",
-                                    &winner,
-                                );
-                            }
-                            ctx.emit(state, "SPACE_COMBAT_WON", payload)?;
-                        }
-                        self.log.push("SPACE_COMBAT_RESOLVED".to_owned());
-                    }
-                    state.active_space_combat = None;
-                    // 16.3 at the moment the carrier dies, not at the end of the turn.
-                    //
-                    // A space combat that destroys a carrier strands whatever it was holding:
-                    // fighters, ground forces and mechs that no longer have capacity to sit in.
-                    // Enforcement ran only at the end of the turn, so those units were still on the
-                    // board for the invasion below and could capture a planet they should never
-                    // have reached -- the rules had already removed them, and the board was only
-                    // reconciled once the invasion was over. Both players' fleets are checked,
-                    // because either can lose a carrier here.
-                    //
-                    // This asks the losing seat which units to drop, so it moves a decision earlier
-                    // in the turn rather than adding a new kind of one. That perturbs recorded
-                    // trajectories against policies trained before it; accepted deliberately on the
-                    // owner's ruling, 2026-09-08.
-                    let galaxy = ctx.timing.as_ref().and_then(|timing| timing.galaxy);
-                    for seat in state
-                        .players
-                        .iter()
-                        .map(|seat| seat.id.clone())
-                        .collect::<Vec<_>>()
-                    {
-                        crate::fleet::enforce_seeing(
-                            state,
-                            ctx.content,
-                            ctx.sources,
-                            galaxy,
-                            ctx.table,
-                            &seat,
-                            &self.system,
-                        )
-                        .map_err(crate::combat::CombatError::from)?;
-                    }
-                    let contacts =
-                        !crate::diplomacy::candidates::available_contacts(state, &self.player)
-                            .is_empty();
+                    let outcome = window.outcome().expect("the fight has an outcome");
+                    let (holds, contacts) =
+                        Self::fight_over(state, ctx, &self.player, &self.system, &self.before_combat, &outcome, &mut self.log)?;
                     self.stage = if contacts {
                         Aftermath::Negotiating { invade: holds }
                     } else {
@@ -2300,11 +2490,12 @@ impl<'a> Game<'a> {
                 Ok(false) => {}
                 Err(error) => return self.result(false, Some(error.into())),
             }
-            let returned = crate::faction_techs::return_spec_ops(&mut self.state, &active);
+            let returned = crate::turn_write::return_spec_ops(&mut self.state, &active);
             if returned > 0 {
                 self.emit(&format!("SPEC_OPS_RETURNED:{active}:{returned}"));
             }
             self.prepared_turn_seq = Some(self.state.turn_seq);
+            crate::turn_write::check_prepared(&self.state, self.prepared_turn_seq);
             // "At the start of another player's turn" — this is that moment, typed so a
             // window can hang off it: the payload names the seat whose turn is beginning,
             // and the marker lands before the seat has chosen any action for it.
@@ -2637,7 +2828,7 @@ impl<'a> Game<'a> {
             let exp: Vec<String> = expedition.iter().map(|o| o.id.clone()).collect();
             crate::turn_write::check_closing(&self.state, player, self.actions_this_turn, second_action, END_TURN_ID, &seen, &exp, &ids);
         }
-        Choice::new(
+        let choice = Choice::new(
             player.clone(),
             if second_action {
                 "end your turn, or take your second action"
@@ -2652,7 +2843,12 @@ impl<'a> Game<'a> {
             "end_turn",
             self.state.phase,
             self.state.round,
-        ))
+        ));
+        if dual {
+            let exp: Vec<String> = expedition.iter().map(|o| o.id.clone()).collect();
+            crate::menu_dual::check_closing_menu(&self.state, player, second_action, &seen, &exp, &choice);
+        }
+        choice
     }
 
     fn turn_options(&self) -> Option<Choice> {
@@ -2806,13 +3002,18 @@ impl<'a> Game<'a> {
             let menu: Vec<String> = choice.options.iter().map(|o| o.id.clone()).collect();
             crate::turn_write::check_turn_menu(&parts, self.state.thunders_edge, &failed, &menu);
         }
-        Some(choice.contextualized(DecisionContext::new(
+        let choice = choice.contextualized(DecisionContext::new(
             active.clone(),
             DecisionSource::Rule("22".to_owned()),
             "action_menu",
             self.state.phase,
             self.state.round,
-        )))
+        ));
+        if dual {
+            let failed: Vec<String> = self.failed_component_actions.iter().cloned().collect();
+            crate::menu_dual::check_action_menu(&self.state, &parts, self.state.thunders_edge, &failed, &choice);
+        }
+        Some(choice)
     }
 
     /// 89.1 needs a map and a tactic token to spend.
@@ -2881,10 +3082,7 @@ impl<'a> Game<'a> {
                     }
                 }
                 if answer.id == "pass" {
-                    self.state
-                        .player_mut(&active)
-                        .expect("active player exists")
-                        .passed = true;
+                    crate::turn_write::mark_passed(&mut self.state, &active);
                     // "You may exhaust this card when you pass". After the flag, because the
                     // ability is part of passing rather than a last action before it, and before
                     // the Prove Endurance window below, so anything it gains is on the board by
@@ -2894,10 +3092,8 @@ impl<'a> Game<'a> {
                     // action phase ends immediately afterwards and the fact is gone by the time
                     // anything else could look for it. "Last to pass" is decided by there being
                     // nobody left who has not.
-                    if self.state.players.iter().all(|seat| seat.passed) {
-                        let occurrence = self.state.begin_feat_occurrence();
-                        self.state
-                            .record_event_feat(&active, Feat::LastToPass, occurrence);
+                    if let Some(occurrence) = crate::turn_write::last_to_pass(&mut self.state, &active) {
+                        let occurrence = FeatOccurrence(occurrence);
                         // Watchful Ojz: "Be the last person to pass during the Action Phase".
                         // Opened at the pass itself rather than at some later step.
                         if self.state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS {
@@ -2917,9 +3113,7 @@ impl<'a> Game<'a> {
                     );
                     self.emit_typed("PLAYER_PASSED", payload)?;
                     // An explicit pass declines the extra action Master Plan may have granted.
-                    self.state
-                        .transient_flags
-                        .clear(TransientFlags::ADDITIONAL_ACTION);
+                    crate::turn_write::decline_additional_action(&mut self.state);
                     self.advance_turn()?;
                     return Ok(());
                 }
@@ -5297,8 +5491,45 @@ impl<'a> Game<'a> {
         self.result(true, None)
     }
 
+    /// The gates and the continuation of [`Self::close_tactical`] against the core's (`driver::tactical_tail`; D1b2).
+    fn check_close_gates(&self) {
+        let player = self.state.active.clone();
+        let crown = player
+            .as_ref()
+            .is_some_and(|player| crate::relics::crown_of_emphidia_offers(&self.state, self.content, self.sources, player));
+        let det = matches!((&player, &self.state.active_system), (Some(player), Some(system))
+            if self.state.frontier_tokens.contains(system)
+                && crate::technology::owns_det(&self.state, player)
+                && self.state.system_state(system).units.iter().any(|unit| &unit.owner == player));
+        let ssruu_lends = self.state.players.iter().any(|seat| {
+            crate::factions::hooks_cards::borrowable_agents(&self.state, self.content, &seat.id).iter().any(|(_, agent)| agent.as_str() == "sardakkagent")
+        });
+        let tro = self.state.players.iter().any(|seat| {
+            ["sardakkagent", "nomadagentmercer"]
+                .iter()
+                .any(|agent| seat.leaders.get(ti4_model::id::text(&*agent)) == Some(&ti4_model::state::LeaderStatus::Readied))
+        }) || ssruu_lends;
+        let chosen = if self.leader_strategy.is_some() {
+            0
+        } else if self.secondary_after_tactical.is_some() {
+            1
+        } else {
+            2
+        };
+        crate::turn_write::check_close(
+            &self.state,
+            self.sources,
+            (crown, det, tro),
+            ssruu_lends,
+            (self.leader_strategy.is_some(), self.secondary_after_tactical.is_some(), chosen),
+        );
+    }
+
     /// Close the action and pass the turn.
     fn close_tactical(&mut self) -> StepResult {
+        if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual {
+            self.check_close_gates();
+        }
         // The Crown of Emphidia: "After you perform a tactical action, you may exhaust this card to
         // explore 1 planet you control." Here rather than in `finish_tactical`, because a tactical
         // action can end down either path and only this one is common to both.
@@ -5411,8 +5642,7 @@ impl<'a> Game<'a> {
             }
         }
         self.aftermath = None;
-        self.state.active_system = None;
-        self.state.pending = None;
+        crate::turn_write::close_tactical_writes(&mut self.state);
         self.emit("TACTICAL_ACTION_COMPLETE");
         if self.leader_strategy.is_some() {
             // Thunder's Edge Warfare: "...redistribute your command tokens ... after this action."
@@ -6621,11 +6851,38 @@ impl<'a> Game<'a> {
     /// Returns nothing -- the additional action is signalled through `ADDITIONAL_ACTION`, the same
     /// flag the action cards use, so one mechanism grants extra turns rather than two.
     fn minister_of_war(&mut self) {
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.clone();
+        let table = &mut self.table;
+        let state = &mut self.state;
+        // Not in play (or blanked): nothing happens on either side, and the census should not count a window for it.
+        if crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual || crate::laws::elected(state, "minister_war").is_none() {
+            Self::minister_of_war_text(state, content, sources, table, galaxy.as_ref());
+            return;
+        }
+        // On `driver=dual` the offer and the question run as one core window (`driver::windows::minister`).
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            "turn::minister_of_war",
+            state,
+            |s: &mut GameState| crate::dual::Run::new(Self::minister_of_war_text(s, content, sources, table, galaxy.as_ref())),
+            |s: &mut GameState, script: &crate::dual_window::Recording| crate::cannon_dual::minister_of_war(s, script)
+        );
+    }
+
+    /// The string body of [`Self::minister_of_war`]: whether the law was discarded and the system the token came back from.
+    fn minister_of_war_text(
+        state: &mut GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        table: &mut Table,
+        galaxy: Option<&Galaxy>,
+    ) -> (bool, Option<String>) {
         // `laws::elected`, not the raw map: Law's Order (Keleres) blanks every law for a turn.
-        let placed: Vec<SystemId> = crate::laws::elected(&self.state, "minister_war")
+        let placed: Vec<SystemId> = crate::laws::elected(state, "minister_war")
             .map(|owner| PlayerId::new(owner.clone()))
             .map(|owner| {
-                self.state
+                state
                     .board
                     .iter()
                     .filter(|(_, here)| here.command_tokens.contains(&owner))
@@ -6634,14 +6891,14 @@ impl<'a> Game<'a> {
             })
             .unwrap_or_default();
         if placed.is_empty() {
-            return; // 22.3: no token on the board means the card cannot do what it says
+            return (false, None); // 22.3: no token on the board means the card cannot do what it says
         }
         let Some(owner) = crate::laws::offer_discard(
-            &mut self.state,
-            self.content,
-            self.sources,
-            &mut self.table,
-            self.galaxy.as_ref(),
+            state,
+            content,
+            sources,
+            table,
+            galaxy,
             "minister_war",
             "Minister of War: discard to retrieve a command token and act again",
             &crate::laws::DiscardPresentation {
@@ -6649,7 +6906,7 @@ impl<'a> Game<'a> {
                 facts: Vec::new(),
             },
         ) else {
-            return;
+            return (false, None);
         };
         let options: Vec<crate::choice::ChoiceOption> = placed
             .iter()
@@ -6663,26 +6920,19 @@ impl<'a> Game<'a> {
             .collect();
         let choice =
             crate::choice::Choice::new(owner.clone(), "which command token comes back", options);
-        let Ok(answer) = self.table.ask_seeing(
+        let Ok(answer) = table.ask_seeing(
             &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
+            &crate::choice::Observed::new(state, content, sources, galaxy),
         ) else {
-            return;
+            return (true, None);
         };
         let system = SystemId::new(answer.id);
-        if let Some(here) = self.state.board.get_mut(&system) {
+        if let Some(here) = state.board.get_mut(&system) {
             here.command_tokens.remove(&owner);
         }
-        self.state
-            .gain_token(&owner, ti4_model::state::TokenPool::Tactic, 1);
-        self.state
-            .transient_flags
-            .set(TransientFlags::ADDITIONAL_ACTION);
+        state.gain_token(&owner, ti4_model::state::TokenPool::Tactic, 1);
+        state.transient_flags.set(TransientFlags::ADDITIONAL_ACTION);
+        (true, Some(system.to_string()))
     }
 
     /// Imperial Arbiter, offered at the end of the strategy phase.
@@ -7140,6 +7390,7 @@ impl<'a> Game<'a> {
         // reinforcements -- then they may perform 1 additional action." Offered before the turn
         // moves on, since the additional action is this player's.
         if self.state.phase == Phase::Action {
+            crate::turn_write::note_lent_hook("minister_of_war");
             self.minister_of_war();
             if crate::turn_write::take_retention(&mut self.state) {
                 self.emit("TURN_RETAINED");
@@ -7159,6 +7410,7 @@ impl<'a> Game<'a> {
         if self.state.phase == Phase::Action
             && let Some(active) = ended.clone()
         {
+            crate::turn_write::note_lent_hook("technology::end_turn");
             let _ = crate::technology::end_turn(
                 &mut self.state,
                 self.content,
@@ -7172,6 +7424,7 @@ impl<'a> Game<'a> {
             // Predictive Intelligence spend a card, and The Acropolis readies one -- readying
             // last means what it readied survives into the next round rather than being offered
             // straight back to a spender in the same window.
+            crate::turn_write::note_lent_hook("legendary::end_turn");
             let _ = crate::legendary::end_turn(
                 &mut self.state,
                 self.content,

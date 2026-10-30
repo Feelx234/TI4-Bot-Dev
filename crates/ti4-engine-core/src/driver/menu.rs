@@ -8,6 +8,9 @@
 //!
 //! The string functions this mirrors: `Game::{turn_options, closing_options, is_free_option}` (`game.rs`).
 
+use crate::choice::generic::Rule;
+use crate::choice::turn::{Ask as TAsk, Opt as TOpt, Subtype as TSub};
+use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Subtype};
 use crate::generated::Technology;
 use crate::ids::Seat;
 use crate::state::CoreState;
@@ -103,6 +106,28 @@ pub fn closing_menu<T: Clone>(end_turn: T, turn: &[Entry<T>], second_action: boo
     }
     out.extend(expedition.iter().cloned());
     out
+}
+
+/// The action menu as a typed question: [`turn_menu`] over the typed options of the sources, asked of `actor` (rule 22).
+#[must_use]
+pub fn action_menu(actor: Seat, parts: &[(Source, Vec<TOpt>)], thunders_edge_on: bool, failed: &[TOpt]) -> Choice {
+    let options = turn_menu(parts, thunders_edge_on, failed);
+    typed(actor, TAsk::ActionMenu, TSub::ActionMenu, Origin::Rule(Rule::R22), options)
+}
+
+/// The closing menu as a typed question: [`closing_menu`]'s options asked of `actor` (rule "end of turn").
+#[must_use]
+pub fn closing_choice(actor: Seat, options: Vec<TOpt>, second: bool) -> Choice {
+    typed(actor, TAsk::Closing { second }, TSub::EndTurn, Origin::Rule(Rule::EndOfTurn), options)
+}
+
+fn typed(actor: Seat, ask: TAsk, subtype: TSub, origin: Origin, options: Vec<TOpt>) -> Choice {
+    Choice {
+        actor,
+        ask: Ask::Turn(ask),
+        ctx: Ctx { origin, subtype: Subtype::Turn(subtype), optional: false, target: None, outstanding: Default::default(), space_battle: false, invasion_seq: None },
+        opts: options.into_iter().map(Opt::Turn).collect(),
+    }
 }
 
 #[cfg(test)]

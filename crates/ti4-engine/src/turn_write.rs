@@ -93,6 +93,144 @@ pub fn check_pass_on(before: &GameState, after: &GameState, ended: Option<&Playe
     crate::dual::compare_value(Area::Driver, "turn::pass_on", &string, &core);
 }
 
+/// `phase::advance_phase`, Strategy arm: Political Stability is spent.
+pub fn reset_stability(state: &mut GameState) {
+    write(
+        Area::Driver,
+        state,
+        "turn::stability_reset",
+        |s| {
+            for player in &mut s.players {
+                player.stability = false;
+            }
+        },
+        real::reset_stability,
+    );
+}
+
+/// `phase::advance_phase`, Strategy arm, once the faction hooks have run: the action phase begins with nobody active; returns
+/// the seat first in initiative order.
+pub fn strategy_phase_flip(state: &mut GameState) -> Option<PlayerId> {
+    write(
+        Area::Driver,
+        state,
+        "turn::strategy_phase_ended",
+        |s| {
+            let first = s.initiative_order().first().cloned();
+            s.phase = ti4_model::state::Phase::Action;
+            s.action_turn = 0;
+            s.active = None;
+            first
+        },
+        real::strategy_phase_flip,
+    )
+}
+
+/// `faction_techs::return_spec_ops`, the turn prelude's placement of the Spec Ops units waiting on the card.
+pub fn return_spec_ops(state: &mut GameState, player: &PlayerId) -> u32 {
+    write(Area::Driver, state, "turn::return_spec_ops", |s| crate::faction_techs::return_spec_ops(s, player), |s| real::return_spec_ops(s, player))
+}
+
+/// The prelude has run: `prepared_turn_seq` is the turn's (a `Game` field; the core's `Pending.prepared_turn_seq`). Compared
+/// as the sequence number the core would record.
+pub fn check_prepared(state: &GameState, recorded: Option<u32>) {
+    if crate::dual::backend(Area::Driver) != crate::dual::Backend::Dual {
+        return;
+    }
+    let Some(core) = real::prepared(state) else {
+        crate::dual::note_bail("turn::prepared", "the position is outside the tables");
+        return;
+    };
+    crate::dual::compare_value(Area::Driver, "turn::prepared", &recorded, &core);
+}
+
+/// `passed = true` of the seat that passes (`Game::apply_choice`, the "pass" arm).
+pub fn mark_passed(state: &mut GameState, player: &PlayerId) {
+    write(
+        Area::Driver,
+        state,
+        "turn::pass",
+        |s| {
+            if let Some(seat) = s.player_mut(player) {
+                seat.passed = true;
+            }
+        },
+        |s| real::mark_passed(s, player),
+    );
+}
+
+/// Prove Endurance at the pass: the occurrence the last seat to pass records, if it is the last.
+pub fn last_to_pass(state: &mut GameState, player: &PlayerId) -> Option<u64> {
+    write(
+        Area::Driver,
+        state,
+        "turn::last_to_pass",
+        |s| {
+            if s.players.iter().all(|seat| seat.passed) {
+                let occurrence = s.begin_feat_occurrence();
+                s.record_event_feat(player, ti4_model::state::Feat::LastToPass, occurrence);
+                Some(occurrence.0)
+            } else {
+                None
+            }
+        },
+        |s| real::last_to_pass(s, player),
+    )
+}
+
+/// An explicit pass declines the extra action Master Plan may have granted.
+pub fn decline_additional_action(state: &mut GameState) {
+    write(
+        Area::Driver,
+        state,
+        "turn::decline_additional_action",
+        |s| s.transient_flags.clear(ti4_model::state::TransientFlags::ADDITIONAL_ACTION),
+        real::decline_additional_action,
+    );
+}
+
+/// A hook between the steps of a turn end that the core does not run (`driver::turn_flow::HOOKS`): counted under
+/// `turn::hooks [bail: <name>]` on `driver=dual`, the worklist of the lent bodies (D1b2-bail-05).
+pub fn note_lent_hook(hook: &str) {
+    if crate::dual::backend(Area::Driver) == crate::dual::Backend::Dual {
+        crate::dual::note_bail("turn::hooks", hook);
+    }
+}
+
+/// The writes of the close of a tactical action (`Game::close_tactical`): no system is active and the legacy pending tag is
+/// cleared (the aftermath window, a field of `Game`, is dropped by the caller).
+pub fn close_tactical_writes(state: &mut GameState) {
+    write(
+        Area::Driver,
+        state,
+        "turn::close_tactical",
+        |s| {
+            s.active_system = None;
+            s.pending = None;
+        },
+        real::close_tactical_writes,
+    );
+}
+
+/// What `close_tactical` decides from the position, as the string decides it: does the Crown of Emphidia offer an
+/// exploration, does Dark Energy Tap fire, does anyone listen for the end of the action (T'ro and its kin).
+pub type CloseGates = (bool, bool, bool);
+
+/// Compare the three gates of `close_tactical` and its continuation with the core's (`driver::tactical_tail`). `ssruu_lends`:
+/// a Yssaril seat with a readied Ssruu could copy an agent (the string's `borrowable_agents`), which the core does not know.
+pub fn check_close(state: &GameState, sources: ti4_model::content_types::SourceSet, string: CloseGates, ssruu_lends: bool, then: (bool, bool, u8)) {
+    if crate::dual::backend(Area::Driver) != crate::dual::Backend::Dual {
+        return;
+    }
+    let Some(core) = real::close_gates(state, sources, ssruu_lends) else {
+        crate::dual::note_bail("turn::close_gates", "the position is outside the tables");
+        return;
+    };
+    crate::dual::compare_value(Area::Driver, "turn::close_gates", &string, &core);
+    let (leader_strategy, secondary, chosen) = then;
+    crate::dual::compare_value(Area::Driver, "turn::close_then", &chosen, &real::then(leader_strategy, secondary));
+}
+
 /// The sources of the action menu as the string marks them: the position in `driver::menu::ORDER`.
 pub mod src {
     pub const STRATEGIC: u8 = 0;
@@ -200,6 +338,85 @@ mod real {
         crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| f(core, &r)).ok()
     }
 
+    const CLOSE: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards, Slice::Explore], &[]);
+    const SPEC_OPS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Players, Slice::Board]);
+    const CLOSE_WRITES: Footprint = Footprint::new(&[Slice::Meta, Slice::Pending], &[Slice::Meta, Slice::Pending]);
+
+    pub fn close_tactical_writes(gs: &mut GameState) -> Option<()> {
+        lend_with(gs, CLOSE_WRITES, |core, _| ti4_engine_core::driver::tactical_tail::close_writes(core))
+    }
+
+    /// `(crown, det, tro)` on a copy of the position.
+    pub fn close_gates(before: &GameState, sources: ti4_model::content_types::SourceSet, ssruu_lends: bool) -> Option<super::CloseGates> {
+        use ti4_engine_core::driver::tactical_tail as tail;
+        let mut gs = before.clone();
+        let scope = crate::core_adapter::scope(sources);
+        let active = gs.active.clone();
+        let system = gs.active_system.clone();
+        lend_with(&mut gs, CLOSE, |core, r| {
+            let seat = match &active {
+                Some(p) => Some(r.seat(p.as_str())?),
+                None => None,
+            };
+            let system = match &system {
+                Some(s) => Some(<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(s.as_str())?),
+                None => None,
+            };
+            let crown = seat.is_some_and(|seat| tail::crown_offers(core, seat, scope));
+            let det = seat.zip(system).is_some_and(|(seat, system)| tail::det_fires(core, seat, system));
+            Some((crown, det, tail::tro_window(core, ssruu_lends)))
+        })?
+    }
+
+    pub fn then(leader_strategy: bool, secondary: bool) -> u8 {
+        use ti4_engine_core::driver::tactical_tail::{Then, then};
+        match then(leader_strategy, secondary) {
+            Then::LeaderStrategy => 0,
+            Then::Secondary => 1,
+            Then::FinishAction => 2,
+        }
+    }
+
+    const FLIP: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Strategy], &[Slice::Meta]);
+    const STABILITY: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players], &[Slice::Players]);
+
+    pub fn reset_stability(gs: &mut GameState) -> Option<()> {
+        lend_with(gs, STABILITY, |core, _| rules::reset_stability(core))
+    }
+
+    pub fn strategy_phase_flip(gs: &mut GameState) -> Option<Option<PlayerId>> {
+        lend_with(gs, FLIP, |core, r| Some(rules::strategy_phase_flip(core).map(|s| r.player(s))))?
+    }
+
+    const PASS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players], &[Slice::Meta, Slice::Players]);
+
+    pub fn mark_passed(gs: &mut GameState, p: &PlayerId) -> Option<()> {
+        lend_with(gs, PASS, |core, r| r.seat(p.as_str()).map(|seat| ti4_engine_core::driver::dispatch::mark_passed(core, seat)))?
+    }
+
+    pub fn last_to_pass(gs: &mut GameState, p: &PlayerId) -> Option<Option<u64>> {
+        lend_with(gs, PASS, |core, r| Some(ti4_engine_core::driver::dispatch::last_to_pass(core, r.seat(p.as_str())?)))?
+    }
+
+    pub fn decline_additional_action(gs: &mut GameState) -> Option<()> {
+        lend(gs, |core, _| ti4_engine_core::driver::dispatch::decline_additional_action(core))
+    }
+
+    pub fn return_spec_ops(gs: &mut GameState, p: &PlayerId) -> Option<u32> {
+        lend_with(gs, SPEC_OPS, |core, r| {
+            let infantry = <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("sol_infantry2")?;
+            Some(rules::return_spec_ops(core, r.seat(p.as_str())?, infantry))
+        })?
+    }
+
+    pub fn prepared(gs: &GameState) -> Option<Option<u32>> {
+        let mut gs = gs.clone();
+        lend_with(&mut gs, FINISH, |core, _| {
+            rules::mark_prepared(core);
+            Some(core.pending().prepared_turn_seq)
+        })?
+    }
+
     pub fn begin_action_turn(gs: &mut GameState, p: &PlayerId) -> Option<()> {
         lend(gs, |core, r| r.seat(p.as_str()).map(|seat| rules::begin_action_turn(core, seat)))?
     }
@@ -293,6 +510,36 @@ mod real {
     use ti4_model::id::PlayerId;
     use ti4_model::state::GameState;
 
+    pub fn close_tactical_writes(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn close_gates(_: &GameState, _: ti4_model::content_types::SourceSet, _: bool) -> Option<super::CloseGates> {
+        None
+    }
+    pub fn then(_: bool, _: bool) -> u8 {
+        0
+    }
+    pub fn reset_stability(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn strategy_phase_flip(_: &mut GameState) -> Option<Option<PlayerId>> {
+        None
+    }
+    pub fn mark_passed(_: &mut GameState, _: &PlayerId) -> Option<()> {
+        None
+    }
+    pub fn last_to_pass(_: &mut GameState, _: &PlayerId) -> Option<Option<u64>> {
+        None
+    }
+    pub fn decline_additional_action(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn return_spec_ops(_: &mut GameState, _: &PlayerId) -> Option<u32> {
+        None
+    }
+    pub fn prepared(_: &GameState) -> Option<Option<u32>> {
+        None
+    }
     pub fn begin_action_turn(_: &mut GameState, _: &PlayerId) -> Option<()> {
         None
     }
@@ -510,5 +757,128 @@ mod tests {
         for (mark, source) in marks {
             assert_eq!(ORDER[usize::from(mark)], source);
         }
+    }
+
+    fn close_position() -> GameState {
+        let mut state = table();
+        state.active_system = Some(ti4_model::id::SystemId::new("18"));
+        state.pending = Some("move".to_owned());
+        state
+    }
+
+    #[test]
+    fn the_close_of_a_tactical_action_clears_the_system_and_the_pending_tag_in_both_halves() {
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = close_position();
+        with_mask(driver(), || close_tactical_writes(&mut state));
+        let r = report();
+        let _ = take_report();
+        assert_eq!((state.active_system.clone(), state.pending.clone()), (None, None));
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 1, "the write was compared: {:?}", r.areas);
+    }
+
+    #[test]
+    fn a_tro_listener_dark_energy_tap_and_the_crown_are_read_from_the_position_by_the_core() {
+        let _serial = crate::dual::tests::serial();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = close_position();
+        let system = ti4_model::id::SystemId::new("18");
+        let probe = |state: &GameState| real::close_gates(state, sources, false);
+        assert_eq!(probe(&state), Some((false, false, false)), "nothing listens at a plain table");
+        // A readied Sardakk agent listens for the end of the action.
+        state.player_mut(&pid("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("sardakkagent"), ti4_model::state::LeaderStatus::Readied);
+        assert_eq!(probe(&state), Some((false, false, true)));
+        // Dark Energy Tap fires for a ship of the active seat in a system with a frontier token.
+        state.frontier_tokens.insert(system.clone());
+        state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("det"));
+        assert_eq!(probe(&state), Some((false, false, true)), "no ship there yet");
+        crate::fixtures::put(&mut state, &system, "cruiser", &pid("a"), 1);
+        assert_eq!(probe(&state), Some((false, true, true)));
+        // Every gate and the continuation are compared against the string's in one call.
+        let _ = take_report();
+        with_mask(driver(), || {
+            check_close(&state, sources, (false, true, true), false, (false, true, 1));
+            check_close(&state, sources, (false, false, true), false, (false, false, 2));
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(r.total_differences(), 1, "only the gate the string got wrong differs: {:?}", r.differences);
+    }
+
+    #[test]
+    fn spec_ops_waiting_on_the_card_land_on_the_home_planet_in_both_halves() {
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = table();
+        let seat = pid("a");
+        let home = state.player(&seat).unwrap().home_system.clone().expect("a home system");
+        state.player_mut(&seat).unwrap().spec_ops_card = 2;
+        let before: usize = state.system_state(&home).planet_units.values().flatten().filter(|u| u.type_id.as_str() == "sol_infantry2").count();
+        let placed = with_mask(driver(), || return_spec_ops(&mut state, &seat));
+        let r = report();
+        let _ = take_report();
+        let after: usize = state.system_state(&home).planet_units.values().flatten().filter(|u| u.type_id.as_str() == "sol_infantry2").count();
+        assert_eq!((placed, after - before, state.player(&seat).unwrap().spec_ops_card), (2, 2, 0));
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 1, "the write was compared: {:?}", r.areas);
+        // Nothing waiting, nothing placed; the prepared turn is the turn in progress.
+        let again = with_mask(driver(), || return_spec_ops(&mut state, &seat));
+        assert_eq!(again, 0);
+        let _ = take_report();
+        with_mask(driver(), || {
+            check_prepared(&state, Some(state.turn_seq));
+            check_prepared(&state, None);
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(r.total_differences(), 1, "only the unrecorded prepared turn differs: {:?}", r.differences);
+    }
+
+    #[test]
+    fn the_strategy_phase_ends_into_the_action_phase_with_the_first_in_initiative_and_stability_spent() {
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = table();
+        state.phase = Phase::Strategy;
+        state.player_mut(&pid("b")).unwrap().stability = true;
+        let before_seq = state.turn_seq;
+        with_mask(driver(), || {
+            super::super::phase::advance_phase(&mut state);
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(state.phase, Phase::Action);
+        assert!(state.active.is_some() && state.turn_seq == before_seq + 1, "the first turn began");
+        assert!(state.players.iter().all(|p| !p.stability), "stability is spent");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 3, "the three writes were compared: {:?}", r.areas);
+    }
+
+    #[test]
+    fn the_last_seat_to_pass_records_prove_endurance_and_an_explicit_pass_declines_the_extra_action() {
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = table();
+        state.transient_flags.set(TransientFlags::ADDITIONAL_ACTION);
+        let (first, second, third) = with_mask(driver(), || {
+            mark_passed(&mut state, &pid("a"));
+            let first = last_to_pass(&mut state, &pid("a"));
+            mark_passed(&mut state, &pid("b"));
+            let second = last_to_pass(&mut state, &pid("b"));
+            mark_passed(&mut state, &pid("c"));
+            let third = last_to_pass(&mut state, &pid("c"));
+            decline_additional_action(&mut state);
+            (first, second, third)
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!((first, second), (None, None), "others have yet to pass");
+        assert!(third.is_some(), "c is the last to pass");
+        assert!(state.player(&pid("c")).unwrap().event_feats.iter().any(|(f, _)| *f == ti4_model::state::Feat::LastToPass));
+        assert!(!state.transient_flags.has(TransientFlags::ADDITIONAL_ACTION));
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 7, "every write was compared: {:?}", r.areas);
     }
 }

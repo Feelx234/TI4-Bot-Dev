@@ -401,6 +401,7 @@ fn observe(g: &Game<'_>, r: &Render, cx: &crate::core_sync::Ctx) -> Result<Vec<W
     // The windows of the action phase (package D1b).
     out.extend(action::tactical_of(g, r)?);
     out.extend(action::aftermath_of(g, r)?);
+    out.extend(action::sub_of(g, r)?);
     Ok(out)
 }
 
@@ -468,6 +469,14 @@ fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render, cx: &crate::core_sync
                 &g.aftermath.as_ref().map(action::aftermath_key),
                 &Some(action::aftermath_back(a, r)),
             ),
+            Window::Combat(f) => compare_value(
+                Area::Driver,
+                "d1::pending.roundtrip",
+                &action::combat_key(g),
+                &Some(crate::dual_window::fields_back(f, r)),
+            ),
+            // The invasion and the production step have no machine state: the placeholder stands for the string's window.
+            Window::Untyped { kind: WindowKind::Invasion | WindowKind::Production, .. } => true,
             Window::Untyped { .. } => true,
         };
     }
@@ -1279,16 +1288,13 @@ mod tests {
     }
 
     #[test]
-    fn the_capitals_of_a_before_combat_are_read_back_from_its_debug_form() {
-        let _serial = crate::dual::tests::serial();
-        let mut g = aftermath_game(|_, _| super::super::Aftermath::Done, false);
-        let system = g.state.player(&pid("a")).unwrap().home_system.clone().unwrap();
-        // A war sun and a flagship count as capitals: give the owner one of each.
-        let (_, _) = (&mut g, &system);
-        let w = g.aftermath.as_ref().unwrap();
-        let read = super::action::capitals_of(&w.before_combat);
-        let sides: Vec<String> = w.before_combat.sides().iter().map(ToString::to_string).collect();
-        assert_eq!(read.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>(), sides, "one entry per side, in the map's order");
+    fn the_capitals_of_a_before_combat_are_read_through_the_accessor() {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+        let system = ti4_model::id::SystemId::new("18");
+        crate::fixtures::put(&mut state, &system, "warsun", &pid("a"), 2);
+        crate::fixtures::put(&mut state, &system, "cruiser", &pid("b"), 1);
+        let before = crate::combat::before_combat(&state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, &system);
+        assert_eq!(super::action::capitals_of(&before), vec![("a".to_owned(), 2), ("b".to_owned(), 0)], "one entry per side, in the map's order");
     }
 
     // --- the precedence of the step loop (package D1b-7) -----------------------------------------------------------------------

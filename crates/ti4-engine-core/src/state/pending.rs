@@ -2,7 +2,7 @@
 //! D1). Replaces the private window fields of `Game` and `GameState.pending`.
 
 use super::pending_windows::{LeaderFollowers, Tokens, Trade, Voting};
-use super::{Aftermath, Tactical};
+use super::{Aftermath, CombatFields, Tactical};
 use crate::containers::{SeatSet, SmallList};
 use crate::generated::{Agenda, Leader, StrategyCard};
 use crate::ids::Seat;
@@ -31,6 +31,12 @@ pub enum WindowKind {
     Trade,
     Diplomacy,
     AgendaTalks,
+    /// The space combat of an aftermath, above its `Aftermath` entry (package D1b2).
+    Combat,
+    /// The invasion of an aftermath (no machine state exists: held as `Untyped`, driven by the string).
+    Invasion,
+    /// The production step of an aftermath (no machine state exists: held as `Untyped`, driven by the string).
+    Production,
 }
 
 /// How a follower of a strategic action's secondary stands (`strategy::SecondaryResolution`).
@@ -110,6 +116,8 @@ pub enum Window {
     Tactical(Tactical),
     /// The steps after a movement step: space combat, invasion, production (package D1b).
     Aftermath(Box<Aftermath>),
+    /// The space combat of an aftermath: the window fields of the combat machine (package D1b2).
+    Combat(Box<CombatFields>),
     /// A kind with no typed payload yet.
     Untyped { kind: WindowKind, actor: Option<Seat>, data: [u32; 3] },
 }
@@ -131,6 +139,7 @@ impl Window {
             Self::Trade(_) => WindowKind::Trade,
             Self::Tactical(_) => WindowKind::Tactical,
             Self::Aftermath(_) => WindowKind::Aftermath,
+            Self::Combat(_) => WindowKind::Combat,
             Self::Untyped { kind, .. } => *kind,
         }
     }

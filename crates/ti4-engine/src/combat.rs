@@ -43,7 +43,7 @@ pub enum HitOrigin {
 }
 
 /// The display cause of hits whose engine `cause` string is given (see `absorb_hits_seeing_with_context`).
-fn hit_cause_of(cause: &str) -> HitCause {
+pub(crate) fn hit_cause_of(cause: &str) -> HitCause {
     if cause.contains("anti_fighter_barrage") {
         HitCause::AntiFighterBarrage
     } else if cause.contains("space_cannon") {
@@ -2307,6 +2307,11 @@ fn destroy_fighters(
 /// this", because adding the fifth unit means editing code that looks unrelated to the content
 /// change. `every_unit_that_reaches_an_adjacent_system_is_found` pins the derived set so a reworded
 /// card fails a test instead of silently disarming a gun.
+/// The unit ids whose card lets their SPACE CANNON reach an adjacent system (the `reaching` list the core offense is given).
+pub(crate) fn reaching_units(content: &ContentStore, sources: SourceSet) -> Vec<String> {
+    catalogue(content, sources).iter().filter(|(_, kind)| reaches_adjacent(**kind)).map(|(id, _)| (*id).to_owned()).collect()
+}
+
 fn reaches_adjacent(kind: ti4_content::units::UnitType<'_>) -> bool {
     let Some(ability) = kind.record().text("ability") else {
         return false;
@@ -6811,6 +6816,29 @@ impl CombatWindow {
         )
     }
 
+    /// The window fields as plain data: what `Window::Combat` holds in the core (D1b2).
+    pub(crate) fn fields_in(&self) -> crate::dual_window::FieldsIn {
+        crate::dual_window::FieldsIn {
+            step: Self::flow_step_of(&self.stage),
+            phase: match self.hit_phase {
+                HitPhase::Round => 0,
+                HitPhase::CombatStart => 1,
+                HitPhase::RoundEnd => 2,
+            },
+            resuming: self.resuming_round,
+            pending_retreats: self.pending_retreats.clone(),
+            offered: self.hit_reaction_offered.iter().cloned().collect(),
+            damaged: self.damaged_before_round.iter().map(|(p, k)| (p.clone(), k.clone())).collect(),
+            fled: self.fled.clone(),
+            at_start: self.fleet_at_start.iter().map(|(p, k)| (p.clone(), k.clone())).collect(),
+            end_announced: self.end_announced,
+            outcome: match &self.stage {
+                Stage::Done(o) => Some((o.winner.clone(), o.rounds)),
+                _ => None,
+            },
+        }
+    }
+
     /// The facts and gates the composed machine starts from. `None`: no map to read the retreats from.
     fn settle_args(&self, state: &GameState, ctx: &Resolving<'_>) -> Option<crate::dual_window::SettleArgs> {
         let (content, sources) = (ctx.content, ctx.sources);
@@ -7983,6 +8011,17 @@ impl BeforeCombat {
     pub fn sides(&self) -> &[PlayerId] {
         &self.sides
     }
+
+    /// Whose promissory notes each side held when the tactical action started.
+    #[must_use]
+    pub fn notes(&self) -> &NoteHoldings {
+        &self.notes
+    }
+
+    /// The war suns and flagships each side had when the fight opened, in the map's (player id) order.
+    pub fn capitals(&self) -> impl Iterator<Item = (&PlayerId, usize)> {
+        self.capitals.iter().map(|(player, n)| (player, *n))
+    }
 }
 
 /// Promissory-note issuers held by each player at a defined timing boundary.
@@ -8111,6 +8150,25 @@ fn record_combat_feat(
 }
 
 fn note_combat_feats_at(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    before: &BeforeCombat,
+    outcome: &CombatOutcome,
+    occurrence: FeatOccurrence,
+) -> bool {
+    // `rules::combat::feats` runs beside the string body on `driver=dual` and the two are compared (state and result).
+    crate::dual::write(
+        crate::dual::Area::Driver,
+        state,
+        "combat::feats",
+        |s| note_combat_feats_text(s, content, sources, system, before, outcome, occurrence),
+        |s| crate::cannon_dual::combat_feats(s, content, sources, system, before, outcome, occurrence),
+    )
+}
+
+fn note_combat_feats_text(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,

@@ -238,18 +238,12 @@ pub fn advance_phase(state: &mut GameState) -> PhaseOutcome {
             // Political Stability is spent here: the retention covers the strategy phase
             // just played, and whatever the marked seat kept goes back to the mat in the
             // status phase that follows this action phase.
-            for player in &mut state.players {
-                player.stability = false;
-            }
+            crate::turn_write::reset_stability(state);
             // Imperial Arbiter and the technology hooks belong here, before the read.
             // Faction modules place their initiative tokens (Naalu "0") at the same point: the
             // overrides last the round and `begin_next_round` clears them.
             crate::factions::hooks_strategy::strategy_phase_ended(state);
-            let order = state.initiative_order();
-            state.phase = Phase::Action;
-            state.action_turn = 0;
-            state.active = None;
-            let first = order.first().cloned().unwrap_or_else(|| PlayerId::new(""));
+            let first = crate::turn_write::strategy_phase_flip(state).unwrap_or_else(|| PlayerId::new(""));
             begin_action_turn(state, &first);
             PhaseOutcome::ActionBegan(first)
         }
