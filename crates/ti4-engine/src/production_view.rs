@@ -363,6 +363,7 @@ impl ProdView<'_> {
             },
             produced,
             icon: icon_of(inp.produced.iter().copied().zip(inp.produced_at.iter().copied()))?,
+            ability: false,
             armada: i32::try_from(inp.armada).ok()?,
             buildable: {
                 let mut slots = [None; 9];
@@ -424,6 +425,7 @@ impl ProdView<'_> {
             made: u8::try_from(made).ok()?,
             fleet_limit: i32::try_from(fleet_limit).ok()?,
             icon: icon_of(produced.iter().map(|(id, at)| (id.as_str(), at.as_str())))?,
+            ability: false,
         };
         let opts = rules::place_opts(&self.rules_cx(), &ask);
         let render = crate::render::Render::default();

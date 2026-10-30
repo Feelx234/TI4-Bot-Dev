@@ -6951,14 +6951,19 @@ impl CombatWindow {
         let [Some(n0), Some(n1)] = neighbors else { return None };
         let has_tech = |side: &PlayerId, id: &str| state.player(side).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&id)));
         let round_probe = crate::dual_window::BeginRoundArgs { attacker: &self.attacker, defender: &self.defender, system: &self.system, round: 1, announce };
+        // The hits the modules produce at the start of a combat (Ambush, Impulse Core, Dimensional Splicer) are the machine's window
+        // `ProduceHits` since package W2; Assault Cannon is not (it asks the casualty of its own window).
         let opening_why = crate::dual_window::round_opening_why(state, content, &round_probe).or_else(|| {
             sides.iter().find_map(|side| {
-                if state.player(side).is_none_or(|p| p.faction.as_str() == "mentak") {
-                    return Some("a Mentak side (Ambush at the start of the combat)");
+                if state.player(side).is_none() {
+                    return Some("a side that is not a seated player");
                 }
-                ["asc", "ds", "ic"].iter().any(|t| has_tech(side, t)).then_some("Assault Cannon, Dimensional Splicer or Impulse Core (start-of-combat hits)")
+                // Assault Cannon is the machine's window (`AssaultCannon`) except against a neutral side (its casualty order is the reference
+                // card's, string-only).
+                (has_tech(side, "asc") && sides.iter().any(|s| crate::neutral_units::is_neutral(s))).then_some("Assault Cannon at a neutral side")
             })
         });
+        let ac = sides.iter().any(|side| has_tech(side, "asc"));
         let opening_unported = opening_why.is_some();
         let occurrence = self.combat_occurrence.map(|o| o.0);
         let barrage_probe = crate::dual_window::BarrageArgs {
@@ -6984,9 +6989,10 @@ impl CombatWindow {
             !(crate::neutral_units::is_neutral(side) && !crate::neutral_units::may_retreat())
                 && !crate::factions::mahact_units::ship_movement_barred(state)
         });
+        // (A round that resumes after the hits the modules produced at the start of the combat has no occurrence yet either: the barrage
+        // begins it.)
         let begin_occurrence = occurrence.is_none()
-            && matches!(self.stage, Stage::Opening { round: 1 })
-            && !self.resuming_round
+            && (matches!(self.stage, Stage::Opening { round: 1 }) || (self.hit_phase == HitPhase::CombatStart && matches!(self.stage, Stage::Sustaining { .. })))
             && !self.over(state, content, sources);
         Some(crate::dual_window::SettleArgs {
             attacker: self.attacker.clone(),
@@ -7013,6 +7019,7 @@ impl CombatWindow {
                 state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL && crate::faction_abilities::has(state, content, side, "munitions")
             }),
             opening_unported,
+            ac,
             round_seq_listens: crate::factions::borrowed_round_agents::has_round_copy(state, content, "letnevagent")
                 || crate::factions::borrowed_round_agents::has_owner_space_round_agent(state),
             barrage_unported,
@@ -10744,29 +10751,40 @@ mod tests {
         ];
         for (which, (name, factions, _prompt)) in cases.into_iter().enumerate() {
             let mut compared = 0;
-            for seed in 0..12_u64 {
+            // The holder is the attacker, or (swap) the defender; its fleet is rich (two kinds, two ships of each) or poor (one cruiser).
+            for (seed, composed, swap) in (0..24_u64).flat_map(|s| [(s, false, s % 2 == 1), (s, true, s % 2 == 1)]) {
+                let order: Vec<&str> = if swap { factions.iter().rev().copied().collect() } else { factions.to_vec() };
+                let (me, other) = if swap { (defender(), attacker()) } else { (attacker(), defender()) };
+                let poor = seed % 3 == 2;
                 let (_, windows, differences, _) = hub_fight_composed(
-                    false,
+                    composed,
                     seed,
-                    factions,
+                    &order,
                     |s, system| {
-                        put(s, system, "cruiser", &attacker(), 2);
-                        put(s, system, "destroyer", &attacker(), 2);
-                        put(s, system, "cruiser", &defender(), 3);
-                        put(s, system, "dreadnought", &defender(), 1);
+                        if poor {
+                            put(s, system, "cruiser", &me, 1);
+                            put(s, system, "carrier", &me, 1);
+                        } else {
+                            put(s, system, "cruiser", &me, 2);
+                            put(s, system, "destroyer", &me, 2);
+                        }
+                        put(s, system, "cruiser", &other, 3);
+                        put(s, system, "dreadnought", &other, 1);
+                        put(s, system, "fighter", &other, 2);
                         if name == "impulse core" {
-                            s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ic"));
+                            s.player_mut(&me).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ic"));
                         }
                         if name == "dimensional splicer" {
-                            s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ds"));
+                            s.player_mut(&me).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ds"));
                             s.wormhole_tokens.insert("ALPHA".to_owned(), system.clone());
                         }
                     },
                     answer,
                 );
-                assert_eq!(differences, 0, "{name} seed {seed}: {windows:?}");
-                let w = windows.get("combat::produce_hits").copied().unwrap_or_default();
-                assert_eq!(w.bailed, 0, "{name} seed {seed}: {windows:?}");
+                assert_eq!(differences, 0, "{name} seed {seed} swap {swap}: {windows:?}");
+                // Compared one by one, or inside the composed machine (the settle window).
+                let w = windows.get(if composed { "combat::settle" } else { "combat::produce_hits" }).copied().unwrap_or_default();
+                assert_eq!(w.bailed, 0, "{name} seed {seed} composed {composed} swap {swap}: {windows:?}");
                 compared += w.compared;
             }
             assert!(compared > 0, "{name}: the window ran: {compared}");
@@ -11460,7 +11478,7 @@ mod tests {
         assert!(settle_gates(&|state, _| state.diplomacy.enabled = true).opening_unported);
         // Hits a module makes at the start of a combat (Mentak's Ambush, Assault Cannon, Dimensional Splicer,
         // Impulse Core): the string asks the modules, the core ability table is empty.
-        assert!(settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("mentak")).opening_unported);
+        assert!(!settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("mentak")).opening_unported);
         // The Thundarian is an ability of the core table since package W2 (`a_readied_thundarian_replays_the_roll_step_in_the_core_window_in_lockstep`).
         // A Last Bastion seat's retreat note is what the retreat gate (`retreat_unported`) still names.
         let retreat = |setup: &dyn Fn(&mut GameState, &SystemId)| {
@@ -11679,12 +11697,16 @@ mod tests {
     /// step is not), the Jol-Nar commander's reroll question and a Waylay played in the barrage.
     #[test]
     fn the_start_hits_and_the_barrage_tail_stay_string_with_their_reasons() {
-        for tech in ["asc", "ds", "ic"] {
+        // Assault Cannon is the machine's window since package W2 (against a neutral side it stays string).
+        let g = settle_gates(&|state, _| {
+            state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("asc"));
+        });
+        assert!(!g.opening_unported && g.ac);
+        for tech in ["ds", "ic"] {
             let g = settle_gates(&|state, _| {
                 state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
             });
-            assert!(g.opening_unported, "{tech}");
-            assert_eq!(g.gate_why, Some("Assault Cannon, Dimensional Splicer or Impulse Core (start-of-combat hits)"), "{tech}");
+            assert!(!g.opening_unported, "{tech}");
         }
         let barrage = |setup: &dyn Fn(&mut GameState)| {
             let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
@@ -11694,10 +11716,8 @@ mod tests {
             crate::dual_window::barrage_why(&state, &args)
         };
         assert_eq!(barrage(&|_| {}), None);
-        assert_eq!(
-            barrage(&|s| s.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("argent")),
-            Some("an Argent side (the excess hits of the barrage)")
-        );
+        // An Argent side (Raid Formation) is a child of the barrage window since package W2, also inside the composed machine.
+        assert_eq!(barrage(&|s| s.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("argent")), None);
         assert_eq!(
             barrage(&|s| {
                 s.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("jolnar");
@@ -11997,6 +12017,123 @@ mod tests {
         assert!(w.compared >= 12 && w.bailed == 0, "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
+    }
+
+    /// Package W2: an Argent side's excess barrage hits (Raid Formation asks the producer which ship is damaged) run in the composed
+    /// machine: the barrage is a child window that can ask. Fails on the pre-W2 gate ("an Argent side").
+    #[test]
+    fn raid_formation_runs_in_the_composed_machine_in_lockstep() {
+        fn first(_: u64, _: usize, _: &Choice) -> usize {
+            0
+        }
+        fn last(_: u64, _: usize, c: &Choice) -> usize {
+            c.options.len() - 1
+        }
+        let (mut compared, mut damaged) = (0, 0);
+        for seed in 0..12_u64 {
+            let (state, windows, differences, _) = hub_fight_composed(
+                true,
+                seed,
+                &["argent", "hacan"],
+                |s, system| {
+                    put(s, system, &a_barrage_unit(), &attacker(), 6);
+                    put(s, system, "fighter", &defender(), 1);
+                    put(s, system, "dreadnought", &defender(), 1);
+                    put(s, system, "cruiser", &defender(), 1);
+                    // Both sides barrage (the defender's destroyers, the attacker's fighters to lose): the second side's hits are applied too.
+                    put(s, system, "destroyer", &defender(), 2);
+                    put(s, system, "fighter", &attacker(), 3);
+                    if seed % 2 == 0 {
+                        put(s, system, "warsun", &defender(), 1);
+                    }
+                },
+                if seed % 3 == 0 { last } else { first },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            let w = windows.get("combat::settle").copied().unwrap_or_default();
+            assert_eq!(w.bailed, 0, "seed {seed}: {windows:?}");
+            compared += w.compared;
+            damaged += state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units.iter().filter(|u| u.sustained_damage).count().min(1);
+        }
+        assert!(compared > 0, "the composed machine ran: {compared}");
+        assert!(damaged > 0, "Raid Formation damaged something");
+    }
+
+    /// Package W2: Assault Cannon at the start of a combat runs in the composed machine (the victim's casualty question carries the card's
+    /// hit detail), before the hits the modules produce and the barrage. Fails on the pre-W2 gate ("Assault Cannon").
+    #[test]
+    fn assault_cannon_runs_in_the_composed_machine_in_lockstep() {
+        fn pick(seed: u64, nth: usize, _: &Choice) -> usize {
+            usize::try_from(seed).unwrap_or(0) % 2 * nth % 2
+        }
+        let (mut compared, mut lost) = (0, 0);
+        for seed in 0..12_u64 {
+            let (state, windows, differences, _) = hub_fight_composed(
+                true,
+                seed,
+                &["hacan", "sol"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "dreadnought", &attacker(), 1);
+                    put(s, system, "cruiser", &defender(), 2);
+                    put(s, system, "destroyer", &defender(), 1);
+                    put(s, system, "fighter", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("asc"));
+                    if seed % 3 == 0 {
+                        s.player_mut(&defender()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("asc"));
+                        put(s, system, "dreadnought", &defender(), 1);
+                    }
+                },
+                pick,
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            let w = windows.get("combat::settle").copied().unwrap_or_default();
+            assert_eq!(w.bailed, 0, "seed {seed}: {windows:?}");
+            compared += w.compared;
+            lost += usize::from(state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units.iter().filter(|u| u.owner == defender()).count() < 6);
+        }
+        assert!(compared > 0 && lost > 0, "compared {compared}, lost {lost}");
+    }
+
+    /// Package W2: Duranium Armor (repair a damaged ship that did not sustain this round, after the hits are assigned) runs in the
+    /// composed machine. Fails on the pre-W2 bail (a side with `da` and a damaged ship stopped the machine: "the machine: a position it
+    /// does not carry").
+    #[test]
+    fn duranium_armor_repairs_in_the_composed_machine_in_lockstep() {
+        fn pick(seed: u64, nth: usize, _: &Choice) -> usize {
+            usize::try_from(seed).unwrap_or(0).wrapping_add(nth) % 2
+        }
+        let (mut compared, mut repaired) = (0, 0);
+        for seed in 0..12_u64 {
+            let (state, windows, differences, _) = hub_fight_composed(
+                true,
+                seed,
+                &["hacan", "sol"],
+                |s, system| {
+                    put(s, system, "dreadnought", &attacker(), 3);
+                    put(s, system, "cruiser", &attacker(), 1);
+                    put(s, system, "dreadnought", &defender(), 2);
+                    put(s, system, "cruiser", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("da"));
+                    if seed % 2 == 0 {
+                        s.player_mut(&defender()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("da"));
+                    }
+                    // A ship damaged in an earlier fight: Duranium Armor may repair it.
+                    for unit in &mut s.system_mut(system).units {
+                        if unit.type_id.as_str() == "dreadnought" {
+                            unit.sustained_damage = true;
+                        }
+                    }
+                },
+                pick,
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            let w = windows.get("combat::settle").copied().unwrap_or_default();
+            assert_eq!(w.bailed, 0, "seed {seed}: {windows:?}");
+            compared += w.compared;
+            repaired += usize::from(state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units.iter().any(|u| u.type_id.as_str() == "dreadnought" && !u.sustained_damage));
+        }
+        assert!(compared > 0 && repaired > 0, "compared {compared}, repaired {repaired}");
     }
 
     #[test]

@@ -1642,8 +1642,7 @@ const CUSTODIANS: Footprint = Footprint {
 /// The core half of `InvasionWindow::answer_custodians` (27.2, 27.3), recorded as the pending question and its
 /// answer (and, for the paid removal, the payment questions after it). The window ends owing the cost; the
 /// payment is the production package's `PayStep` window, run here (an area never imports another) until the bill
-/// is paid, and then the token comes down. `None` (the bail-outs): nested activity, a Naalu seat (the Matriarch's
-/// temporary ground forces are still string-only), a paid removal at a table with a faction the production
+/// is paid, and then the token comes down. `None` (the bail-outs): nested activity, a paid removal at a table with a faction the production
 /// window does not carry yet (`production_view::unported_window`), and a position the codecs refuse.
 #[must_use]
 pub fn custodians(
@@ -1659,10 +1658,6 @@ pub fn custodians(
     use ti4_engine_core::rules::invasion::stages::{lift, Custodians};
     use ti4_engine_core::rules::production::pay::{PayStep, Stage as PayStage};
     const LABEL: &str = "invasion::answer_custodians";
-    if gs.players.iter().any(|p| p.faction.as_str() == "naalu") {
-        crate::dual::note_bail(LABEL, "naalu seat");
-        return None;
-    }
     let paid_yes = script.questions.first().and_then(|q| q.answer.as_deref()) == Some("yes")
         && crate::invasion::custodians_cost(gs, ti4_content::ContentStore::embedded(), invader) != 0;
     if paid_yes && crate::production_view::unported_window(gs, invader) {
@@ -2115,7 +2110,7 @@ pub fn barrage_unported(gs: &GameState, a: &BarrageArgs<'_>) -> bool {
 /// [`barrage_unported`] with the reason.
 #[must_use]
 pub fn barrage_why(gs: &GameState, a: &BarrageArgs<'_>) -> Option<&'static str> {
-    barrage_why_with(gs, a, true)
+    barrage_why_with(gs, a, false)
 }
 
 /// [`barrage_why`] for the barrage STEP window, which carries an Argent side's excess hits (Raid Formation is a child of the window
@@ -4066,6 +4061,8 @@ pub struct SettleArgs {
     pub begin_occurrence: bool,
     pub munitions_after: [bool; 2],
     pub opening_unported: bool,
+    /// A side holds Assault Cannon (the machine's window resolves it at the start of the combat).
+    pub ac: bool,
     /// A Letnev round agent listens (`COMBAT_ROUND_STARTED` carries `round_seq`).
     pub round_seq_listens: bool,
     pub barrage_unported: bool,
@@ -4278,6 +4275,14 @@ fn settle_run(
         det: a.det,
         duranium: a.duranium,
         devotion: a.devotion,
+        raid: r.code("raid_formation_damage"),
+        ac: a.ac,
+        ac_subtype: r.code("assault_cannon_destroy"),
+        ac_cause: r.code("technology:assault_cannon"),
+        wormhole: !crate::factions::hooks_movement::wormholes_at(&before, &a.system).is_empty(),
+        ambush: r.code("ambush"),
+        cause_core: r.code("technology:impulse_core"),
+        cause_devotion: r.code("faction_ability:devotion"),
         casualty: r.code("assign_casualty"),
         commander: r.code("letnevcommander"),
         end_codes: ti4_engine_core::rules::combat::end_announce::Codes {
@@ -4309,11 +4314,30 @@ fn settle_run(
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let content = ti4_content::ContentStore::embedded();
+    let (att_id, def_id) = (a.attacker.clone(), a.defender.clone());
     let driven = with_core(gs, &mut cx, src, nested_fp(SETTLE, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
+            // The questions of the modules' hits are asked in the battle they are fought in (`TimingContext::ask_seeing`).
+            if matches!(&c.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::Ambush | ti4_engine_core::choice::combat::Ask::Sacrifice { .. } | ti4_engine_core::choice::combat::Ask::Splicer | ti4_engine_core::choice::combat::Ask::RaidDamage { .. })) {
+                if let Some(context) = rendered.context.take() {
+                    rendered.context = Some(context.about_battle(&before));
+                }
+            }
             roll_details(content, &texts, c, st, rendered);
             if let ti4_engine_core::choice::Ask::Combat(ask @ ti4_engine_core::choice::combat::Ask::CancelHit { .. }) = &c.ask {
                 rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, c.actor));
+            }
+            // Assault Cannon's loss is a destroy bound to a non-fighter ship, aimed by the holder (its question carries the card's subtype).
+            if rendered.context.as_ref().is_some_and(|ctx| ctx.subtype == "assault_cannon_destroy") {
+                let producer = if c.actor == attacker { def_id.clone() } else { att_id.clone() };
+                if let Some(context) = rendered.context.take() {
+                    rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
+                        cause: crate::decision_context::HitCause::AssaultCannon,
+                        destroy: true,
+                        restriction: crate::decision_context::HitRestriction::NonFighter,
+                        producer: Some(producer),
+                    }));
+                }
             }
         });
         staged = std::mem::take(&mut core.pending_mut().staged);
