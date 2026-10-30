@@ -448,6 +448,117 @@ impl Window for Helmsman {
     }
 }
 
+// -- Gurno Aggero -----------------------------------------------------------------------------------
+
+/// The suspension points of [`ArmageddonRelay`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SStage {
+    Start,
+    Target,
+    Done,
+}
+
+/// Gurno Aggero (Saar hero): "ACTION: Choose 1 system that is adjacent to 1 of your space docks. Destroy all other players'
+/// infantry and fighters in that system." The system is chosen before anything is destroyed; the units are removed directly
+/// (a leader effect announces no destruction). Never offered without a map or a dock with a neighbour. The neighbours are the
+/// map's plain adjacency: a seat whose adjacency a faction rule changes is the adapter's to decline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArmageddonRelay {
+    pub who: Seat,
+    /// The string arm had a map (`context.galaxy`).
+    pub has_map: bool,
+    stage: SStage,
+    pub used: bool,
+}
+
+impl ArmageddonRelay {
+    #[must_use]
+    pub const fn new(who: Seat, has_map: bool) -> Self {
+        Self { who, has_map, stage: SStage::Start, used: false }
+    }
+
+    const ASK: Ask = Ask::Leaders(LAsk::SaarHero);
+
+    /// The systems next to a space dock of the seat, in system order (the string sorts them by id).
+    fn candidates(&self, core: &CoreState, k: &Kernel) -> Vec<System> {
+        if !self.has_map {
+            return Vec::new();
+        }
+        let scope = scope(k);
+        let is_dock = |p: &crate::state::Piece| p.owner() == self.who && scope.unit(p.kind()).is_some_and(|d| d.base_type == UnitBaseType::Spacedock);
+        let mut docks: Vec<System> = core.board().systems().filter(|(_, c)| c.units.as_slice().iter().any(is_dock)).map(|(s, _)| s).collect();
+        docks.extend(
+            core.board()
+                .planets()
+                .filter(|(_, c)| c.units.as_slice().iter().any(is_dock))
+                .filter_map(|(planet, c)| c.placed_in.or(planet.data().system)),
+        );
+        let mut found: Vec<System> = Vec::new();
+        for dock in docks {
+            let Some(near) = board::neighbours(core, dock) else { continue };
+            for index in near.iter() {
+                if let Some(next) = System::ALL.get(index)
+                    && *next != dock
+                    && !found.contains(next)
+                {
+                    found.push(*next);
+                }
+            }
+        }
+        found.sort_unstable();
+        found
+    }
+
+    fn strike(&mut self, sx: &mut Sx<'_>, system: System) {
+        let scope = scope(sx.kernel);
+        let who = self.who;
+        let doomed = |p: &crate::state::Piece| {
+            p.owner() != who && scope.unit(p.kind()).is_some_and(|d| matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry))
+        };
+        sx.state.board_mut().sys_mut(system).units.retain(|p| !doomed(p));
+        let planets: Vec<Planet> = board::planets_of(sx.state, system).collect();
+        for planet in planets {
+            sx.state.board_mut().planet_mut(planet).units.retain(|p| !doomed(p));
+        }
+        self.used = true;
+        self.stage = SStage::Done;
+    }
+}
+
+impl Window for ArmageddonRelay {
+    type Stage = SStage;
+
+    fn stage(&self) -> SStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == SStage::Start {
+            self.stage = if self.candidates(sx.state, sx.kernel).is_empty() { SStage::Done } else { SStage::Target };
+        }
+        if self.stage == SStage::Target { Next::Continue(Self::ASK) } else { Next::Done }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        (self.stage == SStage::Target).then(|| Choice {
+            actor: self.who,
+            ask: Self::ASK,
+            ctx: ctx(Leader::GurnoAggero, LSub::SaarHero),
+            opts: self.candidates(s, k).into_iter().map(|system| Opt::Leaders(LOpt::System(system))).collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (SStage::Target, Pick::Opt(Opt::Leaders(LOpt::System(system)))) if self.candidates(sx.state, sx.kernel).contains(&system) => {
+                self.strike(sx, system);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 // -- Rin, the Masters' Legacy -----------------------------------------------------------------------
 
 /// The suspension points of [`RinHero`].

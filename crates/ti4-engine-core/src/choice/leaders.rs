@@ -42,6 +42,8 @@ pub enum Ask {
     XxchaHeroPlace,
     /// Xxekir Grom: which planet gets the unit.
     XxchaHeroPlanet,
+    /// Gurno Aggero (Saar hero): which system next to a space dock loses the other players' infantry and fighters.
+    SaarHero,
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -67,7 +69,7 @@ pub enum Opt {
     GainCommodities,
     /// Hacan agent: replenish this seat's commodities.
     Replenish(crate::ids::Seat),
-    /// A system (the Helmsman's destination).
+    /// A system (the Helmsman's destination, Gurno Aggero's target).
     System(crate::generated::System),
     /// Jol-Nar hero: trade for this technology.
     Trade(crate::generated::Technology),
@@ -93,4 +95,5 @@ pub enum Subtype {
     RoundAgentUnit,
     XxchaHeroPlace,
     XxchaHeroPlanet,
+    SaarHero,
 }

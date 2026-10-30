@@ -22,7 +22,7 @@ mod real {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::leader_windows::{HacanAgent, Helmsman, RinHero, XxchaAgent};
+    use ti4_engine_core::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, RinHero, XxchaAgent};
     use ti4_model::content_types::SourceSet;
 
     use crate::core_adapter::typed;
@@ -300,6 +300,36 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
+    /// The core half of Saar's Gurno Aggero (`factions::saar::hero`). `plain` says the player's adjacency is the map's own (no faction rule
+    /// links or blocks a border); the window reads the map's adjacency, so any other position is the string's. `None` as for [`xxcha_agent`].
+    pub fn saar_hero(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, plain: bool, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if !plain {
+            crate::dual::note_bail_here("a seat whose adjacency a faction rule changes (extra wormholes, links, blocked borders)");
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let kernel = kernel(sources)?;
+        let before = gs.clone();
+        let has_map = galaxy.is_some();
+        let mut driver = Driver::new(ArmageddonRelay::new(seat, has_map), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy, rng: None }, if has_map { XXCHA } else { XXCHA_NO_MAP }, |core, _| {
+            if has_map && core.galaxy().is_none() {
+                return None;
+            }
+            Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
+    }
+
     const PLAYERS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
     /// The core half of `leaders::jolnar_hero` (Rin). `None` where `apply_unit_upgrades` would change the
@@ -440,6 +470,16 @@ mod stub {
         _: &mut GameState,
         _: &PlayerId,
         _: Option<&ti4_content::galaxy::Galaxy>,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn saar_hero(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: Option<&ti4_content::galaxy::Galaxy>,
+        _: bool,
         _: ti4_model::content_types::SourceSet,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {

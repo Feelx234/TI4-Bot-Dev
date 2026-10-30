@@ -1253,7 +1253,35 @@ fn use_leader(
 
 /// "Choose 1 system that is adjacent to 1 of your space docks. Destroy all other players' infantry
 /// and fighters in that system." The system is chosen before anything is destroyed.
+///
+/// The whole action is a window of the core (`rules::leader_windows::ArmageddonRelay`): the question over the systems next to the
+/// docks and what the answer destroys. The window reads the map's own adjacency; a seat whose adjacency a faction rule changes keeps
+/// the string body (a counted bail).
 fn hero(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::saar::hero",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(hero_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let plain = galaxy.is_none_or(|map| {
+                let adjacency = crate::movement::PlayerAdjacency::new(s, content, sources, map, player);
+                dock_systems(s, content, sources, player)
+                    .iter()
+                    .all(|dock| adjacency.neighbours(dock.as_str()) == map.adjacent(dock.as_str()).into_iter().map(ToOwned::to_owned).collect())
+            });
+            crate::leaders_core::saar_hero(s, player, galaxy, plain, sources, script)
+        }
+    )
+}
+
+/// [`hero`] on the string engine: the oracle of the dual run.
+fn hero_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let Some(galaxy) = context.galaxy else {
         return false;
     };
@@ -1722,6 +1750,83 @@ mod tests {
             "a system not adjacent to a dock is untouched"
         );
         assert_eq!(board.on_planet_of(&planet, &b()).len(), 1);
+    }
+
+    /// Gurno Aggero is a window of the core: the question over the systems next to the docks and what the answer destroys (the other
+    /// seats' fighters and infantry, in space and on the planets of the system). The core half agrees with the string for a far
+    /// system, a neighbour with and without a planet, and a seat with no dock (nothing asked), and it ran every time.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let content = ContentStore::embedded();
+        let hub = crate::fixtures::plain_hub();
+        let dock = SystemId::new(hub.outer[0].clone());
+        let planet_of = |system: &str| ti4_content::galaxy::system(content, system, DEFAULT).and_then(|tile| tile.planets().first().map(|p| PlanetId::new(*p)));
+        let neighbours: Vec<String> = hub.galaxy.adjacent(dock.as_str()).into_iter().map(ToOwned::to_owned).collect();
+        let run = |with_dock: bool, answer: &str| -> (bool, GameState) {
+            let mut state = game();
+            if with_dock {
+                state.system_mut(&dock).units.push(Unit::new(UnitTypeId::new("saar_spacedock"), a()));
+            }
+            for system in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
+                let system = SystemId::new(system.clone());
+                state.system_mut(&system).units.push(Unit::new(UnitTypeId::new("fighter"), b()));
+                state.system_mut(&system).units.push(Unit::new(UnitTypeId::new("infantry"), b()));
+                state.system_mut(&system).units.push(Unit::new(UnitTypeId::new("fighter"), a()));
+                if let Some(planet) = planet_of(system.as_str()) {
+                    crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+                    crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+                }
+            }
+            let mut table = scripted(&[answer]);
+            let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(&mut state, DEFAULT, Some(&hub.galaxy), &mut table, |context| use_leader(context, &a(), &LeaderId::new("saarhero")))
+            });
+            (done == Some(true), state)
+        };
+        let target = neighbours.iter().find(|s| planet_of(s).is_some()).unwrap_or(&neighbours[0]).clone();
+        let (done, state) = run(true, &target);
+        assert!(done);
+        let fighters_of_b = state.system_state(&SystemId::new(target.clone())).units.iter().filter(|u| u.owner == b() && matches!(u.type_id.as_str(), "fighter" | "infantry")).count();
+        assert_eq!(fighters_of_b, 0, "the other seat's fighters and infantry are gone");
+        let (done, _) = run(true, &hub.centre);
+        assert!(done);
+        assert!(!run(false, &target).0, "no dock: nothing to choose");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::saar::hero"), (3, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// A seat whose adjacency a faction rule changes keeps the string body, counted: with a Creuss flagship in play the delta wormhole
+    /// links its system to the Creuss home system, so the dock's neighbours are not the map's. Fails when the window reads the
+    /// map's adjacency anyway (the core half would then ask a question the string does not).
+    #[test]
+    fn the_hero_stays_in_the_string_where_a_faction_rule_changes_the_adjacency() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let hub = crate::fixtures::hub_with_outer("17");
+        let dock = SystemId::new(hub.across("17"));
+        let mut state = crate::fixtures::seated_game(&[("a", FACTION), ("b", "ghost")], DEFAULT);
+        state.system_mut(&dock).units.push(Unit::new(UnitTypeId::new("saar_spacedock"), a()));
+        state.system_mut(&dock).units.push(Unit::new(UnitTypeId::new("ghost_flagship"), b()));
+        let adjacency = crate::movement::PlayerAdjacency::new(&state, ContentStore::embedded(), DEFAULT, &hub.galaxy, &a());
+        assert!(adjacency.neighbours(dock.as_str()).contains("17"), "the delta wormhole links the dock's system to the Creuss home system");
+        let mut table = scripted(&["17"]);
+        let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            crate::fixtures::with_context(&mut state, DEFAULT, Some(&hub.galaxy), &mut table, |context| use_leader(context, &a(), &LeaderId::new("saarhero")))
+        });
+        assert_eq!(done, Some(true), "the string body resolved it");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::saar::hero"), (0, 1), "the core half bailed: {r:?}");
+        assert!(r.windows.keys().any(|label| label.starts_with("factions::saar::hero [") && label.contains("adjacency a faction rule changes")), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

@@ -109,6 +109,7 @@ impl Family for Fam {
             Ask::RoundAgentUnit { agent, copied: true } => format!("Ssruu copying {}: choose one unit for +1 combat die", agent.as_str()),
             Ask::XxchaHeroPlace => "Leader: place up to 4 PDS or mechs (how many more?)".to_owned(),
             Ask::XxchaHeroPlanet => "Leader: which planet gets the unit?".to_owned(),
+            Ask::SaarHero => "Gurno Aggero: destroy all other players' infantry and fighters in which system".to_owned(),
         }
     }
 
@@ -123,6 +124,7 @@ impl Family for Fam {
             Subtype::RoundAgentUnit => ROUND_KIND.to_owned(),
             Subtype::XxchaHeroPlace => HERO_PLACE_KIND.to_owned(),
             Subtype::XxchaHeroPlanet => HERO_PLANET_KIND.to_owned(),
+            Subtype::SaarHero => "armageddon_relay".to_owned(),
         }
     }
 
@@ -133,6 +135,7 @@ impl Family for Fam {
                 let id = p.as_str();
                 ChoiceOption::labelled(id, "planet", id).with_planet(id, system.system.map(|s| s.as_str()))
             }
+            Opt::System(system) if matches!(a, Ask::SaarHero) => ChoiceOption::labelled(system.as_str(), "system", format!("system {}", system.as_str())),
             Opt::System(system) => ChoiceOption::labelled(system.as_str(), "system", system.as_str()),
             Opt::Remove => ChoiceOption::labelled("remove", INFANTRY_KIND, "remove 1 infantry"),
             Opt::Keep => match a {
@@ -182,7 +185,7 @@ impl Family for Fam {
                 "keep" => Some(Opt::Keep),
                 _ => None,
             },
-            Ask::L1z1xDestination => System::from_id(id).map(Opt::System),
+            Ask::L1z1xDestination | Ask::SaarHero => System::from_id(id).map(Opt::System),
             Ask::JolnarSwap { held } => match id.strip_prefix("keep|") {
                 Some(kept) => (kept == held.as_str()).then_some(Opt::Keep),
                 None => Technology::from_id(id).map(Opt::Trade),
