@@ -59,9 +59,9 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_SHIP, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_GROUND, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::WATCHER, kind: "unit", card: "empyrean_mech" },
+    Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::FUTURE_SIGHT, kind: "ability", card: "future_sight" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_PLAY, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_RETURN, kind: "promissory", card: "cavalry" },
-    Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::FUTURE_SIGHT, kind: "ability", card: "future_sight" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::ARTUNO, kind: "leader", card: "nomadagentartuno" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE_II, kind: "unit", card: "mahact_infantry2" },
@@ -200,6 +200,7 @@ pub fn table() -> AbilityTable {
             // The links to the areas whose windows an action card runs as children: a play window that follows nested
             // activity runs on this table (`follow`), not on `action_cards_view::play_table`.
             ti4_engine_core::driver::children::register(&mut t);
+            t.facts.card_groups = card_groups();
             t
         })
         .clone()
@@ -387,6 +388,22 @@ fn card_tables() -> &'static (Vec<u8>, Vec<bool>) {
     })
 }
 
+/// The table of a core window that runs children of other areas but follows no ability: the links of the areas and the
+/// printed-name groups of the action cards.
+#[must_use]
+pub(crate) fn linked_table() -> AbilityTable {
+    let mut table = AbilityTable::default();
+    ti4_engine_core::driver::children::register(&mut table);
+    table.facts.card_groups = card_groups();
+    table
+}
+
+/// The printed-name group of each action card (the index of the first card with the same name): the windows that offer one
+/// option per name outside a card play (the hand limit's discard) read it from the table's facts.
+pub(crate) fn card_groups() -> Vec<u8> {
+    card_tables().0.clone()
+}
+
 /// What the play of an action card inside a window reads from outside the core (`None`: a seat or a unit form the
 /// tables do not know; the play then marks the run unknown and the window bails).
 fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::SourceSet) -> Option<ti4_engine_core::kernel::ability::PlayFacts> {
@@ -461,10 +478,12 @@ impl Follow {
         self.table.codes.action_card = r.code("action_card");
         self.table.codes.supply_base = r.code("forward_supply_base");
         self.table.codes.mentak = r.code("mentak");
+        self.table.codes.future_sight = r.code("future_sight");
         self.table.codes.instinct_training = r.code("instinct_training");
         self.table.codes.direct_hit = r.code("action_card:direct_hit");
         self.table.codes.cavalry = r.code("cavalry");
         self.table.codes.technological_singularity = r.code("technological_singularity");
+        self.table.codes.galactic_threat = r.code("galactic_threat");
         self.table.codes.empyrean_mech = r.code("empyrean_mech");
         self.table.codes.salvage = r.code("so");
         self.table.facts.pay_kernel = Some(crate::production_view::kernel);
@@ -472,8 +491,6 @@ impl Follow {
         self.table.codes.mahact_infantry2 = r.code("mahact_infantry2");
         self.table.codes.retreat_capacity = r.code("retreat_capacity");
         self.table.codes.reinforcements = r.code("reinforcements");
-        self.table.codes.future_sight = r.code("future_sight");
-        self.table.codes.galactic_threat = r.code("galactic_threat");
         self.table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
         self.table.facts.staging = crate::supply::staging_enabled(gs);
         let defs = self.table.registry(core, &order, &mut name);

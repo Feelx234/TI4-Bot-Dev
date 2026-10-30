@@ -588,12 +588,33 @@ fn bail_specialist_compounds_stays_string() {
 #[test]
 fn bail_the_seats_whose_own_effects_on_a_research_are_questions() {
     let tech = researchable(&crate::fixtures::seated_game(&F3, POK))[0].clone();
-    // Keleres (the agent's offer), Deepwrought (Doctor Carrina's window) and Mentak (the Corsair's form) as the researcher.
-    for faction in ["keleresm", "deepwrought", "mentak"] {
+    // Keleres (the agent's offer) and Deepwrought (Doctor Carrina's window) as the researcher.
+    for faction in ["keleresm", "deepwrought"] {
         let table = [("a", faction), ("b", "hacan"), ("c", "arborec")];
         let (counts, _) = play(&table, rich, &[tech.as_str(), "decline"], true);
         assert_eq!(counts, (0, 1), "{faction}");
     }
+}
+
+/// W6 regression: every Mentak seat was a bail ("a seat whose own effects on a research are questions or forms", 46 of 131 per 20
+/// golden games with other seats): only The Table's Grace (Thunder's Edge) makes the Corsair the form of Cruiser II. Without it a
+/// Mentak researches in the core window as any seat, as the researcher and beside the researcher.
+#[test]
+fn a_mentak_seat_researches_in_lockstep_and_the_corsair_form_stays_the_strings() {
+    let probe = crate::fixtures::seated_game(&F3, POK);
+    let tech = researchable(&probe)[0].clone();
+    for table in [[("a", "mentak"), ("b", "hacan"), ("c", "arborec")], [("a", "sol"), ("b", "mentak"), ("c", "arborec")]] {
+        let (counts, _) = play(&table, rich, &[tech.as_str(), "decline"], true);
+        assert_eq!(counts, (1, 0), "{table:?}");
+    }
+    // The Table's Grace: the Corsair stands in for Cruiser II, in research too.
+    let grace = |s: &mut GameState| {
+        rich(s);
+        s.player_mut(&a()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("mentakbt"));
+    };
+    let table = [("a", "mentak"), ("b", "hacan"), ("c", "arborec")];
+    let (counts, _) = play(&table, grace, &[tech.as_str(), "decline"], true);
+    assert_eq!(counts, (0, 1), "The Table's Grace is the string's");
 }
 
 #[test]

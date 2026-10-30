@@ -161,7 +161,7 @@ pub(super) fn options(s: &CoreState, k: &Kernel, nekro: Seat, source: Seat) -> V
 }
 
 /// A faceup Antivirus of the Nekro in `opponent`'s area bars the ability against them.
-fn antivirus_bars(s: &CoreState, nekro: Seat, opponent: Seat) -> bool {
+pub(super) fn antivirus_bars(s: &CoreState, nekro: Seat, opponent: Seat) -> bool {
     let Some(p) = s.players().by_seat(nekro) else { return false };
     let note = NoteKey { note: PromissoryNote::Antivirus, faction: p.faction };
     s.cards().promissory.get(&note) == Some(&opponent) && s.cards().promissory_faceup.contains_key(&note)
@@ -224,19 +224,19 @@ fn singularity(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     eff.state().marks_mut().tail.edit().insert(key, mark(opponent, Word::Used));
     let offered = {
         let (s, k) = eff.read();
-        options(s, k, me, opponent).into_iter().map(|(how, tech)| (how, tech, opponent)).collect::<Vec<_>>()
+        options(s, k, me, opponent)
     };
-    take(eff, &offered, codes.technological_singularity)
-}
-
-/// "Gain a technology, or assimilate instead" (`nekro::take_from`): ask the Nekro to pick one of `offered` (what it can take of the
-/// players the ability allows, in the order given) and apply it. The choice is mandatory once the ability is used; `source` is the
-/// interned name of the ability (the question's origin). Nothing happens for an empty list.
-pub(super) fn take(eff: &mut Eff<'_, '_>, offered: &[(Take, Technology, Seat)], source: ti4_engine_core::state::Code) -> Result<(), TimingError> {
-    let me = eff.owner();
     if offered.is_empty() {
         return Ok(());
     }
+    let source_code = codes.technological_singularity;
+    let offered: Vec<(Take, Technology, Seat)> = offered.iter().map(|(how, tech)| (*how, *tech, opponent)).collect();
+    take(eff, me, source_code, &offered)
+}
+
+/// The question "gain a technology, or assimilate instead" over `offered` (what the Nekro may take, with the seat it comes from) and
+/// its answer applied: the shared tail of Technological Singularity and Galactic Threat. `source` is the interned name of the ability.
+pub(super) fn take(eff: &mut Eff<'_, '_>, me: Seat, source: ti4_engine_core::state::Code, offered: &[(Take, Technology, Seat)]) -> Result<(), TimingError> {
     let choice = Choice {
         actor: me,
         ask: Ask::Reaction(RAsk::Assimilate),
