@@ -160,6 +160,11 @@ pub fn golden_games(
     each: &mut dyn FnMut(usize, &str),
 ) -> Result<(Vec<Position>, Vec<String>), String> {
     let (matrix, specs) = specs(config)?;
+    // The config's `bot` overrides (`bot_version`, knobs) are the bot every seat plays, as in `selfplay run`; a config
+    // without any (the golden profiles) plays the shipped tuning, untouched.
+    if !matrix.bot.is_empty() {
+        ti4_rule_bot::tuning::set(ti4_selfplay::driver::tuning_from(&matrix.bot)?);
+    }
     let mut positions = Vec::new();
     let mut hashes = Vec::new();
     for (index, spec) in specs.iter().take(games).enumerate() {
