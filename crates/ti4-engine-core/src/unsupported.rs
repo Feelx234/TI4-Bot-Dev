@@ -58,9 +58,21 @@ pub fn with_policy<T>(p: Policy, f: impl FnOnce() -> T) -> T {
     f()
 }
 
+const fn encode(p: Policy) -> u8 {
+    match p {
+        Policy::Off => 0,
+        Policy::Panic => 1,
+    }
+}
+
+const fn decode(n: u8) -> Policy {
+    if n == 0 { Policy::Off } else { Policy::Panic }
+}
+
 /// Set the policy of this process.
+// mutants:skip (the process-wide switch cannot be flipped in a test process: every parallel test would see it; `encode`/`decode` are tested)
 pub fn set_policy(p: Policy) {
-    POLICY.store(u8::from(p == Policy::Panic), Ordering::Relaxed);
+    POLICY.store(encode(p), Ordering::Relaxed);
 }
 
 /// The policy of this process.
@@ -69,7 +81,7 @@ pub fn policy() -> Policy {
     if let Some(p) = LOCAL.with(Cell::get) {
         return p;
     }
-    if POLICY.load(Ordering::Relaxed) == 0 { Policy::Off } else { Policy::Panic }
+    decode(POLICY.load(Ordering::Relaxed))
 }
 
 /// The feature a faction belongs to, if it is switched off.
@@ -196,6 +208,13 @@ mod tests {
         }
         // an ordinary table passes under Panic
         with_policy(Policy::Panic, || guard(&table(&[Faction::TheArborec, Faction::TheEmiratesOfHacan])));
+    }
+
+    #[test]
+    fn the_process_wide_policy_survives_its_encoding() {
+        assert_eq!(decode(encode(Policy::Off)), Policy::Off);
+        assert_eq!(decode(encode(Policy::Panic)), Policy::Panic);
+        assert_ne!(encode(Policy::Off), encode(Policy::Panic));
     }
 
     #[test]

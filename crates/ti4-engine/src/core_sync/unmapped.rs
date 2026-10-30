@@ -71,6 +71,11 @@ thread_local! {
     static STRICT_HERE: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Whether the value of an environment variable (if set) is `want`.
+fn env_is(value: Option<&str>, want: &str) -> bool {
+    value.is_some_and(|v| v == want)
+}
+
 /// Whether strict mode is on: [`set_strict`], or `TI4_UNMAPPED=strict` (native only, read once).
 #[must_use]
 pub fn strict() -> bool {
@@ -80,25 +85,31 @@ pub fn strict() -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
         static ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        return *ENV.get_or_init(|| std::env::var("TI4_UNMAPPED").is_ok_and(|v| v == "strict"));
+        return *ENV.get_or_init(|| env_is(std::env::var("TI4_UNMAPPED").ok().as_deref(), "strict"));
     }
     #[cfg(target_arch = "wasm32")]
     false
 }
 
 /// Make the first refusal of this process a panic (the gate binaries call this first).
+// mutants:skip (the process-wide switch cannot be flipped in a test process: every parallel test would see it)
 pub fn set_strict(on: bool) {
     STRICT.store(on, Ordering::Relaxed);
 }
 
 /// The gate binaries' first call: strict, unless the environment says `TI4_UNMAPPED=count` (a run that only
 /// wants the census, printed by [`DualReport`](crate::dual::DualReport)).
+// mutants:skip (sets the process-wide switch; the decision is `gate_strict`, tested)
 pub fn set_strict_for_gate() {
     #[cfg(not(target_arch = "wasm32"))]
-    if std::env::var("TI4_UNMAPPED").is_ok_and(|v| v == "count") {
-        return;
-    }
+    set_strict(gate_strict(std::env::var("TI4_UNMAPPED").ok().as_deref()));
+    #[cfg(target_arch = "wasm32")]
     set_strict(true);
+}
+
+/// Whether a gate binary runs strict, given `TI4_UNMAPPED`: unless it says `count`.
+fn gate_strict(env: Option<&str>) -> bool {
+    !env_is(env, "count")
 }
 
 fn record(slice: u8, what: &'static str, text: &str) {
@@ -159,4 +170,33 @@ pub fn allow_unmapped<T>(f: impl FnOnce() -> T) -> T {
     ALLOWED.with(|a| a.set(a.get() + 1));
     let _guard = Guard;
     f()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_environment_switches_read_their_exact_values() {
+        assert!(env_is(Some("strict"), "strict"));
+        assert!(!env_is(Some("count"), "strict"));
+        assert!(!env_is(None, "strict"));
+        assert!(gate_strict(None));
+        assert!(gate_strict(Some("strict")));
+        assert!(!gate_strict(Some("count")));
+    }
+
+    #[test]
+    fn counts_merge_by_sum_and_by_reason() {
+        let mut a = UnmappedCounts::default();
+        a.add(2, "x");
+        a.add(2, "x");
+        let mut b = UnmappedCounts::default();
+        b.add(2, "x");
+        b.add(3, "y");
+        a.merge(&b);
+        assert_eq!(a.total, 4);
+        assert_eq!(a.by_reason.get(&(2, "x")), Some(&3));
+        assert_eq!(a.by_reason.get(&(3, "y")), Some(&1));
+    }
 }

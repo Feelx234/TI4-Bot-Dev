@@ -106,13 +106,38 @@ fn the_adapter_refusals_are_counted_under_their_own_name() {
 }
 
 #[test]
-fn the_process_wide_counter_sees_what_a_thread_counted() {
+fn the_process_wide_counter_sees_what_a_thread_counted_and_is_drained_by_take() {
+    // every other test that drains the process-wide counter (`dual::take_report`) holds this lock
+    let _serial = crate::dual::tests::serial();
+    let key = (Slice::Meta as u8, "a unit test of the census");
     let _ = unmapped::take_thread();
-    let before = unmapped::peek().by_reason.get(&(Slice::Meta as u8, "a unit test of the census")).copied().unwrap_or(0);
+    let _ = unmapped::take();
     let _ = bad(Slice::Meta, "a unit test of the census", "x");
-    let after = unmapped::peek().by_reason.get(&(Slice::Meta as u8, "a unit test of the census")).copied().unwrap_or(0);
-    assert!(after > before);
-    assert_eq!(unmapped::take_thread().total, 1);
+    let _ = bad(Slice::Meta, "a unit test of the census", "y");
+    assert_eq!(unmapped::peek().by_reason.get(&key), Some(&2));
+    assert_eq!(unmapped::take_thread().by_reason.get(&key), Some(&2));
+    let drained = unmapped::take();
+    assert_eq!(drained.by_reason.get(&key), Some(&2));
+    assert_eq!(unmapped::peek().by_reason.get(&key), None, "take drains");
+}
+
+#[test]
+fn allow_unmapped_nests_and_strict_mode_comes_back_after_it() {
+    let refusal = || {
+        let _ = bad(Slice::Meta, "a nesting test", "x");
+    };
+    unmapped::strict_on_this_thread(|| {
+        unmapped::allow_unmapped(|| {
+            unmapped::allow_unmapped(refusal);
+            refusal(); // the outer guard is still on
+        });
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(refusal);
+        std::panic::set_hook(prev);
+        assert!(r.is_err(), "outside every allow_unmapped the refusal panics again");
+    });
+    let _ = unmapped::take_thread();
 }
 
 #[test]
@@ -296,7 +321,9 @@ fn ids(list: &[&str]) -> Vec<PlayerId> {
 #[test]
 fn an_id_that_is_a_proper_prefix_of_another_is_refused_at_creation_and_would_leave_the_keys_unmapped() {
     let e = guard::ids_supported(&ids(&["p1", "p10"])).unwrap_err();
-    assert!(e.contains("prefix"), "{e}");
+    assert!(e.contains("\"p1\" is a prefix of \"p10\""), "{e}");
+    let e = guard::ids_supported(&ids(&["p10", "p1"])).unwrap_err();
+    assert!(e.contains("\"p1\" is a prefix of \"p10\""), "the shorter id is named first whatever the order: {e}");
     assert!(guard::ids_supported(&ids(&["ab", "abc", "x"])).is_err());
     // what the guard protects: the key codec has no owner table for such a game
     let gs = crate::fixtures::real_game(&["p1", "p10"]);

@@ -51,13 +51,22 @@ pub fn with_disabled_policy<T>(p: Policy, f: impl FnOnce() -> T) -> T {
         }
     }
     let _restore = Restore(LOCAL.with(|l| l.replace(Some(p))));
-    core::with_policy(if p == Policy::Panic { core::Policy::Panic } else { core::Policy::Off }, f)
+    core::with_policy(core_policy(p), f)
+}
+
+/// The policy of the typed core's own sites that goes with `p`: `Panic` only for [`Policy::Panic`].
+const fn core_policy(p: Policy) -> core::Policy {
+    match p {
+        Policy::Panic => core::Policy::Panic,
+        Policy::Off | Policy::Bail => core::Policy::Off,
+    }
 }
 
 /// Set the policy of this process (and, for [`Policy::Panic`], that of the typed core's own sites).
+// mutants:skip (the process-wide switch cannot be flipped in a test process: every parallel test would see it; `core_policy` is tested)
 pub fn set_disabled_policy(p: Policy) {
     POLICY.store(p as u8, Ordering::Relaxed);
-    core::set_policy(if p == Policy::Panic { core::Policy::Panic } else { core::Policy::Off });
+    core::set_policy(core_policy(p));
 }
 
 /// The policy of this process.
@@ -74,12 +83,47 @@ pub fn disabled_policy() -> Policy {
 }
 
 /// The gate binaries' first call: panic on a switched-off feature, unless `TI4_DISABLED=off` says otherwise.
+// mutants:skip (sets the process-wide switch; the decision is `gate_policy`, tested)
 pub fn set_disabled_policy_for_gate() {
     #[cfg(not(target_arch = "wasm32"))]
-    if std::env::var("TI4_DISABLED").is_ok_and(|v| v == "off") {
-        return;
-    }
+    set_disabled_policy(gate_policy(std::env::var("TI4_DISABLED").ok().as_deref()));
+    #[cfg(target_arch = "wasm32")]
     set_disabled_policy(Policy::Panic);
+}
+
+/// The policy a gate binary runs with, given `TI4_DISABLED`: `Panic`, unless it says `off`.
+fn gate_policy(env: Option<&str>) -> Policy {
+    if env == Some("off") { Policy::Off } else { Policy::Panic }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_gate_runs_panic_unless_the_environment_says_off() {
+        assert_eq!(gate_policy(None), Policy::Panic);
+        assert_eq!(gate_policy(Some("panic")), Policy::Panic);
+        assert_eq!(gate_policy(Some("off")), Policy::Off);
+    }
+
+    #[test]
+    fn only_panic_reaches_the_sites_of_the_typed_core() {
+        assert_eq!(core_policy(Policy::Panic), core::Policy::Panic);
+        assert_eq!(core_policy(Policy::Bail), core::Policy::Off);
+        assert_eq!(core_policy(Policy::Off), core::Policy::Off);
+    }
+
+    #[test]
+    fn a_thread_policy_reaches_the_core_and_ends_with_its_closure() {
+        with_disabled_policy(Policy::Panic, || assert_eq!(core::policy(), core::Policy::Panic));
+        with_disabled_policy(Policy::Bail, || {
+            assert_eq!(disabled_policy(), Policy::Bail);
+            assert_eq!(core::policy(), core::Policy::Off);
+        });
+        assert_eq!(core::policy(), core::Policy::Off);
+        assert_eq!(disabled_policy(), Policy::Off);
+    }
 }
 
 /// The first switched-off feature the position uses.
