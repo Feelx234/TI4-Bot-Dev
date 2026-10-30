@@ -12,10 +12,10 @@ pub fn snapshot_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("snapshots")
 }
 
-/// `BLESS=1` blesses every snapshot of the run; `BLESS=<text>` only those whose name contains the text (so a run of the whole suite can
+/// `BLESS=1` blesses every snapshot of the run; `BLESS=<a>,<b>` only those whose name contains one of the texts (so a run of the whole suite can
 /// bless one area without touching the tests of the kit that expect a missing or differing snapshot to fail).
 fn blessing(name: &str) -> bool {
-    std::env::var("BLESS").is_ok_and(|v| v == "1" || (!v.is_empty() && name.contains(&v)))
+    std::env::var("BLESS").is_ok_and(|v| v == "1" || v.split(',').any(|part| !part.is_empty() && name.contains(part)))
 }
 
 /// Compare `text` with the snapshot `name` (`area/name`, no extension). Trailing whitespace of lines and a missing final newline do not count.
