@@ -129,10 +129,24 @@ fn salvage(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
             .filter(|form| ti4_engine_core::query::fleet::remaining_all(eff.state(), scope, me, *form) > 0)
             .map(|form| fx::place_unit(eff.state(), me, system, None, form))
             .is_some();
-    if !placed {
+    if placed {
+        // `place_units_counted` ignores the unit-form override; the string brings the new ship to its form with `apply_unit_upgrades`
+        // for the whole seat (every unit on the board takes the form the seat is entitled to).
+        upgrade_forms(eff, me, scope);
+    } else {
         *eff.state() = before;
     }
     Ok(())
+}
+
+/// `technology::apply_unit_upgrades` with the hook table's override (the seat's units take the form it is entitled to).
+fn upgrade_forms(eff: &mut Eff<'_, '_>, me: Seat, scope: ti4_engine_core::tables::Scope) {
+    let roster = crate::cd_registry::yin::timing::roster(scope);
+    let swaps = {
+        let (state, kernel) = eff.read();
+        ti4_engine_core::kernel::fx_strategy::unit_swaps(state, kernel, scope, &roster, me)
+    };
+    ti4_engine_core::kernel::fx_strategy::apply_swaps(eff.state(), me, &swaps);
 }
 
 const HERO: Leader = Leader::IpswitchLooseCannon;
@@ -187,6 +201,7 @@ fn place_ship(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let Some(form) = form else { return Ok(()) };
     if ti4_engine_core::query::fleet::remaining_all(eff.state(), scope, me, form) > 0 {
         fx::place_unit(eff.state(), me, system, None, form);
+        upgrade_forms(eff, me, scope);
     }
     Ok(())
 }

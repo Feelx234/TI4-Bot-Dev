@@ -75,6 +75,12 @@ pub fn unit_swaps(core: &CoreState, k: &Kernel, scope: Scope, roster: &UnitRoste
 /// owned entitle it to, in space and on planets, keeping its place in the list and its damage.
 pub fn apply_unit_upgrades(core: &mut CoreState, k: &Kernel, scope: Scope, roster: &UnitRoster, who: Seat) {
     let swaps = unit_swaps(core, k, scope, roster, who);
+    apply_swaps(core, who, &swaps);
+}
+
+/// [`apply_unit_upgrades`] for swaps computed beforehand (a caller that holds the kernel and the state apart: an effect reads `unit_swaps`
+/// with its state and kernel together, then writes).
+pub fn apply_swaps(core: &mut CoreState, who: Seat, swaps: &[(Unit, Unit)]) {
     if swaps.is_empty() {
         return;
     }
