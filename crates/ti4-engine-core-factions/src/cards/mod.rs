@@ -119,7 +119,7 @@ fn retreat_unported(host: &RulesHost<'_>, _who: Seat, _system: System, _destinat
 /// destinations are the map's (the adapter noted them: the core is lent no galaxy); the move is the retreat window's.
 fn skilled_retreat(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat, card: ActionCard) -> Result<(), TimingError> {
     let Some(system) = host.state.meta().active_system else { return Ok(()) };
-    let Some(listed) = host.table.facts.withdraw(who, system).map(<[System]>::to_vec) else { return Ok(()) };
+    let Some(listed) = host.table.facts.withdraw(who, system, host.state.meta().combat_round_seq).map(<[System]>::to_vec) else { return Ok(()) };
     let Some(&first) = listed.first() else { return Ok(()) };
     let rd = Rd::new(&*host.state, host.kernel).with_blanked(reach::blanked(&*host.state));
     let there = |d: System| u16::try_from(combat::ships_of(rd, who, d).len()).unwrap_or(u16::MAX);
@@ -549,7 +549,7 @@ mod tests {
         }
         s.board_mut().sys_mut(system).units.push(Piece::new(Unit::CruiserI, Seat(1)));
         let mut t = registered();
-        t.facts.set_withdraw(Seat(0), system, destinations.to_vec());
+        t.facts.set_withdraw(Seat(0), system, 3, destinations.to_vec());
         (s, t, system)
     }
 
@@ -597,6 +597,21 @@ mod tests {
             })
             .collect();
         assert_eq!(there, vec![0, 1], "each option shows the ships already there");
+    }
+
+    /// A window can hold several plays of the card (a round of each seat, the map changes between them): the play of round 3 reads the
+    /// destinations the string found in round 3, not the ones of an earlier or a later round (found by the golden-lent census, where the
+    /// last note of the seat won).
+    #[test]
+    fn skilled_retreat_reads_the_destinations_of_its_own_round() {
+        let (a, b) = (System::ALL[1], System::ALL[2]);
+        let (mut s, mut t, system) = retreat_fight(&[a]);
+        t.facts.set_withdraw(Seat(0), system, 2, vec![b]);
+        t.facts.set_withdraw(Seat(0), system, 4, vec![b]);
+        let (unknown, asked) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert_eq!((unknown, asked.is_none()), (None, true), "one destination is not a question");
+        let mine = |s: &CoreState, sys: System| s.board().sys(sys).units.iter().filter(|p| p.owner() == Seat(0)).count();
+        assert_eq!((mine(&s, a), mine(&s, b)), (3, 0), "the fleet went to the destination of round 3");
     }
 
     #[test]
