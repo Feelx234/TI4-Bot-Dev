@@ -277,7 +277,8 @@ fn the_text_table_refuses_the_65536th_text_and_a_code_it_never_issued() {
     assert_eq!(t.text(Slice::Marks, again).unwrap(), "t1", "a known text still resolves when the table is full");
     let e = unmapped::allow_unmapped(|| t.intern(Slice::Marks, "one more")).unwrap_err();
     assert_eq!(e.what, "text table full");
-    let e = unmapped::allow_unmapped(|| Texts::default().text(Slice::Marks, ti4_engine_core::state::Code(5))).unwrap_err();
+    let fresh = Texts::default();
+    let e = unmapped::allow_unmapped(|| fresh.text(Slice::Marks, ti4_engine_core::state::Code(5))).unwrap_err();
     assert_eq!(e.what, "unknown text code");
 }
 

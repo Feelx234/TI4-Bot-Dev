@@ -2508,9 +2508,8 @@ mod typed_render_tests {
             seat.trade_goods = 4;
             seat.faction = ti4_model::id::FactionId::new(["sol", "letnev", "hacan"][i]);
         }
-        // The notes were dealt before the factions were chosen (they name the placeholder faction).
-        state.promissory_notes.clear();
-        state.promissory_faceup.clear();
+        // The notes were dealt before the factions were chosen (they name the placeholder faction): deal them again.
+        crate::fixtures::redeal_notes(&mut state, POK);
         // Two planets with influence for each seat, and a scored secret objective.
         let catalogue = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK);
         let planets: Vec<(&str, Option<&str>)> = catalogue
@@ -2530,6 +2529,16 @@ mod typed_render_tests {
             .or_default()
             .insert(ti4_model::id::ObjectiveId::new(ti4_engine_core::generated::SecretObjective::ALL[0].as_str()));
         (state, players)
+    }
+
+    /// The fixture reaches the typed core: its notes were dealt again with the factions it seats, so no codec
+    /// refuses it (a refused position bails and compares nothing: trap T1).
+    #[test]
+    fn the_fixture_table_loads_into_the_typed_core() {
+        let (state, _) = game();
+        let mut cx = crate::core_sync::Ctx::of(&state).expect("owners");
+        let all = crate::core_sync::SliceSet(crate::core_sync::SliceSet::ALL.0 & !(1 << crate::core_sync::Slice::Map as u32));
+        crate::core_sync::Codec::load(&mut cx, &state, crate::core_sync::Sources::default(), all).expect("every slice loads");
     }
 
     fn same(label: &str, string: &Choice, typed: &Choice) {

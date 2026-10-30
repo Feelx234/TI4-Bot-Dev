@@ -267,6 +267,15 @@ pub fn seated_dealt(
     state
 }
 
+/// Deal every player's own promissory notes again, after their factions were set by hand on a
+/// [`game`] (the notes setup dealt name the placeholder faction `generic`; see [`seated_dealt`]).
+/// For the few tests that build a table around an overwritten `Player::faction`; prefer [`seated_dealt`].
+pub fn redeal_notes(state: &mut GameState, sources: ti4_model::content_types::SourceSet) {
+    state.promissory_notes.clear();
+    state.promissory_faceup.clear();
+    crate::promissory::deal(state, ContentStore::embedded(), sources);
+}
+
 /// A game of `players` (named seats) with a real, distinct lobby faction each, in the order of
 /// [`crate::seating::LOBBY_FACTIONS`], deployed and with its notes dealt, at the Prophecy of Kings
 /// sources: the table the typed core can hold (no `generic`). For gates and tests that need

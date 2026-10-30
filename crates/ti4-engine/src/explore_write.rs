@@ -676,15 +676,23 @@ mod tests {
     }
 
     fn seated() -> GameState {
-        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
-        state.promissory_notes.clear();
-        state.promissory_faceup.clear();
+        let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "hacan")], POK);
         state.round = 2;
         state.exploration_decks.clear();
         state.exploration_decks.insert("CULTURAL".to_owned(), vec!["minent".into(), "majent".into(), "ent".into()]);
         state.exploration_decks.insert("FRONTIER".to_owned(), Vec::new());
         state.relic_deck = ["thetriad", "shard", "dominusorb", "emphidia"].map(RelicId::new).to_vec();
         state
+    }
+
+    /// The fixture reaches the typed core: its notes name the seated factions, so no codec refuses it and the
+    /// lockstep tests below compare something (a refused position bails and compares nothing: trap T1).
+    #[test]
+    fn the_fixture_table_loads_into_the_typed_core() {
+        let state = seated();
+        let mut cx = crate::core_sync::Ctx::of(&state).expect("owners");
+        let all = crate::core_sync::SliceSet(crate::core_sync::SliceSet::ALL.0 & !(1 << crate::core_sync::Slice::Map as u32));
+        crate::core_sync::Codec::load(&mut cx, &state, crate::core_sync::Sources::default(), all).expect("every slice loads");
     }
 
     /// Every write of the mutation half runs on the core under `exploration=dual` and agrees with the string
