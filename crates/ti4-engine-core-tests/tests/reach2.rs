@@ -451,3 +451,68 @@ fn a_unit_type_outside_the_sources_in_play_has_no_move_value() {
     assert_eq!(reach::anchor_move_value(&s, &k, Seat(0), t[0], Unit::CruiserI, 0), 0);
     assert_eq!(reach::scope_of(&k).0, 0);
 }
+
+// ---- survivor-driven (mutation round 1) ------------------------------------------------------------------------------
+
+#[test]
+fn hil_colish_gives_its_system_a_delta_wormhole_that_joins_every_other_delta_system() {
+    let gate = System::ALL.iter().copied().find(|s| s.data().wormholes.contains(&ti4_engine_core::generated::Wormhole::Delta)).expect("a tile with a delta wormhole");
+    let p = plain_systems();
+    let tiles = [gate, p[0], p[1], p[2]];
+    let duel = DUEL;
+    let with = row(tiles, &duel).unit(tiles[3], None, Unit::HilColish, 0, 1).unit(tiles[3], None, Unit::CruiserI, 0, 1);
+    let (s, k) = with.build();
+    let found = reaching(&s, &k, 0, gate, true);
+    let kinds: Vec<Unit> = found.iter().map(|m| m.kind).collect();
+    assert!(kinds.contains(&Unit::CruiserI), "three tiles away, one step by the delta wormhole: {kinds:?}");
+    // Without the flagship the cruiser is three tiles away and out of reach.
+    let (s2, k2) = row(tiles, &duel).unit(tiles[3], None, Unit::CruiserI, 0, 1).build();
+    assert!(reaching(&s2, &k2, 0, gate, true).is_empty());
+}
+
+#[test]
+fn aetherpassage_lets_the_named_mover_pass_the_ships_of_one_player_but_not_of_two() {
+    let t = plain4();
+    let three = [Faction::TheArborec, Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol];
+    let sc = || row(t, &three).unit(t[1], None, Unit::CruiserI, 0, 1).unit(t[2], None, Unit::CruiserI, 1, 1);
+    let mark = |s: &mut CoreState, stamp: u32, who: u8, owner: u8| {
+        s.meta_mut().activation_seq = 6;
+        s.marks_mut().tail.edit().insert(MarkKey::EmpyreanPassage(), MarkVal::Rec(vec![MarkVal::Atom(Atom::Num(stamp)), MarkVal::Atom(Atom::Seat(Seat(who))), MarkVal::Atom(Atom::Seat(Seat(owner)))]));
+    };
+    let (mut s, k) = sc().build();
+    assert!(reaching(&s, &k, 0, t[3], true).is_empty(), "blocked by the rival's ship");
+    mark(&mut s, 6, 0, 1);
+    assert_eq!(origins(&reaching(&s, &k, 0, t[3], true)), vec![t[1]], "this activation, this mover, this owner");
+    for (stamp, who, owner) in [(5, 0, 1), (6, 2, 1), (6, 0, 2)] {
+        let (mut other, k2) = sc().build();
+        mark(&mut other, stamp, who, owner);
+        assert!(reaching(&other, &k2, 0, t[3], true).is_empty(), "{stamp} {who} {owner}");
+    }
+    // A system with the ships of the named player and of a third one still blocks.
+    let (mut two, k3) = sc().unit(t[2], None, Unit::CruiserI, 2, 1).build();
+    mark(&mut two, 6, 0, 1);
+    assert!(reaching(&two, &k3, 0, t[3], true).is_empty());
+    // Not a ship: ground forces of the named player never blocked.
+    let (mut grounds, k4) = row(t, &three).unit(t[1], None, Unit::CruiserI, 0, 1).unit(t[2], Some(t[2].data().planets[0]), Unit::InfantryI, 1, 2).build();
+    mark(&mut grounds, 6, 0, 1);
+    assert_eq!(origins(&reaching(&grounds, &k4, 0, t[3], true)), vec![t[1]]);
+}
+
+#[test]
+fn an_aetherstream_mark_and_the_flank_speed_card_add_one_to_the_move_and_to_the_anchor() {
+    let t = plain4();
+    let (mut s, k) = row(t, &DUEL).unit(t[1], None, Unit::CruiserI, 0, 1).build();
+    s.meta_mut().activation_seq = 4;
+    let printed = i32::from(Unit::CruiserI.data().movement.unwrap());
+    let value = |s: &CoreState, seat: u8| reach::effective_move_value_for_ship(s, &k, Seat(seat), t[1], Unit::CruiserI, 0, (false, false)).unwrap();
+    let anchor = |s: &CoreState, seat: u8| reach::anchor_move_value(s, &k, Seat(seat), t[1], Unit::CruiserI, 0);
+    s.marks_mut().tail.edit().insert(MarkKey::EmpyreanAetherstream(), MarkVal::Rec(vec![MarkVal::Atom(Atom::Num(4)), MarkVal::Atom(Atom::Seat(Seat(0)))]));
+    assert_eq!(value(&s, 0), printed + 1, "Aetherstream: +1 for the named player");
+    assert_eq!(anchor(&s, 0), printed + 1);
+    assert_eq!(value(&s, 1), printed);
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().card_timers.move_bonus_activation = Opt32::some(4);
+    assert_eq!(value(&s, 0), printed + 2, "and the Flank Speed card");
+    assert_eq!(anchor(&s, 0), printed + 2);
+    // With both boosts and the card: 2 + the hook's 1 + the card's 1 + 2 boosts.
+    assert_eq!(reach::effective_move_value_for_ship(&s, &k, Seat(0), t[1], Unit::CruiserI, 0, (true, true)), Some(printed + 4));
+}

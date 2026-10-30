@@ -667,3 +667,20 @@ fn seize_artifact_takes_a_relic_fragment_from_a_neighbour_who_holds_one() {
     r3.run();
     assert!(r3.is_done() && r3.state == far);
 }
+
+#[test]
+fn archaeological_expedition_uses_the_first_trait_of_a_planet_with_two() {
+    covers_card!(ActionCard::ArchaeologicalExpedition);
+    // Olergodt is hazardous and cultural; the card draws from the first printed trait's deck only (D4A3-info-03).
+    let mut st = four().control(Planet::Olergodt, 0).state();
+    for kind in [ExploreType::Hazardous, ExploreType::Cultural] {
+        let cards: Vec<Explore> = Explore::ALL.into_iter().filter(|e| e.data().deck == kind).take(4).collect();
+        st.decks_mut().explore[kind as usize] = Deck::new(cards);
+        st.decks_mut().explore_present |= 1 << kind as u8;
+    }
+    let mut r = rig(ActionCard::ArchaeologicalExpedition, st);
+    r.run();
+    assert!(r.is_done(), "one planet, one deck: taken unasked");
+    assert_eq!(r.state.decks().explore[ExploreType::Hazardous as usize].cards().len(), 1, "three cards drawn from the hazardous deck");
+    assert_eq!(r.state.decks().explore[ExploreType::Cultural as usize].cards().len(), 4, "the cultural deck is untouched");
+}

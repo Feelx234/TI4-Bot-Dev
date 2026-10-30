@@ -248,3 +248,52 @@ fn the_ghosts_hop_between_alpha_and_beta_even_when_the_nexus_switches_ordinary_w
     assert_eq!(transit::wormhole_hops(&ghosts, Seat(0), alpha, &[nexus]), Some(1));
     assert_eq!(transit::wormhole_hops(&ghosts, Seat(1), alpha, &[nexus]), Some(0));
 }
+
+// ---- survivor-driven (mutation round 1) ------------------------------------------------------------------------------
+
+#[test]
+fn a_hold_is_complete_when_everything_that_can_ride_is_aboard_even_with_slots_to_spare() {
+    let p = plain_systems();
+    let planet = p[1].data().planets[0];
+    let sc = Scenario::new(&DUEL)
+        .map_hexes(&[(p[0], Hex::new(0, 0)), (p[1], Hex::new(1, 0))])
+        .control(planet, 0)
+        .unit(p[1], None, Unit::CarrierI, 0, 1)
+        .unit(p[1], Some(planet), Unit::InfantryI, 0, 2)
+        .unit(p[1], Some(planet), Unit::FactionlessMech, 0, 1);
+    let (s, k) = sc.build();
+    let mut hold = Hold::for_ship(&s, &k, Seat(0), p[1], Piece::new(Unit::CarrierI, Seat(0)), &[]);
+    assert_eq!((hold.cands.len(), hold.capacity), (3, 4));
+    let mut taken = 0;
+    while let Some((options, _)) = hold.options() {
+        assert!(!hold.is_complete(), "{taken} of 3 aboard, a slot is left");
+        assert!(hold.load(options[0].index));
+        taken += 1;
+    }
+    assert_eq!(taken, 3);
+    assert_eq!(hold.free_slots(), 1, "a slot is left");
+    assert!(hold.is_complete(), "but nothing is left to take");
+    assert!(!hold.close(), "and nothing to decline");
+}
+
+#[test]
+fn only_ghosts_hop_between_wormhole_free_tiles_and_a_diagonal_step_is_one_hex() {
+    let (a, a2) = (System::AlphaWormhole, System::AsteroidsAlphaWormhole);
+    // Two alpha tiles on neighbouring hexes in each of the three directions: the border joins them, no wormhole hop.
+    for (dq, dr) in [(1, 0), (0, 1), (1, -1), (-1, 1), (-1, 0), (0, -1)] {
+        let s = Scenario::new(&DUEL).map_hexes(&[(a, Hex::new(0, 0)), (a2, Hex::new(dq, dr))]).state();
+        assert_eq!(transit::wormhole_hops(&s, Seat(0), a, &[a2]), Some(0), "({dq}, {dr}) is a neighbouring hex");
+        assert_eq!(transit::wormhole_hops(&s, Seat(0), a2, &[a]), Some(0));
+    }
+    // Two hexes apart (the wormhole joins them): one hop, in every direction including the diagonals.
+    for (dq, dr) in [(2, 0), (0, 2), (2, -2), (-2, 2), (1, 1), (-1, -1), (1, -2), (2, -1)] {
+        let s = Scenario::new(&DUEL).map_hexes(&[(a, Hex::new(0, 0)), (a2, Hex::new(dq, dr))]).state();
+        assert_eq!(transit::wormhole_hops(&s, Seat(0), a, &[a2]), Some(1), "({dq}, {dr}) is not a neighbouring hex");
+    }
+    // A Ghost moving from an alpha tile to a plain far tile makes no hop: only a pair of alpha/beta holders is entangled.
+    let p = plain_systems();
+    let g = Scenario::new(&[Faction::TheGhostsOfCreuss, Faction::TheArborec]).map_hexes(&[(a, Hex::new(0, 0)), (p[0], Hex::new(3, 0)), (System::BetaWormhole, Hex::new(5, 0))]).state();
+    assert_eq!(transit::wormhole_hops(&g, Seat(0), a, &[p[0]]), Some(0), "the far tile has no wormhole");
+    assert_eq!(transit::wormhole_hops(&g, Seat(0), p[0], &[System::BetaWormhole]), Some(0));
+    assert_eq!(transit::wormhole_hops(&g, Seat(0), a, &[System::BetaWormhole]), Some(1), "alpha to beta by Quantum Entanglement");
+}

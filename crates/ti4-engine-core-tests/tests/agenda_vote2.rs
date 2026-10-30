@@ -85,7 +85,10 @@ fn shown_votes(rig: &Rig<Vote>, pick: impl Fn(&Opt) -> bool) -> i32 {
 
 #[test]
 fn the_executive_order_spender_may_exhaust_a_planet_for_its_resources_and_every_voter_sees_that() {
-    let (sc, [a, b, _]) = table();
+    let (sc, [_, b, _]) = table();
+    // Seat 0 holds Starpoint instead (3 resources, 1 influence): the two faces cast different numbers.
+    let a = Planet::Starpoint;
+    let sc = sc.control(a, 0);
     let mut rig = Rig::new(sc.goods(0, 2), vote().with_spender(Seat(0)));
     rig.run().pick_opt(back(Outcome::For));
     let AAsk::Planets { spender, outcome, votes, .. } = ask_of(&rig) else { panic!("planets") };
@@ -100,18 +103,19 @@ fn the_executive_order_spender_may_exhaust_a_planet_for_its_resources_and_every_
             _ => None,
         })
         .collect();
-    assert_eq!(faces, vec![(Face::Influence, 1), (Face::Resources, i32::from(a.data().resources))]);
+    assert_eq!(faces, vec![(Face::Influence, 1), (Face::Resources, 3)]);
     // Exhausting it for the resources casts the resources.
     rig.pick_where(|o| matches!(o, Opt::Agenda(AOpt::Exhaust { planet, face: Face::Resources, .. }) if *planet == a));
     assert!(rig.state.board().planet(a).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED));
-    // Goods may now buy more votes, one each (the spender's rate).
+    // The other planet of the seat is left alone; goods may then buy more votes, one each (the spender's rate).
+    rig.decline();
     let AAsk::TradeGoods { rate, goods, votes, .. } = ask_of(&rig) else { panic!("trade goods") };
-    assert_eq!((rate, goods, votes), (1, 2, i32::from(a.data().resources)));
+    assert_eq!((rate, goods, votes), (1, 2, 3));
     assert_eq!(rig.asked().opts.iter().filter(|o| matches!(o, Opt::Agenda(AOpt::Spend(_)))).count(), 2, "spend 1 or 2");
     assert!(matches!(rig.asked().ctx.origin, ti4_engine_core::choice::Origin::Content(ti4_engine_core::choice::generic::Content::Technology(Technology::ExecutiveOrder))));
     rig.pick_opt(Opt::Agenda(AOpt::Spend(2)));
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 0);
-    assert!(rig.driver.window.counts().is_empty() || count(&rig, Outcome::For) == i64::from(a.data().resources) + 2);
+    assert!(rig.driver.window.counts().is_empty() || count(&rig, Outcome::For) == 5);
     assert_eq!(rig.asked().actor, Seat(1));
     // The other voters are labelled too, but only influence is offered to them.
     rig.pick_opt(back(Outcome::Against));
@@ -121,7 +125,7 @@ fn the_executive_order_spender_may_exhaust_a_planet_for_its_resources_and_every_
     rig.pick_where(exhaust(b));
     rig.decline();
     assert!(rig.is_done());
-    assert_eq!(count(&rig, Outcome::For), i64::from(a.data().resources) + 2);
+    assert_eq!(count(&rig, Outcome::For), 5);
     assert_eq!(count(&rig, Outcome::Against), 2);
 }
 
@@ -498,4 +502,81 @@ fn covert_legislation_is_revealed_to_its_speaker_alone_in_the_frame_of_the_quest
     assert!(matches!(tie.ask, Ask::Agenda(AAsk::Tiebreak { frame }) if frame.reveal));
     let pred = ag::predictive_question(&s, Agenda::ALL[0], Seat(0), Outcome::For, 4);
     assert_eq!(pred.opts.as_slice(), &[Opt::Agenda(AOpt::CastPredictive), Opt::Decline]);
+}
+
+// ---- survivor-driven (mutation round 1) ------------------------------------------------------------------------------
+
+#[test]
+fn the_helios_dock_raises_the_resources_the_spender_casts_from_its_planet() {
+    let a = Planet::Starpoint;
+    let sys_a = system_of(a);
+    let sc = Scenario::new(&[Faction::LastBastion, Faction::TheEmbersOfMuaat, Faction::TheYssarilTribes]).map_from(&[sys_a]).control(a, 0).unit(sys_a, Some(a), Unit::BastionSpacedock, 0, 1);
+    let mut rig = Rig::new(sc, vote().with_spender(Seat(0)));
+    rig.run().pick_opt(back(Outcome::For));
+    let resources = rig
+        .asked()
+        .opts
+        .iter()
+        .find_map(|o| match o {
+            Opt::Agenda(AOpt::Exhaust { planet, face: Face::Resources, shown }) if *planet == a => Some(shown.votes),
+            _ => None,
+        })
+        .expect("the resources face");
+    assert_eq!(resources, 3 + 1, "Starpoint's three resources and the dock's one");
+    let influence = rig.asked().opts.iter().find_map(|o| match o {
+        Opt::Agenda(AOpt::Exhaust { planet, face: Face::Influence, shown }) if *planet == a => Some(shown.votes),
+        _ => None,
+    });
+    assert_eq!(influence, Some(1), "the dock changes resources only");
+}
+
+#[test]
+fn a_demanded_outcome_binds_only_the_voter_it_was_demanded_of() {
+    // Seat 1 holds Genetic Recombination and demands Against of seat 0 (who has a planet but no token: bound). Seat 1's own ballot comes next, and a
+    // later voter who also backs Against is free to cast nothing.
+    let (sc, [a, b, c]) = recombination();
+    let sc = sc.tokens(0, 2, 0, 2);
+    let mut rig = Rig::new(sc, vote());
+    rig.run().pick_opt(Opt::Agenda(AOpt::Demand(Outcome::Against)));
+    rig.pick(0);
+    assert!(!rig.opts().contains(&Opt::Decline), "seat 0 must cast at least one vote");
+    rig.pick_where(exhaust(a));
+    // Seat 1 backs Against too and may leave it at that.
+    rig.pick_opt(back(Outcome::Against));
+    assert!(rig.opts().contains(&Opt::Decline), "the obligation is seat 0's alone: {}", rig.transcript());
+    rig.pick_where(exhaust(b));
+    let _ = c;
+}
+
+#[test]
+fn a_holder_who_declines_for_a_later_voter_is_not_asked_again_for_that_voter() {
+    let (sc, [_, _, _]) = recombination();
+    let mut rig = Rig::new(sc, vote());
+    rig.run().decline(); // for seat 0
+    rig.decline(); // seat 0 abstains
+    rig.decline(); // seat 1 abstains (it holds the card: never asked about itself)
+    let AAsk::Recombine { voter, .. } = ask_of(&rig) else { panic!("recombine for seat 2") };
+    assert_eq!(voter, Seat(2));
+    rig.decline();
+    assert_eq!(rig.asked().actor, Seat(2), "seat 2's own ballot, not the same offer again");
+    assert!(matches!(ask_of(&rig), AAsk::Vote { .. }));
+    rig.decline();
+    assert!(!rig.is_done(), "nobody voted: the speaker decides");
+    assert_eq!(rig.asked().actor, Seat(0));
+}
+
+#[test]
+fn a_spender_without_trade_goods_and_a_player_who_cast_nothing_are_asked_no_more() {
+    let (sc, [a, _, _]) = table();
+    // Executive Order spender with no trade good: the planets are banked, the next voter is asked.
+    let mut rig = Rig::new(sc.clone(), vote().with_spender(Seat(0)));
+    rig.run().pick_opt(back(Outcome::For));
+    rig.pick_where(|o| matches!(o, Opt::Agenda(AOpt::Exhaust { planet, face: Face::Influence, .. }) if *planet == a));
+    assert_eq!(rig.asked().actor, Seat(1), "no goods question without goods");
+    // Predictive Intelligence: backing an outcome but casting no vote does not offer the extra votes.
+    let mut none = Rig::new(sc.tech(0, Technology::PredictiveIntelligence), vote());
+    none.run().pick_opt(back(Outcome::For));
+    none.decline();
+    assert_eq!(none.asked().actor, Seat(1), "no predictive question for an empty ballot");
+    assert!(none.driver.window.counts().is_empty());
 }

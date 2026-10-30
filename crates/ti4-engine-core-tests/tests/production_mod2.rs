@@ -565,3 +565,150 @@ fn the_producing_systems_invasion_is_added_to_the_context_of_a_question_about_it
     prod::enrich_ctx(&s, &mut battle);
     assert_eq!(battle.invasion_seq, None, "never a space battle");
 }
+
+// ---- survivor-driven (mutation round 1) ------------------------------------------------------------------------------
+
+#[test]
+fn a_planet_is_worth_its_printed_value_plus_what_the_attachments_give() {
+    let (a, b) = two();
+    let (mut s, k) = docked().build();
+    s.board_mut().planet_mut(b).attach.push(Attachment::Geoform);
+    let c = cx(&s, &k);
+    assert_eq!(prod::planet_value(&c, Seat(0), b, Spend::Resources), i64::from(b.data().resources) + 3);
+    assert_eq!(prod::planet_value(&c, Seat(0), b, Spend::Influence), i64::from(b.data().influence) + 3);
+    assert_eq!(prod::planet_value(&c, Seat(0), a, Spend::Resources), i64::from(a.data().resources), "the other planet has none");
+    // A planet worth nothing in a currency has no face for it.
+    let (zero, kz) = base().control(Planet::Capha, 0).control(Planet::Torkan, 0).build();
+    let cz = cx(&zero, &kz);
+    assert!(prod::payment_faces(&cz, Seat(0), Planet::Capha, Spend::Influence).is_empty(), "Capha: no influence");
+    assert!(prod::payment_faces(&cz, Seat(0), Planet::Torkan, Spend::Resources).is_empty(), "Torkan: no resources");
+    assert_eq!(prod::max_face_value(&cz, Seat(0), Planet::Capha, Spend::Influence), 0);
+    // Freelancers: the alternate face of a planet that has none is not offered.
+    let (mut free, kf) = base().control(Planet::Capha, 0).build();
+    free.meta_mut().influence_pays_for_units.insert(Seat(0));
+    assert_eq!(prod::payment_faces(&cx(&free, &kf), Seat(0), Planet::Capha, Spend::Resources).as_slice(), &[(Spend::Resources, 3)]);
+}
+
+#[test]
+fn commodities_count_in_the_pool_that_decides_which_planets_may_be_spent() {
+    // Quann (2 resources) alone and two commodities: a bill of four may spend Quann because the commodities cover the rest.
+    let (s, k) = base().control(Planet::Quann, 0).commodities(0, 2).build();
+    let with = Extras { commodities: 2, oceans: &[] };
+    let (ask, opts) = prod::pay_opts(&cx(&s, &k), Seat(0), Spend::Resources, 0, 4, &with);
+    assert_eq!(ask.pool, 4);
+    assert!(opts.as_slice().iter().any(|o| matches!(o, POpt::Exhaust { planet, .. } if *planet == Planet::Quann)));
+    let commodity = opts.as_slice().iter().find_map(|o| if let POpt::Commodity { shown } = o { Some(*shown) } else { None }).expect("a commodity option");
+    assert_eq!((commodity.worth, commodity.pool_after), (1, 3));
+    // Trade goods: the pool after one is the pool less its worth, with the Mirror Computing worth two.
+    let (m, km) = duel(Faction::TheMentakCoalition).control(Planet::Quann, 0).tech(0, Technology::MirrorComputing).goods(0, 2).build();
+    let (ask, opts) = prod::pay_opts(&cx(&m, &km), Seat(0), Spend::Resources, 0, 4, &Extras::default());
+    assert_eq!(ask.pool, 2 + 4);
+    let good = opts.as_slice().iter().find_map(|o| if let POpt::TradeGood { shown } = o { Some(*shown) } else { None }).expect("a trade good option");
+    assert_eq!((good.worth, good.pool_after), (2, 4));
+}
+
+#[test]
+fn a_module_that_brings_a_place_in_another_system_adds_it_only_when_the_unit_has_a_place_here() {
+    use ti4_engine_core::kernel::seam::{Pass, Q, Source};
+    let (a, _) = two();
+    let there = System::Wellon;
+    let mut k = kernel_all();
+    k.hooks.seam.production_destinations.push(Source::Faction(Faction::TheFederationOfSol), Pass::Add, |_: Q<'_>, _: &ti4_engine_core::kernel::seam::DestSite, out| {
+        out.push((System::StarpointNewAlbion.index_ix(), None)); // the producing system itself: dropped
+        out.push((System::Wellon.index_ix(), None));
+    });
+    let s = base().control(a, 0).unit(SYS, Some(a), Unit::SpaceDockI, 0, 1).state();
+    let c = Cx::new(&s, &k, ALL_SOURCES, false);
+    assert_eq!(prod::spots_of(&c, Seat(0), SYS, Unit::CruiserI, Icon::Fresh).as_slice(), &[Spot::Space, Spot::Remote(there, None)]);
+    assert_eq!(prod::spots_of(&c, Seat(0), SYS, Unit::InfantryI, Icon::Fresh).as_slice(), &[Spot::Planet(a), Spot::Remote(there, None)]);
+    // A blockaded system has no place for a ship, so the module adds none either.
+    let blocked = base().control(a, 0).unit(SYS, Some(a), Unit::SpaceDockI, 0, 1).unit(SYS, None, Unit::CruiserI, 1, 1).state();
+    let cb = Cx::new(&blocked, &k, ALL_SOURCES, false);
+    assert!(prod::spots_of(&cb, Seat(0), SYS, Unit::CruiserI, Icon::Fresh).is_empty());
+    // A unit that is not a ship is not shaped by the ship-only modules (no change here without them).
+    assert_eq!(prod::spots_of(&cb, Seat(0), SYS, Unit::InfantryI, Icon::Fresh).len(), 2);
+}
+
+#[test]
+fn a_ground_force_on_a_planet_and_in_space_stand_differently_in_the_fleet() {
+    let (a, _) = two();
+    let (s, k) = docked().build();
+    let c = cx(&s, &k);
+    let place = PlaceAsk { who: Seat(0), system: SYS, unit: Unit::InfantryI, made: 2, fleet_limit: 12, icon: Icon::Fresh };
+    let on_planet = prod::place_info(&c, &place, Spot::Planet(a));
+    let in_space = prod::place_info(&c, &place, Spot::Space);
+    assert_ne!(on_planet.after, in_space.after, "infantry in space need capacity, on a planet they do not");
+    assert_eq!(on_planet.before, in_space.before);
+    // The same for a remote spot: in space when it names no planet, on the planet when it does.
+    let remote_space = prod::place_info(&c, &place, Spot::Remote(System::Wellon, None));
+    let remote_planet = prod::place_info(&c, &place, Spot::Remote(System::Wellon, Some(Planet::Wellon)));
+    assert_ne!(remote_space.after, remote_planet.after);
+    assert_eq!(prod::place_info(&c, &place, Spot::Card).after, prod::place_info(&c, &place, Spot::Card).after);
+}
+
+#[test]
+fn the_standing_before_a_build_is_the_fleet_of_the_producing_system() {
+    let (s, k) = docked().unit(SYS, None, Unit::CruiserI, 0, 3).unit(SYS, None, Unit::FighterI, 0, 2).build();
+    let c = cx(&s, &k);
+    let st = prod::standing_before(&c, Seat(0), &ask());
+    assert_eq!(st.fleet_limit, 12);
+    assert_eq!(st.ships, 3, "three cruisers");
+    assert_eq!(st.fighters, 2);
+    let info = build(&s, &k, &ask(), Unit::CruiserI).unwrap();
+    assert_eq!(info.before, st);
+    assert_eq!(info.spendable_resources, prod::available(&c, Seat(0), Spend::Resources, &Extras::default()));
+}
+
+#[test]
+fn free_capacity_and_small_exemptions_are_spent_in_that_order_and_the_exemption_covers_what_is_left() {
+    let (s, k) = docked().build();
+    let after = |a: ChooseAsk, unit: Unit| {
+        let i = build(&s, &k, &a, unit).unwrap();
+        (i.remaining_after, i.free_after)
+    };
+    // Two fighters; one carried free, then the exemptions (two available) cover the one left: nothing of the limit is used.
+    let both = ChooseAsk { free_capacity: 1, small_exemptions: 2, ..ask() };
+    assert_eq!(after(both, Unit::FighterI), (8, 1), "one exemption left unused");
+    // Free capacity of two covers both and leaves the exemptions untouched.
+    let enough = ChooseAsk { free_capacity: 2, small_exemptions: 2, ..ask() };
+    assert_eq!(after(enough, Unit::FighterI), (8, 2));
+    let none = ChooseAsk { free_capacity: 0, small_exemptions: 0, ..ask() };
+    assert_eq!(after(none, Unit::InfantryI), (6, 0));
+}
+
+#[test]
+fn units_that_one_producer_cannot_make_use_up_only_the_rest_of_the_limit() {
+    // The Arborec's docks cannot make infantry; a flagship with PRODUCTION 1 can. The limit of this use is all the production.
+    let (a, b) = two();
+    let sc = duel(Faction::TheArborec).control(a, 0).control(b, 0).unit(SYS, Some(a), Unit::SpaceDockI, 0, 1).unit(SYS, None, Unit::TheEgeiro, 0, 1);
+    let (s, k) = sc.build();
+    let c = cx(&s, &k);
+    let all = prod::capacity(&c, Seat(0), SYS);
+    let dock = 2 + i64::from(a.data().resources);
+    assert_eq!(all, dock + 1);
+    assert_eq!(prod::barred_capacity(&c, Seat(0), SYS, UnitBaseType::Infantry), dock);
+    let asked = ChooseAsk { limit: i32::try_from(all).unwrap(), remaining: i32::try_from(all).unwrap(), ..ask() };
+    // One unit of the flagship's production is all that is left for infantry (a pair would be two).
+    let info = build(&s, &k, &asked, Unit::InfantryI).expect("the flagship makes infantry");
+    assert_eq!(info.made, 1);
+    // One infantry made in this use: none are left for it.
+    let mut produced = [0u8; 11];
+    produced[UnitBaseType::Infantry as usize] = 1;
+    let used = ChooseAsk { produced, ..asked };
+    assert!(build(&s, &k, &used, Unit::InfantryI).is_none());
+    // A kind no producer is barred from is limited by the plain remaining limit.
+    assert_eq!(build(&s, &k, &used, Unit::FighterI).map(|i| i.made), Some(2));
+    // Without the barring, the remaining limit alone decides.
+    let (s2, k2) = docked().build();
+    let free = ChooseAsk { produced, ..ask() };
+    assert_eq!(build(&s2, &k2, &free, Unit::InfantryI).map(|i| i.made), Some(2));
+}
+
+trait Ix {
+    fn index_ix(self) -> ti4_engine_core::ids::SystemIx;
+}
+impl Ix for System {
+    fn index_ix(self) -> ti4_engine_core::ids::SystemIx {
+        ti4_engine_core::ids::system_at(self.index())
+    }
+}

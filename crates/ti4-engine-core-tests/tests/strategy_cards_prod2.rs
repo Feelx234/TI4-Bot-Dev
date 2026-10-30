@@ -294,3 +294,106 @@ fn the_thunders_edge_primary_asks_for_a_structure_or_a_production_first_and_neit
     assert!(produce.driver.window.produces);
     assert!(produce.state.board().planet(ps[0]).units.is_empty());
 }
+
+// ---- survivor-driven (mutation round 1) ------------------------------------------------------------------------------
+
+#[test]
+fn a_big_overpayment_carries_enough_for_the_next_tokens_without_paying_again() {
+    // Mecatol Rex is worth six influence: exhausting it pays two tokens at once, the second needs no payment.
+    let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[System::MecatolRex18]).control(Planet::MecatolRex, 0).tokens(0, 1, 1, 1);
+    let mut rig = Rig::new(sc, Leadership::new(Seat(0), true));
+    rig.run().pick(0).pick(0).pick(0);
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::LeadershipBuy { owed: 3, more: false }));
+    rig.pick_opt(strat(SOpt::Buy(true)));
+    // Mecatol is the only way to pay: taken without a question; its six cover this token and carry three.
+    assert!(exhausted(&rig.state, Planet::MecatolRex));
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }));
+    rig.pick(0);
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::LeadershipBuy { owed: 0, more: true }), "three carried: nothing owed for the next token");
+    rig.pick_opt(strat(SOpt::Buy(true)));
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }), "the carried influence pays it, no payment question");
+    rig.pick(1);
+    let (a, b, c) = tokens(&rig.state);
+    assert_eq!(a + b + c, 3 + 3 + 2, "two tokens bought");
+    assert_eq!(rig.driver.window.stage(), LStage::Done, "nothing carried, nothing to pay with: no more offers");
+}
+
+#[test]
+fn a_secondary_that_carries_credit_from_a_part_payment_asks_for_the_rest() {
+    // 5 influence of planets: first token paid 3 + 2 (credit 0 here), a leftover of one influence carries to the next purchase in a primary.
+    let (sc, ps) = table(&[3, 3, 2], 0);
+    let mut rig = Rig::new(sc, Leadership::new(Seat(0), true));
+    rig.run().pick(0).pick(0).pick(0);
+    rig.pick_opt(strat(SOpt::Buy(true)));
+    // Paying with a three-influence planet covers the token exactly: no credit is carried.
+    rig.pick_where(pay_planet(ps[0]));
+    rig.pick(0);
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::LeadershipBuy { owed: 3, more: false }), "an exact payment carries nothing");
+}
+
+#[test]
+fn a_structure_is_offered_while_one_is_left_in_the_box() {
+    // Two docks stand elsewhere: one is left and is offered.
+    let (sc, ps) = two_planets();
+    let elsewhere: Vec<Planet> = [Planet::Wellon, Planet::Quann, Planet::Lodor, Planet::VefutII, Planet::Thibah, Planet::Tarmann, Planet::Saudor].into_iter().filter(|p| !ps.contains(p)).collect();
+    let sc = sc.unit(system_of(elsewhere[0]), Some(elsewhere[0]), Unit::SpaceDockI, 0, 1).unit(system_of(elsewhere[1]), Some(elsewhere[1]), Unit::SpaceDockI, 0, 1);
+    let mut rig = Rig::new(sc, Construction::new(Seat(0), false, facts()));
+    rig.run();
+    for p in &ps {
+        assert!(rig.opts().contains(&structure(false, *p)), "one dock left in the box");
+    }
+    // Six PDS elsewhere: none left.
+    let (sc, ps) = two_planets();
+    let mut sc = sc;
+    for p in &elsewhere[..3] {
+        sc = sc.unit(system_of(*p), Some(*p), Unit::PDSI, 0, 2);
+    }
+    let mut none = Rig::new(sc, Construction::new(Seat(0), false, facts()));
+    none.run();
+    assert!(none.opts().iter().all(|o| !matches!(o, Opt::Strategy(SOpt::Structure { pds: true, .. }))));
+    assert!(none.opts().contains(&structure(false, ps[0])));
+}
+
+#[test]
+fn the_structure_questions_are_plain_strategy_questions_and_a_new_te_window_has_not_produced() {
+    let (sc, ps) = two_planets();
+    let mut rig = Rig::new(sc.clone(), Construction::new(Seat(0), true, facts()));
+    rig.run();
+    let ctx = &rig.asked().ctx;
+    assert!(!ctx.optional && !ctx.space_battle && ctx.outstanding.is_empty() && ctx.target.is_none() && ctx.invasion_seq.is_none());
+    let te = Construction::new_te(Seat(0), facts(), Code(9), &[system_of(ps[0])]);
+    assert!(!te.produces);
+    let mut r = Rig::new(sc, te);
+    r.run();
+    let ctx = &r.asked().ctx;
+    assert!(!ctx.optional && !ctx.space_battle && ctx.outstanding.is_empty() && ctx.target.is_none() && ctx.invasion_seq.is_none());
+    r.pick_opt(strat(SOpt::Build));
+    let ctx = &r.asked().ctx;
+    assert!(!ctx.optional && !ctx.space_battle && ctx.outstanding.is_empty() && ctx.target.is_none() && ctx.invasion_seq.is_none());
+}
+
+#[test]
+fn the_secondary_research_is_paid_with_as_many_planets_as_it_takes() {
+    use ti4_engine_core::rules::production::strategy_cards::Research;
+    // Cost 4, planets of 3 and 3 resources: two planets pay it, the second after the first came short.
+    let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).control(Planet::Starpoint, 0).control(Planet::Zohbat, 0).control(Planet::Capha, 0);
+    let mut rig = Rig::new(sc, Research::new(Seat(0), false, 4, ti4_engine_core_tests::inv::ALL_SOURCES));
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::ResearchTechnology { cost: 4, decline: true, .. })));
+    assert!(rig.opts().contains(&Opt::Decline));
+    rig.pick_opt(Opt::Strategy(SOpt::Research(Technology::AntimassDeflectors)));
+    assert!(matches!(rig.asked().ask, Ask::Production(_)));
+    rig.pick_where(pay_planet(Planet::Starpoint));
+    assert!(matches!(rig.asked().ask, Ask::Production(_)), "three of four resources: one more is owed");
+    rig.pick_where(pay_planet(Planet::Zohbat));
+    assert!(rig.is_done());
+    assert!(rig.state.players().by_seat(Seat(0)).unwrap().tech.owned.contains(Technology::AntimassDeflectors));
+    assert!(exhausted(&rig.state, Planet::Starpoint) && exhausted(&rig.state, Planet::Zohbat));
+    assert!(!exhausted(&rig.state, Planet::Capha), "the third planet is not needed");
+    assert!(!rig.driver.window.failed);
+    // Declining the paid research pays nothing and gains nothing.
+    let sc2 = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).control(Planet::Starpoint, 0).control(Planet::Zohbat, 0);
+    let mut no = Rig::new(sc2, Research::new(Seat(0), false, 4, ti4_engine_core_tests::inv::ALL_SOURCES));
+    no.run().decline();
+    assert!(no.is_done() && !exhausted(&no.state, Planet::Starpoint));
+}

@@ -349,3 +349,102 @@ fn a_negotiation_may_be_opened_with_the_neighbours_not_yet_dealt_with_this_turn(
     assert!(q::open_partners(&cx(&dip, &adj, &env), Seat(0)).is_empty());
     let _ = Planet::COUNT;
 }
+
+// ---- survivor-driven (mutation round 1) ------------------------------------------------------------------------------
+
+struct Iihq(u8);
+
+impl Env for Iihq {
+    fn has_iihq(&self, who: Seat) -> bool {
+        who.0 == self.0
+    }
+    fn wide(&self, _: Seat) -> bool {
+        false
+    }
+    fn transaction_reach(&self, _: Seat, _: Seat) -> bool {
+        false
+    }
+    fn exempt_from_limit(&self, _: Seat, _: Seat) -> bool {
+        false
+    }
+    fn trades_action_cards(&self, _: Seat) -> bool {
+        false
+    }
+    fn black_market(&self) -> bool {
+        false
+    }
+}
+
+/// Mecatol in the middle of seven tiles; seat 0 on one outer tile, seat 1 on another that does not touch it, seat 2 on the middle.
+fn around_mecatol() -> (CoreState, System, Vec<System>) {
+    let mut sys = vec![System::MecatolRex18];
+    sys.extend(plain_systems().into_iter().filter(|s| !matches!(s, System::MecatolRex18 | System::MecatolRex112)).take(18));
+    (Scenario::lobby(4).map_from(&sys).state(), System::MecatolRex18, sys)
+}
+
+#[test]
+fn the_imperial_hq_makes_the_holder_a_neighbour_of_whoever_is_in_or_beside_mecatol_and_of_nobody_else() {
+    let (base, mecatol, sys) = around_mecatol();
+    let adj = adj_of(&base);
+    // Seats 0 and 1 stand on two outer tiles that do not touch; seat 2 stands on Mecatol; seat 3 two rings out.
+    let (a, b) = (1..7).flat_map(|i| (1..7).map(move |j| (i, j))).find(|(i, j)| i != j && !adj.of(sys[*i]).contains(sys[*j].index())).unwrap();
+    let far = (7..19).map(|i| sys[i]).find(|x| !adj.of(*x).contains(mecatol.index()) && !adj.of(*x).contains(sys[a].index()) && !adj.of(*x).contains(sys[b].index())).unwrap();
+    let mut s = base.clone();
+    for (system, seat) in [(sys[a], 0u8), (sys[b], 1), (mecatol, 2), (far, 3)] {
+        s.board_mut().sys_mut(system).units.push(ti4_engine_core::state::Piece::new(Unit::CruiserI, Seat(seat)));
+    }
+    let plain = Rules::default();
+    let c = Cx { mecatol, ..cx(&s, &adj, &plain) };
+    assert!(!q::are_neighbours(&c, Seat(0), Seat(1)), "two outer tiles apart");
+    let holder = |who: u8| Cx { mecatol, env: Box::leak(Box::new(Iihq(who))), ..cx(&s, &adj, &plain) };
+    // The holder is a neighbour of the seat beside Mecatol (seat 1 is beside it), in both directions; the far seat is not near.
+    let h0 = holder(0);
+    assert!(q::mecatol_neighbours(&h0, Seat(0), Seat(1)) && q::mecatol_neighbours(&h0, Seat(1), Seat(0)));
+    assert!(q::are_neighbours(&h0, Seat(0), Seat(1)) && q::are_neighbours(&h0, Seat(1), Seat(0)));
+    assert!(q::are_neighbours(&h0, Seat(0), Seat(2)), "a seat on Mecatol itself");
+    assert!(!q::mecatol_neighbours(&h0, Seat(0), Seat(3)) && !q::are_neighbours(&h0, Seat(0), Seat(3)), "two rings out is not near Mecatol");
+    assert!(!q::mecatol_neighbours(&h0, Seat(1), Seat(3)), "the modernization is the holder's alone");
+    assert!(q::near_mecatol(&c, Seat(1)) && q::near_mecatol(&c, Seat(2)) && !q::near_mecatol(&c, Seat(3)));
+    assert_eq!(q::neighbours(&h0, Seat(0)).as_slice(), &[Seat(1), Seat(2)]);
+    assert_eq!(q::partners(&h0, Seat(0)).as_slice(), &[Seat(1), Seat(2)]);
+    assert!(q::may_transact(&h0, Seat(0), Seat(1)));
+    // Another holder, not involved in the pair: no change.
+    let h3 = holder(3);
+    assert!(!q::are_neighbours(&h3, Seat(0), Seat(1)));
+    // Nobody holds it: seats 0 and 1 are strangers.
+    assert!(!q::may_transact(&c, Seat(0), Seat(1)));
+}
+
+#[test]
+fn a_wide_partner_reaches_every_seated_player_and_an_unseated_one_is_nobodys_partner() {
+    let s = together().state();
+    let adj = adj_of(&s);
+    let wide3 = Rules { wide: vec![3], ..Rules::default() };
+    let c = cx(&s, &adj, &wide3);
+    assert!(q::may_transact(&c, Seat(0), Seat(3)), "seat 3 reaches seat 0 whatever the map says");
+    assert!(!q::may_transact(&c, Seat(9), Seat(3)), "an unseated proposer is no one's");
+    assert!(!q::may_transact(&c, Seat(3), Seat(3)));
+    let wide0 = Rules { wide: vec![0], ..Rules::default() };
+    let c0 = cx(&s, &adj, &wide0);
+    assert!(q::may_transact(&c0, Seat(0), Seat(3)));
+    assert!(!q::may_transact(&c0, Seat(0), Seat(9)), "an unseated partner");
+    assert_eq!(q::partners(&c0, Seat(0)).as_slice(), &[Seat(1), Seat(2), Seat(3)]);
+}
+
+#[test]
+fn structured_diplomacy_is_a_switched_off_feature_that_the_negotiation_list_reports() {
+    use ti4_engine_core::unsupported::{with_policy, Policy};
+    let mut dip = together().state();
+    dip.trade_mut().diplomacy.edit().enabled = true;
+    let adj = adj_of(&dip);
+    let env = Rules::default();
+    // With the switch off (the default) the list is empty; with it on, meeting the feature is a panic that names it.
+    assert!(q::open_partners(&cx(&dip, &adj, &env), Seat(0)).is_empty());
+    let hit = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| with_policy(Policy::Panic, || q::open_partners(&cx(&dip, &adj, &env), Seat(0)))));
+    assert!(hit.is_err(), "the switched-off feature panics under the Panic policy");
+    // A plain position never touches the switch.
+    let plain = together().state();
+    let adj2 = adj_of(&plain);
+    let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| with_policy(Policy::Panic, || q::open_partners(&cx(&plain, &adj2, &env), Seat(0)).len())));
+    assert!(ok.is_ok());
+}

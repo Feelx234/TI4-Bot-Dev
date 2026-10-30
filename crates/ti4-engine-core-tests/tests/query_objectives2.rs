@@ -1110,3 +1110,105 @@ fn the_secret_hand_limit_is_three_counting_the_scored_ones() {
     assert_eq!(q::secrets_held(&three, Seat(9)), 0);
     assert_eq!(q::hand_step(&three, Seat(9)), HandStep::Within);
 }
+
+// ---- survivor-driven (mutation round 1) ----------------------------------------------------------------------
+
+#[test]
+fn an_imagined_move_into_a_system_the_board_has_no_entry_for_adds_no_ship_to_the_fleet() {
+    // The string counts the imagined ship in a system of the board only (`max over the board's entries`); a touched system without ships gives one.
+    let touched_empty = {
+        let mut s = table().state();
+        s.board_mut().sys_mut(System::Wellon).flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
+        s
+    };
+    let there = [System::Wellon];
+    assert_eq!(have(counting(&touched_empty, 0, false, Imagined { systems: &there, ..NONE }, O::RaiseAFleet)), 1);
+    assert_eq!(have(counting(&touched_empty, 0, false, NONE, O::RaiseAFleet)), 0);
+    let untouched = table().state();
+    assert_eq!(have(counting(&untouched, 0, false, Imagined { systems: &there, ..NONE }, O::RaiseAFleet)), 0);
+    // A system with ships and the board entry: the ships plus the arriving one.
+    let with_ships = table().unit(System::Wellon, None, Unit::CruiserI, 0, 2).state();
+    assert_eq!(have(counting(&with_ships, 0, false, Imagined { systems: &there, ..NONE }, O::RaiseAFleet)), 3);
+}
+
+#[test]
+fn a_hazardous_or_industrial_majority_counts_as_much_as_a_cultural_one() {
+    let hazardous = table().control(pl(System::VefutII), 0).control(pl(System::MeharXull), 0).control(Planet::Tequran, 0).state();
+    assert_eq!(have(counting(&hazardous, 0, false, NONE, O::CornerTheMarket)), 3);
+    let industrial = table().control(pl(System::Saudor), 0).control(pl(System::Thibah), 0).control(pl(System::Tarmann), 0).control(pl(System::Wellon), 0).state();
+    assert_eq!(have(counting(&industrial, 0, false, NONE, O::CornerTheMarket)), 4);
+    assert!(counting(&industrial, 0, false, NONE, O::CornerTheMarket).unwrap().satisfied());
+    // Planets of different traits do not add up.
+    let mixed = table().control(pl(System::VefutII), 0).control(pl(System::Saudor), 0).control(pl(System::Quann), 0).state();
+    assert_eq!(have(counting(&mixed, 0, false, NONE, O::CornerTheMarket)), 1);
+}
+
+#[test]
+fn notable_systems_are_those_of_the_sources_in_play() {
+    let s = table().unit(System::Nebula, None, Unit::CruiserI, 0, 1).unit(System::Supernova80, None, Unit::CruiserI, 0, 1).state();
+    assert_eq!(have(counting(&s, 0, false, NONE, O::MakeHistory)), 2);
+    let f = SeatFacts::of(&s, Scope(source_bit(ti4_engine_core::generated::Source::Base)), Seat(0), terms());
+    let p = q::counting_progress(&Pos::new(&s, &f, false, NONE), &SysSet::EMPTY, O::MakeHistory).unwrap();
+    assert_eq!(p.have, 1, "the Prophecy of Kings supernova is not a tile of a base game");
+}
+
+#[test]
+fn achieve_supremacy_counts_only_the_rivals_home_systems_and_mecatol() {
+    // Flagships in two rivals' homes and in our own: two count.
+    let s = table()
+        .unit(System::MuaatMuaat, None, Unit::FactionlessFlagship, 0, 1)
+        .unit(System::RetillionShalloqYssaril, None, Unit::PrototypeWarSunI, 0, 1)
+        .unit(System::NestpharArborec, None, Unit::PrototypeWarSunI, 0, 1)
+        .state();
+    assert_eq!(have(remaining(&s, 0, false, NONE, O::AchieveSupremacy)), 2);
+    // Only our own home: nothing.
+    let own = table().unit(System::NestpharArborec, None, Unit::PrototypeWarSunI, 0, 1).state();
+    assert_eq!(have(remaining(&own, 0, false, NONE, O::AchieveSupremacy)), 0);
+    // A seat's recorded home beats the faction's (the home moved).
+    let mut moved = table().unit(System::Wellon, None, Unit::FactionlessFlagship, 0, 1).state();
+    moved.players_mut().by_seat_mut(Seat(1)).unwrap().home_system = Some(System::Wellon);
+    assert_eq!(have(remaining(&moved, 0, false, NONE, O::AchieveSupremacy)), 1);
+}
+
+#[test]
+fn cut_supply_lines_counts_each_system_with_our_ship_and_a_rival_dock() {
+    let two = table()
+        .unit(System::Wellon, Some(pl(System::Wellon)), Unit::SpaceDockI, 1, 1)
+        .unit(System::Wellon, None, Unit::CruiserI, 0, 1)
+        .unit(System::Thibah, Some(pl(System::Thibah)), Unit::SpaceDockI, 2, 1)
+        .unit(System::Thibah, None, Unit::FighterI, 0, 1)
+        .state();
+    assert_eq!(have(secret(&two, 0, false, NONE, S::CutSupplyLines)), 2);
+    let none = table().unit(System::Wellon, Some(pl(System::Wellon)), Unit::SpaceDockI, 1, 1).unit(System::VefutII, None, Unit::CruiserI, 0, 1).state();
+    assert_eq!(have(secret(&none, 0, false, NONE, S::CutSupplyLines)), 0, "the dock is elsewhere");
+    let own_dock = table().unit(System::Wellon, Some(pl(System::Wellon)), Unit::SpaceDockI, 0, 1).unit(System::Wellon, None, Unit::CruiserI, 0, 1).state();
+    assert_eq!(have(secret(&own_dock, 0, false, NONE, S::CutSupplyLines)), 0, "our own dock");
+    let pds = table().unit(System::Wellon, Some(pl(System::Wellon)), Unit::PDSI, 1, 1).unit(System::Wellon, None, Unit::CruiserI, 0, 1).state();
+    assert_eq!(have(secret(&pds, 0, false, NONE, S::CutSupplyLines)), 0, "a PDS is no dock");
+}
+
+#[test]
+fn the_wormholes_of_the_map_count_for_the_gatekeeper_when_a_map_is_known() {
+    use ti4_engine_core::tables::WH_ALPHA;
+    let sc = table().map_from(&[System::BetaWormhole, System::Wellon]).unit(System::BetaWormhole, None, Unit::CruiserI, 0, 1).unit(System::Wellon, None, Unit::CruiserI, 0, 1);
+    let mut s = sc.state();
+    // A wormhole token (alpha) on Wellon: the map sees it, the printed tile does not.
+    let mut g = (**s.galaxy().unwrap()).clone();
+    g.add_token_wormholes(System::Wellon, WH_ALPHA);
+    s.map = ti4_engine_core::state::MapSlice::from_galaxy(g);
+    assert_eq!(have(secret(&s, 0, true, NONE, S::BecomeTheGatekeeper)), 2, "beta printed, alpha by token");
+    assert_eq!(have(secret(&s, 0, false, NONE, S::BecomeTheGatekeeper)), 1, "without the map only the printed beta");
+}
+
+#[test]
+fn neighbours_need_a_map_to_be_adjacent_and_share_a_system_without_one() {
+    let mut s = table().unit(System::Wellon, None, Unit::CruiserI, 0, 1).unit(System::VefutII, None, Unit::CruiserI, 1, 1).unit(System::Wellon, None, Unit::CruiserI, 2, 1).state();
+    s.map = ti4_engine_core::state::MapSlice::default();
+    assert!(s.galaxy().is_none());
+    let list = |seat: u8| q::neighbours(&s, &terms(), Seat(seat)).as_slice().to_vec();
+    assert_eq!(list(0), vec![Seat(2)], "the same system; no map, no adjacency");
+    assert!(list(1).is_empty());
+    let mut with = terms();
+    with.iihq.insert(Seat(0));
+    assert_eq!(q::neighbours(&s, &with, Seat(0)).as_slice(), &[Seat(2)], "no map: Mecatol is near nobody");
+}

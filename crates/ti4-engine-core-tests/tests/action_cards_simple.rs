@@ -593,3 +593,56 @@ fn the_component_action_gate_names_the_home_systems_of_the_sources_in_play() {
     assert_eq!(ac::has_legal_target(&s, false, base_only, Seat(0), C::Uprising), Some(false));
     assert_eq!(ac::has_legal_target(&s, false, Scope(0), Seat(0), C::Uprising), Some(true), "no source in play: no home system is known");
 }
+
+// ---- survivor-driven (mutation round 1) ------------------------------------------------------------------------------
+
+#[test]
+fn rout_and_waylay_each_set_their_own_stamp() {
+    let mut s = four().state();
+    s.meta_mut().combat_round_seq = 6;
+    play(&mut s, 2, Simple::Rout);
+    play(&mut s, 3, Simple::Waylay);
+    assert_eq!((timers(&s, 2).rout_round.get(), timers(&s, 2).waylay_barrage_round.get()), (Some(6), None));
+    assert_eq!((timers(&s, 3).rout_round.get(), timers(&s, 3).waylay_barrage_round.get()), (None, Some(6)));
+}
+
+#[test]
+fn scuttle_and_war_effort_need_a_ship_of_ours_and_unstable_planet_one_of_a_source_in_play() {
+    let t = plain_systems();
+    let has = |s: &CoreState, c: ActionCard, scope: Scope| ac::has_legal_target(s, false, scope, Seat(0), c);
+    // Only fighters of ours, or only ships of a rival: no Scuttle; War Effort needs a ship of ours (a fighter is one).
+    let fighters = four().unit(t[1], None, Unit::FighterI, 0, 2).state();
+    assert_eq!(has(&fighters, C::Scuttle, ALL_SOURCES), Some(false));
+    assert_eq!(has(&fighters, C::WarEffort, ALL_SOURCES), Some(true));
+    let rival = four().unit(t[1], None, Unit::CruiserI, 1, 1).state();
+    assert_eq!(has(&rival, C::Scuttle, ALL_SOURCES), Some(false));
+    assert_eq!(has(&rival, C::WarEffort, ALL_SOURCES), Some(false));
+    let ours = four().unit(t[1], None, Unit::DestroyerI, 0, 1).state();
+    assert_eq!(has(&ours, C::Scuttle, ALL_SOURCES), Some(true));
+    // A unit of a source that is not in play is not looked up: Scuttle may still return it (the unit table does not know it).
+    let base = Scope(ti4_engine_core::tables::source_bit(ti4_engine_core::generated::Source::Base));
+    let te_ship = four().unit(t[1], None, Unit::NeutralDestroyer, 0, 1).state();
+    let _ = (has(&te_ship, C::Scuttle, base), base);
+    // Unstable Planet: a hazardous planet with units on it, in a source that is in play.
+    let hazard = four().unit(System::Tempesta, Some(Planet::Tempesta), Unit::InfantryI, 1, 1).state();
+    assert_eq!(has(&hazard, C::UnstablePlanet, ALL_SOURCES), Some(true));
+    assert_eq!(has(&hazard, C::UnstablePlanet, base), Some(false), "Tempesta is a Thunder's Edge planet");
+}
+
+#[test]
+fn the_default_facts_of_a_play_are_empty_and_the_latest_rules() {
+    let f = Facts::default();
+    assert_eq!(f.neutral, None);
+    assert!(!f.agent_offered && !f.holder_deepwrought && !f.replenish_events && !f.fracture_in_play && !f.map && !f.action_draw_plain);
+    assert_eq!(f.rules_version, u32::MAX);
+    assert_eq!((f.destroyer, f.dreadnought, f.mech, f.pds, f.spacedock), (Placed::NONE, Placed::NONE, Placed::NONE, Placed::NONE, Placed::NONE));
+    assert!(f.roster.is_none() && f.reroll.is_none() && f.reveal.iter().next().is_none());
+    assert_eq!(f.traders, [None, None]);
+    assert!(f.own_breakthrough.iter().all(Option::is_none));
+    assert!(!f.carried.plain_draw && !f.carried.research && !f.carried.payments && f.carried.structures.is_none());
+    assert!(!f.hits.staging);
+    assert_eq!(f.courageous_subtype, ti4_engine_core::state::Code(0));
+    assert_eq!(f.explore_empty, ti4_engine_core::state::Code(0));
+    assert_eq!((f.tech_order)(T::AntimassDeflectors, T::GravityDrive), core::cmp::Ordering::Less);
+    assert_eq!((f.unit_order)(Unit::InfantryI, Unit::CruiserI), Unit::InfantryI.cmp(&Unit::CruiserI));
+}
