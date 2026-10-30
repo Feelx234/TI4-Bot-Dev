@@ -150,6 +150,9 @@ mod real {
     /// follow: diplomacy on or a nested emission, a free-form deal, a Pride of Kenara planet card, a faction two
     /// seats play, a question nobody answered, a position the codecs refuse.
     pub fn step(gs: &mut GameState, content: &ContentStore, galaxy: &Galaxy, at: &At, script: &Recording) -> Option<CoreWindow<Traded>> {
+        if gs.active_space_combat.is_some() || gs.active_invasion.is_some() {
+            crate::product::unreachable_here("L19 (trade)", "a transaction window inside a battle or an invasion");
+        }
         if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (!content.is_embedded()).then_some("content other than the embedded store")) {
             crate::dual::note_bail_here(why);
             return None;
@@ -165,6 +168,7 @@ mod real {
         let mut factions: Vec<&str> = gs.players.iter().map(|p| p.faction.as_str()).collect();
         factions.sort_unstable();
         if factions.windows(2).any(|w| w[0] == w[1]) {
+            crate::product::unreachable_here("L19 (trade)", "a faction played by two seats");
             note_bail(LABEL, "a faction played by two seats");
             return None;
         }

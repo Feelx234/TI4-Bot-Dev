@@ -59,7 +59,9 @@ impl Owners {
         ids.extend(state.support_holders.iter().flat_map(|(a, b)| [a.as_str(), b.as_str()]));
         ids.extend(state.expedition_slices.values().map(|p| p.as_str()));
         if ids.len() > 16 {
-            return Err(bad(Slice::Seats, "more than 16 owners", ids.len()));
+            let why = bad(Slice::Seats, "more than 16 owners", ids.len());
+            crate::product::refused(&why);
+            return Err(why);
         }
         Ok(Self { ids: ids.into_iter().map(str::to_owned).collect() })
     }
@@ -175,6 +177,10 @@ impl Ctx {
         let owners = Owners::with_extra(state, extra)?;
         let mut keys = KeysCodec::default();
         keys.owners = key_owners(&owners);
+        if keys.owners.is_none() {
+            // XF-6: the key order cannot represent an owner id that is a proper prefix of another one.
+            crate::product::refused(&bad(Slice::Seats, "an owner id that is a prefix of another", owners.ids().join(",")));
+        }
         Ok(Self { owners, texts: Texts::default(), keys, extra: extra.iter().map(|e| (*e).to_owned()).collect() })
     }
 

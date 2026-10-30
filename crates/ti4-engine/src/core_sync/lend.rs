@@ -40,6 +40,14 @@ impl LendStats {
     }
 }
 
+/// W17 (XF-6): a position the typed state cannot hold is an assertion of the product in strict mode (`crate::product`).
+fn refusal<T>(result: R<T>) -> R<T> {
+    if let Err(why) = &result {
+        crate::product::refused(why);
+    }
+    result
+}
+
 fn load(cx: &mut Ctx, gs: &GameState, src: Sources<'_>, slices: SliceSet, stats: &mut LendStats) -> R<CoreState> {
     let mut core = CoreState::with_loaded(SliceSet::EMPTY);
     for slice in Slice::ALL {
@@ -86,6 +94,10 @@ impl<'g> Lend<'g> {
     /// A value the typed state cannot hold (nothing was changed), or a typed value that has no text
     /// (the written slices are partly stored: the caller must discard the state).
     pub fn with_core<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut CoreState, &Kernel<'_>) -> T) -> R<T> {
+        refusal(self.with_core_inner(fp, f))
+    }
+
+    fn with_core_inner<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut CoreState, &Kernel<'_>) -> T) -> R<T> {
         self.cx.refresh(self.gs)?;
         let mut core = load(self.cx, self.gs, self.src, fp.loads(), &mut self.stats)?;
         let out = f(&mut core, &Kernel { seeds: TextSeeds(self.cx) });
@@ -100,6 +112,10 @@ impl<'g> Lend<'g> {
     /// # Errors
     /// As [`Self::with_core`].
     pub fn region<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut Region<'_>) -> T) -> R<T> {
+        refusal(self.region_inner(fp, f))
+    }
+
+    fn region_inner<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut Region<'_>) -> T) -> R<T> {
         self.cx.refresh(self.gs)?;
         let core = load(self.cx, self.gs, self.src, fp.loads(), &mut self.stats)?;
         let mut region = Region { core, fp, seeds: TextSeeds(self.cx) };
@@ -115,8 +131,10 @@ impl<'g> Lend<'g> {
     /// # Errors
     /// A value the typed state cannot hold.
     pub fn view(&mut self, reads: SliceSet) -> R<CoreView> {
-        self.cx.refresh(self.gs)?;
-        Ok(CoreView { core: load(self.cx, self.gs, self.src, reads, &mut self.stats)? })
+        refusal((|| {
+            self.cx.refresh(self.gs)?;
+            Ok(CoreView { core: load(self.cx, self.gs, self.src, reads, &mut self.stats)? })
+        })())
     }
 }
 
@@ -151,8 +169,10 @@ impl CoreView {
     /// # Errors
     /// A value the typed state cannot hold.
     pub fn of(gs: &GameState, cx: &mut Ctx, src: Sources<'_>, reads: SliceSet) -> R<Self> {
-        cx.refresh(gs)?;
-        Ok(Self { core: Codec::load(cx, gs, src, reads)? })
+        refusal((|| {
+            cx.refresh(gs)?;
+            Ok(Self { core: Codec::load(cx, gs, src, reads)? })
+        })())
     }
 
     /// A view over a state loaded by hand (a caller that loads fewer parts of a slice than its codec).

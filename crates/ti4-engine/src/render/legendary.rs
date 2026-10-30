@@ -5,7 +5,7 @@
 //! `place_on_own_planet`), byte for byte.
 
 use ti4_content::ContentStore;
-use ti4_engine_core::choice::legendary::{Ask, Opt, Ready, Subtype, When};
+use ti4_engine_core::choice::legendary::{Ask, At, Opt, Ready, Subtype, When};
 use ti4_engine_core::generated::{ActionCard, Leader, Planet, Relic, SecretObjective, System, Technology, Unit};
 use ti4_model::id::ActionCardId;
 
@@ -85,14 +85,14 @@ impl Family for Fam {
             }
             Opt::Mech => ChoiceOption::labelled("mech", "legendary", "place 1 mech"),
             Opt::Card => ChoiceOption::labelled("card", "legendary", "draw 1 action card"),
-            Opt::OnPlanet(planet, shown) => {
-                let system = shown.system.map_or("", |s| s.as_str());
+            Opt::OnPlanet(planet, At(at)) => {
+                let system = at.map_or("", |s| s.as_str());
                 let unit = if let Ask::PlaceOnPlanet { unit, .. } = a { unit.as_str() } else { "" };
-                located(format!("{system}|{}", planet.as_str()), format!("place on {}", planet.as_str()), *planet, shown.system).with("unit", unit)
+                located(format!("{system}|{}", planet.as_str()), format!("place on {}", planet.as_str()), *planet, *at).with("unit", unit)
             }
             Opt::InSystem(s) => ChoiceOption::labelled(s.as_str(), "legendary", format!("place fighters in {}", s.as_str())),
-            Opt::Ready(what, shown) => match what {
-                Ready::Planet(p) => located(format!("planet|{}", p.as_str()), format!("ready {}", p.as_str()), *p, shown.system),
+            Opt::Ready(what, At(at)) => match what {
+                Ready::Planet(p) => located(format!("planet|{}", p.as_str()), format!("ready {}", p.as_str()), *p, *at),
                 Ready::Technology(t) => ChoiceOption::labelled(format!("technology|{}", t.as_str()), "legendary", format!("ready {}", t.as_str())),
                 Ready::Relic(r) => ChoiceOption::labelled(format!("relic|{}", r.as_str()), "legendary", format!("ready {}", r.as_str())),
                 Ready::Legendary(p) => ChoiceOption::labelled(format!("legendary|{}", p.as_str()), "legendary", format!("ready the {} ability", p.as_str())),
@@ -116,7 +116,6 @@ impl Family for Fam {
     }
 
     fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
-        use ti4_engine_core::choice::agenda::Shown;
         match a {
             Ask::Offer { .. } => Planet::from_id(id).map(Opt::Use),
             Ask::Exterrix { .. } => match id {
@@ -131,12 +130,12 @@ impl Family for Fam {
             },
             Ask::PlaceOnPlanet { .. } => {
                 let (system, planet) = id.split_once('|')?;
-                Some(Opt::OnPlanet(Planet::from_id(planet)?, Shown { votes: 0, system: System::from_id(system) }))
+                Some(Opt::OnPlanet(Planet::from_id(planet)?, At(System::from_id(system))))
             }
             Ask::PlaceFighters => System::from_id(id).map(Opt::InSystem),
             Ask::Acropolis => {
                 let (kind, rest) = id.split_once('|')?;
-                let none = Shown::default();
+                let none = At::default();
                 Some(match kind {
                     "planet" => Opt::Ready(Ready::Planet(Planet::from_id(rest)?), none),
                     "technology" => Opt::Ready(Ready::Technology(Technology::from_id(rest)?), none),

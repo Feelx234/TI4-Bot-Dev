@@ -6178,7 +6178,7 @@ impl CombatWindow {
         let failed = std::cell::Cell::new(false);
         let mut outcome = None;
         let announce = ctx.timing.is_some();
-        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed; // real games always match: Game::new and Game::from_state seed the rng from state.rng_seed (game.rs); only hand-built test rigs differ
+        let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed); // real games always match: Game::new and Game::from_state seed the rng from state.rng_seed (game.rs); only hand-built test rigs differ
         let (attacker, defender, system) = (self.attacker.clone(), self.defender.clone(), self.system.clone());
         let occurrence = self.ensure_combat_occurrence(state).0;
         let staging = crate::supply::staging_enabled(state);
@@ -6337,7 +6337,7 @@ impl CombatWindow {
             state.rules_version >= ti4_model::state::RULES_MUNITIONS_AFTER_ROLL
                 && crate::faction_abilities::has(state, content, side, "munitions")
         });
-        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
         // Positions the window does not carry run bare, so the windows inside (the reroll questions) are
         // compared on their own.
         if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual && unported {
@@ -6862,7 +6862,7 @@ impl CombatWindow {
         let (content, sources) = (ctx.content, ctx.sources);
         let sides = [&self.attacker, &self.defender];
         let announce = ctx.timing.is_some();
-        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
         let galaxy = self.galaxy.as_ref();
         let neighbors = sides.map(|side| match galaxy {
             Some(g) => crate::core_combat::retreat_neighbors(state, sources, g, side, &self.system),

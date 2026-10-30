@@ -16,9 +16,8 @@
 //! * The Galactic Council with a hand of secrets over the limit (the string asks which to return), a Nomad's Artuno readied by The
 //!   Acropolis, Jupiter Brain's breakthrough when the planet changes hands (`legendary::control_gained`).
 
-use crate::choice::agenda::Shown;
 use crate::choice::generic::Content;
-use crate::choice::legendary::{Ask as LAsk, Opt as LOpt, Ready, Subtype as LSub, When};
+use crate::choice::legendary::{Ask as LAsk, At, Opt as LOpt, Ready, Subtype as LSub, When};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
 use crate::generated::{ActionCard, Leader, Planet, Requirement, System, Unit, UnitBaseType};
@@ -157,15 +156,15 @@ impl Legendary {
     }
 
     /// Every exhausted card The Acropolis could ready (`readyable`).
-    fn readyable(&self, core: &CoreState, excluding: Planet) -> SmallList<(Ready, Shown), 16> {
+    fn readyable(&self, core: &CoreState, excluding: Planet) -> SmallList<(Ready, At), 16> {
         let mut out = SmallList::new();
         for (system, planet) in self.own_planets(core).as_slice() {
             if board::exhausted(core, *planet) {
-                out.push((Ready::Planet(*planet), Shown { votes: 0, system: Some(*system) }));
+                out.push((Ready::Planet(*planet), At(Some(*system))));
             }
         }
         let Some(p) = core.players().by_seat(self.who) else { return out };
-        let none = Shown::default();
+        let none = At::default();
         for tech in p.tech.exhausted.iter() {
             out.push((Ready::Technology(tech), none));
         }
@@ -367,7 +366,7 @@ impl Window for Legendary {
             LStage::Place => {
                 let (base, count) = self.place_plan();
                 let (unit, _) = self.placeable(core, k, base, count)?;
-                let opts = self.own_planets(core).as_slice().iter().map(|(system, planet)| Opt::Legendary(LOpt::OnPlanet(*planet, Shown { votes: 0, system: Some(*system) }))).collect();
+                let opts = self.own_planets(core).as_slice().iter().map(|(system, planet)| Opt::Legendary(LOpt::OnPlanet(*planet, At(Some(*system))))).collect();
                 Some(self.question(LAsk::PlaceOnPlanet { source: self.ability?, unit }, LSub::Place, opts))
             }
             LStage::Fighters => {

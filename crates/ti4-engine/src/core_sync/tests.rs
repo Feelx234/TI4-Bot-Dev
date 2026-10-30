@@ -173,3 +173,75 @@ fn state_sizes_stay_inside_the_f1_targets() {
     assert!(size_of::<CoreState>() <= 4096, "CoreState {}", size_of::<CoreState>());
     assert!(size_of::<ti4_engine_core::state::Player>() <= 600, "Player {}", size_of::<ti4_engine_core::state::Player>());
 }
+
+// -- W17: what the product never reaches ------------------------------------------------------------
+
+mod w17 {
+    use super::*;
+    use crate::product::with_strict;
+
+    fn players_fp() -> Footprint {
+        Footprint::new(&[Slice::Players, Slice::Seats], &[Slice::Players])
+    }
+
+    /// The fixture faction `generic` is no faction of the corpus: the codec refuses it, quietly outside the product.
+    #[test]
+    fn the_fixture_faction_is_refused_and_in_strict_mode_asserted() {
+        let mut gs = crate::fixtures::game(&["a", "b"]);
+        let mut cx = Ctx::of(&gs).unwrap();
+        let refused = with_strict(false, || Lend::new(&mut gs, &mut cx, Sources::default()).with_core(players_fp(), |_, _| ()));
+        assert!(refused.is_err(), "no strict mode, no panic: the caller keeps its bail");
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_strict(true, || Lend::new(&mut gs, &mut cx, Sources::default()).with_core(players_fp(), |_, _| ()))
+        }));
+        assert!(caught.is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "product assertion XF-6")]
+    fn more_than_sixteen_owners_are_an_assertion_in_strict_mode() {
+        let gs = seated(&["a", "b"]);
+        let extra: Vec<String> = (0..16).map(|i| format!("neutral{i:02}")).collect();
+        let refs: Vec<&str> = extra.iter().map(String::as_str).collect();
+        assert!(with_strict(false, || Ctx::with_extra(&gs, &refs)).is_err());
+        let _ = with_strict(true, || Ctx::with_extra(&gs, &refs));
+    }
+
+    #[test]
+    #[should_panic(expected = "product assertion XF-6")]
+    fn an_owner_id_that_is_a_prefix_of_another_is_an_assertion_in_strict_mode() {
+        let gs = seated(&["a", "b"]);
+        assert!(with_strict(false, || Ctx::with_extra(&gs, &["ab"])).is_ok(), "outside the product the marks of the game stay unmapped");
+        let _ = with_strict(true, || Ctx::with_extra(&gs, &["ab"]));
+    }
+
+    #[test]
+    fn the_table_of_the_product_is_codable_in_strict_mode() {
+        let mut gs = game();
+        for (p, faction) in gs.players.iter_mut().zip(crate::seating::LOBBY_FACTIONS) {
+            p.faction = ti4_model::id::FactionId::new(faction);
+        }
+        with_strict(true, || {
+            let mut cx = Ctx::of(&gs).unwrap();
+            let all = SliceSet(SliceSet::ALL.0 & !(1 << Slice::Map as u32));
+            Codec::load(&mut cx, &gs, Sources::default(), all).unwrap();
+        });
+    }
+
+    #[test]
+    fn the_factions_the_lobby_never_seats_are_an_assertion_in_strict_mode() {
+        for faction in ["keleresa", "keleresm", "keleresx", "deepwrought", "firmament", "obsidian", "ralnel"] {
+            let mut gs = game();
+            for (p, lobby) in gs.players.iter_mut().zip(crate::seating::LOBBY_FACTIONS) {
+                p.faction = ti4_model::id::FactionId::new(lobby);
+            }
+            gs.players[1].faction = ti4_model::id::FactionId::new(faction);
+            let mut cx = Ctx::of(&gs).unwrap();
+            assert!(with_strict(false, || Codec::load(&mut cx, &gs, Sources::default(), SliceSet::of(&[Slice::Seats, Slice::Players]))).is_ok(), "{faction}: loadable outside the product");
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                with_strict(true, || Codec::load(&mut cx, &gs, Sources::default(), SliceSet::of(&[Slice::Seats, Slice::Players])))
+            }));
+            assert!(caught.is_err(), "{faction}");
+        }
+    }
+}

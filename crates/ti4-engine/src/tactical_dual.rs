@@ -166,6 +166,7 @@ mod real {
     /// tactical action stay with the string engine.
     #[must_use]
     pub fn dropped_faction_at_the_table(gs: &GameState) -> bool {
+        gs.players.iter().for_each(|p| crate::product::lobby_faction(p.faction.as_str()));
         gs.players.iter().any(|p| {
             let f = p.faction.as_str();
             crate::factions::keleres::is_keleres_faction(f)
@@ -268,6 +269,7 @@ mod real {
         let mut factions: Vec<&str> = gs.players.iter().map(|p| p.faction.as_str()).collect();
         factions.sort_unstable();
         if factions.windows(2).any(|w| w[0] == w[1]) {
+            crate::product::unreachable_here("L19 (trade)", "a faction played by two seats");
             return bail(label, "a faction played by two seats");
         }
         if !args.reproducible {
@@ -376,6 +378,7 @@ mod real {
         let mut factions: Vec<&str> = gs.players.iter().map(|p| p.faction.as_str()).collect();
         factions.sort_unstable();
         if factions.windows(2).any(|w| w[0] == w[1]) {
+            crate::product::unreachable_here("L19 (trade)", "a faction played by two seats");
             return bail(LABEL, "a faction played by two seats");
         }
         nested_check(script)?;

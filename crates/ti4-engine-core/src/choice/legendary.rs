@@ -4,8 +4,32 @@
 //! of each ability. Thunder's Edge's Jupiter Brain asks nothing after the offer. The adapter side is
 //! `ti4-engine/src/render/legendary.rs`.
 
-use super::agenda::Shown;
 use crate::generated::{ActionCard, Leader, Planet, Relic, SecretObjective, System, Technology, Unit};
+
+/// Where a planet is on the map, for the option's `system` payload: it compares equal, orders equal and hashes to nothing, so an
+/// answer parsed from an id that does not name the system equals the option that was offered.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct At(pub Option<System>);
+
+impl PartialEq for At {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for At {}
+impl PartialOrd for At {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for At {
+    fn cmp(&self, _: &Self) -> std::cmp::Ordering {
+        std::cmp::Ordering::Equal
+    }
+}
+impl std::hash::Hash for At {
+    fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
+}
 
 /// When the offer is made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -67,12 +91,12 @@ pub enum Opt {
     Mech,
     /// Imperial Arms Vault: draw an action card.
     Card,
-    /// A planet of the seat, with the system the map shows it in (`Shown::system`).
-    OnPlanet(Planet, Shown),
+    /// A planet of the seat, with the system the map shows it in.
+    OnPlanet(Planet, At),
     /// A system that holds a ship of the seat.
     InSystem(System),
-    /// The Acropolis: ready this component (`Shown::system` is where a planet is).
-    Ready(Ready, Shown),
+    /// The Acropolis: ready this component (`At` is where a planet is).
+    Ready(Ready, At),
     /// The Galactic Council: discard this secret objective.
     DiscardSecret(SecretObjective),
     /// Maxis Central Control: take this planet of this system.

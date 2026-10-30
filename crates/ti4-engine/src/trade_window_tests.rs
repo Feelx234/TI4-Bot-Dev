@@ -660,4 +660,28 @@ fn dark_pact_gains_follow_an_accepted_gift_of_a_full_commodity_value() {
     assert_eq!(goods(&done.state, "a"), before.0 + 1, "the giver gains one");
     assert_eq!(goods(&done.state, "b"), before.1 + value + 1, "the receiver gains the gift and one");
 }
+
+// -- W17: what the product never reaches ------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "product assertion L19")]
+fn two_seats_of_one_faction_are_an_assertion_in_strict_mode() {
+    let (state, hub) = table(&[("a", "sol"), ("b", "sol")]);
+    crate::product::with_strict(true, || plain(state, &hub, &["cc3", "accept"]));
+}
+
+#[test]
+#[should_panic(expected = "product assertion L19")]
+fn a_transaction_inside_a_battle_is_an_assertion_in_strict_mode() {
+    let (mut state, hub) = sol_hacan();
+    state.active_space_combat = Some((SystemId::new(hub.centre.clone()), PlayerId::new("a"), PlayerId::new("b")));
+    crate::product::with_strict(true, || plain(state, &hub, &["cc3", "accept"]));
+}
+
+#[test]
+fn a_table_the_product_can_seat_passes_the_assertions() {
+    let (state, hub) = sol_hacan();
+    let done = crate::product::with_strict(true, || plain(state, &hub, &["cc3", "accept"]));
+    assert_eq!((done.compared, done.bailed), (2, 0));
+}
 }

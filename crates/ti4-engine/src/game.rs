@@ -3551,7 +3551,7 @@ impl<'a> Game<'a> {
         let player = window.player.clone();
         let (content, sources) = (self.content, self.sources);
         let reproducible =
-            !self.dice.is_preloaded() && !self.rng.sync_pending() && self.rng.seed() == self.state.rng_seed;
+            crate::product::reproducible(self.dice.is_preloaded(), self.rng.sync_pending(), self.rng.seed(), self.state.rng_seed);
         let rng_before = self.rng.positions();
         let (dice_before, events_before) = (self.dice.count(), self.events.len());
         let failed = std::cell::Cell::new(false);
@@ -3873,7 +3873,7 @@ impl<'a> Game<'a> {
         let (content, sources) = (self.content, self.sources);
         let rng_before = self.rng.positions();
         let reproducible =
-            !self.dice.is_preloaded() && !self.rng.sync_pending() && self.rng.seed() == self.state.rng_seed;
+            crate::product::reproducible(self.dice.is_preloaded(), self.rng.sync_pending(), self.rng.seed(), self.state.rng_seed);
         let events_before = self.events.len();
         let failed = std::cell::Cell::new(false);
         let mut done = None;

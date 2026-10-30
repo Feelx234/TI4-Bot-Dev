@@ -473,4 +473,11 @@ mod tests {
         assert!(crate::dual_window::outside_battle(&state, &nested));
         assert!(!crate::dual_window::outside_battle(&state, &crate::dual_window::Recording::default()));
     }
+
+    #[test]
+    #[should_panic(expected = "product assertion L19")]
+    fn two_seats_of_one_faction_are_an_assertion_in_strict_mode() {
+        let (state, hub) = table(&[("a", "sol"), ("b", "sol"), ("c", "xxcha")]);
+        crate::product::with_strict(true, || plain(state, &hub, &["~diplomacy|later|tg"]));
+    }
 }

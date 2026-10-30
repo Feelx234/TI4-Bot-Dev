@@ -602,3 +602,33 @@ fn a_route_other_than_the_default_is_followed_from_the_questions_list() {
     assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
     assert_eq!(total(&done.state, &target, &a(), Some("cruiser")), 1);
 }
+
+// -- W17: what the product never reaches ------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "product assertion L21")]
+fn a_table_with_a_faction_the_lobby_never_seats_is_an_assertion_in_strict_mode() {
+    let (hub, origin, target) = hub();
+    let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    state.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("ralnel");
+    crate::product::with_strict(true, || bails(state, &hub, &target, "tactical::activate", "dropped by decision"));
+}
+
+#[test]
+#[should_panic(expected = "product assertion L19")]
+fn two_seats_of_one_faction_are_an_assertion_in_strict_mode() {
+    let (hub, _, target) = hub();
+    let mut twin = table(&[("a", "sol"), ("b", "hacan")]);
+    twin.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("sol");
+    crate::product::with_strict(true, || bails(twin, &hub, &target, "tactical::activate", "two seats"));
+}
+
+#[test]
+#[should_panic(expected = "product assertion XF-7")]
+fn test_faces_in_the_dice_are_an_assertion_in_strict_mode() {
+    let (hub, origin, target) = hub();
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    let _ = crate::product::with_strict(true, || play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()], |game| game.use_test_faces(&[10, 10])));
+}

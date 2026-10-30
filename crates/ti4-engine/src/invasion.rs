@@ -3627,7 +3627,7 @@ impl InvasionWindow {
             if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
                 let (content, sources) = (ctx.content, ctx.sources);
                 let announce = ctx.timing.is_some();
-                let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+                let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
                 let (invader, system) = (self.invader.clone(), self.system.clone());
                 let args = crate::dual_window::DefenseArgs { invader: &invader, system: &system, planets, announce, reproducible };
                 if let Some(why) = crate::dual_window::defense_unported(state, content, sources, &args) {
@@ -4186,7 +4186,7 @@ impl InvasionWindow {
         #[cfg(feature = "typed-core")]
         {
             if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
-                let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+                let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
                 let (invader, system) = (self.invader.clone(), self.system.clone());
                 let args = crate::dual_window::GroundRollArgs { attacker: &invader, defender, system: &system, planet, sources: ctx.sources, reproducible };
                 if let Some(why) = crate::dual_window::ground_roll_unported(state, &args) {
@@ -4580,7 +4580,7 @@ impl InvasionWindow {
                 let invader = self.invader.clone();
                 let system = self.system.clone();
                 let harrow = crate::faction_abilities::has(state, content, &invader, "harrow");
-                let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+                let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
                 let rng_before = ctx.rng.positions();
                 let args = crate::dual_window::RoundHitsArgs { invader: &invader, defender, system: &system, planet, rolled, announce, before: &before, dice: &dice, harrow, reproducible, rng_before: &rng_before };
                 if let Some(why) = crate::dual_window::round_hits_unported(state, content, sources, &args) {

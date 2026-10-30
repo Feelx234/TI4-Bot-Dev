@@ -475,3 +475,16 @@ fn a_galvanized_ground_force_drops_the_window() {
     garrison(&mut state, "arcprime", "b", &["infantry"]);
     assert!(core_half(&mut state, "demilitarized_zone", "arcprime", &Ballot::default()).is_some());
 }
+
+/// W17 (XF-7): a seed that is not the state's is an assertion of the product, not a quiet bail.
+#[test]
+#[should_panic(expected = "product assertion XF-7")]
+fn a_foreign_seed_is_an_assertion_in_strict_mode() {
+    let mut state = table();
+    hand(&mut state, "a", &["sabo1", "sabo2"]);
+    state.rng_seed = 5;
+    let content = ti4_content::ContentStore::embedded();
+    let (mut dice, mut rng, mut t) = (crate::dice::Dice::new(), crate::rng::GameRng::new(9), crate::choice::Table::new());
+    let mut ctx = crate::choice::Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut t, timing: None };
+    crate::product::with_strict(true, || crate::agenda_effects::resolve_with(&mut state, &mut ctx, None, "sanctions", AGAINST, &Ballot::default()));
+}

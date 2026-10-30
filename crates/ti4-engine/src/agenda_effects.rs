@@ -494,7 +494,7 @@ fn windowed_rolling(
     ballot: &Ballot,
     string: impl FnOnce(&mut GameState, &mut crate::choice::Resolving<'_>) -> Effect,
 ) -> Effect {
-    let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+    let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
     let rng_before = ctx.rng.positions();
     let history_start = ctx.dice.history().len();
     let sources = ctx.sources;
