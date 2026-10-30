@@ -11,8 +11,8 @@
 //! Predictions are paid for the riders that the state alone settles: Imperial Rider (a bare prediction) a victory
 //! point, Trade Rider five trade goods, Politics Rider three action cards and the speaker token, Keleres Rider an
 //! action card and two trade goods, Leadership Rider three command tokens (a pool question each, rule 52.4) and
-//! Sanction nothing. The riders that research or place (Technology, Construction, Diplomacy, Warfare), a draw a
-//! faction hook changes, and a rules version below the pool question
+//! Sanction nothing, Technology Rider one free research (a child window of the production area, package W4). The riders that
+//! place (Construction, Diplomacy, Warfare), a draw a faction hook changes, and a rules version below the pool question
 //! (`RULES_COMMAND_TOKEN_POOL`) end the window `unsupported`: the adapter drops it and the string result stands.
 //!
 //! The plain events of the string's `Game::emit` (`AGENDA_RESOLVED`, `AGENDA_DISCARDED`, `COVERT_AGENDA_RESOLVED`,
@@ -29,7 +29,9 @@ use crate::kernel::children::{ErasedChild, Report, Spawn};
 use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::{fx, fx_agenda, Kernel, Next};
 use crate::keys::{LedgerReason, Outcome, Prediction, PredictionTag};
+use crate::query::tech::UnitRoster;
 use crate::state::{Code, CoreState, EventKind, EventRec, Key, Payload, PlainArg, PlainKind, PlainRec, TransientFlags, Val};
+use crate::tables::Scope;
 
 /// `ti4_model::state::RULES_COMMAND_TOKEN_POOL`: from here Leadership Rider asks the pool of each token.
 pub const RULES_COMMAND_TOKEN_POOL: u32 = 12;
@@ -46,6 +48,10 @@ pub struct Facts {
     pub blanked: bool,
     /// Seats (bit per seat) whose action card draw a faction hook changes (Scheming, a draw bonus).
     pub hooked: u16,
+    /// The research of a correct Technology Rider: the source scope and the faction units of it. `None`: the adapter found a
+    /// position the research window does not carry (a seat whose own effects on a research are questions or forms, hooks the core
+    /// table answers differently), and the rider ends the window `unsupported`.
+    pub research: Option<(Scope, &'static UnitRoster)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +61,8 @@ pub enum Stage {
     Predict,
     /// Waiting on the pool of a Leadership Rider token.
     Lead,
-    /// A rider's action cards are drawn as a child window (the hand limit may ask a discard).
+    /// A rider's action cards are drawn, or its technology researched, as a child window (the hand limit may ask a discard; the
+    /// research asks which technology).
     Draw,
     Done,
 }
@@ -67,6 +74,8 @@ enum Tail {
     Speaker,
     /// Keleres Rider: two trade goods.
     Goods,
+    /// Technology Rider: nothing follows the research.
+    Nothing,
 }
 
 /// The close of a vote.
@@ -270,6 +279,24 @@ impl Close {
         }
     }
 
+    /// Technology Rider: "research 1 technology" as a child window (the Technology primary's free research, the card as the source of
+    /// the question); the run is unsupported when it cannot be followed.
+    fn start_research(&mut self, sx: &mut Sx<'_>, who: Seat) {
+        let Some((scope, roster)) = self.facts.research else {
+            self.stop();
+            return;
+        };
+        match sx.table.links.start(&Spawn::RiderResearch { who, scope, roster }) {
+            Some(window) => {
+                self.draw.start(window);
+                self.who = who;
+                self.tail = Tail::Nothing;
+                self.stage = Stage::Draw;
+            }
+            None => self.stop(),
+        }
+    }
+
     /// `rider_payoff` for one correct prediction. A rider that asks puts the window in the stage of its question.
     fn pay(&mut self, sx: &mut Sx<'_>, who: Seat, tag: Option<PredictionTag>) {
         if !sx.state.meta().rules_at_least(RULES_COMMAND_TOKEN_POOL) {
@@ -291,8 +318,9 @@ impl Close {
             }
             Some(PredictionTag::PoliticRider) => self.start_draw(sx, who, 3, Tail::Speaker),
             Some(PredictionTag::KeleresRider) => self.start_draw(sx, who, 1, Tail::Goods),
-            // Research and placement riders ask questions of their own.
-            Some(PredictionTag::TechRider | PredictionTag::ConstRider | PredictionTag::DiploRider | PredictionTag::WarRider) => {
+            Some(PredictionTag::TechRider) => self.start_research(sx, who),
+            // The placement riders ask questions of their own.
+            Some(PredictionTag::ConstRider | PredictionTag::DiploRider | PredictionTag::WarRider) => {
                 self.stop();
             }
         }
@@ -367,6 +395,7 @@ impl Window for Close {
                             Tail::Goods => {
                                 fx::gain_trade_goods_staged(sx.state, self.who, 2, self.facts.keleres_rider);
                             }
+                            Tail::Nothing => {}
                         }
                         self.stage = Stage::Predict;
                     }
@@ -415,7 +444,7 @@ mod tests {
     const C: Seat = Seat(2);
 
     fn facts() -> Facts {
-        Facts { trade_rider: Code(1), keleres_rider: Code(2), drop_unofficial: false, blanked: false, hooked: 0 }
+        Facts { trade_rider: Code(1), keleres_rider: Code(2), drop_unofficial: false, blanked: false, hooked: 0, research: None }
     }
 
     fn game() -> CoreState {
@@ -822,8 +851,8 @@ mod tests {
     }
 
     #[test]
-    fn riders_that_research_or_place_and_old_games_are_not_expressed() {
-        for tag in [PredictionTag::TechRider, PredictionTag::ConstRider, PredictionTag::DiploRider, PredictionTag::WarRider] {
+    fn riders_that_place_and_old_games_are_not_expressed() {
+        for tag in [PredictionTag::ConstRider, PredictionTag::DiploRider, PredictionTag::WarRider] {
             let mut s = game();
             predict(&mut s, B, Prediction::Tagged(Outcome::For, tag));
             assert!(run(close(law(), Some(Outcome::For)), &mut s, &[]).window.unsupported(), "{tag:?}");
@@ -840,5 +869,59 @@ mod tests {
         let mut s2 = s.clone();
         predict(&mut s2, B, Prediction::Plain(Outcome::For));
         assert!(!run(close(law(), Some(Outcome::For)), &mut s2, &[]).window.unsupported());
+    }
+
+    // -- W4: the Technology Rider ------------------------------------------------------------------------
+
+    fn researching() -> Facts {
+        Facts { research: Some((Scope(u32::MAX), Box::leak(Box::default()))), ..facts() }
+    }
+
+    fn close_with(facts: Facts) -> Close {
+        Close::new(facts, law(), None, Some(Outcome::For), &[(A, Outcome::For)], &COUNTS, &[Outcome::For, Outcome::Against])
+    }
+
+    /// A correct Technology Rider is the Technology primary's free research asked as the card's question, and nothing after it
+    /// (no second, paid research); the technology is gained.
+    #[test]
+    fn a_correct_technology_rider_researches_one_free_technology_as_the_cards_question() {
+        let mut s = game();
+        predict(&mut s, B, Prediction::Tagged(Outcome::For, PredictionTag::TechRider));
+        let k = Kernel::plain();
+        let before = s.players().by_seat(B).unwrap().tech.owned;
+        let mut d = Driver::new(close_with(researching()), Resolver::new(&[A], Some(A)), linked(true), 1);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("asks which technology") };
+        assert_eq!(c.actor, B);
+        assert_eq!(c.ctx.origin, crate::choice::Origin::ActionCard(ActionCard::TechnologyRider));
+        assert!(!c.can_decline(), "\"research 1 technology\" is not optional");
+        let Some(Pick::Opt(Opt::Strategy(SOpt::Research(t)))) = c.pick(0) else { panic!("a technology") };
+        let status = d.resume(&mut s, &k, c.pick(0).unwrap()).unwrap();
+        assert_eq!(status, Status::Done, "no paid research follows");
+        assert!(!d.window.unsupported());
+        let owned = s.players().by_seat(B).unwrap().tech.owned;
+        assert!(owned.contains(t) && !before.contains(t), "{t:?} was gained");
+        assert_eq!(owned.len(), before.len() + 1);
+    }
+
+    #[test]
+    fn a_wrong_technology_rider_prediction_researches_nothing() {
+        let mut s = game();
+        predict(&mut s, B, Prediction::Tagged(Outcome::Against, PredictionTag::TechRider));
+        let d = run(close_with(researching()), &mut s, &[]);
+        assert!(!d.window.unsupported());
+    }
+
+    /// Bail: the adapter found a position the research window does not carry (`research: None`), or the table has no link to it.
+    #[test]
+    fn bail_a_technology_rider_without_the_research_window_is_unsupported() {
+        let mut s = game();
+        predict(&mut s, B, Prediction::Tagged(Outcome::For, PredictionTag::TechRider));
+        assert!(run(close_with(facts()), &mut s, &[]).window.unsupported());
+        let mut s = game();
+        predict(&mut s, B, Prediction::Tagged(Outcome::For, PredictionTag::TechRider));
+        let k = Kernel::plain();
+        let mut d = Driver::new(close_with(researching()), Resolver::new(&[A], Some(A)), AbilityTable::default(), 1);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.unsupported(), "no link to the research window");
     }
 }

@@ -33,6 +33,9 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
         Spawn::Research { who, primary, cost, scope, roster } => {
             Erased::boxed(Research::new(*who, *primary, *cost, *scope).with_roster(**roster), |w| if w.failed { Report::Left } else { Report::Nothing })
         }
+        Spawn::RiderResearch { who, scope, roster } => {
+            Erased::boxed(Research::rider(*who, *scope).with_roster(**roster), |w| if w.failed { Report::Left } else { Report::Nothing })
+        }
         Spawn::Leadership { who, primary } => Erased::boxed(Leadership::new(*who, *primary), |_| Report::Nothing),
         Spawn::Construction { who, primary, facts } => Erased::boxed(Construction::new(*who, *primary, *facts), |_| Report::Nothing),
         Spawn::Politics { who, primary, official } => Erased::boxed(Politics::new(*who, *primary, *official), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
@@ -145,6 +148,7 @@ mod tests {
             Spawn::DrawCards { who, count: 2, drop_unofficial: true },
             Spawn::Reward { who, step: crate::choice::explore::Step::MerchantStation, options: crate::containers::SmallList::new(), skip_single: true },
             Spawn::Research { who, primary: false, cost: 4, scope: crate::tables::Scope(u32::MAX), roster: Box::leak(Box::default()) },
+            Spawn::RiderResearch { who, scope: crate::tables::Scope(u32::MAX), roster: Box::leak(Box::default()) },
             Spawn::Leadership { who, primary: true },
             Spawn::Construction { who, primary: false, facts: crate::kernel::children::StructureFacts { pds: None, dock: None, source: crate::state::Code(0) } },
             Spawn::Politics { who, primary: true, official: true },

@@ -7,8 +7,8 @@
 //! effective outcome and the elected seat. The agenda's effect is a window of its own and runs after this one.
 //! Bails (`None`): a deck reserve, diplomacy promises (a vote is an event of the promises), a nested activity the table
 //! does not follow, an agenda or outcome the core has no typed form of, a position the codecs refuse, and a correct
-//! prediction the core does not pay (the research and placement riders, a draw a faction hook changes or that leaves
-//! the hand over its limit, a rules version below the pool question).
+//! prediction the core does not pay (the placement riders, a Technology Rider at a seat whose research the core window does not
+//! carry, a draw a faction hook changes or that leaves the hand over its limit, a rules version below the pool question).
 
 use ti4_engine_core::driver::Driver;
 use ti4_engine_core::kernel::stage::AbilityTable;
@@ -21,7 +21,7 @@ use ti4_model::state::GameState;
 use crate::agenda_close::Settled;
 use crate::core_sync::{Footprint, Sources, with_core};
 use crate::dual::{CoreWindow, Run};
-use crate::dual_window::{Recording, apply_staged, drive_with, event_of, nested_check, nested_fp, tables};
+use crate::dual_window::{Recording, apply_staged, drive_positioned, drive_with, event_of, nested_check, nested_fp, tables};
 use crate::event::Event;
 use crate::generated::IdStr;
 use crate::vote::VoteWindow;
@@ -48,8 +48,8 @@ const CLOSE: Footprint = Footprint::new(
 #[must_use]
 pub fn close(
     gs: &mut GameState,
-    _content: &ti4_content::ContentStore,
-    _sources: SourceSet,
+    content: &ti4_content::ContentStore,
+    sources: SourceSet,
     window: &VoteWindow,
     covert: Option<&str>,
     script: &Recording,
@@ -97,6 +97,7 @@ pub fn close(
         drop_unofficial: gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK,
         blanked: crate::laws::blanked(gs),
         hooked: crate::dual_window::draw_hooks(gs, &r),
+        research: rider_research(gs, &mut cx, &r, content, sources, window.winner()),
     };
     let before = gs.clone();
     let kernel = crate::production_view::kernel();
@@ -108,11 +109,19 @@ pub fn close(
     );
     let mut staged = Vec::new();
     let mut queue = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(CLOSE, script), |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(close_footprint(CLOSE), script), |core, _| {
         let start = core.ledger.events.iter().count();
-        let driven = drive_with(&mut driver, core, kernel, &r, &before, script, &|c, state, rendered| {
+        let driven = drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &|c, state, rendered| {
             let letnev = before.player(&PlayerId::new(r.seat_text(c.actor))).is_some_and(|p| p.faction.as_str() == "letnev");
             crate::strategy_cards_core::complete_tokens(c, state, rendered, letnev);
+            // The names of the technologies the Technology Rider's research offers.
+            if matches!(c.ask, ti4_engine_core::choice::Ask::Strategy(ti4_engine_core::choice::strategy::Ask::ResearchTechnology { .. })) {
+                for (option, opt) in rendered.options.iter_mut().zip(c.opts.iter()) {
+                    if let ti4_engine_core::choice::Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Research(t)) = opt {
+                        option.label = crate::technology::name(content, &ti4_model::id::TechnologyId::new(t.as_str()));
+                    }
+                }
+            }
         });
         staged = std::mem::take(&mut core.pending_mut().staged);
         queue = core.ledger.events.iter().skip(start).cloned().collect::<Vec<_>>();
@@ -144,6 +153,53 @@ pub fn close(
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     let order = queue.iter().map(|e| crate::render::events::pushed_of(&r, &cx, e)).collect::<Option<Vec<_>>>()?;
     Some(CoreWindow { run: Run::new(settled).with_events_vec(events).with_order(order), questions: driven.rendered })
+}
+
+/// The Technology Rider's research reads the production rules and writes what a research changes (the technology, the unit forms on the
+/// board, a Research Agreement note, a mark).
+fn close_footprint(base: Footprint) -> Footprint {
+    base.union(Footprint {
+        reads: crate::production_view::READS,
+        writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Cards, Slice::Marks]),
+    })
+}
+
+/// The research a correct Technology Rider may run in the core: `Some` when no seat that holds one in this vote (the prediction names the
+/// winner and the rider) has a research the window does not carry. `None` leaves the rider to the string (the window ends `unsupported`).
+fn rider_research(
+    gs: &GameState,
+    cx: &mut crate::core_sync::Ctx,
+    r: &crate::render::Render,
+    content: &ti4_content::ContentStore,
+    sources: SourceSet,
+    winner: Option<&str>,
+) -> Option<(ti4_engine_core::tables::Scope, &'static ti4_engine_core::query::tech::UnitRoster)> {
+    let scope = crate::technology_core::scope(sources);
+    let roster = crate::technology_core::roster_for(content, sources)?;
+    let correct = format!("{}|tech_rider", winner?);
+    let holders: Vec<&ti4_model::id::PlayerId> = gs.agenda_predictions.iter().filter(|(_, p)| **p == correct).map(|(who, _)| who).collect();
+    if holders.is_empty() {
+        return Some((scope, roster));
+    }
+    if gs.rules_version < ti4_model::state::RULES_TECH_PAYMENT_CHOICE {
+        return None;
+    }
+    let before = gs.clone();
+    for who in holders {
+        if crate::strategy_cards_core::research_unported(gs, content, sources, who) {
+            return None;
+        }
+        let seat = r.seat(who.as_str())?;
+        let mut copy = before.clone();
+        let agree = with_core(&mut copy, cx, Sources::default(), Footprint { reads: crate::production_view::READS, writes: ti4_engine_core::state::SliceSet::EMPTY }, |core, _| {
+            crate::strategy_cards_core::research_hooks_agree(core, &before, content, sources, who, seat)
+        })
+        .ok()?;
+        if !agree {
+            return None;
+        }
+    }
+    Some((scope, roster))
 }
 
 const COMMITTEE: Footprint = Footprint::new(

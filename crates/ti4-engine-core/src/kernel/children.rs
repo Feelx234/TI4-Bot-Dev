@@ -196,6 +196,9 @@ pub enum Spawn {
     Reward { who: Seat, step: EStep, options: SmallList<EOpt, 3>, skip_single: bool },
     /// The Technology ability (`production::strategy_cards::Research`): `cost` resources for the paid research.
     Research { who: Seat, primary: bool, cost: i64, scope: Scope, roster: &'static UnitRoster },
+    /// The Technology Rider's free research (`production::strategy_cards::Research::rider`): reports [`Report::Left`] when an answer
+    /// left the plain path (a technology only a faction waiver opens).
+    RiderResearch { who: Seat, scope: Scope, roster: &'static UnitRoster },
     /// The Leadership ability.
     Leadership { who: Seat, primary: bool },
     /// The Construction ability.
