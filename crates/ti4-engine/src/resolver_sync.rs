@@ -624,7 +624,8 @@ mod tests {
         let seated = |n: usize, seed: u64| {
             let names = ["a", "b", "c", "d", "e", "f"];
             let seats: Vec<(&str, &str)> = (0..n).map(|i| (names[i], ti4_engine_core::generated::Faction::ALL[i].as_str())).collect();
-            let state = crate::fixtures::seated_game(&seats, POK);
+            let mut state = crate::fixtures::seated_game(&seats, POK);
+            crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
             Game::with_seeded_random(state, ContentStore::embedded(), seed)
         };
         for (n, seed) in GAMES {
