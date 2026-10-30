@@ -43,6 +43,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_SPACE, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_GROUND, kind: "promissory", card: "antivirus" },
+    Named { slot: ti4_engine_core_factions::magen_defense::ACTIVATION, kind: "technology", card: "md" },
     Named { slot: ti4_engine_core_factions::cb_economy::winnu::timing::UNLOCK_SPACE, kind: "leader", card: "winnucommander_unlock" },
     Named { slot: ti4_engine_core_factions::cb_economy::winnu::timing::UNLOCK_GROUND, kind: "leader", card: "winnucommander_unlock" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::threat::PREDICT, kind: "ability", card: "galactic_threat" },
@@ -183,6 +184,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::cc_ground::register_first(&mut t);
             ti4_engine_core::rules::action_cards::reaction_slot::register(&mut t);
             ti4_engine_core::rules::reactions::register(&mut t);
+            ti4_engine_core_factions::magen_defense::register_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
             ti4_engine_core_factions::ce_movement::register_abilities(&mut t);
             // The string order of the faction modules: only abilities of one window share a bucket, and Mahact's

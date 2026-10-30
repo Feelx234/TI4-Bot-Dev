@@ -602,3 +602,30 @@ fn a_route_other_than_the_default_is_followed_from_the_questions_list() {
     assert_eq!(done.counts("tactical::move"), (1, 0), "{:?}", done.reasons);
     assert_eq!(total(&done.state, &target, &a(), Some("cruiser")), 1);
 }
+
+/// Magen Defense Grid (package W9, first effect): the activation of a system with the holder's structure puts an infantry
+/// beside each structure. The core activation window follows the ability (it was an unported ability, a counted bail).
+#[test]
+fn a_magen_defense_grid_places_an_infantry_beside_each_structure_of_an_activated_system_in_lockstep() {
+    let (hub, origin, target) = hub();
+    let planet = {
+        let record = ti4_content::galaxy::planets_in(ContentStore::embedded(), target.as_str(), POK).into_iter().next().expect("the hub centre has a planet");
+        ti4_model::id::PlanetId::new(record.id())
+    };
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    state.player_mut(&b()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("md"));
+    crate::fixtures::put_on_planet(&mut state, &target, &planet, "pds", &b(), 2);
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()], |_| {});
+    assert_eq!(done.counts("tactical::activate"), (1, 0), "the core followed the activation: {:?}", done.reasons);
+    assert_eq!(total(&done.state, &target, &b(), Some("infantry")), 2, "one infantry beside each of the two PDS");
+    // A holder with no structure there is not troubled.
+    let (second, origin, target) = (crate::fixtures::plain_hub(), SystemId::new(crate::fixtures::plain_hub().outer[0].clone()), SystemId::new(crate::fixtures::plain_hub().centre.clone()));
+    let hub = second;
+    let mut state = sol_hacan();
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    state.player_mut(&b()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("md"));
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()], |_| {});
+    assert_eq!(done.counts("tactical::activate"), (1, 0), "{:?}", done.reasons);
+    assert_eq!(total(&done.state, &target, &b(), Some("infantry")), 0);
+}

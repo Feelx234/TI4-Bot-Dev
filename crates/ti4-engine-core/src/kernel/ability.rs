@@ -745,6 +745,11 @@ impl<'a> Eff<'_, 'a> {
         self.host.kernel
     }
 
+    /// The state to write and the kernel to read at once (a placement asks the hooks while it writes).
+    pub fn state_and_kernel(&mut self) -> (&mut CoreState, &Kernel) {
+        (&mut *self.host.state, self.host.kernel)
+    }
+
     /// Political Secret bars this ability's owner (`AbilityTable::bars`).
     #[must_use]
     pub fn barred(&self) -> bool {

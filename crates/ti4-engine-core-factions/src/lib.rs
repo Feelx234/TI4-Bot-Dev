@@ -28,6 +28,7 @@ use ti4_engine_core::hooks::HookTable;
 
 pub mod common;
 pub mod cards;
+pub mod magen_defense;
 
 pub mod ca_combat;
 pub mod cb_economy;
