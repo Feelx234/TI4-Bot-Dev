@@ -30,8 +30,8 @@ impl Base {
         let mut sorted = Vec::with_capacity(items.len());
         let (mut i, mut j) = (0, 0);
         while i < older.sorted.len() && j < fresh.len() {
-            // the texts are distinct, so `<=` and `<` choose alike; mutants:skip
-            if items[older.sorted[i] as usize] <= items[fresh[j] as usize] {
+            // the texts are distinct, so `<=` and `<` choose alike
+            if items[older.sorted[i] as usize] <= items[fresh[j] as usize] { // mutants:skip
                 sorted.push(older.sorted[i]);
                 i += 1;
             } else {

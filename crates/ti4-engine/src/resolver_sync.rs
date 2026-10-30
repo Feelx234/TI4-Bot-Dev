@@ -525,6 +525,17 @@ mod tests {
         assert_eq!(export(&g.timing, g.event_sequence(), &r).unwrap(), before, "the image is what survives");
     }
 
+    #[test]
+    fn the_state_holds_eight_seats_of_initiative_and_no_more() {
+        let (res, seq) = spent_resolver();
+        let state = crate::setup::start_game_seeded(ContentStore::embedded(), &players(2), POK, None, 1).unwrap();
+        let mut img = export(&res, &seq, &render_for(&state)).unwrap();
+        img.initiative = (0..8).map(Seat).collect();
+        assert_eq!(to_state(&img).unwrap().initiative.len(), 8);
+        img.initiative = (0..9).map(Seat).collect();
+        assert!(to_state(&img).is_err());
+    }
+
     /// What a step changes in the image, applied to the image before it, is the image after it.
     #[test]
     fn a_delta_applied_to_the_image_before_gives_the_image_after() {
