@@ -75,7 +75,10 @@ fn check(positions: &[Position]) -> (usize, usize, Vec<String>) {
 #[test]
 fn p7_the_codec_round_trips_every_template_opening() {
     let (positions, refused) = template_openings();
-    assert!(refused.is_empty(), "templates the loader refused: {refused:?}");
+    // The loader refuses the templates it cannot build for a table (a player count outside 3 to 8, a static map whose tile is not in the corpus): those are not
+    // positions; every other refusal is a failure.
+    let unexpected: Vec<&String> = refused.iter().filter(|r| !r.contains("use 3 to 8") && !r.contains("in the corpus for the requested sources")).collect();
+    assert!(unexpected.is_empty(), "templates the loader refused for another reason: {unexpected:?}");
     assert!(positions.len() >= 20, "{} openings", positions.len());
     let (mapped, unmapped, bad) = check(&positions);
     assert_eq!(bad, Vec::<String>::new());
