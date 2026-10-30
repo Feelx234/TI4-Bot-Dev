@@ -113,8 +113,8 @@ pub fn strategy_phase_flip(core: &mut CoreState) -> Option<Seat> {
 
 /// `faction_techs::return_spec_ops` (the turn prelude): "at the start of your next turn, place each unit that is on this card
 /// on a planet you control in your home system", on the first such planet (by id); with none controlled they wait on the card.
-/// Returns how many were placed.
-pub fn return_spec_ops(core: &mut CoreState, seat: Seat) -> u32 {
+/// `infantry` is the unit placed (`sol_infantry2`, the adapter's to name). Returns how many were placed.
+pub fn return_spec_ops(core: &mut CoreState, seat: Seat, infantry: crate::generated::Unit) -> u32 {
     let Some(p) = core.players().by_seat(seat) else { return 0 };
     let waiting = p.misc.spec_ops_card;
     let Some(home) = p.home_system else { return 0 };
@@ -122,9 +122,8 @@ pub fn return_spec_ops(core: &mut CoreState, seat: Seat) -> u32 {
         return 0;
     }
     let mut here: Vec<_> = crate::query::board::controlled_planets(core, seat).as_slice().iter().filter(|(system, _)| *system == home).map(|(_, planet)| *planet).collect();
-    here.sort_by_key(|planet| planet.as_str());
+    here.sort_unstable();
     let Some(planet) = here.first().copied() else { return 0 };
-    let Some(infantry) = crate::generated::Unit::ALL.iter().copied().find(|u| u.as_str() == "sol_infantry2") else { return 0 };
     for _ in 0..waiting {
         core.board_mut().planet_mut(planet).units.push(crate::state::Piece::new(infantry, seat));
     }

@@ -336,7 +336,10 @@ mod real {
     }
 
     pub fn return_spec_ops(gs: &mut GameState, p: &PlayerId) -> Option<u32> {
-        lend_with(gs, SPEC_OPS, |core, r| Some(rules::return_spec_ops(core, r.seat(p.as_str())?)))?
+        lend_with(gs, SPEC_OPS, |core, r| {
+            let infantry = <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("sol_infantry2")?;
+            Some(rules::return_spec_ops(core, r.seat(p.as_str())?, infantry))
+        })?
     }
 
     pub fn prepared(gs: &GameState) -> Option<Option<u32>> {

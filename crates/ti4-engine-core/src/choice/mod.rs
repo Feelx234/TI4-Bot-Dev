@@ -97,6 +97,7 @@ areas! {
     Leaders(leaders),
     Strategy(strategy),
     Agenda(agenda),
+    Turn(turn),
 }
 
 impl Opt {
