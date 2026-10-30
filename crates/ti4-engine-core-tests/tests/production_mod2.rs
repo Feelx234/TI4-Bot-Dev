@@ -52,6 +52,7 @@ fn ask() -> ChooseAsk {
         armada: 0,
         buildable: [Some(Unit::CruiserI), Some(Unit::FighterI), Some(Unit::InfantryI), Some(Unit::DreadnoughtI), Some(Unit::CarrierI), None, None, None, None],
         icon: Icon::Fresh,
+        ability: false,
     }
 }
 
@@ -198,7 +199,7 @@ fn a_planet_with_two_places_offers_each_only_when_there_are_two_or_more() {
     let (a, b) = two();
     let (s, k) = docked().build();
     let c = cx(&s, &k);
-    let place = PlaceAsk { who: Seat(0), system: SYS, unit: Unit::InfantryI, made: 2, fleet_limit: 12, icon: Icon::Fresh };
+    let place = PlaceAsk { who: Seat(0), system: SYS, unit: Unit::InfantryI, made: 2, fleet_limit: 12, icon: Icon::Fresh, ability: false };
     let opts = prod::place_opts(&c, &place);
     assert_eq!(opts.len(), 2);
     assert!(opts.as_slice().iter().all(|o| matches!(o, POpt::Place { spot: Spot::Planet(p) } if *p == a || *p == b)));
@@ -634,7 +635,7 @@ fn a_ground_force_on_a_planet_and_in_space_stand_differently_in_the_fleet() {
     let (a, _) = two();
     let (s, k) = docked().build();
     let c = cx(&s, &k);
-    let place = PlaceAsk { who: Seat(0), system: SYS, unit: Unit::InfantryI, made: 2, fleet_limit: 12, icon: Icon::Fresh };
+    let place = PlaceAsk { who: Seat(0), system: SYS, unit: Unit::InfantryI, made: 2, fleet_limit: 12, icon: Icon::Fresh, ability: false };
     let on_planet = prod::place_info(&c, &place, Spot::Planet(a));
     let in_space = prod::place_info(&c, &place, Spot::Space);
     assert_ne!(on_planet.after, in_space.after, "infantry in space need capacity, on a planet they do not");
