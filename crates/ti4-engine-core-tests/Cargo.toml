@@ -14,13 +14,18 @@ ti4-engine-core.workspace = true
 ti4-engine-core-factions.workspace = true
 proptest.workspace = true
 ti4-engine = { workspace = true, optional = true }
+ti4-engine-core-bridge = { path = "../ti4-engine-core-bridge", optional = true }
 ti4-model = { workspace = true, optional = true }
 ti4-content = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [features]
 default = []
-wrapper = ["dep:ti4-engine", "dep:ti4-model", "dep:ti4-content", "dep:serde_json"]
+wrapper = ["dep:ti4-engine", "dep:ti4-engine-core-bridge", "dep:ti4-model", "dep:ti4-content", "dep:serde_json"]
 
 [lints]
 workspace = true
+
+[[test]]
+name = "wrapper_props"
+required-features = ["wrapper"]
