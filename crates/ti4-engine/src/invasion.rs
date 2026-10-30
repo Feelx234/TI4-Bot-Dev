@@ -10630,6 +10630,17 @@ mod tests {
                 }
             }
             state.player_mut(&a).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("sc"));
+            // As in a game: the invasion is active, so the question names it (`invasion=<seq>` in the decision context).
+            state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+                system: system.clone(),
+                invader: a.clone(),
+                seq: 88,
+                phase: "fighting".to_owned(),
+                planet: None,
+                defender: None,
+                ground_round: 0,
+                last_step: None,
+            });
             state.rng_seed = seed;
             let mut dice = Dice::new();
             let mut rng = GameRng::new(seed);

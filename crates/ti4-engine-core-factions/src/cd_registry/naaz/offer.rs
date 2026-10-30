@@ -81,7 +81,8 @@ fn offer_supercharge(cx: &mut Cx<'_>, who: Seat, word: Word) {
             target: None,
             outstanding: SmallList::new(),
             space_battle: false,
-            invasion_seq: None,
+            // A ground round names the invasion it is fought in (`DecisionContext::about_invasion`); a space round names none.
+            invasion_seq: if matches!(word, Word::Ground) { cx.state.transient().invasion.active.as_ref().map(|a| a.seq) } else { None },
         },
         opts: [Opt::Combat(COpt::UseSupercharge), Opt::Decline].into_iter().collect(),
     };
