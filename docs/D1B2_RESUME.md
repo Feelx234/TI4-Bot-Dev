@@ -23,4 +23,11 @@ the status/agenda halves of `step_phase`, the bodies of the non-native menu sour
 
 ## Gate
 
-See the final report of the implementation agent for what was run and what was not.
+Run once under the heavy lock (first run `15dc220f`, failed steps rerun on `ce246871`), results in `docs/ENGINE_KNOWN_ISSUES.md` `D1b2-gate-01`;
+the finding of the first run is `D1b2-find-01` (fixed, regression test). A modest wide soak (49 games, `tools/engine_core/soak.sh`, mask `wide`) was run on
+`127585b7`: the result is in the final report. Scripts used: `/root/deploytmp/core-d1b2-gate.sh`, `core-d1b2-rerun.sh`, `core-d1b2-soak.sh`.
+
+## Done after the mutation round
+
+`rules/combat/feats.rs`, `driver/windows/aftermath.rs::FightOver`, `driver/windows/minister.rs`, `driver/windows/enforce_all.rs`,
+`driver/tactical_tail.rs`, `driver/dispatch.rs`, `driver/step.rs`: ported, mutation-checked (`D1b2-mut-01`), duals and census in the gate.
