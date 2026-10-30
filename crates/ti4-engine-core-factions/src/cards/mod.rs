@@ -513,6 +513,43 @@ mod tests {
         assert!(s.transient().combat.pending_destructions.is_empty());
     }
 
+    /// Integration of B6d and B12: ONE owner per window for each of the three cards that both lines touched
+    /// (`docs/INTEGRATION5.md`). Inside another window (the reactions table, where the facts of the play window are not lent)
+    /// the registered play is Fire Team's; Scramble Frequency and Courageous To The End are not played there (the census names
+    /// them, B6d owns their play window) and a table that registers Fire Team must not make them registered plays.
+    #[test]
+    fn one_owner_per_card_fire_team_is_registered_and_scramble_and_courageous_are_not() {
+        use ti4_engine_core::rules::action_cards::announce::{Announce, plays_in};
+        use ti4_engine_core::rules::action_cards::{Env, Facts, Placed};
+        use ti4_engine_core::state::Code;
+        let t = registered();
+        assert!(plays_in(&t, ActionCard::FireTeam), "Fire Team is played inside the windows by the registration");
+        assert!(!plays_in(&AbilityTable::default(), ActionCard::FireTeam), "without the registration it is the play window's alone");
+        for card in [ActionCard::ScrambleFrequency, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation] {
+            assert!(t.card_play(card).is_none(), "{card:?} is not registered");
+            assert!(!plays_in(&t, card), "{card:?} stays out of the windows (its play window is the action-card area's)");
+        }
+        let env = Env {
+            mahact_held: 0,
+            scope: ti4_engine_core::tables::Scope(u32::MAX),
+            blanked: false,
+            action_card: Code(0),
+            supply_base: Code(0),
+            note_order: |a, b| a.cmp(&b),
+            infantry: Placed::NONE,
+            cruiser: Placed::NONE,
+            fighter: Placed::NONE,
+            facts: Facts::default(),
+        };
+        let (s, _) = table(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]);
+        // The announcement of the window: the registration for Fire Team (no facts of the play window), nothing for the others.
+        // (`registered` is what the inline runner passes: `rt.has_registered_play(card)`.)
+        let registered_in = |card: ActionCard| t.card_play(card).is_some();
+        assert!(Announce::of(&s, ActionCard::FireTeam, Seat(0), env, true, registered_in(ActionCard::FireTeam)).is_some());
+        assert!(Announce::of(&s, ActionCard::FireTeam, Seat(0), env, true, false).is_none(), "nothing registered, no facts of the play window");
+        // The others never get this far inside a window: `plays_in` (above) is the gate of the slot, and the census names them.
+    }
+
     fn retreat_fight(destinations: &[System]) -> (CoreState, AbilityTable, System) {
         let (mut s, _) = table(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]);
         let system = System::ALL[0];
