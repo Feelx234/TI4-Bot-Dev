@@ -311,6 +311,140 @@ impl Window for StallTactics {
     }
 }
 
+// -- ???_ERROR_ERROR_???, the draw -------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DStage {
+    Start,
+    Card,
+    Drawing,
+    Done,
+}
+
+/// ???_ERROR_ERROR_??? (Nekro), the ACTION that draws: "Exhaust this card and discard 1 action card to draw 1 action card." The discard
+/// is chosen as for Stall Tactics (one option per distinct printed card, none for one; the discard waits for the game step as a
+/// `CardsStaged` mark), the card is exhausted, and the draw is the action-card area's window as a child (its hand-limit question
+/// included). `done` is whether the action resolved: the hand held a card. `unsupported`: the table has no link to the draw window, the
+/// caller declines the run.
+#[derive(Debug, Clone)]
+pub struct C4rDraw {
+    pub who: Seat,
+    drop_unofficial: bool,
+    groups: Vec<u8>,
+    stage: DStage,
+    draw: crate::kernel::children::ErasedChild,
+    pub done: bool,
+    pub unsupported: bool,
+}
+
+impl C4rDraw {
+    #[must_use]
+    pub fn new(who: Seat, drop_unofficial: bool) -> Self {
+        Self { who, drop_unofficial, groups: Vec::new(), stage: DStage::Start, draw: crate::kernel::children::ErasedChild::idle(), done: false, unsupported: false }
+    }
+
+    fn cards(&self, core: &CoreState) -> Vec<crate::generated::ActionCard> {
+        let Some(p) = core.players().by_seat(self.who) else { return Vec::new() };
+        let mut seen: Vec<u8> = Vec::new();
+        let mut firsts: Vec<crate::generated::ActionCard> = Vec::new();
+        for card in p.cards.hand.as_slice() {
+            let Some(group) = self.groups.get(*card as usize).copied() else { return Vec::new() };
+            if !seen.contains(&group) {
+                seen.push(group);
+                firsts.push(*card);
+            }
+        }
+        firsts.sort_by_key(|card| card.name_rank());
+        firsts
+    }
+
+    fn discarded(&mut self, sx: &mut Sx<'_>, card: crate::generated::ActionCard) {
+        fx::discard_action_card_staged(sx.state, self.who, card);
+        crate::kernel::fx_strategy::exhaust_technology(sx.state, self.who, crate::generated::Technology::ERRORERROR);
+        self.done = true;
+        match sx.table.links.start(&crate::kernel::children::Spawn::DrawCards { who: self.who, count: 1, drop_unofficial: self.drop_unofficial }) {
+            Some(window) => {
+                self.draw.start(window);
+                self.stage = DStage::Drawing;
+            }
+            None => {
+                self.unsupported = true;
+                self.stage = DStage::Done;
+            }
+        }
+    }
+}
+
+impl Window for C4rDraw {
+    type Stage = DStage;
+
+    fn stage(&self) -> DStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        use crate::kernel::stage::Ran;
+        if self.stage == DStage::Start {
+            self.groups = sx.table.facts.card_group_table().map(<[u8]>::to_vec).unwrap_or_default();
+            let cards = self.cards(sx.state);
+            match cards.as_slice() {
+                [] => self.stage = DStage::Done,
+                [only] => self.discarded(sx, *only),
+                _ => self.stage = DStage::Card,
+            }
+        }
+        if self.stage == DStage::Drawing {
+            match self.draw.step(sx) {
+                Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                Some(Ran::Pass(next)) => return next,
+                Some(Ran::Done(report)) => {
+                    self.unsupported |= report == crate::kernel::children::Report::Left;
+                    self.stage = DStage::Done;
+                }
+                None => self.stage = DStage::Done,
+            }
+        }
+        match self.stage {
+            DStage::Card => Next::Continue(Ask::Cards(crate::choice::cards::Ask::OwnHand { reason: crate::choice::cards::Reason::C4rDiscard })),
+            DStage::Start | DStage::Drawing | DStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        use crate::choice::cards::{Ask as CAsk, Opt as COpt, Reason};
+        match self.stage {
+            DStage::Card => Some(Choice {
+                actor: self.who,
+                ask: Ask::Cards(CAsk::OwnHand { reason: Reason::C4rDiscard }),
+                ctx: Ctx {
+                    origin: Origin::FactionAbility(Content::Technology(crate::generated::Technology::ERRORERROR)),
+                    subtype: Subtype::Cards(Reason::C4rDiscard.subtype()),
+                    optional: false,
+                    target: None,
+                    outstanding: SmallList::new(),
+                    space_battle: false,
+                    invasion_seq: None,
+                },
+                opts: self.cards(s).into_iter().map(|card| Opt::Cards(COpt::Card(card))).collect::<Opts>(),
+            }),
+            DStage::Drawing => self.draw.ask_of(s, k),
+            DStage::Start | DStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        use crate::choice::cards::Opt as COpt;
+        match (self.stage, pick) {
+            (DStage::Drawing, pick) => self.draw.answer(sx, pick),
+            (DStage::Card, Pick::Opt(Opt::Cards(COpt::Card(card)))) if self.cards(sx.state).contains(&card) => {
+                self.discarded(sx, card);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -543,5 +677,57 @@ mod tests {
         let mut d = stall_driver(None);
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert!(d.window.done);
+    }
+
+    fn draw_driver(links: bool) -> Driver<C4rDraw> {
+        let mut t = AbilityTable::default();
+        t.facts.card_groups = (0..crate::generated::ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
+        if links {
+            crate::driver::children::register(&mut t);
+        }
+        Driver::new(C4rDraw::new(Seat(0), false), Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), t, 1)
+    }
+
+    #[test]
+    fn the_nekro_draw_discards_exhausts_and_draws_one_card_and_needs_a_card_in_hand() {
+        use crate::choice::cards::{Ask as CAsk, Opt as COpt, Reason};
+        use crate::generated::{ActionCard as C, Technology};
+        let k = Kernel::plain();
+        let setup = |hand: &[C]| {
+            let mut s = table();
+            s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::ERRORERROR);
+            for card in hand {
+                s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(*card);
+            }
+            s.decks_mut().action.set(vec![C::ALL[11], C::ALL[12]]);
+            s
+        };
+        // One distinct card: no question, the card goes, the top of the deck comes.
+        let mut s = setup(&[C::ALL[3]]);
+        let mut d = draw_driver(true);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.done && !d.window.unsupported);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice(), &[C::ALL[11]]);
+        assert!(s.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::ERRORERROR));
+        assert!(s.marks().tail.get(&crate::keys::MarkKey::CardsStaged(0)).is_some());
+        // Several: the question has no decline and names the reason; nothing happens before the answer.
+        let mut s = setup(&[C::ALL[3], C::ALL[7]]);
+        let mut d = draw_driver(true);
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!(q.ask, Ask::Cards(CAsk::OwnHand { reason: Reason::C4rDiscard }));
+        assert!(!q.opts.as_slice().contains(&Opt::Decline));
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 2);
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Cards(COpt::Card(C::ALL[9])))), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(q.opts.as_slice()[0])).unwrap(), Status::Done);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 2, "one out, one in");
+        // No card: nothing resolves. No link to the draw window: the run is declined.
+        let mut s = setup(&[]);
+        let mut d = draw_driver(true);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.done);
+        let mut s = setup(&[C::ALL[3]]);
+        let mut d = draw_driver(false);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.unsupported);
     }
 }

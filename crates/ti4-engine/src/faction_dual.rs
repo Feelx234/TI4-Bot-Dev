@@ -101,6 +101,48 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
+    /// What the Nekro draw reads and writes: the hand and the deck, the staged discard mark, the laws that cap the hand.
+    const C4R_DRAW: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Decks, Slice::Agenda, Slice::Marks, Slice::Cards, Slice::Pending],
+        &[Slice::Players, Slice::Decks, Slice::Marks, Slice::Cards],
+    );
+
+    /// The core half of Nekro's ???_ERROR_ERROR_??? draw (`factions::nekro_units::discard_and_draw`; the value: the action resolved). A
+    /// draw a faction hook or a law changes, a replayed turn and a seat that carries the text on a Valefar Assimilator are the string's.
+    pub fn c4r_draw(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::driver::Driver;
+        use ti4_engine_core::kernel::stage::AbilityTable;
+        use ti4_engine_core::kernel::{Kernel, Resolver};
+        use ti4_engine_core::rules::promissory_windows::C4rDraw;
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| gs.deck_reserve.is_some().then_some("deck reserve (a turn redo replays the draws)")).or_else(|| crate::strategy_cards_core::draw_hook(gs, content, player, 1)) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if !gs.player(player).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"nekroc4r"))) {
+            crate::dual::note_bail_here("???_ERROR_ERROR_??? carried by something other than the player's own card (a Valefar Assimilator)");
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let mut table = AbilityTable::default();
+        table.facts.card_groups = crate::reactions_core::card_groups();
+        ti4_engine_core::driver::children::register(&mut table);
+        let mut driver = Driver::new(C4rDraw::new(seat, gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK), Resolver::new(&seats, Some(seat)), table, 1);
+        let driven = with_core(gs, &mut cx, Sources::default(), C4R_DRAW, |core, _| {
+            crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {})
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the draw window or no printed-name groups");
+            return None;
+        }
+        Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     /// What Terraform reads and writes: the note (Cards), the planet and its attachment (Board).
     const TERRAFORM: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards],
@@ -171,6 +213,9 @@ mod stub {
         _: ti4_model::content_types::SourceSet,
         _: &Recording,
     ) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn c4r_draw(_: &mut GameState, _: &ti4_content::ContentStore, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
 }

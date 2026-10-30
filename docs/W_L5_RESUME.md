@@ -16,9 +16,10 @@ leaders, Military Support, `check_unlocks`, the rest of W12/W13/W14. Pure refact
 
 | Nekro Malleon, Nekro agent (W10) | `leader_windows::NekroMalleon`, `kernel::fx::discard_action_card_staged` | `leaders_core::nekro_agent`, `factions::nekro_units::malleon_dual` | `factions::nekro::malleon` |
 | Stall Tactics, Yssaril (W11) | `promissory_windows::StallTactics` (+ `PlaceUnits`) | `faction_dual::stall_tactics`, `factions::yssaril::stall_tactics` | `factions::yssaril::stall_tactics` |
+| ???_ERROR_ERROR_??? draw, Nekro (W11) | `promissory_windows::C4rDraw` (+ child `DrawCards`) | `faction_dual::c4r_draw`, `factions::nekro_units::discard_and_draw` | `factions::nekro::c4r_draw` |
 | Vortex, Cabal (W11) | `technology_windows::Vortex` | `technology_dual::vortex`, `factions::cabal::vortex_perform` | `factions::cabal::vortex` |
 
-Lines in `docs/ENGINE_KNOWN_ISSUES.md`: W14-design-03, W11-design-02, W11-design-03, W10-design-04, W10-design-05. The three gate tables lose these ids
+Lines in `docs/ENGINE_KNOWN_ISSUES.md`: W14-design-03, W11-design-02, W11-design-03, W11-design-04, W10-design-04, W10-design-05. The three gate tables lose these ids
 (`leaders::string_only_leader`, `faction_abilities::string_only_component`); their gate tests are updated.
 
 New counted bails (each with a test): a Saar seat whose adjacency a faction rule changes (`the_hero_stays_in_the_string_where_a_faction_rule_changes_the_adjacency`),
@@ -40,16 +41,16 @@ cabal hero (hunt over rifts and ships), argent hero (fleet migration over the mo
 Faction component actions (`faction_abilities::perform_component [gate: ...]`): orbital drop (Sol; payment child and a placement of a mech), muaat
 (Star Forge: placement and production of lane 1), ghost Wormhole Generator (a Creuss token is a state of the string map: the core has no
 window that writes it), saar Deorbit Barrage and arborec Psychospore (Thunder's Edge breakthroughs: undecided, nothing ported), titans
-(none left), naaz (fabrication/BMF: relic gain and fragments), yssaril (Mageon Implants: the look-and-take of another seat's hand), arborec Psychospore (TE), nekro C4R place PDS and draw (structure cap, hand and deck stream), mahact (Imperia).
+(none left), naaz (fabrication/BMF: relic gain and fragments), yssaril (Mageon Implants: the look-and-take of another seat's hand), arborec Psychospore (TE), nekro C4R place PDS (structure cap), mahact (Imperia).
 
-Next in line, cheapest first: C4R draw (the staged discard exists now; the draw needs the deck stream), Mageon Implants, the Arborec agent, Naaz fabrication.
+Next in line, cheapest first: C4R place PDS (structure cap and placement under the box), Mageon Implants, the Arborec agent, Naaz fabrication.
 
 Not mine: W12 Chaos Mapping / Minister of Industry / Freelancers and W13 `frln*` (lane 1's production window), the exploration reward
 composition (D1), `control_gained` (Keleres: dropped), `technology::component_actions`/`perform_component` (D1b dispatch).
 
 ## Checks
 
-Run: `cargo test -p ti4-engine-core --lib` (343+), `cargo test -p ti4-engine --lib` (4666 passed, 0 failed, at 8303b950 minus the test-only edits), the targeted
+Run: `cargo test -p ti4-engine-core --lib` (343+), `cargo test -p ti4-engine --lib` (4671 passed, 0 failed, 4 ignored), the targeted
 lockstep tests named above, single-file mutation checks by Haiku runners on a committed snapshot in a scratch worktree
 (`/root/deploytmp/core-w-l5/mutate.py`, specs `mut1.json`, `mut1b.json`, `mut2.json`, `mut3.json`; results `mut*.out`).
 

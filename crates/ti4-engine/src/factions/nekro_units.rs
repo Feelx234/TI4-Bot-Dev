@@ -1162,6 +1162,24 @@ fn place_pds(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
 }
 
 fn discard_and_draw(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    // The whole action is a window of the core (`rules::promissory_windows::C4rDraw`): the discard, the exhaustion and the draw with its
+    // hand-limit question.
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::nekro::c4r_draw",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(discard_and_draw_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::faction_dual::c4r_draw(s, content, player, script)
+    )
+}
+
+/// [`discard_and_draw`] on the string engine: the oracle of the dual run.
+fn discard_and_draw_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let Ok(Some(card)) = crate::action_cards::choose_from_own_hand(
         context,
         player,
@@ -1177,6 +1195,9 @@ fn discard_and_draw(context: &mut TimingContext<'_>, player: &PlayerId) -> bool 
     }
     // The discard stands: a draw that the hand limit questions is the player's to answer.
     let _ = crate::action_cards::draw(context.state, context.content, context.table, player, 1);
+    if let Some(seat) = context.state.player_mut(player) {
+        seat.exhausted_technologies.insert(TechnologyId::new(ERROR_ERROR));
+    }
     true
 }
 
@@ -2261,6 +2282,54 @@ mod tests {
         assert!(seen);
         let r = report();
         assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::c4r_repair [") && label.contains("Valefar Assimilator")), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The draw is a window of the core: the discard (staged for the game step), the exhaustion and the draw of one card from the
+    /// deck, with the hand-limit question when the hand ends over its limit. The core half agrees with the string for a lone card, a
+    /// card chosen among several and an empty hand, and it ran every time.
+    #[test]
+    fn nekro_error_error_draw_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |cards: &[&str], answers: &[&str]| -> (bool, GameState) {
+            let mut state = game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            with_error_error(&mut state);
+            state.player_mut(&a()).unwrap().action_cards.clear();
+            for card in cards {
+                give_card(&mut state, &a(), card);
+            }
+            let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, C4R_DRAW, answers));
+            (done, state)
+        };
+        let (done, state) = run(&["sabo1"], &[]);
+        assert!(done);
+        let seat = state.player(&a()).unwrap();
+        assert_eq!(seat.action_cards.len(), 1, "discarded 1, drew 1");
+        assert_ne!(seat.action_cards[0].as_str(), "sabo1");
+        assert!(exhausted(&state));
+        let (done, state) = run(&["bribery", "bunker", "dh1"], &["bunker"]);
+        assert!(done);
+        assert_eq!(state.player(&a()).unwrap().action_cards.len(), 3);
+        assert!(!run(&[], &[]).0, "nothing to discard: the action is not even offered");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::nekro::c4r_draw"), (2, 0), "{r:?}");
+        // A draw a rule changes (the Deepgloom Executable of another seat lets Scheming be borrowed) keeps the string body, counted.
+        let mut hooked = game();
+        hooked.promissory_notes.clear();
+        hooked.promissory_faceup.clear();
+        with_error_error(&mut hooked);
+        give_card(&mut hooked, &a(), "sabo1");
+        hooked.player_mut(&b()).unwrap().breakthrough = Some(ti4_model::BreakthroughId::new("yssarilbt"));
+        let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut hooked, C4R_DRAW, &[]));
+        assert!(done);
+        let r = report();
+        assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::c4r_draw [") && label.contains("Deepgloom Executable")), "{r:?}");
         let _ = take_report();
     }
 

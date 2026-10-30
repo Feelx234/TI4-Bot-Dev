@@ -848,7 +848,8 @@ mod vortex_tests {
         let (k, sys) = (Kernel::plain(), systems());
         let cruiser = plain(UnitBaseType::Cruiser);
         let mut s = scene();
-        s.board_mut().sys_mut(sys[0].0).units.push(Piece::new(cruiser, Seat(1)));
+        // On a planet of the neighbour, not in its space area: it counts as well.
+        s.board_mut().planet_mut(sys[0].1).units.push(Piece::new(cruiser, Seat(1)));
         let mut d = driver(true, None);
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert!(d.window.done);

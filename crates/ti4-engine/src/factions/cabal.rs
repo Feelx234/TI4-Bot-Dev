@@ -2594,7 +2594,7 @@ mod tests {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         crate::dual::reset_thread_windows();
-        let run = |units: &[&str], answers: &[&str]| -> (bool, GameState) {
+        let run_with = |units: &[&str], answers: &[&str], mapped: bool| -> (bool, GameState) {
             let (mut state, hub, _) = vortex_scene();
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
@@ -2603,12 +2603,13 @@ mod tests {
                 state.system_mut(&target).units.push(Unit::new(UnitTypeId::new(*unit), b()));
             }
             let done = with_mask(AreaMask::STRING.with(Area::Technology, Backend::Dual), || {
-                crate::fixtures::with_context(&mut state, DEFAULT, Some(&hub.galaxy), &mut scripted(answers), |ctx| {
+                crate::fixtures::with_context(&mut state, DEFAULT, mapped.then_some(&hub.galaxy), &mut scripted(answers), |ctx| {
                     vortex_perform(ctx, &a(), &ChoiceOption::labelled(VORTEX_ACTION, "component", ""))
                 })
             });
             (done, state)
         };
+        let run = |units: &[&str], answers: &[&str]| run_with(units, answers, true);
         let (done, state) = run(&["cruiser"], &[]);
         assert!(done);
         assert_eq!(crate::supply::captured_by(&state, &a()), vec![(b(), UnitTypeId::new("cruiser"))]);
@@ -2617,9 +2618,10 @@ mod tests {
         assert_eq!(crate::supply::captured_by(&state, &a()), vec![(b(), UnitTypeId::new("dreadnought"))]);
         assert!(!run(&[], &[]).0, "nothing next to the dock");
         assert!(!run(&["pds"], &[]).0, "a structure is no target");
+        assert!(!run_with(&["cruiser"], &[], false).0, "no map: no adjacency to read");
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert_eq!(crate::dual::thread_window_counts("factions::cabal::vortex"), (4, 0), "{r:?}");
+        assert_eq!(crate::dual::thread_window_counts("factions::cabal::vortex"), (5, 0), "{r:?}");
         let _ = take_report();
     }
 
