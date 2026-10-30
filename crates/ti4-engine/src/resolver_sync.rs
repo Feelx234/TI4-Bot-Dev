@@ -219,6 +219,35 @@ pub fn with_state(rest: &ResolverImage, state: &ResolverState) -> ResolverImage 
     }
 }
 
+/// The persistent part of the string resolver a window found (`Recording::cfg`) or left (`Recording::after`), as the
+/// core state carries it. `None` for a seat the `Render` does not know, more than eight seats of initiative, or a
+/// scope text that is not `Trigger(n)` / `Turn(n)` / `Round(n)`.
+#[must_use]
+pub fn cfg_state(r: &Render, cfg: &crate::dual_window::ResolverCfg, next_id: u64) -> Option<ResolverState> {
+    if cfg.initiative.len() > 8 {
+        return None;
+    }
+    let initiative: Option<Vec<Seat>> = cfg.initiative.iter().map(|s| r.seat(s)).collect();
+    let mut used = Vec::with_capacity(cfg.used.len());
+    for (id, scope) in &cfg.used {
+        let (kind, rest) = scope.split_once('(')?;
+        let n: u64 = rest.trim_end_matches(')').parse().ok()?;
+        let kind = match kind {
+            "Trigger" => UsedScope::Trigger,
+            "Turn" => UsedScope::Turn,
+            "Round" => UsedScope::Round,
+            _ => return None,
+        };
+        used.push((ability_id(r, id), kind, n));
+    }
+    Some(ResolverState {
+        used: Cow::new(used),
+        initiative: SmallList::from_slice(&initiative?),
+        emission_stack: cfg.stack.iter().map(|(kind, id)| (event_kind(r, kind), *id)).collect(),
+        next_id,
+    })
+}
+
 fn common_prefix<T: PartialEq>(a: &[T], b: &[T]) -> usize {
     a.iter().zip(b).take_while(|(x, y)| x == y).count()
 }
@@ -534,6 +563,24 @@ mod tests {
         assert_eq!(to_state(&img).unwrap().initiative.len(), 8);
         img.initiative = (0..9).map(Seat).collect();
         assert!(to_state(&img).is_err());
+    }
+
+    /// The two views of one string resolver (the configuration a window records and the image) carry the same persistent part.
+    #[test]
+    fn the_recorded_configuration_and_the_image_carry_the_same_state() {
+        let (res, seq) = spent_resolver();
+        let state = crate::setup::start_game_seeded(ContentStore::embedded(), &players(2), POK, None, 1).unwrap();
+        let r = render_for(&state);
+        let from_cfg = cfg_state(&r, &res.core_cfg(&POK), seq.peek()).expect("every seat is in the table");
+        let from_image = to_state(&export(&res, &seq, &r).unwrap()).unwrap();
+        assert_eq!(from_cfg, from_image);
+        assert!(!from_cfg.used.is_empty());
+        let mut stranger = res.core_cfg(&POK);
+        stranger.initiative.push("nobody".into());
+        assert!(cfg_state(&r, &stranger, 1).is_none(), "a seat the table does not know");
+        let mut bad = res.core_cfg(&POK);
+        bad.used.push(("ability:x".into(), "Weekly(2)".into()));
+        assert!(cfg_state(&r, &bad, 1).is_none(), "a scope that is none of the three");
     }
 
     /// What a step changes in the image, applied to the image before it, is the image after it.

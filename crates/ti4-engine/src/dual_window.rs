@@ -109,6 +109,13 @@ pub struct Recording {
     pub cfg: Option<ResolverCfg>,
     /// The trace id of the first event the window emitted (the core numbers its own from there).
     pub first_event_id: Option<u64>,
+    /// The resolver as the window's own last emission left it (D2-4b: what the core's resolver state must equal).
+    pub after: Option<ResolverCfg>,
+    /// How many emissions of the window (at any depth) finished with an event: the string numbers its trace ids
+    /// consecutively, so the next id is `first_event_id + finished` unless an emission failed.
+    pub finished: u64,
+    /// Some emission of the window ended in an error (it may have spent an id that no event shows).
+    pub failed_emit: bool,
     /// The destinations a Skilled Retreat found for `(player, system)`, as the string's map computed them (the core is lent
     /// no galaxy): an input of the card, noted by its effect.
     pub withdraw: Vec<(String, String, Vec<String>)>,
@@ -419,6 +426,17 @@ pub fn note_resolver(first_event_id: u64, make: impl FnOnce() -> ResolverCfg) {
     });
 }
 
+/// The emission that began at depth `began` ended: when it is the window's own, the resolver as it left it.
+pub fn note_resolver_after(began: u32, make: impl FnOnce() -> ResolverCfg) {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            if rec.base == began && rec.cfg.is_some() {
+                rec.after = Some(make());
+            }
+        }
+    });
+}
+
 /// The abilities one seat found eligible in one window pass (the resolver's `eligible`).
 pub fn note_eligible<'a>(abilities: impl IntoIterator<Item = &'a str>) {
     REC.with(|r| {
@@ -448,6 +466,11 @@ pub fn leave_emit(began: u32, done: Option<&Event>) {
     DEPTH.with(|d| d.set(began));
     REC.with(|r| {
         if let Some(rec) = r.borrow_mut().as_mut() {
+            if done.is_some() {
+                rec.finished += 1;
+            } else {
+                rec.failed_emit = true;
+            }
             if began > rec.base {
                 rec.nested = true;
                 if rec.effect_depth == 0 {
@@ -631,6 +654,13 @@ pub fn drive_positioned<W: Window>(
             if let Some(id) = script.first_event_id {
                 driver.next_id = id;
             }
+            // D2-4b: the persistent part of the resolver travels in the state the window runs on (`Pending` is in the
+            // footprint of every window that follows nested activity).
+            if core.loaded.has(Slice::Pending) {
+                if let Some(state) = script.cfg.as_ref().and_then(|cfg| crate::resolver_sync::cfg_state(r, cfg, driver.next_id)) {
+                    core.pending_mut().resolver = state;
+                }
+            }
         }
         Ok(None) => {}
         Err(why) => {
@@ -667,6 +697,7 @@ pub fn drive_positioned<W: Window>(
                 out.finished = true;
                 compare_ability_dice(core, script);
                 compare_nested_events(r, driver, script);
+                compare_resolver(r, driver, core, script);
                 return Ok(out);
             }
             Status::Asking(choice) => {
@@ -750,6 +781,25 @@ fn compare_nested_events<W: Window>(r: &Render, driver: &Driver<W>, script: &Rec
     let mut string: Vec<String> = script.nested_kinds.iter().filter(|k| !k.starts_with("ask:")).cloned().collect();
     string.sort();
     crate::dual::compare_value(crate::dual::Area::Driver, "nested.events", &string, &core);
+}
+
+/// The persistent part of the resolver after the window (D2-4b): what the string resolver's last emission of the window left
+/// (spent frequency keys in order, initiative order, open emissions, the next trace id) against the core's. The core side
+/// goes through the state when the window was lent `Pending` (the driver stores its resolver there), else it is the driver's.
+/// Only a window that followed nested activity runs a resolver with a registry; the others spent nothing worth comparing.
+fn compare_resolver<W: Window>(r: &Render, driver: &Driver<W>, core: &mut CoreState, script: &Recording) {
+    if !script.nested || script.failed_emit {
+        return;
+    }
+    let (Some(after), Some(first)) = (script.after.as_ref(), script.first_event_id) else { return };
+    let Some(string) = crate::resolver_sync::cfg_state(r, after, first + script.finished) else { return };
+    let core_side = if core.loaded.has(Slice::Pending) {
+        driver.store(core);
+        core.pending().resolver.clone()
+    } else {
+        driver.resolver.into_state(driver.next_id)
+    };
+    crate::dual::compare_value(crate::dual::Area::Driver, "resolver.state", &format!("{string:?}"), &format!("{core_side:?}"));
 }
 
 /// The dice the abilities of the string run rolled, against the ones the core abilities rolled (the ledger rows

@@ -1130,6 +1130,7 @@ impl Resolver {
         let guard = crate::dual_window::enter_emit();
         let result = self.emit_with_context_inner_raw(context, event, resolve);
         crate::dual_window::leave_emit(guard, result.as_ref().ok());
+        crate::dual_window::note_resolver_after(guard, || self.core_cfg(&context.sources));
         result
     }
 

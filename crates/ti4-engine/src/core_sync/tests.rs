@@ -357,3 +357,59 @@ mod text_tables {
         assert_eq!(seeds.seed_for(5, d), crate::rng::GameRng::derive_seed(5, "a stream nobody named before"));
     }
 }
+
+mod resolver_state {
+    use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind};
+    use ti4_engine_core::state::{Code, ResolverState, UsedScope};
+
+    use super::*;
+
+    fn carried() -> ResolverState {
+        let mut state = ResolverState::default();
+        state.used.edit().push((AbilityId { kind: AbilityKind::Ability, key: Code(4) }, UsedScope::Round, 3));
+        state.initiative = ti4_engine_core::containers::SmallList::from_slice(&[ti4_engine_core::Seat(2), ti4_engine_core::Seat(0)]);
+        state.next_id = 17;
+        state
+    }
+
+    #[test]
+    fn the_pending_codec_loads_the_resolver_the_context_holds() {
+        let gs = game();
+        let mut cx = Ctx::of(&gs).unwrap();
+        let plain = Codec::load(&mut cx, &gs, Sources::default(), SliceSet::of(&[Slice::Pending])).unwrap();
+        assert_eq!(plain.pending().resolver, ResolverState::default(), "nothing handed in: the default");
+        assert!(cx.resolver.is_none(), "and nothing adopted from it");
+        cx.resolver = Some(carried());
+        let core = Codec::load(&mut cx, &gs, Sources::default(), SliceSet::of(&[Slice::Pending])).unwrap();
+        assert_eq!(core.pending().resolver, carried());
+        // the state has no home for it in the string: a store leaves GameState alone
+        let mut back = gs.clone();
+        Codec::store(&cx, &core, &mut back, SliceSet::of(&[Slice::Pending])).unwrap();
+        assert_eq!(json(&back), json(&gs));
+    }
+
+    #[test]
+    fn a_lend_hands_the_resolver_back_to_the_context() {
+        let mut gs = game();
+        let mut cx = Ctx::of(&gs).unwrap();
+        cx.resolver = Some(carried());
+        let fp = Footprint::new(&[Slice::Pending], &[Slice::Pending]);
+        with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| core.pending_mut().resolver.next_id += 5).unwrap();
+        assert_eq!(cx.resolver.as_ref().map(|r| r.next_id), Some(22));
+        // a lend that never loads Pending leaves it alone
+        let other = Footprint::new(&[Slice::Meta], &[Slice::Meta]);
+        with_core(&mut gs, &mut cx, Sources::default(), other, |_, _| ()).unwrap();
+        assert_eq!(cx.resolver.as_ref().map(|r| r.next_id), Some(22));
+    }
+
+    #[test]
+    fn a_context_without_a_resolver_stays_without_one_after_a_default_lend() {
+        let mut gs = game();
+        let mut cx = Ctx::of(&gs).unwrap();
+        let fp = Footprint::new(&[Slice::Pending], &[Slice::Pending]);
+        with_core(&mut gs, &mut cx, Sources::default(), fp, |_, _| ()).unwrap();
+        assert!(cx.resolver.is_none());
+        with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| core.pending_mut().resolver.next_id = 9).unwrap();
+        assert_eq!(cx.resolver.as_ref().map(|r| r.next_id), Some(9), "a lend that changed it hands it over");
+    }
+}

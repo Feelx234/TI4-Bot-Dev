@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::state::{Code, CoreState, OwnerTable, Slice, Texts as CoreTexts};
+use ti4_engine_core::state::{Code, CoreState, OwnerTable, ResolverState, Slice, Texts as CoreTexts};
 use ti4_model::state::GameState;
 
 use super::error::{R, bad};
@@ -149,6 +149,10 @@ pub struct Ctx {
     /// keys' own form (`None` while an owner id is a proper prefix of another, which the key order
     /// cannot represent: the marks and outcomes of that game stay unmapped).
     pub keys: KeysCodec,
+    /// The persistent part of the timing resolver the cores of this game start from (D2-4b): the `Pending` codec loads it
+    /// into `pending.resolver`, every load or lend adopts what the core's `Pending` holds afterwards. `None` until the
+    /// caller sets one (the string engine keeps its resolver in `Game`, not in `GameState`; a reverse lend hands it in).
+    pub resolver: Option<ResolverState>,
     /// `owners` as the state holds them; every core loaded through this `Ctx` shares it.
     owner_table: OwnerTable,
     /// Owners the table holds although the position does not (yet): the neutral owner of a card that places units for it.
@@ -171,7 +175,7 @@ impl Ctx {
         let mut keys = KeysCodec::default();
         keys.owners = key_owners(&owners);
         let owner_table = owner_table(&owners);
-        Ok(Self { owners, texts: Texts::default(), keys, owner_table, extra: extra.iter().map(|e| (*e).to_owned()).collect() })
+        Ok(Self { owners, texts: Texts::default(), keys, resolver: None, owner_table, extra: extra.iter().map(|e| (*e).to_owned()).collect() })
     }
 
     /// Check that `state` still has the owners of this table: players are fixed for a game, the
@@ -210,6 +214,9 @@ impl Ctx {
         debug_assert!(core.texts.codes.extends(&self.texts.inner.codes), "a core's code table must continue the lineage's");
         debug_assert!(core.texts.blobs.extends(&self.texts.inner.blobs), "a core's blob table must continue the lineage's");
         self.texts.inner = core.texts.clone();
+        if core.loaded.has(Slice::Pending) && (self.resolver.is_some() || core.pending.resolver != ResolverState::default()) {
+            self.resolver = Some(core.pending.resolver.clone());
+        }
     }
 
     pub(crate) fn seat(&self, slice: Slice, id: &str) -> R<Seat> {
