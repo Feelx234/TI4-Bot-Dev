@@ -54,6 +54,10 @@ fn with_other(ability: Ability, not: Faction) -> Faction {
     LOBBY.into_iter().find(|f| *f != not && f.data().abilities.contains(&ability)).unwrap_or_else(|| panic!("a second lobby faction with {ability:?}"))
 }
 
+fn without_other(ability: Ability, not: Faction) -> Faction {
+    LOBBY.into_iter().find(|f| *f != not && !f.data().abilities.contains(&ability)).unwrap()
+}
+
 fn without(ability: Ability) -> Faction {
     LOBBY.into_iter().find(|f| !f.data().abilities.contains(&ability)).unwrap()
 }
@@ -77,7 +81,7 @@ fn fragile_costs_a_point_on_every_combat_roll_unrelenting_gives_one_and_the_stri
     let cx = Cx { core: &s, env: &env };
     assert_eq!(ab::combat_modifier(&cx, Seat(0), CombatCtx::Space), -1);
     assert_eq!(ab::combat_modifier(&cx, Seat(1), CombatCtx::Ground), 1);
-    let plain = two(without(Ability::Fragile), without(Ability::Unrelenting));
+    let plain = two(without(Ability::Fragile), without_other(Ability::Unrelenting, without(Ability::Fragile)));
     assert_eq!(ab::combat_modifier(&Cx { core: &plain, env: &env }, Seat(0), CombatCtx::Space), 0);
     let hooked = Neutral { combat: 2, ..Neutral::default() };
     assert_eq!(ab::combat_modifier(&Cx { core: &s, env: &hooked }, Seat(0), CombatCtx::Space), 1, "-1 and the hook's +2");
@@ -143,8 +147,9 @@ fn the_printed_abilities_that_change_a_strategy_card_or_a_transaction() {
     let hooks = Neutral { substitutes: true, trades: true, ignores: true, free: true, ..Neutral::default() };
     let hc = Cx { core: &s, env: &hooks };
     assert!(ab::substitutes_primary(&hc, Seat(1), None) && ab::trades_action_cards(&hc, Seat(1)) && ab::ignores_neighbours(&hc, Seat(1)) && ab::secondary_is_free(&hc, Seat(0), Some(StrategyCardKind::Leadership)));
-    let t = two(with(Ability::Arbiters), with_other(Ability::GuildShips, with(Ability::Arbiters)));
+    let t = two(with(Ability::Arbiters), without(Ability::Arbiters));
     let tc = Cx { core: &t, env: &env };
-    assert!(ab::trades_action_cards(&tc, Seat(0)) && !ab::trades_action_cards(&tc, Seat(1)));
-    assert!(ab::ignores_neighbours(&tc, Seat(1)) && !ab::ignores_neighbours(&tc, Seat(0)));
+    assert!(ab::trades_action_cards(&tc, Seat(0)) && !ab::trades_action_cards(&tc, Seat(1)), "Arbiters");
+    assert!(with(Ability::GuildShips) == with(Ability::Arbiters), "one faction prints both");
+    assert!(ab::ignores_neighbours(&tc, Seat(0)) && !ab::ignores_neighbours(&tc, Seat(1)), "Guild Ships");
 }

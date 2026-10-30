@@ -114,7 +114,7 @@ fn a_ground_force_goes_to_the_planet_with_the_dock_and_a_planet_exhausted_to_pay
     rig.pick_where(|o| matches!(o, Opt::Production(POpt::Build { unit: Unit::InfantryI, .. })));
     finish(&mut rig, |o| matches!(o, Opt::Production(POpt::Exhaust { .. })), Spot::Planet(planet));
     assert!(rig.is_done(), "{}", rig.transcript());
-    assert_eq!(rig.driver.window.produced.as_slice(), &[(Unit::InfantryI, Spot::Planet(planet))]);
+    assert_eq!(rig.driver.window.produced.as_slice(), &[(Unit::InfantryI, Spot::Planet(planet)), (Unit::InfantryI, Spot::Planet(planet))], "two infantry for one resource");
     assert!(rig.state.board().planet(planet).flags.has(PlanetFlags::EXHAUSTED));
 }
 
