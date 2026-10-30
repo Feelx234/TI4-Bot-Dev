@@ -23,7 +23,7 @@ mod real {
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
     use ti4_engine_core::rules::explore as rules;
-    use ti4_engine_core::rules::relic_windows::{Codex, GainTechnology, Neuraloop, StellarConverter, TitanPrototype};
+    use ti4_engine_core::rules::relic_windows::{Codex, GainTechnology, Neuraloop, StellarConverter};
     use ti4_engine_core::rules::explore_windows::{PayMechOrInfantry, InInvasion, ChooseDeck, CrownExplore, DistantSuns, DominusOrb, IonStorm, Reward};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
@@ -511,14 +511,6 @@ mod real {
         drive_window(gs, CODEX_WINDOW, player, Codex::new, script, &no_details, |_| Some(()))
     }
 
-    /// The core half of the Titan Prototype's question (the value: the player named).
-    pub fn titan_prototype(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<Option<String>>> {
-        let (_, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
-        drive_window(gs, RELIC_WINDOW, player, TitanPrototype::new, script, &no_details, |w| {
-            Some(w.chosen.map(|seat| r.seat_text(seat).to_owned()))
-        })
-    }
-
     /// The core half of the Stellar Converter's choice and destruction (the value: the planet destroyed).
     pub fn stellar_converter(
         gs: &mut GameState,
@@ -757,9 +749,6 @@ mod stub {
         None
     }
     pub fn codex(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<()>> {
-        None
-    }
-    pub fn titan_prototype(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<Option<String>>> {
         None
     }
     pub fn stellar_converter(

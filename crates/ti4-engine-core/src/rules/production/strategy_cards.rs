@@ -11,7 +11,7 @@ use crate::containers::SmallList;
 use crate::generated::{System, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::fx;
-use crate::kernel::stage::{Illegal, Sx, Window};
+use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
 use crate::query::{board, reach};
@@ -19,7 +19,7 @@ use crate::state::{Code, CoreState};
 use crate::tables::Scope;
 
 use crate::rules::production as prod;
-use super::pay::{PayStep, Stage as PayStage};
+use super::pay::{PayBill, PayStep, Stage as PayStage};
 use super::{Cx as ProdCx, Extras};
 
 fn ask(a: SAsk) -> Ask {
@@ -253,12 +253,14 @@ pub struct Construction {
     te: Option<(Code, Vec<System>)>,
     /// The holder chose the production of the Thunder's Edge primary (a whole production window, the string's).
     pub produces: bool,
+    /// A structure was placed (the Titan Prototype reads it: "if they do not").
+    pub placed: bool,
 }
 
 impl Construction {
     #[must_use]
     pub const fn new(who: Seat, primary: bool, facts: StructureFacts) -> Self {
-        Self { who, primary, facts, stage: CStage::Start, te: None, produces: false }
+        Self { who, primary, facts, stage: CStage::Start, te: None, produces: false, placed: false }
     }
 
     /// The primary of the Thunder's Edge Construction: one of a structure or a use of PRODUCTION (`systems` can produce,
@@ -266,7 +268,7 @@ impl Construction {
     /// production is not carried: choosing it sets [`Construction::produces`] and ends the window.
     #[must_use]
     pub fn new_te(who: Seat, facts: StructureFacts, source: Code, systems: &[System]) -> Self {
-        Self { who, primary: true, facts, stage: CStage::Start, te: Some((source, systems.to_vec())), produces: false }
+        Self { who, primary: true, facts, stage: CStage::Start, te: Some((source, systems.to_vec())), produces: false, placed: false }
     }
 
     fn only_pds(&self) -> bool {
@@ -405,6 +407,7 @@ impl Window for Construction {
             Opt::Strategy(SOpt::Structure { pds, system, planet }) if self.stage != CStage::Ability => {
                 let (unit, in_space) = self.placement(pds).ok_or(Illegal)?;
                 fx::place_unit(sx.state, self.who, system, (!in_space).then_some(planet), unit);
+                self.placed = true;
             }
             _ => return Err(Illegal),
         }
@@ -413,6 +416,115 @@ impl Window for Construction {
     }
 }
 
+
+// -- the Titan Prototype's build ---------------------------------------------------------------------------
+
+/// The suspension points of [`TitanBuild`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TStage {
+    Start,
+    /// Paying the three resources ([`PayBill`]).
+    Paying,
+    /// Placing the structure (the Construction secondary).
+    Placing,
+    Done,
+}
+
+/// `relics::titan_prototype` after the owner named the player: "that player may spend 3 resources to place a structure
+/// on a planet they control. If they do not, they gain 1 trade good." The three resources are charged only once there
+/// is somewhere to build (paying first and finding nowhere to put it would spend them for the consolation) and only if
+/// they are held; a declined placement keeps the payment and still gives the trade good ("if they do not" covers every
+/// path that does not place). The Titans' PDS alternative and Minister of Industry's production are not carried
+/// (the adapter bails: `StructureFacts` is `None`). [`Self::built`] is whether a structure was placed.
+#[derive(Debug, Clone)]
+pub struct TitanBuild {
+    pub who: Seat,
+    facts: StructureFacts,
+    /// The interned source `relic` of the trade good.
+    goods: Code,
+    stage: TStage,
+    pay: Child<PayBill>,
+    place: Child<Construction>,
+    pub built: bool,
+}
+
+impl TitanBuild {
+    /// Resources the structure costs.
+    pub const COST: i64 = 3;
+
+    #[must_use]
+    pub const fn new(who: Seat, facts: StructureFacts, goods: Code) -> Self {
+        Self { who, facts, goods, stage: TStage::Start, pay: Child::idle(), place: Child::idle(), built: false }
+    }
+
+    /// The consolation: one trade good (staged, with the announcement).
+    fn consolation(&mut self, sx: &mut Sx<'_>) -> Next {
+        fx::gain_trade_goods_staged(sx.state, self.who, 1, self.goods);
+        self.stage = TStage::Done;
+        Next::Done
+    }
+}
+
+impl Window for TitanBuild {
+    type Stage = TStage;
+
+    fn stage(&self) -> TStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        loop {
+            match self.stage {
+                TStage::Start => {
+                    if Construction::new(self.who, false, self.facts).options(sx.state, sx.kernel).is_empty() {
+                        return self.consolation(sx);
+                    }
+                    self.pay.start(PayBill::new(self.who, Spend::Resources, Self::COST));
+                    self.stage = TStage::Paying;
+                }
+                TStage::Paying => match self.pay.step(sx) {
+                    Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                    Some(Ran::Pass(next)) => return next,
+                    Some(Ran::Done(bill)) if bill.outcome == Some(true) => {
+                        self.place.start(Construction::new(self.who, false, self.facts));
+                        self.stage = TStage::Placing;
+                    }
+                    Some(Ran::Done(_)) | None => return self.consolation(sx),
+                },
+                TStage::Placing => match self.place.step(sx) {
+                    Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                    Some(Ran::Pass(next)) => return next,
+                    Some(Ran::Done(placed)) => {
+                        self.built = placed.placed;
+                        if self.built {
+                            self.stage = TStage::Done;
+                            return Next::Done;
+                        }
+                        return self.consolation(sx);
+                    }
+                    None => return self.consolation(sx),
+                },
+                TStage::Done => return Next::Done,
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        match self.stage {
+            TStage::Paying => self.pay.ask_of(s, k),
+            TStage::Placing => self.place.ask_of(s, k),
+            TStage::Start | TStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match self.stage {
+            TStage::Paying => self.pay.answer(sx, pick),
+            TStage::Placing => self.place.answer(sx, pick),
+            TStage::Start | TStage::Done => Err(Illegal),
+        }
+    }
+}
 
 // -- Technology ------------------------------------------------------------------------------------------
 

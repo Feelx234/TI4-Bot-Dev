@@ -12,7 +12,8 @@ use crate::choice::relic::{Ask as RAsk, Opt as ROpt, Subtype as RSub};
 use crate::choice::{Ask, Choice, Opt, Opts, Pick};
 use crate::generated::{Planet, PublicObjective, Relic, System, Technology};
 use crate::ids::Seat;
-use crate::kernel::stage::{Illegal, Sx, Window};
+use crate::kernel::children::{ErasedChild, Report, Spawn, StructureFacts};
+use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::state::{Code, CoreState, ObjectiveRef, RngDomain};
 
@@ -206,61 +207,116 @@ impl Window for Codex {
 
 // -- the Titan Prototype ------------------------------------------------------------------------------
 
-/// `relics::titan_prototype`, up to the answer: the owner names the player who may build (any seat, themselves
-/// included). The payment, the structure and the trade good instead are the string caller's. `chosen` is the seat.
+/// The suspension points of [`TitanPrototype`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TStage {
+    Start,
+    Asking,
+    /// The named player builds or takes the trade good ([`Spawn::TitanBuild`]).
+    Building,
+    Done,
+}
+
+/// `relics::titan_prototype`: the owner names the player who may build (any seat, themselves included). Given the
+/// position's [`StructureFacts`] and the interned source `relic` ([`Self::with_build`]) the window goes on with what the
+/// named player does: three resources for a structure, else a trade good (a child window of the production area). Without
+/// them it ends at the answer and the build is the string caller's. `chosen` is the seat; `built` whether a structure was
+/// placed; `unsupported` that the table has no link to start the build with.
+#[derive(Debug, Clone)]
 pub struct TitanPrototype {
     pub who: Seat,
-    stage: XStage,
+    stage: TStage,
     pub chosen: Option<Seat>,
+    build: Option<(StructureFacts, Code)>,
+    child: ErasedChild,
+    pub built: bool,
+    pub unsupported: bool,
     inv: Option<u64>,
 }
 
 impl TitanPrototype {
     #[must_use]
-    pub const fn new(who: Seat) -> Self {
-        Self { who, stage: XStage::Start, chosen: None, inv: None }
+    pub fn new(who: Seat) -> Self {
+        Self { who, stage: TStage::Start, chosen: None, build: None, child: ErasedChild::idle(), built: false, unsupported: false, inv: None }
+    }
+
+    /// Carry the build that follows the answer: the named player's `facts` and the interned source `relic` of the trade good.
+    #[must_use]
+    pub fn with_build(mut self, facts: StructureFacts, goods: Code) -> Self {
+        self.build = Some((facts, goods));
+        self
     }
 
     const ASK: Ask = Ask::Relic(RAsk::TitanPrototype);
 }
 
 impl Window for TitanPrototype {
-    type Stage = XStage;
+    type Stage = TStage;
 
-    fn stage(&self) -> XStage {
+    fn stage(&self) -> TStage {
         self.stage
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        if self.stage == XStage::Start {
-            self.stage = if sx.state.players().iter().next().is_none() { XStage::Done } else { XStage::Asking };
+        if self.stage == TStage::Start {
+            self.stage = if sx.state.players().iter().next().is_none() { TStage::Done } else { TStage::Asking };
         }
-        if self.stage == XStage::Asking { Next::Continue(Self::ASK) } else { Next::Done }
+        if self.stage == TStage::Building {
+            if !self.child.running() {
+                let Some(who) = self.chosen else { return self.fail() };
+                let Some((facts, goods)) = self.build else { return self.fail() };
+                match sx.table.links.start(&Spawn::TitanBuild { who, facts, goods }) {
+                    Some(window) => self.child.start(window),
+                    None => return self.fail(),
+                }
+            }
+            match self.child.step(sx) {
+                Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                Some(Ran::Pass(next)) => return next,
+                Some(Ran::Done(report)) => {
+                    self.built = report == Report::Built(true);
+                    self.stage = TStage::Done;
+                }
+                None => return self.fail(),
+            }
+        }
+        if self.stage == TStage::Asking { Next::Continue(Self::ASK) } else { Next::Done }
     }
 
-    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
-        (self.stage == XStage::Asking).then(|| {
-            choice(
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        match self.stage {
+            TStage::Asking => Some(choice(
                 self.who,
                 RAsk::TitanPrototype,
                 Relic::JRXS455O,
                 RSub::TitanPrototypeChooseBuilder,
                 self.inv,
                 opts(s.players().iter().map(|p| ROpt::Builder(p.seat))),
-            )
-        })
+            )),
+            TStage::Building => self.child.ask_of(s, k),
+            TStage::Start | TStage::Done => None,
+        }
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         match (self.stage, pick) {
-            (XStage::Asking, Pick::Opt(Opt::Relic(ROpt::Builder(seat)))) if sx.state.players().by_seat(seat).is_some() => {
+            (TStage::Asking, Pick::Opt(Opt::Relic(ROpt::Builder(seat)))) if sx.state.players().by_seat(seat).is_some() => {
                 self.chosen = Some(seat);
-                self.stage = XStage::Done;
+                self.stage = if self.build.is_some() { TStage::Building } else { TStage::Done };
                 Ok(())
             }
+            (TStage::Building, pick) => self.child.answer(sx, pick),
             _ => Err(Illegal),
         }
+    }
+}
+
+impl TitanPrototype {
+    /// The build cannot be carried: the window ends and says so.
+    fn fail(&mut self) -> Next {
+        self.unsupported = true;
+        self.stage = TStage::Done;
+        Next::Done
     }
 }
 

@@ -14,7 +14,7 @@ use crate::rules::combat::effect_hits::{Absorb, Destroy};
 use crate::rules::explore_windows::Reward;
 use crate::rules::objective_windows::HandLimit;
 use crate::rules::production::pay::PayBill;
-use crate::rules::production::strategy_cards::{Construction, Leadership, Research};
+use crate::rules::production::strategy_cards::{Construction, Leadership, Research, TitanBuild};
 use crate::rules::strategy_primaries::{DMode, Diplomacy, Politics, WarfarePrimary};
 use crate::rules::strategy_windows::{TradePrimary, TRADE_PRIMARY_GOODS};
 
@@ -35,6 +35,7 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
         }
         Spawn::Leadership { who, primary } => Erased::boxed(Leadership::new(*who, *primary), |_| Report::Nothing),
         Spawn::Construction { who, primary, facts } => Erased::boxed(Construction::new(*who, *primary, *facts), |_| Report::Nothing),
+        Spawn::TitanBuild { who, facts, goods } => Erased::boxed(TitanBuild::new(*who, *facts, *goods), |w| Report::Built(w.built)),
         Spawn::Politics { who, primary, official } => Erased::boxed(Politics::new(*who, *primary, *official), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
         Spawn::Warfare { who, letnev_pool } => Erased::boxed(WarfarePrimary::new(*who, *letnev_pool), |_| Report::Nothing),
         Spawn::Diplomacy { who, card, primary, base_printing } => {

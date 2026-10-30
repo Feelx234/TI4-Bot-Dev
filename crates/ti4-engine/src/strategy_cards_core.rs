@@ -378,6 +378,58 @@ mod real {
         Some(finish(&driven, &window))
     }
 
+    /// The core half of `relics::titan_prototype`, the whole card: the owner names the player, who pays three resources for
+    /// a structure or takes a trade good. The value is whether a player was named (`None`: nobody) and whether a structure
+    /// was placed. `None` as for Construction, and for a window the table cannot start the build in.
+    pub fn titan_prototype(
+        gs: &mut GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+        script: &Recording,
+    ) -> Option<CoreWindow<Option<bool>>> {
+        use ti4_engine_core::rules::relic_windows::TitanPrototype;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        // The builder is the answer of the first question; the structure rules are read for that seat.
+        let builder = script.questions.first().and_then(|q| q.answer.clone());
+        let facts = match &builder {
+            Some(id) => Some(structure_facts(gs, content, sources, &PlayerId::new(id.as_str()), &r)?),
+            None => None,
+        };
+        let window = match facts {
+            Some(facts) => TitanPrototype::new(seat).with_build(facts, r.code("relic")),
+            None => TitanPrototype::new(seat),
+        };
+        let before = gs.clone();
+        let kernel = crate::production_view::kernel();
+        let mut table = AbilityTable::default();
+        ti4_engine_core::driver::children::register(&mut table);
+        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), table, 1);
+        let mut reads = crate::production_view::READS;
+        reads.insert(Slice::Pending);
+        let fp = Footprint { reads, writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Cards, Slice::Marks, Slice::Pending]) };
+        let mut staged = Vec::new();
+        let driven = with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
+            let driven = drive_at(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {});
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to start the Titan Prototype's build");
+            return None;
+        }
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        let value = driver.window.chosen.map(|_| driver.window.built);
+        Some(CoreWindow { run: Run::new(value).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     /// The core half of the primary of the Thunder's Edge Construction (`te4construction`): the choice of a structure
     /// or a production, then the structures. `systems` are the ones that can produce (the string's
     /// `production::capacity`). `None` as for [`construction`], and where the holder chooses the production: a whole
@@ -907,6 +959,10 @@ mod stub {
         _: bool,
         _: &Recording,
     ) -> Option<CoreWindow<bool>> {
+        None
+    }
+
+    pub fn titan_prototype(_: &mut GameState, _: &ContentStore, _: SourceSet, _: &PlayerId, _: &Recording) -> Option<CoreWindow<Option<bool>>> {
         None
     }
 

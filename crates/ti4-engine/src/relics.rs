@@ -596,16 +596,31 @@ fn titan_prototype(
     // The only relic that asks somebody other than its owner. The owner picks who; that
     // player decides whether to build. "If they do not" covers both declining and being
     // unable to pay, so the trade good is the fallback on every path that does not place.
-    let Some(chosen) = crate::dual_window!(
+    // The whole card is one core window (`rules::relic_windows::TitanPrototype`, the build a
+    // child of the production area).
+    crate::dual_window!(
         crate::dual::Area::ExplorationRelics,
         "relics::titan_prototype",
         state,
-        |s: &mut GameState| crate::dual::Run::new(titan_choose_builder(s, content, sources, table, galaxy, player)),
-        |s: &mut GameState, script: &crate::dual_window::Recording| crate::explore_write::titan_prototype(s, player, script)
-    ) else {
-        return false;
-    };
-    let chosen = PlayerId::new(chosen);
+        |s: &mut GameState| crate::dual::Run::new(titan_build(s, content, sources, table, galaxy, player)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::strategy_cards_core::titan_prototype(s, content, sources, player, script)
+        }
+    )
+    .is_some()
+}
+
+/// The string half of the Titan Prototype: the question, then the named player's build. `None`: nobody was named;
+/// else whether a structure was placed.
+fn titan_build(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> Option<bool> {
+    let chosen = PlayerId::new(titan_choose_builder(state, content, sources, table, galaxy, player)?);
 
     // Charged only once there is somewhere to build and the means to pay for it. Paying
     // first and finding nowhere to put it would spend three resources for the trade good
@@ -639,7 +654,7 @@ fn titan_prototype(
     if !built {
         crate::supply::gain_trade_goods_staged(state, &chosen, 1, "relic");
     }
-    true
+    Some(built)
 }
 
 /// The Stellar Converter's ACTION: choose a planet in range and destroy it.
@@ -3021,21 +3036,74 @@ mod relic_window_tests {
         let _ = take_report();
     }
 
-    /// The Titan Prototype names who may build (every seat, the owner included).
+    /// The Titan Prototype's chooser: names `builder`, then takes the first option everywhere except the placement, which it
+    /// declines when `decline_build`.
+    struct Titan {
+        builder: &'static str,
+        decline_build: bool,
+    }
+
+    impl crate::choice::Decider for Titan {
+        fn choose(&mut self, choice: &crate::choice::Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            let wanted = if choice.prompt.starts_with("Titan Prototype") {
+                Some(self.builder)
+            } else if choice.prompt == "place a structure" && self.decline_build {
+                Some(crate::choice::DECLINE_ID)
+            } else {
+                None
+            };
+            match wanted.and_then(|id| choice.answer_for(id)) {
+                Some(option) => Ok(option),
+                None => crate::choice::FirstOption.choose(choice),
+            }
+        }
+    }
+
+    /// The Titan Prototype's whole card: the named player pays three resources for a structure, declines the placement (the
+    /// payment is kept and the trade good comes anyway), cannot pay (the trade good, no question) or has nowhere to build.
     #[test]
-    fn the_titan_prototype_question_runs_in_lockstep_with_the_core() {
+    fn the_titan_prototype_runs_in_lockstep_with_the_core() {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let content = ti4_content::ContentStore::embedded();
+        let b = || PlayerId::new("b");
+        let cases: [(&str, bool, &str); 6] = [
+            ("a", false, "builds"),
+            ("a", true, "pays then declines"),
+            ("b", false, "the other seat builds"),
+            ("b", true, "the other seat declines"),
+            ("a", false, "cannot pay"),
+            ("a", false, "nowhere to build"),
+        ];
         dual(|| {
-            for answer in ["a", "b"] {
+            for (builder, decline_build, case) in cases {
                 let mut state = seated();
-                assert!(titan_prototype(&mut state, content, POK, &mut table(&[answer]), None, &me()));
+                match case {
+                    "cannot pay" => {
+                        let planets: Vec<_> = state.controlled_planets(&me()).into_iter().map(|(_, p)| p.clone()).collect();
+                        state.exhausted_planets.extend(planets);
+                    }
+                    "nowhere to build" => {
+                        // Every PDS and space dock of the seat is on the board already.
+                        let far = SystemId::new("26");
+                        crate::fixtures::put(&mut state, &far, "pds", &me(), 6);
+                        crate::fixtures::put(&mut state, &far, "spacedock", &me(), 3);
+                    }
+                    _ => {}
+                }
+                let goods = |s: &GameState, who: &PlayerId| s.player(who).map_or(0, |p| p.trade_goods);
+                let (me_before, b_before) = (goods(&state, &me()), goods(&state, &b()));
+                let mut table = crate::choice::Table::with_default(Box::new(Titan { builder, decline_build }));
+                assert!(titan_prototype(&mut state, content, POK, &mut table, None, &me()), "{case}");
+                let named = if builder == "a" { me() } else { b() };
+                let gained = goods(&state, &named) - if builder == "a" { me_before } else { b_before };
+                // The trade good comes on every path that does not place (the payment of a build costs none).
+                assert_eq!(gained > 0, decline_build || case == "cannot pay" || case == "nowhere to build", "{case}: {gained}");
             }
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("relics::titan_prototype").0 >= 2, "{r:?}");
+        assert_eq!(counts("relics::titan_prototype"), (6, 0), "{r:?}");
         let _ = take_report();
     }
 
