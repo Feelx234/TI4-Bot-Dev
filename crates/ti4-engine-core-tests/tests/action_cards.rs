@@ -199,3 +199,106 @@ fn every_ported_card_plays_to_the_end_in_a_rich_position_under_four_policies() {
     assert!(broke.is_empty(), "{} card(s) broke the contract:\n{}", broke.len(), broke.join("\n"));
     assert!(played >= 100, "only {played} cards have a play window in the rich position");
 }
+
+// ---- a few cards against their printed text ---------------------------------------------------
+
+mod cards {
+    use ti4_engine_core::choice::cards::Opt as COpt;
+    use ti4_engine_core::query::{board, economy};
+
+    use super::*;
+
+    fn goods(s: &CoreState, seat: u8) -> i16 {
+        s.players().by_seat(Seat(seat)).unwrap().econ.trade_goods
+    }
+
+    fn cards(o: COpt) -> Opt {
+        Opt::Cards(o)
+    }
+
+    #[test]
+    fn mining_initiative_pays_trade_goods_equal_to_the_resources_of_a_planet_we_control() {
+        covers_card!(ActionCard::MiningInitiative);
+        let mut probe = play_rig(ActionCard::MiningInitiative).expect("a play");
+        probe.run();
+        let spots: Vec<(System, Planet)> = probe.opts().iter().filter_map(|o| if let Opt::Cards(COpt::Spot(s, p)) = o { Some((*s, *p)) } else { None }).collect();
+        assert!(spots.len() >= 2, "every planet seat 0 controls is a choice: {spots:?}");
+        let ours: Vec<Planet> = board::controlled_planets(&rich_state(), Seat(0)).as_slice().iter().map(|(_, p)| *p).collect();
+        assert_eq!(spots.iter().map(|(_, p)| *p).collect::<Vec<_>>(), ours);
+        for (i, (_, planet)) in spots.iter().enumerate() {
+            let mut rig = play_rig(ActionCard::MiningInitiative).unwrap();
+            rig.run();
+            rig.assert_options_sound();
+            let before = goods(&rig.state, 0);
+            rig.pick(i);
+            assert!(rig.is_done());
+            assert_eq!(goods(&rig.state, 0), before + i16::from(planet.data().resources), "{planet:?}");
+        }
+    }
+
+    #[test]
+    fn uprising_exhausts_a_planet_of_another_player_and_pays_its_resources() {
+        covers_card!(ActionCard::Uprising);
+        let mut rig = play_rig(ActionCard::Uprising).expect("a play");
+        rig.run();
+        assert!(!rig.opts().is_empty());
+        let Opt::Cards(COpt::Spot(_, planet)) = rig.opts()[0] else { panic!("a planet") };
+        assert!(board::control(&rig.state, planet).is_some_and(|o| o != Seat(0)), "another player's planet");
+        let before = goods(&rig.state, 0);
+        let worth = economy::value_now(&rig.state, ALL_SOURCES, false, planet, economy::Spend::Resources, 0);
+        rig.pick(0);
+        assert!(rig.is_done());
+        assert!(board::exhausted(&rig.state, planet));
+        assert_eq!(i64::from(goods(&rig.state, 0)), i64::from(before) + worth);
+    }
+
+    #[test]
+    fn repeal_law_removes_the_law_chosen() {
+        covers_card!(ActionCard::RepealLaw);
+        let mut rig = play_rig(ActionCard::RepealLaw).expect("a play");
+        rig.run();
+        assert_eq!(rig.opts(), vec![cards(COpt::Law(Agenda::FleetRegulations))]);
+        rig.pick(0);
+        assert!(rig.is_done());
+        assert!(rig.state.agenda().laws.is_empty());
+    }
+
+    #[test]
+    fn summit_gives_two_command_tokens_one_pool_at_a_time() {
+        covers_card!(ActionCard::Summit);
+        let mut rig = play_rig(ActionCard::Summit).expect("a play");
+        rig.run();
+        let before = rig.state.players().by_seat(Seat(0)).unwrap().econ;
+        let total = |s: &CoreState| {
+            let e = s.players().by_seat(Seat(0)).unwrap().econ;
+            e.tactic_tokens + e.fleet_tokens + e.strategic_tokens
+        };
+        let start = total(&rig.state);
+        assert_eq!(start, before.tactic_tokens + before.fleet_tokens + before.strategic_tokens);
+        rig.pick(0);
+        assert!(!rig.is_done(), "two tokens: a second question");
+        rig.pick(1);
+        assert!(rig.is_done());
+        assert_eq!(total(&rig.state), start + 2);
+    }
+
+    #[test]
+    fn spy_takes_a_random_card_of_the_chosen_player_with_the_dice_of_the_game() {
+        covers_card!(ActionCard::Spy);
+        for seed in 0..6u64 {
+            let mut rig = play_rig(ActionCard::Spy).expect("a play").seeded(seed);
+            rig.run();
+            let offered: Vec<Seat> = rig.opts().iter().filter_map(|o| if let Opt::Cards(COpt::Seat(s)) = o { Some(*s) } else { None }).collect();
+            assert_eq!(offered, vec![Seat(1), Seat(2), Seat(3)], "every other player with a card in hand");
+            let victim = Seat(1);
+            let was: Vec<ActionCard> = rig.state.players().by_seat(victim).unwrap().cards.hand.as_slice().to_vec();
+            rig.pick_opt(cards(COpt::Seat(victim)));
+            assert!(rig.is_done());
+            let now = rig.state.players().by_seat(victim).unwrap().cards.hand.len();
+            assert_eq!(now, was.len() - 1, "one card taken");
+            let mine = rig.state.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice().to_vec();
+            assert_eq!(mine.len(), 1);
+            assert!(was.contains(&mine[0]), "and it was one of theirs");
+        }
+    }
+}
