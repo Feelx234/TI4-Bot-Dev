@@ -720,3 +720,41 @@ fn a_fight_of_no_rounds_opens_no_win_window_even_with_a_winner_named() {
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     assert!(r.windows.get(OVER).map_or(0, |w| w.compared) >= 1, "{:?}", r.windows);
 }
+
+#[test]
+fn a_fight_of_one_round_is_a_fight_and_an_activator_without_ships_attacks_with_the_first_side() {
+    let (state, _, log, r) = over_run(6, Some(a()), 1, |_, _| {});
+    assert_eq!(log, ["SPACE_COMBAT_RESOLVED"]);
+    assert!(state.last_combat_sides.is_some());
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    // c activated the system but has no ship in it: a, the first of the two sides, is the attacker.
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let (mut state, system) = position(1, &[("a", "sol"), ("b", "hacan"), ("c", "letnev")], |s, system, _| {
+        crate::fixtures::put(s, system, "cruiser", &a(), 2);
+        crate::fixtures::put(s, system, "cruiser", &b(), 2);
+    });
+    let c = PlayerId::new("c");
+    state.active = Some(c.clone());
+    with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        let (mut dice, mut rng) = (Dice::new(), GameRng::new(1));
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: ti4_model::content_types::DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+        };
+        let notes = crate::combat::note_holdings(&state);
+        AftermathWindow::head(&mut state, &mut ctx, &c, &system, None, &notes, false).unwrap();
+    });
+    let r = report();
+    let _ = take_report();
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(HEAD).map_or(0, |w| w.compared) >= 1, "{:?}", r.windows);
+    assert_eq!(state.active_space_combat.map(|(_, attacker, defender)| (attacker, defender)), Some((a(), b())));
+}
