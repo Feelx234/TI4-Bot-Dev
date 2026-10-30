@@ -5,7 +5,7 @@
 #
 # * Profile: `lockstep` with debug assertions and overflow checks ON for the three core crates (the unloaded-slice guard of
 #   `CoreState` is a `debug_assert!`: trap T9 of docs/todo/D4-core-tests.md), so the D4 tests see what the dev profile sees.
-# * Waits (never builds) while another agent holds /root/.ti4-heavy.lock; the lock is for gates, this script takes none.
+# * Never builds while another agent holds /root/.ti4-heavy.lock: queue with `HAVE_LOCK=1 flock /root/.ti4-heavy.lock <this script> <ref>`.
 # * BLESS=<text> blesses the scenario snapshots whose name contains <text> and copies tests/snapshots back into $LIVE.
 set -u
 sha="$1"; shift
@@ -19,7 +19,10 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/root/deploytmp/core-d4a}" CARGO_BU
 export D4_COVERS_FILE="${D4_COVERS_FILE:-/root/deploytmp/core-d4a-covers.txt}"
 LOGS=/root/deploytmp/core-d4a-logs
 mkdir -p "$LOGS"
-if ! flock -n /root/.ti4-heavy.lock true; then echo "HEAVY LOCK HELD: wait"; exit 3; fi
+# Queue for the heavy lock like every other job: `HAVE_LOCK=1 flock /root/.ti4-heavy.lock tools/engine_core/d4/run_core_tests.sh <ref> ...`
+# (a ref such as `core-d4a` is resolved after the lock is taken, so the newest commit is tested). Without HAVE_LOCK: refuse while it is held.
+if [ -z "${HAVE_LOCK:-}" ]; then if ! flock -n /root/.ti4-heavy.lock true; then echo "HEAVY LOCK HELD: wait"; exit 3; fi; fi
+sha="$(git -C "$REPO" rev-parse "$sha")"
 if [ ! -d "$WT" ]; then git -C "$REPO" worktree add --detach "$WT" "$sha" >/dev/null 2>&1; else git -C "$WT" checkout -q --detach "$sha" || exit 4; fi
 cd "$WT" || exit 4
 log="$LOGS/$sha.log"
