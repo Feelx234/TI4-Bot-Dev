@@ -10678,30 +10678,40 @@ mod tests {
         ];
         for (which, (name, factions, _prompt)) in cases.into_iter().enumerate() {
             let mut compared = 0;
-            for (seed, composed) in (0..12_u64).flat_map(|s| [(s, false), (s, true)]) {
+            // The holder is the attacker, or (swap) the defender; its fleet is rich (two kinds, two ships of each) or poor (one cruiser).
+            for (seed, composed, swap) in (0..24_u64).flat_map(|s| [(s, false, s % 2 == 1), (s, true, s % 2 == 1)]) {
+                let order: Vec<&str> = if swap { factions.iter().rev().copied().collect() } else { factions.to_vec() };
+                let (me, other) = if swap { (defender(), attacker()) } else { (attacker(), defender()) };
+                let poor = seed % 3 == 2;
                 let (_, windows, differences, _) = hub_fight_composed(
                     composed,
                     seed,
-                    factions,
+                    &order,
                     |s, system| {
-                        put(s, system, "cruiser", &attacker(), 2);
-                        put(s, system, "destroyer", &attacker(), 2);
-                        put(s, system, "cruiser", &defender(), 3);
-                        put(s, system, "dreadnought", &defender(), 1);
+                        if poor {
+                            put(s, system, "cruiser", &me, 1);
+                            put(s, system, "carrier", &me, 1);
+                        } else {
+                            put(s, system, "cruiser", &me, 2);
+                            put(s, system, "destroyer", &me, 2);
+                        }
+                        put(s, system, "cruiser", &other, 3);
+                        put(s, system, "dreadnought", &other, 1);
+                        put(s, system, "fighter", &other, 2);
                         if name == "impulse core" {
-                            s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ic"));
+                            s.player_mut(&me).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ic"));
                         }
                         if name == "dimensional splicer" {
-                            s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ds"));
+                            s.player_mut(&me).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ds"));
                             s.wormhole_tokens.insert("ALPHA".to_owned(), system.clone());
                         }
                     },
                     answer,
                 );
-                assert_eq!(differences, 0, "{name} seed {seed}: {windows:?}");
+                assert_eq!(differences, 0, "{name} seed {seed} swap {swap}: {windows:?}");
                 // Compared one by one, or inside the composed machine (the settle window).
                 let w = windows.get(if composed { "combat::settle" } else { "combat::produce_hits" }).copied().unwrap_or_default();
-                assert_eq!(w.bailed, 0, "{name} seed {seed} composed {composed}: {windows:?}");
+                assert_eq!(w.bailed, 0, "{name} seed {seed} composed {composed} swap {swap}: {windows:?}");
                 compared += w.compared;
             }
             assert!(compared > 0, "{name}: the window ran: {compared}");
@@ -11950,6 +11960,9 @@ mod tests {
                     put(s, system, "fighter", &defender(), 1);
                     put(s, system, "dreadnought", &defender(), 1);
                     put(s, system, "cruiser", &defender(), 1);
+                    // Both sides barrage (the defender's destroyers, the attacker's fighters to lose): the second side's hits are applied too.
+                    put(s, system, "destroyer", &defender(), 2);
+                    put(s, system, "fighter", &attacker(), 3);
                     if seed % 2 == 0 {
                         put(s, system, "warsun", &defender(), 1);
                     }

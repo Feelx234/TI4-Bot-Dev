@@ -7060,8 +7060,12 @@ mod tests {
         let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
         let (mut deployed, mut declined_or_poor) = (0, 0);
         with_mask(mask, || {
-            for seed in 1..=9_u64 {
-                let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "letnev")], POK);
+            for seed in 1..=18_u64 {
+                // The Letnev seat is the defender, or (even seeds) the invader.
+                let invader_letnev = seed % 2 == 0;
+                let (l, other) = if invader_letnev { ("a", "b") } else { ("b", "a") };
+                let seats = if invader_letnev { [("a", "letnev"), ("b", "hacan")] } else { [("a", "hacan"), ("b", "letnev")] };
+                let mut state = crate::fixtures::seated_game(&seats, POK);
                 state.promissory_notes.clear();
                 state.promissory_faceup.clear();
                 state.rng_seed = seed;
@@ -7069,15 +7073,21 @@ mod tests {
                 crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
                 crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
                 crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
-                // The seeds 7-9 cannot pay: no trade goods and every planet exhausted.
-                state.player_mut(&PlayerId::new("b")).unwrap().trade_goods = if seed >= 7 { 0 } else { 5 };
-                if seed >= 7 {
-                    for (_, p) in state.controlled_planets(&PlayerId::new("b")).into_iter().map(|(s, p)| (s.clone(), p.clone())).collect::<Vec<_>>() {
+                // Seeds 7-9 and 16-18 cannot pay: no trade goods and every planet exhausted. Seeds 4 and 13: the reinforcements hold no mech.
+                let poor = seed % 9 >= 7 || seed % 9 == 0;
+                state.player_mut(&PlayerId::new(l)).unwrap().trade_goods = if poor { 0 } else { 5 };
+                if poor {
+                    for (_, p) in state.controlled_planets(&PlayerId::new(l)).into_iter().map(|(s, p)| (s.clone(), p.clone())).collect::<Vec<_>>() {
                         state.exhausted_planets.insert(p);
                     }
                 }
+                if seed % 9 == 4 {
+                    let home = state.player(&PlayerId::new(other)).unwrap().home_system.clone().unwrap();
+                    let at = state.system_state(&home).planet_control.keys().next().cloned().unwrap();
+                    crate::fixtures::put_on_planet(&mut state, &home, &at, "letnev_mech", &PlayerId::new(l), 4);
+                }
                 run_invasion_with(&mut state, seed, &system, Box::new(Reaper(seed)));
-                let mechs = state.system_state(&system).planet_units.values().flatten().filter(|u| u.type_id.as_str() == "letnev_mech").count();
+                let mechs = state.system_state(&system).planet_units.get(&planet).map_or(0, |u| u.iter().filter(|x| x.type_id.as_str() == "letnev_mech").count());
                 if mechs > 0 {
                     deployed += 1;
                 } else {
@@ -7087,8 +7097,8 @@ mod tests {
         });
         let r = report();
         let w = r.windows.get("invasion::begin_ground_round").copied().unwrap_or_default();
-        assert!(w.compared >= 9 && w.bailed == 0, "{:?}", r.windows);
-        assert!(deployed > 0 && declined_or_poor > 0, "deployed {deployed}, not {declined_or_poor}");
+        assert!(w.compared >= 18 && w.bailed == 0, "{:?}", r.windows);
+        assert!(deployed > 3 && declined_or_poor > 3, "deployed {deployed}, not {declined_or_poor}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
         let _ = take_report();
     }
