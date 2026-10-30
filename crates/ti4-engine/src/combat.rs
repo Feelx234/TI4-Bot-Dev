@@ -10163,7 +10163,9 @@ mod tests {
             assert_eq!(r.windows.get("combat::settle").map_or(0, |w| w.bailed), 0, "{:?}", r.windows);
         }
         if differences > 0 {
-            eprintln!("{:?}", r.differences.first());
+            for d in r.differences.iter().take(8) {
+                eprintln!("{d:?}");
+            }
         }
         let _ = take_report();
         (out.unwrap(), bails, differences)
@@ -10366,7 +10368,9 @@ mod tests {
         let r = report();
         let differences = r.total_differences();
         if differences > 0 {
-            eprintln!("{:?}", r.differences.first());
+            for d in r.differences.iter().take(8) {
+                eprintln!("{d:?}");
+            }
         }
         let windows = r.windows.clone();
         let nested = r.nested.keys().cloned().collect();

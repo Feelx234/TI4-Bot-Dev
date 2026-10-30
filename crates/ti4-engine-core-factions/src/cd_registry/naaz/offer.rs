@@ -52,7 +52,7 @@ fn offer_supercharge(cx: &mut Cx<'_>, who: Seat, word: Word) {
         ctx: Ctx {
             origin: Origin::FactionAbility(Content::Technology(Technology::Supercharge)),
             subtype: Subtype::Combat(CSub::Supercharge),
-            optional: true,
+            optional: false,
             target: None,
             outstanding: SmallList::new(),
             space_battle: false,

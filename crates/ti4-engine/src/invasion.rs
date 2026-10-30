@@ -10563,7 +10563,6 @@ mod tests {
                 state.system_mut(&system).set_control(planet.clone(), b.clone());
                 on_planet(&mut state, &system, &planet, "infantry", &a, 1);
                 on_planet(&mut state, &system, &planet, "infantry", &b, 1);
-                state.player_mut(&nomad_seat).unwrap().faction = ti4_model::id::FactionId::new("nomad");
                 if holder_of_card {
                     state.player_mut(&nomad_seat).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentthundarian"), ti4_model::state::LeaderStatus::Readied);
                 }
