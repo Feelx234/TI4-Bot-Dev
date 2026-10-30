@@ -303,6 +303,8 @@ pub fn emit_signal(core: &mut CoreState, speaker: Seat, target: Seat, statement:
     if !core.trade().diplomacy.enabled {
         return Err(SignalError::Disabled);
     }
+    // XF-1: structured diplomacy is switched off; dead after the flip (D2-8), deleted in D4.
+    crate::unsupported::hit(crate::unsupported::Disabled::Diplomacy);
     if speaker == target {
         return Err(SignalError::SelfSignal);
     }
@@ -544,6 +546,8 @@ pub fn evaluate_event(core: &mut CoreState, moment: Moment) -> Result<(), Promis
     if !core.trade().diplomacy.enabled {
         return Ok(());
     }
+    // XF-1: structured diplomacy is switched off; dead after the flip (D2-8), deleted in D4.
+    crate::unsupported::hit(crate::unsupported::Disabled::Diplomacy);
     if let Moment::HostileEngagement { attacker, victim, activation_seq } = moment {
         apply_relationship_event(core, RelEvent::DirectAttack { attacker, victim, activation_seq })?;
     }
@@ -570,6 +574,8 @@ fn settle_due(core: &mut CoreState, until: Option<u32>) -> Result<(), PromiseErr
     if !core.trade().diplomacy.enabled {
         return Ok(());
     }
+    // XF-1: structured diplomacy is switched off; dead after the flip (D2-8), deleted in D4.
+    crate::unsupported::hit(crate::unsupported::Disabled::Diplomacy);
     let ids: Vec<DealId> = core.trade().diplomacy.active_deals.iter().map(|d| d.id).collect();
     for id in ids {
         let Some(deal) = deal_of(core, id) else { continue };
@@ -615,6 +621,7 @@ fn settle_due(core: &mut CoreState, until: Option<u32>) -> Result<(), PromiseErr
 pub fn settle_deadlines(core: &mut CoreState, completed_round: u32) -> Result<(), PromiseError> {
     settle_due(core, Some(completed_round))?;
     if core.trade().diplomacy.enabled {
+        crate::unsupported::hit(crate::unsupported::Disabled::Diplomacy);
         settle_signals(core, completed_round)?;
     }
     Ok(())

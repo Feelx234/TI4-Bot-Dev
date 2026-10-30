@@ -48,6 +48,7 @@ fn fixtures(galaxy: &ti4_content::galaxy::Galaxy) -> Vec<Position> {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let strict = args.iter().any(|a| a == "--strict");
+    ti4_engine::core_sync::unsupported::set_disabled_policy_for_gate();
     let config = args.first().map_or("tools/engine_profile/profile-20.json", String::as_str);
     let games: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(20);
     let stride: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(10);

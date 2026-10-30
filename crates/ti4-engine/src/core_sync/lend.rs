@@ -86,6 +86,7 @@ impl<'g> Lend<'g> {
     /// A value the typed state cannot hold (nothing was changed), or a typed value that has no text
     /// (the written slices are partly stored: the caller must discard the state).
     pub fn with_core<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut CoreState, &Kernel<'_>) -> T) -> R<T> {
+        super::unsupported::check(self.gs)?;
         self.cx.refresh(self.gs)?;
         let mut core = load(self.cx, self.gs, self.src, fp.loads(), &mut self.stats)?;
         let out = f(&mut core, &Kernel { seeds: TextSeeds(self.cx) });
@@ -100,6 +101,7 @@ impl<'g> Lend<'g> {
     /// # Errors
     /// As [`Self::with_core`].
     pub fn region<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut Region<'_>) -> T) -> R<T> {
+        super::unsupported::check(self.gs)?;
         self.cx.refresh(self.gs)?;
         let core = load(self.cx, self.gs, self.src, fp.loads(), &mut self.stats)?;
         let mut region = Region { core, fp, seeds: TextSeeds(self.cx) };
@@ -115,6 +117,7 @@ impl<'g> Lend<'g> {
     /// # Errors
     /// A value the typed state cannot hold.
     pub fn view(&mut self, reads: SliceSet) -> R<CoreView> {
+        super::unsupported::check(self.gs)?;
         self.cx.refresh(self.gs)?;
         Ok(CoreView { core: load(self.cx, self.gs, self.src, reads, &mut self.stats)? })
     }
@@ -151,6 +154,7 @@ impl CoreView {
     /// # Errors
     /// A value the typed state cannot hold.
     pub fn of(gs: &GameState, cx: &mut Ctx, src: Sources<'_>, reads: SliceSet) -> R<Self> {
+        super::unsupported::check(gs)?;
         cx.refresh(gs)?;
         Ok(Self { core: Codec::load(cx, gs, src, reads)? })
     }

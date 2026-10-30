@@ -35,7 +35,11 @@ fn condition(c: &CondCx<'_>) -> bool {
 }
 
 fn watchers_of_commodities(s: &ti4_engine_core::state::CoreState) -> bool {
-    s.players().iter().any(|p| matches!(p.faction, Faction::TheFirmament | Faction::TheObsidian))
+    let watchers = s.players().iter().find(|p| matches!(p.faction, Faction::TheFirmament | Faction::TheObsidian));
+    if let Some(p) = watchers {
+        ti4_engine_core::unsupported::faction_in_play(p.faction);
+    }
+    watchers.is_some()
 }
 
 fn legionnaire(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -97,5 +101,35 @@ pub fn register_abilities(t: &mut AbilityTable) {
             Spec::new(slot, AbilityKind::Unit, EventKind::GroundForceDestroyed, Relation::After, legionnaire)
                                 .when(condition),
         );
+    }
+}
+
+#[cfg(test)]
+mod unsupported_tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::unsupported::{Policy, with_policy};
+
+    fn panics_with(name: &str, f: impl FnOnce()) -> bool {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        std::panic::set_hook(prev);
+        r.err().is_some_and(|e| {
+            e.downcast_ref::<String>().is_some_and(|t| t.contains(name))
+                || e.downcast_ref::<&str>().is_some_and(|t| t.contains(name))
+        })
+    }
+
+    /// XF-3 family: the Firmament and the Obsidian are switched off.
+    #[test]
+    fn the_commodities_watchers_panic_for_a_firmament_or_obsidian_seat() {
+        for (f, name) in [(Faction::TheFirmament, "Firmament"), (Faction::TheObsidian, "Obsidian")] {
+            let (s, _) = table(&[Faction::TheArborec, f]);
+            assert!(with_policy(Policy::Off, || watchers_of_commodities(&s)));
+            assert!(panics_with(name, || with_policy(Policy::Panic, || { watchers_of_commodities(&s); })));
+        }
+        let (s, _) = table(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]);
+        assert!(!with_policy(Policy::Panic, || watchers_of_commodities(&s)));
     }
 }

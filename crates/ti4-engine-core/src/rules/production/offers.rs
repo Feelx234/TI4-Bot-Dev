@@ -60,7 +60,11 @@ impl AgentOffer {
     }
 
     fn keleres(f: Faction) -> bool {
-        matches!(f, Faction::TheCouncilKeleresArgent | Faction::TheCouncilKeleresMentak | Faction::TheCouncilKeleresXxcha)
+        let keleres = matches!(f, Faction::TheCouncilKeleresArgent | Faction::TheCouncilKeleresMentak | Faction::TheCouncilKeleresXxcha);
+        if keleres {
+            crate::unsupported::hit(crate::unsupported::Disabled::Keleres);
+        }
+        keleres
     }
 
     /// `keleres::agent_holders`: the Keleres seats that could use the agent for `payer` now.

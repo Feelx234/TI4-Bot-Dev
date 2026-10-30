@@ -41,7 +41,11 @@ pub fn register(t: &mut HookTable) {
 
 /// `bastion_units::faction_in_game`.
 fn faction_in_game(s: &CoreState) -> bool {
-    s.players().iter().any(|p| p.faction == Faction::LastBastion)
+    let in_game = s.players().iter().any(|p| p.faction == Faction::LastBastion);
+    if in_game {
+        ti4_engine_core::unsupported::hit(ti4_engine_core::unsupported::Disabled::LastBastion);
+    }
+    in_game
 }
 
 /// The Egeiro: +1 to each combat roll for each non-home system with a planet its owner controls.
@@ -127,4 +131,32 @@ fn cancel_in_groups(s: &CoreState, victim: Seat, system: System, planet: Planet,
 /// Whether a seated player of this combat holds Proxima Targeting VI.
 fn watches_ground_round(s: &CoreState, sides: &[Seat]) -> bool {
     sides.iter().any(|side| has_tech_text(s, *side, Technology::ProximaTargetingVI))
+}
+
+#[cfg(test)]
+mod unsupported_tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::unsupported::{Policy, with_policy};
+
+    fn panics_with(name: &str, f: impl FnOnce()) -> bool {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        std::panic::set_hook(prev);
+        r.err().is_some_and(|e| {
+            e.downcast_ref::<String>().is_some_and(|t| t.contains(name))
+                || e.downcast_ref::<&str>().is_some_and(|t| t.contains(name))
+        })
+    }
+
+    /// XF-3 (docs/DISABLE_XF123.md): a Last Bastion seat panics under `Policy::Panic` and plays as before under `Off`.
+    #[test]
+    fn the_bastion_predicate_panics_for_a_last_bastion_seat() {
+        let (bastion, _) = table(&[Faction::TheArborec, Faction::LastBastion]);
+        let (plain, _) = table(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]);
+        assert!(with_policy(Policy::Off, || faction_in_game(&bastion)));
+        assert!(panics_with("LastBastion", || with_policy(Policy::Panic, || { faction_in_game(&bastion); })));
+        assert!(!with_policy(Policy::Panic, || faction_in_game(&plain)));
+    }
 }

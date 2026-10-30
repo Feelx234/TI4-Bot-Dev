@@ -96,6 +96,7 @@ impl Codec {
     /// # Errors
     /// A value the typed state cannot hold.
     pub fn load(cx: &mut Ctx, gs: &GameState, src: Sources<'_>, slices: SliceSet) -> R<CoreState> {
+        super::unsupported::check(gs)?;
         let mut core = CoreState::with_loaded(SliceSet::EMPTY);
         for slice in Slice::ALL {
             if slices.has(slice) {

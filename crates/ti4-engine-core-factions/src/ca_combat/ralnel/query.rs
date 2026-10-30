@@ -89,10 +89,41 @@ fn alarum_on(s: &CoreState, system: System, planet: Planet) -> bool {
 /// controls a planet.
 fn listens_for_tactical_end(s: &CoreState, _: &Kernel) -> bool {
     s.players().iter().any(|p| {
+        if p.faction == Faction::TheRalNelConsortium {
+            ti4_engine_core::unsupported::hit(ti4_engine_core::unsupported::Disabled::RalNel);
+        }
         p.faction == Faction::TheRalNelConsortium
             && s.board().systems().any(|(system, cell)| {
                 cell.units.as_slice().iter().any(|u| u.owner() == p.seat && u.kind().data().structure)
                     && board::controls_a_planet_in(s, system, p.seat)
             })
     })
+}
+
+#[cfg(test)]
+mod unsupported_tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::unsupported::{Policy, with_policy};
+
+    fn panics_with(name: &str, f: impl FnOnce()) -> bool {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        std::panic::set_hook(prev);
+        r.err().is_some_and(|e| {
+            e.downcast_ref::<String>().is_some_and(|t| t.contains(name))
+                || e.downcast_ref::<&str>().is_some_and(|t| t.contains(name))
+        })
+    }
+
+    /// XF-3 family: the Ral Nel Consortium is switched off.
+    #[test]
+    fn the_ral_nel_listener_panics_for_a_ral_nel_seat() {
+        let (s, k) = table(&[Faction::TheArborec, Faction::TheRalNelConsortium]);
+        let _ = with_policy(Policy::Off, || listens_for_tactical_end(&s, &k));
+        assert!(panics_with("RalNel", || with_policy(Policy::Panic, || { listens_for_tactical_end(&s, &k); })));
+        let (plain, k) = table(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]);
+        assert!(!with_policy(Policy::Panic, || listens_for_tactical_end(&plain, &k)));
+    }
 }

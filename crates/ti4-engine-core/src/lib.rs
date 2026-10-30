@@ -26,6 +26,7 @@ pub mod query;
 pub mod rules;
 pub mod state;
 pub mod tables;
+pub mod unsupported;
 
 #[rustfmt::skip]
 pub mod generated;

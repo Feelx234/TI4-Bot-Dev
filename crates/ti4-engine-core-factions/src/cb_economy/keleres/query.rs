@@ -63,9 +63,13 @@ pub fn spendable_commodities(s: &CoreState, who: Seat) -> i64 {
 }
 
 fn is_keleres(s: &CoreState, who: Seat) -> bool {
-    player(s, who).is_some_and(|p| {
+    let keleres = player(s, who).is_some_and(|p| {
         matches!(p.faction, Faction::TheCouncilKeleresArgent | Faction::TheCouncilKeleresMentak | Faction::TheCouncilKeleresXxcha)
-    })
+    });
+    if keleres {
+        ti4_engine_core::unsupported::hit(ti4_engine_core::unsupported::Disabled::Keleres);
+    }
+    keleres
 }
 
 /// Whether a readied Keleres agent could be offered to `payer` now: no window open for them yet, they hold
@@ -146,5 +150,32 @@ mod tests {
         assert!(asn_ready(&s, Seat(0)));
         s.marks_mut().tail.edit().insert(MarkKey::KeleresAsnUsed(Seat(0)), MarkVal::Atom(Atom::Num(1)));
         assert!(!asn_ready(&s, Seat(0)));
+    }
+}
+
+#[cfg(test)]
+mod unsupported_tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::unsupported::{Policy, with_policy};
+
+    fn panics_with(name: &str, f: impl FnOnce()) -> bool {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        std::panic::set_hook(prev);
+        r.err().is_some_and(|e| {
+            e.downcast_ref::<String>().is_some_and(|t| t.contains(name))
+                || e.downcast_ref::<&str>().is_some_and(|t| t.contains(name))
+        })
+    }
+
+    /// XF-3 family: the Council Keleres is switched off.
+    #[test]
+    fn the_keleres_predicate_panics_for_a_keleres_seat() {
+        let (s, _) = table(&[Faction::TheArborec, Faction::TheCouncilKeleresMentak]);
+        assert!(with_policy(Policy::Off, || is_keleres(&s, Seat(1))));
+        assert!(panics_with("Keleres", || with_policy(Policy::Panic, || { is_keleres(&s, Seat(1)); })));
+        assert!(!with_policy(Policy::Panic, || is_keleres(&s, Seat(0))));
     }
 }

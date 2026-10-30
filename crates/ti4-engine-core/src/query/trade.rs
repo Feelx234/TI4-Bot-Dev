@@ -206,6 +206,10 @@ pub fn may_initiate_negotiation(cx: &Cx<'_>, seat: Seat) -> bool {
 #[must_use]
 pub fn open_partners(cx: &Cx<'_>, seat: Seat) -> SeatList {
     let mut out = SeatList::new();
+    if cx.core.trade().diplomacy.enabled {
+        // XF-1: structured diplomacy is switched off; dead after the flip (D2-8), deleted in D4.
+        crate::unsupported::hit(crate::unsupported::Disabled::Diplomacy);
+    }
     if cx.core.trade().diplomacy.enabled || !may_initiate_negotiation(cx, seat) {
         return out;
     }

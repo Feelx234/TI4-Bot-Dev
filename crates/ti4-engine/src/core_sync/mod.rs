@@ -21,6 +21,7 @@ mod footprint;
 pub mod guard;
 mod lend;
 pub mod unmapped;
+pub mod unsupported;
 
 pub mod codec;
 /// Text codec of every `String`-typed key and value of `GameState` (package X1).
@@ -38,3 +39,5 @@ pub use ti4_engine_core::state::{Slice, SliceSet};
 mod tests;
 #[cfg(test)]
 mod tests_totality;
+#[cfg(test)]
+mod tests_unsupported;

@@ -91,6 +91,10 @@ fn named(e: &RelEvent) -> [Option<Seat>; 3] {
 /// [`SelfPair`] when the event names one seat twice.
 pub fn apply_relationship_event(core: &mut CoreState, event: RelEvent) -> Result<(), SelfPair> {
     use RelEvent::*;
+    if core.trade().diplomacy.enabled {
+        // XF-1: structured diplomacy is switched off; dead after the flip (D2-8), deleted in D4.
+        crate::unsupported::hit(crate::unsupported::Disabled::Diplomacy);
+    }
     if !core.trade().diplomacy.enabled || !named(&event).into_iter().flatten().all(|s| has_row(core, s)) {
         return Ok(());
     }
@@ -148,6 +152,7 @@ pub fn decay_relationships(core: &mut CoreState) {
     if !core.trade().diplomacy.enabled {
         return;
     }
+    crate::unsupported::hit(crate::unsupported::Disabled::Diplomacy);
     let next = core.meta().round.saturating_add(1);
     let d = core.trade_mut().diplomacy.edit();
     let rows: Vec<_> = d.relationships.iter().map(|(k, v)| (*k, decayed(*v))).collect();

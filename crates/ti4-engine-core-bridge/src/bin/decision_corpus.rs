@@ -419,6 +419,7 @@ fn check_line(l: &str) -> Result<(), String> {
 
 fn main() {
     ti4_engine::core_sync::unmapped::set_strict_for_gate();
+    ti4_engine::core_sync::unsupported::set_disabled_policy_for_gate();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut workers = 4usize;
     let mut positional = Vec::new();
