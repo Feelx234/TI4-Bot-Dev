@@ -606,7 +606,9 @@ mod tests {
     fn skilled_retreat_reads_the_destinations_of_its_own_round() {
         let (a, b) = (System::ALL[1], System::ALL[2]);
         let (mut s, mut t, system) = retreat_fight(&[a]);
+        t.facts = Default::default();
         t.facts.set_withdraw(Seat(0), system, 2, vec![b]);
+        t.facts.set_withdraw(Seat(0), system, 3, vec![a]);
         t.facts.set_withdraw(Seat(0), system, 4, vec![b]);
         let (unknown, asked) = play(&mut s, &t, ActionCard::SkilledRetreat1);
         assert_eq!((unknown, asked.is_none()), (None, true), "one destination is not a question");
