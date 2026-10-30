@@ -420,7 +420,7 @@ impl Machine {
         for (owner, form) in w.flipped {
             if let Some((_, fleet)) = self.fields.at_start.iter_mut().find(|(s, _)| *s == owner) {
                 fleet.push(form);
-                fleet.sort_by_key(|u| u.as_str());
+                fleet.sort_unstable();
             }
         }
     }
