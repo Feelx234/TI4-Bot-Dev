@@ -1150,7 +1150,7 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
         drop_unofficial: gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK,
         blanked: crate::laws::blanked(gs),
     };
-    let window = Resolve::of_facts(agenda, outcome, &facts)?;
+    let window = Resolve::of_facts(agenda, outcome, &facts).why("an agenda whose effect the core has no window for")?;
     if window.draws() && gs.deck_reserve.is_some() {
         crate::dual::note_bail_here("deck reserve");
         return None;
@@ -1196,7 +1196,7 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
     apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
     let resolved = driver.window.done() == ti4_engine_core::rules::agenda::effects::Done::Resolved;
     let positions = match rng_after {
-        Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
+        Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok().why("the dice streams after the effect could not be coded")?),
         // An effect that rolls nothing (the other half of the card) leaves the streams where they were.
         None => a.rolls.cloned(),
     };

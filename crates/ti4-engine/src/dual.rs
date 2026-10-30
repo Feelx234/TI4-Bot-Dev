@@ -1310,6 +1310,12 @@ pub(crate) mod reason {
     pub const COUNT: &str = "a count the window cannot hold";
 }
 
+/// How many reasons this thread has counted (a test compares it before and after a core half that bailed).
+#[cfg(test)]
+pub(crate) fn reasons_counted() -> u64 {
+    REASONS.with(std::cell::Cell::get)
+}
+
 /// Count a bail-out of a window adapter under `label` and its `why` (shown in the report next to the window's
 /// own `compared` and `bailed` counts, which stay on the plain label).
 pub fn note_bail(label: &str, why: &str) {
