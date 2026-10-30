@@ -176,13 +176,14 @@ impl SpaceCannonOffense {
         sx.state.transient_mut().combat.last_reroll_player = None;
     }
 
-    /// `use_graviton`: the gunner exhausts the card when the loss can be bound to non-fighters and it changes something.
-    fn graviton(sx: &mut Sx<'_>, gunner: Seat, victim: Seat, system: System, hits: u32) -> bool {
+    /// `use_graviton`: the gunner exhausts the card when the loss can be bound to non-fighters and it changes something (the string
+    /// also asks for hits to assign; a gunner here has scored at least one).
+    fn graviton(sx: &mut Sx<'_>, gunner: Seat, victim: Seat, system: System) -> bool {
         let rd = Self::rd(sx.state, sx.kernel);
         let ships = ships_of(rd, victim, system);
         let non_fighters = ships.iter().filter(|p| !rd.is_fighter(p.kind())).count();
-        let ready = sx.state.players().by_seat(gunner).is_some_and(|p| p.tech.owned.contains(Technology::GravitonLaserSystem) && !p.tech.exhausted.contains(Technology::GravitonLaserSystem));
-        if !ready || hits == 0 || non_fighters == 0 || non_fighters == ships.len() {
+        let ready = sx.state.players().by_seat(gunner).is_some_and(|p| p.tech.owned.contains(Technology::GravitonLaserSystem) && !p.tech.exhausted.contains(Technology::GravitonLaserSystem)); // mutants:skip: `exhaust_technology` below checks ownership again
+        if !ready || non_fighters == 0 || non_fighters == ships.len() {
             return false;
         }
         crate::kernel::fx_strategy::exhaust_technology(sx.state, gunner, Technology::GravitonLaserSystem)
@@ -205,7 +206,7 @@ impl SpaceCannonOffense {
                 .with(Key::Hits, Val::Int(i64::from(hits)));
             let _ = sx.emit(fx::event(EventKind::SpaceCannonHits, payload));
         }
-        let bound = Self::graviton(sx, gunner, victim, system, hits);
+        let bound = Self::graviton(sx, gunner, victim, system);
         self.bound = bound;
         let left = {
             let rd = Self::rd(sx.state, sx.kernel);
@@ -265,7 +266,7 @@ impl Window for SpaceCannonOffense {
                     } else if self.hit(sx) {
                         self.stage = Stage::Absorbing;
                     } else {
-                        self.at += 1;
+                        self.at += 1; // mutants:skip: only reached for a gunner with no victim, which `hit` never reports (see there)
                     }
                 }
                 Stage::Absorbing => match self.absorb.step(sx) {
