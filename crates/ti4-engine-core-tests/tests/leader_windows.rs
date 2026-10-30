@@ -55,7 +55,7 @@ fn xxcha_with_two_asks_which_refuses_a_planet_that_is_not_exhausted_and_readies_
     assert_eq!(rig.asked().opts.len(), 2);
     rig.assert_options_sound();
     let other = planets_of_plain_systems(3)[2].1;
-    rig.expect_illegal(Pick::Opt(Opt::Leaders(LOpt::Planet(other, ti4_engine_core::choice::leaders::Shown::default()))));
+    rig.expect_illegal(Pick::Opt(Opt::Leaders(LOpt::Planet(other, ti4_engine_core::choice::agenda::Shown::default()))));
     let before = rig.state.clone();
     rig.pick(1);
     assert!(rig.is_done());
