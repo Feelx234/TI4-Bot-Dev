@@ -59,7 +59,7 @@ fn an_agenda_nobody_acts_on_is_revealed_and_its_outcomes_listed() {
 fn the_quash_ability_replaces_the_agenda_with_the_next_one_for_a_strategy_token() {
     covers!("rules::agenda::reveal::Reveal");
     let agendas = for_against(2);
-    let mut rig = reveal(state(true, &[agendas[1], agendas[2]], 2), agendas[0]);
+    let mut rig = reveal(state(true, &[agendas[1], agendas[2]], 1), agendas[0]);
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Agenda(AAsk::UseOnAgenda { source: UseSource::Quash, .. })));
     assert_eq!(rig.asked().actor, Seat(1));
@@ -67,7 +67,7 @@ fn the_quash_ability_replaces_the_agenda_with_the_next_one_for_a_strategy_token(
     rig.assert_options_sound();
     rig.pick_opt(Opt::Agenda(AOpt::UseCard));
     assert!(rig.is_done());
-    assert_eq!(rig.state.players().by_seat(Seat(1)).unwrap().econ.strategic_tokens, 1, "a strategy token paid");
+    assert_eq!(rig.state.players().by_seat(Seat(1)).unwrap().econ.strategic_tokens, 0, "a strategy token paid, none left to quash the replacement");
     let (agenda, _) = rig.driver.window.result().expect("a result");
     assert_eq!(agenda, agendas[1], "the next agenda from the deck replaced it");
     assert_eq!(rig.state.agenda().in_play, Some(agendas[1]));
