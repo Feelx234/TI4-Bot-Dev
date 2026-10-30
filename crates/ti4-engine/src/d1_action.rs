@@ -148,21 +148,9 @@ fn stage_of(s: &AStr) -> (u8, bool) {
     }
 }
 
-/// The captial counts of a `BeforeCombat`, read from its `Debug` form: the fields are private to `combat.rs` (a file of
-/// another package) and the type has no accessor for them. The form is `capitals: {PlayerId("a"): 1, ...}`.
+/// The capital counts of a `BeforeCombat` (`BeforeCombat::capitals`, in the map's order).
 pub(super) fn capitals_of(before: &crate::combat::BeforeCombat) -> Vec<(String, usize)> {
-    let text = format!("{before:?}");
-    let Some(at) = text.find("capitals: {") else { return Vec::new() };
-    let rest = &text[at + "capitals: {".len()..];
-    let Some(end) = rest.find('}') else { return Vec::new() };
-    rest[..end]
-        .split(", ")
-        .filter_map(|entry| {
-            let (key, n) = entry.split_once("): ")?;
-            let name = key.split_once("(\"")?.1.trim_end_matches('"');
-            Some((name.to_owned(), n.trim().parse().ok()?))
-        })
-        .collect()
+    before.capitals().map(|(player, n)| (player.to_string(), n)).collect()
 }
 
 pub(super) fn aftermath_key(w: &AftermathWindow) -> AKey {

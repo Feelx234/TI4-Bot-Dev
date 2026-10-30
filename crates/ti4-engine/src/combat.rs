@@ -7988,6 +7988,11 @@ impl BeforeCombat {
     pub fn sides(&self) -> &[PlayerId] {
         &self.sides
     }
+
+    /// The war suns and flagships each side had when the fight opened, in the map's (player id) order.
+    pub fn capitals(&self) -> impl Iterator<Item = (&PlayerId, usize)> {
+        self.capitals.iter().map(|(player, n)| (player, *n))
+    }
 }
 
 /// Promissory-note issuers held by each player at a defined timing boundary.

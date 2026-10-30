@@ -150,16 +150,17 @@ fn a_heart_of_ixth_or_a_jolnar_commander_keeps_the_offense_on_the_string() {
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     assert_eq!(compared(&r), 0, "the window did not run: {:?}", r.windows);
     // The bail is decided before the string runs (`cannon_prelude` always goes through the dual on `driver=dual`).
-    let unported = |s: &GameState| crate::cannon_dual::unported(s, &crate::cannon_dual::Args { active: &a(), system: &SystemId::new("18"), announce: true, reproducible: true });
+    let (who, sys) = (a(), SystemId::new("18"));
     let (state, _) = position(0, &[("a", "sol"), ("b", "hacan")], heart);
-    assert!(unported(&state).is_some_and(|why| why.contains("reroll question")));
+    let args = crate::cannon_dual::Args { active: &who, system: &sys, announce: true, reproducible: true };
+    assert!(crate::cannon_dual::unported(&state, &args).is_some_and(|why| why.contains("reroll question")));
 }
 
 #[test]
 fn irreproducible_dice_and_dropped_factions_are_documented_bails() {
     let (state, _) = position(0, &[("a", "sol"), ("b", "hacan")], pds_at_b);
-    let system = SystemId::new("18");
-    let args = |reproducible| crate::cannon_dual::Args { active: &a(), system: &system, announce: true, reproducible };
+    let (system, who) = (SystemId::new("18"), a());
+    let args = |reproducible| crate::cannon_dual::Args { active: &who, system: &system, announce: true, reproducible };
     assert_eq!(crate::cannon_dual::unported(&state, &args(true)), None, "the plain position is carried");
     assert!(crate::cannon_dual::unported(&state, &args(false)).is_some_and(|why| why.contains("irreproducible")));
     let (dropped, _) = position(0, &[("a", "sol"), ("b", "obsidian")], pds_at_b);
