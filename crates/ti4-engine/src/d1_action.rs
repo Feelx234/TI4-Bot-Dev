@@ -228,3 +228,41 @@ pub(super) fn aftermath_back(a: &Aftermath, r: &Render) -> AKey {
         notes: nonempty(&notes_back(&a.notes_at_start, r)),
     }
 }
+
+/// Where the chain stood when a step ended: the `Settled` of the core, in plain data for `game.rs`.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Ended {
+    /// `holds`, `contacts`.
+    Fighting(bool, bool),
+    /// `contacts`.
+    Invading(bool),
+    /// `invade`.
+    Negotiating(bool),
+    Producing,
+}
+
+/// The stage tag of a core stage, as [`stage_of`] gives it for the string's.
+fn tag(s: AStage) -> (u8, bool) {
+    match s {
+        AStage::Fighting => (0, false),
+        AStage::Negotiating { invade } => (1, invade),
+        AStage::Invading => (2, false),
+        AStage::Producing => (3, false),
+        AStage::Done => (4, false),
+    }
+}
+
+/// Compare the step the string's `AftermathWindow` went to with the core's `driver::aftermath::next` (`d1::aftermath.next`).
+pub(super) fn transition(ended: Ended, to: &AStr) {
+    use ti4_engine_core::driver::aftermath::{Settled, next};
+    if !super::active() {
+        return;
+    }
+    let settled = match ended {
+        Ended::Fighting(holds, contacts) => Settled::Fighting { holds, contacts },
+        Ended::Invading(contacts) => Settled::Invading { contacts },
+        Ended::Negotiating(invade) => Settled::Negotiating { invade },
+        Ended::Producing => Settled::Producing,
+    };
+    let _ = crate::dual::compare_value(crate::dual::Area::Driver, "d1::aftermath.next", &stage_of(to), &tag(next(settled)));
+}

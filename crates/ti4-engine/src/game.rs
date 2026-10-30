@@ -55,6 +55,16 @@ mod d1_pending {
 
     pub(super) fn snapshot_facts(_: &mut super::Game<'_>) {}
 
+    #[derive(Clone, Copy)]
+    pub(super) enum Ended {
+        Fighting(bool, bool),
+        Invading(bool),
+        Negotiating(bool),
+        Producing,
+    }
+
+    pub(super) fn transition(_: Ended, _: &super::Aftermath) {}
+
     #[derive(Debug, Clone, Default)]
     pub(super) struct Shadow {
         pub(super) outcome: Option<crate::strategy::StepOutcome>,
@@ -744,14 +754,15 @@ impl AftermathWindow {
                         )
                         .map_err(crate::combat::CombatError::from)?;
                     }
-                    self.stage =
-                        if crate::diplomacy::candidates::available_contacts(state, &self.player)
-                            .is_empty()
-                        {
-                            self.next_step(state, ctx, holds)?
-                        } else {
-                            Aftermath::Negotiating { invade: holds }
-                        };
+                    let contacts =
+                        !crate::diplomacy::candidates::available_contacts(state, &self.player)
+                            .is_empty();
+                    self.stage = if contacts {
+                        Aftermath::Negotiating { invade: holds }
+                    } else {
+                        self.next_step(state, ctx, holds)?
+                    };
+                    d1_pending::transition(d1_pending::Ended::Fighting(holds, contacts), &self.stage);
                 }
                 Aftermath::Invading(window) => {
                     if let Some((occurrence, combat)) = window.take_scoring_occurrence() {
@@ -796,17 +807,19 @@ impl AftermathWindow {
                     }
                     self.log.push("INVASION_RESOLVED".to_owned());
                     state.active_invasion = None;
-                    if crate::diplomacy::candidates::available_contacts(state, &self.player)
-                        .is_empty()
-                    {
+                    let contacts =
+                        !crate::diplomacy::candidates::available_contacts(state, &self.player)
+                            .is_empty();
+                    if contacts {
+                        self.stage = Aftermath::Negotiating { invade: false };
+                    } else {
                         // The production window opens before the step makes its first choice, so
                         // a reaction (War Machine) can change this step rather than one that has
                         // already spent its budget.
                         let window = self.enter_production(state, ctx)?;
                         self.stage = Aftermath::Producing(Box::new(window));
-                    } else {
-                        self.stage = Aftermath::Negotiating { invade: false };
                     }
+                    d1_pending::transition(d1_pending::Ended::Invading(contacts), &self.stage);
                 }
                 Aftermath::Producing(window) => {
                     if window
@@ -821,6 +834,7 @@ impl AftermathWindow {
                     self.log.push("PRODUCTION_RESOLVED".to_owned());
                     crate::factions::keleres::close_agent_window(state, &self.player);
                     self.stage = Aftermath::Done;
+                    d1_pending::transition(d1_pending::Ended::Producing, &self.stage);
                     return Ok(());
                 }
                 Aftermath::Negotiating { .. } | Aftermath::Done => return Ok(()),
@@ -885,6 +899,7 @@ impl Window for AftermathWindow {
                 // Contacts are opened by the game driver; only "continue" reaches here.
                 let invade = *invade;
                 self.stage = self.next_step(state, ctx, invade)?;
+                d1_pending::transition(d1_pending::Ended::Negotiating(invade), &self.stage);
             }
             Aftermath::Invading(window) => window.resolve(state, ctx, answer)?,
             Aftermath::Producing(window) => window.resolve(state, ctx, answer)?,

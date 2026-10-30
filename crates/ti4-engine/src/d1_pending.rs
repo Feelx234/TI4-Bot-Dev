@@ -133,6 +133,8 @@ pub(super) fn snapshot_facts(g: &mut Game<'_>) {
     });
 }
 
+pub(super) use action::{Ended, transition};
+
 /// The report name of an arm.
 fn arm_name(a: ti4_engine_core::driver::session::Arm) -> &'static str {
     match a {
@@ -1326,5 +1328,24 @@ mod tests {
         let _ = take_report();
         assert_eq!(ok, "turn_prelude", "the dealt position has an active seat whose turn is not prepared");
         assert_eq!(r.total_differences(), 1, "{:?}", r.differences);
+    }
+
+    #[test]
+    fn a_step_of_the_aftermath_chain_that_goes_where_the_core_does_not_is_a_difference() {
+        type A = super::super::Aftermath;
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(both(), || {
+            // The chain goes where the core's table says.
+            transition(Ended::Producing, &A::Done);
+            transition(Ended::Fighting(true, true), &A::Negotiating { invade: true });
+            // The invade flag swapped, the pause skipped, the end of production not reached: three differences.
+            transition(Ended::Fighting(true, true), &A::Negotiating { invade: false });
+            transition(Ended::Invading(true), &A::Done);
+            transition(Ended::Producing, &A::Negotiating { invade: false });
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(r.total_differences(), 3, "{:?}", r.differences);
     }
 }
