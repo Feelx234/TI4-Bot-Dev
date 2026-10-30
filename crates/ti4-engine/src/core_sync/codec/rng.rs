@@ -110,7 +110,7 @@ pub fn positions_in(texts: &Texts, rng: &CoreRng) -> R<RngPositions> {
 impl SliceCodec for Rng {
     const SLICE: Slice = S;
 
-    fn load(cx: &mut Ctx, gs: &GameState, src: Sources<'_>, core: &mut CoreState) -> R<()> {
+    fn load(_: &mut Ctx, gs: &GameState, src: Sources<'_>, core: &mut CoreState) -> R<()> {
         let mut rng = CoreRng::new(gs.rng_seed);
         if let Some(pos) = src.rng {
             let typed: Vec<(RngDomain, u128)> =

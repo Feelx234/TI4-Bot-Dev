@@ -75,7 +75,7 @@ pub(crate) fn die_back(cx: &Ctx, tx: &Texts, d: &c::CombatDie) -> R<m::CombatRol
     })
 }
 
-pub(crate) fn reroll_set(cx: &Ctx, tx: &mut Texts, r: &m::RerollSet) -> R<c::RerollSet> {
+pub(crate) fn reroll_set(_cx: &Ctx, tx: &mut Texts, r: &m::RerollSet) -> R<c::RerollSet> {
     let mut rolls = Vec::with_capacity(r.rolls.len());
     for e in &r.rolls {
         let mut rerolled = 0u64;
@@ -106,7 +106,7 @@ pub(crate) fn reroll_set(cx: &Ctx, tx: &mut Texts, r: &m::RerollSet) -> R<c::Rer
     Ok(c::RerollSet { kind: tx.intern_code(S, &r.kind)?, system: sys(&r.system)?, rolls })
 }
 
-pub(crate) fn reroll_set_back(cx: &Ctx, tx: &Texts, r: &c::RerollSet) -> R<m::RerollSet> {
+pub(crate) fn reroll_set_back(_cx: &Ctx, tx: &Texts, r: &c::RerollSet) -> R<m::RerollSet> {
     let mut rolls = Vec::with_capacity(r.rolls.len());
     for e in &r.rolls {
         rolls.push(m::RerollEntry {

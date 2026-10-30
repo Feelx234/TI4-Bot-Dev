@@ -274,7 +274,7 @@ fn id_namespaces_that_share_a_text_position_are_disjoint() {
 #[test]
 fn every_observed_mark_round_trips_or_is_a_listed_exception() {
     let mut blobs = Interner::default();
-    let mut codec = codec();
+    let codec = codec();
     let mut typed = 0usize;
     let mut unmapped = BTreeSet::new();
     for (key, value) in marks() {
@@ -328,7 +328,7 @@ fn every_observed_mark_round_trips_or_is_a_listed_exception() {
 #[test]
 fn every_observed_key_text_is_typed_or_a_listed_exception() {
     let mut blobs = Interner::default();
-    let mut codec = codec();
+    let codec = codec();
     let mut keys: BTreeSet<String> = marks().into_iter().map(|(k, _)| k).collect();
     keys.insert("allow_pass".to_owned());
     let mut untyped = Vec::new();
@@ -349,7 +349,7 @@ fn every_observed_key_text_is_typed_or_a_listed_exception() {
 #[test]
 fn every_family_is_in_the_corpus() {
     let mut blobs = Interner::default();
-    let mut codec = codec();
+    let codec = codec();
     let mut seen = BTreeSet::new();
     for (key, _) in marks() {
         if let Some(k) = codec.parse_mark_key(&mut blobs, &key) {
@@ -500,7 +500,7 @@ fn observed_deck_and_slice_keys_round_trip() {
 /// Iterating a `BTreeMap<MarkKey, _>` visits the keys in the order the `BTreeMap<String, _>` does.
 fn assert_same_order(codec: &Codec, texts: &BTreeSet<String>, label: &str) {
     let mut blobs = Interner::default();
-    let mut codec = codec.clone();
+    let codec = codec.clone();
     let strings: BTreeMap<String, ()> = texts.iter().map(|t| (t.clone(), ())).collect();
     let mut typed: BTreeMap<MarkKey, ()> = BTreeMap::new();
     for text in texts {
@@ -532,7 +532,7 @@ fn assert_same_order(codec: &Codec, texts: &BTreeSet<String>, label: &str) {
 fn observed_keys_iterate_in_text_order() {
     let mut blobs = Interner::default();
     let codec = codec();
-    let mut parse = codec.clone();
+    let parse = codec.clone();
     let texts: BTreeSet<String> = marks()
         .into_iter()
         .map(|(k, _)| k)
@@ -564,7 +564,7 @@ fn pool<T: IdStr>(extra: usize) -> Vec<&'static str> {
 fn constructed_keys_iterate_in_text_order() {
     let mut blobs = Interner::default();
     let codec = codec();
-    let mut parse = codec.clone();
+    let parse = codec.clone();
     let systems: Vec<&str> = {
         let mut p = pool::<System>(3);
         p.truncate(7);
@@ -724,7 +724,7 @@ fn fill(segs: &[Seg], fields: &[&str]) -> String {
 fn a_following_byte_decides_between_prefix_ids() {
     let mut blobs = Interner::default();
     // The known trap: system 10 is a prefix of system 100, and `:` sorts after every digit.
-    let mut codec = codec();
+    let codec = codec();
     let low = "bastion:lost:100:a:cruiser";
     let high = "bastion:lost:10:a:cruiser";
     assert!(low < high, "text order");
@@ -744,7 +744,7 @@ fn a_following_byte_decides_between_prefix_ids() {
 #[test]
 fn decimal_keys_sort_as_text() {
     let mut blobs = Interner::default();
-    let mut codec = codec();
+    let codec = codec();
     let texts = [
         "private:#moved:1",
         "private:#moved:10",
@@ -774,7 +774,7 @@ fn decimal_keys_sort_as_text() {
 #[test]
 fn atoms_of_a_key_are_what_its_fields_say() {
     let mut blobs = Interner::default();
-    let mut codec = codec();
+    let codec = codec();
     let key = codec.parse_mark_key(&mut blobs, "cabal:devour:06|0.0.0").unwrap();
     let (atoms, n) = key.atoms();
     assert_eq!(n, 2);
