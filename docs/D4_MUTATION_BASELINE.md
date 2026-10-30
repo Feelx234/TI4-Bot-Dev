@@ -9,7 +9,7 @@ only through the dual, and the pilot of `ENGINE_COMPUTE.md` shows the adapter te
 
 ## 1. Result
 
-Score = killed / (killed + survived); a timeout counts as killed (column `timeouts`; 61 of 2 514 killed mutants, all in loop-heavy `containers`/`kernel`/`action_cards`);
+Score = killed / (killed + survived); a timeout counts as killed (column `timeouts`; 61 of 2 514 killed mutants, most in the loop-heavy `action_cards` (20), `kernel` (14) and `containers` (9));
 `unviable` points (the rewrite does not compile under the switch) are left out. `body kill` is the function-body kind (one mutant per function: a
 function-coverage proxy). Wall = build + all mutants, `JOBS=4`, `CARGO_BUILD_JOBS=2`, `nice -n 10`, one module at a time on a loaded machine
 (other agents' gates ran meanwhile); the whole baseline is **33 minutes of machine time** (1 960 s), plus the wait for `/root/.ti4-heavy.lock`
