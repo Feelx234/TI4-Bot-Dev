@@ -264,6 +264,13 @@ impl AftermathWindow {
         let (content, sources) = (ctx.content, ctx.sources);
         let announce = ctx.timing.is_some();
         let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        // Positions the head does not carry run bare, so the windows inside (the enforcement, the offense) are compared on
+        // their own.
+        let probe = crate::cannon_dual::Args { active: player, system, announce, reproducible };
+        if let Some(why) = crate::cannon_dual::unported(state, &probe) {
+            crate::dual::note_bail(crate::cannon_dual::HEAD_LABEL, why);
+            return Self::head_string(state, ctx, player, system, galaxy, notes, skip_to_commit);
+        }
         let rng_before = ctx.rng.positions();
         let history_start = ctx.dice.history().len();
         let failed = std::cell::Cell::new(false);
