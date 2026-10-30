@@ -61,9 +61,6 @@ pub struct EffectFacts {
     pub blanked: bool,
 }
 
-/// `action_cards::HAND_LIMIT`: the printed limit (LRR 2.4), which the law cap of Sanctions lowers.
-const HAND_LIMIT: usize = 7;
-
 /// Technologies whose printed name mentions a war sun (`owns_a_war_sun_technology`).
 pub const WAR_SUN_TECHNOLOGIES: [Technology; 2] = [Technology::WarSun, Technology::PrototypeWarSunII];
 
@@ -88,8 +85,6 @@ pub enum Table {
     ConventionsHands,
     /// Unconventional Measures, Against: the hands of the For voters.
     VotersHands,
-    /// Unconventional Measures, For: two action cards for each For voter.
-    VotersDraw,
     /// Minister of Antiquities: the elected seat takes the top relic.
     Relic(Seat),
     /// Publicize Weapon Schematics, Against: the hand of every War Sun owner.
@@ -141,7 +136,6 @@ impl Table {
             (A::ConventionsOfWar, O::For) => (Self::Nothing, false),
             (A::ConventionsOfWar, O::Against) => (Self::ConventionsHands, false),
             (A::UnconventionalMeasures, O::Against) => (Self::VotersHands, false),
-            (A::UnconventionalMeasures, O::For) => (Self::VotersDraw, false),
             (A::MinisterOfAntiquities, O::Seat(who)) => (Self::Relic(who), false),
             (A::PublicizeWeaponSchematics, O::For) => (Self::Nothing, false),
             (A::PublicizeWeaponSchematics, O::Against) => (Self::Schematics, false),
@@ -177,7 +171,7 @@ impl Table {
     /// Whether the effect turns a card of a deck (a turn-redo reserve of the string would draw through it).
     #[must_use]
     pub const fn draws_from_deck(&self) -> bool {
-        matches!(self, Self::Incentive(_) | Self::VotersDraw | Self::Relic(_))
+        matches!(self, Self::Incentive(_) | Self::Relic(_))
     }
 
     /// Run the effect. `false` when the position holds something the effect does not express (a galvanized
@@ -231,20 +225,6 @@ impl Table {
             Self::VotersHands => {
                 for seat in f.for_voters.as_slice() {
                     clear_hand(core, *seat);
-                }
-            }
-            Self::VotersDraw => {
-                // `action_cards::draw_announced`: nothing is announced without a resolver (the effect has none). A
-                // draw a hook changes or that leaves the hand over its limit asks questions of its own.
-                for seat in f.for_voters.as_slice() {
-                    if f.hooked & (1 << u16::from(seat.0)) != 0 {
-                        return false;
-                    }
-                    let limit = crate::query::laws::action_card_limit(core, f.blanked, HAND_LIMIT);
-                    if core.players().by_seat(*seat).is_some_and(|p| p.cards.hand.len() + 2 > limit) {
-                        return false;
-                    }
-                    fx::draw_action_cards(core, *seat, 2, f.drop_unofficial);
                 }
             }
             Self::Relic(who) => {

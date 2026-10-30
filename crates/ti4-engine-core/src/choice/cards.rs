@@ -135,6 +135,11 @@ pub enum Ask {
     /// The reaction slot's second question, when the seat could play cards of several names into the window of
     /// `event` (`reactions::slot`: "play an action card (when X)"); the options are one card per printed name, then decline.
     PlayCard { relation: Relation, event: EventKind },
+    /// `action_cards::enforce_hand_limit` (rule 2.4): the hand of `held` cards is over its limit, discard one (one option per
+    /// printed name, in the order of the names).
+    HandLimit { held: u8 },
+    /// The Nekro's Galactic Threat (`action_cards::predicted_outcome`): predict the outcome of the agenda in `frame`.
+    PredictThreat { frame: Frame },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -177,6 +182,8 @@ pub enum Opt {
     /// A strategy card another seat holds (`holder`) or nobody does (`None`, on the mat) (`What::Perform`).
     Perform { card: crate::generated::StrategyCard, holder: Option<Seat> },
     Move { from: Planet, to: Planet, kind: crate::generated::Unit, count: u8 },
+    /// `Ask::HandLimit`: the card at place `index` of the hand (the first copy of its printed name) goes.
+    Discard { index: u8, card: ActionCard },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -193,6 +200,8 @@ pub enum Subtype {
     PredictOutcome,
     /// `play_reaction_<rel>_<EVENT>`.
     PlayReaction { relation: Relation, event: EventKind },
+    /// `discard_over_hand_limit`.
+    DiscardOverHandLimit,
 }
 
 impl Reason {

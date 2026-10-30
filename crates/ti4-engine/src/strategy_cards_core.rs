@@ -21,7 +21,7 @@ mod real {
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{fx, Kernel, Resolver};
     use ti4_engine_core::rules::production::strategy_cards::{Construction, Leadership, Placement, Research, StructureFacts};
-    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, Politics, TeWarfare, WarfarePrimary};
+    use ti4_engine_core::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, ImperialSecondary, Politics, TeWarfare, WarfarePrimary};
     use ti4_engine_core::state::{CoreState, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlayerId, SystemId};
@@ -44,7 +44,7 @@ mod real {
     const DIPLOMACY: Footprint =
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board]);
     const POLITICS: Footprint = Footprint::new(
-        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Decks, Slice::Pending],
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Decks, Slice::Agenda, Slice::Pending],
         &[Slice::Meta, Slice::Players, Slice::Decks],
     );
 
@@ -61,7 +61,7 @@ mod real {
     ) -> Option<(W, Driven)> {
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), linked(), 1);
         let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_with(&mut driver, core, &kernel, r, &before, script, complete))
             .why(crate::dual::reason::NOT_LENDABLE)?
             .why(crate::dual::reason::DRIVER_REFUSED)?;
@@ -461,12 +461,13 @@ mod real {
     // -- Technology ----------------------------------------------------------------------------------------
 
     /// The seats whose own effects on a research are questions or forms the window does not carry: an own Deepwrought
-    /// (Doctor Carrina's window opens around every research), Keleres (the agent's offer in the payment) or Mentak (the
-    /// Corsair's unit form), The payment hooks of Naaz, Nomad and Yssaril are the production window's own (tier W).
+    /// (Doctor Carrina's window opens around every research), Keleres (the agent's offer in the payment) or a Mentak with
+    /// The Table's Grace (the Corsair's unit form, Thunder's Edge only: package W6 narrowed it from every Mentak seat, whose
+    /// research has no effect of its own). The payment hooks of Naaz, Nomad and Yssaril are the production window's own (tier W).
     fn research_seat_unported(gs: &GameState, player: &PlayerId) -> bool {
-        use crate::factions::{deepwrought, keleres, mentak};
-        let own = [deepwrought::MODULE.alias, keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias, mentak::MODULE.alias];
-        gs.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
+        use crate::factions::{deepwrought, keleres};
+        let own = [deepwrought::MODULE.alias, keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias];
+        gs.player(player).is_some_and(|p| own.contains(&p.faction.as_str())) || crate::factions::mentak::corsair_form(gs, player)
     }
 
     /// Whether the position holds an effect on a research the core `Research` window does not carry: what
@@ -513,7 +514,7 @@ mod real {
     ) -> Option<CoreWindow<bool>> {
         if let Some(why) = crate::dual_window::outside_why(gs, script)
             .or_else(|| (gs.rules_version < ti4_model::state::RULES_TECH_PAYMENT_CHOICE).then_some("a game below the technology payment choice"))
-            .or_else(|| research_unported(gs, content, sources, player).then_some("a seat whose own effects on a research are questions or forms (Deepwrought, Keleres, Mentak, Last Bastion, Crimson) or a purged technology"))
+            .or_else(|| research_unported(gs, content, sources, player).then_some("a seat whose own effects on a research are questions or forms (Deepwrought, Keleres, a Mentak with The Table's Grace, Last Bastion, Crimson) or a purged technology"))
         {
             crate::dual::note_bail_here(why);
             return None;
@@ -549,26 +550,38 @@ mod real {
 
     // -- Imperial ------------------------------------------------------------------------------------------
 
-    const SECRET: Footprint =
-        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Decks, Slice::Pending], &[Slice::Players, Slice::Decks]);
+    const SECRET: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Objectives, Slice::Decks, Slice::Pending],
+        &[Slice::Players, Slice::Decks],
+    );
+
+    /// The core table of a window that runs the hand limit as a child: the links of the areas are installed.
+    fn linked() -> AbilityTable {
+        crate::reactions_core::linked_table()
+    }
 
     /// The core half of Imperial's secret objective draw (`secrets::draw` called by the secondary and by the
-    /// primary of a seat that does not hold Mecatol Rex). `None` where the draw is not plain: the hand would go
-    /// over its limit (a question to return one), a reserve is replaying draws, a nested emission.
-    pub fn draw_secret(gs: &mut GameState, content: &ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+    /// primary of a seat that does not hold Mecatol Rex): the draw and the hand limit's question (which unscored
+    /// secret goes back to the deck, 45.4) as one window. `None` where a reserve is replaying draws or the
+    /// window is nested in a battle.
+    pub fn draw_secret(gs: &mut GameState, _content: &ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
         if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.deck_reserve.is_some()).then_some("deck reserve (a turn redo replays the draws)")) {
             crate::dual::note_bail_here(why);
             return None;
         }
-        let limit = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
-        if crate::secrets::held_count(gs, content, player) + 1 > limit {
-            crate::dual::note_bail_here("the hand would pass its limit (the string asks which secret to return)");
-            return None;
-        }
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
-        with_core(gs, &mut cx, Sources::default(), SECRET, |core, _| fx::draw_secret(core, seat)).why(crate::dual::reason::NOT_LENDABLE)?;
-        Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: Vec::new() })
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let mut driver = Driver::new(ImperialSecondary::new(seat), Resolver::new(&[seat], Some(seat)), linked(), 1);
+        let driven = with_core(gs, &mut cx, Sources::default(), SECRET, |core, _| drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
+            .why(crate::dual::reason::NOT_LENDABLE)?
+            .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the hand limit window");
+            return None;
+        }
+        Some(finish(&driven, &driver.window))
     }
 
     /// The core half of Imperial's primary (`strategy_cards::imperial_primary`). The scoreable objectives are
@@ -623,11 +636,6 @@ mod real {
                 crate::dual::note_bail_here("a point that would pass the victory target");
                 return None;
             }
-            let limit = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
-            if crate::secrets::held_count(gs, content, player) + 1 > limit {
-                crate::dual::note_bail_here("the hand would pass its limit (the string asks which secret to return)");
-                return None;
-            }
         }
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -637,7 +645,7 @@ mod real {
         // The production kernel answers what a trade good pays and which commodities a payment may spend.
         let env = ti4_engine_core::kernel::fx_pay::PayEnv { scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) };
         let window = ImperialPrimary::new(seat, typed.into_iter().collect()).with_price(env);
-        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), linked(), 1);
         let kernel = crate::production_view::kernel();
         let fp = Footprint::new(
             &[
@@ -658,6 +666,10 @@ mod real {
         })
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the hand limit window");
+            return None;
+        }
         if let Some(objective) = driver.window.scored {
             crate::objectives::award_tail(gs, content, sources, player.clone(), &ti4_model::id::ObjectiveId::new(objective.as_str()));
         }
@@ -675,13 +687,40 @@ mod real {
 
     // -- Politics ------------------------------------------------------------------------------------------
 
-    /// Whether `player` draws `count` action cards plainly: no faction hook changes the draw (Scheming, a bonus
-    /// card), the hand stays within its limit (no discard question) and the unofficial cards need not leave the
-    /// deck first.
+    /// Why a faction hook or a law changes `player`'s draw of `count` action cards (`None`: the core window follows it, with
+    /// the hand limit's discard question when the hand ends over its limit, package W6). Yssaril's Scheming (a card more, then
+    /// a discard) and Crafty (no limit) are the drawer's own, the Deepgloom Executable lets another seat's Scheming be borrowed
+    /// (Thunder's Edge), a test hook may add a card, and a turn with blank laws (Law's Order) lifts Sanctions' cap.
+    pub(crate) fn draw_hook(gs: &GameState, content: &ContentStore, player: &PlayerId, count: usize) -> Option<&'static str> {
+        if crate::laws::blanked(gs) {
+            Some("a turn in which the laws are blank (Law's Order)")
+        } else if gs.players.iter().any(|p| p.faction.as_str() == "ralnel") {
+            Some("a Ral Nel seat: its Data Skimmer could take the discard (non-lobby)")
+        } else if gs.player(player).is_some_and(|p| p.faction.as_str() == "yssaril") {
+            Some("Yssaril's Scheming and Crafty change the draw and the limit")
+        } else if gs.players.iter().any(|p| crate::breakthroughs::holds(gs, &p.id, "yssarilbt")) {
+            Some("the Deepgloom Executable lets another seat borrow Scheming")
+        } else if crate::factions::hooks_economy::action_card_draw_bonus(gs, content, player, count) != 0 {
+            Some("a bonus card with the draw")
+        } else if crate::factions::hooks_economy::action_card_limit(gs, content, player, crate::laws::action_card_limit(gs, crate::action_cards::HAND_LIMIT))
+            != crate::laws::action_card_limit(gs, crate::action_cards::HAND_LIMIT)
+        {
+            Some("a faction changes the action card hand limit")
+        } else {
+            None
+        }
+    }
+
+    /// Whether `player` draws `count` action cards with no hook: the core's draw window follows it (the hand limit's discard
+    /// question included).
     pub(crate) fn plain_draw(gs: &GameState, content: &ContentStore, player: &PlayerId, count: usize) -> bool {
-        gs.players.iter().all(|p| p.faction.as_str() != "yssaril")
-            && crate::factions::hooks_economy::action_card_draw_bonus(gs, content, player, count) == 0
-            && gs.player(player).is_some_and(|p| p.action_cards.len() + count <= crate::action_cards::hand_limit(gs, content, player))
+        draw_hook(gs, content, player, count).is_none()
+    }
+
+    /// [`plain_draw`] and the hand stays within its limit: no question is asked (the draws that are not windows of their own,
+    /// Exploration Probe's Lost Crew).
+    pub(crate) fn plain_draw_within_limit(gs: &GameState, content: &ContentStore, player: &PlayerId, count: usize) -> bool {
+        plain_draw(gs, content, player, count) && gs.player(player).is_some_and(|p| p.action_cards.len() + count <= crate::action_cards::hand_limit(gs, content, player))
     }
 
     /// The display facts of the Politics questions: the seat of each speaker option and the printed agenda.
@@ -706,7 +745,7 @@ mod real {
     /// The core half of the two Politics abilities. `None` as for Warfare, with two seats of one faction (the
     /// speaker options are named by faction) and where the draw is not plain.
     pub fn politics(gs: &mut GameState, content: &ContentStore, player: &PlayerId, primary: bool, script: &Recording) -> Option<CoreWindow<bool>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.deck_reserve.is_some()).then_some("deck reserve (a turn redo replays the draws)")).or_else(|| (!plain_draw(gs, content, player, 2)).then_some("a draw that is not plain (a hand over its limit, a draw bonus, a hooked draw)")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.deck_reserve.is_some()).then_some("deck reserve (a turn redo replays the draws)")).or_else(|| draw_hook(gs, content, player, 2)) {
             crate::dual::note_bail_here(why);
             return None;
         }
@@ -715,6 +754,10 @@ mod real {
         let (window, driven) = drive_window(gs, &mut cx, &r, POLITICS, Politics::new(seat, primary, gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK), seat, script, &|c, _, rendered| {
             complete_politics(&r, content, c, rendered);
         })?;
+        if window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the draw window or no printed-name groups");
+            return None;
+        }
         Some(finish(&driven, &window))
     }
 
@@ -893,7 +936,7 @@ mod stub {
 mod tests {
     use ti4_content::ContentStore;
     use ti4_model::content_types::{DEFAULT, POK};
-    use ti4_model::id::{PlanetId, PlayerId, SystemId};
+    use ti4_model::id::{ObjectiveId, PlanetId, PlayerId, SecretObjectiveId, SystemId};
     use ti4_model::state::GameState;
 
     use crate::choice::{Scripted, Table};
@@ -1034,20 +1077,47 @@ mod tests {
     }
 
     #[test]
-    fn politics_declines_where_the_draw_is_not_plain() {
+    fn politics_declines_where_a_hook_changes_the_draw() {
         let label = "strategy_cards::politics_secondary";
-        // A full hand: the draw would end in a discard question.
+        // Scheming is the drawer's own: a Yssaril holder of Politics draws and discards the string's way.
+        let yssaril = [("a", "yssaril"), ("b", "sol")];
+        assert_eq!(run(label, &yssaril, |_| {}, &[], secondary("pok3politics")).1, 1);
+        // Another seat's Yssaril changes nothing for a Sol drawer: the core follows it (W6; it was a bail).
+        let beside = [("a", "sol"), ("b", "yssaril")];
+        assert_eq!(run(label, &beside, |_| {}, &[], secondary("pok3politics")), (1, 0));
+        // A Ral Nel seat (never seated in the lobby): a hand-limit discard could go to its Data Skimmer.
+        let ralnel = [("a", "sol"), ("b", "ralnel")];
+        assert_eq!(run(label, &ralnel, |_| {}, &[], secondary("pok3politics")).1, 1);
+        // Two seats of one faction: the speaker options would clash.
+        let twins = [("a", "sol"), ("b", "hacan"), ("c", "hacan")];
+        assert_eq!(run("strategy_cards::politics_primary", &twins, |_| {}, &["hacan"], primary("pok3politics")).1, 1);
+        // Law's Order: a turn with blank laws lifts Sanctions' cap, which the window does not read from the string marks.
+        let blank = |s: &mut GameState| {
+            s.phase = ti4_model::state::Phase::Action;
+            crate::laws::blank_for_turn(s);
+        };
+        assert_eq!(run(label, &F3, blank, &[], secondary("pok3politics")), (0, 1));
+    }
+
+    /// W6 regression: a Politics draw that ends over the action card hand limit was a bail ("a draw that is not plain", 38 + 32 of
+    /// 91 + 71 per 20 golden games); the core window asks which card goes (one option per printed name, in the order of the names).
+    #[test]
+    fn politics_discards_over_the_action_card_hand_limit_in_the_core_window() {
         let full = |s: &mut GameState| {
             let cards: Vec<_> = s.action_card_deck.drain(..6).collect();
             s.player_mut(&a()).unwrap().action_cards = cards;
         };
-        assert_eq!(run(label, &F3, full, &[], secondary("pok3politics")), (0, 1));
-        // Scheming.
-        let yssaril = [("a", "sol"), ("b", "yssaril")];
-        assert_eq!(run(label, &yssaril, |_| {}, &[], secondary("pok3politics")).1, 1);
-        // Two seats of one faction: the speaker options would clash.
-        let twins = [("a", "sol"), ("b", "hacan"), ("c", "hacan")];
-        assert_eq!(run("strategy_cards::politics_primary", &twins, |_| {}, &["hacan"], primary("pok3politics")).1, 1);
+        assert_eq!(run("strategy_cards::politics_secondary", &F3, full, &["0"], secondary("pok3politics")), (1, 0));
+        // The primary draws between the speaker and the agendas: speaker, discard, then the two agendas.
+        let answers = ["hacan", "0", "top", "top"];
+        assert_eq!(run("strategy_cards::politics_primary", &F3, full, &answers, primary("pok3politics")), (1, 0));
+        // Sanctions caps the hand at three: five cards and two drawn leave four to discard.
+        let sanctions = |s: &mut GameState| {
+            let cards: Vec<_> = s.action_card_deck.drain(..3).collect();
+            s.player_mut(&a()).unwrap().action_cards = cards;
+            s.enact_law("sanctions", "a");
+        };
+        assert_eq!(run("strategy_cards::politics_secondary", &F3, sanctions, &["0", "0"], secondary("pok3politics")), (1, 0));
     }
 
     fn goods(n: i32) -> impl Fn(&mut GameState) {
@@ -1111,12 +1181,49 @@ mod tests {
         assert_eq!(run(label, &F3, |_| {}, &[], secondary("pok8imperial")).0, 1);
         // The primary of a seat without Mecatol Rex draws one too (nothing is scoreable at the start).
         assert_eq!(run("strategy_cards::imperial_primary", &F3, |_| {}, &[], primary("pok8imperial")).0, 1);
-        // A full hand: the draw would end in a question to hand one back.
-        let full = |s: &mut GameState| {
-            let cards: Vec<_> = s.secret_deck.drain(..3).collect();
-            s.player_mut(&a()).unwrap().secret_objectives = cards;
+        // A full hand: the draw ends in a question to hand one back, which the core window asks too (W6: it was a bail).
+        assert_eq!(run(label, &F3, full_hand, &["eap"], secondary("pok8imperial")), (1, 0));
+        // The primary of a seat without Mecatol Rex draws one as well and returns one.
+        assert_eq!(run("strategy_cards::imperial_primary", &F3, full_hand, &["eap"], primary("pok8imperial")), (1, 0));
+        // Scored secrets count towards the limit and cannot go back: one in hand, two scored, one drawn.
+        let scored = |s: &mut GameState| {
+            s.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new("eap")];
+            s.secret_deck.insert(0, SecretObjectiveId::new("ctr"));
+            s.record_score(&a(), ObjectiveId::new("fwm"));
+            s.record_score(&a(), ObjectiveId::new("gamf"));
         };
-        assert_eq!(run(label, &F3, full, &[], secondary("pok8imperial")), (0, 1));
+        assert_eq!(run(label, &F3, scored, &["eap"], secondary("pok8imperial")), (1, 0));
+        // Every one scored: nothing to return, no question.
+        let all_scored = |s: &mut GameState| {
+            s.player_mut(&a()).unwrap().secret_objectives.clear();
+            s.secret_deck.insert(0, SecretObjectiveId::new("ctr"));
+            for o in ["fwm", "gamf", "faa"] {
+                s.record_score(&a(), ObjectiveId::new(o));
+            }
+        };
+        assert_eq!(run(label, &F3, all_scored, &[], secondary("pok8imperial")), (1, 0));
+    }
+
+    /// Three unscored secrets in hand (`eap`, `fwm`, `gamf`) and `ctr` on top of the deck.
+    fn full_hand(s: &mut GameState) {
+        s.player_mut(&a()).unwrap().secret_objectives = ["eap", "fwm", "gamf"].map(SecretObjectiveId::new).to_vec();
+        s.secret_deck.insert(0, SecretObjectiveId::new("ctr"));
+    }
+
+    /// W6 regression: the hand limit's question inside Imperial's draw was a bail ("the hand would pass its limit", 146 of 290
+    /// secondaries per 20 golden games). The core window asks it; a wrong answer is the string's refusal on both sides, the
+    /// Obsidian's lifted limit asks nothing, and a seat without a link to the hand-limit window is declined, not silently wrong.
+    #[test]
+    fn imperial_returns_a_secret_over_the_hand_limit_in_the_core_window() {
+        let label = "strategy_cards::imperial_secret";
+        let (compared, bailed) = run(label, &F3, full_hand, &["fwm"], secondary("pok8imperial"));
+        assert_eq!((compared, bailed), (1, 0));
+        // The Obsidian lifts the limit by one: no question (the Scripted decider would fail on an unexpected one only if asked).
+        let obsidian = |s: &mut GameState| {
+            full_hand(s);
+            s.player_mut(&a()).unwrap().relics = vec![ti4_model::id::RelicId::new("obsidian")];
+        };
+        assert_eq!(run(label, &F3, obsidian, &[], secondary("pok8imperial")), (1, 0));
     }
 
     fn lodor(s: &mut GameState) {
@@ -1293,7 +1400,7 @@ mod tests {
         assert_eq!(run(label, &F3, scoreable, &["decline"], primary("pok8imperial")).0, 1);
         // Scoring it is the core's since B8c-3 (`strategy_te_tests` reads the position after).
         assert_eq!(run(label, &F3, scoreable, &["lead"], primary("pok8imperial")), (1, 0));
-        // Past the target, a Keleres seat, a full secret hand and a reserve are the string's too.
+        // Past the target and a Keleres seat are the string's too (a full secret hand is the core's since W6).
         let tenth = |s: &mut GameState| {
             mecatol(s);
             s.player_mut(&a()).unwrap().victory_points = 10;
@@ -1301,11 +1408,7 @@ mod tests {
         assert_eq!(run(label, &F3, tenth, &[], primary("pok8imperial")), (0, 1));
         let keleres = [("a", "sol"), ("b", "keleresm")];
         assert_eq!(run(label, &keleres, |_| {}, &[], primary("pok8imperial")), (0, 1));
-        let full = |s: &mut GameState| {
-            let cards: Vec<_> = s.secret_deck.drain(..3).collect();
-            s.player_mut(&a()).unwrap().secret_objectives = cards;
-        };
-        assert_eq!(run(label, &F3, full, &[], primary("pok8imperial")), (0, 1));
+        assert_eq!(run(label, &F3, full_hand, &["eap"], primary("pok8imperial")), (1, 0));
     }
 
     #[test]

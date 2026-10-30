@@ -1,7 +1,8 @@
 //! nomad: the timing abilities (the reaction windows), docs/ENGINE_REACTIONS.md. Ported: The Cavalry, a promissory note of
 //! the Nomad: played by its holder at the start of a space combat (the holder picks the non-fighter ship type that takes
 //! the flagship's abilities; one type is not a question; the note stays faceup with them), and returned to the Nomad
-//! when the combat ends. Not ported: Artuno, Mercer, The Thundarian, Temporal Command Suite.
+//! when the combat ends; Future Sight (package W7), "after an outcome you voted for or predicted is resolved: gain 1 trade good".
+//! Not ported: Artuno, Mercer, The Thundarian, Temporal Command Suite.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub};
 use ti4_engine_core::choice::generic::Content;
@@ -9,7 +10,7 @@ use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{Faction, System, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
+use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec};
 use ti4_engine_core::kernel::fx;
 use ti4_engine_core::kernel::read::Rd;
 use ti4_engine_core::kernel::resolver::TimingError;
@@ -115,7 +116,46 @@ fn give_back(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+/// Future Sight (`ability:nomad:future_sight:AGENDA_RESOLVED:after`).
+pub const FUTURE_SIGHT: Slot = Slot(10_003);
+
+/// The outcome the resolved agenda decided: the payload names a seat that was elected, else the outcome itself.
+fn resolved_outcome(p: &ti4_engine_core::state::Payload) -> Option<ti4_engine_core::keys::Outcome> {
+    use ti4_engine_core::keys::Outcome;
+    use ti4_engine_core::state::Val;
+    match p.get(Key::Player)? {
+        Val::Seat(seat) => Some(Outcome::Seat(seat)),
+        Val::Outcome(outcome) => Some(outcome),
+        _ => None,
+    }
+}
+
+/// The string reads the ballot and the stored prediction as text: a prediction made with a rider is `outcome|card`, which never
+/// equals the outcome, so only a plain prediction (Imperial Rider and the Nomad's own) counts, as a vote does. A Deadly Plot that
+/// discarded the agenda resolves no outcome.
+fn future_sight_when(c: &CondCx<'_>) -> bool {
+    use ti4_engine_core::keys::Prediction;
+    use ti4_engine_core::state::TransientFlags;
+    let me = c.def.owner;
+    let Some(outcome) = resolved_outcome(&c.event.payload) else { return false }; // mutants:skip (the event always names its outcome)
+    // The string registers it for every seat and limits it to the Nomad by the condition.
+    c.state.players().by_seat(me).is_some_and(|p| p.faction == Faction::TheNomad)
+        && !c.state.transient().misc.flags.has(TransientFlags::AGENDA_DISCARDED)
+        && (c.state.agenda().votes.get(&me) == Some(&outcome) || matches!(c.state.agenda().predictions.get(&me), Some(Prediction::Plain(o)) if *o == outcome))
+}
+
+fn future_sight(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let me = eff.owner();
+    let source = eff.codes().future_sight;
+    let (_, announce) = fx::gain_trade_goods_announced(eff.state(), me, 1, source);
+    if let Some(rec) = announce {
+        eff.emit(rec)?;
+    }
+    Ok(())
+}
+
 pub fn register_abilities(t: &mut AbilityTable) {
+    t.add(Spec::new(FUTURE_SIGHT, AbilityKind::Ability, EventKind::AgendaResolved, Relation::After, future_sight).applies(Applies::EverySeat).when(future_sight_when));
     t.add(Spec::new(CAVALRY_PLAY, AbilityKind::Promissory, EventKind::SpaceCombatStarted, Relation::After, play).when(play_condition).optional());
     t.add(Spec::new(CAVALRY_RETURN, AbilityKind::Promissory, EventKind::SpaceCombatEnded, Relation::After, give_back).when(return_condition));
 }

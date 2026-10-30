@@ -1113,11 +1113,11 @@ fn exploration_probe_draws_two_action_cards_for_a_lost_crew_in_the_core_window()
     crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
         crate::action_cards_announce_tests::announce_on(&mut played, "probe", &a, Box::new(crate::action_cards_announce_tests::DeclineSlots), Some(&galaxy))
     });
-    assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (0, 1), "the discard question is the string's");
+    assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (0, 1), "the discard question is the string's (Probe draws with fx::draw_action_cards)");
     let _ = crate::dual::take_report();
     // Yssaril draws an extra card.
     let mut scheming = start.clone();
-    scheming.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+    scheming.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
     let (_, counts) = announced_once("probe", &scheming, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
     assert_eq!(counts, (0, 1));
 }
@@ -1597,23 +1597,27 @@ fn bail_the_trade_abilities_at_a_table_where_a_replenishment_causes_events() {
     }
 }
 
-/// Bail: a Politics draw that ends in a discard question (a full hand) or that a faction hook changes (Yssaril's Scheming) is the
-/// string's, for both abilities.
+/// Bail: a Politics draw that a faction hook changes (Yssaril's Scheming and Crafty are the drawer's own) is the string's, for both
+/// abilities. A draw that ends over the hand limit is carried since W6 (the child draw window asks the discard), and a Yssaril
+/// beside the drawer changes nothing.
 #[test]
-fn bail_politics_when_the_draw_is_not_plain() {
+fn bail_politics_when_a_hook_changes_the_draw() {
     let _serial = crate::dual::tests::serial();
     let politics = strategy_position(&["pok3politics"], &[], &[], &[]);
     let mut scheming = politics.clone();
-    scheming.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+    scheming.player_mut(&PlayerId::new("a")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+    let mut beside = politics.clone();
+    beside.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
     for alias in ["strategize4", "overrule"] {
-        assert_eq!(bails_picking(alias, &politics, "pok3politics", 6), (0, 1), "{alias} with a full hand");
-        assert_eq!(bails_picking(alias, &scheming, "pok3politics", 0), (0, 1), "{alias} at a table with Scheming");
+        assert_eq!(bails_picking(alias, &scheming, "pok3politics", 0), (0, 1), "{alias} with Scheming");
+        assert_eq!(bails_picking(alias, &politics, "pok3politics", 6), (1, 0), "{alias} with a full hand: the discard is asked in the core");
+        assert_eq!(bails_picking(alias, &beside, "pok3politics", 0), (1, 0), "{alias} beside a Yssaril");
     }
     // A hand that stays within its limit is carried.
     assert_eq!(bails_picking("strategize4", &politics, "pok3politics", 0), (1, 0));
 }
 
-/// Bail: a research at a table the research window does not carry (a Mentak seat: the Corsair's form), below the rules version
+/// Bail: a research at a table the research window does not carry (a Mentak seat with The Table's Grace: the Corsair's form), below the rules version
 /// that asked the payment, is the string's, for both abilities of Technology.
 #[test]
 fn bail_technology_at_a_table_the_research_window_does_not_carry() {
@@ -1621,6 +1625,8 @@ fn bail_technology_at_a_table_the_research_window_does_not_carry() {
     let research = strategy_on(research_position(), &["pok7technology"], &[], &[], &[]);
     let mut mentak = research.clone();
     mentak.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("mentak");
+    let plain_mentak = mentak.clone();
+    mentak.player_mut(&PlayerId::new("c")).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("mentakbt"));
     let mut old = research.clone();
     old.rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE - 1;
     // A faction effect the core table does not hold (here a waiver of prerequisites the string offers): the hooks disagree.
@@ -1631,7 +1637,8 @@ fn bail_technology_at_a_table_the_research_window_does_not_carry() {
     for alias in ["strategize1", "overrule"] {
         let declined = crate::factions::hooks_strategy::with_test_hooks(waiver, || bails_picking(alias, &research, "pok7technology", 0));
         assert_eq!(declined, (0, 1), "{alias} where the string modules and the core table disagree on the hooks of a research");
-        assert_eq!(bails_picking(alias, &mentak, "pok7technology", 0), (0, 1), "{alias} at a table with Mentak");
+        assert_eq!(bails_picking(alias, &mentak, "pok7technology", 0), (0, 1), "{alias} at a table with a Mentak who holds The Table's Grace");
+        assert_eq!(bails_picking(alias, &plain_mentak, "pok7technology", 0), (1, 0), "{alias} at a table with a Mentak without it is carried (W6)");
         assert_eq!(bails_picking(alias, &old, "pok7technology", 0), (0, 1), "{alias} below the rules version of the payment plan");
         assert_eq!(bails_picking(alias, &research, "pok7technology", 0), (1, 0), "{alias} is carried at a plain table");
     }

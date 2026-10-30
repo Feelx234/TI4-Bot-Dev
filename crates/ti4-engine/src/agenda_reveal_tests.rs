@@ -509,3 +509,111 @@ fn two_sides_that_push_the_same_events_in_another_order_are_a_difference_of_the_
     assert!(compare_runs(Area::AgendaLaws, LABEL, &state, &string, &state, &silent));
     assert_eq!(take_report().total_differences(), 0);
 }
+
+// -- Galactic Threat (package W7) -------------------------------------------------------------------------------------
+
+/// Answers "use" to an optional ability, "decline" to the Quash and Political offers, and takes the first option of any other
+/// question.
+struct ThreatDecider;
+
+impl crate::choice::Decider for ThreatDecider {
+    fn choose(&mut self, choice: &crate::choice::Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+        choice
+            .options
+            .iter()
+            .find(|o| o.id == "use")
+            .or_else(|| choice.options.iter().find(|o| !o.is_decline()))
+            .or(choice.options.first())
+            .cloned()
+            .ok_or_else(|| crate::choice::IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() })
+    }
+}
+
+fn nekro_position() -> GameState {
+    let content = ContentStore::embedded();
+    let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "xxcha"), ("c", "arborec")], DEFAULT);
+    crate::promissory::deal(&mut state, content, DEFAULT);
+    for seat in &mut state.players {
+        seat.strategic_tokens = 0;
+    }
+    state.agenda_deck = vec!["checks".to_owned(), "committee".to_owned()];
+    state.phase = ti4_model::state::Phase::Agenda;
+    state
+}
+
+/// W7 regression: Galactic Threat was an unported ability that bailed every agenda reveal and close with a Nekro at the table
+/// (10 of 141 reveals per 20 golden games). The prediction is asked once per agenda phase, kept as a mark, and paid in the close
+/// of the vote with a technology of a voter of the predicted outcome, in lockstep with the string.
+#[test]
+fn galactic_threat_predicts_at_the_reveal_and_pays_at_the_close_in_lockstep() {
+    use crate::vote::VoteWindow;
+    let _guard = crate::dual::tests::serial();
+    let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+    let _ = take_report();
+    let (reveal_before, close_before) = (local_windows(LABEL), local_windows("game::close_vote"));
+    let (state, techs_before) = with_mask(mask, || {
+        let table = Table::with_default(Box::new(ThreatDecider));
+        let mut g = Game::with_table(nekro_position(), ContentStore::embedded(), table).with_sources(DEFAULT);
+        let found = reveal(&mut g, "checks");
+        assert_eq!(found.map(|f| f.0), Some("checks".to_owned()));
+        // The prediction is the first outcome on offer; the phase is spent.
+        let predicted = g.state.faction_marks.get("nekro:threat:a").cloned();
+        assert_eq!(predicted.as_deref(), Some("1|for"));
+        assert_eq!(g.state.faction_marks.get("nekro:threat_phase:a").map(String::as_str), Some(g.state.round.to_string().as_str()));
+        let techs = g.state.player(&PlayerId::new("a")).unwrap().technologies.len();
+        g.put_vote(VoteWindow::finished("checks", &["for", "against"], &[("b", "for"), ("c", "against")], &[("for", 3), ("against", 1)], Some("for")));
+        assert_eq!(g.close_vote().error, None);
+        (g.state, techs)
+    });
+    let report = take_report();
+    assert_eq!(report.total_differences(), 0, "{report:?}");
+    let (r, c) = (local_windows(LABEL), local_windows("game::close_vote"));
+    assert_eq!((r.0 - reveal_before.0, r.1 - reveal_before.1), (1, 0), "the reveal ran on the core");
+    assert_eq!((c.0 - close_before.0, c.1 - close_before.1), (1, 0), "the close ran on the core");
+    assert!(state.player(&PlayerId::new("a")).unwrap().technologies.len() > techs_before, "a technology of the voter b (or a token) was taken");
+    assert!(!state.faction_marks.contains_key("nekro:threat:a"), "the prediction is spent");
+}
+
+/// Once per agenda phase: a second agenda of the round is not predicted on.
+#[test]
+fn galactic_threat_predicts_once_per_agenda_phase_in_lockstep() {
+    let ((marks, round), compared, bailed, diff) = lockstep(|| {
+        let table = Table::with_default(Box::new(ThreatDecider));
+        let mut g = Game::with_table(nekro_position(), ContentStore::embedded(), table).with_sources(DEFAULT);
+        reveal(&mut g, "checks");
+        let first = g.state.faction_marks.get("nekro:threat:a").cloned();
+        // The first prediction is overwritten by nothing: the second reveal of the round is not asked.
+        g.state.faction_marks.remove("nekro:threat:a");
+        reveal(&mut g, "committee");
+        (g.state.faction_marks.get("nekro:threat:a").cloned().or(first), g.state.round)
+    });
+    let _ = round;
+    assert!(diff.is_empty(), "{diff}");
+    assert_eq!((compared, bailed), (2, 0));
+    assert_eq!(marks.as_deref(), Some("1|for"), "no second prediction in the same round");
+}
+
+/// Bail: with the Z token of the Valefar Assimilator the string's options of the payout differ (a flagship's text lent): the close
+/// is the string's, as for the Singularity; the prediction at the reveal is carried.
+#[test]
+fn bail_galactic_threat_with_the_z_token_pays_in_the_string() {
+    use crate::vote::VoteWindow;
+    let _guard = crate::dual::tests::serial();
+    let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+    let _ = take_report();
+    let (reveal_before, close_before) = (local_windows(LABEL), local_windows("game::close_vote"));
+    with_mask(mask, || {
+        let table = Table::with_default(Box::new(ThreatDecider));
+        let mut state = nekro_position();
+        state.player_mut(&PlayerId::new("a")).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("nekrobt"));
+        let mut g = Game::with_table(state, ContentStore::embedded(), table).with_sources(DEFAULT);
+        reveal(&mut g, "checks");
+        g.put_vote(VoteWindow::finished("checks", &["for", "against"], &[("b", "for"), ("c", "against")], &[("for", 3), ("against", 1)], Some("for")));
+        assert_eq!(g.close_vote().error, None);
+    });
+    let report = take_report();
+    assert_eq!(report.total_differences(), 0, "{report:?}");
+    let (r, c) = (local_windows(LABEL), local_windows("game::close_vote"));
+    assert_eq!((r.0 - reveal_before.0, r.1 - reveal_before.1), (1, 0));
+    assert_eq!((c.0 - close_before.0, c.1 - close_before.1), (0, 1));
+}

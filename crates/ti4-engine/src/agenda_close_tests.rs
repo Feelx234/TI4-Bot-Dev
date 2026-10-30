@@ -327,18 +327,20 @@ fn riders_the_core_does_not_pay_have_no_window() {
 
 #[test]
 fn a_draw_a_faction_hook_changes_has_no_window() {
-    // Yssaril in the game: Scheming changes every draw.
-    let (_, compared, bailed, _) = lockstep(|| {
-        let content = ContentStore::embedded();
-        let mut s = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "yssaril"), ("c", "arborec")], DEFAULT);
-        crate::promissory::deal(&mut s, content, DEFAULT);
-        s.phase = Phase::Agenda;
-        predict(&mut s, "a", "for|politic_rider");
-        let mut g = Game::new(s, ContentStore::embedded()).with_sources(DEFAULT);
-        g.put_vote(law_vote("checks", Some("for")));
-        let _ = g.close_vote();
-    });
-    assert_eq!((compared, bailed), (0, 1));
+    // The drawer is the Yssaril: its Scheming changes the draw. A Yssaril beside the drawer does not (W6: every seat was hooked).
+    for (drawer, bail) in [("b", true), ("a", false)] {
+        let (_, compared, bailed, _) = lockstep(|| {
+            let content = ContentStore::embedded();
+            let mut s = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "yssaril"), ("c", "arborec")], DEFAULT);
+            crate::promissory::deal(&mut s, content, DEFAULT);
+            s.phase = Phase::Agenda;
+            predict(&mut s, drawer, "for|politic_rider");
+            let mut g = Game::new(s, ContentStore::embedded()).with_sources(DEFAULT);
+            g.put_vote(law_vote("checks", Some("for")));
+            let _ = g.close_vote();
+        });
+        assert_eq!((compared, bailed), if bail { (0, 1) } else { (1, 0) }, "drawer {drawer}");
+    }
 }
 
 #[test]
@@ -405,12 +407,25 @@ fn the_unofficial_action_cards_leave_the_deck_before_a_rider_draws_from_rules_ve
 }
 
 #[test]
-fn a_hand_that_would_overflow_or_a_hook_leaves_the_rider_to_the_string() {
-    // Politics Rider with six cards in hand: the draw leaves the hand over its limit and the string asks a discard.
+fn a_hook_leaves_the_rider_to_the_string_and_a_full_hand_is_the_cores() {
+    // Politics Rider with six cards in hand: the draw leaves the hand over its limit and asks a discard in the core window
+    // (W6; it was a bail of the window).
     let (_, compared, bailed, _) = lockstep(|| {
         let mut s = position();
         s.action_card_deck = ["sabo1", "sabo2", "sabo3"].iter().map(|c| ActionCardId::new(*c)).collect();
         hand(&mut s, "b", &["hack", "hack", "hack", "hack", "hack", "hack"]);
+        predict(&mut s, "b", "for|politic_rider");
+        let mut g = Game::new(s, ContentStore::embedded()).with_sources(DEFAULT);
+        g.put_vote(law_vote("checks", Some("for")));
+        let _ = g.close_vote();
+        assert_eq!(g.state.player(&p("b")).unwrap().action_cards.len(), 7);
+    });
+    assert_eq!((compared, bailed), (1, 0));
+    // The drawer's own Scheming is the string's.
+    let (_, compared, bailed, _) = lockstep(|| {
+        let mut s = position();
+        s.player_mut(&p("b")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+        s.action_card_deck = ["sabo1", "sabo2", "sabo3", "sabo1"].iter().map(|c| ActionCardId::new(*c)).collect();
         predict(&mut s, "b", "for|politic_rider");
         let mut g = Game::new(s, ContentStore::embedded()).with_sources(DEFAULT);
         g.put_vote(law_vote("checks", Some("for")));
@@ -576,4 +591,73 @@ fn the_plain_events_of_a_covert_close_with_a_prediction_are_counted_and_compared
     for name in ["AGENDA_RESOLVED", "COVERT_AGENDA_RESOLVED", "AGENDA_PREDICTION_CORRECT", "LAW_ENACTED"] {
         assert_eq!(report.plain.get(&format!("{LABEL} | {name}")), Some(&1), "{name}: {:?}", report.plain);
     }
+}
+
+// -- Future Sight (package W7) --------------------------------------------------------------------------------------
+
+/// A table whose seat `nomad` ("a" backed for, "b" backed against) is the Nomad.
+fn nomad_table(nomad: &str) -> GameState {
+    let content = ContentStore::embedded();
+    let factions = if nomad == "a" { [("a", "nomad"), ("b", "xxcha"), ("c", "arborec")] } else { [("a", "hacan"), ("b", "nomad"), ("c", "arborec")] };
+    let mut state = crate::fixtures::seated_game(&factions, DEFAULT);
+    crate::promissory::deal(&mut state, content, DEFAULT);
+    state.phase = Phase::Agenda;
+    state.player_mut(&p(nomad)).unwrap().trade_goods = 0;
+    // Artuno the Betrayer, readied, listens to every gain of trade goods (an unported ability of the Nomad agents): the close
+    // would bail on it. The agent is spent here; `bail_future_sight_with_artuno_readied_is_counted` pins the other case.
+    state.player_mut(&p(nomad)).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentartuno"), ti4_model::state::LeaderStatus::Exhausted);
+    state
+}
+
+/// W7 regression: Future Sight ("after an outcome you voted for or predicted is resolved: gain 1 trade good") was an unported
+/// ability that bailed the whole close (12 of 141 closes per 20 golden games, 39 of 161 with a Nomad at the table); the core
+/// table carries it and the window is compared.
+#[test]
+fn future_sight_pays_a_trade_good_for_a_voted_or_a_plainly_predicted_outcome_in_lockstep() {
+    let goods = |g: &Game<'_>, who: &str| g.state.player(&p(who)).unwrap().trade_goods;
+    // Voted for the outcome that won.
+    let (g, compared, bailed, diff) = lockstep(|| close(game(nomad_table("a"), &[]), law_vote("checks", Some("for"))));
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g, "a"), 1);
+    // Voted for the loser, no prediction: nothing.
+    let (g, compared, bailed, diff) = lockstep(|| close(game(nomad_table("a"), &[]), law_vote("checks", Some("against"))));
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g, "a"), 0);
+    // Backed the loser but predicted the winner plainly.
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let mut s = nomad_table("b");
+        predict(&mut s, "b", "for");
+        close(game(s, &[]), law_vote("checks", Some("for")))
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g, "b"), 1, "a plain prediction counts");
+    // A prediction made with a rider is text `outcome|card`, which never equals the outcome (the string's reading, kept): only the
+    // rider pays.
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let mut s = nomad_table("b");
+        predict(&mut s, "b", "for|trade_rider");
+        close(game(s, &[]), law_vote("checks", Some("for")))
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g, "b"), 5, "the rider's five goods and no Future Sight");
+    // Another faction's vote earns nothing.
+    let (g, compared, bailed, diff) = lockstep(|| close(game(nomad_table("b"), &[]), law_vote("checks", Some("for"))));
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g, "a"), 0);
+    assert_eq!(goods(&g, "b"), 0, "the Nomad backed the loser");
+}
+
+/// Bail: a Nomad whose agent Artuno is readied would be asked about the trade good Future Sight gains (Artuno's exhaust is an
+/// unported ability, package W9): the close is the string's, with the nested reason named.
+#[test]
+fn bail_future_sight_with_artuno_readied_is_counted() {
+    let (g, compared, bailed, _) = lockstep(|| {
+        let mut s = nomad_table("a");
+        s.player_mut(&p("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentartuno"), ti4_model::state::LeaderStatus::Readied);
+        let g = close(game(s, &[]), law_vote("checks", Some("for")));
+        assert_eq!(crate::dual::report().windows.get("game::close_vote [bail: nested (unported ability leader:*:nomadagentartuno:TRADE_GOODS_GAINED:after)]").map(|w| w.bailed), Some(1));
+        g
+    });
+    assert_eq!((compared, bailed), (0, 1));
+    assert_eq!(g.state.player(&p("a")).unwrap().trade_goods, 1, "the string pays it");
 }

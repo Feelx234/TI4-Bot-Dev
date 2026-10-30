@@ -17,7 +17,8 @@ use crate::containers::SmallList;
 use crate::generated::{Agenda, Faction, Planet, PublicObjective, StrategyCard, System};
 use crate::ids::Seat;
 use crate::kernel::{fx, fx_pay};
-use crate::kernel::stage::{Illegal, Sx, Window};
+use crate::kernel::children::{ErasedChild, Spawn};
+use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::{board, seats};
 use crate::state::{Code, CoreState};
@@ -345,6 +346,8 @@ pub enum PStage {
     Start,
     /// Waiting on "who becomes speaker".
     Speaker,
+    /// The two action cards are drawn as a child window, which asks the hand limit's discard (rule 2.4).
+    Drawing,
     /// Waiting on where an agenda goes.
     Agenda,
     Done,
@@ -352,7 +355,7 @@ pub enum PStage {
 
 /// Politics: the primary (a new speaker, two action cards, the top two agendas back on the deck in an order
 /// of the holder's choosing) and the secondary (two action cards).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Politics {
     pub who: Seat,
     primary: bool,
@@ -362,12 +365,16 @@ pub struct Politics {
     /// The agendas looked at, in the order they were taken off the deck.
     looked: SmallList<Agenda, 2>,
     next: u8,
+    /// The draw and the hand limit (`action_cards::draw`), a child of the action-card area.
+    draw: ErasedChild,
+    /// The table has no link to the draw window, or gave it no printed-name groups: the caller declines the run.
+    pub unsupported: bool,
 }
 
 impl Politics {
     #[must_use]
     pub const fn new(who: Seat, primary: bool, drop_unofficial: bool) -> Self {
-        Self { who, primary, stage: PStage::Start, drop_unofficial, looked: SmallList::new(), next: 0 }
+        Self { who, primary, stage: PStage::Start, drop_unofficial, looked: SmallList::new(), next: 0, draw: ErasedChild::idle(), unsupported: false }
     }
 
     /// Seats that may become speaker: everyone but the speaker, in seating order.
@@ -376,9 +383,22 @@ impl Politics {
         seats::seating_order(core).as_slice().iter().copied().filter(|s| *s != speaker).collect()
     }
 
-    /// Draw the two action cards and look at the top two agendas.
-    fn draw_and_look(&mut self, core: &mut CoreState) {
-        fx::draw_action_cards(core, self.who, 2, self.drop_unofficial);
+    /// Start the draw of the two action cards (a child window: the hand limit may ask).
+    fn begin_draw(&mut self, sx: &mut Sx<'_>) {
+        match sx.table.links.start(&Spawn::DrawCards { who: self.who, count: 2, drop_unofficial: self.drop_unofficial }) {
+            Some(window) => {
+                self.draw.start(window);
+                self.stage = PStage::Drawing;
+            }
+            None => {
+                self.unsupported = true;
+                self.stage = PStage::Done;
+            }
+        }
+    }
+
+    /// Look at the top two agendas (the primary).
+    fn look(&mut self, core: &mut CoreState) {
         if self.primary {
             for _ in 0..2 {
                 let Some(agenda) = core.decks_mut().agenda.draw() else { break };
@@ -401,18 +421,30 @@ impl Window for Politics {
             if self.primary && !Self::candidates(sx.state).is_empty() {
                 self.stage = PStage::Speaker;
             } else {
-                self.draw_and_look(sx.state);
+                self.begin_draw(sx);
+            }
+        }
+        if self.stage == PStage::Drawing {
+            match self.draw.step(sx) {
+                Some(Ran::Asks(a)) => return Next::Continue(a),
+                Some(Ran::Pass(next)) => return next,
+                Some(Ran::Done(report)) => {
+                    self.unsupported |= report == crate::kernel::children::Report::Left;
+                    self.look(sx.state);
+                }
+                None => self.look(sx.state),
             }
         }
         match self.stage {
             PStage::Speaker => Next::Continue(ask(SAsk::PoliticsSpeaker)),
             PStage::Agenda => Next::Continue(ask(SAsk::PoliticsAgenda { agenda: self.looked.as_slice()[usize::from(self.next)] })),
-            PStage::Start | PStage::Done => Next::Done,
+            PStage::Start | PStage::Drawing | PStage::Done => Next::Done,
         }
     }
 
-    fn ask_of(&self, core: &CoreState, _: &Kernel) -> Option<Choice> {
+    fn ask_of(&self, core: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.stage {
+            PStage::Drawing => self.draw.ask_of(core, k),
             PStage::Speaker => Some(Choice {
                 actor: self.who,
                 ask: ask(SAsk::PoliticsSpeaker),
@@ -430,6 +462,9 @@ impl Window for Politics {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == PStage::Drawing {
+            return self.draw.answer(sx, pick);
+        }
         let Pick::Opt(Opt::Strategy(chosen)) = pick else { return Err(Illegal) };
         let offered = self.ask_of(sx.state, sx.kernel).ok_or(Illegal)?;
         if !offered.opts.as_slice().contains(&Opt::Strategy(chosen)) {
@@ -438,7 +473,7 @@ impl Window for Politics {
         match (self.stage, chosen) {
             (PStage::Speaker, SOpt::Speaker(seat)) => {
                 sx.state.meta_mut().speaker = seat;
-                self.draw_and_look(sx.state);
+                self.begin_draw(sx);
             }
             (PStage::Agenda, placed @ (SOpt::Top | SOpt::Bottom)) => {
                 let agenda = self.looked.as_slice()[usize::from(self.next)];
@@ -466,6 +501,8 @@ pub enum IStage {
     Start,
     /// Waiting on "score a public objective with Imperial".
     Score,
+    /// The secret objective is drawn and the hand limit runs as a child window (45.4: a secret goes back to the deck).
+    Limit,
     Done,
 }
 
@@ -475,7 +512,7 @@ pub enum IStage {
 /// (leaders unlocking, Yin's breakthrough) is the caller's, announced by [`ImperialPrimary::scored`]. Without a
 /// [`ImperialPrimary::with_price`] environment a bought objective cannot be paid and is not scored (the string refuses it
 /// the same way when the price cannot be met).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ImperialPrimary {
     pub who: Seat,
     scoreable: SmallList<PublicObjective, 16>,
@@ -483,12 +520,17 @@ pub struct ImperialPrimary {
     env: Option<fx_pay::PayEnv>,
     /// The objective the holder scored, if any.
     pub scored: Option<PublicObjective>,
+    /// The hand limit after the secret draw (`secrets::enforce_hand_limit`), a child of the objectives area.
+    hand: ErasedChild,
+    /// The table has no link to the hand limit window (it was not filled by `driver::children::register`): the draw cannot be
+    /// followed and the caller declines the run.
+    pub unsupported: bool,
 }
 
 impl ImperialPrimary {
     #[must_use]
     pub const fn new(who: Seat, scoreable: SmallList<PublicObjective, 16>) -> Self {
-        Self { who, scoreable, stage: IStage::Start, env: None, scored: None }
+        Self { who, scoreable, stage: IStage::Start, env: None, scored: None, hand: ErasedChild::idle(), unsupported: false }
     }
 
     /// The window pays the price of a bought objective with this environment.
@@ -504,14 +546,20 @@ impl ImperialPrimary {
         board::controlled_planets(core, who).as_slice().iter().any(|(system, _)| crate::query::objectives::is_mecatol(*system))
     }
 
-    /// The tail of the ability: a point for Mecatol, else a secret objective.
-    fn finish(&mut self, core: &mut CoreState) {
-        if Self::controls_mecatol(core, self.who) {
-            fx::gain_victory_points(core, self.who, 1, crate::state::LedgerReason::ImperialPrimary);
-        } else {
-            fx::draw_secret(core, self.who);
-        }
+    /// The tail of the ability: a point for Mecatol, else a secret objective and the hand limit after it.
+    fn finish(&mut self, sx: &mut Sx<'_>) {
         self.stage = IStage::Done;
+        if Self::controls_mecatol(sx.state, self.who) {
+            fx::gain_victory_points(sx.state, self.who, 1, crate::state::LedgerReason::ImperialPrimary);
+        } else if fx::draw_secret(sx.state, self.who).is_some() {
+            match sx.table.links.start(&Spawn::HandLimit { who: self.who }) {
+                Some(window) => {
+                    self.hand.start(window);
+                    self.stage = IStage::Limit;
+                }
+                None => self.unsupported = true,
+            }
+        }
     }
 }
 
@@ -525,18 +573,28 @@ impl Window for ImperialPrimary {
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if self.stage == IStage::Start {
             if self.scoreable.is_empty() {
-                self.finish(sx.state);
+                self.finish(sx);
             } else {
                 self.stage = IStage::Score;
             }
         }
+        if self.stage == IStage::Limit {
+            match self.hand.step(sx) {
+                Some(Ran::Asks(a)) => return Next::Continue(a),
+                Some(Ran::Pass(next)) => return next,
+                Some(Ran::Done(_)) | None => self.stage = IStage::Done,
+            }
+        }
         match self.stage {
             IStage::Score => Next::Continue(ask(SAsk::ImperialScore)),
-            IStage::Start | IStage::Done => Next::Done,
+            IStage::Start | IStage::Limit | IStage::Done => Next::Done,
         }
     }
 
-    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.stage == IStage::Limit {
+            return self.hand.ask_of(s, k);
+        }
         (self.stage == IStage::Score).then(|| {
             let mut options = opts(self.scoreable.as_slice().iter().map(|o| SOpt::Objective(*o)));
             options.push(Opt::Decline);
@@ -545,6 +603,9 @@ impl Window for ImperialPrimary {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == IStage::Limit {
+            return self.hand.answer(sx, pick);
+        }
         if self.stage != IStage::Score {
             return Err(Illegal);
         }
@@ -563,8 +624,62 @@ impl Window for ImperialPrimary {
             }
             _ => return Err(Illegal),
         }
-        self.finish(sx.state);
+        self.finish(sx);
         Ok(())
+    }
+}
+
+// -- Imperial's secondary ------------------------------------------------------------------------------------
+
+/// Imperial's secondary: "draw 1 secret objective" (`strategy_cards::imperial_secret`, and the primary of a seat without Mecatol
+/// Rex draws the same way): the top secret goes to the hand and the hand limit (45.4) runs as a child window, which asks
+/// which unscored secret goes back to the deck when the hand is over its limit.
+#[derive(Debug, Clone)]
+pub struct ImperialSecondary {
+    pub who: Seat,
+    started: bool,
+    hand: ErasedChild,
+    /// The table has no link to the hand limit window: the caller declines the run.
+    pub unsupported: bool,
+}
+
+impl ImperialSecondary {
+    #[must_use]
+    pub const fn new(who: Seat) -> Self {
+        Self { who, started: false, hand: ErasedChild::idle(), unsupported: false }
+    }
+}
+
+impl Window for ImperialSecondary {
+    type Stage = bool;
+
+    fn stage(&self) -> bool {
+        self.started
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if !self.started {
+            self.started = true;
+            if fx::draw_secret(sx.state, self.who).is_some() {
+                match sx.table.links.start(&Spawn::HandLimit { who: self.who }) {
+                    Some(window) => self.hand.start(window),
+                    None => self.unsupported = true,
+                }
+            }
+        }
+        match self.hand.step(sx) {
+            Some(Ran::Asks(a)) => Next::Continue(a),
+            Some(Ran::Pass(next)) => next,
+            Some(Ran::Done(_)) | None => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        self.hand.ask_of(s, k)
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        self.hand.answer(sx, pick)
     }
 }
 
@@ -709,5 +824,173 @@ mod tests {
         assert_eq!(all(9, 2).len(), 36);
         assert_eq!(all(9, 0).len(), 55);
         assert!(all(9, 2).iter().all(|(t, f, s)| t + f + s == 9 && *f >= 2));
+    }
+
+    // -- Imperial's secret objective draw and the hand limit (package W6) ------------------------------------------
+
+    use crate::containers::Deck;
+    use crate::driver::{Driver, Status};
+    use crate::generated::SecretObjective as Sec;
+    use crate::kernel::stage::AbilityTable;
+    use crate::kernel::Resolver;
+    use crate::state::{Player, Players};
+
+    /// One seat (an Arborec) holding `hand`, a secret deck of `deck`, and a table with (`linked`) or without the hand-limit link.
+    fn drawing(hand: &[Sec], deck: &[Sec]) -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheArborec)]);
+        s.seats = crate::state::Seats::new(&[Seat(0)], &[Seat(0)], 1);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.secrets = hand.iter().copied().collect();
+        s.decks_mut().secret = Deck::new(deck.to_vec());
+        s
+    }
+
+    fn table(linked: bool) -> AbilityTable {
+        let mut t = AbilityTable::default();
+        if linked {
+            crate::driver::children::register(&mut t);
+        }
+        t
+    }
+
+    /// Run `window` to its first question; returns the status and the driver.
+    fn start<W: Window>(window: W, s: &mut CoreState, linked: bool) -> (Status, Driver<W>) {
+        let mut d = Driver::new(window, Resolver::new(&[Seat(0)], Some(Seat(0))), table(linked), 1);
+        let status = d.run(s, &Kernel::plain()).unwrap();
+        (status, d)
+    }
+
+    const FULL: [Sec; 3] = [Sec::AdaptNewStrategies, Sec::BetrayAFriend, Sec::BecomeAMartyr];
+
+    /// 45.4: the drawn fourth secret is asked about, the one handed back goes to the bottom of the deck, the hand is three again.
+    #[test]
+    fn imperial_secondary_asks_which_secret_to_return_over_the_limit() {
+        let mut s = drawing(&FULL, &[Sec::BraveTheVoid, Sec::CutSupplyLines]);
+        assert!(!ImperialSecondary::new(Seat(0)).stage(), "not started");
+        let (status, mut d) = start(ImperialSecondary::new(Seat(0)), &mut s, true);
+        assert!(d.window.stage(), "started once the draw is made");
+        let Status::Asking(choice) = status else { panic!("the hand is over its limit: a question") };
+        assert_eq!(choice.opts.len(), 4, "the three held and the one drawn");
+        let pick = choice.opts.iter().position(|o| matches!(o, Opt::Objectives(crate::choice::objectives::Opt::Return(Sec::BetrayAFriend)))).unwrap();
+        let status = d.resume(&mut s, &Kernel::plain(), choice.pick(pick).unwrap()).unwrap();
+        assert!(matches!(status, Status::Done));
+        let hand = s.players().by_seat(Seat(0)).unwrap().cards.secrets.as_slice().to_vec();
+        assert_eq!(hand, vec![Sec::AdaptNewStrategies, Sec::BecomeAMartyr, Sec::BraveTheVoid]);
+        assert_eq!(s.decks().secret.cards(), &[Sec::CutSupplyLines, Sec::BetrayAFriend], "the returned secret is at the bottom");
+        assert!(!d.window.unsupported);
+    }
+
+    /// A hand within the limit, an empty deck and an all-scored hand ask nothing.
+    #[test]
+    fn imperial_secondary_asks_nothing_within_the_limit_or_without_a_deck() {
+        let mut s = drawing(&FULL[..2], &[Sec::BraveTheVoid]);
+        let (status, _) = start(ImperialSecondary::new(Seat(0)), &mut s, true);
+        assert!(matches!(status, Status::Done));
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.secrets.len(), 3);
+        let mut s = drawing(&FULL, &[]);
+        let (status, _) = start(ImperialSecondary::new(Seat(0)), &mut s, true);
+        assert!(matches!(status, Status::Done), "an empty deck draws nothing, so nothing goes back");
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.secrets.len(), 3);
+    }
+
+    /// Bail: a table without the link to the hand-limit window draws and declines (`unsupported`), it never skips the limit silently.
+    #[test]
+    fn bail_imperial_without_the_hand_limit_link_is_unsupported() {
+        let mut s = drawing(&FULL, &[Sec::BraveTheVoid]);
+        let (status, d) = start(ImperialSecondary::new(Seat(0)), &mut s, false);
+        assert!(matches!(status, Status::Done));
+        assert!(d.window.unsupported);
+        let mut s = drawing(&FULL, &[Sec::BraveTheVoid]);
+        let (_, d) = start(ImperialPrimary::new(Seat(0), SmallList::new()), &mut s, false);
+        assert!(d.window.unsupported, "the primary of a seat without Mecatol Rex draws too");
+    }
+
+    /// The primary with nothing to score draws and returns a secret the same way; with Mecatol Rex it draws nothing.
+    #[test]
+    fn imperial_primary_without_mecatol_returns_a_secret_over_the_limit() {
+        let mut s = drawing(&FULL, &[Sec::BraveTheVoid]);
+        let (status, mut d) = start(ImperialPrimary::new(Seat(0), SmallList::new()), &mut s, true);
+        let Status::Asking(choice) = status else { panic!("a question") };
+        let status = d.resume(&mut s, &Kernel::plain(), choice.pick(0).unwrap()).unwrap();
+        assert!(matches!(status, Status::Done));
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.secrets.len(), 3);
+        assert_eq!(s.decks().secret.len(), 1, "one went back");
+        let mut s = drawing(&FULL, &[Sec::BraveTheVoid]);
+        s.board_mut().planet_mut(crate::generated::Planet::MecatolRex).control = Some(Seat(0));
+        let (status, _) = start(ImperialPrimary::new(Seat(0), SmallList::new()), &mut s, true);
+        assert!(matches!(status, Status::Done), "a point for Mecatol Rex, no draw");
+        assert_eq!(s.decks().secret.len(), 1);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.victory_points, 1, "exactly one point");
+    }
+
+    // -- Politics: the draw is a child window (package W6) -----------------------------------------------------------
+
+    /// Two seats: seat 0 (the speaker, holding Politics) draws two cards from `deck` with `hand` in its hand; `agendas` on the
+    /// agenda deck.
+    fn politics_table(hand: usize, deck: &[crate::generated::ActionCard], agendas: &[Agenda]) -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheArborec), Player::new(Seat(1), Faction::TheEmiratesOfHacan)]);
+        s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand = (0..hand).map(|i| crate::generated::ActionCard::ALL[100 + i]).collect();
+        s.decks_mut().action = Deck::new(deck.to_vec());
+        s.decks_mut().agenda = Deck::new(agendas.to_vec());
+        s
+    }
+
+    fn groups_table() -> AbilityTable {
+        let mut t = table(true);
+        t.facts.card_groups = (0..crate::generated::ActionCard::COUNT).map(|i| u8::try_from(i).unwrap()).collect();
+        t
+    }
+
+    /// The secondary draws two cards; over the limit the discard is asked, and the primary asks the speaker first and the agendas
+    /// after the discard.
+    #[test]
+    fn politics_asks_the_speaker_then_the_discard_then_the_agendas() {
+        use crate::generated::ActionCard as C;
+        let k = Kernel::plain();
+        let mut s = politics_table(6, &[C::ALL[0], C::ALL[1], C::ALL[2]], &[Agenda::ALL[0], Agenda::ALL[1], Agenda::ALL[2]]);
+        let mut d = Driver::new(Politics::new(Seat(0), true, false), Resolver::new(&[Seat(0)], Some(Seat(0))), groups_table(), 1);
+        let mut asked = Vec::new();
+        let mut status = d.run(&mut s, &k).unwrap();
+        while let Status::Asking(choice) = status {
+            asked.push(choice.ask);
+            status = d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap();
+        }
+        assert_eq!(asked[0], Ask::Strategy(SAsk::PoliticsSpeaker));
+        assert_eq!(asked[1], Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8 }));
+        assert!(matches!(asked[2], Ask::Strategy(SAsk::PoliticsAgenda { .. })) && matches!(asked[3], Ask::Strategy(SAsk::PoliticsAgenda { .. })), "{asked:?}");
+        assert_eq!(asked.len(), 4);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 7);
+        assert_eq!(s.meta().speaker, Seat(1));
+        assert_eq!(s.decks().agenda.len(), 3, "the agendas went back");
+        assert!(!d.window.unsupported);
+        // The secondary draws and looks at no agenda.
+        let mut s = politics_table(6, &[C::ALL[0], C::ALL[1], C::ALL[2]], &[Agenda::ALL[0]]);
+        let mut d = Driver::new(Politics::new(Seat(0), false, false), Resolver::new(&[Seat(0)], Some(Seat(0))), groups_table(), 1);
+        let Status::Asking(choice) = d.run(&mut s, &k).unwrap() else { panic!("a discard") };
+        assert_eq!(d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap(), Status::Done);
+        assert_eq!(s.decks().agenda.len(), 1, "no agenda was looked at");
+    }
+
+    /// Bail: a table with the link but no printed-name groups cannot ask the discard: the draw window reports `Left` and Politics is
+    /// unsupported (the speaker is already named, the string performs the card).
+    #[test]
+    fn bail_politics_without_name_groups_over_the_limit_is_unsupported() {
+        let k = Kernel::plain();
+        let mut s = politics_table(6, &[crate::generated::ActionCard::ALL[0], crate::generated::ActionCard::ALL[1]], &[]);
+        let mut d = Driver::new(Politics::new(Seat(0), false, false), Resolver::new(&[Seat(0)], Some(Seat(0))), table(true), 1);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.unsupported);
+    }
+
+    /// Bail: a table without the link to the draw window ends the window unsupported, drawing nothing.
+    #[test]
+    fn bail_politics_without_the_draw_link_is_unsupported() {
+        let mut s = politics_table(0, &[crate::generated::ActionCard::ALL[0]], &[]);
+        let mut d = Driver::new(Politics::new(Seat(0), false, false), Resolver::new(&[Seat(0)], Some(Seat(0))), table(false), 1);
+        assert_eq!(d.run(&mut s, &Kernel::plain()).unwrap(), Status::Done);
+        assert!(d.window.unsupported);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 0);
     }
 }

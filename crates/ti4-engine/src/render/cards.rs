@@ -33,6 +33,8 @@ impl Family for Fam {
                 Reason::C4rDiscard => "???_ERROR_ERROR_???: discard 1 action card".to_owned(),
                 Reason::Show { viewer } => format!("show {} 1 action card from your hand", r.seat_text(*viewer)),
             },
+            Ask::HandLimit { held } => format!("over the hand limit — discard one of {held}"),
+            Ask::PredictThreat { .. } => "Galactic Threat: predict the agenda outcome".to_owned(),
             Ask::Pick { what: What::Crash { system, second }, .. } => format!("Crash Landing: choose a {} in {}", if *second { "planet" } else { "ground force" }, system.as_str()),
             Ask::Pick { what: What::Squad { system }, .. } => format!("Ghost Squad: move ground forces in {}", system.as_str()),
             Ask::Pick { what: What::JamWho { system }, .. } => format!("Signal Jamming: whose token goes into {}", system.as_str()),
@@ -54,6 +56,7 @@ impl Family for Fam {
             Subtype::MalleonDiscard => "malleon_discard",
             Subtype::C4rDiscard => "c4r_discard",
             Subtype::ShowActionCard => "show_action_card",
+            Subtype::DiscardOverHandLimit => "discard_over_hand_limit",
             Subtype::PredictOutcome => "predict_agenda_outcome",
             Subtype::Pick { card, what } => {
                 return match what {
@@ -75,6 +78,15 @@ impl Family for Fam {
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match o {
+            Opt::Discard { index, card } => {
+                let before = match a {
+                    Ask::HandLimit { held } => i64::from(*held),
+                    _ => 0,
+                };
+                let name = crate::action_cards::name_of(ContentStore::embedded(), &ActionCardId::new(card.as_str()));
+                ChoiceOption::labelled(index.to_string(), crate::action_cards::DISCARD_KIND, name)
+                    .previewed(crate::preview::Preview::certain(vec![crate::preview::Delta::new(crate::preview::Quantity::ActionCardsHeld, before, before - 1)]))
+            }
             Opt::Seat(seat) if matches!(pick_of(a).1, What::Gain) => {
                 let id = r.seat_text(*seat);
                 ChoiceOption::labelled(id, "player", format!("{id} gains their own breakthrough"))
@@ -200,7 +212,7 @@ impl Family for Fam {
                 ChoiceOption::labelled(id.clone(), "promissory note", id)
             }
             Opt::Outcome(outcome) => {
-                let Ask::Predict { frame, .. } = a else { return ChoiceOption::labelled("", "", "") };
+                let (Ask::Predict { frame, .. } | Ask::PredictThreat { frame }) = a else { return ChoiceOption::labelled("", "", "") };
                 let named = super::agenda::outcome_label(r, frame, *outcome);
                 ChoiceOption::labelled(super::agenda::outcome_text(r, *outcome), "prediction", format!("predict {named}"))
             }
@@ -246,6 +258,8 @@ impl Family for Fam {
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
             Ask::OwnHand { .. } | Ask::PlayCard { .. } => ActionCard::from_id(id).map(Opt::Card),
+            // The index names a place in the hand, not a card: the id is matched against the options of the question itself.
+            Ask::HandLimit { .. } => None,
             Ask::Pick { what: What::Player | What::Elect | What::Gain, .. } => r.seat(id).map(Opt::Seat),
             Ask::Pick { what: What::JamWho { .. }, .. } => (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::Seat)).find(|s| r.faction_text(*s) == id).map(Opt::Seat),
             Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy | What::Rescue | What::Pirate | What::Probe | What::Ghost | What::Jam | What::Dock, .. } => System::from_id(id).map(Opt::System),
@@ -281,7 +295,7 @@ impl Family for Fam {
             Ask::Pick { what: What::Redraft { .. }, .. } => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::Strat),
             // The holder is the question's: the id is matched against the options of the question itself.
             Ask::Pick { what: What::Perform, .. } => None,
-            Ask::Predict { frame, .. } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
+            Ask::Predict { frame, .. } | Ask::PredictThreat { frame } => super::agenda::parse_outcome(r, frame, id).map(Opt::Outcome),
         }
     }
 }
@@ -328,7 +342,7 @@ fn pick_of(a: &Ask) -> (ActionCard, What) {
     match a {
         Ask::Pick { card, what } => (*card, *what),
         Ask::Predict { card, .. } => (*card, What::Player),
-        Ask::OwnHand { .. } | Ask::PlayCard { .. } => (ActionCard::Spy, What::Player),
+        Ask::OwnHand { .. } | Ask::PlayCard { .. } | Ask::HandLimit { .. } | Ask::PredictThreat { .. } => (ActionCard::Spy, What::Player),
     }
 }
 

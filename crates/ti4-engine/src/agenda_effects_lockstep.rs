@@ -284,20 +284,40 @@ fn the_draw_and_relic_effects_run_as_core_windows_in_lockstep() {
     assert!(compared >= 4 && bailed == 0, "{compared} compared, {bailed} bailed");
 }
 
-/// A draw that a faction hook changes (Yssaril's Scheming) or that leaves the hand over its limit asks questions of its
-/// own: the Unconventional Measures window is dropped (B9c-2).
+/// A draw that a faction hook changes (Yssaril's Scheming) asks questions of its own: the Unconventional Measures window is
+/// dropped (B9c-2). A draw that leaves the hand over its limit is the core's since W6 (the child draw window asks the discard).
 #[test]
-fn a_hooked_or_overflowing_unconventional_draw_has_no_window() {
+fn a_hooked_unconventional_draw_has_no_window() {
     let mut state = table();
     hand(&mut state, "a", &[]);
     assert!(core_half(&mut state, "unconventional", FOR, &ballot(&[("a", FOR)])).is_some());
-    hand(&mut state, "a", &["sabo1", "sabo1", "sabo1", "sabo1", "sabo1", "sabo1"]);
-    assert!(core_half(&mut state, "unconventional", FOR, &ballot(&[("a", FOR)])).is_none(), "six cards and two more");
     let mut state = crate::fixtures::seated_game(&[("a", "yssaril"), ("b", "letnev"), ("c", "hacan")], POK);
     state.phase = Phase::Agenda;
     assert!(core_half(&mut state, "unconventional", FOR, &ballot(&[("a", FOR)])).is_none(), "Scheming");
+    // Another seat's Yssaril changes nothing for the voter (W6: it was a bail for every voter).
+    let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "yssaril"), ("c", "hacan")], POK);
+    state.phase = Phase::Agenda;
+    assert!(core_half(&mut state, "unconventional", FOR, &ballot(&[("a", FOR)])).is_some(), "a Yssaril beside the voter");
     // Against stays a hand effect and is not affected.
+    let mut state = crate::fixtures::seated_game(&[("a", "yssaril"), ("b", "letnev"), ("c", "hacan")], POK);
+    state.phase = Phase::Agenda;
     assert!(core_half(&mut state, "unconventional", AGAINST, &ballot(&[("a", FOR)])).is_some());
+}
+
+/// W6 regression: a For voter whose hand ends over the limit is asked which card to discard (the child draw window), voter
+/// after voter; the string asks the same question (it was `unsupported`, a bail of the window).
+#[test]
+fn an_unconventional_draw_over_the_hand_limit_is_asked_in_lockstep() {
+    let (compared, bailed) = counted(|| {
+        let mut state = table();
+        hand(&mut state, "a", &["sabo1", "sabo1", "sabo1", "sabo1", "sabo1", "sabo1"]);
+        hand(&mut state, "b", &["sabo2", "sabo2", "sabo2", "sabo2", "sabo2", "sabo2"]);
+        let votes = ballot(&[("a", FOR), ("b", FOR)]);
+        run(&mut state, "unconventional", FOR, &votes);
+        assert_eq!(state.player(&pid("a")).unwrap().action_cards.len(), 7);
+        assert_eq!(state.player(&pid("b")).unwrap().action_cards.len(), 7);
+    });
+    assert_eq!((compared, bailed), (1, 0));
 }
 
 /// The core half of an effect, probed on its own: `None` is a bail (the string effect runs alone).

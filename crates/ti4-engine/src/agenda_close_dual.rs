@@ -103,7 +103,7 @@ pub fn close(
     let mut driver = Driver::new(
         Close::new(facts, vote, hidden, winner, &ballot, &counts, &choices),
         Resolver::new(&[], None),
-        AbilityTable::default(),
+        crate::reactions_core::linked_table(),
         1,
     );
     let mut staged = Vec::new();

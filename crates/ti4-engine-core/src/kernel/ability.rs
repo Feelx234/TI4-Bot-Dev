@@ -127,6 +127,8 @@ pub struct Codes {
     pub supply_base: crate::state::Code,
     /// The `source` `mentak` of the trade good Salvage Operations gains.
     pub mentak: crate::state::Code,
+    /// The `source` `future_sight` of the trade good the Nomad's Future Sight gains.
+    pub future_sight: crate::state::Code,
     /// The `reason` of the strategy token Instinct Training spends.
     pub instinct_training: crate::state::Code,
     /// The causes `action_card:direct_hit` and `action_card:courageous` of a destroyed ship.
@@ -140,6 +142,8 @@ pub struct Codes {
     pub cavalry: crate::state::Code,
     /// The name `technological_singularity`, the source of the question of the Nekro's ability.
     pub technological_singularity: crate::state::Code,
+    /// The name `galactic_threat`, the source of the question of the Nekro's ability.
+    pub galactic_threat: crate::state::Code,
     /// The unit alias `empyrean_mech`, the source of the Watcher's question.
     pub empyrean_mech: crate::state::Code,
     /// The technology alias `so`, the source of Salvage Operations' question.
@@ -203,6 +207,9 @@ pub struct AdapterFacts {
     buildable: Vec<(Seat, Vec<crate::generated::Unit>)>,
     /// The texts of the staged rerolls (Fire Team, Scramble Frequency), set by the adapter of a window that stages dice.
     pub reroll: Option<RerollFacts>,
+    /// The printed name of each action card as the index of the first card with the same name, for the windows that offer one
+    /// option per name outside a card play (the hand limit, package W6). Empty: the adapter did not say, the window declines.
+    pub card_groups: Vec<u8>,
 }
 
 /// What the cards that reroll staged dice (Fire Team) need of the adapter: the state text of the ground kind, and for each
@@ -222,6 +229,14 @@ impl RerollFacts {
 }
 
 impl AdapterFacts {
+    /// The printed-name group of each action card (the index of the first card with its name): [`Self::card_groups`], else the
+    /// play facts' table. `None` when the adapter gave neither.
+    #[must_use]
+    pub fn card_group_table(&self) -> Option<&[u8]> {
+        let table = if self.card_groups.is_empty() { self.plays.as_ref().map(|p| p.name_group.as_slice())? } else { self.card_groups.as_slice() };
+        (!table.is_empty()).then_some(table)
+    }
+
     /// Record the neighbours of `system` for `who`.
     pub fn set_reach(&mut self, who: Seat, system: crate::generated::System, neighbours: Vec<crate::generated::System>) {
         self.reach.retain(|(w, s, _)| !(*w == who && *s == system));
