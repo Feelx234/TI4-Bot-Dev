@@ -77,6 +77,35 @@ left are the bodies of `ask_of`/`answer` of windows that never ask (unreachable 
 literal `0 -> 1` in initialisers. The real gaps (barrage dice records, cannon gates, Graviton, feats, bombardment cursor, landing flags, ...) got
 the `combat_extra.rs` / `invasion_extra.rs` tests.
 
+## Second mutation round (commit `33e5dce1`, with all tests of this lane; killed / survived)
+
+Weak-spot files run with the A1 + A2 tests of their area. Same runner, nothing raised or written to the floors.
+
+| file | killed | survived | killed % |
+|---|---:|---:|---:|
+| query/tech.rs | 172 | 20 | 90% |
+| query/trade_deals.rs | 135 | 60 | 69% |
+| rules/agenda/table_effects.rs | 165 | 41 | 80% |
+| rules/combat/assign.rs | 27 | 5 | 84% |
+| rules/combat/barrage.rs | 33 | 11 | 75% |
+| rules/combat/cannon_guns.rs | 23 | 3 | 88% |
+| rules/combat/machine.rs | 119 | 103 | 54% |
+| rules/combat/mod.rs | 124 | 248 | 33% |
+| rules/combat/roll.rs | 142 | 87 | 62% |
+| rules/combat/space_cannon_offense.rs | 55 | 3 | 95% |
+| rules/invasion/bombard.rs | 53 | 8 | 87% |
+| rules/invasion/commit.rs | 36 | 5 | 88% |
+| rules/invasion/defense.rs | 42 | 15 | 74% |
+| rules/invasion/harrow.rs | 13 | 7 | 65% |
+| rules/invasion/round.rs | 4 | 5 | 44% |
+| rules/invasion/tail.rs | 15 | 6 | 71% |
+| rules/production/window.rs | 63 | 94 | 40% |
+
+Reading: combat files that got survivor-driven tests moved up (barrage 59 -> 75, cannon_guns 73 -> 88, space_cannon_offense 84 -> 95, bombard 64 -> 87,
+commit 61 -> 88, defense 70 -> 74); `combat/mod.rs` (33%, 248 survivors: the sustain/roll/fleet helper functions), `combat/machine.rs` (54%), `combat/roll.rs`
+(62%), `invasion/round.rs`, `production/window.rs` (40%), `trade_deals.rs` (69%) stay the next work. Full survivor lists: `/root/deploytmp/core-d4a2/mut2-*.txt`
+(deleted with the scratch dir; re-run `mutants.sh` per file).
+
 ## Findings (docs/ENGINE_KNOWN_ISSUES.md rows `D4A2-*`)
 
 * D4A2-found-01 Tactical Bombardment ignores the BOMBARDMENT requirement of its text (both engines). Pinned.
