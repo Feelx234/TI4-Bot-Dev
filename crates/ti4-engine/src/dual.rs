@@ -1257,6 +1257,7 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     let core_run = crate::dual_window::with_label(label, || core(&mut core_state, &recording));
     let Some(core_run) = core_run else {
         note_window(label, false);
+        crate::lend_table::probe(label, &core_state, state);
         return string_run.value;
     };
     note_window(label, true);
