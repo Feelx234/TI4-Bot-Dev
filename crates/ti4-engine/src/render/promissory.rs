@@ -51,6 +51,8 @@ impl Family for Fam {
         match a {
             Ask::PlaceUnits { unit, fit } => format!("place up to {fit} {}", base_name(*unit)),
             Ask::C4rPds => "???_ERROR_ERROR_???: choose a planet you control".to_owned(),
+            Ask::OrbitalPlanet => "Orbital Drop: onto which planet".to_owned(),
+            Ask::OrbitalDeploy { planet, .. } => format!("Orbital Drop: deploy a mech on {}", planet.as_str()),
         }
     }
 
@@ -58,24 +60,50 @@ impl Family for Fam {
         match s {
             Subtype::PlaceUnitsFromReinforcements => "place_units_from_reinforcements",
             Subtype::C4rPlanet => "c4r_planet",
+            Subtype::OrbitalPlanet => "orbital_drop_choose_planet",
+            Subtype::OrbitalDeploy => "orbital_drop_deploy_mech",
         }
         .to_owned()
     }
 
     fn option(_: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
-        let (Ask::PlaceUnits { unit, fit }, Opt::Spot(system, planet)) = (a, o) else {
-            let Opt::Spot(system, planet) = o;
-            return ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "nekro_c4r_planet", format!("place a PDS on {} in {}", planet.as_str(), system.as_str()));
-        };
-        let (system, planet, base) = (system.as_str(), planet.as_str(), base_name(*unit));
-        ChoiceOption::labelled(format!("{system}|{planet}"), PLACE_KIND, format!("place {fit}x {base} on {planet} in {system}"))
-            .with("system", system)
-            .with("count", i64::from(*fit))
+        match (a, o) {
+            (Ask::PlaceUnits { unit, fit }, Opt::Spot(system, planet)) => {
+                let (system, planet, base) = (system.as_str(), planet.as_str(), base_name(*unit));
+                ChoiceOption::labelled(format!("{system}|{planet}"), PLACE_KIND, format!("place {fit}x {base} on {planet} in {system}"))
+                    .with("system", system)
+                    .with("count", i64::from(*fit))
+            }
+            (Ask::OrbitalPlanet, Opt::Spot(system, planet)) => {
+                let (system, planet) = (system.as_str(), planet.as_str());
+                ChoiceOption::labelled(planet, "planet", planet).with("system", system).with("planet", planet)
+            }
+            (Ask::OrbitalDeploy { system, planet, mech }, _) => {
+                let (system, planet, mech) = (system.as_str(), planet.as_str(), mech.as_str());
+                ChoiceOption::labelled(format!("deploy|{mech}|1"), crate::production::PRODUCE_KIND, format!("deploy 1 {mech} for 3 resources"))
+                    .with("unit", mech)
+                    .with("count", 1)
+                    .with("cost", 3)
+                    .with("system", system)
+                    .with("planet", planet)
+                    .with("orbital_drop_deploy", true)
+            }
+            (_, Opt::Spot(system, planet)) => {
+                ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "nekro_c4r_planet", format!("place a PDS on {} in {}", planet.as_str(), system.as_str()))
+            }
+            (_, Opt::Deploy) => ChoiceOption::labelled("deploy", "produce", "deploy"),
+        }
     }
 
-    fn parse(_: &Render, _: &Ask, id: &str) -> Option<Opt> {
-        let (system, planet) = id.split_once('|')?;
-        Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
+    fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
+        match a {
+            // The planet question's id names the planet alone, and the deploy's names the mech: both are matched against the options.
+            Ask::OrbitalPlanet | Ask::OrbitalDeploy { .. } => None,
+            Ask::PlaceUnits { .. } | Ask::C4rPds => {
+                let (system, planet) = id.split_once('|')?;
+                Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))
+            }
+        }
     }
 }
 

@@ -26,6 +26,8 @@ pub enum Ask {
     ProductionBiomes,
     /// "Vortex: which unit type do you take" (Cabal): the unit type of another seat captured from its reinforcements.
     Vortex,
+    /// "Wormhole Generator: place or move a Creuss wormhole token" (Ghost): into which system, which token.
+    WormholeGenerator,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -46,6 +48,8 @@ pub enum Opt {
     Player(Seat),
     /// Vortex: capture this unit type of this seat.
     Capture(Seat, Unit),
+    /// Wormhole Generator: this Creuss token goes into this system.
+    Token(crate::generated::Wormhole, System),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -59,4 +63,6 @@ pub enum Subtype {
     TransitDiodesRedeploy,
     ProductionBiomesChoosePlayer,
     VortexTarget,
+    /// `creuss_token`.
+    CreussToken,
 }

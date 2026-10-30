@@ -2,11 +2,18 @@
 //! [`crate::kernel::stage::Window`] in its own file section. The listing of the actions and the dispatch (`perform_component`)
 //! are the driver's (D1b); the adapter calls the bodies from the string dispatch and compares.
 
+use crate::choice::generic::Content;
+use crate::choice::promissory::{Ask as PAsk, Opt as POpt, Subtype as PSub};
+use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
+use crate::containers::SmallList;
 use crate::generated::{Planet, System, Technology, Unit};
 use crate::ids::Seat;
-use crate::kernel::{fx, fx_strategy};
+use crate::kernel::children::{ErasedChild, Report, Spawn};
+use crate::kernel::stage::{Illegal, Ran, Sx, Window};
+use crate::kernel::{Kernel, Next, fx, fx_strategy};
+use crate::query::economy::Spend;
 use crate::query::{board, fleet};
-use crate::state::CoreState;
+use crate::state::{Code, CoreState, EventKind, EventRec, Key, Payload, Val};
 use crate::tables::Scope;
 
 /// Lazax Gate Folding (Winnu): "ACTION: Exhaust this card to place 1 infantry from your reinforcements on Mecatol Rex" (when the
@@ -86,6 +93,216 @@ pub fn terraform(core: &mut CoreState, who: Seat, planet: Planet, home: bool) ->
     core.cards_mut().promissory_faceup.edit().insert(note, ());
     true
 }
+
+/// Vaults of the Heir (Mahact breakthrough, a component action of Thunder's Edge): "ACTION: Exhaust this card and purge 1 of your
+/// technologies to gain 1 relic." No question (the technology is the option the caller chose); every condition is read again and nothing is
+/// written unless all hold: a Mahact seat holding the breakthrough, not yet exhausted this round (the `MahactVaultsExhausted` mark), a relic
+/// left in the deck and the technology owned. The card is exhausted by the mark (it readies with the status phase), the technology is purged
+/// (a unit upgrade takes its unit form with it) and the top relic is gained.
+pub fn vaults_of_the_heir(core: &mut CoreState, scope: Scope, who: Seat, tech: Technology) -> bool {
+    use crate::keys::{Atom, MarkKey, MarkVal};
+    let Some(p) = core.players().by_seat(who) else { return false };
+    if p.faction != crate::generated::Faction::TheMahactGeneSorcerers
+        || p.cards.breakthrough != Some(crate::generated::Breakthrough::VaultsOfTheHeir)
+        || !p.tech.owned.contains(tech)
+        || core.marks().tail.get(&MarkKey::MahactVaultsExhausted(who)).is_some()
+        || core.decks().relic.cards().is_empty()
+    {
+        return false;
+    }
+    core.marks_mut().tail.edit().insert(MarkKey::MahactVaultsExhausted(who), MarkVal::Atom(Atom::Num(1)));
+    fx_strategy::purge_technology(core, scope, who, tech);
+    crate::kernel::fx_relic::relic_gain(core, who);
+    true
+}
+
+// -- Orbital Drop -----------------------------------------------------------------------------------
+
+/// The suspension points of [`OrbitalDrop`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OStage {
+    Start,
+    Planet,
+    Deploy,
+    Paying,
+    Done,
+}
+
+/// What the position tells the Orbital Drop window besides the state: the forms the seat places and the Sol mech, the scope, and the
+/// interned texts (the question's source `orbital_drop` and the reason of the token event, the same text).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OrbitalFacts {
+    /// The infantry the seat places (`None`: it places none, or a faction rule forbids it).
+    pub infantry: Option<Unit>,
+    /// The Sol mech, whoever plays the card (`None`: the tables have none).
+    pub mech: Option<Unit>,
+    /// The seat has 3 resources to spend now (`production::available`).
+    pub can_pay: bool,
+    pub scope: Scope,
+    /// The interned `orbital_drop`.
+    pub source: Code,
+}
+
+/// Orbital Drop (Sol): "ACTION: Spend 1 token from your strategy pool to place 2 infantry from your reinforcements on any planet you
+/// control. Then, you may spend 3 resources to place 1 mech on that planet." The planet is asked when the seat controls more than one
+/// (any planet it controls; the question comes before the token is looked at, and nothing is written when there is none to spend); the
+/// token is spent and announced, the infantry that the box allows are placed, and the mech is offered when the box holds one and the
+/// seat can pay: a decline, or the payment (a child window) and then the mech. [`Self::done`] is whether the action resolved.
+/// `unsupported`: the table has no link to the payment window, the caller declines the run.
+#[derive(Debug, Clone)]
+pub struct OrbitalDrop {
+    pub who: Seat,
+    facts: OrbitalFacts,
+    stage: OStage,
+    chosen: Option<(System, Planet)>,
+    pay: ErasedChild,
+    pub done: bool,
+    pub unsupported: bool,
+}
+
+impl OrbitalDrop {
+    #[must_use]
+    pub fn new(who: Seat, facts: OrbitalFacts) -> Self {
+        Self { who, facts, stage: OStage::Start, chosen: None, pay: ErasedChild::idle(), done: false, unsupported: false }
+    }
+
+    fn spots(&self, s: &CoreState) -> Vec<(System, Planet)> {
+        board::controlled_planets(s, self.who).as_slice().to_vec()
+    }
+
+    fn ctx(&self, subtype: PSub) -> Ctx {
+        Ctx {
+            origin: Origin::FactionAbility(Content::Other(self.facts.source)),
+            subtype: Subtype::Promissory(subtype),
+            optional: false,
+            target: None,
+            outstanding: SmallList::new(),
+            space_battle: false,
+            invasion_seq: None,
+        }
+    }
+
+    /// The planet is known: spend the token, place the infantry, offer the mech.
+    fn dropped(&mut self, s: &mut CoreState, spot: (System, Planet)) {
+        self.chosen = Some(spot);
+        if !fx::spend_strategic_token(s, self.who) {
+            // 22.3: it cannot resolve, so it is not performed.
+            self.stage = OStage::Done;
+            return;
+        }
+        fx::stage(
+            s,
+            EventRec {
+                id: 0,
+                kind: EventKind::StrategyTokenSpent,
+                payload: Payload::new().with(Key::Player, Val::Seat(self.who)).with(Key::Reason, Val::Code(self.facts.source)),
+                cancelled: false,
+            },
+        );
+        if let Some(infantry) = self.facts.infantry {
+            let room = fleet::remaining_all(s, self.facts.scope, self.who, infantry).clamp(0, 2);
+            for _ in 0..room {
+                fx::place_unit(s, self.who, spot.0, Some(spot.1), infantry);
+            }
+        }
+        self.done = true;
+        let mech_left = self.facts.mech.is_some_and(|mech| fleet::remaining_all(s, self.facts.scope, self.who, mech) > 0);
+        self.stage = if mech_left && self.facts.can_pay { OStage::Deploy } else { OStage::Done };
+    }
+
+    fn deploy_ask(&self) -> Option<Ask> {
+        let ((system, planet), mech) = (self.chosen?, self.facts.mech?);
+        Some(Ask::Promissory(PAsk::OrbitalDeploy { system, planet, mech }))
+    }
+}
+
+impl Window for OrbitalDrop {
+    type Stage = OStage;
+
+    fn stage(&self) -> OStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == OStage::Start {
+            let spots = self.spots(sx.state);
+            match spots.as_slice() {
+                [] => self.stage = OStage::Done,
+                [only] => self.dropped(sx.state, *only),
+                _ => self.stage = OStage::Planet,
+            }
+        }
+        if self.stage == OStage::Paying {
+            match self.pay.step(sx) {
+                Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                Some(Ran::Pass(next)) => return next,
+                Some(Ran::Done(report)) => {
+                    if let (Report::Paid(true), Some((system, planet)), Some(mech)) = (report, self.chosen, self.facts.mech) {
+                        fx::place_unit(sx.state, self.who, system, Some(planet), mech);
+                    }
+                    self.stage = OStage::Done;
+                }
+                None => self.stage = OStage::Done,
+            }
+        }
+        match self.stage {
+            OStage::Planet => Next::Continue(Ask::Promissory(PAsk::OrbitalPlanet)),
+            OStage::Deploy => self.deploy_ask().map_or(Next::Done, Next::Continue),
+            OStage::Start | OStage::Paying | OStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        match self.stage {
+            OStage::Planet => Some(Choice {
+                actor: self.who,
+                ask: Ask::Promissory(PAsk::OrbitalPlanet),
+                ctx: self.ctx(PSub::OrbitalPlanet),
+                opts: self.spots(s).into_iter().map(|(system, planet)| Opt::Promissory(POpt::Spot(system, planet))).collect::<Opts>(),
+            }),
+            OStage::Deploy => Some(Choice {
+                actor: self.who,
+                ask: self.deploy_ask()?,
+                ctx: self.ctx(PSub::OrbitalDeploy),
+                opts: [Opt::Promissory(POpt::Deploy), Opt::Decline].into_iter().collect::<Opts>(),
+            }),
+            OStage::Paying => self.pay.ask_of(s, k),
+            OStage::Start | OStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (OStage::Planet, Pick::Opt(Opt::Promissory(POpt::Spot(system, planet)))) if self.spots(sx.state).contains(&(system, planet)) => {
+                self.dropped(sx.state, (system, planet));
+                Ok(())
+            }
+            (OStage::Deploy, Pick::Opt(Opt::Decline)) => {
+                self.stage = OStage::Done;
+                Ok(())
+            }
+            (OStage::Deploy, Pick::Opt(Opt::Promissory(POpt::Deploy))) => {
+                match sx.table.links.start(&Spawn::Bill { who: self.who, kind: Spend::Resources, cost: ORBITAL_MECH_COST }) {
+                    Some(window) => {
+                        self.pay.start(window);
+                        self.stage = OStage::Paying;
+                        Ok(())
+                    }
+                    None => {
+                        self.unsupported = true;
+                        self.stage = OStage::Done;
+                        Ok(())
+                    }
+                }
+            }
+            (OStage::Paying, pick) => self.pay.answer(sx, pick),
+            _ => Err(Illegal),
+        }
+    }
+}
+
+/// What the mech of Orbital Drop costs, in resources.
+pub const ORBITAL_MECH_COST: i64 = 3;
 
 #[cfg(test)]
 mod tests {
@@ -240,5 +457,146 @@ mod tests {
         let mut elsewhere = setup();
         elsewhere.board_mut().planet_mut(other).attach.push(Attachment::Terraform);
         refused(elsewhere, planet, false);
+    }
+
+    #[test]
+    fn vaults_of_the_heir_marks_the_card_spent_purges_the_technology_and_gains_the_top_relic_and_checks_every_condition() {
+        use crate::generated::{Breakthrough, Relic};
+        use crate::keys::{Atom, MarkKey, MarkVal};
+        let tech = Technology::LazaxGateFolding;
+        let setup = || {
+            let mut s = table();
+            let p = s.players_mut().by_seat_mut(Seat(0)).unwrap();
+            p.faction = Faction::TheMahactGeneSorcerers;
+            p.cards.breakthrough = Some(Breakthrough::VaultsOfTheHeir);
+            p.tech.owned.insert(tech);
+            p.tech.exhausted.insert(tech);
+            s.decks_mut().relic.set(vec![Relic::ALL[3], Relic::ALL[4]]);
+            s
+        };
+        let mut s = setup();
+        assert!(vaults_of_the_heir(&mut s, Scope(u32::MAX), Seat(0), tech));
+        let p = s.players().by_seat(Seat(0)).unwrap();
+        assert!(!p.tech.owned.contains(tech) && !p.tech.exhausted.contains(tech), "purged, and its exhausted mark with it");
+        assert_eq!(p.cards.relics.as_slice(), [Relic::ALL[3]]);
+        assert_eq!(s.marks().tail.get(&MarkKey::MahactVaultsExhausted(Seat(0))), Some(&MarkVal::Atom(Atom::Num(1))));
+        assert!(!vaults_of_the_heir(&mut s, Scope(u32::MAX), Seat(0), tech), "spent until the status phase");
+        // Each condition alone, nothing written.
+        let refused = |mut s: CoreState| {
+            let before = s.clone();
+            assert!(!vaults_of_the_heir(&mut s, Scope(u32::MAX), Seat(0), tech));
+            assert_eq!(s, before);
+        };
+        let mut other_faction = setup();
+        other_faction.players_mut().by_seat_mut(Seat(0)).unwrap().faction = Faction::from_index(0).unwrap();
+        refused(other_faction);
+        let mut no_breakthrough = setup();
+        no_breakthrough.players_mut().by_seat_mut(Seat(0)).unwrap().cards.breakthrough = None;
+        refused(no_breakthrough);
+        let mut not_owned = setup();
+        not_owned.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.remove(tech);
+        refused(not_owned);
+        let mut no_relic = setup();
+        no_relic.decks_mut().relic.set(vec![]);
+        refused(no_relic);
+        let mut spent = setup();
+        spent.marks_mut().tail.edit().insert(MarkKey::MahactVaultsExhausted(Seat(0)), MarkVal::Atom(Atom::Num(1)));
+        refused(spent);
+    }
+
+    fn orbital_driver(facts: OrbitalFacts, links: bool) -> crate::driver::Driver<OrbitalDrop> {
+        use crate::kernel::stage::AbilityTable;
+        let mut t = AbilityTable::default();
+        if links {
+            crate::driver::children::register(&mut t);
+        }
+        crate::driver::Driver::new(OrbitalDrop::new(Seat(0), facts), crate::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), t, 1)
+    }
+
+    fn orbital_facts(can_pay: bool) -> OrbitalFacts {
+        let plain = |base| Unit::ALL.iter().copied().find(|u| u.data().base_type == base && u.data().faction.is_none());
+        OrbitalFacts { infantry: plain(UnitBaseType::Infantry), mech: plain(UnitBaseType::Mech), can_pay, scope: Scope(u32::MAX), source: Code(9) }
+    }
+
+    fn orbital_table(tokens: i16, planets: usize) -> CoreState {
+        let mut s = table();
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.strategic_tokens = tokens;
+        for (_, planet) in two().iter().take(planets) {
+            s.board_mut().planet_mut(*planet).control = Some(Seat(0));
+        }
+        s
+    }
+
+    #[test]
+    fn orbital_drop_spends_the_token_announces_it_places_two_infantry_and_offers_the_mech_when_the_seat_can_pay() {
+        use crate::choice::promissory::{Ask as PAsk, Opt as POpt};
+        use crate::choice::{Ask, Opt, Pick};
+        use crate::driver::Status;
+        let k = Kernel::plain();
+        let [(system, planet), _] = two();
+        let mut s = orbital_table(2, 1);
+        let mut d = orbital_driver(orbital_facts(true), true);
+        // One planet: no planet question; the token is spent and announced, two infantry stand, the mech is a question.
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("the mech is offered") };
+        let mech = orbital_facts(true).mech.unwrap();
+        assert_eq!(q.ask, Ask::Promissory(PAsk::OrbitalDeploy { system, planet, mech }));
+        assert_eq!(q.opts.as_slice(), &[Opt::Promissory(POpt::Deploy), Opt::Decline]);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens, 1);
+        assert_eq!(standing(&s, planet), 2);
+        assert_eq!(s.pending().staged.len(), 1, "the token spent is announced");
+        assert!(d.window.done);
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+        assert_eq!(standing(&s, planet), 2);
+        // The seat cannot pay, or the box holds no mech: no question.
+        let mut s = orbital_table(1, 1);
+        let mut d = orbital_driver(orbital_facts(false), true);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.done);
+        // No token: nothing is spent or placed (the planet question comes first with several planets).
+        let mut s = orbital_table(0, 1);
+        let before = s.clone();
+        let mut d = orbital_driver(orbital_facts(true), true);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.done);
+        assert_eq!(s, before);
+        // No planet: nothing.
+        let mut s = orbital_table(1, 0);
+        let mut d = orbital_driver(orbital_facts(true), true);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.done);
+    }
+
+    #[test]
+    fn orbital_drop_asks_the_planet_among_those_the_seat_controls_and_the_box_cuts_the_infantry() {
+        use crate::choice::promissory::{Ask as PAsk, Opt as POpt};
+        use crate::choice::{Ask, Opt, Pick};
+        use crate::driver::{DriverError, Status};
+        let k = Kernel::plain();
+        let [(system, planet), (other, elsewhere)] = two();
+        let mut s = orbital_table(1, 2);
+        let mut d = orbital_driver(orbital_facts(false), true);
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("the planet is asked") };
+        assert_eq!(q.ask, Ask::Promissory(PAsk::OrbitalPlanet));
+        assert_eq!(q.opts.as_slice(), &[Opt::Promissory(POpt::Spot(system, planet)), Opt::Promissory(POpt::Spot(other, elsewhere))]);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens, 1, "nothing before the answer");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Promissory(POpt::Spot(other, elsewhere)))).unwrap(), Status::Done);
+        assert_eq!((standing(&s, planet), standing(&s, elsewhere)), (0, 2));
+        // One unit left in the box (the infantry is capped here by giving the seat a form with plastic: a mech, four in the box): one is placed.
+        let mut s = orbital_table(1, 1);
+        let mut facts = orbital_facts(false);
+        facts.infantry = facts.mech;
+        for _ in 0..3 {
+            fx::place_unit(&mut s, Seat(0), other, Some(elsewhere), facts.mech.unwrap());
+        }
+        let mut d = orbital_driver(facts, true);
+        d.run(&mut s, &k).unwrap();
+        assert_eq!(standing(&s, planet), 1);
+        // The mech without a link to the payment window: the run is declined.
+        let mut s = orbital_table(1, 1);
+        let mut d = orbital_driver(orbital_facts(true), false);
+        d.run(&mut s, &k).unwrap();
+        d.resume(&mut s, &k, Pick::Opt(Opt::Promissory(POpt::Deploy))).unwrap();
+        assert!(d.window.unsupported);
     }
 }

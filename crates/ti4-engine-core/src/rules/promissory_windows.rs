@@ -998,6 +998,17 @@ mod tests {
     }
 
     #[test]
+    fn taking_a_card_from_oneself_or_from_a_hand_without_it_writes_nothing() {
+        use crate::generated::ActionCard as C;
+        let mut s = mageon_table(&[C::ALL[7]], &[C::ALL[3]]);
+        let before = s.clone();
+        assert!(!fx::take_action_card_staged(&mut s, Seat(0), Seat(0), C::ALL[7]), "the same seat");
+        assert!(!fx::take_action_card_staged(&mut s, Seat(0), Seat(1), C::ALL[7]), "not in that hand");
+        assert!(!fx::take_action_card_staged(&mut s, Seat(5), Seat(1), C::ALL[3]), "no such taker");
+        assert_eq!(s, before);
+    }
+
+    #[test]
     fn mageon_implants_needs_a_ready_card_another_seat_and_a_card_to_take_and_writes_nothing_otherwise() {
         use crate::generated::{ActionCard as C, Technology};
         let k = Kernel::plain();
@@ -1018,8 +1029,11 @@ mod tests {
         // The target is the taker itself.
         let mut s = mageon_table(&[C::ALL[7]], &[]);
         let before = s.clone();
-        let mut d = Driver::new(MageonImplants::new(Seat(0), Seat(0), true), Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let mut t = AbilityTable::default();
+        t.facts.card_groups = (0..crate::generated::ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
+        let mut d = Driver::new(MageonImplants::new(Seat(0), Seat(0), true), Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), t, 1);
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.done && !d.window.unsupported);
         assert_eq!(s, before);
     }
 
@@ -1031,11 +1045,13 @@ mod tests {
         let seven: Vec<C> = (10..17).map(|i| C::ALL[i]).collect();
         // Over the limit by the taken card: the discard question of the draw window follows.
         let mut s = mageon_table(&seven, &[C::ALL[7]]);
+        s.decks_mut().action.set(vec![C::ALL[20], C::ALL[21]]);
         let mut d = mageon_driver(true, true, true);
         let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
         assert_eq!(q.ask, Ask::Cards(CAsk::HandLimit { held: 8 }));
         assert_eq!(d.resume(&mut s, &k, Pick::Opt(q.opts.as_slice()[0])).unwrap(), Status::Done);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 7);
+        assert_eq!(s.decks().action.cards().len(), 2, "the limit window draws no card");
         // Crafty: no limit, no question.
         let mut s = mageon_table(&seven, &[C::ALL[7]]);
         let mut d = mageon_driver(false, true, true);
@@ -1048,6 +1064,14 @@ mod tests {
         assert!(d.window.unsupported);
         let mut s = mageon_table(&[], &[C::ALL[7]]);
         let mut d = mageon_driver(true, true, false);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.unsupported);
+        // A group table that does not reach the card in the target's hand: the options cannot be built, the run is declined.
+        let mut s = mageon_table(&[], &[C::ALL[7]]);
+        let mut t = AbilityTable::default();
+        t.facts.card_groups = vec![0; 2];
+        crate::driver::children::register(&mut t);
+        let mut d = Driver::new(MageonImplants::new(Seat(0), Seat(1), true), Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), t, 1);
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert!(d.window.unsupported);
     }

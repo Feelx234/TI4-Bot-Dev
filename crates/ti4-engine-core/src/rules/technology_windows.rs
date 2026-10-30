@@ -331,6 +331,84 @@ impl Window for Vortex {
     }
 }
 
+// -- Wormhole Generator -----------------------------------------------------------------------------
+
+/// Wormhole Generator (Ghost technology, a component action): "ACTION: Exhaust this card to place or move a Creuss wormhole token into
+/// either a system that contains a planet you control or a non-home system that does not contain another player's ships." The
+/// destinations (each token into each such system it is not already in, tokens in the order of their names and systems in map order) are
+/// the position's: `destinations`, the adapter's read of the map (the placed systems in map order, the printed home systems, the
+/// units of other seats). The card must be ready, the question may be declined; the answer sets the token (a token already on the map
+/// moves) and exhausts the card. [`Self::done`] is whether the action resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WormholeGenerator {
+    pub who: Seat,
+    destinations: Vec<(crate::generated::Wormhole, System)>,
+    stage: Stage,
+    pub done: bool,
+}
+
+impl WormholeGenerator {
+    #[must_use]
+    pub fn new(who: Seat, destinations: Vec<(crate::generated::Wormhole, System)>) -> Self {
+        Self { who, destinations, stage: Stage::Start, done: false }
+    }
+
+    const ASK: Ask = Ask::Technology(TAsk::WormholeGenerator);
+}
+
+impl Window for WormholeGenerator {
+    type Stage = Stage;
+
+    fn stage(&self) -> Stage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == Stage::Start {
+            self.stage = if ready_card(sx.state, self.who, Technology::WormholeGenerator) && !self.destinations.is_empty() { Stage::Asking } else { Stage::Done };
+        }
+        if self.stage == Stage::Asking { Next::Continue(Self::ASK) } else { Next::Done }
+    }
+
+    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == Stage::Asking).then(|| {
+            let mut opts: Opts = self.destinations.iter().map(|(kind, system)| Opt::Technology(TOpt::Token(*kind, *system))).collect();
+            opts.push(Opt::Decline);
+            Choice {
+                actor: self.who,
+                ask: Self::ASK,
+                ctx: Ctx {
+                    origin: Origin::FactionAbility(crate::choice::generic::Content::Technology(Technology::WormholeGenerator)),
+                    subtype: Subtype::Technology(TSub::CreussToken),
+                    optional: false,
+                    target: None,
+                    outstanding: SmallList::new(),
+                    space_battle: false,
+                    invasion_seq: None,
+                },
+                opts,
+            }
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage != Stage::Asking {
+            return Err(Illegal);
+        }
+        match pick {
+            Pick::Opt(Opt::Decline) => {}
+            Pick::Opt(Opt::Technology(TOpt::Token(kind, system))) if self.destinations.contains(&(kind, system)) => {
+                crate::kernel::fx_explore::place_wormhole_token(sx.state, kind, system);
+                fx_strategy::exhaust_technology(sx.state, self.who, Technology::WormholeGenerator);
+                self.done = true;
+            }
+            _ => return Err(Illegal),
+        }
+        self.stage = Stage::Done;
+        Ok(())
+    }
+}
+
 // -- the end of a turn: Predictive Intelligence, then Bio-Stims -----------------------------------------
 
 /// The suspension points of [`TurnEnd`].
@@ -501,7 +579,7 @@ impl Window for TurnEnd {
                             p.tech.exhausted.remove(tech);
                         }
                     }
-                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) => return Err(Illegal),
+                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) | TOpt::Token(..) => return Err(Illegal),
                 }
                 fx_exhaust(sx.state, self.who, Technology::BioStims);
                 self.stage = EStage::Done;
@@ -890,5 +968,85 @@ mod vortex_tests {
         let mut d = driver(true, None);
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert!(d.window.done);
+    }
+}
+
+#[cfg(test)]
+mod wormhole_tests {
+    use super::*;
+    use crate::driver::{Driver, DriverError, Status};
+    use crate::generated::{Faction, Wormhole};
+    use crate::kernel::Resolver;
+    use crate::kernel::stage::AbilityTable;
+    use crate::state::{Player, Players};
+
+    fn table() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        let list = (0..2u8).map(|i| Player::new(Seat(i), Faction::from_index(usize::from(i)).unwrap())).collect();
+        s.players = Players::from_vec(list);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::WormholeGenerator);
+        s
+    }
+
+    fn dests() -> Vec<(Wormhole, System)> {
+        let (a, b) = (System::from_index(5).unwrap(), System::from_index(9).unwrap());
+        vec![(Wormhole::Alpha, a), (Wormhole::Alpha, b), (Wormhole::Beta, a), (Wormhole::Beta, b)]
+    }
+
+    fn driver(dests: Vec<(Wormhole, System)>) -> Driver<WormholeGenerator> {
+        Driver::new(WormholeGenerator::new(Seat(0), dests), Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1)
+    }
+
+    fn token(kind: Wormhole, system: System) -> Pick {
+        Pick::Opt(Opt::Technology(TOpt::Token(kind, system)))
+    }
+
+    #[test]
+    fn the_wormhole_generator_offers_the_destinations_and_a_decline_sets_the_token_and_exhausts_the_card() {
+        let (k, mut s) = (Kernel::plain(), table());
+        let mut d = driver(dests());
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!(q.ask, Ask::Technology(TAsk::WormholeGenerator));
+        assert_eq!(q.ctx.subtype, Subtype::Technology(TSub::CreussToken));
+        assert_eq!(q.opts.len(), 5, "four destinations and the decline");
+        assert_eq!(q.opts.as_slice().last(), Some(&Opt::Decline));
+        // A pair that is not a destination is refused and nothing is written.
+        assert_eq!(d.resume(&mut s, &k, token(Wormhole::Gamma, System::from_index(5).unwrap())), Err(DriverError::Illegal));
+        assert!(s.explore().wormhole_tokens.get(&Wormhole::Alpha).is_none());
+        assert_eq!(d.resume(&mut s, &k, token(Wormhole::Alpha, System::from_index(9).unwrap())).unwrap(), Status::Done);
+        assert!(d.window.done);
+        assert_eq!(s.explore().wormhole_tokens.get(&Wormhole::Alpha), Some(&System::from_index(9).unwrap()));
+        assert!(s.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::WormholeGenerator));
+        // The token moves: the same kind into the other system replaces the first.
+        let mut s2 = s.clone();
+        s2.players_mut().by_seat_mut(Seat(0)).unwrap().tech.exhausted.remove(Technology::WormholeGenerator);
+        let mut d = driver(dests());
+        d.run(&mut s2, &k).unwrap();
+        d.resume(&mut s2, &k, token(Wormhole::Alpha, System::from_index(5).unwrap())).unwrap();
+        assert_eq!(s2.explore().wormhole_tokens.get(&Wormhole::Alpha), Some(&System::from_index(5).unwrap()));
+    }
+
+    #[test]
+    fn the_wormhole_generator_does_nothing_declined_without_a_destination_or_with_a_spent_or_missing_card() {
+        let k = Kernel::plain();
+        let mut s = table();
+        let before = s.clone();
+        let mut d = driver(dests());
+        d.run(&mut s, &k).unwrap();
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+        assert!(!d.window.done);
+        assert_eq!(s, before, "a decline writes nothing");
+        let mut s = table();
+        let mut d = driver(Vec::new());
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.done);
+        let mut s = table();
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.exhausted.insert(Technology::WormholeGenerator);
+        let mut d = driver(dests());
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        let mut s = table();
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.remove(Technology::WormholeGenerator);
+        let mut d = driver(dests());
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
     }
 }

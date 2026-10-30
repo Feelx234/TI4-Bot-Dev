@@ -13,6 +13,10 @@ pub enum Ask {
     PlaceUnits { unit: Unit, fit: u8 },
     /// ???_ERROR_ERROR_???, the PDS: "choose a planet you control" (the planets under the structure cap).
     C4rPds,
+    /// Orbital Drop (Sol): "onto which planet" (any planet the seat controls).
+    OrbitalPlanet,
+    /// Orbital Drop: the optional mech for 3 resources on the planet (its system, the planet and the mech form the string names).
+    OrbitalDeploy { system: System, planet: Planet, mech: Unit },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -20,6 +24,8 @@ pub enum Ask {
 pub enum Opt {
     /// Place the units on this planet of this system.
     Spot(System, Planet),
+    /// Orbital Drop: deploy the mech for 3 resources.
+    Deploy,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -29,4 +35,8 @@ pub enum Subtype {
     PlaceUnitsFromReinforcements,
     /// `c4r_planet`.
     C4rPlanet,
+    /// `orbital_drop_choose_planet`.
+    OrbitalPlanet,
+    /// `orbital_drop_deploy_mech`.
+    OrbitalDeploy,
 }

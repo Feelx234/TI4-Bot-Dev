@@ -123,6 +123,37 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
+    /// What the Wormhole Generator reads (the card, the tokens) and writes (the card, the token).
+    const WORMHOLE: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Explore, Slice::Pending], &[Slice::Players, Slice::Explore]);
+
+    /// The core half of Ghost's Wormhole Generator (`factions::ghost::perform_component`; the value: the action resolved). `destinations`
+    /// are the string's read of the map (`tokens::wormhole_generator_destinations`); the card must be the player's own.
+    pub fn wormhole_generator(gs: &mut GameState, player: &PlayerId, destinations: &[(&str, ti4_model::id::SystemId)], script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::rules::technology_windows::WormholeGenerator;
+        if !owned_ready(gs, player, "wg", false) {
+            crate::dual::note_bail_here("Wormhole Generator carried by something other than the player's own card");
+            return None;
+        }
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let destinations: Vec<(ti4_engine_core::generated::Wormhole, ti4_engine_core::generated::System)> = destinations
+            .iter()
+            .map(|(kind, system)| Some((crate::core_adapter::typed(kind)?, crate::core_adapter::typed(system.as_str())?)))
+            .collect::<Option<_>>()
+            .why(crate::dual::reason::UNKNOWN_ID)?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let mut driver = Driver::new(WormholeGenerator::new(seat, destinations), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = with_core(gs, &mut cx, Sources::default(), WORMHOLE, |core, _| drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
+            .why(crate::dual::reason::NOT_LENDABLE)?
+            .why(crate::dual::reason::DRIVER_REFUSED)?;
+        Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     /// The leaf writes (`grant`, `purge`, `exhaust_technology_text`): the seat's technologies, the units of a purged upgrade.
     const WRITES: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Players, Slice::Board]);
 
@@ -233,6 +264,9 @@ mod stub {
         None
     }
     pub fn production_biomes(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn wormhole_generator(_: &mut GameState, _: &PlayerId, _: &[(&str, ti4_model::id::SystemId)], _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
     pub fn vortex(
