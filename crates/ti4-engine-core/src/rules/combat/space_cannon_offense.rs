@@ -54,6 +54,9 @@ pub struct Facts {
     pub staging: bool,
     /// The unit forms whose card lets them fire into an adjacent system (the adapter reads the card text).
     pub reaching: Vec<Unit>,
+    /// The map slice is lent (a galaxy was given): the guns that reach in from adjacent systems can be found. Without it the
+    /// map is not read at all.
+    pub mapped: bool,
     /// Interned texts: the roll kind `space_cannon`, the loss cause `unit_ability:space_cannon`, the casualty subtype
     /// `assign_casualty`, the commander source `letnevcommander`.
     pub kind: Code,
@@ -108,7 +111,7 @@ impl SpaceCannonOffense {
     /// dropped, as the string drops them after staging their dice).
     fn roll(&mut self, sx: &mut Sx<'_>) {
         let (active, system) = (self.f.active, self.f.system);
-        let adjacency = qboard::adjacency(sx.state);
+        let adjacency = if self.f.mapped { qboard::adjacency(sx.state) } else { None };
         let rd = Self::rd(sx.state, sx.kernel);
         let guns = unit_guns(rd, system, active, adjacency.as_ref(), &self.f.reaching);
         let opponent = opponent_with_ships(rd, active, system);
