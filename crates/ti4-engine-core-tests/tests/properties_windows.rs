@@ -36,7 +36,7 @@ fn diplomacy(sc: Scenario) -> (Scenario, Diplomacy) {
     for p in controlled_by_zero(&sc.clone()) {
         sc = sc.exhaust(p);
     }
-    (sc, Diplomacy::new(Seat(0), StrategyCard::Diplomacy, DMode::Primary { base_printing: false }))
+    (sc, Diplomacy::new(Seat(0), StrategyCard::DiplomacyCodex, DMode::Primary { base_printing: false }))
 }
 
 fn converter(sc: Scenario) -> (Scenario, StellarConverter) {

@@ -115,7 +115,7 @@ fn diplomacy_table() -> (Scenario, Vec<ti4_engine_core::generated::System>, Vec<
 fn diplomacy_primary_locks_a_system_with_the_other_players_tokens_then_readies_two_planets() {
     covers!("rules::strategy_primaries::Diplomacy");
     let (sc, s, ps) = diplomacy_table();
-    let mut rig = Rig::new(sc, Diplomacy::new(Seat(0), StrategyCard::Diplomacy, DMode::Primary { base_printing: false }));
+    let mut rig = Rig::new(sc, Diplomacy::new(Seat(0), StrategyCard::DiplomacyCodex, DMode::Primary { base_printing: false }));
     rig.run();
     assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::DiplomacySystem));
     assert_eq!(rig.opts(), vec![strat(SOpt::System(s[0])), strat(SOpt::System(s[1])), strat(SOpt::System(s[2]))]);
@@ -136,7 +136,7 @@ fn diplomacy_primary_locks_a_system_with_the_other_players_tokens_then_readies_t
 fn diplomacy_secondary_only_readies_and_the_base_printing_readies_the_chosen_systems_planets_unasked() {
     covers!("rules::strategy_primaries::Diplomacy");
     let (sc, s, ps) = diplomacy_table();
-    let mut sec = Rig::new(sc.clone(), Diplomacy::new(Seat(0), StrategyCard::Diplomacy, DMode::Secondary));
+    let mut sec = Rig::new(sc.clone(), Diplomacy::new(Seat(0), StrategyCard::DiplomacyCodex, DMode::Secondary));
     sec.run();
     assert_eq!(sec.asked().ask, Ask::Strategy(SAsk::ReadyPlanet));
     assert_eq!(sec.asked().opts.len(), 3);
@@ -144,7 +144,7 @@ fn diplomacy_secondary_only_readies_and_the_base_printing_readies_the_chosen_sys
     sec.pick(0).pick(0);
     assert!(sec.is_done());
     assert_eq!(delta(sec.start_state(), &sec.state).lines().filter(|l| l.starts_with("planet[")).count(), 2);
-    let mut base = Rig::new(sc, Diplomacy::new(Seat(0), StrategyCard::Diplomacy, DMode::Primary { base_printing: true }));
+    let mut base = Rig::new(sc, Diplomacy::new(Seat(0), StrategyCard::DiplomacyBase, DMode::Primary { base_printing: true }));
     base.run();
     base.pick_opt(strat(SOpt::System(s[0])));
     assert!(base.is_done(), "the base printing asks nothing after the system");
@@ -158,16 +158,16 @@ fn diplomacy_primary_never_offers_mecatol_and_with_no_system_goes_straight_to_re
     let mecatol = ti4_engine_core::generated::System::MecatolRex18;
     let mecatol_planet = mecatol.data().planets[0];
     let sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[mecatol, plain_systems()[0]]).control(mecatol_planet, 0).exhaust(mecatol_planet);
-    let mut rig = Rig::new(sc, Diplomacy::new(Seat(0), StrategyCard::Diplomacy, DMode::Primary { base_printing: false }));
+    let mut rig = Rig::new(sc, Diplomacy::new(Seat(0), StrategyCard::DiplomacyCodex, DMode::Primary { base_printing: false }));
     rig.run();
     assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::ReadyPlanet), "Mecatol is not a legal choice; with no other system the ready part follows");
-    let none = Rig::new(Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]), Diplomacy::new(Seat(0), StrategyCard::Diplomacy, DMode::Secondary)).run().is_done();
+    let none = Rig::new(Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]), Diplomacy::new(Seat(0), StrategyCard::DiplomacyCodex, DMode::Secondary)).run().is_done();
     assert!(none, "nothing exhausted: nothing to do");
 }
 
 #[test]
 fn diplomacy_smoke() {
-    smoke("strategy_primaries/diplomacy", || Rig::new(diplomacy_table().0, Diplomacy::new(Seat(0), StrategyCard::Diplomacy, DMode::Primary { base_printing: false })));
+    smoke("strategy_primaries/diplomacy", || Rig::new(diplomacy_table().0, Diplomacy::new(Seat(0), StrategyCard::DiplomacyCodex, DMode::Primary { base_printing: false })));
 }
 
 // ---- Politics ---------------------------------------------------------------------------------

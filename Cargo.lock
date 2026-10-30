@@ -4167,6 +4167,7 @@ dependencies = [
  "ti4-content",
  "ti4-engine",
  "ti4-engine-core",
+ "ti4-engine-core-bridge",
  "ti4-engine-core-factions",
  "ti4-model",
 ]
