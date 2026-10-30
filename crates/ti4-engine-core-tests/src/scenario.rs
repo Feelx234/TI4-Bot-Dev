@@ -386,7 +386,12 @@ fn apply(s: &mut CoreState, op: &Op) {
             for _ in 0..*n {
                 let piece = Piece::new(*unit, Seat(*seat));
                 match planet {
-                    Some(p) => s.board.planet_mut(*p).units.push(piece),
+                    Some(p) => {
+                        // A planet that holds units has an entry in the string map: the flag the codec sets.
+                        let cell = s.board.planet_mut(*p);
+                        cell.flags.set(ti4_engine_core::state::PlanetFlags::UNITS_ENTRY, true);
+                        cell.units.push(piece);
+                    }
                     None => s.board.sys_mut(*system).units.push(piece),
                 }
             }
