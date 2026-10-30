@@ -82,6 +82,12 @@ pub struct Scenario {
     ops: Vec<Op>,
 }
 
+impl std::fmt::Debug for Scenario {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Scenario").field("factions", &self.factions).field("ops", &self.ops).finish()
+    }
+}
+
 /// The systems [`Scenario::map_ring`] uses: plain tiles (planets, no anomaly, no hyperlane, not a home system), in id order.
 #[must_use]
 pub fn plain_systems() -> Vec<System> {
