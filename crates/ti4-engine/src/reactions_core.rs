@@ -604,8 +604,10 @@ mod tests {
         let mut r = rec(&[slot], &[slot]);
         r.played = vec!["mb1".to_owned()];
         assert_eq!(r.unported(&t), None, "a Morale Boost is a stamp the core plays");
-        r.played = vec!["mb1".to_owned(), "reveal_prototype".to_owned()];
-        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card reveal_prototype)"));
+        r.played = vec!["mb1".to_owned(), "upgrade".to_owned()];
+        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card upgrade)"));
+        r.played = vec!["reveal_prototype".to_owned()];
+        assert_eq!(r.unported(&t), None, "W4: Reveal Prototype is played by the core");
         for card in ["courageous", "scramble", "reflective"] {
             r.played = vec![card.to_owned()];
             assert_eq!(r.unported(&t).as_deref(), Some(&*format!("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card {card})")), "{card} stays the string's");
@@ -620,7 +622,7 @@ mod tests {
         let mut r = rec(&[slot], &[slot]);
         r.played = vec!["sabo1".to_owned()];
         assert_eq!(r.unported(&table()), None, "a Sabotage is played at once by the core");
-        r.played = vec!["reveal_prototype".to_owned()];
+        r.played = vec!["upgrade".to_owned()];
         assert_eq!(r.unported(&table()).as_deref(), Some("unported ability reaction:*:ACTION_CARD_PLAYED:when (a card played at once)"));
     }
 

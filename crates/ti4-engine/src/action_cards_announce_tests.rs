@@ -340,16 +340,16 @@ fn bail_a_card_with_an_unported_effect_keeps_the_string_announcement() {
     let _ = crate::dual::take_report();
 }
 
-/// Bail: a card the core does not play (Reveal Prototype) played from the slot of a fight: the combat window that
+/// Bail: a card the core does not carry (Reveal Prototype below the technology payment choice, a version whose research the core window does not follow) played from the slot of a fight: the combat window that
 /// followed the offer bails with the reason, instead of comparing a play the core cannot make. (Skilled Retreat was this
 /// test's card until the reactions line registered its effect in the table; the census now names the card.)
 #[test]
 fn bail_an_unported_card_played_in_a_fight_bails_the_window_with_its_reason() {
     let _serial = crate::dual::tests::serial();
-    let (_, played, windows) = fights_naming(&["reveal_prototype"], &[], None, &|| Box::new(PlaySlots), true);
+    let (_, played, windows) = fights_naming(&["reveal_prototype"], &[], Some(5), &|| Box::new(PlaySlots), true);
     assert!(played > 0, "the card was played");
     assert!(
-        windows.keys().any(|k| k.starts_with("combat::begin_round [bail: nested (unported ability reaction:*:COMBAT_ROUND_STARTED:after (card reveal_prototype))]")),
+        windows.keys().any(|k| k.starts_with("combat::begin_round [bail: nested (a card cost the core does not judge)]")),
         "{windows:?}"
     );
 }

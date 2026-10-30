@@ -82,6 +82,10 @@ pub fn playable(s: &CoreState, k: &Kernel, facts: &AdapterFacts, barred: bool, w
 /// `action_cards::reaction_can_matter`: the printed cost first (rules version 23), then the per-card requirement
 /// for a window that names a system.
 fn can_matter(s: &CoreState, scope: Scope, who: Seat, card: ActionCard, event: &EventRec, facts: &AdapterFacts) -> Result<bool, Unknown> {
+    // Reveal Prototype is played by the core only for a seat the adapter vouches for (its research and its unit upgrades).
+    if card == ActionCard::RevealPrototype && !facts.plays.as_ref().and_then(|f| f.seats.iter().find(|p| p.who == who)).is_some_and(|p| p.reveal.is_some()) {
+        return Err(Unknown::CardCost);
+    }
     if s.meta().rules_at_least(RULES_ACTION_CARD_COSTS) {
         if card == ActionCard::Bribery {
             return Err(Unknown::BriberyGoods);
