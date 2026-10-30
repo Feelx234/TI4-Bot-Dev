@@ -268,8 +268,8 @@ fn reverse_engineer_takes_the_component_action_card_another_player_just_discarde
     s.transient_mut().combat.last_action_discarded = Some((Seat(1), component));
     play(&mut s, 0, Simple::ReverseEngineer);
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice(), &[component]);
-    assert!(!s.cards().discarded_action.iter().any(|c| *c == component), "it left the discard pile");
-    assert!(s.cards().discarded_action.iter().any(|c| *c == reaction));
+    assert!(!s.cards().discarded_action.contains(&component), "it left the discard pile");
+    assert!(s.cards().discarded_action.contains(&reaction));
     // Our own discard, or a card with a different window, or a card no longer in the pile: nothing.
     for (by, card) in [(Seat(0), component), (Seat(1), reaction)] {
         let mut t = four().state();

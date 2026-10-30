@@ -384,7 +384,8 @@ fn a_combat_whose_other_side_dies_to_the_barrage_alone_is_over_with_no_round_fou
 fn every_gate_the_string_side_closes_is_a_documented_bail() {
     covers!("rules::combat::machine::Machine");
     let base = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 2).unit(sys(), None, Unit::CruiserI, 1, 2);
-    let gates: Vec<(&str, Box<dyn Fn(&mut Env)>)> = vec![
+    type Gate<'a> = (&'a str, Box<dyn Fn(&mut Env)>);
+    let gates: Vec<Gate> = vec![
         ("opening", Box::new(|e| e.opening_unported = true)),
         ("barrage", Box::new(|e| e.barrage_unported = true)),
         ("roll", Box::new(|e| e.roll_unported = true)),

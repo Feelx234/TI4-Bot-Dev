@@ -283,7 +283,8 @@ fn ground_combat_values_and_pools_group_the_forces_by_number_ascending() {
     assert_eq!(ground_combat_value(rd(&s, &k), Seat(0), sys(), p1, Unit::InfantryII), Some(7));
     assert_eq!(ground_combat_value(rd(&s, &k), Seat(0), sys(), p1, Unit::PDSI), None, "a PDS does not roll in ground combat");
     let pools = ground_pools(rd(&s, &k), Seat(0), sys(), p1);
-    let shape: Vec<(i64, i64, Vec<(Unit, u32)>)> = pools.into_iter().map(|p: GroundPool| (p.value, p.dice, p.types)).collect();
+    type Shape = (i64, i64, Vec<(Unit, u32)>);
+    let shape: Vec<Shape> = pools.into_iter().map(|p: GroundPool| (p.value, p.dice, p.types)).collect();
     let mech_value = ground_combat_value(rd(&s, &k), Seat(0), sys(), p1, Unit::FactionlessMech).expect("a mech rolls");
     assert!(mech_value <= 6, "mechs hit on 6 or better");
     assert!(shape.windows(2).all(|w| w[0].0 < w[1].0), "ascending, one pool per value: {shape:?}");
