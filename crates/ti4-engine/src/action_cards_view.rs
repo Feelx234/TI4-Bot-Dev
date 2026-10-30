@@ -107,14 +107,15 @@ impl<'a> ActionView<'a> {
 
     /// The hand positions `action_cards::available_actions` offers; `None` is the documented bail.
     #[must_use]
-    pub fn playable_hand(&self, player: &PlayerId) -> Option<Vec<usize>> {
+    pub fn playable_hand(&self, player: &PlayerId, sources: ti4_model::content_types::SourceSet) -> Option<Vec<usize>> {
         let seat = self.cx.owners.seat(player.as_str())?;
         let gates = rules::Gates {
             faction_forbids: crate::factions::hooks_economy::action_cards_forbidden(self.state, player),
             political_secret_bars: crate::laws::political_secret_bars(self.state, player),
             goods: &|| crate::supply::potential_goods(self.state, player),
         };
-        let scope = crate::core_adapter::scope(ti4_model::content_types::SourceSet::all());
+        // The scope of the game, as the string's `is_playable` reads it (see `has_legal_target`).
+        let scope = crate::core_adapter::scope(sources);
         let hand = rules::playable_hand(&self.view, self.blanked, scope, seat, &gates)?;
         Some(hand.as_slice().iter().map(|i| usize::from(*i)).collect())
     }
