@@ -940,7 +940,7 @@ pub fn available_actions(
     let playable: Vec<usize> = crate::dual_typed!(
         crate::dual::Area::ActionCards,
         "action_cards::playable_hand",
-        crate::action_cards_typed::playable_hand(state, player),
+        crate::action_cards_typed::playable_hand(state, player, sources),
         seat.action_cards
             .iter()
             .enumerate()

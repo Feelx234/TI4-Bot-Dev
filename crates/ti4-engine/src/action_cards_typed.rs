@@ -178,14 +178,14 @@ pub(crate) fn play_window(
 }
 
 /// The hand positions `available_actions` offers (`None`: bail).
-pub(crate) fn playable_hand(state: &GameState, player: &PlayerId) -> Option<Vec<usize>> {
+pub(crate) fn playable_hand(state: &GameState, player: &PlayerId, sources: ti4_model::content_types::SourceSet) -> Option<Vec<usize>> {
     #[cfg(feature = "typed-core")]
     {
-        crate::action_cards_view::ActionView::of(state)?.playable_hand(player)
+        crate::action_cards_view::ActionView::of(state)?.playable_hand(player, sources)
     }
     #[cfg(not(feature = "typed-core"))]
     {
-        let _ = (state, player);
+        let _ = (state, player, sources);
         None
     }
 }
