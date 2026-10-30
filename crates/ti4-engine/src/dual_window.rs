@@ -1569,8 +1569,7 @@ const CUSTODIANS: Footprint = Footprint {
 /// The core half of `InvasionWindow::answer_custodians` (27.2, 27.3), recorded as the pending question and its
 /// answer (and, for the paid removal, the payment questions after it). The window ends owing the cost; the
 /// payment is the production package's `PayStep` window, run here (an area never imports another) until the bill
-/// is paid, and then the token comes down. `None` (the bail-outs): nested activity, a Naalu seat (the Matriarch's
-/// temporary ground forces are still string-only), a paid removal at a table with a faction the production
+/// is paid, and then the token comes down. `None` (the bail-outs): nested activity, a paid removal at a table with a faction the production
 /// window does not carry yet (`production_view::unported_window`), and a position the codecs refuse.
 #[must_use]
 pub fn custodians(
@@ -1586,10 +1585,6 @@ pub fn custodians(
     use ti4_engine_core::rules::invasion::stages::{lift, Custodians};
     use ti4_engine_core::rules::production::pay::{PayStep, Stage as PayStage};
     const LABEL: &str = "invasion::answer_custodians";
-    if gs.players.iter().any(|p| p.faction.as_str() == "naalu") {
-        crate::dual::note_bail(LABEL, "naalu seat");
-        return None;
-    }
     let paid_yes = script.questions.first().and_then(|q| q.answer.as_deref()) == Some("yes")
         && crate::invasion::custodians_cost(gs, ti4_content::ContentStore::embedded(), invader) != 0;
     if paid_yes && crate::production_view::unported_window(gs, invader) {

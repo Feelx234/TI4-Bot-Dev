@@ -12746,7 +12746,7 @@ mod ground_routes {
         let _guard = crate::dual::tests::serial();
         let mecatol = SystemId::new(crate::seating::MECATOL);
         let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual);
-        for seats in [[("a", "naaz"), ("b", "letnev")], [("a", "sol"), ("b", "nomad")], [("a", "sol"), ("b", "yssaril")], [("a", "mentak"), ("b", "naaz")]] {
+        for seats in [[("a", "naaz"), ("b", "letnev")], [("a", "sol"), ("b", "nomad")], [("a", "sol"), ("b", "yssaril")], [("a", "mentak"), ("b", "naaz")], [("a", "naalu"), ("b", "sol")], [("a", "sol"), ("b", "naalu")]] {
             let _ = take_report();
             with_mask(mask, || {
                 let mut state = crate::fixtures::seated_game(&seats, POK);
