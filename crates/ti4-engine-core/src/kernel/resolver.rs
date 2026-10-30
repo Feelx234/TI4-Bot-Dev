@@ -17,7 +17,7 @@ use crate::choice::reaction::{AbilityId, AbilityKind, Ask, Frequency, Opt, Relat
 use crate::choice::{self, Choice, Ctx, Opts, Origin, Pick};
 use crate::containers::{Cow, SmallList};
 use crate::ids::Seat;
-use crate::state::{Code, CoreState, EventKind, EventRec, Phase};
+use crate::state::{Code, CoreState, EventKind, EventRec, Phase, ResolverState};
 
 /// A registered ability (`timing::Ability`) without its closures: identity and metadata. `condition` and
 /// `effect` are the host's (`Host::condition`, `Host::effect`), selected by `id` and `arg`.
@@ -399,6 +399,31 @@ impl Resolver {
             used: UsedKeys::default(),
             round_number: 1,
             turn_number: 1,
+        }
+    }
+
+    /// A resolver for one window: the persistent part from `state`, the registry the caller derived. The
+    /// clock and the seats are the caller's to set (they are the state's own); no key is spent twice.
+    #[must_use]
+    pub fn from_state(state: &ResolverState, registry: Cow<Registry>) -> Self {
+        let mut r = Self::new(state.initiative.as_slice(), None);
+        r.registry = registry;
+        for (ability, scope, counter) in state.used.iter() {
+            r.spend(*ability, *scope, *counter);
+        }
+        r.set_emission_stack(&state.emission_stack);
+        r
+    }
+
+    /// The persistent part of this resolver, `next_id` being the driver's trace counter. The inverse of
+    /// [`Self::from_state`] for what it carries: `from_state(into_state(r))` spends the same keys in the same order.
+    #[must_use]
+    pub fn into_state(&self, next_id: u64) -> ResolverState {
+        ResolverState {
+            used: Cow::new(self.used_keys()),
+            initiative: self.initiative_order.clone(),
+            emission_stack: self.emission_stack.clone(),
+            next_id,
         }
     }
 
@@ -849,13 +874,7 @@ impl Resolver {
     }
 }
 
-/// The scope of a spent frequency key (read side of the private scope).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum UsedScope {
-    Trigger,
-    Turn,
-    Round,
-}
+pub use crate::state::UsedScope;
 
 /// A set of seats (the 16 owners fit a `u16`).
 #[derive(Debug, Clone, Copy, Default)]
@@ -880,6 +899,24 @@ mod tests {
 
     fn id(n: u16) -> AbilityId {
         AbilityId { kind: AbilityKind::Other, key: Code(n) }
+    }
+
+    #[test]
+    fn a_resolver_made_from_the_state_spends_the_same_keys_in_the_same_order() {
+        let mut r = Resolver::new(&[Seat(1), Seat(0)], Some(Seat(0)));
+        r.set_emission_stack(&[(EventKind::TurnBegan, 7)]);
+        r.spend(id(3), UsedScope::Round, 2);
+        r.spend(id(1), UsedScope::Trigger, 9);
+        r.spend(id(3), UsedScope::Turn, 5);
+        r.spend(id(3), UsedScope::Round, 2);
+        let state = r.into_state(12);
+        assert_eq!(state.next_id, 12);
+        assert_eq!(state.initiative.as_slice(), &[Seat(1), Seat(0)], "the resolver's own initiative order");
+        assert_eq!(state.used.len(), 3, "a key spent twice is one key");
+        let again = Resolver::from_state(&state, r.registry.clone());
+        assert_eq!(again.used_keys(), r.used_keys());
+        assert_eq!(again.emission_stack(), r.emission_stack());
+        assert_eq!(again.into_state(12), state);
     }
 
     fn ev(id: u64, kind: EventKind) -> EventRec {

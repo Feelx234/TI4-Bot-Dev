@@ -25,6 +25,7 @@ mod plain;
 mod piece;
 mod player;
 mod players;
+mod resolver;
 mod rng;
 mod seats;
 mod strategy;
@@ -56,6 +57,7 @@ pub use player::{
     PlayerLeaders, PlayerMisc, PlayerTech, ProductionTimers, ReactionMode, TechSet, Timers,
 };
 pub use players::Players;
+pub use resolver::{ResolverState, UsedScope};
 pub use rng::{Rng, RngDomain, SeedSource};
 pub use seats::{MAX_PLAYERS, Seats};
 pub use strategy::StrategyState;

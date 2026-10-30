@@ -30,6 +30,7 @@ impl Base {
         let mut sorted = Vec::with_capacity(items.len());
         let (mut i, mut j) = (0, 0);
         while i < older.sorted.len() && j < fresh.len() {
+            // the texts are distinct, so `<=` and `<` choose alike; mutants:skip
             if items[older.sorted[i] as usize] <= items[fresh[j] as usize] {
                 sorted.push(older.sorted[i]);
                 i += 1;
@@ -324,6 +325,31 @@ mod tests {
             assert_eq!(grown.find(t.as_bytes()), Some(n as u32));
             assert_eq!(whole.find(t.as_bytes()), Some(n as u32));
         }
+    }
+
+    #[test]
+    fn equality_looks_at_every_index_including_the_first() {
+        let a = Interner::sealed([&b"x"[..], b"c"]);
+        let b = Interner::sealed([&b"y"[..], b"c"]);
+        assert!(!a.shares_base_with(&b));
+        assert_ne!(a, b, "tables of the same length that differ only at index 0");
+        assert_eq!(a, Interner::sealed([&b"x"[..], b"c"]), "equal content, other base");
+    }
+
+    #[test]
+    fn emptiness_sharing_and_prefixes_have_their_edges() {
+        let mut a = Interner::default();
+        assert!(a.is_empty());
+        a.intern(b"1", CAP);
+        assert!(!a.is_empty());
+        assert!(a.extends(&a.clone()), "a table continues itself");
+        a.compact();
+        let mut b = a.clone();
+        assert!(a.shares_base_with(&b));
+        b.intern(b"2", CAP);
+        b.compact();
+        assert!(!a.shares_base_with(&b), "a compacted clone has its own base");
+        assert!(b.extends(&a) && !a.extends(&b));
     }
 
     #[test]

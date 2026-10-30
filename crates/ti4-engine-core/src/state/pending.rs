@@ -210,4 +210,7 @@ pub struct Pending {
     pub actions_this_turn: u8,
     /// `Game.prepared_turn_seq`: the turn whose start-of-turn work has run.
     pub prepared_turn_seq: Option<u32>,
+    /// What the timing resolver carries from window to window (D2-4b): spent frequency keys, the initiative
+    /// order it was made with, the open emissions, the next trace id.
+    pub resolver: super::ResolverState,
 }

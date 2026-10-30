@@ -114,6 +114,17 @@ mod tests {
     }
 
     #[test]
+    fn compact_seals_both_suffixes() {
+        let mut t = Texts::default();
+        t.codes.intern(b"c", CODE_CAPACITY);
+        t.blobs.intern(b"b", BLOB_CAPACITY);
+        assert_eq!((t.codes.local_len(), t.blobs.local_len()), (1, 1));
+        t.compact();
+        assert_eq!((t.codes.local_len(), t.blobs.local_len()), (0, 0));
+        assert_eq!((t.codes.find(b"c"), t.blobs.find(b"b")), (Some(1), Some(0)));
+    }
+
+    #[test]
     fn the_diplomacy_tag_is_the_models() {
         assert_eq!(DIPLOMACY_RULES_V1, ti4_model::diplomacy::DIPLOMACY_RULES_V1.as_bytes());
     }
@@ -127,7 +138,9 @@ mod tests {
         assert_eq!(t.id(Seat(3)), None);
         assert_eq!(t.len(), 3);
         assert!(OwnerTable::default().is_empty());
+        assert!(!t.is_empty());
         assert!(t.shares_with(&t.clone()));
+        assert!(!t.shares_with(&OwnerTable::new([&b"a"[..], b"b", b"c"])), "equal ids, not the same table");
         assert_eq!(t, OwnerTable::new([&b"a"[..], b"b", b"c"]));
     }
 }
