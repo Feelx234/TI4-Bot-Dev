@@ -9896,6 +9896,50 @@ mod tests {
         let _ = take_report();
     }
 
+    /// A fight that is over when the roll of a round is next (every ship of a side gone since the stage was entered) ends in the
+    /// `Rolling` stage, which the string leaves without another turn of its loop: the presentation keeps that stage's phase
+    /// (`resolving_hits`); the core machine used to take one more turn and say `complete`. Found by the soak.
+    #[test]
+    fn a_fight_over_at_the_roll_keeps_the_phase_of_its_stage_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
+            let content = ContentStore::embedded();
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = 1;
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &attacker(), 2);
+            put(&mut state, &system, "cruiser", &defender(), 1);
+            state.active_system = Some(system.clone());
+            state.active = Some(attacker());
+            let mut window = CombatWindow::new(&state, content, ti4_model::content_types::DEFAULT, &system);
+            // The defender's ships are gone when the round is about to roll.
+            state.system_mut(&system).units.retain(|u| u.owner != defender());
+            window.stage = Stage::Rolling { round: 1 };
+            let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(1));
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut ctx = Resolving {
+                content,
+                sources: ti4_model::content_types::DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+            };
+            window.settle_open(&mut state, &mut ctx).unwrap();
+            assert_ne!(state.combat_presentation.phase, "complete", "the string leaves the stage's phase");
+        }));
+        let r = report();
+        assert!(r.windows.get("combat::settle").is_some_and(|w| w.compared > 0), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
     /// The ship The Cavalry lends the Nomad flagship's ANTI-FIGHTER BARRAGE (Memoria II has one) rolls it in the round-1 barrage that
     /// follows the play; the note is played inside the window, so the lent stats are read from the core state, not from the position
     /// the window started in; found by the soak (a Hacan carrier, game 10 of the Thunder's Edge slice).

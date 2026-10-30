@@ -606,7 +606,10 @@ impl Machine {
                 Step::Opening { round } => {
                     if self.over(sx) {
                         self.conclude(sx, round - 1);
-                        continue;
+                        // The string returns here without another turn of the loop (no presentation): the phase of the stage stands.
+                        self.end_announce(sx);
+                        self.stop = Some(Stop::Over);
+                        return Some(Next::Done);
                     }
                     if self.open_round(sx, round)? && self.stop == Some(Stop::Scoring) {
                         return Some(Next::Done);
@@ -615,7 +618,10 @@ impl Machine {
                 Step::Rolling { round } => {
                     if self.over(sx) {
                         self.conclude(sx, round - 1);
-                        continue;
+                        // As above: the string's `Rolling` arm returns after `conclude`.
+                        self.end_announce(sx);
+                        self.stop = Some(Stop::Over);
+                        return Some(Next::Done);
                     }
                     self.start_roll(sx, round)?;
                 }
