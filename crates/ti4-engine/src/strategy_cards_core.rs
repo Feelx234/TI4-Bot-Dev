@@ -75,7 +75,7 @@ mod real {
     // -- command tokens (52.4) -----------------------------------------------------------------------------
 
     /// `tokens::with_pool_details`: the pools as they stand now and what the question hands out or moves.
-    fn pool_details(core: &CoreState, seat: Seat, letnev: bool, mode: &str, to_place: Option<usize>) -> serde_json::Map<String, Value> {
+    pub(crate) fn pool_details(core: &CoreState, seat: Seat, letnev: bool, mode: &str, to_place: Option<usize>) -> serde_json::Map<String, Value> {
         let (tactic, fleet, strategic) = core
             .players()
             .by_seat(seat)

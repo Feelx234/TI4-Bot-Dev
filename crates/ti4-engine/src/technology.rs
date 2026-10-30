@@ -198,6 +198,33 @@ pub fn start_turn(
     table: &mut Table,
     player: &PlayerId,
 ) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "technology::start_turn",
+        state,
+        |state: &mut GameState| {
+            result = start_turn_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::start_turn(state, player, script)
+    );
+    result
+}
+
+/// [`start_turn`] on the string engine: the oracle of the dual run.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the start window sequences several independent optional technologies"
+)]
+fn start_turn_string(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
     // Psychoarchaeology is a free action-phase window, not a component action.  Each ready
     // specialty planet may be converted once; declining preserves it for a later use.
     if state
@@ -383,6 +410,33 @@ pub fn start_turn(
     reason = "the end window sequences several independent optional technologies"
 )]
 pub fn end_turn(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "technology::end_turn",
+        state,
+        |state: &mut GameState| {
+            result = end_turn_string(state, content, sources, galaxy, table, player);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::end_turn(state, player, script)
+    );
+    result
+}
+
+/// [`end_turn`] on the string engine: the oracle of the dual run.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the end window sequences several independent optional technologies"
+)]
+fn end_turn_string(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -3708,5 +3762,19 @@ mod bf_f3_tests {
             state.system_state(&system).units[0].type_id.as_str(),
             "mentak_cruiser3"
         );
+    }
+}
+
+#[cfg(test)]
+mod order_tests {
+    use crate::generated::IdStr;
+
+    /// The string walks planets and systems in the text order of their ids (its maps are ordered by text); the core walks the
+    /// enums. Windows that list planets (Psychoarchaeology, Bio-Stims) rely on the two being the same order.
+    #[test]
+    fn the_planet_and_system_enums_are_in_the_text_order_of_their_ids() {
+        use ti4_engine_core::generated::{Planet, System};
+        assert!(Planet::ALL.windows(2).all(|w| w[0].as_str() < w[1].as_str()));
+        assert!(System::ALL.windows(2).all(|w| w[0].as_str() < w[1].as_str()));
     }
 }

@@ -268,7 +268,7 @@ macro_rules! uninhabited {
     )*};
 }
 uninhabited!(
-    technology, tokens,
+    tokens,
     legendary, promissory
 );
 
@@ -357,7 +357,7 @@ macro_rules! registry {
 
 registry! {
     Tactical => tactical::Fam,
-    Technology => unported!(technology),
+    Technology => technology::Fam,
     Objectives => objectives::Fam,
     Tokens => unported!(tokens),
     Reaction => reaction::Fam,
