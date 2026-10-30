@@ -15,7 +15,10 @@ fn short_config(max_steps: usize) -> String {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tools/engine_profile/profile-20.json");
     let mut value: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root).unwrap()).unwrap();
     value["limits"]["max_steps"] = serde_json::json!(max_steps);
-    let path = std::env::temp_dir().join(format!("bot_shadow_test_{}_{max_steps}.json", std::process::id()));
+    // Tests run in parallel threads: every call writes its own file (a shared one is read while another truncates it).
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("bot_shadow_test_{}_{max_steps}_{n}.json", std::process::id()));
     std::fs::write(&path, value.to_string()).unwrap();
     path.to_string_lossy().into_owned()
 }
@@ -136,9 +139,10 @@ fn a_spec_replays_its_game() {
     let (_, specs) = workload::specs(&config).unwrap();
     let spec = serde_json::to_string(&specs[3]).unwrap();
     let alone = shadow::config_of_spec(&spec).unwrap();
-    let path = std::env::temp_dir().join(format!("bot_shadow_spec_test_{}.json", std::process::id()));
+    let path = std::env::temp_dir().join(format!("bot_shadow_spec_test_{}_{}.json", std::process::id(), line!()));
     std::fs::write(&path, alone).unwrap();
-    let from_spec = run(path.to_str().unwrap(), &[0], &Config::default());
+    // the one-game config carries the default limits; the cut is the flag `--max-steps`
+    let from_spec = run(path.to_str().unwrap(), &[0], &Config { max_steps: Some(500), ..Config::default() });
     let from_config = run(&config, &[3], &Config::default());
     assert_eq!(from_spec.games[0].decisions_hash, from_config.games[0].decisions_hash);
     assert_eq!(from_spec.games[0].choices_hash, from_config.games[0].choices_hash);
@@ -155,6 +159,6 @@ fn bot_version_flag_reaches_both_halves() {
     // version 1 plays another game than version 6 (its tuning differs), so the decision chain differs
     assert_ne!(v1.games[0].decisions_hash, v6.games[0].decisions_hash);
     let mut bad = Config::default();
-    bad.bot.insert("bot_version".to_owned(), "99".to_owned());
+    bad.bot.insert("bot_version".to_owned(), "not-a-number".to_owned());
     assert!(shadow::run(&config, &bad, &|_| true, || Box::new(NoTyped)).is_err());
 }
