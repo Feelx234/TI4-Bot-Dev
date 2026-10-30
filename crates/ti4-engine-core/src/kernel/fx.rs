@@ -173,6 +173,38 @@ pub fn replenish_commodities(s: &mut CoreState, who: Seat) -> i32 {
     i32::from(gained)
 }
 
+/// `strategy_cards::replenish` with what the string announces after the commodity write: the `COMMODITIES_REPLENISHED`
+/// Cabal's agent listens to (`cabal::note_replenished`: staged only while a Cabal is seated, for a seat that holds commodities),
+/// then the Trade Agreement (`promissory::trade_agreement_on_replenish`): the owner's commodities become the holder's trade
+/// goods, the note goes home, and the holder's `TRADE_GOODS_GAINED` (source `source`) is staged. Returns how many commodities
+/// the replenish gained. `None` (nothing written) where the owner's faction is played by two seats, as
+/// `rules::trade::trade_agreement`. The Siphon event of an Obsidian plot is not here (a plot nobody can hold).
+pub fn replenish_announced(s: &mut CoreState, who: Seat, source: Code) -> Option<i32> {
+    let faction = s.players().by_seat(who)?.faction;
+    if s.players().iter().filter(|p| p.faction == faction).count() > 1 {
+        return None;
+    }
+    let gained = replenish_commodities(s, who);
+    let held = i32::from(s.players().by_seat(who).map_or(0, |p| p.econ.commodities));
+    if held > 0 && s.players().iter().any(|p| p.faction == crate::generated::Faction::TheVuilraithCabal) {
+        stage(s, event(EventKind::CommoditiesReplenished, Payload::new().with(Key::Player, Val::Seat(who)).with(Key::Commodities, Val::Int(i64::from(held)))));
+    }
+    let note = crate::state::NoteKey { note: crate::generated::PromissoryNote::TradeAgreement, faction };
+    if let Some(holder) = crate::query::promissory::holder_of(s, note.note, who) {
+        if held > 0 {
+            if let Some(p) = s.players_mut().by_seat_mut(who) {
+                p.econ.commodities = 0;
+            }
+            if let Some(h) = s.players_mut().by_seat_mut(holder) {
+                h.econ.trade_goods = h.econ.trade_goods.saturating_add(i16::try_from(held).unwrap_or(0));
+            }
+            give_back_note(s, note);
+            stage(s, trade_goods_gained(holder, held, source));
+        }
+    }
+    Some(gained)
+}
+
 /// The `TRADE_GOODS_GAINED` event of a gain (`player`, `amount`, `source`).
 #[must_use]
 pub fn trade_goods_gained(who: Seat, gained: i32, source: Code) -> EventRec {
@@ -512,6 +544,41 @@ mod tests {
         assert_eq!(staged[0].payload.int(Key::Amount), Some(2));
         assert_eq!(staged[1].payload.int(Key::Amount), Some(4));
         assert!(!has_staged(&s));
+    }
+
+    #[test]
+    fn a_replenish_announces_the_cabal_note_and_pays_a_trade_agreement_in_the_string_order() {
+        use crate::generated::PromissoryNote;
+        use crate::state::NoteKey;
+        let sol = Faction::ALL.into_iter().find(|f| f.data().commodities == 4).expect("a four-commodity faction");
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), sol), Player::new(Seat(1), Faction::TheVuilraithCabal), Player::new(Seat(2), Faction::ALL.into_iter().find(|f| *f != sol && *f != Faction::TheVuilraithCabal).unwrap())]);
+        s.seats = crate::state::Seats::new(&[Seat(0), Seat(1), Seat(2)], &[Seat(0), Seat(1), Seat(2)], 3);
+        let note = NoteKey { note: PromissoryNote::TradeAgreement, faction: sol };
+        s.cards_mut().promissory.edit().insert(note, Seat(2));
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.commodities = 1;
+        assert_eq!(replenish_announced(&mut s, Seat(0), Code(5)), Some(3), "the commodities gained");
+        let p = |seat: u8| s.players().by_seat(Seat(seat)).unwrap().econ.clone();
+        assert_eq!(p(0).commodities, 0, "the Trade Agreement took them");
+        assert_eq!(p(2).trade_goods, 4, "and the holder got them as trade goods");
+        assert_eq!(s.cards().promissory.get(&note), Some(&Seat(0)), "the note went home");
+        let staged = drain_staged(&mut s);
+        let kinds: Vec<_> = staged.iter().map(|e| e.kind).collect();
+        assert_eq!(kinds, vec![EventKind::CommoditiesReplenished, EventKind::TradeGoodsGained], "Cabal first, then the Trade Agreement");
+        assert_eq!(staged[0].payload.int(Key::Commodities), Some(4), "the note carries the commodities held after the replenish");
+        assert_eq!(staged[1].payload.seat(Key::Player), Some(Seat(2)));
+        assert_eq!(staged[1].payload.int(Key::Amount), Some(4));
+        // Without a Cabal and a note: the commodity write only, and nothing is staged.
+        let mut t = CoreState::all_loaded();
+        t.players = Players::from_vec(vec![Player::new(Seat(0), sol), Player::new(Seat(1), Faction::ALL.into_iter().find(|f| *f != sol && *f != Faction::TheVuilraithCabal).unwrap())]);
+        assert_eq!(replenish_announced(&mut t, Seat(0), Code(5)), Some(4));
+        assert!(!has_staged(&t));
+        assert_eq!(t.players().by_seat(Seat(0)).unwrap().econ.commodities, 4);
+        // Two seats of one faction: nothing is written.
+        let mut u = CoreState::all_loaded();
+        u.players = Players::from_vec(vec![Player::new(Seat(0), sol), Player::new(Seat(1), sol)]);
+        assert_eq!(replenish_announced(&mut u, Seat(0), Code(5)), None);
+        assert_eq!(u.players().by_seat(Seat(0)).unwrap().econ.commodities, 0);
     }
 
     #[test]

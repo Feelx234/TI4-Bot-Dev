@@ -2847,6 +2847,37 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Carth of Golden Sands replenishing a seat: a Cabal at the table hears it and a Trade Agreement of the replenished seat held by
+    /// another one pays that seat (package W10: both were the string's before). The staged events are pinned in the string's order.
+    #[test]
+    fn the_hacan_agent_replenish_announces_to_a_cabal_and_pays_a_trade_agreement_in_lockstep() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = seated_clean(&[("a", "hacan"), ("b", "sol"), ("c", "cabal")]);
+            holding(&mut state, "hacanagent", LeaderStatus::Readied);
+            state.player_mut(&PlayerId::new("b")).unwrap().commodities = 1;
+            // Sol's Trade Agreement is in the Cabal's hand.
+            state.promissory_notes.insert("ta:sol".to_owned(), PlayerId::new("c"));
+            let goods = state.player(&PlayerId::new("c")).unwrap().trade_goods;
+            assert!(use_scripted(&mut state, "hacanagent", None, vec!["b".to_owned()]));
+            assert_eq!(state.player(&PlayerId::new("b")).unwrap().commodities, 0, "the commodities went to the Trade Agreement's holder");
+            assert_eq!(state.player(&PlayerId::new("c")).unwrap().trade_goods, goods + 4);
+            assert_eq!(state.promissory_notes.get("ta:sol"), Some(&PlayerId::new("b")), "the note went home");
+            assert_eq!(
+                crate::supply::staged_event_types(&state),
+                ["COMMODITIES_REPLENISHED", "TRADE_GOODS_GAINED"].map(str::to_owned),
+                "the Cabal hears the replenish before the note takes the commodities"
+            );
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(window_counts("leaders::hacanagent"), (1, 0), "the core window ran: {r:?}");
+        let _ = take_report();
+    }
+
     /// Xxekir Grom (Thunder's Edge hero): the string arm and the core window put the same questions, take the same
     /// answers and leave the same position (units placed, planets readied), with and without the planet question.
     #[test]
@@ -3160,8 +3191,8 @@ mod tests {
             assert!(take(&mut state.clone(), "naaz_mech").is_some(), "the Naaz mech placement is announced by the core window");
             state.diplomacy.enabled = true;
             assert_eq!(take(&mut state, "sol_mech"), None, "a favour for another seat keeps a promise");
-            // A Cabal at the table: the replenish event is the string side's.
-            let mut state = seated_clean(&[("a", "hacan"), ("b", "cabal")]);
+            // Two seats of one faction: the Trade Agreement is keyed by faction, the string arm answers alone.
+            let mut state = seated_clean(&[("a", "hacan"), ("b", "hacan")]);
             holding(&mut state, "hacanagent", LeaderStatus::Readied);
             assert!(use_scripted(&mut state, "hacanagent", None, vec!["self".to_owned()]));
         });

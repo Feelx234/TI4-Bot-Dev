@@ -101,7 +101,7 @@ mod real {
     /// Xxekir Grom places units (a Naaz mech is announced: the staged event waits in the pending slice).
     const XXCHA_HERO: Footprint =
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board, Slice::Pending]);
-    const HACAN: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
+    const HACAN: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Pending], &[Slice::Players, Slice::Cards]);
 
     const BOARD: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Board]);
     /// [`BOARD`] for the writes that announce a Naaz mech (the staged event waits in the pending slice).
@@ -171,6 +171,21 @@ mod real {
                 || crate::factions::firmament_plots::siphon_watches(gs, &p.id)
                 || crate::promissory::holder_of(gs, "ta", &p.id).is_some()
         })
+    }
+
+    /// Why the core windows that replenish (the Trade primary and secondary, Carth of Golden Sands) cannot follow a table: a plot that
+    /// listens to commodity gains (Siphon: a Firmament/Obsidian seat, never seated in the lobby), or two seats of one faction (the Trade
+    /// Agreement and the option ids are keyed by faction). Cabal's `COMMODITIES_REPLENISHED` and the Trade Agreement are the core's
+    /// since package W10 (`fx::replenish_announced`).
+    pub(crate) fn replenish_window_unported(gs: &GameState) -> Option<&'static str> {
+        if gs.players.iter().any(|p| crate::factions::firmament_plots::siphon_watches(gs, &p.id)) {
+            return Some("a siphoning plot listens to the commodities a replenish gains");
+        }
+        let factions: Vec<&str> = gs.players.iter().map(|p| p.faction.as_str()).collect();
+        if factions.iter().enumerate().any(|(i, f)| factions[..i].contains(f)) {
+            return Some("two seats of one faction (the Trade Agreement is keyed by faction)");
+        }
+        None
     }
 
     /// The kernel of a leader window: no hooks, the game's source scope.
@@ -314,22 +329,26 @@ mod real {
             crate::dual::note_bail_here(why);
             return None;
         }
-        if replenish_causes_events(gs) {
-            crate::dual::note_bail_here("a replenishment that causes events the core does not hold (Cabal, a siphoning plot, a Trade Agreement)");
+        if let Some(why) = replenish_window_unported(gs) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(HacanAgent::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = Driver::new(HacanAgent::with_source(seat, r.code("trade_agreement")), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut staged = Vec::new();
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), HACAN, |core, _| {
-            crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, rendered| {
+            let driven = crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, rendered| {
                 rendered.details.insert("commodities".to_owned(), crate::strategy_cards::commodity_standing(&before, content, player));
-            })
+            });
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
         })
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
         let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
