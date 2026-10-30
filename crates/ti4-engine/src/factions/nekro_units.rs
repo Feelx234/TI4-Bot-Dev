@@ -544,10 +544,27 @@ pub(crate) fn use_leader(
     leader: &LeaderId,
 ) -> Option<bool> {
     match leader.as_str() {
-        AGENT => Some(malleon(context, player).unwrap_or(false)),
+        AGENT => Some(malleon_dual(context, player)),
         HERO => Some(flayesh(context, player).unwrap_or(false)),
         _ => None,
     }
+}
+
+/// Nekro Malleon as a window of the core (`rules::leader_windows::NekroMalleon`): the choice of the player, the payment, the card and
+/// what they change.
+fn malleon_dual(context: &mut TimingContext<'_>, owner: &PlayerId) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::nekro::malleon",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(malleon(&mut inner, owner).unwrap_or(false))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::leaders_core::nekro_agent(s, owner, sources, script)
+    )
 }
 
 /// Nekro Malleon: the owner chooses a player who could pay; that player may discard 1 action card or
@@ -1792,6 +1809,63 @@ mod tests {
         let goods = state.player(&a()).unwrap().trade_goods;
         assert_eq!(use_malleon(&mut state, &["a", "token|fleet"]), Some(true));
         assert_eq!(state.player(&a()).unwrap().trade_goods, goods + 2);
+    }
+
+    /// Nekro Malleon is a window of the core: the choice of the payer, the payment, the card among the distinct printed cards of the
+    /// hand, the staged discard and the announced gain. The core half agrees with the string for a token, a lone card, a card among
+    /// several (two copies of one printed card are one option), a decline and a table where nobody could pay, and it ran every time;
+    /// a seat that does not hold the agent readied keeps the string body, counted.
+    #[test]
+    fn nekro_malleon_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |cards: &[&str], answers: &[&str], broke: bool| -> (Option<bool>, GameState) {
+            let mut state = battle(0);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            for seat in &mut state.players {
+                seat.action_cards.clear();
+                if broke {
+                    seat.tactic_tokens = 0;
+                    seat.fleet_tokens = 0;
+                    seat.strategic_tokens = 0;
+                }
+            }
+            for card in cards {
+                give_card(&mut state, &b(), card);
+            }
+            let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || use_malleon(&mut state, answers));
+            (done, state)
+        };
+        let (done, state) = run(&[], &["b", "token|tactic"], false);
+        assert_eq!(done, Some(true));
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 2);
+        let (done, state) = run(&["bunker"], &["b", "discard"], false);
+        assert_eq!(done, Some(true));
+        assert!(state.player(&b()).unwrap().action_cards.is_empty());
+        let (done, state) = run(&["bunker", "bribery", "dh1", "dh2"], &["b", "discard", "dh1"], false);
+        assert_eq!(done, Some(true));
+        assert_eq!(state.player(&b()).unwrap().action_cards.len(), 3);
+        assert_eq!(run(&["bunker"], &["b", "decline"], false).0, Some(true));
+        assert_eq!(run(&[], &["a", "token|fleet"], false).0, Some(true));
+        assert_eq!(run(&[], &[], true).0, Some(false));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::nekro::malleon"), (6, 0), "{r:?}");
+        // A seat that does not hold the agent readied (a copy through Ssruu) keeps the string body, counted.
+        let mut spent = battle(0);
+        spent.promissory_notes.clear();
+        spent.promissory_faceup.clear();
+        spent.player_mut(&a()).unwrap().leaders.insert(agent(), LeaderStatus::Exhausted);
+        let seen = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            crate::dual::run_dual_window(Area::LeadersAbilities, "factions::nekro::malleon", &mut spent, |s| crate::dual::Run::new(s.player(&a()).is_some()), |s, script| crate::leaders_core::nekro_agent(s, &a(), DEFAULT, script))
+        });
+        assert!(seen);
+        let r = report();
+        assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::malleon [") && label.contains("does not hold it readied")), "{r:?}");
+        let _ = take_report();
     }
 
     // -- UNIT.DSGN.FLAYESH ------------------------------------------------------------------------

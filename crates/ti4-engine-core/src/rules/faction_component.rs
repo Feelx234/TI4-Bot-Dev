@@ -224,7 +224,9 @@ mod tests {
         assert!(!terraform(&mut s, Seat(0), other, false), "once in the game, on any planet");
         // The conditions, one at a time.
         refused(setup(), planet, true);
-        refused(setup(), Planet::MecatolRex, false);
+        let mut mecatol = setup();
+        mecatol.board_mut().planet_mut(Planet::MecatolRex).control = Some(Seat(0));
+        refused(mecatol, Planet::MecatolRex, false);
         let mut not_mine = setup();
         not_mine.board_mut().planet_mut(planet).control = Some(Seat(1));
         refused(not_mine, planet, false);

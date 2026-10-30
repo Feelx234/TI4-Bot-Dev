@@ -14,7 +14,11 @@ leaders, Military Support, `check_unlocks`, the rest of W12/W13/W14. Pure refact
 | Nekro `???_ERROR_ERROR_???` repair (W11) | `faction_component::c4r_repair` | `faction_dual`, `factions::nekro_units` | `factions::nekro::c4r_repair` |
 | Terraform, Titans note (W11) | `faction_component::terraform` | `faction_dual`, `factions::titans_leaders` | `factions::titans::terraform` |
 
-Lines in `docs/ENGINE_KNOWN_ISSUES.md`: W14-design-03, W11-design-02, W10-design-04. The three gate tables lose these ids
+| Nekro Malleon, Nekro agent (W10) | `leader_windows::NekroMalleon`, `kernel::fx::discard_action_card_staged` | `leaders_core::nekro_agent`, `factions::nekro_units::malleon_dual` | `factions::nekro::malleon` |
+| Stall Tactics, Yssaril (W11) | `promissory_windows::StallTactics` (+ `PlaceUnits`) | `faction_dual::stall_tactics`, `factions::yssaril::stall_tactics` | `factions::yssaril::stall_tactics` |
+| Vortex, Cabal (W11) | `technology_windows::Vortex` | `technology_dual::vortex`, `factions::cabal::vortex_perform` | `factions::cabal::vortex` |
+
+Lines in `docs/ENGINE_KNOWN_ISSUES.md`: W14-design-03, W11-design-02, W11-design-03, W10-design-04, W10-design-05. The three gate tables lose these ids
 (`leaders::string_only_leader`, `faction_abilities::string_only_component`); their gate tests are updated.
 
 New counted bails (each with a test): a Saar seat whose adjacency a faction rule changes (`the_hero_stays_in_the_string_where_a_faction_rule_changes_the_adjacency`),
@@ -29,19 +33,16 @@ breakthrough event (Thunder's Edge). Nothing is lent there.
 ## Still counted gates (string body, named in the census), with the reason
 
 Action leaders (`leaders::use_leader [gate: <id>: ...]`): arborec agent (a replacement of a ship, cost ceilings and the box, another seat answers),
-arborec hero and muaat agent (production windows of lane 1, W5), nekro agent (Malleon: four questions, two asked of another seat, a staged discard
-mark: not started), nekro hero, naaz hero and winnu hero (a strategy card as the child of a leader window), empyrean hero (exploration composition),
+arborec hero and muaat agent (production windows of lane 1, W5), nekro hero, naaz hero and winnu hero (a strategy card as the child of a leader window), empyrean hero (exploration composition),
 cabal hero (hunt over rifts and ships), argent hero (fleet migration over the movement windows), yin hero (invasion composition), yssaril hero
 (reveal rules and the game's random stream), mahact hero (tactical composition).
 
 Faction component actions (`faction_abilities::perform_component [gate: ...]`): orbital drop (Sol; payment child and a placement of a mech), muaat
 (Star Forge: placement and production of lane 1), ghost Wormhole Generator (a Creuss token is a state of the string map: the core has no
 window that writes it), saar Deorbit Barrage and arborec Psychospore (Thunder's Edge breakthroughs: undecided, nothing ported), titans
-(none left), naaz (fabrication/BMF: relic gain and fragments), yssaril (Stall Tactics: the own-hand question exists as a typed read, but
-the staged discard mark has no core writer; Mageon Implants: the look-and-take), cabal Vortex (targets over the map, capture from the
-reinforcements), arborec Psychospore (TE), nekro C4R place PDS and draw (structure cap, hand and deck stream), mahact (Imperia).
+(none left), naaz (fabrication/BMF: relic gain and fragments), yssaril (Mageon Implants: the look-and-take of another seat's hand), arborec Psychospore (TE), nekro C4R place PDS and draw (structure cap, hand and deck stream), mahact (Imperia).
 
-Next in line, cheapest first: the `CardsStaged` mark writer (unblocks Stall Tactics, the Nekro agent and C4R draw), then Malleon, then Cabal Vortex.
+Next in line, cheapest first: C4R draw (the staged discard exists now; the draw needs the deck stream), Mageon Implants, the Arborec agent, Naaz fabrication.
 
 Not mine: W12 Chaos Mapping / Minister of Industry / Freelancers and W13 `frln*` (lane 1's production window), the exploration reward
 composition (D1), `control_gained` (Keleres: dropped), `technology::component_actions`/`perform_component` (D1b dispatch).

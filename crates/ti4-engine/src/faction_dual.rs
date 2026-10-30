@@ -21,6 +21,12 @@ mod real {
     use crate::dual::{CoreWindow, Run, Why};
     use crate::dual_window::Recording;
 
+    /// What Stall Tactics reads (hand, planets, box, laws) and writes (hand, the staged discard mark, the units).
+    const STALL: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks, Slice::Pending],
+        &[Slice::Players, Slice::Board, Slice::Marks],
+    );
+
     /// What the leaf bodies read (the cards, the planets, the box) and write (the exhausted card, the units).
     const LEAF: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks], &[Slice::Players, Slice::Board]);
 
@@ -55,6 +61,44 @@ mod real {
             .ok()
             .why(crate::dual::reason::NOT_LENDABLE)?;
         Some(CoreWindow { run: Run::new(done).with_events_vec(Vec::new()), questions: Vec::new() })
+    }
+
+    /// The core half of Yssaril's Stall Tactics (`factions::yssaril::stall_tactics`; the value: the action resolved). `mech` is the form the
+    /// seat would place (`None`: nothing, or a faction rule forbids it).
+    pub fn stall_tactics(
+        gs: &mut GameState,
+        player: &PlayerId,
+        mech: Option<&UnitTypeId>,
+        sources: ti4_model::content_types::SourceSet,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::driver::Driver;
+        use ti4_engine_core::kernel::stage::AbilityTable;
+        use ti4_engine_core::kernel::{Kernel, Resolver};
+        use ti4_engine_core::rules::promissory_windows::StallTactics;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let unit = match mech {
+            Some(id) => Some(crate::core_adapter::typed::<Unit>(id.as_str()).why("a unit form the typed tables do not know")?),
+            None => None,
+        };
+        let scope = scope(sources)?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let mut table = AbilityTable::default();
+        table.facts.card_groups = crate::reactions_core::card_groups();
+        let mut driver = Driver::new(StallTactics::new(seat, unit, scope, r.code("stall_tactics"), r.code("yssaril_mech")), Resolver::new(&seats, Some(seat)), table, 1);
+        let driven = with_core(gs, &mut cx, Sources::default(), STALL, |core, _| {
+            crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|c, _, rendered| crate::render::promissory::complete_place_units(c, rendered))
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
     /// What Terraform reads and writes: the note (Cards), the planet and its attachment (Board).
@@ -118,6 +162,15 @@ mod stub {
         None
     }
     pub fn terraform(_: &mut GameState, _: &PlayerId, _: &str, _: bool, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn stall_tactics(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: Option<&UnitTypeId>,
+        _: ti4_model::content_types::SourceSet,
+        _: &Recording,
+    ) -> Option<CoreWindow<bool>> {
         None
     }
 }

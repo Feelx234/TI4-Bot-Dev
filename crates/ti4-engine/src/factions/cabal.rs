@@ -1577,6 +1577,26 @@ fn vortex_perform(
     if !is_cabal(context.state, player) || !technology_ready(context.state, player, VORTEX) {
         return false;
     }
+    // The whole action is a window of the core (`rules::technology_windows::Vortex`): the choice of the unit type and the capture.
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "factions::cabal::vortex",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(vortex_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::vortex(s, player, galaxy, sources, script)
+    )
+}
+
+/// [`vortex_perform`] on the string engine: the oracle of the dual run.
+fn vortex_string(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+) -> bool {
     let Some(galaxy) = context.galaxy else {
         return false;
     };
@@ -2562,6 +2582,45 @@ mod tests {
             vec![(b(), UnitTypeId::new("dreadnought"))],
             "only the selected type is captured"
         );
+    }
+
+    /// Vortex is a window of the core: the unit types of the other seats next to a dock (structures and the neutral owner left out),
+    /// the question when there are several, the capture and the exhaustion. The core half agrees with the string for one target, a
+    /// choice among two, no target and a structure that is not a target, and it ran every time; a Valefar copy of the card keeps the
+    /// string body, counted.
+    #[test]
+    fn vortex_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |units: &[&str], answers: &[&str]| -> (bool, GameState) {
+            let (mut state, hub, _) = vortex_scene();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let target = SystemId::new(hub.outer[0].clone());
+            for unit in units {
+                state.system_mut(&target).units.push(Unit::new(UnitTypeId::new(*unit), b()));
+            }
+            let done = with_mask(AreaMask::STRING.with(Area::Technology, Backend::Dual), || {
+                crate::fixtures::with_context(&mut state, DEFAULT, Some(&hub.galaxy), &mut scripted(answers), |ctx| {
+                    vortex_perform(ctx, &a(), &ChoiceOption::labelled(VORTEX_ACTION, "component", ""))
+                })
+            });
+            (done, state)
+        };
+        let (done, state) = run(&["cruiser"], &[]);
+        assert!(done);
+        assert_eq!(crate::supply::captured_by(&state, &a()), vec![(b(), UnitTypeId::new("cruiser"))]);
+        let (done, state) = run(&["cruiser", "dreadnought"], &[&format!("{}|dreadnought", b().as_str())]);
+        assert!(done);
+        assert_eq!(crate::supply::captured_by(&state, &a()), vec![(b(), UnitTypeId::new("dreadnought"))]);
+        assert!(!run(&[], &[]).0, "nothing next to the dock");
+        assert!(!run(&["pds"], &[]).0, "a structure is no target");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::cabal::vortex"), (4, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

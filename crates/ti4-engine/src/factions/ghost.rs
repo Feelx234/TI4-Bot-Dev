@@ -2689,6 +2689,27 @@ mod tests {
         let _ = take_report();
     }
 
+    /// While a recorded map edit has not been replayed onto the map, the window would offer systems at positions the map no longer has: the
+    /// string body keeps it, counted. Fails when the guard is removed (the core half would then run and compare a position it cannot judge).
+    #[test]
+    fn riftwalker_meian_stays_in_the_string_while_a_recorded_edit_is_not_replayed() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let galaxy = galaxy();
+        let mut state = hero_game();
+        state.faction_marks.insert("map_edit|0000".to_owned(), "swap|19|39".to_owned());
+        let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            with_context(&mut state, DEFAULT, Some(&galaxy), &mut scripted(&["decline"]), |ctx| use_leader(ctx, &a(), &hero()))
+        });
+        assert_eq!(done, Some(false));
+        let r = report();
+        assert_eq!(crate::dual::thread_window_counts("factions::ghost::hero_swap"), (0, 1), "{r:?}");
+        assert!(r.windows.keys().any(|label| label.starts_with("factions::ghost::hero_swap [") && label.contains("not replayed")), "{r:?}");
+        let _ = take_report();
+    }
+
     #[test]
     fn riftwalker_meian_refuses_the_gate_the_home_system_the_nexus_and_fracture_systems() {
         for excluded in ["17", "51", "82a", "fracture1"] {

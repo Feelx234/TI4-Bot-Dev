@@ -687,6 +687,204 @@ impl Window for RiftwalkerMeian {
     }
 }
 
+// -- Nekro Malleon ----------------------------------------------------------------------------------
+
+/// The suspension points of [`NekroMalleon`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MStage {
+    Start,
+    Player,
+    Payment(Seat),
+    Card(Seat),
+    Done,
+}
+
+/// Nekro Malleon (Nekro agent): "ACTION: Exhaust this card and choose a player who could pay: that player may discard 1 action card or
+/// spend 1 command token from their command sheet to gain 2 trade goods" (the token returns to the supply). The owner chooses the player
+/// (no question when one player could pay), that player answers a card, a pool or neither (always asked), and a card is asked again among
+/// the distinct printed cards of the hand (no question when there is one). The agent was used whatever the answer; nothing changes before
+/// the last answer. The discard is staged for the game step (a `CardsStaged` mark) and the gain is announced. `source` is the interned
+/// `nekroagent`, the source of the trade goods.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NekroMalleon {
+    pub who: Seat,
+    source: Code,
+    stage: MStage,
+    /// The printed-name group of each action card, read from the table's facts when the hand is first looked at.
+    groups: Vec<u8>,
+    pub used: bool,
+}
+
+impl NekroMalleon {
+    #[must_use]
+    pub fn new(who: Seat, source: Code) -> Self {
+        Self { who, source, stage: MStage::Start, groups: Vec::new(), used: false }
+    }
+
+    fn pools(core: &CoreState, seat: Seat) -> Vec<crate::choice::strategy::Pool> {
+        use crate::choice::strategy::Pool;
+        let Some(p) = core.players().by_seat(seat) else { return Vec::new() };
+        [(Pool::Tactic, p.econ.tactic_tokens), (Pool::Fleet, p.econ.fleet_tokens), (Pool::Strategic, p.econ.strategic_tokens)]
+            .into_iter()
+            .filter(|(_, tokens)| *tokens > 0)
+            .map(|(pool, _)| pool)
+            .collect()
+    }
+
+    fn can_pay(core: &CoreState, seat: Seat) -> bool {
+        core.players().by_seat(seat).is_some_and(|p| !p.cards.hand.is_empty()) || !Self::pools(core, seat).is_empty()
+    }
+
+    fn payers(core: &CoreState) -> Vec<Seat> {
+        core.players().iter().map(|p| p.seat).filter(|seat| Self::can_pay(core, *seat)).collect()
+    }
+
+    /// One option per printed card of the hand, the first copy, in the order of the printed names (`first_of_each`).
+    fn cards(core: &CoreState, groups: &[u8], seat: Seat) -> Vec<crate::generated::ActionCard> {
+        let Some(p) = core.players().by_seat(seat) else { return Vec::new() };
+        let mut seen: Vec<u8> = Vec::new();
+        let mut firsts: Vec<crate::generated::ActionCard> = Vec::new();
+        for card in p.cards.hand.as_slice() {
+            let Some(group) = groups.get(*card as usize).copied() else { return Vec::new() };
+            if !seen.contains(&group) {
+                seen.push(group);
+                firsts.push(*card);
+            }
+        }
+        firsts.sort_by_key(|card| card.name_rank());
+        firsts
+    }
+
+    fn gain(&mut self, s: &mut CoreState, target: Seat) {
+        fx::gain_trade_goods_staged(s, target, 2, self.source);
+    }
+
+    fn discard(&mut self, s: &mut CoreState, target: Seat, card: crate::generated::ActionCard) {
+        if fx::discard_action_card_staged(s, target, card) {
+            self.gain(s, target);
+        }
+    }
+
+    fn finish(&mut self) {
+        self.used = true;
+        self.stage = MStage::Done;
+    }
+
+    fn card_ctx(&self) -> Ctx {
+        use crate::choice::cards::Reason;
+        let mut c = ctx(Leader::NekroMalleon, LSub::NekroPlayer);
+        c.subtype = Subtype::Cards(Reason::MalleonDiscard.subtype());
+        c
+    }
+}
+
+impl Window for NekroMalleon {
+    type Stage = MStage;
+
+    fn stage(&self) -> MStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == MStage::Start {
+            let payers = Self::payers(sx.state);
+            self.stage = match payers.as_slice() {
+                [] => MStage::Done,
+                [only] => MStage::Payment(*only),
+                _ => MStage::Player,
+            };
+        }
+        match self.stage {
+            MStage::Player => Next::Continue(Ask::Leaders(LAsk::NekroPlayer)),
+            MStage::Payment(_) => Next::Continue(Ask::Leaders(LAsk::NekroPayment)),
+            MStage::Card(_) => Next::Continue(Ask::Cards(crate::choice::cards::Ask::OwnHand { reason: crate::choice::cards::Reason::MalleonDiscard })),
+            MStage::Start | MStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        use crate::choice::cards::{Ask as CAsk, Opt as COpt, Reason};
+        match self.stage {
+            MStage::Player => Some(Choice {
+                actor: self.who,
+                ask: Ask::Leaders(LAsk::NekroPlayer),
+                ctx: ctx(Leader::NekroMalleon, LSub::NekroPlayer),
+                opts: Self::payers(s).into_iter().map(|seat| Opt::Leaders(LOpt::Player(seat))).collect::<Opts>(),
+            }),
+            MStage::Payment(target) => {
+                let mut opts = Opts::default();
+                if s.players().by_seat(target).is_some_and(|p| !p.cards.hand.is_empty()) {
+                    opts.push(Opt::Leaders(LOpt::Discard));
+                }
+                for pool in Self::pools(s, target) {
+                    opts.push(Opt::Leaders(LOpt::Token(pool)));
+                }
+                opts.push(Opt::Decline);
+                Some(Choice { actor: target, ask: Ask::Leaders(LAsk::NekroPayment), ctx: ctx(Leader::NekroMalleon, LSub::NekroPayment), opts })
+            }
+            MStage::Card(target) => {
+                let groups = self.groups.as_slice();
+                Some(Choice {
+                    actor: target,
+                    ask: Ask::Cards(CAsk::OwnHand { reason: Reason::MalleonDiscard }),
+                    ctx: self.card_ctx(),
+                    opts: Self::cards(s, groups, target).into_iter().map(|card| Opt::Cards(COpt::Card(card))).collect::<Opts>(),
+                })
+            }
+            MStage::Start | MStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        use crate::choice::cards::Opt as COpt;
+        match (self.stage, pick) {
+            (MStage::Player, Pick::Opt(Opt::Leaders(LOpt::Player(seat)))) if Self::payers(sx.state).contains(&seat) => {
+                self.stage = MStage::Payment(seat);
+                Ok(())
+            }
+            (MStage::Payment(_), Pick::Opt(Opt::Decline)) => {
+                self.finish();
+                Ok(())
+            }
+            (MStage::Payment(target), Pick::Opt(Opt::Leaders(LOpt::Discard))) => {
+                let groups = sx.table.facts.card_group_table().map(<[u8]>::to_vec).unwrap_or_default();
+                let cards = Self::cards(sx.state, &groups, target);
+                match cards.as_slice() {
+                    [] => return Err(Illegal),
+                    [only] => {
+                        self.discard(sx.state, target, *only);
+                        self.finish();
+                    }
+                    _ => {
+                        self.groups = groups;
+                        self.stage = MStage::Card(target);
+                    }
+                }
+                Ok(())
+            }
+            (MStage::Payment(target), Pick::Opt(Opt::Leaders(LOpt::Token(pool)))) if Self::pools(sx.state, target).contains(&pool) => {
+                if let Some(p) = sx.state.players_mut().by_seat_mut(target) {
+                    let slot = match pool {
+                        crate::choice::strategy::Pool::Tactic => &mut p.econ.tactic_tokens,
+                        crate::choice::strategy::Pool::Fleet => &mut p.econ.fleet_tokens,
+                        crate::choice::strategy::Pool::Strategic => &mut p.econ.strategic_tokens,
+                    };
+                    *slot -= 1;
+                }
+                self.gain(sx.state, target);
+                self.finish();
+                Ok(())
+            }
+            (MStage::Card(target), Pick::Opt(Opt::Cards(COpt::Card(card)))) if Self::cards(sx.state, self.groups.as_slice(), target).contains(&card) => {
+                self.discard(sx.state, target, card);
+                self.finish();
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 // -- Rin, the Masters' Legacy -----------------------------------------------------------------------
 
 /// The suspension points of [`RinHero`].
@@ -1379,6 +1577,122 @@ mod tests {
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done, "the string arm had no map");
         let mut d = driver(RiftwalkerMeian::new(Seat(0), true, swap_facts(&[p[0].0, p[1].0, p[2].0], &[p[0].0])));
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done, "one system only");
+        assert!(!d.window.used);
+    }
+
+    // -- Nekro Malleon -----------------------------------------------------------------------------
+
+    fn malleon_driver(seats: u8) -> Driver<NekroMalleon> {
+        let mut t = AbilityTable::default();
+        t.facts.card_groups = (0..crate::generated::ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
+        let seat_list: Vec<Seat> = (0..seats).map(Seat).collect();
+        Driver::new(NekroMalleon::new(Seat(0), Code(5)), Resolver::new(&seat_list, Some(Seat(0))), t, 1)
+    }
+
+    fn broke(s: &mut CoreState, seat: u8) {
+        let econ = &mut s.players_mut().by_seat_mut(Seat(seat)).unwrap().econ;
+        (econ.tactic_tokens, econ.fleet_tokens, econ.strategic_tokens) = (0, 0, 0);
+    }
+
+    fn give(s: &mut CoreState, seat: u8, cards: &[crate::generated::ActionCard]) {
+        let hand = &mut s.players_mut().by_seat_mut(Seat(seat)).unwrap().cards.hand;
+        for card in cards {
+            hand.push(*card);
+        }
+    }
+
+    fn goods(s: &CoreState, seat: u8) -> i16 {
+        s.players().by_seat(Seat(seat)).unwrap().econ.trade_goods
+    }
+
+    #[test]
+    fn malleon_asks_a_lone_payer_only_for_the_payment_and_a_token_returns_to_the_supply_for_two_trade_goods() {
+        use crate::choice::strategy::Pool;
+        let (k, mut s) = (kernel(), table(3));
+        for seat in 0..3 {
+            broke(&mut s, seat);
+        }
+        s.players_mut().by_seat_mut(Seat(2)).unwrap().econ.fleet_tokens = 2;
+        s.players_mut().by_seat_mut(Seat(2)).unwrap().econ.strategic_tokens = 1;
+        let mut d = malleon_driver(3);
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!((q.actor, q.ask), (Seat(2), Ask::Leaders(LAsk::NekroPayment)), "one payer: no choice of player, and the payer answers");
+        assert_eq!(q.opts.as_slice(), &[Opt::Leaders(LOpt::Token(Pool::Fleet)), Opt::Leaders(LOpt::Token(Pool::Strategic)), Opt::Decline], "no card, no empty pool");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Token(Pool::Tactic)))), Err(DriverError::Illegal));
+        assert_eq!(goods(&s, 2), 0, "nothing before a legal answer");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Token(Pool::Fleet)))).unwrap(), Status::Done);
+        assert!(d.window.used);
+        let p = s.players().by_seat(Seat(2)).unwrap();
+        assert_eq!((p.econ.fleet_tokens, p.econ.strategic_tokens, p.econ.trade_goods), (1, 1, 2));
+        assert_eq!(s.pending().staged.len(), 1, "the gain is announced");
+    }
+
+    #[test]
+    fn malleon_lets_the_owner_pick_among_several_payers_and_the_payer_may_decline_which_still_uses_the_agent() {
+        let (k, mut s) = (kernel(), table(3));
+        for seat in [0, 2] {
+            s.players_mut().by_seat_mut(Seat(seat)).unwrap().econ.tactic_tokens = 3;
+        }
+        let mut d = malleon_driver(3);
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!((q.actor, q.ask), (Seat(0), Ask::Leaders(LAsk::NekroPlayer)));
+        let paying: Vec<Opt> = [0u8, 2].into_iter().map(|i| Opt::Leaders(LOpt::Player(Seat(i)))).collect();
+        assert_eq!(q.opts.as_slice(), paying.as_slice(), "the seats that could pay, in seat order");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Player(Seat(1))))), Err(DriverError::Illegal));
+        let Status::Asking(q) = d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Player(Seat(2))))).unwrap() else { panic!("asks the payer") };
+        assert_eq!((q.actor, q.ask), (Seat(2), Ask::Leaders(LAsk::NekroPayment)));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+        assert!(d.window.used, "the agent was used whether or not the payer took the offer");
+        assert_eq!(goods(&s, 2), 0);
+        assert!(s.pending().staged.is_empty());
+    }
+
+    #[test]
+    fn malleon_discards_a_card_staged_for_the_game_step_and_asks_which_only_among_distinct_printed_cards() {
+        use crate::generated::ActionCard as C;
+        use crate::keys::{Atom, MarkKey, MarkVal, Word};
+        let (k, mut s) = (kernel(), table(2));
+        broke(&mut s, 0);
+        broke(&mut s, 1);
+        give(&mut s, 1, &[C::ALL[7], C::ALL[3], C::ALL[3]]);
+        let mut d = malleon_driver(2);
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!(q.opts.as_slice(), &[Opt::Leaders(LOpt::Discard), Opt::Decline]);
+        let Status::Asking(q) = d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Discard))).unwrap() else { panic!("which card") };
+        assert_eq!((q.actor, q.ask), (Seat(1), Ask::Cards(crate::choice::cards::Ask::OwnHand { reason: crate::choice::cards::Reason::MalleonDiscard })));
+        let mut ranked = vec![C::ALL[7], C::ALL[3]];
+        ranked.sort_by_key(|c| c.name_rank());
+        let expected: Vec<Opt> = ranked.iter().map(|c| Opt::Cards(crate::choice::cards::Opt::Card(*c))).collect();
+        assert_eq!(q.opts.as_slice(), expected.as_slice(), "one per printed card, in the order of the names");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Cards(crate::choice::cards::Opt::Card(C::ALL[9])))), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(expected[0])).unwrap(), Status::Done);
+        let chosen = ranked[0];
+        let hand = s.players().by_seat(Seat(1)).unwrap().cards.hand.as_slice().to_vec();
+        assert_eq!(hand.len(), 2);
+        assert_eq!(hand.iter().filter(|c| **c == chosen).count(), if chosen == C::ALL[3] { 1 } else { 0 });
+        assert_eq!(goods(&s, 1), 2);
+        let row = MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Discarded)), MarkVal::Atom(Atom::Seat(Seat(1))), MarkVal::Atom(Atom::Absent), MarkVal::Atom(Atom::Card(chosen))]);
+        assert_eq!(s.marks().tail.get(&MarkKey::CardsStaged(0)), Some(&row), "the discard waits for the game step");
+        // One distinct card (two copies of it): taken without a question.
+        let mut s = table(2);
+        broke(&mut s, 0);
+        broke(&mut s, 1);
+        give(&mut s, 1, &[C::ALL[3], C::ALL[3]]);
+        s.marks_mut().tail.edit().insert(MarkKey::CardsStaged(4), MarkVal::Atom(Atom::Num(0)));
+        let mut d = malleon_driver(2);
+        d.run(&mut s, &k).unwrap();
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Discard))).unwrap(), Status::Done);
+        assert_eq!(s.players().by_seat(Seat(1)).unwrap().cards.hand.len(), 1);
+        assert!(s.marks().tail.get(&MarkKey::CardsStaged(5)).is_some(), "the next staged number");
+    }
+
+    #[test]
+    fn malleon_is_not_offered_when_nobody_could_pay() {
+        let (k, mut s) = (kernel(), table(2));
+        broke(&mut s, 0);
+        broke(&mut s, 1);
+        let mut d = malleon_driver(2);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert!(!d.window.used);
     }
 }

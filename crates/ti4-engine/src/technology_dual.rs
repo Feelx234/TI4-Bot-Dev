@@ -85,6 +85,44 @@ mod real {
         drive_valued(gs, player, script, |seat, r| ProductionBiomes::new(seat, r.code("production_biomes")), |w, _| w.done)
     }
 
+    /// The core half of Cabal's Vortex (`factions::cabal::vortex_perform`; the value: the action resolved). The card must be the player's
+    /// own (a Nekro seat may carry its text on a Valefar Assimilator, which the string decides). `has_map` says the string arm had a map
+    /// (its neighbours are the map's plain adjacency, which the lent map carries).
+    pub fn vortex(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::rules::technology_windows::Vortex;
+        if !owned_ready(gs, player, "vtx", false) {
+            crate::dual::note_bail_here("Vortex carried by something other than the player's own card (a Valefar Assimilator)");
+            return None;
+        }
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let scope = ti4_engine_core::tables::Scope(u32::try_from(crate::core_adapter::scope(sources).0).ok()?);
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let neutral = r.seat(crate::neutral_units::NEUTRAL);
+        let has_map = galaxy.is_some();
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let mut driver = Driver::new(Vortex::new(seat, has_map, neutral, scope), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let footprint = if has_map {
+            Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Map, Slice::Marks, Slice::Pending], &[Slice::Players])
+        } else {
+            Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks, Slice::Pending], &[Slice::Players])
+        };
+        let driven = with_core(gs, &mut cx, Sources { galaxy, rng: None }, footprint, |core, _| {
+            if has_map && core.galaxy().is_none() {
+                return None;
+            }
+            Some(drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     /// The leaf writes (`grant`, `purge`, `exhaust_technology_text`): the seat's technologies, the units of a purged upgrade.
     const WRITES: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Players, Slice::Board]);
 
@@ -195,6 +233,15 @@ mod stub {
         None
     }
     pub fn production_biomes(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn vortex(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: Option<&ti4_content::galaxy::Galaxy>,
+        _: ti4_model::content_types::SourceSet,
+        _: &Recording,
+    ) -> Option<CoreWindow<bool>> {
         None
     }
     pub fn grant(_: &mut GameState, _: &PlayerId, _: &str) -> Option<()> {

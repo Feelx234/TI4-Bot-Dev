@@ -185,6 +185,132 @@ impl PlaceUnits {
     }
 }
 
+// -- Stall Tactics ----------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TStage {
+    Start,
+    Card,
+    Place,
+    Done,
+}
+
+/// Stall Tactics (Yssaril): "ACTION: Discard 1 action card", then the mech's DEPLOY: "After you use your Stall Tactics faction ability,
+/// you may place 1 mech on a planet you control." The seat discards a card of its hand (one option per distinct printed card in the order
+/// of the names, no question with one; the discard waits for the game step as a `CardsStaged` mark), then the placement of the mech is
+/// the optional [`PlaceUnits`] question (`source` is the interned `stall_tactics`, `ability` the `yssaril_mech` of the placement). `done` is whether the action resolved: the hand held a card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StallTactics {
+    pub who: Seat,
+    source: Code,
+    place: PlaceUnits,
+    groups: Vec<u8>,
+    stage: TStage,
+    pub done: bool,
+}
+
+impl StallTactics {
+    /// `mech`: the form the seat places (`None`: nothing, or a faction rule forbids it); `ability` the interned `yssaril_mech`.
+    #[must_use]
+    pub fn new(who: Seat, mech: Option<Unit>, scope: Scope, source: Code, ability: Code) -> Self {
+        Self { who, source, place: PlaceUnits::new(who, mech, 1, None, true, scope, ability, Then::Nothing), groups: Vec::new(), stage: TStage::Start, done: false }
+    }
+
+    fn cards(&self, core: &CoreState) -> Vec<crate::generated::ActionCard> {
+        let Some(p) = core.players().by_seat(self.who) else { return Vec::new() };
+        let mut seen: Vec<u8> = Vec::new();
+        let mut firsts: Vec<crate::generated::ActionCard> = Vec::new();
+        for card in p.cards.hand.as_slice() {
+            let Some(group) = self.groups.get(*card as usize).copied() else { return Vec::new() };
+            if !seen.contains(&group) {
+                seen.push(group);
+                firsts.push(*card);
+            }
+        }
+        firsts.sort_by_key(|card| card.name_rank());
+        firsts
+    }
+
+    fn discarded(&mut self, sx: &mut Sx<'_>, card: crate::generated::ActionCard) {
+        fx::discard_action_card_staged(sx.state, self.who, card);
+        self.done = true;
+        self.stage = TStage::Place;
+    }
+
+    fn place_step(&mut self, sx: &mut Sx<'_>) -> Next {
+        let next = self.place.step(sx);
+        if matches!(next, Next::Done) {
+            self.stage = TStage::Done;
+        }
+        next
+    }
+}
+
+impl Window for StallTactics {
+    type Stage = TStage;
+
+    fn stage(&self) -> TStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == TStage::Start {
+            self.groups = sx.table.facts.card_group_table().map(<[u8]>::to_vec).unwrap_or_default();
+            let cards = self.cards(sx.state);
+            match cards.as_slice() {
+                [] => self.stage = TStage::Done,
+                [only] => self.discarded(sx, *only),
+                _ => self.stage = TStage::Card,
+            }
+        }
+        match self.stage {
+            TStage::Card => Next::Continue(Ask::Cards(crate::choice::cards::Ask::OwnHand { reason: crate::choice::cards::Reason::StallTactics })),
+            TStage::Place => self.place_step(sx),
+            TStage::Start | TStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        use crate::choice::cards::{Ask as CAsk, Opt as COpt, Reason};
+        match self.stage {
+            TStage::Card => Some(Choice {
+                actor: self.who,
+                ask: Ask::Cards(CAsk::OwnHand { reason: Reason::StallTactics }),
+                ctx: Ctx {
+                    origin: Origin::FactionAbility(Content::Other(self.source)),
+                    subtype: Subtype::Cards(Reason::StallTactics.subtype()),
+                    optional: false,
+                    target: None,
+                    outstanding: SmallList::new(),
+                    space_battle: false,
+                    invasion_seq: None,
+                },
+                opts: self.cards(s).into_iter().map(|card| Opt::Cards(COpt::Card(card))).collect::<Opts>(),
+            }),
+            TStage::Place => self.place.ask_of(s, k),
+            TStage::Start | TStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        use crate::choice::cards::Opt as COpt;
+        match (self.stage, pick) {
+            (TStage::Card, Pick::Opt(Opt::Cards(COpt::Card(card)))) if self.cards(sx.state).contains(&card) => {
+                self.discarded(sx, card);
+                Ok(())
+            }
+            (TStage::Place, pick) => {
+                self.place.answer(sx, pick)?;
+                if self.place.stage() == PStage::Done {
+                    self.stage = TStage::Done;
+                }
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,5 +480,68 @@ mod tests {
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert_eq!(s.cards().promissory.get(&note), Some(&Seat(1)));
         assert!(s.pending().staged.is_empty());
+    }
+
+    fn stall_driver(unit: Option<Unit>) -> Driver<StallTactics> {
+        let mut t = AbilityTable::default();
+        t.facts.card_groups = (0..crate::generated::ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
+        Driver::new(StallTactics::new(Seat(0), unit, Scope(u32::MAX), Code(1), Code(2)), Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), t, 1)
+    }
+
+    #[test]
+    fn stall_tactics_discards_the_chosen_card_staged_for_the_game_step_then_asks_for_the_mech_as_a_may() {
+        use crate::choice::cards::{Ask as CAsk, Opt as COpt, Reason};
+        use crate::generated::ActionCard as C;
+        use crate::keys::MarkKey;
+        let (k, mech) = (Kernel::plain(), unit_of(UnitBaseType::Mech));
+        let mut s = table();
+        control(&mut s, 2);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(C::ALL[7]);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(C::ALL[3]);
+        let mut d = stall_driver(Some(mech));
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks which card") };
+        assert_eq!(q.ask, Ask::Cards(CAsk::OwnHand { reason: Reason::StallTactics }));
+        let mut ranked = vec![C::ALL[7], C::ALL[3]];
+        ranked.sort_by_key(|c| c.name_rank());
+        let opts: Vec<Opt> = ranked.iter().map(|c| Opt::Cards(COpt::Card(*c))).collect();
+        assert_eq!(q.opts.as_slice(), opts.as_slice(), "no decline: the discard is the action");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Cards(COpt::Card(C::ALL[9])))), Err(DriverError::Illegal));
+        let Status::Asking(place) = d.resume(&mut s, &k, Pick::Opt(opts[0])).unwrap() else { panic!("the mech may be placed") };
+        assert!(d.window.done, "the action resolved with the discard");
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 1);
+        assert!(s.marks().tail.get(&MarkKey::CardsStaged(0)).is_some(), "the discard waits for the game step");
+        assert_eq!(place.ask, Ask::Promissory(PAsk::PlaceUnits { unit: mech, fit: 1 }));
+        assert_eq!(place.opts.as_slice().last(), Some(&Opt::Decline));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+        assert_eq!(count(&s, planets()[0].1, mech) + count(&s, planets()[1].1, mech), 0);
+    }
+
+    #[test]
+    fn stall_tactics_takes_a_lone_card_without_a_question_places_the_mech_and_needs_a_card() {
+        use crate::generated::ActionCard as C;
+        let (k, mech) = (Kernel::plain(), unit_of(UnitBaseType::Mech));
+        let mut s = table();
+        control(&mut s, 2);
+        for _ in 0..2 {
+            s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(C::ALL[3]);
+        }
+        let mut d = stall_driver(Some(mech));
+        let Status::Asking(place) = d.run(&mut s, &k).unwrap() else { panic!("two copies of one printed card are one option: straight to the mech") };
+        d.resume(&mut s, &k, Pick::Opt(place.opts.as_slice()[1])).unwrap();
+        assert_eq!(count(&s, planets()[1].1, mech), 1);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 1);
+        // An empty hand: the action does not resolve and nothing is asked.
+        let mut s = table();
+        control(&mut s, 2);
+        let mut d = stall_driver(Some(mech));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.done);
+        // A card but no mech to place (or no planet): the discard still resolves.
+        let mut s = table();
+        control(&mut s, 2);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(C::ALL[3]);
+        let mut d = stall_driver(None);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.done);
     }
 }

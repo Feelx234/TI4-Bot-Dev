@@ -48,6 +48,10 @@ pub enum Ask {
     GhostSwapFirst,
     /// Riftwalker Meian: the system it swaps places with.
     GhostSwapSecond,
+    /// Nekro Malleon (Nekro agent): which player may pay for 2 trade goods.
+    NekroPlayer,
+    /// Nekro Malleon: the chosen player's own answer, a card, a command token or neither.
+    NekroPayment,
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -83,6 +87,12 @@ pub enum Opt {
     HeroPlace(HeroUnit),
     /// Xxekir Grom: stop placing.
     HeroStop,
+    /// A player (Nekro Malleon's choice of who pays).
+    Player(crate::ids::Seat),
+    /// Nekro Malleon: discard 1 action card.
+    Discard,
+    /// Nekro Malleon: spend 1 command token of this pool.
+    Token(super::strategy::Pool),
     /// Xxekir Grom: this planet gets the unit, with the system the map shows it in (`Shown`, B9: equal always).
     HeroPlanet(crate::generated::Planet, super::agenda::Shown),
 }
@@ -102,4 +112,6 @@ pub enum Subtype {
     SaarHero,
     GhostSwapFirst,
     GhostSwapSecond,
+    NekroPlayer,
+    NekroPayment,
 }
