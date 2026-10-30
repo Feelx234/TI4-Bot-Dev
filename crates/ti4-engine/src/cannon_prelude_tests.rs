@@ -211,7 +211,12 @@ fn head_lockstep(seeds: std::ops::Range<u64>, skip: bool, setup: impl Fn(&mut Ga
 
 #[test]
 fn the_head_of_an_aftermath_runs_as_a_core_window_with_the_fights_opening_writes_in_lockstep() {
-    let (states, r) = head_lockstep(0..12, false, pds_at_b);
+    let two_sides = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        pds_at_b(s, system, planet);
+        // b has ships too: the head opens a space combat.
+        crate::fixtures::put(s, system, "cruiser", &b(), 2);
+    };
+    let (states, r) = head_lockstep(0..12, false, two_sides);
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     let head = r.windows.get(HEAD).map_or(0, |w| w.compared);
     assert!(head >= 8, "the head ran in the core: {:?}", r.windows);

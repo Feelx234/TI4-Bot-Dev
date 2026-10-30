@@ -697,7 +697,7 @@ mod tests {
         let _ = take_report();
         assert_eq!((state.active_system.clone(), state.pending.clone()), (None, None));
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(r.windows.get("turn::close_tactical").map_or(0, |w| w.compared) >= 1, "the core half ran: {:?}", r.windows);
+        assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 1, "the write was compared: {:?}", r.areas);
     }
 
     #[test]
@@ -743,7 +743,7 @@ mod tests {
         let after: usize = state.system_state(&home).planet_units.values().flatten().filter(|u| u.type_id.as_str() == "sol_infantry2").count();
         assert_eq!((placed, after - before, state.player(&seat).unwrap().spec_ops_card), (2, 2, 0));
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(r.windows.get("turn::return_spec_ops").map_or(0, |w| w.compared) >= 1, "the core half ran: {:?}", r.windows);
+        assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 1, "the write was compared: {:?}", r.areas);
         // Nothing waiting, nothing placed; the prepared turn is the turn in progress.
         let again = with_mask(driver(), || return_spec_ops(&mut state, &seat));
         assert_eq!(again, 0);
@@ -774,8 +774,6 @@ mod tests {
         assert!(state.active.is_some() && state.turn_seq == before_seq + 1, "the first turn began");
         assert!(state.players.iter().all(|p| !p.stability), "stability is spent");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        for label in ["turn::stability_reset", "turn::strategy_phase_ended", "turn::begin_action_turn"] {
-            assert!(r.windows.get(label).map_or(0, |w| w.compared) >= 1 || r.areas.get(&Area::Driver).is_some_and(|c| c.calls > 0), "{label}: {:?}", r.windows);
-        }
+        assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 3, "the three writes were compared: {:?}", r.areas);
     }
 }
