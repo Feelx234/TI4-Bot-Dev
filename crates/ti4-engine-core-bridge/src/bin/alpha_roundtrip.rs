@@ -15,7 +15,7 @@ use std::path::Path;
 
 use ti4_engine_core_bridge::alpha::{check_game, list_games, refuse_live_dir};
 use ti4_engine_core_bridge::roundtrip::{Checker, Stats};
-use ti4_server::storage::Storage;
+use ti4_server::storage::FileGameStore;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -36,7 +36,7 @@ fn main() {
         eprintln!("{e}");
         std::process::exit(2);
     }
-    let storage = Storage::new(dir).unwrap_or_else(|e| {
+    let storage = FileGameStore::new(dir).unwrap_or_else(|e| {
         eprintln!("cannot open {}: {e}", dir.display());
         std::process::exit(2);
     });

@@ -11,7 +11,7 @@ use ti4_engine_core_bridge::alpha::{check_game, list_games, refuse_live_dir};
 use ti4_engine_core_bridge::roundtrip::Checker;
 use ti4_host::setup::{self, TableSetup};
 use ti4_model::id::PlayerId;
-use ti4_server::storage::{GameInitRecord, Storage};
+use ti4_server::storage::{FileGameStore, GameInitRecord};
 
 const GAME: &str = "game_00000000000000000000000000000001";
 
@@ -23,7 +23,7 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 /// A started 3-player game, `n` of its decisions recorded by a random player, stored as the server stores it.
-fn store_game(dir: &std::path::Path, n: usize) -> Storage {
+fn store_game(dir: &std::path::Path, n: usize) -> FileGameStore {
     let content = ContentStore::embedded();
     let setup = TableSetup::new(3, 5);
     let players: Vec<PlayerId> = (1..=3).map(|i| PlayerId::new(format!("p{i}"))).collect();
@@ -40,7 +40,7 @@ fn store_game(dir: &std::path::Path, n: usize) -> Storage {
     }
     assert!(game.table.log.records.len() >= n, "the game asked for {n} decisions");
     let records = &game.table.log.records[..n];
-    let storage = Storage::new(dir).unwrap();
+    let storage = FileGameStore::new(dir).unwrap();
     storage
         .save_init(&GameInitRecord {
             game_id: GAME.to_owned(),

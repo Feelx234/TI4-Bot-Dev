@@ -2,7 +2,7 @@
 //! server data directory goes through `store(load(g)) == g`.
 //!
 //! The data directory is **always a copy** (`rsync -a --exclude feedback /var/lib/ti4-public/ $D/`, as
-//! `recovery-check.sh` does): the tool opens the directory through `Storage::new`, which creates directories, and
+//! `recovery-check.sh` does): the tool opens the directory through `FileGameStore::new`, which creates directories, and
 //! refuses the live one. Per game it takes the stored initial state, rebuilds the galaxy as server recovery does
 //! (`storage.rs::recover_from_init`), then replays the recorded decisions with `ti4_host::replay::replay_session`
 //! and checks the state after every `every`-th decision, the initial state and the state of `snapshot.json`.
@@ -15,7 +15,7 @@ use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::DecisionRecord;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
-use ti4_server::storage::Storage;
+use ti4_server::storage::FileGameStore;
 
 use crate::roundtrip::Checker;
 
@@ -41,7 +41,7 @@ struct Init {
     start_from: Option<String>,
 }
 
-fn load_init(storage: &Storage, id: &str) -> Result<Init, String> {
+fn load_init(storage: &FileGameStore, id: &str) -> Result<Init, String> {
     match storage.load_player_init(id) {
         Ok(rec) => Ok(Init {
             seed: Some(rec.seed),
@@ -103,7 +103,7 @@ pub fn refuse_live_dir(dir: &Path) -> Result<(), String> {
 ///
 /// # Errors
 /// A game that cannot be read or replayed (that is a failure of the tool run, not a skip).
-pub fn check_game(storage: &Storage, id: &str, every: usize, checker: &mut Checker) -> Result<GameOutcome, String> {
+pub fn check_game(storage: &FileGameStore, id: &str, every: usize, checker: &mut Checker) -> Result<GameOutcome, String> {
     let mut out = GameOutcome { id: id.to_owned(), ..GameOutcome::default() };
     let init = load_init(storage, id)?;
     out.rules_version = init.initial_state.rules_version;
@@ -152,7 +152,7 @@ pub fn check_game(storage: &Storage, id: &str, every: usize, checker: &mut Check
 ///
 /// # Errors
 /// The directory cannot be listed.
-pub fn list_games(storage: &Storage) -> Result<Vec<String>, String> {
+pub fn list_games(storage: &FileGameStore) -> Result<Vec<String>, String> {
     let mut ids = storage.list_saved_games().map_err(|e| e.to_string())?;
     ids.sort();
     Ok(ids)
