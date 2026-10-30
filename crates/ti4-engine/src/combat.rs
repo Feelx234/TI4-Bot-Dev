@@ -5731,9 +5731,6 @@ impl CombatWindow {
         if !crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system).is_empty() {
             bail.set(bail.get().or(Some("a Z-Grav Eidolon flipping to its ground form at the end of a space battle")));
         }
-        if let Some(why) = bail.get() {
-            self.bail_machine(why);
-        }
         let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload.clone());
         crate::factions::observe(
             state,
@@ -5758,11 +5755,6 @@ impl CombatWindow {
         // (Technological Singularity's combat mark, `nekro:ts:`, is one of those: the ability that closes it is in the table.)
         let own = |marks: &std::collections::BTreeMap<String, String>| marks.iter().filter(|(k, _)| !k.starts_with("nekro:ts:")).map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>();
         marks_changed.set(own(&state.faction_marks) != own(&marks));
-        if let Some(why) = bail.get() {
-            self.bail_machine(why);
-        } else if marks_changed.get() {
-            self.bail_machine("notes of the end announcement (Cabal marks, a staged event) written by the string");
-        }
         announce_staged_destructions(state, ctx);
                 crate::dual::Run::new(true)
             },
@@ -5778,6 +5770,11 @@ impl CombatWindow {
                 crate::dual_window::announce_end(s, content, sources, facts, script)
             }
         );
+        if let Some(why) = bail.get() {
+            self.bail_machine(why);
+        } else if marks_changed.get() {
+            self.bail_machine("notes of the end announcement (Cabal marks, a staged event) written by the string");
+        }
     }
 
     /// The `SPACE_COMBAT_ENDED` payload (see [`Self::announce_end`]): pure over the position, so the
