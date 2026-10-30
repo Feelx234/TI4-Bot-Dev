@@ -192,6 +192,15 @@ fn check_arm(g: &mut Game<'_>) {
     let ask = g.d1.ask.take();
     let core = arm_name(step_arm(&facts, arm == "ask"));
     let _ = compare_value(Area::Driver, "d1::step.arm", &arm, &core);
+    // The census of the step loop (package D1b-8): every step is counted, and the arms the core does not run are the bails
+    // by name (the worklist of the lent bodies). The follower and scoring windows are held and moved by the core
+    // (`d1::pending`); a phase move is the turn-flow port (`turn::`); a question is a lent dispatch by its source.
+    note_window("d1::step", true);
+    match arm {
+        "secondary" | "scoring" | "event_scoring" | "phase" => {}
+        "ask" => note_bail("d1::step", &format!("ask.{}", ask.unwrap_or("?"))),
+        other => note_bail("d1::step", other),
+    }
     if arm == "ask" || arm == "phase" {
         // A step that put a question to the table: the source of the question is the core's too. A step that found nothing
         // to ask (`phase`) asked `legal_options` as well, and it answered `None`.
