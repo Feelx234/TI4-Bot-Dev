@@ -56,6 +56,43 @@ mod real {
             .why(crate::dual::reason::NOT_LENDABLE)?;
         Some(CoreWindow { run: Run::new(done).with_events_vec(Vec::new()), questions: Vec::new() })
     }
+
+    /// What Terraform reads and writes: the note (Cards), the planet and its attachment (Board).
+    const TERRAFORM: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards],
+        &[Slice::Board, Slice::Cards],
+    );
+
+    /// The core half of the Titans' Terraform (`factions::titans_leaders::perform_component`; the value: the action resolved). `home` is
+    /// the string's read of whether the planet is anybody's home planet.
+    pub fn terraform(gs: &mut GameState, player: &PlayerId, planet: &str, home: bool, script: &Recording) -> Option<CoreWindow<bool>> {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let planet = crate::core_adapter::typed::<ti4_engine_core::generated::Planet>(planet).why(crate::dual::reason::UNKNOWN_ID)?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let done = with_core(gs, &mut cx, Sources::default(), TERRAFORM, |core, _| rules::terraform(core, seat, planet, home)).ok().why(crate::dual::reason::NOT_LENDABLE)?;
+        Some(CoreWindow { run: Run::new(done).with_events_vec(Vec::new()), questions: Vec::new() })
+    }
+
+    /// The core half of Nekro's ???_ERROR_ERROR_??? repair (`factions::nekro_units::perform_component`; the value: the action resolved).
+    /// A seat that carries the text on something else than its own card (a Valefar Assimilator) is the string's.
+    pub fn c4r_repair(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if !gs.player(player).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"nekroc4r"))) {
+            crate::dual::note_bail_here("???_ERROR_ERROR_??? carried by something other than the player's own card (a Valefar Assimilator)");
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let done = with_core(gs, &mut cx, Sources::default(), LEAF, |core, _| rules::c4r_repair(core, seat)).ok().why(crate::dual::reason::NOT_LENDABLE)?;
+        Some(CoreWindow { run: Run::new(done).with_events_vec(Vec::new()), questions: Vec::new() })
+    }
 }
 
 #[cfg(not(feature = "typed-core"))]
@@ -74,6 +111,13 @@ mod stub {
         _: ti4_model::content_types::SourceSet,
         _: &Recording,
     ) -> Option<CoreWindow<bool>> {
+        None
+    }
+
+    pub fn c4r_repair(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn terraform(_: &mut GameState, _: &PlayerId, _: &str, _: bool, _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
 }

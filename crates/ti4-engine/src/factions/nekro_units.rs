@@ -1064,19 +1064,7 @@ pub(crate) fn perform_component(
     }
     let done = match option.id.as_str() {
         C4R_PLACE => place_pds(context, player),
-        C4R_REPAIR => {
-            for board in context.state.board.values_mut() {
-                for unit in board
-                    .units
-                    .iter_mut()
-                    .chain(board.planet_units.values_mut().flatten())
-                    .filter(|unit| &unit.owner == player)
-                {
-                    unit.sustained_damage = false;
-                }
-            }
-            true
-        }
+        C4R_REPAIR => c4r_repair(context, player),
         _ => discard_and_draw(context, player),
     };
     if done && let Some(seat) = context.state.player_mut(player) {
@@ -1084,6 +1072,37 @@ pub(crate) fn perform_component(
             .insert(TechnologyId::new(ERROR_ERROR));
     }
     done
+}
+
+/// "Exhaust this card to repair all of your damaged units": a body of the core
+/// (`rules::faction_component::c4r_repair`), the repair and the exhaustion.
+fn c4r_repair(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::nekro::c4r_repair",
+        &mut *context.state,
+        |s: &mut GameState| crate::dual::Run::new(c4r_repair_string(s, player)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::faction_dual::c4r_repair(s, player, script)
+    )
+}
+
+/// [`c4r_repair`] on the string engine: the oracle of the dual run.
+fn c4r_repair_string(state: &mut GameState, player: &PlayerId) -> bool {
+    for board in state.board.values_mut() {
+        for unit in board
+            .units
+            .iter_mut()
+            .chain(board.planet_units.values_mut().flatten())
+            .filter(|unit| &unit.owner == player)
+        {
+            unit.sustained_damage = false;
+        }
+    }
+    if let Some(seat) = state.player_mut(player) {
+        seat.exhausted_technologies
+            .insert(TechnologyId::new(ERROR_ERROR));
+    }
+    true
 }
 
 fn place_pds(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
@@ -2135,6 +2154,40 @@ mod tests {
             "another player's damage is not repaired"
         );
         assert!(exhausted(&state));
+    }
+
+    /// The repair is a body of the core: every unit of the seat repaired and the card exhausted, in lockstep with the string; and a
+    /// seat that does not hold the card itself (the text carried by a Valefar Assimilator) keeps the string body, counted.
+    #[test]
+    fn nekro_error_error_repair_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut state = battle(1);
+        with_error_error(&mut state);
+        for board in state.board.values_mut() {
+            for unit in board.units.iter_mut().chain(board.planet_units.values_mut().flatten()).filter(|unit| unit.owner == a()) {
+                unit.sustained_damage = true;
+            }
+        }
+        state.system_mut(&system()).units.push(Unit::new(UnitTypeId::new("cruiser"), b()).sustained());
+        let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, C4R_REPAIR, &[]));
+        assert!(done);
+        assert!(exhausted(&state));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::nekro::c4r_repair"), (1, 0), "{r:?}");
+        // Not the seat's own card: the core half bows out and says why.
+        let mut carried = state.clone();
+        carried.player_mut(&a()).unwrap().technologies.remove(ti4_model::id::text(&ERROR_ERROR));
+        let seen = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+            crate::dual::run_dual_window(Area::Factions, "factions::nekro::c4r_repair", &mut carried, |s| crate::dual::Run::new(c4r_repair_string(s, &a())), |s, script| crate::faction_dual::c4r_repair(s, &a(), script))
+        });
+        assert!(seen);
+        let r = report();
+        assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::c4r_repair [") && label.contains("Valefar Assimilator")), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

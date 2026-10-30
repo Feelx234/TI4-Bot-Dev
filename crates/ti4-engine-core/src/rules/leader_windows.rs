@@ -498,7 +498,6 @@ impl ArmageddonRelay {
             let Some(near) = board::neighbours(core, dock) else { continue };
             for index in near.iter() {
                 if let Some(next) = System::ALL.get(index)
-                    && *next != dock
                     && !found.contains(next)
                 {
                     found.push(*next);
@@ -1272,6 +1271,22 @@ mod tests {
     }
 
     #[test]
+    fn the_saar_hero_offers_the_systems_of_all_its_docks_in_system_order() {
+        let (k, mut s) = (kernel(), table(2));
+        let p = with_planet(5);
+        let [s0, s1, s2, s3, s4] = [p[0], p[1], p[2], p[3], p[4]];
+        // s0 - s1 - s2 - s4 - s3 in a row: a space dock on s4 (listed first) next to s2 and s3, a dock on a planet of s1 next to s0 and s2.
+        row(&mut s, &[s0.0, s1.0, s2.0, s4.0, s3.0]);
+        s.board_mut().sys_mut(s4.0).units.push(unit_of(UnitBaseType::Spacedock, Seat(0)));
+        s.board_mut().planet_mut(s1.1).units.push(unit_of(UnitBaseType::Spacedock, Seat(0)));
+        let mut d = driver(ArmageddonRelay::new(Seat(0), true));
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        let mut expected = vec![s0.0, s2.0, s3.0];
+        expected.sort_unstable();
+        assert_eq!(systems_offered(&q), expected);
+    }
+
+    #[test]
     fn the_saar_hero_is_not_offered_without_a_map_or_a_dock_with_a_neighbour() {
         let (k, planets) = (kernel(), with_planet(2));
         let mut s = table(2);
@@ -1314,12 +1329,14 @@ mod tests {
         s.board_mut().sys_mut(s1).units.push(unit_of(UnitBaseType::Cruiser, Seat(0)));
         s.board_mut().planet_mut(p[2].1).units.push(unit_of(UnitBaseType::Infantry, Seat(0)));
         s.board_mut().sys_mut(s4).units.push(unit_of(UnitBaseType::Cruiser, Seat(1)));
-        let facts = swap_facts(&[s0, s1, s2, s3, s5], &[s5]);
+        // s0 holds the seat's own ship and a wormhole but the card may not name it (the Creuss systems, the Nexus, a Fracture system).
+        s.board_mut().sys_mut(s0).units.push(unit_of(UnitBaseType::Cruiser, Seat(0)));
+        let facts = swap_facts(&[s1, s2, s3, s5], &[s0, s5]);
         let mut d = driver(RiftwalkerMeian::new(Seat(0), true, facts));
         let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
         assert_eq!(q.ask, Ask::Leaders(LAsk::GhostSwapFirst));
         // s1 (its ship), s5 (a wormhole), s2 (its infantry on a planet) in the order of the map; s4 holds only the other seat's ship
-        // and s3, s0 hold nothing.
+        // and s3 holds nothing; s0 is not allowed.
         assert_eq!(systems_offered(&q), vec![s1, s5, s2]);
         assert_eq!(q.opts.as_slice().last(), Some(&Opt::Decline), "each question may be declined");
         assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s4)))), Err(DriverError::Illegal));

@@ -650,6 +650,9 @@ fn production_biomes_string(
 #[must_use]
 pub(crate) fn string_only_component(id: &str) -> Option<&'static str> {
     let faction = id.strip_prefix("faction|")?;
+    if id == "faction|nekro|c4r|repair" || id.starts_with("faction|titans|terraform|") {
+        return None; // bodies of the core (`rules::faction_component::{c4r_repair, terraform}`)
+    }
     Some(match faction.split('|').next()? {
         "orbital_drop" => "faction|orbital_drop: two questions, the payment of the mech and the units placed on a planet (the payment child and the placement window), then the dispatch of perform_component (D1b)",
         "muaat" => "faction|muaat: units placed or produced in a chosen system (the placement window and the production window of lane 1) and the dispatch of perform_component (D1b)",

@@ -332,7 +332,7 @@ mod tests {
             control(&mut s, 2);
             s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = 2;
             s.cards_mut().promissory.edit().insert(note, Seat(0));
-            let then = Then::MilitarySupport { owner: Seat(1), reason: Code(0) };
+            let then = Then::MilitarySupport { owner: Seat(1), reason: Code(7) };
             let mut d = driver(PlaceUnits::new(Seat(0), Some(infantry), 2, None, true, Scope(u32::MAX), Code(0), then));
             let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
             assert_eq!(s.players().by_seat(Seat(1)).unwrap().econ.strategic_tokens, 2, "nothing before the answer");
@@ -342,6 +342,9 @@ mod tests {
             assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens, 0);
             assert_eq!(s.cards().promissory.get(&note), Some(&Seat(1)), "the note is home");
             assert_eq!(s.pending().staged.len(), 1, "the spent token is announced");
+            let announced = &s.pending().staged[0];
+            assert_eq!(announced.kind, EventKind::StrategyTokenSpent);
+            assert_eq!(announced.payload, Payload::new().with(Key::Player, Val::Seat(Seat(1))).with(Key::Reason, Val::Code(Code(7))), "the owner, and the reason the adapter named");
             assert_eq!(count(&s, planets()[0].1, infantry), if decline { 0 } else { 2 });
         }
         // Nothing to place and no token: the note still goes home and nothing is announced.
