@@ -358,10 +358,12 @@ fn a_combat_whose_other_side_dies_to_the_barrage_alone_is_over_with_no_round_fou
     // Only fighters on the defender's side: one hit of the barrage can empty it; the fight is over before any roll, with zero rounds.
     let sc = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerII, 0, 3).unit(sys(), None, Unit::FighterI, 1, 1);
     let mut ended_early = false;
+    let mut seen = Vec::new();
     for seed in 0..40u64 {
         let mut fight = Fight::new(sc(), env(), seed);
         fight.pause_at_scoring = true;
         let stop = fight.settle(Policy::First);
+        seen.push(format!("seed {seed}: {stop:?}, defender ships {}, outcome {:?}", fight.ships(1, sys()), fight.fields.outcome));
         if stop == Some(Stop::Scoring) {
             fight.fields.scoring = false;
             let again = fight.settle(Policy::First);
@@ -373,7 +375,7 @@ fn a_combat_whose_other_side_dies_to_the_barrage_alone_is_over_with_no_round_fou
             }
         }
     }
-    assert!(ended_early);
+    assert!(ended_early, "{:#?}", &seen[..seen.len().min(6)]);
 }
 
 // ---- bails: the positions the machine does not carry ----------------------------------------------
@@ -405,11 +407,12 @@ fn every_gate_the_string_side_closes_is_a_documented_bail() {
 fn staged_destructions_and_cancellations_and_duranium_armor_and_devotion_are_bails_too() {
     covers!("rules::combat::machine::Machine");
     let base = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 2).unit(sys(), None, Unit::CruiserI, 1, 2);
-    // Devotion (the Yin module) is in the game: the end of a round is the string's.
+    // Devotion (the Yin module) is in the game: since W2 the machine asks its hits after a round (a table without a Yin seat has
+    // none, so the fight runs to its end); it is no longer a gate.
     let mut e = env();
     e.devotion = true;
     let mut fight = Fight::new(base(), e, 3);
-    assert_eq!(fight.settle(Policy::First), Some(Stop::Bailed(Bail::Unported)));
+    assert_eq!(fight.settle(Policy::First), Some(Stop::Over));
     // Destructions waiting for their announcement: the flow stops at a transition.
     let mut fight = Fight::new(base(), env(), 3);
     fight.state.transient_mut().combat.pending_destructions.push(ti4_engine_core::state::PendingDestruction { system: sys(), owner: Seat(1), unit: Unit::CruiserI, reason: Code(1), during_space_combat: true });
