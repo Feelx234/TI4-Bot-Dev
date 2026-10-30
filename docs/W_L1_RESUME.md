@@ -1,6 +1,6 @@
 # W lane 1 resume note, branch `core-w-l1` (from `core-w` @ `4808a0ab`)
 
-Done: W5 (guard narrowing), W8 (5a window, 5b composition), W2 Letnev round opening (+ the stale `have` of the Munitions question). Open: see "Next" (all of it pinned as counted gates with tests).
+Done: W5 (guard narrowing, production by an ability), W8 (5a window, 5b composition), W2 (Letnev opening, produced hits, Thundarian, Raid Formation, Dunlain Reaper, Assault Cannon and Duranium in the machine). Open: see "Next".
 Lines for `docs/ENGINE_KNOWN_ISSUES.md` are in the section "W lane 1" at its end.
 
 ## Gate deferred to the end of D1
@@ -17,6 +17,6 @@ single-file mutation checks (`tools/engine_core/mutants.sh`, Haiku runner, scrat
 
 ## Next (not done)
 
-Mentak Ambush, Assault Cannon / Dimensional Splicer / Impulse Core (`opening_why`), the Thundarian in the SPACE roll (`roll_why`),
-Argent barrage excess, Jol-Nar commander, Waylay (`barrage_why`), Dunlain Reaper (`begin_ground_unported`), composed-machine staged destructions,
-production by an ability (`ProductionWindow::to_core` reason `ability`: the core window has no ability/fixed-limit mode).
+Ported since the first note: the hits the modules produce (Ambush, Impulse Core, Devotion, Dimensional Splicer: window and composed machine), the
+Thundarian in the space roll, Raid Formation as a child of the barrage (window and machine), the Dunlain Reaper, production by an ability, Assault
+Cannon and Duranium Armor in the machine. The remaining tail is W2-bail-02 in `docs/ENGINE_KNOWN_ISSUES.md` (each a counted gate with a test).
