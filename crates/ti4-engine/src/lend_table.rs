@@ -120,20 +120,26 @@ pub fn render_table(observed: &BTreeMap<String, SliceSet>) -> String {
     out
 }
 
+/// Append the probe line of `label` to the file `path` (created when missing).
+pub fn probe_to(path: &std::path::Path, label: &str, pre: &GameState, post: &GameState) {
+    use std::io::Write as _;
+    let line = probe_line(label, changed_slices(pre, post));
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
 /// `TI4_BAIL_PROBE`: record the slices a window's string body wrote when the core bowed out of it. `pre` is the copy the
 /// core would have run on, `post` the state the string left. A no-op unless the variable names a file (never in the
 /// browser build).
+// mutants:skip (the environment is read once per process; `probe_to` carries the behaviour and is tested)
 pub fn probe(label: &str, pre: &GameState, post: &GameState) {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        use std::io::Write as _;
         use std::sync::OnceLock;
         static FILE: OnceLock<Option<String>> = OnceLock::new();
         let Some(path) = FILE.get_or_init(|| std::env::var("TI4_BAIL_PROBE").ok().filter(|p| !p.is_empty())) else { return };
-        let line = probe_line(label, changed_slices(pre, post));
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(file, "{line}");
-        }
+        probe_to(std::path::Path::new(path), label, pre, post);
     }
     #[cfg(target_arch = "wasm32")]
     let _ = (label, pre, post);
@@ -167,6 +173,29 @@ mod tests {
         assert_eq!(stale_entries(&windows, &[ENTRY]), vec!["combat::roll"], "compared only: the port landed");
         windows.insert("combat::roll".to_owned(), counts(5, 2));
         assert!(stale_entries(&windows, &[ENTRY]).is_empty());
+    }
+
+    #[test]
+    fn a_label_that_bailed_exactly_once_is_not_stale() {
+        let mut windows = BTreeMap::new();
+        windows.insert("combat::roll".to_owned(), counts(0, 1));
+        assert!(stale_entries(&windows, &[ENTRY]).is_empty());
+    }
+
+    #[test]
+    fn the_probe_appends_one_line_per_bail_to_its_file() {
+        let dir = std::env::temp_dir().join(format!("ti4-bail-probe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("probe.tsv");
+        let before = crate::fixtures::game(&["a", "b"]);
+        let mut after = before.clone();
+        after.players[0].trade_goods += 1;
+        probe_to(&file, "w1", &before, &after);
+        probe_to(&file, "w2", &before, &before);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(text, "w1\tPlayers\nw2\t-\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
