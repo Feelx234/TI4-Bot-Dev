@@ -155,7 +155,7 @@ fn a_mech_on_the_planet_pays_without_a_question_an_infantry_asks_and_nothing_pay
     let mut none = Rig::new(sc, PayMechOrInfantry::new(Seat(0), card, planet, PayReward::CommandToken));
     none.run();
     assert!(none.is_done() && !none.driver.window.paid);
-    let (sc, planet) = pay_table(&[(Unit::InfantryI, 1)], false);
+    let (sc, planet) = pay_table(&[], false);
     let mut unclaimed = Rig::new(sc, PayMechOrInfantry::new(Seat(0), card, planet, PayReward::CommandToken));
     unclaimed.run();
     assert!(unclaimed.is_done() && !unclaimed.driver.window.paid, "a planet nobody controls and without an entry: nothing to pay with");
@@ -205,14 +205,15 @@ fn the_dominus_orb_is_offered_when_a_ship_sits_under_a_token_outside_the_active_
 #[test]
 fn the_crown_of_emphidia_exhausts_to_explore_one_of_our_planets_with_a_trait() {
     covers!("rules::explore_windows::CrownExplore");
-    let s = plain_systems();
-    let (p0, p1) = (s[0].data().planets[0], s[1].data().planets[0]);
+    let traited_planets: Vec<Planet> = plain_systems().iter().flat_map(|s| s.data().planets.iter().copied()).filter(|p| !p.data().traits.is_empty()).take(2).collect();
+    let (p0, p1) = (traited_planets[0], traited_planets[1]);
     let state = || {
         let mut st = table().control(p0, 0).control(p1, 0).state();
         st.players_mut().by_seat_mut(Seat(0)).unwrap().cards.relics.push(Relic::TheCrownOfEmphidia);
         st
     };
-    let traited: Vec<Planet> = [p0, p1].into_iter().filter(|p| !p.data().traits.is_empty()).collect();
+    let mut traited = vec![p0, p1];
+    traited.sort_by_key(|p| (p.data().system, *p));
     let mut rig = Rig::from_parts(state(), ti4_engine_core_tests::kernel_all(), CrownExplore::new(Seat(0), ALL_SOURCES));
     rig.run();
     let offered: Vec<Planet> = rig.opts().iter().filter_map(|o| if let Opt::Relic(ROpt::Planet(p, _)) = o { Some(*p) } else { None }).collect();

@@ -82,7 +82,7 @@ fn the_tenth_point_ends_the_game_and_points_never_pass_ten() {
     rig.run().pick(0);
     assert_eq!(vp(&rig.state, 0), 10, "capped at the target");
     assert!(rig.state.meta().finished, "reaching ten finishes the game");
-    let row = rig.state.ledger.vp.last().copied().unwrap();
+    let row = rig.state.ledger.vp.last().cloned().unwrap();
     assert_eq!(row.delta, 1, "the ledger row carries what was applied, not the printed points");
 }
 
@@ -202,7 +202,7 @@ fn trade_table() -> Scenario {
 #[test]
 fn trade_primary_pays_three_goods_replenishes_the_holder_and_offers_those_who_need_commodities() {
     covers!("rules::strategy_windows::TradePrimary");
-    let sc = trade_table().commodities(2, 99.min(Faction::TheYinBrotherhood.data().commodities.into()));
+    let sc = trade_table().commodities(2, i16::from(Faction::TheYinBrotherhood.data().commodities));
     let limit = |seat: u8, sc: &Scenario| i16::from(sc.faction(seat).data().commodities);
     let mut rig = Rig::new(sc.clone(), TradePrimary::new(Seat(0)));
     rig.run();
