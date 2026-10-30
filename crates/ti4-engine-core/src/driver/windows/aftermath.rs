@@ -64,6 +64,13 @@ pub struct Head {
 }
 
 impl Head {
+    /// The gunner whose hits are being absorbed and whether their loss is bound to non-fighters (the hit detail of the
+    /// casualty question).
+    #[must_use]
+    pub fn absorbing(&self) -> Option<(Seat, bool)> {
+        self.cannon.window().and_then(SpaceCannonOffense::absorbing)
+    }
+
     #[must_use]
     pub fn new(f: Facts) -> Self {
         Self { f, stage: Stage::Enforcing, enforce: Child::idle(), cannon: Child::idle(), before: None, scoring: None, drawn: Vec::new(), removed: 0, fighting: false }

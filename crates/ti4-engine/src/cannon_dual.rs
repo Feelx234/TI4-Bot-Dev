@@ -182,3 +182,158 @@ pub fn space_cannon_offense(
     let value: Out = (driver.window.scoring, driver.window.drawn.clone(), positions);
     Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
 }
+
+// --- the head of the aftermath chain -----------------------------------------------------------------
+
+/// The label of the head window in the dual report.
+pub const HEAD_LABEL: &str = "aftermath::head";
+
+/// What the string head (`AftermathWindow::head`) was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct HeadArgs<'a> {
+    pub active: &'a PlayerId,
+    pub system: &'a SystemId,
+    pub announce: bool,
+    pub reproducible: bool,
+    /// The action skipped to the Commit Ground Forces step.
+    pub skip_to_commit: bool,
+}
+
+/// What the head leaves besides the state: the feat occurrence of the cannon's pause, the sides and the capital counts of the
+/// system before the fight, the dice and where the streams stand.
+pub type HeadOut = (Option<u64>, Vec<String>, Vec<(String, usize)>, Vec<(u32, Vec<u32>)>, crate::rng::RngPositions);
+
+const HEAD: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Map, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+const HEAD_NO_MAP: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+
+/// The core half of `AftermathWindow::head` / `head_at_commit`. `None` for the positions of [`unported`] (the skipped action has
+/// no cannon: only the first three gates apply to it), a seat order that is not the id order, neutral units, nested activity the
+/// reaction table does not follow, or a position the codecs refuse.
+#[must_use]
+pub fn aftermath_head(
+    gs: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    a: HeadArgs<'_>,
+    rng_before: &crate::rng::RngPositions,
+    script: &Recording,
+) -> Option<CoreWindow<HeadOut>> {
+    use ti4_engine_core::driver::windows::aftermath::{Facts as HeadFacts, Head};
+    let cannon_args = Args { active: a.active, system: a.system, announce: a.announce, reproducible: a.reproducible };
+    if let Some(why) = unported(gs, &cannon_args) {
+        note_bail(HEAD_LABEL, why);
+        return None;
+    }
+    if !content.is_embedded() {
+        note_bail(HEAD_LABEL, "content other than the embedded one");
+        return None;
+    }
+    let Some((mut cx, r)) = tables(gs) else {
+        note_bail(HEAD_LABEL, "owner tables");
+        return None;
+    };
+    nested_check(script)?;
+    if r.seats.windows(2).any(|w| w[0] >= w[1]) {
+        note_bail(HEAD_LABEL, "seats not in id order");
+        return None;
+    }
+    let limits = match crate::tactical_dual::limits_of(gs, content, a.active, a.system) {
+        Ok(limits) => limits,
+        Err(why) => {
+            note_bail(HEAD_LABEL, why);
+            return None;
+        }
+    };
+    let active = r.seat(a.active.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let before = gs.clone();
+    let Some(env) = crate::tactical_dual::env_of(&before, &cx, sources) else {
+        note_bail(HEAD_LABEL, "window env");
+        return None;
+    };
+    let reaching: Vec<CUnit> = crate::combat::reaching_units(content, sources)
+        .iter()
+        .map(|id| <CUnit as IdStr>::from_id(id))
+        .collect::<Option<_>>()?;
+    let cannon = Facts {
+        active,
+        system,
+        announce: a.announce,
+        staging: crate::supply::staging_enabled(&before),
+        reaching,
+        kind: r.code("space_cannon"),
+        cause: r.code("unit_ability:space_cannon"),
+        casualty: r.code("assign_casualty"),
+        commander: r.code("letnevcommander"),
+    };
+    let facts = HeadFacts {
+        player: active,
+        system,
+        limits,
+        cannon,
+        notes: ti4_engine_core::state::NoteHold::new(),
+        skip_to_commit: a.skip_to_commit,
+        pre_roll: cx.texts.intern(Slice::Transient, "pre_roll").ok()?,
+    };
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
+    let resolver = Resolver::new(&seats, Some(active));
+    let mut driver = Driver::new(Head::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut staged = Vec::new();
+    let mut rng_after = None;
+    let src = Sources { galaxy, rng: Some(rng_before) };
+    let fp = if galaxy.is_some() { HEAD } else { HEAD_NO_MAP };
+    let driven = with_core(gs, &mut cx, src, nested_fp(fp, script), |core, _| {
+        let driven = drive_windowed(&mut driver, core, &env.kernel, None, &r, &before, script, &|window: &Head, choice, st, rendered| {
+            let ti4_engine_core::choice::Ask::Combat(ask) = &choice.ask else { return };
+            match ask {
+                CAsk::CancelHit { .. } => {
+                    rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, choice.actor));
+                }
+                CAsk::AssignHit => {
+                    let Some((gunner, bound)) = window.absorbing() else { return };
+                    let producer = PlayerId::new(r.seats[usize::from(gunner.0)].clone());
+                    if let Some(context) = rendered.context.take() {
+                        rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
+                            cause: crate::decision_context::HitCause::SpaceCannon,
+                            destroy: false,
+                            restriction: if bound { crate::decision_context::HitRestriction::NonFighter } else { crate::decision_context::HitRestriction::Any },
+                            producer: Some(producer),
+                        }));
+                    }
+                }
+                _ => {}
+            }
+        });
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
+        driven
+    });
+    let driven = match driven {
+        Ok(Ok(driven)) => driven,
+        Ok(Err(why)) => {
+            note_bail(HEAD_LABEL, &format!("driver: {why:?}"));
+            return None;
+        }
+        Err(why) => {
+            note_bail(HEAD_LABEL, &format!("lend: {why:?}"));
+            return None;
+        }
+    };
+    apply_staged(gs, &r, &staged)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    let w = &driver.window;
+    let snapshot = w.before.as_ref()?;
+    let sides = snapshot.sides.as_slice().iter().map(|s| r.player(*s).to_string()).collect();
+    let capitals = snapshot.capitals.as_slice().iter().map(|(s, n)| (r.player(*s).to_string(), usize::from(*n))).collect();
+    let value: HeadOut = (w.scoring, sides, capitals, w.drawn.clone(), positions);
+    Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
+}

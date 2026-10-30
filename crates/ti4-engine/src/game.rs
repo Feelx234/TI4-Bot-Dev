@@ -223,52 +223,9 @@ impl AftermathWindow {
         galaxy: Option<&Galaxy>,
         notes_at_tactical_start: crate::combat::NoteHoldings,
     ) -> Result<Self, GameError> {
-        // Movement may take the only carrier out of a system and strand what it was holding, so
-        // capacity is settled before anything shoots.
-        crate::fleet::enforce_seeing(
-            state,
-            ctx.content,
-            ctx.sources,
-            galaxy,
-            ctx.table,
-            player,
-            system,
-        )
-        .map_err(GameError::IllegalChoice)?;
-
-        let pending_event_scoring = Self::cannon_prelude(state, ctx, player, system, galaxy)?;
-
-        let before_combat = crate::combat::before_combat_with_notes(
-            state,
-            ctx.content,
-            ctx.sources,
-            system,
-            notes_at_tactical_start.clone(),
-        );
+        let (before_combat, pending_event_scoring) =
+            Self::head(state, ctx, player, system, galaxy, &notes_at_tactical_start, false)?;
         let mut window = crate::combat::CombatWindow::new(state, ctx.content, ctx.sources, system);
-        let sides = crate::combat::combatants(state, ctx.content, ctx.sources, system);
-        state.active_space_combat = (sides.len() == 2).then(|| {
-            let attacker = state
-                .active
-                .clone()
-                .filter(|seat| sides.contains(seat))
-                .unwrap_or_else(|| sides[0].clone());
-            let defender = sides
-                .iter()
-                .find(|seat| **seat != attacker)
-                .expect("two sides")
-                .clone();
-            (system.clone(), attacker, defender)
-        });
-        if state.active_space_combat.is_some() {
-            state.combat_presentation = ti4_model::state::CombatPresentation {
-                battle_seq: state.combat_round_seq.saturating_add(1),
-                phase: "pre_roll".to_owned(),
-                ..Default::default()
-            };
-            state.combat_round_hits.clear();
-            state.combat_round_dice.clear();
-        }
         if let Some(galaxy) = galaxy {
             window = window.with_galaxy(galaxy.clone());
         }
@@ -285,6 +242,119 @@ impl AftermathWindow {
             pending_event_scoring,
             notes_at_tactical_start,
         })
+    }
+
+    /// The head of the chain: the fleet enforcement, the space cannon offense (unless the action skipped to the commit step), the
+    /// snapshot of the system before the fight and the writes that open it.
+    ///
+    /// On `driver=dual` the whole head also runs as a core window (`driver::windows::aftermath::Head`) for the positions
+    /// `cannon_dual::unported` does not exclude.
+    fn head(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        galaxy: Option<&Galaxy>,
+        notes: &crate::combat::NoteHoldings,
+        skip_to_commit: bool,
+    ) -> Result<(crate::combat::BeforeCombat, Option<(FeatOccurrence, EventScoreLimit)>), GameError> {
+        if crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual {
+            return Self::head_string(state, ctx, player, system, galaxy, notes, skip_to_commit);
+        }
+        let (content, sources) = (ctx.content, ctx.sources);
+        let announce = ctx.timing.is_some();
+        let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+        let rng_before = ctx.rng.positions();
+        let history_start = ctx.dice.history().len();
+        let failed = std::cell::Cell::new(false);
+        let mut outcome = None;
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            crate::cannon_dual::HEAD_LABEL,
+            state,
+            |s: &mut GameState| {
+                let result = Self::head_string(s, ctx, player, system, galaxy, notes, skip_to_commit);
+                failed.set(result.is_err());
+                let value: crate::cannon_dual::HeadOut = match &result {
+                    Ok((before, pending)) => (
+                        pending.as_ref().map(|(occurrence, _)| occurrence.0),
+                        before.sides().iter().map(ToString::to_string).collect(),
+                        before.capitals().map(|(p, n)| (p.to_string(), n)).collect(),
+                        ctx.dice
+                            .history()
+                            .iter()
+                            .skip(history_start)
+                            .filter(|roll| roll.reason == "space cannon")
+                            .map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                            .collect(),
+                        ctx.rng.positions(),
+                    ),
+                    Err(_) => (None, Vec::new(), Vec::new(), Vec::new(), ctx.rng.positions()),
+                };
+                outcome = Some(result);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                let args = crate::cannon_dual::HeadArgs { active: player, system, announce, reproducible, skip_to_commit };
+                crate::cannon_dual::aftermath_head(s, content, sources, galaxy, args, &rng_before, script)
+            }
+        );
+        outcome.expect("the string closure ran")
+    }
+
+    /// The string body of [`Self::head`].
+    fn head_string(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        galaxy: Option<&Galaxy>,
+        notes: &crate::combat::NoteHoldings,
+        skip_to_commit: bool,
+    ) -> Result<(crate::combat::BeforeCombat, Option<(FeatOccurrence, EventScoreLimit)>), GameError> {
+        // Movement may take the only carrier out of a system and strand what it was holding, so
+        // capacity is settled before anything shoots.
+        crate::fleet::enforce_seeing(
+            state,
+            ctx.content,
+            ctx.sources,
+            galaxy,
+            ctx.table,
+            player,
+            system,
+        )
+        .map_err(GameError::IllegalChoice)?;
+        let pending_event_scoring = if skip_to_commit { None } else { Self::cannon_prelude(state, ctx, player, system, galaxy)? };
+        let before_combat = crate::combat::before_combat_with_notes(state, ctx.content, ctx.sources, system, notes.clone());
+        if !skip_to_commit {
+            let sides = crate::combat::combatants(state, ctx.content, ctx.sources, system);
+            state.active_space_combat = (sides.len() == 2).then(|| {
+                let attacker = state
+                    .active
+                    .clone()
+                    .filter(|seat| sides.contains(seat))
+                    .unwrap_or_else(|| sides[0].clone());
+                let defender = sides
+                    .iter()
+                    .find(|seat| **seat != attacker)
+                    .expect("two sides")
+                    .clone();
+                (system.clone(), attacker, defender)
+            });
+            if state.active_space_combat.is_some() {
+                state.combat_presentation = ti4_model::state::CombatPresentation {
+                    battle_seq: state.combat_round_seq.saturating_add(1),
+                    phase: "pre_roll".to_owned(),
+                    ..Default::default()
+                };
+                state.combat_round_hits.clear();
+                state.combat_round_dice.clear();
+            }
+        }
+        Ok((before_combat, pending_event_scoring))
     }
 
     /// The space cannon offense of the prelude, up to the event-scoring pause the feat opens: every gunner rolls, the reroll
@@ -463,23 +533,7 @@ impl AftermathWindow {
         galaxy: Option<&Galaxy>,
         notes_at_tactical_start: crate::combat::NoteHoldings,
     ) -> Result<Self, GameError> {
-        crate::fleet::enforce_seeing(
-            state,
-            ctx.content,
-            ctx.sources,
-            galaxy,
-            ctx.table,
-            player,
-            system,
-        )
-        .map_err(GameError::IllegalChoice)?;
-        let before_combat = crate::combat::before_combat_with_notes(
-            state,
-            ctx.content,
-            ctx.sources,
-            system,
-            notes_at_tactical_start.clone(),
-        );
+        let (before_combat, _) = Self::head(state, ctx, player, system, galaxy, &notes_at_tactical_start, true)?;
         let mut invasion = crate::invasion::InvasionWindow::at_commit_step(state, player, system);
         if let Some(galaxy) = galaxy {
             invasion = invasion.with_galaxy(galaxy);

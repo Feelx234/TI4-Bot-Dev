@@ -166,3 +166,74 @@ fn irreproducible_dice_and_dropped_factions_are_documented_bails() {
     let (dropped, _) = position(0, &[("a", "sol"), ("b", "obsidian")], pds_at_b);
     assert!(crate::cannon_dual::unported(&dropped, &args(true)).is_some_and(|why| why.contains("dropped")));
 }
+
+const HEAD: &str = "aftermath::head";
+
+fn open(mut state: GameState, system: &SystemId, seed: u64, skip: bool) -> (GameState, bool) {
+    let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+    let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+    let mut resolver = crate::fixtures::armed_resolver(&state);
+    let mut sequence = crate::event::EventSequence::new();
+    let mut ctx = Resolving {
+        content: ContentStore::embedded(),
+        sources: ti4_model::content_types::DEFAULT,
+        dice: &mut dice,
+        rng: &mut rng,
+        table: &mut table,
+        timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+    };
+    let notes = crate::combat::note_holdings(&state);
+    let opened = if skip {
+        AftermathWindow::at_commit_step(&mut state, &mut ctx, &a(), system, None, notes)
+    } else {
+        AftermathWindow::new(&mut state, &mut ctx, &a(), system, None, notes)
+    };
+    let ok = opened.is_ok();
+    (state, ok)
+}
+
+fn head_lockstep(seeds: std::ops::Range<u64>, skip: bool, setup: impl Fn(&mut GameState, &SystemId, &PlanetId) + Copy) -> (Vec<GameState>, crate::dual::DualReport) {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let mut states = Vec::new();
+    for seed in seeds {
+        let (state, system) = position(seed, &[("a", "sol"), ("b", "hacan")], setup);
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            let (after, ok) = open(state, &system, seed, skip);
+            assert!(ok, "the aftermath opened");
+            states.push(after);
+        });
+    }
+    let r = report();
+    let _ = take_report();
+    (states, r)
+}
+
+#[test]
+fn the_head_of_an_aftermath_runs_as_a_core_window_with_the_fights_opening_writes_in_lockstep() {
+    let (states, r) = head_lockstep(0..12, false, pds_at_b);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    let head = r.windows.get(HEAD).map_or(0, |w| w.compared);
+    assert!(head >= 8, "the head ran in the core: {:?}", r.windows);
+    assert!(states.iter().any(|s| s.active_space_combat.is_some()), "a fight opened in some run");
+}
+
+#[test]
+fn an_action_that_skipped_to_the_commit_step_has_no_cannon_and_no_fight_in_the_core_head() {
+    let (states, r) = head_lockstep(0..4, true, pds_at_b);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(HEAD).map_or(0, |w| w.compared) >= 3, "the head ran in the core: {:?}", r.windows);
+    assert!(states.iter().all(|s| s.active_space_combat.is_none()), "no fight opens at the commit step");
+}
+
+#[test]
+fn a_head_with_a_heart_of_ixth_keeps_the_string_and_says_why() {
+    let heart = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        pds_at_b(s, system, planet);
+        s.player_mut(&b()).unwrap().relics.push(ti4_model::id::RelicId::new("heartofixth"));
+    };
+    let (_, r) = head_lockstep(0..2, false, heart);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert_eq!(r.windows.get(HEAD).map_or(0, |w| w.compared), 0, "{:?}", r.windows);
+    assert!(r.windows.iter().any(|(k, w)| k.starts_with(HEAD) && k.contains("[bail: a reroll question") && w.bailed > 0), "{:?}", r.windows);
+}
