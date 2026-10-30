@@ -359,16 +359,26 @@ fn cmd_ladder(root: &Path, a: &Args) -> Result<(), String> {
     };
     let engine = EngineReplayer { mask: None, require_clean: require_clean(a) };
     // A ladder game of an older version is never re-recorded by this command (a gated fix must not move it silently);
-    // `--force` re-records everything.
-    let jobs: Vec<RecordJob> = record::ladder_jobs(RULES_VERSION)
-        .into_iter()
-        .filter(|j| a.has("--force") || !dir.join(format!("{}.{}", record::stem(j.index), Tier::Slim.ext())).exists())
-        .collect();
-    let summary = record::record_games(&opts, &jobs, &engine)?;
-    println!("ladder: recorded {} game(s), excluded {}", summary.recorded.len(), summary.excluded.len());
-    for (i, why) in &summary.excluded {
-        println!("  excluded {}: {why}", record::stem(*i));
+    // `--force` re-records everything. A version whose game a dual difference excluded is retried with another table
+    // (attempt 1, 2, ...): the ladder pins the version boundaries, it does not freeze a known porting bug.
+    let have = |i: usize| dir.join(format!("{}.{}", record::stem(i), Tier::Slim.ext())).exists();
+    let (mut recorded, mut excluded) = (0usize, Vec::new());
+    for attempt in 0..6u32 {
+        let jobs: Vec<RecordJob> = record::ladder_jobs(RULES_VERSION, attempt).into_iter().filter(|j| a.has("--force") && attempt == 0 || !have(j.index)).collect();
+        if jobs.is_empty() {
+            break;
+        }
+        let summary = record::record_games(&opts, &jobs, &engine)?;
+        recorded += summary.recorded.len();
+        excluded = summary.excluded;
+        for (i, why) in &excluded {
+            println!("  attempt {attempt}: excluded {}: {why}", record::stem(*i));
+        }
+        if excluded.is_empty() {
+            break;
+        }
     }
+    println!("ladder: recorded {recorded} game(s) this run, {} still missing", excluded.len());
     // the ladder is a set of games at DIFFERENT rules versions: one set.json per version would be pointless, so the
     // set carries rules_version = the newest and each game header its own (checked by every_version_has_a_set)
     finish_ladder(root, &dir)

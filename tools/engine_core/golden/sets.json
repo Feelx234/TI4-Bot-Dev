@@ -1,5 +1,16 @@
 [
   {
+    "name": "ladder",
+    "dir": "ladder",
+    "tier": "slim",
+    "rules_version": null,
+    "frozen": false,
+    "source": "golden ladder",
+    "games": 35,
+    "decisions": 18580,
+    "pure_share_at_record": 134
+  },
+  {
     "name": "legacy-bench",
     "dir": "legacy-sources/bench",
     "tier": "full",

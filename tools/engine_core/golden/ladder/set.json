@@ -1,0 +1,297 @@
+{
+  "name": "ladder",
+  "tier": "slim",
+  "rules_version": null,
+  "frozen": false,
+  "source": "golden ladder",
+  "note": "one short game per rules version 0..=RULES_VERSION; each game header pins its own version",
+  "ladder": true,
+  "games": [
+    {
+      "file": "g000.tsv.zst",
+      "steps": 400,
+      "decisions": 534,
+      "decisions_hash": "5e04c019e960834e",
+      "bytes": 8658,
+      "sha256": "c0551d84ab41bc6ffdd05a3e7ef53fc126b6f1bd489e99329bedc546ebc17126"
+    },
+    {
+      "file": "g001.tsv.zst",
+      "steps": 400,
+      "decisions": 492,
+      "decisions_hash": "a8f78b96b2fe3ac3",
+      "bytes": 8350,
+      "sha256": "6a7269dd3c7633ff5195fa83abc67e2e020514393a1b7d5ebb2851067fc4140c"
+    },
+    {
+      "file": "g002.tsv.zst",
+      "steps": 400,
+      "decisions": 563,
+      "decisions_hash": "1050b56a2d48bc03",
+      "bytes": 9111,
+      "sha256": "55a887d046c6d2754b56e2784fb7f12d56a121fdbcd2ff9586da523daca24bbd"
+    },
+    {
+      "file": "g003.tsv.zst",
+      "steps": 400,
+      "decisions": 524,
+      "decisions_hash": "e8b08d586eff3079",
+      "bytes": 8649,
+      "sha256": "f5317ad88d3d269b87e76a269da2ab07685a60dc9bdff9d151bbef0468c6b393"
+    },
+    {
+      "file": "g004.tsv.zst",
+      "steps": 400,
+      "decisions": 494,
+      "decisions_hash": "ead3e5270aa886bf",
+      "bytes": 8475,
+      "sha256": "8c5174553c2fad4af8869228c01c124321c7b340e87bd98762f98dd70388d2b0"
+    },
+    {
+      "file": "g005.tsv.zst",
+      "steps": 400,
+      "decisions": 541,
+      "decisions_hash": "e9a6fa914eddea28",
+      "bytes": 8850,
+      "sha256": "bc0f1ea353121d95587869106fd12ade44b9f457ec9ebff118f15771bff4d082"
+    },
+    {
+      "file": "g007.tsv.zst",
+      "steps": 400,
+      "decisions": 534,
+      "decisions_hash": "f4efbaa14ed0a838",
+      "bytes": 8853,
+      "sha256": "3eacc91b5432f310d9cd40c841820245390ffb191be82689230f18f22610668e"
+    },
+    {
+      "file": "g008.tsv.zst",
+      "steps": 400,
+      "decisions": 472,
+      "decisions_hash": "004fc037e5e5d1c4",
+      "bytes": 8149,
+      "sha256": "562016c497e3d684a27414e66da37723de4fe7afe3d36cec29faa9c377d532a4"
+    },
+    {
+      "file": "g009.tsv.zst",
+      "steps": 400,
+      "decisions": 509,
+      "decisions_hash": "d5f37632e3ac511e",
+      "bytes": 8579,
+      "sha256": "449cdffbb2c4230b7a828a3da7f644f3250701a92274f1d27264bc86a77fb640"
+    },
+    {
+      "file": "g010.tsv.zst",
+      "steps": 400,
+      "decisions": 538,
+      "decisions_hash": "e663f2ce35c93013",
+      "bytes": 9195,
+      "sha256": "9a4d277730019c48fe928b8846b360d6b70ef57d7f2fc2c2460299ea0ec69d53"
+    },
+    {
+      "file": "g011.tsv.zst",
+      "steps": 400,
+      "decisions": 518,
+      "decisions_hash": "83607bec2ccead6d",
+      "bytes": 8740,
+      "sha256": "14e740bf0f3ed99a54f75e7acc4ddcedf4b4b9f1ec23db3d6277f5e729b5ba22"
+    },
+    {
+      "file": "g012.tsv.zst",
+      "steps": 400,
+      "decisions": 529,
+      "decisions_hash": "fd2b079670486998",
+      "bytes": 8901,
+      "sha256": "117e338b0766cbdd476ed8ac2da4928280aaf657d145bc5f399c628129a7adc5"
+    },
+    {
+      "file": "g013.tsv.zst",
+      "steps": 400,
+      "decisions": 542,
+      "decisions_hash": "c91583d775f63edc",
+      "bytes": 9037,
+      "sha256": "a24881174e84693535ce8e12424871919dbf816d8c86a45c34be9d699b88e545"
+    },
+    {
+      "file": "g014.tsv.zst",
+      "steps": 400,
+      "decisions": 575,
+      "decisions_hash": "93b579facaaad5b9",
+      "bytes": 9266,
+      "sha256": "fea76b9a7775f55114b3b9471048d4112b11f443feef1a953d6fbcb083d40a74"
+    },
+    {
+      "file": "g015.tsv.zst",
+      "steps": 400,
+      "decisions": 569,
+      "decisions_hash": "2baccf86c92c9476",
+      "bytes": 9568,
+      "sha256": "eb5027f647f3e31d02cf4baf368ba6b2533f02a51c0bd36dd42f5512d40f088a"
+    },
+    {
+      "file": "g016.tsv.zst",
+      "steps": 400,
+      "decisions": 540,
+      "decisions_hash": "c36a875ba10f31cc",
+      "bytes": 8760,
+      "sha256": "c7d58a812d37727f382c7a8a0a770971b7a1e531440e04de7f9f99d82359ef03"
+    },
+    {
+      "file": "g017.tsv.zst",
+      "steps": 400,
+      "decisions": 558,
+      "decisions_hash": "24a5d0cb3b0e490d",
+      "bytes": 9152,
+      "sha256": "c7c5bc8eb58a252e5a7708d7ae038a5ed5d869a6a5ce0af2dc0381a30118108f"
+    },
+    {
+      "file": "g018.tsv.zst",
+      "steps": 400,
+      "decisions": 505,
+      "decisions_hash": "673787a634583d0a",
+      "bytes": 8732,
+      "sha256": "81dc9116cd57531da7d3fe69db38ecbd8f43893f1b4515ab0f8269383d9b89b3"
+    },
+    {
+      "file": "g019.tsv.zst",
+      "steps": 400,
+      "decisions": 570,
+      "decisions_hash": "7384f23cd61e4fdd",
+      "bytes": 9117,
+      "sha256": "42ef407ede462974fb142357d2d3b9ce994fbb96a9f3cbecdc4dbee312b3d774"
+    },
+    {
+      "file": "g020.tsv.zst",
+      "steps": 400,
+      "decisions": 529,
+      "decisions_hash": "be845354fbadf380",
+      "bytes": 8823,
+      "sha256": "b6443562d68a9ef7729c66eb2b0942f72e9dfe86194a0835319341f5e877e8e1"
+    },
+    {
+      "file": "g021.tsv.zst",
+      "steps": 400,
+      "decisions": 525,
+      "decisions_hash": "615f24d53af6925e",
+      "bytes": 8524,
+      "sha256": "7dc19d927d5df97e388892c13fbf5b94afa08c8f2c160a16886829236fa5f644"
+    },
+    {
+      "file": "g022.tsv.zst",
+      "steps": 400,
+      "decisions": 484,
+      "decisions_hash": "fafb93a9df4347c3",
+      "bytes": 8363,
+      "sha256": "8da46ee64ead19aae6f3b67566fc18760acd5f7ab40d461651c935975170a1fb"
+    },
+    {
+      "file": "g023.tsv.zst",
+      "steps": 400,
+      "decisions": 557,
+      "decisions_hash": "364c01f136df096b",
+      "bytes": 9247,
+      "sha256": "c6e5e8b1ee32cd7ff6a8915b533b68e6674df6703940af52b5a48a7cb20eedce"
+    },
+    {
+      "file": "g024.tsv.zst",
+      "steps": 400,
+      "decisions": 507,
+      "decisions_hash": "743c7a5cc4b2cefa",
+      "bytes": 8484,
+      "sha256": "3383a12989b9996a36dcfba812e27420be9df9462ceb990267ef9a4cffa25fc7"
+    },
+    {
+      "file": "g025.tsv.zst",
+      "steps": 400,
+      "decisions": 548,
+      "decisions_hash": "9916c3c61933ad76",
+      "bytes": 8959,
+      "sha256": "f7a40020cf91b1ce50715c4ccc357f1c6d5c5f551a25681b454fc51b9a0ee512"
+    },
+    {
+      "file": "g026.tsv.zst",
+      "steps": 400,
+      "decisions": 494,
+      "decisions_hash": "b96bff2303cc2d45",
+      "bytes": 8493,
+      "sha256": "2b15b4b9b5e451acec394016a0b3211df4fa56b9ec2f282ed3c0d089f9519953"
+    },
+    {
+      "file": "g027.tsv.zst",
+      "steps": 400,
+      "decisions": 541,
+      "decisions_hash": "3ed36abbd4419695",
+      "bytes": 9119,
+      "sha256": "045c260b0858ace02f1400fd0673035a1c47c2d0f9c4f921e1452f3fd7149840"
+    },
+    {
+      "file": "g028.tsv.zst",
+      "steps": 400,
+      "decisions": 552,
+      "decisions_hash": "0e5425ac0fbcb44a",
+      "bytes": 8925,
+      "sha256": "5b5297afbfa7e7b300a732a56e6b65e9962b9f0ac730b45e9a3b7e9d68370f5b"
+    },
+    {
+      "file": "g029.tsv.zst",
+      "steps": 400,
+      "decisions": 534,
+      "decisions_hash": "9f0d25c2490d7f2c",
+      "bytes": 8994,
+      "sha256": "41f44f4ef5c6c9d8aa337d63a228fda8814205fdcf69a1f7a5585b386af844c8"
+    },
+    {
+      "file": "g030.tsv.zst",
+      "steps": 400,
+      "decisions": 539,
+      "decisions_hash": "a0aa9d6f01327d3d",
+      "bytes": 9016,
+      "sha256": "1afc0b7a8ec8eb16e76072d3903b11c654ecce8ad54e60781dabf491dfb34f98"
+    },
+    {
+      "file": "g031.tsv.zst",
+      "steps": 400,
+      "decisions": 544,
+      "decisions_hash": "ccec726f3f13313b",
+      "bytes": 9235,
+      "sha256": "501d8b317261bb5d1c9663ab437186e057be40165210aaf35c76f69b05f68ddc"
+    },
+    {
+      "file": "g032.tsv.zst",
+      "steps": 400,
+      "decisions": 509,
+      "decisions_hash": "d80e91bc1f9d9d35",
+      "bytes": 8649,
+      "sha256": "778653ad3c385b17d3bdb9ddb64f92aedaf9a057fa36923761ef2f6c195eb79d"
+    },
+    {
+      "file": "g033.tsv.zst",
+      "steps": 400,
+      "decisions": 520,
+      "decisions_hash": "d3e32d6647e29bbf",
+      "bytes": 8644,
+      "sha256": "93411dddab58baacb6771d6f50e7317a18ce6840984ff4ab036ec34822cb3e7f"
+    },
+    {
+      "file": "g034.tsv.zst",
+      "steps": 400,
+      "decisions": 574,
+      "decisions_hash": "d38a2be26ad6023b",
+      "bytes": 9548,
+      "sha256": "a3a535e913de5daad1f23ad70879ed4b65061ca8dbd338b6a846c30e3e34ecbb"
+    },
+    {
+      "file": "g035.tsv.zst",
+      "steps": 400,
+      "decisions": 516,
+      "decisions_hash": "91513473062ce7a7",
+      "bytes": 8539,
+      "sha256": "084106f55fbede00243cb8f5ba7641d4488d6788fb065fe0e5f75cd63bf82694"
+    }
+  ],
+  "smoke": [
+    "g001.tsv.zst",
+    "g004.tsv.zst",
+    "g008.tsv.zst",
+    "g022.tsv.zst"
+  ]
+}

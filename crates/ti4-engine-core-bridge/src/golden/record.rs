@@ -158,18 +158,20 @@ pub fn finalize_set(dir: &Path, name: &str, source: &str, note: &str) -> Result<
 // ---- ladder --------------------------------------------------------------------------------------------
 
 /// One short slim game at every rules version `0..=current`: 3 players on the small learn-to-play map, 400 steps.
+/// `attempt` 0 is the canonical table; a version whose game a dual difference excluded (T13: a known porting bug that
+/// table reaches) is retried with attempt 1, 2, ... (another faction rotation and seed), deterministically.
 #[must_use]
-pub fn ladder_jobs(current: u32) -> Vec<RecordJob> {
+pub fn ladder_jobs(current: u32, attempt: u32) -> Vec<RecordJob> {
     let pool = ti4_engine::seating::LOBBY_FACTIONS;
     (0..=current)
         .map(|v| RecordJob {
             index: v as usize,
             spec: GameSpec {
                 setup: "ladder".to_owned(),
-                seed: 1000 + u64::from(v),
+                seed: 1000 + u64::from(v) + 1000 * u64::from(attempt),
                 players: 3,
                 map: "3pLearnToPlayPoK".to_owned(),
-                factions: (0..3).map(|s| pool[(v as usize * 3 + s) % pool.len()].to_owned()).collect(),
+                factions: (0..3).map(|s| pool[(v as usize * 3 + s + 7 * attempt as usize) % pool.len()].to_owned()).collect(),
                 speaker: "seat".to_owned(),
                 card_set: None,
                 rotation: None,
@@ -369,12 +371,14 @@ mod tests {
 
     #[test]
     fn the_ladder_has_one_game_per_version() {
-        let jobs = ladder_jobs(35);
+        let jobs = ladder_jobs(35, 0);
         assert_eq!(jobs.len(), 36);
         assert!(jobs.iter().enumerate().all(|(i, j)| j.spec.rules_version == Some(i as u32) && j.index == i));
         let mut seeds: Vec<u64> = jobs.iter().map(|j| j.spec.seed).collect();
         seeds.dedup();
         assert_eq!(seeds.len(), 36);
+        let retry = ladder_jobs(35, 1);
+        assert!(retry.iter().zip(&jobs).all(|(r, j)| r.spec.seed != j.spec.seed && r.spec.factions != j.spec.factions && r.index == j.index));
     }
 
     #[test]
