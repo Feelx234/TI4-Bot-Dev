@@ -41,8 +41,8 @@ Dropped by decision (not ported): Last Bastion, Crimson Rebellion, Keleres, Deep
 
 ## Checks
 
-Run: `cargo test -p ti4-engine-core --lib`, `cargo test -p ti4-engine --lib` (4678 passed at commit 6d1006fb before the last gate-test edit; the
-targeted tests after it), `tools/engine_core/check_layers.py` (0 violations), `tools/engine_core/lint_core.sh` (0 hits). Single-file mutation
+Run: `cargo test -p ti4-engine-core --lib`, `cargo test -p ti4-engine --lib` (4678 passed at commit 6d1006fb, 0 failed, 4 ignored; the
+targeted tests after it, the final full run is in the report), `tools/engine_core/check_layers.py` (0 violations), `tools/engine_core/lint_core.sh` (0 hits). Single-file mutation
 checks of every core half by Haiku runners on a committed snapshot in a scratch worktree (`/root/deploytmp/core-w-l6/mutate.py`, scripts
 `mut1.sh`, `mut2.sh`, results `mut1.out`, `mut2.out`).
 
@@ -50,6 +50,10 @@ Batch 1 (51 mutants): 46 killed, 6 survived. Closed by new tests: Mageon self-ta
 vacuously), the no-draw count of the hand-limit child, the card-group table that does not reach the hand, the guard against taking from oneself
 (`fx::take_action_card_staged`). Equivalent mutants: the Ospha cost ceiling +5 halves (ship costs are whole numbers) and the offered-pick
 guard of `LetaniOspha::answer` (the driver rejects an unoffered pick before `answer` runs).
+
+Batch 2 (29 mutants: Wormhole Generator, Vaults, Orbital Drop, the Mageon survivors): 24 killed, 5 survived. Closed by new tests: Orbital
+Drop's token-event reason, a mech offer from an empty box, the payment of the mech through the `Spawn::Bill` child, the cost of 3. Batch 3
+(those four again): 4 of 4 killed. Equivalent mutant: `OrbitalDrop::answer` moving to `Paying` on a decline (the idle child ends at once).
 
 ## Not run (by the directive)
 
