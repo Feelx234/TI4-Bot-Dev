@@ -424,4 +424,41 @@ mod tests {
     fn the_lent_hooks_of_a_turn_end_run_in_the_order_of_the_string() {
         assert_eq!(HOOKS, [Hook::MinisterOfWar, Hook::TechnologyEndTurn, Hook::LegendaryEndTurn]);
     }
+
+    /// A planet with a system, and that system.
+    fn a_planet_with_a_system() -> (crate::generated::Planet, crate::generated::System) {
+        crate::generated::Planet::ALL.iter().find_map(|p| p.data().system.map(|s| (*p, s))).expect("a placed planet")
+    }
+
+    #[test]
+    fn spec_ops_wait_on_the_card_when_nothing_can_take_them() {
+        let unit = crate::generated::Unit::ALL[0];
+        let (planet, home) = a_planet_with_a_system();
+        let mut s = table();
+        s.players.edit(0).misc.spec_ops_card = 2;
+        assert_eq!(return_spec_ops(&mut s, Seat(0), unit), 0, "no home system");
+        s.players.edit(0).home_system = Some(home);
+        assert_eq!(return_spec_ops(&mut s, Seat(0), unit), 0, "no planet controlled there");
+        assert_eq!(s.players.edit(0).misc.spec_ops_card, 2, "they wait on the card");
+        s.players.edit(0).misc.spec_ops_card = 0;
+        s.board.planet_mut(planet).control = Some(Seat(0));
+        assert_eq!(return_spec_ops(&mut s, Seat(0), unit), 0, "nothing waiting");
+        assert!(s.board.planet_mut(planet).units.is_empty());
+        assert_eq!(return_spec_ops(&mut s, Seat(7), unit), 0, "a seat that is not seated");
+    }
+
+    #[test]
+    fn spec_ops_land_on_the_first_controlled_planet_of_the_home_system() {
+        let unit = crate::generated::Unit::ALL[0];
+        let (planet, home) = a_planet_with_a_system();
+        let mut s = table();
+        s.players.edit(1).home_system = Some(home);
+        s.players.edit(1).misc.spec_ops_card = 3;
+        s.board.planet_mut(planet).control = Some(Seat(1));
+        assert_eq!(return_spec_ops(&mut s, Seat(1), unit), 3);
+        assert_eq!(s.board.planet_mut(planet).units.len(), 3);
+        assert_eq!(s.players.edit(1).misc.spec_ops_card, 0);
+        mark_prepared(&mut s);
+        assert_eq!(s.pending.prepared_turn_seq, Some(s.meta.turn_seq));
+    }
 }
