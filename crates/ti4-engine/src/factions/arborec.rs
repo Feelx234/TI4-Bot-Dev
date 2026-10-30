@@ -1114,11 +1114,50 @@ fn ship_targets(state: &GameState, content: &ContentStore, sources: SourceSet) -
     found
 }
 
+/// Letani Ospha: the whole action is a window of the core (`rules::leader_windows::LetaniOspha`): the question over the ships, the
+/// owner's choice of the replacement and the replacement itself. The unit type each seat places per ship base type is the string's
+/// read (`player_unit`: upgrades and faction units).
+fn agent_use(context: &mut TimingContext<'_>, player: &PlayerId) -> Result<bool, TimingError> {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    let mut failed = None;
+    let done = crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::arborec::agent",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            match agent_use_string(&mut inner, player) {
+                Ok(done) => crate::dual::Run::new(done),
+                Err(error) => {
+                    failed = Some(error);
+                    crate::dual::Run::new(false)
+                }
+            }
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let forms: Vec<(PlayerId, UnitTypeId)> = s
+                .players
+                .iter()
+                .flat_map(|seat| {
+                    ship_bases(content, sources).into_iter().filter_map(|base| {
+                        let kind = player_unit(s, content, sources, &seat.id, &base)?;
+                        Some((seat.id.clone(), UnitTypeId::new(kind.id())))
+                    })
+                })
+                .collect();
+            crate::leaders_core::arborec_agent(s, player, &forms, sources, script)
+        }
+    );
+    failed.map_or(Ok(done), Err)
+}
+
+/// [`agent_use`] on the string engine: the oracle of the dual run.
 #[allow(
     clippy::too_many_lines,
     reason = "one card: every question is asked before the ship is replaced"
 )]
-fn agent_use(context: &mut TimingContext<'_>, player: &PlayerId) -> Result<bool, TimingError> {
+fn agent_use_string(context: &mut TimingContext<'_>, player: &PlayerId) -> Result<bool, TimingError> {
     let targets = ship_targets(context.state, context.content, context.sources);
     let target = match targets.as_slice() {
         [] => return Ok(false),
@@ -2741,6 +2780,66 @@ mod tests {
             1,
             "theirs untouched"
         );
+    }
+
+    /// Letani Ospha is a window of the core: the question over the ships (none for one), the owner's choice of the replacement among the
+    /// base types or a decline, the replacement in the old ship's place. The core half agrees with the string for a lone ship, a ship
+    /// of the holder among two, a decline, a ship the owner cannot replace (the box is out of the dearer types) and a damaged ship, and
+    /// it ran every time.
+    #[test]
+    fn the_agent_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let leader = LeaderId::new("arborecagent");
+        let run = |setup: &dyn Fn(&mut GameState, &SystemId), answers: &[&str]| -> (Option<bool>, GameState, SystemId) {
+            let (mut state, system) = agent_game();
+            setup(&mut state, &system);
+            let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                with_context(&mut state, &mut scripted(answers), |ctx| use_leader(ctx, &a(), &leader))
+            });
+            (done, state, system)
+        };
+        // A lone cruiser of the other seat: no ship question; the owner picks a dreadnought.
+        let (done, state, system) = run(&|_, _| {}, &["replace|dreadnought"]);
+        assert_eq!(done, Some(true));
+        assert_eq!((count(&state, &system, &b(), "cruiser"), count(&state, &system, &b(), "dreadnought")), (0, 1));
+        // The owner declines.
+        let (done, state, system) = run(&|_, _| {}, &["decline"]);
+        assert_eq!((done, count(&state, &system, &b(), "cruiser")), (Some(true), 1));
+        // Two ships (one damaged, one the holder's own): the holder chooses; the holder's own destroyer becomes a cruiser.
+        let (done, state, _) = run(
+            &|state, _| {
+                let home = home_of(state, &a());
+                crate::fixtures::put(state, &home, "destroyer", &a(), 1);
+                let theirs = home_of(state, &b());
+                state.system_mut(&theirs).units[0].sustained_damage = true;
+            },
+            &["ship|0", "replace|carrier"],
+        );
+        assert_eq!(done, Some(true));
+        let ships: Vec<String> = state.board.values().flat_map(|board| board.units.iter()).map(|u| format!("{}:{}{}", u.owner, u.type_id, if u.sustained_damage { "!" } else { "" })).collect();
+        assert_eq!(ships.len(), 2, "{ships:?}");
+        assert!(ships.iter().any(|s| s.contains("carrier")), "{ships:?}");
+        let (done, _, _) = run(
+            &|state, _| {
+                let home = home_of(state, &a());
+                crate::fixtures::put(state, &home, "destroyer", &a(), 1);
+            },
+            &["ship|1", "replace|cruiser"],
+        );
+        assert_eq!(done, Some(true));
+        // Nothing qualifies: only a fighter on the board.
+        let (done, _, _) = run(&|state, system| {
+            state.board.values_mut().for_each(|board| board.units.clear());
+            crate::fixtures::put(state, system, "fighter", &b(), 3);
+        }, &[]);
+        assert_eq!(done, Some(false));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::arborec::agent"), (5, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

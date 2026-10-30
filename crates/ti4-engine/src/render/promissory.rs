@@ -21,7 +21,13 @@ pub struct Fam;
 /// `base_type` of a unit, as the string spells it.
 #[must_use]
 pub fn base_name(unit: Unit) -> &'static str {
-    match unit.data().base_type {
+    base_name_of(unit.data().base_type)
+}
+
+/// A base type, as the string spells it.
+#[must_use]
+pub const fn base_name_of(base: UnitBaseType) -> &'static str {
+    match base {
         UnitBaseType::Carrier => "carrier",
         UnitBaseType::Cruiser => "cruiser",
         UnitBaseType::Destroyer => "destroyer",
