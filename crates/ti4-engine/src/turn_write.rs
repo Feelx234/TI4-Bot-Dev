@@ -258,11 +258,14 @@ mod real {
         .map(|(closing, actions, offered)| (closing.clone(), actions, offered && closing.is_some()))
     }
 
+    /// `(active, turn_seq, action_turn, flags, announced lines)` after the tail.
+    pub type PassOn = (Option<PlayerId>, u32, u32, TransientFlags, Vec<String>);
+
     /// The tail on a copy of `before`: `(active, turn_seq, action_turn, flags, announced lines)`.
     pub fn pass_on(
         before: &GameState,
         ended: Option<&PlayerId>,
-    ) -> Option<(Option<PlayerId>, u32, u32, TransientFlags, Vec<String>)> {
+    ) -> Option<PassOn> {
         let mut gs = before.clone();
         let lines = lend(&mut gs, |core, r| {
             let ended: Option<Seat> = match ended {
@@ -317,7 +320,8 @@ mod real {
     pub fn closing_menu(_: &GameState, _: &PlayerId, _: u8, _: &str, _: &[super::ClosingEntry], _: &[String]) -> Option<(bool, Vec<String>)> {
         None
     }
-    pub fn pass_on(_: &GameState, _: Option<&PlayerId>) -> Option<(Option<PlayerId>, u32, u32, ti4_model::state::TransientFlags, Vec<String>)> {
+    pub type PassOn = (Option<PlayerId>, u32, u32, ti4_model::state::TransientFlags, Vec<String>);
+    pub fn pass_on(_: &GameState, _: Option<&PlayerId>) -> Option<PassOn> {
         None
     }
 }
