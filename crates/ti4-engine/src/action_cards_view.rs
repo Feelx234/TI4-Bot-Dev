@@ -958,7 +958,7 @@ fn own_breakthroughs(state: &GameState, r: &crate::render::Render) -> [Option<ti
 
 /// Reveal Prototype's candidates: the unit upgrades "of the same type as 1 of your units that is participating in this combat"
 /// (the string's line matching of `baseUpgrade` and the unnamed second-generation line by name).
-fn reveal_set(state: &GameState, player: &PlayerId, sources: &ti4_model::content_types::SourceSet) -> ti4_engine_core::state::TechSet {
+pub(crate) fn reveal_set(state: &GameState, player: &PlayerId, sources: &ti4_model::content_types::SourceSet) -> ti4_engine_core::state::TechSet {
     use ti4_model::content_types::ContentType;
     let content = ti4_content::ContentStore::embedded();
     let mut out = ti4_engine_core::state::TechSet::default();
@@ -995,7 +995,7 @@ fn reveal_set(state: &GameState, player: &PlayerId, sources: &ti4_model::content
 /// strategy card declines (`research_unported`) and a Deepwrought, Keleres or Mentak seat anywhere at the table (Doctor
 /// Carrina's window opens around a research of any seat; Keleres and Deepwrought are dropped from the product, Mentak's
 /// Corsair form is the string's).
-fn technology_unported(gs: &GameState, sources: &ti4_model::content_types::SourceSet, player: &PlayerId) -> bool {
+pub(crate) fn technology_unported(gs: &GameState, sources: &ti4_model::content_types::SourceSet, player: &PlayerId) -> bool {
     let content = ti4_content::ContentStore::embedded();
     gs.players.iter().any(|p| p.faction.as_str() == "deepwrought" || p.faction.as_str().starts_with("keleres") || crate::factions::mentak::corsair_form(gs, &p.id))
         || crate::strategy_cards_core::research_unported(gs, content, sources.clone(), player)

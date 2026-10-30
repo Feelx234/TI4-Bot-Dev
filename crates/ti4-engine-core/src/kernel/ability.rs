@@ -165,6 +165,12 @@ pub struct SeatPlay {
     pub cruiser: (Option<crate::generated::Unit>, i64),
     /// The fighters on the Crimson card.
     pub fighter_on_card: i64,
+    /// Reveal Prototype (package W4): `Some` when the core plays it for this seat, the unit upgrades of the line of a unit of the seat in the
+    /// active system; `None` leaves the card to the string (a seat whose research the core window does not carry, or none open).
+    pub reveal: Option<crate::state::TechSet>,
+    /// Reveal Prototype: the seat can spend the four resources and a unit upgrade is open to it (`action_cards::cost_is_payable`, which the core
+    /// does not judge: the adapter vouches for it).
+    pub reveal_payable: bool,
 }
 
 /// The play of an action card from inside a window (the reaction slot, the cards declared in a window): the
@@ -187,6 +193,12 @@ pub struct PlayFacts {
     pub has_effect: Vec<bool>,
     /// A Data Skimmer could take a discard.
     pub skimmer: bool,
+    /// The faction units of the scope (a unit upgrade changes the units on the board), for the cards that research.
+    pub roster: Option<&'static crate::query::tech::UnitRoster>,
+    /// `GameState::rules_version`.
+    pub rules_version: u32,
+    /// The order of technologies by their id text.
+    pub tech_order: fn(crate::generated::Technology, crate::generated::Technology) -> core::cmp::Ordering,
 }
 
 /// Facts the adapter computes for the window and the core cannot (no galaxy is lent to the windows that follow
@@ -298,7 +310,7 @@ pub type Effect = fn(&mut Eff<'_, '_>) -> Result<(), TimingError>;
 /// The close hook of a window (`AbilityTable::on_close`).
 pub type CloseHook = fn(&mut Inline<'_, '_>) -> Result<(), TimingError>;
 /// The cards a seat's reaction slot could play (`AbilityTable::slot_cards`).
-pub type SlotCards = fn(&CoreState, &Kernel, bool, Seat, &EventRec, Relation) -> Vec<crate::generated::ActionCard>;
+pub type SlotCards = fn(&CoreState, &Kernel, &AdapterFacts, bool, Seat, &EventRec, Relation) -> Vec<crate::generated::ActionCard>;
 /// What follows the discard of a played card the faction crates register (`AbilityTable::after_play`).
 pub type Closed = fn(&mut RulesHost<'_>, &mut Resolver) -> Result<(), TimingError>;
 /// The predicate of a registered "cannot" (`Host::forbids`).
@@ -722,7 +734,7 @@ impl Host for RulesHost<'_> {
             let offered = match (self.table.slot_cards, relation) {
                 (Some(cards), _) if choice.opts.iter().any(|o| matches!(o, crate::choice::Opt::Reaction(crate::choice::reaction::Opt::Ability(id)) if id.kind == AbilityKind::Reaction)) => {
                     let barred = self.table.bars.is_some_and(|f| f(self.state, choice.actor));
-                    cards(&*self.state, self.kernel, barred, choice.actor, event, relation)
+                    cards(&*self.state, self.kernel, &self.table.facts, barred, choice.actor, event, relation)
                 }
                 _ => Vec::new(),
             };

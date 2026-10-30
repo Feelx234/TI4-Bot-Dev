@@ -22,7 +22,7 @@ use crate::kernel::ability::{Eff, Runner};
 use crate::kernel::resolver::TimingError;
 use crate::generated::{ActionCard, Timing};
 use crate::ids::Seat;
-use crate::kernel::ability::{AbilityTable, CondCx, Slot, Spec};
+use crate::kernel::ability::{AbilityTable, AdapterFacts, CondCx, Slot, Spec};
 use crate::kernel::reaction::window_of;
 use crate::kernel::Kernel;
 use crate::state::{CoreState, EventKind, EventRec, Key, ReactionMode};
@@ -55,7 +55,7 @@ pub fn window_of_slot(slot: Slot) -> Option<(EventKind, Relation)> {
 ///
 /// # Errors
 /// [`Unknown`] when a rule the answer reads is a documented bail of the core.
-pub fn playable(s: &CoreState, k: &Kernel, barred: bool, who: Seat, event: &EventRec, relation: Relation) -> Result<SmallList<ActionCard, 12>, Unknown> {
+pub fn playable(s: &CoreState, k: &Kernel, facts: &AdapterFacts, barred: bool, who: Seat, event: &EventRec, relation: Relation) -> Result<SmallList<ActionCard, 12>, Unknown> {
     let mut out = SmallList::new();
     let Some(p) = s.players().by_seat(who) else { return Ok(out) };
     if barred || k.hooks.economy.action_cards_forbidden(s, who) {
@@ -71,7 +71,7 @@ pub fn playable(s: &CoreState, k: &Kernel, barred: bool, who: Seat, event: &Even
         if spec.event != event.kind || spec.relation != relation || !spec.guard.holds(event, who, s, k) {
             continue;
         }
-        if !can_matter(s, scope, who, *card, event)? {
+        if !can_matter(s, scope, who, *card, event, facts)? {
             continue;
         }
         out.push(*card);
@@ -81,12 +81,21 @@ pub fn playable(s: &CoreState, k: &Kernel, barred: bool, who: Seat, event: &Even
 
 /// `action_cards::reaction_can_matter`: the printed cost first (rules version 23), then the per-card requirement
 /// for a window that names a system.
-fn can_matter(s: &CoreState, scope: Scope, who: Seat, card: ActionCard, event: &EventRec) -> Result<bool, Unknown> {
+fn can_matter(s: &CoreState, scope: Scope, who: Seat, card: ActionCard, event: &EventRec, facts: &AdapterFacts) -> Result<bool, Unknown> {
     if s.meta().rules_at_least(RULES_ACTION_CARD_COSTS) {
         if card == ActionCard::Bribery {
             return Err(Unknown::BriberyGoods);
         }
-        if !cost_is_payable(s, who, card, 0).ok_or(Unknown::CardCost)? {
+        let payable = match cost_is_payable(s, who, card, 0) {
+            Some(payable) => payable,
+            // Reveal Prototype's four resources and its unit upgrade: the adapter vouches for the seat (`SeatPlay::reveal`).
+            None if card == ActionCard::RevealPrototype => {
+                let seat = facts.plays.as_ref().and_then(|f| f.seats.iter().find(|p| p.who == who)).filter(|p| p.reveal.is_some());
+                seat.ok_or(Unknown::CardCost)?.reveal_payable
+            }
+            None => return Err(Unknown::CardCost),
+        };
+        if !payable {
             return Ok(false);
         }
     }
@@ -96,7 +105,7 @@ fn can_matter(s: &CoreState, scope: Scope, who: Seat, card: ActionCard, event: &
 }
 
 fn condition(c: &CondCx<'_>) -> bool {
-    match playable(c.state, c.kernel, c.barred, c.def.owner, c.event, c.def.relation) {
+    match playable(c.state, c.kernel, c.facts, c.barred, c.def.owner, c.event, c.def.relation) {
         Ok(cards) => !cards.is_empty(),
         Err(why) => c.unknown(why),
     }
@@ -159,7 +168,7 @@ pub fn play(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let barred = eff.barred();
     let cards = {
         let (s, k) = eff.read();
-        playable(s, k, barred, who, &event, relation)
+        playable(s, k, eff.adapter_facts(), barred, who, &event, relation)
     };
     let cards = match cards {
         Ok(cards) => cards,
@@ -210,8 +219,8 @@ pub fn play(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 /// Register the slot of every window.
 pub fn register(t: &mut AbilityTable) {
     super::announce::register(t);
-    t.slot_cards = Some(|s, k, barred, who, event, relation| {
-        playable(s, k, barred, who, event, relation).map(|c| c.as_slice().to_vec()).unwrap_or_default()
+    t.slot_cards = Some(|s, k, facts, barred, who, event, relation| {
+        playable(s, k, facts, barred, who, event, relation).map(|c| c.as_slice().to_vec()).unwrap_or_default()
     });
     for (i, (event, relation)) in windows().into_iter().enumerate() {
         let slot = Slot(SLOT_BASE + u16::try_from(i).unwrap_or(0));
@@ -252,17 +261,17 @@ mod tests {
         let k = Kernel::plain();
         let e = EventRec { id: 1, kind: EventKind::HitsToAssign, payload: Payload::new().with(Key::Player, crate::state::Val::Seat(Seat(0))), cancelled: false };
         // Transparasteel Plating is the kernel's hook (`economy.action_cards_forbidden`), not a bail of the seat.
-        assert_eq!(playable(&s, &k, false, Seat(0), &e, Relation::When).unwrap().as_slice(), &[ActionCard::ShieldsHolding1]);
+        assert_eq!(playable(&s, &k, &AdapterFacts::default(), false, Seat(0), &e, Relation::When).unwrap().as_slice(), &[ActionCard::ShieldsHolding1]);
         // Bribery's goods are the Keleres agent's commodities: a documented bail of the cost check.
         s.meta_mut().rules_version = RULES_ACTION_CARD_COSTS;
-        assert_eq!(can_matter(&s, Scope(u32::MAX), Seat(1), ActionCard::Bribery, &e), Err(Unknown::BriberyGoods));
+        assert_eq!(can_matter(&s, Scope(u32::MAX), Seat(1), ActionCard::Bribery, &e, &AdapterFacts::default()), Err(Unknown::BriberyGoods));
         s.meta_mut().rules_version = 0;
         // Another faction with the card in hand: Shields Holding listens to the hits before they are assigned.
         s.players_mut().by_seat_mut(Seat(1)).unwrap().cards.hand.push(ActionCard::ShieldsHolding1);
         let e1 = EventRec { id: 1, kind: EventKind::HitsToAssign, payload: Payload::new().with(Key::Player, crate::state::Val::Seat(Seat(1))), cancelled: false };
-        assert_eq!(playable(&s, &k, false, Seat(1), &e1, Relation::When).unwrap().as_slice(), &[ActionCard::ShieldsHolding1]);
-        assert!(playable(&s, &k, true, Seat(1), &e1, Relation::When).unwrap().is_empty(), "Political Secret bars the play");
-        assert!(playable(&s, &k, false, Seat(1), &e1, Relation::After).unwrap().is_empty(), "the other relation is another window");
+        assert_eq!(playable(&s, &k, &AdapterFacts::default(), false, Seat(1), &e1, Relation::When).unwrap().as_slice(), &[ActionCard::ShieldsHolding1]);
+        assert!(playable(&s, &k, &AdapterFacts::default(), true, Seat(1), &e1, Relation::When).unwrap().is_empty(), "Political Secret bars the play");
+        assert!(playable(&s, &k, &AdapterFacts::default(), false, Seat(1), &e1, Relation::After).unwrap().is_empty(), "the other relation is another window");
     }
 
     /// A window of the table holds cards of several printed names: the slot asks which to play, one option per name
@@ -317,6 +326,9 @@ mod tests {
             name_group: groups,
             has_effect: vec![true; ActionCard::COUNT],
             skimmer: false,
+            roster: None,
+            rules_version: u32::MAX,
+            tech_order: |x, y| x.cmp(&y),
         });
         let k = Kernel::plain();
         let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));

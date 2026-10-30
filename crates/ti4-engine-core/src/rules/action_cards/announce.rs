@@ -258,7 +258,13 @@ fn env_of(rt: &impl Runner, who: Seat) -> Option<Env> {
         infantry: Placed { unit: seat.infantry.0, on_card: seat.infantry.1 },
         cruiser: Placed { unit: seat.cruiser.0, on_card: seat.cruiser.1 },
         fighter: Placed { unit: Some(crate::generated::Unit::FighterI), on_card: seat.fighter_on_card },
-        facts: super::Facts::default(),
+        facts: super::Facts {
+            rules_version: f.rules_version,
+            tech_order: f.tech_order,
+            roster: f.roster,
+            reveal: seat.reveal.unwrap_or_default(),
+            ..super::Facts::default()
+        },
     };
     Some(env)
 }
@@ -374,6 +380,9 @@ mod tests {
             name_group: Vec::new(),
             has_effect: Vec::new(),
             skimmer: false,
+            roster: None,
+            rules_version: u32::MAX,
+            tech_order: |a, b| a.cmp(&b),
         });
         t
     }

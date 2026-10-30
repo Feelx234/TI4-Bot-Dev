@@ -216,7 +216,6 @@ impl Fx {
                 | Self::Plagiarize
                 | Self::Focused
                 | Self::Divert
-                | Self::Reveal
                 | Self::Lie
                 | Self::Bribery
                 | Self::Infiltrate

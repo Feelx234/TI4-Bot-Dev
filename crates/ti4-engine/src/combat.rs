@@ -9952,6 +9952,21 @@ mod tests {
         assert!(withdrew > 0, "a Skilled Retreat was played");
     }
 
+    /// W4: Reveal Prototype is played from the standing slot at the start of the combat: its four resources are judged (by the adapter, the
+    /// string's own judge), the unit upgrade of a line of the holder's units in the system is researched and the bill paid, all in the core.
+    #[test]
+    fn reveal_prototype_is_played_from_the_slot_in_the_core_window_in_lockstep() {
+        let mut played = 0;
+        for seed in 1..=4_u64 {
+            let (_, _, bails, plays) = cards_fight_with(seed, ["hacan", "sol"], &[], &["reveal_prototype"], false, false, &|state, system| {
+                put(state, system, "fighter", &defender(), 2);
+            });
+            assert!(bails.iter().all(|k| !k.contains("nested") && !k.contains("(card ") && !k.contains("cost the core does not judge")), "the card is followed: {bails:?}");
+            played += usize::from(plays.iter().any(|c| c == "reveal_prototype"));
+        }
+        assert!(played > 0, "a Reveal Prototype was played");
+    }
+
     /// The promissory notes played at the start of a space combat: Antivirus (placed faceup) and The Cavalry (a ship type
     /// takes the flagship's abilities, the note goes home when the combat ends), both held by the defender.
     #[test]
@@ -10968,6 +10983,12 @@ mod tests {
     /// [`cards_fight`] on the centre of a plain hub, with its map lent to the combat (`hub`): the cards that look at the map
     /// (Skilled Retreat) find their destinations.
     fn cards_fight_at(seed: u64, factions: [&str; 2], attacker_hand: &[&str], hand: &[&str], damaged: bool, hub: bool) -> (usize, usize, Vec<String>, Vec<String>) {
+        cards_fight_with(seed, factions, attacker_hand, hand, damaged, hub, &|_, _| {})
+    }
+
+    /// [`cards_fight_at`] with `extra` to set the position further (units, technologies) before the fight.
+    #[allow(clippy::too_many_arguments)]
+    fn cards_fight_with(seed: u64, factions: [&str; 2], attacker_hand: &[&str], hand: &[&str], damaged: bool, hub: bool, extra: &dyn Fn(&mut GameState, &SystemId)) -> (usize, usize, Vec<String>, Vec<String>) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let hub_map = crate::fixtures::plain_hub();
         let _guard = crate::dual::tests::serial();
@@ -10992,6 +11013,7 @@ mod tests {
             for unit in state.system_mut(&system).units.iter_mut().filter(|u| u.owner == defender() && u.type_id.as_str() == "dreadnought") {
                 unit.sustained_damage = damaged;
             }
+            extra(&mut state, &system);
             let seen = std::rc::Rc::new(std::cell::RefCell::new(0));
             struct Count(std::rc::Rc<std::cell::RefCell<usize>>);
             impl crate::choice::Decider for Count {
