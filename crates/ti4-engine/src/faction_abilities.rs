@@ -643,6 +643,30 @@ fn production_biomes_string(
     true
 }
 
+/// The component actions of the lobby factions that stay in the string (W11-open-01), counted at `perform_component` as
+/// `faction_abilities::perform_component [gate: <id>: ...]`. Production Biomes and Trade Convoys are the core's; every other body asks
+/// over the map (destinations, targets, systems), places units under the fleet pool and capacity or pays through the production
+/// window, and is dispatched by `perform_component` itself (D1b), which the core does not run.
+#[must_use]
+pub(crate) fn string_only_component(id: &str) -> Option<&'static str> {
+    let faction = id.strip_prefix("faction|")?;
+    Some(match faction.split('|').next()? {
+        "orbital_drop" => "faction|orbital_drop: two questions, the payment of the mech and the units placed on a planet (the payment child and the placement window), then the dispatch of perform_component (D1b)",
+        "muaat" => "faction|muaat: units placed or produced in a chosen system (the placement window and the production window of lane 1) and the dispatch of perform_component (D1b)",
+        "ghost" => "faction|ghost: the Wormhole Generator's destinations over the map and the dispatch of perform_component (D1b)",
+        "saar" => "faction|saar: Deorbit Barrage's targets over the map, the hits and the dispatch of perform_component (D1b)",
+        "titans" => "faction|titans: Terraform's planets and attachments, and the dispatch of perform_component (D1b)",
+        "naaz" => "faction|naaz: the relic or token fabrication and the Mech factory's placement, and the dispatch of perform_component (D1b)",
+        "winnu" => "faction|winnu: Lazax Gate Folding's wormhole position over the map, and the dispatch of perform_component (D1b)",
+        "yssaril" => "faction|yssaril: Stall Tactics' discard and Mageon Implants' reveal (the reveal rules are strings), and the dispatch of perform_component (D1b)",
+        "cabal" => "faction|cabal: Vortex captures a ship of the map, and the dispatch of perform_component (D1b)",
+        "arborec" => "faction|arborec: Psychospore's placement of ground forces from the reinforcements (the placement window), and the dispatch of perform_component (D1b)",
+        "nekro" => "faction|nekro: C4R's PDS placement, repair and draw, and the dispatch of perform_component (D1b)",
+        "mahact" => "faction|mahact: the Imperia and the command token of a seat in the fleet pool, and the dispatch of perform_component (D1b)",
+        _ => return None,
+    })
+}
+
 /// Perform a faction component action. Returns `false` for an option that is not one.
 #[allow(
     clippy::too_many_lines,
@@ -653,6 +677,9 @@ pub fn perform_component(
     player: &PlayerId,
     option: &crate::choice::ChoiceOption,
 ) -> bool {
+    if let Some(why) = string_only_component(&option.id) {
+        crate::dual::note_gate(crate::dual::Area::Factions, "faction_abilities::perform_component", why);
+    }
     if crate::factions::perform_component(context, player, option) {
         return true;
     }
@@ -1915,6 +1942,35 @@ mod tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert_eq!(crate::dual::thread_window_counts("faction_abilities::production_biomes"), (4, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The component actions that stay in the string are counted at `perform_component` (W11-open-01); Production Biomes and Trade
+    /// Convoys are not among them. Fails when the gate is removed or a core port is listed as string-only.
+    #[test]
+    fn the_component_actions_that_stay_in_the_string_are_counted() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        for id in ["faction|production_biomes", "faction|trade_convoys", "somethingelse"] {
+            assert_eq!(string_only_component(id), None, "{id}");
+        }
+        for id in [
+            "faction|orbital_drop", "faction|muaat|star_forge", "faction|ghost|wg", "faction|saar|deorbit_barrage", "faction|titans|terraform|elysium",
+            "faction|naaz|bmf", "faction|winnu|lgf", "faction|yssaril|stall_tactics", "faction|cabal|vortex", "faction|arborec|psychospore",
+            "faction|nekro|c4r|pds", "faction|mahact|x",
+        ] {
+            assert!(string_only_component(id).is_some_and(|why| why.starts_with(id.split('|').take(2).collect::<Vec<_>>().join("|").as_str())), "{id}");
+        }
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+            let option = crate::choice::ChoiceOption::labelled("faction|ghost|wg", ACTION_KIND, "Wormhole Generator");
+            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+            let _ = with_table_context(&mut state, None, &mut table, |context| perform_component(context, &PlayerId::new("a"), &option));
+        });
+        let r = report();
+        let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with("faction_abilities::perform_component [gate: faction|ghost: ")).map(|(_, c)| c.bailed).sum();
+        assert_eq!(gated, 1, "{r:?}");
         let _ = take_report();
     }
 
