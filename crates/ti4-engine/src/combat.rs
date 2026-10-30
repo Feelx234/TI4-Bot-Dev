@@ -6894,9 +6894,6 @@ impl CombatWindow {
         let barrage_why = if reproducible { crate::dual_window::barrage_why(state, &barrage_probe) } else { Some("irreproducible dice (test faces or a stream restore)") };
         let barrage_unported = barrage_why.is_some();
         let retreat_why = sides.iter().find_map(|side| {
-            if crate::technology::owns_det(state, side) {
-                return Some("Dark Energy Tap (a retreat that explores)");
-            }
             [&n0, &n1].iter().find_map(|list| {
                 list.iter().find_map(|(dest, _)| crate::dual_window::retreat_why(state, content, sources, side, &self.system, dest))
             })
@@ -6944,6 +6941,7 @@ impl CombatWindow {
             gate_why: opening_why.or(barrage_why).or(roll_why).or(retreat_why),
             neighbors: [n0, n1],
             may_retreat,
+            det: sides.map(|side| crate::technology::owns_det(state, side)),
             duranium: sides.map(|side| has_tech(side, "da")),
             devotion: state.players.iter().any(|p| crate::factions::yin::is_yin(state, &p.id)),
         })
@@ -11313,6 +11311,28 @@ mod tests {
         let (asked, compared, _bailed) = pending_fights(&|state, system, _| put(state, system, "saar_spacedock", &attacker(), 1), 24);
         assert!(asked.iter().any(|c| c.context.as_ref().is_some_and(|x| x.subtype == "retreat_to")));
         assert!(compared > 0, "the answers ran in the core: {compared}");
+    }
+
+    #[test]
+    fn a_dark_energy_tap_holder_retreats_to_empty_systems_in_the_core_machine() {
+        // Package W3/W1: the holder's destinations are the union of 78.7c and the technology's looser set ("adjacent systems with no other
+        // player's units, even without units or planets of its own there"); the composed machine puts the same retreat question.
+        let hub = crate::fixtures::plain_hub();
+        let (asked, compared, bailed) = pending_fights(
+            &|state, _, _| {
+                state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("det"));
+            },
+            24,
+        );
+        let own: Vec<&String> = hub.outer.iter().take(2).collect();
+        let retreats: Vec<&crate::choice::Choice> = asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == "retreat_to") && c.player == attacker()).collect();
+        assert!(!retreats.is_empty(), "the holder was asked where to retreat");
+        assert!(
+            retreats.iter().any(|c| c.options.iter().any(|o| o.id != "decline" && !own.iter().any(|id| id.as_str() == o.id))),
+            "an empty system the holder has no units in was offered: {:?}",
+            retreats.iter().map(|c| c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>()).collect::<Vec<_>>()
+        );
+        assert!(compared > 0, "the answers ran in the core: {compared} compared, {bailed} bailed");
     }
 
     #[test]

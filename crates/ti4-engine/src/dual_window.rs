@@ -3696,6 +3696,8 @@ pub struct SettleArgs {
     pub gate_why: Option<&'static str>,
     pub neighbors: [Vec<(ti4_model::id::SystemId, bool)>; 2],
     pub may_retreat: [bool; 2],
+    /// Per side: Dark Energy Tap is owned.
+    pub det: [bool; 2],
     pub duranium: [bool; 2],
     pub devotion: bool,
 }
@@ -3862,6 +3864,7 @@ fn settle_run(
         retreat_unported: a.retreat_unported,
         neighbors: [nb(0)?, nb(1)?],
         may_retreat: a.may_retreat,
+        det: a.det,
         duranium: a.duranium,
         devotion: a.devotion,
         casualty: r.code("assign_casualty"),
