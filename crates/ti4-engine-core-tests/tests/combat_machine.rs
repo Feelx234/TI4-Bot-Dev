@@ -8,7 +8,7 @@ use ti4_engine_core::containers::Opt32;
 use ti4_engine_core::rules::combat::flow::{Phase, Step};
 use ti4_engine_core::rules::combat::end_announce::Codes as EndCodes;
 use ti4_engine_core::rules::combat::machine::{Bail, Env, Fields, Machine, Stop};
-use ti4_engine_core::state::{Code, EventKind, Key, Piece};
+use ti4_engine_core::state::{Code, EventKind, Key};
 use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::rig::Policy;
 use ti4_engine_core_tests::scenario::plain_systems;
@@ -69,6 +69,15 @@ fn env() -> Env {
         end_codes: EndCodes { losers: Code(40), retreated: Code(41), reasons: [Code(42), Code(43), Code(44), Code(45)] },
         casualty: Code(13),
         commander: Code(14),
+        det: [false, false],
+        wormhole: false,
+        ambush: Code(15),
+        cause_core: Code(16),
+        cause_devotion: Code(17),
+        raid: Code(18),
+        ac: false,
+        ac_subtype: Code(19),
+        ac_cause: Code(20),
     }
 }
 

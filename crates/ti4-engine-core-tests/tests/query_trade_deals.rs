@@ -14,7 +14,7 @@ use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::scenario::plain_systems;
 
 fn facts() -> DealFacts {
-    DealFacts { note_order: |a, b| a.cmp(&b), card_order: |a, b| a.cmp(&b), unlocked: 0, pair: (Seat(0), Seat(1)), may: [true, true], arbiters: [false, false], planet_values: &[] }
+    DealFacts { note_order: |a, b| a.cmp(&b), card_order: |a, b| a.cmp(&b), unlocked: 0, pair: (Seat(0), Seat(1)), may: [true, true], arbiters: [false, false], planet_values: &[], free: [None, None] }
 }
 
 fn table(goods0: i16, com0: i16, goods1: i16, com1: i16) -> Scenario {

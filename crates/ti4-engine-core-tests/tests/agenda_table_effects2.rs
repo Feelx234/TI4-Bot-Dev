@@ -64,7 +64,8 @@ fn each_agenda_outcome_maps_to_its_effect_and_the_rest_is_not_expressed() {
     assert_eq!(of(Agenda::ArticlesOfWar, Outcome::Against), Some((Table::ArticlesWar, false)));
     assert_eq!(of(Agenda::PublicExecution, Outcome::Seat(Seat(0))), Some((Table::Execution(Seat(0)), true)), "deferred: it passes the speaker token");
     assert_eq!(of(Agenda::ConventionsOfWar, Outcome::Against), Some((Table::ConventionsHands, false)));
-    assert_eq!(of(Agenda::UnconventionalMeasures, Outcome::For), Some((Table::VotersDraw, false)));
+    // Since W6 the For draw is the DrawCards child window of the close, not a table effect.
+    assert_eq!(of(Agenda::UnconventionalMeasures, Outcome::For), None);
     assert_eq!(of(Agenda::UnconventionalMeasures, Outcome::Against), Some((Table::VotersHands, false)));
     assert_eq!(of(Agenda::MinisterOfAntiquities, Outcome::Seat(Seat(1))), Some((Table::Relic(Seat(1)), false)));
     assert_eq!(of(Agenda::PublicizeWeaponSchematics, Outcome::Against), Some((Table::Schematics, false)));
@@ -89,7 +90,7 @@ fn each_agenda_outcome_maps_to_its_effect_and_the_rest_is_not_expressed() {
     assert_eq!(Table::of(Agenda::WormholeResearch, Outcome::For, false), Some((Table::Nothing, true)));
     assert_eq!(Table::of(Agenda::WormholeResearch, Outcome::Against, true), Some((Table::Nothing, true)));
     assert!(Table::WormholeShips.needs_map() && Table::TravelBan.needs_map() && !Table::Rearm.needs_map());
-    assert!(Table::Relic(Seat(0)).draws_from_deck() && Table::VotersDraw.draws_from_deck() && Table::Incentive(1).draws_from_deck() && !Table::Plowshares.draws_from_deck());
+    assert!(Table::Relic(Seat(0)).draws_from_deck() && Table::Incentive(1).draws_from_deck() && !Table::Plowshares.draws_from_deck());
 }
 
 // ---- units ------------------------------------------------------------------------------------------

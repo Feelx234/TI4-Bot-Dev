@@ -39,6 +39,7 @@ fn window(limit: i32) -> ProductionWindow {
         agent_rules: false,
         agent_spent: false,
         emit_timing: false,
+        ability: false,
     }
 }
 

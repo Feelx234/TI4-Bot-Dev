@@ -16,6 +16,7 @@ fn facts(a: u8, b: u8) -> DealFacts {
         may: [true, true],
         arbiters: [false, false],
         planet_values: &[],
+        free: [None, None],
     }
 }
 

@@ -80,6 +80,7 @@ fn facts(staging: bool, announce: bool) -> BarrageFacts {
         kind: Code(3),
         extra: Code(4),
         unit_codes: vec![(Unit::DestroyerI, Code(10)), (Unit::DestroyerII, Code(11))],
+        raid: None,
     }
 }
 

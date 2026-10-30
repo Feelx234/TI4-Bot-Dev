@@ -18,7 +18,7 @@ fn arena(a: Faction, d: Faction) -> Scenario {
 }
 
 fn facts(munitions: [bool; 2]) -> Facts {
-    Facts { attacker: Seat(0), defender: Seat(1), system: sys(), phase: Code(1), names: vec![], munitions_after: munitions, announce: true, cause: Code(2), hacan: Code(3) }
+    Facts { attacker: Seat(0), defender: Seat(1), system: sys(), phase: Code(1), names: vec![], munitions_after: munitions, announce: true, cause: Code(2), hacan: Code(3), round: 1 }
 }
 
 fn hits(drawn: &[(u32, Vec<u32>)]) -> u32 {
