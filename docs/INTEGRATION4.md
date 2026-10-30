@@ -44,11 +44,13 @@ All with `CARGO_TARGET_DIR=/root/deploytmp/core-int4`.
 | `cargo test -p ti4-engine-core -p ti4-engine-core-factions` | ok: 307 + 26 + 3 + 87 passed, 0 failed |
 | `tools/engine_core/check_layers.py core` | 397 files, 0 violations |
 | `tools/engine_core/lint_core.sh` | 399 files, 0 hits |
-| `cargo test --profile lockstep -p ti4-engine --lib --no-fail-fast` (one run, scratch worktree at `e1593c0a`) | see section 4 |
+| `cargo test --profile lockstep -p ti4-engine --lib --no-fail-fast` (one run, scratch worktree at `e1593c0a`) | ok: 4552 passed, 0 failed, 4 ignored |
 
 ## 4. Tests failed by the combination, and fixed
 
-LOCKSTEP_RESULT_PLACEHOLDER
+None. The one lockstep run (`cargo test --profile lockstep -p ti4-engine --lib --no-fail-fast`, scratch worktree at the merge commit `e1593c0a`, private target dir) finished with
+`test result: ok. 4552 passed; 0 failed; 4 ignored` (28.8 s of test time). No combination failure was found, so there is no fix and no regression test in this branch;
+the only commits beyond the three merges are this document. The scratch worktree and `/root/deploytmp/core-int4` were deleted afterwards.
 
 ## 5. NOT run (the deferred gates)
 
