@@ -32,7 +32,6 @@ mod real {
     use crate::dual::{CoreWindow, Run, Why};
     use crate::dual_window::{drive_with, Driven, Recording};
     use crate::generated::IdStr;
-    use crate::dual_window::{outside};
     use crate::preview::{Delta, Preview, Quantity};
     use crate::render::Render;
     use crate::strategy_core::named_tables;
