@@ -61,51 +61,6 @@ fn seat_counts_usize_back(cx: &Ctx, m: &SortedMap<Seat, u32, 4>) -> R<std::colle
     m.iter().map(|(k, v)| Ok((PlayerId::new(cx.owner(S, *k)?), *v as usize))).collect()
 }
 
-pub struct Transient;
-
-fn sys(t: &SystemId) -> R<System> {
-    id::<System>(S, "system", t.as_str())
-}
-fn planet(t: &PlanetId) -> R<Planet> {
-    id::<Planet>(S, "planet", t.as_str())
-}
-fn unit(t: &UnitTypeId) -> R<Unit> {
-    id::<Unit>(S, "unit type", t.as_str())
-}
-fn sid(s: System) -> SystemId {
-    SystemId::new(txt(s))
-}
-fn pid(p: Planet) -> PlanetId {
-    PlanetId::new(txt(p))
-}
-fn uid(u: Unit) -> UnitTypeId {
-    UnitTypeId::new(txt(u))
-}
-
-fn seat_counts(cx: &Ctx, m: &std::collections::BTreeMap<PlayerId, u32>) -> R<SortedMap<Seat, u32, 4>> {
-    let mut out = SortedMap::new();
-    for (k, v) in m {
-        out.insert(cx.seat(S, k.as_str())?, *v);
-    }
-    Ok(out)
-}
-
-fn seat_counts_usize(cx: &Ctx, m: &std::collections::BTreeMap<PlayerId, usize>) -> R<SortedMap<Seat, u32, 4>> {
-    let mut out = SortedMap::new();
-    for (k, v) in m {
-        out.insert(cx.seat(S, k.as_str())?, narrow::<usize, u32>(S, "hits", *v)?);
-    }
-    Ok(out)
-}
-
-fn seat_counts_back(cx: &Ctx, m: &SortedMap<Seat, u32, 4>) -> R<std::collections::BTreeMap<PlayerId, u32>> {
-    m.iter().map(|(k, v)| Ok((PlayerId::new(cx.owner(S, *k)?), *v))).collect()
-}
-
-fn seat_counts_usize_back(cx: &Ctx, m: &SortedMap<Seat, u32, 4>) -> R<std::collections::BTreeMap<PlayerId, usize>> {
-    m.iter().map(|(k, v)| Ok((PlayerId::new(cx.owner(S, *k)?), *v as usize))).collect()
-}
-
 pub(crate) fn die(cx: &Ctx, tx: &mut Texts, r: &m::CombatRollRecord) -> R<c::CombatDie> {
     Ok(c::CombatDie { player: cx.seat(S, r.player.as_str())?, unit: tx.intern_code(S, &r.unit)?, roll: r.roll, target: r.target, hit: r.hit })
 }
