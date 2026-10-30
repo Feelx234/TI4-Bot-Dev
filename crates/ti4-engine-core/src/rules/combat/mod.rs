@@ -21,6 +21,7 @@ pub mod destroy_fighters;
 pub mod effect_hits;
 pub mod end;
 pub mod end_announce;
+pub mod feats;
 pub mod flow;
 pub mod machine;
 pub mod raid_formation;

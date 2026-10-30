@@ -339,3 +339,72 @@ fn minister_of_war_declined_changes_nothing_and_without_a_token_nothing_is_asked
     assert_eq!(r.total_differences(), 0);
     assert!(r.windows.get(MINISTER).is_none() && game.state.laws.contains_key("minister_war"), "22.3: no token on the board, no offer: {:?}", r.windows);
 }
+
+/// A system that is an anomaly (a nebula, a supernova, an asteroid field, a rift or a scar).
+fn an_anomaly() -> SystemId {
+    let content = ContentStore::embedded();
+    let found = ti4_content::galaxy::all_systems(content, ti4_model::content_types::DEFAULT)
+        .iter()
+        .find(|(_, s)| s.is_anomaly())
+        .map(|(id, _)| (*id).to_owned())
+        .expect("the corpus has an anomaly");
+    SystemId::new(found)
+}
+
+fn feats_run(winner: Option<PlayerId>, rounds: u32) -> (GameState, bool, crate::dual::DualReport) {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+    state.promissory_notes.clear();
+    state.promissory_faceup.clear();
+    let system = an_anomaly();
+    crate::fixtures::put(&mut state, &system, "warsun", &a(), 1);
+    crate::fixtures::put(&mut state, &system, "cruiser", &a(), 2);
+    crate::fixtures::put(&mut state, &system, "dreadnought", &a(), 1);
+    crate::fixtures::put(&mut state, &system, "warsun", &b(), 1);
+    crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
+    state.player_mut(&b()).unwrap().home_system = Some(system.clone());
+    state.player_mut(&b()).unwrap().victory_points = 4;
+    let content = ContentStore::embedded();
+    let before = crate::combat::before_combat(&state, content, ti4_model::content_types::DEFAULT, &system);
+    // b loses its fleet.
+    state.system_mut(&system).units.retain(|u| u.owner != b());
+    let outcome = crate::combat::CombatOutcome { winner, rounds };
+    let noted = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+        crate::combat::note_combat_event_feats(&mut state, content, ti4_model::content_types::DEFAULT, &system, &before, &outcome, ti4_model::state::FeatOccurrence(7))
+    });
+    let r = report();
+    let _ = take_report();
+    (state, noted, r)
+}
+
+#[test]
+fn the_feats_of_a_won_fight_in_an_anomaly_at_a_rival_home_are_recorded_by_the_core_as_by_the_string() {
+    let (state, noted, r) = feats_run(Some(a()), 3);
+    assert!(noted);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 1, "the write was compared: {:?}", r.areas);
+    let feats: Vec<_> = state.player(&a()).unwrap().event_feats.iter().map(|(f, _)| *f).collect();
+    for feat in [
+        ti4_model::state::Feat::DestroyedACapitalShip,
+        ti4_model::state::Feat::HeldThreeShipsAfterASpaceCombat,
+        ti4_model::state::Feat::WonInAnAnomaly,
+        ti4_model::state::Feat::WonInARivalHome,
+        ti4_model::state::Feat::WonBesideASurvivingFlagship,
+        ti4_model::state::Feat::WonAgainstThePointsLeader,
+    ] {
+        assert!(feats.contains(&feat), "{feat:?} in {feats:?}");
+    }
+}
+
+#[test]
+fn a_draw_scores_only_the_feats_that_do_not_ask_for_a_winner_and_a_fight_of_no_rounds_none() {
+    let (state, noted, r) = feats_run(None, 2);
+    assert!(noted);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    let feats: Vec<_> = state.player(&a()).unwrap().event_feats.iter().map(|(f, _)| *f).collect();
+    assert!(!feats.contains(&ti4_model::state::Feat::WonInAnAnomaly) && feats.contains(&ti4_model::state::Feat::DestroyedACapitalShip), "{feats:?}");
+    let (state, noted, r) = feats_run(Some(a()), 0);
+    assert!(!noted && state.player(&a()).unwrap().event_feats.is_empty());
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+}

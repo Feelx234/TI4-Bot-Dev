@@ -8012,6 +8012,12 @@ impl BeforeCombat {
         &self.sides
     }
 
+    /// Whose promissory notes each side held when the tactical action started.
+    #[must_use]
+    pub fn notes(&self) -> &NoteHoldings {
+        &self.notes
+    }
+
     /// The war suns and flagships each side had when the fight opened, in the map's (player id) order.
     pub fn capitals(&self) -> impl Iterator<Item = (&PlayerId, usize)> {
         self.capitals.iter().map(|(player, n)| (player, *n))
@@ -8144,6 +8150,25 @@ fn record_combat_feat(
 }
 
 fn note_combat_feats_at(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    before: &BeforeCombat,
+    outcome: &CombatOutcome,
+    occurrence: FeatOccurrence,
+) -> bool {
+    // `rules::combat::feats` runs beside the string body on `driver=dual` and the two are compared (state and result).
+    crate::dual::write(
+        crate::dual::Area::Driver,
+        state,
+        "combat::feats",
+        |s| note_combat_feats_text(s, content, sources, system, before, outcome, occurrence),
+        |s| crate::cannon_dual::combat_feats(s, content, sources, system, before, outcome, occurrence),
+    )
+}
+
+fn note_combat_feats_text(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,

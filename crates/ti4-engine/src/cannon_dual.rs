@@ -452,3 +452,53 @@ pub fn minister_of_war(gs: &mut GameState, script: &Recording) -> Option<CoreWin
     let value: MinisterOut = (w.discarded, w.retrieved.map(|s| s.as_str().to_owned()));
     Some(CoreWindow { run: Run::new(value).with_events_vec(Vec::new()), questions: driven.rendered })
 }
+
+// --- the feats of a finished combat ------------------------------------------------------------------------
+
+const FEATS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Players]);
+
+/// The core half of `combat::note_combat_feats_at`: the feats the finished fight earned, recorded against `occurrence`; whether any
+/// was earned. `None` for a content store other than the embedded one, a seat the tables do not know, or neutral sides.
+#[must_use]
+pub fn combat_feats(
+    gs: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    before: &crate::combat::BeforeCombat,
+    outcome: &crate::combat::CombatOutcome,
+    occurrence: ti4_model::state::FeatOccurrence,
+) -> Option<bool> {
+    use ti4_engine_core::rules::combat::feats::{feats, record, Outcome};
+    use ti4_engine_core::state::Before;
+    if !content.is_embedded() {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
+    let mut snapshot = Before::default();
+    for side in before.sides() {
+        snapshot.sides.push(r.seat(side.as_str())?);
+    }
+    for (player, n) in before.capitals() {
+        snapshot.capitals.push((r.seat(player.as_str())?, u16::try_from(n).ok()?));
+    }
+    for (holder, issuers) in before.notes() {
+        for issuer in issuers {
+            snapshot.notes.push((r.seat(holder.as_str())?, r.seat(issuer.as_str())?));
+        }
+    }
+    let winner = match &outcome.winner {
+        Some(w) => Some(r.seat(w.as_str())?),
+        None => None,
+    };
+    let result = Outcome { winner, rounds: outcome.rounds };
+    let kernel = crate::core_adapter::kernel_for(sources);
+    with_core(gs, &mut cx, Sources::default(), FEATS, |core, _| {
+        let rd = ti4_engine_core::rules::combat::Rd::new(core, kernel);
+        let list = feats(rd, sys, &snapshot, result);
+        record(core, &list, occurrence.0);
+        !list.is_empty()
+    })
+    .ok()
+}

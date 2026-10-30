@@ -20,6 +20,8 @@ pub enum Dispatch {
     Strategic(StrategyCard),
     /// The closing menu's "end your turn".
     EndTurn,
+    /// The answer to Minister of War's question: the window it belongs to takes it (not an arm of the menu).
+    Token,
     /// A source the core does not run: the string body runs through the reverse lend.
     Lend,
 }
@@ -32,6 +34,7 @@ pub const fn dispatch(opt: Opt) -> Dispatch {
         Opt::Tactical => Dispatch::Tactical,
         Opt::Strategic { card, .. } => Dispatch::Strategic(card),
         Opt::EndTurn => Dispatch::EndTurn,
+        Opt::Token(_) => Dispatch::Token,
         Opt::Lent(_) => Dispatch::Lend,
     }
 }
@@ -80,5 +83,6 @@ mod tests {
         let card = StrategyCard::ALL[0];
         assert_eq!(dispatch(Opt::Strategic { card, bare: true }), Dispatch::Strategic(card));
         assert_eq!(dispatch(Opt::Lent(Code(3))), Dispatch::Lend);
+        assert_eq!(dispatch(Opt::Token(crate::generated::System::ALL[0])), Dispatch::Token);
     }
 }
