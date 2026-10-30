@@ -315,6 +315,51 @@ mod form_tests {
     }
 
     #[test]
+    fn a_flip_takes_the_first_unit_of_the_owner_and_the_kind() {
+        let mut s = CoreState::all_loaded();
+        let (sys, who) = (System::ALL[3], Seat(0));
+        // an infantry of the owner stands first: it is not the unit of the kind
+        s.board_mut().sys_mut(sys).units.push(Piece::new(Unit::InfantryI, who));
+        s.board_mut().sys_mut(sys).units.push(Piece::new(Unit::Eidolon, who));
+        assert_eq!(flip_form(&mut s, scope(), who, sys, None, Unit::Eidolon), Some(Unit::ZGravEidolonNaazMechSpace));
+        let kinds: Vec<_> = s.board().sys(sys).units.iter().map(|p| p.kind()).collect();
+        assert_eq!(kinds, [Unit::InfantryI, Unit::ZGravEidolonNaazMechSpace]);
+    }
+
+    /// `place_for` is the one door of a placement (31.4): the seat's own form, the placement ban, the reinforcements, the unit, and a
+    /// Naaz mech announced.
+    #[test]
+    fn place_for_is_one_door_form_ban_box_and_the_announcement() {
+        use crate::generated::Faction;
+        use crate::state::{Player, Players};
+        let mut s = CoreState::all_loaded();
+        *s.players_mut() = Players::from_vec(vec![Player::new(Seat(0), Faction::TheNaazRokhaAlliance), Player::new(Seat(1), Faction::TheEmiratesOfHacan)]);
+        let mut roster = UnitRoster::default();
+        roster.set(Faction::TheNaazRokhaAlliance, UnitBaseType::Mech, Some(Unit::Eidolon));
+        let (sys, planet) = (System::ALL[3], Planet::ALL[3]);
+        let k = Kernel::plain();
+        // the Naaz mech is the seat's own form, and its placement is announced
+        assert_eq!(place_for(&mut s, &k, scope(), &roster, Seat(0), sys, Some(planet), UnitBaseType::Mech), Some(Unit::Eidolon));
+        assert_eq!(s.board().planet(planet).units.iter().map(|p| p.kind()).collect::<Vec<_>>(), [Unit::Eidolon]);
+        assert_eq!(s.pending().staged.len(), 1, "NAAZ_MECH_PLACED");
+        // another faction places the plain mech and announces nothing
+        assert_eq!(place_for(&mut s, &k, scope(), &roster, Seat(1), sys, Some(planet), UnitBaseType::Mech), Some(Unit::FactionlessMech));
+        assert_eq!(s.pending().staged.len(), 1);
+        // a faction effect may forbid the placement: nothing changes
+        let mut banned = Kernel::plain();
+        banned.hooks.economy.effect_placement_forbidden.push(|_, _, _, _| true);
+        let before = s.board().planet(planet).units.len();
+        assert_eq!(place_for(&mut s, &banned, scope(), &roster, Seat(1), sys, Some(planet), UnitBaseType::Mech), None);
+        assert_eq!(s.board().planet(planet).units.len(), before);
+        // the box holds five dreadnoughts: the sixth is not placed
+        for _ in 0..5 {
+            assert!(place_for(&mut s, &k, scope(), &roster, Seat(1), sys, None, UnitBaseType::Dreadnought).is_some());
+        }
+        assert_eq!(place_for(&mut s, &k, scope(), &roster, Seat(1), sys, None, UnitBaseType::Dreadnought), None, "31.4: no plastic left");
+        assert_eq!(s.board().sys(sys).units.iter().filter(|p| p.kind() == Unit::DreadnoughtI).count(), 5);
+    }
+
+    #[test]
     fn the_space_area_flips_every_matching_unit_of_the_players_only() {
         let mut s = CoreState::all_loaded();
         let sys = System::ALL[4];
