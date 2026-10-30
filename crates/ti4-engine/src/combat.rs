@@ -10156,6 +10156,21 @@ mod tests {
         assert!(bailed > 0, "the Z token is the string's");
     }
 
+    /// The Z token is an option of the Singularity even when the opponent owns nothing the Nekro could gain: the core cannot tell
+    /// whether the string offers it, so the window bails there too (counted); found by the soak.
+    #[test]
+    fn bail_the_singularity_with_the_z_token_and_nothing_else_to_take() {
+        let mut bailed = 0;
+        for seed in 0..6_u64 {
+            let (_, bails, differences) = nekro_fight(seed, &[], |s| {
+                s.player_mut(&attacker()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("nekrobt"));
+            });
+            assert_eq!(differences, 0, "seed {seed}");
+            bailed += usize::from(bails.iter().any(|k| k.contains("a fact the adapter did not compute")));
+        }
+        assert!(bailed > 0, "the Z token is the string's");
+    }
+
     /// The string registers The Terror Between for a Nekro seat (its flagship carries the text through the Z token): the core
     /// registers it too (the registry test) and bails when a Nekro flagship holding the Z token stands in the system.
     #[test]

@@ -169,6 +169,11 @@ fn antivirus_bars(s: &CoreState, nekro: Seat, opponent: Seat) -> bool {
 
 /// `nekro::singularity_ready`: the mark key and the opponent when the destruction in the event opens the ability.
 fn ready(s: &CoreState, k: &Kernel, c: &Payload, codes: &ti4_engine_core::kernel::ability::Codes, nekro: Seat, ground: bool) -> Option<(MarkKey, Seat)> {
+    ready_with(s, k, c, codes, nekro, ground, true)
+}
+
+/// [`ready`], optionally without the check that the opponent has something to take (the Z token is an option of its own).
+fn ready_with(s: &CoreState, k: &Kernel, c: &Payload, codes: &ti4_engine_core::kernel::ability::Codes, nekro: Seat, ground: bool, needs_options: bool) -> Option<(MarkKey, Seat)> {
     if !is_nekro(s, nekro) {
         return None;
     }
@@ -184,7 +189,7 @@ fn ready(s: &CoreState, k: &Kernel, c: &Payload, codes: &ti4_engine_core::kernel
     if status != Word::Open || c.seat(Key::Player) != Some(opponent) {
         return None;
     }
-    (!antivirus_bars(s, nekro, opponent) && !options(s, k, nekro, opponent).is_empty()).then_some((key, opponent))
+    (!antivirus_bars(s, nekro, opponent) && (!needs_options || !options(s, k, nekro, opponent).is_empty())).then_some((key, opponent))
 }
 
 fn singularity_when(c: &CondCx<'_>) -> bool {
@@ -195,11 +200,14 @@ fn singularity_when(c: &CondCx<'_>) -> bool {
         return false;
     }
     // The ability the Z token changes (a flagship's text lent): the string offers the token as an option.
-    let got = ready(c.state, c.kernel, &c.event.payload, &c.codes, me, ground);
-    if got.is_some() && holds_z(c.state, me) {
-        return c.unknown(Unknown::MissingFact);
+    // The token is an option even when the opponent has no technology to take, so the check of the options is the string's alone.
+    if holds_z(c.state, me) {
+        if ready_with(c.state, c.kernel, &c.event.payload, &c.codes, me, ground, false).is_some() {
+            return c.unknown(Unknown::MissingFact);
+        }
+        return false;
     }
-    got.is_some()
+    ready(c.state, c.kernel, &c.event.payload, &c.codes, me, ground).is_some()
 }
 
 fn singularity(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
