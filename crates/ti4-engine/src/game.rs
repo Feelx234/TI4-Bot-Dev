@@ -3015,10 +3015,7 @@ impl<'a> Game<'a> {
                     }
                 }
                 if answer.id == "pass" {
-                    self.state
-                        .player_mut(&active)
-                        .expect("active player exists")
-                        .passed = true;
+                    crate::turn_write::mark_passed(&mut self.state, &active);
                     // "You may exhaust this card when you pass". After the flag, because the
                     // ability is part of passing rather than a last action before it, and before
                     // the Prove Endurance window below, so anything it gains is on the board by
@@ -3028,10 +3025,8 @@ impl<'a> Game<'a> {
                     // action phase ends immediately afterwards and the fact is gone by the time
                     // anything else could look for it. "Last to pass" is decided by there being
                     // nobody left who has not.
-                    if self.state.players.iter().all(|seat| seat.passed) {
-                        let occurrence = self.state.begin_feat_occurrence();
-                        self.state
-                            .record_event_feat(&active, Feat::LastToPass, occurrence);
+                    if let Some(occurrence) = crate::turn_write::last_to_pass(&mut self.state, &active) {
+                        let occurrence = FeatOccurrence(occurrence);
                         // Watchful Ojz: "Be the last person to pass during the Action Phase".
                         // Opened at the pass itself rather than at some later step.
                         if self.state.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS {
@@ -3051,9 +3046,7 @@ impl<'a> Game<'a> {
                     );
                     self.emit_typed("PLAYER_PASSED", payload)?;
                     // An explicit pass declines the extra action Master Plan may have granted.
-                    self.state
-                        .transient_flags
-                        .clear(TransientFlags::ADDITIONAL_ACTION);
+                    crate::turn_write::decline_additional_action(&mut self.state);
                     self.advance_turn()?;
                     return Ok(());
                 }

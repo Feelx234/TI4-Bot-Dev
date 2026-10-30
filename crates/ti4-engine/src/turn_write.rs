@@ -144,6 +144,51 @@ pub fn check_prepared(state: &GameState, recorded: Option<u32>) {
     crate::dual::compare_value(Area::Driver, "turn::prepared", &recorded, &core);
 }
 
+/// `passed = true` of the seat that passes (`Game::apply_choice`, the "pass" arm).
+pub fn mark_passed(state: &mut GameState, player: &PlayerId) {
+    write(
+        Area::Driver,
+        state,
+        "turn::pass",
+        |s| {
+            if let Some(seat) = s.player_mut(player) {
+                seat.passed = true;
+            }
+        },
+        |s| real::mark_passed(s, player),
+    );
+}
+
+/// Prove Endurance at the pass: the occurrence the last seat to pass records, if it is the last.
+pub fn last_to_pass(state: &mut GameState, player: &PlayerId) -> Option<u64> {
+    write(
+        Area::Driver,
+        state,
+        "turn::last_to_pass",
+        |s| {
+            if s.players.iter().all(|seat| seat.passed) {
+                let occurrence = s.begin_feat_occurrence();
+                s.record_event_feat(player, ti4_model::state::Feat::LastToPass, occurrence);
+                Some(occurrence.0)
+            } else {
+                None
+            }
+        },
+        |s| real::last_to_pass(s, player),
+    )
+}
+
+/// An explicit pass declines the extra action Master Plan may have granted.
+pub fn decline_additional_action(state: &mut GameState) {
+    write(
+        Area::Driver,
+        state,
+        "turn::decline_additional_action",
+        |s| s.transient_flags.clear(TransientFlags::ADDITIONAL_ACTION),
+        real::decline_additional_action,
+    );
+}
+
 /// The writes of the close of a tactical action (`Game::close_tactical`): no system is active and the legacy pending tag is
 /// cleared (the aftermath window, a field of `Game`, is dropped by the caller).
 pub fn close_tactical_writes(state: &mut GameState) {
@@ -335,6 +380,20 @@ mod real {
         lend_with(gs, FLIP, |core, r| Some(rules::strategy_phase_flip(core).map(|s| r.player(s))))?
     }
 
+    const PASS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players], &[Slice::Meta, Slice::Players]);
+
+    pub fn mark_passed(gs: &mut GameState, p: &PlayerId) -> Option<()> {
+        lend_with(gs, PASS, |core, r| r.seat(p.as_str()).map(|seat| ti4_engine_core::driver::dispatch::mark_passed(core, seat)))?
+    }
+
+    pub fn last_to_pass(gs: &mut GameState, p: &PlayerId) -> Option<Option<u64>> {
+        lend_with(gs, PASS, |core, r| Some(ti4_engine_core::driver::dispatch::last_to_pass(core, r.seat(p.as_str())?)))?
+    }
+
+    pub fn decline_additional_action(gs: &mut GameState) -> Option<()> {
+        lend(gs, |core, _| ti4_engine_core::driver::dispatch::decline_additional_action(core))
+    }
+
     pub fn return_spec_ops(gs: &mut GameState, p: &PlayerId) -> Option<u32> {
         lend_with(gs, SPEC_OPS, |core, r| {
             let infantry = <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("sol_infantry2")?;
@@ -456,6 +515,15 @@ mod real {
         None
     }
     pub fn strategy_phase_flip(_: &mut GameState) -> Option<Option<PlayerId>> {
+        None
+    }
+    pub fn mark_passed(_: &mut GameState, _: &PlayerId) -> Option<()> {
+        None
+    }
+    pub fn last_to_pass(_: &mut GameState, _: &PlayerId) -> Option<Option<u64>> {
+        None
+    }
+    pub fn decline_additional_action(_: &mut GameState) -> Option<()> {
         None
     }
     pub fn return_spec_ops(_: &mut GameState, _: &PlayerId) -> Option<u32> {
@@ -778,5 +846,31 @@ mod tests {
         assert!(state.players.iter().all(|p| !p.stability), "stability is spent");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 3, "the three writes were compared: {:?}", r.areas);
+    }
+
+    #[test]
+    fn the_last_seat_to_pass_records_prove_endurance_and_an_explicit_pass_declines_the_extra_action() {
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = table();
+        state.transient_flags.set(TransientFlags::ADDITIONAL_ACTION);
+        let (first, second, third) = with_mask(driver(), || {
+            mark_passed(&mut state, &pid("a"));
+            let first = last_to_pass(&mut state, &pid("a"));
+            mark_passed(&mut state, &pid("b"));
+            let second = last_to_pass(&mut state, &pid("b"));
+            mark_passed(&mut state, &pid("c"));
+            let third = last_to_pass(&mut state, &pid("c"));
+            decline_additional_action(&mut state);
+            (first, second, third)
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!((first, second), (None, None), "others have yet to pass");
+        assert!(third.is_some(), "c is the last to pass");
+        assert!(state.player(&pid("c")).unwrap().event_feats.iter().any(|(f, _)| *f == ti4_model::state::Feat::LastToPass));
+        assert!(!state.transient_flags.has(TransientFlags::ADDITIONAL_ACTION));
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 7, "every write was compared: {:?}", r.areas);
     }
 }
