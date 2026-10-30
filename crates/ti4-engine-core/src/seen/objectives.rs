@@ -13,7 +13,7 @@ use std::rc::Rc;
 use super::Seen;
 use crate::bits::SysSet;
 use crate::containers::SmallList;
-use crate::generated::{FactionTag, PublicObjective, SecretObjective, System};
+use crate::generated::{FactionTag, PublicObjective, System};
 use crate::ids::Seat;
 use crate::query::objectives::{self as q, CostFamily, Family, Imagined, Pos, SeatFacts, Terms};
 use crate::query::{board, economy};
