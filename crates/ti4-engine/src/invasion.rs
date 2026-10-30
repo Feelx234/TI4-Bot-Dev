@@ -10560,6 +10560,11 @@ mod tests {
         for (holder_of_card, used) in [(false, false), (true, false), (true, true)] {
             for nomad_seat in [a.clone(), b.clone()] {
                 let (mut state, system, planet) = arena();
+                // Real faction ids: the codec refuses the fixture faction, and the core half would silently bail.
+                for (seat, faction) in state.players.iter_mut().zip(if nomad_seat == a { ["nomad", "hacan"] } else { ["arborec", "nomad"] }) {
+                    seat.faction = ti4_model::id::FactionId::new(faction);
+                }
+                state.promissory_notes.clear();
                 state.system_mut(&system).set_control(planet.clone(), b.clone());
                 on_planet(&mut state, &system, &planet, "infantry", &a, 1);
                 on_planet(&mut state, &system, &planet, "infantry", &b, 1);

@@ -3448,9 +3448,11 @@ pub fn begin_ground_unported(gs: &GameState, a: &BeginGroundArgs<'_>) -> Option<
     None
 }
 
+/// (The faction hooks of the start of the round write the board (the Maximum is repaired), the players (Supercharge is exhausted)
+/// and the marks (the Supercharge mark).)
 const BEGIN_GROUND: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
-    &[Slice::Meta, Slice::Transient, Slice::Pending],
+    &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Board, Slice::Players, Slice::Marks],
 );
 
 /// The core half of `InvasionWindow::begin_ground_round`. `None` for the positions of [`begin_ground_unported`],
