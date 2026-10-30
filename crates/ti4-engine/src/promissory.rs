@@ -805,6 +805,31 @@ pub fn commander_unlocked(state: &GameState, content: &ContentStore, owner: &Pla
 /// A direct grant does not require the named faction to be seated or its commander to be unlocked.
 #[must_use]
 pub fn has_commander_ability(state: &GameState, player: &PlayerId, commander: &str) -> bool {
+    #[cfg(feature = "typed-core")]
+    let typed = || {
+        crate::leaders_view::LeaderView::of(
+            state,
+            None,
+            ti4_model::content_types::FULL,
+            None,
+            crate::leaders_view::READS_ABILITY,
+        )
+        .and_then(|v| v.has_commander_ability(player, commander))
+    };
+    #[cfg(not(feature = "typed-core"))]
+    let typed = || None;
+    crate::dual_typed!(
+        crate::dual::Area::LeadersAbilities,
+        "leaders::commander_ability",
+        typed(),
+        has_commander_ability_text(state, player, commander)
+    )
+}
+
+/// [`has_commander_ability`] on the string state: the oracle of the dual run.
+#[doc(hidden)]
+#[must_use]
+pub fn has_commander_ability_text(state: &GameState, player: &PlayerId, commander: &str) -> bool {
     if state
         .faction_marks
         .contains_key(&commander_ability_mark(player, commander))
@@ -1276,6 +1301,34 @@ mod tests {
         state.promissory_faceup.insert("an:jolnar".to_owned());
         state.promissory_notes.insert("an:jolnar".to_owned(), b());
         assert!(!has_commander_ability(&state, &a(), "jolnarcommander"));
+    }
+
+    /// Every route to the commander read -- the direct callers of `promissory::has_commander_ability` (the vote, the tactical
+    /// action, Ghost's cards) as well as the leader rules -- is compared with the typed read. Fails on the code before the
+    /// comparison moved into `has_commander_ability` itself: no `leaders::commander_ability` call was compared by a direct
+    /// caller.
+    #[test]
+    fn the_commander_read_of_a_direct_caller_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ContentStore::embedded();
+        with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            let mut state = game_hacan_jolnar();
+            assert!(!has_commander_ability(&state, &a(), "hacancommander"));
+            state.player_mut(&a()).unwrap().leaders.insert(LeaderId::new("hacancommander"), LeaderStatus::Unlocked);
+            assert!(has_commander_ability(&state, &a(), "hacancommander"));
+            take(&mut state, content, &a(), "an:jolnar");
+            assert!(!has_commander_ability(&state, &a(), "jolnarcommander"));
+            state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("jolnarcommander"), LeaderStatus::Unlocked);
+            assert!(has_commander_ability(&state, &a(), "jolnarcommander"));
+            assert!(grant_commander_ability(&mut state, content, &a(), "ghostcommander"));
+            assert!(has_commander_ability(&state, &a(), "ghostcommander"));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas.get(&Area::LeadersAbilities).is_some_and(|c| c.calls == 5), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

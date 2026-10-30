@@ -1130,27 +1130,10 @@ pub fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
     crate::factions::vote_bonus(state, player)
 }
 
-/// `promissory::has_commander_ability`, through the typed leader rules.
+/// `promissory::has_commander_ability`, which is itself the typed read of the dual run (every caller, not only the
+/// leader rules, reaches it).
 fn commander_ability(state: &GameState, player: &PlayerId, commander: &str) -> bool {
-    #[cfg(feature = "typed-core")]
-    let typed = || {
-        crate::leaders_view::LeaderView::of(
-            state,
-            None,
-            ti4_model::content_types::FULL,
-            None,
-            crate::leaders_view::READS_ABILITY,
-        )
-        .and_then(|v| v.has_commander_ability(player, commander))
-    };
-    #[cfg(not(feature = "typed-core"))]
-    let typed = || None;
-    crate::dual_typed!(
-        crate::dual::Area::LeadersAbilities,
-        "leaders::commander_ability",
-        typed(),
-        crate::promissory::has_commander_ability(state, player, commander)
-    )
+    crate::promissory::has_commander_ability(state, player, commander)
 }
 
 /// Elder Qanoj, Xxcha's commander: "Each planet you exhaust to cast votes provides 1 additional
