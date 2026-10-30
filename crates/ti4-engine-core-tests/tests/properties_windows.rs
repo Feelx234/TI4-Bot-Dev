@@ -40,7 +40,9 @@ fn diplomacy(sc: Scenario) -> (Scenario, Diplomacy) {
 }
 
 fn converter(sc: Scenario) -> (Scenario, StellarConverter) {
-    let targets: Vec<(System, Planet)> = controlled_by_zero(&sc).into_iter().map(|p| (system_of(p), p)).collect();
+    let mut targets: Vec<(System, Planet)> = controlled_by_zero(&sc).into_iter().map(|p| (system_of(p), p)).collect();
+    // The order of the targets is the caller's: the same for any construction order of the position.
+    targets.sort();
     (sc, StellarConverter::new(Seat(0), &targets))
 }
 
