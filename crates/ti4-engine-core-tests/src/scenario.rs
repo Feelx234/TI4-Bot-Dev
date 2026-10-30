@@ -425,3 +425,34 @@ pub fn first_planet() -> (System, Planet) {
     let system = plain_systems()[0];
     (system, system.data().planets[0])
 }
+
+/// Distinct base-game planets with exactly these influence values (in the order asked), from the plain systems.
+///
+/// # Panics
+/// When no such planet exists.
+#[must_use]
+pub fn planets_with_influence(wanted: &[u8]) -> Vec<Planet> {
+    let mut out: Vec<Planet> = Vec::new();
+    for w in wanted {
+        let found = plain_systems()
+            .iter()
+            .flat_map(|s| s.data().planets.iter().copied())
+            .find(|p| p.data().influence == *w && p.data().source == ti4_engine_core::generated::Source::Base && !p.data().legendary && !out.contains(p))
+            .unwrap_or_else(|| panic!("a plain base planet with {w} influence"));
+        out.push(found);
+    }
+    out
+}
+
+/// The distinct systems of these planets, in the order first met (a map for exactly those planets).
+#[must_use]
+pub fn systems_of(planets: &[Planet]) -> Vec<System> {
+    let mut systems: Vec<System> = Vec::new();
+    for p in planets {
+        let s = system_of(*p);
+        if !systems.contains(&s) {
+            systems.push(s);
+        }
+    }
+    systems
+}
