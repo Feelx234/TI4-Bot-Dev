@@ -243,6 +243,21 @@ impl Scenario {
         self
     }
 
+    /// A map with the systems on exactly these hexes (a row, a line of tiles to test range and blocking).
+    ///
+    /// # Panics
+    /// When a system is listed twice or a hex is off the grid.
+    #[must_use]
+    pub fn map_hexes(mut self, tiles: &[(System, Hex)]) -> Self {
+        let mut galaxy = CoreGalaxy::new(&NO_LANES);
+        for (system, hex) in tiles {
+            galaxy.place(*system, *hex).unwrap_or_else(|e| panic!("cannot place {system:?}: {e:?}"));
+        }
+        galaxy.refresh_lane_links();
+        self.base.map = MapSlice::from_galaxy(galaxy);
+        self
+    }
+
     /// `n` units of `unit` for `seat`. Ships and fighters go into `system`'s space (`planet` must be `None`), ground forces and structures onto
     /// a planet of that system.
     ///
