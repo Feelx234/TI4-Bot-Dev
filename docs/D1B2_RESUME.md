@@ -24,8 +24,8 @@ the status/agenda halves of `step_phase`, the bodies of the non-native menu sour
 ## Gate
 
 Run once under the heavy lock (first run `15dc220f`, failed steps rerun on `ce246871`), results in `docs/ENGINE_KNOWN_ISSUES.md` `D1b2-gate-01`;
-the finding of the first run is `D1b2-find-01` (fixed, regression test). A modest wide soak (49 games, `tools/engine_core/soak.sh`, mask `wide`) was run on
-`127585b7`: the result is in the final report. Scripts used: `/root/deploytmp/core-d1b2-gate.sh`, `core-d1b2-rerun.sh`, `core-d1b2-soak.sh`.
+the finding of the first run is `D1b2-find-01` (fixed, regression test). The modest wide soak (49 games, `tools/engine_core/soak.sh`, mask `wide`, script `core-d1b2-soak.sh COMMIT`) was NOT run: it
+waited more than two hours for `/root/.ti4-heavy.lock` behind another agent's job and was cancelled. Run it on the final commit. Scripts used: `/root/deploytmp/core-d1b2-gate.sh`, `core-d1b2-rerun.sh`, `core-d1b2-soak.sh`.
 
 ## Done after the mutation round
 
