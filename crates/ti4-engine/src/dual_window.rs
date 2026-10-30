@@ -3787,8 +3787,8 @@ fn settle_run(
     script: &Recording,
     answering: Option<()>,
 ) -> Option<CoreWindow<SettleOut>> {
-    use ti4_engine_core::rules::combat::flow::{Pend, Phase, Step};
-    use ti4_engine_core::rules::combat::machine::{Env, Fields, Machine, Stop};
+    use ti4_engine_core::rules::combat::flow::{Phase, Step};
+    use ti4_engine_core::rules::combat::machine::{Env, Machine, Stop};
     if crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
         return None;
     }
@@ -3798,11 +3798,9 @@ fn settle_run(
     nested_check(script)?;
     waylay_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
-    let seats = |l: &[PlayerId]| l.iter().map(seat).collect::<Option<Vec<_>>>();
     let (attacker, defender) = (seat(&a.attacker)?, seat(&a.defender)?);
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let unit_of = |k: &str| <ti4_engine_core::generated::Unit as IdStr>::from_id(k);
-    let units = |l: &[String]| l.iter().map(|k| unit_of(k)).collect::<Option<Vec<_>>>();
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources)?;
     // The unit types present: every one a roll group or a barrage can name.
