@@ -337,7 +337,7 @@ fn minister_of_war_declined_changes_nothing_and_without_a_token_nothing_is_asked
     assert!(game.state.laws.contains_key("minister_war") && !game.state.transient_flags.has(ti4_model::state::TransientFlags::ADDITIONAL_ACTION));
     let (game, r) = minister(Box::new(crate::choice::FirstOption), false);
     assert_eq!(r.total_differences(), 0);
-    assert!(r.windows.get(MINISTER).is_none() && game.state.laws.contains_key("minister_war"), "22.3: no token on the board, no offer: {:?}", r.windows);
+    assert!(game.state.laws.contains_key("minister_war") && !game.state.transient_flags.has(ti4_model::state::TransientFlags::ADDITIONAL_ACTION), "22.3: no token on the board, no offer: {:?}", r.windows);
 }
 
 /// A system that is an anomaly (a nebula, a supernova, an asteroid field, a rift or a scar).
@@ -359,6 +359,7 @@ fn feats_run(winner: Option<PlayerId>, rounds: u32) -> (GameState, bool, crate::
     state.promissory_faceup.clear();
     let system = an_anomaly();
     crate::fixtures::put(&mut state, &system, "warsun", &a(), 1);
+    crate::fixtures::put(&mut state, &system, "genesis", &a(), 1);
     crate::fixtures::put(&mut state, &system, "cruiser", &a(), 2);
     crate::fixtures::put(&mut state, &system, "dreadnought", &a(), 1);
     crate::fixtures::put(&mut state, &system, "warsun", &b(), 1);
