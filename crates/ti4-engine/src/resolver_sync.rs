@@ -636,7 +636,11 @@ mod tests {
                     break;
                 }
                 churned.churn_state();
-                let (a, b) = (plain.step(), churned.step());
+                // (printed only when the test fails: which game and step a dual difference belongs to)
+                eprintln!("game {n}p seed {seed}: plain step {i}");
+                let a = plain.step();
+                eprintln!("game {n}p seed {seed}: churned step {i}");
+                let b = churned.step();
                 assert_eq!(a.error, b.error, "step {i}");
                 assert_eq!(plain.state, churned.state, "state after step {i} of game {seed}");
             }
