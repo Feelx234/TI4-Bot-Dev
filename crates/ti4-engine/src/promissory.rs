@@ -911,6 +911,14 @@ pub fn turn_started(
     let Some(holder) = holder_of(context.state, "ms", player) else {
         return Ok(false);
     };
+    // Counted, not silent (W14-design-02): the placement is `place_units_choosing`, a question with no window in the core (the
+    // spots of a controlled planet or a ship space under the fleet pool and capacity, the box, the unit form), and the only
+    // caller of this card is the turn prelude of the game step (D1b), which the core does not run yet.
+    crate::dual::note_gate(
+        crate::dual::Area::ExplorationRelics,
+        "promissory::military_support",
+        "the placement of place_units_choosing and the turn prelude that calls it are not in the core",
+    );
     let placed = crate::action_cards::place_units_choosing(
         context,
         &holder,
@@ -1551,6 +1559,25 @@ mod tests {
         crate::fixtures::with_context(state, POK, None, &mut table, |context| {
             turn_started(context, &a()).expect("a legal answer")
         })
+    }
+
+    /// Military Support stays in the string, counted: the census shows the card resolving under its own gate label (and no window
+    /// of the core is opened for it) until the placement window and the turn prelude exist. Fails when the gate is removed.
+    #[test]
+    fn military_support_is_a_counted_gate_until_the_core_has_the_placement_window() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let (mut state, system, planet) = military_support_fixture();
+        with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), || {
+            assert!(run_turn_started(&mut state, &[&format!("{system}|{planet}")]));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with("promissory::military_support [gate: ")).map(|(_, c)| c.bailed).sum();
+        assert_eq!(gated, 1, "{r:?}");
+        assert!(!r.windows.keys().any(|label| label == "promissory::military_support"), "no window of the core is opened for it");
+        let _ = take_report();
     }
 
     #[test]

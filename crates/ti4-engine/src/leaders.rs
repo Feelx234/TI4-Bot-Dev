@@ -2396,8 +2396,38 @@ fn dispatch_leader(
                 |s| crate::leaders_core::activate_letnev_hero(s, player),
             )
         }
-        _ => crate::factions::use_leader(context, player, leader).unwrap_or(false),
+        _ => {
+            if let Some(why) = string_only_leader(leader.as_str()) {
+                crate::dual::note_gate(crate::dual::Area::LeadersAbilities, "leaders::use_leader", why);
+            }
+            crate::factions::use_leader(context, player, leader).unwrap_or(false)
+        }
     }
+}
+
+/// The action leaders of the lobby factions that stay in the string, each with what it needs (W10-design-03, counted at the
+/// dispatch as `leaders::use_leader [gate: <id>: ...]`, so the census names them instead of leaving them silent). None of them has
+/// a golden call; the reasons are the work that is left, in the order the lanes would take it.
+#[must_use]
+pub(crate) fn string_only_leader(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "arborecagent" => "arborecagent: replaces a non-fighter ship with another (a choice over the ships of the board, then the swap with the box)",
+        "arborechero" => "arborechero: a use of PRODUCTION in every system of the hero (the production window of lane 1, W5)",
+        "muaatagent" => "muaatagent: another seat produces up to two units (the production window of lane 1, W5)",
+        "nekroagent" => "nekroagent: a seat discards a card or spends a token for trade goods (a decider other than the user: not yet a window)",
+        "nekrohero" => "nekrohero: destroys a planet's units and gains a technology (the destroyed ground forces are announced: D1b destruction flush)",
+        "naazhero" => "naazhero: the secondary of one or two strategy cards as children of the leader window (the strategy windows are children of the card, not of a leader)",
+        "winnuhero" => "winnuhero: the primary of a strategy card as the continuation of the leader (`use_leader_strategy_primary`, D1b dispatch)",
+        "saarhero" => "saarhero: the systems next to the docks (the player's adjacency over the map) and the removal of every other seat's fighters and infantry there",
+        "ghosthero" => "ghosthero: swaps two systems of the map (`apply_map_edit`; the core carries the edit as a lent map, not as a window that writes it)",
+        "empyreanhero" => "empyreanhero: explores every frontier token that holds a ship (the exploration composition, D1)",
+        "cabalhero" => "cabalhero: a hunt over the gravity rifts and the ships in or next to them (the map and the combat windows)",
+        "argenthero" => "argenthero: moves the fleets of the board by the Flock's migration (the map and the movement windows)",
+        "yinhero" => "yinhero: lands infantry and fights the ground combat (the invasion composition, D1b)",
+        "yssarilhero" => "yssarilhero: every seat reveals a card, a random discard from the game's stream and the hand limit (the reveal rules are strings)",
+        "mahacthero" => "mahacthero: a space combat between two sides chosen on the map (the tactical composition, D1b)",
+        _ => return None,
+    })
 }
 
 /// Separator in a borrowed-agent id: `yssarilagent|<agent>` (see [`use_leader_text`]).
@@ -2717,6 +2747,42 @@ mod tests {
         });
         let r = report();
         assert!(r.total_calls() >= 6, "the core half ran: {r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// The action leaders that stay in the string are counted under `leaders::use_leader [gate: <id>: ...]` (W10-design-03): every id of
+    /// the table is a leader of the corpus, none of the arms the dispatch carries is in it, and using one reaches the census. Fails
+    /// when the gate is removed from the dispatch or an id is renamed.
+    #[test]
+    fn the_action_leaders_that_stay_in_the_string_are_counted_at_the_dispatch() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let content = ContentStore::embedded();
+        let ids = [
+            "arborecagent", "arborechero", "muaatagent", "nekroagent", "nekrohero", "naazhero", "winnuhero", "saarhero", "ghosthero",
+            "empyreanhero", "cabalhero", "argenthero", "yinhero", "yssarilhero", "mahacthero",
+        ];
+        for id in ids {
+            assert!(string_only_leader(id).is_some_and(|why| why.starts_with(id)), "{id}");
+            assert!(kind_of(content, &LeaderId::new(id)).is_some(), "{id} is a leader of the corpus");
+        }
+        for carried in ["solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
+            assert_eq!(string_only_leader(carried), None, "{carried} has a port");
+        }
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            let mut state = crate::fixtures::seated_game(&[("a", "saar"), ("b", "sol")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let hero = holding(&mut state, "saarhero", LeaderStatus::Unlocked);
+            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+            // No map: the card cannot resolve, which the string answers `false` (the gate is counted before it does).
+            assert!(!crate::fixtures::with_context(&mut state, POK, None, &mut table, |context| use_leader(context, &player(), &hero)));
+        });
+        let r = report();
+        let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with("leaders::use_leader [gate: saarhero: ")).map(|(_, c)| c.bailed).sum();
+        assert_eq!(gated, 1, "{r:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
