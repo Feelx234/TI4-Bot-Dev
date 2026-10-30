@@ -49,6 +49,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::OPEN_GROUND, kind: "ability", card: "technological_singularity_open" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_SPACE, kind: "ability", card: "technological_singularity_close" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_GROUND, kind: "ability", card: "technological_singularity_close" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::threat::PREDICT, kind: "ability", card: "galactic_threat" },
+    Named { slot: ti4_engine_core_factions::ca_combat::nekro::threat::PAYOUT, kind: "ability", card: "galactic_threat" },
     Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::HERO_FINISH, kind: "leader", card: "sardakkhero" },
     Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::MECH_HIT, kind: "unit", card: "sardakk_mech" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_SHIP, kind: "unit", card: "empyrean_flagship" },
@@ -475,6 +477,7 @@ impl Follow {
         self.table.codes.direct_hit = r.code("action_card:direct_hit");
         self.table.codes.cavalry = r.code("cavalry");
         self.table.codes.technological_singularity = r.code("technological_singularity");
+        self.table.codes.galactic_threat = r.code("galactic_threat");
         self.table.codes.empyrean_mech = r.code("empyrean_mech");
         self.table.codes.salvage = r.code("so");
         self.table.facts.pay_kernel = Some(crate::production_view::kernel);

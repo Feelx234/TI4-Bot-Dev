@@ -142,6 +142,8 @@ pub struct Codes {
     pub cavalry: crate::state::Code,
     /// The name `technological_singularity`, the source of the question of the Nekro's ability.
     pub technological_singularity: crate::state::Code,
+    /// The name `galactic_threat`, the source of the question of the Nekro's ability.
+    pub galactic_threat: crate::state::Code,
     /// The unit alias `empyrean_mech`, the source of the Watcher's question.
     pub empyrean_mech: crate::state::Code,
     /// The technology alias `so`, the source of Salvage Operations' question.

@@ -138,6 +138,8 @@ pub enum Ask {
     /// `action_cards::enforce_hand_limit` (rule 2.4): the hand of `held` cards is over its limit, discard one (one option per
     /// printed name, in the order of the names).
     HandLimit { held: u8 },
+    /// The Nekro's Galactic Threat (`action_cards::predicted_outcome`): predict the outcome of the agenda in `frame`.
+    PredictThreat { frame: Frame },
 }
 
 /// One answer the area offers (not stored in the state).

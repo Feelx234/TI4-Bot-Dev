@@ -8,6 +8,7 @@ mod observe;
 mod offer;
 mod query;
 pub mod singularity;
+pub mod threat;
 pub mod timing;
 
 /// Every tier, in the order movement, query, observe, offer.
