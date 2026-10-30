@@ -249,7 +249,7 @@ mod tests {
         let (mut s, k) = table(&[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan]);
         let kernel = {
             let mut hooks = ti4_engine_core::hooks::HookTable::new();
-            super::query::register(&mut hooks);
+            crate::cc_ground::mentak::query::register(&mut hooks);
             Kernel { hooks, ..k }
         };
         let scope = ti4_engine_core::tables::Scope(u32::MAX);
