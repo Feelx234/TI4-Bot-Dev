@@ -423,3 +423,42 @@ Phase flow (W3) and the reconcile hooks (W4) are NOT ported; they are counted so
 `d1::reconcile [bail: <hook>]` (the hooks at the head of `step_flow` that changed the state in a step; `apply_to_galaxy` and
 `replay_map_edits` change the galaxy, which is not in `GameState`, and are not probed).
 
+
+## 10. D1b: the action phase (turn flow, step-loop precedence, menu assembly, tactical and aftermath windows)
+
+What D1b added on top of 8-9, and what it did NOT (the D1b checklist is `docs/todo/D1b.md`; the cuts are the bail table
+`D1b-*` in `docs/ENGINE_KNOWN_ISSUES.md`).
+
+* **Typed `Tactical` and `Aftermath`** (D1b-1). `Window::Tactical(state::Tactical)` (the `TStage` of A2b, `NoteHold` =
+  `(holder, issuer)` pairs of the promissory notes held when the action began) and `Window::Aftermath(Box<state::Aftermath>)`
+  (`AStage`, the system before the fight as `Before { sides, capitals, notes }`, `feats_noted`, the event-scoring pause with its
+  `PauseLimit`). The live sub-window of an aftermath (the space combat, the invasion, the production step) is NOT in the stack:
+  the payload carries the stage tag only, the sub-window stays with its area (todo fallback: the B12 machine states have no
+  `PartialEq` payload form on this branch). Observed from the string fields (`d1_action.rs`, a child of `d1_pending`) and
+  checked to turn back into them (`d1::pending.roundtrip`); `capitals` is read from the `Debug` form of `combat::BeforeCombat`
+  because its fields are private to `combat.rs` (B12's file).
+* **Turn flow** (D1b-5, D1b-6) in `driver/turn_flow.rs` (L5: composes `rules::trade`, `rules::diplomacy`, `rules::leaders`,
+  `rules::strategy_flow`, `query::seats`): `begin_action_turn`, `advance_turn` (the initiative walk), `action_phase_ended`,
+  `begin_next_round`, `take_retention`, `end_turn_scratch`, `pass_on` (the choice-free tail of `Game::advance_turn_inner`:
+  `TURN_PASSED`, Crisis skip, Puppets on a String), `finish_action` (the closing-menu decision, with `turn_closing` /
+  `actions_this_turn` / `prepared_turn_seq` now fields of `Pending`). `ti4-engine/src/turn_write.rs` wraps the string bodies in
+  `dual::write` under `Area::Driver` (labels `turn::*`). Not ported: the hooks between the steps (`technology::end_turn`,
+  `legendary::end_turn`, Minister of War, `fleet::enforce_everywhere`, the `TURN_PASSED` reaction windows) and the Strategy arm of
+  `advance_phase` (the Naalu hook runs through the factions kernel).
+* **Step-loop precedence** (D1b-7) in `driver/session.rs`: `Facts`, `step_arm` (`Game::step_flow`) and `ask_arm`
+  (`Game::legal_options`) as pure functions of the position's facts. The string records the arm it took and the source of the
+  question (`d1_pending::{snapshot_facts, note_ask}`); every step compares them (`d1::step.arm`, `d1::step.ask`). It is the order
+  of the windows the machines cannot check, not a core step loop: no arm runs in the core.
+* **Action menu assembly** (D1b-4) in `driver/menu.rs`: the 13 sources of `Game::turn_options` in menu order (`Source`/`ORDER`),
+  the failed-action filter, the Thunder's Edge slot, the closing menu (`closing_menu`, `second_action`). The options of the
+  sources are lent as reads: the string passes the ids each source gave (`MenuParts`) and the core assembles them (`turn::menu`,
+  `turn::closing`). Not ported: the sources' own options and the dispatch of the chosen option (`apply_choice`).
+* **Aftermath transitions** (D1b-2) in `driver/aftermath.rs`: `next(Settled)` (which step follows a finished one, the contact
+  pause), `announced`, `note_feats`; compared at every stage change of the string chain (`d1::aftermath.next`).
+* **Census** (D1b-8): `d1::step` counts every step and, as bails by name, the arms the core does not run (`d1::step [bail: <arm>]`,
+  `ask.<source>`): the worklist of the lent bodies.
+
+Not done in D1b (see the bail table): the aftermath composer that RUNS the chain in the core (it needs the space cannon offense
+and fleet enforcement prelude, A2b-10, which composes B12's files), the dispatcher of the chosen action (`apply_choice`), the
+tactical tail (`close_tactical`), a core `Session::step` that runs arms, the `Window` kinds `Combat`/`Invasion`/`Production` as
+stack entries.
