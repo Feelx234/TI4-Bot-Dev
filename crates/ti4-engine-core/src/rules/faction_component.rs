@@ -599,4 +599,87 @@ mod tests {
         d.resume(&mut s, &k, Pick::Opt(Opt::Promissory(POpt::Deploy))).unwrap();
         assert!(d.window.unsupported);
     }
+
+    /// A planet worth `at_least` resources, placed on a tile.
+    fn rich(at_least: u8) -> (System, Planet) {
+        Planet::ALL.iter().copied().filter(|p| p.data().resources >= at_least).find_map(|p| p.data().system.map(|s| (s, p))).expect("a rich planet")
+    }
+
+    #[test]
+    fn orbital_drop_names_the_token_event_by_its_reason_and_offers_no_mech_from_an_empty_box() {
+        use crate::driver::Status;
+        let k = Kernel::plain();
+        let [(_, planet), _] = two();
+        let mut s = orbital_table(1, 1);
+        let mut d = orbital_driver(orbital_facts(false), true);
+        d.run(&mut s, &k).unwrap();
+        let event = s.pending().staged.first().cloned().expect("the token event");
+        assert_eq!(event.kind, EventKind::StrategyTokenSpent);
+        assert_eq!(event.payload.get(Key::Reason), Some(Val::Code(Code(9))), "the reason is the source text");
+        assert_eq!(event.payload.get(Key::Player), Some(Val::Seat(Seat(0))));
+        // The four mechs of the box already stand on the board: the offer is not made although the seat could pay.
+        let mut s = orbital_table(1, 1);
+        let facts = orbital_facts(true);
+        for _ in 0..4 {
+            fx::place_unit(&mut s, Seat(0), two()[1].0, Some(two()[1].1), facts.mech.unwrap());
+        }
+        let mut d = orbital_driver(facts, true);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.done);
+        let _ = planet;
+    }
+
+    #[test]
+    fn orbital_drop_pays_three_resources_through_the_payment_window_and_only_then_lands_the_mech() {
+        use crate::choice::promissory::{Opt as POpt};
+        use crate::choice::{Opt, Pick};
+        use crate::driver::Status;
+        let k = Kernel::plain();
+        let (system, planet) = rich(3);
+        let mech = orbital_facts(true).mech.unwrap();
+        let mut s = table();
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.strategic_tokens = 1;
+        s.board_mut().planet_mut(planet).control = Some(Seat(0));
+        let mut d = orbital_driver(orbital_facts(true), true);
+        d.run(&mut s, &k).unwrap();
+        let mut status = d.resume(&mut s, &k, Pick::Opt(Opt::Promissory(POpt::Deploy))).unwrap();
+        let mut asked = Vec::new();
+        while let Status::Asking(q) = status {
+            asked.push(format!("{:?}", q.ask));
+            status = d.resume(&mut s, &k, Pick::Opt(q.opts.as_slice()[0])).unwrap();
+        }
+        let on = |s: &CoreState| s.board().planet(planet).units.as_slice().iter().filter(|p| p.kind() == mech).count();
+        assert_eq!(on(&s), 1, "paid, then the mech: {asked:?}");
+        assert!(s.board().planet(planet).flags.has(crate::state::PlanetFlags::EXHAUSTED), "the planet paid");
+        let _ = system;
+        // A seat that cannot actually pay (no resources to spend) gets no mech although it was offered.
+        let mut s = table();
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.strategic_tokens = 1;
+        let poor = two()[0].1;
+        s.board_mut().planet_mut(poor).control = Some(Seat(0));
+        s.board_mut().planet_mut(poor).flags.set(crate::state::PlanetFlags::EXHAUSTED, true);
+        let mut d = orbital_driver(orbital_facts(true), true);
+        d.run(&mut s, &k).unwrap();
+        let mut status = d.resume(&mut s, &k, Pick::Opt(Opt::Promissory(POpt::Deploy))).unwrap();
+        while let Status::Asking(q) = status {
+            status = d.resume(&mut s, &k, Pick::Opt(q.opts.as_slice()[0])).unwrap();
+        }
+        assert_eq!(on_mech(&s, poor, mech), 0);
+        // Two resources do not pay the three: the bill is not met and no mech lands.
+        let two_only = Planet::ALL.iter().copied().find(|p| p.data().resources == 2 && p.data().system.is_some()).expect("a planet worth 2");
+        let mut s = table();
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.strategic_tokens = 1;
+        s.board_mut().planet_mut(two_only).control = Some(Seat(0));
+        let mut d = orbital_driver(orbital_facts(true), true);
+        d.run(&mut s, &k).unwrap();
+        let mut status = d.resume(&mut s, &k, Pick::Opt(Opt::Promissory(POpt::Deploy))).unwrap();
+        while let Status::Asking(q) = status {
+            status = d.resume(&mut s, &k, Pick::Opt(q.opts.as_slice()[0])).unwrap();
+        }
+        assert_eq!(on_mech(&s, two_only, mech), 0, "3 resources are owed");
+    }
+
+    fn on_mech(s: &CoreState, planet: Planet, mech: Unit) -> usize {
+        s.board().planet(planet).units.as_slice().iter().filter(|p| p.kind() == mech).count()
+    }
 }
