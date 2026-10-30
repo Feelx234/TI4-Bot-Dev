@@ -28,7 +28,7 @@ pub mod keys;
 
 pub use ctx::{Ctx, Owners, Texts};
 pub use texts::TextCodes;
-pub use error::{Unmapped, R};
+pub use error::{Unmapped, R, bad};
 pub use footprint::Footprint;
 pub use codec::{Codec, Sources, SliceCodec};
 pub use lend::{CoreView, Kernel, Lend, LendStats, Region, SliceCost, region, with_core};

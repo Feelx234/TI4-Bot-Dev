@@ -2006,6 +2006,17 @@ impl<'a> Game<'a> {
         &mut self.timing
     }
 
+    /// Replace the timing resolver by one rebuilt from its image (the `TI4_CHURN=resolver` step).
+    #[cfg(feature = "typed-core")]
+    pub(crate) fn churn_resolver(&mut self) {
+        crate::resolver_sync::churn(&self.state, &mut self.timing, &mut self.event_sequence);
+    }
+
+    #[cfg(all(test, feature = "typed-core"))]
+    pub(crate) const fn event_sequence(&self) -> &EventSequence {
+        &self.event_sequence
+    }
+
     /// Access the game dice roller and its roll history.
     #[must_use]
     pub const fn dice(&self) -> &Dice {
@@ -2125,6 +2136,11 @@ impl<'a> Game<'a> {
     /// Resolve one generated decision, or one choice-free phase/window transition.
     #[must_use]
     pub fn step(&mut self) -> StepResult {
+        // `TI4_CHURN=resolver`: the timing resolver is rebuilt from its image before every step (D2-4a).
+        #[cfg(feature = "typed-core")]
+        if crate::churn::resolver() {
+            self.churn_resolver();
+        }
         #[cfg(feature = "typed-core")]
         if d1_pending::active() {
             self.d1.outcome = None;

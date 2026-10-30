@@ -94,6 +94,18 @@ impl EventSequence {
         Self { next_id: 1 }
     }
 
+    /// The id the next event gets (the whole state of the sequence).
+    #[must_use]
+    pub const fn peek(&self) -> u64 {
+        self.next_id
+    }
+
+    /// Continue from a sequence whose next id is `next_id` (a rebuilt game continues the old one's ids).
+    #[must_use]
+    pub const fn from_next(next_id: u64) -> Self {
+        Self { next_id }
+    }
+
     /// Allocate the next event without relying on process-global state.
     ///
     /// # Errors
