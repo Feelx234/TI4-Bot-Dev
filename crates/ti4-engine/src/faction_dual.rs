@@ -188,6 +188,49 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
+    /// The core half of Yssaril's Mageon Implants (`factions::yssaril::mageon_implants`; the value: the action resolved). A hand limit a
+    /// faction hook changes is not carried (the child window reads the printed rule and the laws): the string's.
+    pub fn mageon_implants(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, target: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::driver::Driver;
+        use ti4_engine_core::kernel::stage::AbilityTable;
+        use ti4_engine_core::kernel::{Kernel, Resolver};
+        use ti4_engine_core::rules::promissory_windows::MageonImplants;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if crate::laws::blanked(gs) {
+            crate::dual::note_bail_here("a turn in which the laws are blank (Law's Order)");
+            return None;
+        }
+        let plain = crate::laws::action_card_limit(gs, crate::action_cards::HAND_LIMIT);
+        let limit = crate::factions::hooks_economy::action_card_limit(gs, content, player, plain);
+        if limit != plain && limit != usize::MAX {
+            crate::dual::note_bail_here("a faction changes the action card hand limit");
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let target = r.seat(target.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let mut table = AbilityTable::default();
+        table.facts.card_groups = crate::reactions_core::card_groups();
+        ti4_engine_core::driver::children::register(&mut table);
+        let mut driver = Driver::new(MageonImplants::new(seat, target, limit == plain), Resolver::new(&seats, Some(seat)), table, 1);
+        let driven = with_core(gs, &mut cx, Sources::default(), C4R_DRAW, |core, _| {
+            crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {})
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the hand limit window or no printed-name groups");
+            return None;
+        }
+        Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     /// What Terraform reads and writes: the note (Cards), the planet and its attachment (Board).
     const TERRAFORM: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards],
@@ -252,6 +295,9 @@ mod stub {
         None
     }
     pub fn terraform(_: &mut GameState, _: &PlayerId, _: &str, _: bool, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn mageon_implants(_: &mut GameState, _: &ti4_content::ContentStore, _: &PlayerId, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
     pub fn stall_tactics(

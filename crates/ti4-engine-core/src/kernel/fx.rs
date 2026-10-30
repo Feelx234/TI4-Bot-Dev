@@ -433,19 +433,46 @@ pub fn gain_token(s: &mut CoreState, who: Seat, pool: crate::choice::strategy::P
     granted
 }
 
+/// The next `CardsStaged` mark: a card event waiting for the game step (`hooks_cards::stage`), `word` says which, `from` is who the card came
+/// from (a taken card; absent for a discard).
+fn stage_card_event(s: &mut CoreState, word: crate::keys::Word, who: Seat, from: Option<Seat>, card: crate::generated::ActionCard) {
+    use crate::keys::{Atom, MarkKey, MarkVal};
+    let next = s.marks().tail.iter().filter_map(|(k, _)| if let MarkKey::CardsStaged(n) = k { Some(*n) } else { None }).max().map_or(0, |n| n + 1);
+    let from = from.map_or(MarkVal::Atom(Atom::Absent), |seat| MarkVal::Atom(Atom::Seat(seat)));
+    let row = MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(word)), MarkVal::Atom(Atom::Seat(who)), from, MarkVal::Atom(Atom::Card(card))]);
+    s.marks_mut().tail.edit().insert(MarkKey::CardsStaged(next), row);
+}
+
 /// `hooks_cards::discard_chosen`: the first copy of `card` leaves the seat's hand and the discard waits for the game step, staged as the
 /// next `CardsStaged` mark (`discarded|<seat>||<card>`). `false` (nothing written) when the seat does not hold the card.
 pub fn discard_action_card_staged(s: &mut CoreState, who: Seat, card: crate::generated::ActionCard) -> bool {
-    use crate::keys::{Atom, MarkKey, MarkVal, Word};
     let Some(at) = s.players().by_seat(who).and_then(|p| p.cards.hand.as_slice().iter().position(|held| *held == card)) else {
         return false;
     };
     if let Some(p) = s.players_mut().by_seat_mut(who) {
         p.cards.hand.remove(at);
     }
-    let next = s.marks().tail.iter().filter_map(|(k, _)| if let MarkKey::CardsStaged(n) = k { Some(*n) } else { None }).max().map_or(0, |n| n + 1);
-    let row = MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Discarded)), MarkVal::Atom(Atom::Seat(who)), MarkVal::Atom(Atom::Absent), MarkVal::Atom(Atom::Card(card))]);
-    s.marks_mut().tail.edit().insert(MarkKey::CardsStaged(next), row);
+    stage_card_event(s, crate::keys::Word::Discarded, who, None, card);
+    true
+}
+
+/// `hooks_cards::take_revealed_action_card`: the first copy of `card` in `from`'s hand goes to the end of `taker`'s hand and the event
+/// waits for the game step, staged as the next `CardsStaged` mark (`taken|<taker>|<from>|<card>`). The hand limit is the caller's to
+/// enforce. `false` (nothing written) when the seats are the same or `from` does not hold the card.
+pub fn take_action_card_staged(s: &mut CoreState, taker: Seat, from: Seat, card: crate::generated::ActionCard) -> bool {
+    if taker == from || s.players().by_seat(taker).is_none() {
+        return false;
+    }
+    let Some(at) = s.players().by_seat(from).and_then(|p| p.cards.hand.as_slice().iter().position(|held| *held == card)) else {
+        return false;
+    };
+    if let Some(p) = s.players_mut().by_seat_mut(from) {
+        p.cards.hand.remove(at);
+    }
+    if let Some(p) = s.players_mut().by_seat_mut(taker) {
+        p.cards.hand.push(card);
+    }
+    stage_card_event(s, crate::keys::Word::Taken, taker, Some(from), card);
     true
 }
 
