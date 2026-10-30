@@ -10527,7 +10527,7 @@ mod tests {
     #[test]
     fn a_naaz_side_opens_its_space_rounds_in_the_core_machine_in_lockstep() {
         let (mut compared_settle, mut used) = (0, 0);
-        let asked_sc = std::cell::Cell::new(0_usize);
+        static ASKED_SC: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         for (seed, composed) in (0..8_u64).flat_map(|s| [(s, false), (s, true)]) {
             let (state, windows, differences, _) = hub_fight_composed(
                 composed,
@@ -10542,7 +10542,7 @@ mod tests {
                 },
                 |seed, _, c| {
                     if c.prompt.starts_with("Supercharge") {
-                        asked_sc.set(asked_sc.get() + 1);
+                        ASKED_SC.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         usize::from(seed % 2 == 1)
                     } else {
                         0
@@ -10557,7 +10557,7 @@ mod tests {
             used += usize::from(state.player(&attacker()).unwrap().exhausted_technologies.contains(ti4_model::id::text(&"sc")));
         }
         assert!(compared_settle > 0, "the composed machine ran: {compared_settle}");
-        assert!(asked_sc.get() > 0, "Supercharge was offered");
+        assert!(ASKED_SC.load(std::sync::atomic::Ordering::Relaxed) > 0, "Supercharge was offered");
         assert!(used > 0, "and used");
     }
 
