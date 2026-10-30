@@ -1091,7 +1091,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "game.rs",
-        function: "minister_of_war",
+        function: "minister_of_war_text",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1751,7 +1751,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("game.rs", "perform_zeu", 1),
     ("agenda_close.rs", "committee_elect", 1),
     ("game.rs", "imperial_arbiter", 2),
-    ("game.rs", "minister_of_war", 1),
+    ("game.rs", "minister_of_war_text", 1),
     ("invasion.rs", "absorb_ground_text", 1),
     ("invasion.rs", "commit_ground_forces_text", 1),
     ("invasion.rs", "drive", 1),
