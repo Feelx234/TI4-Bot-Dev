@@ -86,7 +86,7 @@ core + factions + rule-bot-typed + bridge `--lib` 517 passed; inventory tests 8 
 421 files, 0 violations; `lint_core.sh` 423 files, 0 hits; `test_census.py` 5 ok; `bash -n` of `mutation_ratchet.sh`, `d4_gate.sh`, `verify_package.sh`. Clippy after the fix of the three
 warnings: see the last line of this section.
 
-CLIPPY_PLACEHOLDER
+Clippy of the bridge after the aliases (tip `18321bc7`): 0 warnings or errors in `crates/ti4-engine-core-bridge/`; `cargo test -p ti4-engine-core-bridge --lib` 46 passed (the golden module's tests included); `end_of_d1.sh --dry-run` prints the 20 steps and `bash -n` is ok. Clippy of the other five crates at `b9a0902b`: 0 hits.
 
 **`tools/engine_core/end_of_d1.sh`** (written, NOT run): the combined heavy run of the end of D1 in one script that re-executes itself under `/root/heavy2.sh`
 (`SHARDS=3`) and holds the lane for the whole run. `--dry-run` prints the 20 steps and what each runs without taking the lock; `--only`, `--skip`, `--from` select steps.
