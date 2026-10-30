@@ -47,10 +47,10 @@ fn predict(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         let s = eff.read().0;
         (s.agenda().choices.as_slice().to_vec(), s.agenda().in_play, s.agenda().covert, s.meta().round, s.meta().agenda_seq)
     };
-    let predicted = match choices.as_slice() {
-        [] => return Ok(()),
-        [only] => *only,
-        many => {
+    let predicted = match (single(&choices), choices.as_slice()) {
+        (Some(only), _) => only,
+        (None, []) => return Ok(()),
+        (None, many) => {
             let Some(agenda) = agenda else { return Ok(()) };
             let choice = Choice {
                 actor: me,
@@ -76,6 +76,14 @@ fn predict(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     marks.insert(MarkKey::NekroThreatPhase(me), MarkVal::Atom(Atom::Num(round)));
     marks.insert(MarkKey::NekroThreat(me), MarkVal::Rec(vec![MarkVal::Atom(Atom::Num(seq)), MarkVal::Atom(Atom::Outcome(predicted))]));
     Ok(())
+}
+
+/// An agenda with one outcome needs no question: the prediction names it (`predicted_outcome`'s `[only]`).
+fn single(choices: &[Outcome]) -> Option<Outcome> {
+    match choices {
+        [only] => Some(*only),
+        _ => None,
+    }
 }
 
 /// The outcome an `AGENDA_RESOLVED` event names.
@@ -168,6 +176,13 @@ mod tests {
         assert!(ready(&s, Seat(0)), "a prediction of an earlier round does not count");
         s.agenda_mut().choices.clear();
         assert!(!ready(&s, Seat(0)), "an agenda with no outcome");
+    }
+
+    #[test]
+    fn an_agenda_with_one_outcome_is_predicted_without_a_question() {
+        assert_eq!(single(&[Outcome::For]), Some(Outcome::For));
+        assert_eq!(single(&[Outcome::For, Outcome::Against]), None);
+        assert_eq!(single(&[]), None);
     }
 
     #[test]
