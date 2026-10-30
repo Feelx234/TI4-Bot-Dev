@@ -5026,11 +5026,47 @@ impl InvasionWindow {
         planet: &PlanetId,
         previous: Option<&PlayerId>,
     ) {
-        crate::dual::note_gate(
-            crate::dual::Area::Invasion,
-            "invasion::finish_control_gain",
-            "the control-gain chain (Assimilate, PLANET_CONTROL_GAINED and its windows, technology AFTER windows, legendary and Fracture, exploration) is the string's (5a)",
-        );
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let (invader, system) = (self.invader.clone(), self.system.clone());
+                let args = crate::dual_window::ControlArgs { sources: ctx.sources, invader: &invader, system: &system, planet, previous, announce: ctx.timing.is_some() };
+                if let Some(why) = crate::dual_window::control_gain_unported(state, ctx.content, &args) {
+                    crate::dual::note_gate(crate::dual::Area::Invasion, "invasion::finish_control_gain", why);
+                    self.control_gain_chain(state, ctx, planet, previous);
+                } else {
+                    {
+                        let cell = std::cell::RefCell::new(&mut *self);
+                        let ctx = std::cell::RefCell::new(&mut *ctx);
+                        crate::dual_window!(
+                            crate::dual::Area::Invasion,
+                            "invasion::finish_control_gain",
+                            state,
+                            |s: &mut GameState| {
+                                let mut ctx = ctx.borrow_mut();
+                                cell.borrow_mut().control_gain_chain(s, &mut **ctx, planet, previous);
+                                crate::dual::Run::new(())
+                            },
+                            |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::control_gained(s, &args, script)
+                        );
+                    }
+                }
+                self.control_gain_exploration(state, ctx, planet, previous);
+                return;
+            }
+        }
+        self.control_gain_chain(state, ctx, planet, previous);
+        self.control_gain_exploration(state, ctx, planet, previous);
+    }
+
+    /// The chain of a planet that changed hands, up to the exploration (package W8, 5a: the window `dual_window::control_gained`).
+    fn control_gain_chain(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: &PlanetId,
+        previous: Option<&PlayerId>,
+    ) {
         let (content, sources) = (ctx.content, ctx.sources);
         // L1Z1X's Assimilate converts the structures on a planet as it changes hands, before
         // anything else looks at what is standing on it.
@@ -5089,7 +5125,6 @@ impl InvasionWindow {
         crate::legendary::control_gained(state, ctx.content, ctx.sources, &self.invader, planet);
 
         self.control_gain_fracture_relic(state, ctx, planet, previous);
-        self.control_gain_exploration(state, ctx, planet, previous);
     }
 
     /// Fracture rule 15 (package B5): the first claim of a Fracture planet gains a relic.
@@ -5133,6 +5168,13 @@ impl InvasionWindow {
         // `choose_deck` rather than `trait_of`: a planet with two printed traits (several
         // Thunder's Edge worlds do) is the invader's choice of deck, not a fixed pick of
         // whichever trait happens to sort first.
+        if previous.is_none() {
+            crate::dual::note_gate(
+                crate::dual::Area::Invasion,
+                "invasion::control_gain_exploration",
+                "the exploration of a first claim is the string's (its steps are dual writes of the exploration area; the reveal and its rewards are W13)",
+            );
+        }
         if previous.is_none()
             && let Some(deck) = crate::exploration::choose_deck(ctx, state, &self.invader, planet)
             && let Some(outcome) =
@@ -7368,18 +7410,19 @@ mod tests {
         let _ = take_report();
     }
 
-    /// `FinalizingControl` (`finish_control_gain`: Assimilate, `PLANET_CONTROL_GAINED`, the destruction of the rival structures,
-    /// the technology windows, Jupiter Brain, the Fracture relic, the exploration) is the string's inside the dual run: a capture
-    /// of a planet holding a rival structure runs without a difference, the structure is destroyed and the control changes.
+    /// Package W8, 5a: `FinalizingControl` (`finish_control_gain`: Assimilate, `PLANET_CONTROL_GAINED`, the destruction of the rival structures,
+    /// up to the exploration) is the core window `ControlGained`, compared step by step: a capture of a planet holding a rival PDS runs
+    /// without a difference, the structure is destroyed (or converted by an L1Z1X invader) and the control changes. Fails on the pre-W8
+    /// code, which counted the chain as a gate and compared no window (`compared >= 1` and `bailed == 0` below).
     #[test]
-    fn bail_the_control_gain_chain_is_the_strings_inside_the_dual_run() {
+    fn the_control_gain_chain_runs_as_a_core_window_in_lockstep() {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
-        let mut captured = 0;
+        let (mut captured, mut converted) = (0, 0);
         with_mask(mask, || {
-            for (seed, invader) in (1..=6_u64).zip(["hacan", "l1z1x", "hacan", "sol", "l1z1x", "sol"]) {
+            for (seed, invader) in (1..=8_u64).zip(["hacan", "l1z1x", "hacan", "sol", "l1z1x", "sol", "l1z1x", "naaz"]) {
                 let mut state = crate::fixtures::seated_game(&[("a", invader), ("b", "sardakk")], POK);
                 state.promissory_notes.clear();
                 state.promissory_faceup.clear();
@@ -7390,12 +7433,93 @@ mod tests {
                 state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
                 crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 1);
                 crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &PlayerId::new("b"), 1);
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &PlayerId::new("b"), 1);
                 run_invasion_first_option(&mut state, seed, &system);
-                captured += usize::from(state.system_state(&system).planet_control.get(&planet) == Some(&PlayerId::new("a")));
+                let took = state.system_state(&system).planet_control.get(&planet) == Some(&PlayerId::new("a"));
+                captured += usize::from(took);
+                if took {
+                    let own = |id: &str| state.system_state(&system).planet_units.get(&planet).is_some_and(|u| u.iter().any(|x| x.type_id.as_str() == id && x.owner == PlayerId::new("a")));
+                    converted += usize::from(invader == "l1z1x" && own("pds") && own("spacedock"));
+                }
             }
         });
         let r = report();
         assert!(captured > 0, "a planet changed hands");
+        assert!(converted > 0, "an L1Z1X invader assimilated the PDS and the space dock");
+        let w = r.windows.get("invasion::finish_control_gain").copied().unwrap_or_default();
+        assert!(w.compared >= u64::try_from(captured).unwrap() && w.bailed == 0, "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
+    /// Assimilate with the reinforcements spent (the rival PDS is destroyed, not converted), the same capture in a rules version 0 game (the
+    /// rival structures are destroyed BEFORE the announcement) and a first claim of an unowned planet (the exploration follows the window):
+    /// each runs in lockstep on the core window.
+    #[test]
+    fn the_control_gain_chain_runs_in_lockstep_with_empty_reinforcements_version_zero_and_a_first_claim() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        let mut runs = 0;
+        with_mask(mask, || {
+            for (seed, case) in (1..=6_u64).zip(["spent", "spent", "version0", "version0", "unowned", "unowned"]) {
+                let mut state = crate::fixtures::seated_game(&[("a", "l1z1x"), ("b", "sardakk")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                let (system, planet) = crate::fixtures::a_placed_planet();
+                crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+                crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 8);
+                if case != "unowned" {
+                    state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+                    crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 1);
+                    crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &PlayerId::new("b"), 1);
+                }
+                if case == "spent" {
+                    // Every PDS of the reinforcements is on the board somewhere else.
+                    let home = state.player(&PlayerId::new("a")).unwrap().home_system.clone().unwrap();
+                    let planet_at_home = state.system_state(&home).planet_control.keys().next().cloned().unwrap();
+                    crate::fixtures::put_on_planet(&mut state, &home, &planet_at_home, "pds", &PlayerId::new("a"), 6);
+                }
+                if case == "version0" {
+                    state.rules_version = 0;
+                }
+                run_invasion_first_option(&mut state, seed, &system);
+                runs += 1;
+            }
+        });
+        let r = report();
+        let w = r.windows.get("invasion::finish_control_gain").copied().unwrap_or_default();
+        assert!(runs == 6 && w.compared >= 3 && w.bailed == 0, "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let _ = take_report();
+    }
+
+    /// What the chain still hands to the string: Integrated Economy (a production nested in the chain) is a counted gate, the window is not
+    /// opened and the run has no difference.
+    #[test]
+    fn bail_the_control_gain_chain_of_integrated_economy_is_a_gate() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::Invasion, Backend::Dual).with(Area::Driver, Backend::Dual);
+        with_mask(mask, || {
+            let mut state = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sardakk")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.player_mut(&PlayerId::new("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ie"));
+            let (system, planet) = crate::fixtures::a_placed_planet();
+            crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 8);
+            state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 1);
+            run_invasion_first_option(&mut state, 1, &system);
+        });
+        let r = report();
+        let gated: u64 = r.windows.iter().filter(|(k, _)| k.starts_with("invasion::finish_control_gain [gate: Integrated Economy")).map(|(_, w)| w.bailed).sum();
+        assert!(gated >= 1, "{:?}", r.windows);
+        assert_eq!(r.windows.get("invasion::finish_control_gain").map_or(0, |w| w.compared), 0, "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
         let _ = take_report();
     }

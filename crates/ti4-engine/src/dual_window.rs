@@ -3502,6 +3502,82 @@ pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Record
     Some(CoreWindow { run: Run::new(true).with_events_vec(events), questions: driven.rendered })
 }
 
+// --- the chain after a planet changes hands (W8, 5a) ---------------------------------------------------
+
+/// What the string `InvasionWindow::finish_control_gain` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct ControlArgs<'a> {
+    pub sources: ti4_model::content_types::SourceSet,
+    pub invader: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    pub planet: &'a ti4_model::id::PlanetId,
+    pub previous: Option<&'a PlayerId>,
+    /// The resolver carries the timing machinery.
+    pub announce: bool,
+}
+
+/// Why the chain holds something the core window does not carry: a Last Bastion seat's Liberate (dropped by decision), Integrated
+/// Economy (a triggered production nested in the chain), the Thunder's Edge legendary planet (Jupiter Brain) and a first claim of a
+/// Fracture planet (its relic).
+#[must_use]
+pub fn control_gain_unported(gs: &GameState, content: &ti4_content::ContentStore, a: &ControlArgs<'_>) -> Option<&'static str> {
+    if gs.players.iter().any(|p| crate::factions::bastion::is_bastion(gs, &p.id)) {
+        Some("a Last Bastion seat (Liberate)")
+    } else if gs.player(a.invader).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"ie"))) {
+        Some("Integrated Economy (a triggered production nested in the chain)")
+    } else if a.planet.as_str() == "thundersedge" {
+        Some("the Thunder's Edge legendary planet (Jupiter Brain)")
+    } else if a.previous.is_none() && crate::fracture::is_fracture_system(content, a.sources, a.system) {
+        Some("a first claim of a Fracture planet (its relic)")
+    } else {
+        None
+    }
+}
+
+const CONTROL_GAINED: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Transient, Slice::Pending, Slice::Board, Slice::Players, Slice::Marks],
+);
+
+/// The core half of the chain `InvasionWindow::finish_control_gain` runs before the exploration. `None` for the positions of
+/// [`control_gain_unported`], an Assimilate seat whose unit roster is not known, nested activity the table does not carry and a position
+/// the codecs refuse.
+#[must_use]
+pub fn control_gained(gs: &mut GameState, a: &ControlArgs<'_>, script: &Recording) -> Option<CoreWindow<()>> {
+    use ti4_engine_core::rules::invasion::control::{ControlGained, Facts};
+    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    nested_check(script)?;
+    let invader = r.seat(a.invader.as_str()).why(crate::dual::reason::NO_SEAT)?;
+    let previous = match a.previous {
+        Some(p) => Some(r.seat(p.as_str()).why(crate::dual::reason::NO_SEAT)?),
+        None => None,
+    };
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+    let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, a.sources).why("the invasion environment could not be built from the position")?;
+    let roster = crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), a.sources);
+    let facts = Facts { invader, system, planet, previous, infiltrate_fix: gs.rules_version >= ti4_model::state::RULES_INFILTRATE_FIX, announce: a.announce };
+    let mut seats = vec![invader];
+    seats.extend(previous);
+    let mut driver = Driver::new(ControlGained::new(facts, roster), Resolver::new(&seats, Some(invader)), AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(CONTROL_GAINED, script), |core, _| {
+        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .why(crate::dual::reason::NOT_LENDABLE)?
+    .why(crate::dual::reason::DRIVER_REFUSED)?;
+    if driver.window.unsupported {
+        crate::dual::note_bail_here("an Assimilate seat whose unit forms the core cannot name");
+        return None;
+    }
+    apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+    Some(CoreWindow { run: Run::new(()).with_events_vec(events), questions: driven.rendered })
+}
+
 // --- the tail of the ground roll step (B2) -------------------------------------------------------------
 
 /// What the string `roll_ground_tail` was called with.
