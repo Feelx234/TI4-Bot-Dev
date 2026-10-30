@@ -1,0 +1,152 @@
+# survivors of factions/ce_movement: 151 of 261 points (42% killed); paths relative to crates/<crate>/src
+ce_movement/arborec/mod.rs:13:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ce_movement/arborec/query.rs:24:8 [rule] cond  cannot_produce(q.s, site.who, site.unit, site.producer) => !(cannot_produce(q.s, site.who, site.unit, site.producer))
+ce_movement/arborec/timing.rs:23:46 [on_card] body  on_card(s: &CoreState, who: Seat) -> u32 { => { return 0; }
+ce_movement/arborec/timing.rs:23:46 [on_card] body  on_card(s: &CoreState, who: Seat) -> u32 { => { return 1; }
+ce_movement/arborec/timing.rs:26:14 [on_card] lit  0 => 1
+ce_movement/arborec/timing.rs:30:39 [condition] body  condition(c: &CondCx<'_>) -> bool { => { return true; }
+ce_movement/arborec/timing.rs:30:39 [condition] body  condition(c: &CondCx<'_>) -> bool { => { return false; }
+ce_movement/arborec/timing.rs:32:5 [condition] logic  c.event.payload.seat(Key::Player) == Som... && tech::owns(c.state, me, Technology::Leta... => c.event.payload.seat(Key::Player) == Som... || tech::owns(c.
+ce_movement/arborec/timing.rs:32:5 [condition] logic  c.event.payload.seat(Key::Player) == Som... && c.event.payload.unit(Key::Unit) == Some(... => c.event.payload.seat(Key::Player) == Som... || c.event.paylo
+ce_movement/arborec/timing.rs:32:5 [condition] cmp  c.event.payload.seat(Key::Player) == Some(me) => c.event.payload.seat(Key::Player) != Some(me)
+ce_movement/arborec/timing.rs:32:54 [condition] cmp  c.event.payload.unit(Key::Unit) == Some(Unit::LetaniWarriorII) => c.event.payload.unit(Key::Unit) != Some(Unit::LetaniWarriorI
+ce_movement/arborec/timing.rs:35:61 [rolls] body  rolls(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+ce_movement/arborec/timing.rs:37:30 [rolls] lit  1 => 2
+ce_movement/arborec/timing.rs:38:8 [rolls] cond  faces.first().is_some_and(|f| *f >= THRESHOLD) => !(faces.first().is_some_and(|f| *f >= THRESHOLD))
+ce_movement/arborec/timing.rs:38:38 [rolls] cmp  *f >= THRESHOLD => *f > THRESHOLD
+ce_movement/arborec/timing.rs:39:19 [rolls] arith  on_card(eff.state(), me) + 1 => on_card(eff.state(), me) - 1
+ce_movement/arborec/timing.rs:39:46 [rolls] lit  1 => 2
+ce_movement/arborec/timing.rs:45:50 [register_abilities] body  register_abilities(t: &mut AbilityTable) { => { return (); }
+ce_movement/empyrean/movement.rs:12:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ce_movement/empyrean/movement.rs:19:51 [is_empyrean] body  is_empyrean(s: &CoreState, who: Seat) -> bool { => { return true; }
+ce_movement/empyrean/movement.rs:19:51 [is_empyrean] body  is_empyrean(s: &CoreState, who: Seat) -> bool { => { return false; }
+ce_movement/empyrean/movement.rs:24:54 [move_bonus] body  move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 0; }
+ce_movement/empyrean/movement.rs:24:54 [move_bonus] body  move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 1; }
+ce_movement/empyrean/movement.rs:29:55 [ignores_nebulae] body  ignores_nebulae(s: &CoreState, who: Seat) -> bool { => { return true; }
+ce_movement/empyrean/movement.rs:29:55 [ignores_nebulae] body  ignores_nebulae(s: &CoreState, who: Seat) -> bool { => { return false; }
+ce_movement/empyrean/movement.rs:34:59 [passable_owners] body  passable_owners(s: &CoreState, mover: Seat) -> Owners { => { return Default::default(); }
+ce_movement/empyrean/movement.rs:37:12 [passable_owners] cmp  num(stamp) == Some(s.meta().activation_seq) => num(stamp) != Some(s.meta().activation_seq)
+ce_movement/empyrean/movement.rs:38:12 [passable_owners] cmp  seat(who) == Some(mover) => seat(who) != Some(mover)
+ce_movement/empyrean/movement.rs:46:79 [allowed_this_activation] body  allowed_this_activation(s: &CoreState, viewer: Seat, owner: Seat) -> b... => { return true; }
+ce_movement/empyrean/movement.rs:46:79 [allowed_this_activation] body  allowed_this_activation(s: &CoreState, viewer: Seat, owner: Seat) -> b... => { return false; }
+ce_movement/empyrean/movement.rs:54:59 [blocked_borders] body  blocked_borders(s: &CoreState, viewer: Seat) -> Pairs { => { return Default::default(); }
+ce_movement/empyrean/movement.rs:58:12 [blocked_borders] cond  owner == viewer || !(is_empyrean(s, owner) && holds_breakthrough(s, owner, Break... => !(owner == viewer || !(is_empyrean(s, owner) && holds_breakt
+ce_movement/empyrean/movement.rs:58:12 [blocked_borders] logic  owner == viewer || !(is_empyrean(s, owne... || allowed_this_activation(s, viewer, owner... => owner == viewer || !(is_empyrean(s, owne... && allowed_this_
+ce_movement/empyrean/movement.rs:58:12 [blocked_borders] logic  owner == viewer || !(is_empyrean(s, owner) && holds_breakth... => owner == viewer && !(is_empyrean(s, owner) && holds_breakth.
+ce_movement/empyrean/movement.rs:58:12 [blocked_borders] cmp  owner == viewer => owner != viewer
+ce_movement/empyrean/movement.rs:59:18 [blocked_borders] logic  is_empyrean(s, owner) && holds_breakthrough(s, owner, Breakthroug... => is_empyrean(s, owner) || holds_breakthrough(s, owner, Breakt
+ce_movement/empyrean/movement.rs:69:55 [blocked_borders] cond  a < b => !(a < b)
+ce_movement/empyrean/movement.rs:69:55 [blocked_borders] cmp  a < b => a <= b
+ce_movement/empyrean/observe.rs:16:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ce_movement/mod.rs:37:84 [register_abilities] body  register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTa... => { return (); }
+ce_movement/mod.rs:42:89 [register_late_abilities] body  register_late_abilities(t: &mut ti4_engine_core::kernel::ability::Abil... => { return (); }
+ce_movement/muaat/movement.rs:23:79 [holds_reactor] cmp  t == Technology::MagmusReactor => t != Technology::MagmusReactor
+ce_movement/muaat/query.rs:36:8 [extra_production] logic  !is_faction(s, who, Faction::TheEmbersOf... || !holds_reactor(s, who) => !is_faction(s, who, Faction::TheEmbersOf... && !holds_reacto
+ce_movement/nomad/movement.rs:13:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ce_movement/nomad/movement.rs:18:37 [is_flagship] body  is_flagship(ship: Unit) -> bool { => { return true; }
+ce_movement/nomad/movement.rs:18:37 [is_flagship] body  is_flagship(ship: Unit) -> bool { => { return false; }
+ce_movement/nomad/movement.rs:23:83 [memoria_adjacent] body  memoria_adjacent(s: &CoreState, k: &Kernel, who: Seat, ship: Unit) -> ... => { return Default::default(); }
+ce_movement/nomad/movement.rs:25:8 [memoria_adjacent] cond  !is_flagship(ship) && !flagship_has_text(s, who, ship, Unit::MemoriaI) => !(!is_flagship(ship) && !flagship_has_text(s, who, ship, Uni
+ce_movement/nomad/movement.rs:25:8 [memoria_adjacent] logic  !is_flagship(ship) && !flagship_has_text(s, who, ship, Unit::M... => !is_flagship(ship) || !flagship_has_text(s, who, ship, Unit:
+ce_movement/nomad/movement.rs:30:9 [memoria_adjacent] logic  p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.b... => p.owner() == who || scope.unit(p.kind()).is_some_and(|d| d.b
+ce_movement/nomad/movement.rs:30:9 [memoria_adjacent] cmp  p.owner() == who => p.owner() != who
+ce_movement/nomad/movement.rs:30:66 [memoria_adjacent] cmp  d.base_type == UnitBaseType::Mech => d.base_type != UnitBaseType::Mech
+ce_movement/nomad/movement.rs:39:91 [hero_ignores_command_tokens] body  hero_ignores_command_tokens(s: &CoreState, _: &Kernel, who: Seat, ship... => { return true; }
+ce_movement/nomad/movement.rs:39:91 [hero_ignores_command_tokens] body  hero_ignores_command_tokens(s: &CoreState, _: &Kernel, who: Seat, ship... => { return false; }
+ce_movement/nomad/movement.rs:40:5 [hero_ignores_command_tokens] logic  is_flagship(ship) && mark(s, MarkKey::NomadHero(who)).and_the... => is_flagship(ship) || mark(s, MarkKey::NomadHero(who)).and_th
+ce_movement/nomad/movement.rs:40:26 [hero_ignores_command_tokens] cmp  mark(s, MarkKey::NomadHero(who)).and_the... == Some(s.meta().round) => mark(s, MarkKey::NomadHero(who)).and_the... != Some(s.meta()
+ce_movement/nomad/query.rs:67:16 [cavalry_ship_type] logic  s.cards().promissory.get(&CAVALRY) == So... && s.cards().promissory_faceup.contains_key... => s.cards().promissory.get(&CAVALRY) == So... || s.cards().pro
+ce_movement/nomad/query.rs:68:6 [cavalry_ship_type] logic  system(marked) == Some(at) && held => system(marked) == Some(at) || held
+ce_movement/nomad/query.rs:72:8 [grants_sustain_rule] cond  grants_sustain(q.s, q.k, *u) => !(grants_sustain(q.s, q.k, *u))
+ce_movement/nomad/query.rs:85:44 [grants_sustain] lit  false => true
+ce_movement/nomad/query.rs:87:64 [grants_sustain] logic  p.owner() == u.owner && p.kind() == u.unit => p.owner() == u.owner || p.kind() == u.unit
+ce_movement/nomad/query.rs:98:78 [borrowed_offer] body  borrowed_offer(q: Q<'_>, site: &SeatSystemSite) -> Option<BorrowedStat... => { return None; }
+ce_movement/nomad/query.rs:110:59 [borrowed_stats] cmp  r.hits_on > 0 => r.hits_on >= 0
+ce_movement/nomad/query.rs:110:71 [borrowed_stats] lit  0 => 1
+ce_movement/nomad/query.rs:111:69 [borrowed_stats] cmp  r.hits_on > 0 => r.hits_on >= 0
+ce_movement/nomad/query.rs:111:81 [borrowed_stats] lit  0 => 1
+ce_movement/nomad/query.rs:112:75 [borrowed_stats] lit  0 => 1
+ce_movement/nomad/query.rs:112:136 [borrowed_stats] lit  0 => 1
+ce_movement/nomad/query.rs:114:73 [borrowed_stats] logic  p.owner() == who && p.kind() == kind => p.owner() == who || p.kind() == kind
+ce_movement/nomad/query.rs:115:34 [borrowed_stats] logic  !own.sustain_damage && p.sustained() => !own.sustain_damage || p.sustained()
+ce_movement/nomad/query.rs:120:45 [borrowed_stats] cmp  r.hits_on > 0 => r.hits_on >= 0
+ce_movement/nomad/query.rs:120:57 [borrowed_stats] lit  0 => 1
+ce_movement/nomad/timing.rs:29:108 [ship_types] body  ship_types(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, who: Se... => { return Vec::new(); }
+ce_movement/nomad/timing.rs:33:55 [ship_types] logic  d.ship && d.base_type != UnitBaseType::Fighter => d.ship || d.base_type != UnitBaseType::Fighter
+ce_movement/nomad/timing.rs:33:65 [ship_types] cmp  d.base_type != UnitBaseType::Fighter => d.base_type == UnitBaseType::Fighter
+ce_movement/nomad/timing.rs:42:51 [playable_at] body  playable_at(c: &CondCx<'_>) -> Option<System> { => { return None; }
+ce_movement/nomad/timing.rs:44:8 [playable_at] cond  s.cards().promissory.get(&CAVALRY) != Some(&holder) || s.cards().promissory_face... => !(s.cards().promissory.get(&CAVALRY) != Some(&holder) || s.c
+ce_movement/nomad/timing.rs:44:8 [playable_at] logic  s.cards().promissory.get(&CAVALRY) != So... || s.cards().promissory_faceup.contains_key... => s.cards().promissory.get(&CAVALRY) != So... && s.cards().pro
+ce_movement/nomad/timing.rs:44:8 [playable_at] cmp  s.cards().promissory.get(&CAVALRY) != Some(&holder) => s.cards().promissory.get(&CAVALRY) == Some(&holder)
+ce_movement/nomad/timing.rs:47:70 [playable_at] cmp  p.faction == Faction::TheNomad => p.faction != Faction::TheNomad
+ce_movement/nomad/timing.rs:48:8 [playable_at] cond  nomad(holder) => !(nomad(holder))
+ce_movement/nomad/timing.rs:53:23 [playable_at] cond  holder == attacker => !(holder == attacker)
+ce_movement/nomad/timing.rs:53:23 [playable_at] cmp  holder == attacker => holder != attacker
+ce_movement/nomad/timing.rs:55:15 [playable_at] cond  holder == defender => !(holder == defender)
+ce_movement/nomad/timing.rs:55:15 [playable_at] cmp  holder == defender => holder != defender
+ce_movement/nomad/timing.rs:60:8 [playable_at] cond  nomad(opponent) || s.players().by_seat(opponent).is_none() => !(nomad(opponent) || s.players().by_seat(opponent).is_none()
+ce_movement/nomad/timing.rs:60:8 [playable_at] logic  nomad(opponent) || s.players().by_seat(opponent).is_none() => nomad(opponent) && s.players().by_seat(opponent).is_none()
+ce_movement/nomad/timing.rs:67:44 [play_condition] body  play_condition(c: &CondCx<'_>) -> bool { => { return true; }
+ce_movement/nomad/timing.rs:67:44 [play_condition] body  play_condition(c: &CondCx<'_>) -> bool { => { return false; }
+ce_movement/nomad/timing.rs:71:60 [play] body  play(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+ce_movement/nomad/timing.rs:79:19 [play] cond  kinds.len() == 1 => !(kinds.len() == 1)
+ce_movement/nomad/timing.rs:79:19 [play] cmp  kinds.len() == 1 => kinds.len() != 1
+ce_movement/nomad/timing.rs:79:34 [play] lit  1 => 2
+ce_movement/nomad/timing.rs:89:27 [play] lit  false => true
+ce_movement/nomad/timing.rs:92:31 [play] lit  false => true
+ce_movement/nomad/timing.rs:98:56 [play] cond  kinds.contains(&u) => !(kinds.contains(&u))
+ce_movement/nomad/timing.rs:107:46 [return_condition] body  return_condition(c: &CondCx<'_>) -> bool { => { return true; }
+ce_movement/nomad/timing.rs:107:46 [return_condition] body  return_condition(c: &CondCx<'_>) -> bool { => { return false; }
+ce_movement/nomad/timing.rs:111:65 [give_back] body  give_back(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+ce_movement/nomad/timing.rs:118:50 [register_abilities] body  register_abilities(t: &mut AbilityTable) { => { return (); }
+ce_movement/obsidian/mod.rs:12:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ce_movement/saar/movement.rs:15:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ce_movement/saar/movement.rs:21:105 [chaos_mapping_blocks_activation] body  chaos_mapping_blocks_activation(s: &CoreState, k: &Kernel, activator: ... => { return true; }
+ce_movement/saar/movement.rs:21:105 [chaos_mapping_blocks_activation] body  chaos_mapping_blocks_activation(s: &CoreState, k: &Kernel, activator: ... => { return false; }
+ce_movement/saar/movement.rs:23:8 [chaos_mapping_blocks_activation] cond  !scope.system(target).is_some_and(|d| d.anomalies.asteroid_field) => !(!scope.system(target).is_some_and(|d| d.anomalies.asteroid
+ce_movement/saar/movement.rs:24:16 [chaos_mapping_blocks_activation] lit  false => true
+ce_movement/saar/movement.rs:27:9 [chaos_mapping_blocks_activation] logic  p.owner() != activator && has_tech_text(... && scope.unit(p.kind()).is_some_and(|d| d.s... => p.owner() != activator && has_tech_text(... || scope.unit(p.
+ce_movement/saar/movement.rs:27:9 [chaos_mapping_blocks_activation] logic  p.owner() != activator && has_tech_text(s, p.owner(), Technology::... => p.owner() != activator || has_tech_text(s, p.owner(), Techno
+ce_movement/saar/movement.rs:27:9 [chaos_mapping_blocks_activation] cmp  p.owner() != activator => p.owner() == activator
+ce_movement/saar/movement.rs:33:60 [agent_move_bonus] body  agent_move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 0; }
+ce_movement/saar/movement.rs:33:60 [agent_move_bonus] body  agent_move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 1; }
+ce_movement/saar/movement.rs:35:16 [agent_move_bonus] lit  0 => 1
+ce_movement/saar/movement.rs:38:8 [agent_move_bonus] cond  s.meta().rules_version >= RULES_MENDOSA_SHIP => !(s.meta().rules_version >= RULES_MENDOSA_SHIP)
+ce_movement/saar/movement.rs:38:8 [agent_move_bonus] cmp  s.meta().rules_version >= RULES_MENDOSA_SHIP => s.meta().rules_version > RULES_MENDOSA_SHIP
+ce_movement/saar/movement.rs:41:20 [agent_move_bonus] lit  0 => 1
+ce_movement/saar/movement.rs:44:20 [agent_move_bonus] lit  0 => 1
+ce_movement/saar/movement.rs:47:20 [agent_move_bonus] lit  0 => 1
+ce_movement/saar/movement.rs:49:23 [agent_move_bonus] cmp  damaged == 1 => damaged != 1
+ce_movement/saar/movement.rs:49:34 [agent_move_bonus] lit  1 => 2
+ce_movement/saar/movement.rs:51:28 [agent_move_bonus] lit  0usize => 1usize
+ce_movement/saar/movement.rs:52:85 [agent_move_bonus] cmp  p.owner() == site.player => p.owner() != site.player
+ce_movement/saar/movement.rs:53:16 [agent_move_bonus] cond  p.kind() == kind && p.sustained() == damaged => !(p.kind() == kind && p.sustained() == damaged)
+ce_movement/saar/movement.rs:53:16 [agent_move_bonus] logic  p.kind() == kind && p.sustained() == damaged => p.kind() == kind || p.sustained() == damaged
+ce_movement/saar/movement.rs:53:16 [agent_move_bonus] cmp  p.kind() == kind => p.kind() != kind
+ce_movement/saar/movement.rs:53:36 [agent_move_bonus] cmp  p.sustained() == damaged => p.sustained() != damaged
+ce_movement/saar/movement.rs:55:17 [agent_move_bonus] assign  matching += 1 => matching -= 1
+ce_movement/saar/movement.rs:55:29 [agent_move_bonus] lit  1 => 2
+ce_movement/saar/movement.rs:58:19 [agent_move_bonus] cond  num(seq) == Some(activation) && system(origin) == Some(site.origin) && matching ... => !(num(seq) == Some(activation) && system(origin) == Some(sit
+ce_movement/saar/movement.rs:58:19 [agent_move_bonus] logic  num(seq) == Some(activation) && system(o... && first == Some(usize::from(index)) => num(seq) == Some(activation) && system(o... || first == Some
+ce_movement/saar/movement.rs:58:19 [agent_move_bonus] logic  num(seq) == Some(activation) && system(o... && matching == count as usize => num(seq) == Some(activation) && system(o... || matching == c
+ce_movement/saar/movement.rs:58:19 [agent_move_bonus] logic  num(seq) == Some(activation) && system(origin) == Some(site.origin) => num(seq) == Some(activation) || system(origin) == Some(site.
+ce_movement/saar/movement.rs:58:19 [agent_move_bonus] cmp  num(seq) == Some(activation) => num(seq) != Some(activation)
+ce_movement/saar/movement.rs:59:16 [agent_move_bonus] cmp  system(origin) == Some(site.origin) => system(origin) != Some(site.origin)
+ce_movement/saar/movement.rs:61:16 [agent_move_bonus] cmp  first == Some(usize::from(index)) => first != Some(usize::from(index))
+ce_movement/saar/movement.rs:63:31 [agent_move_bonus] lit  0 => 1
+ce_movement/saar/movement.rs:65:13 [agent_move_bonus] lit  0 => 1
+ce_movement/saar/movement.rs:69:16 [agent_move_bonus] lit  0 => 1
+ce_movement/saar/movement.rs:71:8 [agent_move_bonus] cond  num(seq) == Some(activation) && system(origin) == Some(site.origin) && site.inde... => !(num(seq) == Some(activation) && system(origin) == Some(sit
+ce_movement/saar/movement.rs:71:8 [agent_move_bonus] logic  num(seq) == Some(activation) && system(o... && site.index.is_some_and(|i| num(index) ==... => num(seq) == Some(activation) && system(o... || site.index.is
+ce_movement/saar/movement.rs:71:8 [agent_move_bonus] logic  num(seq) == Some(activation) && system(origin) == Some(site.origin) => num(seq) == Some(activation) || system(origin) == Some(site.
+ce_movement/saar/movement.rs:71:8 [agent_move_bonus] cmp  num(seq) == Some(activation) => num(seq) != Some(activation)
+ce_movement/saar/movement.rs:72:12 [agent_move_bonus] cmp  system(origin) == Some(site.origin) => system(origin) != Some(site.origin)
+ce_movement/saar/movement.rs:73:39 [agent_move_bonus] cmp  num(index) == Some(u32::from(i)) => num(index) != Some(u32::from(i))
+ce_movement/saar/movement.rs:75:27 [agent_move_bonus] lit  0 => 1
+ce_movement/saar/movement.rs:77:9 [agent_move_bonus] lit  0 => 1
+ce_movement/saar/query.rs:49:30 [commander_docks] logic  u.owner() != who && is_ship(u.kind()) => u.owner() != who || is_ship(u.kind())
+ce_movement/saar/query.rs:59:85 [commander_docks] logic  u.owner() == who && is_dock(u.kind()) => u.owner() == who || is_dock(u.kind())
+ce_movement/saar/query.rs:59:85 [commander_docks] cmp  u.owner() == who => u.owner() != who
+ce_movement/saar/query.rs:60:22 [commander_docks] lit  0 => 1
+ce_movement/saar/query.rs:61:40 [commander_docks] cond  base == UnitBaseType::Infantry => !(base == UnitBaseType::Infantry)
+ce_movement/saar/query.rs:61:40 [commander_docks] cmp  base == UnitBaseType::Infantry => base != UnitBaseType::Infantry

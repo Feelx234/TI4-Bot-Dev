@@ -1,0 +1,214 @@
+# survivors of factions/ca_combat: 213 of 217 points (1% killed); paths relative to crates/<crate>/src
+ca_combat/bastion/mod.rs:12:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/bastion/mod.rs:20:47 [register_observers] body  register_observers(t: &mut HookTable) { => { return (); }
+ca_combat/bastion/observe.rs:21:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/bastion/observe.rs:29:67 [note_ship_lost] body  note_ship_lost(cx: &mut Cx<'_>, system: System, piece: Piece) { => { return (); }
+ca_combat/bastion/observe.rs:30:8 [note_ship_lost] cond  !piece.galvanized() => !(!piece.galvanized())
+ca_combat/bastion/observe.rs:35:56 [note_ship_lost] lit  0 => 1
+ca_combat/bastion/observe.rs:36:46 [note_ship_lost] arith  count + 1 => count - 1
+ca_combat/bastion/observe.rs:36:54 [note_ship_lost] lit  1 => 2
+ca_combat/bastion/observe.rs:40:86 [take_ship_lost] body  take_ship_lost(cx: &mut Cx<'_>, system: System, owner: Seat, unit: Uni... => { return true; }
+ca_combat/bastion/observe.rs:40:86 [take_ship_lost] body  take_ship_lost(cx: &mut Cx<'_>, system: System, owner: Seat, unit: Uni... => { return false; }
+ca_combat/bastion/observe.rs:44:16 [take_ship_lost] lit  false => true
+ca_combat/bastion/observe.rs:46:8 [take_ship_lost] cond  count <= 1 => !(count <= 1)
+ca_combat/bastion/observe.rs:46:8 [take_ship_lost] cmp  count <= 1 => count < 1
+ca_combat/bastion/observe.rs:46:17 [take_ship_lost] lit  1 => 2
+ca_combat/bastion/observe.rs:49:50 [take_ship_lost] arith  count - 1 => count + 1
+ca_combat/bastion/observe.rs:49:58 [take_ship_lost] lit  1 => 2
+ca_combat/bastion/observe.rs:51:5 [take_ship_lost] lit  true => false
+ca_combat/bastion/observe.rs:55:54 [clear_retreated] body  clear_retreated(cx: &mut Cx<'_>, system: System) { => { return (); }
+ca_combat/bastion/observe.rs:63:8 [clear_retreated] cond  stale.is_empty() => !(stale.is_empty())
+ca_combat/bastion/query.rs:31:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/bastion/query.rs:43:44 [faction_in_game] body  faction_in_game(s: &CoreState) -> bool { => { return true; }
+ca_combat/bastion/query.rs:43:44 [faction_in_game] body  faction_in_game(s: &CoreState) -> bool { => { return false; }
+ca_combat/bastion/query.rs:44:32 [faction_in_game] cmp  p.faction == Faction::LastBastion => p.faction != Faction::LastBastion
+ca_combat/bastion/query.rs:50:8 [egeiro] cond  site.kind != ti4_engine_core::kernel::seam::RollKind::Combat || u.ctx != CombatC... => !(site.kind != ti4_engine_core::kernel::seam::RollKind::Comb
+ca_combat/bastion/query.rs:50:8 [egeiro] logic  site.kind != ti4_engine_core::kernel::se... || !flagship_has_text(q.s, u.owner, u.unit,... => site.kind != ti4_engine_core::kernel::se... && !flagship_has
+ca_combat/bastion/query.rs:50:8 [egeiro] logic  site.kind != ti4_engine_core::kernel::se... || !faction_in_game(q.s) => site.kind != ti4_engine_core::kernel::se... && !faction_in_g
+ca_combat/bastion/query.rs:50:8 [egeiro] logic  site.kind != ti4_engine_core::kernel::se... || u.ctx != CombatCtx::Space => site.kind != ti4_engine_core::kernel::se... && u.ctx != Comb
+ca_combat/bastion/query.rs:50:8 [egeiro] cmp  site.kind != ti4_engine_core::kernel::seam::RollKind:... => site.kind == ti4_engine_core::kernel::seam::RollKind:...
+ca_combat/bastion/query.rs:51:12 [egeiro] cmp  u.ctx != CombatCtx::Space => u.ctx == CombatCtx::Space
+ca_combat/bastion/query.rs:61:53 [extra_die] body  extra_die(_: &CoreState, piece: Piece) -> usize { => { return 0; }
+ca_combat/bastion/query.rs:61:53 [extra_die] body  extra_die(_: &CoreState, piece: Piece) -> usize { => { return 1; }
+ca_combat/bastion/query.rs:66:82 [non_home_systems_with_planets] body  non_home_systems_with_planets(s: &CoreState, _: &Kernel, who: Seat) ->... => { return 0; }
+ca_combat/bastion/query.rs:66:82 [non_home_systems_with_planets] body  non_home_systems_with_planets(s: &CoreState, _: &Kernel, who: Seat) ->... => { return 1; }
+ca_combat/bastion/query.rs:70:12 [non_home_systems_with_planets] cond  homes.contains(system) || planet.data().traits.contains(&PlanetTrait::Spacestati... => !(homes.contains(system) || planet.data().traits.contains(&P
+ca_combat/bastion/query.rs:70:12 [non_home_systems_with_planets] logic  homes.contains(system) || planet.data().... || systems.as_slice().contains(system) => homes.contains(system) || planet.data().... && systems.as_sl
+ca_combat/bastion/query.rs:70:12 [non_home_systems_with_planets] logic  homes.contains(system) || planet.data().traits.contains(&PlanetTra... => homes.contains(system) && planet.data().traits.contains(&Pla
+ca_combat/bastion/query.rs:82:58 [resource_bonus] body  resource_bonus(s: &CoreState, planet: Planet) -> i64 { => { return 0; }
+ca_combat/bastion/query.rs:82:58 [resource_bonus] body  resource_bonus(s: &CoreState, planet: Planet) -> i64 { => { return 1; }
+ca_combat/bastion/query.rs:83:8 [resource_bonus] cond  !faction_in_game(s) => !(!faction_in_game(s))
+ca_combat/bastion/query.rs:84:16 [resource_bonus] lit  0 => 1
+ca_combat/bastion/query.rs:89:39 [resource_bonus] lit  1 => 2
+ca_combat/bastion/query.rs:90:40 [resource_bonus] lit  2 => 3
+ca_combat/bastion/query.rs:91:18 [resource_bonus] lit  0 => 1
+ca_combat/bastion/query.rs:94:20 [resource_bonus] lit  0 => 1
+ca_combat/bastion/query.rs:98:93 [galvanized_present] body  galvanized_present(s: &CoreState, owner: Seat, system: System, planet:... => { return 0; }
+ca_combat/bastion/query.rs:98:93 [galvanized_present] body  galvanized_present(s: &CoreState, owner: Seat, system: System, planet:... => { return 1; }
+ca_combat/bastion/query.rs:99:8 [galvanized_present] cond  board::home_system(s, planet) != Some(system) => !(board::home_system(s, planet) != Some(system))
+ca_combat/bastion/query.rs:99:8 [galvanized_present] cmp  board::home_system(s, planet) != Some(system) => board::home_system(s, planet) == Some(system)
+ca_combat/bastion/query.rs:100:16 [galvanized_present] lit  0 => 1
+ca_combat/bastion/query.rs:102:54 [galvanized_present] logic  p.owner() == owner && p.galvanized() => p.owner() == owner || p.galvanized()
+ca_combat/bastion/query.rs:102:54 [galvanized_present] cmp  p.owner() == owner => p.owner() != owner
+ca_combat/bastion/query.rs:106:112 [cancel_bombardment_hits] body  cancel_bombardment_hits(s: &CoreState, victim: Seat, system: System, p... => { return 0; }
+ca_combat/bastion/query.rs:106:112 [cancel_bombardment_hits] body  cancel_bombardment_hits(s: &CoreState, victim: Seat, system: System, p... => { return 1; }
+ca_combat/bastion/query.rs:107:8 [cancel_bombardment_hits] cond  hits == 0 || !has_tech_text(s, victim, Technology::ProximaTargetingVI) => !(hits == 0 || !has_tech_text(s, victim, Technology::Proxima
+ca_combat/bastion/query.rs:107:8 [cancel_bombardment_hits] logic  hits == 0 || !has_tech_text(s, victim, Technology::Pr... => hits == 0 && !has_tech_text(s, victim, Technology::Pr...
+ca_combat/bastion/query.rs:107:8 [cancel_bombardment_hits] cmp  hits == 0 => hits != 0
+ca_combat/bastion/query.rs:107:16 [cancel_bombardment_hits] lit  0 => 1
+ca_combat/bastion/query.rs:114:117 [cancel_in_groups] body  cancel_in_groups(s: &CoreState, victim: Seat, system: System, planet: ... => { return (); }
+ca_combat/bastion/query.rs:115:8 [cancel_in_groups] cond  groups.is_empty() || !has_tech_text(s, victim, Technology::ProximaTargetingVI) => !(groups.is_empty() || !has_tech_text(s, victim, Technology:
+ca_combat/bastion/query.rs:115:8 [cancel_in_groups] logic  groups.is_empty() || !has_tech_text(s, victim, Technology::Pr... => groups.is_empty() && !has_tech_text(s, victim, Technology::P
+ca_combat/bastion/query.rs:121:9 [cancel_in_groups] assign  *group -= cancelled => *group += cancelled
+ca_combat/bastion/query.rs:122:9 [cancel_in_groups] assign  budget -= cancelled => budget += cancelled
+ca_combat/bastion/query.rs:124:23 [cancel_in_groups] cmp  *g > 0 => *g >= 0
+ca_combat/bastion/query.rs:124:28 [cancel_in_groups] lit  0 => 1
+ca_combat/bastion/query.rs:128:65 [watches_ground_round] body  watches_ground_round(s: &CoreState, sides: &[Seat]) -> bool { => { return true; }
+ca_combat/bastion/query.rs:128:65 [watches_ground_round] body  watches_ground_round(s: &CoreState, sides: &[Seat]) -> bool { => { return false; }
+ca_combat/crimson/movement.rs:14:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/crimson/movement.rs:22:72 [usable_wormhole_kinds] body  usable_wormhole_kinds(s: &CoreState, who: Seat) -> Option<WormSet> { => { return None; }
+ca_combat/crimson/movement.rs:31:47 [severed_systems] body  severed_systems(s: &CoreState) -> Systems { => { return Default::default(); }
+ca_combat/crimson/movement.rs:44:51 [is_active] body  is_active(s: &CoreState, sys: System) -> bool { => { return true; }
+ca_combat/crimson/movement.rs:44:51 [is_active] body  is_active(s: &CoreState, sys: System) -> bool { => { return false; }
+ca_combat/crimson/movement.rs:45:5 [is_active] logic  s.explore().breach.contains(sys) && mark(s, MarkKey::CrimsonBreachActive(sys... => s.explore().breach.contains(sys) || mark(s, MarkKey::Crimson
+ca_combat/crimson/movement.rs:49:65 [linked_systems] body  linked_systems(s: &CoreState, _: &Kernel, _: Seat) -> Pairs { => { return Default::default(); }
+ca_combat/crimson/movement.rs:53:26 [linked_systems] arith  i + 1 => i - 1
+ca_combat/crimson/movement.rs:53:30 [linked_systems] lit  1 => 2
+ca_combat/crimson/movement.rs:61:54 [move_bonus] body  move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 0; }
+ca_combat/crimson/movement.rs:61:54 [move_bonus] body  move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 1; }
+ca_combat/crimson/movement.rs:62:8 [move_bonus] cond  !holds_breakthrough(s, site.player, Breakthrough::ResonanceGenerator) => !(!holds_breakthrough(s, site.player, Breakthrough::Resonanc
+ca_combat/crimson/movement.rs:63:16 [move_bonus] lit  0 => 1
+ca_combat/crimson/movement.rs:65:19 [move_bonus] cmp  player(s, site.player).and_then(|p| p.ho... == Some(site.origin) => player(s, site.player).and_then(|p| p.ho... != Some(site.ori
+ca_combat/crimson/movement.rs:66:15 [move_bonus] logic  at_home || is_active(s, site.origin) => at_home && is_active(s, site.origin)
+ca_combat/crimson/observe.rs:16:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/crimson/observe.rs:21:51 [note_deployed] body  note_deployed(cx: &mut Cx<'_>, invader: Seat) { => { return (); }
+ca_combat/crimson/observe.rs:29:97 [note_deployed] lit  1 => 2
+ca_combat/crimson/query.rs:28:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/crimson/query.rs:36:54 [is_active] body  is_active(s: &CoreState, system: System) -> bool { => { return true; }
+ca_combat/crimson/query.rs:36:54 [is_active] body  is_active(s: &CoreState, system: System) -> bool { => { return false; }
+ca_combat/crimson/query.rs:37:5 [is_active] logic  s.explore().breach.contains(system) && mark(s, MarkKey::CrimsonBreachActive(sys... => s.explore().breach.contains(system) || mark(s, MarkKey::Crim
+ca_combat/crimson/query.rs:41:47 [active_breaches] body  active_breaches(s: &CoreState) -> Systems { => { return Default::default(); }
+ca_combat/crimson/query.rs:47:72 [abilities_lost] body  abilities_lost(s: &CoreState, owner: Seat, system: System) -> bool { => { return true; }
+ca_combat/crimson/query.rs:47:72 [abilities_lost] body  abilities_lost(s: &CoreState, owner: Seat, system: System) -> bool { => { return false; }
+ca_combat/crimson/query.rs:48:8 [abilities_lost] cond  s.explore().breach.is_empty() || !is_active(s, system) => !(s.explore().breach.is_empty() || !is_active(s, system))
+ca_combat/crimson/query.rs:48:8 [abilities_lost] logic  s.explore().breach.is_empty() || !is_active(s, system) => s.explore().breach.is_empty() && !is_active(s, system)
+ca_combat/crimson/query.rs:49:16 [abilities_lost] lit  false => true
+ca_combat/crimson/query.rs:53:9 [abilities_lost] logic  p.seat != owner && active.iter().any(|at| { s.board().sys(*... => p.seat != owner || active.iter().any(|at| { s.board().sys(*.
+ca_combat/crimson/query.rs:53:9 [abilities_lost] cmp  p.seat != owner => p.seat == owner
+ca_combat/crimson/query.rs:56:21 [abilities_lost] logic  piece.owner() == p.seat && crate::common::flagship_has_text(s, p.se... => piece.owner() == p.seat || crate::common::flagship_has_text(
+ca_combat/crimson/query.rs:56:21 [abilities_lost] cmp  piece.owner() == p.seat => piece.owner() != p.seat
+ca_combat/crimson/query.rs:64:8 [may_sustain] cond  unit.system.is_some_and(|system| abilities_lost(q.s, unit.owner, system)) => !(unit.system.is_some_and(|system| abilities_lost(q.s, unit.
+ca_combat/crimson/query.rs:72:66 [on_card] body  on_card(s: &CoreState, who: Seat, base: UnitBaseType) -> i64 { => { return 0; }
+ca_combat/crimson/query.rs:72:66 [on_card] body  on_card(s: &CoreState, who: Seat, base: UnitBaseType) -> i64 { => { return 1; }
+ca_combat/crimson/query.rs:74:16 [on_card] lit  0 => 1
+ca_combat/crimson/query.rs:83:64 [no_mech_left] body  no_mech_left(s: &CoreState, k: &Kernel, who: Seat) -> bool { => { return true; }
+ca_combat/crimson/query.rs:83:64 [no_mech_left] body  no_mech_left(s: &CoreState, k: &Kernel, who: Seat) -> bool { => { return false; }
+ca_combat/crimson/query.rs:85:8 [no_mech_left] cond  k.hooks.economy.effect_placement_forbidden(s, k, who, mech) => !(k.hooks.economy.effect_placement_forbidden(s, k, who, mech
+ca_combat/crimson/query.rs:86:16 [no_mech_left] lit  true => false
+ca_combat/crimson/query.rs:88:5 [no_mech_left] cmp  fleet::remaining(s, scope(k), who, mech,... <= 0 => fleet::remaining(s, scope(k), who, mech,... < 0
+ca_combat/crimson/query.rs:88:89 [no_mech_left] lit  0 => 1
+ca_combat/crimson/query.rs:92:110 [deploy_planets] body  deploy_planets(s: &CoreState, k: &Kernel, invader: Seat, system: Syste... => { return Default::default(); }
+ca_combat/crimson/query.rs:94:8 [deploy_planets] cond  !is_faction(s, invader, Faction::TheCrimsonRebellion) || !is_active(s, system) |... => !(!is_faction(s, invader, Faction::TheCrimsonRebellion) || !
+ca_combat/crimson/query.rs:94:8 [deploy_planets] logic  !is_faction(s, invader, Faction::TheCrim... || no_mech_left(s, k, invader) => !is_faction(s, invader, Faction::TheCrim... && no_mech_left(
+ca_combat/crimson/query.rs:94:8 [deploy_planets] logic  !is_faction(s, invader, Faction::TheCrim... || deployed => !is_faction(s, invader, Faction::TheCrim... && deployed
+ca_combat/crimson/query.rs:94:8 [deploy_planets] logic  !is_faction(s, invader, Faction::TheCrim... || !is_active(s, system) => !is_faction(s, invader, Faction::TheCrim... && !is_active(s,
+ca_combat/mod.rs:26:84 [register_abilities] body  register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTa... => { return (); }
+ca_combat/nekro/mod.rs:13:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/nekro/observe.rs:17:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/nekro/observe.rs:23:97 [alastor_decrement] body  alastor_decrement(cx: &mut Cx<'_>, system: System, owner: Seat, planet... => { return (); }
+ca_combat/nekro/observe.rs:29:8 [alastor_decrement] cond  count <= 1 => !(count <= 1)
+ca_combat/nekro/observe.rs:29:8 [alastor_decrement] cmp  count <= 1 => count < 1
+ca_combat/nekro/observe.rs:29:17 [alastor_decrement] lit  1 => 2
+ca_combat/nekro/observe.rs:32:50 [alastor_decrement] arith  count - 1 => count + 1
+ca_combat/nekro/observe.rs:32:58 [alastor_decrement] lit  1 => 2
+ca_combat/nekro/observe.rs:37:71 [alastor_clear] body  alastor_clear(cx: &mut Cx<'_>, system: System, who: Option<Seat>) { => { return (); }
+ca_combat/nekro/observe.rs:47:8 [alastor_clear] cond  stale.is_empty() => !(stale.is_empty())
+ca_combat/nekro/query.rs:30:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/nekro/query.rs:39:98 [alastor_marks] body  alastor_marks(s: &CoreState, system: System, who: Seat) -> SmallList<(... => { return Default::default(); }
+ca_combat/nekro/query.rs:44:16 [alastor_marks] cmp  k_seq == seq => k_seq != seq
+ca_combat/nekro/query.rs:45:16 [alastor_marks] cmp  k_system == system => k_system != system
+ca_combat/nekro/query.rs:46:16 [alastor_marks] cmp  k_owner == who => k_owner != who
+ca_combat/nekro/query.rs:57:99 [alastor_participants] body  alastor_participants(s: &CoreState, who: Seat, system: System) -> Smal... => { return Default::default(); }
+ca_combat/nekro/query.rs:61:12 [alastor_participants] cond  board::home_system(s, *planet) != Some(system) => !(board::home_system(s, *planet) != Some(system))
+ca_combat/nekro/query.rs:61:12 [alastor_participants] cmp  board::home_system(s, *planet) != Some(system) => board::home_system(s, *planet) == Some(system)
+ca_combat/nekro/query.rs:68:37 [alastor_participants] logic  held.owner() == who && held.kind() == *unit => held.owner() == who || held.kind() == *unit
+ca_combat/nekro/query.rs:68:37 [alastor_participants] cmp  held.owner() == who => held.owner() != who
+ca_combat/nekro/query.rs:68:60 [alastor_participants] cmp  held.kind() == *unit => held.kind() != *unit
+ca_combat/nekro/query.rs:79:84 [alastor_covers] body  alastor_covers(s: &CoreState, system: System, owner: Seat, unit: Unit)... => { return true; }
+ca_combat/nekro/query.rs:79:84 [alastor_covers] body  alastor_covers(s: &CoreState, system: System, owner: Seat, unit: Unit)... => { return false; }
+ca_combat/nekro/query.rs:80:67 [alastor_covers] logic  *kind == unit && *count > 0 => *kind == unit || *count > 0
+ca_combat/nekro/query.rs:80:67 [alastor_covers] cmp  *kind == unit => *kind != unit
+ca_combat/nekro/query.rs:80:84 [alastor_covers] cmp  *count > 0 => *count >= 0
+ca_combat/nekro/query.rs:80:93 [alastor_covers] lit  0 => 1
+ca_combat/nekro/query.rs:84:49 [pending_propagation] body  pending_propagation(s: &CoreState) -> Seats { => { return Default::default(); }
+ca_combat/nekro/query.rs:87:88 [pending_propagation] lit  0 => 1
+ca_combat/nekro/query.rs:88:18 [pending_propagation] lit  0 => 1
+ca_combat/nekro/query.rs:97:82 [live_token] body  live_token(s: &CoreState, who: Seat, card: Technology) -> Option<Techn... => { return None; }
+ca_combat/nekro/query.rs:99:8 [live_token] cond  p.faction != Faction::TheNekroVirus || !p.tech.owned.contains(card) => !(p.faction != Faction::TheNekroVirus || !p.tech.owned.conta
+ca_combat/nekro/query.rs:99:8 [live_token] logic  p.faction != Faction::TheNekroVirus || !p.tech.owned.contains(card) => p.faction != Faction::TheNekroVirus && !p.tech.owned.contain
+ca_combat/nekro/query.rs:99:8 [live_token] cmp  p.faction != Faction::TheNekroVirus => p.faction == Faction::TheNekroVirus
+ca_combat/nekro/query.rs:103:32 [live_token] logic  o.seat != who && o.tech.owned.contains(target) => o.seat != who || o.tech.owned.contains(target)
+ca_combat/nekro/query.rs:103:32 [live_token] cmp  o.seat != who => o.seat == who
+ca_combat/nekro/query.rs:107:81 [has_token_on_technology] body  has_token_on_technology(s: &CoreState, owner: Seat, opponent: Seat) ->... => { return true; }
+ca_combat/nekro/query.rs:107:81 [has_token_on_technology] body  has_token_on_technology(s: &CoreState, owner: Seat, opponent: Seat) ->... => { return false; }
+ca_combat/nekro/query.rs:114:65 [has_ships] body  has_ships(s: &CoreState, who: Seat, system: System) -> bool { => { return true; }
+ca_combat/nekro/query.rs:114:65 [has_ships] body  has_ships(s: &CoreState, who: Seat, system: System) -> bool { => { return false; }
+ca_combat/nekro/query.rs:115:5 [has_ships] logic  s.board().sys(system).units.as_slice().i... || !alastor_participants(s, who, system).is... => s.board().sys(system).units.as_slice().i... && !alastor_part
+ca_combat/nekro/query.rs:115:59 [has_ships] logic  p.owner() == who && p.kind().data().ship => p.owner() == who || p.kind().data().ship
+ca_combat/nekro/query.rs:115:59 [has_ships] cmp  p.owner() == who => p.owner() != who
+ca_combat/nekro/query.rs:122:8 [mordred] cond  !matches!(site.kind, RollKind::Combat | RollKind::Ground) || u.unit != Unit::Mor... => !(!matches!(site.kind, RollKind::Combat | RollKind::Ground) 
+ca_combat/nekro/query.rs:122:8 [mordred] logic  !matches!(site.kind, RollKind::Combat | ... || !is_faction(q.s, u.owner, Faction::TheNe... => !matches!(site.kind, RollKind::Combat | ... && !is_faction(q
+ca_combat/nekro/query.rs:122:8 [mordred] logic  !matches!(site.kind, RollKind::Combat | ... || u.unit != Unit::Mordred => !matches!(site.kind, RollKind::Combat | ... && u.unit != Uni
+ca_combat/nekro/query.rs:122:69 [mordred] cmp  u.unit != Unit::Mordred => u.unit == Unit::Mordred
+ca_combat/nekro/query.rs:128:70 [mordred] cmp  *seat != u.owner => *seat == u.owner
+ca_combat/nekro/query.rs:131:16 [mordred] cond  board::home_system(q.s, planet) != Some(system) => !(board::home_system(q.s, planet) != Some(system))
+ca_combat/nekro/query.rs:131:16 [mordred] cmp  board::home_system(q.s, planet) != Some(system) => board::home_system(q.s, planet) == Some(system)
+ca_combat/nekro/query.rs:134:83 [mordred] cmp  p.owner() == *seat => p.owner() != *seat
+ca_combat/nekro/query.rs:139:8 [mordred] cond  hit => !(hit)
+ca_combat/nekro/timing.rs:19:61 [in_hand] body  in_hand(s: &CoreState, holder: Seat) -> Option<NoteKey> { => { return None; }
+ca_combat/nekro/timing.rs:24:24 [in_hand] logic  **h == holder && k.note == PromissoryNot... && k.faction != own => **h == holder && k.note == PromissoryNot... || k.faction != 
+ca_combat/nekro/timing.rs:24:24 [in_hand] logic  **h == holder && k.note == PromissoryNot... && !s.cards().promissory_faceup.contains_ke... => **h == holder && k.note == PromissoryNot... || !s.cards().pr
+ca_combat/nekro/timing.rs:24:24 [in_hand] logic  **h == holder && k.note == PromissoryNote::Antivirus => **h == holder || k.note == PromissoryNote::Antivirus
+ca_combat/nekro/timing.rs:24:24 [in_hand] cmp  **h == holder => **h != holder
+ca_combat/nekro/timing.rs:24:41 [in_hand] cmp  k.note == PromissoryNote::Antivirus => k.note != PromissoryNote::Antivirus
+ca_combat/nekro/timing.rs:24:129 [in_hand] cmp  k.faction != own => k.faction == own
+ca_combat/nekro/timing.rs:28:39 [condition] body  condition(c: &CondCx<'_>) -> bool { => { return true; }
+ca_combat/nekro/timing.rs:28:39 [condition] body  condition(c: &CondCx<'_>) -> bool { => { return false; }
+ca_combat/nekro/timing.rs:32:61 [place] body  place(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+ca_combat/nekro/timing.rs:40:50 [register_abilities] body  register_abilities(t: &mut AbilityTable) { => { return (); }
+ca_combat/ralnel/movement.rs:10:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/ralnel/movement.rs:14:64 [free_cargo] body  free_cargo(s: &CoreState, k: &Kernel, unit: Piece) -> bool { => { return true; }
+ca_combat/ralnel/movement.rs:14:64 [free_cargo] body  free_cargo(s: &CoreState, k: &Kernel, unit: Piece) -> bool { => { return false; }
+ca_combat/ralnel/movement.rs:15:5 [free_cargo] logic  is_faction(s, unit.owner(), Faction::The... && scope(k).unit(unit.kind()).is_some_and(|... => is_faction(s, unit.owner(), Faction::The... || scope(k).unit
+ca_combat/ralnel/query.rs:24:37 [register] body  register(t: &mut HookTable) { => { return (); }
+ca_combat/ralnel/query.rs:34:59 [ralnel_structure] body  ralnel_structure(s: &CoreState, piece: Piece) -> bool { => { return true; }
+ca_combat/ralnel/query.rs:34:59 [ralnel_structure] body  ralnel_structure(s: &CoreState, piece: Piece) -> bool { => { return false; }
+ca_combat/ralnel/query.rs:35:5 [ralnel_structure] logic  is_faction(s, piece.owner(), Faction::Th... && piece.kind().data().structure => is_faction(s, piece.owner(), Faction::Th... || piece.kind().
+ca_combat/ralnel/query.rs:39:72 [silenced_in_space] body  silenced_in_space(s: &CoreState, _: &Kernel, piece: Piece) -> bool { => { return true; }
+ca_combat/ralnel/query.rs:39:72 [silenced_in_space] body  silenced_in_space(s: &CoreState, _: &Kernel, piece: Piece) -> bool { => { return false; }
+ca_combat/ralnel/query.rs:45:72 [linkship_guns] body  linkship_guns(s: &CoreState, _: &Kernel, system: System) -> Pieces { => { return Default::default(); }
+ca_combat/ralnel/query.rs:52:12 [linkship_guns] cond  !is_faction(s, owner, Faction::TheRalNelConsortium) => !(!is_faction(s, owner, Faction::TheRalNelConsortium))
+ca_combat/ralnel/query.rs:57:25 [linkship_guns] logic  p.owner() == owner && p.kind().data().structure => p.owner() == owner || p.kind().data().structure
+ca_combat/ralnel/query.rs:57:25 [linkship_guns] cmp  p.owner() == owner => p.owner() != owner
+ca_combat/ralnel/query.rs:58:69 [linkship_guns] cmp  r.hits_on > 0 => r.hits_on >= 0
+ca_combat/ralnel/query.rs:58:81 [linkship_guns] lit  0 => 1
+ca_combat/ralnel/query.rs:60:12 [linkship_guns] cond  structures.is_empty() => !(structures.is_empty())
+ca_combat/ralnel/query.rs:64:58 [linkship_guns] logic  p.owner() == owner && p.kind() == kind => p.owner() == owner || p.kind() == kind
+ca_combat/ralnel/query.rs:64:58 [linkship_guns] cmp  p.owner() == owner => p.owner() != owner
+ca_combat/ralnel/query.rs:64:80 [linkship_guns] cmp  p.kind() == kind => p.kind() != kind
+ca_combat/ralnel/query.rs:69:22 [linkship_guns] lit  0 => 1
+ca_combat/ralnel/query.rs:78:72 [flagship_among] body  flagship_among(s: &CoreState, who: Seat, arrived: &[Unit]) -> bool { => { return true; }
+ca_combat/ralnel/query.rs:78:72 [flagship_among] body  flagship_among(s: &CoreState, who: Seat, arrived: &[Unit]) -> bool { => { return false; }
+ca_combat/ralnel/query.rs:83:70 [alarum_on] body  alarum_on(s: &CoreState, system: System, planet: Planet) -> bool { => { return true; }
+ca_combat/ralnel/query.rs:83:70 [alarum_on] body  alarum_on(s: &CoreState, system: System, planet: Planet) -> bool { => { return false; }
+ca_combat/ralnel/query.rs:84:5 [alarum_on] logic  board::home_system(s, planet) == Some(sy... && board::planet_units(s, planet).iter().an... => board::home_system(s, planet) == Some(sy... || board::planet
+ca_combat/ralnel/query.rs:84:5 [alarum_on] cmp  board::home_system(s, planet) == Some(system) => board::home_system(s, planet) != Some(system)
+ca_combat/ralnel/query.rs:85:58 [alarum_on] logic  p.kind() == Unit::Alarum && is_faction(s, p.owner(), Faction::TheRal... => p.kind() == Unit::Alarum || is_faction(s, p.owner(), Faction
+ca_combat/ralnel/query.rs:85:58 [alarum_on] cmp  p.kind() == Unit::Alarum => p.kind() != Unit::Alarum
+ca_combat/ralnel/query.rs:90:65 [listens_for_tactical_end] body  listens_for_tactical_end(s: &CoreState, _: &Kernel) -> bool { => { return true; }
+ca_combat/ralnel/query.rs:90:65 [listens_for_tactical_end] body  listens_for_tactical_end(s: &CoreState, _: &Kernel) -> bool { => { return false; }
+ca_combat/ralnel/query.rs:92:9 [listens_for_tactical_end] logic  p.faction == Faction::TheRalNelConsortiu... && s.board().systems().any(|(system, cell)|... => p.faction == Faction::TheRalNelConsortiu... || s.board().sys
+ca_combat/ralnel/query.rs:92:9 [listens_for_tactical_end] cmp  p.faction == Faction::TheRalNelConsortium => p.faction != Faction::TheRalNelConsortium
+ca_combat/ralnel/query.rs:94:17 [listens_for_tactical_end] logic  cell.units.as_slice().iter().any(|u| u.o... && board::controls_a_planet_in(s, system, p... => cell.units.as_slice().iter().any(|u| u.o... || board::contro
+ca_combat/ralnel/query.rs:94:54 [listens_for_tactical_end] logic  u.owner() == p.seat && u.kind().data().structure => u.owner() == p.seat || u.kind().data().structure
+ca_combat/ralnel/query.rs:94:54 [listens_for_tactical_end] cmp  u.owner() == p.seat => u.owner() != p.seat

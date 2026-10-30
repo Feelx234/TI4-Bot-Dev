@@ -50,6 +50,9 @@ check layers python3 -I tools/engine_core/check_layers.py core
 note "     $(tail -1 "$out/layers.log")"
 check lint-core tools/engine_core/lint_core.sh
 note "     $(tail -1 "$out/lint-core.log")"
+# D4-5: the covers gap of the typed core (windows no test drives); notes only, `--check` without --quick is the D4 gate
+check d4-coverage python3 -I tools/engine_core/d4/coverage.py --check --quick
+note "     $(head -1 "$out/d4-coverage.log")"
 python3 -I tools/engine_core/check_layers.py engine > "$out/layers-engine.txt" 2>&1
 note "     string engine: $(sed -n 2p "$out/layers-engine.txt")"
 # Clippy: the string engine carries old warnings (counted, not gating); the core crates, the bridge

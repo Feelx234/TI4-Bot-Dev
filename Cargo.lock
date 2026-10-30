@@ -4139,6 +4139,7 @@ dependencies = [
  "mimalloc",
  "rand 0.9.5",
  "rand_chacha 0.9.0",
+ "serde",
  "serde_json",
  "sha2",
  "strum",

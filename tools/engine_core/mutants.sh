@@ -13,6 +13,7 @@
 #      CARGO_BUILD_JOBS (default 2), KINDS (default body,arith,cmp,logic,cond,lit,assign), FN (only functions
 #      whose name contains one of a,b,c), LINES (S-E), TEST_ARGS (default --lib; e.g. "--lib --test adapter"),
 #      CHECK_ONLY=1 (only check that the rewrite compiles, with `cargo check --tests`; no test run),
+#      EXCLUDE (regex; repo-relative files it matches are left out of a directory TARGET),
 #      TIMEOUT (seconds per mutant), LIST=1 (only list the mutation points), QUIET=1 (survivors only),
 #      MUT_DIR (scratch, default /root/deploytmp/mutants-<checkout>), STRICT=1 (exit 1 when mutants survive).
 #
@@ -35,11 +36,15 @@ crate="${CRATE:-}"
 mapfile -t files < <(python3 -I - "$repo" "$target" "$crate" <<'PY'
 import os, sys
 repo, t, crate = sys.argv[1:4]
+EXCLUDE = os.environ.get("EXCLUDE")  # regex over repo-relative paths: files it matches are not mutated (D4: baseline of a directory minus B12-owned files)
 def rs(d):
     out = []
     for r, ds, fs in os.walk(os.path.join(repo, d)):
         ds[:] = sorted(x for x in ds if x not in ("generated", "tests", "benches", "target"))
         out += [os.path.relpath(os.path.join(r, f), repo) for f in sorted(fs) if f.endswith(".rs") and not f.startswith("__")]
+    if EXCLUDE:
+        import re
+        out = [f for f in out if not re.search(EXCLUDE, f)]
     return out
 if "/" in t or t.endswith(".rs"):
     p = t if not os.path.isabs(t) else os.path.relpath(t, repo)

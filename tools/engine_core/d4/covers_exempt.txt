@@ -1,0 +1,2 @@
+# Windows that may stay without a covers! (label<TAB>reason<TAB>KNOWN_ISSUES id). Target: empty.
+# A silent window of the soak census needs a line here with its issue id for `coverage.py --check` to pass.

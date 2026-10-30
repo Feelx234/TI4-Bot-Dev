@@ -1,0 +1,134 @@
+[
+  {
+    "name": "ladder",
+    "dir": "ladder",
+    "tier": "slim",
+    "rules_version": null,
+    "frozen": false,
+    "source": "golden ladder",
+    "games": 36,
+    "decisions": 19060,
+    "pure_share_at_record": 133
+  },
+  {
+    "name": "legacy-bench",
+    "dir": "legacy-sources/bench",
+    "tier": "full",
+    "rules_version": 23,
+    "frozen": true,
+    "source": "x2:bench",
+    "games": 4,
+    "decisions": 9663,
+    "pure_share_at_record": null
+  },
+  {
+    "name": "legacy-bench-v1",
+    "dir": "legacy-sources/bench-v1",
+    "tier": "full",
+    "rules_version": 11,
+    "frozen": true,
+    "source": "x2:bench-v1",
+    "games": 4,
+    "decisions": 8039,
+    "pure_share_at_record": null
+  },
+  {
+    "name": "legacy-bench-v2",
+    "dir": "legacy-sources/bench-v2",
+    "tier": "full",
+    "rules_version": 11,
+    "frozen": true,
+    "source": "x2:bench-v2",
+    "games": 4,
+    "decisions": 8145,
+    "pure_share_at_record": null
+  },
+  {
+    "name": "legacy-bench-v3",
+    "dir": "legacy-sources/bench-v3",
+    "tier": "full",
+    "rules_version": 11,
+    "frozen": true,
+    "source": "x2:bench-v3",
+    "games": 4,
+    "decisions": 9855,
+    "pure_share_at_record": null
+  },
+  {
+    "name": "legacy-bench-v4",
+    "dir": "legacy-sources/bench-v4",
+    "tier": "full",
+    "rules_version": 11,
+    "frozen": true,
+    "source": "x2:bench-v4",
+    "games": 4,
+    "decisions": 9363,
+    "pure_share_at_record": null
+  },
+  {
+    "name": "legacy-bench-v5",
+    "dir": "legacy-sources/bench-v5",
+    "tier": "full",
+    "rules_version": 18,
+    "frozen": true,
+    "source": "x2:bench-v5",
+    "games": 4,
+    "decisions": 8940,
+    "pure_share_at_record": null
+  },
+  {
+    "name": "legacy-fixtures",
+    "dir": "legacy-sources/fixtures",
+    "tier": "full",
+    "rules_version": null,
+    "frozen": false,
+    "source": "x2:fixtures",
+    "games": 8,
+    "decisions": 8,
+    "pure_share_at_record": null
+  },
+  {
+    "name": "legacy-te",
+    "dir": "legacy-sources/te",
+    "tier": "full",
+    "rules_version": 35,
+    "frozen": false,
+    "source": "x2:te",
+    "games": 4,
+    "decisions": 9944,
+    "pure_share_at_record": null
+  },
+  {
+    "name": "legacy-templates",
+    "dir": "legacy-sources/templates",
+    "tier": "full",
+    "rules_version": 35,
+    "frozen": false,
+    "source": "x2:templates",
+    "games": 100,
+    "decisions": 8017,
+    "pure_share_at_record": null
+  },
+  {
+    "name": "v23-golden20",
+    "dir": "v23-golden20",
+    "tier": "full",
+    "rules_version": 23,
+    "frozen": true,
+    "source": "x2:golden20",
+    "games": 20,
+    "decisions": 42680,
+    "pure_share_at_record": null
+  },
+  {
+    "name": "v35-std",
+    "dir": "v35-std",
+    "tier": "slim",
+    "rules_version": 35,
+    "frozen": false,
+    "source": "tools/engine_profile/soak/std-100.json",
+    "games": 3,
+    "decisions": 5771,
+    "pure_share_at_record": 126
+  }
+]

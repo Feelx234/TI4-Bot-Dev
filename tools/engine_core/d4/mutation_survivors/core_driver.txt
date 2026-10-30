@@ -1,0 +1,12 @@
+# survivors of core/driver: 11 of 117 points (90% killed); paths relative to crates/<crate>/src
+driver/children.rs:39:27 [spawn] cond  *primary => !(*primary)
+driver/mod.rs:117:10 [NoSeeds::seed_for] lit  0 => 1
+driver/mod.rs:132:21 [Driver::new] lit  false => true
+driver/mod.rs:138:23 [Driver::new] lit  false => true
+driver/mod.rs:146:23 [Driver::with_seeds] lit  true => false
+driver/mod.rs:170:64 [Driver::resume] cmp  *x == o => *x != o
+driver/mod.rs:218:16 [Driver::settle] cond  outcome.is_err() => !(outcome.is_err())
+driver/mod.rs:296:38 [Driver::is_seeded] body  is_seeded(&self) -> bool { => { return true; }
+driver/mod.rs:296:38 [Driver::is_seeded] body  is_seeded(&self) -> bool { => { return false; }
+driver/mod.rs:302:55 [Driver::nested_state] body  nested_state(&self) -> Option<&CoreState> { => { return None; }
+driver/mod.rs:308:36 [Driver::is_done] body  is_done(&self) -> bool { => { return true; }

@@ -1,0 +1,39 @@
+{
+  "name": "v35-std",
+  "tier": "slim",
+  "rules_version": 35,
+  "frozen": false,
+  "source": "tools/engine_profile/soak/std-100.json",
+  "note": "seed set: 4 games of the soak std lane (3p, 4p, 5p, 6p), dual-clean; D4-7 extends it to >= 200 games after int-5",
+  "games": [
+    {
+      "file": "g000.tsv.zst",
+      "steps": 681,
+      "decisions": 933,
+      "decisions_hash": "a21bf3a35a977592",
+      "bytes": 14712,
+      "sha256": "7adc97b64bc2bfdedcdb91c1f159aec8c8c51529238c557c3da706fb9bb09de0"
+    },
+    {
+      "file": "g012.tsv.zst",
+      "steps": 1652,
+      "decisions": 2510,
+      "decisions_hash": "5df9f9d06a8cb14f",
+      "bytes": 35126,
+      "sha256": "07e1e07e7793269473285b6c6a4dfb86c3c1a6048fa66ed04d26b04a5692f505"
+    },
+    {
+      "file": "g040.tsv.zst",
+      "steps": 1681,
+      "decisions": 2328,
+      "decisions_hash": "e0524e61db74a0c7",
+      "bytes": 33962,
+      "sha256": "e8c7dabc2c99fda21bfd446c1dec5b1c1fd261f5d2775cace737df47d55b075e"
+    }
+  ],
+  "smoke": [
+    "g000.tsv.zst",
+    "g012.tsv.zst",
+    "g040.tsv.zst"
+  ]
+}

@@ -1,8 +1,8 @@
 # core-integration-6: merge record (2026-10-30)
 
-Branch `core-integration-6`, cut from `core-integration-5` @ `670963aa`. Cheap checks only: the user deferred every heavy gate (golden dual, benches,
+Branch `core-integration-6`, cut from `core-integration-5` @ `670963aa` (tooling branches merged in a second round, section 7). Cheap checks only: the user deferred every heavy gate (golden dual, benches,
 soak, `core_sync_gate`, `alpha_roundtrip`) to the end of D1. Not pushed. The live branch `nightly-fixes-2026-10-26` was not touched. The `core-w*`
-(lent bodies) branches are NOT merged (still running), nor is `core-d4b`.
+(lent bodies) branches are NOT merged (still running).
 
 ## 1. Merges, in order
 
@@ -14,6 +14,7 @@ soak, `core_sync_gate`, `alpha_roundtrip`) to the end of D1. Not pushed. The liv
 | 4 | `core-d2-3` | `43189100`, then `58cce225` | D2-3 text tables (`containers::Interner`, `CoreState.texts/owners`), D2-4a `resolver_sync.rs` + `TI4_CHURN=resolver`, D2-4b `ResolverState` in `Pending`, D2-5 `materialize`, `reverse_lend::with_string`, `lend_table`, `TI4_CHURN=state`, and the D2-5-find-02 fix (the core answers `has_legal_target` / `playable_hand` in the scope of the game) | 3 files, below |
 | 5 | `core-d3-0` | `621ad11e` | typed bot crate `crates/ti4-rule-bot-typed`, `ti4_engine_core::seen`, `ti4_model::count` (+ feature `observed-count`), `tools/rulebot/d3/` | none |
 | 6 | `core-d4a` | `b6faaba5` | test crate `crates/ti4-engine-core-tests` (kit, 600+ tests, snapshots), `tools/engine_core/d4/`, `docs/d4a_mutation_survivors/` | none (but see 3) |
+| 7 | `core-d4b` | `9ed8c4a2` | golden games (`golden` bin + `golden/` module, `tools/engine_core/golden/`), coverage (`d4/coverage.py`, `docs/ENGINE_CORE_COVERAGE.md`), mutation baseline and ratchet (`mutation_ratchet.sh`, `mutation_floor.json`, `docs/D4_MUTATION_BASELINE.md`), `d4_gate.sh` steps 4-6 | `Cargo.lock` only (see 2) |
 
 The first merge of `core-d2-3` was at `43189100`; its second tip (`58cce225`, `playable_hand`) was merged again after the check run found the second
 difference of the same cause.
@@ -25,7 +26,8 @@ difference of the same cause.
 | `ti4-engine/src/core_sync/mod.rs` | two lists of `mod` / `pub use` lines (d2-1: `unmapped`, `unsupported`; d2-3: `materialize`, `texts`, `TextCodes`, `bad`) | all modules kept; `bad` is `pub use` (d2-3 needs it outside `core_sync`; d2-1 had it `pub(crate)`) |
 | `ti4-engine/src/core_sync/lend.rs` | `Lend::region`: d2-1 added `unsupported::check(self.gs)?` and kept `Region<'_>`; d2-3 removed the lifetime (the seeds are owned now) | signature of d2-3, body of d2-1 (the check stays) |
 | `ti4-engine-core-bridge/src/bin/core_sync_gate.rs` | d2-1 moved the per-position logic into the library module `roundtrip.rs`; d2-3 had edited the old body (attach/adopt the tables, high-water marks) | d2-1's bin taken; d2-3's edit re-applied in `roundtrip.rs` (`cx.attach(&mut core)` after the core is made, `cx.adopt(&core)` after the load loop, `max_texts`/`max_blobs` read from `core.texts`) |
-| `docs/ENGINE_KNOWN_ISSUES.md`, `dual_window.rs`, `check_layers.py`, `Cargo.lock` | no textual conflict (git merged them) | `ENGINE_KNOWN_ISSUES.md`: the rows of D2 lane B and of D4 lane A, which lived uncommitted in the `core-integration` worktree, were appended (D4B rows are not here: that branch is not merged) |
+| `Cargo.lock` (merge 7) | `ti4-engine-core-bridge` dependency list: d2-1 added `rand`, `rand_chacha`, d4b added `serde` | all three kept, in order |
+| `docs/ENGINE_KNOWN_ISSUES.md`, `dual_window.rs`, `check_layers.py` | no textual conflict (git merged them) | `ENGINE_KNOWN_ISSUES.md`: the rows of D2 lane B, D4 lane A and D4 lane B, which lived uncommitted in the `core-integration` worktree, were appended |
 
 ## 3. Breaks the combination caused (all fixed on this branch, none by weakening a test)
 
@@ -66,5 +68,31 @@ last line of this section.
   `/var/lib/ti4-public`, `marks_census.py --strict`, `tools/engine_core/d4_gate.sh`, the D3 baseline record (`tools/rulebot/d3/baseline.sh`), mutation runs of the
   merged crates. Resume notes: `docs/D1B2_RESUME.md`, `docs/D2_1_RESUME.md`, `docs/D2_3_RESUME.md`, `docs/D3_RESUME.md`, `docs/D4A_RESUME.md`.
 * The bail table (`lend_table::BAILS`, `TI4_BAIL_PROBE` + `bail_table`) and one `with_string` wrapper per label: needs the golden dual.
-* Not merged on purpose: the `core-w*` lent-body branches (running), `core-d4b` (golden games, coverage, mutation baseline).
-* Two copies of the field-to-slice table exist (`bridge::roundtrip::slice_of_key`, `core_sync::materialize::slice_of_field`); fold the first into the second.
+* Not merged on purpose: the `core-w*` lent-body branches (running).
+* The one-script version of all of the above: `tools/engine_core/end_of_d1.sh` (section 7).
+
+## 7. Second round: the tooling branches, one table, one script
+
+**Already in, checked with `git merge-base --is-ancestor`:** `core-dual-shards` (`bdbe148d`), `core-compute` (`cad8f451`), `core-soak` (`6389525c`) (carried by
+int-4/int-5). **Merged now:** `core-d4b` (row 7 of section 1; one conflict in `Cargo.lock`, section 2).
+
+**Folded:** the two copies of the field-to-slice table (`bridge::roundtrip::slice_of_key` and `core_sync::materialize::slice_of_field`) were compared key by key
+(80 keys, identical); `roundtrip::slice_of_key` now delegates to the engine's table.
+
+**Fixed after the merge:** three clippy `type_complexity` warnings in the golden tool (`golden/bless.rs`, `golden/record.rs`): type aliases, no behaviour change.
+
+**Checks of the tip `b9a0902b` (then `18321bc7`), same set as section 4, all green:** workspace `cargo check --all-targets` ok; `cargo test -p ti4-engine --lib` 4709 passed;
+core + factions + rule-bot-typed + bridge `--lib` 517 passed; inventory tests 8 passed; `ti4-engine-core-tests` with the D4 profile flags 611 passed; `check_layers.py core`
+421 files, 0 violations; `lint_core.sh` 423 files, 0 hits; `test_census.py` 5 ok; `bash -n` of `mutation_ratchet.sh`, `d4_gate.sh`, `verify_package.sh`. Clippy after the fix of the three
+warnings: see the last line of this section.
+
+Clippy of the bridge after the aliases (tip `18321bc7`): 0 warnings or errors in `crates/ti4-engine-core-bridge/`; `cargo test -p ti4-engine-core-bridge --lib` 46 passed (the golden module's tests included); `end_of_d1.sh --dry-run` prints the 20 steps and `bash -n` is ok. Clippy of the other five crates at `b9a0902b`: 0 hits.
+
+**`tools/engine_core/end_of_d1.sh`** (written, NOT run): the combined heavy run of the end of D1 in one script that re-executes itself under `/root/heavy2.sh`
+(`SHARDS=3`) and holds the lane for the whole run. `--dry-run` prints the 20 steps and what each runs without taking the lock; `--only`, `--skip`, `--from` select steps.
+Order: `layers`, `lint` (+ immutable surfaces), `build`, `clippy`, `tests` (packages, the engine suite with every area on Dual and fail-fast, the D4 crate with its
+profile, gen-cards, xtask, wasm tests), `dual-all` (every area, bail probe on), `dual-drv` (driver=dual), `dual-wide`, `board-t`, `board-g`, `sync`
+(`core_sync_gate --strict` + `marks_census.py --strict`), `alpha` (`alpha_roundtrip --strict` on a copy of `/var/lib/ti4-public`), `bench-off`, `bench-resolver`,
+`bench-state`, `bench-resolver+state` (200/200 identical x6 each), `census` (the bail table from the probe, the golden games on `all=core` and `all=string`), `soak` (one
+round), `d4gate` (steps 3-5), `ratchet` (mutation floors, last). A failing step does not stop the run; the summary (`<out>/summary.txt`) names every failure. Usage:
+`CARGO_TARGET_DIR=/root/deploytmp/eod tools/engine_core/end_of_d1.sh --out /root/end-of-d1-<date>`.

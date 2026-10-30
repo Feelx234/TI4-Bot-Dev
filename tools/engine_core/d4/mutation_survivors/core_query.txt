@@ -1,0 +1,1474 @@
+# survivors of core/query: 1473 of 1621 points (9% killed); paths relative to crates/<crate>/src
+query/board.rs:19:58 [printed_system] body  printed_system(planet: Planet) -> Option<System> { => { return None; }
+query/board.rs:26:73 [home_system] body  home_system(core: &CoreState, planet: Planet) -> Option<System> { => { return None; }
+query/board.rs:33:85 [system_of] body  system_of(core: &CoreState, scope: Scope, planet: Planet) -> Option<Sy... => { return None; }
+query/board.rs:40:12 [system_of] cmp  scope.0 & crate::tables::source_bit(data... != 0 => scope.0 & crate::tables::source_bit(data... == 0
+query/board.rs:40:12 [system_of] arith  scope.0 & crate::tables::source_bit(data.source) => scope.0 | crate::tables::source_bit(data.source)
+query/board.rs:40:64 [system_of] lit  0 => 1
+query/board.rs:44:21 [system_of] logic  cell.control.is_some() || cell.flags.has(PlanetFlags::UNITS_ENTRY) => cell.control.is_some() && cell.flags.has(PlanetFlags::UNITS_
+query/board.rs:45:8 [system_of] cond  has_entry => !(has_entry)
+query/board.rs:51:82 [planets_in] body  planets_in(core: &CoreState, scope: Scope, system: System) -> PlanetLi... => { return Default::default(); }
+query/board.rs:54:12 [planets_in] cond  scope.0 & crate::tables::source_bit(planet.data().source) != 0 => !(scope.0 & crate::tables::source_bit(planet.data().source) 
+query/board.rs:54:12 [planets_in] cmp  scope.0 & crate::tables::source_bit(plan... != 0 => scope.0 & crate::tables::source_bit(plan... == 0
+query/board.rs:54:12 [planets_in] arith  scope.0 & crate::tables::source_bit(planet.data().... => scope.0 | crate::tables::source_bit(planet.data()....
+query/board.rs:54:73 [planets_in] lit  0 => 1
+query/board.rs:61:12 [planets_in] cond  cell.placed_in == Some(system) => !(cell.placed_in == Some(system))
+query/board.rs:61:12 [planets_in] cmp  cell.placed_in == Some(system) => cell.placed_in != Some(system)
+query/board.rs:72:53 [planets_of] cmp  c.placed_in == Some(system) => c.placed_in != Some(system)
+query/board.rs:91:72 [controlled_planets] body  controlled_planets(core: &CoreState, seat: Seat) -> Controlled { => { return Default::default(); }
+query/board.rs:106:65 [controlled_count] body  controlled_count(core: &CoreState, seat: Seat) -> usize { => { return 0; }
+query/board.rs:106:65 [controlled_count] body  controlled_count(core: &CoreState, seat: Seat) -> usize { => { return 1; }
+query/board.rs:107:44 [controlled_count] cmp  c.control == Some(seat) => c.control != Some(seat)
+query/board.rs:112:84 [controls_a_planet_in] body  controls_a_planet_in(core: &CoreState, system: System, seat: Seat) -> ... => { return true; }
+query/board.rs:112:84 [controls_a_planet_in] body  controls_a_planet_in(core: &CoreState, system: System, seat: Seat) -> ... => { return false; }
+query/board.rs:118:61 [exhausted] body  exhausted(core: &CoreState, planet: Planet) -> bool { => { return true; }
+query/board.rs:118:61 [exhausted] body  exhausted(core: &CoreState, planet: Planet) -> bool { => { return false; }
+query/board.rs:136:82 [has_space_units_of] body  has_space_units_of(core: &CoreState, system: System, seat: Seat) -> bo... => { return true; }
+query/board.rs:136:82 [has_space_units_of] body  has_space_units_of(core: &CoreState, system: System, seat: Seat) -> bo... => { return false; }
+query/board.rs:137:46 [has_space_units_of] cmp  u.owner() == seat => u.owner() != seat
+query/board.rs:142:73 [has_token] body  has_token(core: &CoreState, system: System, seat: Seat) -> bool { => { return true; }
+query/board.rs:142:73 [has_token] body  has_token(core: &CoreState, system: System, seat: Seat) -> bool { => { return false; }
+query/board.rs:148:68 [systems_with_token] body  systems_with_token(core: &CoreState, seat: Seat) -> SysSet { => { return Default::default(); }
+query/board.rs:151:12 [systems_with_token] cond  cell.cmd.contains(seat) => !(cell.cmd.contains(seat))
+query/board.rs:160:71 [systems_with_units_of] body  systems_with_units_of(core: &CoreState, seat: Seat) -> SysSet { => { return Default::default(); }
+query/board.rs:163:12 [systems_with_units_of] cond  cell.units.as_slice().iter().any(|u| u.owner() == seat) => !(cell.units.as_slice().iter().any(|u| u.owner() == seat))
+query/board.rs:163:49 [systems_with_units_of] cmp  u.owner() == seat => u.owner() != seat
+query/board.rs:172:79 [systems_with_units_other_than] body  systems_with_units_other_than(core: &CoreState, seat: Seat) -> SysSet ... => { return Default::default(); }
+query/board.rs:175:12 [systems_with_units_other_than] cond  cell.units.as_slice().iter().any(|u| u.owner() != seat) => !(cell.units.as_slice().iter().any(|u| u.owner() != seat))
+query/board.rs:175:49 [systems_with_units_other_than] cmp  u.owner() != seat => u.owner() == seat
+query/board.rs:182:77 [coexist_in] body  coexist_in(core: &CoreState, system: System, planet: Planet) -> SeatSe... => { return Default::default(); }
+query/board.rs:183:8 [coexist_in] cond  home_system(core, planet) == Some(system) => !(home_system(core, planet) == Some(system))
+query/board.rs:183:8 [coexist_in] cmp  home_system(core, planet) == Some(system) => home_system(core, planet) != Some(system)
+query/board.rs:189:81 [coexisters] body  coexisters(core: &CoreState, system: System, planet: Planet) -> SeatSe... => { return Default::default(); }
+query/board.rs:195:93 [is_coexisting] body  is_coexisting(core: &CoreState, system: System, planet: Planet, seat: ... => { return true; }
+query/board.rs:195:93 [is_coexisting] body  is_coexisting(core: &CoreState, system: System, planet: Planet, seat: ... => { return false; }
+query/board.rs:201:82 [in_coexistence] body  in_coexistence(core: &CoreState, system: System, planet: Planet) -> bo... => { return true; }
+query/board.rs:201:82 [in_coexistence] body  in_coexistence(core: &CoreState, system: System, planet: Planet) -> bo... => { return false; }
+query/board.rs:207:100 [controls_for_scoring] body  controls_for_scoring(core: &CoreState, system: System, planet: Planet,... => { return true; }
+query/board.rs:207:100 [controls_for_scoring] body  controls_for_scoring(core: &CoreState, system: System, planet: Planet,... => { return false; }
+query/board.rs:208:5 [controls_for_scoring] logic  (home_system(core, planet) == Some(syste... || is_coexisting(core, system, planet, seat... => (home_system(core, planet) == Some(syste... && is_coexisting
+query/board.rs:208:6 [controls_for_scoring] logic  home_system(core, planet) == Some(system... && controls(core, seat, planet) => home_system(core, planet) == Some(system... || controls(core
+query/board.rs:208:6 [controls_for_scoring] cmp  home_system(core, planet) == Some(system) => home_system(core, planet) != Some(system)
+query/board.rs:214:72 [neighbours] body  neighbours(core: &CoreState, system: System) -> Option<SysSet> { => { return None; }
+query/board.rs:220:58 [adjacency] body  adjacency(core: &CoreState) -> Option<Adjacency> { => { return None; }
+query/diplomacy_items.rs:60:88 [Draft::new] lit  false => true
+query/diplomacy_items.rs:60:106 [Draft::new] lit  false => true
+query/diplomacy_items.rs:60:135 [Draft::new] lit  0 => 1
+query/diplomacy_items.rs:66:12 [Draft::side] cond  self.asking => !(self.asking)
+query/diplomacy_items.rs:70:12 [Draft::side_mut] cond  self.asking => !(self.asking)
+query/diplomacy_items.rs:79:37 [Draft::is_empty] body  is_empty(&self) -> bool { => { return true; }
+query/diplomacy_items.rs:79:37 [Draft::is_empty] body  is_empty(&self) -> bool { => { return false; }
+query/diplomacy_items.rs:80:9 [Draft::is_empty] logic  self.give.is_empty() && self.take.is_empty() => self.give.is_empty() || self.take.is_empty()
+query/diplomacy_items.rs:113:65 [held] body  held(core: &CoreState, kind: Counted, seat: Seat) -> u8 { => { return 0; }
+query/diplomacy_items.rs:113:65 [held] body  held(core: &CoreState, kind: Counted, seat: Seat) -> u8 { => { return 1; }
+query/diplomacy_items.rs:114:62 [held] lit  0 => 1
+query/diplomacy_items.rs:123:28 [held] lit  0 => 1
+query/diplomacy_items.rs:123:62 [held] lit  0 => 1
+query/diplomacy_items.rs:126:71 [fragments] body  fragments(core: &CoreState, seat: Seat, kind: ExploreType) -> i32 { => { return 0; }
+query/diplomacy_items.rs:126:71 [fragments] body  fragments(core: &CoreState, seat: Seat, kind: ExploreType) -> i32 { => { return 1; }
+query/diplomacy_items.rs:127:83 [fragments] lit  0 => 1
+query/diplomacy_items.rs:133:30 [term_of] cond  late => !(late)
+query/diplomacy_items.rs:133:58 [term_of] lit  1 => 2
+query/diplomacy_items.rs:139:115 [term_of] lit  1 => 2
+query/diplomacy_items.rs:145:64 [holds_unplayed_trade] body  holds_unplayed_trade(core: &CoreState, seat: Seat) -> bool { => { return true; }
+query/diplomacy_items.rs:145:64 [holds_unplayed_trade] body  holds_unplayed_trade(core: &CoreState, seat: Seat) -> bool { => { return false; }
+query/diplomacy_items.rs:146:84 [holds_unplayed_trade] logic  !p.strat_exhausted.contains(*c) && c.data().kind == StrategyCardKind::Trade => !p.strat_exhausted.contains(*c) || c.data().kind == Strategy
+query/diplomacy_items.rs:146:119 [holds_unplayed_trade] cmp  c.data().kind == StrategyCardKind::Trade => c.data().kind != StrategyCardKind::Trade
+query/diplomacy_items.rs:149:73 [has] body  has(terms: &[DealTerm], wanted: impl Fn(&DealTerm) -> bool) -> bool { => { return true; }
+query/diplomacy_items.rs:149:73 [has] body  has(terms: &[DealTerm], wanted: impl Fn(&DealTerm) -> bool) -> bool { => { return false; }
+query/diplomacy_items.rs:156:86 [items] body  items(core: &CoreState, f: &DipFacts, scope: &Scope, d: &Draft) -> Vec... => { return Vec::new(); }
+query/diplomacy_items.rs:160:8 [items] cond  !d.can_edit() => !(!d.can_edit())
+query/diplomacy_items.rs:163:16 [items] cmp  terms.len() >= MAX_TERMS_PER_SIDE => terms.len() > MAX_TERMS_PER_SIDE
+query/diplomacy_items.rs:164:8 [items] cond  !full && scope.physical => !(!full && scope.physical)
+query/diplomacy_items.rs:164:8 [items] logic  !full && scope.physical => !full || scope.physical
+query/diplomacy_items.rs:167:16 [items] cond  held(core, kind, giver) > 0 && !already => !(held(core, kind, giver) > 0 && !already)
+query/diplomacy_items.rs:167:16 [items] logic  held(core, kind, giver) > 0 && !already => held(core, kind, giver) > 0 || !already
+query/diplomacy_items.rs:167:16 [items] cmp  held(core, kind, giver) > 0 => held(core, kind, giver) >= 0
+query/diplomacy_items.rs:167:42 [items] lit  0 => 1
+query/diplomacy_items.rs:172:12 [items] cond  !has(terms, |t| matches!(t, DealTerm::ImmediateTransfer(TransferAsset::Promissor... => !(!has(terms, |t| matches!(t, DealTerm::ImmediateTransfer(Tr
+query/diplomacy_items.rs:185:12 [items] logic  !d.asking && !card_on_side && (f.deal.arbiter(giver) || f.deal.arbiter... => !d.asking && !card_on_side || (f.deal.arbiter(giver) || f.de
+query/diplomacy_items.rs:185:12 [items] logic  !d.asking && !card_on_side => !d.asking || !card_on_side
+query/diplomacy_items.rs:187:17 [items] logic  f.deal.arbiter(giver) || f.deal.arbiter(receiver) => f.deal.arbiter(giver) && f.deal.arbiter(receiver)
+query/diplomacy_items.rs:194:20 [items] cond  !has(terms, |t| matches!(t, DealTerm::ImmediateTransfer(TransferAsset::ActionCar... => !(!has(terms, |t| matches!(t, DealTerm::ImmediateTransfer(Tr
+query/diplomacy_items.rs:200:8 [items] cond  !full => !(!full)
+query/diplomacy_items.rs:202:16 [items] cond  !has(terms, |t| matches!(t, DealTerm::FuturePayment { asset, .. } if counted_of(... => !(!has(terms, |t| matches!(t, DealTerm::FuturePayment { asse
+query/diplomacy_items.rs:207:16 [items] cond  !terms.contains(&term_of(pledge, round, receiver)) => !(!terms.contains(&term_of(pledge, round, receiver)))
+query/diplomacy_items.rs:211:22 [items] lit  false => true
+query/diplomacy_items.rs:211:29 [items] lit  true => false
+query/diplomacy_items.rs:215:26 [items] lit  false => true
+query/diplomacy_items.rs:215:33 [items] lit  true => false
+query/diplomacy_items.rs:219:70 [items] logic  **t != giver && **t != receiver => **t != giver || **t != receiver
+query/diplomacy_items.rs:219:70 [items] cmp  **t != giver => **t == giver
+query/diplomacy_items.rs:219:86 [items] cmp  **t != receiver => **t == receiver
+query/diplomacy_items.rs:220:26 [items] lit  false => true
+query/diplomacy_items.rs:220:33 [items] lit  true => false
+query/diplomacy_items.rs:232:12 [items] cond  holds_unplayed_trade(core, giver) => !(holds_unplayed_trade(core, giver))
+query/diplomacy_items.rs:237:20 [items] cond  f.agents.contains(leader) && *status == LeaderStatus::Readied => !(f.agents.contains(leader) && *status == LeaderStatus::Read
+query/diplomacy_items.rs:237:20 [items] logic  f.agents.contains(leader) && *status == LeaderStatus::Readied => f.agents.contains(leader) || *status == LeaderStatus::Readie
+query/diplomacy_items.rs:237:49 [items] cmp  *status == LeaderStatus::Readied => *status != LeaderStatus::Readied
+query/diplomacy_items.rs:248:40 [removals] body  removals(d: &Draft) -> Vec<u8> { => { return Vec::new(); }
+query/diplomacy_items.rs:249:8 [removals] cond  !d.can_edit() => !(!d.can_edit())
+query/diplomacy_items.rs:252:6 [removals] lit  0 => 1
+query/diplomacy_items.rs:257:57 [amounts] body  amounts(core: &CoreState, d: &Draft) -> Vec<u8> { => { return Vec::new(); }
+query/diplomacy_items.rs:260:19 [amounts] cond  later => !(later)
+query/diplomacy_items.rs:261:6 [amounts] lit  1 => 2
+query/economy.rs:25:74 [printed_value] body  printed_value(scope: Scope, planet: Planet, spend: Spend) -> i64 { => { return 0; }
+query/economy.rs:25:74 [printed_value] body  printed_value(scope: Scope, planet: Planet, spend: Spend) -> i64 { => { return 1; }
+query/economy.rs:27:8 [printed_value] cond  scope.0 & source_bit(data.source) == 0 => !(scope.0 & source_bit(data.source) == 0)
+query/economy.rs:27:8 [printed_value] cmp  scope.0 & source_bit(data.source) == 0 => scope.0 & source_bit(data.source) != 0
+query/economy.rs:27:8 [printed_value] arith  scope.0 & source_bit(data.source) => scope.0 | source_bit(data.source)
+query/economy.rs:27:45 [printed_value] lit  0 => 1
+query/economy.rs:28:16 [printed_value] lit  0 => 1
+query/economy.rs:38:81 [attachment_bonus] body  attachment_bonus(core: &CoreState, planet: Planet, spend: Spend) -> i6... => { return 0; }
+query/economy.rs:38:81 [attachment_bonus] body  attachment_bonus(core: &CoreState, planet: Planet, spend: Spend) -> i6... => { return 1; }
+query/economy.rs:50:24 [attachment_bonus] lit  0 => 1
+query/economy.rs:58:115 [value_now] body  value_now(core: &CoreState, scope: Scope, blanked: bool, planet: Plane... => { return 0; }
+query/economy.rs:58:115 [value_now] body  value_now(core: &CoreState, scope: Scope, blanked: bool, planet: Plane... => { return 1; }
+query/economy.rs:59:5 [value_now] arith  printed_value(scope, planet, spend) + la... + extra => printed_value(scope, planet, spend) + la... - extra
+query/economy.rs:59:5 [value_now] arith  printed_value(scope, planet, spend) + la... + attachment_bonus(core, planet, spend) => printed_value(scope, planet, spend) + la... - attachment_bon
+query/economy.rs:59:5 [value_now] arith  printed_value(scope, planet, spend) + laws::planet_value_bonus(core, blanked, ... => printed_value(scope, planet, spend) - laws::planet_value_bon
+query/economy.rs:68:71 [spendable_planets] body  spendable_planets(core: &CoreState, seat: Seat) -> Controlled { => { return Default::default(); }
+query/economy.rs:76:105 [spendable_total] body  spendable_total(core: &CoreState, scope: Scope, blanked: bool, seat: S... => { return 0; }
+query/economy.rs:76:105 [spendable_total] body  spendable_total(core: &CoreState, scope: Scope, blanked: bool, seat: S... => { return 1; }
+query/economy.rs:77:109 [spendable_total] lit  0 => 1
+query/economy.rs:82:89 [tokens_in_reinforcements] body  tokens_in_reinforcements(core: &CoreState, seat: Seat, mahact_held: i3... => { return 0; }
+query/economy.rs:82:89 [tokens_in_reinforcements] body  tokens_in_reinforcements(core: &CoreState, seat: Seat, mahact_held: i3... => { return 1; }
+query/economy.rs:83:56 [tokens_in_reinforcements] lit  0 => 1
+query/economy.rs:84:9 [tokens_in_reinforcements] arith  i32::from(p.econ.tactic_tokens) + i32::f... + i32::from(p.econ.strategic_tokens) => i32::from(p.econ.tactic_tokens) + i32::f... - i32::from(p.ec
+query/economy.rs:84:9 [tokens_in_reinforcements] arith  i32::from(p.econ.tactic_tokens) + i32::from(p.econ.fleet_tokens) => i32::from(p.econ.tactic_tokens) - i32::from(p.econ.fleet_tok
+query/economy.rs:87:6 [tokens_in_reinforcements] arith  TOKENS_PER_FACTION - on_sheet - on_board - mahact_held => TOKENS_PER_FACTION - on_sheet - on_board + mahact_held
+query/economy.rs:87:6 [tokens_in_reinforcements] arith  TOKENS_PER_FACTION - on_sheet - on_board => TOKENS_PER_FACTION - on_sheet + on_board
+query/economy.rs:87:6 [tokens_in_reinforcements] arith  TOKENS_PER_FACTION - on_sheet => TOKENS_PER_FACTION + on_sheet
+query/economy.rs:87:66 [tokens_in_reinforcements] lit  0 => 1
+query/economy.rs:92:123 [can_place_command_token] body  can_place_command_token(core: &CoreState, seat: Seat, system: crate::g... => { return true; }
+query/economy.rs:92:123 [can_place_command_token] body  can_place_command_token(core: &CoreState, seat: Seat, system: crate::g... => { return false; }
+query/economy.rs:93:5 [can_place_command_token] logic  core.players().by_seat(seat).is_some() &... && !board::has_token(core, system, seat) => core.players().by_seat(seat).is_some() &... || !board::has_t
+query/economy.rs:93:5 [can_place_command_token] logic  core.players().by_seat(seat).is_some() && tokens_in_reinforcements(core, seat, mah... => core.players().by_seat(seat).is_some() || tokens_in_reinforc
+query/economy.rs:94:12 [can_place_command_token] cmp  tokens_in_reinforcements(core, seat, mah... > 0 => tokens_in_reinforcements(core, seat, mah... >= 0
+query/economy.rs:94:64 [can_place_command_token] lit  0 => 1
+query/explore.rs:32:78 [traits_of] body  traits_of(scope: Scope, planet: Planet) -> SmallList<ExploreType, 3> { => { return Default::default(); }
+query/explore.rs:35:8 [traits_of] cond  crate::tables::source_bit(data.source) & scope.0 == 0 => !(crate::tables::source_bit(data.source) & scope.0 == 0)
+query/explore.rs:35:8 [traits_of] cmp  crate::tables::source_bit(data.source) &... == 0 => crate::tables::source_bit(data.source) &... != 0
+query/explore.rs:35:8 [traits_of] arith  crate::tables::source_bit(data.source) & scope.0 => crate::tables::source_bit(data.source) | scope.0
+query/explore.rs:35:60 [traits_of] lit  0 => 1
+query/explore.rs:49:78 [purgeable] body  purgeable(core: &CoreState, seat: Seat) -> SmallList<ExploreType, 3> { => { return Default::default(); }
+query/explore.rs:53:69 [purgeable] lit  0 => 1
+query/explore.rs:55:12 [purgeable] cond  f.get(kind).is_some_and(|n| i32::from(n) + frontier >= FRAGMENTS_PER_RELIC) => !(f.get(kind).is_some_and(|n| i32::from(n) + frontier >= FRA
+query/explore.rs:55:40 [purgeable] cmp  i32::from(n) + frontier >= FRAGMENTS_PER_RELIC => i32::from(n) + frontier > FRAGMENTS_PER_RELIC
+query/explore.rs:55:40 [purgeable] arith  i32::from(n) + frontier => i32::from(n) - frontier
+query/explore.rs:79:49 [placed] body  placed(card: Explore) -> Option<Placed> { => { return None; }
+query/explore.rs:86:47 [has_specialty] body  has_specialty(planet: Planet) -> bool { => { return true; }
+query/explore.rs:86:47 [has_specialty] body  has_specialty(planet: Planet) -> bool { => { return false; }
+query/explore.rs:94:66 [is_fracture_system] body  is_fracture_system(scope: Scope, system: System) -> bool { => { return true; }
+query/explore.rs:94:66 [is_fracture_system] body  is_fracture_system(scope: Scope, system: System) -> bool { => { return false; }
+query/explore.rs:95:42 [is_fracture_system] cmp  d.tile_back == Some(TileBack::Fracture) => d.tile_back != Some(TileBack::Fracture)
+query/explore.rs:100:64 [fracture_systems] body  fracture_systems(scope: Scope) -> SmallList<System, 8> { => { return Default::default(); }
+query/explore.rs:103:12 [fracture_systems] cond  is_fracture_system(scope, s) => !(is_fracture_system(scope, s))
+query/explore.rs:112:62 [egress_systems] body  egress_systems(scope: Scope) -> SmallList<System, 2> { => { return Default::default(); }
+query/explore.rs:115:12 [egress_systems] cond  is_fracture_system(scope, s) => !(is_fracture_system(scope, s))
+query/explore.rs:126:83 [legendary_available] body  legendary_available(core: &CoreState, seat: Seat, planet: Planet) -> b... => { return true; }
+query/explore.rs:126:83 [legendary_available] body  legendary_available(core: &CoreState, seat: Seat, planet: Planet) -> b... => { return false; }
+query/explore.rs:127:5 [legendary_available] logic  board::controls(core, seat, planet) && core.players().by_seat(seat).is_some_and... => board::controls(core, seat, planet) || core.players().by_sea
+query/explore.rs:133:64 [ionian_available] body  ionian_available(core: &CoreState, seat: Seat) -> bool { => { return true; }
+query/explore.rs:133:64 [ionian_available] body  ionian_available(core: &CoreState, seat: Seat) -> bool { => { return false; }
+query/explore.rs:163:84 [holdings] body  holdings(core: &CoreState, seat: Seat, planet: Option<Planet>) -> Hold... => { return Default::default(); }
+query/explore.rs:167:26 [holdings] logic  cell.control.is_some() || cell.flags.has(crate::state::PlanetFlags... => cell.control.is_some() && cell.flags.has(crate::state::Plane
+query/explore.rs:168:12 [holdings] cond  has_system => !(has_system)
+query/explore.rs:169:62 [holdings] cmp  u.owner() == seat => u.owner() != seat
+query/explore.rs:171:65 [holdings] assign  h.own_infantry += 1 => h.own_infantry -= 1
+query/explore.rs:171:83 [holdings] lit  1 => 2
+query/explore.rs:174:61 [holdings] cond  u.kind() != crate::generated::Unit::EidolonMaximum => !(u.kind() != crate::generated::Unit::EidolonMaximum)
+query/explore.rs:174:61 [holdings] cmp  u.kind() != crate::generated::Unit::EidolonMaximum => u.kind() == crate::generated::Unit::EidolonMaximum
+query/explore.rs:174:115 [holdings] assign  h.own_mechs += 1 => h.own_mechs -= 1
+query/explore.rs:174:130 [holdings] lit  1 => 2
+query/explore.rs:184:28 [holdings] arith  i32::from(p.econ.tactic_tokens) + i32::f... + i32::from(p.econ.strategic_tokens) => i32::from(p.econ.tactic_tokens) + i32::f... - i32::from(p.ec
+query/explore.rs:184:28 [holdings] arith  i32::from(p.econ.tactic_tokens) + i32::from(p.econ.fleet_tokens) => i32::from(p.econ.tactic_tokens) - i32::from(p.econ.fleet_tok
+query/fleet.rs:32:48 [in_scope] body  in_scope(scope: Scope, unit: Unit) -> bool { => { return true; }
+query/fleet.rs:33:5 [in_scope] arith  scope.0 & source_bit(unit.data().source) => scope.0 | source_bit(unit.data().source)
+query/fleet.rs:41:29 [held_on_board] logic  in_scope(scope, u) && u.data().base_type == base => in_scope(scope, u) || u.data().base_type == base
+query/fleet.rs:42:21 [held_on_board] lit  0 => 1
+query/fleet.rs:44:58 [held_on_board] logic  p.owner() == seat && matches(p.kind()) => p.owner() == seat || matches(p.kind())
+query/fleet.rs:47:9 [held_on_board] assign  total += cell.units.as_slice().iter().filter(|p| ... => total -= cell.units.as_slice().iter().filter(|p| ...
+query/fleet.rs:47:58 [held_on_board] logic  p.owner() == seat && matches(p.kind()) => p.owner() == seat || matches(p.kind())
+query/fleet.rs:47:58 [held_on_board] cmp  p.owner() == seat => p.owner() != seat
+query/fleet.rs:50:9 [held_on_board] assign  total += captor.misc.captured_units.as_slice().it... => total -= captor.misc.captured_units.as_slice().it...
+query/fleet.rs:51:81 [held_on_board] logic  *owner == seat && matches(*unit) => *owner == seat || matches(*unit)
+query/fleet.rs:51:81 [held_on_board] cmp  *owner == seat => *owner != seat
+query/fleet.rs:67:6 [remaining] arith  limit - held_on_board(core, scope, seat,... - on_card => limit - held_on_board(core, scope, seat,... + on_card
+query/fleet.rs:72:51 [counts_against_supply] body  counts_against_supply(unit: Unit) -> bool { => { return true; }
+query/fleet.rs:72:51 [counts_against_supply] body  counts_against_supply(unit: Unit) -> bool { => { return false; }
+query/fleet.rs:74:5 [counts_against_supply] logic  d.ship && d.base_type != UnitBaseType::F... && !consumes_capacity(unit) => d.ship && d.base_type != UnitBaseType::F... || !consumes_cap
+query/fleet.rs:74:5 [counts_against_supply] logic  d.ship && d.base_type != UnitBaseType::Fighter => d.ship || d.base_type != UnitBaseType::Fighter
+query/fleet.rs:74:15 [counts_against_supply] cmp  d.base_type != UnitBaseType::Fighter => d.base_type == UnitBaseType::Fighter
+query/fleet.rs:79:45 [is_ground_force] body  is_ground_force(unit: Unit) -> bool { => { return true; }
+query/fleet.rs:79:45 [is_ground_force] body  is_ground_force(unit: Unit) -> bool { => { return false; }
+query/fleet.rs:80:5 [is_ground_force] logic  matches!(unit.data().base_type, UnitBase... || matches!(unit, Unit::HelTitanI | Unit::H... => matches!(unit.data().base_type, UnitBase... && matches!(unit
+query/fleet.rs:86:47 [consumes_capacity] body  consumes_capacity(unit: Unit) -> bool { => { return true; }
+query/fleet.rs:86:47 [consumes_capacity] body  consumes_capacity(unit: Unit) -> bool { => { return false; }
+query/fleet.rs:88:5 [consumes_capacity] logic  d.base_type == UnitBaseType::Fighter || (is_ground_force(unit) && !d.structure) => d.base_type == UnitBaseType::Fighter && (is_ground_force(uni
+query/fleet.rs:88:5 [consumes_capacity] cmp  d.base_type == UnitBaseType::Fighter => d.base_type != UnitBaseType::Fighter
+query/fleet.rs:88:46 [consumes_capacity] logic  is_ground_force(unit) && !d.structure => is_ground_force(unit) || !d.structure
+query/fleet.rs:93:37 [capacity] body  capacity(unit: Unit) -> i64 { => { return 0; }
+query/fleet.rs:93:37 [capacity] body  capacity(unit: Unit) -> i64 { => { return 1; }
+query/fleet.rs:94:46 [capacity] lit  0 => 1
+query/fleet.rs:99:42 [capacity_cost] body  capacity_cost(unit: Unit) -> i64 { => { return 0; }
+query/fleet.rs:99:42 [capacity_cost] body  capacity_cost(unit: Unit) -> i64 { => { return 1; }
+query/fleet.rs:100:51 [capacity_cost] lit  0 => 1
+query/fleet.rs:186:16 [standing] body  standing( core: &CoreState, scope: Scope, seat: Seat, system: System, ... => { return Default::default(); }
+query/fleet.rs:188:60 [standing] cmp  p.owner() == seat => p.owner() != seat
+query/fleet.rs:192:82 [standing] lit  0 => 1
+query/fleet.rs:192:85 [standing] lit  0 => 1
+query/fleet.rs:192:88 [standing] lit  0 => 1
+query/fleet.rs:192:91 [standing] lit  0 => 1
+query/fleet.rs:194:25 [standing] arith  capacity(a.kind) * a.count => capacity(a.kind) + a.count
+query/fleet.rs:195:12 [standing] cond  counts_against_supply(a.kind) => !(counts_against_supply(a.kind))
+query/fleet.rs:198:12 [standing] cond  a.kind.data().base_type == UnitBaseType::Fighter => !(a.kind.data().base_type == UnitBaseType::Fighter)
+query/fleet.rs:198:12 [standing] cmp  a.kind.data().base_type == UnitBaseType::Fighter => a.kind.data().base_type != UnitBaseType::Fighter
+query/fleet.rs:199:28 [standing] arith  capacity_cost(a.kind) * a.count => capacity_cost(a.kind) + a.count
+query/fleet.rs:200:19 [standing] cond  consumes_capacity(a.kind) => !(consumes_capacity(a.kind))
+query/fleet.rs:201:27 [standing] arith  capacity_cost(a.kind) * a.count => capacity_cost(a.kind) + a.count
+query/fleet.rs:204:19 [standing] arith  space().filter(|u| counts_against_supply... + new_ships => space().filter(|u| counts_against_supply... - new_ships
+query/fleet.rs:205:26 [standing] arith  space().map(capacity).sum::<i64>() + new_transport => space().map(capacity).sum::<i64>() - new_transport
+query/fleet.rs:206:32 [standing] cmp  u.data().base_type == UnitBaseType::Fighter => u.data().base_type != UnitBaseType::Fighter
+query/fleet.rs:207:24 [standing] arith  space().filter(|u| consumes_capacity(*u)... + new_carried => space().filter(|u| consumes_capacity(*u)... - new_carried
+query/fleet.rs:207:43 [standing] logic  consumes_capacity(*u) && !is_fighter(*u) => consumes_capacity(*u) || !is_fighter(*u)
+query/fleet.rs:208:25 [standing] arith  space().filter(|u| is_fighter(*u)).map(c... + new_fighters => space().filter(|u| is_fighter(*u)).map(c... - new_fighters
+query/fleet.rs:209:28 [standing] lit  0 => 1
+query/fleet.rs:211:9 [standing] assign  support += board::planet_units(core, planet) .iter(... => support -= board::planet_units(core, planet) .iter(...
+query/fleet.rs:213:25 [standing] logic  p.owner() == seat && in_scope(scope, p.kind()) => p.owner() == seat || in_scope(scope, p.kind())
+query/fleet.rs:213:25 [standing] cmp  p.owner() == seat => p.owner() != seat
+query/fleet.rs:217:5 [standing] assign  support += landing.map_or(0, |a| fighter_support(a.... => support -= landing.map_or(0, |a| fighter_support(a....
+query/fleet.rs:217:31 [standing] lit  0 => 1
+query/fleet.rs:217:38 [standing] arith  fighter_support(a.kind) * a.count => fighter_support(a.kind) + a.count
+query/fleet.rs:220:20 [standing] arith  carried + fighters - excused => carried + fighters + excused
+query/fleet.rs:220:20 [standing] arith  carried + fighters => carried - fighters
+query/fleet.rs:221:21 [standing] arith  consumed - transport => consumed + transport
+query/fleet.rs:221:47 [standing] lit  0 => 1
+query/fleet.rs:222:38 [standing] logic  is_fighter(u) && !matches!(u.data().required_technology, ... => is_fighter(u) || !matches!(u.data().required_technology, ...
+query/fleet.rs:223:20 [standing] logic  space().any(upgraded_fighter) || arrival.is_some_and(|a| upgraded_fighter... => space().any(upgraded_fighter) && arrival.is_some_and(|a| upg
+query/fleet.rs:225:63 [standing] logic  upgraded_fighter(u) && half_weight(u) => upgraded_fighter(u) || half_weight(u)
+query/fleet.rs:226:26 [standing] cond  half => !(half)
+query/fleet.rs:226:33 [standing] arith  (fighters_charged + 1) / 2 => (fighters_charged + 1) * 2
+query/fleet.rs:226:34 [standing] arith  fighters_charged + 1 => fighters_charged - 1
+query/fleet.rs:226:53 [standing] lit  1 => 2
+query/fleet.rs:226:58 [standing] lit  2 => 3
+query/fleet.rs:229:24 [standing] arith  present + pool_charge => present - pool_charge
+query/fleet.rs:233:27 [standing] arith  overflow - fighters_charged => overflow + fighters_charged
+query/fleet.rs:233:60 [standing] lit  0 => 1
+query/fleet.rs:246:70 [pool_base] body  pool_base(core: &CoreState, seat: Seat, foreign: i32) -> i32 { => { return 0; }
+query/fleet.rs:246:70 [pool_base] body  pool_base(core: &CoreState, seat: Seat, foreign: i32) -> i32 { => { return 1; }
+query/fleet.rs:247:5 [pool_base] arith  core.players().by_seat(seat).map_or(0, |... + foreign => core.players().by_seat(seat).map_or(0, |... - foreign
+query/fleet.rs:247:41 [pool_base] lit  0 => 1
+query/fleet.rs:252:60 [is_unlimited] body  is_unlimited(core: &CoreState, seat: Seat) -> bool { => { return true; }
+query/fleet.rs:252:60 [is_unlimited] body  is_unlimited(core: &CoreState, seat: Seat) -> bool { => { return false; }
+query/fleet.rs:254:50 [is_unlimited] cmp  p.production_timers.fleet_supply_unlimit... == Some(round) => p.production_timers.fleet_supply_unlimit... != Some(round)
+query/laws.rs:40:75 [in_play] body  in_play(core: &CoreState, blanked: bool) -> SmallList<Agenda, 16> { => { return Default::default(); }
+query/laws.rs:42:8 [in_play] cond  !blanked => !(!blanked)
+query/laws.rs:64:94 [elected_planet] body  elected_planet(core: &CoreState, blanked: bool, law: Agenda, planet: P... => { return true; }
+query/laws.rs:64:94 [elected_planet] body  elected_planet(core: &CoreState, blanked: bool, law: Agenda, planet: P... => { return false; }
+query/laws.rs:65:5 [elected_planet] cmp  elected(core, blanked, law) == Some(Outcome::Planet(planet)) => elected(core, blanked, law) != Some(Outcome::Planet(planet))
+query/laws.rs:70:90 [holds_ministry] body  holds_ministry(core: &CoreState, blanked: bool, seat: Seat, law: Agend... => { return true; }
+query/laws.rs:70:90 [holds_ministry] body  holds_ministry(core: &CoreState, blanked: bool, seat: Seat, law: Agend... => { return false; }
+query/laws.rs:71:5 [holds_ministry] cmp  elected(core, blanked, law) == Some(Outcome::Seat(seat)) => elected(core, blanked, law) != Some(Outcome::Seat(seat))
+query/laws.rs:76:75 [fleet_pool_cap] body  fleet_pool_cap(core: &CoreState, blanked: bool, base: i32) -> i32 { => { return 0; }
+query/laws.rs:76:75 [fleet_pool_cap] body  fleet_pool_cap(core: &CoreState, blanked: bool, base: i32) -> i32 { => { return 1; }
+query/laws.rs:77:8 [fleet_pool_cap] cond  active(core, blanked, FLEET_REGULATIONS) => !(active(core, blanked, FLEET_REGULATIONS))
+query/laws.rs:77:60 [fleet_pool_cap] lit  4 => 5
+query/laws.rs:83:52 [action_card_limit] lit  3 => 4
+query/laws.rs:88:75 [censure_bars] body  censure_bars(core: &CoreState, blanked: bool, seat: Seat) -> bool { => { return true; }
+query/laws.rs:88:75 [censure_bars] body  censure_bars(core: &CoreState, blanked: bool, seat: Seat) -> bool { => { return false; }
+query/laws.rs:89:5 [censure_bars] logic  active(core, blanked, CENSURE) && elected(core, blanked, CENSURE) == Some(... => active(core, blanked, CENSURE) || elected(core, blanked, CEN
+query/laws.rs:89:39 [censure_bars] cmp  elected(core, blanked, CENSURE) == Some(Outcome::Seat(seat)) => elected(core, blanked, CENSURE) != Some(Outcome::Seat(seat))
+query/laws.rs:94:67 [nebulae_passable] body  nebulae_passable(core: &CoreState, blanked: bool) -> bool { => { return true; }
+query/laws.rs:94:67 [nebulae_passable] body  nebulae_passable(core: &CoreState, blanked: bool) -> bool { => { return false; }
+query/laws.rs:100:91 [structure_cap_lifted] body  structure_cap_lifted(core: &CoreState, blanked: bool, base: UnitBaseTy... => { return true; }
+query/laws.rs:100:91 [structure_cap_lifted] body  structure_cap_lifted(core: &CoreState, blanked: bool, base: UnitBaseTy... => { return false; }
+query/laws.rs:101:5 [structure_cap_lifted] logic  base == UnitBaseType::Pds && active(core, blanked, DEFENSE_ACT) => base == UnitBaseType::Pds || active(core, blanked, DEFENSE_A
+query/laws.rs:101:5 [structure_cap_lifted] cmp  base == UnitBaseType::Pds => base != UnitBaseType::Pds
+query/laws.rs:106:109 [bombardment_forbidden] body  bombardment_forbidden(core: &CoreState, blanked: bool, scope: super::S... => { return true; }
+query/laws.rs:106:109 [bombardment_forbidden] body  bombardment_forbidden(core: &CoreState, blanked: bool, scope: super::S... => { return false; }
+query/laws.rs:108:8 [bombardment_forbidden] cond  !active(core, blanked, CONVENTIONS) => !(!active(core, blanked, CONVENTIONS))
+query/laws.rs:109:16 [bombardment_forbidden] lit  false => true
+query/laws.rs:112:5 [bombardment_forbidden] logic  scope.0 & crate::tables::source_bit(data... && data.traits.contains(&PlanetTrait::Cultu... => scope.0 & crate::tables::source_bit(data... || data.traits.c
+query/laws.rs:112:5 [bombardment_forbidden] cmp  scope.0 & crate::tables::source_bit(data... != 0 => scope.0 & crate::tables::source_bit(data... == 0
+query/laws.rs:112:5 [bombardment_forbidden] arith  scope.0 & crate::tables::source_bit(data.source) => scope.0 | crate::tables::source_bit(data.source)
+query/laws.rs:112:57 [bombardment_forbidden] lit  0 => 1
+query/laws.rs:118:90 [planet_is_demilitarized] body  planet_is_demilitarized(core: &CoreState, blanked: bool, planet: Plane... => { return true; }
+query/laws.rs:118:90 [planet_is_demilitarized] body  planet_is_demilitarized(core: &CoreState, blanked: bool, planet: Plane... => { return false; }
+query/laws.rs:119:5 [planet_is_demilitarized] logic  elected_planet(core, blanked, DEMILITARI... || (core.meta().rules_at_least(RULES_DMZ_EX... => elected_planet(core, blanked, DEMILITARI... && (core.meta().
+query/laws.rs:120:13 [planet_is_demilitarized] logic  core.meta().rules_at_least(RULES_DMZ_EXP... && board::attachments(core, planet).as_slic... => core.meta().rules_at_least(RULES_DMZ_EXP... || board::attach
+query/laws.rs:126:90 [production_forbidden_on] body  production_forbidden_on(core: &CoreState, blanked: bool, planet: Plane... => { return true; }
+query/laws.rs:126:90 [production_forbidden_on] body  production_forbidden_on(core: &CoreState, blanked: bool, planet: Plane... => { return false; }
+query/laws.rs:140:123 [planet_value_bonus_sources] body  planet_value_bonus_sources(core: &CoreState, blanked: bool, planet: Pl... => { return Default::default(); }
+query/laws.rs:142:8 [planet_value_bonus_sources] cond  elected_planet(core, blanked, CORE_MINING, planet) => !(elected_planet(core, blanked, CORE_MINING, planet))
+query/laws.rs:143:41 [planet_value_bonus_sources] lit  2 => 3
+query/laws.rs:143:44 [planet_value_bonus_sources] lit  0 => 1
+query/laws.rs:145:8 [planet_value_bonus_sources] cond  elected_planet(core, blanked, SENATE_SANCTUARY, planet) => !(elected_planet(core, blanked, SENATE_SANCTUARY, planet))
+query/laws.rs:146:46 [planet_value_bonus_sources] lit  0 => 1
+query/laws.rs:146:49 [planet_value_bonus_sources] lit  2 => 3
+query/laws.rs:148:8 [planet_value_bonus_sources] cond  elected_planet(core, blanked, TERRAFORMING_INITIATIVE, planet) => !(elected_planet(core, blanked, TERRAFORMING_INITIATIVE, pla
+query/laws.rs:149:53 [planet_value_bonus_sources] lit  1 => 2
+query/laws.rs:149:56 [planet_value_bonus_sources] lit  1 => 2
+query/laws.rs:156:98 [planet_value_bonus] body  planet_value_bonus(core: &CoreState, blanked: bool, planet: Planet, sp... => { return 0; }
+query/laws.rs:156:98 [planet_value_bonus] body  planet_value_bonus(core: &CoreState, blanked: bool, planet: Planet, sp... => { return 1; }
+query/laws.rs:169:73 [single_unit_production] body  single_unit_production(core: &CoreState, blanked: bool) -> bool { => { return true; }
+query/laws.rs:169:73 [single_unit_production] body  single_unit_production(core: &CoreState, blanked: bool) -> bool { => { return false; }
+query/laws.rs:175:103 [research_team_waivers] body  research_team_waivers(core: &CoreState, blanked: bool, seat: Seat, col... => { return 0; }
+query/laws.rs:181:41 [research_team_waivers] lit  0 => 1
+query/laws.rs:186:8 [research_team_waivers] cond  board::exhausted(core, planet) => !(board::exhausted(core, planet))
+query/laws.rs:187:16 [research_team_waivers] lit  0 => 1
+query/laws.rs:189:86 [research_team_waivers] cmp  *p == planet => *p != planet
+query/laws.rs:194:61 [flat_votes] body  flat_votes(core: &CoreState, blanked: bool) -> bool { => { return false; }
+query/laws.rs:195:5 [flat_votes] logic  active(core, blanked, REP_GOVT) || active(core, blanked, REPRESENTATIVE_GOV... => active(core, blanked, REP_GOVT) && active(core, blanked, REP
+query/laws.rs:200:71 [wormholes_suppressed] body  wormholes_suppressed(core: &CoreState, blanked: bool) -> bool { => { return true; }
+query/laws.rs:200:71 [wormholes_suppressed] body  wormholes_suppressed(core: &CoreState, blanked: bool) -> bool { => { return false; }
+query/laws.rs:206:74 [wormholes_all_connected] body  wormholes_all_connected(core: &CoreState, blanked: bool) -> bool { => { return true; }
+query/laws.rs:206:74 [wormholes_all_connected] body  wormholes_all_connected(core: &CoreState, blanked: bool) -> bool { => { return false; }
+query/laws.rs:212:82 [draws_at_status_end] body  draws_at_status_end(core: &CoreState, blanked: bool, seat: Seat) -> bo... => { return true; }
+query/laws.rs:212:82 [draws_at_status_end] body  draws_at_status_end(core: &CoreState, blanked: bool, seat: Seat) -> bo... => { return false; }
+query/leaders.rs:20:90 [has_commander_ability_in] body  has_commander_ability_in(core: &CoreState, who: Seat, commander: Leade... => { return true; }
+query/leaders.rs:20:90 [has_commander_ability_in] body  has_commander_ability_in(core: &CoreState, who: Seat, commander: Leade... => { return false; }
+query/leaders.rs:27:124 [has_commander_ability_with] body  has_commander_ability_with(core: &CoreState, who: Seat, commander: Lea... => { return true; }
+query/leaders.rs:27:124 [has_commander_ability_with] body  has_commander_ability_with(core: &CoreState, who: Seat, commander: Lea... => { return false; }
+query/leaders.rs:28:8 [has_commander_ability_with] cond  core.marks().tail.contains_key(&MarkKey::CommanderAbility(who, commander)) || st... => !(core.marks().tail.contains_key(&MarkKey::CommanderAbility(
+query/leaders.rs:28:8 [has_commander_ability_with] logic  core.marks().tail.contains_key(&MarkKey:... || status(core, who, commander) == Some(Lea... => core.marks().tail.contains_key(&MarkKey:... && status(core, 
+query/leaders.rs:29:12 [has_commander_ability_with] cmp  status(core, who, commander) == Some(LeaderStatus::Unlocked) => status(core, who, commander) != Some(LeaderStatus::Unlocked)
+query/leaders.rs:31:16 [has_commander_ability_with] lit  true => false
+query/leaders.rs:33:8 [has_commander_ability_with] cond  imperia() => !(imperia())
+query/leaders.rs:34:16 [has_commander_ability_with] lit  true => false
+query/leaders.rs:38:9 [has_commander_ability_with] logic  *holder == who && key.note == Promissory... && core .players() .iter() .find(|p| p.fact... => *holder == who && key.note == Promissory... || core .players
+query/leaders.rs:38:9 [has_commander_ability_with] logic  *holder == who && key.note == Promissory... && cards.promissory_faceup.contains_key(key... => *holder == who && key.note == Promissory... || cards.promiss
+query/leaders.rs:38:9 [has_commander_ability_with] logic  *holder == who && key.note == PromissoryNote::Alliance => *holder == who || key.note == PromissoryNote::Alliance
+query/leaders.rs:38:9 [has_commander_ability_with] cmp  *holder == who => *holder != who
+query/leaders.rs:39:16 [has_commander_ability_with] cmp  key.note == PromissoryNote::Alliance => key.note != PromissoryNote::Alliance
+query/leaders.rs:44:27 [has_commander_ability_with] cmp  p.faction == key.faction => p.faction != key.faction
+query/leaders.rs:45:38 [has_commander_ability_with] logic  owner.seat != who && status(core, owner.seat, commander) == S... => owner.seat != who || status(core, owner.seat, commander) == 
+query/leaders.rs:45:38 [has_commander_ability_with] cmp  owner.seat != who => owner.seat == who
+query/leaders.rs:45:59 [has_commander_ability_with] cmp  status(core, owner.seat, commander) == Some(LeaderStatus::Unlocked) => status(core, owner.seat, commander) != Some(LeaderStatus::Un
+query/leaders.rs:52:83 [imperia_from_pool] body  imperia_from_pool(core: &CoreState, who: Seat, commander: Leader) -> b... => { return true; }
+query/leaders.rs:52:83 [imperia_from_pool] body  imperia_from_pool(core: &CoreState, who: Seat, commander: Leader) -> b... => { return false; }
+query/leaders.rs:54:5 [imperia_from_pool] logic  core.players().by_seat(who).is_some_and(... && matches!( core.marks().tail.get(&MarkKey... => core.players().by_seat(who).is_some_and(... || matches!( cor
+query/leaders.rs:54:49 [imperia_from_pool] cmp  p.faction == crate::generated::Faction::TheMahactGene... => p.faction != crate::generated::Faction::TheMahactGene...
+query/objectives.rs:217:59 [in_scope_planet] body  in_scope_planet(scope: Scope, planet: Planet) -> bool { => { return true; }
+query/objectives.rs:217:59 [in_scope_planet] body  in_scope_planet(scope: Scope, planet: Planet) -> bool { => { return false; }
+query/objectives.rs:218:5 [in_scope_planet] cmp  scope.0 & source_bit(planet.data().sourc... != 0 => scope.0 & source_bit(planet.data().sourc... == 0
+query/objectives.rs:218:5 [in_scope_planet] arith  scope.0 & source_bit(planet.data().source) => scope.0 | source_bit(planet.data().source)
+query/objectives.rs:218:51 [in_scope_planet] lit  0 => 1
+query/objectives.rs:223:50 [is_space_station] body  is_space_station(planet: Planet) -> bool { => { return true; }
+query/objectives.rs:223:50 [is_space_station] body  is_space_station(planet: Planet) -> bool { => { return false; }
+query/objectives.rs:229:94 [scoring_planets] body  scoring_planets(core: &CoreState, scope: Scope, seat: Seat) -> SmallLi... => { return Default::default(); }
+query/objectives.rs:233:12 [scoring_planets] cond  in_scope_planet(scope, *planet) && !is_space_station(*planet) => !(in_scope_planet(scope, *planet) && !is_space_station(*plan
+query/objectives.rs:233:12 [scoring_planets] logic  in_scope_planet(scope, *planet) && !is_space_station(*planet) => in_scope_planet(scope, *planet) || !is_space_station(*planet
+query/objectives.rs:239:12 [scoring_planets] cond  cell.coexist.contains(seat) && cell.flags.has(PlanetFlags::COEXIST_ENTRY) && in_... => !(cell.coexist.contains(seat) && cell.flags.has(PlanetFlags:
+query/objectives.rs:239:12 [scoring_planets] logic  cell.coexist.contains(seat) && cell.flag... && !is_space_station(planet) => cell.coexist.contains(seat) && cell.flag... || !is_space_sta
+query/objectives.rs:239:12 [scoring_planets] logic  cell.coexist.contains(seat) && cell.flag... && in_scope_planet(scope, planet) => cell.coexist.contains(seat) && cell.flag... || in_scope_plan
+query/objectives.rs:239:12 [scoring_planets] logic  cell.coexist.contains(seat) && cell.flags.has(PlanetFlags::COEXIST_ENTR... => cell.coexist.contains(seat) || cell.flags.has(PlanetFlags::C
+query/objectives.rs:251:41 [is_ground_force] body  is_ground_force(unit: Unit) -> bool { => { return true; }
+query/objectives.rs:251:41 [is_ground_force] body  is_ground_force(unit: Unit) -> bool { => { return false; }
+query/objectives.rs:252:5 [is_ground_force] logic  matches!(unit.data().base_type, UnitBase... || matches!(unit, Unit::HelTitanI | Unit::H... => matches!(unit.data().base_type, UnitBase... && matches!(unit
+query/objectives.rs:272:26 [SeatFacts::of] lit  0 => 1
+query/objectives.rs:274:23 [SeatFacts::of] lit  0 => 1
+query/objectives.rs:275:23 [SeatFacts::of] lit  0 => 1
+query/objectives.rs:277:25 [SeatFacts::of] lit  0 => 1
+query/objectives.rs:282:16 [SeatFacts::of] cond  cell.flags.has(SysFlags::TOUCHED) => !(cell.flags.has(SysFlags::TOUCHED))
+query/objectives.rs:285:29 [SeatFacts::of] lit  0u16 => 1u16
+query/objectives.rs:287:20 [SeatFacts::of] cond  piece.owner() != seat => !(piece.owner() != seat)
+query/objectives.rs:287:20 [SeatFacts::of] cmp  piece.owner() != seat => piece.owner() == seat
+query/objectives.rs:293:20 [SeatFacts::of] cond  data.ship => !(data.ship)
+query/objectives.rs:295:24 [SeatFacts::of] cond  data.base_type != UnitBaseType::Fighter => !(data.base_type != UnitBaseType::Fighter)
+query/objectives.rs:295:24 [SeatFacts::of] cmp  data.base_type != UnitBaseType::Fighter => data.base_type == UnitBaseType::Fighter
+query/objectives.rs:296:25 [SeatFacts::of] assign  ships += 1 => ships -= 1
+query/objectives.rs:296:34 [SeatFacts::of] lit  1 => 2
+query/objectives.rs:299:20 [SeatFacts::of] cond  matches!(data.base_type, UnitBaseType::Flagship | UnitBaseType::Warsun) => !(matches!(data.base_type, UnitBaseType::Flagship | UnitBase
+query/objectives.rs:302:17 [SeatFacts::of] assign  f.by_base[data.base_type.index()] += 1 => f.by_base[data.base_type.index()] -= 1
+query/objectives.rs:302:54 [SeatFacts::of] lit  1 => 2
+query/objectives.rs:304:16 [SeatFacts::of] cond  ships > 0 => !(ships > 0)
+query/objectives.rs:304:16 [SeatFacts::of] cmp  ships > 0 => ships >= 0
+query/objectives.rs:304:24 [SeatFacts::of] lit  0 => 1
+query/objectives.rs:310:30 [SeatFacts::of] lit  0u16 => 1u16
+query/objectives.rs:312:20 [SeatFacts::of] cond  piece.owner() != seat => !(piece.owner() != seat)
+query/objectives.rs:312:20 [SeatFacts::of] cmp  piece.owner() != seat => piece.owner() == seat
+query/objectives.rs:317:17 [SeatFacts::of] assign  f.by_base[data.base_type.index()] += 1 => f.by_base[data.base_type.index()] -= 1
+query/objectives.rs:317:54 [SeatFacts::of] lit  1 => 2
+query/objectives.rs:318:20 [SeatFacts::of] cond  data.structure => !(data.structure)
+query/objectives.rs:321:20 [SeatFacts::of] cond  data.base_type == UnitBaseType::Mech => !(data.base_type == UnitBaseType::Mech)
+query/objectives.rs:321:20 [SeatFacts::of] cmp  data.base_type == UnitBaseType::Mech => data.base_type != UnitBaseType::Mech
+query/objectives.rs:324:20 [SeatFacts::of] cond  is_ground_force(piece.kind()) => !(is_ground_force(piece.kind()))
+query/objectives.rs:325:21 [SeatFacts::of] assign  ground += 1 => ground -= 1
+query/objectives.rs:325:31 [SeatFacts::of] lit  1 => 2
+query/objectives.rs:335:21 [SeatFacts::of] assign  f.tech_types[*kind as usize] += 1 => f.tech_types[*kind as usize] -= 1
+query/objectives.rs:335:53 [SeatFacts::of] lit  1 => 2
+query/objectives.rs:341:21 [SeatFacts::of] assign  f.colours[i] += 1 => f.colours[i] -= 1
+query/objectives.rs:341:37 [SeatFacts::of] lit  1 => 2
+query/objectives.rs:351:72 [home_system_of] body  home_system_of(core: &CoreState, seat: Seat) -> Option<System> { => { return None; }
+query/objectives.rs:384:63 [Pos::imagined_planets] logic  in_scope_planet(scope, *p) && !is_space_station(*p) => in_scope_planet(scope, *p) || !is_space_station(*p)
+query/objectives.rs:388:40 [Pos::controlled_len] body  controlled_len(&self) -> usize { => { return 0; }
+query/objectives.rs:388:40 [Pos::controlled_len] body  controlled_len(&self) -> usize { => { return 1; }
+query/objectives.rs:389:9 [Pos::controlled_len] arith  self.facts.controlled.len() + self.imagined_planets().count() => self.facts.controlled.len() - self.imagined_planets().count(
+query/objectives.rs:392:59 [Pos::controlled_each] body  controlled_each(&self, mut f: impl FnMut(Planet)) { => { return (); }
+query/objectives.rs:402:48 [Pos::systems_holding_units] body  systems_holding_units(&self) -> SysSet { => { return Default::default(); }
+query/objectives.rs:411:45 [Pos::systems_with_ships] body  systems_with_ships(&self) -> SysSet { => { return Default::default(); }
+query/objectives.rs:419:52 [Pos::imagined_in] body  imagined_in(&self, system: System) -> bool { => { return true; }
+query/objectives.rs:419:52 [Pos::imagined_in] body  imagined_in(&self, system: System) -> bool { => { return false; }
+query/objectives.rs:424:60 [Pos::technology_types] body  technology_types(&self, wanted: TechType) -> usize { => { return 0; }
+query/objectives.rs:424:60 [Pos::technology_types] body  technology_types(&self, wanted: TechType) -> usize { => { return 1; }
+query/objectives.rs:428:16 [Pos::technology_types] cond  !self.facts.owned.contains(*tech) && tech.data().types.contains(&wanted) => !(!self.facts.owned.contains(*tech) && tech.data().types.con
+query/objectives.rs:428:16 [Pos::technology_types] logic  !self.facts.owned.contains(*tech) && tech.data().types.contains(&wanted) => !self.facts.owned.contains(*tech) || tech.data().types.conta
+query/objectives.rs:429:17 [Pos::technology_types] assign  n += 1 => n -= 1
+query/objectives.rs:429:22 [Pos::technology_types] lit  1 => 2
+query/objectives.rs:436:69 [Pos::structure_entries] body  structure_entries(&self) -> SmallList<(System, Planet), 24> { => { return Default::default(); }
+query/objectives.rs:443:16 [Pos::structure_entries] cond  !held.as_slice().contains(planet) => !(!held.as_slice().contains(planet))
+query/objectives.rs:455:50 [edge_systems] body  edge_systems(core: &CoreState) -> SysSet { => { return Default::default(); }
+query/objectives.rs:473:20 [mecatol_in_galaxy] cond  g.coord_of(System::MecatolRex112).is_some() => !(g.coord_of(System::MecatolRex112).is_some())
+query/objectives.rs:481:8 [mecatol_on] cond  core.board().sys(System::MecatolRex112).flags.has(SysFlags::TOUCHED) => !(core.board().sys(System::MecatolRex112).flags.has(SysFlags
+query/objectives.rs:490:44 [is_mecatol] body  is_mecatol(system: System) -> bool { => { return true; }
+query/objectives.rs:490:44 [is_mecatol] body  is_mecatol(system: System) -> bool { => { return false; }
+query/objectives.rs:496:58 [presence] body  presence(core: &CoreState, seat: Seat) -> SysSet { => { return Default::default(); }
+query/objectives.rs:500:12 [presence] cond  cell.control == Some(seat) || cell.units.as_slice().iter().any(|u| u.owner() == ... => !(cell.control == Some(seat) || cell.units.as_slice().iter()
+query/objectives.rs:500:12 [presence] logic  cell.control == Some(seat) || cell.units.as_slice().iter().any(|u| u.o... => cell.control == Some(seat) && cell.units.as_slice().iter().a
+query/objectives.rs:500:12 [presence] cmp  cell.control == Some(seat) => cell.control != Some(seat)
+query/objectives.rs:500:79 [presence] cmp  u.owner() == seat => u.owner() != seat
+query/objectives.rs:507:63 [near_mecatol] body  near_mecatol(core: &CoreState, presence: &SysSet) -> bool { => { return true; }
+query/objectives.rs:507:63 [near_mecatol] body  near_mecatol(core: &CoreState, presence: &SysSet) -> bool { => { return false; }
+query/objectives.rs:509:8 [near_mecatol] cond  presence.contains(mecatol.index()) => !(presence.contains(mecatol.index()))
+query/objectives.rs:510:16 [near_mecatol] lit  true => false
+query/objectives.rs:515:79 [present_together] body  present_together(core: &CoreState, here: &SysSet, there: &SysSet) -> b... => { return true; }
+query/objectives.rs:515:79 [present_together] body  present_together(core: &CoreState, here: &SysSet, there: &SysSet) -> b... => { return false; }
+query/objectives.rs:516:8 [present_together] cond  here.intersects(there) => !(here.intersects(there))
+query/objectives.rs:517:16 [present_together] lit  true => false
+query/objectives.rs:519:47 [present_together] lit  false => true
+query/objectives.rs:525:87 [neighbours] body  neighbours(core: &CoreState, terms: &Terms, seat: Seat) -> SmallList<S... => { return Default::default(); }
+query/objectives.rs:530:12 [neighbours] cond  other == seat => !(other == seat)
+query/objectives.rs:530:12 [neighbours] cmp  other == seat => other != seat
+query/objectives.rs:535:23 [neighbours] logic  (terms.iihq.contains(seat) && near_mecat... || (terms.iihq.contains(other) && near_meca... => (terms.iihq.contains(seat) && near_mecat... && (terms.iihq.c
+query/objectives.rs:535:24 [neighbours] logic  terms.iihq.contains(seat) && near_mecatol(core, &theirs) => terms.iihq.contains(seat) || near_mecatol(core, &theirs)
+query/objectives.rs:536:17 [neighbours] logic  terms.iihq.contains(other) && near_mecatol(core, &mine) => terms.iihq.contains(other) || near_mecatol(core, &mine)
+query/objectives.rs:537:12 [neighbours] cond  mecatol || present_together(core, &mine, &theirs) => !(mecatol || present_together(core, &mine, &theirs))
+query/objectives.rs:537:12 [neighbours] logic  mecatol || present_together(core, &mine, &theirs) => mecatol && present_together(core, &mine, &theirs)
+query/objectives.rs:615:47 [points_of] body  points_of(obj: PublicObjective) -> u8 { => { return 0; }
+query/objectives.rs:615:47 [points_of] body  points_of(obj: PublicObjective) -> u8 { => { return 1; }
+query/objectives.rs:621:54 [stage_of] body  stage_of(obj: PublicObjective) -> Option<u8> { => { return None; }
+query/objectives.rs:623:19 [stage_of] lit  1 => 2
+query/objectives.rs:624:19 [stage_of] lit  2 => 3
+query/objectives.rs:629:38 [non_home] body  non_home(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:629:38 [non_home] body  non_home(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:630:17 [non_home] lit  0 => 1
+query/objectives.rs:631:29 [non_home] assign  n += usize::from(p.data().homeworld_of.is_non... => n -= usize::from(p.data().homeworld_of.is_non...
+query/objectives.rs:635:63 [on_the_rim] body  on_the_rim(pos: &Pos<'_>, edge: &SysSet) -> Option<usize> { => { return None; }
+query/objectives.rs:636:8 [on_the_rim] cond  !pos.map => !(!pos.map)
+query/objectives.rs:640:33 [on_the_rim] logic  edge.contains(*s) && Some(crate::ids::system_at(*s)) != pos.f... => edge.contains(*s) || Some(crate::ids::system_at(*s)) != pos.
+query/objectives.rs:640:54 [on_the_rim] cmp  Some(crate::ids::system_at(*s)) != pos.facts.home => Some(crate::ids::system_at(*s)) == pos.facts.home
+query/objectives.rs:643:40 [same_trait] body  same_trait(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:643:40 [same_trait] body  same_trait(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:644:23 [same_trait] lit  0usize => 1usize
+query/objectives.rs:649:42 [same_trait] assign  counts[0] += 1 => counts[0] -= 1
+query/objectives.rs:649:49 [same_trait] lit  0 => 1
+query/objectives.rs:649:55 [same_trait] lit  1 => 2
+query/objectives.rs:650:43 [same_trait] assign  counts[1] += 1 => counts[1] -= 1
+query/objectives.rs:650:50 [same_trait] lit  1 => 2
+query/objectives.rs:650:56 [same_trait] lit  1 => 2
+query/objectives.rs:651:44 [same_trait] assign  counts[2] += 1 => counts[2] -= 1
+query/objectives.rs:651:51 [same_trait] lit  2 => 3
+query/objectives.rs:651:57 [same_trait] lit  1 => 2
+query/objectives.rs:656:40 [same_trait] lit  0 => 1
+query/objectives.rs:659:46 [tech_specialties] body  tech_specialties(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:659:46 [tech_specialties] body  tech_specialties(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:660:17 [tech_specialties] lit  0 => 1
+query/objectives.rs:664:12 [tech_specialties] cond  printed || board::attachments(pos.core, p).as_slice().iter().any(|a| !a.data().s... => !(printed || board::attachments(pos.core, p).as_slice().iter
+query/objectives.rs:664:12 [tech_specialties] logic  printed || board::attachments(pos.core, p).as_slice... => printed && board::attachments(pos.core, p).as_slice...
+query/objectives.rs:665:13 [tech_specialties] assign  n += 1 => n -= 1
+query/objectives.rs:665:18 [tech_specialties] lit  1 => 2
+query/objectives.rs:671:56 [colours] body  colours(pos: &Pos<'_>, per_colour: usize) -> usize { => { return 0; }
+query/objectives.rs:671:56 [colours] body  colours(pos: &Pos<'_>, per_colour: usize) -> usize { => { return 1; }
+query/objectives.rs:674:21 [colours] cmp  pos.technology_types(*c) >= per_colour => pos.technology_types(*c) > per_colour
+query/objectives.rs:678:45 [structures_away] body  structures_away(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:678:45 [structures_away] body  structures_away(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:681:12 [structures_away] cond  Some(*system) != pos.facts.home => !(Some(*system) != pos.facts.home)
+query/objectives.rs:681:12 [structures_away] cmp  Some(*system) != pos.facts.home => Some(*system) == pos.facts.home
+query/objectives.rs:688:49 [fleet_in_one_system] body  fleet_in_one_system(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:688:49 [fleet_in_one_system] body  fleet_in_one_system(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:690:20 [fleet_in_one_system] lit  0usize => 1usize
+query/objectives.rs:692:25 [fleet_in_one_system] arith  usize::from(*n) + usize::from(pos.imagined_in(*system)) => usize::from(*n) - usize::from(pos.imagined_in(*system))
+query/objectives.rs:694:8 [fleet_in_one_system] cond  pos.imagined.systems.iter().any(|s| pos.facts.touched.contains(s.index())) => !(pos.imagined.systems.iter().any(|s| pos.facts.touched.cont
+query/objectives.rs:695:25 [fleet_in_one_system] lit  1 => 2
+query/objectives.rs:700:48 [planetless_systems] body  planetless_systems(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:700:48 [planetless_systems] body  planetless_systems(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:708:46 [attached_planets] body  attached_planets(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:708:46 [attached_planets] body  attached_planets(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:714:48 [in_notable_systems] body  in_notable_systems(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:714:48 [in_notable_systems] body  in_notable_systems(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:720:16 [in_notable_systems] cond  is_mecatol(system) => !(is_mecatol(system))
+query/objectives.rs:721:24 [in_notable_systems] lit  true => false
+query/objectives.rs:723:62 [in_notable_systems] lit  false => true
+query/objectives.rs:725:13 [in_notable_systems] logic  a.nebula || a.supernova || a.scar || a.a... || d.planets.iter().any(|p| in_scope_planet... => a.nebula || a.supernova || a.scar || a.a... && d.planets.ite
+query/objectives.rs:725:13 [in_notable_systems] logic  a.nebula || a.supernova || a.scar || a.a... || a.gravity_rift => a.nebula || a.supernova || a.scar || a.a... && a.gravity_rif
+query/objectives.rs:725:13 [in_notable_systems] logic  a.nebula || a.supernova || a.scar || a.asteroid_field => a.nebula || a.supernova || a.scar && a.asteroid_field
+query/objectives.rs:725:13 [in_notable_systems] logic  a.nebula || a.supernova || a.scar => a.nebula || a.supernova && a.scar
+query/objectives.rs:725:13 [in_notable_systems] logic  a.nebula || a.supernova => a.nebula && a.supernova
+query/objectives.rs:730:45 [in_notable_systems] logic  in_scope_planet(scope, *p) && p.data().legendary => in_scope_planet(scope, *p) || p.data().legendary
+query/objectives.rs:736:57 [rival_home_planets] body  rival_home_planets(pos: &Pos<'_>) -> Set<Planet, 3> { => { return Default::default(); }
+query/objectives.rs:739:12 [rival_home_planets] cond  player.seat == pos.seat() => !(player.seat == pos.seat())
+query/objectives.rs:739:12 [rival_home_planets] cmp  player.seat == pos.seat() => player.seat != pos.seat()
+query/objectives.rs:742:12 [rival_home_planets] cond  !player.home_planets.is_empty() => !(!player.home_planets.is_empty())
+query/objectives.rs:756:49 [rival_home_systems] body  rival_home_systems(pos: &Pos<'_>) -> SysSet { => { return Default::default(); }
+query/objectives.rs:759:12 [rival_home_systems] cond  player.seat == pos.seat() => !(player.seat == pos.seat())
+query/objectives.rs:759:12 [rival_home_systems] cmp  player.seat == pos.seat() => player.seat != pos.seat()
+query/objectives.rs:769:54 [rival_home_planets_count] body  rival_home_planets_count(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:769:54 [rival_home_planets_count] body  rival_home_planets_count(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:771:17 [rival_home_planets_count] lit  0 => 1
+query/objectives.rs:772:29 [rival_home_planets_count] assign  n += usize::from(rivals.contains(p)) => n -= usize::from(rivals.contains(p))
+query/objectives.rs:776:68 [capital_ships_in_rival_home_or_mecatol] body  capital_ships_in_rival_home_or_mecatol(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:776:68 [capital_ships_in_rival_home_or_mecatol] body  capital_ships_in_rival_home_or_mecatol(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:782:63 [ships_adjacent_to_mecatol] body  ships_adjacent_to_mecatol(pos: &Pos<'_>) -> Option<usize> { => { return None; }
+query/objectives.rs:783:8 [ships_adjacent_to_mecatol] cond  !pos.map => !(!pos.map)
+query/objectives.rs:792:55 [weaker_neighbours] body  weaker_neighbours(pos: &Pos<'_>) -> Option<usize> { => { return None; }
+query/objectives.rs:793:8 [weaker_neighbours] cond  !pos.map => !(!pos.map)
+query/objectives.rs:801:29 [weaker_neighbours] cmp  mine > scoring_planets(pos.core, pos.scope(), *... => mine >= scoring_planets(pos.core, pos.scope(), *...
+query/objectives.rs:806:65 [distinct_rival_home_reaches] body  distinct_rival_home_reaches(pos: &Pos<'_>) -> Option<usize> { => { return None; }
+query/objectives.rs:807:8 [distinct_rival_home_reaches] cond  !pos.map => !(!pos.map)
+query/objectives.rs:815:17 [distinct_rival_home_reaches] lit  0 => 1
+query/objectives.rs:817:12 [distinct_rival_home_reaches] cond  player.seat == pos.seat() => !(player.seat == pos.seat())
+query/objectives.rs:817:12 [distinct_rival_home_reaches] cmp  player.seat == pos.seat() => player.seat != pos.seat()
+query/objectives.rs:823:12 [distinct_rival_home_reaches] cond  held.intersects(&reach) => !(held.intersects(&reach))
+query/objectives.rs:824:13 [distinct_rival_home_reaches] assign  n += 1 => n -= 1
+query/objectives.rs:824:18 [distinct_rival_home_reaches] lit  1 => 2
+query/objectives.rs:832:99 [counting_progress] body  counting_progress(pos: &Pos<'_>, edge: &SysSet, obj: PublicObjective) ... => { return None; }
+query/objectives.rs:854:94 [remaining_position_progress] body  remaining_position_progress(pos: &Pos<'_>, obj: PublicObjective) -> Op... => { return None; }
+query/objectives.rs:892:109 [useful_planets] body  useful_planets(core: &CoreState, f: &SeatFacts, kind: Spend) -> Option... => { return None; }
+query/objectives.rs:893:8 [useful_planets] cond  f.terms.oceans => !(f.terms.oceans)
+query/objectives.rs:899:80 [useful_planets] cmp  p == planet => p != planet
+query/objectives.rs:899:100 [useful_planets] lit  0 => 1
+query/objectives.rs:900:33 [useful_planets] lit  0 => 1
+query/objectives.rs:903:12 [useful_planets] cond  worth > 0 => !(worth > 0)
+query/objectives.rs:903:12 [useful_planets] cmp  worth > 0 => worth >= 0
+query/objectives.rs:903:20 [useful_planets] lit  0 => 1
+query/objectives.rs:913:103 [plans] body  plans(useful: &[(Planet, i64)], cost: i64, goods: i64, per_good: i64) ... => { return Default::default(); }
+query/objectives.rs:916:17 [plans] lit  0u32 => 1u32
+query/objectives.rs:916:24 [plans] arith  1u32 << count => 1u32 >> count
+query/objectives.rs:916:24 [plans] lit  1u32 => 2u32
+query/objectives.rs:917:45 [plans] lit  0 => 1
+query/objectives.rs:917:51 [plans] lit  0 => 1
+query/objectives.rs:917:83 [plans] lit  0 => 1
+query/objectives.rs:918:32 [plans] lit  0i64 => 1i64
+query/objectives.rs:919:24 [plans] lit  0i64 => 1i64
+query/objectives.rs:921:16 [plans] cond  mask & (1 << index) != 0 => !(mask & (1 << index) != 0)
+query/objectives.rs:921:16 [plans] cmp  mask & (1 << index) != 0 => mask & (1 << index) == 0
+query/objectives.rs:921:16 [plans] arith  mask & (1 << index) => mask | (1 << index)
+query/objectives.rs:921:24 [plans] arith  1 << index => 1 >> index
+query/objectives.rs:921:24 [plans] lit  1 => 2
+query/objectives.rs:921:39 [plans] lit  0 => 1
+query/objectives.rs:923:17 [plans] assign  plan.n += 1 => plan.n -= 1
+query/objectives.rs:923:27 [plans] lit  1 => 2
+query/objectives.rs:924:17 [plans] assign  from_planets += worth => from_planets -= worth
+query/objectives.rs:928:12 [plans] cond  plan.n > 0 && from_planets >= cost + last => !(plan.n > 0 && from_planets >= cost + last)
+query/objectives.rs:928:12 [plans] logic  plan.n > 0 && from_planets >= cost + last => plan.n > 0 || from_planets >= cost + last
+query/objectives.rs:928:12 [plans] cmp  plan.n > 0 => plan.n >= 0
+query/objectives.rs:928:21 [plans] lit  0 => 1
+query/objectives.rs:928:26 [plans] cmp  from_planets >= cost + last => from_planets > cost + last
+query/objectives.rs:928:42 [plans] arith  cost + last => cost - last
+query/objectives.rs:931:26 [plans] arith  cost - from_planets => cost + from_planets
+query/objectives.rs:931:51 [plans] lit  0 => 1
+query/objectives.rs:932:12 [plans] cond  shortfall > goods => !(shortfall > goods)
+query/objectives.rs:932:12 [plans] cmp  shortfall > goods => shortfall >= goods
+query/objectives.rs:935:42 [plans] arith  (shortfall + per_good - 1) / per_good => (shortfall + per_good - 1) * per_good
+query/objectives.rs:935:43 [plans] arith  shortfall + per_good - 1 => shortfall + per_good + 1
+query/objectives.rs:935:43 [plans] arith  shortfall + per_good => shortfall - per_good
+query/objectives.rs:935:66 [plans] lit  1 => 2
+query/objectives.rs:949:57 [token_pool] body  token_pool(core: &CoreState, seat: Seat) -> i32 { => { return 0; }
+query/objectives.rs:949:57 [token_pool] body  token_pool(core: &CoreState, seat: Seat) -> i32 { => { return 1; }
+query/objectives.rs:950:41 [token_pool] lit  0 => 1
+query/objectives.rs:950:48 [token_pool] arith  i32::from(p.econ.strategic_tokens) + i32::from(p.econ.tactic_tokens) => i32::from(p.econ.strategic_tokens) - i32::from(p.econ.tactic
+query/objectives.rs:960:20 [can_afford] body  can_afford( core: &CoreState, f: &SeatFacts, cost: Cost, useful: &Usef... => { return None; }
+query/objectives.rs:964:16 [can_afford] cond  amount <= 0 => !(amount <= 0)
+query/objectives.rs:964:16 [can_afford] cmp  amount <= 0 => amount < 0
+query/objectives.rs:964:26 [can_afford] lit  0 => 1
+query/objectives.rs:965:29 [can_afford] lit  true => false
+query/objectives.rs:970:60 [can_afford] cmp  i32::from(p.econ.trade_goods) >= amount => i32::from(p.econ.trade_goods) > amount
+query/objectives.rs:971:33 [can_afford] logic  player.is_some() && token_pool(core, f.seat) >= amount => player.is_some() || token_pool(core, f.seat) >= amount
+query/objectives.rs:971:53 [can_afford] cmp  token_pool(core, f.seat) >= amount => token_pool(core, f.seat) > amount
+query/objectives.rs:984:138 [all_three_from] body  all_three_from(core: &CoreState, f: &SeatFacts, res: &[(Planet, i64)],... => { return None; }
+query/objectives.rs:992:16 [all_three_from] cond  !disjoint => !(!disjoint)
+query/objectives.rs:995:32 [all_three_from] arith  i64::from(r.trade_goods) + i64::from(i.t... + amount => i64::from(r.trade_goods) + i64::from(i.t... - amount
+query/objectives.rs:995:32 [all_three_from] arith  i64::from(r.trade_goods) + i64::from(i.trade_goods) => i64::from(r.trade_goods) - i64::from(i.trade_goods)
+query/objectives.rs:996:16 [all_three_from] cond  goods_needed <= held => !(goods_needed <= held)
+query/objectives.rs:996:16 [all_three_from] cmp  goods_needed <= held => goods_needed < held
+query/objectives.rs:1005:64 [goods_of] body  goods_of(core: &CoreState, f: &SeatFacts, per: i64) -> i64 { => { return 0; }
+query/objectives.rs:1005:64 [goods_of] body  goods_of(core: &CoreState, f: &SeatFacts, per: i64) -> i64 { => { return 1; }
+query/objectives.rs:1006:5 [goods_of] arith  (core.players().by_seat(f.seat).map_or(0... * per => (core.players().by_seat(f.seat).map_or(0... + per
+query/objectives.rs:1006:6 [goods_of] arith  core.players().by_seat(f.seat).map_or(0,... + f.terms.commodities => core.players().by_seat(f.seat).map_or(0,... - f.terms.commod
+query/objectives.rs:1006:44 [goods_of] lit  0 => 1
+query/objectives.rs:1012:96 [first_plan] body  first_plan(core: &CoreState, f: &SeatFacts, kind: Spend, amount: i64) ... => { return None; }
+query/objectives.rs:1019:96 [all_three_plan] body  all_three_plan(core: &CoreState, f: &SeatFacts, amount: i64) -> Option... => { return None; }
+query/objectives.rs:1031:72 [Useful::of] body  of(&self, kind: Spend) -> Option<&SmallList<(Planet, i64), 8>> { => { return None; }
+query/objectives.rs:1051:109 [bought_progress_base] body  bought_progress_base(core: &CoreState, f: &SeatFacts, obj: PublicObjec... => { return None; }
+query/objectives.rs:1059:8 [bought_progress_base] cond  target <= 0 => !(target <= 0)
+query/objectives.rs:1059:8 [bought_progress_base] cmp  target <= 0 => target < 0
+query/objectives.rs:1059:18 [bought_progress_base] lit  0 => 1
+query/objectives.rs:1074:36 [bought_progress_base] cond  useful.of(kind).is_none() => !(useful.of(kind).is_none())
+query/objectives.rs:1075:33 [bought_progress_base] cond  useful.resources.is_none() || useful.influence.is_none() => !(useful.resources.is_none() || useful.influence.is_none())
+query/objectives.rs:1075:33 [bought_progress_base] logic  useful.resources.is_none() || useful.influence.is_none() => useful.resources.is_none() && useful.influence.is_none()
+query/objectives.rs:1078:20 [bought_progress_base] lit  0 => 1
+query/objectives.rs:1079:20 [bought_progress_base] lit  0 => 1
+query/objectives.rs:1080:12 [bought_progress_base] cond  can_afford(core, f, scaled(family, amount), &useful)? => !(can_afford(core, f, scaled(family, amount), &useful)?)
+query/objectives.rs:1090:64 [imagined_spending_bonus] body  imagined_spending_bonus(pos: &Pos<'_>, kind: Spend) -> i64 { => { return 0; }
+query/objectives.rs:1090:64 [imagined_spending_bonus] body  imagined_spending_bonus(pos: &Pos<'_>, kind: Spend) -> i64 { => { return 1; }
+query/objectives.rs:1091:21 [imagined_spending_bonus] lit  0 => 1
+query/objectives.rs:1094:12 [imagined_spending_bonus] cond  !real.as_slice().iter().any(|(_, r)| *r == p) => !(!real.as_slice().iter().any(|(_, r)| *r == p))
+query/objectives.rs:1094:49 [imagined_spending_bonus] cmp  *r == p => *r != p
+query/objectives.rs:1096:13 [imagined_spending_bonus] assign  total += i64::from(match kind { Spend::Resources ... => total -= i64::from(match kind { Spend::Resources ...
+query/objectives.rs:1107:86 [bought_progress] body  bought_progress(pos: &Pos<'_>, obj: PublicObjective) -> Option<CostPro... => { return None; }
+query/objectives.rs:1111:79 [bought_progress] lit  0 => 1
+query/objectives.rs:1113:8 [bought_progress] cond  bonus <= 0 => !(bonus <= 0)
+query/objectives.rs:1113:8 [bought_progress] cmp  bonus <= 0 => bonus < 0
+query/objectives.rs:1113:17 [bought_progress] lit  0 => 1
+query/objectives.rs:1116:53 [bought_progress] arith  base.have + bonus => base.have - bonus
+query/objectives.rs:1121:69 [faction_of] body  faction_of(core: &CoreState, seat: Seat) -> Option<Faction> { => { return None; }
+query/objectives.rs:1138:70 [secret_row] lit  4 => 5
+query/objectives.rs:1139:74 [secret_row] lit  3 => 4
+query/objectives.rs:1140:77 [secret_row] lit  5 => 6
+query/objectives.rs:1141:57 [secret_row] lit  6 => 7
+query/objectives.rs:1142:79 [secret_row] lit  4 => 5
+query/objectives.rs:1143:79 [secret_row] lit  4 => 5
+query/objectives.rs:1144:86 [secret_row] lit  4 => 5
+query/objectives.rs:1145:71 [secret_row] lit  4 => 5
+query/objectives.rs:1146:69 [secret_row] lit  4 => 5
+query/objectives.rs:1147:65 [secret_row] lit  9 => 10
+query/objectives.rs:1148:66 [secret_row] lit  1 => 2
+query/objectives.rs:1149:62 [secret_row] lit  2 => 3
+query/objectives.rs:1150:53 [secret_row] lit  5 => 6
+query/objectives.rs:1151:77 [secret_row] lit  3 => 4
+query/objectives.rs:1152:68 [secret_row] lit  1 => 2
+query/objectives.rs:1153:51 [secret_row] lit  0 => 1
+query/objectives.rs:1154:55 [secret_row] lit  1 => 2
+query/objectives.rs:1155:59 [secret_row] lit  2 => 3
+query/objectives.rs:1156:64 [secret_row] lit  2 => 3
+query/objectives.rs:1157:44 [secret_row] lit  3 => 4
+query/objectives.rs:1158:60 [secret_row] lit  1 => 2
+query/objectives.rs:1159:54 [secret_row] lit  1 => 2
+query/objectives.rs:1160:79 [secret_row] lit  3 => 4
+query/objectives.rs:1161:75 [secret_row] lit  12 => 13
+query/objectives.rs:1162:75 [secret_row] lit  12 => 13
+query/objectives.rs:1171:56 [secret_controlled] body  secret_controlled(pos: &Pos<'_>) -> Set<Planet, 3> { => { return Default::default(); }
+query/objectives.rs:1185:48 [ship_systems_real] body  ship_systems_real(pos: &Pos<'_>) -> SysSet { => { return Default::default(); }
+query/objectives.rs:1190:53 [secret_ships_in_systems] body  secret_ships_in_systems(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:1190:53 [secret_ships_in_systems] body  secret_ships_in_systems(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:1194:54 [fragments] body  fragments(core: &CoreState, seat: Seat) -> usize { => { return 0; }
+query/objectives.rs:1194:54 [fragments] body  fragments(core: &CoreState, seat: Seat) -> usize { => { return 1; }
+query/objectives.rs:1195:41 [fragments] lit  0 => 1
+query/objectives.rs:1200:25 [fragments] cmp  *n > 0 => *n >= 0
+query/objectives.rs:1200:30 [fragments] lit  0 => 1
+query/objectives.rs:1201:51 [fragments] lit  0 => 1
+query/objectives.rs:1206:59 [rival_dock_systems_with_ships] body  rival_dock_systems_with_ships(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:1206:59 [rival_dock_systems_with_ships] body  rival_dock_systems_with_ships(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:1214:21 [rival_dock_systems_with_ships] logic  u.owner() != pos.seat() && scope.unit(u.kind()).is_some_and(|d| d.b... => u.owner() != pos.seat() || scope.unit(u.kind()).is_some_and(
+query/objectives.rs:1214:21 [rival_dock_systems_with_ships] cmp  u.owner() != pos.seat() => u.owner() == pos.seat()
+query/objectives.rs:1215:65 [rival_dock_systems_with_ships] cmp  d.base_type == UnitBaseType::Spacedock => d.base_type != UnitBaseType::Spacedock
+query/objectives.rs:1222:65 [ship_systems_beside_anomaly] body  ship_systems_beside_anomaly(pos: &Pos<'_>) -> Option<usize> { => { return None; }
+query/objectives.rs:1223:8 [ship_systems_beside_anomaly] cond  !pos.map => !(!pos.map)
+query/objectives.rs:1235:25 [ship_systems_beside_anomaly] logic  a.nebula || a.supernova || a.scar || a.a... || a.gravity_rift => a.nebula || a.supernova || a.scar || a.a... && a.gravity_rif
+query/objectives.rs:1235:25 [ship_systems_beside_anomaly] logic  a.nebula || a.supernova || a.scar || a.asteroid_field => a.nebula || a.supernova || a.scar && a.asteroid_field
+query/objectives.rs:1235:25 [ship_systems_beside_anomaly] logic  a.nebula || a.supernova || a.scar => a.nebula || a.supernova && a.scar
+query/objectives.rs:1235:25 [ship_systems_beside_anomaly] logic  a.nebula || a.supernova => a.nebula && a.supernova
+query/objectives.rs:1243:68 [ship_systems_beside_rival_home] body  ship_systems_beside_rival_home(pos: &Pos<'_>) -> Option<usize> { => { return None; }
+query/objectives.rs:1244:8 [ship_systems_beside_rival_home] cond  !pos.map => !(!pos.map)
+query/objectives.rs:1257:29 [ship_systems_beside_rival_home] logic  in_scope_planet(scope, *planet) && planet.data().homeworld_of.is_some_and(|... => in_scope_planet(scope, *planet) || planet.data().homeworld_o
+query/objectives.rs:1258:81 [ship_systems_beside_rival_home] cmp  Some(tag) != mine => Some(tag) == mine
+query/objectives.rs:1267:65 [neighbour_progress] body  neighbour_progress(pos: &Pos<'_>) -> Option<(usize, usize)> { => { return None; }
+query/objectives.rs:1268:8 [neighbour_progress] cond  !pos.map => !(!pos.map)
+query/objectives.rs:1271:55 [neighbour_progress] cmp  p.seat != pos.seat() => p.seat == pos.seat()
+query/objectives.rs:1272:8 [neighbour_progress] cond  others == 0 => !(others == 0)
+query/objectives.rs:1272:8 [neighbour_progress] cmp  others == 0 => others != 0
+query/objectives.rs:1272:18 [neighbour_progress] lit  0 => 1
+query/objectives.rs:1280:21 [neighbour_progress] logic  p.seat != pos.seat() && reached.as_slice().contains(&p.seat) => p.seat != pos.seat() || reached.as_slice().contains(&p.seat)
+query/objectives.rs:1280:21 [neighbour_progress] cmp  p.seat != pos.seat() => p.seat == pos.seat()
+query/objectives.rs:1285:44 [units_in_nexus] body  units_in_nexus(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:1285:44 [units_in_nexus] body  units_in_nexus(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:1290:68 [units_in_nexus] cmp  u.owner() == pos.seat() => u.owner() != pos.seat()
+query/objectives.rs:1294:44 [wormhole_kinds] body  wormhole_kinds(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:1294:44 [wormhole_kinds] body  wormhole_kinds(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:1296:21 [wormhole_kinds] lit  0u8 => 1u8
+query/objectives.rs:1299:12 [wormhole_kinds] cond  scope.system(system).is_some() => !(scope.system(system).is_some())
+query/objectives.rs:1300:13 [wormhole_kinds] assign  kinds |= crate::tables::printed_wormholes(system) => kinds &= crate::tables::printed_wormholes(system)
+query/objectives.rs:1305:13 [wormhole_kinds] assign  kinds |= g.wormhole_kinds(system) => kinds &= g.wormhole_kinds(system)
+query/objectives.rs:1308:6 [wormhole_kinds] arith  kinds & crate::tables::WH_ALPHA_BETA => kinds | crate::tables::WH_ALPHA_BETA
+query/objectives.rs:1311:51 [shared_planet_systems] body  shared_planet_systems(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:1311:51 [shared_planet_systems] body  shared_planet_systems(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:1316:12 [shared_planet_systems] cond  owner == pos.seat() || firm.contains(planet) => !(owner == pos.seat() || firm.contains(planet))
+query/objectives.rs:1316:12 [shared_planet_systems] logic  owner == pos.seat() || firm.contains(planet) => owner == pos.seat() && firm.contains(planet)
+query/objectives.rs:1316:12 [shared_planet_systems] cmp  owner == pos.seat() => owner != pos.seat()
+query/objectives.rs:1319:12 [shared_planet_systems] cond  owner != pos.seat() && !firm.contains(planet) => !(owner != pos.seat() && !firm.contains(planet))
+query/objectives.rs:1319:12 [shared_planet_systems] logic  owner != pos.seat() && !firm.contains(planet) => owner != pos.seat() || !firm.contains(planet)
+query/objectives.rs:1319:12 [shared_planet_systems] cmp  owner != pos.seat() => owner == pos.seat()
+query/objectives.rs:1326:61 [mecatol_ships_while_controlling] body  mecatol_ships_while_controlling(pos: &Pos<'_>) -> usize { => { return 0; }
+query/objectives.rs:1326:61 [mecatol_ships_while_controlling] body  mecatol_ships_while_controlling(pos: &Pos<'_>) -> usize { => { return 1; }
+query/objectives.rs:1329:20 [mecatol_ships_while_controlling] logic  board::controls_a_planet_in(pos.core, me... || board::planets_of(pos.core, mecatol).any... => board::controls_a_planet_in(pos.core, me... && board::planet
+query/objectives.rs:1330:57 [mecatol_ships_while_controlling] logic  board::control(pos.core, p).is_some() && firm.contains(p) => board::control(pos.core, p).is_some() || firm.contains(p)
+query/objectives.rs:1331:8 [mecatol_ships_while_controlling] cond  !controls => !(!controls)
+query/objectives.rs:1332:16 [mecatol_ships_while_controlling] lit  0 => 1
+query/objectives.rs:1337:21 [mecatol_ships_while_controlling] logic  u.owner() == pos.seat() && scope.unit(u.kind()).is_some_and(|d| d.s... => u.owner() == pos.seat() || scope.unit(u.kind()).is_some_and(
+query/objectives.rs:1337:21 [mecatol_ships_while_controlling] cmp  u.owner() == pos.seat() => u.owner() != pos.seat()
+query/objectives.rs:1341:55 [combined_value] body  combined_value(pos: &Pos<'_>, kind: Spend) -> i64 { => { return 0; }
+query/objectives.rs:1341:55 [combined_value] body  combined_value(pos: &Pos<'_>, kind: Spend) -> i64 { => { return 1; }
+query/objectives.rs:1352:8 [secret_progress] cond  pos.facts.terms.unmapped => !(pos.facts.terms.unmapped)
+query/objectives.rs:1361:25 [secret_progress] logic  in_scope_planet(scope, *p) && p.data().traits.contains(&t) => in_scope_planet(scope, *p) || p.data().traits.contains(&t)
+query/objectives.rs:1363:101 [secret_progress] lit  0 => 1
+query/objectives.rs:1368:78 [secret_progress] lit  0 => 1
+query/objectives.rs:1390:54 [secret_progress] logic  in_scope_planet(scope, *p) && p.data().legendary => in_scope_planet(scope, *p) || p.data().legendary
+query/objectives.rs:1393:93 [secret_progress] lit  0 => 1
+query/objectives.rs:1402:51 [secret_points] body  secret_points(obj: SecretObjective) -> u8 { => { return 0; }
+query/objectives.rs:1402:51 [secret_points] body  secret_points(obj: SecretObjective) -> u8 { => { return 1; }
+query/objectives.rs:1422:61 [secrets_held] body  secrets_held(core: &CoreState, seat: Seat) -> usize { => { return 0; }
+query/objectives.rs:1422:61 [secrets_held] body  secrets_held(core: &CoreState, seat: Seat) -> usize { => { return 1; }
+query/objectives.rs:1423:5 [secrets_held] arith  core.players().by_seat(seat).map_or(0, |... + core.objectives().scored[usize::from(sea... => core.players().by_seat(seat).map_or(0, |... - core.objective
+query/objectives.rs:1423:41 [secrets_held] lit  0 => 1
+query/objectives.rs:1431:8 [hand_step] logic  held <= HAND_LIMIT + crate::query::relic... || hand.is_empty() => held <= HAND_LIMIT + crate::query::relic... && hand.is_empty
+query/objectives.rs:1431:8 [hand_step] cmp  held <= HAND_LIMIT + crate::query::relic::secret... => held < HAND_LIMIT + crate::query::relic::secret...
+query/objectives.rs:1431:16 [hand_step] arith  HAND_LIMIT + crate::query::relic::secret_objective_bo... => HAND_LIMIT - crate::query::relic::secret_objective_bo...
+query/promissory.rs:24:69 [faction_of] body  faction_of(core: &CoreState, seat: Seat) -> Option<Faction> { => { return None; }
+query/promissory.rs:31:74 [is_action_placed] body  is_action_placed(core: &CoreState, note: PromissoryNote) -> bool { => { return true; }
+query/promissory.rs:31:74 [is_action_placed] body  is_action_placed(core: &CoreState, note: PromissoryNote) -> bool { => { return false; }
+query/promissory.rs:32:5 [is_action_placed] logic  matches!( note, PromissoryNote::TradeCon... || (note == PromissoryNote::PromiseOfProtec... => matches!( note, PromissoryNote::TradeCon... && (note == Prom
+query/promissory.rs:39:11 [is_action_placed] logic  note == PromissoryNote::PromiseOfProtect... && core.meta().rules_at_least(RULES_FACTION... => note == PromissoryNote::PromiseOfProtect... || core.meta().r
+query/promissory.rs:39:11 [is_action_placed] cmp  note == PromissoryNote::PromiseOfProtection => note != PromissoryNote::PromiseOfProtection
+query/promissory.rs:45:68 [is_play_area] body  is_play_area(note: PromissoryNote, owner: Faction) -> bool { => { return true; }
+query/promissory.rs:45:68 [is_play_area] body  is_play_area(note: PromissoryNote, owner: Faction) -> bool { => { return false; }
+query/promissory.rs:48:22 [is_play_area] logic  d.play_area && matches!(tag.factions(), [only] if *only... => d.play_area || matches!(tag.factions(), [only] if *only...
+query/promissory.rs:55:63 [held_by] body  held_by(core: &CoreState, seat: Seat) -> Vec<NoteKey> { => { return Vec::new(); }
+query/promissory.rs:56:52 [held_by] cmp  **h == seat => **h != seat
+query/promissory.rs:62:88 [holder_of] body  holder_of(core: &CoreState, note: PromissoryNote, owner: Seat) -> Opti... => { return None; }
+query/promissory.rs:65:6 [holder_of] cmp  faction_of(core, holder) != Some(faction) => faction_of(core, holder) == Some(faction)
+query/promissory.rs:70:83 [held_foreign] body  held_foreign(core: &CoreState, seat: Seat, note: PromissoryNote) -> us... => { return 0; }
+query/promissory.rs:70:83 [held_foreign] body  held_foreign(core: &CoreState, seat: Seat, note: PromissoryNote) -> us... => { return 1; }
+query/promissory.rs:72:52 [held_foreign] logic  **h == seat && k.note == note && Some(k.faction) != own => **h == seat && k.note == note || Some(k.faction) != own
+query/promissory.rs:72:52 [held_foreign] logic  **h == seat && k.note == note => **h == seat || k.note == note
+query/promissory.rs:72:52 [held_foreign] cmp  **h == seat => **h != seat
+query/promissory.rs:72:67 [held_foreign] cmp  k.note == note => k.note != note
+query/promissory.rs:72:85 [held_foreign] cmp  Some(k.faction) != own => Some(k.faction) == own
+query/promissory.rs:78:76 [action_notes_in_hand] body  action_notes_in_hand(core: &CoreState, seat: Seat) -> Vec<NoteKey> { => { return Vec::new(); }
+query/promissory.rs:85:13 [action_notes_in_hand] logic  **h == seat && is_action_placed(core, k.... && Some(k.faction) != own => **h == seat && is_action_placed(core, k.... || Some(k.factio
+query/promissory.rs:85:13 [action_notes_in_hand] logic  **h == seat && is_action_placed(core, k.... && !cards.promissory_faceup.contains_key(k) => **h == seat && is_action_placed(core, k.... || !cards.promis
+query/promissory.rs:85:13 [action_notes_in_hand] logic  **h == seat && is_action_placed(core, k.note) => **h == seat || is_action_placed(core, k.note)
+query/promissory.rs:85:13 [action_notes_in_hand] cmp  **h == seat => **h != seat
+query/promissory.rs:88:20 [action_notes_in_hand] cmp  Some(k.faction) != own => Some(k.faction) == own
+query/promissory.rs:96:62 [reaches_anyone] body  reaches_anyone(core: &CoreState, seat: Seat) -> bool { => { return true; }
+query/promissory.rs:96:62 [reaches_anyone] body  reaches_anyone(core: &CoreState, seat: Seat) -> bool { => { return false; }
+query/promissory.rs:101:23 [reaches_anyone] logic  *h == seat && k.note == PromissoryNote::... && cards.promissory_faceup.contains_key(k) => *h == seat && k.note == PromissoryNote::... || cards.promiss
+query/promissory.rs:101:23 [reaches_anyone] logic  *h == seat && k.note == PromissoryNote::TradeConvoys => *h == seat || k.note == PromissoryNote::TradeConvoys
+query/promissory.rs:101:23 [reaches_anyone] cmp  *h == seat => *h != seat
+query/promissory.rs:101:37 [reaches_anyone] cmp  k.note == PromissoryNote::TradeConvoys => k.note != PromissoryNote::TradeConvoys
+query/promissory.rs:106:85 [may_receive] body  may_receive(core: &CoreState, receiver: Seat, note: PromissoryNote) ->... => { return true; }
+query/promissory.rs:106:85 [may_receive] body  may_receive(core: &CoreState, receiver: Seat, note: PromissoryNote) ->... => { return false; }
+query/promissory.rs:107:7 [may_receive] logic  note == PromissoryNote::Alliance && faction_of(core, receiver) == Some(Facti... => note == PromissoryNote::Alliance || faction_of(core, receive
+query/promissory.rs:107:7 [may_receive] cmp  note == PromissoryNote::Alliance => note != PromissoryNote::Alliance
+query/promissory.rs:107:43 [may_receive] cmp  faction_of(core, receiver) == Some(Faction::TheMahactGeneSorcerers) => faction_of(core, receiver) != Some(Faction::TheMahactGeneSor
+query/promissory.rs:113:85 [denies_movement_into] body  denies_movement_into(core: &CoreState, mover: Seat, system: System) ->... => { return true; }
+query/promissory.rs:113:85 [denies_movement_into] body  denies_movement_into(core: &CoreState, mover: Seat, system: System) ->... => { return false; }
+query/promissory.rs:114:63 [denies_movement_into] lit  false => true
+query/promissory.rs:116:16 [denies_movement_into] lit  false => true
+query/promissory.rs:119:8 [denies_movement_into] cond  holder == mover || faction_of(core, holder) == Some(faction) => !(holder == mover || faction_of(core, holder) == Some(factio
+query/promissory.rs:119:8 [denies_movement_into] logic  holder == mover || faction_of(core, holder) == Some(faction... => holder == mover && faction_of(core, holder) == Some(faction.
+query/promissory.rs:119:8 [denies_movement_into] cmp  holder == mover => holder != mover
+query/promissory.rs:119:27 [denies_movement_into] cmp  faction_of(core, holder) == Some(faction) => faction_of(core, holder) != Some(faction)
+query/promissory.rs:120:16 [denies_movement_into] lit  false => true
+query/promissory.rs:122:5 [denies_movement_into] logic  board::has_space_units_of(core, system, ... || board::planets_of(core, system).any(|p| ... => board::has_space_units_of(core, system, ... && board::planet
+query/promissory.rs:123:96 [denies_movement_into] cmp  u.owner() == holder => u.owner() != holder
+query/reach.rs:34:43 [blanked] body  blanked(core: &CoreState) -> bool { => { return true; }
+query/reach.rs:34:43 [blanked] body  blanked(core: &CoreState) -> bool { => { return false; }
+query/reach.rs:35:5 [blanked] logic  core.meta().phase == Phase::Action && core .marks() .tail .get(&MarkKey::Keler... => core.meta().phase == Phase::Action || core .marks() .tail .g
+query/reach.rs:35:5 [blanked] cmp  core.meta().phase == Phase::Action => core.meta().phase != Phase::Action
+query/reach.rs:48:86 [live_token] body  live_token(core: &CoreState, seat: Seat, card: Technology) -> Option<T... => { return None; }
+query/reach.rs:50:8 [live_token] cond  p.faction != Faction::TheNekroVirus || !p.tech.owned.contains(card) => !(p.faction != Faction::TheNekroVirus || !p.tech.owned.conta
+query/reach.rs:50:8 [live_token] logic  p.faction != Faction::TheNekroVirus || !p.tech.owned.contains(card) => p.faction != Faction::TheNekroVirus && !p.tech.owned.contain
+query/reach.rs:50:8 [live_token] cmp  p.faction != Faction::TheNekroVirus => p.faction == Faction::TheNekroVirus
+query/reach.rs:54:35 [live_token] logic  o.seat != seat && o.tech.owned.contains(target) => o.seat != seat || o.tech.owned.contains(target)
+query/reach.rs:54:35 [live_token] cmp  o.seat != seat => o.seat == seat
+query/reach.rs:60:81 [technology_text] body  technology_text(core: &CoreState, seat: Seat, tech: Technology) -> boo... => { return true; }
+query/reach.rs:60:81 [technology_text] body  technology_text(core: &CoreState, seat: Seat, tech: Technology) -> boo... => { return false; }
+query/reach.rs:61:5 [technology_text] logic  core.players().by_seat(seat).is_some_and... || ASSIMILATORS.iter().any(|card| live_toke... => core.players().by_seat(seat).is_some_and... && ASSIMILATORS.
+query/reach.rs:62:43 [technology_text] cmp  live_token(core, seat, *card) == Some(tech) => live_token(core, seat, *card) != Some(tech)
+query/reach.rs:76:59 [fracture_systems] cmp  d.tile_back == Some(TileBack::Fracture) => d.tile_back != Some(TileBack::Fracture)
+query/reach.rs:80:34 [is_egress] body  is_egress(s: System) -> bool { => { return true; }
+query/reach.rs:80:34 [is_egress] body  is_egress(s: System) -> bool { => { return false; }
+query/reach.rs:84:72 [link] body  link(list: &mut Vec<(SystemIx, SysSet)>, a: SystemIx, b: SystemIx) { => { return (); }
+query/reach.rs:86:45 [link] cmp  *k == from => *k != from
+query/reach.rs:120:90 [SeatReach::new] body  new(core: &CoreState, k: &Kernel, seat: Seat, effects: bool) -> Option... => { return None; }
+query/reach.rs:131:12 [SeatReach::new] cond  !severed.is_empty() || allowed.is_some() || !extras.is_empty() => !(!severed.is_empty() || allowed.is_some() || !extras.is_emp
+query/reach.rs:131:12 [SeatReach::new] logic  !severed.is_empty() || allowed.is_some() || !extras.is_empty() => !severed.is_empty() || allowed.is_some() && !extras.is_empty
+query/reach.rs:131:12 [SeatReach::new] logic  !severed.is_empty() || allowed.is_some() => !severed.is_empty() && allowed.is_some()
+query/reach.rs:140:64 [SeatReach::new] lit  0 => 1
+query/reach.rs:140:74 [SeatReach::new] arith  m | crate::tables::wormhole_bit(w) => m & crate::tables::wormhole_bit(w)
+query/reach.rs:143:16 [SeatReach::new] cond  moved != **base => !(moved != **base)
+query/reach.rs:143:16 [SeatReach::new] cmp  moved != **base => moved == **base
+query/reach.rs:156:16 [SeatReach::new] cond  cell.units.as_slice().iter().any(|p| p.owner() != seat && scope.unit(p.kind()).i... => !(cell.units.as_slice().iter().any(|p| p.owner() != seat && 
+query/reach.rs:156:53 [SeatReach::new] logic  p.owner() != seat && scope.unit(p.kind()).is_some_and(|d| d.s... => p.owner() != seat || scope.unit(p.kind()).is_some_and(|d| d.
+query/reach.rs:156:53 [SeatReach::new] cmp  p.owner() != seat => p.owner() == seat
+query/reach.rs:159:16 [SeatReach::new] cond  cell.cmd.contains(seat) => !(cell.cmd.contains(seat))
+query/reach.rs:163:77 [SeatReach::new] lit  0 => 1
+query/reach.rs:169:12 [SeatReach::new] cond  technology_text(core, seat, Technology::AntimassDeflectors) => !(technology_text(core, seat, Technology::AntimassDeflectors
+query/reach.rs:170:42 [SeatReach::new] lit  true => false
+query/reach.rs:180:68 [SeatReach::new] cmp  *k == from => *k != from
+query/reach.rs:196:12 [SeatReach::new] cond  !owners.is_empty() => !(!owners.is_empty())
+query/reach.rs:207:37 [SeatReach::new] logic  p.owner() != seat && scope.unit(p.kind()).is_some_and(|d| d.s... => p.owner() != seat || scope.unit(p.kind()).is_some_and(|d| d.
+query/reach.rs:207:37 [SeatReach::new] cmp  p.owner() != seat => p.owner() == seat
+query/reach.rs:209:21 [SeatReach::new] logic  foreign.peek().is_some() && foreign.all(|p| owners.as_slice().contai... => foreign.peek().is_some() || foreign.all(|p| owners.as_slice(
+query/reach.rs:217:12 [SeatReach::new] cond  !hooks.blocks_passage.is_empty() => !(!hooks.blocks_passage.is_empty())
+query/reach.rs:219:20 [SeatReach::new] cond  cell.flags.has(SysFlags::TOUCHED) && hooks.blocks_passage(core, k, seat, system) => !(cell.flags.has(SysFlags::TOUCHED) && hooks.blocks_passage(
+query/reach.rs:219:20 [SeatReach::new] logic  cell.flags.has(SysFlags::TOUCHED) && hooks.blocks_passage(core, k, seat, syst... => cell.flags.has(SysFlags::TOUCHED) || hooks.blocks_passage(co
+query/reach.rs:228:29 [SeatReach::new] lit  false => true
+query/reach.rs:229:62 [SeatReach::new] cmp  p.owner() == seat => p.owner() != seat
+query/reach.rs:231:25 [SeatReach::new] lit  true => false
+query/reach.rs:233:16 [SeatReach::new] cond  holds => !(holds)
+query/reach.rs:238:53 [SeatReach::new] cmp  p.owner() == seat => p.owner() != seat
+query/reach.rs:247:16 [SeatReach::new] cond  hooks.may_move_through_ships_anywhere(core, k, seat, ship) => !(hooks.may_move_through_ships_anywhere(core, k, seat, ship)
+query/reach.rs:250:16 [SeatReach::new] cond  hooks.own_unit_passage(core, k, PassSite { player: seat, active: System::ALL[0],... => !(hooks.own_unit_passage(core, k, PassSite { player: seat, a
+query/reach.rs:250:93 [SeatReach::new] lit  0 => 1
+query/reach.rs:254:16 [SeatReach::new] cond  !near.is_empty() => !(!near.is_empty())
+query/reach.rs:261:16 [SeatReach::new] cond  hooks.ignores_command_tokens(core, k, seat, ship) => !(hooks.ignores_command_tokens(core, k, seat, ship))
+query/reach.rs:265:12 [SeatReach::new] cond  !rules.own_passage_types.is_empty() => !(!rules.own_passage_types.is_empty())
+query/reach.rs:269:12 [SeatReach::new] cond  core.meta().flags.has(crate::state::MetaFlags::FRACTURE_IN_PLAY) => !(core.meta().flags.has(crate::state::MetaFlags::FRACTURE_IN
+query/reach.rs:271:39 [SeatReach::new] lit  2 => 3
+query/reach.rs:272:39 [SeatReach::new] lit  0 => 1
+query/reach.rs:272:48 [SeatReach::new] lit  1 => 2
+query/reach.rs:283:12 [SeatReach::new] cond  effects => !(effects)
+query/reach.rs:291:88 [SeatReach::apply_effects] body  apply_effects(core: &CoreState, k: &Kernel, seat: Seat, rules: &mut Co... => { return (); }
+query/reach.rs:296:12 [SeatReach::apply_effects] cond  hooks.rift_crucible(core, seat) => !(hooks.rift_crucible(core, seat))
+query/reach.rs:297:35 [SeatReach::apply_effects] lit  true => false
+query/reach.rs:298:38 [SeatReach::apply_effects] lit  1 => 2
+query/reach.rs:301:16 [SeatReach::apply_effects] cond  hooks.rift_roll_exempt(core, seat, *system) => !(hooks.rift_roll_exempt(core, seat, *system))
+query/reach.rs:308:12 [SeatReach::apply_effects] cond  p.tech.owned.contains(Technology::LightWaveDeflector) => !(p.tech.owned.contains(Technology::LightWaveDeflector))
+query/reach.rs:309:40 [SeatReach::apply_effects] lit  true => false
+query/reach.rs:311:12 [SeatReach::apply_effects] cond  p.card_timers.anomalies_ignored_activation.is(activation) => !(p.card_timers.anomalies_ignored_activation.is(activation))
+query/reach.rs:312:39 [SeatReach::apply_effects] lit  true => false
+query/reach.rs:314:12 [SeatReach::apply_effects] cond  p.round_marks.contains(RoundKind::DominusOrb, activation) => !(p.round_marks.contains(RoundKind::DominusOrb, activation))
+query/reach.rs:315:44 [SeatReach::apply_effects] lit  true => false
+query/reach.rs:317:12 [SeatReach::apply_effects] cond  p.card_timers.silence_activation.is(activation) => !(p.card_timers.silence_activation.is(activation))
+query/reach.rs:341:12 [SeatReach::rules_for] cond  self.per_destination => !(self.per_destination)
+query/reach.rs:344:20 [SeatReach::rules_for] cond  k.hooks.movement.may_move_through_ships(core, k, PassSite { player: self.seat, a... => !(k.hooks.movement.may_move_through_ships(core, k, PassSite 
+query/reach.rs:394:11 [ship_value] body  ship_value( core: &CoreState, k: &Kernel, seat: Seat, origin: System, ... => { return 0; }
+query/reach.rs:394:11 [ship_value] body  ship_value( core: &CoreState, k: &Kernel, seat: Seat, origin: System, ... => { return 1; }
+query/reach.rs:397:15 [ship_value] arith  i32::from(movement.unwrap_or(0)) + flank... + k.hooks.movement.move_bonus(core, MoveSi... => i32::from(movement.unwrap_or(0)) + flank... - k.hooks.moveme
+query/reach.rs:397:15 [ship_value] arith  i32::from(movement.unwrap_or(0)) + flank... + i32::from(boosts.1) => i32::from(movement.unwrap_or(0)) + flank... - i32::from(boos
+query/reach.rs:397:15 [ship_value] arith  i32::from(movement.unwrap_or(0)) + flank + i32::from(boosts.0) => i32::from(movement.unwrap_or(0)) + flank - i32::from(boosts.
+query/reach.rs:397:15 [ship_value] arith  i32::from(movement.unwrap_or(0)) + flank => i32::from(movement.unwrap_or(0)) - flank
+query/reach.rs:397:44 [ship_value] lit  0 => 1
+query/reach.rs:402:8 [ship_value] cond  player.is_some_and(|p| p.cards.breakthrough == Some(Breakthrough::GravleashManeu... => !(player.is_some_and(|p| p.cards.breakthrough == Some(Breakt
+query/reach.rs:402:8 [ship_value] logic  player.is_some_and(|p| p.cards.breakthro... && base_type != crate::generated::UnitBaseT... => player.is_some_and(|p| p.cards.breakthro... || base_type != 
+query/reach.rs:402:31 [ship_value] cmp  p.cards.breakthrough == Some(Breakthrough::GravleashManeuvers) => p.cards.breakthrough != Some(Breakthrough::GravleashManeuver
+query/reach.rs:403:12 [ship_value] cmp  base_type != crate::generated::UnitBaseType::Fighter => base_type == crate::generated::UnitBaseType::Fighter
+query/reach.rs:405:97 [ship_value] lit  0 => 1
+query/reach.rs:421:19 [effective_move_value] body  effective_move_value( core: &CoreState, k: &Kernel, seat: Seat, origin... => { return None; }
+query/reach.rs:437:19 [effective_move_value_for_ship] body  effective_move_value_for_ship( core: &CoreState, k: &Kernel, seat: Sea... => { return None; }
+query/reach.rs:445:116 [anchor_move_value] body  anchor_move_value(core: &CoreState, k: &Kernel, seat: Seat, origin: Sy... => { return 0; }
+query/reach.rs:445:116 [anchor_move_value] body  anchor_move_value(core: &CoreState, k: &Kernel, seat: Seat, origin: Sy... => { return 1; }
+query/reach.rs:446:59 [anchor_move_value] lit  0 => 1
+query/reach.rs:450:5 [anchor_move_value] arith  i32::from(data.movement.unwrap_or(0)) + ... + flank => i32::from(data.movement.unwrap_or(0)) + ... - flank
+query/reach.rs:450:5 [anchor_move_value] arith  i32::from(data.movement.unwrap_or(0)) + k.hooks.movement.move_bonus(core, MoveSi... => i32::from(data.movement.unwrap_or(0)) - k.hooks.movement.mov
+query/reach.rs:450:39 [anchor_move_value] lit  0 => 1
+query/reach.rs:470:74 [SeatFleet::new] cmp  p.owner() == seat => p.owner() != seat
+query/reach.rs:472:20 [SeatFleet::new] cond  !moves_as_ship(data) => !(!moves_as_ship(data))
+query/reach.rs:482:65 [SeatFleet::new] lit  0 => 1
+query/reach.rs:483:36 [SeatFleet::new] lit  false => true
+query/reach.rs:483:43 [SeatFleet::new] lit  false => true
+query/reach.rs:483:57 [SeatFleet::new] lit  true => false
+query/reach.rs:483:63 [SeatFleet::new] lit  false => true
+query/reach.rs:483:77 [SeatFleet::new] lit  false => true
+query/reach.rs:483:84 [SeatFleet::new] lit  true => false
+query/reach.rs:483:97 [SeatFleet::new] lit  true => false
+query/reach.rs:483:103 [SeatFleet::new] lit  true => false
+query/reach.rs:488:13 [SeatFleet::new] logic  p.tech.owned.contains(Technology::Gravit... && !p.timers.gravity_drive_used_activation.... => p.tech.owned.contains(Technology::Gravit... || !p.timers.gra
+query/reach.rs:490:22 [SeatFleet::new] logic  player.is_some_and(|p| !p.cards.legendar... && super::board::controls(core, seat, Plane... => player.is_some_and(|p| !p.cards.legendar... || super::board:
+query/reach.rs:498:63 [SeatFleet::movable] body  movable(&self, rules: &CoreRules) -> Vec<Movable> { => { return Vec::new(); }
+query/reach.rs:502:16 [SeatFleet::movable] cond  ship.origin == active => !(ship.origin == active)
+query/reach.rs:502:16 [SeatFleet::movable] cmp  ship.origin == active => ship.origin != active
+query/reach.rs:506:29 [SeatFleet::movable] cond  reach(0) => !(reach(0))
+query/reach.rs:506:35 [SeatFleet::movable] lit  0 => 1
+query/reach.rs:507:23 [SeatFleet::movable] lit  false => true
+query/reach.rs:507:30 [SeatFleet::movable] lit  false => true
+query/reach.rs:509:20 [SeatFleet::movable] lit  true => false
+query/reach.rs:509:26 [SeatFleet::movable] lit  false => true
+query/reach.rs:509:34 [SeatFleet::movable] lit  1 => 2
+query/reach.rs:509:40 [SeatFleet::movable] lit  false => true
+query/reach.rs:509:47 [SeatFleet::movable] lit  true => false
+query/reach.rs:509:54 [SeatFleet::movable] lit  2 => 3
+query/reach.rs:509:60 [SeatFleet::movable] lit  true => false
+query/reach.rs:509:66 [SeatFleet::movable] lit  true => false
+query/reach.rs:509:73 [SeatFleet::movable] lit  3 => 4
+query/reach.rs:511:46 [SeatFleet::movable] logic  (!gd || self.gravity) && (!ion || self.ionian) => (!gd || self.gravity) || (!ion || self.ionian)
+query/reach.rs:511:47 [SeatFleet::movable] logic  !gd || self.gravity => !gd && self.gravity
+query/reach.rs:511:72 [SeatFleet::movable] logic  !ion || self.ionian => !ion && self.ionian
+query/reach.rs:531:96 [SeatFleet::move_value] body  move_value(&self, origin: System, index: u16, boosts: (bool, bool)) ->... => { return None; }
+query/reach.rs:532:20 [SeatFleet::move_value] arith  usize::from(boosts.0) + 2 * usize::from(boosts.1) => usize::from(boosts.0) - 2 * usize::from(boosts.1)
+query/reach.rs:532:44 [SeatFleet::move_value] arith  2 * usize::from(boosts.1) => 2 + usize::from(boosts.1)
+query/reach.rs:532:44 [SeatFleet::move_value] lit  2 => 3
+query/reach.rs:533:36 [SeatFleet::move_value] logic  s.origin == origin && s.index == index => s.origin == origin || s.index == index
+query/reach.rs:533:36 [SeatFleet::move_value] cmp  s.origin == origin => s.origin != origin
+query/reach.rs:533:58 [SeatFleet::move_value] cmp  s.index == index => s.index != index
+query/relic.rs:11:79 [cards] body  cards(core: &CoreState, seat: Seat) -> Option<&crate::state::PlayerCar... => { return None; }
+query/relic.rs:17:67 [holds] body  holds(core: &CoreState, seat: Seat, relic: Relic) -> bool { => { return true; }
+query/relic.rs:17:67 [holds] body  holds(core: &CoreState, seat: Seat, relic: Relic) -> bool { => { return false; }
+query/relic.rs:23:67 [ready] body  ready(core: &CoreState, seat: Seat, relic: Relic) -> bool { => { return true; }
+query/relic.rs:23:67 [ready] body  ready(core: &CoreState, seat: Seat, relic: Relic) -> bool { => { return false; }
+query/relic.rs:24:5 [ready] logic  holds(core, seat, relic) && cards(core, seat).is_some_and(|c| !c.rel... => holds(core, seat, relic) || cards(core, seat).is_some_and(|c
+query/relic.rs:29:61 [fragment_kinds] body  fragment_kinds(fragments: &FragmentCounts) -> usize { => { return 0; }
+query/relic.rs:29:61 [fragment_kinds] body  fragment_kinds(fragments: &FragmentCounts) -> usize { => { return 1; }
+query/relic.rs:32:55 [fragment_kinds] cmp  n > 0 => n >= 0
+query/relic.rs:32:59 [fragment_kinds] lit  0 => 1
+query/relic.rs:38:66 [triad_value] body  triad_value(core: &CoreState, seat: Seat) -> Option<i64> { => { return None; }
+query/relic.rs:39:8 [triad_value] cond  !holds(core, seat, Relic::TheTriad) => !(!holds(core, seat, Relic::TheTriad))
+query/relic.rs:42:42 [triad_value] lit  0 => 1
+query/relic.rs:43:10 [triad_value] arith  3 + i64::try_from(kinds).unwrap_or(0) => 3 - i64::try_from(kinds).unwrap_or(0)
+query/relic.rs:43:10 [triad_value] lit  3 => 4
+query/relic.rs:43:45 [triad_value] lit  0 => 1
+query/relic.rs:48:74 [substitutes_strategy_token] body  substitutes_strategy_token(core: &CoreState, seat: Seat) -> bool { => { return true; }
+query/relic.rs:48:74 [substitutes_strategy_token] body  substitutes_strategy_token(core: &CoreState, seat: Seat) -> bool { => { return false; }
+query/relic.rs:54:62 [grants_sustain] body  grants_sustain(core: &CoreState, seat: Seat) -> bool { => { return true; }
+query/relic.rs:54:62 [grants_sustain] body  grants_sustain(core: &CoreState, seat: Seat) -> bool { => { return false; }
+query/relic.rs:60:77 [extra_barrage] body  extra_barrage(core: &CoreState, seat: Seat) -> Option<(u32, usize)> { => { return None; }
+query/relic.rs:61:62 [extra_barrage] lit  6 => 7
+query/relic.rs:61:65 [extra_barrage] lit  3 => 4
+query/relic.rs:66:79 [space_dock_cannon] body  space_dock_cannon(core: &CoreState, seat: Seat) -> Option<(i64, i64)> ... => { return None; }
+query/relic.rs:67:60 [space_dock_cannon] lit  5 => 6
+query/relic.rs:67:63 [space_dock_cannon] lit  2 => 3
+query/relic.rs:72:69 [prerequisite_waivers] body  prerequisite_waivers(core: &CoreState, seat: Seat) -> usize { => { return 0; }
+query/relic.rs:72:69 [prerequisite_waivers] body  prerequisite_waivers(core: &CoreState, seat: Seat) -> usize { => { return 1; }
+query/relic.rs:78:71 [secret_objective_bonus] body  secret_objective_bonus(core: &CoreState, seat: Seat) -> usize { => { return 0; }
+query/relic.rs:78:71 [secret_objective_bonus] body  secret_objective_bonus(core: &CoreState, seat: Seat) -> usize { => { return 1; }
+query/relic.rs:84:69 [ignores_gravity_rifts] body  ignores_gravity_rifts(core: &CoreState, seat: Seat) -> bool { => { return true; }
+query/relic.rs:84:69 [ignores_gravity_rifts] body  ignores_gravity_rifts(core: &CoreState, seat: Seat) -> bool { => { return false; }
+query/relic.rs:126:8 [use_arm] cond  !holds(core, seat, relic) => !(!holds(core, seat, relic))
+query/relic.rs:147:149 [action_relics] body  action_relics(core: &CoreState, seat: Seat, enigmatic_resolvable: bool... => { return Default::default(); }
+query/relic.rs:154:18 [action_relics] lit  true => false
+query/relic.rs:156:12 [action_relics] cond  has_action(*relic) && resolvable => !(has_action(*relic) && resolvable)
+query/relic.rs:156:12 [action_relics] logic  has_action(*relic) && resolvable => has_action(*relic) || resolvable
+query/seats.rs:18:65 [position] body  position(core: &CoreState, seat: Seat) -> Option<usize> { => { return None; }
+query/seats.rs:19:54 [position] cmp  *s == seat => *s != seat
+query/seats.rs:47:37 [next_after] cmp  *s == seat => *s != seat
+query/seats.rs:48:26 [next_after] arith  (i + 1) % order.len() => (i + 1) / order.len()
+query/seats.rs:48:27 [next_after] arith  i + 1 => i - 1
+query/seats.rs:48:31 [next_after] lit  1 => 2
+query/seats.rs:60:103 [initiative_order] lit  99 => 100
+query/seats.rs:60:124 [initiative_order] lit  99 => 100
+query/seats.rs:66:14 [initiative_order] lit  1 => 2
+query/seats.rs:68:24 [initiative_order] cmp  (items[j - 1].0, items[j - 1].1) > (items[j].0, items[j].1) => (items[j - 1].0, items[j - 1].1) >= (items[j].0, items[j].1)
+query/tech.rs:66:51 [is_unit_upgrade] body  is_unit_upgrade(tech: Technology) -> bool { => { return true; }
+query/tech.rs:72:60 [faction_of] body  faction_of(tech: Technology) -> Option<FactionTag> { => { return None; }
+query/tech.rs:134:70 [owns] body  owns(core: &CoreState, seat: Seat, tech: Technology) -> bool { => { return true; }
+query/tech.rs:134:70 [owns] body  owns(core: &CoreState, seat: Seat, tech: Technology) -> bool { => { return false; }
+query/tech.rs:140:56 [owned] body  owned(core: &CoreState, seat: Seat) -> TechSet { => { return Default::default(); }
+query/tech.rs:146:71 [ready] body  ready(core: &CoreState, seat: Seat, tech: Technology) -> bool { => { return true; }
+query/tech.rs:146:71 [ready] body  ready(core: &CoreState, seat: Seat, tech: Technology) -> bool { => { return false; }
+query/tech.rs:147:50 [ready] logic  p.tech.owned.contains(tech) && !p.tech.exhausted.contains(tech) => p.tech.owned.contains(tech) || !p.tech.exhausted.contains(te
+query/tech.rs:152:64 [owned_colours] body  owned_colours(core: &CoreState, seat: Seat) -> Colours { => { return Default::default(); }
+query/tech.rs:158:46 [colours_of] body  colours_of(set: &TechSet) -> Colours { => { return Default::default(); }
+query/tech.rs:159:21 [colours_of] lit  0u16 => 1u16
+query/tech.rs:162:13 [colours_of] assign  held[i] += 1 => held[i] -= 1
+query/tech.rs:162:24 [colours_of] lit  1 => 2
+query/tech.rs:170:83 [psychoarchaeology_frees_specialties] body  psychoarchaeology_frees_specialties(core: &CoreState, seat: Seat) -> b... => { return true; }
+query/tech.rs:170:83 [psychoarchaeology_frees_specialties] body  psychoarchaeology_frees_specialties(core: &CoreState, seat: Seat) -> b... => { return false; }
+query/tech.rs:171:5 [psychoarchaeology_frees_specialties] logic  core.meta().rules_at_least(RULES_TECH_EF... && owns(core, seat, Technology::Psychoarcha... => core.meta().rules_at_least(RULES_TECH_EF... || owns(core, se
+query/tech.rs:179:118 [specialties_now] body  specialties_now(core: &CoreState, scope: Scope, planet: Planet) -> cra... => { return Default::default(); }
+query/tech.rs:189:49 [specialties_of] body  specialties_of( scope: Scope, planet: Planet, attachments: impl IntoIt... => { return Default::default(); }
+query/tech.rs:192:8 [specialties_of] cond  scope.0 & source_bit(data.source) != 0 => !(scope.0 & source_bit(data.source) != 0)
+query/tech.rs:192:8 [specialties_of] cmp  scope.0 & source_bit(data.source) != 0 => scope.0 & source_bit(data.source) == 0
+query/tech.rs:192:8 [specialties_of] arith  scope.0 & source_bit(data.source) => scope.0 | source_bit(data.source)
+query/tech.rs:192:45 [specialties_of] lit  0 => 1
+query/tech.rs:194:16 [specialties_of] cond  !found.as_slice().contains(s) => !(!found.as_slice().contains(s))
+query/tech.rs:201:16 [specialties_of] cond  !found.as_slice().contains(s) => !(!found.as_slice().contains(s))
+query/tech.rs:212:76 [specialties] body  specialties(core: &CoreState, scope: Scope, seat: Seat) -> Colours { => { return Default::default(); }
+query/tech.rs:213:22 [specialties] lit  0u16 => 1u16
+query/tech.rs:216:12 [specialties] cond  !free && board::exhausted(core, *planet) => !(!free && board::exhausted(core, *planet))
+query/tech.rs:216:12 [specialties] logic  !free && board::exhausted(core, *planet) => !free || board::exhausted(core, *planet)
+query/tech.rs:221:17 [specialties] assign  found[i] += 1 => found[i] -= 1
+query/tech.rs:221:29 [specialties] lit  1 => 2
+query/tech.rs:235:59 [readied_specialty_planets] body  readied_specialty_planets( core: &CoreState, scope: Scope, seat: Seat,... => { return Default::default(); }
+query/tech.rs:238:12 [readied_specialty_planets] cond  board::exhausted(core, *planet) => !(board::exhausted(core, *planet))
+query/tech.rs:242:16 [readied_specialty_planets] cond  colour_index(*s).is_some() => !(colour_index(*s).is_some())
+query/tech.rs:253:81 [synergy_joined] body  synergy_joined(core: &CoreState, scope: Scope, seat: Seat) -> ColourSe... => { return Default::default(); }
+query/tech.rs:254:23 [synergy_joined] lit  false => true
+query/tech.rs:258:8 [synergy_joined] cond  p.cards.relics.as_slice().contains(&Relic::TheQuantumcore) => !(p.cards.relics.as_slice().contains(&Relic::TheQuantumcore)
+query/tech.rs:259:17 [synergy_joined] lit  true => false
+query/tech.rs:263:12 [synergy_joined] cmp  scope.0 & source_bit(d.source) != 0 => scope.0 & source_bit(d.source) == 0
+query/tech.rs:263:12 [synergy_joined] arith  scope.0 & source_bit(d.source) => scope.0 | source_bit(d.source)
+query/tech.rs:263:46 [synergy_joined] lit  0 => 1
+query/tech.rs:268:33 [synergy_joined] lit  true => false
+query/tech.rs:281:61 [satisfies] cmp  needs[*i] > 0 => needs[*i] >= 0
+query/tech.rs:282:12 [satisfies] cmp  wanted > 0 => wanted >= 0
+query/tech.rs:282:21 [satisfies] lit  0 => 1
+query/tech.rs:284:16 [satisfies] cmp  pooled < wanted => pooled <= wanted
+query/tech.rs:286:20 [satisfies] cmp  waivable < short => waivable <= short
+query/tech.rs:293:14 [satisfies] lit  0 => 1
+query/tech.rs:299:12 [satisfies] cmp  have >= need => have > need
+query/tech.rs:302:21 [satisfies] arith  need - have => need + have
+query/tech.rs:304:13 [satisfies] assign  waivable -= short => waivable += short
+query/tech.rs:335:46 [NoHooks::purged] body  purged(&self, _: Technology) -> bool { => { return true; }
+query/tech.rs:335:46 [NoHooks::purged] body  purged(&self, _: Technology) -> bool { => { return false; }
+query/tech.rs:336:9 [NoHooks::purged] lit  false => true
+query/tech.rs:338:61 [NoHooks::waived_prerequisites] body  waived_prerequisites(&self, _: Technology) -> usize { => { return 0; }
+query/tech.rs:338:61 [NoHooks::waived_prerequisites] body  waived_prerequisites(&self, _: Technology) -> usize { => { return 1; }
+query/tech.rs:339:9 [NoHooks::waived_prerequisites] lit  0 => 1
+query/tech.rs:341:41 [NoHooks::extra_colours] body  extra_colours(&self) -> Colours { => { return Default::default(); }
+query/tech.rs:342:10 [NoHooks::extra_colours] lit  0 => 1
+query/tech.rs:344:47 [NoHooks::inheritance_affordable] body  inheritance_affordable(&self) -> bool { => { return true; }
+query/tech.rs:344:47 [NoHooks::inheritance_affordable] body  inheritance_affordable(&self) -> bool { => { return false; }
+query/tech.rs:345:9 [NoHooks::inheritance_affordable] lit  false => true
+query/tech.rs:347:52 [NoHooks::waiver_offer] body  waiver_offer(&self, _: Technology) -> bool { => { return true; }
+query/tech.rs:347:52 [NoHooks::waiver_offer] body  waiver_offer(&self, _: Technology) -> bool { => { return false; }
+query/tech.rs:348:9 [NoHooks::waiver_offer] lit  false => true
+query/tech.rs:358:97 [war_sun_prerequisites_waived] body  war_sun_prerequisites_waived(core: &CoreState, blanked: bool, tech: Te... => { return true; }
+query/tech.rs:358:97 [war_sun_prerequisites_waived] body  war_sun_prerequisites_waived(core: &CoreState, blanked: bool, tech: Te... => { return false; }
+query/tech.rs:359:5 [war_sun_prerequisites_waived] logic  tech == WAR_SUN && laws::active(core, bl... && core.players().iter().any(|p| p.tech.own... => tech == WAR_SUN && laws::active(core, bl... || core.players(
+query/tech.rs:359:5 [war_sun_prerequisites_waived] logic  tech == WAR_SUN && laws::active(core, blanked, Agenda::Publ... => tech == WAR_SUN || laws::active(core, blanked, Agenda::Publ.
+query/tech.rs:359:5 [war_sun_prerequisites_waived] cmp  tech == WAR_SUN => tech != WAR_SUN
+query/tech.rs:366:78 [aida_waiver] body  aida_waiver(core: &CoreState, seat: Seat, tech: Technology) -> usize { => { return 0; }
+query/tech.rs:366:78 [aida_waiver] body  aida_waiver(core: &CoreState, seat: Seat, tech: Technology) -> usize { => { return 1; }
+query/tech.rs:368:9 [aida_waiver] logic  core.meta().rules_at_least(RULES_TECH_EF... && ready(core, seat, Technology::AIDevelopm... => core.meta().rules_at_least(RULES_TECH_EF... || ready(core, s
+query/tech.rs:368:9 [aida_waiver] logic  core.meta().rules_at_least(RULES_TECH_EF... && is_unit_upgrade(tech) => core.meta().rules_at_least(RULES_TECH_EF... || is_unit_upgra
+query/tech.rs:376:62 [relic_waivers] body  relic_waivers(core: &CoreState, seat: Seat) -> usize { => { return 0; }
+query/tech.rs:376:62 [relic_waivers] body  relic_waivers(core: &CoreState, seat: Seat) -> usize { => { return 1; }
+query/tech.rs:384:92 [inheritance_ready] body  inheritance_ready(core: &CoreState, seat: Seat, hooks: &dyn ResearchHo... => { return true; }
+query/tech.rs:384:92 [inheritance_ready] body  inheritance_ready(core: &CoreState, seat: Seat, hooks: &dyn ResearchHo... => { return false; }
+query/tech.rs:385:5 [inheritance_ready] logic  ready(core, seat, Technology::Inheritanc... && hooks.inheritance_affordable() => ready(core, seat, Technology::Inheritanc... || hooks.inherit
+query/tech.rs:419:29 [ResearchCtx::of] lit  0u16 => 1u16
+query/tech.rs:420:18 [ResearchCtx::of] lit  0 => 1
+query/tech.rs:421:27 [ResearchCtx::of] arith  held[i] + spec[i] + extra[i] => held[i] + spec[i] - extra[i]
+query/tech.rs:421:27 [ResearchCtx::of] arith  held[i] + spec[i] => held[i] - spec[i]
+query/tech.rs:425:13 [ResearchCtx::of] assign  waivable += laws::research_team_waivers(core, blanke... => waivable -= laws::research_team_waivers(core, blanke...
+query/tech.rs:433:25 [ResearchCtx::of] logic  core.meta().rules_at_least(RULES_TECH_EF... && ready(core, seat, Technology::AIDevelopm... => core.meta().rules_at_least(RULES_TECH_EF... || ready(core, s
+query/tech.rs:441:108 [ResearchCtx::prerequisites_met] body  prerequisites_met(&self, tech: Technology, hooks: &dyn ResearchHooks, ... => { return false; }
+query/tech.rs:442:28 [ResearchCtx::prerequisites_met] arith  hooks.waived_prerequisites(tech) + self.waivable => hooks.waived_prerequisites(tech) - self.waivable
+query/tech.rs:443:12 [ResearchCtx::prerequisites_met] cond  with_aida && self.aida_ready && is_unit_upgrade(tech) => !(with_aida && self.aida_ready && is_unit_upgrade(tech))
+query/tech.rs:443:12 [ResearchCtx::prerequisites_met] logic  with_aida && self.aida_ready && is_unit_upgrade(tech) => with_aida && self.aida_ready || is_unit_upgrade(tech)
+query/tech.rs:443:12 [ResearchCtx::prerequisites_met] logic  with_aida && self.aida_ready => with_aida || self.aida_ready
+query/tech.rs:444:13 [ResearchCtx::prerequisites_met] assign  waivable += 1 => waivable -= 1
+query/tech.rs:444:25 [ResearchCtx::prerequisites_met] lit  1 => 2
+query/tech.rs:446:12 [ResearchCtx::prerequisites_met] logic  tech == WAR_SUN && self.war_sun_waived => tech == WAR_SUN || self.war_sun_waived
+query/tech.rs:446:12 [ResearchCtx::prerequisites_met] cmp  tech == WAR_SUN => tech != WAR_SUN
+query/tech.rs:447:20 [ResearchCtx::prerequisites_met] lit  true => false
+query/tech.rs:454:86 [ResearchCtx::can_research] body  can_research(&self, tech: Technology, hooks: &dyn ResearchHooks) -> bo... => { return true; }
+query/tech.rs:455:12 [ResearchCtx::can_research] cond  self.owned.contains(tech) || hooks.purged(tech) || !open_to_faction(self.faction... => !(self.owned.contains(tech) || hooks.purged(tech) || !open_t
+query/tech.rs:455:12 [ResearchCtx::can_research] logic  self.owned.contains(tech) || hooks.purge... || !open_to_faction(self.faction, tech) => self.owned.contains(tech) || hooks.purge... && !open_to_fact
+query/tech.rs:455:12 [ResearchCtx::can_research] logic  self.owned.contains(tech) || hooks.purged(tech) => self.owned.contains(tech) && hooks.purged(tech)
+query/tech.rs:456:20 [ResearchCtx::can_research] lit  false => true
+query/tech.rs:458:9 [ResearchCtx::can_research] logic  self.prerequisites_met(tech, hooks, true... || (self.inheritance_card && hooks.inherita... => self.prerequisites_met(tech, hooks, true... && (self.inherit
+query/tech.rs:458:45 [ResearchCtx::can_research] lit  true => false
+query/tech.rs:459:17 [ResearchCtx::can_research] logic  self.inheritance_card && hooks.inheritance_affordable() => self.inheritance_card || hooks.inheritance_affordable()
+query/tech.rs:471:102 [ResearchCtx::researchable_by_prerequisites] body  researchable_by_prerequisites(&self, scope: Scope, hooks: &dyn Researc... => { return Default::default(); }
+query/tech.rs:474:25 [ResearchCtx::researchable_by_prerequisites] logic  self.can_research(*t, hooks) && self.prerequisites_met(*t, hooks, true) => self.can_research(*t, hooks) || self.prerequisites_met(*t, h
+query/tech.rs:474:91 [ResearchCtx::researchable_by_prerequisites] lit  true => false
+query/tech.rs:489:105 [prerequisites_met] lit  true => false
+query/tech.rs:501:12 [prerequisites_met_without_aida] body  prerequisites_met_without_aida( core: &CoreState, scope: Scope, blanke... => { return true; }
+query/tech.rs:501:12 [prerequisites_met_without_aida] body  prerequisites_met_without_aida( core: &CoreState, scope: Scope, blanke... => { return false; }
+query/tech.rs:502:105 [prerequisites_met_without_aida] lit  false => true
+query/tech.rs:522:12 [can_research] body  can_research( core: &CoreState, scope: Scope, blanked: bool, seat: Sea... => { return true; }
+query/tech.rs:522:12 [can_research] body  can_research( core: &CoreState, scope: Scope, blanked: bool, seat: Sea... => { return false; }
+query/tech.rs:540:15 [researchable_by_prerequisites] body  researchable_by_prerequisites( core: &CoreState, scope: Scope, blanked... => { return Default::default(); }
+query/tech.rs:558:13 [unlocked_upgrade] logic  d.base_type == base && d.faction.is_none_or(|tag| tag_is(tag, f... => d.base_type == base || d.faction.is_none_or(|tag| tag_is(tag
+query/tech.rs:581:86 [UnitRoster::set] body  set(&mut self, faction: Faction, base: UnitBaseType, unit: Option<Unit... => { return (); }
+query/tech.rs:586:78 [UnitRoster::get] body  get(&self, faction: Faction, base: UnitBaseType) -> Option<Unit> { => { return None; }
+query/tech.rs:593:97 [faction_unit] body  faction_unit(roster: &UnitRoster, faction: Faction, base: UnitBaseType... => { return None; }
+query/tech.rs:600:72 [generic_unit] body  generic_unit(scope: Scope, base: UnitBaseType) -> Option<Unit> { => { return None; }
+query/tech.rs:621:120 [unit_form] body  unit_form(core: &CoreState, scope: Scope, roster: &UnitRoster, seat: S... => { return None; }
+query/tech.rs:632:55 [is_scar] body  is_scar(scope: Scope, system: System) -> bool { => { return true; }
+query/tech.rs:632:55 [is_scar] body  is_scar(scope: Scope, system: System) -> bool { => { return false; }
+query/tech.rs:638:93 [unowned_faction_technologies] body  unowned_faction_technologies(core: &CoreState, scope: Scope, seat: Sea... => { return Default::default(); }
+query/tech.rs:644:101 [unowned_faction_technologies_of] body  unowned_faction_technologies_of(scope: Scope, faction: Faction, owned:... => { return Default::default(); }
+query/tech.rs:649:13 [unowned_faction_technologies_of] logic  scope.0 & source_bit(d.source) != 0 && d... && !owned.contains(*t) => scope.0 & source_bit(d.source) != 0 && d... || !owned.contai
+query/tech.rs:649:13 [unowned_faction_technologies_of] logic  scope.0 & source_bit(d.source) != 0 && d.faction.is_some_and(|tag| tag_is(tag, ... => scope.0 & source_bit(d.source) != 0 || d.faction.is_some_and
+query/tech.rs:649:13 [unowned_faction_technologies_of] cmp  scope.0 & source_bit(d.source) != 0 => scope.0 & source_bit(d.source) == 0
+query/tech.rs:649:13 [unowned_faction_technologies_of] arith  scope.0 & source_bit(d.source) => scope.0 | source_bit(d.source)
+query/tech.rs:649:47 [unowned_faction_technologies_of] lit  0 => 1
+query/trade.rs:65:58 [presence] body  presence(core: &CoreState, seat: Seat) -> SysSet { => { return Default::default(); }
+query/trade.rs:68:12 [presence] cond  cell.control == Some(seat) || cell.units.as_slice().iter().any(|u| u.owner() == ... => !(cell.control == Some(seat) || cell.units.as_slice().iter()
+query/trade.rs:68:12 [presence] logic  cell.control == Some(seat) || cell.units.as_slice().iter().any(|u| u.o... => cell.control == Some(seat) && cell.units.as_slice().iter().a
+query/trade.rs:68:12 [presence] cmp  cell.control == Some(seat) => cell.control != Some(seat)
+query/trade.rs:68:79 [presence] cmp  u.owner() == seat => u.owner() != seat
+query/trade.rs:79:82 [present_together] body  present_together(adj: &Adjacency, here: &SysSet, there: &SysSet) -> bo... => { return true; }
+query/trade.rs:79:82 [present_together] body  present_together(adj: &Adjacency, here: &SysSet, there: &SysSet) -> bo... => { return false; }
+query/trade.rs:80:5 [present_together] logic  here.intersects(there) || here.iter().any(|s| adj.of(crate::ids::s... => here.intersects(there) && here.iter().any(|s| adj.of(crate::
+query/trade.rs:85:55 [near_mecatol] body  near_mecatol(cx: &Cx<'_>, seat: Seat) -> bool { => { return true; }
+query/trade.rs:85:55 [near_mecatol] body  near_mecatol(cx: &Cx<'_>, seat: Seat) -> bool { => { return false; }
+query/trade.rs:89:61 [near_mecatol_of] body  near_mecatol_of(cx: &Cx<'_>, presence: &SysSet) -> bool { => { return true; }
+query/trade.rs:89:61 [near_mecatol_of] body  near_mecatol_of(cx: &Cx<'_>, presence: &SysSet) -> bool { => { return false; }
+query/trade.rs:90:5 [near_mecatol_of] logic  presence.contains(cx.mecatol.index()) || cx.adj.of(cx.mecatol).intersects(presenc... => presence.contains(cx.mecatol.index()) && cx.adj.of(cx.mecato
+query/trade.rs:96:67 [mecatol_neighbours] body  mecatol_neighbours(cx: &Cx<'_>, a: Seat, b: Seat) -> bool { => { return true; }
+query/trade.rs:96:67 [mecatol_neighbours] body  mecatol_neighbours(cx: &Cx<'_>, a: Seat, b: Seat) -> bool { => { return false; }
+query/trade.rs:97:5 [mecatol_neighbours] logic  (cx.env.has_iihq(a) && near_mecatol(cx, ... || (cx.env.has_iihq(b) && near_mecatol(cx, ... => (cx.env.has_iihq(a) && near_mecatol(cx, ... && (cx.env.has_i
+query/trade.rs:97:6 [mecatol_neighbours] logic  cx.env.has_iihq(a) && near_mecatol(cx, b) => cx.env.has_iihq(a) || near_mecatol(cx, b)
+query/trade.rs:97:53 [mecatol_neighbours] logic  cx.env.has_iihq(b) && near_mecatol(cx, a) => cx.env.has_iihq(b) || near_mecatol(cx, a)
+query/trade.rs:102:63 [are_neighbours] body  are_neighbours(cx: &Cx<'_>, a: Seat, b: Seat) -> bool { => { return true; }
+query/trade.rs:102:63 [are_neighbours] body  are_neighbours(cx: &Cx<'_>, a: Seat, b: Seat) -> bool { => { return false; }
+query/trade.rs:103:8 [are_neighbours] cond  a == b => !(a == b)
+query/trade.rs:103:8 [are_neighbours] cmp  a == b => a != b
+query/trade.rs:104:16 [are_neighbours] lit  false => true
+query/trade.rs:106:8 [are_neighbours] cond  mecatol_neighbours(cx, a, b) => !(mecatol_neighbours(cx, a, b))
+query/trade.rs:107:16 [are_neighbours] lit  true => false
+query/trade.rs:115:57 [neighbours] body  neighbours(cx: &Cx<'_>, seat: Seat) -> SeatList { => { return Default::default(); }
+query/trade.rs:119:12 [neighbours] cond  other == seat => !(other == seat)
+query/trade.rs:119:12 [neighbours] cmp  other == seat => other != seat
+query/trade.rs:122:12 [neighbours] cond  mecatol_neighbours(cx, seat, other) => !(mecatol_neighbours(cx, seat, other))
+query/trade.rs:127:12 [neighbours] cond  present_together(cx.adj, mine, &presence(cx.core, other)) => !(present_together(cx.adj, mine, &presence(cx.core, other)))
+query/trade.rs:137:72 [neighbours_who_transacted] body  neighbours_who_transacted(cx: &Cx<'_>, seat: Seat) -> SeatList { => { return Default::default(); }
+query/trade.rs:142:16 [neighbours_who_transacted] cond  who != seat && mine.as_slice().contains(&who) && !seen.as_slice().contains(&who) => !(who != seat && mine.as_slice().contains(&who) && !seen.as_
+query/trade.rs:142:16 [neighbours_who_transacted] logic  who != seat && mine.as_slice().contains(... && !seen.as_slice().contains(&who) => who != seat && mine.as_slice().contains(... || !seen.as_slic
+query/trade.rs:142:16 [neighbours_who_transacted] logic  who != seat && mine.as_slice().contains(&who) => who != seat || mine.as_slice().contains(&who)
+query/trade.rs:142:16 [neighbours_who_transacted] cmp  who != seat => who == seat
+query/trade.rs:152:55 [partners] body  partners(cx: &Cx<'_>, seat: Seat) -> SeatList { => { return Default::default(); }
+query/trade.rs:153:8 [partners] cond  cx.env.wide(seat) => !(cx.env.wide(seat))
+query/trade.rs:156:16 [partners] cond  other != seat => !(other != seat)
+query/trade.rs:156:16 [partners] cmp  other != seat => other == seat
+query/trade.rs:165:50 [seated] body  seated(core: &CoreState, seat: Seat) -> bool { => { return true; }
+query/trade.rs:165:50 [seated] body  seated(core: &CoreState, seat: Seat) -> bool { => { return false; }
+query/trade.rs:171:74 [may_transact] body  may_transact(cx: &Cx<'_>, proposer: Seat, partner: Seat) -> bool { => { return true; }
+query/trade.rs:171:74 [may_transact] body  may_transact(cx: &Cx<'_>, proposer: Seat, partner: Seat) -> bool { => { return false; }
+query/trade.rs:172:5 [may_transact] logic  cx.env.transaction_reach(proposer, partn... || (if cx.env.wide(partner) { proposer != p... => cx.env.transaction_reach(proposer, partn... && (if cx.env.wi
+query/trade.rs:172:5 [may_transact] logic  cx.env.transaction_reach(proposer, partn... || (cx.env.wide(proposer) && partner != pro... => cx.env.transaction_reach(proposer, partn... && (cx.env.wide(
+query/trade.rs:172:5 [may_transact] logic  cx.env.transaction_reach(proposer, partn... || are_neighbours(cx, proposer, partner) => cx.env.transaction_reach(proposer, partn... && are_neighbour
+query/trade.rs:174:13 [may_transact] logic  cx.env.wide(proposer) && partner != prop... && seated(cx.core, partner) => cx.env.wide(proposer) && partner != prop... || seated(cx.cor
+query/trade.rs:174:13 [may_transact] logic  cx.env.wide(proposer) && partner != proposer => cx.env.wide(proposer) || partner != proposer
+query/trade.rs:174:38 [may_transact] cmp  partner != proposer => partner == proposer
+query/trade.rs:175:16 [may_transact] cond  cx.env.wide(partner) => !(cx.env.wide(partner))
+query/trade.rs:176:13 [may_transact] logic  proposer != partner && seated(cx.core, proposer) => proposer != partner || seated(cx.core, proposer)
+query/trade.rs:176:13 [may_transact] cmp  proposer != partner => proposer == partner
+query/trade.rs:178:13 [may_transact] logic  seated(cx.core, proposer) && are_neighbours(cx, partner, proposer) => seated(cx.core, proposer) || are_neighbours(cx, partner, pro
+query/trade.rs:186:82 [transacted_with] body  transacted_with(core: &CoreState, proposer: Seat, partner: Seat) -> bo... => { return true; }
+query/trade.rs:186:82 [transacted_with] body  transacted_with(core: &CoreState, proposer: Seat, partner: Seat) -> bo... => { return false; }
+query/trade.rs:192:76 [may_open_again] body  may_open_again(cx: &Cx<'_>, proposer: Seat, partner: Seat) -> bool { => { return true; }
+query/trade.rs:192:76 [may_open_again] body  may_open_again(cx: &Cx<'_>, proposer: Seat, partner: Seat) -> bool { => { return false; }
+query/trade.rs:193:5 [may_open_again] logic  !transacted_with(cx.core, proposer, part... || cx.env.exempt_from_limit(proposer, partn... => !transacted_with(cx.core, proposer, part... && cx.env.exempt
+query/trade.rs:198:67 [may_initiate_negotiation] body  may_initiate_negotiation(cx: &Cx<'_>, seat: Seat) -> bool { => { return true; }
+query/trade.rs:198:67 [may_initiate_negotiation] body  may_initiate_negotiation(cx: &Cx<'_>, seat: Seat) -> bool { => { return false; }
+query/trade.rs:200:5 [may_initiate_negotiation] logic  t.negotiations_this_action.get(&seat).co... && t.negotiations_this_round.get(&seat).cop... => t.negotiations_this_action.get(&seat).co... || t.negotiation
+query/trade.rs:200:5 [may_initiate_negotiation] cmp  t.negotiations_this_action.get(&seat).co... < cx.limits.per_action => t.negotiations_this_action.get(&seat).co... <= cx.limits.per
+query/trade.rs:200:62 [may_initiate_negotiation] lit  0 => 1
+query/trade.rs:201:12 [may_initiate_negotiation] cmp  t.negotiations_this_round.get(&seat).cop... < cx.limits.per_round => t.negotiations_this_round.get(&seat).cop... <= cx.limits.per
+query/trade.rs:201:68 [may_initiate_negotiation] lit  0 => 1
+query/trade.rs:207:60 [open_partners] body  open_partners(cx: &Cx<'_>, seat: Seat) -> SeatList { => { return Default::default(); }
+query/trade.rs:209:8 [open_partners] cond  cx.core.trade().diplomacy.enabled || !may_initiate_negotiation(cx, seat) => !(cx.core.trade().diplomacy.enabled || !may_initiate_negotia
+query/trade.rs:209:8 [open_partners] logic  cx.core.trade().diplomacy.enabled || !may_initiate_negotiation(cx, seat) => cx.core.trade().diplomacy.enabled && !may_initiate_negotiati
+query/trade.rs:213:12 [open_partners] cond  other != seat && may_transact(cx, seat, other) && may_open_again(cx, seat, other... => !(other != seat && may_transact(cx, seat, other) && may_open
+query/trade.rs:213:12 [open_partners] logic  other != seat && may_transact(cx, seat, ... && may_open_again(cx, seat, other) => other != seat && may_transact(cx, seat, ... || may_open_agai
+query/trade.rs:213:12 [open_partners] logic  other != seat && may_transact(cx, seat, other) => other != seat || may_transact(cx, seat, other)
+query/trade.rs:213:12 [open_partners] cmp  other != seat => other == seat
+query/trade.rs:267:37 [Terms::is_empty] body  is_empty(&self) -> bool { => { return true; }
+query/trade.rs:267:37 [Terms::is_empty] body  is_empty(&self) -> bool { => { return false; }
+query/trade.rs:268:9 [Terms::is_empty] logic  self.trade_goods == 0 && self.commoditie... && self.planet.is_none() => self.trade_goods == 0 && self.commoditie... || self.planet.i
+query/trade.rs:268:9 [Terms::is_empty] logic  self.trade_goods == 0 && self.commoditie... && self.secret.is_none() => self.trade_goods == 0 && self.commoditie... || self.secret.i
+query/trade.rs:268:9 [Terms::is_empty] logic  self.trade_goods == 0 && self.commoditie... && self.action_card.is_none() => self.trade_goods == 0 && self.commoditie... || self.action_c
+query/trade.rs:268:9 [Terms::is_empty] logic  self.trade_goods == 0 && self.commoditie... && self.note.is_none() => self.trade_goods == 0 && self.commoditie... || self.note.is_
+query/trade.rs:268:9 [Terms::is_empty] logic  self.trade_goods == 0 && self.commoditie... && self.fragments.iter().all(|n| *n == 0) => self.trade_goods == 0 && self.commoditie... || self.fragment
+query/trade.rs:268:9 [Terms::is_empty] logic  self.trade_goods == 0 && self.commodities == 0 => self.trade_goods == 0 || self.commodities == 0
+query/trade.rs:268:9 [Terms::is_empty] cmp  self.trade_goods == 0 => self.trade_goods != 0
+query/trade.rs:268:29 [Terms::is_empty] lit  0 => 1
+query/trade.rs:269:16 [Terms::is_empty] cmp  self.commodities == 0 => self.commodities != 0
+query/trade.rs:269:36 [Terms::is_empty] lit  0 => 1
+query/trade.rs:270:46 [Terms::is_empty] cmp  *n == 0 => *n != 0
+query/trade.rs:270:52 [Terms::is_empty] lit  0 => 1
+query/trade.rs:308:75 [fragment_held] body  fragment_held(core: &CoreState, seat: Seat, kind: ExploreType) -> i32 ... => { return 0; }
+query/trade.rs:308:75 [fragment_held] body  fragment_held(core: &CoreState, seat: Seat, kind: ExploreType) -> i32 ... => { return 1; }
+query/trade.rs:309:83 [fragment_held] lit  0 => 1
+query/trade.rs:314:70 [can_pay] body  can_pay(core: &CoreState, seat: Seat, terms: &Terms) -> bool { => { return true; }
+query/trade.rs:314:70 [can_pay] body  can_pay(core: &CoreState, seat: Seat, terms: &Terms) -> bool { => { return false; }
+query/trade.rs:316:16 [can_pay] lit  false => true
+query/trade.rs:318:8 [can_pay] cond  terms.trade_goods > i32::from(p.econ.trade_goods) || terms.commodities > i32::fr... => !(terms.trade_goods > i32::from(p.econ.trade_goods) || terms
+query/trade.rs:318:8 [can_pay] logic  terms.trade_goods > i32::from(p.econ.tra... || terms.commodities > i32::from(p.econ.com... => terms.trade_goods > i32::from(p.econ.tra... && terms.commodi
+query/trade.rs:318:8 [can_pay] cmp  terms.trade_goods > i32::from(p.econ.trade_goods) => terms.trade_goods >= i32::from(p.econ.trade_goods)
+query/trade.rs:318:61 [can_pay] cmp  terms.commodities > i32::from(p.econ.commodities) => terms.commodities >= i32::from(p.econ.commodities)
+query/trade.rs:319:16 [can_pay] lit  false => true
+query/trade.rs:321:8 [can_pay] cond  terms.note.is_some_and(|n| !n.payable) => !(terms.note.is_some_and(|n| !n.payable))
+query/trade.rs:322:16 [can_pay] lit  false => true
+query/trade.rs:324:8 [can_pay] cond  terms.planet.is_some_and(|n| !n.payable) => !(terms.planet.is_some_and(|n| !n.payable))
+query/trade.rs:325:16 [can_pay] lit  false => true
+query/trade.rs:329:12 [can_pay] cond  need > 0 && fragment_held(core, seat, kind) < need => !(need > 0 && fragment_held(core, seat, kind) < need)
+query/trade.rs:329:12 [can_pay] logic  need > 0 && fragment_held(core, seat, kind) < need => need > 0 || fragment_held(core, seat, kind) < need
+query/trade.rs:329:12 [can_pay] cmp  need > 0 => need >= 0
+query/trade.rs:329:19 [can_pay] lit  0 => 1
+query/trade.rs:329:24 [can_pay] cmp  fragment_held(core, seat, kind) < need => fragment_held(core, seat, kind) <= need
+query/trade.rs:330:20 [can_pay] lit  false => true
+query/trade.rs:336:16 [can_pay] lit  false => true
+query/trade.rs:338:5 [can_pay] lit  true => false
+query/trade.rs:343:68 [why_illegal] body  why_illegal(cx: &Cx<'_>, offer: &Offer) -> Option<Illegal> { => { return None; }
+query/trade.rs:356:23 [why_illegal_with] body  why_illegal_with( core: &CoreState, may_transact: impl FnOnce() -> boo... => { return None; }
+query/trade.rs:357:8 [why_illegal_with] cond  offer.proposer == offer.partner => !(offer.proposer == offer.partner)
+query/trade.rs:357:8 [why_illegal_with] cmp  offer.proposer == offer.partner => offer.proposer != offer.partner
+query/trade.rs:361:12 [why_illegal_with] cond  core.players().by_seat(seat).is_none() => !(core.players().by_seat(seat).is_none())
+query/trade.rs:365:8 [why_illegal_with] cond  offer.given.is_empty() && offer.received.is_empty() => !(offer.given.is_empty() && offer.received.is_empty())
+query/trade.rs:365:8 [why_illegal_with] logic  offer.given.is_empty() && offer.received.is_empty() => offer.given.is_empty() || offer.received.is_empty()
+query/trade.rs:368:8 [why_illegal_with] cond  core.meta().phase != Phase::Agenda && !may_transact() => !(core.meta().phase != Phase::Agenda && !may_transact())
+query/trade.rs:368:8 [why_illegal_with] logic  core.meta().phase != Phase::Agenda && !may_transact() => core.meta().phase != Phase::Agenda || !may_transact()
+query/trade.rs:368:8 [why_illegal_with] cmp  core.meta().phase != Phase::Agenda => core.meta().phase == Phase::Agenda
+query/trade.rs:371:8 [why_illegal_with] cond  !can_pay(core, offer.proposer, &offer.given) => !(!can_pay(core, offer.proposer, &offer.given))
+query/trade.rs:374:8 [why_illegal_with] cond  !can_pay(core, offer.partner, &offer.received) => !(!can_pay(core, offer.partner, &offer.received))
+query/trade.rs:378:12 [why_illegal_with] cond  terms.note.is_some_and(|n| !n.receivable) => !(terms.note.is_some_and(|n| !n.receivable))
+query/trade.rs:382:8 [why_illegal_with] cond  offer.given.action_card.is_some() || offer.received.action_card.is_some() => !(offer.given.action_card.is_some() || offer.received.action
+query/trade.rs:382:8 [why_illegal_with] logic  offer.given.action_card.is_some() || offer.received.action_card.is_some() => offer.given.action_card.is_some() && offer.received.action_c
+query/trade.rs:383:24 [why_illegal_with] logic  black_market() || trades_action_cards(of... || trades_action_cards(offer.partner) => black_market() || trades_action_cards(of... && trades_action
+query/trade.rs:383:24 [why_illegal_with] logic  black_market() || trades_action_cards(offer.proposer) => black_market() && trades_action_cards(offer.proposer)
+query/trade.rs:384:12 [why_illegal_with] cond  !arbiters => !(!arbiters)
+query/trade_deals.rs:49:49 [DealFacts::may_from] body  may_from(&self, from: Seat) -> bool { => { return true; }
+query/trade_deals.rs:49:49 [DealFacts::may_from] body  may_from(&self, from: Seat) -> bool { => { return false; }
+query/trade_deals.rs:50:30 [DealFacts::may_from] cmp  from != self.pair.0 => from == self.pair.0
+query/trade_deals.rs:55:48 [DealFacts::arbiter] body  arbiter(&self, seat: Seat) -> bool { => { return true; }
+query/trade_deals.rs:55:48 [DealFacts::arbiter] body  arbiter(&self, seat: Seat) -> bool { => { return false; }
+query/trade_deals.rs:56:35 [DealFacts::arbiter] cmp  seat != self.pair.0 => seat == self.pair.0
+query/trade_deals.rs:67:41 [DealFacts::eq] body  eq(&self, other: &Self) -> bool { => { return true; }
+query/trade_deals.rs:67:41 [DealFacts::eq] body  eq(&self, other: &Self) -> bool { => { return false; }
+query/trade_deals.rs:68:9 [DealFacts::eq] logic  self.unlocked == other.unlocked && self.... && self.arbiters == other.arbiters => self.unlocked == other.unlocked && self.... || self.arbiters
+query/trade_deals.rs:68:9 [DealFacts::eq] logic  self.unlocked == other.unlocked && self.... && self.may == other.may => self.unlocked == other.unlocked && self.... || self.may == o
+query/trade_deals.rs:68:9 [DealFacts::eq] logic  self.unlocked == other.unlocked && self.pair == other.pair => self.unlocked == other.unlocked || self.pair == other.pair
+query/trade_deals.rs:68:9 [DealFacts::eq] cmp  self.unlocked == other.unlocked => self.unlocked != other.unlocked
+query/trade_deals.rs:68:44 [DealFacts::eq] cmp  self.pair == other.pair => self.pair != other.pair
+query/trade_deals.rs:68:71 [DealFacts::eq] cmp  self.may == other.may => self.may != other.may
+query/trade_deals.rs:68:96 [DealFacts::eq] cmp  self.arbiters == other.arbiters => self.arbiters != other.arbiters
+query/trade_deals.rs:143:22 [py_round_half_even] cmp  (floor + 0.5 - value).abs() <= 1e-9 => (floor + 0.5 - value).abs() < 1e-9
+query/trade_deals.rs:156:9 [Side::worth] arith  f64::from(self.goods) + f64::from(self.c... + self.planet.map_or(0.0, f64::from) => f64::from(self.goods) + f64::from(self.c... - self.planet.ma
+query/trade_deals.rs:156:9 [Side::worth] arith  f64::from(self.goods) + f64::from(self.c... + f64::from(u8::from(self.secret)) => f64::from(self.goods) + f64::from(self.c... - f64::from(u8::
+query/trade_deals.rs:156:9 [Side::worth] arith  f64::from(self.goods) + f64::from(self.c... + f64::from(u8::from(self.card)) => f64::from(self.goods) + f64::from(self.c... - f64::from(u8::
+query/trade_deals.rs:169:9 [Side::cost] arith  f64::from(self.goods) + 0.2 * f64::from(... + self.planet.map_or(0.0, |_| PLANET_GIVIN... => f64::from(self.goods) + 0.2 * f64::from(... - self.planet.ma
+query/trade_deals.rs:169:9 [Side::cost] arith  f64::from(self.goods) + 0.2 * f64::from(... + f64::from(u8::from(self.secret)) => f64::from(self.goods) + 0.2 * f64::from(... - f64::from(u8::
+query/trade_deals.rs:169:9 [Side::cost] arith  f64::from(self.goods) + 0.2 * f64::from(... + f64::from(u8::from(self.card)) => f64::from(self.goods) + 0.2 * f64::from(... - f64::from(u8::
+query/trade_deals.rs:198:49 [sides] lit  true => false
+query/trade_deals.rs:198:82 [sides] lit  1 => 2
+query/trade_deals.rs:199:61 [sides] lit  true => false
+query/trade_deals.rs:200:53 [sides] lit  true => false
+query/trade_deals.rs:200:86 [sides] lit  1 => 2
+query/trade_deals.rs:203:40 [sides] lit  1 => 2
+query/trade_deals.rs:203:56 [sides] lit  1 => 2
+query/trade_deals.rs:227:54 [econ] body  econ(core: &CoreState, seat: Seat) -> (i32, i32) { => { return Default::default(); }
+query/trade_deals.rs:228:42 [econ] lit  0 => 1
+query/trade_deals.rs:228:45 [econ] lit  0 => 1
+query/trade_deals.rs:231:27 [u16_of] body  u16_of(n: i32) -> u16 { => { return 0; }
+query/trade_deals.rs:231:27 [u16_of] body  u16_of(n: i32) -> u16 { => { return 1; }
+query/trade_deals.rs:236:65 [seat_of] body  seat_of(core: &CoreState, faction: Faction) -> Option<Seat> { => { return None; }
+query/trade_deals.rs:237:59 [seat_of] cmp  qn::faction_of(core, *s) == Some(faction) => qn::faction_of(core, *s) != Some(faction)
+query/trade_deals.rs:243:86 [available_notes] body  available_notes(core: &CoreState, f: &DealFacts, seat: Seat) -> Vec<No... => { return Vec::new(); }
+query/trade_deals.rs:248:13 [available_notes] logic  k.note != PromissoryNote::Alliance || seat_of(core, k.faction).is_some_and(|ow... => k.note != PromissoryNote::Alliance && seat_of(core, k.factio
+query/trade_deals.rs:248:13 [available_notes] cmp  k.note != PromissoryNote::Alliance => k.note == PromissoryNote::Alliance
+query/trade_deals.rs:248:96 [available_notes] cmp  f.unlocked & (1 << owner.0) != 0 => f.unlocked & (1 << owner.0) == 0
+query/trade_deals.rs:248:96 [available_notes] arith  f.unlocked & (1 << owner.0) => f.unlocked | (1 << owner.0)
+query/trade_deals.rs:248:110 [available_notes] arith  1 << owner.0 => 1 >> owner.0
+query/trade_deals.rs:248:110 [available_notes] lit  1 => 2
+query/trade_deals.rs:248:127 [available_notes] lit  0 => 1
+query/trade_deals.rs:257:76 [available_support] body  available_support(core: &CoreState, seat: Seat) -> Option<Faction> { => { return None; }
+query/trade_deals.rs:264:44 [black_market] body  black_market(core: &CoreState) -> bool { => { return true; }
+query/trade_deals.rs:264:44 [black_market] body  black_market(core: &CoreState) -> bool { => { return false; }
+query/trade_deals.rs:270:93 [deals] body  deals(core: &CoreState, f: &DealFacts, proposer: Seat, partner: Seat) ... => { return Vec::new(); }
+query/trade_deals.rs:282:12 [deals] cond  !qn::may_receive(core, partner, key.note) => !(!qn::may_receive(core, partner, key.note))
+query/trade_deals.rs:286:12 [deals] cond  price > 0 && their_goods < price => !(price > 0 && their_goods < price)
+query/trade_deals.rs:286:12 [deals] logic  price > 0 && their_goods < price => price > 0 || their_goods < price
+query/trade_deals.rs:286:12 [deals] cmp  price > 0 => price >= 0
+query/trade_deals.rs:286:20 [deals] lit  0 => 1
+query/trade_deals.rs:286:25 [deals] cmp  their_goods < price => their_goods <= price
+query/trade_deals.rs:287:55 [deals] lit  0 => 1
+query/trade_deals.rs:289:12 [deals] cond  price > 0 && their_goods >= price => !(price > 0 && their_goods >= price)
+query/trade_deals.rs:289:12 [deals] logic  price > 0 && their_goods >= price => price > 0 || their_goods >= price
+query/trade_deals.rs:289:12 [deals] cmp  price > 0 => price >= 0
+query/trade_deals.rs:289:20 [deals] lit  0 => 1
+query/trade_deals.rs:289:25 [deals] cmp  their_goods >= price => their_goods > price
+query/trade_deals.rs:295:21 [deals] logic  black_market(core) || f.arbiters[0] || f.arbiters[1] => black_market(core) || f.arbiters[0] && f.arbiters[1]
+query/trade_deals.rs:295:21 [deals] logic  black_market(core) || f.arbiters[0] => black_market(core) && f.arbiters[0]
+query/trade_deals.rs:295:54 [deals] lit  0 => 1
+query/trade_deals.rs:295:71 [deals] lit  1 => 2
+query/trade_deals.rs:299:12 [deals] cond  their_goods >= 1 => !(their_goods >= 1)
+query/trade_deals.rs:299:12 [deals] cmp  their_goods >= 1 => their_goods > 1
+query/trade_deals.rs:299:27 [deals] lit  1 => 2
+query/trade_deals.rs:302:91 [deals] lit  3 => 4
+query/trade_deals.rs:311:16 [deals] cond  their_goods >= 1 => !(their_goods >= 1)
+query/trade_deals.rs:311:16 [deals] cmp  their_goods >= 1 => their_goods > 1
+query/trade_deals.rs:311:31 [deals] lit  1 => 2
+query/trade_deals.rs:316:16 [deals] cond  p.cards.fragments.get(kind).is_some_and(|n| n > 0) && their_goods >= 1 => !(p.cards.fragments.get(kind).is_some_and(|n| n > 0) && thei
+query/trade_deals.rs:316:16 [deals] logic  p.cards.fragments.get(kind).is_some_and(... && their_goods >= 1 => p.cards.fragments.get(kind).is_some_and(... || their_goods >
+query/trade_deals.rs:316:60 [deals] cmp  n > 0 => n >= 0
+query/trade_deals.rs:316:64 [deals] lit  0 => 1
+query/trade_deals.rs:316:70 [deals] cmp  their_goods >= 1 => their_goods > 1
+query/trade_deals.rs:316:85 [deals] lit  1 => 2
+query/trade_deals.rs:323:8 [deals] cond  swap > 0 => !(swap > 0)
+query/trade_deals.rs:323:8 [deals] cmp  swap > 0 => swap >= 0
+query/trade_deals.rs:323:15 [deals] lit  0 => 1
+query/trade_deals.rs:325:12 [deals] cond  swap > 1 => !(swap > 1)
+query/trade_deals.rs:325:12 [deals] cmp  swap > 1 => swap >= 1
+query/trade_deals.rs:325:19 [deals] lit  1 => 2
+query/trade_deals.rs:329:8 [deals] cond  mine_commodities > 0 && their_goods > 0 => !(mine_commodities > 0 && their_goods > 0)
+query/trade_deals.rs:329:8 [deals] logic  mine_commodities > 0 && their_goods > 0 => mine_commodities > 0 || their_goods > 0
+query/trade_deals.rs:329:8 [deals] cmp  mine_commodities > 0 => mine_commodities >= 0
+query/trade_deals.rs:329:27 [deals] lit  0 => 1
+query/trade_deals.rs:329:32 [deals] cmp  their_goods > 0 => their_goods >= 0
+query/trade_deals.rs:329:46 [deals] lit  0 => 1
+query/trade_deals.rs:330:41 [deals] lit  3 => 4
+query/trade_deals.rs:332:12 [deals] cond  want > 0 => !(want > 0)
+query/trade_deals.rs:332:12 [deals] cmp  want > 0 => want >= 0
+query/trade_deals.rs:332:19 [deals] lit  0 => 1
+query/trade_deals.rs:336:8 [deals] cond  their_commodities > 0 && mine_goods > 0 => !(their_commodities > 0 && mine_goods > 0)
+query/trade_deals.rs:336:8 [deals] logic  their_commodities > 0 && mine_goods > 0 => their_commodities > 0 || mine_goods > 0
+query/trade_deals.rs:336:8 [deals] cmp  their_commodities > 0 => their_commodities >= 0
+query/trade_deals.rs:336:28 [deals] lit  0 => 1
+query/trade_deals.rs:336:33 [deals] cmp  mine_goods > 0 => mine_goods >= 0
+query/trade_deals.rs:336:46 [deals] lit  0 => 1
+query/trade_deals.rs:337:42 [deals] lit  3 => 4
+query/trade_deals.rs:339:12 [deals] cond  give > 0 => !(give > 0)
+query/trade_deals.rs:339:12 [deals] cmp  give > 0 => give >= 0
+query/trade_deals.rs:339:19 [deals] lit  0 => 1
+query/trade_deals.rs:343:17 [deals] lit  0 => 1
+query/trade_deals.rs:343:36 [deals] lit  3 => 4
+query/trade_deals.rs:344:21 [deals] lit  0 => 1
+query/trade_deals.rs:344:41 [deals] lit  3 => 4
+query/trade_deals.rs:345:16 [deals] cond  give == 0 && want == 0 => !(give == 0 && want == 0)
+query/trade_deals.rs:345:16 [deals] logic  give == 0 && want == 0 => give == 0 || want == 0
+query/trade_deals.rs:345:16 [deals] cmp  give == 0 => give != 0
+query/trade_deals.rs:345:24 [deals] lit  0 => 1
+query/trade_deals.rs:345:29 [deals] cmp  want == 0 => want != 0
+query/trade_deals.rs:345:37 [deals] lit  0 => 1
+query/trade_deals.rs:351:8 [deals] cond  mine_commodities > 0 => !(mine_commodities > 0)
+query/trade_deals.rs:351:8 [deals] cmp  mine_commodities > 0 => mine_commodities >= 0
+query/trade_deals.rs:351:27 [deals] lit  0 => 1
+query/trade_deals.rs:364:84 [kenara_planets] body  kenara_planets(core: &CoreState, seat: Seat) -> Vec<(Planet, Vec<Plane... => { return Vec::new(); }
+query/trade_deals.rs:365:8 [kenara_planets] cond  !core.loaded.has(crate::state::Slice::Board) || core.meta().rules_version < RULE... => !(!core.loaded.has(crate::state::Slice::Board) || core.meta(
+query/trade_deals.rs:365:8 [kenara_planets] logic  !core.loaded.has(crate::state::Slice::Bo... || core.meta().rules_version < RULES_FACTIO... => !core.loaded.has(crate::state::Slice::Bo... && core.meta().r
+query/trade_deals.rs:365:56 [kenara_planets] cmp  core.meta().rules_version < RULES_FACTION_BUGFIXES => core.meta().rules_version <= RULES_FACTION_BUGFIXES
+query/trade_deals.rs:372:92 [kenara_planets] logic  u.kind() == Unit::PrideOfKenara && u.owner() == seat => u.kind() == Unit::PrideOfKenara || u.owner() == seat
+query/trade_deals.rs:372:92 [kenara_planets] cmp  u.kind() == Unit::PrideOfKenara => u.kind() != Unit::PrideOfKenara
+query/trade_deals.rs:372:127 [kenara_planets] cmp  u.owner() == seat => u.owner() != seat
+query/trade_deals.rs:374:102 [kenara_planets] cmp  other != planet => other == planet
+query/trade_deals.rs:384:105 [planet_shapes] body  planet_shapes(core: &CoreState, f: &DealFacts, proposer: Seat, partner... => { return (); }
+query/trade_deals.rs:387:89 [planet_shapes] lit  2 => 3
+query/trade_deals.rs:391:61 [planet_shapes] lit  0 => 1
+query/trade_deals.rs:392:16 [planet_shapes] cond  their_goods >= i32::from(price) => !(their_goods >= i32::from(price))
+query/trade_deals.rs:392:16 [planet_shapes] cmp  their_goods >= i32::from(price) => their_goods > i32::from(price)
+query/trade_deals.rs:399:12 [planet_shapes] cond  my_goods < i32::from(price) => !(my_goods < i32::from(price))
+query/trade_deals.rs:399:12 [planet_shapes] cmp  my_goods < i32::from(price) => my_goods <= i32::from(price)
+query/trade_deals.rs:409:144 [partner_assets] body  partner_assets(core: &CoreState, f: &DealFacts, proposer: Seat, partne... => { return (); }
+query/trade_deals.rs:418:12 [partner_assets] cond  p > 0 && my_goods >= p => !(p > 0 && my_goods >= p)
+query/trade_deals.rs:418:12 [partner_assets] logic  p > 0 && my_goods >= p => p > 0 || my_goods >= p
+query/trade_deals.rs:418:12 [partner_assets] cmp  p > 0 => p >= 0
+query/trade_deals.rs:418:16 [partner_assets] lit  0 => 1
+query/trade_deals.rs:418:21 [partner_assets] cmp  my_goods >= p => my_goods > p
+query/trade_deals.rs:421:12 [partner_assets] cond  p > 0 && my_commodities >= p => !(p > 0 && my_commodities >= p)
+query/trade_deals.rs:421:12 [partner_assets] logic  p > 0 && my_commodities >= p => p > 0 || my_commodities >= p
+query/trade_deals.rs:421:12 [partner_assets] cmp  p > 0 => p >= 0
+query/trade_deals.rs:421:16 [partner_assets] lit  0 => 1
+query/trade_deals.rs:421:21 [partner_assets] cmp  my_commodities >= p => my_commodities > p
+query/trade_deals.rs:426:81 [partner_assets] lit  1 => 2
+query/trade_deals.rs:427:12 [partner_assets] cond  paid <= 0 => !(paid <= 0)
+query/trade_deals.rs:427:12 [partner_assets] cmp  paid <= 0 => paid < 0
+query/trade_deals.rs:427:20 [partner_assets] lit  0 => 1
+query/trade_deals.rs:436:16 [partner_assets] cond  want.note == owed.note => !(want.note == owed.note)
+query/trade_deals.rs:436:16 [partner_assets] cmp  want.note == owed.note => want.note != owed.note
+query/trade_deals.rs:439:23 [partner_assets] arith  note_worth(Held::Note(*want)) - note_cost(Held::Note(*owed)) => note_worth(Held::Note(*want)) + note_cost(Held::Note(*owed))
+query/trade_deals.rs:440:16 [partner_assets] cond  net >= 0.0 => !(net >= 0.0)
+query/trade_deals.rs:440:16 [partner_assets] cmp  net >= 0.0 => net > 0.0
+query/trade_deals.rs:446:51 [partner_assets] lit  4 => 5
+query/trade_deals.rs:454:20 [fragments_of] lit  0 => 1
+query/trade_deals.rs:455:26 [fragments_of] lit  1 => 2
+query/trade_deals.rs:470:51 [offer_of] lit  false => true
+query/trade_deals.rs:470:70 [offer_of] lit  true => false
+query/trade_deals.rs:479:52 [offer_of] cmp  available_support(core, proposer) == Some(from) => available_support(core, proposer) != Some(from)
+query/trade_deals.rs:479:113 [offer_of] lit  true => false
+query/trade_deals.rs:480:55 [offer_of] cmp  available_support(core, partner) == Some(to) => available_support(core, partner) != Some(to)
+query/trade_deals.rs:480:113 [offer_of] lit  true => false
+query/trade_deals.rs:494:71 [planet_leg] logic  *p == planet && moves.contains(&to) => *p == planet || moves.contains(&to)
+query/trade_deals.rs:494:71 [planet_leg] cmp  *p == planet => *p != planet
+query/transit.rs:26:105 [activatable] body  activatable(core: &CoreState, k: &Kernel, seat: Seat, holds_leave: boo... => { return None; }
+query/transit.rs:35:14 [activatable] logic  core.meta().rules_version >= RULES_NEXUS... && galaxy.coord_of(System::MalliceLockedNex... => core.meta().rules_version >= RULES_NEXUS... || galaxy.coord_
+query/transit.rs:35:14 [activatable] logic  core.meta().rules_version >= RULES_NEXUS... && galaxy.in_play().contains(System::Mallic... => core.meta().rules_version >= RULES_NEXUS... || galaxy.in_pla
+query/transit.rs:35:14 [activatable] cmp  core.meta().rules_version >= RULES_NEXUS_ACTIVATION => core.meta().rules_version > RULES_NEXUS_ACTIVATION
+query/transit.rs:40:21 [activatable] lit  false => true
+query/transit.rs:43:12 [activatable] cond  galaxy.is_hyperlane(system) => !(galaxy.is_hyperlane(system))
+query/transit.rs:46:12 [activatable] cond  (board::has_token(core, system, seat) && !holds_leave) || seen[system.index()] => !((board::has_token(core, system, seat) && !holds_leave) || 
+query/transit.rs:46:12 [activatable] logic  (board::has_token(core, system, seat) &&... || seen[system.index()] => (board::has_token(core, system, seat) &&... && seen[system.i
+query/transit.rs:46:13 [activatable] logic  board::has_token(core, system, seat) && !holds_leave => board::has_token(core, system, seat) || !holds_leave
+query/transit.rs:49:32 [activatable] lit  true => false
+query/transit.rs:50:12 [activatable] cond  k.hooks.movement.cannot_activate(core, k, seat, system) => !(k.hooks.movement.cannot_activate(core, k, seat, system))
+query/transit.rs:72:46 [consumes] body  consumes(k: &Kernel, unit: Unit) -> bool { => { return true; }
+query/transit.rs:72:46 [consumes] body  consumes(k: &Kernel, unit: Unit) -> bool { => { return false; }
+query/transit.rs:73:44 [consumes] logic  matches!(d.base_type, UnitBaseType::Figh... || (matches!(d.base_type, UnitBaseType::Inf... => matches!(d.base_type, UnitBaseType::Figh... && (matches!(d.b
+query/transit.rs:73:93 [consumes] logic  matches!(d.base_type, UnitBaseType::Infa... && !d.structure => matches!(d.base_type, UnitBaseType::Infa... || !d.structure
+query/transit.rs:80:110 [loadable] body  loadable(core: &CoreState, k: &Kernel, seat: Seat, origin: System, ign... => { return Vec::new(); }
+query/transit.rs:81:8 [loadable] cond  !ignore_tokens && core.meta().active_system != Some(origin) && board::has_token(... => !(!ignore_tokens && core.meta().active_system != Some(origin
+query/transit.rs:81:8 [loadable] logic  !ignore_tokens && core.meta().active_sys... && board::has_token(core, origin, seat) => !ignore_tokens && core.meta().active_sys... || board::has_to
+query/transit.rs:81:8 [loadable] logic  !ignore_tokens && core.meta().active_system != Some(origin... => !ignore_tokens || core.meta().active_system != Some(origin..
+query/transit.rs:81:26 [loadable] cmp  core.meta().active_system != Some(origin) => core.meta().active_system == Some(origin)
+query/transit.rs:86:66 [loadable] lit  false => true
+query/transit.rs:86:82 [loadable] lit  false => true
+query/transit.rs:86:95 [loadable] lit  false => true
+query/transit.rs:88:65 [loadable] logic  p.owner() == seat && consumes(k, p.kind()) => p.owner() == seat || consumes(k, p.kind())
+query/transit.rs:88:65 [loadable] cmp  p.owner() == seat => p.owner() != seat
+query/transit.rs:94:70 [loadable] logic  p.owner() == seat && consumes(k, p.kind()) => p.owner() == seat || consumes(k, p.kind())
+query/transit.rs:94:70 [loadable] cmp  p.owner() == seat => p.owner() != seat
+query/transit.rs:128:61 [Hold::for_ship] lit  0 => 1
+query/transit.rs:133:16 [Hold::for_ship] cond  seen.contains(step) => !(seen.contains(step))
+query/transit.rs:140:12 [Hold::for_ship] cond  capacity <= 0 => !(capacity <= 0)
+query/transit.rs:140:12 [Hold::for_ship] cmp  capacity <= 0 => capacity < 0
+query/transit.rs:140:24 [Hold::for_ship] lit  0 => 1
+query/transit.rs:148:22 [Hold::for_ship] logic  any_hook && k.hooks.movement.free_cargo(core, k, c.p... => any_hook || k.hooks.movement.free_cargo(core, k, c.p...
+query/transit.rs:151:67 [Hold::for_ship] logic  capacity <= 0 && no_free_riders => capacity <= 0 || no_free_riders
+query/transit.rs:151:67 [Hold::for_ship] cmp  capacity <= 0 => capacity < 0
+query/transit.rs:151:79 [Hold::for_ship] lit  0 => 1
+query/transit.rs:154:34 [Hold::slots_left] body  slots_left(&self) -> i64 { => { return 0; }
+query/transit.rs:154:34 [Hold::slots_left] body  slots_left(&self) -> i64 { => { return 1; }
+query/transit.rs:156:9 [Hold::slots_left] arith  self.capacity - i64::try_from(used).unwrap_or(i64::MAX) => self.capacity + i64::try_from(used).unwrap_or(i64::MAX)
+query/transit.rs:161:38 [Hold::free_slots] body  free_slots(&self) -> i64 { => { return 0; }
+query/transit.rs:161:38 [Hold::free_slots] body  free_slots(&self) -> i64 { => { return 1; }
+query/transit.rs:166:33 [Hold::free] body  free(&self) -> Vec<u16> { => { return Vec::new(); }
+query/transit.rs:167:20 [Hold::free] cmp  self.slots_left() > 0 => self.slots_left() >= 0
+query/transit.rs:167:40 [Hold::free] lit  0 => 1
+query/transit.rs:168:10 [Hold::free] lit  0 => 1
+query/transit.rs:171:17 [Hold::free] logic  !self.loaded.contains(&i) && (room || self.cands[usize::from(i)].free... => !self.loaded.contains(&i) || (room || self.cands[usize::from
+query/transit.rs:171:47 [Hold::free] logic  room || self.cands[usize::from(i)].free => room && self.cands[usize::from(i)].free
+query/transit.rs:179:40 [Hold::is_complete] body  is_complete(&self) -> bool { => { return true; }
+query/transit.rs:179:40 [Hold::is_complete] body  is_complete(&self) -> bool { => { return false; }
+query/transit.rs:180:9 [Hold::is_complete] logic  self.closed || self.loaded.len() >= self... || (self.slots_left() <= 0 && self.free().i... => self.closed || self.loaded.len() >= self... && (self.slots_l
+query/transit.rs:180:9 [Hold::is_complete] logic  self.closed || self.loaded.len() >= self.cands.len() => self.closed && self.loaded.len() >= self.cands.len()
+query/transit.rs:180:24 [Hold::is_complete] cmp  self.loaded.len() >= self.cands.len() => self.loaded.len() > self.cands.len()
+query/transit.rs:180:66 [Hold::is_complete] logic  self.slots_left() <= 0 && self.free().is_empty() => self.slots_left() <= 0 || self.free().is_empty()
+query/transit.rs:180:66 [Hold::is_complete] cmp  self.slots_left() <= 0 => self.slots_left() < 0
+query/transit.rs:180:87 [Hold::is_complete] lit  0 => 1
+query/transit.rs:183:58 [Hold::count] body  count(&self, pick: impl Fn(&Cand) -> bool) -> u8 { => { return 0; }
+query/transit.rs:183:58 [Hold::count] body  count(&self, pick: impl Fn(&Cand) -> bool) -> u8 { => { return 1; }
+query/transit.rs:190:67 [Hold::options] body  options(&self) -> Option<(Vec<PickUp>, (u8, u8, u8))> { => { return None; }
+query/transit.rs:191:12 [Hold::options] cond  self.is_complete() => !(self.is_complete())
+query/transit.rs:195:12 [Hold::options] cond  free.is_empty() => !(free.is_empty())
+query/transit.rs:205:16 [Hold::options] cond  seen.contains(&key) => !(seen.contains(&key))
+query/transit.rs:216:49 [Hold::load] body  load(&mut self, index: u16) -> bool { => { return true; }
+query/transit.rs:216:49 [Hold::load] body  load(&mut self, index: u16) -> bool { => { return false; }
+query/transit.rs:217:63 [Hold::load] lit  false => true
+query/transit.rs:218:12 [Hold::load] cond  !options.iter().any(|o| o.index == index) => !(!options.iter().any(|o| o.index == index))
+query/transit.rs:218:36 [Hold::load] cmp  o.index == index => o.index != index
+query/transit.rs:219:20 [Hold::load] lit  false => true
+query/transit.rs:222:9 [Hold::load] lit  true => false
+query/transit.rs:226:38 [Hold::close] body  close(&mut self) -> bool { => { return true; }
+query/transit.rs:226:38 [Hold::close] body  close(&mut self) -> bool { => { return false; }
+query/transit.rs:227:12 [Hold::close] cond  self.options().is_none() => !(self.options().is_none())
+query/transit.rs:228:20 [Hold::close] lit  false => true
+query/transit.rs:230:23 [Hold::close] lit  true => false
+query/transit.rs:231:9 [Hold::close] lit  true => false
+query/transit.rs:236:39 [Hold::cargo] body  cargo(&self) -> Vec<Cand> { => { return Vec::new(); }
+query/transit.rs:245:101 [wormhole_hops] body  wormhole_hops(core: &CoreState, seat: Seat, origin: System, path: &[Sy... => { return None; }
+query/transit.rs:250:64 [wormhole_hops] cmp  p.faction == crate::generated::Faction::TheGhostsOfCr... => p.faction != crate::generated::Faction::TheGhostsOfCr...
+query/transit.rs:252:8 [wormhole_hops] cond  quantum && map.nexus_wormholes_off => !(quantum && map.nexus_wormholes_off)
+query/transit.rs:252:8 [wormhole_hops] logic  quantum && map.nexus_wormholes_off => quantum || map.nexus_wormholes_off
+query/transit.rs:253:43 [wormhole_hops] lit  false => true
+query/transit.rs:255:41 [wormhole_hops] cmp  quantum_map.wormhole_kinds(s) & WH_ALPHA... != 0 => quantum_map.wormhole_kinds(s) & WH_ALPHA... == 0
+query/transit.rs:255:41 [wormhole_hops] arith  quantum_map.wormhole_kinds(s) & WH_ALPHA_BETA => quantum_map.wormhole_kinds(s) | WH_ALPHA_BETA
+query/transit.rs:255:90 [wormhole_hops] lit  0 => 1
+query/transit.rs:258:25 [wormhole_hops] arith  a.q - b.q => a.q + b.q
+query/transit.rs:258:36 [wormhole_hops] arith  a.r - b.r => a.r + b.r
+query/transit.rs:259:14 [wormhole_hops] arith  (dq.abs() + dr.abs() + (dq + dr).abs()) / 2 => (dq.abs() + dr.abs() + (dq + dr).abs()) * 2
+query/transit.rs:259:15 [wormhole_hops] arith  dq.abs() + dr.abs() + (dq + dr).abs() => dq.abs() + dr.abs() - (dq + dr).abs()
+query/transit.rs:259:15 [wormhole_hops] arith  dq.abs() + dr.abs() => dq.abs() - dr.abs()
+query/transit.rs:259:38 [wormhole_hops] arith  dq + dr => dq - dr
+query/transit.rs:259:56 [wormhole_hops] lit  2 => 3
+query/transit.rs:262:20 [wormhole_hops] lit  0_u32 => 1u32
+query/transit.rs:264:12 [wormhole_hops] cond  *step != previous && distance(previous, *step) != Some(1) => !(*step != previous && distance(previous, *step) != Some(1))
+query/transit.rs:264:12 [wormhole_hops] logic  *step != previous && distance(previous, *step) != Some(1) => *step != previous || distance(previous, *step) != Some(1)
+query/transit.rs:264:12 [wormhole_hops] cmp  *step != previous => *step == previous
+query/transit.rs:264:33 [wormhole_hops] cmp  distance(previous, *step) != Some(1) => distance(previous, *step) == Some(1)
+query/transit.rs:264:67 [wormhole_hops] lit  1 => 2
+query/transit.rs:265:28 [wormhole_hops] logic  map.adjacent(previous).contains(step.ind... && map.wormhole_kinds(*step) != 0 => map.adjacent(previous).contains(step.ind... || map.wormhole_
+query/transit.rs:265:28 [wormhole_hops] logic  map.adjacent(previous).contains(step.ind... && map.wormhole_kinds(previous) != 0 => map.adjacent(previous).contains(step.ind... || map.wormhole_
+query/transit.rs:265:77 [wormhole_hops] cmp  map.wormhole_kinds(previous) != 0 => map.wormhole_kinds(previous) == 0
+query/transit.rs:265:109 [wormhole_hops] lit  0 => 1
+query/transit.rs:265:114 [wormhole_hops] cmp  map.wormhole_kinds(*step) != 0 => map.wormhole_kinds(*step) == 0
+query/transit.rs:265:143 [wormhole_hops] lit  0 => 1
+query/transit.rs:266:29 [wormhole_hops] logic  quantum && has_alpha_or_beta(previous) && has_alpha_or_beta(*step) => quantum && has_alpha_or_beta(previous) || has_alpha_or_beta(
+query/transit.rs:266:29 [wormhole_hops] logic  quantum && has_alpha_or_beta(previous) => quantum || has_alpha_or_beta(previous)
+query/transit.rs:267:13 [wormhole_hops] assign  hops += u32::from(ordinary || entangled) => hops -= u32::from(ordinary || entangled)
+query/transit.rs:267:31 [wormhole_hops] logic  ordinary || entangled => ordinary && entangled

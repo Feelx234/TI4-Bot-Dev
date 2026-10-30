@@ -1,0 +1,811 @@
+# survivors of core/rules/action_cards: 810 of 1164 points (30% killed); paths relative to crates/<crate>/src
+rules/action_cards/announce.rs:99:74 [Announce::of] lit  false => true
+rules/action_cards/announce.rs:110:83 [Announce::placed_tokens] body  placed_tokens(&self) -> Option<(crate::generated::System, Vec<Seat>)> ... => { return None; }
+rules/action_cards/announce.rs:119:38 [Announce::faces] body  faces(&self) -> Vec<u32> { => { return Vec::new(); }
+rules/action_cards/announce.rs:128:65 [Announce::explored] body  explored(&self) -> Option<super::effects::ProbeRow> { => { return None; }
+rules/action_cards/announce.rs:206:16 [Announce::run_inline] cond  rt.with_sx(|sx| play.choose(sx, pick)).is_err() => !(rt.with_sx(|sx| play.choose(sx, pick)).is_err())
+rules/action_cards/announce.rs:232:68 [Announce::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/action_cards/announce.rs:234:35 [Announce::ask_of] cond  self.stage == Stage::Resolving => !(self.stage == Stage::Resolving)
+rules/action_cards/announce.rs:234:35 [Announce::ask_of] cmp  self.stage == Stage::Resolving => self.stage != Stage::Resolving
+rules/action_cards/announce.rs:239:79 [Announce::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/action_cards/announce.rs:248:56 [env_of] body  env_of(rt: &impl Runner, who: Seat) -> Option<Env> { => { return None; }
+rules/action_cards/announce.rs:250:40 [env_of] cmp  s.who == who => s.who != who
+rules/action_cards/announce.rs:275:19 [play_inline] lit  false => true
+rules/action_cards/announce.rs:279:19 [play_inline] lit  false => true
+rules/action_cards/announce.rs:281:115 [play_inline] lit  false => true
+rules/action_cards/announce.rs:285:19 [play_inline] lit  false => true
+rules/action_cards/announce.rs:313:41 [plays] body  plays(card: ActionCard) -> bool { => { return true; }
+rules/action_cards/effects.rs:543:57 [fragments_held] body  fragments_held(core: &CoreState, seat: Seat) -> i32 { => { return 0; }
+rules/action_cards/effects.rs:543:57 [fragments_held] body  fragments_held(core: &CoreState, seat: Seat) -> i32 { => { return 1; }
+rules/action_cards/effects.rs:546:17 [fragments_held] lit  0 => 1
+rules/action_cards/effects.rs:546:120 [fragments_held] lit  0 => 1
+rules/action_cards/effects.rs:549:85 [has_base] body  has_base(env: Env, cell: &crate::state::PlanetCell, base: UnitBaseType... => { return true; }
+rules/action_cards/effects.rs:549:85 [has_base] body  has_base(env: Env, cell: &crate::state::PlanetCell, base: UnitBaseType... => { return false; }
+rules/action_cards/effects.rs:550:42 [has_base] cmp  env.scope.unit(p.kind()).map(|d| d.base_... == Some(base) => env.scope.unit(p.kind()).map(|d| d.base_... != Some(base)
+rules/action_cards/effects.rs:590:12 [Play::of] logic  fx == Fx::Crash && env.facts.holder_deepwrought => fx == Fx::Crash || env.facts.holder_deepwrought
+rules/action_cards/effects.rs:590:12 [Play::of] cmp  fx == Fx::Crash => fx != Fx::Crash
+rules/action_cards/effects.rs:613:101 [Play::of] lit  false => true
+rules/action_cards/effects.rs:614:71 [Play::of] lit  0 => 1
+rules/action_cards/effects.rs:614:97 [Play::of] lit  false => true
+rules/action_cards/effects.rs:620:115 [Play::of] lit  0 => 1
+rules/action_cards/effects.rs:620:193 [Play::of] lit  0 => 1
+rules/action_cards/effects.rs:620:456 [Play::of] lit  0 => 1
+rules/action_cards/effects.rs:620:470 [Play::of] lit  0 => 1
+rules/action_cards/effects.rs:627:26 [Play::what] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:627:26 [Play::what] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:627:39 [Play::what] lit  0 => 1
+rules/action_cards/effects.rs:629:32 [Play::what] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:629:32 [Play::what] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:629:45 [Play::what] lit  0 => 1
+rules/action_cards/effects.rs:640:67 [Play::what] cmp  self.step == 1 => self.step != 1
+rules/action_cards/effects.rs:640:80 [Play::what] lit  1 => 2
+rules/action_cards/effects.rs:644:27 [Play::what] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:644:27 [Play::what] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:644:40 [Play::what] lit  0 => 1
+rules/action_cards/effects.rs:650:26 [Play::what] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:650:26 [Play::what] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:650:39 [Play::what] lit  0 => 1
+rules/action_cards/effects.rs:650:65 [Play::what] lit  false => true
+rules/action_cards/effects.rs:651:26 [Play::what] cond  self.step == 1 => !(self.step == 1)
+rules/action_cards/effects.rs:651:26 [Play::what] cmp  self.step == 1 => self.step != 1
+rules/action_cards/effects.rs:651:39 [Play::what] lit  1 => 2
+rules/action_cards/effects.rs:651:65 [Play::what] lit  true => false
+rules/action_cards/effects.rs:653:24 [Play::what] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:653:24 [Play::what] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:653:37 [Play::what] lit  0 => 1
+rules/action_cards/effects.rs:655:29 [Play::what] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:655:29 [Play::what] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:655:42 [Play::what] lit  0 => 1
+rules/action_cards/effects.rs:656:29 [Play::what] cond  self.step == 1 => !(self.step == 1)
+rules/action_cards/effects.rs:656:29 [Play::what] cmp  self.step == 1 => self.step != 1
+rules/action_cards/effects.rs:656:42 [Play::what] lit  1 => 2
+rules/action_cards/effects.rs:668:29 [Play::what] cond  self.victim.is_some() => !(self.victim.is_some())
+rules/action_cards/effects.rs:673:48 [Play::what] arith  self.placed + 1 => self.placed - 1
+rules/action_cards/effects.rs:673:62 [Play::what] lit  1 => 2
+rules/action_cards/effects.rs:683:78 [Play::invest_cards] body  invest_cards(&self, core: &CoreState) -> SmallList<StrategyCard, 12> { => { return Default::default(); }
+rules/action_cards/effects.rs:692:58 [Play::invest_cards] cmp  scope & crate::tables::source_bit(c.data... != 0 => scope & crate::tables::source_bit(c.data... == 0
+rules/action_cards/effects.rs:692:58 [Play::invest_cards] arith  scope & crate::tables::source_bit(c.data().sourc... => scope | crate::tables::source_bit(c.data().sourc...
+rules/action_cards/effects.rs:692:112 [Play::invest_cards] lit  0 => 1
+rules/action_cards/effects.rs:693:12 [Play::invest_cards] cond  in_play.as_slice().iter().any(|c| !cards.as_slice().contains(c)) => !(in_play.as_slice().iter().any(|c| !cards.as_slice().contai
+rules/action_cards/effects.rs:699:76 [Play::seat_opts] body  seat_opts(seats: impl Iterator<Item = Seat>) -> SmallList<Opt, 16> { => { return Default::default(); }
+rules/action_cards/effects.rs:706:79 [Play::options] cmp  *s != who => *s == who
+rules/action_cards/effects.rs:709:50 [Play::options] logic  p.seat != who && p.econ.tactic_tokens > 0 => p.seat != who || p.econ.tactic_tokens > 0
+rules/action_cards/effects.rs:709:50 [Play::options] cmp  p.seat != who => p.seat == who
+rules/action_cards/effects.rs:709:67 [Play::options] cmp  p.econ.tactic_tokens > 0 => p.econ.tactic_tokens >= 0
+rules/action_cards/effects.rs:709:90 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:712:112 [Play::options] cmp  *s != who => *s == who
+rules/action_cards/effects.rs:715:106 [Play::options] cmp  *s != who => *s == who
+rules/action_cards/effects.rs:734:25 [Play::options] logic  board::has_space_units_of(core, *s, who) && board::planets_of(core, *s).any(|p| boar... => board::has_space_units_of(core, *s, who) || board::planets_o
+rules/action_cards/effects.rs:735:112 [Play::options] cmp  owner != who => owner == who
+rules/action_cards/effects.rs:755:20 [Play::options] cond  cards.len() < usize::from(Self::INVEST_DISTINCT) || self.placed >= Self::INVEST_... => !(cards.len() < usize::from(Self::INVEST_DISTINCT) || self.p
+rules/action_cards/effects.rs:755:20 [Play::options] logic  cards.len() < usize::from(Self::INVEST_D... || self.placed >= Self::INVEST_TOKENS => cards.len() < usize::from(Self::INVEST_D... && self.placed >
+rules/action_cards/effects.rs:755:20 [Play::options] cmp  cards.len() < usize::from(Self::INVEST_DISTINCT) => cards.len() <= usize::from(Self::INVEST_DISTINCT)
+rules/action_cards/effects.rs:755:72 [Play::options] cmp  self.placed >= Self::INVEST_TOKENS => self.placed > Self::INVEST_TOKENS
+rules/action_cards/effects.rs:758:33 [Play::options] arith  Self::INVEST_TOKENS - self.placed => Self::INVEST_TOKENS + self.placed
+rules/action_cards/effects.rs:760:52 [Play::options] logic  remaining > owed || !self.used.as_slice().contains(c) => remaining > owed && !self.used.as_slice().contains(c)
+rules/action_cards/effects.rs:760:52 [Play::options] cmp  remaining > owed => remaining >= owed
+rules/action_cards/effects.rs:765:83 [Play::options] logic  p.owner() == who && self.env.scope.unit(p.kind()).is_some_an... => p.owner() == who || self.env.scope.unit(p.kind()).is_some_an
+rules/action_cards/effects.rs:765:83 [Play::options] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:767:20 [Play::options] cond  !ship(destination) || core.meta().active == Some(who) => !(!ship(destination) || core.meta().active == Some(who))
+rules/action_cards/effects.rs:767:20 [Play::options] logic  !ship(destination) || core.meta().active == Some(who) => !ship(destination) && core.meta().active == Some(who)
+rules/action_cards/effects.rs:767:42 [Play::options] cmp  core.meta().active == Some(who) => core.meta().active != Some(who)
+rules/action_cards/effects.rs:771:60 [Play::options] logic  *s != destination && !board::has_token(c... && ship(*s) => *s != destination && !board::has_token(c... || ship(*s)
+rules/action_cards/effects.rs:771:60 [Play::options] logic  *s != destination && !board::has_token(core, *s, who) => *s != destination || !board::has_token(core, *s, who)
+rules/action_cards/effects.rs:771:60 [Play::options] cmp  *s != destination => *s == destination
+rules/action_cards/effects.rs:776:108 [Play::options] cmp  *s != who => *s == who
+rules/action_cards/effects.rs:783:29 [Play::options] logic  p.owner() == other && scope.unit(p.kind()).is_some_and(|d| { m... => p.owner() == other || scope.unit(p.kind()).is_some_and(|d| {
+rules/action_cards/effects.rs:783:29 [Play::options] cmp  p.owner() == other => p.owner() != other
+rules/action_cards/effects.rs:785:37 [Play::options] logic  matches!(d.base_type, UnitBaseType::Infa... || (d.base_type == UnitBaseType::Pds && d.g... => matches!(d.base_type, UnitBaseType::Infa... && (d.base_type 
+rules/action_cards/effects.rs:785:108 [Play::options] logic  d.base_type == UnitBaseType::Pds && d.ground_force => d.base_type == UnitBaseType::Pds || d.ground_force
+rules/action_cards/effects.rs:785:108 [Play::options] cmp  d.base_type == UnitBaseType::Pds => d.base_type != UnitBaseType::Pds
+rules/action_cards/effects.rs:788:28 [Play::options] cond  own_ground => !(own_ground)
+rules/action_cards/effects.rs:794:46 [Play::options] lit  true => false
+rules/action_cards/effects.rs:794:65 [Play::options] lit  false => true
+rules/action_cards/effects.rs:801:24 [Play::options] cond  !board::controls_a_planet_in(core, system, who) => !(!board::controls_a_planet_in(core, system, who))
+rules/action_cards/effects.rs:805:28 [Play::options] cond  p.owner() == who => !(p.owner() == who)
+rules/action_cards/effects.rs:805:28 [Play::options] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:809:28 [Play::options] cond  !matches!(d.base_type, UnitBaseType::Dreadnought | UnitBaseType::Cruiser | UnitB... => !(!matches!(d.base_type, UnitBaseType::Dreadnought | UnitBas
+rules/action_cards/effects.rs:814:28 [Play::options] cond  seen.as_slice().contains(&shape) => !(seen.as_slice().contains(&shape))
+rules/action_cards/effects.rs:827:28 [Play::options] cond  p.owner() != who || self.env.scope.unit(p.kind()).is_some_and(|d| !d.ship || d.b... => !(p.owner() != who || self.env.scope.unit(p.kind()).is_some_
+rules/action_cards/effects.rs:827:28 [Play::options] logic  p.owner() != who || self.env.scope.unit(p.kind()).is_some_an... => p.owner() != who && self.env.scope.unit(p.kind()).is_some_an
+rules/action_cards/effects.rs:827:28 [Play::options] cmp  p.owner() != who => p.owner() == who
+rules/action_cards/effects.rs:827:94 [Play::options] logic  !d.ship || d.base_type == UnitBaseType::Fighter => !d.ship && d.base_type == UnitBaseType::Fighter
+rules/action_cards/effects.rs:827:105 [Play::options] cmp  d.base_type == UnitBaseType::Fighter => d.base_type != UnitBaseType::Fighter
+rules/action_cards/effects.rs:831:28 [Play::options] cond  self.first_ship == Some((system, at)) => !(self.first_ship == Some((system, at)))
+rules/action_cards/effects.rs:831:28 [Play::options] cmp  self.first_ship == Some((system, at)) => self.first_ship != Some((system, at))
+rules/action_cards/effects.rs:837:20 [Play::options] cond  self.first_ship.is_some() => !(self.first_ship.is_some())
+rules/action_cards/effects.rs:842:26 [Play::options] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:842:26 [Play::options] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:842:39 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:845:72 [Play::options] cmp  *s == who => *s != who
+rules/action_cards/effects.rs:847:51 [Play::options] arith  (at + n - 1) % n => (at + n - 1) / n
+rules/action_cards/effects.rs:847:52 [Play::options] arith  at + n - 1 => at + n + 1
+rules/action_cards/effects.rs:847:52 [Play::options] arith  at + n => at - n
+rules/action_cards/effects.rs:847:61 [Play::options] lit  1 => 2
+rules/action_cards/effects.rs:848:50 [Play::options] arith  (at + 1) % n => (at + 1) / n
+rules/action_cards/effects.rs:848:51 [Play::options] arith  at + 1 => at - 1
+rules/action_cards/effects.rs:848:56 [Play::options] lit  1 => 2
+rules/action_cards/effects.rs:850:24 [Play::options] cond  before != after => !(before != after)
+rules/action_cards/effects.rs:850:24 [Play::options] cmp  before != after => before == after
+rules/action_cards/effects.rs:854:76 [Play::options] cmp  fragments_held(core, *s) > 0 => fragments_held(core, *s) >= 0
+rules/action_cards/effects.rs:854:103 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:859:33 [Play::options] cmp  core.players().by_seat(victim).and_then(... > 0 => core.players().by_seat(victim).and_then(... >= 0
+rules/action_cards/effects.rs:859:115 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:859:120 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:867:20 [Play::options] cond  previous != Some(who) || gainer == who => !(previous != Some(who) || gainer == who)
+rules/action_cards/effects.rs:867:20 [Play::options] logic  previous != Some(who) || gainer == who => previous != Some(who) && gainer == who
+rules/action_cards/effects.rs:867:20 [Play::options] cmp  previous != Some(who) => previous == Some(who)
+rules/action_cards/effects.rs:867:45 [Play::options] cmp  gainer == who => gainer != who
+rules/action_cards/effects.rs:871:32 [Play::options] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:871:32 [Play::options] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:871:45 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:874:24 [Play::options] cond  self.step == 0 || board::exhausted(core, *planet) => !(self.step == 0 || board::exhausted(core, *planet))
+rules/action_cards/effects.rs:874:24 [Play::options] logic  self.step == 0 || board::exhausted(core, *planet) => self.step == 0 && board::exhausted(core, *planet)
+rules/action_cards/effects.rs:874:24 [Play::options] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:874:37 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:881:24 [Play::options] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:881:24 [Play::options] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:881:37 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:885:112 [Play::options] cmp  *x == s => *x != s
+rules/action_cards/effects.rs:885:131 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:888:24 [Play::options] cond  !reach.as_slice().contains(&s) => !(!reach.as_slice().contains(&s))
+rules/action_cards/effects.rs:893:24 [Play::options] cond  on_map(system) && board::space_units(core, system).iter().any(|p| p.owner() == w... => !(on_map(system) && board::space_units(core, system).iter().
+rules/action_cards/effects.rs:893:24 [Play::options] logic  on_map(system) && board::space_units(core, system).iter().... => on_map(system) || board::space_units(core, system).iter()...
+rules/action_cards/effects.rs:893:90 [Play::options] logic  p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.s... => p.owner() == who || scope.unit(p.kind()).is_some_and(|d| d.s
+rules/action_cards/effects.rs:893:90 [Play::options] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:923:63 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:923:93 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:924:20 [Play::options] cond  held == 0 => !(held == 0)
+rules/action_cards/effects.rs:924:20 [Play::options] cmp  held == 0 => held != 0
+rules/action_cards/effects.rs:924:28 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:927:18 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:933:26 [Play::options] cond  self.step == 9 => !(self.step == 9)
+rules/action_cards/effects.rs:933:26 [Play::options] cmp  self.step == 9 => self.step != 9
+rules/action_cards/effects.rs:933:39 [Play::options] lit  9 => 10
+rules/action_cards/effects.rs:934:26 [Play::options] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:934:26 [Play::options] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:934:39 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:939:54 [Play::options] cond  self.step == 9 => !(self.step == 9)
+rules/action_cards/effects.rs:939:54 [Play::options] cmp  self.step == 9 => self.step != 9
+rules/action_cards/effects.rs:939:67 [Play::options] lit  9 => 10
+rules/action_cards/effects.rs:947:27 [Play::options] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:947:27 [Play::options] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:947:40 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:953:33 [Play::options] logic  !crate::query::tech::is_unit_upgrade(**t... && crate::query::tech::faction_of(**t).is_n... => !crate::query::tech::is_unit_upgrade(**t... || crate::query:
+rules/action_cards/effects.rs:961:72 [Play::options] cmp  *s == who => *s != who
+rules/action_cards/effects.rs:963:61 [Play::options] arith  (at + n - 1) % n => (at + n - 1) / n
+rules/action_cards/effects.rs:963:62 [Play::options] arith  at + n - 1 => at + n + 1
+rules/action_cards/effects.rs:963:62 [Play::options] arith  at + n => at - n
+rules/action_cards/effects.rs:963:71 [Play::options] lit  1 => 2
+rules/action_cards/effects.rs:963:97 [Play::options] arith  (at + 1) % n => (at + 1) / n
+rules/action_cards/effects.rs:963:98 [Play::options] arith  at + 1 => at - 1
+rules/action_cards/effects.rs:963:103 [Play::options] lit  1 => 2
+rules/action_cards/effects.rs:965:24 [Play::options] cond  before != after => !(before != after)
+rules/action_cards/effects.rs:965:24 [Play::options] cmp  before != after => before == after
+rules/action_cards/effects.rs:977:44 [Play::options] logic  self.env.facts.rules_version >= RULES_PL... && mine.is_some_and(|m| m.contains(*tech)) => self.env.facts.rules_version >= RULES_PL... || mine.is_some_
+rules/action_cards/effects.rs:977:44 [Play::options] cmp  self.env.facts.rules_version >= RULES_PLAGIARIZE_OWNED => self.env.facts.rules_version > RULES_PLAGIARIZE_OWNED
+rules/action_cards/effects.rs:978:28 [Play::options] cond  non_faction && !already_mine => !(non_faction && !already_mine)
+rules/action_cards/effects.rs:978:28 [Play::options] logic  non_faction && !already_mine => non_faction || !already_mine
+rules/action_cards/effects.rs:995:96 [Play::options] cmp  board::control(core, *p) == Some(who) => board::control(core, *p) != Some(who)
+rules/action_cards/effects.rs:999:24 [Play::options] cond  self.received.as_slice().contains(from) => !(self.received.as_slice().contains(from))
+rules/action_cards/effects.rs:1004:37 [Play::options] logic  p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.g... => p.owner() == who || scope.unit(p.kind()).is_some_and(|d| d.g
+rules/action_cards/effects.rs:1004:37 [Play::options] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:1009:28 [Play::options] cond  !kinds.as_slice().contains(k) => !(!kinds.as_slice().contains(k))
+rules/action_cards/effects.rs:1015:28 [Play::options] cond  to == from => !(to == from)
+rules/action_cards/effects.rs:1015:28 [Play::options] cmp  to == from => to != from
+rules/action_cards/effects.rs:1019:90 [Play::options] cmp  *k == kind => *k != kind
+rules/action_cards/effects.rs:1026:26 [Play::options] cond  self.step == 2 => !(self.step == 2)
+rules/action_cards/effects.rs:1026:26 [Play::options] cmp  self.step == 2 => self.step != 2
+rules/action_cards/effects.rs:1026:39 [Play::options] lit  2 => 3
+rules/action_cards/effects.rs:1027:26 [Play::options] cond  self.step == 3 => !(self.step == 3)
+rules/action_cards/effects.rs:1027:26 [Play::options] cmp  self.step == 3 => self.step != 3
+rules/action_cards/effects.rs:1027:39 [Play::options] lit  3 => 4
+rules/action_cards/effects.rs:1038:46 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:1039:20 [Play::options] cond  left <= 0 => !(left <= 0)
+rules/action_cards/effects.rs:1039:20 [Play::options] cmp  left <= 0 => left < 0
+rules/action_cards/effects.rs:1039:28 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:1045:28 [Play::options] cond  p.owner() == who && self.env.scope.unit(p.kind()).is_some_and(|d| d.base_type ==... => !(p.owner() == who && self.env.scope.unit(p.kind()).is_some_
+rules/action_cards/effects.rs:1045:28 [Play::options] logic  p.owner() == who && self.env.scope.unit(p.kind()).is_some_an... => p.owner() == who || self.env.scope.unit(p.kind()).is_some_an
+rules/action_cards/effects.rs:1045:28 [Play::options] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:1045:94 [Play::options] cmp  d.base_type == UnitBaseType::Infantry => d.base_type != UnitBaseType::Infantry
+rules/action_cards/effects.rs:1047:32 [Play::options] cond  self.troop != Some((*system, *planet, index)) => !(self.troop != Some((*system, *planet, index)))
+rules/action_cards/effects.rs:1047:32 [Play::options] cmp  self.troop != Some((*system, *planet, index)) => self.troop == Some((*system, *planet, index))
+rules/action_cards/effects.rs:1053:20 [Play::options] cond  self.troop.is_some() => !(self.troop.is_some())
+rules/action_cards/effects.rs:1061:46 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:1062:20 [Play::options] cond  left <= 0 => !(left <= 0)
+rules/action_cards/effects.rs:1062:20 [Play::options] cmp  left <= 0 => left < 0
+rules/action_cards/effects.rs:1062:28 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:1068:38 [Play::options] logic  p.owner() == who && self.env.scope.unit(p.kind()).is_some_an... => p.owner() == who || self.env.scope.unit(p.kind()).is_some_an
+rules/action_cards/effects.rs:1068:38 [Play::options] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:1068:104 [Play::options] cmp  d.base_type == UnitBaseType::Cruiser => d.base_type != UnitBaseType::Cruiser
+rules/action_cards/effects.rs:1072:57 [Play::options] cmp  p.seat != who => p.seat == who
+rules/action_cards/effects.rs:1088:33 [Play::options] cmp  crate::tables::printed_wormholes(*s) != 0 => crate::tables::printed_wormholes(*s) == 0
+rules/action_cards/effects.rs:1088:73 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:1090:78 [Play::options] logic  p.owner() != who && scope.unit(p.kind()).is_some_and(|d| d.s... => p.owner() != who || scope.unit(p.kind()).is_some_and(|d| d.s
+rules/action_cards/effects.rs:1090:78 [Play::options] cmp  p.owner() != who => p.owner() == who
+rules/action_cards/effects.rs:1096:20 [Play::options] cond  core.players().by_seat(who).is_none_or(|p| p.econ.trade_goods < 2) => !(core.players().by_seat(who).is_none_or(|p| p.econ.trade_go
+rules/action_cards/effects.rs:1096:63 [Play::options] cmp  p.econ.trade_goods < 2 => p.econ.trade_goods <= 2
+rules/action_cards/effects.rs:1096:84 [Play::options] lit  2 => 3
+rules/action_cards/effects.rs:1101:21 [Play::options] logic  cell.flags.has(crate::state::PlanetFlags... && scope.0 & crate::tables::source_bit(plan... => cell.flags.has(crate::state::PlanetFlags... || scope.0 & cra
+rules/action_cards/effects.rs:1101:21 [Play::options] logic  cell.flags.has(crate::state::PlanetFlags... && !is_home_system(scope, system) => cell.flags.has(crate::state::PlanetFlags... || !is_home_syst
+rules/action_cards/effects.rs:1101:21 [Play::options] logic  cell.flags.has(crate::state::PlanetFlags... && cell.units.as_slice().is_empty() => cell.flags.has(crate::state::PlanetFlags... || cell.units.as
+rules/action_cards/effects.rs:1104:28 [Play::options] cmp  scope.0 & crate::tables::source_bit(plan... != 0 => scope.0 & crate::tables::source_bit(plan... == 0
+rules/action_cards/effects.rs:1104:28 [Play::options] arith  scope.0 & crate::tables::source_bit(planet.data().... => scope.0 | crate::tables::source_bit(planet.data()....
+rules/action_cards/effects.rs:1104:89 [Play::options] lit  0 => 1
+rules/action_cards/effects.rs:1117:25 [Play::options] logic  core.board().sys(*s).flags.has(crate::st... && !is_home_system(self.env.scope, *s) => core.board().sys(*s).flags.has(crate::st... || !is_home_syst
+rules/action_cards/effects.rs:1117:25 [Play::options] logic  core.board().sys(*s).flags.has(crate::st... && !board::space_units(core, *s).iter().any... => core.board().sys(*s).flags.has(crate::st... || !board::space
+rules/action_cards/effects.rs:1128:24 [Play::options] cond  self.dig_deck(core, *planet).is_some() => !(self.dig_deck(core, *planet).is_some())
+rules/action_cards/effects.rs:1138:33 [Play::options] cond  self.env.facts.map => !(self.env.facts.map)
+rules/action_cards/effects.rs:1185:72 [Play::options] cmp  **c != first => **c == first
+rules/action_cards/effects.rs:1188:73 [Play::options] logic  p.seat != who && !p.cards.hand.is_empty() => p.seat != who || !p.cards.hand.is_empty()
+rules/action_cards/effects.rs:1188:73 [Play::options] cmp  p.seat != who => p.seat == who
+rules/action_cards/effects.rs:1189:93 [Play::options] cmp  owner != who => owner == who
+rules/action_cards/effects.rs:1197:24 [Play::options] arith  self.env.scope.0 & crate::tables::source_bit(data.source) => self.env.scope.0 | crate::tables::source_bit(data.source)
+rules/action_cards/effects.rs:1206:17 [Play::options] logic  cell.control.is_some_and(|owner| owner !... && !is_home_system(self.env.scope, system) => cell.control.is_some_and(|owner| owner !... || !is_home_syst
+rules/action_cards/effects.rs:1206:50 [Play::options] cmp  owner != who => owner == who
+rules/action_cards/effects.rs:1218:17 [Play::options] logic  has_base(self.env, cell, UnitBaseType::S... && !is_home_system(self.env.scope, system) => has_base(self.env, cell, UnitBaseType::S... || !is_home_syst
+rules/action_cards/effects.rs:1230:100 [Play::dig_deck] body  dig_deck(&self, core: &CoreState, planet: Planet) -> Option<crate::gen... => { return None; }
+rules/action_cards/effects.rs:1245:121 [Play::place] body  place(&self, core: &mut CoreState, placed: super::Placed, system: Syst... => { return (); }
+rules/action_cards/effects.rs:1248:18 [Play::place] lit  0 => 1
+rules/action_cards/effects.rs:1248:53 [Play::place] lit  0 => 1
+rules/action_cards/effects.rs:1253:68 [Play::goods] body  goods(&self, core: &mut CoreState, who: Seat, amount: i64) { => { return (); }
+rules/action_cards/effects.rs:1254:54 [Play::goods] lit  0 => 1
+rules/action_cards/effects.rs:1259:71 [Play::scuttle] body  scuttle(&self, core: &mut CoreState, picked: &[(System, u8)]) { => { return (); }
+rules/action_cards/effects.rs:1260:25 [Play::scuttle] lit  0i32 => 1i32
+rules/action_cards/effects.rs:1266:16 [Play::scuttle] cond  usize::from(*index) < units.len() => !(usize::from(*index) < units.len())
+rules/action_cards/effects.rs:1266:16 [Play::scuttle] cmp  usize::from(*index) < units.len() => usize::from(*index) <= units.len()
+rules/action_cards/effects.rs:1269:17 [Play::scuttle] assign  goods += self.env.scope.unit(gone.kind()).and_the... => goods -= self.env.scope.unit(gone.kind()).and_the...
+rules/action_cards/effects.rs:1269:94 [Play::scuttle] lit  0 => 1
+rules/action_cards/effects.rs:1269:101 [Play::scuttle] arith  (i32::from(h) + 1) / 2 => (i32::from(h) + 1) * 2
+rules/action_cards/effects.rs:1269:102 [Play::scuttle] arith  i32::from(h) + 1 => i32::from(h) - 1
+rules/action_cards/effects.rs:1269:117 [Play::scuttle] lit  1 => 2
+rules/action_cards/effects.rs:1269:122 [Play::scuttle] lit  2 => 3
+rules/action_cards/effects.rs:1276:86 [Play::crash_kinds] body  crash_kinds(&self, core: &CoreState) -> SmallList<crate::generated::Un... => { return Default::default(); }
+rules/action_cards/effects.rs:1280:16 [Play::crash_kinds] cond  p.owner() == self.who && self.env.scope.unit(p.kind()).is_some_and(|d| d.ground_... => !(p.owner() == self.who && self.env.scope.unit(p.kind()).is_
+rules/action_cards/effects.rs:1280:16 [Play::crash_kinds] logic  p.owner() == self.who && self.env.scope.... && !kinds.as_slice().contains(&p.kind()) => p.owner() == self.who && self.env.scope.... || !kinds.as_sli
+rules/action_cards/effects.rs:1280:16 [Play::crash_kinds] logic  p.owner() == self.who && self.env.scope.unit(p.kind()).is_some_an... => p.owner() == self.who || self.env.scope.unit(p.kind()).is_so
+rules/action_cards/effects.rs:1280:16 [Play::crash_kinds] cmp  p.owner() == self.who => p.owner() != self.who
+rules/action_cards/effects.rs:1289:88 [Play::crash_planets] body  crash_planets(&self, core: &CoreState, system: System) -> SmallList<Pl... => { return Default::default(); }
+rules/action_cards/effects.rs:1299:51 [Play::is_station] body  is_station(&self, planet: Planet) -> bool { => { return true; }
+rules/action_cards/effects.rs:1299:51 [Play::is_station] body  is_station(&self, planet: Planet) -> bool { => { return false; }
+rules/action_cards/effects.rs:1301:9 [Play::is_station] logic  self.env.scope.0 & crate::tables::source... && data.traits.contains(&PlanetTrait::Space... => self.env.scope.0 & crate::tables::source... || data.traits.c
+rules/action_cards/effects.rs:1301:9 [Play::is_station] cmp  self.env.scope.0 & crate::tables::source... != 0 => self.env.scope.0 & crate::tables::source... == 0
+rules/action_cards/effects.rs:1301:9 [Play::is_station] arith  self.env.scope.0 & crate::tables::source_bit(data.source) => self.env.scope.0 | crate::tables::source_bit(data.source)
+rules/action_cards/effects.rs:1301:70 [Play::is_station] lit  0 => 1
+rules/action_cards/effects.rs:1306:75 [Play::decoy_destinations] body  decoy_destinations(&self, core: &CoreState) -> SmallList<Opt, 16> { => { return Default::default(); }
+rules/action_cards/effects.rs:1311:40 [Play::decoy_destinations] logic  *system == active && !self.is_station(*planet) => *system == active || !self.is_station(*planet)
+rules/action_cards/effects.rs:1311:40 [Play::decoy_destinations] cmp  *system == active => *system != active
+rules/action_cards/effects.rs:1318:111 [Play::research] body  research(&self, core: &mut CoreState, k: &Kernel, links: &AreaLinks, t... => { return (); }
+rules/action_cards/effects.rs:1325:158 [Play::researchable] body  researchable(links: &AreaLinks, core: &CoreState, k: &Kernel, scope: c... => { return Default::default(); }
+rules/action_cards/effects.rs:1330:111 [Play::ground_forces] body  ground_forces(&self, core: &CoreState) -> SmallList<(System, Planet, u... => { return Default::default(); }
+rules/action_cards/effects.rs:1334:20 [Play::ground_forces] cond  p.owner() == self.who && self.env.scope.unit(p.kind()).is_some_and(|d| d.ground_... => !(p.owner() == self.who && self.env.scope.unit(p.kind()).is_
+rules/action_cards/effects.rs:1334:20 [Play::ground_forces] logic  p.owner() == self.who && self.env.scope.unit(p.kind()).is_some_an... => p.owner() == self.who || self.env.scope.unit(p.kind()).is_so
+rules/action_cards/effects.rs:1334:20 [Play::ground_forces] cmp  p.owner() == self.who => p.owner() != self.who
+rules/action_cards/effects.rs:1344:75 [Play::land] body  land(&self, core: &mut CoreState, system: System, planet: Planet) { => { return (); }
+rules/action_cards/effects.rs:1352:16 [Play::land] cond  at < units.len() => !(at < units.len())
+rules/action_cards/effects.rs:1352:16 [Play::land] cmp  at < units.len() => at <= units.len()
+rules/action_cards/effects.rs:1353:28 [Play::land] arith  units.len() - 1 => units.len() + 1
+rules/action_cards/effects.rs:1353:42 [Play::land] lit  1 => 2
+rules/action_cards/effects.rs:1362:64 [Play::land] lit  true => false
+rules/action_cards/effects.rs:1363:85 [Play::land] lit  true => false
+rules/action_cards/effects.rs:1368:77 [Play::refit] body  refit(&self, core: &mut CoreState, picked: &[(System, Planet, u8)]) { => { return (); }
+rules/action_cards/effects.rs:1374:16 [Play::refit] cond  usize::from(*index) < units.len() => !(usize::from(*index) < units.len())
+rules/action_cards/effects.rs:1374:16 [Play::refit] cmp  usize::from(*index) < units.len() => usize::from(*index) <= units.len()
+rules/action_cards/effects.rs:1382:71 [Play::refuse_exchange] body  refuse_exchange(core: &mut CoreState, who: Seat, other: Seat) { => { return (); }
+rules/action_cards/effects.rs:1385:20 [Play::refuse_exchange] cmp  p.econ.fleet_tokens > 0 => p.econ.fleet_tokens >= 0
+rules/action_cards/effects.rs:1385:42 [Play::refuse_exchange] lit  0 => 1
+rules/action_cards/effects.rs:1387:17 [Play::refuse_exchange] assign  p.econ.fleet_tokens -= 1 => p.econ.fleet_tokens += 1
+rules/action_cards/effects.rs:1387:40 [Play::refuse_exchange] lit  1 => 2
+rules/action_cards/effects.rs:1393:87 [Play::restore_first_choice] body  restore_first_choice(core: &mut CoreState, picker: Seat, first: Strate... => { return (); }
+rules/action_cards/effects.rs:1394:84 [Play::restore_first_choice] cmp  *c == first => *c != first
+rules/action_cards/effects.rs:1401:49 [Play::before] body  before(&mut self, core: &mut CoreState) { => { return (); }
+rules/action_cards/effects.rs:1404:61 [Play::before] lit  3 => 4
+rules/action_cards/effects.rs:1408:20 [Play::before] cond  core.players().by_seat(self.who).is_none_or(|p| p.econ.trade_goods < 4) => !(core.players().by_seat(self.who).is_none_or(|p| p.econ.tra
+rules/action_cards/effects.rs:1408:68 [Play::before] cmp  p.econ.trade_goods < 4 => p.econ.trade_goods <= 4
+rules/action_cards/effects.rs:1408:89 [Play::before] lit  4 => 5
+rules/action_cards/effects.rs:1409:33 [Play::before] lit  9 => 10
+rules/action_cards/effects.rs:1415:33 [Play::before] lit  9 => 10
+rules/action_cards/effects.rs:1419:20 [Play::before] cond  victim != self.who || self.crash_kinds(core).is_empty() || self.crash_planets(co... => !(victim != self.who || self.crash_kinds(core).is_empty() ||
+rules/action_cards/effects.rs:1419:20 [Play::before] logic  victim != self.who || self.crash_kinds(c... || self.crash_planets(core, system).is_empt... => victim != self.who || self.crash_kinds(c... && self.crash_pl
+rules/action_cards/effects.rs:1419:20 [Play::before] logic  victim != self.who || self.crash_kinds(core).is_empty() => victim != self.who && self.crash_kinds(core).is_empty()
+rules/action_cards/effects.rs:1419:20 [Play::before] cmp  victim != self.who => victim == self.who
+rules/action_cards/effects.rs:1420:33 [Play::before] lit  9 => 10
+rules/action_cards/effects.rs:1427:33 [Play::before] lit  0_i64 => 1i64
+rules/action_cards/effects.rs:1430:24 [Play::before] cond  piece.owner() == who => !(piece.owner() == who)
+rules/action_cards/effects.rs:1430:24 [Play::before] cmp  piece.owner() == who => piece.owner() != who
+rules/action_cards/effects.rs:1434:53 [Play::before] lit  0 => 1
+rules/action_cards/effects.rs:1435:59 [Play::before] lit  1 => 2
+rules/action_cards/effects.rs:1439:88 [Play::before] lit  0 => 1
+rules/action_cards/effects.rs:1440:24 [Play::before] cond  left <= 0 || left - used[slot] <= 0 => !(left <= 0 || left - used[slot] <= 0)
+rules/action_cards/effects.rs:1440:24 [Play::before] logic  left <= 0 || left - used[slot] <= 0 => left <= 0 && left - used[slot] <= 0
+rules/action_cards/effects.rs:1440:24 [Play::before] cmp  left <= 0 => left < 0
+rules/action_cards/effects.rs:1440:32 [Play::before] lit  0 => 1
+rules/action_cards/effects.rs:1440:37 [Play::before] cmp  left - used[slot] <= 0 => left - used[slot] < 0
+rules/action_cards/effects.rs:1440:37 [Play::before] arith  left - used[slot] => left + used[slot]
+rules/action_cards/effects.rs:1440:58 [Play::before] lit  0 => 1
+rules/action_cards/effects.rs:1443:21 [Play::before] assign  used[slot] += 1 => used[slot] -= 1
+rules/action_cards/effects.rs:1443:35 [Play::before] lit  1 => 2
+rules/action_cards/effects.rs:1448:75 [Play::before] cmp  p == old => p != old
+rules/action_cards/effects.rs:1460:20 [Play::before] cond  self.decoy_destinations(core).is_empty() || found.is_empty() => !(self.decoy_destinations(core).is_empty() || found.is_empty
+rules/action_cards/effects.rs:1460:20 [Play::before] logic  self.decoy_destinations(core).is_empty() || found.is_empty() => self.decoy_destinations(core).is_empty() && found.is_empty()
+rules/action_cards/effects.rs:1461:33 [Play::before] lit  3 => 4
+rules/action_cards/effects.rs:1462:27 [Play::before] cond  found.len() <= 2 => !(found.len() <= 2)
+rules/action_cards/effects.rs:1462:27 [Play::before] cmp  found.len() <= 2 => found.len() < 2
+rules/action_cards/effects.rs:1462:42 [Play::before] lit  2 => 3
+rules/action_cards/effects.rs:1464:33 [Play::before] lit  2 => 3
+rules/action_cards/effects.rs:1468:20 [Play::before] cond  core.players().by_seat(self.who).is_some_and(|p| p.econ.passed) => !(core.players().by_seat(self.who).is_some_and(|p| p.econ.pa
+rules/action_cards/effects.rs:1474:24 [Play::before] cmp  target != self.who => target == self.who
+rules/action_cards/effects.rs:1483:98 [Play::before] lit  3 => 4
+rules/action_cards/effects.rs:1485:20 [Play::before] cond  top.is_empty() => !(top.is_empty())
+rules/action_cards/effects.rs:1493:81 [Play::before] lit  1 => 2
+rules/action_cards/effects.rs:1507:25 [Play::before] logic  self.env.scope.0 & crate::tables::source... && data.traits.contains(&PlanetTrait::Indus... => self.env.scope.0 & crate::tables::source... || data.traits.c
+rules/action_cards/effects.rs:1507:25 [Play::before] cmp  self.env.scope.0 & crate::tables::source... != 0 => self.env.scope.0 & crate::tables::source... == 0
+rules/action_cards/effects.rs:1507:25 [Play::before] arith  self.env.scope.0 & crate::tables::source_bit(data.source) => self.env.scope.0 | crate::tables::source_bit(data.source)
+rules/action_cards/effects.rs:1507:86 [Play::before] lit  0 => 1
+rules/action_cards/effects.rs:1510:75 [Play::before] lit  0 => 1
+rules/action_cards/effects.rs:1514:24 [Play::before] cmp  previous == Some(self.who) => previous != Some(self.who)
+rules/action_cards/effects.rs:1515:24 [Play::before] cmp  gainer != self.who => gainer == self.who
+rules/action_cards/effects.rs:1523:20 [Play::before] cond  picker == self.who => !(picker == self.who)
+rules/action_cards/effects.rs:1523:20 [Play::before] cmp  picker == self.who => picker != self.who
+rules/action_cards/effects.rs:1527:74 [Play::before] cmp  *c == first => *c != first
+rules/action_cards/effects.rs:1532:20 [Play::before] cond  core.strategy().unclaimed.as_slice().iter().all(|c| *c == first) => !(core.strategy().unclaimed.as_slice().iter().all(|c| *c == 
+rules/action_cards/effects.rs:1532:72 [Play::before] cmp  *c == first => *c != first
+rules/action_cards/effects.rs:1542:90 [Play::before] logic  p.owner() == seat && self.env.scope.unit(p.kind()).is_some_an... => p.owner() == seat || self.env.scope.unit(p.kind()).is_some_a
+rules/action_cards/effects.rs:1542:90 [Play::before] cmp  p.owner() == seat => p.owner() != seat
+rules/action_cards/effects.rs:1544:20 [Play::before] cond  !combatants.as_slice().contains(&self.who) => !(!combatants.as_slice().contains(&self.who))
+rules/action_cards/effects.rs:1548:69 [Play::before] cmp  **s != self.who => **s == self.who
+rules/action_cards/effects.rs:1561:80 [Play::before] logic  p.owner() == who && unit_of(p).is_some_and(|d| d.base_type =... => p.owner() == who || unit_of(p).is_some_and(|d| d.base_type =
+rules/action_cards/effects.rs:1561:80 [Play::before] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:1561:127 [Play::before] cmp  d.base_type == UnitBaseType::Spacedock => d.base_type != UnitBaseType::Spacedock
+rules/action_cards/effects.rs:1563:61 [Play::before] logic  p.owner() == who && unit_of(p).is_some_and(|d| d.capacity.is... => p.owner() == who || unit_of(p).is_some_and(|d| d.capacity.is
+rules/action_cards/effects.rs:1563:61 [Play::before] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:1563:135 [Play::before] cmp  c > 0 => c >= 0
+rules/action_cards/effects.rs:1563:139 [Play::before] lit  0 => 1
+rules/action_cards/effects.rs:1564:24 [Play::before] cond  !docked && !has_capacity => !(!docked && !has_capacity)
+rules/action_cards/effects.rs:1564:24 [Play::before] logic  !docked && !has_capacity => !docked || !has_capacity
+rules/action_cards/effects.rs:1567:24 [Play::before] cond  space.iter().any(|p| p.owner() != who && unit_of(p).is_some_and(|d| d.ship)) => !(space.iter().any(|p| p.owner() != who && unit_of(p).is_som
+rules/action_cards/effects.rs:1567:45 [Play::before] logic  p.owner() != who && unit_of(p).is_some_and(|d| d.ship) => p.owner() != who || unit_of(p).is_some_and(|d| d.ship)
+rules/action_cards/effects.rs:1567:45 [Play::before] cmp  p.owner() != who => p.owner() == who
+rules/action_cards/effects.rs:1575:24 [Play::before] cond  left <= 0 => !(left <= 0)
+rules/action_cards/effects.rs:1575:24 [Play::before] cmp  left <= 0 => left < 0
+rules/action_cards/effects.rs:1575:32 [Play::before] lit  0 => 1
+rules/action_cards/effects.rs:1583:20 [Play::before] cond  !board::has_token(core, system, self.who) => !(!board::has_token(core, system, self.who))
+rules/action_cards/effects.rs:1587:107 [Play::before] lit  1 => 2
+rules/action_cards/effects.rs:1588:20 [Play::before] cmp  granted > 0 => granted >= 0
+rules/action_cards/effects.rs:1588:30 [Play::before] lit  0 => 1
+rules/action_cards/effects.rs:1591:21 [Play::before] assign  p.econ.tactic_tokens += 1 => p.econ.tactic_tokens -= 1
+rules/action_cards/effects.rs:1591:45 [Play::before] lit  1 => 2
+rules/action_cards/effects.rs:1605:21 [Play::apply] assign  p.econ.tactic_tokens -= 1 => p.econ.tactic_tokens += 1
+rules/action_cards/effects.rs:1605:45 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1609:20 [Play::apply] cond  !core.agenda().predictions.contains_key(&victim) => !(!core.agenda().predictions.contains_key(&victim))
+rules/action_cards/effects.rs:1616:36 [Play::apply] cmp  self.env.scope.0 & crate::tables::source... != 0 => self.env.scope.0 & crate::tables::source... == 0
+rules/action_cards/effects.rs:1616:36 [Play::apply] arith  self.env.scope.0 & crate::tables::source_bit(data.source) => self.env.scope.0 | crate::tables::source_bit(data.source)
+rules/action_cards/effects.rs:1616:97 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1617:24 [Play::apply] cond  in_scope && data.traits.contains(&PlanetTrait::Cultural) => !(in_scope && data.traits.contains(&PlanetTrait::Cultural))
+rules/action_cards/effects.rs:1617:24 [Play::apply] logic  in_scope && data.traits.contains(&PlanetTrait::Cultu... => in_scope || data.traits.contains(&PlanetTrait::Cultu...
+rules/action_cards/effects.rs:1623:58 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1635:64 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1636:36 [Play::apply] arith  held + 1 => held - 1
+rules/action_cards/effects.rs:1636:43 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1637:20 [Play::apply] cond  !self.used.as_slice().contains(&card) => !(!self.used.as_slice().contains(&card))
+rules/action_cards/effects.rs:1640:17 [Play::apply] assign  self.placed += 1 => self.placed -= 1
+rules/action_cards/effects.rs:1640:32 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1641:24 [Play::apply] cmp  self.placed < Self::INVEST_TOKENS => self.placed <= Self::INVEST_TOKENS
+rules/action_cards/effects.rs:1644:81 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1647:72 [Play::apply] logic  p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.s... => p.owner() == who || scope.unit(p.kind()).is_some_and(|d| d.s
+rules/action_cards/effects.rs:1647:72 [Play::apply] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:1652:117 [Play::apply] lit  3 => 4
+rules/action_cards/effects.rs:1653:102 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1656:109 [Play::apply] cmp  owner != who => owner == who
+rules/action_cards/effects.rs:1669:123 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1673:123 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1679:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1683:30 [Play::apply] logic  crate::query::promissory::is_play_area(k... && key.note != crate::generated::Promissory... => crate::query::promissory::is_play_area(k... || key.note != c
+rules/action_cards/effects.rs:1683:30 [Play::apply] logic  crate::query::promissory::is_play_area(k... && !crate::query::promissory::is_action_pla... => crate::query::promissory::is_play_area(k... || !crate::query
+rules/action_cards/effects.rs:1685:24 [Play::apply] cmp  key.note != crate::generated::PromissoryNote::Antivi... => key.note == crate::generated::PromissoryNote::Antivi...
+rules/action_cards/effects.rs:1686:20 [Play::apply] cond  faceup => !(faceup)
+rules/action_cards/effects.rs:1692:29 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1693:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1697:29 [Play::apply] lit  2 => 3
+rules/action_cards/effects.rs:1698:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1701:105 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1702:20 [Play::apply] cond  accepted => !(accepted)
+rules/action_cards/effects.rs:1711:20 [Play::apply] cond  usize::from(index) < units.len() => !(usize::from(index) < units.len())
+rules/action_cards/effects.rs:1711:20 [Play::apply] cmp  usize::from(index) < units.len() => usize::from(index) <= units.len()
+rules/action_cards/effects.rs:1716:20 [Play::apply] cond  self.first_ship.is_none() && self.opts.len() > 1 => !(self.first_ship.is_none() && self.opts.len() > 1)
+rules/action_cards/effects.rs:1716:20 [Play::apply] logic  self.first_ship.is_none() && self.opts.len() > 1 => self.first_ship.is_none() || self.opts.len() > 1
+rules/action_cards/effects.rs:1716:49 [Play::apply] cmp  self.opts.len() > 1 => self.opts.len() >= 1
+rules/action_cards/effects.rs:1716:67 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1718:28 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1734:29 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1735:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1738:66 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1739:112 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1740:20 [Play::apply] cond  count <= 0 => !(count <= 0)
+rules/action_cards/effects.rs:1740:20 [Play::apply] cmp  count <= 0 => count < 0
+rules/action_cards/effects.rs:1740:29 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1741:28 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1744:24 [Play::apply] cond  count - 1 == 0 => !(count - 1 == 0)
+rules/action_cards/effects.rs:1744:24 [Play::apply] cmp  count - 1 == 0 => count - 1 != 0
+rules/action_cards/effects.rs:1744:24 [Play::apply] arith  count - 1 => count + 1
+rules/action_cards/effects.rs:1744:32 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1744:37 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1747:53 [Play::apply] arith  count - 1 => count + 1
+rules/action_cards/effects.rs:1747:61 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1751:70 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1752:49 [Play::apply] arith  mine + 1 => mine - 1
+rules/action_cards/effects.rs:1752:56 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1756:20 [Play::apply] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:1756:20 [Play::apply] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:1756:33 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1758:33 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1759:28 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1764:76 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1765:26 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1765:29 [Play::apply] lit  3 => 4
+rules/action_cards/effects.rs:1769:36 [Play::apply] cond  d.explore_present & (1 << deck as u8) == 0 => !(d.explore_present & (1 << deck as u8) == 0)
+rules/action_cards/effects.rs:1769:36 [Play::apply] cmp  d.explore_present & (1 << deck as u8) == 0 => d.explore_present & (1 << deck as u8) != 0
+rules/action_cards/effects.rs:1769:36 [Play::apply] arith  d.explore_present & (1 << deck as u8) => d.explore_present | (1 << deck as u8)
+rules/action_cards/effects.rs:1769:57 [Play::apply] arith  1 << deck as u8 => 1 >> deck as u8
+rules/action_cards/effects.rs:1769:57 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1769:77 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1771:24 [Play::apply] cond  card.data().resolution == crate::generated::ExploreResolution::Fragment => !(card.data().resolution == crate::generated::ExploreResolut
+rules/action_cards/effects.rs:1771:24 [Play::apply] cmp  card.data().resolution == crate::generated::ExploreResolution::Fra... => card.data().resolution != crate::generated::ExploreResolutio
+rules/action_cards/effects.rs:1774:78 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1775:57 [Play::apply] arith  held + 1 => held - 1
+rules/action_cards/effects.rs:1775:64 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1781:66 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1782:92 [Play::apply] cmp  *c == picked => *c != picked
+rules/action_cards/effects.rs:1791:66 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1792:20 [Play::apply] cond  held == 0 => !(held == 0)
+rules/action_cards/effects.rs:1792:20 [Play::apply] cmp  held == 0 => held != 0
+rules/action_cards/effects.rs:1792:28 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1793:28 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1798:29 [Play::apply] arith  (face as usize - 1) % held => (face as usize - 1) / held
+rules/action_cards/effects.rs:1798:30 [Play::apply] arith  face as usize - 1 => face as usize + 1
+rules/action_cards/effects.rs:1798:46 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1813:33 [Play::apply] cmp  scope.unit(p.kind()).map(|d| d.base_type... == Some(UnitBaseType::Infantry) => scope.unit(p.kind()).map(|d| d.base_type... != Some(UnitBase
+rules/action_cards/effects.rs:1815:20 [Play::apply] cond  infantry == 0 => !(infantry == 0)
+rules/action_cards/effects.rs:1815:20 [Play::apply] cmp  infantry == 0 => infantry != 0
+rules/action_cards/effects.rs:1815:32 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1816:28 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1818:33 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1819:26 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1822:21 [Play::apply] assign  kills += usize::from(face >= PLAGUE_KILLS_ON) => kills -= usize::from(face >= PLAGUE_KILLS_ON)
+rules/action_cards/effects.rs:1822:42 [Play::apply] cmp  face >= PLAGUE_KILLS_ON => face > PLAGUE_KILLS_ON
+rules/action_cards/effects.rs:1825:20 [Play::apply] cond  fx_ground::destroy_on_planet(core, scope, system, planet, UnitBaseType::Infantry... => !(fx_ground::destroy_on_planet(core, scope, system, planet, 
+rules/action_cards/effects.rs:1826:40 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1832:116 [Play::apply] lit  3 => 4
+rules/action_cards/effects.rs:1842:20 [Play::apply] cond  n > 0 && fx_pay::pay_trade_goods(core, who, i32::from(n)) => !(n > 0 && fx_pay::pay_trade_goods(core, who, i32::from(n)))
+rules/action_cards/effects.rs:1842:20 [Play::apply] logic  n > 0 && fx_pay::pay_trade_goods(core, who, i32::... => n > 0 || fx_pay::pay_trade_goods(core, who, i32::...
+rules/action_cards/effects.rs:1842:20 [Play::apply] cmp  n > 0 => n >= 0
+rules/action_cards/effects.rs:1842:24 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1846:43 [Play::apply] cond  held.agenda == agenda => !(held.agenda == agenda)
+rules/action_cards/effects.rs:1846:43 [Play::apply] cmp  held.agenda == agenda => held.agenda != agenda
+rules/action_cards/effects.rs:1847:34 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1849:107 [Play::apply] arith  running + i64::from(n) => running - i64::from(n)
+rules/action_cards/effects.rs:1862:62 [Play::apply] cmp  hits > 0 => hits >= 0
+rules/action_cards/effects.rs:1869:29 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1870:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1873:61 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1876:69 [Play::apply] logic  p.owner() == who && p.kind() == kind => p.owner() == who || p.kind() == kind
+rules/action_cards/effects.rs:1876:69 [Play::apply] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:1876:89 [Play::apply] cmp  p.kind() == kind => p.kind() != kind
+rules/action_cards/effects.rs:1876:121 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1879:73 [Play::apply] cmp  p.owner() != who => p.owner() == who
+rules/action_cards/effects.rs:1881:72 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1882:20 [Play::apply] cond  others_there && !cell.coexist.contains(who) => !(others_there && !cell.coexist.contains(who))
+rules/action_cards/effects.rs:1882:20 [Play::apply] logic  others_there && !cell.coexist.contains(who) => others_there || !cell.coexist.contains(who)
+rules/action_cards/effects.rs:1884:78 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1888:62 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1889:103 [Play::apply] cmp  *c == card => *c != card
+rules/action_cards/effects.rs:1890:108 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1894:17 [Play::apply] assign  self.step += 1 => self.step -= 1
+rules/action_cards/effects.rs:1894:30 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1895:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1898:52 [Play::apply] lit  4 => 5
+rules/action_cards/effects.rs:1901:43 [Play::apply] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:1901:43 [Play::apply] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:1901:56 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1905:29 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1906:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1923:125 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1931:83 [Play::apply] lit  10 => 11
+rules/action_cards/effects.rs:1932:25 [Play::apply] logic  face == 1 || face == 10 => face == 1 && face == 10
+rules/action_cards/effects.rs:1932:25 [Play::apply] cmp  face == 1 => face != 1
+rules/action_cards/effects.rs:1932:33 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1932:38 [Play::apply] cmp  face == 10 => face != 10
+rules/action_cards/effects.rs:1932:46 [Play::apply] lit  10 => 11
+rules/action_cards/effects.rs:1940:101 [Play::apply] logic  p.owner() == who && p.kind() == kind => p.owner() == who || p.kind() == kind
+rules/action_cards/effects.rs:1940:101 [Play::apply] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:1940:121 [Play::apply] cmp  p.kind() == kind => p.kind() != kind
+rules/action_cards/effects.rs:1941:20 [Play::apply] cond  moved.is_empty() => !(moved.is_empty())
+rules/action_cards/effects.rs:1942:28 [Play::apply] lit  false => true
+rules/action_cards/effects.rs:1945:70 [Play::apply] logic  ground && p.owner() == who && p.kind() == kind => ground && p.owner() == who || p.kind() == kind
+rules/action_cards/effects.rs:1945:70 [Play::apply] logic  ground && p.owner() == who => ground || p.owner() == who
+rules/action_cards/effects.rs:1945:80 [Play::apply] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/effects.rs:1945:100 [Play::apply] cmp  p.kind() == kind => p.kind() != kind
+rules/action_cards/effects.rs:1950:72 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1952:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1956:32 [Play::apply] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:1956:32 [Play::apply] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:1956:45 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:1956:49 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1956:60 [Play::apply] lit  2 => 3
+rules/action_cards/effects.rs:1957:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1960:29 [Play::apply] lit  2 => 3
+rules/action_cards/effects.rs:1961:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1967:28 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1978:20 [Play::apply] cond  usize::from(index) < units.len() => !(usize::from(index) < units.len())
+rules/action_cards/effects.rs:1978:20 [Play::apply] cmp  usize::from(index) < units.len() => usize::from(index) <= units.len()
+rules/action_cards/effects.rs:1987:29 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:1988:24 [Play::apply] lit  true => false
+rules/action_cards/effects.rs:1995:106 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:2000:30 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:2000:33 [Play::apply] lit  2 => 3
+rules/action_cards/effects.rs:2004:52 [Play::apply] lit  2 => 3
+rules/action_cards/effects.rs:2015:40 [Play::apply] cond  self.fx == Fx::Cripple => !(self.fx == Fx::Cripple)
+rules/action_cards/effects.rs:2015:40 [Play::apply] cmp  self.fx == Fx::Cripple => self.fx != Fx::Cripple
+rules/action_cards/effects.rs:2015:132 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:2019:31 [Play::apply] logic  left > 0 && scope.unit(p.kind()).map(|d| d.base_type... => left > 0 || scope.unit(p.kind()).map(|d| d.base_type...
+rules/action_cards/effects.rs:2019:31 [Play::apply] cmp  left > 0 => left >= 0
+rules/action_cards/effects.rs:2019:38 [Play::apply] lit  0 => 1
+rules/action_cards/effects.rs:2019:43 [Play::apply] cmp  scope.unit(p.kind()).map(|d| d.base_type... == Some(base) => scope.unit(p.kind()).map(|d| d.base_type... != Some(base)
+rules/action_cards/effects.rs:2020:24 [Play::apply] cond  hit => !(hit)
+rules/action_cards/effects.rs:2021:25 [Play::apply] assign  left -= 1 => left += 1
+rules/action_cards/effects.rs:2021:33 [Play::apply] lit  1 => 2
+rules/action_cards/effects.rs:2034:16 [Play::advance] cond  self.fx == Fx::Lie => !(self.fx == Fx::Lie)
+rules/action_cards/effects.rs:2034:16 [Play::advance] cmp  self.fx == Fx::Lie => self.fx != Fx::Lie
+rules/action_cards/effects.rs:2037:23 [Play::advance] cmp  usize::from(self.step) < self.env.facts.traders.len() => usize::from(self.step) <= self.env.facts.traders.len()
+rules/action_cards/effects.rs:2044:21 [Play::advance] assign  self.step += 1 => self.step -= 1
+rules/action_cards/effects.rs:2044:34 [Play::advance] lit  1 => 2
+rules/action_cards/effects.rs:2049:23 [Play::advance] cond  self.fx == Fx::Exchange && self.step == 1 => !(self.fx == Fx::Exchange && self.step == 1)
+rules/action_cards/effects.rs:2049:23 [Play::advance] logic  self.fx == Fx::Exchange && self.step == 1 => self.fx == Fx::Exchange || self.step == 1
+rules/action_cards/effects.rs:2049:23 [Play::advance] cmp  self.fx == Fx::Exchange => self.fx != Fx::Exchange
+rules/action_cards/effects.rs:2049:50 [Play::advance] cmp  self.step == 1 => self.step != 1
+rules/action_cards/effects.rs:2049:63 [Play::advance] lit  1 => 2
+rules/action_cards/effects.rs:2057:23 [Play::advance] logic  self.fx == Fx::Reparations && self.step == 0 => self.fx == Fx::Reparations || self.step == 0
+rules/action_cards/effects.rs:2057:23 [Play::advance] cmp  self.fx == Fx::Reparations => self.fx != Fx::Reparations
+rules/action_cards/effects.rs:2057:53 [Play::advance] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:2057:66 [Play::advance] lit  0 => 1
+rules/action_cards/effects.rs:2059:33 [Play::advance] lit  1 => 2
+rules/action_cards/effects.rs:2084:32 [Play::actor] cond  self.step == 0 => !(self.step == 0)
+rules/action_cards/effects.rs:2084:32 [Play::actor] cmp  self.step == 0 => self.step != 0
+rules/action_cards/effects.rs:2084:45 [Play::actor] lit  0 => 1
+rules/action_cards/effects.rs:2085:29 [Play::actor] cond  self.step == 2 => !(self.step == 2)
+rules/action_cards/effects.rs:2085:29 [Play::actor] cmp  self.step == 2 => self.step != 2
+rules/action_cards/effects.rs:2085:42 [Play::actor] lit  2 => 3
+rules/action_cards/effects.rs:2143:41 [Play::begin_play] cmp  self.env.facts.rules_version >= RULES_ACTION_CARD_COSTS => self.env.facts.rules_version > RULES_ACTION_CARD_COSTS
+rules/action_cards/effects.rs:2182:114 [Play::begin_courageous] cmp  *v > 0 => *v >= 0
+rules/action_cards/effects.rs:2182:119 [Play::begin_courageous] lit  0 => 1
+rules/action_cards/effects.rs:2188:12 [Play::begin_courageous] cmp  self.owed > 0 => self.owed >= 0
+rules/action_cards/effects.rs:2241:32 [Play::drive_hit] lit  false => true
+rules/action_cards/effects.rs:2248:12 [Play::settled] logic  self.fx == Fx::Reveal && self.chosen.is_some() => self.fx == Fx::Reveal || self.chosen.is_some()
+rules/action_cards/effects.rs:2248:12 [Play::settled] cmp  self.fx == Fx::Reveal => self.fx != Fx::Reveal
+rules/action_cards/effects.rs:2250:19 [Play::settled] logic  self.fx == Fx::Probe && self.probe.is_some() => self.fx == Fx::Probe || self.probe.is_some()
+rules/action_cards/effects.rs:2254:19 [Play::settled] logic  self.fx == Fx::Battlestation && self.owed > 0 => self.fx == Fx::Battlestation || self.owed > 0
+rules/action_cards/effects.rs:2254:51 [Play::settled] cmp  self.owed > 0 => self.owed >= 0
+rules/action_cards/effects.rs:2314:58 [Play::maybe_bill] lit  4 => 5
+rules/action_cards/effects.rs:2319:79 [Play::pay_bill] body  pay_bill(&mut self, sx: &mut Sx<'_>, kind: economy::Spend, cost: i64) ... => { return (); }
+rules/action_cards/effects.rs:2327:48 [Play::after_bill] body  after_bill(&mut self, sx: &mut Sx<'_>) { => { return (); }
+rules/action_cards/effects.rs:2328:12 [Play::after_bill] cond  self.fx == Fx::Reveal => !(self.fx == Fx::Reveal)
+rules/action_cards/effects.rs:2328:12 [Play::after_bill] cmp  self.fx == Fx::Reveal => self.fx != Fx::Reveal
+rules/action_cards/effects.rs:2335:12 [Play::after_bill] cond  self.fx != Fx::Impersonation => !(self.fx != Fx::Impersonation)
+rules/action_cards/effects.rs:2335:12 [Play::after_bill] cmp  self.fx != Fx::Impersonation => self.fx == Fx::Impersonation
+rules/action_cards/effects.rs:2343:49 [Play::draw_secret] body  draw_secret(&mut self, sx: &mut Sx<'_>) { => { return (); }
+rules/action_cards/effects.rs:2344:12 [Play::draw_secret] cond  fx::draw_secret(sx.state, self.who).is_none() => !(fx::draw_secret(sx.state, self.who).is_none())
+rules/action_cards/effects.rs:2384:75 [Play::maybe_explore] lit  1 => 2
+rules/action_cards/effects.rs:2384:78 [Play::maybe_explore] lit  1 => 2
+rules/action_cards/effects.rs:2385:70 [Play::maybe_explore] lit  1 => 2
+rules/action_cards/effects.rs:2385:73 [Play::maybe_explore] lit  2 => 3
+rules/action_cards/effects.rs:2386:75 [Play::maybe_explore] lit  1 => 2
+rules/action_cards/effects.rs:2386:78 [Play::maybe_explore] lit  3 => 4
+rules/action_cards/effects.rs:2387:93 [Play::maybe_explore] lit  2 => 3
+rules/action_cards/effects.rs:2387:96 [Play::maybe_explore] lit  0 => 1
+rules/action_cards/effects.rs:2402:28 [Play::maybe_explore] cond  core.explore().wormhole_tokens.get(&Wormhole::Gamma) != Some(&here) => !(core.explore().wormhole_tokens.get(&Wormhole::Gamma) != So
+rules/action_cards/effects.rs:2402:28 [Play::maybe_explore] cmp  core.explore().wormhole_tokens.get(&Worm... != Some(&here) => core.explore().wormhole_tokens.get(&Worm... == Some(&here)
+rules/action_cards/effects.rs:2417:57 [Play::maybe_explore] cmp  self.env.facts.rules_version >= RULES_OFFICIAL_ACTION_DECK => self.env.facts.rules_version > RULES_OFFICIAL_ACTION_DECK
+rules/action_cards/effects.rs:2499:16 [Play::redraw] cmp  usize::from(*d) >= len => usize::from(*d) > len
+rules/action_cards/effects.rs:2508:16 [Play::redraw] cmp  *d < 64 => *d <= 64
+rules/action_cards/effects.rs:2508:21 [Play::redraw] lit  64 => 65
+rules/action_cards/effects.rs:2539:27 [Play::reroll_ask] lit  false => true
+rules/action_cards/effects.rs:2542:31 [Play::reroll_ask] lit  false => true
+rules/action_cards/effects.rs:2580:12 [Play::gain_tokens] cmp  count > 0 => count >= 0
+rules/action_cards/effects.rs:2583:12 [Play::gain_tokens] cond  count > 0 && self.env.facts.rules_version >= RULES_COMMAND_TOKEN_POOL => !(count > 0 && self.env.facts.rules_version >= RULES_COMMAND
+rules/action_cards/effects.rs:2583:12 [Play::gain_tokens] logic  count > 0 && self.env.facts.rules_version >= RULES_CO... => count > 0 || self.env.facts.rules_version >= RULES_CO...
+rules/action_cards/effects.rs:2583:12 [Play::gain_tokens] cmp  count > 0 => count >= 0
+rules/action_cards/effects.rs:2583:20 [Play::gain_tokens] lit  0 => 1
+rules/action_cards/effects.rs:2583:25 [Play::gain_tokens] cmp  self.env.facts.rules_version >= RULES_COMMAND_TOKEN_POOL => self.env.facts.rules_version > RULES_COMMAND_TOKEN_POOL
+rules/action_cards/effects.rs:2588:12 [Play::gain_tokens] cond  count > 0 => !(count > 0)
+rules/action_cards/effects.rs:2588:12 [Play::gain_tokens] cmp  count > 0 => count >= 0
+rules/action_cards/effects.rs:2588:20 [Play::gain_tokens] lit  0 => 1
+rules/action_cards/effects.rs:2597:27 [Play::finish_goods] lit  0 => 1
+rules/action_cards/effects.rs:2606:12 [Play::merchant_station] cmp  self.env.facts.rules_version < RULES_NO_EMPTY_CONVERT => self.env.facts.rules_version <= RULES_NO_EMPTY_CONVERT
+rules/action_cards/effects.rs:2609:139 [Play::merchant_station] lit  true => false
+rules/action_cards/effects.rs:2648:48 [Play::drive_hand] body  drive_hand(&mut self, sx: &mut Sx<'_>) { => { return (); }
+rules/action_cards/effects.rs:2679:48 [Play::drive_bill] body  drive_bill(&mut self, sx: &mut Sx<'_>) { => { return (); }
+rules/action_cards/effects.rs:2689:24 [Play::drive_bill] cond  report == Report::Paid(true) => !(report == Report::Paid(true))
+rules/action_cards/effects.rs:2689:24 [Play::drive_bill] cmp  report == Report::Paid(true) => report != Report::Paid(true)
+rules/action_cards/effects.rs:2689:47 [Play::drive_bill] lit  true => false
+rules/action_cards/effects.rs:2707:63 [Play::placed_tokens] body  placed_tokens(&self) -> Option<(System, &[Seat])> { => { return None; }
+rules/action_cards/effects.rs:2720:49 [Play::explored] body  explored(&self) -> Option<ProbeRow> { => { return None; }
+rules/action_cards/effects.rs:2726:53 [Play::close_explored] body  close_explored(&mut self, core: &CoreState) { => { return (); }
+rules/action_cards/effects.rs:2727:12 [Play::close_explored] cmp  self.stage == Stage::Done => self.stage != Stage::Done
+rules/action_cards/effects.rs:2743:9 [Play::asking] logic  self.stage == Stage::Asking || self.stage == Stage::Pooling => self.stage == Stage::Asking && self.stage == Stage::Pooling
+rules/action_cards/effects.rs:2746:17 [Play::asking] logic  matches!(self.stage, Stage::Paying | Sta... && self.pay_ask.is_some() => matches!(self.stage, Stage::Paying | Sta... || self.pay_ask.
+rules/action_cards/effects.rs:2777:54 [Play::choose_play] lit  1 => 2
+rules/action_cards/effects.rs:2778:60 [Play::choose_play] lit  1 => 2
+rules/action_cards/effects.rs:2806:50 [Play::choose_play] lit  1 => 2
+rules/action_cards/effects.rs:2807:26 [Play::choose_play] lit  1 => 2
+rules/action_cards/effects.rs:2808:16 [Play::choose_play] cond  self.step >= Self::SUMMIT_TOKENS => !(self.step >= Self::SUMMIT_TOKENS)
+rules/action_cards/effects.rs:2808:16 [Play::choose_play] cmp  self.step >= Self::SUMMIT_TOKENS => self.step > Self::SUMMIT_TOKENS
+rules/action_cards/effects.rs:2813:12 [Play::choose_play] logic  self.fx == Fx::Squad && matches!(pick, Pick::Opt(crate::choice::... => self.fx == Fx::Squad || matches!(pick, Pick::Opt(crate::choi
+rules/action_cards/effects.rs:2813:12 [Play::choose_play] cmp  self.fx == Fx::Squad => self.fx != Fx::Squad
+rules/action_cards/effects.rs:2880:28 [Play::ask_of] cond  self.frame.is_some() => !(self.frame.is_some())
+rules/action_cards/effects.rs:2885:27 [Play::ask_of] lit  false => true
+rules/action_cards/effects.rs:2887:28 [Play::ask_of] cond  matches!(self.fx, Fx::Squad | Fx::Crash) => !(matches!(self.fx, Fx::Squad | Fx::Crash))
+rules/action_cards/effects.rs:2890:22 [Play::ask_of] logic  self.fx == Fx::Exchange && self.step == 2 => self.fx == Fx::Exchange || self.step == 2
+rules/action_cards/effects.rs:2890:22 [Play::ask_of] cmp  self.fx == Fx::Exchange => self.fx != Fx::Exchange
+rules/action_cards/effects.rs:2890:49 [Play::ask_of] cmp  self.step == 2 => self.step != 2
+rules/action_cards/effects.rs:2890:62 [Play::ask_of] lit  2 => 3
+rules/action_cards/effects.rs:2893:31 [Play::ask_of] lit  false => true
+rules/action_cards/mod.rs:32:100 [hand_limit] body  hand_limit(core: &CoreState, blanked: bool, faction: impl FnOnce(usize... => { return 0; }
+rules/action_cards/mod.rs:32:100 [hand_limit] body  hand_limit(core: &CoreState, blanked: bool, faction: impl FnOnce(usize... => { return 1; }
+rules/action_cards/mod.rs:39:122 [may_play] body  may_play(core: &CoreState, blanked: bool, who: Seat, faction_forbids: ... => { return true; }
+rules/action_cards/mod.rs:39:122 [may_play] body  may_play(core: &CoreState, blanked: bool, who: Seat, faction_forbids: ... => { return false; }
+rules/action_cards/mod.rs:40:7 [may_play] logic  laws::censure_bars(core, blanked, who) |... || political_secret_bars => laws::censure_bars(core, blanked, who) |... && political_sec
+rules/action_cards/mod.rs:40:7 [may_play] logic  laws::censure_bars(core, blanked, who) || faction_forbids => laws::censure_bars(core, blanked, who) && faction_forbids
+rules/action_cards/mod.rs:50:94 [has_legal_target] logic  p.seat != who && keep(p) => p.seat != who || keep(p)
+rules/action_cards/mod.rs:50:94 [has_legal_target] cmp  p.seat != who => p.seat == who
+rules/action_cards/mod.rs:58:47 [has_legal_target] cmp  p.econ.tactic_tokens > 0 => p.econ.tactic_tokens >= 0
+rules/action_cards/mod.rs:58:70 [has_legal_target] lit  0 => 1
+rules/action_cards/mod.rs:62:89 [has_legal_target] cmp  owner != who => owner == who
+rules/action_cards/mod.rs:64:84 [has_legal_target] cmp  base(p.kind()) == Some(UnitBaseType::Pds) => base(p.kind()) != Some(UnitBaseType::Pds)
+rules/action_cards/mod.rs:67:50 [has_legal_target] cmp  base(p.kind()) == Some(UnitBaseType::Spacedock) => base(p.kind()) != Some(UnitBaseType::Spacedock)
+rules/action_cards/mod.rs:70:13 [has_legal_target] logic  board::controls_a_planet_in(core, system... && board::space_units(core, system).iter().... => board::controls_a_planet_in(core, system... || board::space_
+rules/action_cards/mod.rs:72:21 [has_legal_target] logic  p.owner() != who && matches!(base(p.kind()), Some(UnitBaseTy... => p.owner() != who || matches!(base(p.kind()), Some(UnitBaseTy
+rules/action_cards/mod.rs:72:21 [has_legal_target] cmp  p.owner() != who => p.owner() == who
+rules/action_cards/mod.rs:77:13 [has_legal_target] logic  board::has_space_units_of(core, system, ... && board::planets_of(core, system).any(|pla... => board::has_space_units_of(core, system, ... || board::planet
+rules/action_cards/mod.rs:78:114 [has_legal_target] cmp  owner != who => owner == who
+rules/action_cards/mod.rs:83:26 [has_legal_target] logic  p.owner() == who && scope.unit(p.kind()).is_none_or(|d| d.sh... => p.owner() == who || scope.unit(p.kind()).is_none_or(|d| d.sh
+rules/action_cards/mod.rs:83:26 [has_legal_target] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/mod.rs:83:82 [has_legal_target] logic  d.ship && d.base_type != UnitBaseType::Fighter => d.ship || d.base_type != UnitBaseType::Fighter
+rules/action_cards/mod.rs:83:92 [has_legal_target] cmp  d.base_type != UnitBaseType::Fighter => d.base_type == UnitBaseType::Fighter
+rules/action_cards/mod.rs:85:96 [has_legal_target] cmp  owner != who => owner == who
+rules/action_cards/mod.rs:88:61 [has_legal_target] logic  p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.s... => p.owner() == who || scope.unit(p.kind()).is_some_and(|d| d.s
+rules/action_cards/mod.rs:88:61 [has_legal_target] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/mod.rs:93:20 [has_legal_target] cmp  scope.0 & crate::tables::source_bit(data... != 0 => scope.0 & crate::tables::source_bit(data... == 0
+rules/action_cards/mod.rs:93:20 [has_legal_target] arith  scope.0 & crate::tables::source_bit(data.source) => scope.0 | crate::tables::source_bit(data.source)
+rules/action_cards/mod.rs:93:72 [has_legal_target] lit  0 => 1
+rules/action_cards/mod.rs:102:69 [is_home_system] body  is_home_system(scope: Scope, system: System) -> bool { => { return true; }
+rules/action_cards/mod.rs:102:69 [is_home_system] body  is_home_system(scope: Scope, system: System) -> bool { => { return false; }
+rules/action_cards/mod.rs:105:9 [is_home_system] logic  d.homeworld_of.is_some() && d.system == ... && scope.0 & crate::tables::source_bit(d.so... => d.homeworld_of.is_some() && d.system == ... || scope.0 & cra
+rules/action_cards/mod.rs:105:9 [is_home_system] logic  d.homeworld_of.is_some() && d.system == Some(system) => d.homeworld_of.is_some() || d.system == Some(system)
+rules/action_cards/mod.rs:105:37 [is_home_system] cmp  d.system == Some(system) => d.system != Some(system)
+rules/action_cards/mod.rs:105:65 [is_home_system] cmp  scope.0 & crate::tables::source_bit(d.so... != 0 => scope.0 & crate::tables::source_bit(d.so... == 0
+rules/action_cards/mod.rs:105:65 [is_home_system] arith  scope.0 & crate::tables::source_bit(d.source) => scope.0 | crate::tables::source_bit(d.source)
+rules/action_cards/mod.rs:105:114 [is_home_system] lit  0 => 1
+rules/action_cards/mod.rs:130:20 [reaction_can_matter] cmp  w.actor == Some(who) => w.actor != Some(who)
+rules/action_cards/mod.rs:133:29 [reaction_can_matter] cmp  base(u) == Some(UnitBaseType::Fighter) => base(u) != Some(UnitBaseType::Fighter)
+rules/action_cards/mod.rs:135:42 [reaction_can_matter] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/mod.rs:136:59 [reaction_can_matter] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/mod.rs:139:22 [reaction_can_matter] logic  w.actor.is_some() && !is_actor && board::controls_a_planet_in(core, w.syst... => w.actor.is_some() && !is_actor || board::controls_a_planet_i
+rules/action_cards/mod.rs:139:22 [reaction_can_matter] logic  w.actor.is_some() && !is_actor => w.actor.is_some() || !is_actor
+rules/action_cards/mod.rs:141:13 [reaction_can_matter] logic  is_actor && own().any(|p| { let u = p.kind(); ship(u... => is_actor || own().any(|p| { let u = p.kind(); ship(u...
+rules/action_cards/mod.rs:144:21 [reaction_can_matter] logic  ship(u) && !fighter(u) && scope.unit(u).is_some_and(|d| d.bombardm... => ship(u) && !fighter(u) || scope.unit(u).is_some_and(|d| d.bo
+rules/action_cards/mod.rs:144:21 [reaction_can_matter] logic  ship(u) && !fighter(u) => ship(u) || !fighter(u)
+rules/action_cards/mod.rs:148:13 [reaction_can_matter] logic  is_actor && pieces_in(core, w.system).any(|p| p.owne... => is_actor || pieces_in(core, w.system).any(|p| p.owne...
+rules/action_cards/mod.rs:149:54 [reaction_can_matter] logic  p.owner() != who && base(p.kind()) == Some(UnitBaseType::Pds... => p.owner() != who || base(p.kind()) == Some(UnitBaseType::Pds
+rules/action_cards/mod.rs:149:54 [reaction_can_matter] cmp  p.owner() != who => p.owner() == who
+rules/action_cards/mod.rs:149:74 [reaction_can_matter] cmp  base(p.kind()) == Some(UnitBaseType::Pds) => base(p.kind()) != Some(UnitBaseType::Pds)
+rules/action_cards/mod.rs:152:41 [reaction_can_matter] cmp  base(p.kind()) == Some(UnitBaseType::Cruiser) => base(p.kind()) != Some(UnitBaseType::Cruiser)
+rules/action_cards/mod.rs:153:42 [reaction_can_matter] logic  p.owner() != who && ship(p.kind()) => p.owner() != who || ship(p.kind())
+rules/action_cards/mod.rs:153:42 [reaction_can_matter] cmp  p.owner() != who => p.owner() == who
+rules/action_cards/mod.rs:154:37 [reaction_can_matter] logic  !is_actor && has_own_ship => !is_actor || has_own_ship
+rules/action_cards/mod.rs:155:66 [reaction_can_matter] logic  p.owner() == who && p.sustained() => p.owner() == who || p.sustained()
+rules/action_cards/mod.rs:155:66 [reaction_can_matter] cmp  p.owner() == who => p.owner() != who
+rules/action_cards/mod.rs:179:26 [cost_is_payable] logic  !crate::query::tech::is_unit_upgrade(t) && t.data().faction.is_none() => !crate::query::tech::is_unit_upgrade(t) || t.data().faction.
+rules/action_cards/mod.rs:205:132 [is_playable] body  is_playable(core: &CoreState, blanked: bool, scope: Scope, who: Seat, ... => { return None; }
+rules/action_cards/mod.rs:206:8 [is_playable] cond  !may_play(core, blanked, who, gates.faction_forbids, gates.political_secret_bars... => !(!may_play(core, blanked, who, gates.faction_forbids, gates
+rules/action_cards/mod.rs:207:21 [is_playable] lit  false => true
+rules/action_cards/mod.rs:209:8 [is_playable] cond  card == ActionCard::SignalJamming => !(card == ActionCard::SignalJamming)
+rules/action_cards/mod.rs:209:8 [is_playable] cmp  card == ActionCard::SignalJamming => card != ActionCard::SignalJamming
+rules/action_cards/mod.rs:212:8 [is_playable] cond  core.meta().rules_at_least(RULES_ACTION_CARD_COSTS) => !(core.meta().rules_at_least(RULES_ACTION_CARD_COSTS))
+rules/action_cards/mod.rs:213:24 [is_playable] cond  card == ActionCard::Bribery => !(card == ActionCard::Bribery)
+rules/action_cards/mod.rs:213:24 [is_playable] cmp  card == ActionCard::Bribery => card != ActionCard::Bribery
+rules/action_cards/mod.rs:213:79 [is_playable] lit  0 => 1
+rules/action_cards/mod.rs:214:12 [is_playable] cond  !cost_is_payable(core, who, card, goods)? => !(!cost_is_payable(core, who, card, goods)?)
+rules/action_cards/mod.rs:215:25 [is_playable] lit  false => true
+rules/action_cards/mod.rs:218:8 [is_playable] cond  core.meta().rules_at_least(RULES_ACTION_CARD_TARGETS) => !(core.meta().rules_at_least(RULES_ACTION_CARD_TARGETS))
+rules/action_cards/mod.rs:221:10 [is_playable] lit  true => false
+rules/action_cards/mod.rs:227:148 [playable_hand] body  playable_hand(core: &CoreState, blanked: bool, scope: Scope, who: Seat... => { return None; }
+rules/action_cards/mod.rs:231:12 [playable_hand] cond  is_component_action(*card) && is_playable(core, blanked, scope, who, *card, gate... => !(is_component_action(*card) && is_playable(core, blanked, s
+rules/action_cards/mod.rs:241:96 [discard_from_hand] body  discard_from_hand(core: &mut CoreState, who: Seat, index: usize) -> Op... => { return None; }
+rules/action_cards/mod.rs:243:6 [discard_from_hand] cmp  index < hand.len() => index <= hand.len()
+rules/action_cards/mod.rs:431:164 [Facts::default] lit  false => true
+rules/action_cards/mod.rs:431:442 [Facts::default] lit  false => true
+rules/action_cards/mod.rs:431:483 [Facts::default] lit  0 => 1
+rules/action_cards/mod.rs:431:506 [Facts::default] lit  false => true
+rules/action_cards/mod.rs:431:645 [Facts::default] lit  0 => 1
+rules/action_cards/mod.rs:431:690 [Facts::default] lit  0 => 1
+rules/action_cards/mod.rs:431:731 [Facts::default] lit  0 => 1
+rules/action_cards/mod.rs:431:786 [Facts::default] lit  false => true
+rules/action_cards/mod.rs:431:823 [Facts::default] lit  0 => 1
+rules/action_cards/mod.rs:431:856 [Facts::default] lit  0 => 1
+rules/action_cards/mod.rs:431:891 [Facts::default] lit  0 => 1
+rules/action_cards/mod.rs:508:36 [play_simple] lit  true => false
+rules/action_cards/mod.rs:513:31 [play_simple] cond  effect == Simple::Rout => !(effect == Simple::Rout)
+rules/action_cards/mod.rs:513:31 [play_simple] cmp  effect == Simple::Rout => effect != Simple::Rout
+rules/action_cards/mod.rs:535:107 [play_simple] lit  2 => 3
+rules/action_cards/mod.rs:536:16 [play_simple] cmp  granted > 0 => granted >= 0
+rules/action_cards/mod.rs:536:26 [play_simple] lit  0 => 1
+rules/action_cards/mod.rs:539:17 [play_simple] assign  p.econ.fleet_tokens += i16::try_from(granted).unwrap_or(0) => p.econ.fleet_tokens -= i16::try_from(granted).unwrap_or(0)
+rules/action_cards/mod.rs:539:73 [play_simple] lit  0 => 1
+rules/action_cards/mod.rs:543:27 [play_simple] cond  effect == Simple::ManeuveringJets => !(effect == Simple::ManeuveringJets)
+rules/action_cards/mod.rs:543:27 [play_simple] cmp  effect == Simple::ManeuveringJets => effect != Simple::ManeuveringJets
+rules/action_cards/mod.rs:543:63 [play_simple] lit  1 => 2
+rules/action_cards/mod.rs:543:74 [play_simple] lit  2 => 3
+rules/action_cards/mod.rs:546:42 [play_simple] cond  held == round => !(held == round)
+rules/action_cards/mod.rs:546:42 [play_simple] cmp  held == round => held != round
+rules/action_cards/mod.rs:547:26 [play_simple] lit  0 => 1
+rules/action_cards/mod.rs:549:64 [play_simple] arith  running + hits => running - hits
+rules/action_cards/mod.rs:555:20 [play_simple] cmp  victim == who => victim != who
+rules/action_cards/mod.rs:556:20 [play_simple] cmp  producer != who => producer == who
+rules/action_cards/mod.rs:558:74 [play_simple] lit  2 => 3
+rules/action_cards/mod.rs:570:29 [play_simple] lit  0i16 => 1i16
+rules/action_cards/mod.rs:572:20 [play_simple] cond  *side == who => !(*side == who)
+rules/action_cards/mod.rs:572:20 [play_simple] cmp  *side == who => *side != who
+rules/action_cards/mod.rs:576:21 [play_simple] assign  goods += p.econ.commodities => goods -= p.econ.commodities
+rules/action_cards/mod.rs:577:42 [play_simple] lit  0 => 1
+rules/action_cards/mod.rs:580:16 [play_simple] cmp  goods > 0 => goods >= 0
+rules/action_cards/mod.rs:580:24 [play_simple] lit  0 => 1
+rules/action_cards/mod.rs:583:17 [play_simple] assign  p.econ.commodities += goods => p.econ.commodities -= goods
+rules/action_cards/mod.rs:588:16 [play_simple] cond  by == who || !is_component_action(card) => !(by == who || !is_component_action(card))
+rules/action_cards/mod.rs:588:16 [play_simple] logic  by == who || !is_component_action(card) => by == who && !is_component_action(card)
+rules/action_cards/mod.rs:588:16 [play_simple] cmp  by == who => by != who
+rules/action_cards/mod.rs:591:81 [play_simple] cmp  *held == card => *held != card
+rules/action_cards/mod.rs:601:32 [play_simple] cmp  env.scope.0 & crate::tables::source_bit(... != 0 => env.scope.0 & crate::tables::source_bit(... == 0
+rules/action_cards/mod.rs:601:32 [play_simple] arith  env.scope.0 & crate::tables::source_bit(data.source) => env.scope.0 | crate::tables::source_bit(data.source)
+rules/action_cards/mod.rs:601:88 [play_simple] lit  0 => 1
+rules/action_cards/mod.rs:602:20 [play_simple] cond  in_scope && data.traits.contains(&crate::generated::PlanetTrait::Cultural) => !(in_scope && data.traits.contains(&crate::generated::Planet
+rules/action_cards/mod.rs:602:20 [play_simple] logic  in_scope && data.traits.contains(&crate::generated::... => in_scope || data.traits.contains(&crate::generated::...
+rules/action_cards/mod.rs:611:35 [play_simple] cond  held.agenda == agenda => !(held.agenda == agenda)
+rules/action_cards/mod.rs:611:35 [play_simple] cmp  held.agenda == agenda => held.agenda != agenda
+rules/action_cards/mod.rs:612:26 [play_simple] lit  0 => 1
+rules/action_cards/mod.rs:614:99 [play_simple] arith  running + 5 => running - 5
+rules/action_cards/mod.rs:614:109 [play_simple] lit  5 => 6
+rules/action_cards/mod.rs:623:24 [play_simple] cond  piece.owner() == who => !(piece.owner() == who)
+rules/action_cards/mod.rs:623:24 [play_simple] cmp  piece.owner() == who => piece.owner() != who
+rules/action_cards/mod.rs:624:55 [play_simple] lit  false => true
+rules/action_cards/mod.rs:636:17 [play_simple] logic  p.owner() != who && env.scope.unit(p.kind()).is_some_and(|d|... => p.owner() != who || env.scope.unit(p.kind()).is_some_and(|d|
+rules/action_cards/mod.rs:636:17 [play_simple] cmp  p.owner() != who => p.owner() == who
+rules/action_cards/mod.rs:636:78 [play_simple] cmp  d.base_type == UnitBaseType::Pds => d.base_type != UnitBaseType::Pds
+rules/action_cards/perform.rs:73:20 [begin] cmp  env.facts.rules_version >= RULES_OFFICIAL_ACTION_DECK => env.facts.rules_version > RULES_OFFICIAL_ACTION_DECK
+rules/action_cards/perform.rs:91:16 [begin] cond  fx::draw_secret(sx.state, who).is_none() => !(fx::draw_secret(sx.state, who).is_none())
+rules/action_cards/perform.rs:104:27 [begin] cond  primary => !(primary)
+rules/action_cards/perform.rs:109:55 [begin] lit  0 => 1
+rules/action_cards/perform.rs:126:59 [begin] cmp  env.facts.rules_version >= RULES_LETNEV_FLEET_POOL => env.facts.rules_version > RULES_LETNEV_FLEET_POOL
+rules/action_cards/perform.rs:129:33 [begin] logic  primary && card == StrategyCard::Diploma... && env.facts.rules_version >= RULES_BASE_DI... => primary && card == StrategyCard::Diploma... || env.facts.rul
+rules/action_cards/perform.rs:129:33 [begin] logic  primary && card == StrategyCard::DiplomacyBase => primary || card == StrategyCard::DiplomacyBase
+rules/action_cards/perform.rs:129:44 [begin] cmp  card == StrategyCard::DiplomacyBase => card != StrategyCard::DiplomacyBase
+rules/action_cards/perform.rs:129:83 [begin] cmp  env.facts.rules_version >= RULES_BASE_DIPLOMACY => env.facts.rules_version > RULES_BASE_DIPLOMACY
+rules/action_cards/perform.rs:149:61 [finish] lit  false => true
+rules/action_cards/perform.rs:152:32 [finish] lit  false => true
+rules/action_cards/reaction_slot.rs:89:12 [can_matter] cond  !cost_is_payable(s, who, card, 0).ok_or(Unknown::CardCost)? => !(!cost_is_payable(s, who, card, 0).ok_or(Unknown::CardCost)
+rules/action_cards/reaction_slot.rs:89:43 [can_matter] lit  0 => 1
+rules/action_cards/reaction_slot.rs:90:23 [can_matter] lit  false => true
+rules/action_cards/reaction_slot.rs:111:66 [spend] lit  false => true
+rules/action_cards/reaction_slot.rs:124:17 [spend] lit  false => true
+rules/action_cards/reaction_slot.rs:145:27 [card_question] lit  false => true
+rules/action_cards/reaction_slot.rs:177:53 [play] cmp  group(*c) == group(first) => group(*c) != group(first)
+rules/action_cards/reaction_slot.rs:194:8 [play] cond  eff.read().0.meta().rules_at_least(RULES_SABOTAGE_TIMING) && event.kind != Event... => !(eff.read().0.meta().rules_at_least(RULES_SABOTAGE_TIMING) 
+rules/action_cards/reaction_slot.rs:194:8 [play] logic  eff.read().0.meta().rules_at_least(RULES... && event.kind != EventKind::ActionCardPlaye... => eff.read().0.meta().rules_at_least(RULES... || event.kind !=
+rules/action_cards/reaction_slot.rs:194:69 [play] cmp  event.kind != EventKind::ActionCardPlayed => event.kind == EventKind::ActionCardPlayed
+rules/action_cards/reaction_slot.rs:195:12 [play] cond  spend(eff.state(), who, chosen) => !(spend(eff.state(), who, chosen))
+rules/action_cards/reaction_slot.rs:200:8 [play] cond  !spend(eff.state(), who, chosen) => !(!spend(eff.state(), who, chosen))
+rules/action_cards/reaction_slot.rs:204:8 [play] cond  played && event.kind == EventKind::ActionCardPlayed && is_sabotage(chosen) => !(played && event.kind == EventKind::ActionCardPlayed && is_
+rules/action_cards/reaction_slot.rs:204:8 [play] logic  played && event.kind == EventKind::Actio... && is_sabotage(chosen) => played && event.kind == EventKind::Actio... || is_sabotage(c
+rules/action_cards/reaction_slot.rs:204:8 [play] logic  played && event.kind == EventKind::ActionCardPlaye... => played || event.kind == EventKind::ActionCardPlaye...
+rules/action_cards/reaction_slot.rs:204:18 [play] cmp  event.kind == EventKind::ActionCardPlayed => event.kind != EventKind::ActionCardPlayed
+rules/action_cards/reaction_slot.rs:217:25 [register] arith  SLOT_BASE + u16::try_from(i).unwrap_or(0) => SLOT_BASE - u16::try_from(i).unwrap_or(0)
+rules/action_cards/reaction_slot.rs:217:64 [register] lit  0 => 1

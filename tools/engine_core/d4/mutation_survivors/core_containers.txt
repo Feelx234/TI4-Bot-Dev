@@ -1,0 +1,72 @@
+# survivors of core/containers: 71 of 288 points (75% killed); paths relative to crates/<crate>/src
+containers/chunked.rs:64:41 [Chunked::eq] body  eq(&self, other: &Self) -> bool { => { return true; }
+containers/decimal.rs:9:13 [digits] lit  0 => 1
+containers/decimal.rs:10:13 [digits] lit  0 => 1
+containers/decimal.rs:11:16 [digits] lit  1 => 2
+containers/decimal.rs:14:20 [digits] lit  0u8 => 1u8
+containers/decimal.rs:28:32 [DecimalTextOrd::cmp] lit  0u8 => 1u8
+containers/decimal.rs:28:43 [DecimalTextOrd::cmp] lit  0u8 => 1u8
+containers/deck.rs:31:9 [Deck::len] arith  self.order.len() - self.head as usize => self.order.len() + self.head as usize
+containers/deck.rs:35:37 [Deck::is_empty] body  is_empty(&self) -> bool { => { return true; }
+containers/deck.rs:35:37 [Deck::is_empty] body  is_empty(&self) -> bool { => { return false; }
+containers/deck.rs:36:9 [Deck::is_empty] cmp  self.len() == 0 => self.len() != 0
+containers/deck.rs:36:23 [Deck::is_empty] lit  0 => 1
+containers/deck.rs:58:12 [Deck::put_top] cmp  self.head > 0 => self.head >= 0
+containers/deck.rs:62:38 [Deck::put_top] lit  0 => 1
+containers/deck.rs:86:41 [Deck::eq] body  eq(&self, other: &Self) -> bool { => { return true; }
+containers/idx.rs:44:30 [Seat::index] body  index(self) -> usize { => { return 0; }
+containers/idx.rs:44:30 [Seat::index] body  index(self) -> usize { => { return 1; }
+containers/idx.rs:49:12 [Seat::from_index] cmp  index < MAX_OWNERS => index <= MAX_OWNERS
+containers/log.rs:76:12 [Log::get] cmp  index >= self.len() => index > self.len()
+containers/log.rs:95:12 [Log::get_mut] cmp  index >= self.len() => index > self.len()
+containers/log.rs:110:44 [Log::get_mut] arith  index % CHUNK => index / CHUNK
+containers/log.rs:120:78 [Log::iter] lit  1 => 2
+containers/log.rs:141:29 [Log::shares_prefix_with] lit  true => false
+containers/log.rs:143:18 [Log::shares_prefix_with] lit  false => true
+containers/log.rs:151:29 [Log::shares_tail_with] lit  true => false
+containers/log.rs:153:18 [Log::shares_tail_with] lit  false => true
+containers/log.rs:170:41 [Log::eq] body  eq(&self, other: &Self) -> bool { => { return true; }
+containers/log.rs:171:9 [Log::eq] logic  self.len == other.len && self.iter().zip(other.iter()).all(|(a, b... => self.len == other.len || self.iter().zip(other.iter()).all(|
+containers/log.rs:171:77 [Log::eq] cmp  a == b => a != b
+containers/opt32.rs:37:48 [Opt32::set] body  set(&mut self, value: Option<u32>) { => { return (); }
+containers/opt32.rs:51:42 [Opt32::is] body  is(self, value: u32) -> bool { => { return true; }
+containers/opt32.rs:51:42 [Opt32::is] body  is(self, value: u32) -> bool { => { return false; }
+containers/opt32.rs:52:9 [Opt32::is] cmp  self.get() == Some(value) => self.get() != Some(value)
+containers/set.rs:28:25 [Set::contains] lit  6 => 7
+containers/set.rs:38:19 [Set::insert] arith  *word & bit => *word | bit
+containers/set.rs:38:34 [Set::insert] lit  0 => 1
+containers/set.rs:48:32 [Set::remove] lit  63 => 64
+containers/set.rs:49:41 [Set::remove] lit  6 => 7
+containers/set.rs:55:30 [Set::clear] body  clear(&mut self) { => { return (); }
+containers/set.rs:56:23 [Set::clear] lit  0 => 1
+containers/set.rs:60:37 [Set::is_empty] body  is_empty(&self) -> bool { => { return true; }
+containers/set.rs:69:49 [Set::union_with] body  union_with(&mut self, other: &Self) { => { return (); }
+containers/set.rs:71:13 [Set::union_with] assign  *a |= *b => *a &= *b
+containers/set.rs:75:53 [Set::intersect_with] body  intersect_with(&mut self, other: &Self) { => { return (); }
+containers/set.rs:77:13 [Set::intersect_with] assign  *a &= *b => *a |= *b
+containers/set.rs:81:47 [Set::subtract] body  subtract(&mut self, other: &Self) { => { return (); }
+containers/set.rs:83:13 [Set::subtract] assign  *a &= !*b => *a |= !*b
+containers/set.rs:88:53 [Set::intersects] body  intersects(&self, other: &Self) -> bool { => { return true; }
+containers/set.rs:88:53 [Set::intersects] body  intersects(&self, other: &Self) -> bool { => { return false; }
+containers/set.rs:89:64 [Set::intersects] cmp  a & b != 0 => a & b == 0
+containers/set.rs:89:64 [Set::intersects] arith  a & b => a | b
+containers/set.rs:89:73 [Set::intersects] lit  0 => 1
+containers/set.rs:93:52 [Set::is_subset] body  is_subset(&self, other: &Self) -> bool { => { return true; }
+containers/set.rs:93:52 [Set::is_subset] body  is_subset(&self, other: &Self) -> bool { => { return false; }
+containers/set.rs:94:64 [Set::is_subset] cmp  a & !b == 0 => a & !b != 0
+containers/set.rs:94:64 [Set::is_subset] arith  a & !b => a | !b
+containers/set.rs:94:74 [Set::is_subset] lit  0 => 1
+containers/set.rs:114:39 [Set::first] body  first(&self) -> Option<T> { => { return None; }
+containers/set.rs:138:41 [Set::eq] body  eq(&self, other: &Self) -> bool { => { return true; }
+containers/set.rs:144:47 [Set::hash] body  hash<H: Hasher>(&self, state: &mut H) { => { return (); }
+containers/set.rs:222:28 [SeatSet::iter] lit  1 => 2
+containers/small_list.rs:61:28 [SmallList::push] cmp  N > 0 => N >= 0
+containers/small_list.rs:61:32 [SmallList::push] lit  0 => 1
+containers/small_list.rs:68:52 [SmallList::push] arith  N * 2 => N + 2
+containers/small_list.rs:68:56 [SmallList::push] lit  2 => 3
+containers/small_list.rs:160:41 [SmallList::eq] body  eq(&self, other: &Self) -> bool { => { return true; }
+containers/small_list.rs:166:47 [SmallList::hash] body  hash<H: Hasher>(&self, state: &mut H) { => { return (); }
+containers/sorted_map.rs:28:37 [SortedMap::is_empty] body  is_empty(&self) -> bool { => { return true; }
+containers/sorted_map.rs:83:69 [SortedMap::retain] body  retain(&mut self, mut keep: impl FnMut(&K, &V) -> bool) { => { return (); }
+containers/sorted_map.rs:101:44 [SortedMap::first] body  first(&self) -> Option<(K, V)> { => { return None; }
+containers/sorted_map.rs:123:41 [SortedMap::eq] body  eq(&self, other: &Self) -> bool { => { return true; }

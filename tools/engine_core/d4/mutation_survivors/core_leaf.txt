@@ -1,0 +1,374 @@
+# survivors of core/leaf: 373 of 422 points (11% killed); paths relative to crates/<crate>/src
+bits.rs:38:19 [Bits::insert] arith  *word & bit => *word | bit
+bits.rs:38:34 [Bits::insert] lit  0 => 1
+bits.rs:45:25 [Bits::remove] lit  6 => 7
+bits.rs:50:37 [Bits::is_empty] body  is_empty(&self) -> bool { => { return true; }
+bits.rs:50:37 [Bits::is_empty] body  is_empty(&self) -> bool { => { return false; }
+bits.rs:51:35 [Bits::is_empty] cmp  *w == 0 => *w != 0
+bits.rs:51:41 [Bits::is_empty] lit  0 => 1
+bits.rs:60:49 [Bits::union_with] body  union_with(&mut self, other: &Self) { => { return (); }
+bits.rs:67:53 [Bits::intersect_with] body  intersect_with(&mut self, other: &Self) { => { return (); }
+bits.rs:69:13 [Bits::intersect_with] assign  *a &= *b => *a |= *b
+bits.rs:75:53 [Bits::intersects] body  intersects(&self, other: &Self) -> bool { => { return true; }
+bits.rs:75:53 [Bits::intersects] body  intersects(&self, other: &Self) -> bool { => { return false; }
+bits.rs:79:27 [Bits::intersects] cmp  a & b != 0 => a & b == 0
+bits.rs:79:27 [Bits::intersects] arith  a & b => a | b
+bits.rs:79:36 [Bits::intersects] lit  0 => 1
+board.rs:47:54 [CoreBoard::enemy_ships] body  enemy_ships(&self, seat: Seat) -> SysSet { => { return Default::default(); }
+board.rs:50:16 [CoreBoard::enemy_ships] cond  self.ship_owners[i] & !seat.bit() != 0 => !(self.ship_owners[i] & !seat.bit() != 0)
+board.rs:50:16 [CoreBoard::enemy_ships] cmp  self.ship_owners[i] & !seat.bit() != 0 => self.ship_owners[i] & !seat.bit() == 0
+board.rs:50:16 [CoreBoard::enemy_ships] arith  self.ship_owners[i] & !seat.bit() => self.ship_owners[i] | !seat.bit()
+board.rs:50:53 [CoreBoard::enemy_ships] lit  0 => 1
+board.rs:59:61 [CoreBoard::own_command_tokens] body  own_command_tokens(&self, seat: Seat) -> SysSet { => { return Default::default(); }
+board.rs:62:16 [CoreBoard::own_command_tokens] cond  self.command_tokens[i] & seat.bit() != 0 => !(self.command_tokens[i] & seat.bit() != 0)
+board.rs:62:16 [CoreBoard::own_command_tokens] cmp  self.command_tokens[i] & seat.bit() != 0 => self.command_tokens[i] & seat.bit() == 0
+board.rs:62:16 [CoreBoard::own_command_tokens] arith  self.command_tokens[i] & seat.bit() => self.command_tokens[i] | seat.bit()
+board.rs:62:55 [CoreBoard::own_command_tokens] lit  0 => 1
+board.rs:71:55 [CoreBoard::unit_systems] body  unit_systems(&self, seat: Seat) -> SysSet { => { return Default::default(); }
+board.rs:74:16 [CoreBoard::unit_systems] cond  self.unit_owners[i] & seat.bit() != 0 => !(self.unit_owners[i] & seat.bit() != 0)
+board.rs:74:16 [CoreBoard::unit_systems] cmp  self.unit_owners[i] & seat.bit() != 0 => self.unit_owners[i] & seat.bit() == 0
+board.rs:74:16 [CoreBoard::unit_systems] arith  self.unit_owners[i] & seat.bit() => self.unit_owners[i] | seat.bit()
+board.rs:74:52 [CoreBoard::unit_systems] lit  0 => 1
+galaxy.rs:67:59 [Adjacency::is_hyperlane] body  is_hyperlane(&self, system: SystemIx) -> bool { => { return true; }
+galaxy.rs:67:59 [Adjacency::is_hyperlane] body  is_hyperlane(&self, system: SystemIx) -> bool { => { return false; }
+galaxy.rs:72:79 [sparse_get] body  sparse_get(list: &[(SystemIx, SysSet)], key: SystemIx) -> Option<&SysS... => { return None; }
+galaxy.rs:73:31 [sparse_get] cmp  *k == key => *k != key
+galaxy.rs:77:50 [sparse_entry] cmp  *k == key => *k != key
+galaxy.rs:81:13 [sparse_entry] arith  list.len() - 1 => list.len() + 1
+galaxy.rs:81:26 [sparse_entry] lit  1 => 2
+galaxy.rs:100:30 [CoreGalaxy::new] lit  false => true
+galaxy.rs:101:28 [CoreGalaxy::new] lit  false => true
+galaxy.rs:102:35 [CoreGalaxy::new] lit  false => true
+galaxy.rs:103:34 [CoreGalaxy::new] lit  false => true
+galaxy.rs:104:34 [CoreGalaxy::new] lit  false => true
+galaxy.rs:130:82 [CoreGalaxy::place_off_map] body  place_off_map(&mut self, system: SystemIx) -> Result<(), PlaceError> { => { return Ok(()); }
+galaxy.rs:131:12 [CoreGalaxy::place_off_map] cond  self.coord[system.index()].is_some() => !(self.coord[system.index()].is_some())
+galaxy.rs:138:43 [CoreGalaxy::join] body  join(&mut self, system: SystemIx) { => { return (); }
+galaxy.rs:141:12 [CoreGalaxy::join] cond  system.data().hyperlane => !(system.data().hyperlane)
+galaxy.rs:148:67 [CoreGalaxy::set_wormholes] body  set_wormholes(&mut self, system: SystemIx, kinds: u8) { => { return (); }
+galaxy.rs:152:73 [CoreGalaxy::set_token_wormholes] body  set_token_wormholes(&mut self, system: SystemIx, kinds: u8) { => { return (); }
+galaxy.rs:157:62 [CoreGalaxy::coord_of] body  coord_of(&self, system: SystemIx) -> Option<Hex> { => { return None; }
+galaxy.rs:162:60 [CoreGalaxy::system_at] body  system_at(&self, hex: Hex) -> Option<SystemIx> { => { return None; }
+galaxy.rs:167:59 [CoreGalaxy::is_hyperlane] body  is_hyperlane(&self, system: SystemIx) -> bool { => { return true; }
+galaxy.rs:167:59 [CoreGalaxy::is_hyperlane] body  is_hyperlane(&self, system: SystemIx) -> bool { => { return false; }
+galaxy.rs:179:59 [CoreGalaxy::wormhole_kinds] body  wormhole_kinds(&self, system: SystemIx) -> u8 { => { return 0; }
+galaxy.rs:181:25 [CoreGalaxy::wormhole_kinds] arith  self.wormholes[i] | self.token_wormholes[i] => self.wormholes[i] & self.token_wormholes[i]
+galaxy.rs:182:12 [CoreGalaxy::wormhole_kinds] cond  self.nexus_wormholes_off && is_nexus(system) => !(self.nexus_wormholes_off && is_nexus(system))
+galaxy.rs:182:12 [CoreGalaxy::wormhole_kinds] logic  self.nexus_wormholes_off && is_nexus(system) => self.nexus_wormholes_off || is_nexus(system)
+galaxy.rs:183:13 [CoreGalaxy::wormhole_kinds] assign  kinds &= !WH_ALPHA_BETA => kinds |= !WH_ALPHA_BETA
+galaxy.rs:191:72 [CoreGalaxy::wormhole_kinds_unsuppressed] body  wormhole_kinds_unsuppressed(&self, system: SystemIx) -> u8 { => { return 0; }
+galaxy.rs:191:72 [CoreGalaxy::wormhole_kinds_unsuppressed] body  wormhole_kinds_unsuppressed(&self, system: SystemIx) -> u8 { => { return 1; }
+galaxy.rs:192:9 [CoreGalaxy::wormhole_kinds_unsuppressed] arith  self.wormholes[system.index()] | self.token_wormholes[system.index()] => self.wormholes[system.index()] & self.token_wormholes[system
+galaxy.rs:197:47 [CoreGalaxy::wormhole_systems] body  wormhole_systems(&self) -> SysSet { => { return Default::default(); }
+galaxy.rs:199:18 [CoreGalaxy::wormhole_systems] lit  0 => 1
+galaxy.rs:200:16 [CoreGalaxy::wormhole_systems] cond  self.wormhole_kinds(crate::ids::system_at(i)) != 0 => !(self.wormhole_kinds(crate::ids::system_at(i)) != 0)
+galaxy.rs:200:16 [CoreGalaxy::wormhole_systems] cmp  self.wormhole_kinds(crate::ids::system_a... != 0 => self.wormhole_kinds(crate::ids::system_a... == 0
+galaxy.rs:200:65 [CoreGalaxy::wormhole_systems] lit  0 => 1
+galaxy.rs:208:73 [CoreGalaxy::add_token_wormholes] body  add_token_wormholes(&mut self, system: SystemIx, kinds: u8) { => { return (); }
+galaxy.rs:209:9 [CoreGalaxy::add_token_wormholes] assign  self.token_wormholes[system.index()] |= kinds => self.token_wormholes[system.index()] &= kinds
+galaxy.rs:213:64 [CoreGalaxy::suppress_wormholes_at] body  suppress_wormholes_at(&mut self, system: SystemIx) { => { return (); }
+galaxy.rs:214:42 [CoreGalaxy::suppress_wormholes_at] lit  0 => 1
+galaxy.rs:215:48 [CoreGalaxy::suppress_wormholes_at] lit  0 => 1
+galaxy.rs:219:56 [CoreGalaxy::retain_wormhole_kinds] body  retain_wormhole_kinds(&mut self, keep: u8) { => { return (); }
+galaxy.rs:221:13 [CoreGalaxy::retain_wormhole_kinds] assign  *k &= keep => *k |= keep
+galaxy.rs:226:43 [CoreGalaxy::refresh_lane_links] body  refresh_lane_links(&mut self) { => { return (); }
+galaxy.rs:228:12 [CoreGalaxy::refresh_lane_links] cond  self.hyperlanes.is_empty() => !(self.hyperlanes.is_empty())
+galaxy.rs:233:16 [CoreGalaxy::refresh_lane_links] cond  !self.hyperlanes.contains(system.index()) => !(!self.hyperlanes.contains(system.index()))
+galaxy.rs:245:12 [CoreGalaxy::refresh_lane_links] cond  !placed.iter().any(|(_, h)| lanes_at(*h).is_some()) => !(!placed.iter().any(|(_, h)| lanes_at(*h).is_some()))
+galaxy.rs:249:16 [CoreGalaxy::refresh_lane_links] cond  lanes_at(start).is_some() => !(lanes_at(start).is_some())
+galaxy.rs:252:25 [CoreGalaxy::refresh_lane_links] lit  0 => 1
+galaxy.rs:252:28 [CoreGalaxy::refresh_lane_links] lit  6u8 => 7u8
+galaxy.rs:254:29 [CoreGalaxy::refresh_lane_links] arith  (edge + 3) % 6 => (edge + 3) / 6
+galaxy.rs:254:30 [CoreGalaxy::refresh_lane_links] arith  edge + 3 => edge - 3
+galaxy.rs:254:37 [CoreGalaxy::refresh_lane_links] lit  3 => 4
+galaxy.rs:254:42 [CoreGalaxy::refresh_lane_links] lit  6 => 7
+galaxy.rs:255:20 [CoreGalaxy::refresh_lane_links] cond  lanes_at(first).is_some_and(|l| l.iter().any(|&(a, b)| a == entry || b == entry)... => !(lanes_at(first).is_some_and(|l| l.iter().any(|&(a, b)| a =
+galaxy.rs:255:75 [CoreGalaxy::refresh_lane_links] logic  a == entry || b == entry => a == entry && b == entry
+galaxy.rs:255:75 [CoreGalaxy::refresh_lane_links] cmp  a == entry => a != entry
+galaxy.rs:255:89 [CoreGalaxy::refresh_lane_links] cmp  b == entry => b != entry
+galaxy.rs:261:28 [CoreGalaxy::refresh_lane_links] cmp  hex != start => hex == start
+galaxy.rs:277:18 [CoreGalaxy::holders] lit  0 => 1
+galaxy.rs:279:16 [CoreGalaxy::holders] cond  kinds == 0 => !(kinds == 0)
+galaxy.rs:279:16 [CoreGalaxy::holders] cmp  kinds == 0 => kinds != 0
+galaxy.rs:279:25 [CoreGalaxy::holders] lit  0 => 1
+galaxy.rs:283:20 [CoreGalaxy::holders] cond  kinds & (1 << k) != 0 => !(kinds & (1 << k) != 0)
+galaxy.rs:283:20 [CoreGalaxy::holders] cmp  kinds & (1 << k) != 0 => kinds & (1 << k) == 0
+galaxy.rs:283:20 [CoreGalaxy::holders] arith  kinds & (1 << k) => kinds | (1 << k)
+galaxy.rs:283:29 [CoreGalaxy::holders] arith  1 << k => 1 >> k
+galaxy.rs:283:29 [CoreGalaxy::holders] lit  1 => 2
+galaxy.rs:283:40 [CoreGalaxy::holders] lit  0 => 1
+galaxy.rs:291:94 [CoreGalaxy::partners] body  partners(&self, system: SystemIx, holders: &[SysSet; WORMHOLE_KIND_COU... => { return Default::default(); }
+galaxy.rs:294:12 [CoreGalaxy::partners] cond  kinds == 0 => !(kinds == 0)
+galaxy.rs:294:12 [CoreGalaxy::partners] cmp  kinds == 0 => kinds != 0
+galaxy.rs:294:21 [CoreGalaxy::partners] lit  0 => 1
+galaxy.rs:299:12 [CoreGalaxy::partners] cond  self.wormholes_all_linked && kinds & WH_ALPHA_BETA != 0 => !(self.wormholes_all_linked && kinds & WH_ALPHA_BETA != 0)
+galaxy.rs:299:12 [CoreGalaxy::partners] logic  self.wormholes_all_linked && kinds & WH_ALPHA_BETA != 0 => self.wormholes_all_linked || kinds & WH_ALPHA_BETA != 0
+galaxy.rs:299:41 [CoreGalaxy::partners] cmp  kinds & WH_ALPHA_BETA != 0 => kinds & WH_ALPHA_BETA == 0
+galaxy.rs:299:41 [CoreGalaxy::partners] arith  kinds & WH_ALPHA_BETA => kinds | WH_ALPHA_BETA
+galaxy.rs:299:66 [CoreGalaxy::partners] lit  0 => 1
+galaxy.rs:302:19 [CoreGalaxy::partners] cond  self.wormhole_star_links && kinds & WH_ALPHA_BETA == WH_ALPHA_BETA => !(self.wormhole_star_links && kinds & WH_ALPHA_BETA == WH_AL
+galaxy.rs:302:19 [CoreGalaxy::partners] logic  self.wormhole_star_links && kinds & WH_ALPHA_BETA == WH_ALPHA_BETA => self.wormhole_star_links || kinds & WH_ALPHA_BETA == WH_ALPH
+galaxy.rs:302:47 [CoreGalaxy::partners] cmp  kinds & WH_ALPHA_BETA == WH_ALPHA_BETA => kinds & WH_ALPHA_BETA != WH_ALPHA_BETA
+galaxy.rs:302:47 [CoreGalaxy::partners] arith  kinds & WH_ALPHA_BETA => kinds | WH_ALPHA_BETA
+galaxy.rs:307:20 [CoreGalaxy::partners] cond  kinds & (1 << k) != 0 => !(kinds & (1 << k) != 0)
+galaxy.rs:307:20 [CoreGalaxy::partners] cmp  kinds & (1 << k) != 0 => kinds & (1 << k) == 0
+galaxy.rs:307:20 [CoreGalaxy::partners] arith  kinds & (1 << k) => kinds | (1 << k)
+galaxy.rs:307:29 [CoreGalaxy::partners] arith  1 << k => 1 >> k
+galaxy.rs:307:29 [CoreGalaxy::partners] lit  1 => 2
+galaxy.rs:307:40 [CoreGalaxy::partners] lit  0 => 1
+galaxy.rs:317:21 [CoreGalaxy::adjacent_with] logic  self.hyperlane_lanes && !self.hyperlanes.is_empty() => self.hyperlane_lanes || !self.hyperlanes.is_empty()
+galaxy.rs:322:25 [CoreGalaxy::adjacent_with] logic  !lanes || !self.hyperlanes.contains(s.index()) => !lanes && !self.hyperlanes.contains(s.index())
+galaxy.rs:328:12 [CoreGalaxy::adjacent_with] cond  lanes => !(lanes)
+galaxy.rs:329:16 [CoreGalaxy::adjacent_with] cond  self.hyperlanes.contains(system.index()) => !(self.hyperlanes.contains(system.index()))
+galaxy.rs:336:12 [CoreGalaxy::adjacent_with] cond  !self.wormholes_off => !(!self.wormholes_off)
+galaxy.rs:357:24 [CoreGalaxy::adjacency] lit  0 => 1
+galaxy.rs:374:4 [walk] body  walk( lanes_at: &impl Fn(Hex) -> Option<&'static [(u8, u8)]>, grid: &G... => { return (); }
+galaxy.rs:375:8 [walk] cond  seen.contains(&(at, entry)) => !(seen.contains(&(at, entry)))
+galaxy.rs:383:12 [walk] cond  a != entry && b != entry => !(a != entry && b != entry)
+galaxy.rs:383:12 [walk] logic  a != entry && b != entry => a != entry || b != entry
+galaxy.rs:383:12 [walk] cmp  a != entry => a == entry
+galaxy.rs:383:26 [walk] cmp  b != entry => b == entry
+galaxy.rs:386:22 [walk] cond  a == entry => !(a == entry)
+galaxy.rs:386:22 [walk] cmp  a == entry => a != entry
+galaxy.rs:387:12 [walk] cond  seen.contains(&(at, out)) => !(seen.contains(&(at, out)))
+galaxy.rs:392:20 [walk] arith  (out + 3) % 6 => (out + 3) / 6
+galaxy.rs:392:21 [walk] arith  out + 3 => out - 3
+galaxy.rs:392:27 [walk] lit  3 => 4
+galaxy.rs:392:32 [walk] lit  6 => 7
+galaxy.rs:394:16 [walk] cond  neighbour.iter().any(|&(x, y)| x == back || y == back) => !(neighbour.iter().any(|&(x, y)| x == back || y == back))
+galaxy.rs:394:47 [walk] logic  x == back || y == back => x == back && y == back
+galaxy.rs:394:47 [walk] cmp  x == back => x != back
+galaxy.rs:394:60 [walk] cmp  y == back => y != back
+galaxy.rs:397:19 [walk] cond  grid.get(next).is_some() => !(grid.get(next).is_some())
+galaxy.rs:400:51 [walk] cmp  *s == (at, out) => *s != (at, out)
+galaxy.rs:404:47 [walk] cmp  *s == (at, entry) => *s != (at, entry)
+hex.rs:25:45 [Hex::neighbours] arith  self.q + dq => self.q - dq
+hex.rs:25:58 [Hex::neighbours] arith  self.r + dr => self.r - dr
+hex.rs:64:20 [Grid::slot] arith  2 * GRID_RADIUS + 1 => 2 * GRID_RADIUS - 1
+hex.rs:64:20 [Grid::slot] lit  2 => 3
+hex.rs:64:38 [Grid::slot] lit  1 => 2
+hex.rs:65:10 [Grid::slot] logic  (0..side).contains(&q) && (0..side).contains(&r) => (0..side).contains(&q) || (0..side).contains(&r)
+hex.rs:65:11 [Grid::slot] lit  0 => 1
+hex.rs:65:37 [Grid::slot] lit  0 => 1
+hex.rs:65:69 [Grid::slot] arith  q * side + r => q * side - r
+hex.rs:65:69 [Grid::slot] arith  q * side => q + side
+hex.rs:78:20 [Grid::set] lit  false => true
+movement.rs:70:86 [sparse_get] body  sparse_get<K: PartialEq + Copy>(list: &[(K, SysSet)], key: K) -> Optio... => { return None; }
+movement.rs:71:31 [sparse_get] cmp  *k == key => *k != key
+movement.rs:89:52 [Scratch::route] body  route(&self, mut at: u32) -> Vec<SystemIx> { => { return Vec::new(); }
+movement.rs:94:16 [Scratch::route] cond  parent == u32::MAX => !(parent == u32::MAX)
+movement.rs:94:16 [Scratch::route] cmp  parent == u32::MAX => parent != u32::MAX
+movement.rs:110:37 [ScratchCell::eq] body  eq(&self, _: &Self) -> bool { => { return true; }
+movement.rs:110:37 [ScratchCell::eq] body  eq(&self, _: &Self) -> bool { => { return false; }
+movement.rs:111:9 [ScratchCell::eq] lit  true => false
+movement.rs:150:27 [CoreRules::with_board] lit  false => true
+movement.rs:151:35 [CoreRules::with_board] lit  false => true
+movement.rs:152:30 [CoreRules::with_board] lit  false => true
+movement.rs:153:38 [CoreRules::with_board] lit  false => true
+movement.rs:154:37 [CoreRules::with_board] lit  false => true
+movement.rs:155:32 [CoreRules::with_board] lit  false => true
+movement.rs:157:33 [CoreRules::with_board] lit  false => true
+movement.rs:163:31 [CoreRules::with_board] lit  0 => 1
+movement.rs:164:28 [CoreRules::with_board] lit  false => true
+movement.rs:171:30 [CoreRules::with_board] lit  false => true
+movement.rs:173:27 [CoreRules::with_board] lit  false => true
+movement.rs:179:72 [CoreRules::system] body  system(&self, system: SystemIx) -> Option<&'static SystemData> { => { return None; }
+movement.rs:184:56 [CoreRules::has] body  has(&self, system: SystemIx, flag: u8) -> bool { => { return true; }
+movement.rs:184:56 [CoreRules::has] body  has(&self, system: SystemIx, flag: u8) -> bool { => { return false; }
+movement.rs:189:62 [CoreRules::is_gravity_rift] body  is_gravity_rift(&self, system: SystemIx) -> bool { => { return true; }
+movement.rs:189:62 [CoreRules::is_gravity_rift] body  is_gravity_rift(&self, system: SystemIx) -> bool { => { return false; }
+movement.rs:190:9 [CoreRules::is_gravity_rift] logic  self.has(system, SystemFlags::GRAVITY_RI... || self.gravity_rift_systems.contains(syste... => self.has(system, SystemFlags::GRAVITY_RI... && self.gravity_
+movement.rs:201:61 [CoreRules::rifts_exited] body  rifts_exited(&self, path: &[SystemIx]) -> usize { => { return 0; }
+movement.rs:201:61 [CoreRules::rifts_exited] body  rifts_exited(&self, path: &[SystemIx]) -> usize { => { return 1; }
+movement.rs:203:20 [CoreRules::rifts_exited] lit  0 => 1
+movement.rs:207:25 [CoreRules::rifts_exited] logic  self.is_gravity_rift(**s) && !self.rift_roll_exempt.contains(s.index(... => self.is_gravity_rift(**s) || !self.rift_roll_exempt.contains
+movement.rs:212:56 [CoreRules::can_enter] body  can_enter(&self, system: SystemIx) -> bool { => { return true; }
+movement.rs:212:56 [CoreRules::can_enter] body  can_enter(&self, system: SystemIx) -> bool { => { return false; }
+movement.rs:213:32 [CoreRules::can_enter] lit  false => true
+movement.rs:216:67 [CoreRules::enterable] body  enterable(&self, system: SystemIx, passing: bool) -> bool { => { return true; }
+movement.rs:216:67 [CoreRules::enterable] body  enterable(&self, system: SystemIx, passing: bool) -> bool { => { return false; }
+movement.rs:217:12 [CoreRules::enterable] cond  !passing && self.adjacency.is_hyperlane(system) => !(!passing && self.adjacency.is_hyperlane(system))
+movement.rs:217:12 [CoreRules::enterable] logic  !passing && self.adjacency.is_hyperlane(system) => !passing || self.adjacency.is_hyperlane(system)
+movement.rs:218:20 [CoreRules::enterable] lit  false => true
+movement.rs:220:12 [CoreRules::enterable] cond  self.anomalies_ignored => !(self.anomalies_ignored)
+movement.rs:221:20 [CoreRules::enterable] lit  true => false
+movement.rs:224:20 [CoreRules::enterable] lit  false => true
+movement.rs:226:12 [CoreRules::enterable] cond  (data.has(SystemFlags::SUPERNOVA) && !self.supernovae_open && !(passing && self.... => !((data.has(SystemFlags::SUPERNOVA) && !self.supernovae_open
+movement.rs:226:12 [CoreRules::enterable] logic  (data.has(SystemFlags::SUPERNOVA) && !se... || (data.has(SystemFlags::ASTEROID_FIELD) &... => (data.has(SystemFlags::SUPERNOVA) && !se... && (data.has(Sys
+movement.rs:226:13 [CoreRules::enterable] logic  data.has(SystemFlags::SUPERNOVA) && !sel... && !(passing && self.supernovae_pass_throug... => data.has(SystemFlags::SUPERNOVA) && !sel... || !(passing && 
+movement.rs:226:13 [CoreRules::enterable] logic  data.has(SystemFlags::SUPERNOVA) && !self.supernovae_open => data.has(SystemFlags::SUPERNOVA) || !self.supernovae_open
+movement.rs:228:18 [CoreRules::enterable] logic  passing && self.supernovae_pass_through => passing || self.supernovae_pass_through
+movement.rs:229:17 [CoreRules::enterable] logic  data.has(SystemFlags::ASTEROID_FIELD) && !self.asteroid_fields_open => data.has(SystemFlags::ASTEROID_FIELD) || !self.asteroid_fiel
+movement.rs:231:20 [CoreRules::enterable] lit  false => true
+movement.rs:233:12 [CoreRules::enterable] cond  data.has(SystemFlags::NEBULA) && system != self.active => !(data.has(SystemFlags::NEBULA) && system != self.active)
+movement.rs:233:12 [CoreRules::enterable] logic  data.has(SystemFlags::NEBULA) && system != self.active => data.has(SystemFlags::NEBULA) || system != self.active
+movement.rs:233:45 [CoreRules::enterable] cmp  system != self.active => system == self.active
+movement.rs:236:9 [CoreRules::enterable] lit  true => false
+movement.rs:245:16 [CoreRules::passes] body  passes( &self, system: SystemIx, origin: Option<SystemIx>, ship_type: ... => { return true; }
+movement.rs:245:16 [CoreRules::passes] body  passes( &self, system: SystemIx, origin: Option<SystemIx>, ship_type: ... => { return false; }
+movement.rs:246:12 [CoreRules::passes] cond  !self.enterable(system, true) => !(!self.enterable(system, true))
+movement.rs:246:36 [CoreRules::passes] lit  true => false
+movement.rs:247:20 [CoreRules::passes] lit  false => true
+movement.rs:249:12 [CoreRules::passes] cond  self.has(system, SystemFlags::NEBULA) && !self.nebulae_are_open() => !(self.has(system, SystemFlags::NEBULA) && !self.nebulae_are
+movement.rs:249:12 [CoreRules::passes] logic  self.has(system, SystemFlags::NEBULA) && !self.nebulae_are_open() => self.has(system, SystemFlags::NEBULA) || !self.nebulae_are_o
+movement.rs:250:20 [CoreRules::passes] lit  false => true
+movement.rs:252:12 [CoreRules::passes] cond  self.barred_transit.contains(system.index()) => !(self.barred_transit.contains(system.index()))
+movement.rs:253:20 [CoreRules::passes] lit  false => true
+movement.rs:255:12 [CoreRules::passes] cond  self.ignore_enemy_ships || past_ships => !(self.ignore_enemy_ships || past_ships)
+movement.rs:255:12 [CoreRules::passes] logic  self.ignore_enemy_ships || past_ships => self.ignore_enemy_ships && past_ships
+movement.rs:256:20 [CoreRules::passes] lit  true => false
+movement.rs:258:12 [CoreRules::passes] cond  ship_type.is_some_and(|k| self.passing_ship_types.contains(k.index())) => !(ship_type.is_some_and(|k| self.passing_ship_types.contains
+movement.rs:259:20 [CoreRules::passes] lit  true => false
+movement.rs:261:12 [CoreRules::passes] cond  ship_type.is_some_and(|k| self.own_passage_types.contains(k.index())) && self.ow... => !(ship_type.is_some_and(|k| self.own_passage_types.contains(
+movement.rs:261:12 [CoreRules::passes] logic  ship_type.is_some_and(|k| self.own_passa... && self.own_unit_systems.contains(system.in... => ship_type.is_some_and(|k| self.own_passa... || self.own_unit
+movement.rs:264:20 [CoreRules::passes] lit  true => false
+movement.rs:266:12 [CoreRules::passes] cond  origin.is_some() && origin == self.ignore_enemy_ships_from => !(origin.is_some() && origin == self.ignore_enemy_ships_from
+movement.rs:266:12 [CoreRules::passes] logic  origin.is_some() && origin == self.ignore_enemy_ships_from => origin.is_some() || origin == self.ignore_enemy_ships_from
+movement.rs:266:32 [CoreRules::passes] cmp  origin == self.ignore_enemy_ships_from => origin != self.ignore_enemy_ships_from
+movement.rs:267:20 [CoreRules::passes] lit  true => false
+movement.rs:278:16 [CoreRules::can_pass_through_ship] body  can_pass_through_ship( &self, system: SystemIx, origin: Option<SystemI... => { return true; }
+movement.rs:278:16 [CoreRules::can_pass_through_ship] body  can_pass_through_ship( &self, system: SystemIx, origin: Option<SystemI... => { return false; }
+movement.rs:279:48 [CoreRules::can_pass_through_ship] lit  false => true
+movement.rs:283:57 [CoreRules::may_depart] body  may_depart(&self, origin: SystemIx) -> bool { => { return true; }
+movement.rs:283:57 [CoreRules::may_depart] body  may_depart(&self, origin: SystemIx) -> bool { => { return false; }
+movement.rs:284:12 [CoreRules::may_depart] cond  origin == self.active || self.command_tokens_ignored => !(origin == self.active || self.command_tokens_ignored)
+movement.rs:284:12 [CoreRules::may_depart] logic  origin == self.active || self.command_tokens_ignored => origin == self.active && self.command_tokens_ignored
+movement.rs:284:12 [CoreRules::may_depart] cmp  origin == self.active => origin != self.active
+movement.rs:285:20 [CoreRules::may_depart] lit  true => false
+movement.rs:290:85 [CoreRules::may_depart_ship] body  may_depart_ship(&self, origin: SystemIx, ship_type: Option<UnitIx>) ->... => { return true; }
+movement.rs:290:85 [CoreRules::may_depart_ship] body  may_depart_ship(&self, origin: SystemIx, ship_type: Option<UnitIx>) ->... => { return false; }
+movement.rs:291:9 [CoreRules::may_depart_ship] logic  self.may_depart(origin) || ship_type.is_some_and(|k| self.token_fre... => self.may_depart(origin) && ship_type.is_some_and(|k| self.to
+movement.rs:296:58 [CoreRules::nebula_caps] body  nebula_caps(&self, origin: SystemIx) -> bool { => { return true; }
+movement.rs:296:58 [CoreRules::nebula_caps] body  nebula_caps(&self, origin: SystemIx) -> bool { => { return false; }
+movement.rs:297:9 [CoreRules::nebula_caps] logic  self.has(origin, SystemFlags::NEBULA) &&... && !self.nebulae_ignored => self.has(origin, SystemFlags::NEBULA) &&... || !self.nebulae
+movement.rs:297:9 [CoreRules::nebula_caps] logic  self.has(origin, SystemFlags::NEBULA) && !self.anomalies_ignored => self.has(origin, SystemFlags::NEBULA) || !self.anomalies_ign
+movement.rs:301:105 [CoreRules::can_reach_ship] body  can_reach_ship(&self, origin: SystemIx, move_value: i32, ship_type: Op... => { return true; }
+movement.rs:301:105 [CoreRules::can_reach_ship] body  can_reach_ship(&self, origin: SystemIx, move_value: i32, ship_type: Op... => { return false; }
+movement.rs:312:33 [CoreRules::path_from_ship] body  path_from_ship( &self, origin: SystemIx, move_value: i32, ship_type: O... => { return None; }
+movement.rs:313:57 [CoreRules::path_from_ship] lit  false => true
+movement.rs:316:78 [CoreRules::path_from_ship] lit  true => false
+movement.rs:322:88 [CoreRules::step_neighbours] body  step_neighbours(&self, current: SystemIx, ship_type: Option<UnitIx>) -... => { return Default::default(); }
+movement.rs:324:12 [CoreRules::step_neighbours] cond  self.token_wormhole_systems.contains(current.index()) => !(self.token_wormhole_systems.contains(current.index()))
+movement.rs:328:16 [CoreRules::step_neighbours] cond  !self.adjacency.of(current).contains(current.index()) => !(!self.adjacency.of(current).contains(current.index()))
+movement.rs:338:16 [CoreRules::step_neighbours] cond  !had_self => !(!had_self)
+movement.rs:342:12 [CoreRules::step_neighbours] cond  self.also_adjacent.contains(current.index()) => !(self.also_adjacent.contains(current.index()))
+movement.rs:344:19 [CoreRules::step_neighbours] cond  current == self.active => !(current == self.active)
+movement.rs:344:19 [CoreRules::step_neighbours] cmp  current == self.active => current != self.active
+movement.rs:361:33 [CoreRules::search_path] body  search_path( &self, origin: SystemIx, move_value: i32, ship_type: Opti... => { return None; }
+movement.rs:362:12 [CoreRules::search_path] cond  !self.may_depart_ship(origin, ship_type) => !(!self.may_depart_ship(origin, ship_type))
+movement.rs:365:25 [CoreRules::search_path] cond  self.nebula_caps(origin) => !(self.nebula_caps(origin))
+movement.rs:365:52 [CoreRules::search_path] lit  1 => 2
+movement.rs:366:12 [CoreRules::search_path] cond  budget <= 0 => !(budget <= 0)
+movement.rs:366:12 [CoreRules::search_path] cmp  budget <= 0 => budget < 0
+movement.rs:366:22 [CoreRules::search_path] lit  0 => 1
+movement.rs:379:12 [CoreRules::search_path] cond  !earns => !(!earns)
+movement.rs:380:25 [CoreRules::search_path] arith  2 * SYSTEM_COUNT => 2 + SYSTEM_COUNT
+movement.rs:380:25 [CoreRules::search_path] lit  2 => 3
+movement.rs:383:34 [CoreRules::search_path] lit  0 => 1
+movement.rs:383:45 [CoreRules::search_path] lit  0 => 1
+movement.rs:383:48 [CoreRules::search_path] lit  false => true
+movement.rs:388:16 [CoreRules::search_path] cond  self.is_gravity_rift(current) && !self.anomalies_ignored => !(self.is_gravity_rift(current) && !self.anomalies_ignored)
+movement.rs:388:16 [CoreRules::search_path] logic  self.is_gravity_rift(current) && !self.anomalies_ignored => self.is_gravity_rift(current) || !self.anomalies_ignored
+movement.rs:389:17 [CoreRules::search_path] assign  allowance += 1 => allowance -= 1
+movement.rs:389:30 [CoreRules::search_path] lit  1 => 2
+movement.rs:390:20 [CoreRules::search_path] cond  !bonus_used && self.rift_extra_steps > 0 => !(!bonus_used && self.rift_extra_steps > 0)
+movement.rs:390:20 [CoreRules::search_path] logic  !bonus_used && self.rift_extra_steps > 0 => !bonus_used || self.rift_extra_steps > 0
+movement.rs:390:35 [CoreRules::search_path] cmp  self.rift_extra_steps > 0 => self.rift_extra_steps >= 0
+movement.rs:390:59 [CoreRules::search_path] lit  0 => 1
+movement.rs:391:21 [CoreRules::search_path] assign  allowance += self.rift_extra_steps => allowance -= self.rift_extra_steps
+movement.rs:392:34 [CoreRules::search_path] lit  true => false
+movement.rs:395:16 [CoreRules::search_path] cond  entered > 0 && earns && self.own_unit_systems.contains(current.index()) && earne... => !(entered > 0 && earns && self.own_unit_systems.contains(cur
+movement.rs:395:16 [CoreRules::search_path] logic  entered > 0 && earns && self.own_unit_sy... && earned.insert(current.index()) => entered > 0 && earns && self.own_unit_sy... || earned.insert
+movement.rs:395:16 [CoreRules::search_path] logic  entered > 0 && earns && self.own_unit_systems.contains(current.i... => entered > 0 && earns || self.own_unit_systems.contains(curre
+movement.rs:395:16 [CoreRules::search_path] logic  entered > 0 && earns => entered > 0 || earns
+movement.rs:395:16 [CoreRules::search_path] cmp  entered > 0 => entered >= 0
+movement.rs:395:26 [CoreRules::search_path] lit  0 => 1
+movement.rs:400:17 [CoreRules::search_path] assign  allowance += 1 => allowance -= 1
+movement.rs:400:30 [CoreRules::search_path] lit  1 => 2
+movement.rs:402:29 [CoreRules::search_path] arith  allowance - entered => allowance + entered
+movement.rs:403:16 [CoreRules::search_path] cond  earns => !(earns)
+movement.rs:407:28 [CoreRules::search_path] cond  keyed[at].1 >= remaining => !(keyed[at].1 >= remaining)
+movement.rs:407:28 [CoreRules::search_path] cmp  keyed[at].1 >= remaining => keyed[at].1 > remaining
+movement.rs:415:38 [CoreRules::search_path] arith  current.index() * 2 + usize::from(bonus_used) => current.index() * 2 - usize::from(bonus_used)
+movement.rs:415:38 [CoreRules::search_path] arith  current.index() * 2 => current.index() + 2
+movement.rs:415:56 [CoreRules::search_path] lit  2 => 3
+movement.rs:416:20 [CoreRules::search_path] cond  *slot >= remaining => !(*slot >= remaining)
+movement.rs:416:20 [CoreRules::search_path] cmp  *slot >= remaining => *slot > remaining
+movement.rs:421:16 [CoreRules::search_path] cond  remaining <= 0 => !(remaining <= 0)
+movement.rs:421:16 [CoreRules::search_path] cmp  remaining <= 0 => remaining < 0
+movement.rs:421:29 [CoreRules::search_path] lit  0 => 1
+movement.rs:426:33 [CoreRules::search_path] cmp  neighbour == self.active => neighbour != self.active
+movement.rs:427:20 [CoreRules::search_path] cond  ends_here && !self.can_enter(neighbour) => !(ends_here && !self.can_enter(neighbour))
+movement.rs:427:20 [CoreRules::search_path] logic  ends_here && !self.can_enter(neighbour) => ends_here || !self.can_enter(neighbour)
+movement.rs:431:29 [CoreRules::search_path] arith  nodes.len() - 1 => nodes.len() + 1
+movement.rs:431:43 [CoreRules::search_path] lit  1 => 2
+movement.rs:432:20 [CoreRules::search_path] cond  ends_here => !(ends_here)
+movement.rs:436:20 [CoreRules::search_path] cond  !self.passes(neighbour, Some(origin), ship_type, past_ships) => !(!self.passes(neighbour, Some(origin), ship_type, past_ship
+movement.rs:439:45 [CoreRules::search_path] arith  entered + 1 => entered - 1
+movement.rs:439:55 [CoreRules::search_path] lit  1 => 2
+movement.rs:453:30 [CoreRules::all_routes_from_ship] body  all_routes_from_ship( &self, origin: SystemIx, move_value: i32, ship_t... => { return Vec::new(); }
+movement.rs:455:13 [CoreRules::all_routes_from_ship] logic  self.unladen_pass && self.search_path(origin, move_value, shi... => self.unladen_pass || self.search_path(origin, move_value, sh
+movement.rs:455:82 [CoreRules::all_routes_from_ship] lit  false => true
+movement.rs:456:12 [CoreRules::all_routes_from_ship] cond  !self.may_depart_ship(origin, ship_type) => !(!self.may_depart_ship(origin, ship_type))
+movement.rs:459:25 [CoreRules::all_routes_from_ship] cond  self.nebula_caps(origin) => !(self.nebula_caps(origin))
+movement.rs:459:52 [CoreRules::all_routes_from_ship] lit  1 => 2
+movement.rs:460:12 [CoreRules::all_routes_from_ship] cond  budget <= 0 => !(budget <= 0)
+movement.rs:460:12 [CoreRules::all_routes_from_ship] cmp  budget <= 0 => budget < 0
+movement.rs:460:22 [CoreRules::all_routes_from_ship] lit  0 => 1
+movement.rs:468:20 [CoreRules::all_routes_from_ship] lit  0 => 1
+movement.rs:471:51 [CoreRules::all_routes_from_ship] lit  0 => 1
+movement.rs:471:62 [CoreRules::all_routes_from_ship] lit  false => true
+movement.rs:485:8 [CoreRules::extend_routes] body  extend_routes( &self, walk: &mut Walk, route: &mut Vec<SystemIx>, ente... => { return (); }
+movement.rs:486:9 [CoreRules::extend_routes] assign  walk.nodes += 1 => walk.nodes -= 1
+movement.rs:486:23 [CoreRules::extend_routes] lit  1 => 2
+movement.rs:487:12 [CoreRules::extend_routes] cond  walk.nodes > ROUTE_SEARCH_NODES || walk.found.len() >= ROUTE_SEARCH_ROUTES => !(walk.nodes > ROUTE_SEARCH_NODES || walk.found.len() >= ROU
+movement.rs:487:12 [CoreRules::extend_routes] logic  walk.nodes > ROUTE_SEARCH_NODES || walk.found.len() >= ROUTE_SEARCH_ROUTES => walk.nodes > ROUTE_SEARCH_NODES && walk.found.len() >= ROUTE
+movement.rs:487:12 [CoreRules::extend_routes] cmp  walk.nodes > ROUTE_SEARCH_NODES => walk.nodes >= ROUTE_SEARCH_NODES
+movement.rs:487:47 [CoreRules::extend_routes] cmp  walk.found.len() >= ROUTE_SEARCH_ROUTES => walk.found.len() > ROUTE_SEARCH_ROUTES
+movement.rs:491:12 [CoreRules::extend_routes] cond  self.is_gravity_rift(current) && !self.anomalies_ignored => !(self.is_gravity_rift(current) && !self.anomalies_ignored)
+movement.rs:491:12 [CoreRules::extend_routes] logic  self.is_gravity_rift(current) && !self.anomalies_ignored => self.is_gravity_rift(current) || !self.anomalies_ignored
+movement.rs:492:13 [CoreRules::extend_routes] assign  allowance += 1 => allowance -= 1
+movement.rs:492:26 [CoreRules::extend_routes] lit  1 => 2
+movement.rs:493:16 [CoreRules::extend_routes] cond  !bonus_used && self.rift_extra_steps > 0 => !(!bonus_used && self.rift_extra_steps > 0)
+movement.rs:493:16 [CoreRules::extend_routes] logic  !bonus_used && self.rift_extra_steps > 0 => !bonus_used || self.rift_extra_steps > 0
+movement.rs:493:31 [CoreRules::extend_routes] cmp  self.rift_extra_steps > 0 => self.rift_extra_steps >= 0
+movement.rs:493:55 [CoreRules::extend_routes] lit  0 => 1
+movement.rs:494:17 [CoreRules::extend_routes] assign  allowance += self.rift_extra_steps => allowance -= self.rift_extra_steps
+movement.rs:495:30 [CoreRules::extend_routes] lit  true => false
+movement.rs:498:12 [CoreRules::extend_routes] cond  entered > 0 && walk .ship_type .is_some_and(|k| self.own_passage_types.contains(... => !(entered > 0 && walk .ship_type .is_some_and(|k| self.own_p
+movement.rs:498:12 [CoreRules::extend_routes] logic  entered > 0 && walk .ship_type .is_some_... && earned.insert(current.index()) => entered > 0 && walk .ship_type .is_some_... || earned.insert
+movement.rs:498:12 [CoreRules::extend_routes] logic  entered > 0 && walk .ship_type .is_some_... && self.own_unit_systems.contains(current.i... => entered > 0 && walk .ship_type .is_some_... || self.own_unit
+movement.rs:498:12 [CoreRules::extend_routes] logic  entered > 0 && walk .ship_type .is_some_and(|k| self.ow... => entered > 0 || walk .ship_type .is_some_and(|k| self.ow...
+movement.rs:498:12 [CoreRules::extend_routes] cmp  entered > 0 => entered >= 0
+movement.rs:498:22 [CoreRules::extend_routes] lit  0 => 1
+movement.rs:505:13 [CoreRules::extend_routes] assign  allowance += 1 => allowance -= 1
+movement.rs:505:26 [CoreRules::extend_routes] lit  1 => 2
+movement.rs:507:12 [CoreRules::extend_routes] cond  allowance - entered <= 0 => !(allowance - entered <= 0)
+movement.rs:507:12 [CoreRules::extend_routes] cmp  allowance - entered <= 0 => allowance - entered < 0
+movement.rs:507:12 [CoreRules::extend_routes] arith  allowance - entered => allowance + entered
+movement.rs:507:35 [CoreRules::extend_routes] lit  0 => 1
+movement.rs:512:16 [CoreRules::extend_routes] cond  route.contains(&neighbour) => !(route.contains(&neighbour))
+movement.rs:515:16 [CoreRules::extend_routes] cond  neighbour == self.active => !(neighbour == self.active)
+movement.rs:515:16 [CoreRules::extend_routes] cmp  neighbour == self.active => neighbour != self.active
+movement.rs:516:20 [CoreRules::extend_routes] cond  self.can_enter(neighbour) => !(self.can_enter(neighbour))
+movement.rs:523:16 [CoreRules::extend_routes] cond  !self.passes(neighbour, Some(walk.origin), walk.ship_type, walk.past_ships) => !(!self.passes(neighbour, Some(walk.origin), walk.ship_type,
+movement.rs:527:45 [CoreRules::extend_routes] arith  entered + 1 => entered - 1
+movement.rs:527:55 [CoreRules::extend_routes] lit  1 => 2
+tables.rs:21:49 [printed_wormholes] body  printed_wormholes(system: System) -> u8 { => { return 0; }
+tables.rs:22:51 [printed_wormholes] arith  m | wormhole_bit(*k) => m & wormhole_bit(*k)
+tables.rs:51:38 [SystemData::has] body  has(&self, flag: u8) -> bool { => { return true; }
+tables.rs:51:38 [SystemData::has] body  has(&self, flag: u8) -> bool { => { return false; }
+tables.rs:60:18 [SystemData::has] lit  false => true
+tables.rs:78:73 [Scope::system] body  system(self, system: System) -> Option<&'static SystemData> { => { return None; }
+tables.rs:80:10 [Scope::system] cmp  source_bit(data.source) & self.0 != 0 => source_bit(data.source) & self.0 == 0
+tables.rs:80:10 [Scope::system] arith  source_bit(data.source) & self.0 => source_bit(data.source) | self.0
+tables.rs:80:46 [Scope::system] lit  0 => 1
+tables.rs:86:10 [Scope::unit] arith  source_bit(data.source) & self.0 => source_bit(data.source) | self.0
+tables.rs:92:48 [moves_as_ship] body  moves_as_ship(data: &UnitData) -> bool { => { return true; }
+tables.rs:92:48 [moves_as_ship] body  moves_as_ship(data: &UnitData) -> bool { => { return false; }
+tables.rs:93:5 [moves_as_ship] logic  data.ship || (data.structure && data.space_only && da... => data.ship && (data.structure && data.space_only && da...
+tables.rs:93:19 [moves_as_ship] logic  data.structure && data.space_only && data.movement.unwrap_or(0) > 0 => data.structure && data.space_only || data.movement.unwrap_or
+tables.rs:93:19 [moves_as_ship] logic  data.structure && data.space_only => data.structure || data.space_only
+tables.rs:93:56 [moves_as_ship] cmp  data.movement.unwrap_or(0) > 0 => data.movement.unwrap_or(0) >= 0
+tables.rs:93:80 [moves_as_ship] lit  0 => 1
+tables.rs:93:85 [moves_as_ship] lit  0 => 1

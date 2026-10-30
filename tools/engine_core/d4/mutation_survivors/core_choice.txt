@@ -1,0 +1,24 @@
+# survivors of core/choice: 23 of 35 points (34% killed); paths relative to crates/<crate>/src
+choice/agenda.rs:27:37 [Shown::eq] body  eq(&self, _: &Self) -> bool { => { return true; }
+choice/agenda.rs:33:73 [Shown::partial_cmp] body  partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> { => { return None; }
+choice/agenda.rs:62:29 [Frame::voted] cond  self.agenda == Agenda::CovertLegislation => !(self.agenda == Agenda::CovertLegislation)
+choice/agenda.rs:62:29 [Frame::voted] cmp  self.agenda == Agenda::CovertLegislation => self.agenda != Agenda::CovertLegislation
+choice/agenda.rs:85:67 [Tally::push] body  push(&mut self, outcome: Outcome, votes: i32) -> bool { => { return true; }
+choice/agenda.rs:85:67 [Tally::push] body  push(&mut self, outcome: Outcome, votes: i32) -> bool { => { return false; }
+choice/agenda.rs:87:12 [Tally::push] cond  at >= Self::MAX => !(at >= Self::MAX)
+choice/agenda.rs:87:12 [Tally::push] cmp  at >= Self::MAX => at > Self::MAX
+choice/agenda.rs:88:20 [Tally::push] lit  false => true
+choice/agenda.rs:91:9 [Tally::push] assign  self.len += 1 => self.len -= 1
+choice/agenda.rs:91:21 [Tally::push] lit  1 => 2
+choice/agenda.rs:92:9 [Tally::push] lit  true => false
+choice/mod.rs:218:37 [Opts::is_empty] body  is_empty(&self) -> bool { => { return true; }
+choice/mod.rs:218:37 [Opts::is_empty] body  is_empty(&self) -> bool { => { return false; }
+choice/mod.rs:257:40 [Choice::can_decline] body  can_decline(&self) -> bool { => { return true; }
+choice/mod.rs:257:40 [Choice::can_decline] body  can_decline(&self) -> bool { => { return false; }
+choice/objectives.rs:54:19 [ctx_of] lit  false => true
+choice/objectives.rs:57:23 [ctx_of] lit  false => true
+choice/objectives.rs:88:50 [score_choice] cond  status => !(status)
+choice/production.rs:37:37 [Shown::eq] body  eq(&self, _: &Self) -> bool { => { return true; }
+choice/production.rs:43:73 [Shown::partial_cmp] body  partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> { => { return None; }
+choice/strategy.rs:146:19 [ctx_from] lit  false => true
+choice/strategy.rs:149:23 [ctx_from] lit  false => true
