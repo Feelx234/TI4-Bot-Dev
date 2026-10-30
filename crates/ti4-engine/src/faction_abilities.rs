@@ -650,6 +650,9 @@ fn production_biomes_string(
 #[must_use]
 pub(crate) fn string_only_component(id: &str) -> Option<&'static str> {
     let faction = id.strip_prefix("faction|")?;
+    if id == "faction|nekro|c4r|repair" || id == "faction|nekro|c4r|draw" || id == "faction|yssaril|stall_tactics" || id.starts_with("faction|titans|terraform|") {
+        return None; // bodies of the core (`rules::faction_component::{c4r_repair, terraform}`, `promissory_windows::StallTactics`)
+    }
     Some(match faction.split('|').next()? {
         "orbital_drop" => "faction|orbital_drop: two questions, the payment of the mech and the units placed on a planet (the payment child and the placement window), then the dispatch of perform_component (D1b)",
         "muaat" => "faction|muaat: units placed or produced in a chosen system (the placement window and the production window of lane 1) and the dispatch of perform_component (D1b)",
@@ -657,9 +660,7 @@ pub(crate) fn string_only_component(id: &str) -> Option<&'static str> {
         "saar" => "faction|saar: Deorbit Barrage's targets over the map, the hits and the dispatch of perform_component (D1b)",
         "titans" => "faction|titans: Terraform's planets and attachments, and the dispatch of perform_component (D1b)",
         "naaz" => "faction|naaz: the relic or token fabrication and the Mech factory's placement, and the dispatch of perform_component (D1b)",
-        "winnu" => "faction|winnu: Lazax Gate Folding's wormhole position over the map, and the dispatch of perform_component (D1b)",
-        "yssaril" => "faction|yssaril: Stall Tactics' discard and Mageon Implants' reveal (the reveal rules are strings), and the dispatch of perform_component (D1b)",
-        "cabal" => "faction|cabal: Vortex captures a ship of the map, and the dispatch of perform_component (D1b)",
+        "yssaril" => "faction|yssaril: Mageon Implants' look at another seat's hand and take (the reveal rules are strings), and the dispatch of perform_component (D1b)",
         "arborec" => "faction|arborec: Psychospore's placement of ground forces from the reinforcements (the placement window), and the dispatch of perform_component (D1b)",
         "nekro" => "faction|nekro: C4R's PDS placement, repair and draw, and the dispatch of perform_component (D1b)",
         "mahact" => "faction|mahact: the Imperia and the command token of a seat in the fleet pool, and the dispatch of perform_component (D1b)",
@@ -1950,12 +1951,12 @@ mod tests {
     #[test]
     fn the_component_actions_that_stay_in_the_string_are_counted() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
-        for id in ["faction|production_biomes", "faction|trade_convoys", "somethingelse"] {
+        for id in ["faction|production_biomes", "faction|trade_convoys", "faction|winnu|lgf", "faction|titans|terraform|elysium", "faction|nekro|c4r|repair", "faction|nekro|c4r|draw", "faction|yssaril|stall_tactics", "faction|cabal|vortex", "somethingelse"] {
             assert_eq!(string_only_component(id), None, "{id}");
         }
         for id in [
-            "faction|orbital_drop", "faction|muaat|star_forge", "faction|ghost|wg", "faction|saar|deorbit_barrage", "faction|titans|terraform|elysium",
-            "faction|naaz|bmf", "faction|winnu|lgf", "faction|yssaril|stall_tactics", "faction|cabal|vortex", "faction|arborec|psychospore",
+            "faction|orbital_drop", "faction|muaat|star_forge", "faction|ghost|wg", "faction|saar|deorbit_barrage",
+            "faction|naaz|bmf", "faction|yssaril|mi|b", "faction|arborec|psychospore",
             "faction|nekro|c4r|pds", "faction|mahact|x",
         ] {
             assert!(string_only_component(id).is_some_and(|why| why.starts_with(id.split('|').take(2).collect::<Vec<_>>().join("|").as_str())), "{id}");

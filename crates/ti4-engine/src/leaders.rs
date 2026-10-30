@@ -2414,12 +2414,9 @@ pub(crate) fn string_only_leader(id: &str) -> Option<&'static str> {
         "arborecagent" => "arborecagent: replaces a non-fighter ship with another (a choice over the ships of the board, then the swap with the box)",
         "arborechero" => "arborechero: a use of PRODUCTION in every system of the hero (the production window of lane 1, W5)",
         "muaatagent" => "muaatagent: another seat produces up to two units (the production window of lane 1, W5)",
-        "nekroagent" => "nekroagent: a seat discards a card or spends a token for trade goods (a decider other than the user: not yet a window)",
         "nekrohero" => "nekrohero: destroys a planet's units and gains a technology (the destroyed ground forces are announced: D1b destruction flush)",
         "naazhero" => "naazhero: the secondary of one or two strategy cards as children of the leader window (the strategy windows are children of the card, not of a leader)",
         "winnuhero" => "winnuhero: the primary of a strategy card as the continuation of the leader (`use_leader_strategy_primary`, D1b dispatch)",
-        "saarhero" => "saarhero: the systems next to the docks (the player's adjacency over the map) and the removal of every other seat's fighters and infantry there",
-        "ghosthero" => "ghosthero: swaps two systems of the map (`apply_map_edit`; the core carries the edit as a lent map, not as a window that writes it)",
         "empyreanhero" => "empyreanhero: explores every frontier token that holds a ship (the exploration composition, D1)",
         "cabalhero" => "cabalhero: a hunt over the gravity rifts and the ships in or next to them (the map and the combat windows)",
         "argenthero" => "argenthero: moves the fleets of the board by the Flock's migration (the map and the movement windows)",
@@ -2759,29 +2756,29 @@ mod tests {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let content = ContentStore::embedded();
         let ids = [
-            "arborecagent", "arborechero", "muaatagent", "nekroagent", "nekrohero", "naazhero", "winnuhero", "saarhero", "ghosthero",
+            "arborecagent", "arborechero", "muaatagent", "nekrohero", "naazhero", "winnuhero",
             "empyreanhero", "cabalhero", "argenthero", "yinhero", "yssarilhero", "mahacthero",
         ];
         for id in ids {
             assert!(string_only_leader(id).is_some_and(|why| why.starts_with(id)), "{id}");
             assert!(kind_of(content, &LeaderId::new(id)).is_some(), "{id} is a leader of the corpus");
         }
-        for carried in ["solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
+        for carried in ["saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
             assert_eq!(string_only_leader(carried), None, "{carried} has a port");
         }
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
-            let mut state = crate::fixtures::seated_game(&[("a", "saar"), ("b", "sol")], POK);
+            let mut state = crate::fixtures::seated_game(&[("a", "yin"), ("b", "sol")], POK);
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
-            let hero = holding(&mut state, "saarhero", LeaderStatus::Unlocked);
+            let hero = holding(&mut state, "yinhero", LeaderStatus::Unlocked);
             let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
             // No map: the card cannot resolve, which the string answers `false` (the gate is counted before it does).
             assert!(!crate::fixtures::with_context(&mut state, POK, None, &mut table, |context| use_leader(context, &player(), &hero)));
         });
         let r = report();
-        let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with("leaders::use_leader [gate: saarhero: ")).map(|(_, c)| c.bailed).sum();
+        let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with("leaders::use_leader [gate: yinhero: ")).map(|(_, c)| c.bailed).sum();
         assert_eq!(gated, 1, "{r:?}");
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();

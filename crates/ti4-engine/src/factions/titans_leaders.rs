@@ -522,20 +522,36 @@ fn perform_component(
         return false;
     };
     let planet = PlanetId::new(planet);
-    let Some(note) = held_terraform(context.state, player) else {
+    // The whole action is a body of the core (`rules::faction_component::terraform`): the conditions read again, the attachment and
+    // the note turned faceup.
+    let content = context.content;
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::titans::terraform",
+        &mut *context.state,
+        |s: &mut GameState| crate::dual::Run::new(terraform_string(s, content, player, &planet)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let home = is_home_planet(s, content, &planet);
+            crate::faction_dual::terraform(s, player, planet.as_str(), home, script)
+        }
+    )
+}
+
+/// [`perform_component`] on the string engine: the oracle of the dual run.
+fn terraform_string(state: &mut GameState, content: &ContentStore, player: &PlayerId, planet: &PlanetId) -> bool {
+    let Some(note) = held_terraform(state, player) else {
         return false;
     };
-    if !terraform_targets(context.state, context.content, player).contains(&planet) {
+    if !terraform_targets(state, content, player).contains(planet) {
         return false;
     }
-    context
-        .state
+    state
         .planet_attachments
-        .entry(planet)
+        .entry(planet.clone())
         .or_default()
         .push(TERRAFORM_ATTACHMENT.to_owned());
     // Attached: the card is in play, no longer a note in hand to trade.
-    context.state.promissory_faceup.insert(note);
+    state.promissory_faceup.insert(note);
     true
 }
 
@@ -961,6 +977,38 @@ mod tests {
             .promissory_notes
             .insert(crate::promissory::note_id(TERRAFORM, "titans"), a());
         assert!(component_actions(&state, content, &a()).is_empty());
+    }
+
+    /// Terraform is a body of the core: the conditions read again, the attachment and the note turned faceup. The core half agrees with
+    /// the string for a legal target, a planet that is not the seat's, a second use and a home planet, and it ran every time.
+    #[test]
+    fn terraform_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |setup: &dyn Fn(&mut GameState, &PlanetId, &PlanetId), pick_second: bool| -> bool {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "titans")], DEFAULT);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let (first, _) = take_planet(&mut state, &a(), 1);
+            let (second, _) = take_planet(&mut state, &a(), 2);
+            crate::promissory::take(&mut state, ContentStore::embedded(), &a(), "terraform:titans");
+            setup(&mut state, &first, &second);
+            let target = if pick_second { &second } else { &first };
+            let option = ChoiceOption::labelled(format!("{TERRAFORM_ACTION}{target}"), crate::faction_abilities::ACTION_KIND, "Terraform");
+            with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+                crate::fixtures::with_context(&mut state, DEFAULT, None, &mut scripted(&[]), |ctx| perform_component(ctx, &a(), &option))
+            })
+        };
+        assert!(run(&|_, _, _| {}, false));
+        assert!(run(&|_, _, _| {}, true));
+        assert!(!run(&|s, first, _| { s.planet_attachments.entry(first.clone()).or_default().push(TERRAFORM_ATTACHMENT.to_owned()); }, true), "already in play");
+        assert!(!run(&|s, first, _| { s.system_state(&SystemId::new("18")); let _ = first; s.promissory_notes.clear(); }, false), "no note");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::titans::terraform"), (4, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

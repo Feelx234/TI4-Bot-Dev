@@ -41,6 +41,7 @@ impl Family for Fam {
             Ask::TransitDiodes { left } => return format!("Transit Diodes: redeploy ground forces ({left} left)"),
             Ask::SelfAssembly => "Self-Assembly Routines: exhaust to place 1 mech from your reinforcements on a planet you control in this system",
             Ask::ProductionBiomes => "Production Biomes: who gains 2 trade goods",
+            Ask::Vortex => "Vortex: which unit type do you take",
             Ask::Aida { upgrades } => return format!("AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}"),
         }
         .to_owned()
@@ -55,12 +56,17 @@ impl Family for Fam {
             Subtype::TransitDiodesRedeploy => "transit_diodes_redeploy",
             Subtype::AidaExhaustForProductionDiscount => "exhaust_for_production_discount",
             Subtype::ProductionBiomesChoosePlayer => "production_biomes_choose_player",
+            Subtype::VortexTarget => "vortex_target",
         }
         .to_owned()
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match (a, o) {
+            (_, Opt::Capture(owner, unit)) => {
+                let (owner, unit) = (r.seat_text(*owner), unit.as_str());
+                ChoiceOption::labelled(format!("{owner}|{unit}"), "vortex", format!("take a {unit} from {owner}'s reinforcements"))
+            }
             (_, Opt::Player(seat)) => {
                 let id = r.seat_text(*seat);
                 ChoiceOption::labelled(id, "player", id)
@@ -111,6 +117,10 @@ impl Family for Fam {
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
             Ask::ProductionBiomes => r.seat(id).map(Opt::Player),
+            Ask::Vortex => {
+                let (owner, unit) = id.split_once('|')?;
+                Some(Opt::Capture(r.seat(owner)?, ti4_engine_core::generated::Unit::from_id(unit)?))
+            }
             Ask::Psychoarchaeology | Ask::SelfAssembly => Planet::from_id(id).map(|p| Opt::Planet(p, ti4_engine_core::choice::agenda::Shown::default())),
             Ask::Restack => {
                 let (from, to) = id.split_once('|')?;

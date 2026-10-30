@@ -448,6 +448,443 @@ impl Window for Helmsman {
     }
 }
 
+// -- Gurno Aggero -----------------------------------------------------------------------------------
+
+/// The suspension points of [`ArmageddonRelay`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SStage {
+    Start,
+    Target,
+    Done,
+}
+
+/// Gurno Aggero (Saar hero): "ACTION: Choose 1 system that is adjacent to 1 of your space docks. Destroy all other players'
+/// infantry and fighters in that system." The system is chosen before anything is destroyed; the units are removed directly
+/// (a leader effect announces no destruction). Never offered without a map or a dock with a neighbour. The neighbours are the
+/// map's plain adjacency: a seat whose adjacency a faction rule changes is the adapter's to decline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArmageddonRelay {
+    pub who: Seat,
+    /// The string arm had a map (`context.galaxy`).
+    pub has_map: bool,
+    stage: SStage,
+    pub used: bool,
+}
+
+impl ArmageddonRelay {
+    #[must_use]
+    pub const fn new(who: Seat, has_map: bool) -> Self {
+        Self { who, has_map, stage: SStage::Start, used: false }
+    }
+
+    const ASK: Ask = Ask::Leaders(LAsk::SaarHero);
+
+    /// The systems next to a space dock of the seat, in system order (the string sorts them by id).
+    fn candidates(&self, core: &CoreState, k: &Kernel) -> Vec<System> {
+        if !self.has_map {
+            return Vec::new();
+        }
+        let scope = scope(k);
+        let is_dock = |p: &crate::state::Piece| p.owner() == self.who && scope.unit(p.kind()).is_some_and(|d| d.base_type == UnitBaseType::Spacedock);
+        let mut docks: Vec<System> = core.board().systems().filter(|(_, c)| c.units.as_slice().iter().any(is_dock)).map(|(s, _)| s).collect();
+        docks.extend(
+            core.board()
+                .planets()
+                .filter(|(_, c)| c.units.as_slice().iter().any(is_dock))
+                .filter_map(|(planet, c)| c.placed_in.or(planet.data().system)),
+        );
+        let mut found: Vec<System> = Vec::new();
+        for dock in docks {
+            let Some(near) = board::neighbours(core, dock) else { continue };
+            for index in near.iter() {
+                if let Some(next) = System::ALL.get(index)
+                    && !found.contains(next)
+                {
+                    found.push(*next);
+                }
+            }
+        }
+        found.sort_unstable();
+        found
+    }
+
+    fn strike(&mut self, sx: &mut Sx<'_>, system: System) {
+        let scope = scope(sx.kernel);
+        let who = self.who;
+        let doomed = |p: &crate::state::Piece| {
+            p.owner() != who && scope.unit(p.kind()).is_some_and(|d| matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry))
+        };
+        sx.state.board_mut().sys_mut(system).units.retain(|p| !doomed(p));
+        let planets: Vec<Planet> = board::planets_of(sx.state, system).collect();
+        for planet in planets {
+            sx.state.board_mut().planet_mut(planet).units.retain(|p| !doomed(p));
+        }
+        self.used = true;
+        self.stage = SStage::Done;
+    }
+}
+
+impl Window for ArmageddonRelay {
+    type Stage = SStage;
+
+    fn stage(&self) -> SStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == SStage::Start {
+            self.stage = if self.candidates(sx.state, sx.kernel).is_empty() { SStage::Done } else { SStage::Target };
+        }
+        if self.stage == SStage::Target { Next::Continue(Self::ASK) } else { Next::Done }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        (self.stage == SStage::Target).then(|| Choice {
+            actor: self.who,
+            ask: Self::ASK,
+            ctx: ctx(Leader::GurnoAggero, LSub::SaarHero),
+            opts: self.candidates(s, k).into_iter().map(|system| Opt::Leaders(LOpt::System(system))).collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (SStage::Target, Pick::Opt(Opt::Leaders(LOpt::System(system)))) if self.candidates(sx.state, sx.kernel).contains(&system) => {
+                self.strike(sx, system);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
+// -- Riftwalker Meian ------------------------------------------------------------------------------
+
+/// What the string position vouches for the Ghost hero: the systems the card may name at all and those holding a wormhole now
+/// (`ghost::hero_excluded`, `hooks_movement::wormholes_at`: the printed wormholes, the Creuss tokens, the ion storm, the Nexus and the
+/// module wormholes are string reads the core does not hold).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SwapFacts {
+    /// Every system the hero may name (not the Creuss systems, the Nexus or a Fracture system).
+    pub allowed: crate::bits::SysSet,
+    /// Every system that holds a wormhole.
+    pub wormholes: crate::bits::SysSet,
+}
+
+/// The suspension points of [`RiftwalkerMeian`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GStage {
+    Start,
+    First,
+    Second(System),
+    Done,
+}
+
+/// Riftwalker Meian (Ghost hero): "ACTION: Swap the positions of any 2 non-Fracture systems that contain wormholes or your units,
+/// other than the Creuss system, Ahk Creuxx system, or the Wormhole Nexus." Both systems are chosen (each question may be declined,
+/// which resolves nothing) before the edit is recorded as the next `MapEdit` mark; the game replays it onto its own map at the end of
+/// the step. The systems are offered in the order of the map (hex order). Never offered without a map or two systems to choose from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RiftwalkerMeian {
+    pub who: Seat,
+    pub has_map: bool,
+    facts: SwapFacts,
+    stage: GStage,
+    pub used: bool,
+}
+
+impl RiftwalkerMeian {
+    #[must_use]
+    pub const fn new(who: Seat, has_map: bool, facts: SwapFacts) -> Self {
+        Self { who, has_map, facts, stage: GStage::Start, used: false }
+    }
+
+    fn holds_units(&self, core: &CoreState, system: System) -> bool {
+        core.board().sys(system).units.as_slice().iter().any(|u| u.owner() == self.who)
+            || board::planets_of(core, system).any(|p| core.board().planet(p).units.as_slice().iter().any(|u| u.owner() == self.who))
+    }
+
+    /// The systems the card may name, in the order of the map.
+    fn candidates(&self, core: &CoreState) -> Vec<System> {
+        if !self.has_map {
+            return Vec::new();
+        }
+        let Some(galaxy) = core.galaxy() else { return Vec::new() };
+        let mut at: Vec<(crate::hex::Hex, System)> = galaxy
+            .in_play()
+            .iter()
+            .filter(|s| !galaxy.is_hyperlane(crate::ids::system_at(*s)))
+            .filter_map(|s| {
+                let system = crate::ids::system_at(s);
+                galaxy.coord_of(system).map(|hex| (hex, system))
+            })
+            .collect();
+        at.sort_unstable_by_key(|(hex, _)| *hex);
+        at.into_iter()
+            .map(|(_, system)| system)
+            .filter(|system| self.facts.allowed.contains(system.index()) && (self.facts.wormholes.contains(system.index()) || self.holds_units(core, *system)))
+            .collect()
+    }
+
+    fn options(&self, core: &CoreState, skip: Option<System>) -> Opts {
+        self.candidates(core).into_iter().filter(|s| Some(*s) != skip).map(|s| Opt::Leaders(LOpt::System(s))).chain(std::iter::once(Opt::Decline)).collect()
+    }
+
+    fn record(&mut self, sx: &mut Sx<'_>, a: System, b: System) {
+        use crate::keys::{Atom, MarkKey, MarkVal, Word};
+        let seq = sx.state.marks().tail.iter().filter(|(k, _)| matches!(k, MarkKey::MapEdit(_))).count();
+        let value = MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Swap)), MarkVal::Atom(Atom::System(a)), MarkVal::Atom(Atom::System(b))]);
+        sx.state.marks_mut().tail.edit().insert(MarkKey::MapEdit(u32::try_from(seq).unwrap_or(u32::MAX)), value);
+        self.used = true;
+        self.stage = GStage::Done;
+    }
+}
+
+impl Window for RiftwalkerMeian {
+    type Stage = GStage;
+
+    fn stage(&self) -> GStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == GStage::Start {
+            self.stage = if self.candidates(sx.state).len() < 2 { GStage::Done } else { GStage::First };
+        }
+        match self.stage {
+            GStage::First => Next::Continue(Ask::Leaders(LAsk::GhostSwapFirst)),
+            GStage::Second(_) => Next::Continue(Ask::Leaders(LAsk::GhostSwapSecond)),
+            GStage::Start | GStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        match self.stage {
+            GStage::First => Some(Choice { actor: self.who, ask: Ask::Leaders(LAsk::GhostSwapFirst), ctx: ctx(Leader::RiftwalkerMeian, LSub::GhostSwapFirst), opts: self.options(s, None) }),
+            GStage::Second(first) => {
+                Some(Choice { actor: self.who, ask: Ask::Leaders(LAsk::GhostSwapSecond), ctx: ctx(Leader::RiftwalkerMeian, LSub::GhostSwapSecond), opts: self.options(s, Some(first)) })
+            }
+            GStage::Start | GStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (GStage::First | GStage::Second(_), Pick::Opt(Opt::Decline)) => {
+                self.stage = GStage::Done;
+                Ok(())
+            }
+            (GStage::First, Pick::Opt(Opt::Leaders(LOpt::System(first)))) if self.candidates(sx.state).contains(&first) => {
+                self.stage = GStage::Second(first);
+                Ok(())
+            }
+            (GStage::Second(first), Pick::Opt(Opt::Leaders(LOpt::System(second)))) if second != first && self.candidates(sx.state).contains(&second) => {
+                self.record(sx, first, second);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
+// -- Nekro Malleon ----------------------------------------------------------------------------------
+
+/// The suspension points of [`NekroMalleon`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MStage {
+    Start,
+    Player,
+    Payment(Seat),
+    Card(Seat),
+    Done,
+}
+
+/// Nekro Malleon (Nekro agent): "ACTION: Exhaust this card and choose a player who could pay: that player may discard 1 action card or
+/// spend 1 command token from their command sheet to gain 2 trade goods" (the token returns to the supply). The owner chooses the player
+/// (no question when one player could pay), that player answers a card, a pool or neither (always asked), and a card is asked again among
+/// the distinct printed cards of the hand (no question when there is one). The agent was used whatever the answer; nothing changes before
+/// the last answer. The discard is staged for the game step (a `CardsStaged` mark) and the gain is announced. `source` is the interned
+/// `nekroagent`, the source of the trade goods.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NekroMalleon {
+    pub who: Seat,
+    source: Code,
+    stage: MStage,
+    /// The printed-name group of each action card, read from the table's facts when the hand is first looked at.
+    groups: Vec<u8>,
+    pub used: bool,
+}
+
+impl NekroMalleon {
+    #[must_use]
+    pub fn new(who: Seat, source: Code) -> Self {
+        Self { who, source, stage: MStage::Start, groups: Vec::new(), used: false }
+    }
+
+    fn pools(core: &CoreState, seat: Seat) -> Vec<crate::choice::strategy::Pool> {
+        use crate::choice::strategy::Pool;
+        let Some(p) = core.players().by_seat(seat) else { return Vec::new() };
+        [(Pool::Tactic, p.econ.tactic_tokens), (Pool::Fleet, p.econ.fleet_tokens), (Pool::Strategic, p.econ.strategic_tokens)]
+            .into_iter()
+            .filter(|(_, tokens)| *tokens > 0)
+            .map(|(pool, _)| pool)
+            .collect()
+    }
+
+    fn can_pay(core: &CoreState, seat: Seat) -> bool {
+        core.players().by_seat(seat).is_some_and(|p| !p.cards.hand.is_empty()) || !Self::pools(core, seat).is_empty()
+    }
+
+    fn payers(core: &CoreState) -> Vec<Seat> {
+        core.players().iter().map(|p| p.seat).filter(|seat| Self::can_pay(core, *seat)).collect()
+    }
+
+    /// One option per printed card of the hand, the first copy, in the order of the printed names (`first_of_each`).
+    fn cards(core: &CoreState, groups: &[u8], seat: Seat) -> Vec<crate::generated::ActionCard> {
+        let Some(p) = core.players().by_seat(seat) else { return Vec::new() };
+        let mut seen: Vec<u8> = Vec::new();
+        let mut firsts: Vec<crate::generated::ActionCard> = Vec::new();
+        for card in p.cards.hand.as_slice() {
+            let Some(group) = groups.get(*card as usize).copied() else { return Vec::new() };
+            if !seen.contains(&group) {
+                seen.push(group);
+                firsts.push(*card);
+            }
+        }
+        firsts.sort_by_key(|card| card.name_rank());
+        firsts
+    }
+
+    fn gain(&mut self, s: &mut CoreState, target: Seat) {
+        fx::gain_trade_goods_staged(s, target, 2, self.source);
+    }
+
+    fn discard(&mut self, s: &mut CoreState, target: Seat, card: crate::generated::ActionCard) {
+        if fx::discard_action_card_staged(s, target, card) {
+            self.gain(s, target);
+        }
+    }
+
+    fn finish(&mut self) {
+        self.used = true;
+        self.stage = MStage::Done;
+    }
+
+    fn card_ctx(&self) -> Ctx {
+        use crate::choice::cards::Reason;
+        let mut c = ctx(Leader::NekroMalleon, LSub::NekroPlayer);
+        c.subtype = Subtype::Cards(Reason::MalleonDiscard.subtype());
+        c
+    }
+}
+
+impl Window for NekroMalleon {
+    type Stage = MStage;
+
+    fn stage(&self) -> MStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == MStage::Start {
+            let payers = Self::payers(sx.state);
+            self.stage = match payers.as_slice() {
+                [] => MStage::Done,
+                [only] => MStage::Payment(*only),
+                _ => MStage::Player,
+            };
+        }
+        match self.stage {
+            MStage::Player => Next::Continue(Ask::Leaders(LAsk::NekroPlayer)),
+            MStage::Payment(_) => Next::Continue(Ask::Leaders(LAsk::NekroPayment)),
+            MStage::Card(_) => Next::Continue(Ask::Cards(crate::choice::cards::Ask::OwnHand { reason: crate::choice::cards::Reason::MalleonDiscard })),
+            MStage::Start | MStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        use crate::choice::cards::{Ask as CAsk, Opt as COpt, Reason};
+        match self.stage {
+            MStage::Player => Some(Choice {
+                actor: self.who,
+                ask: Ask::Leaders(LAsk::NekroPlayer),
+                ctx: ctx(Leader::NekroMalleon, LSub::NekroPlayer),
+                opts: Self::payers(s).into_iter().map(|seat| Opt::Leaders(LOpt::Player(seat))).collect::<Opts>(),
+            }),
+            MStage::Payment(target) => {
+                let mut opts = Opts::default();
+                if s.players().by_seat(target).is_some_and(|p| !p.cards.hand.is_empty()) {
+                    opts.push(Opt::Leaders(LOpt::Discard));
+                }
+                for pool in Self::pools(s, target) {
+                    opts.push(Opt::Leaders(LOpt::Token(pool)));
+                }
+                opts.push(Opt::Decline);
+                Some(Choice { actor: target, ask: Ask::Leaders(LAsk::NekroPayment), ctx: ctx(Leader::NekroMalleon, LSub::NekroPayment), opts })
+            }
+            MStage::Card(target) => {
+                let groups = self.groups.as_slice();
+                Some(Choice {
+                    actor: target,
+                    ask: Ask::Cards(CAsk::OwnHand { reason: Reason::MalleonDiscard }),
+                    ctx: self.card_ctx(),
+                    opts: Self::cards(s, groups, target).into_iter().map(|card| Opt::Cards(COpt::Card(card))).collect::<Opts>(),
+                })
+            }
+            MStage::Start | MStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        use crate::choice::cards::Opt as COpt;
+        match (self.stage, pick) {
+            (MStage::Player, Pick::Opt(Opt::Leaders(LOpt::Player(seat)))) if Self::payers(sx.state).contains(&seat) => {
+                self.stage = MStage::Payment(seat);
+                Ok(())
+            }
+            (MStage::Payment(_), Pick::Opt(Opt::Decline)) => {
+                self.finish();
+                Ok(())
+            }
+            (MStage::Payment(target), Pick::Opt(Opt::Leaders(LOpt::Discard))) => {
+                let groups = sx.table.facts.card_group_table().map(<[u8]>::to_vec).unwrap_or_default();
+                let cards = Self::cards(sx.state, &groups, target);
+                match cards.as_slice() {
+                    [] => return Err(Illegal),
+                    [only] => {
+                        self.discard(sx.state, target, *only);
+                        self.finish();
+                    }
+                    _ => {
+                        self.groups = groups;
+                        self.stage = MStage::Card(target);
+                    }
+                }
+                Ok(())
+            }
+            (MStage::Payment(target), Pick::Opt(Opt::Leaders(LOpt::Token(pool)))) if Self::pools(sx.state, target).contains(&pool) => {
+                if let Some(p) = sx.state.players_mut().by_seat_mut(target) {
+                    let slot = match pool {
+                        crate::choice::strategy::Pool::Tactic => &mut p.econ.tactic_tokens,
+                        crate::choice::strategy::Pool::Fleet => &mut p.econ.fleet_tokens,
+                        crate::choice::strategy::Pool::Strategic => &mut p.econ.strategic_tokens,
+                    };
+                    *slot -= 1;
+                }
+                self.gain(sx.state, target);
+                self.finish();
+                Ok(())
+            }
+            (MStage::Card(target), Pick::Opt(Opt::Cards(COpt::Card(card)))) if Self::cards(sx.state, self.groups.as_slice(), target).contains(&card) => {
+                self.discard(sx.state, target, card);
+                self.finish();
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 // -- Rin, the Masters' Legacy -----------------------------------------------------------------------
 
 /// The suspension points of [`RinHero`].
@@ -957,5 +1394,305 @@ mod tests {
         let mut d = driver(XxchaHeroTe::new(Seat(0), &grom_planets(), Some((pds, 0)), None));
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert!(d.window.used);
+    }
+
+    // -- Gurno Aggero and Riftwalker Meian ---------------------------------------------------------
+
+    /// Real systems with a planet, in system order: `(system, its first planet)`.
+    fn with_planet(n: usize) -> Vec<(System, Planet)> {
+        let mut found: Vec<(System, Planet)> = Vec::new();
+        for planet in Planet::ALL {
+            if let Some(system) = planet.data().system
+                && !found.iter().any(|(s, _)| *s == system)
+            {
+                found.push((system, planet));
+            }
+        }
+        found.sort_unstable();
+        found.truncate(n);
+        found
+    }
+
+    /// A map with `systems` in a row, one hex apart, in the order given.
+    fn row(s: &mut CoreState, systems: &[System]) {
+        let mut galaxy = crate::galaxy::CoreGalaxy::new(&[]);
+        for (i, system) in systems.iter().enumerate() {
+            galaxy.place(crate::ids::system_at(*system as usize), crate::hex::Hex::new(i as i32, 0)).expect("on the grid");
+        }
+        s.map_mut().set_galaxy(galaxy);
+    }
+
+    fn unit_of(base: UnitBaseType, seat: Seat) -> crate::state::Piece {
+        let unit = Unit::ALL.iter().copied().find(|u| u.data().base_type == base && u.data().faction.is_none()).expect("a plain unit");
+        crate::state::Piece::new(unit, seat)
+    }
+
+    fn systems_offered(c: &Choice) -> Vec<System> {
+        c.opts.as_slice().iter().filter_map(|o| if let Opt::Leaders(LOpt::System(s)) = o { Some(*s) } else { None }).collect()
+    }
+
+    #[test]
+    fn the_saar_hero_offers_the_systems_next_to_a_dock_and_destroys_only_other_seats_fighters_and_infantry_there() {
+        let (k, mut s) = (kernel(), table(2));
+        let planets = with_planet(4);
+        let [a, b, c, far] = [planets[0], planets[1], planets[2], planets[3]];
+        // b - a - c in a row, the dock on a planet of `a`; `far` two hexes beyond `c`.
+        row(&mut s, &[b.0, a.0, c.0, planets[3].0]);
+        s.board_mut().planet_mut(a.1).units.push(unit_of(UnitBaseType::Spacedock, Seat(0)));
+        // The other seat's fighters, infantry and a cruiser; the hero's own infantry.
+        for (system, planet) in [b, c, far] {
+            s.board_mut().sys_mut(system).units.push(unit_of(UnitBaseType::Fighter, Seat(1)));
+            s.board_mut().sys_mut(system).units.push(unit_of(UnitBaseType::Cruiser, Seat(1)));
+            s.board_mut().planet_mut(planet).units.push(unit_of(UnitBaseType::Infantry, Seat(1)));
+            s.board_mut().planet_mut(planet).units.push(unit_of(UnitBaseType::Mech, Seat(1)));
+            s.board_mut().planet_mut(planet).units.push(unit_of(UnitBaseType::Infantry, Seat(0)));
+        }
+        s.board_mut().sys_mut(b.0).units.push(unit_of(UnitBaseType::Fighter, Seat(0)));
+        let mut d = driver(ArmageddonRelay::new(Seat(0), true));
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        let mut expected = vec![b.0, c.0];
+        expected.sort_unstable();
+        assert_eq!(systems_offered(&q), expected, "the dock's own system and a far one are not offered");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(far.0)))), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)), Err(DriverError::Illegal), "the question is not a may");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(b.0)))).unwrap(), Status::Done);
+        assert!(d.window.used);
+        let kinds = |system: System, planet: Planet, seat: Seat| -> Vec<UnitBaseType> {
+            let mut all: Vec<UnitBaseType> = s.board().sys(system).units.as_slice().iter().chain(s.board().planet(planet).units.as_slice()).filter(|p| p.owner() == seat).map(|p| p.kind().data().base_type).collect();
+            all.sort_unstable_by_key(|b| *b as usize);
+            all
+        };
+        assert_eq!(kinds(b.0, b.1, Seat(1)), vec![UnitBaseType::Cruiser, UnitBaseType::Mech], "the other seat keeps what is neither fighter nor infantry");
+        assert_eq!(kinds(b.0, b.1, Seat(0)), vec![UnitBaseType::Fighter, UnitBaseType::Infantry], "the hero's own units stay");
+        assert_eq!(kinds(c.0, c.1, Seat(1)).len(), 4, "a system not chosen is untouched");
+        assert_eq!(kinds(far.0, far.1, Seat(1)).len(), 4);
+    }
+
+    #[test]
+    fn the_saar_hero_offers_the_systems_of_all_its_docks_in_system_order() {
+        let (k, mut s) = (kernel(), table(2));
+        let p = with_planet(5);
+        let [s0, s1, s2, s3, s4] = [p[0], p[1], p[2], p[3], p[4]];
+        // s0 - s1 - s2 - s4 - s3 in a row: a space dock on s4 (listed first) next to s2 and s3, a dock on a planet of s1 next to s0 and s2.
+        row(&mut s, &[s0.0, s1.0, s2.0, s4.0, s3.0]);
+        s.board_mut().sys_mut(s4.0).units.push(unit_of(UnitBaseType::Spacedock, Seat(0)));
+        s.board_mut().planet_mut(s1.1).units.push(unit_of(UnitBaseType::Spacedock, Seat(0)));
+        let mut d = driver(ArmageddonRelay::new(Seat(0), true));
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        let mut expected = vec![s0.0, s2.0, s3.0];
+        expected.sort_unstable();
+        assert_eq!(systems_offered(&q), expected);
+    }
+
+    #[test]
+    fn the_saar_hero_is_not_offered_without_a_map_or_a_dock_with_a_neighbour() {
+        let (k, planets) = (kernel(), with_planet(2));
+        let mut s = table(2);
+        row(&mut s, &[planets[0].0, planets[1].0]);
+        let mut d = driver(ArmageddonRelay::new(Seat(0), true));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.used, "no dock");
+        s.board_mut().sys_mut(planets[0].0).units.push(unit_of(UnitBaseType::Spacedock, Seat(0)));
+        let mut d = driver(ArmageddonRelay::new(Seat(0), false));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.used, "the string arm had no map");
+        let mut d = driver(ArmageddonRelay::new(Seat(0), true));
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("a dock in space counts") };
+        assert_eq!(systems_offered(&q), vec![planets[1].0]);
+    }
+
+    fn swap_facts(allowed: &[System], wormholes: &[System]) -> SwapFacts {
+        let set = |list: &[System]| {
+            let mut out = crate::bits::SysSet::EMPTY;
+            for system in list {
+                out.insert(system.index());
+            }
+            out
+        };
+        SwapFacts { allowed: set(allowed), wormholes: set(wormholes) }
+    }
+
+    fn map_edits(s: &CoreState) -> Vec<(u32, crate::keys::MarkVal)> {
+        s.marks().tail.iter().filter_map(|(k, v)| if let crate::keys::MarkKey::MapEdit(n) = k { Some((*n, v.clone())) } else { None }).collect()
+    }
+
+    #[test]
+    fn the_ghost_hero_offers_wormhole_systems_and_those_with_its_units_in_the_order_of_the_map_and_records_the_swap() {
+        use crate::keys::{Atom, MarkVal, Word};
+        let (k, mut s) = (kernel(), table(2));
+        let p = with_planet(6);
+        let [s0, s1, s2, s3, s4, s5] = [p[0].0, p[1].0, p[2].0, p[3].0, p[4].0, p[5].0];
+        // The map order is not the system order: s3 first, then s1, s5, s0, s4, s2.
+        row(&mut s, &[s3, s1, s5, s0, s4, s2]);
+        s.board_mut().sys_mut(s1).units.push(unit_of(UnitBaseType::Cruiser, Seat(0)));
+        s.board_mut().planet_mut(p[2].1).units.push(unit_of(UnitBaseType::Infantry, Seat(0)));
+        s.board_mut().sys_mut(s4).units.push(unit_of(UnitBaseType::Cruiser, Seat(1)));
+        // s0 holds the seat's own ship and a wormhole but the card may not name it (the Creuss systems, the Nexus, a Fracture system).
+        s.board_mut().sys_mut(s0).units.push(unit_of(UnitBaseType::Cruiser, Seat(0)));
+        let facts = swap_facts(&[s1, s2, s3, s5], &[s0, s5]);
+        let mut d = driver(RiftwalkerMeian::new(Seat(0), true, facts));
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!(q.ask, Ask::Leaders(LAsk::GhostSwapFirst));
+        // s1 (its ship), s5 (a wormhole), s2 (its infantry on a planet) in the order of the map; s4 holds only the other seat's ship
+        // and s3 holds nothing; s0 is not allowed.
+        assert_eq!(systems_offered(&q), vec![s1, s5, s2]);
+        assert_eq!(q.opts.as_slice().last(), Some(&Opt::Decline), "each question may be declined");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s4)))), Err(DriverError::Illegal));
+        let Status::Asking(q2) = d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s5)))).unwrap() else { panic!("asks again") };
+        assert_eq!(q2.ask, Ask::Leaders(LAsk::GhostSwapSecond));
+        assert_eq!(systems_offered(&q2), vec![s1, s2], "not the first system again");
+        assert!(map_edits(&s).is_empty(), "nothing is written before the second answer");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s5)))), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s2)))).unwrap(), Status::Done);
+        assert!(d.window.used);
+        let rec = |a: System, b: System| MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Swap)), MarkVal::Atom(Atom::System(a)), MarkVal::Atom(Atom::System(b))]);
+        assert_eq!(map_edits(&s), vec![(0, rec(s5, s2))]);
+        // The next edit is the next mark.
+        let mut d = driver(RiftwalkerMeian::new(Seat(0), true, facts));
+        d.run(&mut s, &k).unwrap();
+        d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s1)))).unwrap();
+        d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(s2)))).unwrap();
+        assert_eq!(map_edits(&s), vec![(0, rec(s5, s2)), (1, rec(s1, s2))]);
+    }
+
+    #[test]
+    fn the_ghost_hero_resolves_nothing_when_declined_without_a_map_or_with_fewer_than_two_systems() {
+        let (k, p) = (kernel(), with_planet(3));
+        let facts = swap_facts(&[p[0].0, p[1].0, p[2].0], &[p[0].0, p[1].0]);
+        for declines in [0, 1] {
+            let mut s = table(2);
+            row(&mut s, &[p[0].0, p[1].0, p[2].0]);
+            let mut d = driver(RiftwalkerMeian::new(Seat(0), true, facts));
+            d.run(&mut s, &k).unwrap();
+            if declines == 1 {
+                d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::System(p[0].0)))).unwrap();
+            }
+            assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+            assert!(!d.window.used);
+            assert!(map_edits(&s).is_empty());
+        }
+        let mut s = table(2);
+        row(&mut s, &[p[0].0, p[1].0, p[2].0]);
+        let mut d = driver(RiftwalkerMeian::new(Seat(0), false, facts));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done, "the string arm had no map");
+        let mut d = driver(RiftwalkerMeian::new(Seat(0), true, swap_facts(&[p[0].0, p[1].0, p[2].0], &[p[0].0])));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done, "one system only");
+        assert!(!d.window.used);
+    }
+
+    // -- Nekro Malleon -----------------------------------------------------------------------------
+
+    fn malleon_driver(seats: u8) -> Driver<NekroMalleon> {
+        let mut t = AbilityTable::default();
+        t.facts.card_groups = (0..crate::generated::ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
+        let seat_list: Vec<Seat> = (0..seats).map(Seat).collect();
+        Driver::new(NekroMalleon::new(Seat(0), Code(5)), Resolver::new(&seat_list, Some(Seat(0))), t, 1)
+    }
+
+    fn broke(s: &mut CoreState, seat: u8) {
+        let econ = &mut s.players_mut().by_seat_mut(Seat(seat)).unwrap().econ;
+        (econ.tactic_tokens, econ.fleet_tokens, econ.strategic_tokens) = (0, 0, 0);
+    }
+
+    fn give(s: &mut CoreState, seat: u8, cards: &[crate::generated::ActionCard]) {
+        let hand = &mut s.players_mut().by_seat_mut(Seat(seat)).unwrap().cards.hand;
+        for card in cards {
+            hand.push(*card);
+        }
+    }
+
+    fn goods(s: &CoreState, seat: u8) -> i16 {
+        s.players().by_seat(Seat(seat)).unwrap().econ.trade_goods
+    }
+
+    #[test]
+    fn malleon_asks_a_lone_payer_only_for_the_payment_and_a_token_returns_to_the_supply_for_two_trade_goods() {
+        use crate::choice::strategy::Pool;
+        let (k, mut s) = (kernel(), table(3));
+        for seat in 0..3 {
+            broke(&mut s, seat);
+        }
+        s.players_mut().by_seat_mut(Seat(2)).unwrap().econ.fleet_tokens = 2;
+        s.players_mut().by_seat_mut(Seat(2)).unwrap().econ.strategic_tokens = 1;
+        let mut d = malleon_driver(3);
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!((q.actor, q.ask), (Seat(2), Ask::Leaders(LAsk::NekroPayment)), "one payer: no choice of player, and the payer answers");
+        assert_eq!(q.opts.as_slice(), &[Opt::Leaders(LOpt::Token(Pool::Fleet)), Opt::Leaders(LOpt::Token(Pool::Strategic)), Opt::Decline], "no card, no empty pool");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Token(Pool::Tactic)))), Err(DriverError::Illegal));
+        assert_eq!(goods(&s, 2), 0, "nothing before a legal answer");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Token(Pool::Fleet)))).unwrap(), Status::Done);
+        assert!(d.window.used);
+        let p = s.players().by_seat(Seat(2)).unwrap();
+        assert_eq!((p.econ.fleet_tokens, p.econ.strategic_tokens, p.econ.trade_goods), (1, 1, 2));
+        assert_eq!(s.pending().staged.len(), 1, "the gain is announced");
+    }
+
+    #[test]
+    fn malleon_lets_the_owner_pick_among_several_payers_and_the_payer_may_decline_which_still_uses_the_agent() {
+        let (k, mut s) = (kernel(), table(3));
+        for seat in [0, 2] {
+            s.players_mut().by_seat_mut(Seat(seat)).unwrap().econ.tactic_tokens = 3;
+        }
+        let mut d = malleon_driver(3);
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!((q.actor, q.ask), (Seat(0), Ask::Leaders(LAsk::NekroPlayer)));
+        let paying: Vec<Opt> = [0u8, 2].into_iter().map(|i| Opt::Leaders(LOpt::Player(Seat(i)))).collect();
+        assert_eq!(q.opts.as_slice(), paying.as_slice(), "the seats that could pay, in seat order");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Player(Seat(1))))), Err(DriverError::Illegal));
+        let Status::Asking(q) = d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Player(Seat(2))))).unwrap() else { panic!("asks the payer") };
+        assert_eq!((q.actor, q.ask), (Seat(2), Ask::Leaders(LAsk::NekroPayment)));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+        assert!(d.window.used, "the agent was used whether or not the payer took the offer");
+        assert_eq!(goods(&s, 2), 0);
+        assert!(s.pending().staged.is_empty());
+    }
+
+    #[test]
+    fn malleon_discards_a_card_staged_for_the_game_step_and_asks_which_only_among_distinct_printed_cards() {
+        use crate::generated::ActionCard as C;
+        use crate::keys::{Atom, MarkKey, MarkVal, Word};
+        let (k, mut s) = (kernel(), table(2));
+        broke(&mut s, 0);
+        broke(&mut s, 1);
+        give(&mut s, 1, &[C::ALL[7], C::ALL[3], C::ALL[3]]);
+        let mut d = malleon_driver(2);
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!(q.opts.as_slice(), &[Opt::Leaders(LOpt::Discard), Opt::Decline]);
+        let Status::Asking(q) = d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Discard))).unwrap() else { panic!("which card") };
+        assert_eq!((q.actor, q.ask), (Seat(1), Ask::Cards(crate::choice::cards::Ask::OwnHand { reason: crate::choice::cards::Reason::MalleonDiscard })));
+        let mut ranked = vec![C::ALL[7], C::ALL[3]];
+        ranked.sort_by_key(|c| c.name_rank());
+        let expected: Vec<Opt> = ranked.iter().map(|c| Opt::Cards(crate::choice::cards::Opt::Card(*c))).collect();
+        assert_eq!(q.opts.as_slice(), expected.as_slice(), "one per printed card, in the order of the names");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Cards(crate::choice::cards::Opt::Card(C::ALL[9])))), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(expected[0])).unwrap(), Status::Done);
+        let chosen = ranked[0];
+        let hand = s.players().by_seat(Seat(1)).unwrap().cards.hand.as_slice().to_vec();
+        assert_eq!(hand.len(), 2);
+        assert_eq!(hand.iter().filter(|c| **c == chosen).count(), if chosen == C::ALL[3] { 1 } else { 0 });
+        assert_eq!(goods(&s, 1), 2);
+        let row = MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Discarded)), MarkVal::Atom(Atom::Seat(Seat(1))), MarkVal::Atom(Atom::Absent), MarkVal::Atom(Atom::Card(chosen))]);
+        assert_eq!(s.marks().tail.get(&MarkKey::CardsStaged(0)), Some(&row), "the discard waits for the game step");
+        // One distinct card (two copies of it): taken without a question.
+        let mut s = table(2);
+        broke(&mut s, 0);
+        broke(&mut s, 1);
+        give(&mut s, 1, &[C::ALL[3], C::ALL[3]]);
+        s.marks_mut().tail.edit().insert(MarkKey::CardsStaged(4), MarkVal::Atom(Atom::Num(0)));
+        let mut d = malleon_driver(2);
+        d.run(&mut s, &k).unwrap();
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Discard))).unwrap(), Status::Done);
+        assert_eq!(s.players().by_seat(Seat(1)).unwrap().cards.hand.len(), 1);
+        assert!(s.marks().tail.get(&MarkKey::CardsStaged(5)).is_some(), "the next staged number");
+    }
+
+    #[test]
+    fn malleon_is_not_offered_when_nobody_could_pay() {
+        let (k, mut s) = (kernel(), table(2));
+        broke(&mut s, 0);
+        broke(&mut s, 1);
+        let mut d = malleon_driver(2);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.used);
     }
 }

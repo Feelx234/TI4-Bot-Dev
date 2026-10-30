@@ -1017,6 +1017,29 @@ fn use_leader(
 /// Nexus." Both systems are chosen before anything changes; the edit is recorded in the state
 /// (`movement::apply_map_edit`) and the game replays it onto its own map at the end of the step.
 fn hero_swap(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    // The whole action is a window of the core (`rules::leader_windows::RiftwalkerMeian`): the two questions and the map edit it records.
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::ghost::hero_swap",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(hero_swap_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            // The string's reads of which systems the card may name and which hold a wormhole now.
+            let ids: Vec<SystemId> = galaxy.map_or_else(Vec::new, |map| map.system_ids_holding_things().into_iter().map(SystemId::new).collect());
+            let allowed: Vec<&str> = ids.iter().map(SystemId::as_str).filter(|id| !hero_excluded(id)).collect();
+            let wormholes: Vec<&str> = allowed.iter().copied().filter(|id| !wormholes_at(s, &SystemId::new(*id)).is_empty()).collect();
+            crate::leaders_core::ghost_hero(s, player, galaxy, &allowed, &wormholes, sources, script)
+        }
+    )
+}
+
+/// [`hero_swap`] on the string engine: the oracle of the dual run.
+fn hero_swap_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let Some(galaxy) = context.galaxy else {
         return false;
     };
@@ -2626,6 +2649,65 @@ mod tests {
             .expect("replays");
         assert_eq!(galaxy.coord_of("19"), Some(hex_39));
         assert_eq!(galaxy.coord_of("39"), Some(hex_19));
+    }
+
+    /// Riftwalker Meian is a window of the core: the two questions (each may be declined) and the map edit it records as the next
+    /// `map_edit` mark. The core half agrees with the string on a swap, on a decline at either question, on a second edit (the next
+    /// mark number), on the systems the card may not name (the Creuss gate) and with no map, and it ran every time.
+    #[test]
+    fn riftwalker_meian_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let galaxy = galaxy();
+        let run = |state: &mut GameState, map: Option<&Galaxy>, answers: &[&str]| -> Option<bool> {
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                with_context(state, DEFAULT, map, &mut scripted(answers), |ctx| use_leader(ctx, &a(), &hero()))
+            })
+        };
+        let mut state = hero_game();
+        put(&mut state, &sys("17"), "cruiser", &a(), 1);
+        assert_eq!(run(&mut state, Some(&galaxy), &["19", "39"]), Some(true));
+        assert_eq!(state.faction_marks.keys().filter(|key| key.starts_with("map_edit|")).count(), 1);
+        // A second edit is the next mark (the map has not replayed the first: the string and the core both refuse to guess, so replay it).
+        let mut replayed = galaxy.clone();
+        crate::movement::replay_map_edits(&state, &mut replayed, content(), DEFAULT).expect("replays");
+        assert_eq!(run(&mut state, Some(&replayed), &["40", "19"]), Some(true));
+        assert_eq!(state.faction_marks.keys().filter(|key| key.starts_with("map_edit|")).count(), 2);
+        for answers in [&["decline"][..], &["19", "decline"][..], &["17"][..]] {
+            let mut state = hero_game();
+            put(&mut state, &sys("17"), "cruiser", &a(), 1);
+            assert_eq!(run(&mut state, Some(&galaxy), answers), Some(false), "{answers:?}");
+            assert!(state.faction_marks.keys().all(|key| !key.starts_with("map_edit|")));
+        }
+        let mut state = hero_game();
+        assert_eq!(run(&mut state, None, &[]), Some(false), "no map");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::ghost::hero_swap"), (6, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// While a recorded map edit has not been replayed onto the map, the window would offer systems at positions the map no longer has: the
+    /// string body keeps it, counted. Fails when the guard is removed (the core half would then run and compare a position it cannot judge).
+    #[test]
+    fn riftwalker_meian_stays_in_the_string_while_a_recorded_edit_is_not_replayed() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let galaxy = galaxy();
+        let mut state = hero_game();
+        state.faction_marks.insert("map_edit|0000".to_owned(), "swap|19|39".to_owned());
+        let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            with_context(&mut state, DEFAULT, Some(&galaxy), &mut scripted(&["decline"]), |ctx| use_leader(ctx, &a(), &hero()))
+        });
+        assert_eq!(done, Some(false));
+        let r = report();
+        assert_eq!(crate::dual::thread_window_counts("factions::ghost::hero_swap"), (0, 1), "{r:?}");
+        assert!(r.windows.keys().any(|label| label.starts_with("factions::ghost::hero_swap [") && label.contains("not replayed")), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

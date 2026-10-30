@@ -22,7 +22,7 @@ mod real {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::leader_windows::{HacanAgent, Helmsman, RinHero, XxchaAgent};
+    use ti4_engine_core::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, NekroMalleon, RinHero, XxchaAgent};
     use ti4_model::content_types::SourceSet;
 
     use crate::core_adapter::typed;
@@ -300,6 +300,125 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
+    /// The core half of Saar's Gurno Aggero (`factions::saar::hero`). `plain` says the player's adjacency is the map's own (no faction rule
+    /// links or blocks a border); the window reads the map's adjacency, so any other position is the string's. `None` as for [`xxcha_agent`].
+    pub fn saar_hero(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, plain: bool, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if !plain {
+            crate::dual::note_bail_here("a seat whose adjacency a faction rule changes (extra wormholes, links, blocked borders)");
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let kernel = kernel(sources)?;
+        let before = gs.clone();
+        let has_map = galaxy.is_some();
+        let mut driver = Driver::new(ArmageddonRelay::new(seat, has_map), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy, rng: None }, if has_map { XXCHA } else { XXCHA_NO_MAP }, |core, _| {
+            if has_map && core.galaxy().is_none() {
+                return None;
+            }
+            Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
+    }
+
+    /// The core half of Ghost's Riftwalker Meian (`factions::ghost::hero_swap`). `allowed` and `wormholes` are the string's reads of which
+    /// systems the card may name and which hold a wormhole now (the window cannot read the Creuss tokens, the ion storm, the Nexus and the
+    /// module wormholes). `None` as for [`xxcha_agent`].
+    pub fn ghost_hero(
+        gs: &mut GameState,
+        player: &PlayerId,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        allowed: &[&str],
+        wormholes: &[&str],
+        sources: SourceSet,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::rules::leader_windows::{RiftwalkerMeian, SwapFacts};
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if galaxy.is_some_and(|map| map.edits_applied() != crate::movement::recorded_map_edits(gs).len()) {
+            crate::dual::note_bail_here("map edits recorded that the map has not replayed yet");
+            return None;
+        }
+        let set = |ids: &[&str]| -> Option<ti4_engine_core::bits::SysSet> {
+            let mut out = ti4_engine_core::bits::SysSet::EMPTY;
+            for id in ids {
+                out.insert(typed::<ti4_engine_core::generated::System>(id)?.index());
+            }
+            Some(out)
+        };
+        let facts = SwapFacts { allowed: set(allowed).why(crate::dual::reason::UNKNOWN_ID)?, wormholes: set(wormholes).why(crate::dual::reason::UNKNOWN_ID)? };
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let kernel = kernel(sources)?;
+        let before = gs.clone();
+        let has_map = galaxy.is_some();
+        let mut driver = Driver::new(RiftwalkerMeian::new(seat, has_map, facts), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy, rng: None }, if has_map { GHOST_HERO } else { XXCHA_NO_MAP }, |core, _| {
+            if has_map && core.galaxy().is_none() {
+                return None;
+            }
+            Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
+    }
+
+    /// The hero reads the map and the board and writes one mark.
+    const GHOST_HERO: Footprint =
+        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Map, Slice::Marks, Slice::Pending], &[Slice::Marks]);
+
+    /// What Nekro Malleon reads (hands, tokens) and writes (hands, tokens, trade goods, the staged discard mark and event).
+    const MALLEON: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Marks, Slice::Pending],
+        &[Slice::Players, Slice::Marks, Slice::Pending],
+    );
+
+    /// The core half of Nekro's Malleon (`factions::nekro_units::malleon`). `None` as for [`xxcha_agent`].
+    pub fn nekro_agent(gs: &mut GameState, player: &PlayerId, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if gs.player(player).and_then(|p| p.leaders.get(&LeaderId::new("nekroagent"))) != Some(&ti4_model::state::LeaderStatus::Readied) {
+            crate::dual::note_bail_here("Malleon used by a seat that does not hold it readied (a copy through Ssruu)");
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let kernel = kernel(sources)?;
+        let before = gs.clone();
+        let mut table = AbilityTable::default();
+        table.facts.card_groups = crate::reactions_core::card_groups();
+        let mut staged = Vec::new();
+        let mut driver = Driver::new(NekroMalleon::new(seat, r.code("nekroagent")), Resolver::new(&seats, Some(seat)), table, 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), MALLEON, |core, _| {
+            let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
+    }
+
     const PLAYERS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
     /// The core half of `leaders::jolnar_hero` (Rin). `None` where `apply_unit_upgrades` would change the
@@ -440,6 +559,35 @@ mod stub {
         _: &mut GameState,
         _: &PlayerId,
         _: Option<&ti4_content::galaxy::Galaxy>,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn saar_hero(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: Option<&ti4_content::galaxy::Galaxy>,
+        _: bool,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn ghost_hero(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: Option<&ti4_content::galaxy::Galaxy>,
+        _: &[&str],
+        _: &[&str],
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn nekro_agent(
+        _: &mut GameState,
+        _: &PlayerId,
         _: ti4_model::content_types::SourceSet,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {

@@ -7,6 +7,7 @@
 //! hero): `leader_xxchahero_te_place` / `_stop` / `_planet`.
 
 use ti4_engine_core::choice::agenda::Shown;
+use ti4_engine_core::choice::strategy::Pool;
 use ti4_engine_core::choice::leaders::{Ask, HeroUnit, Opt, RoundTarget, Subtype};
 use ti4_engine_core::generated::{Planet, System, Technology, Unit};
 
@@ -89,6 +90,15 @@ const HERO_PLACE_KIND: &str = "leader_xxchahero_te_place";
 const HERO_STOP_KIND: &str = "leader_xxchahero_te_stop";
 const HERO_PLANET_KIND: &str = "leader_xxchahero_te_planet";
 
+/// The name of a command token pool in Nekro Malleon's ids (`token|strategy`).
+const fn pool_name(pool: Pool) -> &'static str {
+    match pool {
+        Pool::Tactic => "tactic",
+        Pool::Fleet => "fleet",
+        Pool::Strategic => "strategy",
+    }
+}
+
 /// The renderer of the leader questions.
 pub struct Fam;
 
@@ -109,6 +119,11 @@ impl Family for Fam {
             Ask::RoundAgentUnit { agent, copied: true } => format!("Ssruu copying {}: choose one unit for +1 combat die", agent.as_str()),
             Ask::XxchaHeroPlace => "Leader: place up to 4 PDS or mechs (how many more?)".to_owned(),
             Ask::XxchaHeroPlanet => "Leader: which planet gets the unit?".to_owned(),
+            Ask::SaarHero => "Gurno Aggero: destroy all other players' infantry and fighters in which system".to_owned(),
+            Ask::GhostSwapFirst => "Riftwalker Meian: swap the positions of which system".to_owned(),
+            Ask::GhostSwapSecond => "Riftwalker Meian: swap it with which system".to_owned(),
+            Ask::NekroPlayer => "Nekro Malleon: choose a player".to_owned(),
+            Ask::NekroPayment => "Nekro Malleon: discard 1 action card or spend 1 command token to gain 2 trade goods?".to_owned(),
         }
     }
 
@@ -123,6 +138,11 @@ impl Family for Fam {
             Subtype::RoundAgentUnit => ROUND_KIND.to_owned(),
             Subtype::XxchaHeroPlace => HERO_PLACE_KIND.to_owned(),
             Subtype::XxchaHeroPlanet => HERO_PLANET_KIND.to_owned(),
+            Subtype::SaarHero => "armageddon_relay".to_owned(),
+            Subtype::GhostSwapFirst => "swap_first".to_owned(),
+            Subtype::GhostSwapSecond => "swap_second".to_owned(),
+            Subtype::NekroPlayer => "malleon_player".to_owned(),
+            Subtype::NekroPayment => "malleon_payment".to_owned(),
         }
     }
 
@@ -133,7 +153,17 @@ impl Family for Fam {
                 let id = p.as_str();
                 ChoiceOption::labelled(id, "planet", id).with_planet(id, system.system.map(|s| s.as_str()))
             }
+            Opt::System(system) if matches!(a, Ask::SaarHero | Ask::GhostSwapFirst | Ask::GhostSwapSecond) => ChoiceOption::labelled(system.as_str(), "system", format!("system {}", system.as_str())),
             Opt::System(system) => ChoiceOption::labelled(system.as_str(), "system", system.as_str()),
+            Opt::Player(seat) => {
+                let id = r.seat_text(*seat);
+                ChoiceOption::labelled(id, "player", id)
+            }
+            Opt::Discard => ChoiceOption::labelled("discard", "nekro_malleon", "discard 1 action card to gain 2 trade goods"),
+            Opt::Token(pool) => {
+                let name = pool_name(*pool);
+                ChoiceOption::labelled(format!("token|{name}"), "nekro_malleon", format!("spend 1 {name} command token to gain 2 trade goods"))
+            }
             Opt::Remove => ChoiceOption::labelled("remove", INFANTRY_KIND, "remove 1 infantry"),
             Opt::Keep => match a {
                 Ask::JolnarSwap { held } => {
@@ -182,7 +212,7 @@ impl Family for Fam {
                 "keep" => Some(Opt::Keep),
                 _ => None,
             },
-            Ask::L1z1xDestination => System::from_id(id).map(Opt::System),
+            Ask::L1z1xDestination | Ask::SaarHero | Ask::GhostSwapFirst | Ask::GhostSwapSecond => System::from_id(id).map(Opt::System),
             Ask::JolnarSwap { held } => match id.strip_prefix("keep|") {
                 Some(kept) => (kept == held.as_str()).then_some(Opt::Keep),
                 None => Technology::from_id(id).map(Opt::Trade),
@@ -193,6 +223,11 @@ impl Family for Fam {
                 }
                 r.seat(id).map(Opt::Replenish)
             }
+            Ask::NekroPlayer => r.seat(id).map(Opt::Player),
+            Ask::NekroPayment => match id.strip_prefix("token|") {
+                Some(name) => [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().find(|pool| pool_name(*pool) == name).map(Opt::Token),
+                None => (id == "discard").then_some(Opt::Discard),
+            },
             Ask::RoundAgentUnit { .. } => round_target_of(r, id).map(Opt::RoundAgentUnit),
             Ask::XxchaHeroPlace => match id {
                 "place|pds" => Some(Opt::HeroPlace(HeroUnit::Pds)),

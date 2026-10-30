@@ -212,6 +212,125 @@ impl Window for ProductionBiomes {
     }
 }
 
+// -- Vortex ---------------------------------------------------------------------------------------
+
+/// Vortex (Cabal technology, a component action): "ACTION: Exhaust this card to capture 1 non-structure unit type of another player
+/// from their reinforcements, if that player has a unit in a system adjacent to one of your space docks." The unit types offered are
+/// the non-structure types of the other seats (not the neutral owner) with a unit in a system next to a dock of the seat's, that still
+/// have a model in the box, ordered by seat and unit type; nothing is asked with one, nothing happens without a map or a type. The
+/// answer captures (the seat's sheet holds the model) and exhausts the card. [`Self::done`] is whether the action resolved. The
+/// neighbours are the map's plain adjacency, the seat's own card is the caller's check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Vortex {
+    pub who: Seat,
+    pub has_map: bool,
+    neutral: Option<Seat>,
+    scope: crate::tables::Scope,
+    stage: Stage,
+    pub done: bool,
+}
+
+impl Vortex {
+    #[must_use]
+    pub const fn new(who: Seat, has_map: bool, neutral: Option<Seat>, scope: crate::tables::Scope) -> Self {
+        Self { who, has_map, neutral, scope, stage: Stage::Start, done: false }
+    }
+
+    const ASK: Ask = Ask::Technology(TAsk::Vortex);
+
+    fn targets(&self, s: &CoreState) -> Vec<(Seat, Unit)> {
+        use crate::generated::UnitBaseType;
+        if !self.has_map {
+            return Vec::new();
+        }
+        let is_dock = |p: &crate::state::Piece| p.owner() == self.who && self.scope.unit(p.kind()).is_some_and(|d| d.base_type == UnitBaseType::Spacedock);
+        let mut docks: Vec<System> = s.board().systems().filter(|(_, c)| c.units.as_slice().iter().any(is_dock)).map(|(sys, _)| sys).collect();
+        docks.extend(
+            s.board().planets().filter(|(_, c)| c.units.as_slice().iter().any(is_dock)).filter_map(|(planet, c)| c.placed_in.or(planet.data().system)),
+        );
+        let mut found: Vec<(Seat, Unit)> = Vec::new();
+        for dock in docks {
+            let Some(near) = board::neighbours(s, dock) else { continue };
+            for index in near.iter() {
+                let Some(next) = System::ALL.get(index).copied() else { continue };
+                let pieces = s.board().sys(next).units.as_slice().iter().chain(board::planets_of(s, next).flat_map(|p| s.board().planet(p).units.as_slice().iter()));
+                for piece in pieces {
+                    let (owner, kind) = (piece.owner(), piece.kind());
+                    if owner == self.who || Some(owner) == self.neutral {
+                        continue;
+                    }
+                    if self.scope.unit(kind).is_none_or(|d| d.structure) || crate::query::fleet::remaining_all(s, self.scope, owner, kind) == 0 {
+                        continue;
+                    }
+                    if !found.contains(&(owner, kind)) {
+                        found.push((owner, kind));
+                    }
+                }
+            }
+        }
+        found.sort_unstable();
+        found
+    }
+
+    fn capture(&mut self, s: &mut CoreState, owner: Seat, unit: Unit) {
+        if let Some(p) = s.players_mut().by_seat_mut(self.who) {
+            p.misc.captured_units.push((owner, unit));
+        }
+        fx_strategy::exhaust_technology(s, self.who, Technology::Vortex);
+        self.done = true;
+        self.stage = Stage::Done;
+    }
+}
+
+impl Window for Vortex {
+    type Stage = Stage;
+
+    fn stage(&self) -> Stage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == Stage::Start {
+            match self.targets(sx.state).as_slice() {
+                [] => self.stage = Stage::Done,
+                [(owner, unit)] => {
+                    let (owner, unit) = (*owner, *unit);
+                    self.capture(sx.state, owner, unit);
+                }
+                _ => self.stage = Stage::Asking,
+            }
+        }
+        if self.stage == Stage::Asking { Next::Continue(Self::ASK) } else { Next::Done }
+    }
+
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == Stage::Asking).then(|| Choice {
+            actor: self.who,
+            ask: Self::ASK,
+            ctx: Ctx {
+                origin: Origin::FactionAbility(crate::choice::generic::Content::Technology(Technology::Vortex)),
+                subtype: Subtype::Technology(TSub::VortexTarget),
+                optional: false,
+                target: None,
+                outstanding: SmallList::new(),
+                space_battle: false,
+                invasion_seq: None,
+            },
+            opts: self.targets(s).into_iter().map(|(owner, unit)| Opt::Technology(TOpt::Capture(owner, unit))).collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match pick {
+            Pick::Opt(Opt::Technology(TOpt::Capture(owner, unit))) if self.stage == Stage::Asking && self.targets(sx.state).contains(&(owner, unit)) => {
+                self.capture(sx.state, owner, unit);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 // -- the end of a turn: Predictive Intelligence, then Bio-Stims -----------------------------------------
 
 /// The suspension points of [`TurnEnd`].
@@ -382,7 +501,7 @@ impl Window for TurnEnd {
                             p.tech.exhausted.remove(tech);
                         }
                     }
-                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) => return Err(Illegal),
+                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) => return Err(Illegal),
                 }
                 fx_exhaust(sx.state, self.who, Technology::BioStims);
                 self.stage = EStage::Done;
@@ -644,5 +763,132 @@ impl Window for TurnStart {
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         if self.on_transit { self.transit.answer(sx, pick) } else { self.psycho.answer(sx, pick) }
+    }
+}
+
+#[cfg(test)]
+mod vortex_tests {
+    use super::*;
+    use crate::driver::{Driver, DriverError, Status};
+    use crate::generated::{Faction, UnitBaseType};
+    use crate::kernel::Resolver;
+    use crate::kernel::stage::AbilityTable;
+    use crate::state::{Piece, Player, Players};
+    use crate::tables::Scope;
+
+    const SCOPE: Scope = Scope(u32::MAX);
+
+    fn table() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        let list = (0..3u8).map(|i| Player::new(Seat(i), Faction::from_index(usize::from(i)).unwrap())).collect();
+        s.players = Players::from_vec(list);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::Vortex);
+        s
+    }
+
+    fn plain(base: UnitBaseType) -> Unit {
+        Unit::ALL.iter().copied().find(|u| u.data().base_type == base && u.data().faction.is_none()).expect("a plain unit")
+    }
+
+    /// Four systems with a planet each, in system order.
+    fn systems() -> [(System, Planet); 4] {
+        let mut found: Vec<(System, Planet)> = Vec::new();
+        for planet in Planet::ALL {
+            if let Some(system) = planet.data().system
+                && !found.iter().any(|(s, _)| *s == system)
+            {
+                found.push((system, planet));
+            }
+        }
+        found.sort_unstable();
+        [found[0], found[1], found[2], found[3]]
+    }
+
+    /// d0 - d1 - d2 - d3 in a row; the seat's dock on a planet of d1, so d0 and d2 are next to it and d3 is not.
+    fn scene() -> CoreState {
+        let mut s = table();
+        let sys = systems();
+        let mut galaxy = crate::galaxy::CoreGalaxy::new(&[]);
+        for (i, (system, _)) in sys.iter().enumerate() {
+            galaxy.place(crate::ids::system_at(*system as usize), crate::hex::Hex::new(i as i32, 0)).expect("on the grid");
+        }
+        s.map_mut().set_galaxy(galaxy);
+        s.board_mut().planet_mut(sys[1].1).units.push(Piece::new(plain(UnitBaseType::Spacedock), Seat(0)));
+        s
+    }
+
+    fn driver(has_map: bool, neutral: Option<Seat>) -> Driver<Vortex> {
+        Driver::new(Vortex::new(Seat(0), has_map, neutral, SCOPE), Resolver::new(&[Seat(0), Seat(1), Seat(2)], Some(Seat(0))), AbilityTable::default(), 1)
+    }
+
+    #[test]
+    fn vortex_offers_the_non_structure_types_next_to_a_dock_in_seat_and_unit_order_and_captures_the_one_chosen() {
+        let (k, mut s) = (Kernel::plain(), scene());
+        let sys = systems();
+        let (cruiser, dread, pds) = (plain(UnitBaseType::Cruiser), plain(UnitBaseType::Dreadnought), plain(UnitBaseType::Pds));
+        s.board_mut().sys_mut(sys[0].0).units.push(Piece::new(dread, Seat(2)));
+        s.board_mut().sys_mut(sys[2].0).units.push(Piece::new(cruiser, Seat(1)));
+        s.board_mut().planet_mut(sys[2].1).units.push(Piece::new(pds, Seat(1)));
+        s.board_mut().sys_mut(sys[3].0).units.push(Piece::new(cruiser, Seat(2)));
+        s.board_mut().sys_mut(sys[0].0).units.push(Piece::new(cruiser, Seat(0)));
+        let mut d = driver(true, None);
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!(q.opts.as_slice(), &[Opt::Technology(TOpt::Capture(Seat(1), cruiser)), Opt::Technology(TOpt::Capture(Seat(2), dread))], "no structure, no far system, nothing of its own");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Technology(TOpt::Capture(Seat(2), cruiser)))), Err(DriverError::Illegal));
+        assert!(s.players().by_seat(Seat(0)).unwrap().misc.captured_units.is_empty(), "nothing before a legal answer");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Technology(TOpt::Capture(Seat(2), dread)))).unwrap(), Status::Done);
+        assert!(d.window.done);
+        let p = s.players().by_seat(Seat(0)).unwrap();
+        assert_eq!(p.misc.captured_units.as_slice(), &[(Seat(2), dread)]);
+        assert!(p.tech.exhausted.contains(Technology::Vortex));
+    }
+
+    #[test]
+    fn vortex_takes_a_lone_target_without_a_question_and_does_nothing_without_a_map_a_target_or_a_box() {
+        let (k, sys) = (Kernel::plain(), systems());
+        let cruiser = plain(UnitBaseType::Cruiser);
+        let mut s = scene();
+        // On a planet of the neighbour, not in its space area: it counts as well.
+        s.board_mut().planet_mut(sys[0].1).units.push(Piece::new(cruiser, Seat(1)));
+        let mut d = driver(true, None);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.done);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().misc.captured_units.as_slice(), &[(Seat(1), cruiser)]);
+        // The string arm had no map; nobody next to the dock.
+        let mut s = scene();
+        s.board_mut().sys_mut(sys[0].0).units.push(Piece::new(cruiser, Seat(1)));
+        let mut d = driver(false, None);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.done);
+        let mut s = scene();
+        let mut d = driver(true, None);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.done);
+        // The neutral owner is not a target.
+        let mut s = scene();
+        s.board_mut().sys_mut(sys[0].0).units.push(Piece::new(cruiser, Seat(2)));
+        let mut d = driver(true, Some(Seat(2)));
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.done);
+        // Every cruiser of the other seat stands on the board: none is left in its box.
+        let mut s = scene();
+        for _ in 0..8 {
+            s.board_mut().sys_mut(sys[0].0).units.push(Piece::new(cruiser, Seat(1)));
+        }
+        let mut d = driver(true, None);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.done, "no model left to capture");
+        // A dock in space counts as well.
+        let mut s = table();
+        let mut galaxy = crate::galaxy::CoreGalaxy::new(&[]);
+        for (i, (system, _)) in sys.iter().take(2).enumerate() {
+            galaxy.place(crate::ids::system_at(*system as usize), crate::hex::Hex::new(i as i32, 0)).expect("on the grid");
+        }
+        s.map_mut().set_galaxy(galaxy);
+        s.board_mut().sys_mut(sys[0].0).units.push(Piece::new(plain(UnitBaseType::Spacedock), Seat(0)));
+        s.board_mut().sys_mut(sys[1].0).units.push(Piece::new(cruiser, Seat(1)));
+        let mut d = driver(true, None);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.done);
     }
 }

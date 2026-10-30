@@ -433,6 +433,22 @@ pub fn gain_token(s: &mut CoreState, who: Seat, pool: crate::choice::strategy::P
     granted
 }
 
+/// `hooks_cards::discard_chosen`: the first copy of `card` leaves the seat's hand and the discard waits for the game step, staged as the
+/// next `CardsStaged` mark (`discarded|<seat>||<card>`). `false` (nothing written) when the seat does not hold the card.
+pub fn discard_action_card_staged(s: &mut CoreState, who: Seat, card: crate::generated::ActionCard) -> bool {
+    use crate::keys::{Atom, MarkKey, MarkVal, Word};
+    let Some(at) = s.players().by_seat(who).and_then(|p| p.cards.hand.as_slice().iter().position(|held| *held == card)) else {
+        return false;
+    };
+    if let Some(p) = s.players_mut().by_seat_mut(who) {
+        p.cards.hand.remove(at);
+    }
+    let next = s.marks().tail.iter().filter_map(|(k, _)| if let MarkKey::CardsStaged(n) = k { Some(*n) } else { None }).max().map_or(0, |n| n + 1);
+    let row = MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Discarded)), MarkVal::Atom(Atom::Seat(who)), MarkVal::Atom(Atom::Absent), MarkVal::Atom(Atom::Card(card))]);
+    s.marks_mut().tail.edit().insert(MarkKey::CardsStaged(next), row);
+    true
+}
+
 /// The plain action card draw (`action_cards::draw` with no faction hook, no reserve and a hand that stays
 /// within the limit): up to `count` cards from the top of the deck into the hand. Returns how many came.
 /// `drop_unofficial`: the two unofficial cards leave the deck first (`deck::drop_unofficial_action_cards`).

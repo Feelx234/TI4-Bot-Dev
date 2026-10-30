@@ -427,6 +427,27 @@ fn stall_tactics(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     if !plays_yssaril(context.state, player) {
         return false;
     }
+    // The whole action is a window of the core (`rules::promissory_windows::StallTactics`): the discard, then the optional placement.
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::yssaril::stall_tactics",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(stall_tactics_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let mech = crate::action_cards::placed_unit_id(s, content, sources, player, "mech")
+                .filter(|id| !crate::factions::hooks_economy::effect_placement_forbidden(s, content, sources, player, id));
+            crate::faction_dual::stall_tactics(s, player, mech.as_ref(), sources, script)
+        }
+    )
+}
+
+/// [`stall_tactics`] on the string engine: the oracle of the dual run.
+fn stall_tactics_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let Ok(Some(card)) = crate::action_cards::choose_from_own_hand(
         context,
         player,
@@ -1393,6 +1414,43 @@ mod tests {
         assert_eq!(hand(&state, "a"), ["sabotage"], "the chosen card left");
         assert!(hooks_cards::has_staged(&state));
         assert_eq!(mechs_on_planets(&state, &a()), before + 1, "DEPLOY");
+    }
+
+    /// Stall Tactics is a window of the core: the discard (one option per distinct printed card, no question for one), the staged
+    /// discard mark and the optional placement of the mech. The core half agrees with the string for a card chosen among several and a
+    /// planet, a lone card with the mech declined and an empty hand, and it ran every time.
+    #[test]
+    fn stall_tactics_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |cards: &[&str], answers: &[&str]| -> (bool, GameState) {
+            let mut state = game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            deal(&mut state, "a", cards);
+            let mut table = scripted(answers);
+            let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, &mut table, &a(), STALL_TACTICS));
+            (done, state)
+        };
+        let state = game();
+        let home = home_of(&state, &a());
+        let planet = state.controlled_planets(&a()).into_iter().find(|(system, _)| **system == home).map(|(_, planet)| planet.clone()).expect("a home planet");
+        let spot = format!("{home}|{planet}");
+        let (done, state) = run(&["sabo1", "bribery"], &["bribery", &spot]);
+        assert!(done);
+        assert_eq!(hand(&state, "a"), ["sabo1"]);
+        assert!(hooks_cards::has_staged(&state));
+        assert_eq!(mechs_on_planets(&state, &a()), 1);
+        let (done, state) = run(&["sabo1"], &["decline"]);
+        assert!(done);
+        assert!(hand(&state, "a").is_empty());
+        assert!(!run(&[], &[]).0, "nothing to discard");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::yssaril::stall_tactics"), (3, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

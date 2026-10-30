@@ -911,17 +911,47 @@ pub fn turn_started(
     let Some(holder) = holder_of(context.state, "ms", player) else {
         return Ok(false);
     };
-    // Counted, not silent (W14-design-02): the placement is `place_units_choosing`, a question with no window in the core (the
-    // spots of a controlled planet or a ship space under the fleet pool and capacity, the box, the unit form), and the only
-    // caller of this card is the turn prelude of the game step (D1b), which the core does not run yet.
-    crate::dual::note_gate(
+    // The whole card is one core window (`rules::promissory_windows::PlaceUnits` with Military Support's follow-up): the placement
+    // question and what the answer changes (the units, the token and its announcement, the note home).
+    let crate::timing::TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    let mut refused = None;
+    let resolved = crate::dual_window!(
         crate::dual::Area::ExplorationRelics,
         "promissory::military_support",
-        "the placement of place_units_choosing and the turn prelude that calls it are not in the core",
+        state,
+        |s: &mut GameState| {
+            let mut inner = crate::timing::TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            match military_support_string(&mut inner, player, &holder) {
+                Ok(done) => crate::dual::Run::new(done),
+                Err(error) => {
+                    refused = Some(error);
+                    crate::dual::Run::new(false)
+                }
+            }
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            // The form the holder places and whether a faction rule forbids it: the string's own reads, vouched for the window.
+            let form = crate::action_cards::placed_unit_id(s, content, sources, &holder, "infantry")
+                .filter(|id| !crate::factions::hooks_economy::effect_placement_forbidden(s, content, sources, &holder, id));
+            crate::promissory_dual::military_support(s, player, &holder, form.as_ref(), sources, script)
+        }
     );
+    match refused {
+        Some(error) => Err(error),
+        None => Ok(resolved),
+    }
+}
+
+/// [`turn_started`] on the string engine: the oracle of the dual run.
+fn military_support_string(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    holder: &PlayerId,
+) -> Result<bool, crate::choice::IllegalChoice> {
     let placed = crate::action_cards::place_units_choosing(
         context,
-        &holder,
+        holder,
         "infantry",
         2,
         crate::action_cards::PlacementTarget::ControlledPlanet,
@@ -1561,22 +1591,39 @@ mod tests {
         })
     }
 
-    /// Military Support stays in the string, counted: the census shows the card resolving under its own gate label (and no window
-    /// of the core is opened for it) until the placement window and the turn prelude exist. Fails when the gate is removed.
+    /// Military Support is one core window (the placement question and what the answer changes: the units, the strategy token with
+    /// its announcement, the note home). The window agrees with the string on the placement, the decline, a holder with no planet
+    /// (nothing asked), a holder with two planets (the order of the options) and a Sol seat with no token; and the core half ran
+    /// every time. Fails when the window is not opened or its question differs.
     #[test]
-    fn military_support_is_a_counted_gate_until_the_core_has_the_placement_window() {
+    fn military_support_runs_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
-        let (mut state, system, planet) = military_support_fixture();
-        with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), || {
-            assert!(run_turn_started(&mut state, &[&format!("{system}|{planet}")]));
-        });
+        crate::dual::reset_thread_windows();
+        let (state, system, planet) = military_support_fixture();
+        let place = format!("{system}|{planet}");
+        let mut runs = 0;
+        let mut each = |mut state: GameState, answers: &[&str]| {
+            runs += 1;
+            with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), || assert!(run_turn_started(&mut state, answers)));
+            state
+        };
+        let placed = each(state.clone(), &[&place]);
+        assert_eq!(infantry_on(&placed, &system, &planet).len(), 2);
+        let declined = each(state.clone(), &["decline"]);
+        assert!(infantry_on(&declined, &system, &planet).is_empty());
+        // No token to lose: the card still resolves.
+        let mut broke = state.clone();
+        broke.player_mut(&a()).unwrap().strategic_tokens = 0;
+        let _ = each(broke, &[&place]);
+        // No planet: nothing is asked, the card goes home.
+        let mut landless = state.clone();
+        landless.system_mut(&system).planet_control.clear();
+        let _ = each(landless, &[]);
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with("promissory::military_support [gate: ")).map(|(_, c)| c.bailed).sum();
-        assert_eq!(gated, 1, "{r:?}");
-        assert!(!r.windows.keys().any(|label| label == "promissory::military_support"), "no window of the core is opened for it");
+        assert_eq!(crate::dual::thread_window_counts("promissory::military_support"), (runs, 0), "the core half ran every time: {r:?}");
         let _ = take_report();
     }
 

@@ -544,10 +544,27 @@ pub(crate) fn use_leader(
     leader: &LeaderId,
 ) -> Option<bool> {
     match leader.as_str() {
-        AGENT => Some(malleon(context, player).unwrap_or(false)),
+        AGENT => Some(malleon_dual(context, player)),
         HERO => Some(flayesh(context, player).unwrap_or(false)),
         _ => None,
     }
+}
+
+/// Nekro Malleon as a window of the core (`rules::leader_windows::NekroMalleon`): the choice of the player, the payment, the card and
+/// what they change.
+fn malleon_dual(context: &mut TimingContext<'_>, owner: &PlayerId) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::nekro::malleon",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(malleon(&mut inner, owner).unwrap_or(false))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::leaders_core::nekro_agent(s, owner, sources, script)
+    )
 }
 
 /// Nekro Malleon: the owner chooses a player who could pay; that player may discard 1 action card or
@@ -1064,19 +1081,7 @@ pub(crate) fn perform_component(
     }
     let done = match option.id.as_str() {
         C4R_PLACE => place_pds(context, player),
-        C4R_REPAIR => {
-            for board in context.state.board.values_mut() {
-                for unit in board
-                    .units
-                    .iter_mut()
-                    .chain(board.planet_units.values_mut().flatten())
-                    .filter(|unit| &unit.owner == player)
-                {
-                    unit.sustained_damage = false;
-                }
-            }
-            true
-        }
+        C4R_REPAIR => c4r_repair(context, player),
         _ => discard_and_draw(context, player),
     };
     if done && let Some(seat) = context.state.player_mut(player) {
@@ -1084,6 +1089,37 @@ pub(crate) fn perform_component(
             .insert(TechnologyId::new(ERROR_ERROR));
     }
     done
+}
+
+/// "Exhaust this card to repair all of your damaged units": a body of the core
+/// (`rules::faction_component::c4r_repair`), the repair and the exhaustion.
+fn c4r_repair(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::nekro::c4r_repair",
+        &mut *context.state,
+        |s: &mut GameState| crate::dual::Run::new(c4r_repair_string(s, player)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::faction_dual::c4r_repair(s, player, script)
+    )
+}
+
+/// [`c4r_repair`] on the string engine: the oracle of the dual run.
+fn c4r_repair_string(state: &mut GameState, player: &PlayerId) -> bool {
+    for board in state.board.values_mut() {
+        for unit in board
+            .units
+            .iter_mut()
+            .chain(board.planet_units.values_mut().flatten())
+            .filter(|unit| &unit.owner == player)
+        {
+            unit.sustained_damage = false;
+        }
+    }
+    if let Some(seat) = state.player_mut(player) {
+        seat.exhausted_technologies
+            .insert(TechnologyId::new(ERROR_ERROR));
+    }
+    true
 }
 
 fn place_pds(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
@@ -1126,6 +1162,24 @@ fn place_pds(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
 }
 
 fn discard_and_draw(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    // The whole action is a window of the core (`rules::promissory_windows::C4rDraw`): the discard, the exhaustion and the draw with its
+    // hand-limit question.
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::nekro::c4r_draw",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(discard_and_draw_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::faction_dual::c4r_draw(s, content, player, script)
+    )
+}
+
+/// [`discard_and_draw`] on the string engine: the oracle of the dual run.
+fn discard_and_draw_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let Ok(Some(card)) = crate::action_cards::choose_from_own_hand(
         context,
         player,
@@ -1141,6 +1195,9 @@ fn discard_and_draw(context: &mut TimingContext<'_>, player: &PlayerId) -> bool 
     }
     // The discard stands: a draw that the hand limit questions is the player's to answer.
     let _ = crate::action_cards::draw(context.state, context.content, context.table, player, 1);
+    if let Some(seat) = context.state.player_mut(player) {
+        seat.exhausted_technologies.insert(TechnologyId::new(ERROR_ERROR));
+    }
     true
 }
 
@@ -1775,6 +1832,63 @@ mod tests {
         assert_eq!(state.player(&a()).unwrap().trade_goods, goods + 2);
     }
 
+    /// Nekro Malleon is a window of the core: the choice of the payer, the payment, the card among the distinct printed cards of the
+    /// hand, the staged discard and the announced gain. The core half agrees with the string for a token, a lone card, a card among
+    /// several (two copies of one printed card are one option), a decline and a table where nobody could pay, and it ran every time;
+    /// a seat that does not hold the agent readied keeps the string body, counted.
+    #[test]
+    fn nekro_malleon_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |cards: &[&str], answers: &[&str], broke: bool| -> (Option<bool>, GameState) {
+            let mut state = battle(0);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            for seat in &mut state.players {
+                seat.action_cards.clear();
+                if broke {
+                    seat.tactic_tokens = 0;
+                    seat.fleet_tokens = 0;
+                    seat.strategic_tokens = 0;
+                }
+            }
+            for card in cards {
+                give_card(&mut state, &b(), card);
+            }
+            let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || use_malleon(&mut state, answers));
+            (done, state)
+        };
+        let (done, state) = run(&[], &["b", "token|tactic"], false);
+        assert_eq!(done, Some(true));
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 2);
+        let (done, state) = run(&["bunker"], &["b", "discard"], false);
+        assert_eq!(done, Some(true));
+        assert!(state.player(&b()).unwrap().action_cards.is_empty());
+        let (done, state) = run(&["bunker", "bribery", "dh1", "dh2"], &["b", "discard", "dh1"], false);
+        assert_eq!(done, Some(true));
+        assert_eq!(state.player(&b()).unwrap().action_cards.len(), 3);
+        assert_eq!(run(&["bunker"], &["b", "decline"], false).0, Some(true));
+        assert_eq!(run(&[], &["a", "token|fleet"], false).0, Some(true));
+        assert_eq!(run(&[], &[], true).0, Some(false));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::nekro::malleon"), (6, 0), "{r:?}");
+        // A seat that does not hold the agent readied (a copy through Ssruu) keeps the string body, counted.
+        let mut spent = battle(0);
+        spent.promissory_notes.clear();
+        spent.promissory_faceup.clear();
+        spent.player_mut(&a()).unwrap().leaders.insert(agent(), LeaderStatus::Exhausted);
+        let seen = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            crate::dual::run_dual_window(Area::LeadersAbilities, "factions::nekro::malleon", &mut spent, |s| crate::dual::Run::new(s.player(&a()).is_some()), |s, script| crate::leaders_core::nekro_agent(s, &a(), DEFAULT, script))
+        });
+        assert!(seen);
+        let r = report();
+        assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::malleon [") && label.contains("does not hold it readied")), "{r:?}");
+        let _ = take_report();
+    }
+
     // -- UNIT.DSGN.FLAYESH ------------------------------------------------------------------------
 
     fn hero() -> LeaderId {
@@ -2135,6 +2249,88 @@ mod tests {
             "another player's damage is not repaired"
         );
         assert!(exhausted(&state));
+    }
+
+    /// The repair is a body of the core: every unit of the seat repaired and the card exhausted, in lockstep with the string; and a
+    /// seat that does not hold the card itself (the text carried by a Valefar Assimilator) keeps the string body, counted.
+    #[test]
+    fn nekro_error_error_repair_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut state = battle(1);
+        with_error_error(&mut state);
+        for board in state.board.values_mut() {
+            for unit in board.units.iter_mut().chain(board.planet_units.values_mut().flatten()).filter(|unit| unit.owner == a()) {
+                unit.sustained_damage = true;
+            }
+        }
+        state.system_mut(&system()).units.push(Unit::new(UnitTypeId::new("cruiser"), b()).sustained());
+        let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, C4R_REPAIR, &[]));
+        assert!(done);
+        assert!(exhausted(&state));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::nekro::c4r_repair"), (1, 0), "{r:?}");
+        // Not the seat's own card: the core half bows out and says why.
+        let mut carried = state.clone();
+        carried.player_mut(&a()).unwrap().technologies.remove(ti4_model::id::text(&ERROR_ERROR));
+        let seen = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+            crate::dual::run_dual_window(Area::Factions, "factions::nekro::c4r_repair", &mut carried, |s| crate::dual::Run::new(c4r_repair_string(s, &a())), |s, script| crate::faction_dual::c4r_repair(s, &a(), script))
+        });
+        assert!(seen);
+        let r = report();
+        assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::c4r_repair [") && label.contains("Valefar Assimilator")), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The draw is a window of the core: the discard (staged for the game step), the exhaustion and the draw of one card from the
+    /// deck, with the hand-limit question when the hand ends over its limit. The core half agrees with the string for a lone card, a
+    /// card chosen among several and an empty hand, and it ran every time.
+    #[test]
+    fn nekro_error_error_draw_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |cards: &[&str], answers: &[&str]| -> (bool, GameState) {
+            let mut state = game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            with_error_error(&mut state);
+            state.player_mut(&a()).unwrap().action_cards.clear();
+            for card in cards {
+                give_card(&mut state, &a(), card);
+            }
+            let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, C4R_DRAW, answers));
+            (done, state)
+        };
+        let (done, state) = run(&["sabo1"], &[]);
+        assert!(done);
+        let seat = state.player(&a()).unwrap();
+        assert_eq!(seat.action_cards.len(), 1, "discarded 1, drew 1");
+        assert_ne!(seat.action_cards[0].as_str(), "sabo1");
+        assert!(exhausted(&state));
+        let (done, state) = run(&["bribery", "bunker", "dh1"], &["bunker"]);
+        assert!(done);
+        assert_eq!(state.player(&a()).unwrap().action_cards.len(), 3);
+        assert!(!run(&[], &[]).0, "nothing to discard: the action is not even offered");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::nekro::c4r_draw"), (2, 0), "{r:?}");
+        // A draw a rule changes (the Deepgloom Executable of another seat lets Scheming be borrowed) keeps the string body, counted.
+        let mut hooked = game();
+        hooked.promissory_notes.clear();
+        hooked.promissory_faceup.clear();
+        with_error_error(&mut hooked);
+        give_card(&mut hooked, &a(), "sabo1");
+        hooked.player_mut(&b()).unwrap().breakthrough = Some(ti4_model::BreakthroughId::new("yssarilbt"));
+        let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut hooked, C4R_DRAW, &[]));
+        assert!(done);
+        let r = report();
+        assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::c4r_draw [") && label.contains("Deepgloom Executable")), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

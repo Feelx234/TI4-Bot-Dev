@@ -126,6 +126,8 @@ pub mod lend_table;
 #[cfg(feature = "typed-core")]
 pub mod technology_core;
 pub mod technology_dual;
+pub mod promissory_dual;
+pub mod faction_dual;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod board_view;

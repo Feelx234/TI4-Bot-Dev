@@ -24,6 +24,8 @@ pub enum Ask {
     TransitDiodes { left: u8 },
     /// "Production Biomes: who gains 2 trade goods".
     ProductionBiomes,
+    /// "Vortex: which unit type do you take" (Cabal): the unit type of another seat captured from its reinforcements.
+    Vortex,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -42,6 +44,8 @@ pub enum Opt {
     Transit { from_system: System, from: Option<Planet>, unit: Unit, to_system: System, to: Planet },
     /// A player (Production Biomes: the one who gains 2 trade goods).
     Player(Seat),
+    /// Vortex: capture this unit type of this seat.
+    Capture(Seat, Unit),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -54,4 +58,5 @@ pub enum Subtype {
     SelfAssemblyMech,
     TransitDiodesRedeploy,
     ProductionBiomesChoosePlayer,
+    VortexTarget,
 }
