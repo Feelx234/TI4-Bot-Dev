@@ -124,8 +124,8 @@ fn give_back(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 pub const FUTURE_SIGHT: Slot = Slot(10_003);
 
 /// The outcome an `AGENDA_RESOLVED` event names (`player`: the elected seat, else the outcome itself).
-fn resolved_outcome(c: &CondCx<'_>) -> Option<Outcome> {
-    match c.event.payload.get(Key::Player)? {
+fn resolved_outcome(p: &ti4_engine_core::state::Payload) -> Option<Outcome> {
+    match p.get(Key::Player)? {
         Val::Seat(seat) => Some(Outcome::Seat(seat)),
         Val::Outcome(outcome) => Some(outcome),
         _ => None,
@@ -135,16 +135,19 @@ fn resolved_outcome(c: &CondCx<'_>) -> Option<Outcome> {
 /// "During the Agenda phase, after an outcome that you voted for or predicted is resolved": the vote is mirrored on the state
 /// while the event is announced, a prediction is held (a bare one: a rider's tagged prediction is another text in the string and
 /// does not match), and an agenda a Deadly Plot discarded has no resolved outcome.
-fn future_sight_condition(c: &CondCx<'_>) -> bool {
-    let me = c.def.owner;
+fn future_sight_pays(s: &CoreState, me: Seat, resolved: &ti4_engine_core::state::Payload) -> bool {
     // The string registers the ability for every seat; the condition names the Nomad.
-    if c.state.players().by_seat(me).is_none_or(|p| p.faction != Faction::TheNomad) {
+    if s.players().by_seat(me).is_none_or(|p| p.faction != Faction::TheNomad) {
         return false;
     }
-    let Some(outcome) = resolved_outcome(c) else { return false };
-    let agenda = c.state.agenda();
-    !c.state.transient().misc.flags.has(TransientFlags::AGENDA_DISCARDED)
+    let Some(outcome) = resolved_outcome(resolved) else { return false };
+    let agenda = s.agenda();
+    !s.transient().misc.flags.has(TransientFlags::AGENDA_DISCARDED)
         && (agenda.votes.get(&me) == Some(&outcome) || agenda.predictions.get(&me) == Some(&Prediction::Plain(outcome)))
+}
+
+fn future_sight_condition(c: &CondCx<'_>) -> bool {
+    future_sight_pays(c.state, c.def.owner, &c.event.payload)
 }
 
 fn future_sight(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -184,6 +187,12 @@ fn artuno_ready(s: &CoreState, owner: Seat) -> bool {
     s.players().by_seat(owner).is_some_and(|p| p.leaders.status.get(&Leader::ArtunoTheBetrayer) == Some(&LeaderStatus::Readied))
 }
 
+/// Put `amount` more trade goods on Artuno's card.
+fn add_to_pile(s: &mut CoreState, owner: Seat, amount: u32) {
+    let total = pile(s, owner) + amount;
+    s.marks_mut().tail.edit().insert(MarkKey::NomadArtuno(owner), MarkVal::Atom(Atom::Num(total)));
+}
+
 fn artuno_condition(c: &CondCx<'_>) -> bool {
     supply_gain(c).is_some() && artuno_ready(c.state, c.def.owner)
 }
@@ -199,8 +208,7 @@ fn artuno(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     if !ti4_engine_core::rules::leaders::exhaust(eff.state(), me, Leader::ArtunoTheBetrayer) {
         return Ok(());
     }
-    let total = pile(eff.state(), me) + amount;
-    eff.state().marks_mut().tail.edit().insert(MarkKey::NomadArtuno(me), MarkVal::Atom(Atom::Num(total)));
+    add_to_pile(eff.state(), me, amount);
     Ok(())
 }
 
@@ -227,6 +235,54 @@ mod artuno_tests {
 
     fn codes() -> Codes {
         Codes { not_from_supply: [Code(1), Code(2), Code(3), Code(4), Code(5)], ..Codes::default() }
+    }
+
+    fn nomad_table() -> (CoreState, ti4_engine_core::kernel::Kernel) {
+        crate::common::testkit::table(&[Faction::TheNomad, Faction::TheEmiratesOfHacan])
+    }
+
+    #[test]
+    fn future_sight_pays_a_vote_or_a_bare_prediction_for_the_resolved_outcome_only() {
+        use ti4_engine_core::keys::PredictionTag;
+        let (mut s, _) = nomad_table();
+        let resolved = |o: Outcome| Payload::new().with(Key::Player, Val::Outcome(o));
+        assert!(!future_sight_pays(&s, Seat(0), &resolved(Outcome::For)), "nothing voted or predicted");
+        s.agenda_mut().votes.insert(Seat(0), Outcome::For);
+        assert!(future_sight_pays(&s, Seat(0), &resolved(Outcome::For)));
+        assert!(!future_sight_pays(&s, Seat(0), &resolved(Outcome::Against)), "another outcome");
+        assert!(!future_sight_pays(&s, Seat(1), &resolved(Outcome::For)), "the other seat has no Future Sight (and no vote)");
+        s.agenda_mut().votes.insert(Seat(1), Outcome::For);
+        assert!(!future_sight_pays(&s, Seat(1), &resolved(Outcome::For)), "only a Nomad is paid, whoever voted");
+        s.agenda_mut().votes.clear();
+        s.agenda_mut().predictions.insert(Seat(0), Prediction::Tagged(Outcome::For, PredictionTag::TradeRider));
+        assert!(!future_sight_pays(&s, Seat(0), &resolved(Outcome::For)), "a rider's prediction is another text");
+        s.agenda_mut().predictions.insert(Seat(0), Prediction::Plain(Outcome::For));
+        assert!(future_sight_pays(&s, Seat(0), &resolved(Outcome::For)), "a bare prediction");
+        assert!(!future_sight_pays(&s, Seat(0), &resolved(Outcome::Against)));
+        s.transient_mut().misc.flags.set(TransientFlags::AGENDA_DISCARDED);
+        assert!(!future_sight_pays(&s, Seat(0), &resolved(Outcome::For)), "a discarded agenda resolves no outcome");
+        s.transient_mut().misc.flags.clear(TransientFlags::AGENDA_DISCARDED);
+        // An election names the elected seat as the outcome.
+        s.agenda_mut().predictions.insert(Seat(0), Prediction::Plain(Outcome::Seat(Seat(1))));
+        let elected = Payload::new().with(Key::Player, Val::Seat(Seat(1)));
+        assert!(future_sight_pays(&s, Seat(0), &elected));
+        assert!(!future_sight_pays(&s, Seat(0), &Payload::new()), "an event without an outcome");
+    }
+
+    #[test]
+    fn artuno_needs_a_readied_card_and_its_pile_grows_with_each_copy() {
+        let (mut s, _) = nomad_table();
+        assert!(!artuno_ready(&s, Seat(0)), "no leader row at all");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::ArtunoTheBetrayer, LeaderStatus::Readied);
+        assert!(artuno_ready(&s, Seat(0)));
+        assert!(!artuno_ready(&s, Seat(1)), "the other seat holds no card");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::ArtunoTheBetrayer, LeaderStatus::Exhausted);
+        assert!(!artuno_ready(&s, Seat(0)), "an exhausted card copies nothing");
+        assert_eq!(pile(&s, Seat(0)), 0);
+        add_to_pile(&mut s, Seat(0), 2);
+        add_to_pile(&mut s, Seat(0), 3);
+        assert_eq!(pile(&s, Seat(0)), 5, "the card keeps what earlier copies put on it");
+        assert_eq!(pile(&s, Seat(1)), 0);
     }
 
     #[test]
