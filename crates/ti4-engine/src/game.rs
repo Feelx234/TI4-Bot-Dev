@@ -3357,7 +3357,7 @@ impl<'a> Game<'a> {
         let Some(window) = self.tactical.take() else {
             unreachable!("a tactical action is open");
         };
-        match self.apply_tactical(window, &choice, answer) {
+        match self.apply_tactical_windowed(window, &choice, answer) {
             Ok(result) => result,
             Err(error) => {
                 if let Some((
@@ -3391,6 +3391,106 @@ impl<'a> Game<'a> {
                 self.result(false, Some(error))
             }
         }
+    }
+
+    /// Replace the dice by test faces (the lockstep tests: the core cannot reproduce them).
+    #[cfg(test)]
+    pub(crate) fn use_test_faces(&mut self, faces: &[u32]) {
+        self.dice = Dice::from_faces(faces.iter().copied());
+    }
+
+    /// The gravity-rift rolls of the game so far (the lockstep tests count them).
+    #[cfg(test)]
+    pub(crate) fn rift_rolls(&self) -> usize {
+        self.dice.history().iter().filter(|roll| roll.reason == "gravity rift").count()
+    }
+
+    /// [`Self::apply_tactical`] for one answer, as a lockstep window of `Area::Movement` (`tactical_dual`) when the
+    /// answer is one the core machine follows: a system to activate, a ship to move, a pickup. The finish of the
+    /// movement step and a diplomacy contact run unwrapped (the close has its own window, `finish_head`).
+    fn apply_tactical_windowed(
+        &mut self,
+        window: TacticalWindow,
+        choice: &Choice,
+        answer: ChoiceOption,
+    ) -> Result<StepResult, GameError> {
+        use crate::dual::{Area, Backend};
+        let follows = match &window.stage {
+            TacticalStage::Activating | TacticalStage::Loading { .. } => true,
+            TacticalStage::Moving => {
+                !answer.is_decline() && crate::diplomacy::candidates::contact_seat_index(&answer.id).is_none()
+            }
+        };
+        let galaxy = self.galaxy.clone();
+        let (true, Backend::Dual, Some(galaxy)) = (follows, crate::dual::backend(Area::Movement), galaxy) else {
+            return self.apply_tactical(window, choice, answer);
+        };
+        let at = match &window.stage {
+            TacticalStage::Activating => crate::tactical_dual::At::Activating,
+            TacticalStage::Moving => crate::tactical_dual::At::Moving,
+            TacticalStage::Loading { origin, ship, path, window: hold } => {
+                let (loaded, closed) = hold.progress();
+                crate::tactical_dual::At::Loading {
+                    origin: origin.clone(),
+                    ship: (**ship).clone(),
+                    path: path.clone(),
+                    loaded: loaded.to_vec(),
+                    closed,
+                }
+            }
+        };
+        let player = window.player.clone();
+        let (content, sources) = (self.content, self.sources);
+        let reproducible =
+            !self.dice.is_preloaded() && !self.rng.sync_pending() && self.rng.seed() == self.state.rng_seed;
+        let rng_before = self.rng.positions();
+        let (dice_before, events_before) = (self.dice.count(), self.events.len());
+        let failed = std::cell::Cell::new(false);
+        let mut applied = None;
+        let mut taken = self.state.clone();
+        let _ = crate::dual_window!(
+            Area::Movement,
+            crate::tactical_dual::label(&at),
+            &mut taken,
+            |state: &mut GameState| {
+                // The table was asked before the window (the checkpoint of an activation needs it so); the recording
+                // is told what was asked and answered.
+                crate::dual_window::note_ask(choice, &Ok(answer.clone()));
+                std::mem::swap(&mut self.state, state);
+                let result = self.apply_tactical(window, choice, answer);
+                std::mem::swap(&mut self.state, state);
+                failed.set(result.is_err());
+                applied = Some(result);
+                let stage = match self.tactical.as_ref().map(|w| &w.stage) {
+                    Some(TacticalStage::Activating) => crate::tactical_dual::Tag::Activating,
+                    Some(TacticalStage::Moving) => crate::tactical_dual::Tag::Moving,
+                    Some(TacticalStage::Loading { .. }) => crate::tactical_dual::Tag::Loading,
+                    None => crate::tactical_dual::Tag::Closed,
+                };
+                crate::dual::Run::new(crate::tactical_dual::Stepped {
+                    stage,
+                    plain: if crate::dual_window::nested_so_far() { Vec::new() } else { self.events.get(events_before..).unwrap_or_default().to_vec() },
+                    failed: failed.get(),
+                    rift_faces: self.dice.history()[dice_before..]
+                        .iter()
+                        .filter(|roll| roll.reason == "gravity rift")
+                        .filter_map(|roll| roll.faces.first().copied())
+                        .collect(),
+                    rng: self.rng.positions(),
+                })
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                let args = crate::tactical_dual::Args {
+                    player: &player,
+                    reproducible,
+                    rng_before: &rng_before,
+                    failed: failed.get(),
+                };
+                crate::tactical_dual::step(state, content, sources, &galaxy, &at, args, script)
+            }
+        );
+        self.state = taken;
+        applied.expect("the string side of the window ran")
     }
 
     /// Copy anything the resolver emitted since `from` into the game's event log.
@@ -3655,7 +3755,59 @@ impl<'a> Game<'a> {
 
     /// Perform a faction component action through the game's own timing context.
     /// Resolve a leader offered as an action-phase component (LEADER-FIX-001).
-    fn begin_free_tactical(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
+    pub(crate) fn begin_free_tactical(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
+        use crate::dual::{Area, Backend};
+        let galaxy = self.galaxy.clone();
+        let (Backend::Dual, Some(galaxy)) = (crate::dual::backend(Area::Movement), galaxy) else {
+            return self.begin_free_tactical_text(active, system);
+        };
+        let (content, sources) = (self.content, self.sources);
+        let rng_before = self.rng.positions();
+        let reproducible =
+            !self.dice.is_preloaded() && !self.rng.sync_pending() && self.rng.seed() == self.state.rng_seed;
+        let events_before = self.events.len();
+        let failed = std::cell::Cell::new(false);
+        let mut done = None;
+        let (player, target) = (active.clone(), system.clone());
+        let mut taken = self.state.clone();
+        let _ = crate::dual_window!(
+            Area::Movement,
+            "tactical::free",
+            &mut taken,
+            |state: &mut GameState| {
+                std::mem::swap(&mut self.state, state);
+                let result = self.begin_free_tactical_text(active, system);
+                std::mem::swap(&mut self.state, state);
+                failed.set(result.is_err());
+                done = Some(result);
+                crate::dual::Run::new(crate::tactical_dual::Stepped {
+                    stage: if self.tactical.is_some() {
+                        crate::tactical_dual::Tag::Moving
+                    } else {
+                        crate::tactical_dual::Tag::Closed
+                    },
+                    plain: if crate::dual_window::nested_so_far() { Vec::new() } else { self.events.get(events_before..).unwrap_or_default().to_vec() },
+                    failed: failed.get(),
+                    rift_faces: Vec::new(),
+                    rng: self.rng.positions(),
+                })
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                let args = crate::tactical_dual::Args {
+                    player: &player,
+                    reproducible,
+                    rng_before: &rng_before,
+                    failed: failed.get(),
+                };
+                crate::tactical_dual::free(state, content, sources, &galaxy, &target, args, script)
+            }
+        );
+        self.state = taken;
+        done.expect("the string side of the window ran")
+    }
+
+    /// The free tactical action as the string engine runs it (see [`Self::begin_free_tactical`]).
+    fn begin_free_tactical_text(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
         // TE Warfare explicitly waives the token and permits an already-tokened
         // system, but the rest is the ordinary movement/aftermath pipeline.
         //
@@ -4639,21 +4791,10 @@ impl<'a> Game<'a> {
         result
     }
 
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one movement-close and aftermath-opening boundary"
-    )]
-    fn finish_tactical_inner(&mut self) -> StepResult {
-        let tactical = self
-            .tactical
-            .as_ref()
-            .map(|window| (window.player.clone(), window.notes_at_start.clone()));
-        self.tactical = None;
-        let system = self.state.active_system.clone();
-
-        let (Some((player, notes_at_start)), Some(system)) = (tactical, system) else {
-            return self.close_tactical();
-        };
+    /// The head of [`Self::finish_tactical_inner`]: `MOVEMENT_FINISHED`, the map edits Nova Seed made, the Sardakk hero's
+    /// skip to the commit step, the end of the arrival count and the Floating Factories a blockade destroys. Returns the
+    /// system the rest of the step belongs to and whether it skips to the commit step.
+    fn finish_head(&mut self, player: &PlayerId, system: SystemId) -> Result<(SystemId, bool), GameError> {
         // The movement step is over (LRR 89.2 → 89.3): one typed window for effects that read "after
         // you move ships" as a whole rather than per ship (Naalu Foresight, Muaat Nova Seed).
         let mut moved = BTreeMap::new();
@@ -4671,7 +4812,7 @@ impl<'a> Game<'a> {
             serde_json::Value::from(ships_moved),
         );
         if let Err(error) = self.emit_typed("MOVEMENT_FINISHED", moved) {
-            return self.result(false, Some(error));
+            return Err(error);
         }
         // Nova Seed replaced the active system's tile during that window: the rest of the step
         // belongs to the supernova, on a map that already shows it.
@@ -4716,6 +4857,66 @@ impl<'a> Game<'a> {
             self.sources,
             &system,
         );
+        Ok((system, skip_to_commit))
+    }
+
+    /// [`Self::finish_head`] as a lockstep window of `Area::Movement` (`tactical_dual::finish`).
+    fn finish_head_windowed(&mut self, player: &PlayerId, system: SystemId) -> Result<(SystemId, bool), GameError> {
+        use crate::dual::{Area, Backend};
+        let (Backend::Dual, true) = (crate::dual::backend(Area::Movement), self.galaxy.is_some()) else {
+            return self.finish_head(player, system);
+        };
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.clone().expect("checked above");
+        let events_before = self.events.len();
+        let failed = std::cell::Cell::new(false);
+        let mut done = None;
+        let mut taken = self.state.clone();
+        let _ = crate::dual_window!(
+            Area::Movement,
+            "tactical::finish",
+            &mut taken,
+            |state: &mut GameState| {
+                std::mem::swap(&mut self.state, state);
+                let result = self.finish_head(player, system.clone());
+                std::mem::swap(&mut self.state, state);
+                failed.set(result.is_err());
+                let value = result.as_ref().map_or_else(|_| (String::new(), false), |(system, skip)| (system.to_string(), *skip));
+                done = Some(result);
+                crate::dual::Run::new(crate::tactical_dual::Closed {
+                    system: value.0,
+                    skip_to_commit: value.1,
+                    plain: if crate::dual_window::nested_so_far() { Vec::new() } else { self.events.get(events_before..).unwrap_or_default().to_vec() },
+                    failed: failed.get(),
+                })
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                crate::tactical_dual::finish(state, content, sources, &galaxy, player, failed.get(), script)
+            }
+        );
+        self.state = taken;
+        done.expect("the string side of the window ran")
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one movement-close and aftermath-opening boundary"
+    )]
+    fn finish_tactical_inner(&mut self) -> StepResult {
+        let tactical = self
+            .tactical
+            .as_ref()
+            .map(|window| (window.player.clone(), window.notes_at_start.clone()));
+        self.tactical = None;
+        let system = self.state.active_system.clone();
+
+        let (Some((player, notes_at_start)), Some(system)) = (tactical, system) else {
+            return self.close_tactical();
+        };
+        let (system, skip_to_commit) = match self.finish_head_windowed(&player, system) {
+            Ok(done) => done,
+            Err(error) => return self.result(false, Some(error)),
+        };
 
         // A single answer can enter automatic aftermath before another question
         // exists. The observer only reports that boundary; rules still run normally.

@@ -1095,7 +1095,7 @@ impl MapEdit {
     }
 }
 
-const MAP_EDIT_PREFIX: &str = "map_edit|";
+pub(crate) const MAP_EDIT_PREFIX: &str = "map_edit|";
 
 /// The map edits this state records, oldest first: what a viewer applies to the setup board to
 /// show the tiles where they stand in this frame.

@@ -197,6 +197,13 @@ pub fn start() -> bool {
     })
 }
 
+/// Whether the running recording has seen nested activity (a question or an event inside an emission) so far: the
+/// string side of a window that compares plain log lines leaves them out then, as the core side does.
+#[must_use]
+pub fn nested_so_far() -> bool {
+    REC.with(|r| r.borrow().as_ref().is_some_and(|rec| rec.nested))
+}
+
 /// End the recording and take it.
 pub fn finish() -> Recording {
     REC.with(|r| r.borrow_mut().take()).unwrap_or_default()
@@ -478,10 +485,20 @@ fn outcome_text(r: &Render, outcome: ti4_engine_core::keys::Outcome) -> Option<S
 }
 
 pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
-    if !rec.payload.units.is_empty() {
+    // A tally list is converted for the events whose `units` this adapter knows (`SHIP_MOVED`: owner, unit_type, count).
+    if !rec.payload.units.is_empty() && rec.kind != ti4_engine_core::state::EventKind::ShipMoved {
         return None;
     }
     let mut payload = BTreeMap::new();
+    if !rec.payload.units.is_empty() {
+        let units: Vec<Value> = rec
+            .payload
+            .units
+            .iter()
+            .map(|t| Some(serde_json::json!({"owner": r.seats.get(usize::from(t.owner.0))?.clone(), "unit_type": t.unit.as_str(), "count": u64::from(t.count)})))
+            .collect::<Option<_>>()?;
+        payload.insert("units".to_owned(), Value::Array(units));
+    }
     for (key, val) in rec.payload.items.iter() {
         let v: Value = match *val {
             Val::Seat(s) => r.seats.get(usize::from(s.0))?.clone().into(),
@@ -505,6 +522,8 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
         let v: Value = match list {
             ti4_engine_core::state::List::Seats(seats) => Value::Array(seats.iter().map(seat).collect::<Option<_>>()?),
             ti4_engine_core::state::List::Planets(planets) => Value::Array(planets.iter().map(|p| Value::from(p.as_str())).collect()),
+            // The string engine writes a route as one comma-joined text.
+            ti4_engine_core::state::List::Systems(systems) => Value::from(systems.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",")),
             ti4_engine_core::state::List::Units(units) => Value::Array(
                 units
                     .iter()
@@ -884,6 +903,12 @@ pub(crate) fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
     let cx = Ctx::of(gs).ok()?;
     let r = Render::new(cx.owners.ids().to_vec());
     Some((cx, r))
+}
+
+/// [`tables`] for the tests of other modules.
+#[cfg(test)]
+pub(crate) fn tables_for_tests(gs: &GameState) -> Option<(Ctx, Render)> {
+    tables(gs)
 }
 
 /// One ported state write: `f` on the core state of `gs` over the slices of `fp`, with the seat of `player`
@@ -1863,7 +1888,7 @@ pub struct BarrageArgs<'a> {
 pub type BarrageOut = (Vec<PlayerId>, Vec<(u32, Vec<u32>)>, crate::rng::RngPositions);
 
 /// The seeds of the Dice stream (the only one a window draws from here): `SHA-256(seed || "dice")`.
-struct DiceSeeds(String);
+pub(crate) struct DiceSeeds(pub(crate) String);
 
 impl ti4_engine_core::state::SeedSource for DiceSeeds {
     fn seed_for(&self, seed: u64, domain: ti4_engine_core::state::RngDomain) -> [u8; 32] {

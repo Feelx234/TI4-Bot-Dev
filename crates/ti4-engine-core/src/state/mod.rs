@@ -27,6 +27,7 @@ mod players;
 mod rng;
 mod seats;
 mod strategy;
+mod tactical;
 mod trade;
 mod transient;
 
@@ -55,6 +56,7 @@ pub use players::Players;
 pub use rng::{Rng, RngDomain, SeedSource};
 pub use seats::{MAX_PLAYERS, Seats};
 pub use strategy::StrategyState;
+pub use tactical::{TStage, Tactical};
 pub use trade::*;
 pub use transient::*;
 
