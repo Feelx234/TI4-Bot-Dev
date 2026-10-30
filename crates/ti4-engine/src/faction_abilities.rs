@@ -567,16 +567,35 @@ pub fn component_actions(
 /// Production Biomes: "ACTION: Exhaust this card and spend 1 token from your strategy pool to gain
 /// 4 trade goods and choose 1 other player; that player gains 2 trade goods."
 fn production_biomes(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
-    let others: Vec<PlayerId> = context
-        .state
+    // The whole action is one core window (`rules::technology_windows::ProductionBiomes`): the question and what the answer pays.
+    let crate::timing::TimingContext { state, content, sources, table, galaxy, .. } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "faction_abilities::production_biomes",
+        state,
+        |s: &mut ti4_model::state::GameState| crate::dual::Run::new(production_biomes_string(s, content, sources, table, galaxy, player)),
+        |s: &mut ti4_model::state::GameState, script: &crate::dual_window::Recording| crate::technology_dual::production_biomes(s, player, script)
+    )
+}
+
+/// [`production_biomes`] on the string engine: the oracle of the dual run.
+fn production_biomes_string(
+    state: &mut ti4_model::state::GameState,
+    content: &ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> bool {
+    let others: Vec<PlayerId> = state
         .players
         .iter()
         .map(|seat| seat.id.clone())
         .filter(|seat| seat != player)
         .collect();
     if others.is_empty()
-        || context
-            .state
+        || state
             .player(player)
             .is_none_or(|seat| seat.tokens(ti4_model::state::TokenPool::Strategic) <= 0)
     {
@@ -596,28 +615,31 @@ fn production_biomes(context: &mut crate::timing::TimingContext<'_>, player: &Pl
         player.clone(),
         DecisionSource::Content("pm".to_owned()),
         "production_biomes_choose_player",
-        context.state.phase,
-        context.state.round,
+        state.phase,
+        state.round,
     ));
-    let Ok(answer) = context.ask_seeing(&choice) else {
+    // As `TimingContext::ask_seeing` asks it: the context knows the battle and the invasion it is asked in.
+    let mut choice = choice;
+    if let Some(context) = choice.context.take() {
+        choice.context = Some(context.about_battle(state).about_invasion(state));
+    }
+    let Ok(answer) = table.ask_seeing(&choice, &crate::choice::Observed::new(state, content, sources, galaxy)) else {
         return false;
     };
     let Some(chosen) = others.into_iter().find(|seat| seat.as_str() == answer.id) else {
         return false;
     };
-    context
-        .state
-        .gain_token(player, ti4_model::state::TokenPool::Strategic, -1);
-    crate::supply::note_strategy_token_spent(context.state, player, "production_biomes");
-    crate::technology::exhaust_technology_text(context.state, player, "pm");
-    if let Some(seat) = context.state.player_mut(player) {
+    state.gain_token(player, ti4_model::state::TokenPool::Strategic, -1);
+    crate::supply::note_strategy_token_spent(state, player, "production_biomes");
+    crate::technology::exhaust_technology_text(state, player, "pm");
+    if let Some(seat) = state.player_mut(player) {
         seat.trade_goods += 4;
     }
-    if let Some(seat) = context.state.player_mut(&chosen) {
+    if let Some(seat) = state.player_mut(&chosen) {
         seat.trade_goods += 2;
     }
-    crate::supply::note_trade_goods_gained(context.state, player, 4, "production_biomes");
-    crate::supply::note_trade_goods_gained(context.state, &chosen, 2, "production_biomes");
+    crate::supply::note_trade_goods_gained(state, player, 4, "production_biomes");
+    crate::supply::note_trade_goods_gained(state, &chosen, 2, "production_biomes");
     true
 }
 
@@ -1859,6 +1881,41 @@ mod tests {
                 .all(|option| option.id != "faction|production_biomes"),
             "exhausted, it is not offered again"
         );
+    }
+
+    /// Production Biomes is one core window: the choice of the player and everything the answer pays (the token and its
+    /// announcement, the card exhausted, 4 and 2 trade goods and their announcements); with no token or no other player nothing
+    /// is asked and nothing is paid; a Nekro seat without the card of its own bails to the string.
+    #[test]
+    fn production_biomes_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |tokens: i32, answers: &[&str], two_seats: bool| -> bool {
+            with_mask(AreaMask::STRING.with(Area::Technology, Backend::Dual), || {
+                let seated: &[(&str, &str)] = if two_seats { &[("a", "hacan"), ("b", "sol"), ("c", "arborec")] } else { &[("a", "hacan")] };
+                let mut state = crate::fixtures::seated_game(seated, POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                let hacan = PlayerId::new("a");
+                let seat = state.player_mut(&hacan).unwrap();
+                seat.technologies.insert(TechnologyId::new("pm"));
+                seat.strategic_tokens = tokens;
+                seat.trade_goods = 1;
+                let biomes = crate::choice::ChoiceOption::labelled("faction|production_biomes", ACTION_KIND, "Production Biomes");
+                let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(answers.iter().map(|a| (*a).to_owned()))));
+                with_table_context(&mut state, None, &mut table, |context| perform_component(context, &hacan, &biomes))
+            })
+        };
+        assert!(run(1, &["b"], true));
+        assert!(run(2, &["c"], true));
+        assert!(!run(0, &[], true), "no token: 22.3");
+        assert!(!run(1, &[], false), "nobody else to give the 2 to: 22.3");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("faction_abilities::production_biomes"), (4, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

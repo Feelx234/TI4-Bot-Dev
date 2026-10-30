@@ -19,7 +19,7 @@ mod real {
     use ti4_engine_core::generated::Technology;
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::technology_windows::{ProductionUsed, TurnEnd, TurnStart};
+    use ti4_engine_core::rules::technology_windows::{ProductionBiomes, ProductionUsed, TurnEnd, TurnStart};
     use ti4_engine_core::state::Slice;
     use ti4_model::id::PlayerId;
     use ti4_model::state::GameState;
@@ -38,6 +38,17 @@ mod real {
     }
 
     fn drive_one<W: Window + Clone>(gs: &mut GameState, player: &PlayerId, script: &Recording, make: impl FnOnce(ti4_engine_core::ids::Seat, &crate::render::Render) -> W) -> Option<CoreWindow<bool>> {
+        drive_valued(gs, player, script, make, |_, finished| finished)
+    }
+
+    /// [`drive_one`] with the value read from the window (and whether it finished).
+    fn drive_valued<W: Window + Clone>(
+        gs: &mut GameState,
+        player: &PlayerId,
+        script: &Recording,
+        make: impl FnOnce(ti4_engine_core::ids::Seat, &crate::render::Render) -> W,
+        value: impl FnOnce(&W, bool) -> bool,
+    ) -> Option<CoreWindow<bool>> {
         if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
@@ -61,7 +72,17 @@ mod real {
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
         apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
-        Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(Vec::new()), questions: driven.rendered })
+        Some(CoreWindow { run: Run::new(value(&driver.window, driven.finished)).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
+    /// The core half of Production Biomes (`faction_abilities::production_biomes`; the value: whether the action resolved). The card
+    /// must be the player's own: a Nekro seat may carry its text on a Valefar Assimilator, which the string decides.
+    pub fn production_biomes(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+        if !owned_ready(gs, player, "pm", false) {
+            crate::dual::note_bail_here("Production Biomes carried by something other than the player's own card (a Valefar Assimilator)");
+            return None;
+        }
+        drive_valued(gs, player, script, |seat, r| ProductionBiomes::new(seat, r.code("production_biomes")), |w, _| w.done)
     }
 
     /// The leaf writes (`grant`, `purge`, `exhaust_technology_text`): the seat's technologies, the units of a purged upgrade.
@@ -171,6 +192,9 @@ mod stub {
     use crate::dual_window::Recording;
 
     pub fn start_turn(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn production_biomes(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
     pub fn grant(_: &mut GameState, _: &PlayerId, _: &str) -> Option<()> {

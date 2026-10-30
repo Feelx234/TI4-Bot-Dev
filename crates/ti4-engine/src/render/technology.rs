@@ -40,6 +40,7 @@ impl Family for Fam {
             Ask::BioStims => "Bio-Stims",
             Ask::TransitDiodes { left } => return format!("Transit Diodes: redeploy ground forces ({left} left)"),
             Ask::SelfAssembly => "Self-Assembly Routines: exhaust to place 1 mech from your reinforcements on a planet you control in this system",
+            Ask::ProductionBiomes => "Production Biomes: who gains 2 trade goods",
             Ask::Aida { upgrades } => return format!("AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}"),
         }
         .to_owned()
@@ -53,12 +54,17 @@ impl Family for Fam {
             Subtype::SelfAssemblyMech => "self_assembly_mech",
             Subtype::TransitDiodesRedeploy => "transit_diodes_redeploy",
             Subtype::AidaExhaustForProductionDiscount => "exhaust_for_production_discount",
+            Subtype::ProductionBiomesChoosePlayer => "production_biomes_choose_player",
         }
         .to_owned()
     }
 
-    fn option(_: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
+    fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match (a, o) {
+            (_, Opt::Player(seat)) => {
+                let id = r.seat_text(*seat);
+                ChoiceOption::labelled(id, "player", id)
+            }
             (Ask::Aida { upgrades }, Opt::Exhaust) => ChoiceOption::labelled("exhaust", "production_discount", format!("exhaust to reduce the combined cost by {upgrades}"))
                 .with("technology", "aida")
                 .with("discount_offered", i64::from(*upgrades)),
@@ -102,8 +108,9 @@ impl Family for Fam {
         }
     }
 
-    fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
+    fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
+            Ask::ProductionBiomes => r.seat(id).map(Opt::Player),
             Ask::Psychoarchaeology | Ask::SelfAssembly => Planet::from_id(id).map(|p| Opt::Planet(p, ti4_engine_core::choice::agenda::Shown::default())),
             Ask::Restack => {
                 let (from, to) = id.split_once('|')?;

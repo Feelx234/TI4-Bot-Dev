@@ -14,11 +14,11 @@ use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
 use crate::generated::{Planet, System, Technology, Unit};
 use crate::ids::Seat;
-use crate::kernel::fx;
+use crate::kernel::{fx, fx_strategy};
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::board;
-use crate::state::{Code, CoreState};
+use crate::state::{Code, CoreState, EventKind, EventRec, Key, Payload, Val};
 
 fn ctx(tech: Technology, subtype: TSub) -> Ctx {
     Ctx {
@@ -127,6 +127,87 @@ impl Window for Psychoarchaeology {
             }
             _ => return Err(Illegal),
         }
+        Ok(())
+    }
+}
+
+// -- Production Biomes ----------------------------------------------------------------------------
+
+/// Production Biomes (a component action): "Exhaust this card and spend 1 token from your strategy pool to gain 4 trade goods
+/// and choose 1 other player; that player gains 2 trade goods." Nothing is asked (the action does not resolve, 22.3) with no
+/// other player or an empty strategy pool; the one question names the other player, and the answer pays everything: the token
+/// (announced), the card exhausted, 4 trade goods to the owner and 2 to the player named (each announced). `source` is the
+/// interned `"production_biomes"`, the reason of the announced token and the source of the trade goods. [`Self::done`] is
+/// whether the action resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProductionBiomes {
+    pub who: Seat,
+    source: Code,
+    stage: Stage,
+    pub done: bool,
+}
+
+impl ProductionBiomes {
+    #[must_use]
+    pub const fn new(who: Seat, source: Code) -> Self {
+        Self { who, source, stage: Stage::Start, done: false }
+    }
+
+    fn others(&self, s: &CoreState) -> SmallList<Seat, 8> {
+        s.players().iter().map(|p| p.seat).filter(|seat| *seat != self.who).collect()
+    }
+
+    fn can_pay(&self, s: &CoreState) -> bool {
+        s.players().by_seat(self.who).is_some_and(|p| p.econ.strategic_tokens > 0)
+    }
+}
+
+impl Window for ProductionBiomes {
+    type Stage = Stage;
+
+    fn stage(&self) -> Stage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == Stage::Start {
+            self.stage = if self.others(sx.state).as_slice().is_empty() || !self.can_pay(sx.state) { Stage::Done } else { Stage::Asking };
+        }
+        if self.stage == Stage::Asking { Next::Continue(Ask::Technology(TAsk::ProductionBiomes)) } else { Next::Done }
+    }
+
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == Stage::Asking).then(|| Choice {
+            actor: self.who,
+            ask: Ask::Technology(TAsk::ProductionBiomes),
+            ctx: ctx(Technology::ProductionBiomes, TSub::ProductionBiomesChoosePlayer),
+            opts: self.others(s).as_slice().iter().map(|seat| Opt::Technology(TOpt::Player(*seat))).collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let Pick::Opt(Opt::Technology(TOpt::Player(chosen))) = pick else { return Err(Illegal) };
+        if self.stage != Stage::Asking || !self.others(sx.state).as_slice().contains(&chosen) {
+            return Err(Illegal);
+        }
+        if !fx::spend_strategic_token(sx.state, self.who) {
+            return Err(Illegal);
+        }
+        // `supply::note_strategy_token_spent(.., "production_biomes")`.
+        fx::stage(
+            sx.state,
+            EventRec {
+                id: 0,
+                kind: EventKind::StrategyTokenSpent,
+                payload: Payload::new().with(Key::Player, Val::Seat(self.who)).with(Key::Reason, Val::Code(self.source)),
+                cancelled: false,
+            },
+        );
+        fx_strategy::exhaust_technology(sx.state, self.who, Technology::ProductionBiomes);
+        fx::gain_trade_goods_staged(sx.state, self.who, 4, self.source);
+        fx::gain_trade_goods_staged(sx.state, chosen, 2, self.source);
+        self.done = true;
+        self.stage = Stage::Done;
         Ok(())
     }
 }
@@ -301,7 +382,7 @@ impl Window for TurnEnd {
                             p.tech.exhausted.remove(tech);
                         }
                     }
-                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } => return Err(Illegal),
+                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) => return Err(Illegal),
                 }
                 fx_exhaust(sx.state, self.who, Technology::BioStims);
                 self.stage = EStage::Done;
