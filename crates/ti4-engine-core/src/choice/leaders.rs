@@ -44,6 +44,10 @@ pub enum Ask {
     XxchaHeroPlanet,
     /// Gurno Aggero (Saar hero): which system next to a space dock loses the other players' infantry and fighters.
     SaarHero,
+    /// Riftwalker Meian (Ghost hero): the first system of the swap.
+    GhostSwapFirst,
+    /// Riftwalker Meian: the system it swaps places with.
+    GhostSwapSecond,
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -96,4 +100,6 @@ pub enum Subtype {
     XxchaHeroPlace,
     XxchaHeroPlanet,
     SaarHero,
+    GhostSwapFirst,
+    GhostSwapSecond,
 }

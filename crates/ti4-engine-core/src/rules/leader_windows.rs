@@ -559,6 +559,135 @@ impl Window for ArmageddonRelay {
     }
 }
 
+// -- Riftwalker Meian ------------------------------------------------------------------------------
+
+/// What the string position vouches for the Ghost hero: the systems the card may name at all and those holding a wormhole now
+/// (`ghost::hero_excluded`, `hooks_movement::wormholes_at`: the printed wormholes, the Creuss tokens, the ion storm, the Nexus and the
+/// module wormholes are string reads the core does not hold).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SwapFacts {
+    /// Every system the hero may name (not the Creuss systems, the Nexus or a Fracture system).
+    pub allowed: crate::bits::SysSet,
+    /// Every system that holds a wormhole.
+    pub wormholes: crate::bits::SysSet,
+}
+
+/// The suspension points of [`RiftwalkerMeian`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GStage {
+    Start,
+    First,
+    Second(System),
+    Done,
+}
+
+/// Riftwalker Meian (Ghost hero): "ACTION: Swap the positions of any 2 non-Fracture systems that contain wormholes or your units,
+/// other than the Creuss system, Ahk Creuxx system, or the Wormhole Nexus." Both systems are chosen (each question may be declined,
+/// which resolves nothing) before the edit is recorded as the next `MapEdit` mark; the game replays it onto its own map at the end of
+/// the step. The systems are offered in the order of the map (hex order). Never offered without a map or two systems to choose from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RiftwalkerMeian {
+    pub who: Seat,
+    pub has_map: bool,
+    facts: SwapFacts,
+    stage: GStage,
+    pub used: bool,
+}
+
+impl RiftwalkerMeian {
+    #[must_use]
+    pub const fn new(who: Seat, has_map: bool, facts: SwapFacts) -> Self {
+        Self { who, has_map, facts, stage: GStage::Start, used: false }
+    }
+
+    fn holds_units(&self, core: &CoreState, system: System) -> bool {
+        core.board().sys(system).units.as_slice().iter().any(|u| u.owner() == self.who)
+            || board::planets_of(core, system).any(|p| core.board().planet(p).units.as_slice().iter().any(|u| u.owner() == self.who))
+    }
+
+    /// The systems the card may name, in the order of the map.
+    fn candidates(&self, core: &CoreState) -> Vec<System> {
+        if !self.has_map {
+            return Vec::new();
+        }
+        let Some(galaxy) = core.galaxy() else { return Vec::new() };
+        let mut at: Vec<(crate::hex::Hex, System)> = galaxy
+            .in_play()
+            .iter()
+            .filter(|s| !galaxy.is_hyperlane(crate::ids::system_at(*s)))
+            .filter_map(|s| {
+                let system = crate::ids::system_at(s);
+                galaxy.coord_of(system).map(|hex| (hex, system))
+            })
+            .collect();
+        at.sort_unstable_by_key(|(hex, _)| *hex);
+        at.into_iter()
+            .map(|(_, system)| system)
+            .filter(|system| self.facts.allowed.contains(system.index()) && (self.facts.wormholes.contains(system.index()) || self.holds_units(core, *system)))
+            .collect()
+    }
+
+    fn options(&self, core: &CoreState, skip: Option<System>) -> Opts {
+        self.candidates(core).into_iter().filter(|s| Some(*s) != skip).map(|s| Opt::Leaders(LOpt::System(s))).chain(std::iter::once(Opt::Decline)).collect()
+    }
+
+    fn record(&mut self, sx: &mut Sx<'_>, a: System, b: System) {
+        use crate::keys::{Atom, MarkKey, MarkVal, Word};
+        let seq = sx.state.marks().tail.iter().filter(|(k, _)| matches!(k, MarkKey::MapEdit(_))).count();
+        let value = MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Swap)), MarkVal::Atom(Atom::System(a)), MarkVal::Atom(Atom::System(b))]);
+        sx.state.marks_mut().tail.edit().insert(MarkKey::MapEdit(u32::try_from(seq).unwrap_or(u32::MAX)), value);
+        self.used = true;
+        self.stage = GStage::Done;
+    }
+}
+
+impl Window for RiftwalkerMeian {
+    type Stage = GStage;
+
+    fn stage(&self) -> GStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == GStage::Start {
+            self.stage = if self.candidates(sx.state).len() < 2 { GStage::Done } else { GStage::First };
+        }
+        match self.stage {
+            GStage::First => Next::Continue(Ask::Leaders(LAsk::GhostSwapFirst)),
+            GStage::Second(_) => Next::Continue(Ask::Leaders(LAsk::GhostSwapSecond)),
+            GStage::Start | GStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        match self.stage {
+            GStage::First => Some(Choice { actor: self.who, ask: Ask::Leaders(LAsk::GhostSwapFirst), ctx: ctx(Leader::RiftwalkerMeian, LSub::GhostSwapFirst), opts: self.options(s, None) }),
+            GStage::Second(first) => {
+                Some(Choice { actor: self.who, ask: Ask::Leaders(LAsk::GhostSwapSecond), ctx: ctx(Leader::RiftwalkerMeian, LSub::GhostSwapSecond), opts: self.options(s, Some(first)) })
+            }
+            GStage::Start | GStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (GStage::First | GStage::Second(_), Pick::Opt(Opt::Decline)) => {
+                self.stage = GStage::Done;
+                Ok(())
+            }
+            (GStage::First, Pick::Opt(Opt::Leaders(LOpt::System(first)))) if self.candidates(sx.state).contains(&first) => {
+                self.stage = GStage::Second(first);
+                Ok(())
+            }
+            (GStage::Second(first), Pick::Opt(Opt::Leaders(LOpt::System(second)))) if second != first && self.candidates(sx.state).contains(&second) => {
+                self.record(sx, first, second);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 // -- Rin, the Masters' Legacy -----------------------------------------------------------------------
 
 /// The suspension points of [`RinHero`].

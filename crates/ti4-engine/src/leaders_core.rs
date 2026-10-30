@@ -330,6 +330,58 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
+    /// The core half of Ghost's Riftwalker Meian (`factions::ghost::hero_swap`). `allowed` and `wormholes` are the string's reads of which
+    /// systems the card may name and which hold a wormhole now (the window cannot read the Creuss tokens, the ion storm, the Nexus and the
+    /// module wormholes). `None` as for [`xxcha_agent`].
+    pub fn ghost_hero(
+        gs: &mut GameState,
+        player: &PlayerId,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        allowed: &[&str],
+        wormholes: &[&str],
+        sources: SourceSet,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::rules::leader_windows::{RiftwalkerMeian, SwapFacts};
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if galaxy.is_some_and(|map| map.edits_applied() != crate::movement::recorded_map_edits(gs).len()) {
+            crate::dual::note_bail_here("map edits recorded that the map has not replayed yet");
+            return None;
+        }
+        let set = |ids: &[&str]| -> Option<ti4_engine_core::bits::SysSet> {
+            let mut out = ti4_engine_core::bits::SysSet::EMPTY;
+            for id in ids {
+                out.insert(typed::<ti4_engine_core::generated::System>(id)?.index());
+            }
+            Some(out)
+        };
+        let facts = SwapFacts { allowed: set(allowed).why(crate::dual::reason::UNKNOWN_ID)?, wormholes: set(wormholes).why(crate::dual::reason::UNKNOWN_ID)? };
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let kernel = kernel(sources)?;
+        let before = gs.clone();
+        let has_map = galaxy.is_some();
+        let mut driver = Driver::new(RiftwalkerMeian::new(seat, has_map, facts), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy, rng: None }, if has_map { GHOST_HERO } else { XXCHA_NO_MAP }, |core, _| {
+            if has_map && core.galaxy().is_none() {
+                return None;
+            }
+            Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
+    }
+
+    /// The hero reads the map and the board and writes one mark.
+    const GHOST_HERO: Footprint =
+        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Map, Slice::Marks, Slice::Pending], &[Slice::Marks]);
+
     const PLAYERS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
     /// The core half of `leaders::jolnar_hero` (Rin). `None` where `apply_unit_upgrades` would change the
@@ -480,6 +532,17 @@ mod stub {
         _: &PlayerId,
         _: Option<&ti4_content::galaxy::Galaxy>,
         _: bool,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn ghost_hero(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: Option<&ti4_content::galaxy::Galaxy>,
+        _: &[&str],
+        _: &[&str],
         _: ti4_model::content_types::SourceSet,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {
