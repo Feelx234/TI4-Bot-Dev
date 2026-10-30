@@ -331,3 +331,51 @@ fn harrow_gives_the_first_bombarding_ship_the_plasma_scoring_die() {
     without.run();
     assert_eq!(without.driver.window.drawn.iter().map(|(_, d)| d.len()).collect::<Vec<_>>(), vec![1, 1]);
 }
+
+#[test]
+fn a_ground_die_hits_exactly_at_its_number_with_or_without_an_adjustment() {
+    covers!("rules::invasion::tail::GroundRollTail");
+    use ti4_engine_core::rules::invasion::roll::{Facts as RollFacts, GroundRoll};
+    use ti4_engine_core::rules::invasion::tail::GroundRollTail;
+    let (p1, _) = planets();
+    let sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[sys()]).unit(sys(), Some(p1), Unit::InfantryI, 0, 3).unit(sys(), Some(p1), Unit::InfantryI, 1, 1).control(p1, 1);
+    let roll = RollFacts { attacker: Seat(0), defender: Seat(1), system: sys(), planet: p1, kind: Code(40), names: (0..12).map(|i| Code(50 + i)).collect(), unit_codes: vec![(Unit::InfantryI, Code(70))] };
+    let mut rolled = Rig::new(sc, GroundRoll::new(roll)).seeded(1);
+    rolled.run();
+    let mut state = rolled.state.clone();
+    // Attacker (needs 8): faces 8, 7 (+1), 6 (+1): the first and second reach the number, the third is one short. Defender: 8 with no adjustment.
+    let staging = state.transient_mut().combat.reroll_staging.edit();
+    for (seat, set) in staging.iter_mut() {
+        let entry = &mut set.rolls[0];
+        if *seat == Seat(0) {
+            entry.faces = vec![8, 7, 6];
+            entry.deltas = SortedMap::default();
+            entry.deltas.insert(1, 1);
+            entry.deltas.insert(2, 1);
+        } else {
+            entry.faces = vec![8];
+            entry.deltas = SortedMap::default();
+        }
+    }
+    let tail = TailFacts { invader: Seat(0), defender: Seat(1), system: sys(), planet: p1, rolled: (0, 0), bump: false, announce: false };
+    let mut rig = Rig::from_parts(state, rolled.kernel.clone(), GroundRollTail::new(tail));
+    rig.run();
+    assert_eq!(rig.driver.window.hits, (2, 1), "8 and 7+1 hit, 6+1 does not; the defender's 8 hits");
+    let marks: Vec<bool> = rig.driver.window.dice.iter().map(|d| d.4).collect();
+    assert_eq!(marks, vec![true, true, false, true]);
+}
+
+use ti4_engine_core::rules::invasion::tail::Facts as TailFacts;
+
+#[test]
+fn the_custodians_question_carries_the_plain_context_of_a_rule() {
+    covers!("rules::invasion::stages::Custodians");
+    use ti4_engine_core::rules::invasion::stages::Custodians;
+    let (mut s, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[System::MecatolRex18]).build();
+    s.board_mut().sys_mut(System::MecatolRex18).units.push(Piece::new(Unit::InfantryI, Seat(0)));
+    let mut rig = Rig::from_parts(s, k, Custodians::new(Seat(0), System::MecatolRex18, true));
+    rig.run();
+    let c = &rig.asked().ctx;
+    assert!(!c.optional && !c.space_battle && c.invasion_seq.is_none() && c.outstanding.is_empty());
+    assert_eq!(c.target, Some(ti4_engine_core::choice::Target::System(System::MecatolRex18)));
+}
