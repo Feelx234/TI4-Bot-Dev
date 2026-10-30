@@ -949,7 +949,7 @@ mod tests {
     fn politics_asks_the_speaker_then_the_discard_then_the_agendas() {
         use crate::generated::ActionCard as C;
         let k = Kernel::plain();
-        let mut s = politics_table(6, &[C::ALL[0], C::ALL[1], C::ALL[2]], &[Agenda::ALL[0], Agenda::ALL[1]]);
+        let mut s = politics_table(6, &[C::ALL[0], C::ALL[1], C::ALL[2]], &[Agenda::ALL[0], Agenda::ALL[1], Agenda::ALL[2]]);
         let mut d = Driver::new(Politics::new(Seat(0), true, false), Resolver::new(&[Seat(0)], Some(Seat(0))), groups_table(), 1);
         let mut asked = Vec::new();
         let mut status = d.run(&mut s, &k).unwrap();
@@ -963,6 +963,7 @@ mod tests {
         assert_eq!(asked.len(), 4);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 7);
         assert_eq!(s.meta().speaker, Seat(1));
+        assert_eq!(s.decks().agenda.len(), 3, "the agendas went back");
         assert!(!d.window.unsupported);
         // The secondary draws and looks at no agenda.
         let mut s = politics_table(6, &[C::ALL[0], C::ALL[1], C::ALL[2]], &[Agenda::ALL[0]]);
@@ -970,6 +971,17 @@ mod tests {
         let Status::Asking(choice) = d.run(&mut s, &k).unwrap() else { panic!("a discard") };
         assert_eq!(d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap(), Status::Done);
         assert_eq!(s.decks().agenda.len(), 1, "no agenda was looked at");
+    }
+
+    /// Bail: a table with the link but no printed-name groups cannot ask the discard: the draw window reports `Left` and Politics is
+    /// unsupported (the speaker is already named, the string performs the card).
+    #[test]
+    fn bail_politics_without_name_groups_over_the_limit_is_unsupported() {
+        let k = Kernel::plain();
+        let mut s = politics_table(6, &[crate::generated::ActionCard::ALL[0], crate::generated::ActionCard::ALL[1]], &[]);
+        let mut d = Driver::new(Politics::new(Seat(0), false, false), Resolver::new(&[Seat(0)], Some(Seat(0))), table(true), 1);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(d.window.unsupported);
     }
 
     /// Bail: a table without the link to the draw window ends the window unsupported, drawing nothing.

@@ -198,6 +198,8 @@ mod tests {
         let (status, mut d) = drive(&mut s, 1, true);
         let Status::Asking(choice) = status else { panic!("eight cards, the limit is seven: a question") };
         assert_eq!(choice.ask, Ask::Cards(CAsk::HandLimit { held: 8 }));
+        assert_eq!((choice.actor, choice.ctx.origin, choice.ctx.subtype), (Seat(0), Origin::Rule(Rule::R2_4), Subtype::Cards(CSub::DiscardOverHandLimit)));
+        assert!(!choice.ctx.optional && !choice.ctx.space_battle && choice.ctx.target.is_none() && choice.ctx.invasion_seq.is_none());
         let mut expected: Vec<(u8, ActionCard)> = vec![(0, SEVEN[0]), (1, SEVEN[1]), (2, SEVEN[2]), (4, SEVEN[4]), (5, SEVEN[5]), (6, SEVEN[6])];
         // The drawn Flank Speed 3 is a third copy of the name of copy 1 (the groups say so only for copy 2): its own group here.
         expected.push((7, ActionCard::FlankSpeed3));

@@ -253,11 +253,11 @@ impl Close {
         self.facts.hooked & (1 << u16::from(who.0)) != 0
     }
 
-    /// Start the draw of `count` cards for `who` as a child window; `false` (the run is unsupported) when it cannot be followed.
-    fn start_draw(&mut self, sx: &mut Sx<'_>, who: Seat, count: usize, tail: Tail) -> bool {
+    /// Start the draw of `count` cards for `who` as a child window; the run is unsupported when it cannot be followed.
+    fn start_draw(&mut self, sx: &mut Sx<'_>, who: Seat, count: usize, tail: Tail) {
         if self.hooked(who) {
             self.stop();
-            return false;
+            return;
         }
         match sx.table.links.start(&Spawn::DrawCards { who, count, drop_unofficial: self.facts.drop_unofficial }) {
             Some(window) => {
@@ -265,20 +265,16 @@ impl Close {
                 self.who = who;
                 self.tail = tail;
                 self.stage = Stage::Draw;
-                true
             }
-            None => {
-                self.stop();
-                false
-            }
+            None => self.stop(),
         }
     }
 
-    /// `rider_payoff` for one correct prediction. `true` when a question was put (the window waits on it).
-    fn pay(&mut self, sx: &mut Sx<'_>, who: Seat, tag: Option<PredictionTag>) -> bool {
+    /// `rider_payoff` for one correct prediction. A rider that asks puts the window in the stage of its question.
+    fn pay(&mut self, sx: &mut Sx<'_>, who: Seat, tag: Option<PredictionTag>) {
         if !sx.state.meta().rules_at_least(RULES_COMMAND_TOKEN_POOL) {
             self.stop();
-            return false;
+            return;
         }
         match tag {
             None => {
@@ -289,19 +285,17 @@ impl Close {
                 self.who = who;
                 self.left = 3;
                 self.stage = Stage::Lead;
-                return true;
             }
             Some(PredictionTag::TradeRider) => {
                 fx::gain_trade_goods_staged(sx.state, who, 5, self.facts.trade_rider);
             }
-            Some(PredictionTag::PoliticRider) => return self.start_draw(sx, who, 3, Tail::Speaker),
-            Some(PredictionTag::KeleresRider) => return self.start_draw(sx, who, 1, Tail::Goods),
+            Some(PredictionTag::PoliticRider) => self.start_draw(sx, who, 3, Tail::Speaker),
+            Some(PredictionTag::KeleresRider) => self.start_draw(sx, who, 1, Tail::Goods),
             // Research and placement riders ask questions of their own.
             Some(PredictionTag::TechRider | PredictionTag::ConstRider | PredictionTag::DiploRider | PredictionTag::WarRider) => {
                 self.stop();
             }
         }
-        false
     }
 
     /// `enact_if_law`: an elected or "For" law stays in play (8.20), Classified Document Leaks publishes its secret.
@@ -356,7 +350,10 @@ impl Window for Close {
                     if hit {
                         sx.plain(PlainRec::one(PlainKind::AgendaPredictionCorrect, PlainArg::Seat(seat)));
                     }
-                    if hit && self.pay(sx, seat, tag) && self.stage == Stage::Lead {
+                    if hit {
+                        self.pay(sx, seat, tag);
+                    }
+                    if hit && self.stage == Stage::Lead {
                         return Next::Continue(Ask::Strategy(SAsk::GainPool { left: self.left }));
                     }
                 }

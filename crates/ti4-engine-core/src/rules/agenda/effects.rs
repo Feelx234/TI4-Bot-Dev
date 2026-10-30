@@ -322,7 +322,7 @@ impl Resolve {
                 continue;
             }
             let Some(facts) = &self.facts else {
-                self.unsupported = true;
+                self.unsupported = true; // mutants:skip (built only by `of_facts`, which has them)
                 self.stage = Stage::Done;
                 return Next::Done;
             };
@@ -587,6 +587,13 @@ mod tests {
         let d = run(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &f).unwrap(), &mut s, 1);
         assert!(d.window.unsupported());
         assert_eq!(held(&s, a), 0);
+        // The mask is one bit per seat: only the hooked seat's draw is the string's (the voter in seat 1 is hooked, seat 0 is not).
+        let mut s = table(3);
+        s.decks_mut().action.set(vec![ActionCard::ALL[0]; 4]);
+        let f = EffectFacts { hooked: 1 << 1, ..facts(&[a, b]) };
+        let d = run(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &f).unwrap(), &mut s, 1);
+        assert!(d.window.unsupported());
+        assert_eq!((held(&s, a), held(&s, b)), (2, 0), "seat 0 drew before seat 1 was found hooked");
         // Five cards and two more reach the limit exactly: no question.
         let mut s = table(3);
         s.decks_mut().action.set(vec![ActionCard::ALL[0]; 4]);
