@@ -1,0 +1,575 @@
+{
+"census": {
+"inputs": [
+"state.json"
+]
+},
+"run": {
+"commit": "79e5dcaa",
+"dual_run": "/root/deploytmp/core-soak/target/gate/dual_run",
+"rules_version": "35",
+"shards": "3",
+"started": "2026-10-29 21:13:58"
+},
+"silent": {
+"window production::integrated_economy": {},
+"window production::sling_relay": {},
+"window relics::ask_technology": {}
+},
+"totals": {
+"calls": 80701597,
+"compared": 81423969,
+"differences": 79,
+"failed_slices": 0,
+"games": 100,
+"hash_changes": 0,
+"seconds": 3893.0,
+"slices": 7
+},
+"windows": {
+"ProductionWindow::step": [
+17961,
+1909
+],
+"ProductionWindow::step [bail: nested (unported ability leader:*:c:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when)]": [
+0,
+15
+],
+"ProductionWindow::step [bail: nested (unported ability leader:*:d:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when)]": [
+0,
+5
+],
+"ProductionWindow::step [bail: nested (unported ability leader:*:e:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when)]": [
+0,
+23
+],
+"action_cards::deadly_plot": [
+19,
+0
+],
+"agenda_effects::resolve_with": [
+747,
+37
+],
+"combat::announce_end": [
+1081,
+183
+],
+"combat::announce_end [bail: nested (unported ability ability:*:technological_singularity_close:SPACE_COMBAT_ENDED:after)]": [
+0,
+122
+],
+"combat::announce_end [bail: nested (unported ability breakthrough:*:sardakkbt:SPACE_COMBAT_ENDED:after)]": [
+0,
+11
+],
+"combat::announce_end [bail: nested (unported ability technology:*:so:SPACE_COMBAT_ENDED:produce)]": [
+0,
+15
+],
+"combat::answer": [
+5228,
+318
+],
+"combat::answer [bail: nested (a fact the adapter did not compute for the window)]": [
+0,
+2
+],
+"combat::answer [bail: nested (a technology carried by a Nekro Valefar Assimilator)]": [
+0,
+14
+],
+"combat::answer [bail: nested (an action card the core does not play)]": [
+0,
+7
+],
+"combat::answer [bail: nested (unported ability ability:*:technological_singularity:SHIP_DESTROYED:after)]": [
+0,
+21
+],
+"combat::answer [bail: nested (unported ability leader:*:b:yssarilagent:yinagent:SHIP_DESTROYED:after)]": [
+0,
+1
+],
+"combat::answer [bail: nested (unported ability leader:*:d:yssarilagent:yinagent:SHIP_DESTROYED:after)]": [
+0,
+7
+],
+"combat::answer [bail: nested (unported ability leader:*:ralnelcommander:RETREAT_DECLARED:when)]": [
+0,
+3
+],
+"combat::answer [bail: nested (unported ability reaction:*:SHIP_DESTROYED:after (card courageous))]": [
+0,
+8
+],
+"combat::answer [bail: nested (unported ability reaction:*:SUSTAIN_DAMAGE_USED:when (card reflective))]": [
+0,
+22
+],
+"combat::answer [bail: nested (unported ability unit:*:empyrean_flagship:SUSTAIN_DAMAGE_USED:after)]": [
+0,
+23
+],
+"combat::answer [bail: nested (unported ability unit:*:empyrean_mech:ACTION_CARD_PLAYED:when)]": [
+0,
+1
+],
+"combat::assault_cannon": [
+1266,
+13
+],
+"combat::assign_hits": [
+634,
+3
+],
+"combat::barrage_step": [
+858,
+17
+],
+"combat::barrage_step [bail: nested (a technology carried by a Nekro Valefar Assimilator)]": [
+0,
+6
+],
+"combat::barrage_step [bail: nested (unported ability reaction:*:UNIT_ABILITY_ROLLED:after (card scramble))]": [
+0,
+9
+],
+"combat::barrage_step [bail: nested (unported ability unit:*:empyrean_mech:ACTION_CARD_PLAYED:when)]": [
+0,
+1
+],
+"combat::begin_round": [
+933,
+614
+],
+"combat::begin_round [bail: nested (a card cost the core does not judge)]": [
+0,
+17
+],
+"combat::begin_round [bail: nested (a technology carried by a Nekro Valefar Assimilator)]": [
+0,
+25
+],
+"combat::begin_round [bail: nested (an action card the core does not play)]": [
+0,
+1
+],
+"combat::begin_round [bail: nested (unported ability ability:*:technological_singularity_open:SPACE_COMBAT_STARTED:after)]": [
+0,
+107
+],
+"combat::begin_round [bail: nested (unported ability leader:*:b:letnevagent:f:COMBAT_ROUND_STARTED:after)]": [
+0,
+8
+],
+"combat::begin_round [bail: nested (unported ability leader:*:g:letnevagent:e:COMBAT_ROUND_STARTED:after)]": [
+0,
+3
+],
+"combat::begin_round [bail: nested (unported ability leader:*:winnucommander_unlock:SPACE_COMBAT_STARTED:after)]": [
+0,
+3
+],
+"combat::begin_round [bail: nested (unported ability reaction:*:COMBAT_ROUND_STARTED:after (card reveal_prototype))]": [
+0,
+14
+],
+"combat::begin_round [bail: nested (unported ability unit:*:empyrean_mech:ACTION_CARD_PLAYED:when)]": [
+0,
+9
+],
+"combat::destroy_fighters": [
+81,
+0
+],
+"combat::flow_step": [
+8036,
+36
+],
+"combat::flow_step [bail: nested (a technology carried by a Nekro Valefar Assimilator)]": [
+0,
+24
+],
+"combat::flow_step [bail: nested (unported ability unit:*:empyrean_mech:ACTION_CARD_PLAYED:when)]": [
+0,
+4
+],
+"combat::offer_sustain": [
+590,
+47
+],
+"combat::offer_sustain [bail: nested (a technology carried by a Nekro Valefar Assimilator)]": [
+0,
+6
+],
+"combat::offer_sustain [bail: nested (unported ability reaction:*:SUSTAIN_DAMAGE_USED:when (card reflective))]": [
+0,
+3
+],
+"combat::offer_sustain [bail: nested (unported ability unit:*:empyrean_flagship:SUSTAIN_DAMAGE_USED:after)]": [
+0,
+1
+],
+"combat::raid_formation": [
+40,
+26
+],
+"combat::retreat_to": [
+199,
+2
+],
+"combat::roll_round": [
+961,
+1
+],
+"combat::settle": [
+3312,
+730
+],
+"combat::settle [bail: nested (a card cost the core does not judge)]": [
+0,
+14
+],
+"combat::settle [bail: nested (a technology carried by a Nekro Valefar Assimilator)]": [
+0,
+34
+],
+"combat::settle [bail: nested (unported ability ability:*:technological_singularity:SHIP_DESTROYED:after)]": [
+0,
+10
+],
+"combat::settle [bail: nested (unported ability ability:*:technological_singularity_open:SPACE_COMBAT_STARTED:after)]": [
+0,
+177
+],
+"combat::settle [bail: nested (unported ability breakthrough:*:sardakkbt:SPACE_COMBAT_ENDED:after)]": [
+0,
+24
+],
+"combat::settle [bail: nested (unported ability leader:*:b:letnevagent:d:COMBAT_ROUND_STARTED:after)]": [
+0,
+5
+],
+"combat::settle [bail: nested (unported ability leader:*:b:letnevagent:f:COMBAT_ROUND_STARTED:after)]": [
+0,
+1
+],
+"combat::settle [bail: nested (unported ability leader:*:g:letnevagent:e:COMBAT_ROUND_STARTED:after)]": [
+0,
+5
+],
+"combat::settle [bail: nested (unported ability leader:*:winnucommander_unlock:SPACE_COMBAT_STARTED:after)]": [
+0,
+3
+],
+"combat::settle [bail: nested (unported ability promissory:*:ambuscade:UNIT_ABILITY_ROLLED:when)]": [
+0,
+9
+],
+"combat::settle [bail: nested (unported ability reaction:*:COMBAT_ROUND_STARTED:after (card reveal_prototype))]": [
+0,
+15
+],
+"combat::settle [bail: nested (unported ability reaction:*:COMBAT_ROUND_STARTED:after (card scramble))]": [
+0,
+2
+],
+"combat::settle [bail: nested (unported ability reaction:*:SHIP_DESTROYED:after (card courageous))]": [
+0,
+10
+],
+"combat::settle [bail: nested (unported ability reaction:*:SHIP_DESTROYED:when (card crashlanding))]": [
+0,
+2
+],
+"combat::settle [bail: nested (unported ability reaction:*:UNIT_ABILITY_ROLLED:after (card scramble))]": [
+0,
+5
+],
+"combat::settle [bail: nested (unported ability technology:*:exo2:SPACE_COMBAT_ROUND_ENDED:after)]": [
+0,
+2
+],
+"combat::settle [bail: nested (unported ability unit:*:empyrean_mech:ACTION_CARD_PLAYED:when)]": [
+0,
+2
+],
+"combat::settle [bail: nested (unported ability unit:*:yin_flagship:SHIP_DESTROYED:after)]": [
+0,
+2
+],
+"exploration::ask:abandoned_warehouses": [
+291,
+0
+],
+"exploration::ask:functioning_base": [
+266,
+0
+],
+"exploration::ask:local_fabricators": [
+257,
+0
+],
+"exploration::ask:mercenary_outfit": [
+194,
+0
+],
+"exploration::ask:merchant_station": [
+1,
+0
+],
+"exploration::distant_suns": [
+43,
+0
+],
+"exploration::pay_with_mech_or_infantry": [
+531,
+0
+],
+"game::draw_covert_agenda": [
+9,
+0
+],
+"invasion::advance_fighting": [
+7325,
+4
+],
+"invasion::answer_custodians": [
+47,
+53
+],
+"invasion::answer_custodians [bail: naalu seat]": [
+0,
+25
+],
+"invasion::answer_custodians [bail: paid removal at a table with a faction the production window does not carry]": [
+0,
+28
+],
+"invasion::begin_ground_round": [
+2111,
+33
+],
+"invasion::begin_ground_round [bail: Dunlain Reaper]": [
+0,
+92
+],
+"invasion::begin_ground_round [bail: Naaz Supercharge]": [
+0,
+152
+],
+"invasion::begin_ground_round [bail: nested (unported ability leader:*:f:solagent:g:GROUND_COMBAT_ROUND_STARTED:after)]": [
+0,
+33
+],
+"invasion::begin_ground_round [bail: neutral side]": [
+0,
+1
+],
+"invasion::bombard_answer": [
+1,
+0
+],
+"invasion::bombard_step": [
+7897,
+13
+],
+"invasion::bombard_step [bail: nested (dice rolled by an ability in a window lent no stream)]": [
+0,
+4
+],
+"invasion::bombard_step [bail: nested (unported ability unit:*:empyrean_flagship:GROUND_FORCE_SUSTAINED:after)]": [
+0,
+1
+],
+"invasion::bombard_target_ask": [
+2,
+0
+],
+"invasion::commit_one": [
+11374,
+56
+],
+"invasion::commit_one [bail: nested (a technology carried by a Nekro Valefar Assimilator)]": [
+0,
+10
+],
+"invasion::commit_one [bail: nested (unported ability promissory:*:ragh:UNITS_COMMITTED:after)]": [
+0,
+8
+],
+"invasion::commit_one [bail: nested (unported ability reaction:*:UNITS_COMMITTED:after (card ghost_squad))]": [
+0,
+34
+],
+"invasion::fight_round_ask": [
+9520,
+0
+],
+"invasion::ground_hits [bail: neutral victim]": [
+0,
+3
+],
+"invasion::ground_hits_window": [
+25,
+1
+],
+"invasion::ground_round_hits": [
+2280,
+96
+],
+"invasion::ground_round_hits [bail: hits added to a roll]": [
+0,
+12
+],
+"invasion::ground_round_hits [bail: nested (unported ability ability:*:pillage:TRADE_GOODS_GAINED:after)]": [
+0,
+3
+],
+"invasion::ground_round_hits [bail: nested (unported ability ability:*:technological_singularity:GROUND_FORCE_DESTROYED:after)]": [
+0,
+46
+],
+"invasion::ground_round_hits [bail: nested (unported ability leader:*:d:yssarilagent:yinagent:GROUND_FORCE_DESTROYED:after)]": [
+0,
+13
+],
+"invasion::ground_round_hits [bail: nested (unported ability unit:*:empyrean_flagship:GROUND_FORCE_SUSTAINED:after)]": [
+0,
+4
+],
+"invasion::ground_round_hits [bail: nested (unported ability unit:*:sardakk_mech:GROUND_FORCE_SUSTAINED:after)]": [
+0,
+30
+],
+"invasion::ground_round_hits [bail: neutral side]": [
+0,
+1
+],
+"invasion::remove_ground": [
+34,
+2
+],
+"invasion::roll_ground": [
+2407,
+0
+],
+"invasion::roll_ground [bail: X-89 Bacterial Weapon]": [
+0,
+13
+],
+"invasion::roll_ground [bail: neutral side]": [
+0,
+2
+],
+"invasion::roll_ground_tail": [
+2026,
+20
+],
+"invasion::roll_ground_tail [bail: The Thundarian watches the roll step]": [
+0,
+361
+],
+"invasion::roll_ground_tail [bail: X-89 Bacterial Weapon]": [
+0,
+13
+],
+"invasion::roll_ground_tail [bail: nested (unported ability reaction:*:GROUND_ROLLS_MADE:after (card fire_team))]": [
+0,
+18
+],
+"invasion::roll_ground_tail [bail: nested (unported ability unit:*:empyrean_mech:ACTION_CARD_PLAYED:when)]": [
+0,
+2
+],
+"invasion::roll_ground_tail [bail: neutral side]": [
+0,
+2
+],
+"invasion::space_cannon_defense": [
+6223,
+28
+],
+"invasion::space_cannon_defense [bail: nested (unported ability leader:*:sardakkhero:GROUND_COMMITMENT_FINISHED:after)]": [
+0,
+24
+],
+"laws::offer_discard": [
+123,
+3249
+],
+"laws::repeal": [
+21,
+0
+],
+"leaders::hacanagent": [
+27,
+76
+],
+"leaders::jolnarhero": [
+15,
+0
+],
+"leaders::l1z1xhero": [
+16,
+0
+],
+"leaders::xxchaagent": [
+33,
+0
+],
+"production::agent_offer": [
+3617,
+4
+],
+"production::hero_offer": [
+1700,
+2
+],
+"production::integrated_economy": [
+1,
+21
+],
+"production::pay_step": [
+12168,
+947
+],
+"production::sling_relay": [
+29,
+56
+],
+"relics::ask_technology": [
+8,
+15
+],
+"relics::codex": [
+2,
+0
+],
+"relics::crown_of_emphidia_choose": [
+9717,
+0
+],
+"relics::dominus_orb": [
+8681,
+0
+],
+"relics::neuraloop": [
+11,
+0
+],
+"relics::stellar_converter": [
+5,
+0
+],
+"relics::titan_prototype": [
+11,
+0
+],
+"vote::VoteWindow": [
+792,
+0
+]
+}
+}
