@@ -88,6 +88,61 @@ pub fn check_pass_on(before: &GameState, after: &GameState, ended: Option<&Playe
     crate::dual::compare_value(Area::Driver, "turn::pass_on", &string, &core);
 }
 
+/// The sources of the action menu as the string marks them: the position in `driver::menu::ORDER`.
+pub mod src {
+    pub const STRATEGIC: u8 = 0;
+    pub const TACTICAL: u8 = 1;
+    pub const TRANSACTIONS: u8 = 2;
+    pub const CONTACTS: u8 = 3;
+    pub const PAYMENTS: u8 = 4;
+    pub const RELICS: u8 = 5;
+    pub const EXPLORATION: u8 = 6;
+    pub const TECHNOLOGY: u8 = 7;
+    pub const THUNDERS_EDGE: u8 = 8;
+    pub const FACTION: u8 = 9;
+    pub const MAPPED: u8 = 10;
+    pub const LEADERS: u8 = 11;
+    pub const ACTION_CARDS: u8 = 12;
+}
+
+/// The option ids each source of the action menu contributed (by [`src`]), in the order the string appended them.
+pub type MenuParts = Vec<(u8, Vec<String>)>;
+
+/// Compare `Game::turn_options` (`parts`: what each source gave, `thunders_edge`: the table has the expansion on, `failed`:
+/// the component actions that already failed this turn, `menu`: the option ids the string offers) with the core's assembly.
+pub fn check_turn_menu(parts: &MenuParts, thunders_edge: bool, failed: &[String], menu: &[String]) {
+    if crate::dual::backend(Area::Driver) != crate::dual::Backend::Dual {
+        return;
+    }
+    let core = real::turn_menu(parts, thunders_edge, failed);
+    crate::dual::compare_value(Area::Driver, "turn::menu", &menu.to_vec(), &core);
+}
+
+/// One option of the turn menu as the closing menu sees it: `(id, free, pass)`.
+pub type ClosingEntry = (String, bool, bool);
+
+/// Compare `Game::closing_options` with the core's assembly. `second` is whether the string allowed a second action;
+/// the core decides it from the seat's technologies and the actions taken (`actions`).
+pub fn check_closing(
+    before: &GameState,
+    player: &PlayerId,
+    actions: u8,
+    second: bool,
+    end_turn: &str,
+    turn: &[ClosingEntry],
+    expedition: &[String],
+    menu: &[String],
+) {
+    if crate::dual::backend(Area::Driver) != crate::dual::Backend::Dual {
+        return;
+    }
+    let Some((core_second, core)) = real::closing_menu(before, player, actions, end_turn, turn, expedition) else {
+        crate::dual::note_bail("turn::closing", "the position is outside the tables");
+        return;
+    };
+    crate::dual::compare_value(Area::Driver, "turn::closing", &(second, menu.to_vec()), &(core_second, core));
+}
+
 /// Compare `Game::finish_action` after `ACTION_COMPLETED` (`before`: the position then, `actions_before` the actions taken
 /// so far this turn, `closing_len` the options of the closing menu the string counted, `after`: what the string left in
 /// `(turn_closing, actions_this_turn)`) with the core's `finish_action`. `closing_len` is 0 when the string did not count
@@ -121,6 +176,9 @@ mod real {
 
     /// The end of an action reads the phase, the active seat, the additional-action flag and the held counters.
     const FINISH: Footprint = Footprint::new(&[Slice::Meta, Slice::Transient, Slice::Pending], &[]);
+
+    /// The closing menu reads the seat's technologies.
+    const MENU: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players], &[]);
 
     /// The round change reads and writes more: the leaders' statuses, the promise book, the relationships, the mat.
     const ROUND: Footprint = Footprint::new(
@@ -160,6 +218,27 @@ mod real {
 
     pub fn end_turn_scratch(gs: &mut GameState) -> Option<()> {
         lend(gs, |core, _| rules::end_turn_scratch(core))
+    }
+
+    pub fn turn_menu(parts: &super::MenuParts, thunders_edge: bool, failed: &[String]) -> Vec<String> {
+        use ti4_engine_core::driver::menu::{ORDER, turn_menu};
+        let typed: Vec<_> = parts.iter().filter_map(|(i, ids)| Some((*ORDER.get(usize::from(*i))?, ids.clone()))).collect();
+        turn_menu(&typed, thunders_edge, failed)
+    }
+
+    pub fn closing_menu(
+        before: &GameState,
+        player: &PlayerId,
+        actions: u8,
+        end_turn: &str,
+        turn: &[super::ClosingEntry],
+        expedition: &[String],
+    ) -> Option<(bool, Vec<String>)> {
+        use ti4_engine_core::driver::menu::{Entry, closing_menu, second_action};
+        let mut gs = before.clone();
+        let second = lend_with(&mut gs, MENU, |core, r| Some(second_action(core, r.seat(player.as_str())?, actions)))??;
+        let entries: Vec<Entry<String>> = turn.iter().map(|(option, free, pass)| Entry { option: option.clone(), free: *free, pass: *pass }).collect();
+        Some((second, closing_menu(end_turn.to_owned(), &entries, second, expedition)))
     }
 
     /// `finish_action` on a copy of `before`: `(turn_closing, actions_this_turn, closing offered)`.
@@ -225,6 +304,12 @@ mod real {
         None
     }
     pub fn finish_action(_: &GameState, _: u8, _: usize) -> Option<(Option<PlayerId>, u8, bool)> {
+        None
+    }
+    pub fn turn_menu(_: &super::MenuParts, _: bool, _: &[String]) -> Vec<String> {
+        Vec::new()
+    }
+    pub fn closing_menu(_: &GameState, _: &PlayerId, _: u8, _: &str, _: &[super::ClosingEntry], _: &[String]) -> Option<(bool, Vec<String>)> {
         None
     }
     pub fn pass_on(_: &GameState, _: Option<&PlayerId>) -> Option<(Option<PlayerId>, u32, u32, ti4_model::state::TransientFlags, Vec<String>)> {

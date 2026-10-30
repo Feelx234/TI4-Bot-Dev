@@ -94,34 +94,6 @@ pub enum Arm {
     Phase,
 }
 
-impl Arm {
-    /// The name the D1 step dual counts it by.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Finished => "finished",
-            Self::Blocked => "blocked",
-            Self::LeaderFollowers => "leader_followers",
-            Self::Secondary => "secondary",
-            Self::EventScoring => "event_scoring",
-            Self::Scoring => "scoring",
-            Self::Tokens => "tokens",
-            Self::Voting => "voting",
-            Self::Diplomacy => "diplomacy",
-            Self::Aftermath => "aftermath",
-            Self::AgendaTalks => "agenda_talks",
-            Self::Trade => "trade",
-            Self::Tactical => "tactical",
-            Self::TurnPrelude => "turn_prelude",
-            Self::Status => "status",
-            Self::Agenda => "agenda",
-            Self::StrategyAnnounce => "strategy_announce",
-            Self::Ask => "ask",
-            Self::Phase => "phase",
-        }
-    }
-}
-
 /// The arm of the step: `Game::step_flow` after the reconcile hooks. `asks` is whether `legal_options` has a question (the
 /// last two arms).
 #[must_use]
@@ -195,31 +167,6 @@ pub enum AskArm {
     ActionMenu,
     /// The status and agenda phases ask nothing of their own.
     Nothing,
-}
-
-impl AskArm {
-    /// The name the D1 step dual compares it by.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::LeaderFollowers => "leader_followers",
-            Self::EventScoring => "event_scoring",
-            Self::Scoring => "scoring",
-            Self::Tokens => "tokens",
-            Self::Voting => "voting",
-            Self::Diplomacy => "diplomacy",
-            Self::Aftermath => "aftermath",
-            Self::AgendaTalks => "agenda_talks",
-            Self::Tactical => "tactical",
-            Self::StartingTech => "starting_tech",
-            Self::Draft => "draft",
-            Self::Secondary => "secondary",
-            Self::Closing => "closing",
-            Self::ActionMenu => "action_menu",
-            Self::Nothing => "nothing",
-        }
-    }
 }
 
 /// The question the table is asked: `Game::legal_options`. Trade has no arm here (its window asks through its own step).

@@ -2587,27 +2587,40 @@ impl<'a> Game<'a> {
                 seat.technologies
                     .contains(ti4_model::id::text(&"fl"))
             });
+        let dual = crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual;
+        let mut seen = Vec::new();
         if let Some(turn) = self.turn_options() {
             for option in turn.options {
-                if self.is_free_option(&option) || (second_action && option.id != "pass") {
+                let free = self.is_free_option(&option);
+                if dual {
+                    seen.push((option.id.clone(), free, option.id == "pass"));
+                }
+                if free || (second_action && option.id != "pass") {
                     options.push(option);
                 }
             }
         }
         // "At the end of a player's turn, they may commit to the expedition": one slice, after
         // the action, without using an action.
+        let mut expedition = Vec::new();
         if self.state.thunders_edge
             && !self
                 .state
                 .transient_flags
                 .has(TransientFlags::EXPEDITION_CLAIMED)
         {
-            options.extend(crate::thunders_edge::available_actions(
+            expedition = crate::thunders_edge::available_actions(
                 &self.state,
                 self.content,
                 self.sources,
                 player,
-            ));
+            );
+            options.extend(expedition.iter().cloned());
+        }
+        if dual {
+            let ids: Vec<String> = options.iter().map(|o| o.id.clone()).collect();
+            let exp: Vec<String> = expedition.iter().map(|o| o.id.clone()).collect();
+            crate::turn_write::check_closing(&self.state, player, self.actions_this_turn, second_action, END_TURN_ID, &seen, &exp, &ids);
         }
         Choice::new(
             player.clone(),
@@ -2628,7 +2641,18 @@ impl<'a> Game<'a> {
     }
 
     fn turn_options(&self) -> Option<Choice> {
+        use crate::turn_write::src;
         let active = self.state.active.as_ref()?;
+        // What each source gave, for the D1 menu dual (`turn_write::check_turn_menu`).
+        let dual = crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual;
+        let mut parts: crate::turn_write::MenuParts = Vec::new();
+        let mut from = 0;
+        let mut mark = |choice: &Choice, source: u8| {
+            if dual {
+                parts.push((source, choice.options[from..].iter().map(|o| o.id.clone()).collect()));
+            }
+            from = choice.options.len();
+        };
         let mut choice = strategic_action_options(&self.state, self.content, active)
             .unwrap_or_else(|| {
                 Choice::new(
@@ -2637,6 +2661,7 @@ impl<'a> Game<'a> {
                     vec![ChoiceOption::labelled("pass", ACTION_KIND, "pass")],
                 )
             });
+        mark(&choice, src::STRATEGIC);
         // Appended rather than inserted: a table that always takes the first option keeps
         // taking the action it took before, so adding this does not silently rewrite the
         // behaviour of every existing seeded game.
@@ -2647,6 +2672,7 @@ impl<'a> Game<'a> {
                 "take a tactical action",
             ));
         }
+        mark(&choice, src::TACTICAL);
         if let Some(galaxy) = self.galaxy.as_ref() {
             choice
                 .options
@@ -2656,12 +2682,14 @@ impl<'a> Game<'a> {
                     galaxy,
                     active,
                 ));
+            mark(&choice, src::TRANSACTIONS);
             choice
                 .options
                 .extend(crate::diplomacy::candidates::available_contacts(
                     &self.state,
                     active,
                 ));
+            mark(&choice, src::CONTACTS);
             choice
                 .options
                 .extend(crate::diplomacy::candidates::payment_actions(
@@ -2670,6 +2698,7 @@ impl<'a> Game<'a> {
                     galaxy,
                     active,
                 ));
+            mark(&choice, src::PAYMENTS);
         }
         choice.options.extend(crate::relics::available_actions(
             &self.state,
@@ -2678,18 +2707,21 @@ impl<'a> Game<'a> {
             self.galaxy.as_ref(),
             active,
         ));
+        mark(&choice, src::RELICS);
         choice.options.extend(crate::exploration::available_actions(
             &self.state,
             self.content,
             self.sources,
             active,
         ));
+        mark(&choice, src::EXPLORATION);
         choice.options.extend(crate::technology::component_actions(
             &self.state,
             self.content,
             self.sources,
             active,
         ));
+        mark(&choice, src::TECHNOLOGY);
         // A table with Thunder's Edge on commits to the expedition "at the end of a player's
         // turn" (the closing menu, `closing_options`), not as an action; older games keep the
         // component action they were recorded with.
@@ -2702,6 +2734,7 @@ impl<'a> Game<'a> {
                     self.sources,
                     active,
                 ));
+            mark(&choice, src::THUNDERS_EDGE);
         }
         // A faction's own component actions — Sol's Orbital Drop is the first.
         choice
@@ -2711,6 +2744,7 @@ impl<'a> Game<'a> {
                 self.content,
                 active,
             ));
+        mark(&choice, src::FACTION);
         if let Some(galaxy) = self.galaxy.as_ref() {
             choice
                 .options
@@ -2721,6 +2755,7 @@ impl<'a> Game<'a> {
                     galaxy,
                     active,
                 ));
+            mark(&choice, src::MAPPED);
         }
         // Leaders whose printed window is the action phase: readied agents and unlocked heroes,
         // offered only when they can resolve (LEADER-FIX-001).
@@ -2729,6 +2764,7 @@ impl<'a> Game<'a> {
             self.content,
             active,
         ));
+        mark(&choice, src::LEADERS);
         // 22.1: cards whose printed window is "Action" are played on your turn. Without this
         // every such card is drawn, held, discarded to the hand limit, and never played.
         choice
@@ -2740,6 +2776,7 @@ impl<'a> Game<'a> {
                 self.galaxy.as_ref(),
                 active,
             ));
+        mark(&choice, src::ACTION_CARDS);
         // A component action taken this turn that did not resolve is not offered again: nothing
         // about the position changed, so it would fail identically, and a decider that keeps
         // choosing it never advances the game. 22.4 is preserved -- the turn was not consumed and
@@ -2748,6 +2785,11 @@ impl<'a> Game<'a> {
             choice
                 .options
                 .retain(|option| !self.failed_component_actions.contains(&option.id));
+        }
+        if dual {
+            let failed: Vec<String> = self.failed_component_actions.iter().cloned().collect();
+            let menu: Vec<String> = choice.options.iter().map(|o| o.id.clone()).collect();
+            crate::turn_write::check_turn_menu(&parts, self.state.thunders_edge, &failed, &menu);
         }
         Some(choice.contextualized(DecisionContext::new(
             active.clone(),

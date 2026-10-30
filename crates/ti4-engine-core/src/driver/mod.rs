@@ -18,6 +18,7 @@ use crate::kernel::stage::{AbilityTable, Illegal, NestedFacts, Sx, Tape, Window}
 use crate::kernel::{Kernel, Next, Resolver, TimingError};
 use crate::state::{CoreState, EventRec, RngDomain, SeedSource, Window as OpenWindow};
 
+pub mod menu;
 pub mod session;
 pub mod turn_flow;
 pub mod windows;
