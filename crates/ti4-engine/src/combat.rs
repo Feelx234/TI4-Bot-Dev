@@ -6196,7 +6196,7 @@ impl CombatWindow {
         // Formation) are compared on their own.
         if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual {
             if let Some(why) = crate::dual_window::barrage_why(state, &probe) {
-                crate::dual::note_gate("combat::barrage_step", why);
+                crate::dual::note_gate(crate::dual::Area::Driver, "combat::barrage_step", why);
                 return self.barrage_step_string(state, ctx, round);
             }
         }
@@ -6341,7 +6341,7 @@ impl CombatWindow {
         // Positions the window does not carry run bare, so the windows inside (the reroll questions) are
         // compared on their own.
         if crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual && unported {
-            crate::dual::note_gate("combat::roll_round", self.roll_why(state, content).unwrap_or("a gate of the roll"));
+            crate::dual::note_gate(crate::dual::Area::Driver, "combat::roll_round", self.roll_why(state, content).unwrap_or("a gate of the roll"));
             let end = self.roll_round_string(state, ctx, round)?;
             return if end.settle { self.settle(state, ctx) } else { Ok(()) };
         }
@@ -6790,7 +6790,7 @@ impl CombatWindow {
         // A position the machine is known not to carry runs the windows inside one by one instead.
         let args = self.settle_args(state, ctx);
         if let Some(why) = args.as_ref().and_then(|a| a.gate_why) {
-            crate::dual::note_gate("combat::settle", why);
+            crate::dual::note_gate(crate::dual::Area::Driver, "combat::settle", why);
         }
         let args = args.filter(|a| !(a.opening_unported || a.barrage_unported || a.roll_unported || a.retreat_unported));
         let Some(args) = args else { return self.settle_string(state, ctx) };
@@ -10502,6 +10502,35 @@ mod tests {
         }
         assert!(built[0] > 0, "a plain cruiser was salvaged");
         assert!(built[1] > 0, "a Corsair was salvaged");
+    }
+
+    /// Package W3: the end announcement flips the survivors of a dual form back to their ground form in the core window
+    /// (`fx_strategy::flip_space_area` before the report is announced), compared with the string. A Z-Grav Eidolon fights in
+    /// the fleet and does not outlive the battle as a ship.
+    #[test]
+    fn the_end_of_a_fight_flips_a_z_grav_eidolon_back_in_the_core_window_in_lockstep() {
+        let (mut compared, mut flipped) = (0, 0);
+        for seed in 0..8_u64 {
+            let (state, windows, differences, _) = hub_fight(
+                seed,
+                &["naaz", "hacan"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 3);
+                    put(s, system, "naaz_mech_space", &attacker(), 2);
+                    put(s, system, "destroyer", &defender(), 2);
+                },
+                |_, _, _| 0,
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            let end = windows.get("combat::announce_end").copied().unwrap_or_default();
+            assert_eq!(end.bailed, 0, "seed {seed}: the end is announced by the core: {windows:?}");
+            compared += end.compared;
+            let units = &state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units;
+            assert!(!units.iter().any(|u| u.type_id.as_str() == "naaz_mech_space"), "seed {seed}: no ship form survives");
+            flipped += units.iter().filter(|u| u.owner == attacker() && u.type_id.as_str() == "naaz_mech").count();
+        }
+        assert!(compared > 0, "the end announcement ran in the core");
+        assert!(flipped > 0, "a survivor took its ground form");
     }
 
     /// Ssruu (the Yssaril agent) copies Brother Milor (Yin, a third seat) in a fight: when a ship is destroyed in combat the

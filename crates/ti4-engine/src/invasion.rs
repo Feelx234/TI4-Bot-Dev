@@ -3599,6 +3599,11 @@ impl InvasionWindow {
         ctx: &mut Resolving<'_>,
     ) -> Result<(), IllegalChoice> {
         let planets = self.report.committed.clone();
+        crate::dual::note_gate(
+            crate::dual::Area::Invasion,
+            "invasion::finish_committing",
+            "the Research Team offer and the forced combats of the commitment are the string's (5b)",
+        );
         // Research Team: "When ground forces are committed", before anything else follows.
         self.offer_research_team(state, ctx, &planets)?;
         self.announce_and_defend_windowed(state, ctx, &planets);
@@ -5021,6 +5026,11 @@ impl InvasionWindow {
         planet: &PlanetId,
         previous: Option<&PlayerId>,
     ) {
+        crate::dual::note_gate(
+            crate::dual::Area::Invasion,
+            "invasion::finish_control_gain",
+            "the control-gain chain (Assimilate, PLANET_CONTROL_GAINED and its windows, technology AFTER windows, legendary and Fracture, exploration) is the string's (5a)",
+        );
         let (content, sources) = (ctx.content, ctx.sources);
         // L1Z1X's Assimilate converts the structures on a planet as it changes hands, before
         // anything else looks at what is standing on it.

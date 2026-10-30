@@ -26,7 +26,7 @@ mod real {
     use ti4_model::content_types::SourceSet;
 
     use crate::core_adapter::typed;
-    use crate::dual::{CoreWindow, Run};
+    use crate::dual::{CoreWindow, Run, Why};
     use crate::dual_window::Recording;
     use crate::generated::IdStr;
     use crate::core_sync::{Footprint, Sources};
@@ -48,19 +48,19 @@ mod real {
 
     /// `leaders::ready`.
     pub fn ready(gs: &mut GameState, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
-        let l = typed::<Leader>(leader.as_str())?;
+        let l = typed::<Leader>(leader.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, player, |core, who| rules::ready(core, who, l))
     }
 
     /// `leaders::exhaust`.
     pub fn exhaust(gs: &mut GameState, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
-        let l = typed::<Leader>(leader.as_str())?;
+        let l = typed::<Leader>(leader.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, player, |core, who| rules::exhaust(core, who, l))
     }
 
     /// `leaders::purge`.
     pub fn purge(gs: &mut GameState, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
-        let l = typed::<Leader>(leader.as_str())?;
+        let l = typed::<Leader>(leader.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, player, |core, who| rules::purge(core, who, l))
     }
 
@@ -83,7 +83,7 @@ mod real {
 
     /// `leaders::end_of_round`.
     pub fn end_of_round(gs: &mut GameState) -> Option<Vec<PlayerId>> {
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seats = crate::core_sync::with_core(gs, &mut cx, Sources::default(), WRITES, |core, _| {
             rules::end_of_round(core).as_slice().to_vec()
         })
@@ -109,8 +109,8 @@ mod real {
 
     /// Jace X. 4th Air Legion.
     pub fn sol_hero(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let who = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let who = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_hero(core, who)).ok()
     }
 
@@ -128,8 +128,8 @@ mod real {
             typed::<ti4_engine_core::generated::System>(system.as_str())?,
             typed::<ti4_engine_core::generated::Planet>(planet.as_str())?,
         );
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let who = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let who = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_commander(core, who, system, planet, unit, count)).ok()
     }
 
@@ -149,8 +149,8 @@ mod real {
         }
         let (mech, system) = (typed::<ti4_engine_core::generated::Unit>(mech)?, typed::<ti4_engine_core::generated::System>(system.as_str())?);
         let scope = ti4_engine_core::tables::Scope(u32::try_from(crate::core_adapter::scope(sources).0).ok()?);
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(target.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(target.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let mut staged = Vec::new();
         let swapped = crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD_STAGED, |core, _| {
             let swapped = rules::l1z1x_agent(core, scope, seat, system, mech);
@@ -187,8 +187,8 @@ mod real {
         if outside(gs, script) {
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let has_map = galaxy.is_some();
@@ -199,8 +199,9 @@ mod real {
             }
             Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
         })
-        .ok()??
-        .ok()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
         let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
@@ -217,17 +218,17 @@ mod real {
         let form = |f: &Option<(ti4_model::id::UnitTypeId, usize)>| -> Option<Option<(Unit, usize)>> {
             match f {
                 None => Some(None),
-                Some((unit, left)) => Some(Some((typed::<Unit>(unit.as_str())?, (*left).min(usize::from(XxchaHeroTe::MOST))))),
+                Some((unit, left)) => Some(Some((typed::<Unit>(unit.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, (*left).min(usize::from(XxchaHeroTe::MOST))))),
             }
         };
         let (pds, mech) = (form(&facts.pds)?, form(&facts.mech)?);
         let planets: Vec<(System, Planet)> = facts
             .planets
             .iter()
-            .map(|(s, p)| Some((typed::<System>(s.as_str())?, typed::<Planet>(p.as_str())?)))
+            .map(|(s, p)| Some((typed::<System>(s.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, typed::<Planet>(p.as_str()).why(crate::dual::reason::UNKNOWN_ID)?)))
             .collect::<Option<_>>()?;
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = Kernel::plain();
         let before = gs.clone();
         let mut driver = Driver::new(XxchaHeroTe::new(seat, &planets, pds, mech), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
@@ -237,8 +238,8 @@ mod real {
             staged = std::mem::take(&mut core.pending_mut().staged);
             driven
         })
-        .ok()?
-        .ok()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
         crate::dual_window::apply_staged(gs, &r, &staged)?;
         let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
@@ -249,8 +250,8 @@ mod real {
         if outside(gs, script) {
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let has_map = galaxy.is_some();
@@ -261,8 +262,9 @@ mod real {
             }
             Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
         })
-        .ok()??
-        .ok()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
         let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
@@ -288,16 +290,16 @@ mod real {
             .collect();
         let mut by_alias: Vec<_> = ti4_engine_core::generated::Technology::ALL.to_vec();
         by_alias.sort_by_key(|t| t.as_str());
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let mut driver = Driver::new(RinHero::new(seat, order, by_alias), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLAYERS, |core, _| {
             crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
         })
-        .ok()?
-        .ok()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
         let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
@@ -311,8 +313,8 @@ mod real {
         if replenish_causes_events(gs) {
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
         let mut driver = Driver::new(HacanAgent::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
@@ -321,8 +323,8 @@ mod real {
                 rendered.details.insert("commodities".to_owned(), crate::strategy_cards::commodity_standing(&before, content, player));
             })
         })
-        .ok()?
-        .ok()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
         let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }

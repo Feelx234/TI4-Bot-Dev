@@ -1319,8 +1319,8 @@ pub fn note_bail(label: &str, why: &str) {
 
 /// Count a position the string runs bare because a gate of the call site excludes it from the window (no window opened, so
 /// nothing is `bailed` under the plain label): `"<label> [gate: <why>]"`.
-pub fn note_gate(label: &str, why: &str) {
-    if backend(Area::Driver) == Backend::Dual {
+pub fn note_gate(area: Area, label: &str, why: &str) {
+    if backend(area) == Backend::Dual {
         with_report(|r| r.windows.entry(format!("{label} [gate: {why}]")).or_default().bailed += 1);
     }
 }
