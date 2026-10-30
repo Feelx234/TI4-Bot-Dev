@@ -71,6 +71,7 @@ fn leaders(args: &[String]) {
 }
 
 fn main() {
+    ti4_engine::core_sync::unmapped::set_strict_for_gate();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("leaders") {
         leaders(&args[1..]);

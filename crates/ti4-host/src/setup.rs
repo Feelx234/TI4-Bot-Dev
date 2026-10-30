@@ -507,8 +507,13 @@ pub fn create(
     players: &[PlayerId],
     drawn: &Drawn,
 ) -> Result<(GameState, Galaxy), String> {
+    // What the typed core cannot hold is refused when the game is created (`core_sync::guard`, package D2-1).
+    ti4_engine::core_sync::guard::ids_supported(players)?;
     if players.len() != setup.player_count {
         return Err("one player id per seat is required".to_owned());
+    }
+    if setup.scenario()?.is_none() {
+        ti4_engine::core_sync::guard::factions_known(drawn.factions.iter().map(FactionId::as_str))?;
     }
     if let Some(scenario) = setup.scenario()? {
         return scenario::start(content, scenario.id, players, setup.game_seed());

@@ -18,7 +18,9 @@ pub(crate) mod conv;
 mod ctx;
 mod error;
 mod footprint;
+pub mod guard;
 mod lend;
+pub mod unmapped;
 
 pub mod codec;
 /// Text codec of every `String`-typed key and value of `GameState` (package X1).
@@ -26,6 +28,7 @@ pub mod keys;
 
 pub use ctx::{Ctx, Owners, Texts};
 pub use error::{Unmapped, R};
+pub(crate) use error::bad;
 pub use footprint::Footprint;
 pub use codec::{Codec, Sources, SliceCodec};
 pub use lend::{CoreView, Kernel, Lend, LendStats, Region, SliceCost, region, with_core};
@@ -33,3 +36,5 @@ pub use ti4_engine_core::state::{Slice, SliceSet};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_totality;

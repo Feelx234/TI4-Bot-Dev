@@ -409,6 +409,10 @@ pub struct DualReport {
     /// `Game::events` while the dual was on: `"label | NAME"` with the number of pushes, `label` being the window that was
     /// running (`"(game)"` outside any). Package P1.1; printed with `TI4_PLAIN_LOG`.
     pub plain: BTreeMap<String, u64>,
+    /// Refusals of the codecs and the adapter during the run, `"Players: faction"` -> count (package D2-1:
+    /// `core_sync::unmapped`). Filled by [`take_report`] and [`report`] from the process-wide counter, summed by
+    /// [`DualReport::add`] and printed when not empty; a gate expects it empty.
+    pub unmapped: BTreeMap<String, u64>,
     /// The first [`MAX_KEPT`] differences.
     pub differences: Vec<Difference>,
     /// Differences beyond [`MAX_KEPT`] (counted only).
@@ -480,6 +484,9 @@ impl DualReport {
         for (key, n) in &other.plain {
             *self.plain.entry(key.clone()).or_default() += n;
         }
+        for (reason, n) in &other.unmapped {
+            *self.unmapped.entry(reason.clone()).or_default() += n;
+        }
         for d in &other.differences {
             if self.differences.len() < MAX_KEPT {
                 self.differences.push(d.clone());
@@ -549,6 +556,12 @@ impl fmt::Display for DualReport {
                 }
             }
         }
+        if !self.unmapped.is_empty() {
+            writeln!(f, "  unmapped: {} refusals", self.unmapped.values().sum::<u64>())?;
+            for (reason, n) in &self.unmapped {
+                writeln!(f, "    {n:>6}  {reason}")?;
+            }
+        }
         for d in &self.differences {
             writeln!(f, "{d}")?;
         }
@@ -603,12 +616,22 @@ fn with_report<T>(body: impl FnOnce(&mut DualReport) -> T) -> T {
 /// A copy of the process-wide report.
 #[must_use]
 pub fn report() -> DualReport {
-    with_report(|r| r.clone())
+    let mut r = with_report(|r| r.clone());
+    #[cfg(feature = "typed-core")]
+    {
+        r.unmapped = crate::core_sync::unmapped::peek().by_name();
+    }
+    r
 }
 
 /// Empty the process-wide report; returns what it held.
 pub fn take_report() -> DualReport {
-    with_report(std::mem::take)
+    let mut r = with_report(std::mem::take);
+    #[cfg(feature = "typed-core")]
+    {
+        r.unmapped = crate::core_sync::unmapped::take().by_name();
+    }
+    r
 }
 
 /// The first difference panics (the engine's own test suite runs this way).

@@ -33,6 +33,7 @@ fn fail(message: &str) -> ! {
 }
 
 fn main() {
+    ti4_engine::core_sync::unmapped::set_strict_for_gate();
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--merge") {
         merge(&args[1..]);
