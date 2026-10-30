@@ -644,3 +644,30 @@ fails on the code before the fix (checked by running the tests with the source c
   borrowed by the Yssaril) before it walks the seats, so a window offers the copy before the seat's standing card slot even when the
   borrower is the earlier seat. `Spec::leads` / `Spec::leading()`, `AbilityTable::registry` registers those pair rules first; the
   registry-parity test has the case (`yssaril` seat before `letnev`).
+
+### 10.6 The wide soak of 2026-10-29 (79 differences, 42 signatures, commit 79e5dcaa)
+
+The soak ran the wide mask over 100 games before the fixes of 10.5. Replaying every distinct repro line game by game
+(`dual_run CONFIG GAMES MASK --shard I/GAMES`: one game, one to two minutes; `soak_repro.sh --seed/--game` only selects what it prints) left these root
+causes after 10.5, all fixed, each with a test that fails without the fix unless noted:
+
+* **The Cavalry's lent stats** (settle, `barrage_dice` absent): the combat kernel read them from the string oracle's snapshot of the position the
+  window started in, which cannot see a Cavalry played inside the window; and `nomad::query::borrowed_stats` returned the barrage as
+  `(dice, hits_on)` where `BorrowedStats` says `(hits_on, dice)` (the adapter swapped it back, so the hook comparison never showed it). Now
+  native (`register_borrowed`) and in the stated order. Test `the_cavalry_ship_rolls_the_lent_barrage_in_the_core_window_in_lockstep`.
+* **Staged events written by an ability of the table** (`faction_marks.private:#staged:event:*`): the bombardment step dropped what its abilities
+  staged (a Crimson Legionnaire's trade good), `apply_staged` now writes it; the production window did not stage the Winnu agent's
+  `AGENT_EXHAUSTED` for a Nomad that listens (Temporal Command Suite). Tests `a_legionnaire_destroyed_by_a_bombardment_stages_its_trade_good_in_lockstep`,
+  `the_winnu_agent_exhaustion_is_staged_for_a_nomad_that_listens`.
+* **Technological Singularity with the Z token**: the token is an option even when the opponent owns nothing else to take, so the condition
+  bails (`MissingFact`) before it asks whether options exist (`ready_with`). Test `bail_the_singularity_with_the_z_token_and_nothing_else_to_take`. The
+  `ts`, `token:Z`, `ground_round_hits` and `settle` question-count signatures were this one cause.
+* **The phase of a fight that is over at the roll**: the string returns right after `conclude` in the `Opening` and `Rolling` arms (no turn of the
+  loop, so the stage's phase stands); the core machine took one more turn and presented `complete`. Test
+  `a_fight_over_at_the_roll_keeps_the_phase_of_its_stage_in_lockstep`.
+* **The Alastor participants** (`nekro:alastor|...` after `announce_end`): the end of the fight clears them (`Obs::ParticipantsCleared`); the core
+  end announcement now does (`nekro_units_alastor_clear`). The soak game (Thunder's Edge, game 13) is the evidence: its replay went from one
+  difference to none. The unit test `the_end_of_a_fight_clears_the_alastor_participants_in_lockstep` does NOT fail without the fix (the Alastor
+  ability is unported, so its whole settle bails and the end announcement is never compared alone); no smaller reproduction was found.
+
+No signature was a string bug.

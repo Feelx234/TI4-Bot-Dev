@@ -10200,6 +10200,23 @@ mod tests {
         assert!(bailed > 0, "the Z token is the string's");
     }
 
+    /// The ground forces an Alastor brought into the fight stop taking part when it ends: the marks that name them are cleared by the
+    /// announcement of the end, in the core window as in the string; found by the soak.
+    #[test]
+    fn the_end_of_a_fight_clears_the_alastor_participants_in_lockstep() {
+        let mut cleared = 0;
+        for seed in 0..8_u64 {
+            let (state, _bails, differences) = nekro_fight(seed, &["gd"], |s| {
+                let system = SystemId::new("18");
+                put(s, &system, "nekro_flagship", &attacker(), 1);
+                crate::fixtures::put_on_planet(s, &system, &ti4_model::id::PlanetId::new("mecatol_rex"), "nekro_mech", &attacker(), 2);
+            });
+            assert_eq!(differences, 0, "seed {seed}");
+            cleared += usize::from(state.faction_marks.keys().all(|k| !k.starts_with("nekro:alastor")));
+        }
+        assert!(cleared > 0, "the participants were cleared");
+    }
+
     /// The Z token is an option of the Singularity even when the opponent owns nothing the Nekro could gain: the core cannot tell
     /// whether the string offers it, so the window bails there too (counted); found by the soak.
     #[test]

@@ -9,7 +9,7 @@ The area is closed in the sense of the definition of done: every combat/invasion
 
 Gates: the first run (commit eecd1f37, `/root/deploytmp/core-b12-gate`) passed the combat and invasion areas and failed the driver
 area's golden dual (and the wide mask) on one cause; with the four soak findings of the user's corpus that is five fixes, all with a
-regression test checked to fail without the fix (`docs/ENGINE_REACTIONS.md` 10.5). The second run on the final commit is in
+regression test checked to fail without the fix (`docs/ENGINE_REACTIONS.md` 10.5). The wide soak of 10/29 (79 differences) is closed too (`ENGINE_REACTIONS.md` 10.6). The second run on the final commit is in
 `/root/deploytmp/core-b12-gate2` (`status`, `commit`, `<area>/summary.txt`, `wide/dual-all.log`); if it is missing or has no `done`
 line, it has not finished.
 

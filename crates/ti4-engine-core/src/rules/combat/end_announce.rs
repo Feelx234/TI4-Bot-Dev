@@ -100,6 +100,11 @@ impl Window for EndAnnounce {
             payload.set_list(Key::Destroyed, List::Units(r.destroyed.iter().copied().collect()));
             let _ = sx.emit(fx::event(EventKind::SpaceCombatEnded, payload));
         }
+        // The ground forces an Alastor brought into the battle are no longer in it (`Obs::ParticipantsCleared`), announced or not.
+        {
+            let (k, mut cx) = (sx.kernel, sx.cx());
+            k.hooks.direct.nekro_units_alastor_clear(&mut cx, f.system, None);
+        }
         self.stage = Stage::Done;
         Next::Done
     }
