@@ -12002,6 +12002,47 @@ mod tests {
         assert!(compared > 0 && lost > 0, "compared {compared}, lost {lost}");
     }
 
+    /// Package W2: Duranium Armor (repair a damaged ship that did not sustain this round, after the hits are assigned) runs in the
+    /// composed machine. Fails on the pre-W2 bail (a side with `da` and a damaged ship stopped the machine: "the machine: a position it
+    /// does not carry").
+    #[test]
+    fn duranium_armor_repairs_in_the_composed_machine_in_lockstep() {
+        fn pick(seed: u64, nth: usize, _: &Choice) -> usize {
+            usize::try_from(seed).unwrap_or(0).wrapping_add(nth) % 2
+        }
+        let (mut compared, mut repaired) = (0, 0);
+        for seed in 0..12_u64 {
+            let (state, windows, differences, _) = hub_fight_composed(
+                true,
+                seed,
+                &["hacan", "sol"],
+                |s, system| {
+                    put(s, system, "dreadnought", &attacker(), 3);
+                    put(s, system, "cruiser", &attacker(), 1);
+                    put(s, system, "dreadnought", &defender(), 2);
+                    put(s, system, "cruiser", &defender(), 2);
+                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("da"));
+                    if seed % 2 == 0 {
+                        s.player_mut(&defender()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("da"));
+                    }
+                    // A ship damaged in an earlier fight: Duranium Armor may repair it.
+                    for unit in &mut s.system_mut(system).units {
+                        if unit.type_id.as_str() == "dreadnought" {
+                            unit.sustained_damage = true;
+                        }
+                    }
+                },
+                pick,
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            let w = windows.get("combat::settle").copied().unwrap_or_default();
+            assert_eq!(w.bailed, 0, "seed {seed}: {windows:?}");
+            compared += w.compared;
+            repaired += usize::from(state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units.iter().any(|u| u.type_id.as_str() == "dreadnought" && !u.sustained_damage));
+        }
+        assert!(compared > 0 && repaired > 0, "compared {compared}, repaired {repaired}");
+    }
+
     #[test]
     fn assault_cannon_choice_says_it_is_a_destroy_of_a_non_fighter_ship() {
         let (mut state, system) = arena();

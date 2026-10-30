@@ -351,12 +351,6 @@ impl Machine {
                             return None;
                         }
                     }
-                } else if self.fields.phase == Phase::Round {
-                    // Duranium Armor repairs after both sides absorbed; hits Devotion makes after a round.
-                    let damaged = |seat: Seat| self.fields.damaged.iter().any(|(s, l)| *s == seat && !l.is_empty());
-                    if (damaged(env.attacker) && env.duranium[0]) || (damaged(env.defender) && env.duranium[1]) {
-                        return None;
-                    }
                 }
             }
             _ => {}
@@ -387,6 +381,10 @@ impl Machine {
         }
         if self.lone_casualty(sx) {
             return Some(false);
+        }
+        // Both sides absorbed: Duranium Armor repairs now, "after you assign hits to your units".
+        if matches!(&self.fields.step, Step::Queue { queue, .. } if queue.is_empty()) && self.fields.phase == Phase::Round {
+            self.duranium(sx);
         }
         let over = self.over(sx);
         // After a round (retreats included): the hits Devotion makes, produced once the fight is not decided.
@@ -590,6 +588,25 @@ impl Machine {
         self.roll = Some(RollStep::new(facts));
         self.roll_round = round;
         None.or(Some(()))
+    }
+
+    /// Duranium Armor (string `duranium_armor`): "after you assign hits to your units, repair 1 of your damaged units that did not use
+    /// SUSTAIN DAMAGE during this combat round". `damaged` lists the types of the side's ships that were damaged when the round's hits were
+    /// queued; a unit of such a type still damaged now cannot be one that sustained this round, and damaged units of one type are
+    /// interchangeable, so the first is repaired. The round's note of each side is spent.
+    fn duranium(&mut self, sx: &mut Sx<'_>) {
+        let (system, sides) = (self.env.system, [self.env.attacker, self.env.defender]);
+        for (at, side) in sides.into_iter().enumerate() {
+            let before: Vec<Unit> = self.fields.damaged.iter().find(|(s, _)| *s == side).map(|(_, kinds)| kinds.clone()).unwrap_or_default();
+            self.fields.damaged.retain(|(s, _)| *s != side);
+            if before.is_empty() || !self.env.duranium[at] {
+                continue;
+            }
+            let units = sx.state.board_mut().sys_mut(system).units.as_mut_slice();
+            if let Some(unit) = units.iter_mut().find(|u| u.owner() == side && u.sustained() && before.contains(&u.kind())) {
+                *unit = unit.with_sustained(false);
+            }
+        }
     }
 
     /// Start the window of the hits the modules produce at `moment` of `round` (string `produce_hits`).
