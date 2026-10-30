@@ -169,6 +169,41 @@ fn a_ship_carrying_cargo_asks_what_to_load_before_it_sails() {
     assert_eq!(rig.driver.window.step, Some(Step::Selected));
 }
 
+/// Run one more `single` machine from the state and the payload the last one left (the way the driver of a turn continues the loading).
+fn resume_loading(prev: &Rig<Machine>) -> Rig<Machine> {
+    let payload = prev.driver.window.payload(Default::default());
+    let next = Machine::from_payload(&prev.state, &prev.kernel, facts(), &payload).single();
+    Rig::from_parts(prev.state.clone(), prev.kernel.clone(), next)
+}
+
+#[test]
+fn loading_cargo_one_unit_at_a_time_then_closing_sails_the_carrier_with_what_was_loaded() {
+    covers!("rules::tactical::Machine");
+    let (sc, t) = row();
+    let p = t[2].data().planets[0];
+    let sc = sc.active_system(t[3]).unit(t[2], None, Unit::CarrierI, 0, 1).unit(t[2], Some(p), Unit::InfantryI, 0, 2).control(p, 0);
+    let mut rig = Rig::new(sc, Machine::moving(Seat(0), facts()).single());
+    rig.run();
+    rig.pick_where(|o| matches!(o, Opt::Tactical(TOpt::Move { kind: Unit::CarrierI, .. })));
+    assert_eq!(rig.driver.window.step, Some(Step::Selected));
+    let mut load = resume_loading(&rig);
+    load.run();
+    assert!(matches!(load.asked().ask, Ask::Tactical(TAsk::Load { seat: Seat(0), ship: Unit::CarrierI, free: 4, .. })), "four free slots: {:?}", load.asked().ask);
+    assert!(load.opts().iter().any(|o| matches!(o, Opt::Tactical(TOpt::DoneLoading { .. }))));
+    load.assert_options_sound();
+    load.pick(0);
+    assert!(load.is_done());
+    assert_eq!(load.driver.window.step, Some(Step::Loaded));
+    assert_eq!(load.state.board().sys(t[3]).units.len(), 0, "nothing sails before loading is closed");
+    let mut close = resume_loading(&load);
+    close.run();
+    close.pick_where(|o| matches!(o, Opt::Tactical(TOpt::DoneLoading { .. })));
+    assert_eq!(close.driver.window.step, Some(Step::Sailed { lost: false }));
+    let there: Vec<Unit> = close.state.board().sys(t[3]).units.as_slice().iter().map(|u| u.kind()).collect();
+    assert!(there.contains(&Unit::CarrierI), "the carrier arrived");
+    assert_eq!(close.state.board().planet(p).units.len(), 1, "one infantry left the planet: it sails aboard");
+}
+
 #[test]
 fn closing_the_movement_emits_the_finish_and_opens_the_aftermath() {
     covers!("rules::tactical::Machine");
