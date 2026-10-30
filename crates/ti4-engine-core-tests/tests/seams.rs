@@ -227,3 +227,86 @@ fn a_seam_table_with_nothing_registered_is_neutral_and_counts_its_slots() {
     let all = kernel_all();
     assert!(all.hooks.seam.registered() > 0, "the factions register providers");
 }
+
+mod p4_p6 {
+    use super::*;
+    use ti4_engine_core::kernel::seam::{Offer, OfferSite, Offers, Point, Replacement, Replacements, Step};
+    use ti4_engine_core::kernel::Next;
+
+    #[test]
+    fn the_first_replacement_that_offers_wins_and_none_means_the_step_is_played_as_printed() {
+        covers!("kernel::seam::replace::Replacements");
+        q_of(|q| {
+            let mut r = Replacements::<u8, u8>::new();
+            assert!(r.is_empty() && r.offered(q, &0).is_none());
+            r.push(Replacement { source: Source::Printed, step: Step::UnitForm, offer: |_, x| (*x > 5).then_some(1), perform: |_, _, _| Next::Done });
+            r.push(Replacement { source: Source::Printed, step: Step::PdsPlacement, offer: |_, x| (*x > 2).then_some(2), perform: |_, _, _| Next::Done });
+            assert_eq!(r.len(), 2);
+            assert_eq!(r.offered(q, &9), Some(1));
+            assert_eq!(r.offered(q, &3), Some(2));
+            assert_eq!(r.offered(q, &1), None);
+            let (which, offer) = r.first(q, &3).expect("an offer");
+            assert_eq!((which.step, offer), (Step::PdsPlacement, 2), "the provider comes with its offer");
+        });
+    }
+
+    fn site() -> OfferSite {
+        OfferSite { who: Seat(0), system: None, planet: None, round: 1 }
+    }
+
+    fn silent() -> Offer {
+        Offer { source: Source::Printed, ask: |_, _| None, apply: |_, _, _| Next::Done }
+    }
+
+    fn asking() -> Offer {
+        Offer { source: Source::Printed, ask: |_, _| Some(Ask::Generic(ti4_engine_core::choice::generic::Ask::Confirm)), apply: |_, _, _| Next::Done }
+    }
+
+    #[test]
+    fn offers_belong_to_their_point_and_are_asked_in_registration_order_from_an_index() {
+        covers!("kernel::seam::offer::Offers");
+        q_of(|q| {
+            let mut o = Offers::default();
+            assert!(o.is_empty());
+            o.push(Point::ProductionStart, silent());
+            o.push(Point::ProductionStart, asking());
+            o.push(Point::ProductionStart, asking());
+            o.push(Point::RoundEnd, asking());
+            assert_eq!(o.len(), 4);
+            assert_eq!(o.next_ask(q, Point::ProductionStart, 0, &site()).map(|(i, _)| i), Some(1), "the silent one is skipped");
+            assert_eq!(o.next_ask(q, Point::ProductionStart, 2, &site()).map(|(i, _)| i), Some(2), "resume after the answered one");
+            assert!(o.next_ask(q, Point::ProductionStart, 3, &site()).is_none());
+            assert!(o.next_ask(q, Point::CombatStart, 0, &site()).is_none(), "another point has no offers");
+            assert_eq!(o.next_ask(q, Point::RoundEnd, 0, &site()).map(|(i, _)| i), Some(0));
+        });
+    }
+
+    #[test]
+    fn every_point_has_its_own_slot() {
+        covers!("kernel::seam::offer::Offers");
+        let points = [
+            Point::PaymentWindow,
+            Point::ProductionStart,
+            Point::ProductionEnd,
+            Point::CombatStart,
+            Point::AfterRollDice,
+            Point::AfterBarrage,
+            Point::RoundEnd,
+            Point::BeforeCommit,
+            Point::CommitToll,
+            Point::AfterActivation,
+        ];
+        assert_eq!(points.len(), Point::COUNT);
+        let mut o = Offers::default();
+        for p in points {
+            o.push(p, asking());
+        }
+        assert_eq!(o.len(), Point::COUNT);
+        q_of(|q| {
+            for p in points {
+                assert_eq!(o.next_ask(q, p, 0, &site()).map(|(i, _)| i), Some(0), "{p:?} holds exactly its own offer");
+                assert!(o.next_ask(q, p, 1, &site()).is_none(), "{p:?}");
+            }
+        });
+    }
+}
