@@ -155,7 +155,7 @@ pub fn bless(
         return Err("refused: --reason is required (it goes into CHANGES.md)".to_owned());
     }
     let (dir, mut meta) = find_set(root, set)?;
-    if meta.rules_version.is_none() {
+    if meta.rules_version.is_none() && !meta.ladder {
         return Err(format!("refused: `{set}` is a static set (no spec): there is nothing to re-record"));
     }
     if meta.is_frozen(current_rules_version) && !(args.bugfix && args.issue.is_some()) {
@@ -360,7 +360,7 @@ mod tests {
         let games = vec![("g000".to_owned(), game(1, version, G1)), ("g001".to_owned(), game(2, version, G2))];
         let entries = save_games(&dir, &games).unwrap();
         let smoke = SetMeta::pick_smoke(&entries, 4);
-        SetMeta { name: format!("v{version}-t"), tier: Tier::Slim, rules_version: Some(version), frozen: false, source: "test".into(), note: String::new(), games: entries, smoke }
+        SetMeta { name: format!("v{version}-t"), tier: Tier::Slim, rules_version: Some(version), frozen: false, source: "test".into(), note: String::new(), ladder: false, games: entries, smoke }
             .write(&dir)
             .unwrap();
         root

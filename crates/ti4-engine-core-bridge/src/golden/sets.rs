@@ -43,6 +43,9 @@ pub struct SetMeta {
     pub source: String,
     #[serde(default)]
     pub note: String,
+    /// The ladder: one game per rules version, each game header pins its own; `rules_version` is `None`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ladder: bool,
     pub games: Vec<GameEntry>,
     /// The files `cargo test` replays: the smallest games of the set.
     pub smoke: Vec<String>,
@@ -57,7 +60,7 @@ impl SetMeta {
     /// Whether `bless` must refuse this set without `--bugfix`.
     #[must_use]
     pub fn is_frozen(&self, current_rules_version: u32) -> bool {
-        self.frozen || self.rules_version.is_some_and(|v| v < current_rules_version)
+        self.frozen || self.ladder || self.rules_version.is_some_and(|v| v < current_rules_version)
     }
 
     /// The `n` smallest games by decision count (ties by file name), file names sorted.
@@ -205,7 +208,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let games = vec![entry("g000.tsv.zst", 30), entry("g001.tsv.zst", 10), entry("g002.tsv.zst", 20)];
         let smoke = SetMeta::pick_smoke(&games, 2);
-        SetMeta { name: name.into(), tier: Tier::Slim, rules_version: version, frozen, source: "test".into(), note: String::new(), games, smoke }
+        SetMeta { name: name.into(), tier: Tier::Slim, rules_version: version, frozen, source: "test".into(), note: String::new(), ladder: false, games, smoke }
             .write(&dir)
             .unwrap();
     }

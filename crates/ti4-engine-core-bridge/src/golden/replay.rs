@@ -223,7 +223,7 @@ impl Decider for Recorded {
 /// # Errors
 /// A game that cannot be built.
 pub fn replay_game(g: &GameFile) -> Result<Option<Divergence>, String> {
-    let Some(spec) = &g.header.spec else { return Ok(static_check(g)) };
+    let Some(spec) = &g.header.spec else { return Ok(static_lines(g)) };
     let mut game = spec.build()?;
     let rec = Rc::new(RefCell::new(Rec::default()));
     game.table.set_default(Box::new(Recorded(rec.clone())));
@@ -292,7 +292,7 @@ pub fn replay_game(g: &GameFile) -> Result<Option<Divergence>, String> {
 }
 
 /// A static game (the Choice objects of the wire fixtures) has nothing to play: every line is checked on its own.
-pub fn static_check(g: &GameFile) -> Option<Divergence> {
+pub fn static_lines(g: &GameFile) -> Option<Divergence> {
     for (i, d) in g.decs.iter().enumerate() {
         if let Some(raw) = &d.raw
             && let Err(e) = corpus::check_line(raw)
@@ -462,7 +462,7 @@ pub fn check_set(dir: &Path, meta: &SetMeta, replayer: &dyn Replayer, only: &[St
                         if game.decs.len() != entry.decisions || game.header.decisions != entry.decisions {
                             return Err(format!("{}: decision count differs from set.json", entry.file));
                         }
-                        if game.header.rules_version != meta.rules_version {
+                        if !meta.ladder && game.header.rules_version != meta.rules_version {
                             return Err(format!("{}: header rules_version {:?} differs from the set's {:?}", entry.file, game.header.rules_version, meta.rules_version));
                         }
                         replayer.check(&game)
@@ -476,5 +476,15 @@ pub fn check_set(dir: &Path, meta: &SetMeta, replayer: &dyn Replayer, only: &[St
     Ok(results.into_iter().map(|c| c.into_inner().expect("lock").expect("ran")).collect())
 }
 
-/// The path of `corpus::state_hash`, re-exported for the CLI.
-pub use corpus::state_hash as hash_of_state;
+/// A replayer that only checks what needs no engine: file integrity (sha256, counts, versions, done by `check_set`)
+/// and, for the full tier, every line's Choice round trip and V1/V2 hashes (`corpus::check_line`).
+pub struct StaticOnly;
+
+impl Replayer for StaticOnly {
+    fn check(&self, g: &GameFile) -> Result<Option<Divergence>, String> {
+        Ok(static_lines(g))
+    }
+    fn record(&self, _: &RecordReq) -> Result<Recording, String> {
+        Err("a static replayer does not record".to_owned())
+    }
+}

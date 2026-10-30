@@ -36,7 +36,7 @@ struct Args {
     flags: Vec<(String, Option<String>)>,
 }
 
-const SWITCHES: [&str; 6] = ["--smoke", "--static", "--full", "--bugfix", "--new", "--help"];
+const SWITCHES: [&str; 7] = ["--smoke", "--static", "--full", "--bugfix", "--new", "--force", "--help"];
 
 impl Args {
     fn parse() -> Self {
@@ -156,16 +156,6 @@ fn replayer_of(a: &Args) -> EngineReplayer {
     EngineReplayer { mask, require_clean: None }
 }
 
-struct StaticOnly;
-impl Replayer for StaticOnly {
-    fn check(&self, g: &GameFile) -> Result<Option<Divergence>, String> {
-        Ok(replay::static_check(g))
-    }
-    fn record(&self, _: &replay::RecordReq) -> Result<replay::Recording, String> {
-        Err("--static does not record".to_owned())
-    }
-}
-
 fn cmd_check(root: &Path, a: &Args) -> Result<(), String> {
     let wanted: Vec<String> = a.pos[1..].to_vec();
     let index = sets::read_index(root)?;
@@ -174,7 +164,7 @@ fn cmd_check(root: &Path, a: &Args) -> Result<(), String> {
         return Err(format!("no set matches {wanted:?} (golden list)"));
     }
     let engine = replayer_of(a);
-    let static_only = StaticOnly;
+    let static_only = replay::StaticOnly;
     let replayer: &dyn Replayer = if a.has("--static") { &static_only } else { &engine };
     let only = a.list("--games");
     let threads = a.num("--threads", 4);
@@ -187,9 +177,6 @@ fn cmd_check(root: &Path, a: &Args) -> Result<(), String> {
             && v > RULES_VERSION
         {
             return Err(format!("{}: recorded at rules version {v}, the build knows up to {RULES_VERSION}", meta.name));
-        }
-        if meta.rules_version.is_none() && !a.has("--static") {
-            // a static set (the wire fixtures' Choice objects): its lines are checked by the static path in `replay_game`
         }
         println!("{}  {:?}  rules {:?}  {}  {} games  {} decisions", meta.name, meta.tier, meta.rules_version, if meta.is_frozen(RULES_VERSION) { "frozen" } else { "open" }, meta.games.len(), meta.decisions());
         let set_start = std::time::Instant::now();
@@ -371,7 +358,13 @@ fn cmd_ladder(root: &Path, a: &Args) -> Result<(), String> {
         shard: None,
     };
     let engine = EngineReplayer { mask: None, require_clean: require_clean(a) };
-    let summary = record::record_games(&opts, &record::ladder_jobs(RULES_VERSION), &engine)?;
+    // A ladder game of an older version is never re-recorded by this command (a gated fix must not move it silently);
+    // `--force` re-records everything.
+    let jobs: Vec<RecordJob> = record::ladder_jobs(RULES_VERSION)
+        .into_iter()
+        .filter(|j| a.has("--force") || !dir.join(format!("{}.{}", record::stem(j.index), Tier::Slim.ext())).exists())
+        .collect();
+    let summary = record::record_games(&opts, &jobs, &engine)?;
     println!("ladder: recorded {} game(s), excluded {}", summary.recorded.len(), summary.excluded.len());
     for (i, why) in &summary.excluded {
         println!("  excluded {}: {why}", record::stem(*i));
@@ -405,6 +398,7 @@ fn finish_ladder(root: &Path, dir: &Path) -> Result<(), String> {
         frozen: false,
         source: "golden ladder".to_owned(),
         note: "one short game per rules version 0..=RULES_VERSION; each game header pins its own version".to_owned(),
+        ladder: true,
         games,
         smoke,
     }

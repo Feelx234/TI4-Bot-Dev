@@ -140,6 +140,7 @@ pub fn finalize_set(dir: &Path, name: &str, source: &str, note: &str) -> Result<
         frozen: old.as_ref().is_some_and(|o| o.frozen),
         source: source.to_owned(),
         note: note.to_owned(),
+        ladder: false,
         games,
         smoke,
     };
