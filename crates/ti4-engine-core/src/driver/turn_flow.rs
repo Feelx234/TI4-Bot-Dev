@@ -458,6 +458,10 @@ mod tests {
         assert_eq!(return_spec_ops(&mut s, Seat(1), unit), 3);
         assert_eq!(s.board.planet_mut(planet).units.len(), 3);
         assert_eq!(s.players.edit(1).misc.spec_ops_card, 0);
+        // A single unit waiting lands too (the card is not read as a count of more than one).
+        s.players.edit(1).misc.spec_ops_card = 1;
+        assert_eq!(return_spec_ops(&mut s, Seat(1), unit), 1);
+        assert_eq!(s.board.planet_mut(planet).units.len(), 4);
         mark_prepared(&mut s);
         assert_eq!(s.pending.prepared_turn_seq, Some(s.meta.turn_seq));
     }

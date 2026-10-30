@@ -39,7 +39,7 @@ pub fn feats(rd: Rd<'_>, system: System, before: &Before, outcome: Outcome) -> V
     let sides = before.sides.as_slice();
     // Destroy Their Greatest Ship: a drop in one side's count is the other side's feat, both when both lost one.
     for side in sides {
-        let had = before.capitals.as_slice().iter().find(|(s, _)| s == side).map_or(0, |(_, n)| usize::from(*n));
+        let had = before.capitals.as_slice().iter().find(|(s, _)| s == side).map_or(0, |(_, n)| usize::from(*n)); // mutants:skip: every side is in the snapshot's capital list
         if had == 0 {
             continue;
         }
@@ -65,11 +65,12 @@ pub fn feats(rd: Rd<'_>, system: System, before: &Before, outcome: Outcome) -> V
     if rd.s.players().iter().any(|p| p.seat != winner && p.home_system == Some(system)) {
         out.push((winner, Feat::WonInARivalHome));
     }
-    if capitals(rd, winner, system) > 0 && has_flagship(rd, winner, system) {
+    // A flagship is a capital ship, so the string's `capital_ships_of > 0` is implied.
+    if has_flagship(rd, winner, system) {
         out.push((winner, Feat::WonBesideASurvivingFlagship));
     }
     // "The most victory points" includes a tie.
-    let most = rd.s.players().iter().map(|p| p.econ.victory_points).max().unwrap_or(0);
+    let most = rd.s.players().iter().map(|p| p.econ.victory_points).max().unwrap_or(0); // mutants:skip: a position with a winner has players
     for loser in sides.iter().filter(|s| **s != winner) {
         if rd.s.players().by_seat(*loser).is_some_and(|p| p.econ.victory_points == most) {
             out.push((winner, Feat::WonAgainstThePointsLeader));
@@ -93,10 +94,3 @@ pub fn record(core: &mut CoreState, list: &[(Seat, Feat)], occurrence: u64) {
         }
     }
 }
-
-/// Whether the position holds a seat the combat's sides name (a sanity check for the adapter: all of them are players).
-#[must_use]
-pub fn sides_are_players(core: &CoreState, before: &Before) -> bool {
-    before.sides.as_slice().iter().all(|s| core.players().by_seat(*s).is_some())
-}
-

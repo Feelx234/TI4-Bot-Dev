@@ -127,17 +127,75 @@ fn the_active_seats_own_guns_fire_at_the_ships_of_the_seat_it_attacks_in_lockste
 }
 
 #[test]
-fn two_gunners_roll_in_seat_order_and_the_last_non_fighter_scores_the_feat_in_lockstep() {
+fn two_gunners_roll_in_seat_order_and_both_victims_absorb_in_lockstep() {
     let two = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        crate::fixtures::put_on_planet(s, system, planet, "pds", &b(), 3);
+        crate::fixtures::put_on_planet(s, system, planet, "pds", &PlayerId::new("c"), 3);
+        crate::fixtures::put(s, system, "cruiser", &a(), 6);
+    };
+    let (ran, r) = lockstep(0..30, &[("a", "sol"), ("b", "hacan"), ("c", "letnev")], two);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(compared(&r) >= 25, "the core window ran: {:?}", r.windows);
+    assert!(ran.iter().any(|x| x.state.system_state(&SystemId::new(ran_system(x))).units.len() <= 3), "both gunners' hits landed in some run");
+}
+
+#[test]
+fn the_last_non_fighter_ship_falling_to_the_guns_scores_the_feat_in_lockstep() {
+    let one = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
         crate::fixtures::put_on_planet(s, system, planet, "pds", &b(), 3);
         crate::fixtures::put_on_planet(s, system, planet, "pds", &PlayerId::new("c"), 3);
         crate::fixtures::put(s, system, "cruiser", &a(), 1);
     };
-    let (ran, r) = lockstep(0..20, &[("a", "sol"), ("b", "hacan"), ("c", "letnev")], two);
+    let (ran, r) = lockstep(0..20, &[("a", "sol"), ("b", "hacan"), ("c", "letnev")], one);
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     assert!(compared(&r) >= 15, "the core window ran: {:?}", r.windows);
     let scored = ran.iter().filter(|x| matches!(x.result, Ok(Some(_)))).count();
     assert!(scored > 0, "the last non-fighter ship fell to the guns of the others in some run");
+}
+
+/// Graviton Laser System in every shape of target fleet: it binds the loss only when it can change something (a fleet of fighters
+/// and non-fighters), is spent when it does, and is not used when exhausted already.
+#[test]
+fn graviton_is_used_only_where_it_changes_the_loss_in_lockstep() {
+    let gls = |fleet: &'static [(&'static str, usize)], exhausted: bool| {
+        move |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+            crate::fixtures::put_on_planet(s, system, planet, "pds", &b(), 4);
+            for (kind, n) in fleet {
+                crate::fixtures::put(s, system, kind, &a(), *n);
+            }
+            let tech = ti4_model::id::TechnologyId::new("gls");
+            let seat = s.player_mut(&b()).unwrap();
+            seat.technologies.insert(tech.clone());
+            if exhausted {
+                seat.exhausted_technologies.insert(tech);
+            }
+        }
+    };
+    let used = |fleet: &'static [(&'static str, usize)], exhausted: bool| {
+        let (ran, r) = lockstep(0..40, &[("a", "sol"), ("b", "hacan")], gls(fleet, exhausted));
+        assert_eq!(r.total_differences(), 0, "{fleet:?} {exhausted}: {:?}", r.differences.first());
+        assert!(compared(&r) >= 25, "{:?}", r.windows);
+        ran.iter().filter(|x| x.state.player(&b()).unwrap().exhausted_technologies.contains(&ti4_model::id::TechnologyId::new("gls"))).count()
+    };
+    assert!(used(&[("dreadnought", 2), ("fighter", 3)], false) > 0, "a mixed fleet: bound and spent");
+    assert_eq!(used(&[("fighter", 4)], false), 0, "only fighters: nothing to bind");
+    assert_eq!(used(&[("dreadnought", 2), ("cruiser", 2)], false), 0, "no fighters: every ship is bound anyway");
+    assert_eq!(used(&[("dreadnought", 2), ("fighter", 3)], true), 40, "exhausted already: stays exhausted, not used again");
+}
+
+/// A planet attachment that gives its planet SPACE CANNON (Titans' Geoform) fires as a unit would.
+#[test]
+fn an_attachment_with_space_cannon_fires_at_the_arriving_fleet_in_lockstep() {
+    let geoform = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        let _ = system;
+        s.planet_attachments.entry(planet.clone()).or_default().push("titanshero".to_owned());
+        crate::fixtures::put(s, system, "cruiser", &a(), 4);
+    };
+    let (ran, r) = lockstep(0..20, &[("a", "sol"), ("b", "hacan")], geoform);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(compared(&r) >= 15, "the core window ran: {:?}", r.windows);
+    assert!(ran.iter().all(|x| x.dice == 1), "one roll of three dice by the attachment");
+    assert!(ran.iter().any(|x| x.state.system_state(&SystemId::new(ran_system(x))).units.len() < 4), "some hit landed");
 }
 
 #[test]
@@ -213,8 +271,9 @@ fn head_lockstep(seeds: std::ops::Range<u64>, skip: bool, setup: impl Fn(&mut Ga
 fn the_head_of_an_aftermath_runs_as_a_core_window_with_the_fights_opening_writes_in_lockstep() {
     let two_sides = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
         pds_at_b(s, system, planet);
-        // b has ships too: the head opens a space combat.
+        // b has ships too: the head opens a space combat; a's war sun is one of its capital ships.
         crate::fixtures::put(s, system, "cruiser", &b(), 2);
+        crate::fixtures::put(s, system, "warsun", &a(), 1);
     };
     let (states, r) = head_lockstep(0..12, false, two_sides);
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
@@ -340,52 +399,90 @@ fn minister_of_war_declined_changes_nothing_and_without_a_token_nothing_is_asked
     assert!(game.state.laws.contains_key("minister_war") && !game.state.transient_flags.has(ti4_model::state::TransientFlags::ADDITIONAL_ACTION), "22.3: no token on the board, no offer: {:?}", r.windows);
 }
 
-/// A system that is an anomaly (a nebula, a supernova, an asteroid field, a rift or a scar).
-fn an_anomaly() -> SystemId {
+/// Every system that is an anomaly (a nebula, a supernova, an asteroid field, a rift or a scar).
+fn anomalies() -> Vec<SystemId> {
+    let content = ContentStore::embedded();
+    ti4_content::galaxy::all_systems(content, ti4_model::content_types::DEFAULT)
+        .iter()
+        .filter(|(_, s)| s.is_anomaly())
+        .map(|(id, _)| SystemId::new(*id))
+        .collect()
+}
+
+/// A system that is no anomaly and is nobody's home.
+fn a_plain_system() -> SystemId {
     let content = ContentStore::embedded();
     let found = ti4_content::galaxy::all_systems(content, ti4_model::content_types::DEFAULT)
         .iter()
-        .find(|(_, s)| s.is_anomaly())
+        .find(|(_, s)| !s.is_anomaly())
         .map(|(id, _)| (*id).to_owned())
-        .expect("the corpus has an anomaly");
+        .expect("the corpus has a plain system");
     SystemId::new(found)
 }
 
-fn feats_run(winner: Option<PlayerId>, rounds: u32) -> (GameState, bool, crate::dual::DualReport) {
+/// `a` and `b` fight in `system`; `setup` places the fleets (and may seat facts such as a home system) before the snapshot, `lose`
+/// then takes what the loser lost. Returns the state after the feats were noted, whether any was, and the report.
+fn feats_run(
+    system: &SystemId,
+    winner: Option<PlayerId>,
+    rounds: u32,
+    setup: impl Fn(&mut GameState, &SystemId),
+    lose: impl Fn(&mut GameState, &SystemId),
+) -> (GameState, bool, crate::dual::DualReport) {
     let _guard = crate::dual::tests::serial();
     let _ = take_report();
     let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
     state.promissory_notes.clear();
     state.promissory_faceup.clear();
-    let system = an_anomaly();
-    crate::fixtures::put(&mut state, &system, "warsun", &a(), 1);
-    crate::fixtures::put(&mut state, &system, "sol_flagship", &a(), 1);
-    crate::fixtures::put(&mut state, &system, "cruiser", &a(), 2);
-    crate::fixtures::put(&mut state, &system, "dreadnought", &a(), 1);
-    crate::fixtures::put(&mut state, &system, "warsun", &b(), 1);
-    crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
-    state.player_mut(&b()).unwrap().home_system = Some(system.clone());
-    state.player_mut(&b()).unwrap().victory_points = 4;
+    setup(&mut state, system);
     let content = ContentStore::embedded();
-    let before = crate::combat::before_combat(&state, content, ti4_model::content_types::DEFAULT, &system);
-    // b loses its fleet.
-    state.system_mut(&system).units.retain(|u| u.owner != b());
+    let before = crate::combat::before_combat(&state, content, ti4_model::content_types::DEFAULT, system);
+    lose(&mut state, system);
     let outcome = crate::combat::CombatOutcome { winner, rounds };
     let noted = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
-        crate::combat::note_combat_event_feats(&mut state, content, ti4_model::content_types::DEFAULT, &system, &before, &outcome, ti4_model::state::FeatOccurrence(7))
+        crate::combat::note_combat_event_feats(&mut state, content, ti4_model::content_types::DEFAULT, system, &before, &outcome, ti4_model::state::FeatOccurrence(7))
     });
     let r = report();
     let _ = take_report();
     (state, noted, r)
 }
 
+fn feats_of(state: &GameState, who: &PlayerId) -> Vec<ti4_model::state::Feat> {
+    state.player(who).unwrap().event_feats.iter().map(|(f, _)| *f).collect()
+}
+
+/// The standard fight: a has a war sun, a flagship, two cruisers and a dreadnought; b a war sun and a cruiser, and loses them.
+fn standard(s: &mut GameState, system: &SystemId) {
+    crate::fixtures::put(s, system, "warsun", &a(), 1);
+    crate::fixtures::put(s, system, "sol_flagship", &a(), 1);
+    crate::fixtures::put(s, system, "cruiser", &a(), 2);
+    crate::fixtures::put(s, system, "dreadnought", &a(), 1);
+    crate::fixtures::put(s, system, "warsun", &b(), 1);
+    crate::fixtures::put(s, system, "cruiser", &b(), 1);
+}
+
+fn b_loses_everything(s: &mut GameState, system: &SystemId) {
+    s.system_mut(system).units.retain(|u| u.owner != b());
+}
+
 #[test]
 fn the_feats_of_a_won_fight_in_an_anomaly_at_a_rival_home_are_recorded_by_the_core_as_by_the_string() {
-    let (state, noted, r) = feats_run(Some(a()), 3);
+    let system = anomalies().remove(0);
+    let (state, noted, r) = feats_run(
+        &system,
+        Some(a()),
+        3,
+        |s, system| {
+            standard(s, system);
+            s.player_mut(&b()).unwrap().home_system = Some(system.clone());
+            s.player_mut(&b()).unwrap().victory_points = 4;
+        },
+        b_loses_everything,
+    );
     assert!(noted);
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 1, "the write was compared: {:?}", r.areas);
-    let feats: Vec<_> = state.player(&a()).unwrap().event_feats.iter().map(|(f, _)| *f).collect();
+    let feats = feats_of(&state, &a());
     for feat in [
         ti4_model::state::Feat::DestroyedACapitalShip,
         ti4_model::state::Feat::HeldThreeShipsAfterASpaceCombat,
@@ -399,14 +496,96 @@ fn the_feats_of_a_won_fight_in_an_anomaly_at_a_rival_home_are_recorded_by_the_co
 }
 
 #[test]
+fn every_kind_of_anomaly_counts_and_a_plain_system_does_not() {
+    let all = anomalies();
+    assert!(all.len() >= 5, "the corpus has several kinds of anomaly");
+    for system in &all {
+        let (state, _, r) = feats_run(system, Some(a()), 2, standard, b_loses_everything);
+        assert_eq!(r.total_differences(), 0, "{system}: {:?}", r.differences.first());
+        assert!(feats_of(&state, &a()).contains(&ti4_model::state::Feat::WonInAnAnomaly), "{system}");
+    }
+    let (state, _, r) = feats_run(&a_plain_system(), Some(a()), 2, standard, b_loses_everything);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(!feats_of(&state, &a()).contains(&ti4_model::state::Feat::WonInAnAnomaly));
+}
+
+#[test]
+fn a_win_at_the_winners_own_home_is_no_rival_home_and_without_a_flagship_no_flagship_feat() {
+    let system = a_plain_system();
+    let (state, _, r) = feats_run(
+        &system,
+        Some(a()),
+        2,
+        |s, system| {
+            // a's war sun is a capital ship but not a flagship.
+            crate::fixtures::put(s, system, "warsun", &a(), 1);
+            crate::fixtures::put(s, system, "cruiser", &b(), 1);
+            s.player_mut(&a()).unwrap().home_system = Some(system.clone());
+        },
+        b_loses_everything,
+    );
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    let feats = feats_of(&state, &a());
+    assert!(!feats.contains(&ti4_model::state::Feat::WonInARivalHome), "{feats:?}");
+    assert!(!feats.contains(&ti4_model::state::Feat::WonBesideASurvivingFlagship), "{feats:?}");
+}
+
+#[test]
+fn three_non_fighter_ships_are_the_threshold_of_holding_a_fleet() {
+    let system = a_plain_system();
+    for (ships, held) in [(2_usize, false), (3, true)] {
+        let (state, _, r) = feats_run(
+            &system,
+            None,
+            2,
+            |s, system| {
+                crate::fixtures::put(s, system, "cruiser", &a(), ships);
+                crate::fixtures::put(s, system, "fighter", &a(), 4);
+                crate::fixtures::put(s, system, "cruiser", &b(), 1);
+            },
+            b_loses_everything,
+        );
+        assert_eq!(r.total_differences(), 0, "{ships}: {:?}", r.differences.first());
+        assert_eq!(feats_of(&state, &a()).contains(&ti4_model::state::Feat::HeldThreeShipsAfterASpaceCombat), held, "{ships} cruisers and fighters");
+    }
+}
+
+#[test]
+fn a_capital_ship_lost_is_counted_against_that_sides_own_fleet() {
+    // a keeps its one war sun; b had two and lost one: only a scores the destroyed capital ship.
+    let system = a_plain_system();
+    let (state, _, r) = feats_run(
+        &system,
+        None,
+        2,
+        |s, system| {
+            crate::fixtures::put(s, system, "warsun", &a(), 1);
+            crate::fixtures::put(s, system, "warsun", &b(), 2);
+        },
+        |s, system| {
+            let mut gone = false;
+            s.system_mut(system).units.retain(|u| {
+                let lose = !gone && u.owner == b();
+                gone |= lose;
+                !lose
+            });
+        },
+    );
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(feats_of(&state, &a()).contains(&ti4_model::state::Feat::DestroyedACapitalShip));
+    assert!(!feats_of(&state, &b()).contains(&ti4_model::state::Feat::DestroyedACapitalShip));
+}
+
+#[test]
 fn a_draw_scores_only_the_feats_that_do_not_ask_for_a_winner_and_a_fight_of_no_rounds_none() {
-    let (state, noted, r) = feats_run(None, 2);
+    let system = anomalies().remove(0);
+    let (state, noted, r) = feats_run(&system, None, 2, standard, b_loses_everything);
     assert!(noted);
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
-    let feats: Vec<_> = state.player(&a()).unwrap().event_feats.iter().map(|(f, _)| *f).collect();
+    let feats = feats_of(&state, &a());
     assert!(!feats.contains(&ti4_model::state::Feat::WonInAnAnomaly) && feats.contains(&ti4_model::state::Feat::DestroyedACapitalShip), "{feats:?}");
-    let (state, noted, r) = feats_run(Some(a()), 0);
-    assert!(!noted && state.player(&a()).unwrap().event_feats.is_empty());
+    let (state, noted, r) = feats_run(&system, Some(a()), 0, standard, b_loses_everything);
+    assert!(!noted && feats_of(&state, &a()).is_empty());
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
 }
 
@@ -485,4 +664,51 @@ fn shard_of_the_throne_and_a_titans_seat_keep_the_end_of_the_fight_on_the_string
     });
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     assert!(r.windows.iter().any(|(k, w)| k.starts_with(OVER) && k.contains("[bail: Shard of the Throne") && w.bailed > 0), "{:?}", r.windows);
+}
+
+/// The head with the second seat active: the attacker is the active seat, not the first of the sides.
+#[test]
+fn the_head_makes_the_active_seat_the_attacker_even_when_it_sits_second() {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let mut sides = Vec::new();
+    for seed in 0..6_u64 {
+        let (mut state, system) = position(seed, &[("a", "sol"), ("b", "hacan")], |s, system, planet| {
+            crate::fixtures::put_on_planet(s, system, planet, "pds", &a(), 1);
+            crate::fixtures::put(s, system, "cruiser", &a(), 3);
+            crate::fixtures::put(s, system, "cruiser", &b(), 3);
+        });
+        state.active = Some(b());
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+            let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: ti4_model::content_types::DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+            };
+            let notes = crate::combat::note_holdings(&state);
+            AftermathWindow::head(&mut state, &mut ctx, &b(), &system, None, &notes, false).unwrap();
+        });
+        sides.push(state.active_space_combat.clone().map(|(_, attacker, defender)| (attacker, defender)));
+    }
+    let r = report();
+    let _ = take_report();
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(HEAD).map_or(0, |w| w.compared) >= 4, "{:?}", r.windows);
+    assert!(sides.iter().flatten().all(|(attacker, defender)| *attacker == b() && *defender == a()), "{sides:?}");
+    assert!(sides.iter().any(Option::is_some), "a fight opened");
+}
+
+#[test]
+fn a_fight_of_no_rounds_opens_no_win_window_even_with_a_winner_named() {
+    let (state, _, log, r) = over_run(5, Some(a()), 0, |_, _| {});
+    assert!(log.is_empty() && state.last_combat_sides.is_none(), "{log:?}");
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(OVER).map_or(0, |w| w.compared) >= 1, "{:?}", r.windows);
 }

@@ -63,7 +63,7 @@ impl Window for EnforceAll {
                     self.removed += e.removed;
                     self.at += 1;
                 }
-                None => self.at += 1,
+                None => self.at += 1, // mutants:skip: a child that was just started cannot be missing
             }
         }
     }

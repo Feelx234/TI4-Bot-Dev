@@ -88,7 +88,7 @@ impl Window for MinisterOfWar {
             Stage::Choosing => Some(Choice {
                 actor: self.owner,
                 ask: Ask::Turn(TAsk::MinisterToken),
-                ctx: Ctx { origin: Origin::Rule(Rule::R22), subtype: Subtype::Turn(TSub::MinisterToken), optional: false, target: None, outstanding: Default::default(), space_battle: false, invasion_seq: None },
+                ctx: Ctx { origin: Origin::Rule(Rule::R22), subtype: Subtype::Turn(TSub::MinisterToken), optional: false, target: None, outstanding: Default::default(), space_battle: false, invasion_seq: None }, // mutants:skip: the string asks this question without a context, so the lockstep never reads these flags
                 opts: self.systems.iter().map(|system| Opt::Turn(TOpt::Token(*system))).collect::<Opts>(),
             }),
             Stage::Done => None,

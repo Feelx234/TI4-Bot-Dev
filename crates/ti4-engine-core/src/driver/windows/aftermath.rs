@@ -57,10 +57,6 @@ pub struct Head {
     pub scoring: Option<u64>,
     /// The dice of the offense, in order: (hit number, faces).
     pub drawn: Vec<(u32, Vec<u32>)>,
-    /// Units the enforcement removed.
-    pub removed: u32,
-    /// A space combat opened (two sides in the system).
-    pub fighting: bool,
 }
 
 impl Head {
@@ -73,7 +69,7 @@ impl Head {
 
     #[must_use]
     pub fn new(f: Facts) -> Self {
-        Self { f, stage: Stage::Enforcing, enforce: Child::idle(), cannon: Child::idle(), before: None, scoring: None, drawn: Vec::new(), removed: 0, fighting: false }
+        Self { f, stage: Stage::Enforcing, enforce: Child::idle(), cannon: Child::idle(), before: None, scoring: None, drawn: Vec::new() }
     }
 
     /// `combat::before_combat_with_notes`: the sides in seating order and what each had in war suns and flagships.
@@ -114,7 +110,6 @@ impl Head {
         p.phase = self.f.pre_roll;
         combat.combat_round_hits = Default::default();
         combat.combat_round_dice = Default::default();
-        self.fighting = true;
     }
 }
 
@@ -135,8 +130,7 @@ impl Window for Head {
                     match self.enforce.step(sx) {
                         Some(Ran::Asks(ask)) => return Next::Continue(ask),
                         Some(Ran::Pass(next)) => return next,
-                        Some(Ran::Done(e)) => {
-                            self.removed = e.removed;
+                        Some(Ran::Done(_)) => {
                             self.stage = if self.f.skip_to_commit { Stage::Opening } else { Stage::Firing };
                             if self.stage == Stage::Firing {
                                 self.cannon.start(SpaceCannonOffense::new(self.f.cannon.clone()));
@@ -228,14 +222,12 @@ pub struct FightOver {
     enforce: Child<EnforceAll>,
     /// An invasion step follows: a ship of the active seat holds the space, or Coalescence forces a ground combat.
     pub holds: bool,
-    /// The fight lasted at least a round (`SPACE_COMBAT_RESOLVED` is logged).
-    pub resolved: bool,
 }
 
 impl FightOver {
     #[must_use]
     pub fn new(f: OverFacts) -> Self {
-        Self { f, stage: OverStage::Announcing, enforce: Child::idle(), holds: false, resolved: false }
+        Self { f, stage: OverStage::Announcing, enforce: Child::idle(), holds: false } // mutants:skip: `holds` is set by the first step
     }
 }
 
@@ -269,7 +261,6 @@ impl Window for FightOver {
                                 let _ = sx.emit(fx::event(EventKind::SpaceCombatWon, payload));
                             }
                         }
-                        self.resolved = true;
                     }
                     sx.state.transient_mut().combat.active_space_combat = None;
                     self.enforce.start(EnforceAll::new(self.f.pairs.clone()));

@@ -87,7 +87,7 @@ pub struct SpaceCannonOffense {
 impl SpaceCannonOffense {
     #[must_use]
     pub fn new(f: Facts) -> Self {
-        Self { f, drawn: Vec::new(), scoring: None, stage: Stage::Rolling, gunners: Vec::new(), at: 0, before: 0, bound: false, absorb: Child::idle() }
+        Self { f, drawn: Vec::new(), scoring: None, stage: Stage::Rolling, gunners: Vec::new(), at: 0, before: 0, bound: false, absorb: Child::idle() } // mutants:skip: `at`, `before` and `bound` are set before they are read
     }
 
     /// The gunner whose hits are being absorbed and whether their loss is bound to non-fighters (the facts of the casualty
@@ -145,6 +145,7 @@ impl SpaceCannonOffense {
         self.gunners = hits.into_iter().filter(|(_, n)| *n > 0).collect();
     }
 
+    // mutants:skip: the ledger of dice has no counterpart in the string `GameState` (D2), so the lockstep does not read it
     fn record(sx: &mut Sx<'_>, owner: Seat, unit: Option<Unit>, planet: Option<Planet>, system: System, on: u32, faces: &[u32]) {
         sx.state.ledger_mut().dice.push(RollRec {
             purpose: RollPurpose::SpaceCannon,
@@ -195,7 +196,7 @@ impl SpaceCannonOffense {
     fn hit(&mut self, sx: &mut Sx<'_>) -> bool {
         let (gunner, hits) = self.gunners[self.at];
         let system = self.f.system;
-        let Some(victim) = self.victim(sx.state, sx.kernel, gunner) else { return false };
+        let Some(victim) = self.victim(sx.state, sx.kernel, gunner) else { return false }; // mutants:skip: the active seat's guns fire only at a position with an opponent's ship, and nothing before this removes it
         if self.f.announce {
             let payload = Payload::new()
                 .with(Key::System, Val::System(system))
