@@ -137,8 +137,10 @@ fn an_answer_window_resumes_at_the_partners_question_and_the_single_flag_stops_a
     assert_eq!((goods(&rig.state, 0), goods(&rig.state, 1)), (1, 2));
     let single = TradeWindow::open(Seat(0), Seat(1), facts(0, 1)).single();
     let mut rig = Rig::new(table(), single);
-    rig.run().pick_opt(deal(Shape::Goods { give: 1, want: 1 })).pick_opt(Opt::Trade(TOpt::Counter));
-    assert!(!rig.is_done() || rig.driver.window.outcome.is_some());
+    rig.run().pick_opt(deal(Shape::Goods { give: 1, want: 1 }));
+    assert!(rig.is_done(), "a single window ends with the proposal; the caller continues with the answer");
+    assert_eq!(rig.driver.window.outcome, Some(Outcome::Offered));
+    assert_eq!((goods(&rig.state, 0), goods(&rig.state, 1)), (2, 1), "nothing moved yet");
     let _ = Ordering::Equal;
 }
 
