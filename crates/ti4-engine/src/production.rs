@@ -3910,14 +3910,8 @@ impl ProductionWindow {
         use ti4_engine_core::generated::{System, Unit};
         use ti4_engine_core::rules::production::window as cw;
         let unit = |id: &str| <Unit as crate::generated::IdStr>::from_id(id).ok_or("a unit id the core tables do not know");
-        if self.ability {
-            return Err("a production by an ability (the window of a card or an ability, not a production use)");
-        }
         if self.settled {
             return Err("a window already settled");
-        }
-        if self.fixed_limit.is_some() {
-            return Err("a window with a fixed limit");
         }
         let narrow = |n: i64| i32::try_from(n).map_err(|_| "a count beyond 32 bits");
         let fleet_limit = if crate::fleet::is_unlimited(state, &self.player) {
@@ -3974,11 +3968,13 @@ impl ProductionWindow {
             },
             buildable,
             produced,
-            agent_rules: state.rules_version >= ti4_model::state::RULES_WINNU_AGENT_PRODUCTION,
+            // Berekar Berekon is offered to a use of PRODUCTION, not to an ability that produces units.
+            agent_rules: state.rules_version >= ti4_model::state::RULES_WINNU_AGENT_PRODUCTION && !self.ability,
             agent_spent: self.agent_spent,
             purchased: self.purchased,
             placement_timing_done: self.placement_timing_done,
             emit_timing,
+            ability: self.ability,
         })
     }
 }
@@ -7706,18 +7702,71 @@ mod tests {
         let _ = take_report();
     }
 
-    /// Package W5, the documented tail (W5-bail-01): a production by an ability, or with a fixed limit, is not a window the core carries; the
-    /// census reason names it (`ProductionWindow::to_core`).
+    /// Package W5: a production by an ability (`for_ability`: a fixed limit, ground forces and structures on the planets of the system the
+    /// seat controls, no producer bars a kind, no Winnu offer) runs on the core production window, every step compared. A system with two
+    /// planets gives the placement question; Muaat's cost cap and Nekro's single unit type are the windows' `max_unit_cost` and `only_unit`.
+    /// Fails on the pre-W5 code (`to_core` returned "a production by an ability").
     #[test]
-    fn a_production_by_an_ability_has_no_core_window_and_says_why() {
+    fn a_production_by_an_ability_runs_in_lockstep_on_the_core_production_window() {
         let content = ContentStore::embedded();
-        let (state, system, _) = seated();
-        let seat = ti4_engine_core::Seat(0);
-        let ability = ProductionWindow::for_ability(&state, content, POK, &player(), &system, Some(1));
-        assert_eq!(
-            ability.to_core(&state, content, POK, seat, false).err(),
-            Some("a production by an ability (the window of a card or an ability, not a production use)")
-        );
+        let _guard = crate::dual::tests::serial();
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(false);
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        let (mut compared, mut bailed, mut placed_on_planet) = (0, 0, 0);
+        for (mine, other) in [("sol", "sardakk"), ("naaz", "hacan"), ("arborec", "sardakk"), ("nomad", "sol")] {
+            for seed in 0..10_usize {
+                let _ = crate::dual::take_report();
+                let mut state = game(&["a", "b"]);
+                state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new(mine);
+                state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new(other);
+                state.promissory_notes.clear();
+                let system = SystemId::new("57");
+                let (first, second) = (PlanetId::new("naazir"), PlanetId::new("rokha"));
+                state.system_mut(&system).set_control(first.clone(), player());
+                state.system_mut(&system).set_control(second.clone(), player());
+                put_on_planet(&mut state, &system, &first, "spacedock", &player(), 1);
+                state.player_mut(&player()).unwrap().trade_goods = 12;
+                let limit = 1 + (seed % 3) as i64;
+                let mut window = ProductionWindow::for_ability(&state, content, POK, &player(), &system, Some(limit));
+                if seed % 4 == 1 {
+                    window = window.with_max_unit_cost(Some(4));
+                }
+                if seed % 4 == 2 {
+                    window = window.with_only_unit(Some("infantry".to_owned()));
+                }
+                let mut dice = crate::dice::Dice::new();
+                let mut rng = crate::rng::GameRng::new(0);
+                let mut table = Table::new();
+                let mut ctx = Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+                crate::dual::with_mask(mask, || {
+                    let mut steps = 0;
+                    while let Some(choice) = window.pending_choice(&state, content, POK) {
+                        steps += 1;
+                        if steps > 30 {
+                            break;
+                        }
+                        let pick = if seed < 3 {
+                            choice.options.iter().find(|o| o.id.starts_with("place|")).or_else(|| choice.options.first()).cloned().unwrap()
+                        } else {
+                            choice.options[(seed * 5 + steps * 3) % choice.options.len()].clone()
+                        };
+                        if window.resolve(&mut state, &mut ctx, pick).is_err() {
+                            break;
+                        }
+                    }
+                });
+                placed_on_planet += state.system_state(&system).planet_units.values().flatten().filter(|u| u.owner == player() && u.type_id.as_str() != "spacedock").count();
+                let r = crate::dual::take_report();
+                assert_eq!(r.total_differences(), 0, "{mine}/{other} seed {seed}: {:?}", r.differences.first());
+                let w = r.windows.get("ProductionWindow::step").copied().unwrap_or_default();
+                compared += w.compared;
+                bailed += w.bailed;
+            }
+        }
+        crate::dual::set_fail_fast(fail_fast);
+        assert!(compared > 100 && bailed == 0, "compared {compared}, bailed {bailed}");
+        assert!(placed_on_planet >= 3, "ground forces were placed: {placed_on_planet}");
     }
 
     /// Builds `unit` once, pays with trade goods and then declines.
