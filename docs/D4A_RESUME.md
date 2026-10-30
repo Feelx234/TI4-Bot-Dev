@@ -32,7 +32,7 @@ Test files in `crates/ti4-engine-core-tests/tests/`:
   `choice_layer`, `movement`, `query_tech`, `query_basic` (seats, economy, laws, board), `query_fleet`, `query_cards` (relic, promissory,
   leaders), `query_objectives`, `query_explore`, `query_trade`, `reach`; the kit itself: `kit`; properties P1-P6: `properties`,
   `properties_windows`.
-* D4-2a: `strategy_primaries`, `objective_windows` (ScoreOne, HandLimit, TradePrimary), `trade_window`, `production_rules`, `pay_bill`,
+* D4-2a: `agenda_small` (CovertDraw, DeadlyPlot, OfferDiscard, Committee), `production_window` (ProductionWindow), `strategy_primaries`, `objective_windows` (ScoreOne, HandLimit, TradePrimary), `trade_window`, `production_rules`, `pay_bill`,
   `leadership`, `strategy_rules`, `scoring_book`, `agenda_vote`, `agenda_reveal`.
 * D4-2b: `leader_windows`, `explore_windows`, `relic_windows`, `tactical`, `driver_session`, `leaders`.
 * D4-2c: `action_cards` (reads, an every-card smoke in a rich position, five cards against their text), `kernel_hooks`, `kernel_fx`, `reactions`.
@@ -41,7 +41,7 @@ Test files in `crates/ti4-engine-core-tests/tests/`:
 
 ## Not done
 
-* Rule tests of: agenda `Close`, `Resolve`, `Committee`, `CovertDraw`, `DeadlyPlot`, `OfferDiscard`; production `ProductionWindow`, `SlingRelay`,
+* Rule tests of: agenda `Close`, `Resolve`; production `SlingRelay`,
   `EconomyWindow`, `HeroOffer`, `Construction`, `Research`; strategy `SecondaryStep`; diplomacy windows (dropped by decision); action card
   `Announce`; driver `menu`, `turn_flow`, `aftermath`, `children`; kernel `resolver`, `seam/*`, `reaction`; `rules/abilities`.
 * P8 (checkpoint = replay), P10 (view perturbation); the mutation passes and floors (`mutants.sh`), stage-coverage numbers.
