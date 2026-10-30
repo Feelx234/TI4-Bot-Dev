@@ -337,7 +337,7 @@ mod tests {
         let (mut core, mut cx) = loaded(&gs);
         let before = core.clone();
         let e = with_string(&mut core, &mut cx, &gs, None, PLAYERS, "stranger", &[], |lent| {
-            lent.state.players[0].duress_by.push(PlayerId::new("stranger"));
+            lent.state.players[0].duress_by = Some(PlayerId::new("stranger"));
         })
         .unwrap_err();
         assert!(e.slice == Slice::Seats || e.what.contains("owner") || e.what.contains("outside"), "{e}");
