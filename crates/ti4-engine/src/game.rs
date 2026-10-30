@@ -2423,11 +2423,12 @@ impl<'a> Game<'a> {
                 Ok(false) => {}
                 Err(error) => return self.result(false, Some(error.into())),
             }
-            let returned = crate::faction_techs::return_spec_ops(&mut self.state, &active);
+            let returned = crate::turn_write::return_spec_ops(&mut self.state, &active);
             if returned > 0 {
                 self.emit(&format!("SPEC_OPS_RETURNED:{active}:{returned}"));
             }
             self.prepared_turn_seq = Some(self.state.turn_seq);
+            crate::turn_write::check_prepared(&self.state, self.prepared_turn_seq);
             // "At the start of another player's turn" — this is that moment, typed so a
             // window can hang off it: the payload names the seat whose turn is beginning,
             // and the marker lands before the seat has chosen any action for it.

@@ -88,6 +88,35 @@ pub fn begin_next_round(core: &mut CoreState, cards: &[StrategyCard]) -> Result<
     Ok(())
 }
 
+/// `faction_techs::return_spec_ops` (the turn prelude): "at the start of your next turn, place each unit that is on this card
+/// on a planet you control in your home system", on the first such planet (by id); with none controlled they wait on the card.
+/// Returns how many were placed.
+pub fn return_spec_ops(core: &mut CoreState, seat: Seat) -> u32 {
+    let Some(p) = core.players().by_seat(seat) else { return 0 };
+    let waiting = p.misc.spec_ops_card;
+    let Some(home) = p.home_system else { return 0 };
+    if waiting == 0 {
+        return 0;
+    }
+    let mut here: Vec<_> = crate::query::board::controlled_planets(core, seat).as_slice().iter().filter(|(system, _)| *system == home).map(|(_, planet)| *planet).collect();
+    here.sort_by_key(|planet| planet.as_str());
+    let Some(planet) = here.first().copied() else { return 0 };
+    let Some(infantry) = crate::generated::Unit::ALL.iter().copied().find(|u| u.as_str() == "sol_infantry2") else { return 0 };
+    for _ in 0..waiting {
+        core.board_mut().planet_mut(planet).units.push(crate::state::Piece::new(infantry, seat));
+    }
+    if let Some(p) = core.players_mut().by_seat_mut(seat) {
+        p.misc.spec_ops_card = 0;
+    }
+    waiting
+}
+
+/// The turn prelude has run for the turn in progress (`Game::prepared_turn_seq`).
+pub fn mark_prepared(core: &mut CoreState) {
+    let turn = core.meta().turn_seq;
+    core.pending_mut().prepared_turn_seq = Some(turn);
+}
+
 /// What the end of an action does with the turn (`Game::finish_action`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Finish {

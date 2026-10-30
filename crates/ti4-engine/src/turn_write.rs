@@ -93,6 +93,24 @@ pub fn check_pass_on(before: &GameState, after: &GameState, ended: Option<&Playe
     crate::dual::compare_value(Area::Driver, "turn::pass_on", &string, &core);
 }
 
+/// `faction_techs::return_spec_ops`, the turn prelude's placement of the Spec Ops units waiting on the card.
+pub fn return_spec_ops(state: &mut GameState, player: &PlayerId) -> u32 {
+    write(Area::Driver, state, "turn::return_spec_ops", |s| crate::faction_techs::return_spec_ops(s, player), |s| real::return_spec_ops(s, player))
+}
+
+/// The prelude has run: `prepared_turn_seq` is the turn's (a `Game` field; the core's `Pending.prepared_turn_seq`). Compared
+/// as the sequence number the core would record.
+pub fn check_prepared(state: &GameState, recorded: Option<u32>) {
+    if crate::dual::backend(Area::Driver) != crate::dual::Backend::Dual {
+        return;
+    }
+    let Some(core) = real::prepared(state) else {
+        crate::dual::note_bail("turn::prepared", "the position is outside the tables");
+        return;
+    };
+    crate::dual::compare_value(Area::Driver, "turn::prepared", &recorded, &core);
+}
+
 /// The writes of the close of a tactical action (`Game::close_tactical`): no system is active and the legacy pending tag is
 /// cleared (the aftermath window, a field of `Game`, is dropped by the caller).
 pub fn close_tactical_writes(state: &mut GameState) {
@@ -235,6 +253,7 @@ mod real {
     }
 
     const CLOSE: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards, Slice::Explore], &[]);
+    const SPEC_OPS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Players, Slice::Board]);
     const CLOSE_WRITES: Footprint = Footprint::new(&[Slice::Meta, Slice::Pending], &[Slice::Meta, Slice::Pending]);
 
     pub fn close_tactical_writes(gs: &mut GameState) -> Option<()> {
@@ -270,6 +289,18 @@ mod real {
             Then::Secondary => 1,
             Then::FinishAction => 2,
         }
+    }
+
+    pub fn return_spec_ops(gs: &mut GameState, p: &PlayerId) -> Option<u32> {
+        lend_with(gs, SPEC_OPS, |core, r| Some(rules::return_spec_ops(core, r.seat(p.as_str())?)))?
+    }
+
+    pub fn prepared(gs: &GameState) -> Option<Option<u32>> {
+        let mut gs = gs.clone();
+        lend_with(&mut gs, FINISH, |core, _| {
+            rules::mark_prepared(core);
+            Some(core.pending().prepared_turn_seq)
+        })?
     }
 
     pub fn begin_action_turn(gs: &mut GameState, p: &PlayerId) -> Option<()> {
@@ -373,6 +404,12 @@ mod real {
     }
     pub fn then(_: bool, _: bool) -> u8 {
         0
+    }
+    pub fn return_spec_ops(_: &mut GameState, _: &PlayerId) -> Option<u32> {
+        None
+    }
+    pub fn prepared(_: &GameState) -> Option<Option<u32>> {
+        None
     }
     pub fn begin_action_turn(_: &mut GameState, _: &PlayerId) -> Option<()> {
         None
@@ -639,5 +676,34 @@ mod tests {
         let r = report();
         let _ = take_report();
         assert_eq!(r.total_differences(), 1, "only the gate the string got wrong differs: {:?}", r.differences);
+    }
+
+    #[test]
+    fn spec_ops_waiting_on_the_card_land_on_the_home_planet_in_both_halves() {
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = table();
+        let seat = pid("a");
+        let home = state.player(&seat).unwrap().home_system.clone().expect("a home system");
+        state.player_mut(&seat).unwrap().spec_ops_card = 2;
+        let before: usize = state.system_state(&home).planet_units.values().flatten().filter(|u| u.type_id.as_str() == "sol_infantry2").count();
+        let placed = with_mask(driver(), || return_spec_ops(&mut state, &seat));
+        let r = report();
+        let _ = take_report();
+        let after: usize = state.system_state(&home).planet_units.values().flatten().filter(|u| u.type_id.as_str() == "sol_infantry2").count();
+        assert_eq!((placed, after - before, state.player(&seat).unwrap().spec_ops_card), (2, 2, 0));
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.windows.get("turn::return_spec_ops").map_or(0, |w| w.compared) >= 1, "the core half ran: {:?}", r.windows);
+        // Nothing waiting, nothing placed; the prepared turn is the turn in progress.
+        let again = with_mask(driver(), || return_spec_ops(&mut state, &seat));
+        assert_eq!(again, 0);
+        let _ = take_report();
+        with_mask(driver(), || {
+            check_prepared(&state, Some(state.turn_seq));
+            check_prepared(&state, None);
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(r.total_differences(), 1, "only the unrecorded prepared turn differs: {:?}", r.differences);
     }
 }
