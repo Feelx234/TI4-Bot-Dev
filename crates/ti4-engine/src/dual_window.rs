@@ -1856,6 +1856,12 @@ pub fn begin_round(
 /// The environment of a combat window could not be built from the position.
 const WINDOW_ENV: &str = "the combat environment could not be built from the position (a value the codecs refuse)";
 
+/// The end announcement also flips the dual-form units of the space area back to their ground form (the board).
+const END_ANNOUNCE: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
+    &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Board],
+);
+
 const BEGIN_ROUND: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
     &[Slice::Meta, Slice::Transient, Slice::Pending],
@@ -2525,7 +2531,7 @@ pub fn announce_end(
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let mut driver = Driver::new(EndAnnounce::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BEGIN_ROUND, script), |core, _| {
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(END_ANNOUNCE, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven

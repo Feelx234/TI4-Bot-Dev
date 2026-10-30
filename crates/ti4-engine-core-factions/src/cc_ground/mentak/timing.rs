@@ -240,6 +240,27 @@ mod tests {
         (s, f, p)
     }
 
+    /// Package W3: the form a Mentak seat places for a cruiser (Salvage Operations, Ipswitch) is the hook table's: the plain cruiser,
+    /// Cruiser II with the technology, the Corsair with The Table's Grace on top of it.
+    #[test]
+    fn the_form_a_mentak_seat_places_for_a_cruiser_follows_the_hook_table() {
+        use ti4_engine_core::generated::{Breakthrough, Technology as T, UnitBaseType};
+        use ti4_engine_core::kernel::Kernel;
+        let (mut s, k) = table(&[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan]);
+        let kernel = {
+            let mut hooks = ti4_engine_core::hooks::HookTable::new();
+            super::query::register(&mut hooks);
+            Kernel { hooks, ..k }
+        };
+        let scope = ti4_engine_core::tables::Scope(u32::MAX);
+        let form = |s: &CoreState| crate::cd_registry::yin::timing::placed_form_overridden(s, &kernel, scope, Seat(0), UnitBaseType::Cruiser);
+        assert_eq!(form(&s), Some(Unit::CruiserI));
+        s.players_mut().edit(0).tech.owned.insert(T::CruiserII);
+        assert_eq!(form(&s), Some(Unit::CruiserII));
+        s.players_mut().edit(0).cards.breakthrough = Some(Breakthrough::TheTablesGrace);
+        assert_eq!(form(&s), Some(Unit::Corsair));
+    }
+
     #[test]
     fn salvage_offers_the_destroyed_ship_types_the_owner_may_build_and_pay() {
         let (mut s, f, p) = setup();
