@@ -28,6 +28,22 @@ fn rel_back(r: c::Relationship) -> md::Relationship {
     md::Relationship { trust: r.trust, threat: r.threat, cooperation: r.cooperation, hostility: r.hostility }
 }
 
+/// A note of a deal: `{alias}:{faction}`, and a Support for the Throne is `support:{faction}` (`promissory::support`).
+fn deal_note(text: &str) -> R<c::NoteKey> {
+    match text.strip_prefix("support:") {
+        Some(faction) => Ok(c::NoteKey { note: ti4_engine_core::generated::PromissoryNote::SupportForTheThrone, faction: id::<ti4_engine_core::generated::Faction>(S, "faction", faction)? }),
+        None => note_key(text),
+    }
+}
+
+fn deal_note_text(k: c::NoteKey) -> String {
+    if k.note == ti4_engine_core::generated::PromissoryNote::SupportForTheThrone {
+        format!("support:{}", txt(k.faction))
+    } else {
+        note_text(k)
+    }
+}
+
 fn asset(cx: &Ctx, a: &md::TransferAsset) -> R<c::TransferAsset> {
     let _ = cx;
     Ok(match a {
@@ -37,7 +53,7 @@ fn asset(cx: &Ctx, a: &md::TransferAsset) -> R<c::TransferAsset> {
         md::TransferAsset::HazardousFragments(n) => c::TransferAsset::HazardousFragments(*n),
         md::TransferAsset::IndustrialFragments(n) => c::TransferAsset::IndustrialFragments(*n),
         md::TransferAsset::UnknownFragments(n) => c::TransferAsset::UnknownFragments(*n),
-        md::TransferAsset::PromissoryNote(t) => c::TransferAsset::PromissoryNote(note_key(t)?),
+        md::TransferAsset::PromissoryNote(t) => c::TransferAsset::PromissoryNote(deal_note(t)?),
         md::TransferAsset::ActionCard(t) => c::TransferAsset::ActionCard(id::<ActionCard>(S, "action card", t.as_str())?),
         md::TransferAsset::SecretObjective(t) => {
             c::TransferAsset::SecretObjective(id::<SecretObjective>(S, "secret objective", t)?)
@@ -53,13 +69,13 @@ fn asset_back(a: &c::TransferAsset) -> md::TransferAsset {
         c::TransferAsset::HazardousFragments(n) => md::TransferAsset::HazardousFragments(*n),
         c::TransferAsset::IndustrialFragments(n) => md::TransferAsset::IndustrialFragments(*n),
         c::TransferAsset::UnknownFragments(n) => md::TransferAsset::UnknownFragments(*n),
-        c::TransferAsset::PromissoryNote(k) => md::TransferAsset::PromissoryNote(note_text(*k)),
+        c::TransferAsset::PromissoryNote(k) => md::TransferAsset::PromissoryNote(deal_note_text(*k)),
         c::TransferAsset::ActionCard(x) => md::TransferAsset::ActionCard(ActionCardId::new(txt(*x))),
         c::TransferAsset::SecretObjective(x) => md::TransferAsset::SecretObjective(txt(*x).to_owned()),
     }
 }
 
-fn term(cx: &mut Ctx, t: &md::DealTerm) -> R<c::DealTerm> {
+pub(crate) fn term(cx: &mut Ctx, t: &md::DealTerm) -> R<c::DealTerm> {
     Ok(match t {
         md::DealTerm::ImmediateTransfer(a) => c::DealTerm::ImmediateTransfer(asset(cx, a)?),
         md::DealTerm::FuturePayment { asset: a, deadline_round } => {
@@ -91,7 +107,7 @@ fn term(cx: &mut Ctx, t: &md::DealTerm) -> R<c::DealTerm> {
     })
 }
 
-fn term_back(cx: &Ctx, t: &c::DealTerm) -> R<md::DealTerm> {
+pub(crate) fn term_back(cx: &Ctx, t: &c::DealTerm) -> R<md::DealTerm> {
     Ok(match t {
         c::DealTerm::ImmediateTransfer(a) => md::DealTerm::ImmediateTransfer(asset_back(a)),
         c::DealTerm::FuturePayment { asset, deadline_round } => {
@@ -175,7 +191,7 @@ fn terms<const N: usize>(cx: &mut Ctx, v: &[md::DealTerm]) -> R<SmallList<c::Dea
     Ok(out)
 }
 
-fn revision(cx: &mut Ctx, r: &md::DealRevision) -> R<c::DealRevision> {
+pub(crate) fn revision(cx: &mut Ctx, r: &md::DealRevision) -> R<c::DealRevision> {
     Ok(c::DealRevision {
         number: r.number,
         author: cx.seat(S, r.author.as_str())?,
@@ -186,7 +202,7 @@ fn revision(cx: &mut Ctx, r: &md::DealRevision) -> R<c::DealRevision> {
     })
 }
 
-fn revision_back(cx: &Ctx, r: &c::DealRevision) -> R<md::DealRevision> {
+pub(crate) fn revision_back(cx: &Ctx, r: &c::DealRevision) -> R<md::DealRevision> {
     Ok(md::DealRevision {
         number: r.number,
         author: PlayerId::new(cx.owner(S, r.author)?),
@@ -197,7 +213,7 @@ fn revision_back(cx: &Ctx, r: &c::DealRevision) -> R<md::DealRevision> {
     })
 }
 
-fn statement(cx: &mut Ctx, s: &md::SignalStatement) -> R<c::SignalStatement> {
+pub(crate) fn statement(cx: &mut Ctx, s: &md::SignalStatement) -> R<c::SignalStatement> {
     Ok(match s {
         md::SignalStatement::WillVote { agenda, outcome: o } => {
             c::SignalStatement::WillVote { agenda: id::<Agenda>(S, "agenda", agenda)?, outcome: outcome(cx, S, o)? }
@@ -208,7 +224,7 @@ fn statement(cx: &mut Ctx, s: &md::SignalStatement) -> R<c::SignalStatement> {
     })
 }
 
-fn statement_back(cx: &Ctx, s: &c::SignalStatement) -> R<md::SignalStatement> {
+pub(crate) fn statement_back(cx: &Ctx, s: &c::SignalStatement) -> R<md::SignalStatement> {
     Ok(match s {
         c::SignalStatement::WillVote { agenda, outcome } => {
             md::SignalStatement::WillVote { agenda: txt(*agenda).to_owned(), outcome: outcome_text(cx, S, *outcome)? }
@@ -265,7 +281,7 @@ fn sstatus_back(s: c::SignalStatus) -> md::SignalStatus {
     }
 }
 
-fn signal(cx: &mut Ctx, s: &md::Signal) -> R<c::Signal> {
+pub(crate) fn signal(cx: &mut Ctx, s: &md::Signal) -> R<c::Signal> {
     Ok(c::Signal {
         id: c::SignalId(s.id.0),
         speaker: cx.seat(S, s.speaker.as_str())?,
@@ -278,7 +294,7 @@ fn signal(cx: &mut Ctx, s: &md::Signal) -> R<c::Signal> {
     })
 }
 
-fn signal_back(cx: &Ctx, s: &c::Signal) -> R<md::Signal> {
+pub(crate) fn signal_back(cx: &Ctx, s: &c::Signal) -> R<md::Signal> {
     Ok(md::Signal {
         id: md::SignalId(s.id.0),
         speaker: PlayerId::new(cx.owner(S, s.speaker)?),

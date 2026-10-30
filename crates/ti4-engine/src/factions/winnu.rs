@@ -54,7 +54,7 @@ use crate::timing::{Ability, Relation, TimingContext, TimingError};
 
 /// The faction alias; also the faction name in promissory note ids (`acq:winnu`).
 const FACTION: &str = "winnu";
-const ACQUIESCENCE: &str = "acq:winnu";
+pub(crate) const ACQUIESCENCE: &str = "acq:winnu";
 const COMMANDER: &str = "winnucommander";
 const AGENT: &str = "winnuagent";
 

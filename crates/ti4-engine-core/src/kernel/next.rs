@@ -72,7 +72,7 @@ mod tests {
     use crate::state::{Window, WindowKind};
 
     fn w(kind: WindowKind) -> Next {
-        Next::Open(Window { kind, actor: None, data: [0; 3] })
+        Next::Open(Window::Untyped { kind, actor: None, data: [0; 3] })
     }
 
     #[test]

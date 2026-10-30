@@ -67,6 +67,20 @@ fn pool_for(option_id: &str) -> Option<TokenPool> {
 }
 
 impl TokenGain {
+    /// The tokens still to place (the next first) and those placed, as plain data for the typed copy `Pending` holds (package D1a).
+    #[must_use]
+    pub(crate) fn parts(&self) -> (Vec<PlayerId>, &[TokenPlacement]) {
+        (self.pending.iter().rev().cloned().collect(), &self.placed)
+    }
+
+    /// The window of `parts` (the inverse of [`Self::parts`]; `pending` has the next token first).
+    #[must_use]
+    pub(crate) fn from_parts(pending: Vec<PlayerId>, placed: Vec<TokenPlacement>) -> Self {
+        Self { pending: pending.into_iter().rev().collect(), placed }
+    }
+}
+
+impl TokenGain {
     /// A window granting `count` tokens to each player, in the given order.
     ///
     /// The order is the caller's: status step 81.5 grants in initiative order, which the oracle

@@ -596,12 +596,24 @@ pub fn classified_leak(state: &mut GameState, secret: &str) -> bool {
     if !active(state, "classified") {
         return false;
     }
-    let objective = ti4_model::id::ObjectiveId::new(secret);
-    if state.revealed_objectives.contains(&objective) {
-        return false;
-    }
-    state.revealed_objectives.push(objective);
-    true
+    make_public(state, &ti4_model::id::ObjectiveId::new(secret))
+}
+
+/// A secret objective becomes a public one: it joins `revealed_objectives` unless it is there. `false` when it
+/// already was.
+pub(crate) fn make_public(state: &mut GameState, objective: &ti4_model::id::ObjectiveId) -> bool {
+    crate::objectives::dual_write(
+        state,
+        "objectives::make_public",
+        |s| {
+            if s.revealed_objectives.contains(objective) {
+                return false;
+            }
+            s.revealed_objectives.push(objective.clone());
+            true
+        },
+        |s| crate::objectives_write::make_public(s, objective),
+    )
 }
 
 /// Minister of Industry: the owner's units may produce where they place a space dock.

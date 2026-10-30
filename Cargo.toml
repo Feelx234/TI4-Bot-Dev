@@ -151,6 +151,23 @@ debug = 0
 incremental = true
 opt-level = 3
 
+# Lighter test profiles (docs/ENGINE_COMPUTE.md 3): for `cargo test` loops where compile time matters
+# more than binary speed. Not used by verify_package.sh (that stays on `gate`). Results of the tests are
+# identical; only the generated code differs. `cargo test --profile lockstep -p ti4-engine --lib`.
+# lockstep: gate with opt-level 1 (still inlines small functions, a fraction of the codegen time).
+[profile.lockstep]
+inherits = "gate"
+opt-level = 1
+codegen-units = 64
+# lockstep0: no optimization of the workspace crates, debug assertions OFF as in gate (so the
+# overflow checks match the gate results); dependencies stay at opt-level 3 (hash/zstd/serde speed).
+[profile.lockstep0]
+inherits = "gate"
+opt-level = 0
+codegen-units = 256
+[profile.lockstep0.package."*"]
+opt-level = 3
+
 # The browser build: size first. `cargo build -p ti4-wasm --target wasm32-unknown-unknown
 # --profile wasm-release`.
 [profile.wasm-release]

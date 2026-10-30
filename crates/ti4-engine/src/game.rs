@@ -33,7 +33,50 @@ use crate::tactical::{
 use crate::timing::{Resolver, TimingContext, TimingError};
 use crate::tokens::{TokenGain, TokenGainError};
 use crate::transit::{CargoError, CargoWindow, MoveOutcome, apply_move, survives_gravity_rifts};
-use crate::vote::{AGAINST, VoteError, VoteWindow, is_law, outcomes};
+use crate::vote::{VoteError, VoteWindow, is_law, outcomes};
+
+// A child of `game` to read the private window fields (package D1a).
+#[cfg(feature = "typed-core")]
+#[path = "d1_pending.rs"]
+mod d1_pending;
+#[cfg(not(feature = "typed-core"))]
+mod d1_pending {
+    pub(super) const fn active() -> bool {
+        false
+    }
+
+    pub(super) fn probe(_: &super::Game<'_>) -> Option<serde_json::Value> {
+        None
+    }
+
+    pub(super) fn probed(_: &super::Game<'_>, _: &mut Option<serde_json::Value>, _: &str) {}
+
+    pub(super) fn note_ask(_: &'static str) {}
+
+    pub(super) fn snapshot_facts(_: &mut super::Game<'_>) {}
+
+    #[derive(Clone, Copy)]
+    pub(super) enum Ended {
+        Fighting(bool, bool),
+        Invading(bool),
+        Negotiating(bool),
+        Producing,
+    }
+
+    pub(super) fn transition(_: Ended, _: &super::Aftermath) {}
+
+    #[derive(Debug, Clone, Default)]
+    pub(super) struct Shadow {
+        pub(super) outcome: Option<crate::strategy::StepOutcome>,
+        pub(super) scoring: Option<(bool, crate::objectives::Book, Option<ti4_model::id::ObjectiveId>)>,
+    }
+
+    impl Shadow {
+        pub(super) fn note_arm(&mut self, _: &'static str) {}
+
+        pub(super) fn note_ask_seen(&mut self) {}
+    }
+}
 
 /// Metadata returned after one attempted game step.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -711,14 +754,15 @@ impl AftermathWindow {
                         )
                         .map_err(crate::combat::CombatError::from)?;
                     }
-                    self.stage =
-                        if crate::diplomacy::candidates::available_contacts(state, &self.player)
-                            .is_empty()
-                        {
-                            self.next_step(state, ctx, holds)?
-                        } else {
-                            Aftermath::Negotiating { invade: holds }
-                        };
+                    let contacts =
+                        !crate::diplomacy::candidates::available_contacts(state, &self.player)
+                            .is_empty();
+                    self.stage = if contacts {
+                        Aftermath::Negotiating { invade: holds }
+                    } else {
+                        self.next_step(state, ctx, holds)?
+                    };
+                    d1_pending::transition(d1_pending::Ended::Fighting(holds, contacts), &self.stage);
                 }
                 Aftermath::Invading(window) => {
                     if let Some((occurrence, combat)) = window.take_scoring_occurrence() {
@@ -763,17 +807,19 @@ impl AftermathWindow {
                     }
                     self.log.push("INVASION_RESOLVED".to_owned());
                     state.active_invasion = None;
-                    if crate::diplomacy::candidates::available_contacts(state, &self.player)
-                        .is_empty()
-                    {
+                    let contacts =
+                        !crate::diplomacy::candidates::available_contacts(state, &self.player)
+                            .is_empty();
+                    if contacts {
+                        self.stage = Aftermath::Negotiating { invade: false };
+                    } else {
                         // The production window opens before the step makes its first choice, so
                         // a reaction (War Machine) can change this step rather than one that has
                         // already spent its budget.
                         let window = self.enter_production(state, ctx)?;
                         self.stage = Aftermath::Producing(Box::new(window));
-                    } else {
-                        self.stage = Aftermath::Negotiating { invade: false };
                     }
+                    d1_pending::transition(d1_pending::Ended::Invading(contacts), &self.stage);
                 }
                 Aftermath::Producing(window) => {
                     if window
@@ -788,6 +834,7 @@ impl AftermathWindow {
                     self.log.push("PRODUCTION_RESOLVED".to_owned());
                     crate::factions::keleres::close_agent_window(state, &self.player);
                     self.stage = Aftermath::Done;
+                    d1_pending::transition(d1_pending::Ended::Producing, &self.stage);
                     return Ok(());
                 }
                 Aftermath::Negotiating { .. } | Aftermath::Done => return Ok(()),
@@ -852,6 +899,7 @@ impl Window for AftermathWindow {
                 // Contacts are opened by the game driver; only "continue" reaches here.
                 let invade = *invade;
                 self.stage = self.next_step(state, ctx, invade)?;
+                d1_pending::transition(d1_pending::Ended::Negotiating(invade), &self.stage);
             }
             Aftermath::Invading(window) => window.resolve(state, ctx, answer)?,
             Aftermath::Producing(window) => window.resolve(state, ctx, answer)?,
@@ -1009,6 +1057,8 @@ pub struct Game<'a> {
     aftermath_observer: Option<AftermathObserver>,
     /// Told which card a strategic action will resolve, before its primary runs.
     strategic_observer: Option<StrategicObserver>,
+    /// The windows the driver holds beside the string fields (package D1a; only used with `driver=dual`).
+    d1: d1_pending::Shadow,
 }
 
 /// A copy of everything a [`Game`] needs to continue identically, taken at a step boundary.
@@ -1158,6 +1208,7 @@ impl<'a> GameSnapshot<'a> {
             round_income_seat: round_income_seat.clone(),
             aftermath_observer: None,
             strategic_observer: None,
+            d1: d1_pending::Shadow::default(),
         }
     }
 
@@ -1241,6 +1292,7 @@ impl<'a> GameSnapshot<'a> {
             round_income_seat,
             aftermath_observer: None,
             strategic_observer: None,
+            d1: d1_pending::Shadow::default(),
         }
     }
 
@@ -1330,6 +1382,8 @@ impl<'a> Game<'a> {
             // Input wiring, chosen by whoever drives the copy: never copied.
             aftermath_observer: _,
             strategic_observer: _,
+            // Derived observer of the D1 dual: a copy re-seeds it at its first checked step.
+            d1: _,
         } = self;
         let mut rng = rng.clone();
         // A copy is a separate execution: it must never mark the activity of its source.
@@ -1528,6 +1582,7 @@ impl<'a> Game<'a> {
             round_income_seat: None,
             aftermath_observer: None,
             strategic_observer: None,
+            d1: d1_pending::Shadow::default(),
         }
     }
 
@@ -1627,6 +1682,8 @@ impl<'a> Game<'a> {
             round_income_seat,
             aftermath_observer: _,
             strategic_observer: _,
+            // Derived observer of the D1 dual: a copy re-seeds it at its first checked step.
+            d1: _,
         } = self.fork();
         let timing = timing.into_worker();
         move || Self {
@@ -1668,6 +1725,7 @@ impl<'a> Game<'a> {
             round_income_seat,
             aftermath_observer: None,
             strategic_observer: None,
+            d1: d1_pending::Shadow::default(),
         }
     }
 
@@ -1973,18 +2031,23 @@ impl<'a> Game<'a> {
     #[must_use]
     pub fn legal_options(&self) -> Option<Choice> {
         if self.state.finished || self.blocked.is_some() {
+            d1_pending::note_ask("none");
             return None;
         }
         if let Some((choices, _)) = &self.leader_followers {
+            d1_pending::note_ask("leader_followers");
             return choices.first().cloned();
         }
         if let Some(window) = &self.event_scoring {
+            d1_pending::note_ask("event_scoring");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if let Some(window) = &self.scoring {
+            d1_pending::note_ask("scoring");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if let Some((window, _)) = &self.tokens {
+            d1_pending::note_ask("tokens");
             return window.pending_choice().map(|choice| {
                 let actor = choice.player.clone();
                 let choice = choice.contextualized(DecisionContext::new(
@@ -2003,31 +2066,43 @@ impl<'a> Game<'a> {
             });
         }
         if let Some((window, _)) = &self.voting {
+            d1_pending::note_ask("voting");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         // An open contact comes first: one opened at the aftermath's negotiation pause must finish
         // before the action moves on, or its deal is settled against a board that has changed.
         if let Some(window) = &self.diplomacy {
+            d1_pending::note_ask("diplomacy");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if let Some(window) = &self.aftermath {
+            d1_pending::note_ask("aftermath");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if self.agenda_talks.is_some() {
+            d1_pending::note_ask("agenda_talks");
             return self.agenda_talks_choice();
         }
         if let Some(window) = &self.tactical {
+            d1_pending::note_ask("tactical");
             return self.tactical_choice(window);
         }
         // Starting technology is chosen before anything else in the game (setup, before the first
         // card is drafted); a game made without the choice has no picks.
         if !self.state.starting_tech_picks.is_empty() {
+            d1_pending::note_ask("starting_tech");
             return crate::starting_tech::choice(&self.state, self.content, self.sources);
         }
         match self.state.phase {
-            Phase::Strategy => strategy_options(&self.state, self.content),
+            Phase::Strategy => {
+                d1_pending::note_ask("draft");
+                strategy_options(&self.state, self.content)
+            }
             Phase::Action => self.action_options(),
-            Phase::Status | Phase::Agenda => None,
+            Phase::Status | Phase::Agenda => {
+                d1_pending::note_ask("nothing");
+                None
+            }
         }
     }
 
@@ -2043,21 +2118,37 @@ impl<'a> Game<'a> {
             self.galaxy.as_ref(),
             active,
         ) {
-            self.events.push(format!("LEADER_UNLOCKED:{leader}"));
+            self.emit(&format!("LEADER_UNLOCKED:{leader}"));
         }
     }
 
     /// Resolve one generated decision, or one choice-free phase/window transition.
     #[must_use]
+    pub fn step(&mut self) -> StepResult {
+        #[cfg(feature = "typed-core")]
+        if d1_pending::active() {
+            self.d1.outcome = None;
+            self.d1.scoring = None;
+            crate::dual_window::step_capture_start();
+            let result = self.step_flow();
+            d1_pending::check(self, &result);
+            return result;
+        }
+        self.step_flow()
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "the driver keeps the ordered window/phase precedence visible in one place"
     )]
-    pub fn step(&mut self) -> StepResult {
+    fn step_flow(&mut self) -> StepResult {
         // Identical-ask counts are per step: a cycle inside one step is what trips the guard.
         self.table.begin_step();
+        // The reconcile hooks below are counted under the D1 dual (which of them changed the state: `d1::reconcile`).
+        let mut probe = d1_pending::probe(self);
         if !self.state.starting_tech_picks.is_empty() {
             crate::starting_tech::settle(&mut self.state, self.content, self.sources);
+            d1_pending::probed(self, &mut probe, "starting_tech::settle");
         }
         // Rolls are stamped with the system in play, for the public roll feed only.
         let scene = self
@@ -2069,13 +2160,16 @@ impl<'a> Game<'a> {
         if let Err(error) = self.announce_staged_ground_events() {
             return self.result(false, Some(error));
         }
+        d1_pending::probed(self, &mut probe, "announce_staged_ground_events");
         if let Err(error) = self.announce_gains() {
             return self.result(false, Some(error));
         }
+        d1_pending::probed(self, &mut probe, "announce_gains");
         // Space station control is a function of occupancy, not an event (rules 2, 2a, 2b), so it
         // is recomputed once per step rather than at each of the dozen places a unit can move or
         // die. Doing it here means a movement path added later cannot forget to.
         crate::space_stations::reconcile_all(&mut self.state, self.content, self.sources);
+        d1_pending::probed(self, &mut probe, "space_stations::reconcile_all");
         // The two wormhole laws are switches on the map, and the map is owned here. Set once per
         // step for the same reason as station control: derived state is cheaper to recompute than
         // to keep in sync from every place a law can be enacted or repealed.
@@ -2086,19 +2180,23 @@ impl<'a> Game<'a> {
         if !self.state.nexus_unlocked && crate::seating::nexus_is_triggered(&self.state) {
             self.state.nexus_unlocked = true;
         }
+        d1_pending::probed(self, &mut probe, "nexus_unlocked");
         // A Song Like Marrow moves a victory point with control of Styx, in both directions.
         // Reconciled here rather than hooked onto a control change for the same reason as the two
         // above: control is handed over in dozens of places, and a VP swing that misses one is
         // silently wrong.
         crate::legendary::settle_control_points(&mut self.state);
+        d1_pending::probed(self, &mut probe, "legendary::settle_control_points");
         // I.I.H.Q. Modernization: "Gain the Custodia Vigilia planet card ... You cannot lose these
         // cards." The technology and the breakthrough reach a seat from many places, none of which
         // announces it, so the planet card is reconciled here, as station control is.
         crate::factions::keleres::reconcile(&mut self.state);
+        d1_pending::probed(self, &mut probe, "keleres::reconcile");
         // Sundered: "Other players' units that move or are placed into your home system are
         // destroyed." Units reach a system by too many routes to hook each, so it is reconciled here
         // as station control is (and again when a movement step finishes, before anything fires).
         crate::factions::crimson::enforce_sundered(&mut self.state, self.content, self.sources);
+        d1_pending::probed(self, &mut probe, "crimson::enforce_sundered");
         if let Some(galaxy) = self.galaxy.as_mut() {
             crate::laws::apply_to_galaxy(&self.state, galaxy);
             // Tiles a faction effect changed (Nova Seed), replayed onto the owned map. A recorded
@@ -2116,8 +2214,11 @@ impl<'a> Game<'a> {
             let outcome = if survived { "SURVIVED" } else { "LOST" };
             self.emit(&format!("SPEC_OPS_{outcome}:{owner}"));
         }
+        d1_pending::probed(self, &mut probe, "faction_techs::roll_spec_ops");
 
+        d1_pending::snapshot_facts(self);
         if self.state.finished {
+            self.d1.note_arm("finished");
             self.complete_leader_strategy();
             self.secondary = None;
             if let Err(error) = crate::diplomacy::settle_game_end(&mut self.state) {
@@ -2126,47 +2227,60 @@ impl<'a> Game<'a> {
             return self.result(false, None);
         }
         if let Some(error) = self.blocked.clone() {
+            self.d1.note_arm("blocked");
             return self.result(false, Some(error));
         }
 
         if self.leader_followers.is_some() {
+            self.d1.note_arm("leader_followers");
             return self.step_leader_followers();
         }
         if self.secondary.is_some() {
+            self.d1.note_arm("secondary");
             return self.step_secondary();
         }
         if self.event_scoring.is_some() {
+            self.d1.note_arm("event_scoring");
             return self.step_event_scoring();
         }
         if self.scoring.is_some() {
+            self.d1.note_arm("scoring");
             return self.step_scoring();
         }
         if self.tokens.is_some() {
+            self.d1.note_arm("tokens");
             return self.step_token_gain();
         }
         if self.voting.is_some() {
+            self.d1.note_arm("voting");
             return self.step_vote();
         }
         // Same precedence as `legal_options`: an open contact before the aftermath it paused.
         if self.diplomacy.is_some() {
+            self.d1.note_arm("diplomacy");
             return self.step_diplomacy();
         }
         if self.aftermath.is_some() {
+            self.d1.note_arm("aftermath");
             return self.step_aftermath();
         }
         if self.agenda_talks.is_some() {
+            self.d1.note_arm("agenda_talks");
             return self.step_agenda_talks();
         }
         if self.trade.is_some() {
+            self.d1.note_arm("trade");
             return self.step_trade();
         }
         if self.tactical.is_some() {
+            self.d1.note_arm("tactical");
             return self.step_tactical();
         }
         if self.state.phase == Phase::Action
             && self.prepared_turn_seq != Some(self.state.turn_seq)
             && let Some(active) = self.state.active.clone()
         {
+            self.d1.note_arm("turn_prelude");
             if let Err(error) = crate::technology::start_turn(
                 &mut self.state,
                 self.content,
@@ -2205,9 +2319,11 @@ impl<'a> Game<'a> {
             }
         }
         if self.state.phase == Phase::Status && !self.status_resolved {
+            self.d1.note_arm("status");
             return self.step_status();
         }
         if self.state.phase == Phase::Agenda && !self.agenda_resolved {
+            self.d1.note_arm("agenda");
             return self.step_agenda();
         }
         if self.state.phase == Phase::Strategy
@@ -2216,15 +2332,20 @@ impl<'a> Game<'a> {
             && self.state.starting_tech_picks.is_empty()
         {
             self.strategy_phase_announced = true;
+            self.d1.note_arm("strategy_announce");
             self.sync_timing_context();
             if let Err(error) = self.emit_typed("STRATEGY_PHASE_BEGAN", BTreeMap::new()) {
                 return self.result(false, Some(error));
             }
         }
 
-        let Some(choice) = self.legal_options() else {
+        let asked = self.legal_options();
+        self.d1.note_ask_seen();
+        let Some(choice) = asked else {
+            self.d1.note_arm("phase");
             return self.step_phase();
         };
+        self.d1.note_arm("ask");
         // The last strategy card is not a choice: the picker takes it and is told so. Never
         // journaled, so a replay reaches the same pick by the same route.
         let is_draft = choice
@@ -2303,11 +2424,14 @@ impl<'a> Game<'a> {
 
     fn action_options(&self) -> Option<Choice> {
         if let Some(window) = &self.secondary {
+            d1_pending::note_ask("secondary");
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if let Some(player) = &self.turn_closing {
+            d1_pending::note_ask("closing");
             return Some(self.with_turn_menu(self.closing_options(player), true));
         }
+        d1_pending::note_ask("action_menu");
         self.turn_options()
             .map(|choice| self.with_turn_menu(choice, false))
     }
@@ -2478,27 +2602,40 @@ impl<'a> Game<'a> {
                 seat.technologies
                     .contains(ti4_model::id::text(&"fl"))
             });
+        let dual = crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual;
+        let mut seen = Vec::new();
         if let Some(turn) = self.turn_options() {
             for option in turn.options {
-                if self.is_free_option(&option) || (second_action && option.id != "pass") {
+                let free = self.is_free_option(&option);
+                if dual {
+                    seen.push((option.id.clone(), free, option.id == "pass"));
+                }
+                if free || (second_action && option.id != "pass") {
                     options.push(option);
                 }
             }
         }
         // "At the end of a player's turn, they may commit to the expedition": one slice, after
         // the action, without using an action.
+        let mut expedition = Vec::new();
         if self.state.thunders_edge
             && !self
                 .state
                 .transient_flags
                 .has(TransientFlags::EXPEDITION_CLAIMED)
         {
-            options.extend(crate::thunders_edge::available_actions(
+            expedition = crate::thunders_edge::available_actions(
                 &self.state,
                 self.content,
                 self.sources,
                 player,
-            ));
+            );
+            options.extend(expedition.iter().cloned());
+        }
+        if dual {
+            let ids: Vec<String> = options.iter().map(|o| o.id.clone()).collect();
+            let exp: Vec<String> = expedition.iter().map(|o| o.id.clone()).collect();
+            crate::turn_write::check_closing(&self.state, player, self.actions_this_turn, second_action, END_TURN_ID, &seen, &exp, &ids);
         }
         Choice::new(
             player.clone(),
@@ -2519,7 +2656,18 @@ impl<'a> Game<'a> {
     }
 
     fn turn_options(&self) -> Option<Choice> {
+        use crate::turn_write::src;
         let active = self.state.active.as_ref()?;
+        // What each source gave, for the D1 menu dual (`turn_write::check_turn_menu`).
+        let dual = crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual;
+        let mut parts: crate::turn_write::MenuParts = Vec::new();
+        let mut from = 0;
+        let mut mark = |choice: &Choice, source: u8| {
+            if dual {
+                parts.push((source, choice.options[from..].iter().map(|o| o.id.clone()).collect()));
+            }
+            from = choice.options.len();
+        };
         let mut choice = strategic_action_options(&self.state, self.content, active)
             .unwrap_or_else(|| {
                 Choice::new(
@@ -2528,6 +2676,7 @@ impl<'a> Game<'a> {
                     vec![ChoiceOption::labelled("pass", ACTION_KIND, "pass")],
                 )
             });
+        mark(&choice, src::STRATEGIC);
         // Appended rather than inserted: a table that always takes the first option keeps
         // taking the action it took before, so adding this does not silently rewrite the
         // behaviour of every existing seeded game.
@@ -2538,6 +2687,7 @@ impl<'a> Game<'a> {
                 "take a tactical action",
             ));
         }
+        mark(&choice, src::TACTICAL);
         if let Some(galaxy) = self.galaxy.as_ref() {
             choice
                 .options
@@ -2547,12 +2697,14 @@ impl<'a> Game<'a> {
                     galaxy,
                     active,
                 ));
+            mark(&choice, src::TRANSACTIONS);
             choice
                 .options
                 .extend(crate::diplomacy::candidates::available_contacts(
                     &self.state,
                     active,
                 ));
+            mark(&choice, src::CONTACTS);
             choice
                 .options
                 .extend(crate::diplomacy::candidates::payment_actions(
@@ -2561,6 +2713,7 @@ impl<'a> Game<'a> {
                     galaxy,
                     active,
                 ));
+            mark(&choice, src::PAYMENTS);
         }
         choice.options.extend(crate::relics::available_actions(
             &self.state,
@@ -2569,18 +2722,21 @@ impl<'a> Game<'a> {
             self.galaxy.as_ref(),
             active,
         ));
+        mark(&choice, src::RELICS);
         choice.options.extend(crate::exploration::available_actions(
             &self.state,
             self.content,
             self.sources,
             active,
         ));
+        mark(&choice, src::EXPLORATION);
         choice.options.extend(crate::technology::component_actions(
             &self.state,
             self.content,
             self.sources,
             active,
         ));
+        mark(&choice, src::TECHNOLOGY);
         // A table with Thunder's Edge on commits to the expedition "at the end of a player's
         // turn" (the closing menu, `closing_options`), not as an action; older games keep the
         // component action they were recorded with.
@@ -2593,6 +2749,7 @@ impl<'a> Game<'a> {
                     self.sources,
                     active,
                 ));
+            mark(&choice, src::THUNDERS_EDGE);
         }
         // A faction's own component actions — Sol's Orbital Drop is the first.
         choice
@@ -2602,6 +2759,7 @@ impl<'a> Game<'a> {
                 self.content,
                 active,
             ));
+        mark(&choice, src::FACTION);
         if let Some(galaxy) = self.galaxy.as_ref() {
             choice
                 .options
@@ -2612,6 +2770,7 @@ impl<'a> Game<'a> {
                     galaxy,
                     active,
                 ));
+            mark(&choice, src::MAPPED);
         }
         // Leaders whose printed window is the action phase: readied agents and unlocked heroes,
         // offered only when they can resolve (LEADER-FIX-001).
@@ -2620,6 +2779,7 @@ impl<'a> Game<'a> {
             self.content,
             active,
         ));
+        mark(&choice, src::LEADERS);
         // 22.1: cards whose printed window is "Action" are played on your turn. Without this
         // every such card is drawn, held, discarded to the hand limit, and never played.
         choice
@@ -2631,6 +2791,7 @@ impl<'a> Game<'a> {
                 self.galaxy.as_ref(),
                 active,
             ));
+        mark(&choice, src::ACTION_CARDS);
         // A component action taken this turn that did not resolve is not offered again: nothing
         // about the position changed, so it would fail identically, and a decider that keeps
         // choosing it never advances the game. 22.4 is preserved -- the turn was not consumed and
@@ -2639,6 +2800,11 @@ impl<'a> Game<'a> {
             choice
                 .options
                 .retain(|option| !self.failed_component_actions.contains(&option.id));
+        }
+        if dual {
+            let failed: Vec<String> = self.failed_component_actions.iter().cloned().collect();
+            let menu: Vec<String> = choice.options.iter().map(|o| o.id.clone()).collect();
+            crate::turn_write::check_turn_menu(&parts, self.state.thunders_edge, &failed, &menu);
         }
         Some(choice.contextualized(DecisionContext::new(
             active.clone(),
@@ -3300,7 +3466,7 @@ impl<'a> Game<'a> {
         let Some(window) = self.tactical.take() else {
             unreachable!("a tactical action is open");
         };
-        match self.apply_tactical(window, &choice, answer) {
+        match self.apply_tactical_windowed(window, &choice, answer) {
             Ok(result) => result,
             Err(error) => {
                 if let Some((
@@ -3336,6 +3502,106 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// Replace the dice by test faces (the lockstep tests: the core cannot reproduce them).
+    #[cfg(test)]
+    pub(crate) fn use_test_faces(&mut self, faces: &[u32]) {
+        self.dice = Dice::from_faces(faces.iter().copied());
+    }
+
+    /// The gravity-rift rolls of the game so far (the lockstep tests count them).
+    #[cfg(test)]
+    pub(crate) fn rift_rolls(&self) -> usize {
+        self.dice.history().iter().filter(|roll| roll.reason == "gravity rift").count()
+    }
+
+    /// [`Self::apply_tactical`] for one answer, as a lockstep window of `Area::Movement` (`tactical_dual`) when the
+    /// answer is one the core machine follows: a system to activate, a ship to move, a pickup. The finish of the
+    /// movement step and a diplomacy contact run unwrapped (the close has its own window, `finish_head`).
+    fn apply_tactical_windowed(
+        &mut self,
+        window: TacticalWindow,
+        choice: &Choice,
+        answer: ChoiceOption,
+    ) -> Result<StepResult, GameError> {
+        use crate::dual::{Area, Backend};
+        let follows = match &window.stage {
+            TacticalStage::Activating | TacticalStage::Loading { .. } => true,
+            TacticalStage::Moving => {
+                !answer.is_decline() && crate::diplomacy::candidates::contact_seat_index(&answer.id).is_none()
+            }
+        };
+        let galaxy = self.galaxy.clone();
+        let (true, Backend::Dual, Some(galaxy)) = (follows, crate::dual::backend(Area::Movement), galaxy) else {
+            return self.apply_tactical(window, choice, answer);
+        };
+        let at = match &window.stage {
+            TacticalStage::Activating => crate::tactical_dual::At::Activating,
+            TacticalStage::Moving => crate::tactical_dual::At::Moving,
+            TacticalStage::Loading { origin, ship, path, window: hold } => {
+                let (loaded, closed) = hold.progress();
+                crate::tactical_dual::At::Loading {
+                    origin: origin.clone(),
+                    ship: (**ship).clone(),
+                    path: path.clone(),
+                    loaded: loaded.to_vec(),
+                    closed,
+                }
+            }
+        };
+        let player = window.player.clone();
+        let (content, sources) = (self.content, self.sources);
+        let reproducible =
+            !self.dice.is_preloaded() && !self.rng.sync_pending() && self.rng.seed() == self.state.rng_seed;
+        let rng_before = self.rng.positions();
+        let (dice_before, events_before) = (self.dice.count(), self.events.len());
+        let failed = std::cell::Cell::new(false);
+        let mut applied = None;
+        let mut taken = self.state.clone();
+        let _ = crate::dual_window!(
+            Area::Movement,
+            crate::tactical_dual::label(&at),
+            &mut taken,
+            |state: &mut GameState| {
+                // The table was asked before the window (the checkpoint of an activation needs it so); the recording
+                // is told what was asked and answered.
+                crate::dual_window::note_ask(choice, &Ok(answer.clone()));
+                std::mem::swap(&mut self.state, state);
+                let result = self.apply_tactical(window, choice, answer);
+                std::mem::swap(&mut self.state, state);
+                failed.set(result.is_err());
+                applied = Some(result);
+                let stage = match self.tactical.as_ref().map(|w| &w.stage) {
+                    Some(TacticalStage::Activating) => crate::tactical_dual::Tag::Activating,
+                    Some(TacticalStage::Moving) => crate::tactical_dual::Tag::Moving,
+                    Some(TacticalStage::Loading { .. }) => crate::tactical_dual::Tag::Loading,
+                    None => crate::tactical_dual::Tag::Closed,
+                };
+                crate::dual::Run::new(crate::tactical_dual::Stepped {
+                    stage,
+                    plain: if crate::dual_window::nested_so_far() { Vec::new() } else { self.events.get(events_before..).unwrap_or_default().to_vec() },
+                    failed: failed.get(),
+                    rift_faces: self.dice.history()[dice_before..]
+                        .iter()
+                        .filter(|roll| roll.reason == "gravity rift")
+                        .filter_map(|roll| roll.faces.first().copied())
+                        .collect(),
+                    rng: self.rng.positions(),
+                })
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                let args = crate::tactical_dual::Args {
+                    player: &player,
+                    reproducible,
+                    rng_before: &rng_before,
+                    failed: failed.get(),
+                };
+                crate::tactical_dual::step(state, content, sources, &galaxy, &at, args, script)
+            }
+        );
+        self.state = taken;
+        applied.expect("the string side of the window ran")
+    }
+
     /// Copy anything the resolver emitted since `from` into the game's event log.
     ///
     /// There are two event streams: the driver's string labels and the resolver's typed events.
@@ -3343,15 +3609,7 @@ impl<'a> Game<'a> {
     /// reading the first saw a batch in which no action card was ever played — while five
     /// hundred of them were. One observable stream, or observability is a lie.
     fn mirror_timing_log(&mut self, from: usize) {
-        let emitted: Vec<String> = self
-            .timing
-            .log()
-            .iter()
-            .skip(from)
-            .filter_map(|line| line.strip_prefix("emit "))
-            .map(|line| line.split('#').next().unwrap_or(line).to_owned())
-            .collect();
-        self.events.extend(emitted);
+        crate::agenda_reveal::mirror_timing_log(&self.timing, &mut self.events, from);
     }
 
     /// Emit a typed event through the resolver, opening its WHEN and AFTER windows.
@@ -3367,36 +3625,8 @@ impl<'a> Game<'a> {
         event_type: &str,
         payload: BTreeMap<String, serde_json::Value>,
     ) -> Result<bool, GameError> {
-        let event = self.event_sequence.next(event_type, payload)?;
-        let (content, sources) = (self.content, self.sources);
-        let galaxy = self.galaxy.clone();
-        let logged = self.timing.log().len();
-        let emitted = {
-            let (state, table, timing, dice, rng, event_sequence) = (
-                &mut self.state,
-                &mut self.table,
-                &mut self.timing,
-                &mut self.dice,
-                &mut self.rng,
-                &mut self.event_sequence,
-            );
-            let mut context = TimingContext {
-                state,
-                content,
-                sources,
-                table,
-                dice,
-                rng,
-                event_sequence,
-                galaxy: galaxy.as_ref(),
-            };
-            timing.emit_with_context(&mut context, event, |_, _| {})?
-        };
-        self.mirror_timing_log(logged);
-        // A faction effect resolved in that window may have staged card moves (a Scheming discard,
-        // a card taken); announce them now rather than at the next component action.
-        self.announce_staged_cards()?;
-        Ok(!emitted.cancelled)
+        let (state, mut live) = self.split();
+        live.emit_typed(state, event_type, payload)
     }
 
     /// Announce ship destructions an effect staged without a resolver (a leader or component
@@ -3589,27 +3819,8 @@ impl<'a> Game<'a> {
     /// # Errors
     /// [`GameError`] when a window cannot be resolved.
     fn announce_staged_cards(&mut self) -> Result<(), GameError> {
-        if !crate::factions::hooks_cards::has_staged(&self.state) {
-            return Ok(());
-        }
-        let (content, sources) = (self.content, self.sources);
-        let galaxy = self.galaxy.clone();
-        let logged = self.timing.log().len();
-        {
-            let mut context = TimingContext {
-                state: &mut self.state,
-                content,
-                sources,
-                table: &mut self.table,
-                dice: &mut self.dice,
-                rng: &mut self.rng,
-                event_sequence: &mut self.event_sequence,
-                galaxy: galaxy.as_ref(),
-            };
-            crate::reactions::announce_staged_card_events(&mut context, &mut self.timing)?;
-        }
-        self.mirror_timing_log(logged);
-        Ok(())
+        let (state, mut live) = self.split();
+        live.announce_staged_cards(state)
     }
 
     /// Play an action card as a component action, through the game's own timing context.
@@ -3653,7 +3864,59 @@ impl<'a> Game<'a> {
 
     /// Perform a faction component action through the game's own timing context.
     /// Resolve a leader offered as an action-phase component (LEADER-FIX-001).
-    fn begin_free_tactical(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
+    pub(crate) fn begin_free_tactical(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
+        use crate::dual::{Area, Backend};
+        let galaxy = self.galaxy.clone();
+        let (Backend::Dual, Some(galaxy)) = (crate::dual::backend(Area::Movement), galaxy) else {
+            return self.begin_free_tactical_text(active, system);
+        };
+        let (content, sources) = (self.content, self.sources);
+        let rng_before = self.rng.positions();
+        let reproducible =
+            !self.dice.is_preloaded() && !self.rng.sync_pending() && self.rng.seed() == self.state.rng_seed;
+        let events_before = self.events.len();
+        let failed = std::cell::Cell::new(false);
+        let mut done = None;
+        let (player, target) = (active.clone(), system.clone());
+        let mut taken = self.state.clone();
+        let _ = crate::dual_window!(
+            Area::Movement,
+            "tactical::free",
+            &mut taken,
+            |state: &mut GameState| {
+                std::mem::swap(&mut self.state, state);
+                let result = self.begin_free_tactical_text(active, system);
+                std::mem::swap(&mut self.state, state);
+                failed.set(result.is_err());
+                done = Some(result);
+                crate::dual::Run::new(crate::tactical_dual::Stepped {
+                    stage: if self.tactical.is_some() {
+                        crate::tactical_dual::Tag::Moving
+                    } else {
+                        crate::tactical_dual::Tag::Closed
+                    },
+                    plain: if crate::dual_window::nested_so_far() { Vec::new() } else { self.events.get(events_before..).unwrap_or_default().to_vec() },
+                    failed: failed.get(),
+                    rift_faces: Vec::new(),
+                    rng: self.rng.positions(),
+                })
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                let args = crate::tactical_dual::Args {
+                    player: &player,
+                    reproducible,
+                    rng_before: &rng_before,
+                    failed: failed.get(),
+                };
+                crate::tactical_dual::free(state, content, sources, &galaxy, &target, args, script)
+            }
+        );
+        self.state = taken;
+        done.expect("the string side of the window ran")
+    }
+
+    /// The free tactical action as the string engine runs it (see [`Self::begin_free_tactical`]).
+    fn begin_free_tactical_text(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
         // TE Warfare explicitly waives the token and permits an already-tokened
         // system, but the rest is the ordinary movement/aftermath pipeline.
         //
@@ -4637,21 +4900,10 @@ impl<'a> Game<'a> {
         result
     }
 
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one movement-close and aftermath-opening boundary"
-    )]
-    fn finish_tactical_inner(&mut self) -> StepResult {
-        let tactical = self
-            .tactical
-            .as_ref()
-            .map(|window| (window.player.clone(), window.notes_at_start.clone()));
-        self.tactical = None;
-        let system = self.state.active_system.clone();
-
-        let (Some((player, notes_at_start)), Some(system)) = (tactical, system) else {
-            return self.close_tactical();
-        };
+    /// The head of [`Self::finish_tactical_inner`]: `MOVEMENT_FINISHED`, the map edits Nova Seed made, the Sardakk hero's
+    /// skip to the commit step, the end of the arrival count and the Floating Factories a blockade destroys. Returns the
+    /// system the rest of the step belongs to and whether it skips to the commit step.
+    fn finish_head(&mut self, player: &PlayerId, system: SystemId) -> Result<(SystemId, bool), GameError> {
         // The movement step is over (LRR 89.2 → 89.3): one typed window for effects that read "after
         // you move ships" as a whole rather than per ship (Naalu Foresight, Muaat Nova Seed).
         let mut moved = BTreeMap::new();
@@ -4669,7 +4921,7 @@ impl<'a> Game<'a> {
             serde_json::Value::from(ships_moved),
         );
         if let Err(error) = self.emit_typed("MOVEMENT_FINISHED", moved) {
-            return self.result(false, Some(error));
+            return Err(error);
         }
         // Nova Seed replaced the active system's tile during that window: the rest of the step
         // belongs to the supernova, on a map that already shows it.
@@ -4714,6 +4966,66 @@ impl<'a> Game<'a> {
             self.sources,
             &system,
         );
+        Ok((system, skip_to_commit))
+    }
+
+    /// [`Self::finish_head`] as a lockstep window of `Area::Movement` (`tactical_dual::finish`).
+    fn finish_head_windowed(&mut self, player: &PlayerId, system: SystemId) -> Result<(SystemId, bool), GameError> {
+        use crate::dual::{Area, Backend};
+        let (Backend::Dual, true) = (crate::dual::backend(Area::Movement), self.galaxy.is_some()) else {
+            return self.finish_head(player, system);
+        };
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.clone().expect("checked above");
+        let events_before = self.events.len();
+        let failed = std::cell::Cell::new(false);
+        let mut done = None;
+        let mut taken = self.state.clone();
+        let _ = crate::dual_window!(
+            Area::Movement,
+            "tactical::finish",
+            &mut taken,
+            |state: &mut GameState| {
+                std::mem::swap(&mut self.state, state);
+                let result = self.finish_head(player, system.clone());
+                std::mem::swap(&mut self.state, state);
+                failed.set(result.is_err());
+                let value = result.as_ref().map_or_else(|_| (String::new(), false), |(system, skip)| (system.to_string(), *skip));
+                done = Some(result);
+                crate::dual::Run::new(crate::tactical_dual::Closed {
+                    system: value.0,
+                    skip_to_commit: value.1,
+                    plain: if crate::dual_window::nested_so_far() { Vec::new() } else { self.events.get(events_before..).unwrap_or_default().to_vec() },
+                    failed: failed.get(),
+                })
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                crate::tactical_dual::finish(state, content, sources, &galaxy, player, failed.get(), script)
+            }
+        );
+        self.state = taken;
+        done.expect("the string side of the window ran")
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one movement-close and aftermath-opening boundary"
+    )]
+    fn finish_tactical_inner(&mut self) -> StepResult {
+        let tactical = self
+            .tactical
+            .as_ref()
+            .map(|window| (window.player.clone(), window.notes_at_start.clone()));
+        self.tactical = None;
+        let system = self.state.active_system.clone();
+
+        let (Some((player, notes_at_start)), Some(system)) = (tactical, system) else {
+            return self.close_tactical();
+        };
+        let (system, skip_to_commit) = match self.finish_head_windowed(&player, system) {
+            Ok(done) => done,
+            Err(error) => return self.result(false, Some(error)),
+        };
 
         // A single answer can enter automatic aftermath before another question
         // exists. The observer only reports that boundary; rules still run normally.
@@ -5231,44 +5543,26 @@ impl<'a> Game<'a> {
             self.diplomacy = None;
             return self.result(false, None);
         };
-        let answer = match self.table.ask_seeing(
-            &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
-        ) {
-            Ok(answer) => answer,
-            Err(error) => return self.result(false, Some(error.into())),
-        };
         let mut window = self.diplomacy.take().expect("checked diplomacy window");
         let galaxy = self.galaxy.clone();
         let logged = self.timing.log().len();
         let journal_before = self.state.diplomacy.journal.len();
-        let result = {
-            let (state, table, timing, dice, rng, sequence) = (
-                &mut self.state,
-                &mut self.table,
-                &mut self.timing,
-                &mut self.dice,
-                &mut self.rng,
-                &mut self.event_sequence,
-            );
-            let mut resolving = Resolving {
-                content: self.content,
-                sources: self.sources,
-                dice,
-                rng,
-                table,
-                timing: Some(crate::choice::TimingHandle {
-                    resolver: timing,
-                    sequence,
-                    galaxy: galaxy.as_ref(),
-                }),
-            };
-            window.resolve(state, &mut resolving, answer)
+        // Field borrows, not `self`: the table answers while the position stays readable.
+        let (content, sources) = (self.content, self.sources);
+        let table = &mut self.table;
+        let result = match window.answer_with(
+            &mut self.state,
+            content,
+            sources,
+            galaxy.as_ref(),
+            &choice,
+            |choice, state| table.ask_seeing(choice, &crate::choice::Observed::new(state, content, sources, galaxy.as_ref())),
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                self.diplomacy = Some(window);
+                return self.result(false, Some(error.into()));
+            }
         };
         self.mirror_timing_log(logged);
         // Accepted immediate transfers are a transaction that happened: Lie in Wait's window and
@@ -5329,24 +5623,18 @@ impl<'a> Game<'a> {
             return self.result(false, None);
         };
         // Field borrows, not `self`: the table answers while the position stays readable.
-        let answer = match self.table.ask_seeing(
+        let (content, sources) = (self.content, self.sources);
+        let table = &mut self.table;
+        let outcome = match self.trade.as_mut().expect("window remains open").answer_with(
+            &mut self.state,
+            content,
+            &galaxy,
             &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
+            |choice, state| table.ask_seeing(choice, &crate::choice::Observed::new(state, content, sources, Some(&galaxy))),
         ) {
-            Ok(answer) => answer,
+            Ok(outcome) => outcome,
             Err(error) => return self.result(false, Some(error.into())),
         };
-        let outcome = self.trade.as_mut().expect("window remains open").resolve(
-            &mut self.state,
-            self.content,
-            &galaxy,
-            &answer,
-        );
         // A resolved deal opens Lie in Wait's window. Emitted only on Resolved: the card counts
         // transactions that happened, not offers that were made.
         if matches!(outcome, crate::transactions::Traded::Resolved) {
@@ -5381,13 +5669,109 @@ impl<'a> Game<'a> {
         self.result(true, None)
     }
 
-    fn step_secondary(&mut self) -> StepResult {
-        let choice = self.secondary.as_mut().expect("checked above").next_choice(
+    /// One step of the follower window: the next follower who may follow is found (the ones before are recorded as
+    /// ineligible, the card is exhausted when none is left), asked, and their answer taken. The string
+    /// `next_choice` / `ask_seeing` / `take_choice` of that step is one lockstep window beside the core's
+    /// `SecondaryStep` (`strategy_secondary_dual`).
+    #[allow(clippy::type_complexity)]
+    fn secondary_step(
+        &mut self,
+        follower_out: &mut Option<(PlayerId, String)>,
+        rollback: &mut Option<(GameState, Option<crate::strategy::StrategySecondaryWindow>, usize)>,
+    ) -> Result<crate::strategy::StepOutcome, GameError> {
+        use crate::strategy::StepOutcome;
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.as_ref();
+        let table = &mut self.table;
+        let slot = &mut self.secondary;
+        let d1 = &mut self.d1;
+        let events_len = self.events.len();
+        let keep_rollback = self.leader_strategy.is_some();
+        let before_window = (crate::dual::backend(crate::dual::Area::Strategy) == crate::dual::Backend::Dual)
+            .then(|| slot.clone())
+            .flatten();
+        let failed = std::cell::Cell::new(false);
+        let mut error = None;
+        let outcome = crate::dual_window!(
+            crate::dual::Area::Strategy,
+            "strategy::secondary",
             &mut self.state,
-            self.content,
-            self.sources,
+            |state: &mut GameState| {
+                let window = slot.as_mut().expect("checked above");
+                let recorded = window.resolutions().len();
+                let choice = window.next_choice(state, content, sources);
+                let skipped_of = |window: &crate::strategy::StrategySecondaryWindow| {
+                    window.resolutions()[recorded..]
+                        .iter()
+                        .filter(|(_, how)| *how == SecondaryResolution::Ineligible)
+                        .map(|(who, _)| who.clone())
+                        .collect::<Vec<_>>()
+                };
+                let Some(choice) = choice else {
+                    let skipped = skipped_of(window);
+                    return crate::dual::Run::new(StepOutcome { skipped, answered: None, complete: true });
+                };
+                let skipped = skipped_of(window);
+                let follower = choice.player.clone();
+                *follower_out = Some((follower.clone(), window.card().to_string()));
+                // Field borrows, not `self`: the table answers while the position stays readable.
+                let answer = match table.ask_seeing(&choice, &crate::choice::Observed::new(state, content, sources, galaxy)) {
+                    Ok(answer) => answer,
+                    Err(e) => {
+                        error = Some(GameError::from(e));
+                        failed.set(true);
+                        return crate::dual::Run::new(StepOutcome { skipped, answered: None, complete: false });
+                    }
+                };
+                if keep_rollback {
+                    *rollback = Some((state.clone(), slot.clone(), events_len));
+                }
+                let window = slot.as_mut().expect("window remains open");
+                match window.take_choice(state, content, sources, answer) {
+                    Ok(resolution) => {
+                        let complete = window.is_complete();
+                        crate::dual::Run::new(StepOutcome { skipped, answered: Some((follower, resolution)), complete })
+                    }
+                    Err(e) => {
+                        error = Some(GameError::from(e));
+                        failed.set(true);
+                        crate::dual::Run::new(StepOutcome { skipped, answered: None, complete: false })
+                    }
+                }
+            },
+            |state: &mut GameState, script: &crate::dual_window::Recording| {
+                #[cfg(feature = "typed-core")]
+                {
+                    match before_window.as_ref() {
+                        Some(window) if !failed.get() => {
+                            let core = crate::strategy_secondary_dual::secondary_step(state, content, sources, window, script);
+                            // The held follower window of the D1 dual moves on by the core's outcome.
+                            if d1_pending::active() {
+                                d1.outcome = core.as_ref().map(|c| c.run.value.clone());
+                            }
+                            core
+                        }
+                        _ => None,
+                    }
+                }
+                #[cfg(not(feature = "typed-core"))]
+                {
+                    let _ = (state, script, &before_window, &failed, &d1);
+                    None
+                }
+            }
         );
-        let Some(choice) = choice else {
+        error.map_or(Ok(outcome), Err)
+    }
+
+    fn step_secondary(&mut self) -> StepResult {
+        let mut follower_out = None;
+        let mut rollback = None;
+        let step = match self.secondary_step(&mut follower_out, &mut rollback) {
+            Ok(step) => step,
+            Err(error) => return self.result(false, Some(error)),
+        };
+        let Some((follower, resolution)) = step.answered else {
             if self
                 .secondary
                 .take()
@@ -5403,48 +5787,9 @@ impl<'a> Game<'a> {
             }
             return self.result(false, None);
         };
-        let follower = choice.player.clone();
-        let card = self
-            .secondary
-            .as_ref()
-            .expect("window remains open")
-            .card()
-            .to_string();
-        // Field borrows, not `self`: the table answers while the position stays readable.
-        let answer = match self.table.ask_seeing(
-            &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
-        ) {
-            Ok(answer) => answer,
-            Err(error) => return self.result(false, Some(error.into())),
-        };
-        let before = self.leader_strategy.as_ref().map(|_| {
-            (
-                self.state.clone(),
-                self.secondary.clone(),
-                self.events.len(),
-            )
-        });
-        let (resolution, complete) = match self
-            .secondary
-            .as_mut()
-            .expect("window remains open")
-            .take_choice(&mut self.state, self.content, self.sources, answer)
-        {
-            Ok(resolution) => (
-                resolution,
-                self.secondary
-                    .as_ref()
-                    .expect("window remains open")
-                    .is_complete(),
-            ),
-            Err(error) => return self.result(false, Some(error.into())),
-        };
+        let complete = step.complete;
+        let card = follower_out.map(|(_, card)| card).expect("a follower was asked");
+        let before = rollback;
         self.emit(match resolution {
             SecondaryResolution::Declined => "STRATEGY_SECONDARY_DECLINED",
             SecondaryResolution::Followed => "STRATEGY_SECONDARY_FOLLOWED",
@@ -5555,11 +5900,13 @@ impl<'a> Game<'a> {
         let (content, sources) = (self.content, self.sources);
         let galaxy = self.galaxy.as_ref();
         let table = &mut self.table;
+        let d1 = &mut self.d1;
         let slot = if event { &mut self.event_scoring } else { &mut self.scoring };
         let mut failed = None;
-        let (_, scored) = crate::dual_window!(
+        let book_before = args.book.clone();
+        let (_, scored, _) = crate::dual_window!(
             crate::dual::Area::Objectives,
-            "scoring::step",
+            crate::objectives_write::SCORE_LABEL,
             &mut self.state,
             |state: &mut GameState| {
                 // Field borrows, not `self`: the table answers while the position stays readable.
@@ -5568,24 +5915,30 @@ impl<'a> Game<'a> {
                         Ok(answer) => answer,
                         Err(error) => {
                             failed = Some(GameError::from(error));
-                            return crate::dual::Run::new((false, None));
+                            return crate::dual::Run::new((false, None, book_before));
                         }
                     };
                 let Some(mut window) = slot.take() else {
                     unreachable!("the scoring window is open");
                 };
                 let outcome = window.resolve(state, content, sources, answer);
+                let book = window.book();
                 *slot = Some(window);
                 match outcome {
-                    Ok(scored) => crate::dual::Run::new((true, scored)),
+                    Ok(scored) => crate::dual::Run::new((true, scored, book)),
                     Err(error) => {
                         failed = Some(GameError::from(error));
-                        crate::dual::Run::new((false, None))
+                        crate::dual::Run::new((false, None, book))
                     }
                 }
             },
             |state: &mut GameState, script: &crate::dual_window::Recording| {
-                crate::objectives_write::score_one(state, content, sources, choice, args, script)
+                let core = crate::objectives_write::score_one(state, content, sources, galaxy, choice, &args, script);
+                // The held scoring window of the D1 dual takes the book the core half left.
+                if d1_pending::active() {
+                    d1.scoring = core.as_ref().map(|c| (event, c.run.value.2.clone(), c.run.value.1.clone()));
+                }
+                core
             }
         );
         failed.map_or(Ok(scored), Err)
@@ -5660,7 +6013,7 @@ impl<'a> Game<'a> {
                 &player,
             );
             for leader in unlocked {
-                self.events.push(format!("LEADER_UNLOCKED:{leader}"));
+                self.emit(&format!("LEADER_UNLOCKED:{leader}"));
             }
         }
         match resolve_before_token_gain_with(&mut self.state, Some((self.content, &mut self.table)))
@@ -5823,7 +6176,7 @@ impl<'a> Game<'a> {
     /// into the reveal window, discards the revealed agenda and reveals the one it drew from
     /// the top of the deck; [`Self::reveal_agenda`] follows that chain to the agenda that
     /// actually goes to a vote.
-    fn open_next_vote(&mut self, mut queue: Vec<String>) -> StepResult {
+    pub(crate) fn open_next_vote(&mut self, mut queue: Vec<String>) -> StepResult {
         while let Some(alias) = queue.first().cloned() {
             queue.remove(0);
             match self.reveal_agenda(&alias) {
@@ -5837,19 +6190,7 @@ impl<'a> Game<'a> {
                         .get(ti4_model::content_types::ContentType::Agendas, &alias)
                         .and_then(ti4_content::Record::elect_type)
                         == Some(ti4_content::ElectType::Player);
-                    if elects_a_player && let Some(chosen) = self.committee_formation(&alias) {
-                        self.emit(&format!("AGENDA_RESOLVED:{alias}:{chosen}"));
-                        self.push_agenda_record(
-                            &alias,
-                            Some(&chosen),
-                            BTreeMap::new(),
-                            false,
-                            false,
-                        );
-                        if is_law(self.content, &alias) {
-                            self.state.enact_law(&alias, &chosen);
-                            self.emit(&format!("LAW_ENACTED:{alias}:{chosen}"));
-                        }
+                    if elects_a_player && self.committee_formation(&alias).is_some() {
                         continue;
                     }
                     if self.state.diplomacy.enabled && self.galaxy.is_some() {
@@ -6014,326 +6355,64 @@ impl<'a> Game<'a> {
 
     /// Reveal an agenda and follow the Veto replacement chain it triggers. Returns the agenda
     /// to vote on and its choices, or `None` when the reveal (and every replacement) elected
-    /// nothing.
-    ///
-    /// The initial agenda is the one drawn from this phase's queue; each Veto played into a
-    /// reveal window draws its replacement from the top of the agenda deck and discards the
-    /// agenda it interrupted, and the chain continues from there. A Veto on a Veto is legal —
-    /// an agenda revealed by a Veto is still "an agenda revealed" — so the chain is a loop,
-    /// bounded by the finite deck.
-    fn reveal_agenda(
+    /// nothing. The chain itself is [`crate::agenda_reveal::Live::reveal_agenda`]; the core
+    /// `rules::agenda::reveal::Reveal` window runs beside it on `agenda=dual`.
+    pub(crate) fn reveal_agenda(
         &mut self,
         initial_alias: &str,
     ) -> Result<Option<(String, Vec<String>)>, GameError> {
-        let mut alias = initial_alias.to_owned();
-        loop {
-            // Cards scoped to "this agenda" hang off this counter, so it moves before the reveal
-            // window opens and any of them can be played.
-            self.state.agenda_seq = self.state.agenda_seq.saturating_add(1);
-            self.emit(&format!("AGENDA_REVEALED:{alias}"));
-            let choices = self.reveal_choices(&alias);
-            if choices.is_empty() {
-                self.emit(&format!("AGENDA_DISCARDED:{alias}"));
-                if self.state.rules_version < ti4_model::state::RULES_AGENDA_GRANT_REVEAL {
-                    return Ok(None);
-                }
-                // "If there are no scored secret objectives / laws in play, discard this card and
-                // reveal another agenda from the top of the deck": the replacement takes the slot.
-                self.note_discarded_agenda(&alias, false);
-                let Some(next) = ti4_model::deck_reserve::take_top(
-                    &mut self.state.deck_reserve,
-                    "agenda",
-                    &mut self.state.agenda_deck,
-                    None,
-                ) else {
-                    return Ok(None);
-                };
-                alias = next;
-                continue;
-            }
-
-            // The outcomes have to be on the state before the window opens, because a card
-            // played into it predicts one of them. Nineteen action cards read "when" or "after
-            // an agenda is revealed", and this is the event they hang off.
-            self.state.agenda_choices.clone_from(&choices);
-            self.state.agenda_in_play = Some(alias.clone());
-            let mut payload = BTreeMap::new();
-            payload.insert(
-                "agenda".to_owned(),
-                serde_json::Value::String(alias.clone()),
-            );
-            self.emit_typed("AGENDA_REVEALED", payload)?;
-            self.offer_replacements(&alias)?;
-
-            // Veto, played into the window, discards this agenda and reveals the one it drew
-            // from the top of the deck: continue the chain from the replacement.
-            let Some(replacement) = self.state.agenda_veto_replacement.take() else {
-                // This is the agenda players will vote on: Political Secret bars its owner here.
-                self.offer_political_secrets(&alias)?;
-                return Ok(Some((alias, choices)));
-            };
-            self.emit(&format!("AGENDA_DISCARDED:{alias}"));
-            if self.state.rules_version >= ti4_model::state::RULES_AGENDA_GRANT_REVEAL {
-                self.note_discarded_agenda(&alias, true);
-            }
-            // Covert Legislation replaced: the agenda the speaker drew for it goes with it.
-            self.state.covert_agenda = None;
-            alias = replacement;
-        }
-    }
-
-    /// The outcomes an agenda is voted on: Covert Legislation draws its face-down agenda's, any other
-    /// agenda reads its own.
-    fn reveal_choices(&mut self, alias: &str) -> Vec<String> {
-        if alias == crate::vote::COVERT
-            && self.state.rules_version >= ti4_model::state::RULES_COVERT_LEGISLATION
-        {
-            self.draw_covert_agenda()
-        } else {
-            outcomes(&self.state, self.content, self.sources, alias)
-        }
-    }
-
-    /// Quash and Political Favor replace the agenda the same way Veto does, so each is offered only
-    /// when nothing has replaced it already.
-    fn offer_replacements(&mut self, alias: &str) -> Result<(), GameError> {
-        if self.state.agenda_veto_replacement.is_none() && self.offer_quash(alias)? {
-            self.emit("QUASH_USED");
-        }
-        if self.state.agenda_veto_replacement.is_none() && self.offer_political_favor(alias)? {
-            self.emit("POLITICAL_FAVOR_USED");
-        }
-        Ok(())
-    }
-
-    /// Covert Legislation (rules version 33): "When this agenda is revealed, the speaker draws the
-    /// next card in the agenda deck but does not reveal it to the other players. Instead, the
-    /// speaker reads the eligible outcomes aloud ... The other players vote for these outcomes as
-    /// if they were outcomes of this agenda, without knowing their effects."
-    ///
-    /// Draws the face-down agenda into [`GameState::covert_agenda`] and returns its outcomes, which
-    /// become Covert Legislation's. A drawn card with no eligible outcome (Classified Document
-    /// Leaks with no scored secret, Repeal Law with no law in play) is discarded and the next one
-    /// drawn. An empty deck leaves nothing to vote on: Covert Legislation is then discarded and
-    /// replaced like any agenda with nothing to elect.
-    fn draw_covert_agenda(&mut self) -> Vec<String> {
-        // The core `rules::agenda::covert::CovertDraw` window runs beside the string body on `agenda=dual`.
         let (content, sources) = (self.content, self.sources);
-        let mut choices = Vec::new();
-        crate::dual_window!(
+        let mut failure: Option<GameError> = None;
+        let (state, mut live) = self.split();
+        let value = crate::dual_window!(
             crate::dual::Area::AgendaLaws,
-            "game::draw_covert_agenda",
-            &mut self.state,
-            |s: &mut GameState| {
-                choices = Self::draw_covert_text(s, content, sources);
-                crate::dual::Run::new(choices.clone())
-            },
-            |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::covert_draw(s, sources, script)
-        );
-        choices
-    }
-
-    fn draw_covert_text(state: &mut GameState, content: &ContentStore, sources: ti4_model::content_types::SourceSet) -> Vec<String> {
-        state.covert_agenda = None;
-        while let Some(hidden) = ti4_model::deck_reserve::take_top(
-            &mut state.deck_reserve,
-            "agenda",
-            &mut state.agenda_deck,
-            None,
-        ) {
-            let choices = outcomes(&*state, content, sources, &hidden);
-            if !choices.is_empty() {
-                state.covert_agenda = Some(hidden);
-                return choices;
-            }
-        }
-        Vec::new()
-    }
-
-    /// List an agenda that was revealed and discarded without a vote in `agenda_log`, so the
-    /// table is told (rules version 14). It is not a resolved agenda: it has no outcome.
-    fn note_discarded_agenda(&mut self, alias: &str, replaced: bool) {
-        let reason = if replaced { "replaced" } else { "no_choice" };
-        self.push_agenda_record(alias, None, BTreeMap::new(), false, true);
-        if let Some(record) = self.state.agenda_log.last_mut() {
-            record.discard_reason = Some(reason.to_owned());
-        }
-    }
-
-    /// Notes of `alias` held by someone other than their owner: `(note, holder, owner)`.
-    fn lent_notes(&self, alias: &str) -> Vec<(String, PlayerId, PlayerId)> {
-        self.state
-            .promissory_notes
-            .iter()
-            .filter(|(note, _)| crate::promissory::alias_of(note) == alias)
-            .filter_map(|(note, holder)| {
-                let name = crate::promissory::owner_of(note)?;
-                // By faction, as in `promissory::holder_of`: seats sharing a faction share the
-                // note id, and a seat comparison would read a player's own card as lent out.
-                if crate::promissory::faction_name(&self.state, holder) == name {
-                    return None;
+            "game::reveal_agenda",
+            state,
+            |s: &mut GameState| match live.reveal_agenda(s, initial_alias) {
+                Ok(found) => crate::dual::Run::new(Some(found)),
+                Err(error) => {
+                    failure = Some(error);
+                    crate::dual::Run::new(None)
                 }
-                let owner = crate::promissory::seat_of(&self.state, &name)?;
-                Some((note.clone(), holder.clone(), owner))
-            })
-            .collect()
-    }
-
-    /// Ask a note's holder (or an ability's owner) whether to use it now, on the agenda just
-    /// revealed. The agenda rides along as display-only `details.agenda` (name, type, target,
-    /// printed text), as on every vote decision: the question is about that card, so a client
-    /// has to be able to show it before the answer.
-    fn ask_to_use_note(
-        &mut self,
-        holder: &PlayerId,
-        alias: &str,
-        prompt: String,
-        agenda: &str,
-    ) -> Result<bool, GameError> {
-        let choice = crate::choice::Choice::new(
-            holder.clone(),
-            prompt,
-            vec![
-                crate::choice::ChoiceOption::labelled(
-                    "use",
-                    "promissory_note",
-                    format!("use {alias}"),
-                ),
-                crate::choice::ChoiceOption::decline(),
-            ],
-        )
-        .contextualized(crate::decision_context::DecisionContext::new(
-            holder.clone(),
-            crate::decision_context::DecisionSource::Content(alias.to_owned()),
-            alias,
-            self.state.phase,
-            self.state.round,
-        ))
-        .detailed(
-            "agenda",
-            crate::strategy_cards::agenda_details(self.content, agenda),
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                crate::agenda_reveal_dual::reveal(s, content, sources, initial_alias, script)
+            }
         );
-        let answer = self
-            .table
-            .ask_seeing(
-                &choice,
-                &crate::choice::Observed::new(
-                    &self.state,
-                    self.content,
-                    self.sources,
-                    self.galaxy.as_ref(),
-                ),
-            )
-            .map_err(GameError::IllegalChoice)?;
-        Ok(!answer.is_decline())
+        match failure {
+            Some(error) => Err(error),
+            None => Ok(value.flatten()),
+        }
     }
 
-    /// Political Favor (Xxcha): "When an agenda is revealed: Remove 1 token from the Xxcha player's
-    /// strategy pool and return it to their reinforcements. Then, discard the revealed agenda and
-    /// reveal 1 agenda from the top of the deck. Players vote on this agenda instead. Then, return
-    /// this card to the Xxcha player."
-    ///
-    /// Offered to each holder in turn until one uses it. The replacement is handed over exactly as
-    /// Veto hands its own, so the reveal loop discards this agenda and continues. Priced for
-    /// trading since the port, the card was never offered and could not be used.
-    fn offer_political_favor(&mut self, agenda: &str) -> Result<bool, GameError> {
-        for (note, holder, owner) in self.lent_notes("favor") {
-            let payable = self
-                .state
-                .player(&owner)
-                .is_some_and(|seat| seat.tokens(ti4_model::state::TokenPool::Strategic) > 0);
-            if !payable || self.state.agenda_deck.is_empty() {
-                continue;
-            }
-            let prompt = "Political Favor: discard this agenda and reveal the next".to_owned();
-            if !self.ask_to_use_note(&holder, "favor", prompt, agenda)? {
-                continue;
-            }
-            if let Some(seat) = self.state.player_mut(&owner) {
-                seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
-            }
-            crate::supply::note_strategy_token_spent(&mut self.state, &owner, "political_favor");
-            let Some(replacement) = ti4_model::deck_reserve::take_top(
-                &mut self.state.deck_reserve,
-                "agenda",
-                &mut self.state.agenda_deck,
-                None,
-            ) else {
-                return Ok(false);
-            };
-            self.state.agenda_veto_replacement = Some(replacement);
-            crate::promissory::give_back(&mut self.state, &note);
-            return Ok(true);
-        }
-        Ok(false)
+    /// The fields the agenda reveal chain touches besides the state, borrowed field by field.
+    fn split(&mut self) -> (&mut GameState, crate::agenda_reveal::Live<'_>) {
+        (
+            &mut self.state,
+            crate::agenda_reveal::Live {
+                content: self.content,
+                sources: self.sources,
+                galaxy: self.galaxy.as_ref(),
+                table: &mut self.table,
+                timing: &mut self.timing,
+                dice: &mut self.dice,
+                rng: &mut self.rng,
+                event_sequence: &mut self.event_sequence,
+                events: &mut self.events,
+            },
+        )
     }
 
-    /// Quash (Xxcha): "When an agenda is revealed: You may spend 1 token from your strategy pool to
-    /// discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this
-    /// agenda instead."
-    ///
-    /// Offered to each seat with the ability and a strategy token, in seat order, until one uses
-    /// it. The replacement is handed over exactly as Veto and Political Favor hand theirs, so the
-    /// reveal loop discards this agenda and continues (and offers Quash again on the new one).
-    fn offer_quash(&mut self, agenda: &str) -> Result<bool, GameError> {
-        if self.state.agenda_deck.is_empty() {
-            return Ok(false);
-        }
-        let owners: Vec<PlayerId> = self
-            .state
-            .players
-            .iter()
-            .filter(|seat| seat.tokens(ti4_model::state::TokenPool::Strategic) > 0)
-            .map(|seat| seat.id.clone())
-            .filter(|id| crate::faction_abilities::has(&self.state, self.content, id, "quash"))
-            .collect();
-        for owner in owners {
-            let prompt = "Quash: spend 1 strategy token to discard this agenda and reveal the next"
-                .to_owned();
-            if !self.ask_to_use_note(&owner, "quash", prompt, agenda)? {
-                continue;
-            }
-            if let Some(seat) = self.state.player_mut(&owner) {
-                seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
-            }
-            crate::supply::note_strategy_token_spent(&mut self.state, &owner, "quash");
-            let Some(replacement) = ti4_model::deck_reserve::take_top(
-                &mut self.state.deck_reserve,
-                "agenda",
-                &mut self.state.agenda_deck,
-                None,
-            ) else {
-                return Ok(false);
-            };
-            self.state.agenda_veto_replacement = Some(replacement);
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    /// Political Secret: "When an agenda is revealed: The <color> player cannot vote, play action
-    /// cards, or use faction abilities until after that agenda has been resolved. Then, return this
-    /// card to the <color> player."
-    ///
-    /// Offered for the agenda players will vote on. The vote bar is the marker Assassinate
-    /// Representative sets; barring action cards and faction abilities is not modelled. Priced for
-    /// trading since the port, the card was never offered and could not be used.
+    #[cfg(test)]
     fn offer_political_secrets(&mut self, agenda: &str) -> Result<(), GameError> {
-        for (note, holder, owner) in self.lent_notes("ps") {
-            if self.state.agenda_predictions.contains_key(&owner) {
-                continue; // already cannot vote on this agenda
-            }
-            let prompt = format!("Political Secret: {owner} cannot vote on this agenda");
-            if !self.ask_to_use_note(&holder, "ps", prompt, agenda)? {
-                continue;
-            }
-            self.state
-                .agenda_predictions
-                .insert(owner.clone(), "none|political_secret".to_owned());
-            crate::promissory::give_back(&mut self.state, &note);
-            self.emit(&format!("POLITICAL_SECRET_USED:{owner}"));
-        }
-        Ok(())
+        let (state, mut live) = self.split();
+        live.offer_political_secrets(state, agenda)
+    }
+
+    #[cfg(test)]
+    fn offer_political_favor(&mut self, agenda: &str) -> Result<bool, GameError> {
+        let (state, mut live) = self.split();
+        live.offer_political_favor(state, agenda)
     }
 
     /// Resolve one vote decision, applying the outcome when the vote closes.
@@ -6436,97 +6515,6 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// The seat the outcome names if it is a player, else the controller of the planet it
-    /// names (the "you or a planet you control are elected" reading). An outcome that is
-    /// neither — a law, "for", "against" — matches nobody.
-    ///
-    /// `close_vote` calls this after the outcome, the predictions and the law have been
-    /// settled and the agenda's own effect has been resolved through `crate::agenda_effects`;
-    /// an effect the corpus does not resolve is announced as `AGENDA_EFFECT_UNRESOLVED`
-    /// rather than silently skipped.
-    fn elected_seat_or_planet(&self, outcome: &str) -> Option<PlayerId> {
-        let elected = PlayerId::new(outcome.to_owned());
-        if self.state.player(&elected).is_some() {
-            return Some(elected);
-        }
-        let planet = ti4_model::id::PlanetId::new(outcome.to_owned());
-        self.state
-            .board
-            .values()
-            .find_map(|board| board.planet_control.get(&planet).cloned())
-    }
-
-    /// Resolve an agenda that was not discarded, returning the elected player if there was one.
-    ///
-    /// The whole non-discarded path: the redirect, the prediction payouts, enacting a law, and the
-    /// agenda's own effect. Split out of `close_vote` because it is the only branch that does
-    /// anything -- the discard branch clears three fields -- and because the effect needs the
-    /// game's own dice, table and map, which is a block of borrowing that reads better alone.
-    fn resolve_agenda_outcome(
-        &mut self,
-        alias: &str,
-        outcome: &str,
-        ballot: &crate::vote::Ballot,
-    ) -> Option<ti4_model::id::PlayerId> {
-        let effective = self.redirect_elected(outcome);
-        // Drive the Debate: "you or a planet you control are elected". The outcome
-        // names a player, a planet, or an outcome like "for" -- so both readings
-        // have to be tried, and an outcome that is neither matches nobody. Read
-        // from the (possibly redirected) elected player.
-        let elected = self.elected_seat_or_planet(&effective);
-        self.pay_predictions(outcome);
-        self.enact_if_law(alias, outcome);
-        self.run_agenda_effect(alias, &effective, ballot);
-        elected
-    }
-
-    /// Confusing / Confounding Legal Text, played into the window above, redirect
-    /// who is the elected player. The vote's own result (`outcome`) still settles
-    /// predictions and any law; the agenda's effect on the elected player and the
-    /// "elected by an agenda" feat follow the redirect. Returns the effective outcome.
-    fn redirect_elected(&mut self, outcome: &str) -> String {
-        if let Some(override_player) = self.state.agenda_elected_override.take() {
-            self.emit(&format!(
-                "AGENDA_OUTCOME_REDIRECTED:{outcome}:{override_player}"
-            ));
-            override_player.to_string()
-        } else {
-            outcome.to_owned()
-        }
-    }
-
-    /// Imperial Rider pays out before the agenda's own effect, and clears the
-    /// predictions. A prediction left behind would pay again on the next agenda,
-    /// for a card that was spent on this one.
-    fn pay_predictions(&mut self, outcome: &str) {
-        for player in crate::action_cards::resolve_predictions_asking(
-            &mut self.state,
-            self.content,
-            self.sources,
-            self.galaxy.as_ref(),
-            &mut self.table,
-            outcome,
-        ) {
-            self.emit(&format!("AGENDA_PREDICTION_CORRECT:{player}"));
-        }
-    }
-
-    /// 8.20 first: an elected or "For" law stays in play, and an effect that reads
-    /// the laws must see this one already there. 8.21 discards everything else.
-    fn enact_if_law(&mut self, alias: &str, outcome: &str) {
-        if is_law(self.content, alias) && outcome != AGAINST {
-            self.state.enact_law(alias, outcome);
-            // Classified Document Leaks: "The elected secret objective becomes a public
-            // objective." Only for its own enactment -- `outcome` here is whatever *this* agenda
-            // elected, so calling it for every law would publish a player name or a planet as an
-            // objective the moment Classified was anywhere in play.
-            if alias == "classified" {
-                crate::laws::classified_leak(&mut self.state, outcome);
-            }
-            self.emit(&format!("LAW_ENACTED:{alias}:{outcome}"));
-        }
-    }
-
     /// With the game's own dice, table and map: several agendas roll, ask, or read
     /// the shape of the board, and one borrowed from nowhere would roll off a
     /// stream no seed covers. The speaker's tie-break (8.18) is asked through the
@@ -6569,7 +6557,9 @@ impl<'a> Game<'a> {
 
     /// Committee Formation, offered before a vote that would elect a player.
     ///
-    /// Returns the player the card's owner chose, having discarded it.
+    /// Returns the player the card's owner chose, having discarded it and listed the agenda as resolved with that
+    /// outcome (enacting it when it is a law): the election is [`crate::agenda_close::Live::committee_elect`], the core
+    /// `rules::agenda::committee::Committee` window runs beside it on `agenda=dual`.
     fn committee_formation(&mut self, alias: &str) -> Option<String> {
         let owner = crate::laws::offer_discard(
             &mut self.state,
@@ -6584,35 +6574,14 @@ impl<'a> Game<'a> {
                 facts: Vec::new(),
             },
         )?;
-        let options: Vec<crate::choice::ChoiceOption> = self
-            .state
-            .players
-            .iter()
-            .map(|seat| {
-                crate::choice::ChoiceOption::labelled(
-                    seat.id.to_string(),
-                    "player",
-                    format!("elect {}", seat.id),
-                )
-            })
-            .collect();
-        if options.is_empty() {
-            return None;
-        }
-        let choice =
-            crate::choice::Choice::new(owner, format!("{alias}: elect which player"), options);
-        self.table
-            .ask_seeing(
-                &choice,
-                &crate::choice::Observed::new(
-                    &self.state,
-                    self.content,
-                    self.sources,
-                    self.galaxy.as_ref(),
-                ),
-            )
-            .ok()
-            .map(|answer| answer.id)
+        let (state, mut live) = self.split();
+        crate::dual_window!(
+            crate::dual::Area::AgendaLaws,
+            "game::committee_formation",
+            state,
+            |s: &mut GameState| crate::dual::Run::new(live.committee_elect(s, alias, &owner)),
+            |s: &mut GameState, script: &crate::dual_window::Recording| crate::agenda_close_dual::committee(s, alias, &owner, script)
+        )
     }
 
     /// Minister of Peace, offered after an activation that met an enemy.
@@ -6837,26 +6806,6 @@ impl<'a> Game<'a> {
         self.emit(&format!("STRATEGY_CARDS_SWAPPED:{owner}:{holder}"));
     }
 
-    /// The public record of a finished vote, for viewers only (no rule reads it). Written once
-    /// the outcome and a Deadly Plot discard are settled, before the agenda's effect is asked.
-    fn log_agenda(
-        &mut self,
-        window: &crate::vote::VoteWindow,
-        outcome: Option<&str>,
-        discarded: bool,
-    ) {
-        let ballot = window.ballot();
-        let speaker_decided =
-            outcome.is_some() && crate::vote::undisputed_winner(&self.state, window.alias(), ballot, window.choices()).is_none();
-        self.push_agenda_record(
-            window.alias(),
-            outcome,
-            ballot.counts.clone(),
-            speaker_decided,
-            discarded,
-        );
-    }
-
     fn push_agenda_record(
         &mut self,
         alias: &str,
@@ -6865,147 +6814,21 @@ impl<'a> Game<'a> {
         speaker_decided: bool,
         discarded: bool,
     ) {
-        let law = is_law(self.content, alias);
-        let record = ti4_model::state::AgendaRecord {
-            round: self.state.round,
-            agenda: alias.to_owned(),
-            name: self
-                .content
-                .get(ti4_model::content_types::ContentType::Agendas, alias)
-                .and_then(|record| record.text("name"))
-                .unwrap_or_default()
-                .to_owned(),
-            outcome: outcome.map(str::to_owned),
+        crate::agenda_reveal::push_agenda_record(
+            &mut self.state,
+            self.content,
+            alias,
+            outcome,
             votes,
             speaker_decided,
-            law,
-            enacted: law && !discarded && outcome.is_some_and(|o| o != AGAINST),
             discarded,
-            redirected_to: if discarded {
-                None
-            } else {
-                self.state
-                    .agenda_elected_override
-                    .as_ref()
-                    .map(ToString::to_string)
-                    .filter(|to| Some(to.as_str()) != outcome)
-            },
-            discard_reason: None,
-        };
-        self.state.agenda_log.push(record);
+        );
     }
 
-    /// The vote has a winner: announce it, record it, resolve the agenda (or drop it when a Deadly Plot
-    /// discarded it) and open the agenda-phase scoring window. `Some` ends the step early on an illegal
-    /// answer inside the `AGENDA_RESOLVED` window.
-    fn settle_winner(
-        &mut self,
-        window: &crate::vote::VoteWindow,
-        alias: &str,
-        covert: Option<&String>,
-        outcome: &str,
-    ) -> Option<StepResult> {
-        let alias = alias.to_owned();
-        let covert = covert.cloned();
-        let outcome = outcome.to_owned();
-        let outcome = outcome.to_owned();
-        self.emit(&format!("AGENDA_RESOLVED:{alias}:{outcome}"));
-        // The outcome names a player when the agenda elects one, which is what the "when
-        // you are elected" windows read. `elected_player` is set only for a real seat, so
-        // a window can tell "a player was elected" from an outcome that is a law, a planet,
-        // or For/Against.
-        let outcome_is_player = self.state.player(&PlayerId::new(outcome.clone())).is_some();
-        let mut payload = BTreeMap::new();
-        payload.insert(
-            "agenda".to_owned(),
-            serde_json::Value::String(alias.clone()),
-        );
-        payload.insert(
-            "player".to_owned(),
-            serde_json::Value::String(outcome.clone()),
-        );
-        if outcome_is_player {
-            payload.insert(
-                "elected_player".to_owned(),
-                serde_json::Value::String(outcome.clone()),
-            );
-        }
-        // Mirror the ballot for a Deadly Plot guard played into the window below: the
-        // ballot itself lives in the vote window this function holds, and a guard can
-        // only read the game state.
-        self.state.agenda_votes = window.ballot().votes.clone();
-        crate::diplomacy::evaluate_event(
-            &mut self.state,
-            &crate::diplomacy::DiplomacyEventContext::VotesRecorded {
-                agenda: alias.clone(),
-            },
-        )
-        .expect("validated vote promises settle deterministically");
-        if let Err(error) = self.emit_typed("AGENDA_RESOLVED", payload) {
-            return Some(self.result(false, Some(error)));
-        }
-        self.state.agenda_votes.clear();
-        let discarded = self
-            .state
-            .transient_flags
-            .has(TransientFlags::AGENDA_DISCARDED);
-        self.state
-            .transient_flags
-            .clear(TransientFlags::AGENDA_DISCARDED);
-
-        self.log_agenda(&window, Some(&outcome), discarded);
-        if let Some(hidden) = &covert {
-            // The face-down agenda is turned up and listed with the outcome it was given.
-            self.emit(&format!("COVERT_AGENDA_RESOLVED:{hidden}:{outcome}"));
-            let ballot = window.ballot();
-            let speaker_decided =
-                crate::vote::undisputed_winner(&self.state, window.alias(), ballot, window.choices()).is_none();
-            self.push_agenda_record(
-                hidden,
-                Some(&outcome),
-                ballot.counts.clone(),
-                speaker_decided,
-                discarded,
-            );
-        }
-        let resolved = covert.as_deref().unwrap_or(&alias).to_owned();
-        let elected_player: Option<ti4_model::id::PlayerId> = if discarded {
-            // Deadly Plot: "discard the agenda instead. The agenda is resolved with no
-            // effect and it is not replaced." The vote still happened, so the
-            // occurrence window below still opens — but the agenda's own effect, the
-            // prediction payouts, any law, and the elected feat are all suppressed. A
-            // redirect played into the same window (Confusing / Confounding) is spent
-            // on an election that has no effect, so it is dropped with it. (This
-            // engine does not draw a replacement after a resolution, so "not
-            // replaced" has nothing to suppress.)
-            self.state.agenda_elected_override = None;
-            self.state.agenda_predictions.clear();
-            self.emit(&format!("AGENDA_DISCARDED:{alias}"));
-            None
-        } else {
-            self.resolve_agenda_outcome(&resolved, &outcome, window.ballot())
-        };
-        // Agenda-timed secrets are offered only after the complete agenda outcome is live:
-        // Dictate Policy therefore sees a law enacted by this agenda. A Deadly Plot
-        // discard suppresses the agenda's effect, not the fact that the vote resolved.
-        let occurrence = self.state.begin_feat_occurrence();
-        if let Some(elected_player) = elected_player {
-            self.state
-                .record_event_feat(&elected_player, Feat::ElectedByAnAgenda, occurrence);
-        }
-        // Every resolved agenda is its own agenda-phase occurrence. Objectives such as
-        // Dictate Policy depend on the completed outcome rather than on a player election,
-        // so For/Against and other non-player outcomes must open this window too.
-        self.open_occurrence_event_scoring(
-            crate::secrets::Timing::Agenda,
-            occurrence,
-            EventScoreLimit::AnyPerPlayer,
-        );
-
-        None
-    }
-
-    fn close_vote(&mut self) -> StepResult {
+    /// Close the vote that was open: the close itself is [`crate::agenda_close::Live::close_resolution`] (the core
+    /// `rules::agenda::close::Close` runs beside it on `agenda=dual`); then the agenda's own effect, the feat of an
+    /// election and the agenda-phase scoring window.
+    pub(crate) fn close_vote(&mut self) -> StepResult {
         let Some((window, queue)) = self.voting.take() else {
             unreachable!("a vote was open");
         };
@@ -7018,17 +6841,31 @@ impl<'a> Game<'a> {
         };
         self.state.agenda_choices.clear();
         self.state.agenda_in_play = None;
-        if window.winner().is_none() {
-            self.log_agenda(&window, None, false);
-            // No outcome, so nobody predicted correctly — but the cards were still spent, and a
-            // prediction left behind would pay out on the next agenda.
-            self.state.agenda_predictions.clear();
-        }
-        if let Some(outcome) = window.winner() {
-            let outcome = outcome.to_owned();
-            if let Some(early) = self.settle_winner(&window, &alias, covert.as_ref(), &outcome) {
-                return early;
+        let settled = match self.close_window(&window, covert.as_deref()) {
+            Ok(settled) => settled,
+            Err(error) => return self.result(false, Some(error)),
+        };
+        if settled.resolved {
+            let resolved = covert.as_deref().unwrap_or(&alias).to_owned();
+            if let Some(effective) = &settled.effective {
+                self.run_agenda_effect(&resolved, effective, window.ballot());
             }
+            // Agenda-timed secrets are offered only after the complete agenda outcome is live:
+            // Dictate Policy therefore sees a law enacted by this agenda. A Deadly Plot
+            // discard suppresses the agenda's effect, not the fact that the vote resolved.
+            let occurrence = self.state.begin_feat_occurrence();
+            if let Some(elected_player) = settled.elected.map(PlayerId::new) {
+                self.state
+                    .record_event_feat(&elected_player, Feat::ElectedByAnAgenda, occurrence);
+            }
+            // Every resolved agenda is its own agenda-phase occurrence. Objectives such as
+            // Dictate Policy depend on the completed outcome rather than on a player election,
+            // so For/Against and other non-player outcomes must open this window too.
+            self.open_occurrence_event_scoring(
+                crate::secrets::Timing::Agenda,
+                occurrence,
+                EventScoreLimit::AnyPerPlayer,
+            );
         }
         if self.event_scoring.is_some() {
             self.agenda_queue_after_event_scoring = Some(queue);
@@ -7036,6 +6873,53 @@ impl<'a> Game<'a> {
         } else {
             self.open_next_vote(queue)
         }
+    }
+
+    /// The resolution of an outcome with its effect (the former single method), for the tests of the pieces.
+    #[cfg(test)]
+    fn resolve_agenda_outcome(
+        &mut self,
+        alias: &str,
+        outcome: &str,
+        ballot: &crate::vote::Ballot,
+    ) -> Option<PlayerId> {
+        let (state, mut live) = self.split();
+        let (effective, elected) = live.resolve_agenda_outcome(state, alias, outcome);
+        self.run_agenda_effect(alias, &effective, ballot);
+        elected
+    }
+
+    /// Put a finished vote in front of `close_vote` (the tests).
+    #[cfg(test)]
+    pub(crate) fn put_vote(&mut self, window: VoteWindow) {
+        self.voting = Some((Box::new(window), Vec::new()));
+    }
+
+    /// The close of a vote under the window dual.
+    fn close_window(
+        &mut self,
+        window: &crate::vote::VoteWindow,
+        covert: Option<&str>,
+    ) -> Result<crate::agenda_close::Settled, GameError> {
+        let (content, sources) = (self.content, self.sources);
+        let mut failure: Option<GameError> = None;
+        let (state, mut live) = self.split();
+        let settled = crate::dual_window!(
+            crate::dual::Area::AgendaLaws,
+            "game::close_vote",
+            state,
+            |s: &mut GameState| match live.close_resolution(s, window, covert) {
+                Ok(settled) => crate::dual::Run::new(settled),
+                Err(error) => {
+                    failure = Some(error);
+                    crate::dual::Run::new(crate::agenda_close::Settled::default())
+                }
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                crate::agenda_close_dual::close(s, content, sources, window, covert, script)
+            }
+        );
+        failure.map_or(Ok(settled), Err)
     }
 
     fn step_phase(&mut self) -> StepResult {
@@ -7144,6 +7028,9 @@ impl<'a> Game<'a> {
     fn finish_action(&mut self) -> Result<(), GameError> {
         if let Some(active) = self.state.active.clone() {
             self.emit_action_completed(&active)?;
+            let before = (crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual)
+                .then(|| (self.state.clone(), self.actions_this_turn));
+            let mut closing_len = 0;
             // OP-08: the turn ends when its player says so, if there is anything left to say
             // it about. A retained turn (Master Plan and friends) keeps its own path.
             if self.state.phase == Phase::Action
@@ -7154,14 +7041,24 @@ impl<'a> Game<'a> {
             {
                 self.actions_this_turn = self.actions_this_turn.saturating_add(1);
                 self.turn_closing = Some(active.clone());
-                if self.closing_options(&active).options.len() > 1 {
+                closing_len = self.closing_options(&active).options.len();
+                if closing_len > 1 {
                     self.emit("TURN_CLOSING");
+                    self.check_finish(before, closing_len);
                     return Ok(());
                 }
                 self.turn_closing = None;
             }
+            self.check_finish(before, closing_len);
         }
         self.advance_turn()
+    }
+
+    /// The D1 turn-flow dual of the end of an action (see `turn_write::check_finish`).
+    fn check_finish(&self, before: Option<(GameState, u8)>, closing_len: usize) {
+        if let Some((state, actions)) = before {
+            crate::turn_write::check_finish(&state, actions, closing_len, (self.turn_closing.as_ref(), self.actions_this_turn));
+        }
     }
 
     /// Pass the turn on, unless the current player keeps it.
@@ -7234,14 +7131,7 @@ impl<'a> Game<'a> {
         // A new turn re-offers everything: the withholding below is scoped to the turn whose
         // action failed, not to the game.
         self.failed_component_actions.clear();
-        if self
-            .state
-            .transient_flags
-            .has(TransientFlags::ADDITIONAL_ACTION)
-        {
-            self.state
-                .transient_flags
-                .clear(TransientFlags::ADDITIONAL_ACTION);
+        if crate::turn_write::take_retention(&mut self.state) {
             self.emit("TURN_RETAINED");
             return Ok(());
         }
@@ -7251,31 +7141,21 @@ impl<'a> Game<'a> {
         // moves on, since the additional action is this player's.
         if self.state.phase == Phase::Action {
             self.minister_of_war();
-            if self
-                .state
-                .transient_flags
-                .has(TransientFlags::ADDITIONAL_ACTION)
-            {
-                self.state
-                    .transient_flags
-                    .clear(TransientFlags::ADDITIONAL_ACTION);
+            if crate::turn_write::take_retention(&mut self.state) {
                 self.emit("TURN_RETAINED");
                 return Ok(());
             }
         }
         let ended = self.state.active.clone();
         self.actions_this_turn = 0;
-        // A new turn is a new action for the negotiation limit.
-        crate::transactions::clear_action_negotiations(&mut self.state);
-        // A Black Market marker outlives no turn: the negotiation it unlocked is closed by
-        // the time the turn ends, and the marker is cleared here too so a flag no window
-        // consumed can never leak into another player's table.
-        self.state
-            .transient_flags
-            .clear(TransientFlags::BLACK_MARKET);
-        self.state
-            .transient_flags
-            .clear(TransientFlags::EXPEDITION_CLAIMED);
+        // A new turn is a new action for the negotiation limit. A Black Market marker outlives no turn: the
+        // negotiation it unlocked is closed by the time the turn ends, and the marker is cleared here too so a flag no
+        // window consumed can never leak into another player's table. (An expedition claim lasts the turn as well.)
+        crate::turn_write::end_turn_scratch(&mut self.state, |s| {
+            crate::transactions::clear_action_negotiations(s);
+            s.transient_flags.clear(TransientFlags::BLACK_MARKET);
+            s.transient_flags.clear(TransientFlags::EXPEDITION_CLAIMED);
+        });
         if self.state.phase == Phase::Action
             && let Some(active) = ended.clone()
         {
@@ -7305,14 +7185,7 @@ impl<'a> Game<'a> {
             // untouched until some later turn ended, handing the extra action to whoever was
             // active then. It returns before the fleet sweep for the same reason the Master Plan
             // path above does: the turn has not ended, so the end-of-turn work is not due.
-            if self
-                .state
-                .transient_flags
-                .has(TransientFlags::ADDITIONAL_ACTION)
-            {
-                self.state
-                    .transient_flags
-                    .clear(TransientFlags::ADDITIONAL_ACTION);
+            if crate::turn_write::take_retention(&mut self.state) {
                 self.emit("TURN_RETAINED");
                 return Ok(());
             }
@@ -7339,6 +7212,38 @@ impl<'a> Game<'a> {
             )
             .map_err(GameError::IllegalChoice)?;
         }
+        let before = (crate::dual::backend(crate::dual::Area::Driver) == crate::dual::Backend::Dual).then(|| self.state.clone());
+        let mut announced = Vec::new();
+        let result = self.pass_on_tail(ended.clone(), &mut announced);
+        if result.is_ok()
+            && let Some(before) = before
+        {
+            crate::turn_write::check_pass_on(&before, &self.state, ended.as_ref(), &announced);
+        }
+        result
+    }
+
+    /// `emit_typed`, noting in `announced` when a reaction window of the event changed the turn (the active seat, the turn
+    /// counter or a transient flag such as Crisis's skip): the core's tail runs on the position before the event and cannot
+    /// follow that, so the D1 turn-flow dual leaves the step alone (`TAINTED`).
+    fn emit_typed_watching(
+        &mut self,
+        name: &str,
+        payload: BTreeMap<String, serde_json::Value>,
+        announced: &mut Vec<String>,
+    ) -> Result<(), GameError> {
+        let before = (self.state.active.clone(), self.state.turn_seq, self.state.transient_flags);
+        let result = self.emit_typed(name, payload).map(|_| ());
+        if (self.state.active.clone(), self.state.turn_seq, self.state.transient_flags) != before {
+            announced.push("TAINTED".to_owned());
+        }
+        result
+    }
+
+    /// The choice-free tail of [`Self::advance_turn_inner`]: the turn passes on, its end is announced (`TURN_PASSED`), the
+    /// seat Crisis names is skipped and a Puppets on a String grant gives the passer a fresh turn. `announced` lists what
+    /// was announced, for the D1 turn-flow dual.
+    fn pass_on_tail(&mut self, ended: Option<PlayerId>, announced: &mut Vec<String>) -> Result<(), GameError> {
         if advance_turn(&mut self.state).is_none()
             && !self
                 .state
@@ -7349,12 +7254,13 @@ impl<'a> Game<'a> {
             // windows open (Naaz agent), there is just no next turn to pass to.
             if let Some(ended) = ended {
                 self.emit("TURN_PASSED");
+                announced.push(format!("PASSED:{ended}"));
                 let mut payload = BTreeMap::new();
                 payload.insert(
                     "player".to_owned(),
                     serde_json::Value::String(ended.to_string()),
                 );
-                self.emit_typed("TURN_PASSED", payload)?;
+                self.emit_typed_watching("TURN_PASSED", payload, announced)?;
             }
             return Ok(());
         }
@@ -7362,12 +7268,13 @@ impl<'a> Game<'a> {
             return Ok(());
         };
         self.emit("TURN_PASSED");
+        announced.push(format!("PASSED:{ended}"));
         let mut payload = BTreeMap::new();
         payload.insert(
             "player".to_owned(),
             serde_json::Value::String(ended.to_string()),
         );
-        self.emit_typed("TURN_PASSED", payload)?;
+        self.emit_typed_watching("TURN_PASSED", payload, announced)?;
         if self
             .state
             .transient_flags
@@ -7378,6 +7285,7 @@ impl<'a> Game<'a> {
                 .clear(TransientFlags::SKIP_NEXT_TURN);
             if let Some(skipped) = self.state.active.clone() {
                 self.emit(&format!("TURN_SKIPPED:{skipped}"));
+                announced.push(format!("SKIPPED:{skipped}"));
                 let _ = advance_turn(&mut self.state);
             }
         }
@@ -7396,6 +7304,7 @@ impl<'a> Game<'a> {
                 .clear(TransientFlags::PUPPET_ACTION);
             crate::phase::begin_action_turn(&mut self.state, &ended);
             self.emit(&format!("TURN_PUPPET:{ended}"));
+            announced.push(format!("PUPPET:{ended}"));
         }
         Ok(())
     }
@@ -7477,6 +7386,7 @@ impl<'a> Game<'a> {
     }
 
     fn emit(&mut self, event: &str) {
+        crate::dual_window::note_plain_event(event);
         self.events.push(event.to_owned());
     }
 
@@ -7489,6 +7399,43 @@ impl<'a> Game<'a> {
             resolved_choice,
         }
     }
+}
+
+/// Covert Legislation (rules version 33): "When this agenda is revealed, the speaker draws the
+/// next card in the agenda deck but does not reveal it to the other players. Instead, the
+/// speaker reads the eligible outcomes aloud ... The other players vote for these outcomes as
+/// if they were outcomes of this agenda, without knowing their effects."
+///
+/// Draws the face-down agenda into [`GameState::covert_agenda`] and returns its outcomes, which
+/// become Covert Legislation's. A drawn card with no eligible outcome (Classified Document
+/// Leaks with no scored secret, Repeal Law with no law in play) is discarded and the next one
+/// drawn. An empty deck leaves nothing to vote on: Covert Legislation is then discarded and
+/// replaced like any agenda with nothing to elect.
+pub(crate) fn draw_covert_agenda(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Vec<String> {
+    // Always inside `reveal_agenda`: the core `rules::agenda::covert::CovertDraw` runs embedded in the
+    // `Reveal` window on `agenda=dual`, which compares the whole.
+    draw_covert_text(state, content, sources)
+}
+
+fn draw_covert_text(state: &mut GameState, content: &ContentStore, sources: SourceSet) -> Vec<String> {
+    state.covert_agenda = None;
+    while let Some(hidden) = ti4_model::deck_reserve::take_top(
+        &mut state.deck_reserve,
+        "agenda",
+        &mut state.agenda_deck,
+        None,
+    ) {
+        let choices = outcomes(&*state, content, sources, &hidden);
+        if !choices.is_empty() {
+            state.covert_agenda = Some(hidden);
+            return choices;
+        }
+    }
+    Vec::new()
 }
 
 /// Count route hops actually supplied by wormhole adjacency. `extra_links` can also describe
@@ -13695,14 +13642,24 @@ mod tests {
             "score an objective",
             vec![crate::choice::ChoiceOption::labelled("btv", "score", "btv"), crate::choice::ChoiceOption::decline()],
         );
-        let args = crate::objectives_write::ScoreArgs { status: false, occurrence: Some(1) };
+        let (occurrence_window, probe_state) = {
+            let mut probe = probe_state.clone();
+            let occurrence = FeatOccurrence(1);
+            probe.record_event_feat(&a, Feat::WonInAnAnomaly, occurrence);
+            probe.player_mut(&a).unwrap().secret_objectives = vec![ti4_model::id::SecretObjectiveId::new("btv")];
+            (ScoringWindow::for_occurrence(&probe.initiative_order(), crate::secrets::Timing::Action, occurrence, EventScoreLimit::OnePerPlayer), probe)
+        };
+        let ask = occurrence_window.pending_choice(&probe_state, ContentStore::embedded(), POK).expect("the window asks");
+        let mut script = crate::dual_window::Recording::default();
+        script.questions.push(crate::dual_window::Asked { choice: ask.clone(), answer: None, nested: false });
         let window = crate::objectives_write::score_one(
             &mut probe_state.clone(),
             ContentStore::embedded(),
             POK,
+            None,
             &ask,
-            args,
-            &crate::dual_window::Recording::default(),
+            &occurrence_window.core_args(),
+            &script,
         );
         assert!(window.is_some());
         let _ = take_report();
@@ -15079,7 +15036,7 @@ mod tests {
                 assert_eq!(record.round, round);
                 assert_eq!(record.law, is_law(content, &record.agenda));
                 assert!(!record.name.is_empty(), "the printed name travels with it");
-                assert_eq!(record.enacted, record.law && outcome != AGAINST);
+                assert_eq!(record.enacted, record.law && outcome != crate::vote::AGAINST);
                 let best = record.votes.values().copied().max().unwrap_or(0);
                 let leaders = record
                     .votes
@@ -15298,53 +15255,6 @@ mod tests {
         game.state.agenda_deck.clear();
         assert!(game.reveal_agenda("covert").expect("revealed").is_none());
         assert!(game.state.covert_agenda.is_none());
-    }
-
-    /// The face-down draw runs as a core window beside the string one: the card with nothing to elect goes, the
-    /// next is kept, and an empty deck leaves nothing; the deck, the stored agenda and the outcomes agree.
-    #[cfg(feature = "typed-core")]
-    #[test]
-    fn the_covert_draw_runs_as_a_core_window_in_lockstep() {
-        use crate::dual::{AreaMask, Backend, local_windows, take_report, with_mask};
-        let _guard = crate::dual::tests::serial();
-        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
-        let _ = take_report();
-        with_mask(mask, || {
-            let mut game = quash_game(0, &[]);
-            game.state.agenda_deck = vec!["classified".to_owned(), "committee".to_owned(), "prophecy".to_owned()];
-            let (_, choices) = game.reveal_agenda("covert").expect("revealed").expect("a vote");
-            assert_eq!(choices, ["a", "b"]);
-            assert_eq!(game.state.covert_agenda.as_deref(), Some("committee"));
-            assert_eq!(game.state.agenda_deck, ["prophecy"]);
-            let mut game = quash_game(0, &[]);
-            game.state.agenda_deck.clear();
-            game.state.covert_agenda = Some("committee".to_owned());
-            assert!(game.reveal_agenda("covert").expect("revealed").is_none());
-            assert!(game.state.covert_agenda.is_none(), "an earlier face-down card is cleared");
-            // A deck that holds only cards with nothing to elect is emptied.
-            let mut game = quash_game(0, &[]);
-            game.state.agenda_deck = vec!["classified".to_owned()];
-            assert!(game.reveal_agenda("covert").expect("revealed").is_none());
-            assert!(game.state.agenda_deck.is_empty());
-        });
-        let report = take_report();
-        assert_eq!(report.total_differences(), 0, "{report:?}");
-        let (compared, bailed) = local_windows("game::draw_covert_agenda");
-        assert!(compared == 3 && bailed == 0, "{compared} compared, {bailed} bailed");
-    }
-
-    /// A string state that carries a deck reserve (a turn-redo replay) draws through it: no core window (B9-bail-07).
-    #[cfg(feature = "typed-core")]
-    #[test]
-    fn a_deck_reserve_has_no_covert_window() {
-        let mut game = quash_game(0, &[]);
-        game.state.agenda_deck = vec!["committee".to_owned()];
-        assert!(crate::dual_window::covert_draw(&mut game.state, game.sources, &crate::dual_window::Recording::default()).is_some());
-        game.state.deck_reserve = Some(ti4_model::deck_reserve::DeckReserve::new(
-            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            ti4_model::deck_reserve::DeckPlan::default(),
-        ));
-        assert!(crate::dual_window::covert_draw(&mut game.state, game.sources, &crate::dual_window::Recording::default()).is_none());
     }
 
     #[test]
@@ -15811,6 +15721,8 @@ mod tests {
         for (p, faction) in ["a", "b"].iter().zip(["sol", "letnev"]) {
             state.player_mut(&PlayerId::new(*p)).unwrap().faction = ti4_model::id::FactionId::new(faction);
         }
+        // The notes are keyed by the faction: deal them again for the real ones (the generic fixture notes are refused).
+        crate::promissory::deal(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT);
         let table = Table::with_default(Box::new(Scripted::new([
             "a".to_owned(),
             b_planets[0].clone(),
@@ -15830,8 +15742,10 @@ mod tests {
         });
         let report = take_report();
         assert_eq!(report.total_differences(), 0, "{report:?}");
-        let (compared, bailed) = crate::dual::local_windows("action_cards::deadly_plot");
-        assert!(compared > 0 && bailed == 0, "{compared} compared, {bailed} bailed");
+        // The card is played into the `AGENDA_RESOLVED` window of the close, which is one core window (B9c-2) and follows
+        // the play: the card's effect has no window of its own inside it.
+        let (compared, bailed) = crate::dual::local_windows("game::close_vote");
+        assert!(compared > 0 && bailed == 0, "{compared} compared, {bailed} bailed: {:?} {:?}", report.windows, report.nested);
     }
 
     #[test]

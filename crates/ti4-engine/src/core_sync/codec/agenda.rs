@@ -16,7 +16,7 @@ pub struct Agenda;
 /// An outcome text as package X1's typed outcome (no agenda hint: the kinds are tried in the order
 /// of `Outcome`'s variants; the text is the same either way). The text must render back as itself;
 /// anything else is `Unmapped`.
-pub(super) fn outcome(cx: &Ctx, slice: Slice, text: &str) -> R<Outcome> {
+pub(crate) fn outcome(cx: &Ctx, slice: Slice, text: &str) -> R<Outcome> {
     cx.keys
         .parse_outcome(text, None)
         .filter(|o| cx.keys.render_outcome(*o).is_some_and(|t| t == text))

@@ -14,9 +14,12 @@
 //! the A1 prefix table) and the tied set of [`Tiebreak::Tied`] in [`text_cmp`] order (the seats are numbered
 //! in the text order of their owner ids).
 
+pub mod close;
+pub mod committee;
 pub mod covert;
 pub mod deadly_plot;
 pub mod offer_discard;
+pub mod reveal;
 pub mod table_effects;
 pub mod effects;
 pub mod window;

@@ -908,7 +908,7 @@ const PRODUCERS: &[Producer] = &[
         module: "draft.rs",
         function: "strategy_options",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         // Entropic Scar rule 6: spend a strategy token at the start of the status phase to gain a
@@ -1038,7 +1038,7 @@ const PRODUCERS: &[Producer] = &[
         module: "game.rs",
         function: "turn_options",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         // OP-08: the aftermath's pause before invasion or production: continue, or a contact.
@@ -1052,7 +1052,7 @@ const PRODUCERS: &[Producer] = &[
         module: "game.rs",
         function: "closing_options",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         // Structured diplomacy: each voter, in voting order, may open contacts before the vote.
@@ -1062,8 +1062,9 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("game.rs::step_agenda_talks"),
     },
     Producer {
-        // Political Favor and Political Secret: whether the holder uses the note at its window.
-        module: "game.rs",
+        // Quash, Political Favor and Political Secret: whether the holder uses it at its window
+        // (`agenda_reveal::Live`, the reveal chain split out of `Game`).
+        module: "agenda_reveal.rs",
         function: "ask_to_use_note",
         count: 1,
         delivery: Delivery::ObservedHere,
@@ -1076,8 +1077,9 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
-        module: "game.rs",
-        function: "committee_formation",
+        // Committee Formation: which player the agenda elects (`agenda_close::Live`, split out of `Game`).
+        module: "agenda_close.rs",
+        function: "committee_elect",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1348,19 +1350,19 @@ const PRODUCERS: &[Producer] = &[
         module: "starting_tech.rs",
         function: "choice",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         module: "strategy.rs",
         function: "secondary_question",
         count: 3,
-        delivery: Delivery::ObservedVia("game.rs::step_secondary"),
+        delivery: Delivery::ObservedVia("game.rs::secondary_step"),
     },
     Producer {
         module: "strategy.rs",
         function: "strategic_action_options",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         // Split for package B8: the string half beside its core window.
@@ -1433,9 +1435,16 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
+        // Split for package B8c-3: the string halves of the Thunder's Edge primaries beside their core windows.
         module: "strategy_cards.rs",
-        function: "primary",
-        count: 2,
+        function: "te6_warfare_string",
+        count: 1,
+        delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
+    },
+    Producer {
+        module: "strategy_cards.rs",
+        function: "te4_construction_string",
+        count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
@@ -1483,7 +1492,7 @@ const PRODUCERS: &[Producer] = &[
         module: "tactical.rs",
         function: "activation_options_with",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step"),
+        delivery: Delivery::ObservedVia("game.rs::step_flow"),
     },
     Producer {
         module: "tactical.rs",
@@ -1728,19 +1737,19 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("faction_techs.rs", "offer_scanlink", 1),
     ("faction_techs.rs", "offer_spatial_conduit", 1),
     ("fleet.rs", "remove_one", 1),
-    ("game.rs", "step", 1),
+    ("game.rs", "step_flow", 1),
     ("game.rs", "step_aftermath_inner", 1),
     ("game.rs", "score_step", 1),
-    ("game.rs", "step_secondary", 1),
+    ("game.rs", "secondary_step", 1),
     ("game.rs", "step_tactical", 1),
     ("game.rs", "step_token_gain", 1),
     ("game.rs", "step_trade", 1),
     ("game.rs", "step_diplomacy", 1),
     ("game.rs", "step_agenda_talks", 1),
     ("game.rs", "step_vote", 1),
-    ("game.rs", "ask_to_use_note", 1),
+    ("agenda_reveal.rs", "ask_to_use_note", 1),
     ("game.rs", "perform_zeu", 1),
-    ("game.rs", "committee_formation", 1),
+    ("agenda_close.rs", "committee_elect", 1),
     ("game.rs", "imperial_arbiter", 2),
     ("game.rs", "minister_of_war", 1),
     ("invasion.rs", "absorb_ground_text", 1),

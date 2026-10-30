@@ -319,3 +319,146 @@ pause for occurrences), and `ground_combat_round_ended` modules (no module imple
   `a_hit_the_producer_assigns_is_answered_in_the_string`; mutation-checked (pending retreats, hits owed, Rout, the used
   event, the defender silencing the attacker, every preview).
   Still string: the settle gates (`settle_args`: round openings, barrage, roll, retreat moves), see ENGINE_KNOWN_ISSUES.md.
+
+## 8. P1.1 plain-event harness and D1a (the held windows of the finished areas)
+
+### 8.1 Plain events (package P1.1)
+
+`Game::emit(&str)` pushes plain events (`QUASH_USED`, `AGENDA_DISCARDED:{agenda}`, `LAW_ENACTED:{agenda}:{outcome}`, ...) into
+`Game::events` beside the typed events mirrored from the timing log. They have no typed home in the core yet (package P1.2),
+and `compare_runs` compared only resolver emissions, so a ported window could drop or reorder them unnoticed.
+
+* **Tap** (`dual_window::note_plain_event`, `note_mirrored_events`): `Game::emit`, `Live::emit` (the agenda chains), the two
+  `LEADER_UNLOCKED:` pushes and `mirror_timing_log` report to a thread-local. Inside a window recording the pushes land in
+  `Recording.plain` (texts as pushed) and `Recording.mirrored` (typed names); outside any window they are counted under
+  `(game)`. Active only while some area is on `Dual` (one `mask()` load otherwise).
+* **Census** (`DualReport.plain`, `"label | NAME"` -> pushes; printed as one summary line, the rows with `TI4_PLAIN_LOG=1`;
+  carried by the dual shard files): which plain events exist in a run and whether a window or the step loop pushes them. A name
+  seen under `(game)` or under a window that gives no list has no core counterpart.
+* **Compare** (`Run::with_plain`): a core window that gives the plain events it makes (`Some(list)`) is compared with the
+  string's `Recording.plain` as `<label>.plain` (category `Value`); a side that gives none compares nothing. The windows that
+  give them today: the agenda reveal (`rules::agenda::reveal::PlainEv`: `AGENDA_REVEALED:`, `AGENDA_DISCARDED:`, `QUASH_USED`,
+  `POLITICAL_FAVOR_USED`, `POLITICAL_SECRET_USED:`), the agenda close (`close::PlainEv`: `AGENDA_RESOLVED:`,
+  `COVERT_AGENDA_RESOLVED:`, `AGENDA_DISCARDED:`, `AGENDA_OUTCOME_REDIRECTED:`, `AGENDA_PREDICTION_CORRECT:`, `LAW_ENACTED:`)
+  and Committee Formation's election. P1.2 replaces these small enums by `Emit::Plain` in the ledger.
+* Not covered: the plain events of `Game` methods outside a `dual_window!` (all of `phase`/`status`/`tactical`: the 40 or so
+  `self.emit(..)` sites of `game.rs`) are only counted.
+
+### 8.2 D1a: `Pending` holds typed windows (`state::Pending.stack: Vec<Window>`)
+
+`state::Window` is now an enum with a payload per kind: `StrategySecondary` / `StrategySecondaryAfterTactical`
+(`Secondary`: primary, card, followers, `next`, how each follower stands, exhausts), `LeaderStrategy`, `ExecutiveOrder`,
+`AgendaQueueAfterEventScoring`, `Scoring` / `EventScoring` (`Scoring`: the book of the window), and
+`Untyped { kind, actor, data }` for the kinds nothing types yet (leader followers, tokens, voting, tactical, aftermath, trade,
+diplomacy, and the agenda talks, which exist only with structured diplomacy on: that option is being disabled at the product edge, so
+the kind is counted, never typed). `Pending::{window, window_mut, open, close}` keep at most one window per kind.
+
+The D1 dual (`ti4-engine/src/d1_pending.rs`, a child module of `game`; on with `driver=dual`, a pure observer) runs after every
+`Game::step`:
+
+1. The typed windows are read off the string fields (`observe`). A window the typed tables cannot express (a preview window of a
+   planning fork, an id with no typed form, more than 16 owners) is a counted bail (`d1::pending [bail: <reason>]`) and the held
+   copy is dropped. An open window of an untyped kind is counted as `d1::pending.untyped [bail: <field>]`.
+2. **The follower window is held in the core**: it moves on by the core's own outcome of the step (`strategy::secondary` dual,
+   `rules::strategy_secondary::advance`: skipped followers recorded as ineligible, the answer recorded, closed when
+   `is_complete`), and the result is compared with the string field (`d1::pending.secondary`).
+3. The scoring window's book after the core half of the answer (`objectives_write::score_one`) is compared with the string's
+   (`d1::pending.scoring`).
+4. Every typed window must turn back into the string field it was read from (`d1::pending.roundtrip`).
+5. The held copy is re-seeded from the string (no cascade after a difference).
+
+The follower and scoring comparisons need `strategy=dual` / `objectives=dual` beside `driver=dual`; without them the step has no
+core outcome and only 1, 4 and 5 run. The windows are opened and closed by the string (phase flow is the next D1a piece); the
+windows of the action phase (tactical, aftermath), trade, diplomacy, voting, tokens and leader followers are D1a's remainder
+and D1b's.
+
+## 9. P1: plain events and the one ordered emission queue; D1a's remainder
+
+### 9.1 The emission queue (package P1)
+
+`Game::events` is ONE ordered log of two kinds of lines. The core keeps the same log in `Ledger.events: Log<Emit>`
+(`state/plain.rs`), output only (no codec loads or stores it, so writing it needs no slice in a footprint):
+
+* `Emit::Plain(PlainRec)`: a plain event of `Game::emit`. `PlainKind` is a closed catalogue (about 80 names, census of
+  `Game::emit` over `ti4-engine/src`; `Untyped` carries any other text as a `Code`), `PlainRec { kind, a, b }` holds up to two
+  typed `PlainArg`s; `PlainKind::shape()` says which (`Slot`), shared by the renderer and the validity test. No text in the core.
+* `Emit::Typed(EventRec)`: a typed event the resolver emitted, as the string mirrors it into `Game::events` (the bare name).
+
+**Ordering rule.** The string pushes a plain event at once, but copies the typed events of the resolver in BATCHES: `mirror_timing_log(logged)`
+copies every `emit NAME#id` line since `logged` (nested ability events included) when the surrounding call returns. A plain event
+pushed after an emission and before the mirror is therefore stored BEFORE that emission's names. The core reproduces this:
+`fx::plain` / `Sx::plain` append at once; `Sx::emit_mirrored` is the string's `emit_typed` (take `fx::journal_mark`, emit,
+`fx::mirror_journal` copies the `Line::Emit` rows since the mark and returns the new cursor); a window that mirrors elsewhere
+calls `mirror_journal` at the same program point as the string. Nothing is mirrored when the emission fails (the string returns
+before the mirror). `Pending.staged` stays `Vec<EventRec>` (typed staged events only): plain events are never staged in the
+string, and changing the element type would break the tests and the 28 `take(&mut ..staged)` sites of files owned by running
+areas.
+
+**Harness (P1.1b).** `Recording.order: Vec<Pushed>` (`Pushed::Plain(text)` / `Pushed::Mirrored(name)`) is the single sequence in push
+order; `plain` and `mirrored` are views of it. `Run::with_order` gives the core side's sequence and `compare_runs` compares it as
+`<label>.order` (and the plain subsequence as `<label>.plain`); a side that gives none compares nothing. The three agenda
+adapters (reveal, close, Committee Formation) read `Ledger.events` after the window and render it with
+`render::events::pushed_of`.
+
+**Renderer.** `render/events.rs`: `plain_text` (kind name = SCREAMING_SNAKE of the variant, `:`-joined arguments), `parse_plain` (the
+inverse; a text outside the catalogue, or whose arguments do not render back to the same line, is `Untyped`), `pushed_of`,
+`pushed_since`, `events_text`.
+
+Not in P1: the plain events of `Game` methods outside a ported window (still counted under `(game)` in the census), the
+`Game::events()` accessor and the migration of the reader crates (P1-6: deferred to the D2 prerequisites), the plain events of the
+windows other packages port (each converts its own list with `sx.plain`).
+
+### 9.2 D1a's remainder: more typed windows
+
+`state::Window` gains `LeaderFollowers` (the seats still to be asked and the followers so far), `Tokens` (boxed: the seats of the
+tokens still to place, the placed ones and a typed `StatusReport`), `Voting` (boxed: the vote of one agenda, `state::Vote` with
+`VoteStage` which `rules::agenda::window::Stage` now re-exports, plus the agendas still to come) and `Trade` (the two chairs, the
+proposals left and the deal on the table as a `choice::trade::Shape`; the terms are a function of the shape and the position).
+Payloads live in `state/pending_windows.rs`. The D1 dual (`d1_pending.rs` + `d1_windows.rs`) observes them from the string fields and
+checks that each turns back into the field it was read from (`d1::pending.roundtrip`). They FOLLOW the string (no core transition);
+`Diplomacy` and `AgendaTalks` stay untyped by decision, `Tactical` and `Aftermath` are D1b.
+
+Phase flow (W3) and the reconcile hooks (W4) are NOT ported; they are counted so D1b's `Session::step` has its worklist:
+`d1::pending.open [bail: <kind>]` / `d1::pending.close [bail: <kind>]` (the window kinds the string opened or closed in a step) and
+`d1::reconcile [bail: <hook>]` (the hooks at the head of `step_flow` that changed the state in a step; `apply_to_galaxy` and
+`replay_map_edits` change the galaxy, which is not in `GameState`, and are not probed).
+
+
+## 10. D1b: the action phase (turn flow, step-loop precedence, menu assembly, tactical and aftermath windows)
+
+What D1b added on top of 8-9, and what it did NOT (the D1b checklist is `docs/todo/D1b.md`; the cuts are the bail table
+`D1b-*` in `docs/ENGINE_KNOWN_ISSUES.md`).
+
+* **Typed `Tactical` and `Aftermath`** (D1b-1). `Window::Tactical(state::Tactical)` (the `TStage` of A2b, `NoteHold` =
+  `(holder, issuer)` pairs of the promissory notes held when the action began) and `Window::Aftermath(Box<state::Aftermath>)`
+  (`AStage`, the system before the fight as `Before { sides, capitals, notes }`, `feats_noted`, the event-scoring pause with its
+  `PauseLimit`). The live sub-window of an aftermath (the space combat, the invasion, the production step) is NOT in the stack:
+  the payload carries the stage tag only, the sub-window stays with its area (todo fallback: the B12 machine states have no
+  `PartialEq` payload form on this branch). Observed from the string fields (`d1_action.rs`, a child of `d1_pending`) and
+  checked to turn back into them (`d1::pending.roundtrip`); `capitals` is read from the `Debug` form of `combat::BeforeCombat`
+  because its fields are private to `combat.rs` (B12's file).
+* **Turn flow** (D1b-5, D1b-6) in `driver/turn_flow.rs` (L5: composes `rules::trade`, `rules::diplomacy`, `rules::leaders`,
+  `rules::strategy_flow`, `query::seats`): `begin_action_turn`, `advance_turn` (the initiative walk), `action_phase_ended`,
+  `begin_next_round`, `take_retention`, `end_turn_scratch`, `pass_on` (the choice-free tail of `Game::advance_turn_inner`:
+  `TURN_PASSED`, Crisis skip, Puppets on a String), `finish_action` (the closing-menu decision, with `turn_closing` /
+  `actions_this_turn` / `prepared_turn_seq` now fields of `Pending`). `ti4-engine/src/turn_write.rs` wraps the string bodies in
+  `dual::write` under `Area::Driver` (labels `turn::*`). Not ported: the hooks between the steps (`technology::end_turn`,
+  `legendary::end_turn`, Minister of War, `fleet::enforce_everywhere`, the `TURN_PASSED` reaction windows) and the Strategy arm of
+  `advance_phase` (the Naalu hook runs through the factions kernel).
+* **Step-loop precedence** (D1b-7) in `driver/session.rs`: `Facts`, `step_arm` (`Game::step_flow`) and `ask_arm`
+  (`Game::legal_options`) as pure functions of the position's facts. The string records the arm it took and the source of the
+  question (`d1_pending::{snapshot_facts, note_ask}`); every step compares them (`d1::step.arm`, `d1::step.ask`). It is the order
+  of the windows the machines cannot check, not a core step loop: no arm runs in the core.
+* **Action menu assembly** (D1b-4) in `driver/menu.rs`: the 13 sources of `Game::turn_options` in menu order (`Source`/`ORDER`),
+  the failed-action filter, the Thunder's Edge slot, the closing menu (`closing_menu`, `second_action`). The options of the
+  sources are lent as reads: the string passes the ids each source gave (`MenuParts`) and the core assembles them (`turn::menu`,
+  `turn::closing`). Not ported: the sources' own options and the dispatch of the chosen option (`apply_choice`).
+* **Aftermath transitions** (D1b-2) in `driver/aftermath.rs`: `next(Settled)` (which step follows a finished one, the contact
+  pause), `announced`, `note_feats`; compared at every stage change of the string chain (`d1::aftermath.next`).
+* **Census** (D1b-8): `d1::step` counts every step and, as bails by name, the arms the core does not run (`d1::step [bail: <arm>]`,
+  `ask.<source>`): the worklist of the lent bodies.
+
+Not done in D1b (see the bail table): the aftermath composer that RUNS the chain in the core (it needs the space cannon offense
+and fleet enforcement prelude, A2b-10, which composes B12's files), the dispatcher of the chosen action (`apply_choice`), the
+tactical tail (`close_tactical`), a core `Session::step` that runs arms, the `Window` kinds `Combat`/`Invasion`/`Production` as
+stack entries.

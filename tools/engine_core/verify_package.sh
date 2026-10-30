@@ -7,9 +7,12 @@
 #          for a foundation package (no area switched).
 # OUT_DIR  logs and summary.txt.
 # BASE_SELFPLAY  a selfplay binary built from the previous merge commit (the CPU A/B baseline).
-# Env: CARGO_TARGET_DIR (required, private), BASE_REF (git ref the immutable surfaces are compared
+# Env: EXTRA_DUAL (more areas on Dual beside AREA in checks 3, e.g. `strategy=dual,objectives=dual`), CARGO_TARGET_DIR (required, private), BASE_REF (git ref the immutable surfaces are compared
 # with; default engine-core-state-base), GAMES (dual games, default 20), DUAL_BENCH=1 (also run the
-# bench with the area on Dual, ~2-3x slower), WASM_OPT (binary of wasm-opt), SKIP_AB=1.
+# bench with the area on Dual, ~2-3x slower), WASM_OPT (binary of wasm-opt), SKIP_AB=1, SHARDS (default 4:
+# the 20-game dual run of check 3 as that many parallel `dual_run --shard i/N` processes whose files are
+# merged into the single-run text, tools/engine_core/dual_sharded.sh; 1 = one process as before). The caller
+# holds the heavy lane (/root/.ti4-heavy.lock) for the whole gate; the shards run concurrently inside it.
 # Builds use the `gate` profile (docs/ENGINE_BUILD_SPEED.md): binaries are in $CARGO_TARGET_DIR/gate/.
 # The CPU A/B (6/7) and the wasm size gate (8) are OFF by default (they need release/wasm-release
 # builds): RUN_AB=1 / RUN_WASM=1 turn them on. The hash checks of the benches stay.
@@ -29,11 +32,17 @@ base_ref="${BASE_REF:-engine-core-state-base}"; games="${GAMES:-20}"
 mkdir -p "$out"; : > "$out/summary.txt"
 fail=0
 note() { echo "$*" | tee -a "$out/summary.txt"; }
-check() { local name="$1"; shift; local t0=$SECONDS
-  if "$@" > "$out/$name.log" 2>&1; then note "ok   $name ($((SECONDS - t0)) s)"; else note "FAIL $name (see $out/$name.log)"; fail=1; fi; }
+# A step that runs longer than STEP_TIMEOUT seconds (default 3600; the position checks use POSITIONS_TIMEOUT, default
+# 2400) fails as "timeout": one step must not hold the heavy lane for hours (the lane is the caller's, for the whole gate).
+check() { local name="$1"; shift; local t0=$SECONDS cap="${STEP_TIMEOUT:-3600}"
+  [[ "$name" == dual-positions ]] && cap="${POSITIONS_TIMEOUT:-2400}"
+  timeout --foreground "$cap" "$@" > "$out/$name.log" 2>&1; local rc=$?
+  if [[ $rc == 0 ]]; then note "ok   $name ($((SECONDS - t0)) s)"
+  elif [[ $rc == 124 ]]; then note "FAIL $name (timeout after ${cap} s, see $out/$name.log)"; fail=1
+  else note "FAIL $name (see $out/$name.log)"; fail=1; fi; }
 cd "$repo"
 if [[ "$area" == none ]]; then on=""; off=""; dual=""; else
-  on="TI4_AREAS=$area=core"; off="TI4_AREAS=$area=string"; dual="TI4_AREAS=$area=dual"; fi
+  on="TI4_AREAS=$area=core"; off="TI4_AREAS=$area=string"; dual="TI4_AREAS=$area=dual${EXTRA_DUAL:+,$EXTRA_DUAL}"; fi
 
 # 9 hygiene first: cheap.
 check layers python3 -I tools/engine_core/check_layers.py core
@@ -74,7 +83,9 @@ check tests-wasm cargo test -p ti4-wasm --features ts
 if [[ -n "$dual" ]]; then
   check dual-suite env "$dual" TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine
   note "     $(grep -c '^test result: ok' "$out/dual-suite.log") suites ok with $area on Dual (fail fast)"
-  check dual-golden env TI4_DUAL_FAIL_FAST=1 "$target/gate/dual_run" tools/engine_profile/profile-20.json "$games" "$area=dual"
+  # SHARDS (default 4; 1 = one process) parallel shards, merged into the text of the single run.
+  check dual-golden env TI4_DUAL_FAIL_FAST=1 tools/engine_core/dual_sharded.sh "$target/gate/dual_run" \
+    tools/engine_profile/profile-20.json "$games" "$area=dual${EXTRA_DUAL:+,$EXTRA_DUAL}" "$out/dual-golden-shards"
   sed 's/^/     /' "$out/dual-golden.log" | head -12 | tee -a "$out/summary.txt"
   if [[ "$area" == board ]]; then
     check dual-templates "$target/gate/board_equivalence" templates
@@ -112,8 +123,8 @@ if [[ -n "$dual" ]]; then
   if [[ "$area" == movement ]]; then
     check dual-templates "$target/gate/core_equivalence" templates --routes
     note "     $(tail -1 "$out/dual-templates.log")"
-    check dual-positions "$target/gate/core_equivalence" golden tools/engine_profile/profile-20.json 20 10
-    note "     $(tail -1 "$out/dual-positions.log")"
+    check dual-positions tools/engine_core/positions_sharded.sh "$target/gate/core_equivalence" tools/engine_profile/profile-20.json 20 "${POSITIONS_STRIDE:-40}" "$out/dual-positions-shards"
+    note "     $(grep '^shard' "$out/dual-positions.log" | tr '\n' ' ' | cut -c1-400)"
   fi
 fi
 

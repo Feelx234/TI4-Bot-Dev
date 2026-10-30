@@ -13,7 +13,7 @@ use ti4_engine_core::state::{EventKind, Key};
 
 use crate::render::Render;
 
-fn snake(debug: &str, upper: bool) -> String {
+pub(crate) fn snake(debug: &str, upper: bool) -> String {
     let mut out = String::with_capacity(debug.len() + 6);
     for (i, ch) in debug.chars().enumerate() {
         if ch.is_ascii_uppercase() && i > 0 {

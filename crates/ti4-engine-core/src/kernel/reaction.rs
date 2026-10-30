@@ -248,7 +248,8 @@ impl Guard {
                 actor_is(e, who) && p.flag(Key::DuringSpaceCombat) == Some(true)
             }
             Self::VotedOrPredictedAnother => {
-                let Some(outcome) = p.outcome(Key::Player) else { return false };
+                // The outcome of an election is the elected seat: `player` holds it as a seat then.
+                let Some(outcome) = p.outcome(Key::Player).or_else(|| p.seat(Key::Player).map(Outcome::Seat)) else { return false };
                 let a = s.agenda();
                 let voted_other = a.votes.get(&who).is_some_and(|v| *v != outcome);
                 let predicted_other = a.predictions.get(&who).is_some_and(|v| match v {
@@ -346,6 +347,21 @@ mod tests {
         s.agenda_mut().votes.insert(Seat(0), Outcome::For);
         s.agenda_mut().predictions.insert(Seat(0), Prediction::Plain(Outcome::Against));
         assert!(Guard::VotedOrPredictedAnother.holds(&resolving, Seat(0), &s, &k));
+    }
+
+    #[test]
+    fn the_guard_reads_a_seat_valued_player_as_the_elected_outcome() {
+        let mut s = state();
+        let k = Kernel::plain();
+        // An election: the event's `player` is the elected seat, as the string writes it.
+        let elected = ev(EventKind::AgendaResolved, Payload::new().with(Key::Player, Val::Seat(Seat(1))).with(Key::ElectedPlayer, Val::Seat(Seat(1))));
+        assert!(!Guard::VotedOrPredictedAnother.holds(&elected, Seat(0), &s, &k));
+        s.agenda_mut().votes.insert(Seat(0), Outcome::Seat(Seat(0)));
+        assert!(Guard::VotedOrPredictedAnother.holds(&elected, Seat(0), &s, &k), "voted for another seat");
+        s.agenda_mut().votes.insert(Seat(0), Outcome::Seat(Seat(1)));
+        assert!(!Guard::VotedOrPredictedAnother.holds(&elected, Seat(0), &s, &k), "voted for the elected seat");
+        assert!(Guard::ActorIs.holds(&elected, Seat(1), &s, &k), "when you are elected");
+        assert!(Guard::AnotherPlayerElected.holds(&elected, Seat(0), &s, &k));
     }
 
     #[test]

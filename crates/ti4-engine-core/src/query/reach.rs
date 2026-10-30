@@ -423,6 +423,33 @@ pub fn effective_move_value(
     Some(ship_value(core, k, seat, origin, kind, data.movement, data.base_type, None, boosts))
 }
 
+/// `tactical::effective_move_value_for_ship` for the hull at `index` of the seat's units in the space area of `origin`
+/// (`begin_one_move` asks the route of the ship it chose with the index, as the offer did).
+#[must_use]
+pub fn effective_move_value_for_ship(
+    core: &CoreState,
+    k: &Kernel,
+    seat: Seat,
+    origin: System,
+    kind: Unit,
+    index: u16,
+    boosts: (bool, bool),
+) -> Option<i32> {
+    let data = scope_of(k).unit(kind)?;
+    Some(ship_value(core, k, seat, origin, kind, data.movement, data.base_type, Some(index), boosts))
+}
+
+/// What Gravleash Maneuvers anchors for a ship leaving `origin` (`begin_one_move`): the printed move, the modules'
+/// bonus for this hull and the Flank Speed bonus, without the anchor itself or any boost.
+#[must_use]
+pub fn anchor_move_value(core: &CoreState, k: &Kernel, seat: Seat, origin: System, kind: Unit, index: u16) -> i32 {
+    let Some(data) = scope_of(k).unit(kind) else { return 0 };
+    let flank = i32::from(
+        core.players().by_seat(seat).is_some_and(|p| p.card_timers.move_bonus_activation.is(core.meta().activation_seq)),
+    );
+    i32::from(data.movement.unwrap_or(0)) + k.hooks.movement.move_bonus(core, MoveSite { player: seat, origin, index: Some(index), ship: kind }) + flank
+}
+
 /// One seat's ships that can move, with their move values for every boost: the destination-independent
 /// half of `tactical::movable_into`, in the same order.
 #[derive(Debug, Clone)]

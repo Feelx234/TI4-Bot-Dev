@@ -7,6 +7,7 @@
 //! adapter marks the slices a lend loaded (`Slice` / `SliceSet`), and a package that reads a slice
 //! missing from its footprint fails in debug and in the dual run, not silently in production.
 
+mod aftermath;
 mod agenda;
 mod board;
 mod cards;
@@ -19,15 +20,19 @@ mod marks;
 mod meta;
 mod objectives;
 mod pending;
+mod pending_windows;
+mod plain;
 mod piece;
 mod player;
 mod players;
 mod rng;
 mod seats;
 mod strategy;
+mod tactical;
 mod trade;
 mod transient;
 
+pub use aftermath::{AStage, Aftermath, Before, NoteHold, PauseLimit};
 pub use agenda::{AgendaCastRec, AgendaRec, AgendaState, Outcome, Prediction};
 pub use board::{Board, PlanetCell, PlanetFlags, SysCell, SysFlags, UnitList};
 pub use cards::{CardRef, CardZones, DeckReserve, DeckSegment, NoteKey, NoteMap, RESERVE_IDLE, RESERVE_LIVE, RESERVE_OPEN, ReserveDeck, ReservedDraw};
@@ -39,8 +44,12 @@ pub use map::MapSlice;
 pub use marks::{Family, MarkKey, MarkMap, MarkVal, Marks};
 pub use meta::{Meta, MetaFlags, Phase};
 pub use objectives::{ObjectiveRef, ObjectiveSet, Objectives};
-pub use pending::{DriverFlags, Pending, PendingAsk, PendingTag, Window, WindowKind};
+pub use pending_windows::{LeaderFollowers, StatusReport, Tokens, Trade, Vote, VoteStage, Voting};
+pub use pending::{DriverFlags, Pending, PendingAsk, PendingTag, Scoring, ScoringTiming, Secondary, SecondaryHow, Window, WindowKind};
 pub use piece::Piece;
+#[cfg(test)]
+pub(crate) use plain::kinds as queue_kinds;
+pub use plain::{Emit, PlainArg, PlainKind, PlainRec, Shape, Slot as PlainSlot};
 pub use player::{
     CardTimers, CombatTimers, ExtraVotes, Feat, FragmentCounts, LeaderStatus, Plot, PlotCard, Player, PlayerCards, PlayerEcon, RoundKind, RoundMarks,
     PlayerLeaders, PlayerMisc, PlayerTech, ProductionTimers, ReactionMode, TechSet, Timers,
@@ -49,6 +58,7 @@ pub use players::Players;
 pub use rng::{Rng, RngDomain, SeedSource};
 pub use seats::{MAX_PLAYERS, Seats};
 pub use strategy::StrategyState;
+pub use tactical::{TStage, Tactical};
 pub use trade::*;
 pub use transient::*;
 
@@ -250,7 +260,7 @@ mod tests {
     #[test]
     fn clone_shares_players_board_logs_and_rng() {
         let mut a = state();
-        a.ledger.events.extend((0..70).map(|id| EventRec { id, kind: EventKind::TurnBegan, payload: Payload::new(), cancelled: false }));
+        a.ledger.events.extend((0..70).map(|id| Emit::Typed(EventRec { id, kind: EventKind::TurnBegan, payload: Payload::new(), cancelled: false })));
         let b = a.clone();
         assert_eq!(a.players.shared_with(&b.players), 6);
         assert_eq!(a.board.shared_chunks(&b.board), 25);

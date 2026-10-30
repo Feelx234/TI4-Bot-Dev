@@ -1,12 +1,13 @@
 //! Deterministic structured-diplomacy rules.
 
+pub mod book;
 pub mod builder;
 pub mod candidates;
 pub mod log;
 pub mod promises;
 pub mod relations;
 pub mod signals;
-mod transfers;
+pub(crate) mod transfers;
 pub mod window;
 
 pub use log::{DiplomacyLogError, export_log_records};

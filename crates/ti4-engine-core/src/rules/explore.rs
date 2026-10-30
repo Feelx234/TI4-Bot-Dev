@@ -72,18 +72,10 @@ pub fn purge_for_relic(core: &mut CoreState, who: Seat, kind: ExploreType) -> Op
 }
 
 /// `relics::gain` (73.2): the top relic to the seat; the Shard scores at once (capped at the target).
-/// `None` for an empty deck (73.2a) or a seat that is not there.
+/// `None` for an empty deck (73.2a) or a seat that is not there. Shared with the agenda effects (Minister of
+/// Antiquities): areas do not import each other, so the body is [`crate::kernel::fx_relic::relic_gain`].
 pub fn relic_gain(core: &mut CoreState, who: Seat) -> Option<Relic> {
-    core.players().by_seat(who)?;
-    let top = core.decks_mut().relic.draw()?;
-    core.players_mut().by_seat_mut(who)?.cards.relics.push(top);
-    let mut points = 0;
-    if top == SHARD {
-        score_point(core, who, SHARD);
-        points = 1;
-    }
-    log_relic(core, who, top, points);
-    Some(top)
+    crate::kernel::fx_relic::relic_gain(core, who)
 }
 
 /// `relics::exhaust`: a held, ready relic is exhausted.

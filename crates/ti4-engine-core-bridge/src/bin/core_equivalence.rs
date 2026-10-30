@@ -3,8 +3,11 @@
 //! ```text
 //! core_equivalence templates [--routes]                    opening of every map template (POK and
 //!                                                         FULL), plus 37 map-switch variants each
-//! core_equivalence golden CONFIG GAMES STRIDE [--routes]   every STRIDE-th position of the first
-//!                                                         GAMES games of a selfplay config
+//! core_equivalence golden CONFIG GAMES STRIDE [--routes] [--shard i/N]
+//!                                                         every STRIDE-th position of the first
+//!                                                         GAMES games of a selfplay config; with
+//!                                                         --shard only the positions whose index % N == i
+//!                                                         (the games are played by every shard)
 //! ```
 //! Exit status 1 when any answer differs.
 
@@ -66,11 +69,19 @@ fn main() {
             let config = &args[1];
             let games: usize = args[2].parse().expect("GAMES");
             let stride: usize = args[3].parse().expect("STRIDE");
+            let shard = args.iter().position(|a| a == "--shard").map(|at| {
+                let spec = args.get(at + 1).expect("--shard i/N");
+                let (i, n) = spec.split_once('/').expect("--shard i/N");
+                (i.parse::<usize>().expect("shard index"), n.parse::<usize>().expect("shard count"))
+            });
             let (positions, hashes) = golden_positions(config, games, stride).expect("games");
             for h in &hashes {
                 println!("game hash {h}");
             }
-            for p in &positions {
+            for (at, p) in positions.iter().enumerate() {
+                if shard.is_some_and(|(i, n)| at % n != i) {
+                    continue;
+                }
                 check_position(p, routes, &mut report);
                 check_observed(p, &mut report);
                 check_neighbours(p, &mut report);

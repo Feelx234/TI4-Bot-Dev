@@ -5,7 +5,7 @@
 //! action card, a secret objective. A promissory note and a planet card change hands in slices
 //! other packages own (cards, board); the adapter keeps those on the string engine.
 
-use crate::generated::{ExploreType, Faction, PromissoryNote};
+use crate::generated::{ExploreType, Faction, Planet, PromissoryNote};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::Kernel;
@@ -45,6 +45,9 @@ impl Env for KernelEnv<'_> {
 /// `transactions::take`: remove what a seat gives away (goods, commodities, fragments, the first
 /// matching action card and secret).
 pub fn take(core: &mut CoreState, seat: Seat, terms: &Terms) {
+    if let Some((planet, to)) = terms.planet.and_then(|p| p.mv) {
+        move_planet_units(core, seat, planet, to);
+    }
     let Some(p) = core.players_mut().by_seat_mut(seat) else { return };
     if let Some(card) = terms.action_card
         && let Some(at) = p.cards.hand.as_slice().iter().position(|c| *c == card)
@@ -74,9 +77,43 @@ pub fn take(core: &mut CoreState, seat: Seat, terms: &Terms) {
     }
 }
 
+/// `transactions::take` of a planet card (Pride of Kenara): the giver's units on the planet move to its other planet
+/// `to`, and the planet is no longer controlled. Nothing happens unless the giver controls both.
+fn move_planet_units(core: &mut CoreState, seat: Seat, planet: Planet, to: Planet) {
+    let b = core.board();
+    if b.planet(planet).control != Some(seat) || b.planet(to).control != Some(seat) {
+        return;
+    }
+    let home = core.board().planet(planet).placed_in.or(planet.data().system);
+    let dest = core.board().planet(to).placed_in.or(to.data().system);
+    let all: Vec<_> = core.board().planet(planet).units.as_slice().to_vec();
+    let (mine, rest): (Vec<_>, Vec<_>) = all.into_iter().partition(|u| u.owner() == seat);
+    let cell = core.board_mut().planet_mut(planet);
+    cell.units.clear();
+    for u in rest {
+        cell.units.push(u);
+    }
+    cell.control = None;
+    let cell = core.board_mut().planet_mut(to);
+    for u in mine {
+        cell.units.push(u);
+    }
+    cell.flags.set(crate::state::PlanetFlags::UNITS_ENTRY, true);
+    for system in [home, dest].into_iter().flatten() {
+        core.board_mut().sys_mut(system).flags.set(crate::state::SysFlags::TOUCHED, true);
+    }
+}
+
 /// `transactions::give`: hand over what a seat receives. A commodity becomes a trade good on
 /// arrival (LRR 21.5).
 pub fn give(core: &mut CoreState, seat: Seat, terms: &Terms) {
+    if let Some((planet, _)) = terms.planet.and_then(|p| p.mv) {
+        // `set_control` refuses a planet that was destroyed: there is no card to take.
+        let cell = core.board_mut().planet_mut(planet);
+        if !cell.flags.has(crate::state::PlanetFlags::PURGED) {
+            cell.control = Some(seat);
+        }
+    }
     {
         let Some(p) = core.players_mut().by_seat_mut(seat) else { return };
         if let Some(card) = terms.action_card {

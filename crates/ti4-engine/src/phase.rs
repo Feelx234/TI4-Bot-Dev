@@ -112,6 +112,11 @@ pub fn stock_unclaimed_cards(state: &mut GameState) {
 /// against. Start-of-turn ability hooks (Military Support, technology triggers) are not
 /// wired up yet.
 pub fn begin_action_turn(state: &mut GameState, player: &PlayerId) {
+    crate::turn_write::begin_action_turn(state, player, begin_action_turn_text);
+}
+
+#[doc(hidden)]
+pub fn begin_action_turn_text(state: &mut GameState, player: &PlayerId) {
     // LRR 3: every player's turn is the next turn of the phase, in initiative order.
     state.action_turn += 1;
     state.active = Some(player.clone());
@@ -127,6 +132,11 @@ pub fn begin_action_turn(state: &mut GameState, player: &PlayerId) {
 /// modelled yet; when it is, it must return early *before* the transaction reset, because
 /// the two actions are explicitly the same turn.
 pub fn advance_turn(state: &mut GameState) -> Option<PlayerId> {
+    crate::turn_write::advance_turn(state, advance_turn_text)
+}
+
+#[doc(hidden)]
+pub fn advance_turn_text(state: &mut GameState) -> Option<PlayerId> {
     crate::transactions::clear_turn_transactions(state);
     crate::diplomacy::relations::clear_turn_initiations(state);
     if state.all_passed() {
@@ -152,7 +162,7 @@ pub fn advance_turn(state: &mut GameState) -> Option<PlayerId> {
         let candidate = &order[index];
         if state.player(candidate).is_some_and(|p| !p.passed) {
             let candidate = candidate.clone();
-            begin_action_turn(state, &candidate);
+            begin_action_turn_text(state, &candidate);
             return Some(candidate);
         }
     }
@@ -167,6 +177,11 @@ pub fn advance_turn(state: &mut GameState) -> Option<PlayerId> {
 /// # Panics
 /// Panics only if an internally-invalid diplomacy state cannot settle its due promises.
 pub fn begin_next_round(state: &mut GameState, strategy_cards: Vec<ti4_model::id::StrategyCardId>) {
+    crate::turn_write::begin_next_round(state, &strategy_cards, |s| begin_next_round_text(s, strategy_cards.clone()));
+}
+
+#[doc(hidden)]
+pub fn begin_next_round_text(state: &mut GameState, strategy_cards: Vec<ti4_model::id::StrategyCardId>) {
     state.phase = Phase::Strategy;
     // "At the end of that game round" — before the counter moves on, so the round number still
     // names the round whose effects expire here (Darktalon Treilla's hero and her flag).
@@ -239,8 +254,7 @@ pub fn advance_phase(state: &mut GameState) -> PhaseOutcome {
             PhaseOutcome::ActionBegan(first)
         }
         Phase::Action => {
-            state.phase = Phase::Status;
-            state.active = None;
+            crate::turn_write::action_phase_ended(state);
             PhaseOutcome::StatusBegan
         }
         Phase::Status => {

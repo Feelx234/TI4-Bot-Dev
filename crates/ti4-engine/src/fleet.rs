@@ -535,6 +535,41 @@ pub fn enforce_seeing(
     player: &PlayerId,
     system: &SystemId,
 ) -> Result<usize, IllegalChoice> {
+    let mut failed = None;
+    let removed = crate::dual_window!(
+        crate::dual::Area::Movement,
+        "tactical::enforce",
+        state,
+        |s: &mut GameState| {
+            match enforce_seeing_text(s, content, sources, galaxy, table, player, system) {
+                Ok(removed) => crate::dual::Run::new(Some(removed)),
+                Err(error) => {
+                    failed = Some(error);
+                    crate::dual::Run::new(None)
+                }
+            }
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::tactical_dual::enforce(s, content, sources, player, system, script)
+        }
+    );
+    failed.map_or_else(|| Ok(removed.unwrap_or(0)), Err)
+}
+
+/// [`enforce_seeing`] as the string engine runs it.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "limit enforcement needs the position, optional map and owning decision table"
+)]
+fn enforce_seeing_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Result<usize, IllegalChoice> {
     let types = catalogue(content, sources);
     let mut removed = 0;
 

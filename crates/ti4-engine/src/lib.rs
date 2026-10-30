@@ -19,6 +19,10 @@
 
 pub mod action_cards;
 pub mod agenda;
+pub mod agenda_close;
+pub mod agenda_close_dual;
+pub mod agenda_reveal;
+pub mod agenda_reveal_dual;
 pub mod agenda_effects;
 pub mod breakthroughs;
 pub mod choice;
@@ -39,6 +43,8 @@ pub mod explore_core;
 pub mod explore_write;
 pub mod strategy_cards_core;
 pub mod strategy_core;
+#[cfg(feature = "typed-core")]
+pub mod strategy_secondary_dual;
 pub mod strategy_write;
 /// The offline dual of Area::ExplorationRelics.
 #[cfg(feature = "typed-core")]
@@ -138,6 +144,12 @@ pub mod action_cards_view;
 pub(crate) mod action_cards_typed;
 #[cfg(test)]
 mod action_cards_announce_tests;
+#[cfg(all(test, feature = "typed-core"))]
+mod strategy_secondary_dual_tests;
+#[cfg(test)]
+mod strategy_research_tests;
+#[cfg(all(test, feature = "typed-core"))]
+mod strategy_te_tests;
 /// The offline dual of Area::ActionCards.
 #[cfg(feature = "typed-core")]
 #[doc(hidden)]
@@ -192,8 +204,22 @@ mod technology_effects_tests;
 pub mod thunders_edge;
 pub mod timing;
 pub mod tokens;
+pub mod diplomacy_window_dual;
+#[cfg(feature = "typed-core")]
+pub mod diplomacy_write;
+#[cfg(all(test, feature = "typed-core"))]
+mod diplomacy_book_tests;
+#[cfg(all(test, feature = "typed-core"))]
+mod diplomacy_window_tests;
 pub mod trade_core;
+pub mod tactical_dual;
+#[cfg(all(test, feature = "typed-core"))]
+mod tactical_dual_tests;
+pub mod trade_window_dual;
+#[cfg(all(test, feature = "typed-core"))]
+mod trade_window_tests;
 pub mod trade_write;
+pub mod turn_write;
 pub mod transactions;
 pub mod transit;
 pub mod trigger;
@@ -248,3 +274,8 @@ pub use timing::{
 pub use tokens::{POOL_KIND, STATUS_TOKENS, TokenGain, TokenGainError, TokenPlacement};
 pub use transit::{Cargo, CargoSource, CargoWindow, MoveOutcome, apply_move};
 pub use vote::{AGAINST, Ballot, FOR, VoteError, VoteWindow, outcomes, votable_planets};
+
+#[cfg(all(test, feature = "typed-core"))]
+mod agenda_close_tests;
+#[cfg(all(test, feature = "typed-core"))]
+mod agenda_reveal_tests;

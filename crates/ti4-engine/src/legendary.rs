@@ -1122,12 +1122,9 @@ fn resolve(
             let answer =
                 table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
             let discarded = ti4_model::id::SecretObjectiveId::new(answer.id);
-            if let Some(seat) = state.player_mut(player) {
-                seat.secret_objectives.retain(|s| s != &discarded);
-            }
             // Back to the deck before the draw, so a one-card deck still yields a card and the
             // swap cannot silently lose the discarded objective.
-            state.secret_deck.push(discarded);
+            crate::secrets::return_secret(state, player, &discarded);
             crate::secrets::draw(state, content, table, player)?;
         }
         _ => {}

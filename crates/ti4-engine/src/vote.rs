@@ -472,7 +472,7 @@ pub fn tiebreak_candidates_text(ballot: &Ballot, choices: &[String]) -> Vec<Stri
 
 /// Where a vote has reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Stage {
+pub(crate) enum Stage {
     /// Asking `order[index]` which outcome to back.
     Outcome(usize),
     /// Mahact's Genetic Recombination: asking its holder whether to exhaust it before
@@ -545,6 +545,61 @@ pub struct VoteWindow {
     dual: crate::vote_dual::Log,
 }
 
+/// The fields of a [`VoteWindow`] besides the bookkeeping of the window dual, for the typed copy `Pending` holds (package D1a).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VoteParts {
+    pub alias: String,
+    pub choices: Vec<String>,
+    pub order: Vec<PlayerId>,
+    pub stage: Stage,
+    pub ballot: Ballot,
+    pub casts: Vec<ti4_model::state::AgendaCast>,
+    pub spender: Option<PlayerId>,
+    pub recombination_offered: std::collections::BTreeSet<usize>,
+    pub obligation: Option<(usize, String)>,
+    pub demanded: Option<(usize, String)>,
+    pub predictive: Vec<(PlayerId, String)>,
+}
+
+impl VoteWindow {
+    /// The window as plain data (the inverse of [`Self::from_parts`]).
+    #[must_use]
+    pub(crate) fn parts(&self) -> VoteParts {
+        VoteParts {
+            alias: self.alias.clone(),
+            choices: self.choices.clone(),
+            order: self.order.clone(),
+            stage: self.stage.clone(),
+            ballot: self.ballot.clone(),
+            casts: self.casts.clone(),
+            spender: self.spender.clone(),
+            recombination_offered: self.recombination_offered.clone(),
+            obligation: self.obligation.clone(),
+            demanded: self.demanded.clone(),
+            predictive: self.predictive.clone(),
+        }
+    }
+
+    /// The window of `parts`, with an idle dual log (equality ignores the log).
+    #[must_use]
+    pub(crate) fn from_parts(p: VoteParts) -> Self {
+        Self {
+            alias: p.alias,
+            choices: p.choices,
+            order: p.order,
+            stage: p.stage,
+            ballot: p.ballot,
+            casts: p.casts,
+            spender: p.spender,
+            recombination_offered: p.recombination_offered,
+            obligation: p.obligation,
+            demanded: p.demanded,
+            predictive: p.predictive,
+            dual: crate::vote_dual::Log::default(),
+        }
+    }
+}
+
 /// One way for a voter to exhaust a planet: the option id, the planet and the votes it casts.
 type PlanetOffer = (String, PlanetId, i64);
 
@@ -586,6 +641,34 @@ impl VoteWindow {
             casts: Vec::new(),
             predictive: Vec::new(),
             dual,
+        }
+    }
+
+    /// A finished vote, for the tests of what follows it: `votes` who backed what, `counts` what each outcome received,
+    /// `winner` the result.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn finished(alias: &str, choices: &[&str], votes: &[(&str, &str)], counts: &[(&str, i64)], winner: Option<&str>) -> Self {
+        let mut ballot = Ballot::default();
+        for (player, outcome) in votes {
+            ballot.votes.insert(PlayerId::new(*player), (*outcome).to_owned());
+        }
+        for (outcome, count) in counts {
+            ballot.counts.insert((*outcome).to_owned(), *count);
+        }
+        Self {
+            alias: alias.to_owned(),
+            choices: choices.iter().map(|c| (*c).to_owned()).collect(),
+            order: Vec::new(),
+            stage: Stage::Done(winner.map(str::to_owned)),
+            ballot,
+            spender: None,
+            recombination_offered: std::collections::BTreeSet::new(),
+            obligation: None,
+            demanded: None,
+            casts: Vec::new(),
+            predictive: Vec::new(),
+            dual: crate::vote_dual::Log::default(),
         }
     }
 

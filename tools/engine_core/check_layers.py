@@ -35,7 +35,7 @@ CORE_LAYER = {
 FACTIONS_LAYER = 6
 # Files that sit above their directory's layer: the movement rules builder is a query by shape (a pure
 # read of `&CoreState`) but reads the hook table, so it is an L3 module (package A2).
-FILE_LAYER = {('query', 'reach'): 3}
+FILE_LAYER = {('query', 'reach'): 3, ('query', 'transit'): 3}
 
 # --- the string engine's tiers (4.2) ---
 TIERS = {

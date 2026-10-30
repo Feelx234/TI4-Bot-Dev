@@ -64,6 +64,25 @@ pub struct ResolverCfg {
     pub stack: Vec<(String, u64)>,
 }
 
+/// One push to `Game::events` as the recorder saw it (package P1.1b).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pushed {
+    /// A plain event (`Game::emit`, `Live::emit`), the text as pushed: `NAME` or `NAME:argument`.
+    Plain(String),
+    /// The name of a typed event mirrored from the timing log (`mirror_timing_log`).
+    Mirrored(String),
+}
+
+impl Pushed {
+    /// The text as `Game::events` holds it.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Plain(t) | Self::Mirrored(t) => t,
+        }
+    }
+}
+
 /// What the string window did at its own level.
 #[derive(Debug, Clone, Default)]
 pub struct Recording {
@@ -93,6 +112,16 @@ pub struct Recording {
     /// The destinations a Skilled Retreat found for `(player, system)`, as the string's map computed them (the core is lent
     /// no galaxy): an input of the card, noted by its effect.
     pub withdraw: Vec<(String, String, Vec<String>)>,
+    /// The plain events (`Game::emit`, `Live::emit`) the string pushed to `Game::events` while the window ran, as pushed
+    /// (`NAME` or `NAME:argument`), in order (package P1.1).
+    pub plain: Vec<String>,
+    /// The typed events the string mirrored from the timing log into `Game::events` while the window ran (names only).
+    pub mirrored: Vec<String>,
+    /// Both lists in ONE sequence, in the order of the pushes to `Game::events` (package P1.1b). The string pushes a plain
+    /// event at once but copies the typed events of the resolver in batches (`mirror_timing_log`, when the surrounding call
+    /// returns), so a plain event pushed after an emission is stored BEFORE that emission's names: only this sequence shows it.
+    /// `plain` and `mirrored` are the two views of it.
+    pub order: Vec<Pushed>,
     effect_depth: u32,
     in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
@@ -129,6 +158,8 @@ thread_local! {
     static COMPOSED: Cell<bool> = const { Cell::new(!cfg!(test)) };
     static REC: RefCell<Option<Recording>> = const { RefCell::new(None) };
     static DEPTH: Cell<u32> = const { Cell::new(0) };
+    /// Every push to `Game::events` of the running `Game::step`, windows or not (the D1 dual's plain events of the finished areas).
+    static STEP: RefCell<Option<Vec<Pushed>>> = const { RefCell::new(None) };
     static LABEL: Cell<&'static str> = const { Cell::new("nested") };
 }
 
@@ -166,9 +197,82 @@ pub fn start() -> bool {
     })
 }
 
+/// Whether the running recording has seen nested activity (a question or an event inside an emission) so far: the
+/// string side of a window that compares plain log lines leaves them out then, as the core side does.
+#[must_use]
+pub fn nested_so_far() -> bool {
+    REC.with(|r| r.borrow().as_ref().is_some_and(|rec| rec.nested))
+}
+
 /// End the recording and take it.
 pub fn finish() -> Recording {
     REC.with(|r| r.borrow_mut().take()).unwrap_or_default()
+}
+
+/// Whether the plain-event census counts (some area on `Dual`): a push to `Game::events` costs one load otherwise.
+fn plain_census_on() -> bool {
+    cfg!(feature = "typed-core") && crate::dual::mask().any_dual()
+}
+
+/// A plain event was pushed to `Game::events` (`Game::emit`, `Live::emit`, the two `LEADER_UNLOCKED:` pushes): the window
+/// recording keeps it, outside a window the census counts it under `(game)`.
+pub fn note_plain_event(text: &str) {
+    if !plain_census_on() {
+        return;
+    }
+    STEP.with(|s| {
+        if let Some(pushes) = s.borrow_mut().as_mut() {
+            pushes.push(Pushed::Plain(text.to_owned()));
+        }
+    });
+    let kept = REC.with(|r| match r.borrow_mut().as_mut() {
+        Some(rec) => {
+            rec.plain.push(text.to_owned());
+            rec.order.push(Pushed::Plain(text.to_owned()));
+            true
+        }
+        None => false,
+    });
+    if !kept {
+        census_plain("(game)", &[text.to_owned()]);
+    }
+}
+
+/// Typed events were mirrored from the timing log into `Game::events` (`mirror_timing_log`).
+pub fn note_mirrored_events(names: &[String]) {
+    if !plain_census_on() {
+        return;
+    }
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            rec.mirrored.extend(names.iter().cloned());
+            rec.order.extend(names.iter().cloned().map(Pushed::Mirrored));
+        }
+    });
+}
+
+/// Start recording every push of the step that begins (`Game::step` under the D1 dual).
+pub fn step_capture_start() {
+    STEP.with(|s| *s.borrow_mut() = Some(Vec::new()));
+}
+
+/// End the step's recording and take it.
+pub fn step_capture_take() -> Vec<Pushed> {
+    STEP.with(|s| s.borrow_mut().take()).unwrap_or_default()
+}
+
+/// The name of a plain event text: `LEADER_UNLOCKED:sol_hero` is `LEADER_UNLOCKED`.
+#[must_use]
+pub fn plain_name(text: &str) -> &str {
+    text.split(':').next().unwrap_or(text)
+}
+
+/// Count `plain` (texts as pushed) under `label` in the report's census.
+pub fn census_plain(label: &str, plain: &[String]) {
+    if plain.is_empty() {
+        return;
+    }
+    crate::dual::note_plain(label, plain.iter().map(|t| plain_name(t)));
 }
 
 /// A question was put (`Table::ask*`).
@@ -365,11 +469,36 @@ pub fn normalized(events: &[Event]) -> Vec<Event> {
 /// The string `Event` of a core record (id zeroed). `None` for a payload the conversion does not cover
 /// (a nested tally list or an outcome value).
 #[must_use]
+/// The text of an agenda outcome in an event payload (`Codec::render_outcome`, with the seats of `r`).
+fn outcome_text(r: &Render, outcome: ti4_engine_core::keys::Outcome) -> Option<String> {
+    use ti4_engine_core::keys::Outcome;
+    Some(match outcome {
+        Outcome::Empty => String::new(),
+        Outcome::For => "for".to_owned(),
+        Outcome::Against => "against".to_owned(),
+        Outcome::Seat(s) => r.seats.get(usize::from(s.0))?.clone(),
+        Outcome::Planet(x) => x.as_str().to_owned(),
+        Outcome::StrategyCard(x) => ti4_engine_core::generated::StrategyCard::as_str(x).to_owned(),
+        Outcome::Law(x) => x.as_str().to_owned(),
+        Outcome::Secret(x) => x.as_str().to_owned(),
+    })
+}
+
 pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
-    if !rec.payload.units.is_empty() {
+    // A tally list is converted for the events whose `units` this adapter knows (`SHIP_MOVED`: owner, unit_type, count).
+    if !rec.payload.units.is_empty() && rec.kind != ti4_engine_core::state::EventKind::ShipMoved {
         return None;
     }
     let mut payload = BTreeMap::new();
+    if !rec.payload.units.is_empty() {
+        let units: Vec<Value> = rec
+            .payload
+            .units
+            .iter()
+            .map(|t| Some(serde_json::json!({"owner": r.seats.get(usize::from(t.owner.0))?.clone(), "unit_type": t.unit.as_str(), "count": u64::from(t.count)})))
+            .collect::<Option<_>>()?;
+        payload.insert("units".to_owned(), Value::Array(units));
+    }
     for (key, val) in rec.payload.items.iter() {
         let v: Value = match *val {
             Val::Seat(s) => r.seats.get(usize::from(s.0))?.clone().into(),
@@ -384,7 +513,7 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
             Val::Int(i) => i.into(),
             Val::Flag(b) => b.into(),
             Val::Code(c) => r.code_text(c).into(),
-            Val::Outcome(_) => return None,
+            Val::Outcome(outcome) => outcome_text(r, outcome)?.into(),
         };
         payload.insert(key_text(r, *key), v);
     }
@@ -393,6 +522,8 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
         let v: Value = match list {
             ti4_engine_core::state::List::Seats(seats) => Value::Array(seats.iter().map(seat).collect::<Option<_>>()?),
             ti4_engine_core::state::List::Planets(planets) => Value::Array(planets.iter().map(|p| Value::from(p.as_str())).collect()),
+            // The string engine writes a route as one comma-joined text.
+            ti4_engine_core::state::List::Systems(systems) => Value::from(systems.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",")),
             ti4_engine_core::state::List::Units(units) => Value::Array(
                 units
                     .iter()
@@ -677,6 +808,16 @@ fn complete_nested(
                 r,
                 &ti4_engine_core::kernel::trigger::Trigger::from_event(&facts.event, facts.relation, &facts.chain),
             );
+            // A decision raised by an agenda being revealed or resolved carries the printed agenda as display-only
+            // `details.agenda` (`Table::ask_seeing`), unless the producer attached it already.
+            if let Some(agenda) = trigger.agenda.as_deref()
+                && !rendered.details.contains_key("agenda")
+            {
+                rendered.details.insert(
+                    "agenda".to_owned(),
+                    crate::strategy_cards::agenda_details(ti4_content::ContentStore::embedded(), agenda),
+                );
+            }
             ctx.with_trigger(trigger)
         } else {
             ctx
@@ -764,6 +905,12 @@ pub(crate) fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
     Some((cx, r))
 }
 
+/// [`tables`] for the tests of other modules.
+#[cfg(test)]
+pub(crate) fn tables_for_tests(gs: &GameState) -> Option<(Ctx, Render)> {
+    tables(gs)
+}
+
 /// One ported state write: `f` on the core state of `gs` over the slices of `fp`, with the seat of `player`
 /// when one is named. `None` (nothing changed) when the position is outside what the core holds (more than 16
 /// owners, a player that has no seat, a value the codecs refuse). The mutation halves (B5 `explore_write`, B7
@@ -785,7 +932,12 @@ pub(crate) fn lend<T>(
 /// What a window of the mutation halves cannot follow: a question asked inside a battle or an invasion (its
 /// context carries the battle), diplomacy promises a favour keeps, a nested emission.
 pub(crate) fn outside(gs: &GameState, script: &Recording) -> bool {
-    script.nested || gs.active_space_combat.is_some() || gs.active_invasion.is_some() || gs.diplomacy.enabled
+    outside_battle(gs, script) || gs.diplomacy.enabled
+}
+
+/// [`outside`] without the diplomacy clause (the structured negotiation window is the diplomacy feature itself).
+pub(crate) fn outside_battle(gs: &GameState, script: &Recording) -> bool {
+    script.nested || gs.active_space_combat.is_some() || gs.active_invasion.is_some()
 }
 
 const SUSTAIN_COMMANDER: Footprint =
@@ -827,6 +979,23 @@ pub fn sustain_commander(
     apply_staged(gs, &r, &staged)?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
+}
+
+/// Seats (bit per seat) whose action card draw a faction hook changes: every seat with Yssaril in the game
+/// (Scheming), else the seats a draw bonus applies to.
+#[must_use]
+pub fn draw_hooks(gs: &GameState, r: &Render) -> u16 {
+    let content = ti4_content::ContentStore::embedded();
+    let yssaril = gs.players.iter().any(|p| p.faction.as_str() == "yssaril");
+    let mut hooked = 0;
+    for (at, id) in r.seats.iter().enumerate().take(16) {
+        let player = PlayerId::new(id.as_str());
+        let bonus = [1, 2, 3].iter().any(|n| crate::factions::hooks_economy::action_card_draw_bonus(gs, content, &player, *n) != 0);
+        if yssaril || bonus {
+            hooked |= 1 << at;
+        }
+    }
+    hooked
 }
 
 const AGENDA_EFFECT: Footprint = Footprint::new(
@@ -873,13 +1042,20 @@ pub struct EffectArgs<'a> {
     pub sources: ti4_model::content_types::SourceSet,
     /// The game's map, when the caller has one.
     pub galaxy: Option<&'a ti4_content::galaxy::Galaxy>,
+    /// Where the random streams stood before the effect, when the dice are ones the core can reproduce (no test
+    /// faces, no pending restore): the effects that roll (Executive Sanctions, Ixthian Artifact) need it.
+    pub rolls: Option<&'a crate::rng::RngPositions>,
 }
+
+/// What an agenda effect leaves besides the state: whether it resolved, the faces it rolled and where the streams
+/// stand (`None`: the effect rolls nothing).
+pub type EffectOut = (bool, Vec<u32>, Option<crate::rng::RngPositions>);
 
 /// The core half of `agenda_effects::resolve_with` for the effects the core has a window for
 /// (`rules::agenda::effects`). `None` for any other agenda, an outcome that does not parse, or a position the
 /// codecs refuse.
 #[must_use]
-pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &EffectArgs<'_>, script: &Recording) -> Option<CoreWindow<bool>> {
+pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &EffectArgs<'_>, script: &Recording) -> Option<CoreWindow<EffectOut>> {
     use ti4_engine_core::generated::Agenda;
     use ti4_engine_core::rules::agenda::effects::Resolve;
     use ti4_engine_core::rules::agenda::table_effects::EffectFacts;
@@ -914,20 +1090,44 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
         pool: r.code("reinforcements"),
         has_galaxy: a.galaxy.is_some(),
         defense_act: r.code("defense_act"),
+        hooked: draw_hooks(gs, &r),
+        drop_unofficial: gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK,
+        blanked: crate::laws::blanked(gs),
     };
     let window = Resolve::of_facts(agenda, outcome, &facts)?;
     if window.draws() && gs.deck_reserve.is_some() {
         return None;
     }
+    // The dice: only streams the core can reproduce. (Ral Nel's Data Skimmer takes a discard only in the action phase,
+    // which the window declines above.)
+    let rolls = if window.rolls() {
+        let Some(before) = a.rolls else {
+            crate::dual::note_bail("agenda_effects::resolve_with", "irreproducible dice (test faces or a stream restore)");
+            return None;
+        };
+        Some(before)
+    } else {
+        None
+    };
     let before = gs.clone();
     let kernel = Kernel::plain();
     let mut driver = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let footprint = if driver.window.needs_map() { AGENDA_EFFECT_MAP } else { AGENDA_EFFECT };
-    let src = Sources { galaxy: a.galaxy.filter(|_| driver.window.needs_map()), rng: None };
+    let mut footprint = if driver.window.needs_map() { AGENDA_EFFECT_MAP } else { AGENDA_EFFECT };
+    if rolls.is_some() {
+        footprint = footprint.union(Footprint::new(&[Slice::Rng], &[Slice::Rng]));
+    }
+    let src = Sources { galaxy: a.galaxy.filter(|_| driver.window.needs_map()), rng: rolls };
+    if rolls.is_some() {
+        driver = driver.with_seeds(std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?)));
+    }
+    let mut rng_after = None;
     let driven = with_core(gs, &mut cx, src, footprint, |core, _| {
         let driven = drive(&mut driver, core, &kernel, &r, &before, script);
         staged = std::mem::take(&mut core.pending_mut().staged);
+        if rolls.is_some() {
+            rng_after = Some(core.rng().clone());
+        }
         driven
     })
     .ok()?
@@ -937,7 +1137,12 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
     }
     apply_staged(gs, &r, &staged)?;
     let resolved = driver.window.done() == ti4_engine_core::rules::agenda::effects::Done::Resolved;
-    Some(CoreWindow { run: Run::new(resolved), questions: driven.rendered })
+    let positions = match rng_after {
+        Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
+        // An effect that rolls nothing (the other half of the card) leaves the streams where they were.
+        None => a.rolls.cloned(),
+    };
+    Some(CoreWindow { run: Run::new((resolved, driver.window.faces().to_vec(), positions)), questions: driven.rendered })
 }
 
 const OFFER_DISCARD: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Agenda, Slice::Pending], &[Slice::Agenda]);
@@ -975,29 +1180,6 @@ pub fn offer_discard(gs: &mut GameState, alias: &str, prompt: &str, script: &Rec
     .ok()?
     .ok()?;
     Some(CoreWindow { run: Run::new(driver.window.taken()), questions: driven.rendered })
-}
-
-const COVERT_DRAW: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Strategy, Slice::Objectives, Slice::Decks, Slice::Agenda, Slice::Pending],
-    &[Slice::Decks, Slice::Agenda],
-);
-
-/// The core half of `Game::draw_covert_agenda`: the outcomes of the face-down agenda. `None` while the string
-/// state carries a deck reserve (a turn-redo replay draws through it) or for a position the codecs refuse.
-#[must_use]
-pub fn covert_draw(gs: &mut GameState, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<Vec<String>>> {
-    use ti4_engine_core::rules::agenda::covert::CovertDraw;
-    if script.nested || gs.deck_reserve.is_some() {
-        return None;
-    }
-    let (mut cx, r) = tables(gs)?;
-    let window = CovertDraw::new(crate::core_adapter::scope(sources), crate::laws::blanked(gs));
-    let before = gs.clone();
-    let kernel = crate::production_view::kernel();
-    let mut driver = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1);
-    let driven = with_core(gs, &mut cx, Sources::default(), COVERT_DRAW, |core, _| drive(&mut driver, core, kernel, &r, &before, script)).ok()?.ok()?;
-    let choices = driver.window.choices().iter().map(|o| cx.keys.render_outcome(*o)).collect::<Option<Vec<_>>>()?;
-    Some(CoreWindow { run: Run::new(choices), questions: driven.rendered })
 }
 
 /// The core half of `laws::repeal`. `None` for a law the core does not know or a position the codecs refuse.
@@ -1706,7 +1888,7 @@ pub struct BarrageArgs<'a> {
 pub type BarrageOut = (Vec<PlayerId>, Vec<(u32, Vec<u32>)>, crate::rng::RngPositions);
 
 /// The seeds of the Dice stream (the only one a window draws from here): `SHA-256(seed || "dice")`.
-struct DiceSeeds(String);
+pub(crate) struct DiceSeeds(pub(crate) String);
 
 impl ti4_engine_core::state::SeedSource for DiceSeeds {
     fn seed_for(&self, seed: u64, domain: ti4_engine_core::state::RngDomain) -> [u8; 32] {

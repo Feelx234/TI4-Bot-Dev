@@ -10,6 +10,8 @@
 
 use ti4_engine_core::choice::objectives::{Ask, Opt, Subtype};
 use ti4_engine_core::generated::{PublicObjective, SecretObjective};
+use ti4_engine_core::kernel::fx_plots::PRINTED;
+use ti4_engine_core::state::PlotCard;
 use ti4_engine_core::state::ObjectiveRef;
 
 use super::{Family, Render};
@@ -21,6 +23,22 @@ use crate::preview::{Delta, Preview, Quantity};
 pub const SCORE_KIND: &str = "score";
 /// `secrets::RETURN_KIND`.
 pub const RETURN_KIND: &str = "return";
+/// The id text of a plot card (`ti4_model::plots::CARDS`).
+#[must_use]
+pub const fn card_text(c: PlotCard) -> &'static str {
+    match c {
+        PlotCard::Enervate => "enervate",
+        PlotCard::Siphon => "siphon",
+        PlotCard::Seethe => "seethe",
+        PlotCard::Assail => "assail",
+        PlotCard::Extract => "extract",
+    }
+}
+
+/// `firmament::PLOT_OPTION`: the id prefix of a scoring option that scores a secret as a plot.
+pub const PLOT_OPTION: &str = "plot|";
+/// The option kind of a plot card placement.
+pub const PLOT_CARD_KIND: &str = "plot_card";
 /// `objectives::VICTORY_TARGET`.
 const TARGET: i64 = ti4_engine_core::kernel::fx::VICTORY_TARGET as i64;
 
@@ -41,8 +59,9 @@ impl Family for Fam {
     type Opt = Opt;
     type Subtype = Subtype;
 
-    fn prompt(_: &Render, a: &Ask) -> String {
+    fn prompt(r: &Render, a: &Ask) -> String {
         match a {
+            Ask::PlotCard { token } => format!("place a plot card with {}'s control token on it", r.seat_text(*token)),
             Ask::Score { .. } => "score an objective".to_owned(),
             Ask::ReturnSecret { .. } => "return a secret objective to the deck".to_owned(),
         }
@@ -53,12 +72,26 @@ impl Family for Fam {
             Subtype::ScoreObjective => "score_objective",
             Subtype::ScoreSecretObjective => "score_secret_objective",
             Subtype::ReturnOverSecretHandLimit => "return_over_secret_hand_limit",
+            Subtype::PlotCard => "plot_card",
         }
         .to_owned()
     }
 
-    fn option(_: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
+    fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match (a, o) {
+            (Ask::Score { vp }, Opt::Plot { secret, token }) => {
+                // Plots Within Plots: a plot scores with no victory point.
+                let vp = i64::from(*vp);
+                let token = r.seat_text(*token);
+                ChoiceOption::labelled(format!("{PLOT_OPTION}{}|{token}", secret.as_str()), SCORE_KIND, format!("{} as a plot with {token}'s control token", secret.as_str()))
+                    .previewed(Preview::certain(vec![Delta::new(Quantity::VictoryPoints, vp, vp)]))
+            }
+            (Ask::PlotCard { token }, Opt::PlaceCard(card)) => {
+                let text = card_text(*card);
+                let mut name = text.to_owned();
+                name[..1].make_ascii_uppercase();
+                ChoiceOption::labelled(text, PLOT_CARD_KIND, format!("place {name} with {}'s control token", r.seat_text(*token)))
+            }
             (Ask::Score { vp }, Opt::Score(obj)) => {
                 let id = objective_text(*obj);
                 let vp = i64::from(*vp);
@@ -75,8 +108,13 @@ impl Family for Fam {
         }
     }
 
-    fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
+    fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
+            Ask::PlotCard { .. } => PRINTED.iter().find(|c| card_text(**c) == id).map(|c| Opt::PlaceCard(*c)),
+            Ask::Score { .. } if id.starts_with(PLOT_OPTION) => {
+                let (secret, token) = id[PLOT_OPTION.len()..].split_once('|')?;
+                Some(Opt::Plot { secret: SecretObjective::from_id(secret)?, token: r.seat(token)? })
+            }
             Ask::Score { .. } => PublicObjective::from_id(id)
                 .map(ObjectiveRef::Public)
                 .or_else(|| SecretObjective::from_id(id).map(ObjectiveRef::Secret))

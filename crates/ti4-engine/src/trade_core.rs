@@ -368,77 +368,11 @@ use crate::generated::IdStr;
                 Some(s) => Some(typed::<SecretObjective>(s.as_str())?),
                 None => None,
             },
-            planet: t.planet.as_ref().map(|p| q::PlanetFacts { payable: crate::transactions::planet_term_payable(state, giver, p) }),
+            planet: t.planet.as_ref().map(|p| q::PlanetFacts {
+                payable: crate::transactions::planet_term_payable(state, giver, p),
+                mv: typed::<ti4_engine_core::generated::Planet>(p.planet.as_str()).zip(typed::<ti4_engine_core::generated::Planet>(p.moves_to.as_str())),
+            }),
         })
-    }
-
-    // -- the decision model -----------------------------------------------------------------
-
-    /// The typed form of a transaction-window question (`TradeWindow::pending_choice`), or `None`
-    /// for any other question or a seat the table does not know.
-    #[must_use]
-    pub fn typed_choice(state: &GameState, choice: &crate::choice::Choice, r: &crate::render::Render) -> Option<ti4_engine_core::choice::Choice> {
-        use ti4_engine_core::choice::generic::Rule;
-        use ti4_engine_core::choice::trade::{Ask, Opt, Subtype};
-        use ti4_engine_core::choice::{Ctx, Opts, Origin, Subtype as Sub, Target};
-        let context = choice.context.as_ref()?;
-        let actor = r.seat(choice.player.as_str())?;
-        let crate::decision_context::DecisionTarget::Player(other) = context.target.clone()? else { return None };
-        let other = r.seat(other.as_str())?;
-        let (ask, subtype, opts) = match context.subtype.as_str() {
-            "propose_transaction" => {
-                let name = choice.prompt.strip_prefix("transaction with ")?;
-                let mut opts = Opts::default();
-                for o in &choice.options {
-                    opts.push(if o.is_decline() {
-                        ti4_engine_core::choice::Opt::Decline
-                    } else {
-                        ti4_engine_core::choice::Opt::Trade(Opt::Deal(r.shape(o)))
-                    });
-                }
-                (Ask::Propose { proposer: actor, partner: other, name: r.code(name) }, Subtype::Propose, opts)
-            }
-            "answer_transaction" => {
-                let said = choice.prompt.strip_suffix(" -- accept?")?;
-                let net = choice.options.iter().find(|o| o.id == "accept")?.payload.get("net")?.as_f64()?;
-                let mut opts = Opts::default();
-                for o in &choice.options {
-                    opts.push(ti4_engine_core::choice::Opt::Trade(match o.id.as_str() {
-                        "accept" => Opt::Accept,
-                        "refuse" => Opt::Refuse,
-                        "counter" => Opt::Counter,
-                        _ => return None,
-                    }));
-                }
-                (Ask::Answer { responder: actor, proposer: other, said: r.code(said), net: r.code(&net.to_string()) }, Subtype::Answer, opts)
-            }
-            _ => return None,
-        };
-        let _ = state;
-        Some(ti4_engine_core::choice::Choice {
-            actor,
-            ask: ti4_engine_core::choice::Ask::Trade(ask),
-            ctx: Ctx {
-                origin: Origin::Rule(Rule::R60),
-                subtype: Sub::Trade(subtype),
-                optional: context.optional,
-                target: Some(Target::Seat(other)),
-                outstanding: ti4_engine_core::containers::SmallList::new(),
-                space_battle: false,
-                invasion_seq: None,
-            },
-            opts,
-        })
-    }
-
-    /// The question rendered from its typed form: what the string window built, byte for byte.
-    #[must_use]
-    pub fn rendered(state: &GameState, choice: &crate::choice::Choice) -> Option<crate::choice::Choice> {
-        let cx = Ctx::of(state).ok()?;
-        let r = crate::render::Render::new(cx.owners.ids().to_vec());
-        let typed = typed_choice(state, choice, &r)?;
-        let phase = crate::render::generic::core_phase(state.phase);
-        Some(crate::render::render_choice(&r, &typed, phase, state.round))
     }
 
     // -- mutators -----------------------------------------------------------------------------
@@ -449,15 +383,17 @@ use crate::generated::IdStr;
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger],
         &[Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger],
     );
+    /// [`GOODS`] with the board (a planet card moves its giver's units and its control).
+    const GOODS_BOARD: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger, Slice::Board],
+        &[Slice::Players, Slice::Cards, Slice::Trade, Slice::Ledger, Slice::Board],
+    );
     const TRADE: Footprint = Footprint::new(&[Slice::Trade], &[Slice::Trade]);
 
     /// The goods half of `transactions::resolve` on the typed state. `None` when the deal has a
     /// term the core does not move (a note or a planet card) or the position is not expressible.
     pub fn exchange(state: &mut GameState, content: &ContentStore, offer: &Offer) -> Option<()> {
-        if !content.is_embedded()
-            || offer.given.planet.is_some()
-            || offer.received.planet.is_some()
-        {
+        if !content.is_embedded() {
             return counted(None);
         }
         let mut cx = Ctx::of(state).ok()?;
@@ -468,10 +404,11 @@ use crate::generated::IdStr;
             given: terms(state, content, &offer.proposer, &offer.partner, &offer.given)?,
             received: terms(state, content, &offer.partner, &offer.proposer, &offer.received)?,
         };
-        if [&typed_offer.given, &typed_offer.received].iter().any(|t| t.note.is_some_and(|n| n.mv.is_none())) {
+        if [&typed_offer.given, &typed_offer.received].iter().any(|t| t.note.is_some_and(|n| n.mv.is_none()) || t.planet.is_some_and(|p| p.mv.is_none())) {
             return counted(None);
         }
-        counted(with_core(state, &mut cx, Sources { galaxy: None, rng: None }, GOODS, |core, _| rules::exchange(core, &typed_offer)).ok().flatten())
+        let planets = typed_offer.given.planet.is_some() || typed_offer.received.planet.is_some();
+        counted(with_core(state, &mut cx, Sources { galaxy: None, rng: None }, if planets { GOODS_BOARD } else { GOODS }, |core, _| rules::exchange(core, &typed_offer)).ok().flatten())
     }
 
     /// `GameState::record_transaction` on the typed state.

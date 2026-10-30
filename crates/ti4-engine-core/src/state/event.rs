@@ -221,6 +221,9 @@ pub enum List {
     Units(SmallList<(Seat, Unit), 8>),
     /// An array of planet ids (`GROUND_COMMITMENT_FINISHED`'s `planets`).
     Planets(SmallList<Planet, 8>),
+    /// An array of system ids, or the same joined by commas where the string engine writes one text (`SHIP_MOVED`'s
+    /// `path`): the key says which.
+    Systems(SmallList<System, 8>),
 }
 
 macro_rules! typed_get {

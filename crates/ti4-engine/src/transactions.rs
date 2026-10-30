@@ -114,7 +114,7 @@ pub(crate) fn planet_term_payable(state: &GameState, player: &PlayerId, term: &P
 }
 
 /// What a planet card is worth to hold: its resources and influence.
-fn planet_value(content: &ContentStore, planet: &PlanetId) -> f64 {
+pub(crate) fn planet_value(content: &ContentStore, planet: &PlanetId) -> f64 {
     ti4_content::galaxy::planet(content, planet.as_str(), DEFAULT).map_or(2.0, |record| {
         #[allow(clippy::cast_precision_loss)]
         let value = (record.resources() + record.influence()) as f64;
@@ -235,9 +235,14 @@ impl Offer {
     /// faction, which in the oracle is its player identity.
     #[must_use]
     pub fn describe(&self, state: &GameState) -> String {
+        self.describe_as(&faction_name(state, &self.proposer))
+    }
+
+    /// [`Self::describe`] with the speaker's faction name given (the renderer has no state).
+    #[must_use]
+    pub fn describe_as(&self, speaker: &str) -> String {
         format!(
-            "{} gives {} for {}",
-            faction_name(state, &self.proposer),
+            "{speaker} gives {} for {}",
             self.given.describe(),
             self.received.describe()
         )
@@ -1813,6 +1818,18 @@ pub fn offer_from(
     proposer: &PlayerId,
     partner: &PlayerId,
 ) -> Option<Offer> {
+    offer_from_with(&|player| crate::promissory::faction_name(state, player), id, proposer, partner)
+}
+
+/// [`offer_from`] knowing the faction names of the two chairs instead of the state (the typed renderer reads a
+/// deal back from its id this way).
+#[must_use]
+pub fn offer_from_with(
+    faction: &dyn Fn(&PlayerId) -> String,
+    id: &str,
+    proposer: &PlayerId,
+    partner: &PlayerId,
+) -> Option<Offer> {
     let goods = |n: i32| Terms {
         trade_goods: n,
         ..Terms::default()
@@ -1834,8 +1851,8 @@ pub fn offer_from(
         return free_form_offer(id, proposer, partner);
     }
     if id == "ss" {
-        let from = crate::promissory::faction_name(state, proposer);
-        let to = crate::promissory::faction_name(state, partner);
+        let from = faction(proposer);
+        let to = faction(partner);
         return deal(
             Terms {
                 promissory: Some(crate::promissory::support(&from)),
@@ -2064,10 +2081,13 @@ enum Stage {
     /// The proposer is choosing what to put on the table.
     Proposing,
     /// The partner is answering a proposal.
-    Answering(Offer),
+    Answering(Offer, String),
     /// Negotiations are over.
     Done,
 }
+
+/// The label of the window's step in the dual report.
+const LABEL_ANSWER: &str = "transactions::answer";
 
 /// An open negotiation between two neighbours (94.1a).
 ///
@@ -2108,6 +2128,35 @@ pub struct TradeWindow {
     stage: Stage,
     /// Proposals still to be answered. Two, as in the oracle: an offer and one counter.
     rounds_left: u8,
+}
+
+/// Where a transaction window stands, as plain data (package D1a).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TradeParts {
+    pub proposer: PlayerId,
+    pub partner: PlayerId,
+    pub rounds_left: u8,
+    /// The deal on the table and the id of the option it came from while the partner answers it.
+    pub answering: Option<(Offer, String)>,
+    /// The negotiation is over.
+    pub done: bool,
+}
+
+impl TradeWindow {
+    /// The window as plain data.
+    #[must_use]
+    pub(crate) fn parts(&self) -> TradeParts {
+        TradeParts {
+            proposer: self.proposer.clone(),
+            partner: self.partner.clone(),
+            rounds_left: self.rounds_left,
+            answering: match &self.stage {
+                Stage::Answering(offer, id) => Some((offer.clone(), id.clone())),
+                _ => None,
+            },
+            done: self.stage == Stage::Done,
+        }
+    }
 }
 
 impl TradeWindow {
@@ -2188,7 +2237,7 @@ impl TradeWindow {
                     ),
                 )
             }
-            Stage::Answering(offer) => {
+            Stage::Answering(offer, _) => {
                 // Priced from the *receiver's* side: what they are being handed against what is
                 // being asked of them. Unpriced before, so a deal that gave two trade goods for
                 // nothing was accepted exactly as often as one that took them.
@@ -2229,20 +2278,53 @@ impl TradeWindow {
                 )
             }
         };
-        // The dual run renders the question from its typed form and compares (the options are
-        // still the string engine's: the pricing is not ported).
-        #[cfg(feature = "typed-core")]
-        if crate::dual::backend(crate::dual::Area::TradeDiplomacy) == crate::dual::Backend::Dual
-            && let Some(c) = &choice
-        {
-            let _ = crate::dual::run_dual_typed(
-                crate::dual::Area::TradeDiplomacy,
-                "transactions::pending_choice",
-                || crate::trade_core::rendered(state, c).map(Some),
-                || Some(c.clone()),
-            );
-        }
         choice
+    }
+
+    /// One step of the negotiation as the game drives it: the table answers `choice` (`ask`, which reads the
+    /// position it is given) and the window resolves the answer. Under `TI4_AREAS=trade=dual` the core window
+    /// (`rules::trade_window`) takes the same step beside it and the question, the state and the outcome are
+    /// compared (package B4c). An `ask` that fails leaves the window as it was.
+    ///
+    /// # Errors
+    /// Whatever `ask` fails with.
+    pub fn answer_with<E>(
+        &mut self,
+        state: &mut GameState,
+        content: &ContentStore,
+        galaxy: &Galaxy,
+        choice: &crate::choice::Choice,
+        ask: impl FnOnce(&crate::choice::Choice, &mut GameState) -> Result<crate::choice::ChoiceOption, E>,
+    ) -> Result<Traded, E> {
+        let at = self.position();
+        let mut failed = None;
+        let traded = crate::dual_window!(
+            crate::dual::Area::TradeDiplomacy,
+            LABEL_ANSWER,
+            state,
+            |s: &mut GameState| match ask(choice, s) {
+                Ok(answer) => crate::dual::Run::new(self.resolve(s, content, galaxy, &answer)),
+                Err(error) => {
+                    failed = Some(error);
+                    crate::dual::Run::new(Traded::NothingOffered)
+                }
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| crate::trade_window_dual::step(s, content, galaxy, &at, script)
+        );
+        failed.map_or(Ok(traded), Err)
+    }
+
+    /// Where the window stands (for the lockstep of [`Self::answer_with`]).
+    fn position(&self) -> crate::trade_window_dual::At {
+        crate::trade_window_dual::At {
+            proposer: self.proposer.clone(),
+            partner: self.partner.clone(),
+            rounds_left: self.rounds_left,
+            offer: match &self.stage {
+                Stage::Answering(offer, id) => Some((offer.clone(), id.clone())),
+                Stage::Proposing | Stage::Done => None,
+            },
+        }
     }
 
     /// Apply one answer.
@@ -2268,10 +2350,10 @@ impl TradeWindow {
                 if let Some(reason) = why_illegal(state, content, galaxy, &offer) {
                     return Traded::Rejected(reason);
                 }
-                self.stage = Stage::Answering(offer);
+                self.stage = Stage::Answering(offer, answer.id.clone());
                 Traded::Offered
             }
-            Stage::Answering(offer) => {
+            Stage::Answering(offer, _) => {
                 if answer.is_decline() {
                     return Traded::Refused;
                 }

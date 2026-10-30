@@ -32,6 +32,18 @@ pub enum StrategyActionError {
     IllegalChoice(#[from] IllegalChoice),
 }
 
+/// The fields of a [`StrategySecondaryWindow`] (see [`StrategySecondaryWindow::parts`]).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SecondaryParts<'a> {
+    pub primary: &'a PlayerId,
+    pub card: &'a StrategyCardId,
+    pub followers: &'a [PlayerId],
+    pub next: usize,
+    pub resolutions: &'a [(PlayerId, SecondaryResolution)],
+    pub exhausts_card: bool,
+    pub preview: bool,
+}
+
 /// The recorded structural result of one eligible follower's secondary decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecondaryResolution {
@@ -342,6 +354,40 @@ fn waiver_options(
         .collect()
 }
 
+/// What one step of the follower window did, as the string window records it (the value the string and the core halves
+/// are compared by, `strategy_secondary_dual`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepOutcome {
+    /// The followers recorded as ineligible, in order.
+    pub skipped: Vec<PlayerId>,
+    /// The follower who was asked and how they answered.
+    pub answered: Option<(PlayerId, SecondaryResolution)>,
+    /// The window has no follower left.
+    pub complete: bool,
+}
+
+/// What the core half of one step of the follower window is told (see [`StrategySecondaryWindow::core_facts`]).
+#[derive(Debug, Clone)]
+pub(crate) struct SecondaryFacts {
+    pub primary: PlayerId,
+    pub card: StrategyCardId,
+    /// How many followers the window still holds.
+    pub total: usize,
+    /// The followers from the front to the first one who is asked (all of them when none is).
+    pub followers: Vec<FollowerFact>,
+}
+
+/// One follower of [`SecondaryFacts`].
+#[derive(Debug, Clone)]
+pub(crate) struct FollowerFact {
+    pub player: PlayerId,
+    pub eligible: bool,
+    pub costs_token: bool,
+    pub primary_instead: bool,
+    /// The waiver options offered beside the follow (when it costs a token).
+    pub waivers: Vec<ChoiceOption>,
+}
+
 /// The ordered follower window opened by a strategic action.
 ///
 /// The owner is deliberately absent from `followers`: LRR 82.1 offers a secondary to
@@ -431,6 +477,99 @@ impl StrategySecondaryWindow {
             exhausts_card: false,
             preview: false,
         }
+    }
+
+    /// Whether finishing the window exhausts the primary player's copy of the card.
+    #[must_use]
+    pub(crate) const fn exhausts_card(&self) -> bool {
+        self.exhausts_card
+    }
+
+    /// Every field of the window, for the typed copy of the driver's `Pending` (package D1a).
+    #[must_use]
+    pub(crate) fn parts(&self) -> SecondaryParts<'_> {
+        SecondaryParts {
+            primary: &self.primary_player,
+            card: &self.card,
+            followers: &self.followers,
+            next: self.next_follower,
+            resolutions: &self.resolutions,
+            exhausts_card: self.exhausts_card,
+            preview: self.preview,
+        }
+    }
+
+    /// The window of `parts` (the inverse of [`Self::parts`]).
+    #[must_use]
+    pub(crate) fn from_parts(
+        primary: PlayerId,
+        card: StrategyCardId,
+        followers: Vec<PlayerId>,
+        next: usize,
+        resolutions: Vec<(PlayerId, SecondaryResolution)>,
+        exhausts_card: bool,
+    ) -> Self {
+        Self {
+            primary_player: primary,
+            card,
+            followers,
+            next_follower: next,
+            resolutions,
+            exhausts_card,
+            preview: false,
+        }
+    }
+
+    /// What the core half of one step of this window is told (package B8c-1): the followers from the front to the first
+    /// one who is asked, with what the string answers about each. `None` for a preview window and one for a card
+    /// nobody holds (the core step covers neither).
+    #[must_use]
+    pub(crate) fn core_facts(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+    ) -> Option<SecondaryFacts> {
+        if self.preview || !self.exhausts_card {
+            return None;
+        }
+        let view = crate::strategy_typed::open_view(state, content, sources);
+        let kind = crate::strategy_cards::card_kind(content, self.card.as_str());
+        let mut followers = Vec::new();
+        for player in &self.followers[self.next_follower..] {
+            let eligible = self.eligible(&view, state, content, sources, player);
+            let mut fact = FollowerFact {
+                player: player.clone(),
+                eligible,
+                costs_token: false,
+                primary_instead: false,
+                waivers: Vec::new(),
+            };
+            if eligible {
+                fact.costs_token = secondary_costs_token(content, &self.card)
+                    && !secondary_is_free(state, content, player, &self.card);
+                if fact.costs_token {
+                    fact.waivers = waiver_options(state, content, player, &self.primary_player, &self.card);
+                } else {
+                    fact.primary_instead = crate::factions::firmament_plots::primary_instead_offered(
+                        state,
+                        player,
+                        &self.primary_player,
+                        kind,
+                    );
+                }
+            }
+            followers.push(fact);
+            if eligible {
+                break;
+            }
+        }
+        Some(SecondaryFacts {
+            primary: self.primary_player.clone(),
+            card: self.card.clone(),
+            total: self.followers.len() - self.next_follower,
+            followers,
+        })
     }
 
     /// Why `follower` would not be asked this window's question, or `None` when it would be.
@@ -1087,6 +1226,41 @@ mod tests {
     use super::*;
     use crate::draft::{strategy_options, take_strategy_card};
     use crate::setup::start_game;
+
+    /// B8c-1: the core's follow question (`Ask::Follow` with `Skip` / `Follow`) renders as the string
+    /// `secondary_question` of every strategy card, byte for byte (prompt, option ids, kinds, labels), at either cost.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_core_follow_question_renders_as_the_string_secondary_question_of_every_card() {
+        use crate::generated::IdStr;
+        use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt};
+        use ti4_engine_core::choice::{Ask, Opt};
+        let content = ContentStore::embedded();
+        let r = crate::render::Render::new(vec!["a".to_owned(), "b".to_owned()]);
+        for card in ti4_engine_core::generated::StrategyCard::ALL {
+            for costs_token in [true, false] {
+                let id = StrategyCardId::new(card.as_str());
+                let player = PlayerId::new("b");
+                let string = secondary_question(content, &id, &player, costs_token);
+                let ask = Ask::Strategy(SAsk::Follow { card, primary: ti4_engine_core::Seat(0), costs_token });
+                let typed = crate::render::render_choice(
+                    &r,
+                    &ti4_engine_core::choice::Choice {
+                        actor: ti4_engine_core::Seat(1),
+                        ask,
+                        ctx: ti4_engine_core::choice::strategy::ctx(card, true, ti4_engine_core::choice::strategy::Subtype::FollowSecondary),
+                        opts: [SOpt::Skip, SOpt::Follow].into_iter().map(Opt::Strategy).collect(),
+                    },
+                    ti4_engine_core::state::Phase::Action,
+                    1,
+                );
+                assert_eq!(typed.prompt, string.prompt, "{card:?}");
+                assert_eq!(typed.options, string.options, "{card:?} costs_token {costs_token}");
+                assert_eq!(typed.details["card"], card.as_str());
+                assert_eq!(typed.details["played_by"], "a");
+            }
+        }
+    }
 
     fn drafted_three_player_game() -> GameState {
         let players = [PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c")];

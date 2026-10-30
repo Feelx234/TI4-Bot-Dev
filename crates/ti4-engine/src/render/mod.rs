@@ -30,6 +30,7 @@ pub mod agenda;
 pub mod cards;
 pub mod combat;
 pub mod diplomacy;
+pub mod events;
 pub mod explore;
 pub mod invasion;
 pub mod leaders;
@@ -74,7 +75,7 @@ pub struct Render {
     /// The position of the question being rendered, when the caller set one (`None` for the families
     /// that need none; see [`Position`]).
     position: RefCell<Option<Position>>,
-    /// Option shapes of areas whose options the string engine still builds (trade deals), by index.
+    /// Option shapes of areas whose options the string engine still builds (the strategy waivers, trade deals), by index.
     shapes: RefCell<Vec<ChoiceOption>>,
 }
 
@@ -149,6 +150,12 @@ impl Render {
             shapes.len() - 1
         });
         Code(u16::try_from(i).expect("fewer than 65536 distinct shapes"))
+    }
+
+    /// How many option shapes were interned.
+    #[must_use]
+    pub fn shape_count(&self) -> usize {
+        self.shapes.borrow().len()
     }
 
     /// The option shape of a code.
@@ -230,7 +237,7 @@ macro_rules! uninhabited {
     )*};
 }
 uninhabited!(
-    tactical, technology, tokens, diplomacy,
+    technology, tokens,
     legendary, promissory
 );
 
@@ -318,7 +325,7 @@ macro_rules! registry {
 }
 
 registry! {
-    Tactical => unported!(tactical),
+    Tactical => tactical::Fam,
     Technology => unported!(technology),
     Objectives => objectives::Fam,
     Tokens => unported!(tokens),
@@ -327,7 +334,7 @@ registry! {
     Invasion => invasion::Fam,
     Production => production::Fam,
     Trade => trade::Fam,
-    Diplomacy => unported!(diplomacy),
+    Diplomacy => diplomacy::Fam,
     Explore => explore::Fam,
     Relic => relic::Fam,
     Legendary => unported!(legendary),

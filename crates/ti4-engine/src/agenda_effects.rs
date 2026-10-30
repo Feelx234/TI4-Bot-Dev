@@ -464,7 +464,7 @@ fn windowed(
     string: impl FnOnce(&mut GameState) -> Effect,
 ) -> Effect {
     let (for_voters, against_voters) = (ballot.voted_for(FOR), ballot.voted_for(AGAINST));
-    let args = crate::dual_window::EffectArgs { for_voters: &for_voters, against_voters: &against_voters, sources, galaxy };
+    let args = crate::dual_window::EffectArgs { for_voters: &for_voters, against_voters: &against_voters, sources, galaxy, rolls: None };
     let mut string = Some(string);
     let mut result = None;
     crate::dual_window!(
@@ -475,7 +475,52 @@ fn windowed(
             let effect = string.take().map_or(Effect::Unresolved { agenda: String::new() }, |f| f(s));
             let resolved = matches!(effect, Effect::Resolved { .. });
             result = Some(effect);
-            crate::dual::Run::new(resolved)
+            crate::dual::Run::new((resolved, Vec::new(), None))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::agenda_effect(s, agenda, outcome, &args, script)
+    );
+    result.unwrap_or(Effect::Unresolved { agenda: agenda.to_owned() })
+}
+
+/// [`windowed`] for the effects that roll the game's dice (Executive Sanctions, Ixthian Artifact): the core window draws
+/// from its copy of the streams, and the faces and where the streams stand are compared with the string's. Dice the
+/// core cannot reproduce (test faces, a pending restore) run the string body bare.
+fn windowed_rolling(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    agenda: &str,
+    outcome: &str,
+    ballot: &Ballot,
+    string: impl FnOnce(&mut GameState, &mut crate::choice::Resolving<'_>) -> Effect,
+) -> Effect {
+    let reproducible = !ctx.dice.is_preloaded() && !ctx.rng.sync_pending() && ctx.rng.seed() == state.rng_seed;
+    let rng_before = ctx.rng.positions();
+    let history_start = ctx.dice.history().len();
+    let sources = ctx.sources;
+    let (for_voters, against_voters) = (ballot.voted_for(FOR), ballot.voted_for(AGAINST));
+    let args = crate::dual_window::EffectArgs {
+        for_voters: &for_voters,
+        against_voters: &against_voters,
+        sources,
+        galaxy,
+        rolls: reproducible.then_some(&rng_before),
+    };
+    let mut result = None;
+    let ctx = std::cell::RefCell::new(ctx);
+    let mut string = Some(string);
+    crate::dual_window!(
+        crate::dual::Area::AgendaLaws,
+        "agenda_effects::resolve_with",
+        state,
+        |s: &mut GameState| {
+            let mut ctx = ctx.borrow_mut();
+            let effect = string.take().map_or(Effect::Unresolved { agenda: String::new() }, |f| f(s, &mut **ctx));
+            let resolved = matches!(effect, Effect::Resolved { .. });
+            let faces: Vec<u32> = ctx.dice.history().iter().skip(history_start).flat_map(|roll| roll.faces.clone()).collect();
+            let positions = ctx.rng.positions();
+            result = Some(effect);
+            crate::dual::Run::new((resolved, faces, Some(positions)))
         },
         |s: &mut GameState, script: &crate::dual_window::Recording| crate::dual_window::agenda_effect(s, agenda, outcome, &args, script)
     );
@@ -516,14 +561,18 @@ pub fn resolve_with(
             effect_execution(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         "redistribution" => effect_redistribution(state, ctx, galaxy, agenda, outcome, ballot),
-        "artifact" => effect_artifact(state, ctx, galaxy, agenda, outcome, ballot),
+        "artifact" => windowed_rolling(state, ctx, galaxy, agenda, outcome, ballot, |s, ctx| {
+            effect_artifact(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "wormhole_research" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_wormhole_research(s, ctx, galaxy, agenda, outcome, ballot)
         }),
         "regulations" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_regulations(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "sanctions" => effect_sanctions(state, ctx, galaxy, agenda, outcome, ballot),
+        "sanctions" => windowed_rolling(state, ctx, galaxy, agenda, outcome, ballot, |s, ctx| {
+            effect_sanctions(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "travel_ban" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_travel_ban(s, ctx, galaxy, agenda, outcome, ballot)
         }),
@@ -616,9 +665,9 @@ pub fn resolve_with(
         "rearmament" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_rearmament(s, ctx, galaxy, agenda, outcome, ballot)
         }),
-        "minister_antiquities" => {
-            effect_minister_antiquities(state, ctx, galaxy, agenda, outcome, ballot)
-        }
+        "minister_antiquities" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
+            effect_minister_antiquities(s, ctx, galaxy, agenda, outcome, ballot)
+        }),
         "core_mining" => windowed(state, ctx.sources, galaxy, agenda, outcome, ballot, |s| {
             effect_core_mining(s, ctx, galaxy, agenda, outcome, ballot)
         }),
@@ -724,8 +773,8 @@ fn effect_classified(
             outcome,
         )
         .is_some();
-    if is_secret && !state.revealed_objectives.contains(&alias) {
-        state.revealed_objectives.push(alias);
+    if is_secret {
+        crate::laws::make_public(state, &alias);
     }
     Effect::Resolved {
         agenda: agenda.to_owned(),
@@ -2405,7 +2454,7 @@ mod tests {
         // probed itself: it answers for both effects.
         for (agenda, answers) in [("secret", 1), ("warrant", 2)] {
             let mut probe = seated();
-            let window = crate::dual_window::agenda_effect(&mut probe, agenda, "a", &crate::dual_window::EffectArgs { for_voters: &[], against_voters: &[], sources: POK, galaxy: None }, &crate::dual_window::Recording::default());
+            let window = crate::dual_window::agenda_effect(&mut probe, agenda, "a", &crate::dual_window::EffectArgs { for_voters: &[], against_voters: &[], sources: POK, galaxy: None, rolls: None }, &crate::dual_window::Recording::default());
             assert!(window.is_some_and(|w| w.questions.len() <= answers), "{agenda}");
         }
         let _ = take_report();
