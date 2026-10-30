@@ -1,0 +1,22 @@
+Q0 seat 1 Agenda(Committee { agenda: PoliticalCensure })
+   0: Agenda(Elect(Seat(0)))
+   1: Agenda(Elect(Seat(1)))
+  >2: Agenda(Elect(Seat(2)))
+done
+--- delta ---
+agenda.laws: {} -> -
+agenda.laws.PoliticalCensure.[0].[0]: - -> 2
+agenda.log: [] -> -
+agenda.log.[0].agenda: - -> PoliticalCensure
+agenda.log.[0].discard_reason: - -> None
+agenda.log.[0].discarded: - -> false
+agenda.log.[0].enacted: - -> true
+agenda.log.[0].law: - -> true
+agenda.log.[0].outcome.[0].[0].[0]: - -> 2
+agenda.log.[0].redirected_to: - -> None
+agenda.log.[0].round: - -> 4
+agenda.log.[0].speaker_decided: - -> false
+agenda.log.[0].votes: - -> {}
+ledger.events: 0 -> 2
+event[0]: Plain(PlainRec { kind: AgendaResolved, a: Agenda(PoliticalCensure), b: Outcome(Seat(Seat(2))) })
+event[1]: Plain(PlainRec { kind: LawEnacted, a: Agenda(PoliticalCensure), b: Outcome(Seat(Seat(2))) })

@@ -1,0 +1,6 @@
+Q0 seat 0 Explore(PayInfantry { card: AbandonedWarehouses1, planet: Tempesta, reward: TradeGood })
+  >0: Explore(RemoveInfantry)
+   1: Explore(KeepInfantry)
+done
+--- delta ---
+planet[Tempesta]: control Some(0) units [2xInfantryI/s0] attach [] coexist {} placed_in None flags 4 -> control Some(0) units [1xInfantryI/s0] attach [] coexist {} placed_in None flags 4

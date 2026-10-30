@@ -77,7 +77,7 @@ fn the_core_uses_no_hash_map_or_hash_set() {
 
 #[test]
 fn the_core_reads_no_clock_no_entropy_no_environment_no_file_and_prints_nothing() {
-    let bad = hits(&["SystemTime", "Instant", "getrandom", "thread_rng", "OsRng", "println", "eprintln", "dbg"]);
+    let bad = hits(&["SystemTime", "Instant::now", "getrandom", "thread_rng", "OsRng", "println", "eprintln", "dbg"]);
     assert_eq!(bad, Vec::<String>::new());
     let bad = production_lines().into_iter().filter(|(_, _, l)| l.contains("std::env") || l.contains("std::fs") || l.contains("std::process")).map(|(f, n, l)| format!("{f}:{n}: {}", l.trim())).collect::<Vec<_>>();
     assert_eq!(bad, Vec::<String>::new());

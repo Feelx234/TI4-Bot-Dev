@@ -118,11 +118,17 @@ fn a_deal_that_is_not_among_the_proposals_or_an_answer_before_the_proposal_is_il
 }
 
 #[test]
-fn a_pair_with_nothing_to_trade_asks_nothing() {
+fn a_pair_with_no_goods_or_commodities_is_offered_only_deals_in_promissory_notes() {
     covers!("rules::trade_window::TradeWindow");
     let mut rig = Rig::new(Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheArborec]), TradeWindow::open(Seat(0), Seat(1), facts(0, 1)));
     rig.run();
-    assert!(rig.is_done(), "no goods, no commodities, no notes: no deal exists");
+    let opts = rig.opts();
+    assert!(opts.contains(&Opt::Decline));
+    for o in &opts {
+        let ok = matches!(o, Opt::Decline | Opt::Trade(TOpt::Deal(Shape::Sell { .. } | Shape::SupportSwap { .. })));
+        assert!(ok, "without goods or commodities only notes can change hands, not {o:?}");
+    }
+    assert!(opts.len() > 1, "the notes in hand still make deals");
 }
 
 #[test]

@@ -1,0 +1,6 @@
+done
+--- delta ---
+planet[Quann]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [] attach [] coexist {} placed_in None flags 1
+planet[Tarmann]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [] attach [] coexist {} placed_in None flags 1
+planet[Thibah]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [] attach [] coexist {} placed_in None flags 1
+transient.misc.flags.[0]: 0 -> 1

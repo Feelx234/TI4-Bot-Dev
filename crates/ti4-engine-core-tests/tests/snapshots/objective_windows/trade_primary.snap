@@ -1,0 +1,19 @@
+Q0 seat 0 Strategy(TradeReplenish)
+  >0: Strategy(Replenish(Seat(1)))
+   1: Strategy(Replenish(Seat(2)))
+   2: Strategy(Replenish(Seat(3)))
+   3: Done
+Q1 seat 0 Strategy(TradeReplenish)
+  >0: Strategy(Replenish(Seat(2)))
+   1: Strategy(Replenish(Seat(3)))
+   2: Done
+Q2 seat 0 Strategy(TradeReplenish)
+  >0: Strategy(Replenish(Seat(3)))
+   1: Done
+done
+--- delta ---
+player0.econ.commodities: 0 -> 6
+player0.econ.trade_goods: 0 -> 3
+player1.econ.commodities: 0 -> 3
+player2.econ.commodities: 0 -> 2
+player3.econ.commodities: 0 -> 4

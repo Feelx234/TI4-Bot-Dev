@@ -1,0 +1,26 @@
+Q0 seat 0 Agenda(Vote { frame: Frame { agenda: JudicialAbolishment, covert: None, reveal: false } })
+  >0: Agenda(Back(For, Shown { votes: 0, system: None }))
+   1: Agenda(Back(Against, Shown { votes: 0, system: None }))
+   2: Decline
+Q1 seat 0 Agenda(Planets { frame: Frame { agenda: JudicialAbolishment, covert: None, reveal: false }, outcome: For, votes: 0, spender: false, tally: Tally { len: 2, items: [(For, 0), (Against, 0), (Empty, 0), (Empty, 0), (Empty, 0), (Empty, 0), (Empty, 0), (Empty, 0)] } })
+  >0: Agenda(Exhaust { planet: Thibah, face: Influence, shown: Shown { votes: 1, system: Some(Thibah) } })
+   1: Decline
+Q2 seat 1 Agenda(Vote { frame: Frame { agenda: JudicialAbolishment, covert: None, reveal: false } })
+  >0: Agenda(Back(For, Shown { votes: 1, system: None }))
+   1: Agenda(Back(Against, Shown { votes: 0, system: None }))
+   2: Decline
+Q3 seat 1 Agenda(Planets { frame: Frame { agenda: JudicialAbolishment, covert: None, reveal: false }, outcome: For, votes: 0, spender: false, tally: Tally { len: 2, items: [(For, 1), (Against, 0), (Empty, 0), (Empty, 0), (Empty, 0), (Empty, 0), (Empty, 0), (Empty, 0)] } })
+  >0: Agenda(Exhaust { planet: Wellon, face: Influence, shown: Shown { votes: 2, system: Some(Wellon) } })
+   1: Decline
+Q4 seat 2 Agenda(Vote { frame: Frame { agenda: JudicialAbolishment, covert: None, reveal: false } })
+  >0: Agenda(Back(For, Shown { votes: 3, system: None }))
+   1: Agenda(Back(Against, Shown { votes: 0, system: None }))
+   2: Decline
+Q5 seat 2 Agenda(Planets { frame: Frame { agenda: JudicialAbolishment, covert: None, reveal: false }, outcome: For, votes: 0, spender: false, tally: Tally { len: 2, items: [(For, 3), (Against, 0), (Empty, 0), (Empty, 0), (Empty, 0), (Empty, 0), (Empty, 0), (Empty, 0)] } })
+  >0: Agenda(Exhaust { planet: MeharXull, face: Influence, shown: Shown { votes: 3, system: Some(MeharXull) } })
+   1: Decline
+done
+--- delta ---
+planet[MeharXull]: control Some(2) units [] attach [] coexist {} placed_in None flags 0 -> control Some(2) units [] attach [] coexist {} placed_in None flags 1
+planet[Thibah]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [] attach [] coexist {} placed_in None flags 1
+planet[Wellon]: control Some(1) units [] attach [] coexist {} placed_in None flags 0 -> control Some(1) units [] attach [] coexist {} placed_in None flags 1

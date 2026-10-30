@@ -1,0 +1,15 @@
+Q0 seat 0 Relic(Codex)
+  >0: Relic(Take(AncientBurialSites, Shown { votes: 0, system: None }))
+   1: Relic(Take(ArchaeologicalExpedition, Shown { votes: 0, system: None }))
+   2: Decline
+Q1 seat 0 Relic(Codex)
+  >0: Relic(Take(ArchaeologicalExpedition, Shown { votes: 1, system: None }))
+   1: Decline
+done
+--- delta ---
+player0.cards.hand: [] -> -
+player0.cards.hand.[0]: - -> AncientBurialSites
+player0.cards.hand.[1]: - -> ArchaeologicalExpedition
+cards.discarded_action.[0]: - -> []
+cards.discarded_action.[0].[0]: AncientBurialSites -> -
+cards.discarded_action.[0].[1]: ArchaeologicalExpedition -> -

@@ -1,0 +1,18 @@
+Q0 seat 0 Strategy(GainPool { left: 3 })
+  >0: Strategy(Pool(Tactic))
+   1: Strategy(Pool(Fleet))
+   2: Strategy(Pool(Strategic))
+Q1 seat 0 Strategy(GainPool { left: 2 })
+  >0: Strategy(Pool(Tactic))
+   1: Strategy(Pool(Fleet))
+   2: Strategy(Pool(Strategic))
+Q2 seat 0 Strategy(GainPool { left: 1 })
+  >0: Strategy(Pool(Tactic))
+   1: Strategy(Pool(Fleet))
+   2: Strategy(Pool(Strategic))
+Q3 seat 0 Strategy(LeadershipBuy { owed: 3, more: false })
+  >0: Strategy(Buy(false))
+   1: Strategy(Buy(true))
+done
+--- delta ---
+player0.econ.tactic_tokens: 1 -> 4

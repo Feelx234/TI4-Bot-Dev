@@ -59,7 +59,7 @@ fn finish(rig: &mut Rig<ProductionWindow>, pay: fn(&Opt) -> bool, spot: Spot) {
 
 fn scenario(goods: i16) -> Scenario {
     let (system, planet) = first_planet();
-    Scenario::lobby(2).map_from(&[system]).control(planet, 0).unit(system, Some(planet), Unit::SpaceDockI, 0, 1).goods(0, goods).tokens(0, 3, 3, 2)
+    Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[system]).control(planet, 0).unit(system, Some(planet), Unit::SpaceDockI, 0, 1).goods(0, goods).tokens(0, 3, 3, 2)
 }
 
 fn rig(limit: i32, goods: i16) -> Rig<ProductionWindow> {

@@ -50,6 +50,10 @@ fn with(ability: Ability) -> Faction {
     LOBBY.into_iter().find(|f| f.data().abilities.contains(&ability)).unwrap_or_else(|| panic!("a lobby faction with {ability:?}"))
 }
 
+fn with_other(ability: Ability, not: Faction) -> Faction {
+    LOBBY.into_iter().find(|f| *f != not && f.data().abilities.contains(&ability)).unwrap_or_else(|| panic!("a second lobby faction with {ability:?}"))
+}
+
 fn without(ability: Ability) -> Faction {
     LOBBY.into_iter().find(|f| !f.data().abilities.contains(&ability)).unwrap()
 }
@@ -69,7 +73,7 @@ fn a_seat_has_the_abilities_its_faction_prints_and_a_stranger_none() {
 #[test]
 fn fragile_costs_a_point_on_every_combat_roll_unrelenting_gives_one_and_the_string_hook_adds() {
     let env = Neutral::default();
-    let s = two(with(Ability::Fragile), with(Ability::Unrelenting));
+    let s = two(with(Ability::Fragile), with_other(Ability::Unrelenting, with(Ability::Fragile)));
     let cx = Cx { core: &s, env: &env };
     assert_eq!(ab::combat_modifier(&cx, Seat(0), CombatCtx::Space), -1);
     assert_eq!(ab::combat_modifier(&cx, Seat(1), CombatCtx::Ground), 1);
@@ -130,7 +134,7 @@ fn analytical_waives_one_prerequisite_of_a_technology_that_is_not_a_unit_upgrade
 #[test]
 fn the_printed_abilities_that_change_a_strategy_card_or_a_transaction() {
     let env = Neutral::default();
-    let s = two(with(Ability::Brilliant), with(Ability::MastersOfTrade));
+    let s = two(with(Ability::Brilliant), with_other(Ability::MastersOfTrade, with(Ability::Brilliant)));
     let cx = Cx { core: &s, env: &env };
     assert!(ab::substitutes_primary(&cx, Seat(0), Some(StrategyCardKind::Technology)));
     assert!(!ab::substitutes_primary(&cx, Seat(0), Some(StrategyCardKind::Trade)) && !ab::substitutes_primary(&cx, Seat(0), None));
@@ -139,7 +143,7 @@ fn the_printed_abilities_that_change_a_strategy_card_or_a_transaction() {
     let hooks = Neutral { substitutes: true, trades: true, ignores: true, free: true, ..Neutral::default() };
     let hc = Cx { core: &s, env: &hooks };
     assert!(ab::substitutes_primary(&hc, Seat(1), None) && ab::trades_action_cards(&hc, Seat(1)) && ab::ignores_neighbours(&hc, Seat(1)) && ab::secondary_is_free(&hc, Seat(0), Some(StrategyCardKind::Leadership)));
-    let t = two(with(Ability::Arbiters), with(Ability::GuildShips));
+    let t = two(with(Ability::Arbiters), with_other(Ability::GuildShips, with(Ability::Arbiters)));
     let tc = Cx { core: &t, env: &env };
     assert!(ab::trades_action_cards(&tc, Seat(0)) && !ab::trades_action_cards(&tc, Seat(1)));
     assert!(ab::ignores_neighbours(&tc, Seat(1)) && !ab::ignores_neighbours(&tc, Seat(0)));

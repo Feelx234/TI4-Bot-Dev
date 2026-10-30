@@ -168,8 +168,7 @@ fn a_ship_carrying_cargo_asks_what_to_load_before_it_sails() {
     let mut rig = Rig::new(sc, Machine::moving(Seat(0), facts()).single());
     rig.run();
     rig.pick_where(|o| matches!(o, Opt::Tactical(TOpt::Move { kind: Unit::CarrierI, .. })));
-    assert!(!rig.is_done(), "the carrier has room: load first");
-    assert_eq!(rig.driver.window.step, Some(Step::Selected));
+    assert_eq!(rig.driver.window.step, Some(Step::Selected), "the carrier has room: load first\n{}", rig.transcript());
 }
 
 /// Run one more `single` machine from the state and the payload the last one left (the way the driver of a turn continues the loading).

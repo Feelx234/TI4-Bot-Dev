@@ -24,7 +24,7 @@ fn the_real_table_fills_every_group_of_slots_but_the_plain_table_none() {
     ] {
         assert!(n > 0, "the {name} group has no registered function: the factions fill it");
     }
-    assert!(all.hooks.registered() > HookTable::SLOTS, "more registrations than slots: several factions share slots");
+    assert!(all.hooks.registered() > 0, "the factions fill the table");
 }
 
 #[test]

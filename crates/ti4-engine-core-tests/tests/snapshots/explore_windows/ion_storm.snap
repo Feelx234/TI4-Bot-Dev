@@ -1,0 +1,8 @@
+Q0 seat 0 Explore(IonStorm)
+   0: Explore(Face(Alpha))
+  >1: Explore(Face(Beta))
+done
+--- delta ---
+meta.ion_storm: None -> -
+meta.ion_storm.[0].[0]: - -> Andeara
+meta.ion_storm.[0].[1]: - -> Beta

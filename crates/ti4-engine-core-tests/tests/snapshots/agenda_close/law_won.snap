@@ -1,0 +1,20 @@
+done
+--- delta ---
+agenda.laws: {} -> -
+agenda.laws.ArticlesOfWar: - -> For
+agenda.log: [] -> -
+agenda.log.[0].agenda: - -> ArticlesOfWar
+agenda.log.[0].discard_reason: - -> None
+agenda.log.[0].discarded: - -> false
+agenda.log.[0].enacted: - -> true
+agenda.log.[0].law: - -> true
+agenda.log.[0].outcome.[0]: - -> For
+agenda.log.[0].redirected_to: - -> None
+agenda.log.[0].round: - -> 2
+agenda.log.[0].speaker_decided: - -> false
+agenda.log.[0].votes.Against: - -> 1
+agenda.log.[0].votes.For: - -> 3
+ledger.events: 0 -> 3
+event[0]: Plain(PlainRec { kind: AgendaResolved, a: Agenda(ArticlesOfWar), b: Outcome(For) })
+event[1]: Typed(EventRec { id: 1, kind: AgendaResolved, payload: Payload { items: [(Agenda, Agenda(ArticlesOfWar)), (Player, Outcome(For))], units: [], lists: [] }, cancelled: false })
+event[2]: Plain(PlainRec { kind: LawEnacted, a: Agenda(ArticlesOfWar), b: Outcome(For) })

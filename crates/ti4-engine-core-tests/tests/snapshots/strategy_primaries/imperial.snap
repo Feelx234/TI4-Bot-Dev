@@ -1,0 +1,13 @@
+Q0 seat 0 Strategy(ImperialScore)
+  >0: Strategy(Objective(ReclaimAncientMonuments))
+   1: Decline
+done
+--- delta ---
+player0.econ.victory_points: 0 -> 3
+objectives.scored.[0].public: {} -> -
+objectives.scored.[0].public.[0]: - -> ReclaimAncientMonuments
+objectives.scored_present: {} -> -
+objectives.scored_present.[0]: - -> 0
+ledger.vp: 0 -> 2
+vp[0]: VpRec { player: Seat(0), delta: 2, reason: Objective }
+vp[1]: VpRec { player: Seat(0), delta: 1, reason: ImperialPrimary }

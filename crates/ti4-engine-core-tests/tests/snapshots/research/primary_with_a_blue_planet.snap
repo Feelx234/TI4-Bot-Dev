@@ -1,0 +1,15 @@
+Q0 seat 0 Strategy(ResearchTechnology { cost: 0, owned: 0, decline: false })
+  >0: Strategy(Research(AIDevelopmentAlgorithm))
+   1: Strategy(Research(AntimassDeflectors))
+   2: Strategy(Research(DarkEnergyTap))
+   3: Strategy(Research(GravityDrive))
+   4: Strategy(Research(NeuralMotivator))
+   5: Strategy(Research(Psychoarchaeology))
+   6: Strategy(Research(PlasmaScoring))
+   7: Strategy(Research(ScanlinkDroneNetwork))
+   8: Strategy(Research(SlingRelay))
+   9: Strategy(Research(SarweenTools))
+done
+--- delta ---
+player0.tech.owned: {} -> -
+player0.tech.owned.[0]: - -> AIDevelopmentAlgorithm
