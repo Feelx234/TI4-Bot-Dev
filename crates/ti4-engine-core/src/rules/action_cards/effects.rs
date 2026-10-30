@@ -3796,11 +3796,7 @@ mod tests {
     /// The documented bails of the action-card area (docs/B6_CARDS.md): the cards whose string effect runs alone, each with the
     /// fact or rule of another area it needs. Every card of the game is either played by the core (a stamp, a window, or
     /// an effect a rules package registers: `REGISTERED`) or listed here, so a new card cannot be left out without notice.
-    const BAILS: &[(ActionCard, &str)] = &{
-        use ActionCard as C;
-        [
-        ]
-    };
+    const BAILS: &[(ActionCard, &str)] = &[];
 
     /// The effects the faction crate registers in the ability table (`ti4_engine_core_factions::cards`): they read the combat
     /// and invasion areas, which this area may not import.

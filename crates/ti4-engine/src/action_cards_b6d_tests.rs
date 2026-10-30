@@ -2323,3 +2323,20 @@ fn experimental_battlestation_follows_non_euclidean_shielding_in_the_core_window
     assert!(fewer, "two hits cancelled by one sustain saved a ship under some seed");
     let _ = crate::dual::take_report();
 }
+
+/// Reveal Prototype played at the start of a space combat: the four resources are paid by questions the string asks of the table
+/// directly, which carry neither the battle's system nor `space_battle` (found by the golden dual of the gate: the core question
+/// carried the battle's system, `context.target` string null / core System).
+#[test]
+fn reveal_prototype_paid_in_a_space_combat_asks_payment_questions_without_the_battle() {
+    let _serial = crate::dual::tests::serial();
+    let a = PlayerId::new("a");
+    let mut state = research_position();
+    state.player_mut(&a).unwrap().trade_goods = 0;
+    let active = state.active_system.clone().expect("an active system");
+    state.system_mut(&active).units.push(unit("cruiser", "a"));
+    state.system_mut(&active).units.push(unit("cruiser", "b"));
+    state.active_space_combat = Some((active, a.clone(), PlayerId::new("b")));
+    announce_all(&[("reveal_prototype", state.clone())]);
+    let _ = crate::dual::take_report();
+}

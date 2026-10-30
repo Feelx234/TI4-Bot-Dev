@@ -834,7 +834,11 @@ pub fn announce_window(
         }
         let battle = |_c: &ti4_engine_core::choice::Choice, _core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
             // The effect's questions are asked through `ask_seeing`: the battle or invasion the position is in.
-            if let Some(ctx) = rendered.context.take() {
+            // A payment is asked of the table directly (`production::pay`), which adds neither (found by the golden dual: Reveal
+            // Prototype, played at the start of a combat, paid with the battle's system as the target of the core question only).
+            if !matches!(_c.ask, ti4_engine_core::choice::Ask::Production(_))
+                && let Some(ctx) = rendered.context.take()
+            {
                 rendered.context = Some(ctx.about_battle(&before).about_invasion(&before));
             }
             recorded_details(_c, script, rendered);
@@ -872,6 +876,9 @@ pub fn announce_window(
         Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
         None => None,
     };
+    if std::env::var_os("TI4_B6D_TRACE").is_some() {
+        eprintln!("B6D announce {alias:?} by {player:?}: {:?}", driven.rendered.iter().map(|q| (q.prompt.clone(), q.context.as_ref().map(|c| format!("{:?}", c.target)))).collect::<Vec<_>>());
+    }
     Some(crate::dual::CoreWindow { run: crate::dual::Run::new((played, (faces, positions))).with_events_vec(events), questions: driven.rendered })
 }
 
