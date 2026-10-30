@@ -2,6 +2,7 @@
 //! The adapter itself is `ti4_engine::core_adapter` (feature `typed-core`).
 
 pub use ti4_engine::core_adapter as adapter;
+pub mod allow_list;
 pub mod check;
 pub mod dual_shard;
 pub mod check_leaders;
