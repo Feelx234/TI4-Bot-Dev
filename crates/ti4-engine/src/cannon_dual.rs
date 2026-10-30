@@ -45,6 +45,12 @@ pub struct Args<'a> {
 pub type Out = (Option<u64>, Vec<(u32, Vec<u32>)>, crate::rng::RngPositions);
 
 const OFFENSE: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+
+/// With a map lent (the guns that reach in from adjacent systems).
+const OFFENSE_MAPPED: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Map, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
     &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Pending, Slice::Rng, Slice::Ledger],
 );
@@ -94,7 +100,10 @@ pub fn space_cannon_offense(
         note_bail(LABEL, why);
         return None;
     }
-    let (mut cx, r) = tables(gs)?;
+    let Some((mut cx, r)) = tables(gs) else {
+        note_bail(LABEL, "owner tables");
+        return None;
+    };
     nested_check(script)?;
     if r.seats.windows(2).any(|w| w[0] >= w[1]) {
         note_bail(LABEL, "seats not in id order");
@@ -103,7 +112,10 @@ pub fn space_cannon_offense(
     let active = r.seat(a.active.as_str())?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
     let before = gs.clone();
-    let env = crate::core_combat::window_env(&before, &cx, sources)?;
+    let Some(env) = crate::core_combat::window_env(&before, &cx, sources) else {
+        note_bail(LABEL, "window env");
+        return None;
+    };
     let reaching: Vec<CUnit> = crate::combat::reaching_units(content, sources)
         .iter()
         .map(|id| <CUnit as IdStr>::from_id(id))
@@ -126,7 +138,7 @@ pub fn space_cannon_offense(
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy, rng: Some(rng_before) };
-    let driven = with_core(gs, &mut cx, src, nested_fp(OFFENSE, script), |core, _| {
+    let driven = with_core(gs, &mut cx, src, nested_fp(if galaxy.is_some() { OFFENSE_MAPPED } else { OFFENSE }, script), |core, _| {
         let driven = drive_windowed(&mut driver, core, &env.kernel, None, &r, &before, script, &|window, choice, st, rendered| {
             let ti4_engine_core::choice::Ask::Combat(ask) = &choice.ask else { return };
             match ask {
@@ -152,8 +164,18 @@ pub fn space_cannon_offense(
         rng_after = Some(core.rng().clone());
         driven
     })
-    .ok()?
-    .ok()?;
+    ;
+    let driven = match driven {
+        Ok(Ok(driven)) => driven,
+        Ok(Err(why)) => {
+            note_bail(LABEL, &format!("driver: {why:?}"));
+            return None;
+        }
+        Err(why) => {
+            note_bail(LABEL, &format!("lend: {why:?}"));
+            return None;
+        }
+    };
     apply_staged(gs, &r, &staged)?;
     let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;

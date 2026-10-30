@@ -401,6 +401,7 @@ fn observe(g: &Game<'_>, r: &Render, cx: &crate::core_sync::Ctx) -> Result<Vec<W
     // The windows of the action phase (package D1b).
     out.extend(action::tactical_of(g, r)?);
     out.extend(action::aftermath_of(g, r)?);
+    out.extend(action::sub_of(g, r)?);
     Ok(out)
 }
 
@@ -468,6 +469,14 @@ fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render, cx: &crate::core_sync
                 &g.aftermath.as_ref().map(action::aftermath_key),
                 &Some(action::aftermath_back(a, r)),
             ),
+            Window::Combat(f) => compare_value(
+                Area::Driver,
+                "d1::pending.roundtrip",
+                &action::combat_key(g),
+                &Some(crate::dual_window::fields_back(f, r)),
+            ),
+            // The invasion and the production step have no machine state: the placeholder stands for the string's window.
+            Window::Untyped { kind: WindowKind::Invasion | WindowKind::Production, .. } => true,
             Window::Untyped { .. } => true,
         };
     }

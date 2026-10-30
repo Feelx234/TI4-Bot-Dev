@@ -10,7 +10,7 @@
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{System, Unit as CUnit};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::state::{AStage, Aftermath, Before, NoteHold, PauseLimit, Piece, TStage, Tactical, Window};
+use ti4_engine_core::state::{AStage, Aftermath, Before, NoteHold, PauseLimit, Piece, TStage, Tactical, Window, WindowKind};
 
 use super::super::{Aftermath as AStr, AftermathWindow, Game, TacticalStage, TacticalWindow};
 use crate::combat::NoteHoldings;
@@ -253,4 +253,27 @@ pub(in super::super) fn transition(ended: Ended, to: &AStr) {
         Ended::Producing => Settled::Producing,
     };
     let _ = crate::dual::compare_value(crate::dual::Area::Driver, "d1::aftermath.next", &stage_of(to), &tag(next(settled)));
+}
+
+/// The sub-window of an aftermath, above its own entry (package D1b2): the space combat as the fields of its machine
+/// (`Window::Combat`), the invasion and the production step as untyped placeholders (no machine state exists for them: the
+/// string drives both; documented bail D1b2-bail-02).
+pub(super) fn sub_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
+    let Some(w) = &g.aftermath else { return Ok(None) };
+    Ok(match &w.stage {
+        AStr::Fighting(window) => {
+            Some(Window::Combat(Box::new(crate::dual_window::fields_of(&window.fields_in(), r).ok_or("a seat or unit the table does not know")?)))
+        }
+        AStr::Invading(_) => Some(Window::Untyped { kind: WindowKind::Invasion, actor: Some(seat(r, &w.player)?), data: [0; 3] }),
+        AStr::Producing(_) => Some(Window::Untyped { kind: WindowKind::Production, actor: Some(seat(r, &w.player)?), data: [0; 3] }),
+        AStr::Negotiating { .. } | AStr::Done => None,
+    })
+}
+
+/// The plain fields the string combat window holds, if the aftermath is fighting.
+pub(super) fn combat_key(g: &Game<'_>) -> Option<crate::dual_window::FieldsIn> {
+    match &g.aftermath.as_ref()?.stage {
+        AStr::Fighting(window) => Some(window.fields_in()),
+        _ => None,
+    }
 }

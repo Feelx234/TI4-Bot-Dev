@@ -23,36 +23,7 @@ use crate::state::{CoreState, EventKind, Key, Payload, Val};
 /// Most rounds of one combat (`combat::MAX_ROUNDS`).
 pub const MAX_ROUNDS: u32 = 50;
 
-/// One queued hit (string `Pending`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Pend {
-    pub player: Seat,
-    pub hits: u32,
-    pub producer: Seat,
-    pub non_fighters_only: bool,
-    pub producer_assigns: bool,
-}
-
-/// Where a combat stands (string `Stage`; `Done` stands for a concluded fight, the outcome is the string's).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Step {
-    Opening { round: u32 },
-    Announcing { round: u32, asking: Seat, announced: Vec<Seat> },
-    Rolling { round: u32 },
-    /// The barrage scored a feat: the round resumes at the announcement once the scoring window has closed.
-    AfterBarrage { round: u32 },
-    Queue { assigning: bool, round: u32, queue: Vec<Pend> },
-    Retreating { round: u32, leaving: Vec<Seat> },
-    Done,
-}
-
-/// What the hit queue at the front is made of (string `HitPhase`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phase {
-    Round,
-    CombatStart,
-    RoundEnd,
-}
+pub use crate::state::{CombatPend as Pend, CombatStep as Step, HitPhase as Phase};
 
 /// What the string window answers from its own rules, plus the fields of the window the transition reads.
 #[derive(Debug, Clone)]

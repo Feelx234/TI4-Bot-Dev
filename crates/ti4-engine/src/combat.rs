@@ -6816,6 +6816,29 @@ impl CombatWindow {
         )
     }
 
+    /// The window fields as plain data: what `Window::Combat` holds in the core (D1b2).
+    pub(crate) fn fields_in(&self) -> crate::dual_window::FieldsIn {
+        crate::dual_window::FieldsIn {
+            step: Self::flow_step_of(&self.stage),
+            phase: match self.hit_phase {
+                HitPhase::Round => 0,
+                HitPhase::CombatStart => 1,
+                HitPhase::RoundEnd => 2,
+            },
+            resuming: self.resuming_round,
+            pending_retreats: self.pending_retreats.clone(),
+            offered: self.hit_reaction_offered.iter().cloned().collect(),
+            damaged: self.damaged_before_round.iter().map(|(p, k)| (p.clone(), k.clone())).collect(),
+            fled: self.fled.clone(),
+            at_start: self.fleet_at_start.iter().map(|(p, k)| (p.clone(), k.clone())).collect(),
+            end_announced: self.end_announced,
+            outcome: match &self.stage {
+                Stage::Done(o) => Some((o.winner.clone(), o.rounds)),
+                _ => None,
+            },
+        }
+    }
+
     /// The facts and gates the composed machine starts from. `None`: no map to read the retreats from.
     fn settle_args(&self, state: &GameState, ctx: &Resolving<'_>) -> Option<crate::dual_window::SettleArgs> {
         let (content, sources) = (ctx.content, ctx.sources);
