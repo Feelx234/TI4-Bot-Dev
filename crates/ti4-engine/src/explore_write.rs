@@ -455,12 +455,55 @@ mod real {
         })
     }
 
-    /// The core half of the Neuraloop's question (the value: the relic named, `None` for a decline).
-    pub fn neuraloop(gs: &mut GameState, holder: &PlayerId, revealed: &str, script: &Recording) -> Option<CoreWindow<Option<String>>> {
+    /// The core half of `relics::neuraloop` (the value: the objective that replaced the revealed one, `None` for a decline, an
+    /// empty pool or a seat that spent nothing). The window rolls on the Neuraloop's stream, lent at `rng_before` (where the
+    /// string stood before it rolled); the streams after are compared.
+    pub fn neuraloop(
+        gs: &mut GameState,
+        holder: &PlayerId,
+        revealed: &str,
+        rng_before: &crate::rng::RngPositions,
+        script: &Recording,
+    ) -> Option<CoreWindow<Option<ti4_model::id::ObjectiveId>>> {
+        use ti4_engine_core::state::ObjectiveRef;
         let revealed = typed::<PublicObjective>(revealed).why(crate::dual::reason::UNKNOWN_ID)?;
-        drive_window(gs, RELIC_WINDOW, holder, |s| Neuraloop::new(s, revealed), script, &no_details, |w| {
-            Some(w.chosen.map(|r| r.as_str().to_owned()))
+        if let Some(why) = outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(holder.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let seeds = std::rc::Rc::new(crate::dual_window::DiceSeeds(String::new()));
+        let mut driver = Driver::new(
+            Neuraloop::new(seat, revealed).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)),
+            Resolver::new(&[seat], Some(seat)),
+            AbilityTable::default(),
+            1,
+        )
+        .with_seeds(seeds);
+        let fp = Footprint::new(
+            &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Objectives, Slice::Rng, Slice::Pending],
+            &[Slice::Players, Slice::Decks, Slice::Objectives, Slice::Rng],
+        );
+        let mut after = None;
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy: None, rng: Some(rng_before) }, fp, |core, _| {
+            let driven = crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &no_details);
+            after = Some(core.rng().clone());
+            driven
         })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let positions = crate::core_sync::codec::rng::positions(&cx, &after?).why("the random streams could not be read back")?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+        let replacement = driver.window.replacement.map(|o| match o {
+            ObjectiveRef::Public(p) => ti4_model::id::ObjectiveId::new(p.as_str()),
+            ObjectiveRef::Secret(p) => ti4_model::id::ObjectiveId::new(p.as_str()),
+        });
+        let mut run = Run::new(replacement).with_events_vec(events);
+        run.rng = Some(positions);
+        Some(CoreWindow { run, questions: driven.rendered })
     }
 
     /// The core half of `relics::codex` (up to three cards from the discard pile into the hand).
@@ -710,7 +753,7 @@ mod stub {
     ) -> Option<CoreWindow<bool>> {
         None
     }
-    pub fn neuraloop(_: &mut GameState, _: &PlayerId, _: &str, _: &Recording) -> Option<CoreWindow<Option<String>>> {
+    pub fn neuraloop(_: &mut GameState, _: &PlayerId, _: &str, _: &crate::rng::RngPositions, _: &Recording) -> Option<CoreWindow<Option<ti4_model::id::ObjectiveId>>> {
         None
     }
     pub fn codex(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<()>> {

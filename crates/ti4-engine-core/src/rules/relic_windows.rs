@@ -14,7 +14,7 @@ use crate::generated::{Planet, PublicObjective, Relic, System, Technology};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
-use crate::state::{Code, CoreState};
+use crate::state::{Code, CoreState, ObjectiveRef, RngDomain};
 
 use super::explore;
 use super::explore_windows::{InInvasion, XStage, in_invasion, relic_ctx};
@@ -29,22 +29,62 @@ fn choice(who: Seat, ask: RAsk, relic: Relic, subtype: RSub, inv: Option<u64>, o
 
 // -- the Neuraloop ------------------------------------------------------------------------------------
 
-/// `relics::neuraloop`, up to the answer: the holder is asked which of their relics to purge to replace the
-/// revealed objective (any relic, the Neuraloop itself included, or nothing). The roll for the replacement and
-/// the purge come after the string side has checked the pool; `chosen` is the relic named.
+/// `relics::neuraloop`: the holder is asked which of their relics to purge to replace the revealed objective (any
+/// relic, the Neuraloop itself included, or nothing). On a relic named the pool is checked before anything is
+/// paid (the public objective deck, then the secret deck; an empty pool resolves nothing and costs nothing), one
+/// die of the pool's size is rolled on the Neuraloop's own stream, the relic is purged, the revealed objective
+/// leaves the revealed list and the replacement (a secret becomes public) takes its place at the end of it.
+/// `chosen` is the relic named; `replacement` the objective that came in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Neuraloop {
     pub holder: Seat,
     revealed: PublicObjective,
     stage: XStage,
     pub chosen: Option<Relic>,
+    pub replacement: Option<ObjectiveRef>,
     inv: Option<u64>,
 }
 
 impl Neuraloop {
     #[must_use]
     pub const fn new(holder: Seat, revealed: PublicObjective) -> Self {
-        Self { holder, revealed, stage: XStage::Start, chosen: None, inv: None }
+        Self { holder, revealed, stage: XStage::Start, chosen: None, replacement: None, inv: None }
+    }
+
+    /// The tail after the relic is named: roll, purge, swap. Nothing happens for an empty pool.
+    fn replace(&mut self, sx: &mut Sx<'_>, relic: Relic) {
+        let decks = sx.state.decks();
+        let pool: Vec<ObjectiveRef> = decks
+            .objective
+            .cards()
+            .iter()
+            .map(|o| ObjectiveRef::Public(*o))
+            .chain(decks.secret.cards().iter().map(|o| ObjectiveRef::Secret(*o)))
+            .collect();
+        if pool.is_empty() {
+            return;
+        }
+        let sides = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+        let roll = sx.die(RngDomain::Neuraloop, sides) as usize;
+        let pick = pool[roll.saturating_sub(1).min(pool.len() - 1)];
+        explore::purge_relic(sx.state, self.holder, relic);
+        let gone = ObjectiveRef::Public(self.revealed);
+        sx.state.objectives_mut().revealed.retain(|o| *o != gone);
+        // The pick is in the pool, hence in exactly one deck (a card is never in both).
+        match pick {
+            ObjectiveRef::Public(o) => {
+                if let Some(at) = sx.state.decks().objective.cards().iter().position(|c| *c == o) {
+                    sx.state.decks_mut().objective.remove(at);
+                }
+            }
+            ObjectiveRef::Secret(o) => {
+                if let Some(at) = sx.state.decks().secret.cards().iter().position(|c| *c == o) {
+                    sx.state.decks_mut().secret.remove(at);
+                }
+            }
+        }
+        sx.state.objectives_mut().revealed.push(pick);
+        self.replacement = Some(pick);
     }
 
     fn spendable(&self, core: &CoreState) -> Vec<Relic> {
@@ -86,6 +126,7 @@ impl Window for Neuraloop {
         match (self.stage, pick) {
             (XStage::Asking, Pick::Opt(Opt::Relic(ROpt::PurgeRelic(r)))) if self.spendable(sx.state).contains(&r) => {
                 self.chosen = Some(r);
+                self.replace(sx, r);
                 self.stage = XStage::Done;
                 Ok(())
             }

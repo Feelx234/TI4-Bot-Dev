@@ -2022,6 +2022,9 @@ impl ti4_engine_core::state::SeedSource for DiceSeeds {
     fn seed_for(&self, seed: u64, domain: ti4_engine_core::state::RngDomain) -> [u8; 32] {
         if domain == ti4_engine_core::state::RngDomain::Dice {
             crate::rng::GameRng::derive_seed(seed, &self.0)
+        } else if domain == ti4_engine_core::state::RngDomain::Neuraloop {
+            // The Neuraloop's replacement objective (`relics::neuraloop`).
+            crate::rng::GameRng::derive_seed(seed, "neuraloop")
         } else if domain == ti4_engine_core::state::RngDomain::Fracture {
             // Brilliance's roll for the Fracture (`fracture::breakthrough_roll`).
             crate::rng::GameRng::derive_seed(seed, "fracture-breakthrough")
