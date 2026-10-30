@@ -530,6 +530,8 @@ mod tests {
         assert!(!m("players[*].relics", "players[].relics"));
         assert!(!m("players[*].relics", "players[x].relics"));
         assert!(!m("players[*].relics", "players.relics"));
+        assert!(!m("players[*]", "players[3"), "an index without its closing bracket");
+        assert!(!m("[*]", "[3"));
         // A literal index is exact.
         assert!(m("players[2].relics", "players[2].relics"));
         assert!(!m("players[2].relics", "players[3].relics"));
@@ -731,6 +733,20 @@ mod tests {
         assert!(a.render(&list).contains("3 hits"));
         assert!(Tally::from_json("{}").is_err());
         assert!(Tally::from_json(r#"{"format":"ti4-allow-hits-v1","hits":{"x":-1}}"#).is_err());
+    }
+
+    #[test]
+    fn a_fresh_id_counts_from_zero() {
+        // Mutation survivors: the entry of a first hit, of a lookup and of a merge into a tally that has no such id.
+        let mut empty = Tally::default();
+        assert_eq!(empty.hits("x"), 0);
+        empty.record("x");
+        assert_eq!(empty.hits("x"), 1);
+        let mut other = Tally::default();
+        other.merge(&empty);
+        assert_eq!(other.hits("x"), 1);
+        other.merge(&empty);
+        assert_eq!(other.hits("x"), 2);
     }
 
     #[test]
