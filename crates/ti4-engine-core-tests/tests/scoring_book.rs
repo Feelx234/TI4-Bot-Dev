@@ -138,12 +138,11 @@ fn a_plot_scored_without_a_placed_card_keeps_the_window_open_until_the_card_is_p
     assert_eq!(a.offers.as_slice(), &[Offer::Plot { secret: s(0), token: Seat(0) }]);
     book.after(&a, Outcome::PlotScored { token: Seat(0), placed: false }, &mut t);
     assert_eq!(book.plot_card(), Some((Seat(0), Seat(0))));
-    assert!(!book.is_complete() || book.plot_card().is_some());
     t.plots.clear();
     assert!(book.asked(&mut t).is_none());
     assert!(!book.is_complete(), "the card still has to be placed");
     book.card_placed();
-    assert!(book.is_complete() || book.pending().is_empty());
+    assert_eq!(book.plot_card(), None);
 }
 
 #[test]
