@@ -209,6 +209,28 @@ pub fn placed_unit(core: &CoreState, k: &Kernel, scope: Scope, roster: &UnitRost
     Some(k.hooks.strategy.unit_form_override(core, k, who, base, form).unwrap_or(form))
 }
 
+/// `exploration::place_on_planet` (and the placing effects that go through the one door, 31.4): the seat's own form for `base`
+/// (`placed_unit`), refused when a faction effect forbids the placement or the reinforcements hold none, put on `planet` (or in the
+/// space area of `system`), and a Naaz mech announced. The unit placed; `None` with nothing changed.
+pub fn place_for(
+    core: &mut CoreState,
+    k: &Kernel,
+    scope: Scope,
+    roster: &UnitRoster,
+    who: Seat,
+    system: System,
+    planet: Option<Planet>,
+    base: UnitBaseType,
+) -> Option<Unit> {
+    let unit = placed_unit(core, k, scope, roster, who, base)?;
+    if k.hooks.economy.effect_placement_forbidden(core, k, who, unit) || crate::query::fleet::remaining_all(core, scope, who, unit) <= 0 {
+        return None;
+    }
+    crate::kernel::fx::place_unit(core, who, system, planet, unit);
+    crate::kernel::fx::stage_naaz_mech_placed(core, who, system, unit);
+    Some(unit)
+}
+
 /// `fleet::flip_form`: flip one unit of `who` of kind `from` to its other form, in place: in `system`'s space area when
 /// `planet` is `None`, on that planet otherwise. The first unit of that owner and kind in the list is the one (damage
 /// and galvanize stay with the piece). `None` with nothing changed: no twin, a flip to a ship form on a planet, or no

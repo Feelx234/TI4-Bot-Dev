@@ -5728,9 +5728,7 @@ impl CombatWindow {
         // "At the end of a space battle in the active system, flip this card" (Z-Grav Eidolon):
         // the survivors in this system's space area return to their ground form. Measured after
         // the losses above, which count ships, so a flipped mech is not reported destroyed.
-        if !crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system).is_empty() {
-            bail.set(bail.get().or(Some("a Z-Grav Eidolon flipping to its ground form at the end of a space battle")));
-        }
+        crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
         let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload.clone());
         crate::factions::observe(
             state,
@@ -10099,7 +10097,7 @@ mod tests {
             assert!(purged > 0, "composed {composed}: the hero was purged");
             assert!(gained > 0, "composed {composed}: ships were placed ({gained})");
             assert!(r.windows.keys().all(|k| !k.contains("unported ability leader:*:mentakhero")), "composed {composed}: {:?}", r.windows);
-            assert!(!composed || r.windows.keys().any(|k| k.contains("a fact the adapter did not compute")), "composed {composed}: a destroyed cruiser is the string's form: {:?}", r.windows);
+            assert!(r.windows.keys().all(|k| !k.contains("a fact the adapter did not compute")), "composed {composed}: a destroyed cruiser's form is the core's (package W3): {:?}", r.windows);
             assert_eq!(r.total_differences(), 0, "composed {composed}: {:?}", r.differences);
         }
         let _ = take_report();
@@ -10472,27 +10470,38 @@ mod tests {
         assert!(paid_questions > 0, "a payment question was put inside the ability");
     }
 
-    /// Salvage Operations producing a cruiser is the string's (Mentak's Corsair form of the cruiser): the window bails, counted.
+    /// Salvage Operations producing a cruiser (package W3): the form a Mentak seat places for a cruiser is the core's
+    /// `placed_unit` with the override of the hook table (Mentak's Corsair for a Cruiser II under The Table's Grace). Without the
+    /// breakthrough it is the seat's plain cruiser; with Cruiser II and the breakthrough the Corsair. Both in lockstep.
     #[test]
-    fn bail_salvage_operations_of_a_cruiser_is_counted() {
-        let mut bailed = 0;
-        for seed in 0..6_u64 {
-            let (_state, windows, differences, _) = hub_fight(
-                seed,
-                &["mentak", "hacan"],
-                |s, system| {
-                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
-                    put(s, system, "dreadnought", &attacker(), 3);
-                    put(s, system, "carrier", &attacker(), 1);
-                    put(s, system, "cruiser", &defender(), 2);
-                    s.player_mut(&attacker()).unwrap().trade_goods = 5;
-                },
-                |_, _, _| 0,
-            );
-            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
-            bailed += usize::from(windows.keys().any(|k| k.contains("a fact the adapter did not compute")));
+    fn salvage_operations_produces_a_cruiser_in_the_core_window_in_lockstep() {
+        let mut built = [0_usize; 2];
+        for (grace, seeds) in [(false, 0..6_u64), (true, 0..6_u64)] {
+            for seed in seeds {
+                let (state, windows, differences, _) = hub_fight(
+                    seed,
+                    &["mentak", "hacan"],
+                    |s, system| {
+                        s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
+                        if grace {
+                            s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("cr2"));
+                            s.player_mut(&attacker()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("mentakbt"));
+                        }
+                        put(s, system, "dreadnought", &attacker(), 3);
+                        put(s, system, "carrier", &attacker(), 1);
+                        put(s, system, "cruiser", &defender(), 2);
+                        s.player_mut(&attacker()).unwrap().trade_goods = 5;
+                    },
+                    |_, _, _| 0,
+                );
+                assert_eq!(differences, 0, "grace {grace} seed {seed}: {windows:?}");
+                assert!(windows.keys().all(|k| !k.contains("a fact the adapter did not compute")), "grace {grace} seed {seed}: {windows:?}");
+                let units = &state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units;
+                built[usize::from(grace)] += units.iter().filter(|u| u.owner == attacker() && u.type_id.as_str() == if grace { "mentak_cruiser3" } else { "cruiser" }).count();
+            }
         }
-        assert!(bailed > 0, "the cruiser is the string's");
+        assert!(built[0] > 0, "a plain cruiser was salvaged");
+        assert!(built[1] > 0, "a Corsair was salvaged");
     }
 
     /// Ssruu (the Yssaril agent) copies Brother Milor (Yin, a third seat) in a fight: when a ship is destroyed in combat the

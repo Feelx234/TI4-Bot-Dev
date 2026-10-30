@@ -7144,6 +7144,80 @@ mod tests {
         assert!(mechs > 0, "a Naaz mech was built");
     }
 
+    /// Package W3: a Mentak producer runs on the core production window. Without The Table's Grace its buildable list is the plain one;
+    /// with the breakthrough and Cruiser II the cruiser is the Corsair (the string's `unit_form_override`), which the window places and
+    /// charges like any cruiser. Every step is compared; the Corsair is built at least once.
+    #[test]
+    fn a_mentak_producer_runs_in_lockstep_on_the_core_production_window() {
+        let content = ContentStore::embedded();
+        let _guard = crate::dual::tests::serial();
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(false);
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        let (mut compared, mut corsairs, mut cruisers) = (0, 0, 0);
+        for grace in [false, true] {
+            for seed in 0..12_usize {
+                let _ = crate::dual::take_report();
+                let (mut state, system, planet) = seated();
+                state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("mentak");
+                state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("sardakk");
+                state.promissory_notes.clear();
+                state.system_mut(&system).set_control(planet.clone(), player());
+                put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+                state.player_mut(&player()).unwrap().trade_goods = 12;
+                if grace {
+                    state.player_mut(&player()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("cr2"));
+                    state.player_mut(&player()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("mentakbt"));
+                }
+                let buildable = buildable_for(&state, content, POK, &player());
+                assert_eq!(buildable.iter().any(|id| id == "mentak_cruiser3"), grace, "{buildable:?}");
+                assert_eq!(buildable.iter().any(|id| id == "cruiser2"), false, "the Corsair stands in for Cruiser II: {buildable:?}");
+                let mut dice = crate::dice::Dice::new();
+                let mut rng = crate::rng::GameRng::new(0);
+                let mut table = Table::new();
+                let mut ctx = Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+                crate::dual::with_mask(mask, || {
+                    let mut window = ProductionWindow::new(&state, content, POK, &player(), &system);
+                    let mut steps = 0;
+                    while let Some(choice) = window.pending_choice(&state, content, POK) {
+                        steps += 1;
+                        if steps > 40 {
+                            break;
+                        }
+                        let pick = if seed < 6 {
+                            choice
+                                .options
+                                .iter()
+                                .find(|o| o.id.contains("cruiser") || o.id.contains("corsair"))
+                                .or_else(|| choice.options.iter().find(|o| o.id.starts_with("place|")))
+                                .or_else(|| choice.options.first())
+                                .cloned()
+                                .unwrap()
+                        } else {
+                            choice.options[(seed * 7 + steps * 3) % choice.options.len()].clone()
+                        };
+                        if window.resolve(&mut state, &mut ctx, pick).is_err() {
+                            break;
+                        }
+                    }
+                });
+                {
+                    let c = state.system_state(&system);
+                    corsairs += c.units.iter().filter(|u| u.type_id.as_str() == "mentak_cruiser3").count();
+                    cruisers += c.units.iter().filter(|u| u.type_id.as_str().starts_with("cruiser")).count();
+                }
+                let r = crate::dual::take_report();
+                assert_eq!(r.total_differences(), 0, "grace {grace} seed {seed}: {:?}", r.differences.first());
+                assert_eq!(r.windows.get("ProductionWindow::step").map_or(0, |w| w.bailed), 0, "Mentak is no longer declined: {:?}", r.windows);
+                compared += r.windows.get("ProductionWindow::step").map_or(0, |w| w.compared);
+            }
+        }
+        crate::dual::set_fail_fast(fail_fast);
+        assert!(compared > 40, "the steps were compared: {compared}");
+        assert!(corsairs > 0, "a Corsair was built");
+        assert!(cruisers > 0, "a plain cruiser was built without the breakthrough");
+    }
+
     /// The Last Bastion's Icon and the Crimson hero card are spots of the core window: a ship may be placed in an Icon system (the
     /// first one fixes the spot of the rest and exhausts the card) or put on the card (off the board, still out of the box). Every
     /// step of a producer with pseudo-random answers (half of the seeds prefer the remote spot) is compared with the core window.

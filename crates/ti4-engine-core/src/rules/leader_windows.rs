@@ -639,6 +639,7 @@ impl XxchaHeroTe {
     fn finish(&mut self, sx: &mut Sx<'_>) {
         for (unit, system, planet) in &self.plan {
             fx::place_unit(sx.state, self.who, *system, Some(*planet), *unit);
+            fx::stage_naaz_mech_placed(sx.state, self.who, *system, *unit);
             fx::ready_planet(sx.state, *planet);
         }
         self.used = true;

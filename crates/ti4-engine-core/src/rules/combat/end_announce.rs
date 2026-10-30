@@ -3,8 +3,8 @@
 //! ([`super::end::end_report`]).
 //!
 //! The window carries the facts the string window holds in fields (the outcome, the retreats, the fleets at
-//! the start). Not covered (the adapter returns `None`): a dual-form unit flipping back to its ground form
-//! (Z-Grav Eidolon), a mobile dock destroyed by the blockade, faction notes cleared at the end (the
+//! the start). A dual-form unit flips back to its ground form after the report is read and before it is announced (Z-Grav
+//! Eidolon, package W3). Not covered (the adapter returns `None`): a mobile dock destroyed by the blockade, faction notes cleared at the end (the
 //! Bastion retreat notes, the Alastor participants), destructions still to announce, and neutral sides.
 
 use super::end::end_report;
@@ -76,9 +76,14 @@ impl Window for EndAnnounce {
             return Next::Done;
         }
         let f = &self.f;
-        if f.announce {
-            let rd = Rd::new(sx.state, sx.kernel).with_blanked(reach::blanked(sx.state));
-            let r = end_report(rd, f.system, [f.attacker, f.defender], f.winner, f.declared_draw, &f.fled, &f.at_start);
+        // The report is read before the flip: a Z-Grav Eidolon counts as a ship in it.
+        let rd = Rd::new(sx.state, sx.kernel).with_blanked(reach::blanked(sx.state));
+        let scope = rd.scope();
+        let report = f.announce.then(|| end_report(rd, f.system, [f.attacker, f.defender], f.winner, f.declared_draw, &f.fled, &f.at_start));
+        // "At the end of a space battle in the active system, flip this card" (Z-Grav Eidolon): the survivors in the space
+        // area return to their ground form (`fleet::flip_to_ground_forms`).
+        crate::kernel::fx_strategy::flip_space_area(sx.state, scope, &[f.attacker, f.defender], f.system, false);
+        if let Some(r) = report {
             let reason = match r.reason {
                 EndReason::Retreat => f.codes.reasons[0],
                 EndReason::Draw => f.codes.reasons[1],

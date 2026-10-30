@@ -27,7 +27,6 @@ use crate::production::{ProductionWindow, WindowSnap};
 use crate::render::{self, Position, Typed};
 
 /// The reasons of the bails of the production adapters (package W0: every `None` of an adapter names one).
-const UNPORTED_PRODUCER: &str = "a Mentak producer (the Corsair form is not in the core window)";
 
 const FOOTPRINT: Footprint = Footprint {
     reads: crate::production_view::READS.union(SliceSet::of(&[Slice::Pending])),
@@ -47,10 +46,6 @@ pub fn step(
     emit_timing: bool,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<CoreWindow<WindowSnap>> {
-    if crate::production_view::unported_production(gs, player) {
-        crate::dual::note_bail_here(UNPORTED_PRODUCER);
-        return None;
-    }
     let (mut cx, r) = tables(gs).why(NO_TABLES)?;
     let seat = r.seat(player.as_str()).why(NO_SEAT)?;
     let window = match before.to_core(gs, content, sources, seat, emit_timing) {
@@ -128,10 +123,6 @@ pub fn pay_step(
 ) -> Option<CoreWindow<Option<i64>>> {
     use ti4_engine_core::query::economy::Spend as CoreSpend;
     use ti4_engine_core::rules::production::pay::{PayStep, Stage};
-    if crate::production_view::unported_production(gs, player) {
-        crate::dual::note_bail_here(UNPORTED_PRODUCER);
-        return None;
-    }
     let (mut cx, r) = tables(gs).why(NO_TABLES)?;
     let seat = r.seat(player.as_str()).why(NO_SEAT)?;
     let kernel = crate::production_view::kernel();

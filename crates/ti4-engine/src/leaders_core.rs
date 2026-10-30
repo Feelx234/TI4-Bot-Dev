@@ -98,9 +98,14 @@ mod real {
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Map, Slice::Pending], &[Slice::Board]);
     const XXCHA_NO_MAP: Footprint =
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board]);
+    /// Xxekir Grom places units (a Naaz mech is announced: the staged event waits in the pending slice).
+    const XXCHA_HERO: Footprint =
+        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board, Slice::Pending]);
     const HACAN: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
     const BOARD: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Board]);
+    /// [`BOARD`] for the writes that announce a Naaz mech (the staged event waits in the pending slice).
+    const BOARD_STAGED: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board, Slice::Pending]);
 
     /// Jace X. 4th Air Legion.
     pub fn sol_hero(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
@@ -128,8 +133,8 @@ mod real {
         crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_commander(core, who, system, planet, unit, count)).ok()
     }
 
-    /// I48S: the swap of one infantry of `target` for `mech` (a unit form without a core `Unit`, the Naaz mech
-    /// whose placement is announced, and a favour that keeps a diplomacy promise stay with the string arm).
+    /// I48S: the swap of one infantry of `target` for `mech` (a unit form without a core `Unit` and a favour that keeps a
+    /// diplomacy promise stay with the string arm; a Naaz mech is announced by the core rule since package W3).
     pub fn l1z1x_agent(
         gs: &mut GameState,
         sources: SourceSet,
@@ -138,14 +143,23 @@ mod real {
         system: &ti4_model::id::SystemId,
         mech: &str,
     ) -> Option<bool> {
-        if mech == "naaz_mech" || (gs.diplomacy.enabled && target != player) {
+        if gs.diplomacy.enabled && target != player {
+            crate::dual::note_bail_here("a favour that keeps a diplomacy promise");
             return None;
         }
         let (mech, system) = (typed::<ti4_engine_core::generated::Unit>(mech)?, typed::<ti4_engine_core::generated::System>(system.as_str())?);
         let scope = ti4_engine_core::tables::Scope(u32::try_from(crate::core_adapter::scope(sources).0).ok()?);
         let (mut cx, r) = crate::dual_window::tables(gs)?;
         let seat = r.seat(target.as_str())?;
-        crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::l1z1x_agent(core, scope, seat, system, mech)).ok()
+        let mut staged = Vec::new();
+        let swapped = crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD_STAGED, |core, _| {
+            let swapped = rules::l1z1x_agent(core, scope, seat, system, mech);
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            swapped
+        })
+        .ok()?;
+        crate::dual_window::apply_staged(gs, &r, &staged)?;
+        Some(swapped)
     }
 
     use crate::dual_window::outside;
@@ -192,8 +206,8 @@ mod real {
     }
 
     /// The core half of Xxekir Grom (`xxchahero-te`): up to four PDS or mechs onto controlled planets, each planet
-    /// readied. `None` as for [`xxcha_agent`], and for a unit form the tables do not know or the Naaz mech (its
-    /// placement is announced, which the core window does not do).
+    /// readied. `None` as for [`xxcha_agent`], and for a unit form the tables do not know (a Naaz mech is announced by the
+    /// window since package W3).
     pub fn xxcha_hero_te(gs: &mut GameState, player: &PlayerId, facts: &crate::leaders::HeroTeFacts, script: &Recording) -> Option<CoreWindow<bool>> {
         use ti4_engine_core::generated::{Planet, System, Unit};
         use ti4_engine_core::rules::leader_windows::XxchaHeroTe;
@@ -203,7 +217,6 @@ mod real {
         let form = |f: &Option<(ti4_model::id::UnitTypeId, usize)>| -> Option<Option<(Unit, usize)>> {
             match f {
                 None => Some(None),
-                Some((unit, _)) if unit.as_str() == "naaz_mech" => None,
                 Some((unit, left)) => Some(Some((typed::<Unit>(unit.as_str())?, (*left).min(usize::from(XxchaHeroTe::MOST))))),
             }
         };
@@ -218,11 +231,15 @@ mod real {
         let kernel = Kernel::plain();
         let before = gs.clone();
         let mut driver = Driver::new(XxchaHeroTe::new(seat, &planets, pds, mech), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
-        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), XXCHA_NO_MAP, |core, _| {
-            crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
+        let mut staged = Vec::new();
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), XXCHA_HERO, |core, _| {
+            let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
         })
         .ok()?
         .ok()?;
+        crate::dual_window::apply_staged(gs, &r, &staged)?;
         let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }

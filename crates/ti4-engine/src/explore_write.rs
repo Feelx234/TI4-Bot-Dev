@@ -130,6 +130,44 @@ mod real {
         lend(gs, Some(player), |core, who| ti4_engine_core::kernel::fx::place_unit(core, seat_of(who), s, Some(p), u))
     }
 
+    /// `exploration::place_on_planet` as one core write (package W3): the seat's own form of `base`, the placement ban and the
+    /// reinforcements (31.4), the unit on the planet and a Naaz mech announced. Whether a unit was placed (`Some(false)`: nothing
+    /// changed). The faction hooks are the kernel of the production reads (Naaz bans its mech placements, Mentak's Corsair
+    /// replaces Cruiser II).
+    pub fn place_for(
+        gs: &mut GameState,
+        content: &ti4_content::ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+        system: &SystemId,
+        planet: &PlanetId,
+        base: &str,
+    ) -> Option<bool> {
+        use ti4_engine_core::generated::UnitBaseType;
+        let (s, p, base) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?, typed::<UnitBaseType>(base)?);
+        let scope = crate::technology_core::scope(sources);
+        let roster = crate::technology_core::roster_for(content, sources)?;
+        let kernel = crate::production_view::kernel();
+        const PLACE: Footprint = Footprint::new(
+            &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards, Slice::Marks, Slice::Pending],
+            &[Slice::Board, Slice::Pending],
+        );
+        if gs.deck_reserve.is_some() {
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let who = r.seat(player.as_str())?;
+        let mut staged = Vec::new();
+        let placed = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLACE, |core, _| {
+            let placed = ti4_engine_core::kernel::fx_strategy::place_for(core, kernel, scope, roster, who, s, Some(p), base).is_some();
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            placed
+        })
+        .ok()?;
+        crate::dual_window::apply_staged(gs, &r, &staged)?;
+        Some(placed)
+    }
+
     /// `exploration::demilitarize`.
     pub fn demilitarize(gs: &mut GameState, sources: SourceSet, planet: &PlanetId) -> Option<()> {
         let p = typed::<Planet>(planet.as_str())?;
@@ -508,6 +546,9 @@ mod stub {
     use crate::dual_window::Recording;
 
     pub fn draw(_: &mut GameState, _: &str) -> Option<Option<String>> {
+        None
+    }
+    pub fn place_for(_: &mut GameState, _: &ti4_content::ContentStore, _: ti4_model::content_types::SourceSet, _: &PlayerId, _: &SystemId, _: &PlanetId, _: &str) -> Option<bool> {
         None
     }
     pub fn gain_fragment(_: &mut GameState, _: &PlayerId, _: &str) -> Option<()> {

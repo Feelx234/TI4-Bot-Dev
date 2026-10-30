@@ -404,32 +404,30 @@ fn place_on_planet(
     let Some(system) = system_of(state, planet) else {
         return false;
     };
-    // The seat's own form of the unit: its upgrade, else its faction's version, else the plain
-    // one. A base type with none is not placed (a factionless seat has no mech).
-    let Some(type_id) =
-        crate::action_cards::placed_unit_id(state, content, sources, player, base_type)
-    else {
-        return false;
-    };
-    // 31.4, through the one door: a mech is plastic and may have none left, while infantry is
-    // cardboard and always passes.
-    if crate::supply::allowed(state, content, sources, player, &type_id, 1) == 0 {
-        return false;
-    }
+    // One door (31.4): the seat's own form of the unit (its upgrade, else its faction's version, else the plain one; a base
+    // type with none is not placed: a factionless seat has no mech), refused when a faction effect forbids it or the box is
+    // empty (a mech is plastic and may have none left, while infantry is cardboard and always passes), then the unit goes on
+    // the planet and a Naaz mech is announced. The core half is the whole flow (`explore_write::place_for`).
     dual_write(
         state,
-        "exploration::place_unit",
+        "exploration::place_on_planet",
         |s| {
+            let Some(type_id) = crate::action_cards::placed_unit_id_text(s, content, sources, player, base_type) else {
+                return false;
+            };
+            if crate::supply::allowed(s, content, sources, player, &type_id, 1) == 0 {
+                return false;
+            }
             s.system_mut(&system)
                 .planet_units
                 .entry(planet.clone())
                 .or_default()
                 .push(ti4_model::units::Unit::new(type_id.clone(), player.clone()));
+            crate::supply::stage_naaz_mech_placed(s, player, &system, &type_id);
+            true
         },
-        |s| crate::explore_write::place_unit(s, player, &system, planet, &type_id),
-    );
-    crate::supply::stage_naaz_mech_placed(state, player, &system, &type_id);
-    true
+        |s| crate::explore_write::place_for(s, content, sources, player, &system, planet, base_type),
+    )
 }
 
 /// "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet."

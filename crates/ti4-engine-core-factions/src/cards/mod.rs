@@ -611,18 +611,38 @@ mod tests {
     }
 
     #[test]
-    fn bail_skilled_retreat_with_a_dual_form_unit_or_the_last_bastion() {
+    fn bail_skilled_retreat_with_the_last_bastion() {
         let to = System::ALL[1];
-        let (mut s, t, system) = retreat_fight(&[to]);
-        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::Eidolon, Seat(0)));
-        let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
-        assert_eq!(unknown, Some(Unknown::UnportedCard));
-        assert_eq!(s.board().sys(system).units.iter().filter(|p| p.owner() == Seat(0)).count(), 4, "nothing moved");
         let (mut s, t, system) = retreat_fight(&[to]);
         s.players_mut().by_seat_mut(Seat(1)).unwrap().faction = Faction::LastBastion;
         let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
         assert_eq!(unknown, Some(Unknown::UnportedCard));
         assert_eq!(s.board().sys(system).units.iter().filter(|p| p.owner() == Seat(0)).count(), 3);
+    }
+
+    /// Package W3: the retreat window carries the dual-form units. A Z-Grav Eidolon retreats as part of the fleet and takes its
+    /// ground form where it lands (with every other ship-form Eidolon of the owner already there); an Eidolon Maximum on a planet
+    /// of the system leaves its planet with the fleet; a Floating Factory (a structure that moves like a ship) moves on its own.
+    #[test]
+    fn skilled_retreat_carries_the_dual_form_units_the_voltron_and_the_floating_factory() {
+        let to = System::ALL[1];
+        let (mut s, t, system) = retreat_fight(&[to]);
+        let planet = ti4_engine_core::generated::Planet::ALL[0];
+        // the system's planet: the Maximum stands on it
+        s.board_mut().planet_mut(planet).placed_in = Some(system);
+        s.board_mut().planet_mut(planet).units.push(Piece::new(Unit::EidolonMaximum, Seat(0)));
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(0)));
+        s.board_mut().sys_mut(to).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(0)));
+        s.board_mut().sys_mut(to).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(1)));
+        let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert_eq!(unknown, None);
+        let kinds = |s: &CoreState, sys: System, who: Seat| s.board().sys(sys).units.iter().filter(|p| p.owner() == who).map(|p| p.kind()).collect::<Vec<_>>();
+        assert!(s.board().planet(planet).units.is_empty(), "the Maximum left its planet");
+        let landed = kinds(&s, to, Seat(0));
+        assert!(landed.contains(&Unit::EidolonMaximum), "{landed:?}");
+        assert!(landed.contains(&Unit::Eidolon) && !landed.contains(&Unit::ZGravEidolonNaazMechSpace), "the Z-Grav forms took their ground form where they landed: {landed:?}");
+        assert_eq!(kinds(&s, to, Seat(1)), [Unit::ZGravEidolonNaazMechSpace], "another player's units are not flipped");
+        assert_eq!(kinds(&s, system, Seat(0)), [], "the fleet left");
     }
 
     #[test]
