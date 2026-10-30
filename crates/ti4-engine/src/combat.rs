@@ -11624,10 +11624,8 @@ mod tests {
             crate::dual_window::barrage_why(&state, &args)
         };
         assert_eq!(barrage(&|_| {}), None);
-        assert_eq!(
-            barrage(&|s| s.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("argent")),
-            Some("an Argent side (the excess hits of the barrage)")
-        );
+        // An Argent side (Raid Formation) is a child of the barrage window since package W2, also inside the composed machine.
+        assert_eq!(barrage(&|s| s.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("argent")), None);
         assert_eq!(
             barrage(&|s| {
                 s.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("jolnar");
@@ -11927,6 +11925,43 @@ mod tests {
         assert!(w.compared >= 12 && w.bailed == 0, "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
+    }
+
+    /// Package W2: an Argent side's excess barrage hits (Raid Formation asks the producer which ship is damaged) run in the composed
+    /// machine: the barrage is a child window that can ask. Fails on the pre-W2 gate ("an Argent side").
+    #[test]
+    fn raid_formation_runs_in_the_composed_machine_in_lockstep() {
+        fn first(_: u64, _: usize, _: &Choice) -> usize {
+            0
+        }
+        fn last(_: u64, _: usize, c: &Choice) -> usize {
+            c.options.len() - 1
+        }
+        let (mut compared, mut damaged) = (0, 0);
+        for seed in 0..12_u64 {
+            let (state, windows, differences, _) = hub_fight_composed(
+                true,
+                seed,
+                &["argent", "hacan"],
+                |s, system| {
+                    put(s, system, &a_barrage_unit(), &attacker(), 6);
+                    put(s, system, "fighter", &defender(), 1);
+                    put(s, system, "dreadnought", &defender(), 1);
+                    put(s, system, "cruiser", &defender(), 1);
+                    if seed % 2 == 0 {
+                        put(s, system, "warsun", &defender(), 1);
+                    }
+                },
+                if seed % 3 == 0 { last } else { first },
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            let w = windows.get("combat::settle").copied().unwrap_or_default();
+            assert_eq!(w.bailed, 0, "seed {seed}: {windows:?}");
+            compared += w.compared;
+            damaged += state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units.iter().filter(|u| u.sustained_damage).count().min(1);
+        }
+        assert!(compared > 0, "the composed machine ran: {compared}");
+        assert!(damaged > 0, "Raid Formation damaged something");
     }
 
     #[test]

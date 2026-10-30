@@ -103,6 +103,8 @@ pub struct Env {
     pub ambush: Code,
     pub cause_core: Code,
     pub cause_devotion: Code,
+    /// The interned subtype `raid_formation_damage` of an Argent producer's excess barrage hits.
+    pub raid: Code,
     pub end_codes: EndCodes,
     /// The interned subtype text of the casualty question (`"assign_casualty"`).
     pub casualty: Code,
@@ -156,6 +158,8 @@ pub enum Stage {
     Rolling,
     /// The hits the modules produce (`ProduceHits`) wait on a question.
     Producing,
+    /// The barrage waits on a question (Raid Formation).
+    Barraging,
     /// The pending decision (or the commander's offer inside its answer) waits on the players.
     Asking,
     Done,
@@ -184,6 +188,10 @@ pub struct Machine {
     roll_round: u32,
     /// The hits the modules produce at a moment of the round being played, and where they came from.
     produce: Option<(ProduceHits, CombatMoment, u32)>,
+    /// The anti-fighter barrage being played (an Argent producer's Raid Formation may ask) and whether it finished while the round
+    /// resumes after it.
+    barrage_w: Option<BarrageStep>,
+    barrage_done: bool,
     /// The round whose end-of-round hits were produced already (the flow goes on to its end).
     round_end_produced: Option<u32>,
     stage: Stage,
@@ -207,6 +215,8 @@ impl Machine {
             roll: None,
             roll_round: 0,
             produce: None,
+            barrage_w: None,
+            barrage_done: false,
             round_end_produced: None,
             stage: Stage::Running,
             awaiting: false,
@@ -447,7 +457,8 @@ impl Machine {
         }
     }
 
-    fn barrage(&mut self, sx: &mut Sx<'_>, round: u32) {
+    /// Start the barrage step (string `barrage_step`); it runs in the loop, where its question (Raid Formation) can stop it.
+    fn start_barrage(&mut self, round: u32) {
         let e = &self.env;
         let facts = BarrageFacts {
             attacker: e.attacker,
@@ -462,12 +473,9 @@ impl Machine {
             kind: e.barrage_kind,
             extra: e.barrage_extra,
             unit_codes: e.unit_codes.clone(),
-            raid: None,
+            raid: Some(e.raid),
         };
-        let mut w = BarrageStep::new(facts);
-        let _ = w.step(sx);
-        self.drawn.extend(w.drawn.iter().cloned());
-        self.feat = w.feat.clone();
+        self.barrage_w = Some(BarrageStep::new(facts));
     }
 
     /// `Stage::Opening`: the string `open_round` (everything before the announcement of retreats).
@@ -499,8 +507,16 @@ impl Machine {
                 meta.feat_occurrence_seq += 1;
                 self.env.occurrence = meta.feat_occurrence_seq;
             }
-            self.barrage(sx, round);
+            if !self.barrage_done {
+                self.start_barrage(round);
+                // The round resumes here once the barrage is played.
+                self.fields.resuming = true;
+                return Some(false);
+            }
+            self.barrage_done = false;
             if !self.feat.is_empty() {
+                // (The turn of the loop that resumed this round presented the opening; the barrage's presentation stands.)
+                sx.state.transient_mut().combat.presentation.edit().phase = self.env.phases[1];
                 self.fields.scoring = true;
                 self.fields.step = Step::AfterBarrage { round };
                 self.stop = Some(Stop::Scoring);
@@ -691,6 +707,24 @@ impl Machine {
     /// Run the loop. `None`: a position the machine does not carry (the reason is in `stop`).
     fn run(&mut self, sx: &mut Sx<'_>) -> Option<Next> {
         loop {
+            if let Some(barrage) = &mut self.barrage_w {
+                match barrage.step(sx) {
+                    Next::Continue(ask) => {
+                        self.stage = Stage::Barraging;
+                        return Some(Next::Continue(ask));
+                    }
+                    _ => {
+                        self.stage = Stage::Running;
+                        if let Some(done) = self.barrage_w.take() {
+                            self.drawn.extend(done.drawn.iter().cloned());
+                            self.feat = done.feat.clone();
+                        }
+                        self.barrage_done = true;
+                        self.fields.resuming = true;
+                        continue;
+                    }
+                }
+            }
             if let Some((produce, _, _)) = &mut self.produce {
                 match produce.step(sx) {
                     Next::Continue(ask) => {
@@ -830,6 +864,9 @@ impl Window for Machine {
             }
             return if self.answered { None } else { self.pending_choice(s, k) };
         }
+        if let Some(b) = &self.barrage_w {
+            return b.ask_of(s, k);
+        }
         if let Some((p, _, _)) = &self.produce {
             return p.ask_of(s, k);
         }
@@ -845,6 +882,9 @@ impl Window for Machine {
                 return Err(Illegal);
             }
             return self.answer_pending(sx, pick);
+        }
+        if let Some(b) = self.barrage_w.as_mut() {
+            return b.answer(sx, pick);
         }
         if let Some((p, _, _)) = self.produce.as_mut() {
             return p.answer(sx, pick);

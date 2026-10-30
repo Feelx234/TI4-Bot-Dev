@@ -2042,7 +2042,7 @@ pub fn barrage_unported(gs: &GameState, a: &BarrageArgs<'_>) -> bool {
 /// [`barrage_unported`] with the reason.
 #[must_use]
 pub fn barrage_why(gs: &GameState, a: &BarrageArgs<'_>) -> Option<&'static str> {
-    barrage_why_with(gs, a, true)
+    barrage_why_with(gs, a, false)
 }
 
 /// [`barrage_why`] for the barrage STEP window, which carries an Argent side's excess hits (Raid Formation is a child of the window
@@ -4099,6 +4099,7 @@ fn settle_run(
         det: a.det,
         duranium: a.duranium,
         devotion: a.devotion,
+        raid: r.code("raid_formation_damage"),
         wormhole: !crate::factions::hooks_movement::wormholes_at(&before, &a.system).is_empty(),
         ambush: r.code("ambush"),
         cause_core: r.code("technology:impulse_core"),
@@ -4156,7 +4157,7 @@ fn settle_run(
     let driven = with_core(gs, &mut cx, src, nested_fp(SETTLE, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
             // The questions of the modules' hits are asked in the battle they are fought in (`TimingContext::ask_seeing`).
-            if matches!(&c.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::Ambush | ti4_engine_core::choice::combat::Ask::Sacrifice { .. } | ti4_engine_core::choice::combat::Ask::Splicer)) {
+            if matches!(&c.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::Ambush | ti4_engine_core::choice::combat::Ask::Sacrifice { .. } | ti4_engine_core::choice::combat::Ask::Splicer | ti4_engine_core::choice::combat::Ask::RaidDamage { .. })) {
                 if let Some(context) = rendered.context.take() {
                     rendered.context = Some(context.about_battle(&before));
                 }
