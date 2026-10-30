@@ -12,7 +12,7 @@ use crate::choice::technology::{Ask as TAsk, Opt as TOpt, Subtype as TSub};
 use crate::choice::generic::Content;
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Planet, System, Technology};
+use crate::generated::{Planet, System, Technology, Unit};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -301,7 +301,7 @@ impl Window for TurnEnd {
                             p.tech.exhausted.remove(tech);
                         }
                     }
-                    TOpt::Move { .. } | TOpt::Exhaust => return Err(Illegal),
+                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } => return Err(Illegal),
                 }
                 fx_exhaust(sx.state, self.who, Technology::BioStims);
                 self.stage = EStage::Done;
@@ -393,5 +393,175 @@ impl Window for ProductionUsed {
         }
         self.settle(sx.state);
         Ok(())
+    }
+}
+
+// -- Transit Diodes and the start of a turn ----------------------------------------------------------------------------------
+
+/// "Transit Diodes: redeploy ground forces": up to four ground forces of the seat, one per answer, each to a planet it controls (a
+/// planet that received one this window cannot send one out). The card is exhausted when anything moved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransitDiodes {
+    pub who: Seat,
+    stage: Stage,
+    moved: u8,
+    arrivals: SmallList<(System, Planet), 4>,
+}
+
+const TRANSIT_MOVES: u8 = 4;
+
+impl TransitDiodes {
+    #[must_use]
+    pub const fn new(who: Seat) -> Self {
+        Self { who, stage: Stage::Start, moved: 0, arrivals: SmallList::new() }
+    }
+
+    /// Whether the card applies (owned and ready).
+    #[must_use]
+    pub fn applies(s: &CoreState, who: Seat) -> bool {
+        ready_card(s, who, Technology::TransitDiodes)
+    }
+
+    /// `technology::transit_options`: every ground force that may move and every planet it may move to, in the string's order.
+    fn options(&self, s: &CoreState) -> Vec<TOpt> {
+        use crate::query::fleet::is_ground_force;
+        let destinations: Vec<(System, Planet)> = controlled(s, self.who).collect();
+        let mut seen: Vec<(System, Option<Planet>, Unit, Planet)> = Vec::new();
+        let mut out = Vec::new();
+        for (from_system, cell) in s.board().systems() {
+            let mut sources: Vec<(Option<Planet>, Unit)> = cell.units.as_slice().iter().filter(|u| u.owner() == self.who).map(|u| (None, u.kind())).collect();
+            for planet in board::planets_of(s, from_system) {
+                sources.extend(s.board().planet(planet).units.as_slice().iter().filter(|u| u.owner() == self.who).map(|u| (Some(planet), u.kind())));
+            }
+            for (from, unit) in sources {
+                if !is_ground_force(unit) || from.is_some_and(|p| self.arrivals.as_slice().contains(&(from_system, p))) {
+                    continue;
+                }
+                for (to_system, to) in &destinations {
+                    if from_system == *to_system && from == Some(*to) {
+                        continue;
+                    }
+                    if seen.contains(&(from_system, from, unit, *to)) {
+                        continue;
+                    }
+                    seen.push((from_system, from, unit, *to));
+                    out.push(TOpt::Transit { from_system, from, unit, to_system: *to_system, to: *to });
+                }
+            }
+        }
+        out
+    }
+}
+
+impl Window for TransitDiodes {
+    type Stage = Stage;
+
+    fn stage(&self) -> Stage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == Stage::Start {
+            self.stage = if Self::applies(sx.state, self.who) { Stage::Asking } else { Stage::Done };
+        }
+        if self.stage == Stage::Asking {
+            if self.moved >= TRANSIT_MOVES || self.options(sx.state).is_empty() {
+                self.finish(sx.state);
+            } else {
+                return Next::Continue(Ask::Technology(TAsk::TransitDiodes { left: TRANSIT_MOVES - self.moved }));
+            }
+        }
+        Next::Done
+    }
+
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == Stage::Asking).then(|| Choice {
+            actor: self.who,
+            ask: Ask::Technology(TAsk::TransitDiodes { left: TRANSIT_MOVES - self.moved }),
+            ctx: ctx(Technology::TransitDiodes, TSub::TransitDiodesRedeploy),
+            opts: self.options(s).into_iter().map(Opt::Technology).chain(std::iter::once(Opt::Decline)).collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage != Stage::Asking {
+            return Err(Illegal);
+        }
+        match pick {
+            Pick::Opt(Opt::Decline) => self.finish(sx.state),
+            Pick::Opt(Opt::Technology(done @ TOpt::Transit { from_system, from, unit, to_system, to })) if self.options(sx.state).contains(&done) => {
+                let who = self.who;
+                let pool = match from {
+                    Some(p) => sx.state.board_mut().planet_mut(p).units.as_mut_slice(),
+                    None => sx.state.board_mut().sys_mut(from_system).units.as_mut_slice(),
+                };
+                // `take_transit_unit`: the first ground force of that type the seat has there.
+                let Some(at) = pool.iter().position(|u| u.owner() == who && u.kind() == unit && crate::query::fleet::is_ground_force(u.kind())) else {
+                    return Err(Illegal);
+                };
+                let piece = match from {
+                    Some(p) => sx.state.board_mut().planet_mut(p).units.remove(at),
+                    None => sx.state.board_mut().sys_mut(from_system).units.remove(at),
+                };
+                let cell = sx.state.board_mut().planet_mut(to);
+                cell.units.push(piece);
+                cell.flags.set(crate::state::PlanetFlags::UNITS_ENTRY, true);
+                sx.state.board_mut().sys_mut(to_system).flags.set(crate::state::SysFlags::TOUCHED, true);
+                self.arrivals.push((to_system, to));
+                self.moved += 1;
+            }
+            _ => return Err(Illegal),
+        }
+        Ok(())
+    }
+}
+
+impl TransitDiodes {
+    fn finish(&mut self, s: &mut CoreState) {
+        if self.moved > 0 {
+            fx_exhaust(s, self.who, Technology::TransitDiodes);
+        }
+        self.stage = Stage::Done;
+    }
+}
+
+/// The free windows at the start of an action-phase turn: Psychoarchaeology, then Transit Diodes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnStart {
+    psycho: Psychoarchaeology,
+    transit: TransitDiodes,
+    on_transit: bool,
+}
+
+impl TurnStart {
+    #[must_use]
+    pub const fn new(who: Seat, source: Code) -> Self {
+        Self { psycho: Psychoarchaeology::new(who, source), transit: TransitDiodes::new(who), on_transit: false }
+    }
+}
+
+impl Window for TurnStart {
+    type Stage = (bool, Stage);
+
+    fn stage(&self) -> Self::Stage {
+        if self.on_transit { (true, self.transit.stage()) } else { (false, self.psycho.stage()) }
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if !self.on_transit {
+            match self.psycho.step(sx) {
+                Next::Done => self.on_transit = true,
+                waiting => return waiting,
+            }
+        }
+        self.transit.step(sx)
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.on_transit { self.transit.ask_of(s, k) } else { self.psycho.ask_of(s, k) }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.on_transit { self.transit.answer(sx, pick) } else { self.psycho.answer(sx, pick) }
     }
 }

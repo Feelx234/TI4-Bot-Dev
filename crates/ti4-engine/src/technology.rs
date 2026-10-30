@@ -173,8 +173,9 @@ pub fn perform_component(
         return Ok(false);
     }
     let produced = crate::production::sling_relay(state, content, sources, galaxy, table, player)?;
-    if produced && let Some(seat) = state.player_mut(player) {
-        seat.exhausted_technologies.insert(TechnologyId::new("sr"));
+    if produced {
+        // The write is the dual-compared one (the production itself is the core's `SlingRelay` window).
+        exhaust_technology_text(state, player, "sr");
     }
     Ok(produced)
 }

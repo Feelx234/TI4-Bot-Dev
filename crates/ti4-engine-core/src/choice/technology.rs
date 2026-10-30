@@ -4,7 +4,7 @@
 
 use super::agenda::Shown;
 use super::strategy::Pool;
-use crate::generated::{Planet, Technology};
+use crate::generated::{Planet, System, Technology, Unit};
 
 /// What the area asks. Parameters only; the options are the window's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -19,6 +19,8 @@ pub enum Ask {
     Aida { upgrades: u8 },
     /// "Self-Assembly Routines: exhaust to place 1 mech from your reinforcements on a planet you control in this system".
     SelfAssembly,
+    /// "Transit Diodes: redeploy ground forces ({left} left)".
+    TransitDiodes { left: u8 },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -32,6 +34,9 @@ pub enum Opt {
     ReadyTechnology(Technology),
     /// Exhaust AI Development Algorithm for the discount.
     Exhaust,
+    /// Move one ground force of the seat (`unit`, from its space area when `from` is `None`, else from that planet of
+    /// `from_system`) to the planet `to` of `to_system` (Transit Diodes).
+    Transit { from_system: System, from: Option<Planet>, unit: Unit, to_system: System, to: Planet },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -42,4 +47,5 @@ pub enum Subtype {
     BioStimsReady,
     AidaExhaustForProductionDiscount,
     SelfAssemblyMech,
+    TransitDiodesRedeploy,
 }

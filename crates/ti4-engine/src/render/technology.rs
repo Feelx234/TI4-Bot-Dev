@@ -38,6 +38,7 @@ impl Family for Fam {
             Ask::Psychoarchaeology => "Psychoarchaeology: exhaust a specialty for 1 trade good",
             Ask::Restack => "Predictive Intelligence: redistribute command tokens",
             Ask::BioStims => "Bio-Stims",
+            Ask::TransitDiodes { left } => return format!("Transit Diodes: redeploy ground forces ({left} left)"),
             Ask::SelfAssembly => "Self-Assembly Routines: exhaust to place 1 mech from your reinforcements on a planet you control in this system",
             Ask::Aida { upgrades } => return format!("AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}"),
         }
@@ -50,6 +51,7 @@ impl Family for Fam {
             Subtype::PredictiveIntelligenceRedistribute => "predictive_intelligence_redistribute",
             Subtype::BioStimsReady => "bio_stims_ready",
             Subtype::SelfAssemblyMech => "self_assembly_mech",
+            Subtype::TransitDiodesRedeploy => "transit_diodes_redeploy",
             Subtype::AidaExhaustForProductionDiscount => "exhaust_for_production_discount",
         }
         .to_owned()
@@ -60,6 +62,16 @@ impl Family for Fam {
             (Ask::Aida { upgrades }, Opt::Exhaust) => ChoiceOption::labelled("exhaust", "production_discount", format!("exhaust to reduce the combined cost by {upgrades}"))
                 .with("technology", "aida")
                 .with("discount_offered", i64::from(*upgrades)),
+            (_, Opt::Transit { from_system, from, unit, to_system, to }) => {
+                let (ss, ds, planet, unit) = (from_system.as_str(), to_system.as_str(), to.as_str(), unit.as_str());
+                let source = from.map_or("space", |p| p.as_str());
+                ChoiceOption::labelled(format!("transit|{ss}|{source}|{unit}|{ds}|{planet}"), "transit", format!("move {unit} from {source} to {planet}"))
+                    .with("source_system", ss)
+                    .with("source", source)
+                    .with("unit", unit)
+                    .with("destination_system", ds)
+                    .with("planet", planet)
+            }
             (_, Opt::Exhaust) => ChoiceOption::labelled("exhaust", "production_discount", "exhaust"),
             (Ask::SelfAssembly, Opt::Planet(planet, _)) => {
                 let id = planet.as_str();
@@ -98,6 +110,17 @@ impl Family for Fam {
                 Some(Opt::Move { from: pool_of(from)?, to: pool_of(to)? })
             }
             Ask::Aida { .. } => (id == "exhaust").then_some(Opt::Exhaust),
+            Ask::TransitDiodes { .. } => {
+                let mut parts = id.splitn(6, '|');
+                let (Some("transit"), Some(ss), Some(source), Some(unit), Some(ds), Some(planet)) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next(), parts.next()) else { return None };
+                Some(Opt::Transit {
+                    from_system: ti4_engine_core::generated::System::from_id(ss)?,
+                    from: if source == "space" { None } else { Some(Planet::from_id(source)?) },
+                    unit: ti4_engine_core::generated::Unit::from_id(unit)?,
+                    to_system: ti4_engine_core::generated::System::from_id(ds)?,
+                    to: Planet::from_id(planet)?,
+                })
+            }
             Ask::BioStims => {
                 if let Some(planet) = id.strip_prefix("ready|planet|") {
                     return Planet::from_id(planet).map(|p| Opt::Planet(p, ti4_engine_core::choice::agenda::Shown::default()));
@@ -109,6 +132,9 @@ impl Family for Fam {
 
     /// "finish redistribution": the restack question ends with a `done` option of the decline kind.
     fn wording(_: &Render, a: &Ask, o: &super::Opt) -> Wording {
+        if matches!((a, o), (Ask::TransitDiodes { .. }, super::Opt::Decline)) {
+            return Wording { label: Some("finish redeployment".to_owned()), ..Wording::default() };
+        }
         if matches!((a, o), (Ask::Restack, super::Opt::Done)) {
             return Wording { kind: Some(DECLINE_KIND.to_owned()), label: Some("finish redistribution".to_owned()), ..Wording::default() };
         }

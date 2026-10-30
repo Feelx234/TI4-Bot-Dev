@@ -30,7 +30,7 @@ violations), `lint_core.sh` (0 hits), single-file mutation checks (`/root/deploy
 * W11: nothing started; see W11-open-01.
 * W12: `production_used` (opening of the production window, lane 1), `self_assembly_after_production`, `component_actions`/
   `perform_component` (lane 1 W5), `control_gained` (lane 1 W8), Transit Diodes and Chaos Mapping at the start of a turn (kept on the string
-  with a counted reason, test `a_turn_start_with_nothing_to_offer_asks_nothing_in_lockstep_and_transit_diodes_stay_the_strings`).
+  with a counted reason, test `a_turn_start_with_nothing_to_offer_asks_nothing_in_lockstep_and_chaos_mapping_stays_the_strings`).
 * W13: the effects behind the reward answers are already `dual_write`s in `exploration.rs` (commodities, tokens, placement); what is left is
   the composition (D1) and `frln*` (production, lane 1); relic bodies: Neuraloop's pool check, Titan Prototype's payment and structure.
 * W14: Military Support's placement window, the commander reads (`has_commander_ability`, `commander_ability_from`).

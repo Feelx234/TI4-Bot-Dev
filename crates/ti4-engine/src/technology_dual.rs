@@ -19,7 +19,7 @@ mod real {
     use ti4_engine_core::generated::Technology;
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::technology_windows::{Psychoarchaeology, ProductionUsed, TurnEnd};
+    use ti4_engine_core::rules::technology_windows::{ProductionUsed, TurnEnd, TurnStart};
     use ti4_engine_core::state::Slice;
     use ti4_model::id::PlayerId;
     use ti4_model::state::GameState;
@@ -108,11 +108,11 @@ mod real {
 
     /// The core half of `technology::start_turn`.
     pub fn start_turn(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if owned_ready(gs, player, "td", true) || owned_ready(gs, player, "cm", false) {
-            crate::dual::note_bail_here("Transit Diodes or Chaos Mapping at the start of a turn (a redeployment over the map, a production nested in the card)");
+        if owned_ready(gs, player, "cm", false) {
+            crate::dual::note_bail_here("Chaos Mapping at the start of a turn (a production nested in the card)");
             return None;
         }
-        drive_one(gs, player, script, |seat, r| Psychoarchaeology::new(seat, r.code("psychoarchaeology")))
+        drive_one(gs, player, script, |seat, r| TurnStart::new(seat, r.code("psychoarchaeology")))
     }
 
     /// The core half of `technology::production_used`.
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn a_turn_start_with_nothing_to_offer_asks_nothing_in_lockstep_and_transit_diodes_stay_the_strings() {
+    fn a_turn_start_with_nothing_to_offer_asks_nothing_in_lockstep_and_chaos_mapping_stays_the_strings() {
         let planets = specialty_planets(1);
         // No Psychoarchaeology: no question, the core window ends at once.
         let (_, counts, _) = lockstep("technology::start_turn", || run_start(&mut game(&[], &planets), &[]));
@@ -293,12 +293,47 @@ mod tests {
             run_start(&mut state, &[]);
         });
         assert_eq!(counts, (1, 0));
-        // A ready Transit Diodes (or a Chaos Mapping): the string's, counted with its reason.
-        for tech in ["td", "cm"] {
-            let (_, counts, bails) = lockstep("technology::start_turn", || run_start(&mut game(&[tech], &planets), &[]));
-            assert_eq!(counts, (0, 1), "{tech}");
-            assert!(bails.iter().any(|b| b.contains("Transit Diodes or Chaos Mapping")), "{tech}: {bails:?}");
-        }
+        // A Chaos Mapping (a production nested in the card): the string's, counted with its reason.
+        let (_, counts, bails) = lockstep("technology::start_turn", || run_start(&mut game(&["cm"], &planets), &[]));
+        assert_eq!(counts, (0, 1));
+        assert!(bails.iter().any(|b| b.contains("Chaos Mapping")), "{bails:?}");
+    }
+
+    /// Transit Diodes (package W12): ground forces move to planets the seat controls, up to four times, a planet that received one
+    /// cannot send one out; the card is spent when anything moved. The options are compared whole (order, ids, labels).
+    #[test]
+    fn transit_diodes_redeploy_ground_forces_and_exhaust_the_card_in_lockstep() {
+        let planets = specialty_planets(2);
+        let (system_a, planet_a) = (SystemId::new(planets[0].0.as_str()), PlanetId::new(planets[0].1.as_str()));
+        let (system_b, planet_b) = (SystemId::new(planets[1].0.as_str()), PlanetId::new(planets[1].1.as_str()));
+        let make = || {
+            let mut state = game(&["td"], &planets);
+            crate::fixtures::put_on_planet(&mut state, &system_a, &planet_a, "infantry", &a(), 2);
+            crate::fixtures::put(&mut state, &system_a, "infantry", &a(), 1);
+            state
+        };
+        let id = |from: &str, unit: &str| format!("transit|{system_a}|{from}|{unit}|{system_b}|{planet_b}");
+        // One move from a planet, one from the space area, then decline: the card is spent.
+        let (state, counts, bails) = lockstep("technology::start_turn", || {
+            let mut state = make();
+            run_start(&mut state, &[&id(planet_a.as_str(), "infantry"), &id("space", "infantry"), "decline"]);
+            state
+        });
+        assert_eq!(counts, (1, 0), "{bails:?}");
+        let there = state.system_state(&system_b).planet_units.get(&planet_b).map_or(0, Vec::len);
+        assert_eq!(there, 2);
+        assert!(state.player(&a()).unwrap().exhausted_technologies.contains(&TechnologyId::new("td")));
+        // Declined at once: nothing moved, the card stays ready.
+        let (state, counts, _) = lockstep("technology::start_turn", || {
+            let mut state = make();
+            run_start(&mut state, &["decline"]);
+            state
+        });
+        assert_eq!(counts, (1, 0));
+        assert!(!state.player(&a()).unwrap().exhausted_technologies.contains(&TechnologyId::new("td")));
+        // No ground force anywhere: nothing is asked.
+        let (_, counts, _) = lockstep("technology::start_turn", || run_start(&mut game(&["td"], &planets), &[]));
+        assert_eq!(counts, (1, 0));
     }
 
     #[test]
