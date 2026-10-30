@@ -11381,7 +11381,6 @@ mod tests {
     }
 
     fn roll_step_fights(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
-        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         crate::dual_window::with_composed(composed, || roll_step_fights_inner(setup, calls_at_least, composed))
     }
 

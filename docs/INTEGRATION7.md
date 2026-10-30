@@ -1,7 +1,7 @@
 # core-integration-7: merge record (2026-10-30)
 
 Branch `core-integration-7`, cut from `core-integration-6` @ `c519216e`. Round 1 (sections 1 to 5): the lent-bodies lanes `core-w`, `core-w-l2`, `core-w-l4`.
-Round 2 (section 6): `core-w-l1`, `core-w-l3`, `core-d4a2`, `core-d4a3`. Only `core-w-l5` is still out. Cheap checks only: heavy work is deferred to the
+Round 2 (section 6): `core-w-l1`, `core-w-l3`, `core-d4a2`, `core-d4a3`. Round 3 (section 7): `core-w-l5`, and the barrage-scoring bug of the combat machine. `core-w-l6` is not merged. Cheap checks only: heavy work is deferred to the
 end of D1. Not pushed. The live branch was not touched.
 
 ## 1. Merges
@@ -107,7 +107,7 @@ and the first removal broke the build there (E0432): the import is removed too. 
 | `ti4-engine-core-tests/tests/*` (test-crate struct literals) | fields added by the W lanes after d4a2/d4a3 wrote their tests: combat_roll `round: 1`; trade_window, query_trade_deals `free: [None, None]`; combat_machine `Env` (`det`, `wormhole`, `ambush`, `cause_core`, `cause_devotion`, `raid`, `ac`, `ac_subtype`, `ac_cause`); invasion_windows (`can_pay`, `dunlain`); production_window(2) `ability: false`; combat_extra, combat_barrage `raid: None` | defaults that keep each test's meaning (false / None / fresh codes) |
 | `agenda_table_effects2.rs` | W6: the For outcome of Unconventional Measures draws through a `DrawCards` child window, so it has no table effect | **assertion edit (necessary combination fix):** `Table::of(UnconventionalMeasures, For)` is now asserted `None`; the `Table::VotersDraw.draws_from_deck() &&` conjunct is dropped |
 | `combat_machine.rs` | W2: Devotion is no gate any more (the fight runs to its end) | **assertion edit:** the Devotion test expects `Some(Stop::Over)` |
-| `combat_machine.rs` `a_combat_whose_other_side_dies_to_the_barrage_alone...` | the lone-fighter kill by the barrage now runs straight to `Over` without a scoring pause in this position (all seeds: `Over`, defender 0 ships, outcome `(Some(Seat(0)), 0)`) | **assertion edit:** the test accepts both ways to the end (Scoring then Over, or Over directly); the checks that matter (zero rounds, defender gone, no combat dice) are unchanged. The seed diagnostics stay in the message |
+| `combat_machine.rs` `a_combat_whose_other_side_dies_to_the_barrage_alone...` | the lone-fighter kill by the barrage now runs straight to `Over` without a scoring pause in this position (all seeds: `Over`, defender 0 ships, outcome `(Some(Seat(0)), 0)`) | **(superseded by 7.2: the loosening hid a machine bug; the test is strict again and the machine is fixed)** |
 | test crate clippy | 4 warnings: `contains()` x2 in `action_cards_simple.rs`, `type_complexity` x2 in `combat_machine.rs`, `invasion_rules.rs` | `contains`, type aliases |
 
 Assertion edits to tests, all listed: the three rows above marked so. No other test assertion was edited.
@@ -126,3 +126,39 @@ Assertion edits to tests, all listed: the three rows above marked so. No other t
 | `check_layers.py core`, `lint_core.sh` | 430 files, 0 violations; 432 files, 0 hits |
 
 Not run: any heavy work (the combined gate `tools/engine_core/end_of_d1.sh`, golden lent census, `TI4_CORE_STRICT=1`, mutation runs). Not pushed, live branch untouched.
+
+## 7. Round 3: `core-w-l5`, and the string check of the barrage-alone test
+
+### 7.1 Merge
+
+`core-w-l5` @ `7085d776` (11 commits on `core-w-l3`: Military Support, Gurno Aggero, Riftwalker Meian, Lazax Gate Folding, Nekro repair, Terraform, Malleon, Stall Tactics, Vortex, the Nekro draw; the shared pieces `choice::promissory`, Vortex in `choice::technology`, additions in `choice::leaders`, the Promissory area in `render/mod.rs`). `core-w-l1` had not moved (still `8b02b7e6`, already merged); `core-w-l6` is not merged.
+
+| File | Conflict | Resolution |
+|---|---|---|
+| `ti4-engine/src/render/mod.rs` | `uninhabited!` list and the registry: int-7 had `legendary` ported (W16) and `promissory` unported; l5 ported `promissory` and still had `legendary` unported | both families are ported now: only `tokens` stays uninhabited, `Legendary => legendary::Fam`, `Promissory => promissory::Fam` |
+| `docs/ENGINE_KNOWN_ISSUES.md` | both sides appended after the same row | both kept |
+
+Break of the combination: the delivery registry (`decision_delivery_inventory.rs`) still named `cabal.rs::vortex_perform` (W renamed it `vortex_string` in l5): rename only (the Producer row and the tuple), no count changed.
+
+### 7.2 Is the machine wrong in `a_combat_whose_other_side_dies_to_the_barrage_alone_is_over_with_no_round_fought`? Yes: a bug in the core machine, fixed
+
+Checked against the string engine, not a guessed default. New string test (`combat.rs`, `a_barrage_that_takes_the_last_ship_of_a_side_still_pauses_for_scoring_and_ends_the_fight_in_round_zero`): 3 destroyers against one fighter, all barrage dice hit. Result: the string records `BarrageTookTheLastFighters`, consumes the scoring pause (`asks_before_pause == Some(0)`), and ends with the attacker winning in 0 rounds. So the string DOES pause for scoring there.
+
+The core machine recorded the same feat (probe: `feats [(BarrageTookTheLastFighters, 1)]`, 2 barrages, all 40 seeds) but stopped at `Over` with no pause. Cause: after the barrage the loop continued in the `Step::Opening` arm, whose first line is `if self.over(sx) { conclude(round - 1) ... Over }`; with the defender wiped, that fired before `open_round` could present the resumed round (the feat block). Fix (`rules/combat/machine.rs`): `if !self.barrage_done && self.over(sx)`, so the end of the fight is read after the pause. In a game this would have been a lockstep divergence (core ends the combat without the scoring pause the string offers); no golden game reached it.
+
+Regression tests: the machine test is strict again (per seed: the feat recorded means `Stop::Scoring`, then `Over` after the pause; no feat means `Over`) and fails on the old code (it ended at `Over` with the feat recorded); and the string-side test above. The loosened assertion of round 2 (section 6.4, third row) is thereby reverted: it had hidden the bug. The earlier "W2 changed the machine" explanation in that row was wrong.
+
+### 7.3 Checks (cheap), runner chain `u7` at `8922828e` and `v7` at the tip
+
+| Check | Result |
+|---|---|
+| `cargo check --workspace --all-targets` | ok |
+| `cargo clippy` of core, factions, engine, bridge, core-tests, rule-bot-typed | ok; 3 warnings in the files of the filter, all in test code, removed afterwards WITHOUT a rebuild (trivial edits: the unused `use crate::dual::{...}` line in `combat.rs` `roll_step_fights`, and `vec![..]` to an array in `leader_windows.rs` and `promissory_windows.rs` tests); none in the others |
+| `cargo test -p ti4-engine --lib` | 4835 passed, 0 failed |
+| same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` | 4835 passed, 0 failed |
+| core + factions + rule-bot-typed + bridge `--lib` | 586 passed |
+| `decision_delivery_inventory`, `content_ids_resolve` | 4 + 4 passed (after the registry rename; the first run at `8922828e` failed on it) |
+| `ti4-engine-core-tests` with the D4 flags | 1105 passed, 0 failed |
+| `check_layers.py core`, `lint_core.sh` | 432 files, 0 violations; 434 files, 0 hits |
+
+Not run: heavy work (combined gate, golden lent census, `TI4_CORE_STRICT=1`, mutation runs). Not pushed.

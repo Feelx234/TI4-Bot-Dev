@@ -635,7 +635,7 @@ mod tests {
         let mut d = stall_driver(Some(mech));
         let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks which card") };
         assert_eq!(q.ask, Ask::Cards(CAsk::OwnHand { reason: Reason::StallTactics }));
-        let mut ranked = vec![C::ALL[7], C::ALL[3]];
+        let mut ranked = [C::ALL[7], C::ALL[3]];
         ranked.sort_by_key(|c| c.name_rank());
         let opts: Vec<Opt> = ranked.iter().map(|c| Opt::Cards(COpt::Card(*c))).collect();
         assert_eq!(q.opts.as_slice(), opts.as_slice(), "no decline: the discard is the action");

@@ -1660,7 +1660,7 @@ mod tests {
         assert_eq!(q.opts.as_slice(), &[Opt::Leaders(LOpt::Discard), Opt::Decline]);
         let Status::Asking(q) = d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::Discard))).unwrap() else { panic!("which card") };
         assert_eq!((q.actor, q.ask), (Seat(1), Ask::Cards(crate::choice::cards::Ask::OwnHand { reason: crate::choice::cards::Reason::MalleonDiscard })));
-        let mut ranked = vec![C::ALL[7], C::ALL[3]];
+        let mut ranked = [C::ALL[7], C::ALL[3]];
         ranked.sort_by_key(|c| c.name_rank());
         let expected: Vec<Opt> = ranked.iter().map(|c| Opt::Cards(crate::choice::cards::Opt::Card(*c))).collect();
         assert_eq!(q.opts.as_slice(), expected.as_slice(), "one per printed card, in the order of the names");
