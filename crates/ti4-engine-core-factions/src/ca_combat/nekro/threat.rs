@@ -147,3 +147,90 @@ pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(PREDICT, AbilityKind::Ability, EventKind::AgendaRevealed, Relation::After, predict).when(predict_when).optional());
     t.add(Spec::new(PAYOUT, AbilityKind::Ability, EventKind::AgendaResolved, Relation::After, pay).when(payout_when));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_engine_core::generated::Faction;
+    use ti4_engine_core::kernel::Kernel;
+    use ti4_engine_core::state::{EventRec, Payload, Player, Players, Seats};
+
+    const NEKRO: Seat = Seat(0);
+
+    /// A Nekro (seat 0) with a prediction of `For` made at agenda 3, and two rivals owning a technology the Nekro lacks.
+    fn table() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        let seats = [Seat(0), Seat(1), Seat(2)];
+        s.players = Players::from_vec(vec![
+            Player::new(Seat(0), Faction::TheNekroVirus),
+            Player::new(Seat(1), Faction::TheEmiratesOfHacan),
+            Player::new(Seat(2), Faction::TheFederationOfSol),
+        ]);
+        s.seats = Seats::new(&seats, &seats, 3);
+        s.meta_mut().agenda_seq = 3;
+        for rival in [Seat(1), Seat(2)] {
+            s.players_mut().by_seat_mut(rival).unwrap().tech.owned.insert(Technology::GravityDrive);
+        }
+        s.marks_mut().tail.edit().insert(MarkKey::NekroThreat(NEKRO), MarkVal::Rec(vec![MarkVal::Atom(Atom::Num(3)), MarkVal::Atom(Atom::Outcome(Outcome::For))]));
+        s.agenda_mut().votes.insert(Seat(1), Outcome::For);
+        s.agenda_mut().votes.insert(Seat(2), Outcome::Against);
+        s
+    }
+
+    fn resolved_for(outcome: Outcome) -> EventRec {
+        EventRec { id: 1, kind: EventKind::AgendaResolved, payload: Payload::new().with(Key::Player, Val::Outcome(outcome)), cancelled: false }
+    }
+
+    /// The voters of the predicted outcome, other than the Nekro, with something to take.
+    #[test]
+    fn the_payout_names_the_voters_of_the_predicted_outcome_that_have_something_to_take() {
+        let s = table();
+        let k = Kernel::plain();
+        assert_eq!(payout(&s, &k, &resolved_for(Outcome::For), NEKRO), Ok(vec![Seat(1)]));
+        // The Nekro's own vote is not a source.
+        let mut own = table();
+        own.agenda_mut().votes.insert(NEKRO, Outcome::For);
+        assert_eq!(payout(&own, &k, &resolved_for(Outcome::For), NEKRO), Ok(vec![Seat(1)]));
+        // A voter with nothing the Nekro lacks is skipped.
+        let mut poor = table();
+        poor.players_mut().by_seat_mut(Seat(1)).unwrap().tech.owned.remove(Technology::GravityDrive);
+        assert_eq!(payout(&poor, &k, &resolved_for(Outcome::For), NEKRO), Ok(Vec::new()));
+    }
+
+    /// Nothing is paid for a prediction of another agenda, another outcome, an agenda a Deadly Plot discarded, or by a seat that is no
+    /// Nekro.
+    #[test]
+    fn the_payout_needs_the_same_agenda_the_same_outcome_and_no_discard() {
+        let k = Kernel::plain();
+        let s = table();
+        assert_eq!(payout(&s, &k, &resolved_for(Outcome::Against), NEKRO), Ok(Vec::new()), "another outcome");
+        let mut later = table();
+        later.meta_mut().agenda_seq = 4;
+        assert_eq!(payout(&later, &k, &resolved_for(Outcome::For), NEKRO), Ok(Vec::new()), "another agenda");
+        let mut discarded = table();
+        discarded.transient_mut().misc.flags.set(TransientFlags::AGENDA_DISCARDED);
+        assert_eq!(payout(&discarded, &k, &resolved_for(Outcome::For), NEKRO), Ok(Vec::new()), "a discarded agenda resolves nothing");
+        assert_eq!(payout(&s, &k, &resolved_for(Outcome::For), Seat(1)), Ok(Vec::new()), "a seat that is no Nekro");
+        // Bail: the Z token lends a flagship's text, so the string's options differ.
+        let mut z = table();
+        z.players_mut().by_seat_mut(NEKRO).unwrap().cards.breakthrough = Some(ti4_engine_core::generated::Breakthrough::ValefarAssimilatorZ);
+        assert_eq!(payout(&z, &k, &resolved_for(Outcome::For), NEKRO), Err(()));
+    }
+
+    /// The prediction is open once per round: the phase mark holds the round of the last prediction.
+    #[test]
+    fn the_prediction_is_open_once_per_round() {
+        let mut s = table();
+        s.meta_mut().round = 2;
+        s.agenda_mut().choices = [Outcome::For, Outcome::Against].into_iter().collect();
+        assert!(ready(&s, NEKRO));
+        s.marks_mut().tail.edit().insert(MarkKey::NekroThreatPhase(NEKRO), MarkVal::Atom(Atom::Num(2)));
+        assert!(!ready(&s, NEKRO), "already predicted in this round");
+        s.meta_mut().round = 3;
+        assert!(ready(&s, NEKRO), "a new round");
+        s.agenda_mut().choices.clear();
+        assert!(!ready(&s, NEKRO), "an agenda with no outcome");
+        s.agenda_mut().choices = [Outcome::For].into_iter().collect();
+        assert!(!ready(&s, Seat(1)), "a seat that is no Nekro");
+    }
+}

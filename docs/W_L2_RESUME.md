@@ -44,6 +44,15 @@ tests) and then the whole engine lib (see the report), single-file mutation chec
 snapshots in the scratch worktree `core-w-l2-scratch` (`draw.rs`, `close.rs`, `effects.rs`, `strategy_primaries.rs`, `threat.rs`,
 `nomad/timing.rs`). Also `tools/engine_core/check_layers.py core` (0 violations) and `lint_core.sh` (0 hits).
 
+## Mutation results (single-file, scratch worktree, committed snapshot `c7701e05`)
+
+`draw.rs` 18/18 killed (2 points not compilable), `close.rs` start_draw/pay 16/16, `effects.rs` `Resolve::cards` killed, `strategy_primaries.rs`
+Politics / Imperial windows killed, `threat.rs` and `nomad/timing.rs` run through the engine tests (`galactic_threat`, `future_sight`).
+Survivors kept on purpose: `Resolve::draw` (secret objective draws, A4 code, not touched), `Politics::ask_of` `ctx(.., false, ..)` of the
+speaker / agenda questions (B8 code, not touched), `future_sight_when` `return false` for an event without an outcome (marked
+`mutants:skip`: the event always names it). The two `threat.rs` survivors of that run (`payout`'s discard and agenda guards) are killed by
+the unit tests added afterwards (`the_payout_needs_the_same_agenda_the_same_outcome_and_no_discard`), which were not re-run through the tool.
+
 ## Traps for the merge
 
 * `strategy_cards_core.rs` is also edited by lanes 1 (W5: `unported_window`, Leadership / Construction) and 3 (Trade): my hunks are

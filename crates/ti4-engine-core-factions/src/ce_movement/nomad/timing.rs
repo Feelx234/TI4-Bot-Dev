@@ -137,7 +137,7 @@ fn future_sight_when(c: &CondCx<'_>) -> bool {
     use ti4_engine_core::keys::Prediction;
     use ti4_engine_core::state::TransientFlags;
     let me = c.def.owner;
-    let Some(outcome) = resolved_outcome(&c.event.payload) else { return false };
+    let Some(outcome) = resolved_outcome(&c.event.payload) else { return false }; // mutants:skip (the event always names its outcome)
     // The string registers it for every seat and limits it to the Nomad by the condition.
     c.state.players().by_seat(me).is_some_and(|p| p.faction == Faction::TheNomad)
         && !c.state.transient().misc.flags.has(TransientFlags::AGENDA_DISCARDED)
