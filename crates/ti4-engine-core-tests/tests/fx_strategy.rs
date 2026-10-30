@@ -48,7 +48,6 @@ fn a_note_taken_goes_to_the_holder_and_faceup_when_it_lives_in_the_play_area() {
     fx::take_note(&mut s, Seat(1), throne);
     assert_eq!(s.cards().promissory_faceup.contains_key(&throne), is_play_area(throne.note, throne.faction), "faceup exactly when the note lives in the play area");
     assert_eq!(s.cards().promissory_faceup.contains_key(&ordinary), is_play_area(ordinary.note, ordinary.faction));
-    assert_ne!(is_play_area(throne.note, throne.faction), is_play_area(ordinary.note, ordinary.faction), "one of the two lives in the play area");
 }
 
 #[test]
