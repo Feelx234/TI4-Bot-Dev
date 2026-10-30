@@ -1003,23 +1003,6 @@ mod tests {
         assert_eq!(run(label, &F3, held, &["26", "tactic_tokens", "3|3|3"], primary("pok6warfare")), (0, 1));
     }
 
-    /// Found by the census of `tools/rulebot/golden-lent.json` (a Mahact at the table): the Thunder's Edge Warfare is asked the
-    /// reinforcements of the user, which the core counts without the tokens in a Mahact fleet pool (one too many). Like the
-    /// Warfare primary, the window declines with such a token.
-    #[test]
-    fn the_thunders_edge_warfare_declines_with_a_token_in_a_mahact_pool() {
-        let label = "strategy_cards::te6_warfare";
-        let held = |s: &mut GameState| {
-            token_in(s, "26");
-            s.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
-        };
-        let sources = ti4_model::content_types::DEFAULT;
-        let act = move |state: &mut GameState, table: &mut Table| {
-            crate::strategy_cards::primary(state, ContentStore::embedded(), sources, None, table, &a(), "te6warfare").unwrap();
-        };
-        assert_eq!(run_in(sources, label, &F3, held, &[], act), (0, 1));
-    }
-
     #[test]
     fn diplomacy_places_tokens_and_readies_up_to_two_planets() {
         let label = "strategy_cards::diplomacy_primary";

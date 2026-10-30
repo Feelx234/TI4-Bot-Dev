@@ -10322,6 +10322,17 @@ mod tests {
         prepare: impl Fn(&mut GameState, &SystemId),
         pick: fn(u64, usize, &Choice) -> usize,
     ) -> (GameState, std::collections::BTreeMap<String, crate::dual::WindowCounts>, u64, Vec<String>) {
+        hub_fight_composed(true, seed, factions, prepare, pick)
+    }
+
+    /// [`hub_fight`] with the windows of the fight compared one by one (`composed` false) or as the composed machine.
+    fn hub_fight_composed(
+        composed: bool,
+        seed: u64,
+        factions: &[&str],
+        prepare: impl Fn(&mut GameState, &SystemId),
+        pick: fn(u64, usize, &Choice) -> usize,
+    ) -> (GameState, std::collections::BTreeMap<String, crate::dual::WindowCounts>, u64, Vec<String>) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
@@ -10335,7 +10346,7 @@ mod tests {
         }
         let hub = crate::fixtures::plain_hub();
         let mut out = None;
-        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(true, || {
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || crate::dual_window::with_composed(composed, || {
             let names = ["a", "b", "c", "d"];
             let seats: Vec<(&str, &str)> = factions.iter().enumerate().map(|(i, f)| (names[i], *f)).collect();
             let mut state = crate::fixtures::seated_game(&seats, ti4_model::content_types::DEFAULT);
@@ -10516,8 +10527,9 @@ mod tests {
     #[test]
     fn a_naaz_side_opens_its_space_rounds_in_the_core_machine_in_lockstep() {
         let (mut compared_settle, mut asked_sc, mut used) = (0, 0, 0);
-        for seed in 0..8_u64 {
-            let (state, windows, differences, nested) = hub_fight(
+        for (seed, composed) in (0..8_u64).flat_map(|s| [(s, false), (s, true)]) {
+            let (state, windows, differences, nested) = hub_fight_composed(
+                composed,
                 seed,
                 &["naaz", "hacan"],
                 |s, system| {
@@ -10533,9 +10545,9 @@ mod tests {
                 let marks: Vec<_> = state.faction_marks.iter().filter(|(k, _)| k.contains("supercharge")).collect();
                 eprintln!("seed {seed}: marks {marks:?}; exhausted {:?}; seq {}; nested {nested:?}", state.player(&attacker()).unwrap().exhausted_technologies, state.combat_round_seq);
             }
-            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert_eq!(differences, 0, "seed {seed} composed {composed}: {windows:?}");
             assert!(windows.keys().all(|k| !k.contains("a Naaz side")), "seed {seed}: {windows:?}");
-            compared_settle += windows.get("combat::settle").map_or(0, |w| w.compared);
+            compared_settle += windows.get(if composed { "combat::settle" } else { "combat::begin_round" }).map_or(0, |w| w.compared);
             let units = &state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units;
             assert!(!units.iter().any(|u| u.type_id.as_str() == "naaz_mech_space"), "seed {seed}: no ship form survives the battle");
             asked_sc += usize::from(nested.iter().any(|k| k.contains("ask:Supercharge")));
