@@ -10496,6 +10496,10 @@ mod tests {
                     },
                     |_, _, _| 0,
                 );
+                if differences > 0 {
+                    let all: Vec<String> = state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units.iter().map(|u| format!("{}:{}", u.owner, u.type_id)).collect();
+                    eprintln!("string units after the fight: {all:?}");
+                }
                 assert_eq!(differences, 0, "grace {grace} seed {seed}: {windows:?}");
                 assert!(windows.keys().all(|k| !k.contains("a fact the adapter did not compute")), "grace {grace} seed {seed}: {windows:?}");
                 let units = &state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units;
