@@ -523,12 +523,20 @@ fn use_leader(
     if leader.as_str() != HERO {
         return None;
     }
-    if hero_active(context.state, player) || !flagship_on_board(context.state, player) {
-        return Some(false);
-    }
     let round = context.state.round.to_string();
-    context.state.faction_marks.insert(hero_mark(player), round);
-    Some(true)
+    Some(crate::dual::write(
+        crate::dual::Area::LeadersAbilities,
+        context.state,
+        "leaders::nomad_hero",
+        |s| {
+            if hero_active(s, player) || !flagship_on_board(s, player) {
+                return false;
+            }
+            s.faction_marks.insert(hero_mark(player), round.clone());
+            true
+        },
+        |s| crate::leaders_core::nomad_hero(s, player),
+    ))
 }
 
 // -- commander -----------------------------------------------------------------------------------

@@ -114,6 +114,20 @@ mod real {
         crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_hero(core, who)).ok()
     }
 
+    /// Ahk-Syl Siven: the mark of the round the effect runs through.
+    pub fn nomad_hero(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
+        const MARKS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks], &[Slice::Marks]);
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let who = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), MARKS, |core, _| rules::nomad_hero(core, who)).ok()
+    }
+
+    /// Ul the Progenitor: Elysium readied and wearing Geoform.
+    pub fn titans_hero(gs: &mut GameState) -> Option<bool> {
+        let (mut cx, _) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::titans_hero(core)).ok()
+    }
+
     /// Claire Gibson: the placement of `count` units of `unit` (resolved by the string side) on the planet.
     pub fn sol_commander(
         gs: &mut GameState,
@@ -404,6 +418,12 @@ mod stub {
         None
     }
     pub fn sol_hero(_: &mut GameState, _: &PlayerId) -> Option<bool> {
+        None
+    }
+    pub fn nomad_hero(_: &mut GameState, _: &PlayerId) -> Option<bool> {
+        None
+    }
+    pub fn titans_hero(_: &mut GameState) -> Option<bool> {
         None
     }
     pub fn l1z1x_agent(

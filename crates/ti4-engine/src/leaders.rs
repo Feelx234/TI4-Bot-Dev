@@ -2847,6 +2847,67 @@ mod tests {
         let _ = take_report();
     }
 
+    /// The two heroes that ask nothing and write a mark or an attachment (package W10): Ahk-Syl Siven's round mark and Ul the
+    /// Progenitor's Geoform. The core write and the string write leave the same position, in the cases the string refuses too.
+    #[test]
+    fn the_nomad_and_titans_heroes_write_the_same_position_on_both_sides() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        with_mask(mask, || {
+            // Nomad: a flagship on the board and no effect running yet.
+            let (system, _) = crate::fixtures::a_placed_planet();
+            let mut state = seated_clean(&[("a", "nomad"), ("b", "hacan")]);
+            holding(&mut state, "nomadhero", LeaderStatus::Unlocked);
+            for board in state.board.values_mut() {
+                board.units.retain(|u| !u.type_id.as_str().starts_with("nomad_flagship"));
+            }
+            let mut refused = state.clone();
+            // No flagship: refused on both sides, nothing written.
+            let mut by_core = refused.clone();
+            assert_eq!(crate::leaders_core::nomad_hero(&mut by_core, &player()), Some(false));
+            assert!(!use_scripted(&mut refused, "nomadhero", None, Vec::new()));
+            assert_eq!(by_core, refused);
+            assert!(!refused.faction_marks.contains_key("nomad:hero:a"));
+            crate::fixtures::put(&mut state, &system, "nomad_flagship", &player(), 1);
+            let mut by_core = state.clone();
+            assert_eq!(crate::leaders_core::nomad_hero(&mut by_core, &player()), Some(true));
+            assert!(use_scripted(&mut state, "nomadhero", None, Vec::new()));
+            assert_eq!(state.faction_marks.get("nomad:hero:a"), Some(&state.round.to_string()));
+            assert_eq!(by_core.faction_marks, state.faction_marks, "the core wrote the same mark");
+            // Running already: the core refuses as the string does.
+            assert_eq!(crate::leaders_core::nomad_hero(&mut by_core.clone(), &player()), Some(false));
+
+            // Titans: Elysium controlled by somebody, exhausted, without Geoform.
+            let elysium = ti4_engine_core::generated::Planet::Elysium;
+            let (sys, planet) = (<ti4_engine_core::generated::System as crate::generated::IdStr>::as_str(elysium.data().system.unwrap()), <ti4_engine_core::generated::Planet as crate::generated::IdStr>::as_str(elysium));
+            let mut state = seated_clean(&[("a", "titans"), ("b", "hacan")]);
+            holding(&mut state, "titanshero", LeaderStatus::Unlocked);
+            // (Elysium is the Titans' home planet: it is controlled from the start.)
+            let mut nobody = state.clone();
+            for board in nobody.board.values_mut() {
+                board.planet_control.remove(&ti4_model::id::PlanetId::new(planet));
+            }
+            assert_eq!(crate::leaders_core::titans_hero(&mut nobody.clone()), Some(false));
+            assert!(!use_scripted(&mut nobody, "titanshero", None, Vec::new()), "Elysium is not in play");
+            let _ = sys;
+            state.exhausted_planets.insert(ti4_model::id::PlanetId::new(planet));
+            let mut by_core = state.clone();
+            assert_eq!(crate::leaders_core::titans_hero(&mut by_core), Some(true));
+            assert!(use_scripted(&mut state, "titanshero", None, Vec::new()));
+            assert!(!state.exhausted_planets.contains(&ti4_model::id::PlanetId::new(planet)), "readied");
+            assert_eq!(state.planet_attachments.get(&ti4_model::id::PlanetId::new(planet)).map(Vec::len), Some(1));
+            assert_eq!(by_core.exhausted_planets, state.exhausted_planets);
+            assert_eq!(by_core.planet_attachments, state.planet_attachments);
+            // Wearing Geoform already: refused.
+            assert_eq!(crate::leaders_core::titans_hero(&mut by_core), Some(false));
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     /// Carth of Golden Sands replenishing a seat: a Cabal at the table hears it and a Trade Agreement of the replenished seat held by
     /// another one pays that seat (package W10: both were the string's before). The staged events are pinned in the string's order.
     #[test]
