@@ -200,6 +200,9 @@ pub enum Spawn {
     Leadership { who: Seat, primary: bool },
     /// The Construction ability.
     Construction { who: Seat, primary: bool, facts: StructureFacts },
+    /// `action_cards::draw::DrawCards`: `who` draws `count` action cards and discards over the hand limit; reports
+    /// [`Report::Left`] when the table gave no printed-name groups (the hand limit could not be asked).
+    DrawCards { who: Seat, count: usize, drop_unofficial: bool },
     /// The Politics ability; `official`: the unofficial action cards leave the deck before the draw.
     Politics { who: Seat, primary: bool, official: bool },
     /// The Warfare primary; `letnev_pool`: the Letnev fleet pool may be emptied.

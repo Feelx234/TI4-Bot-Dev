@@ -378,6 +378,12 @@ fn card_tables() -> &'static (Vec<u8>, Vec<bool>) {
     })
 }
 
+/// The printed-name group of each action card (the index of the first card with the same name): the windows that offer one
+/// option per name outside a card play (the hand limit's discard) read it from the table's facts.
+pub(crate) fn card_groups() -> Vec<u8> {
+    card_tables().0.clone()
+}
+
 /// What the play of an action card inside a window reads from outside the core (`None`: a seat or a unit form the
 /// tables do not know; the play then marks the run unknown and the window bails).
 fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::SourceSet) -> Option<ti4_engine_core::kernel::ability::PlayFacts> {

@@ -346,6 +346,8 @@ pub enum PStage {
     Start,
     /// Waiting on "who becomes speaker".
     Speaker,
+    /// The two action cards are drawn as a child window, which asks the hand limit's discard (rule 2.4).
+    Drawing,
     /// Waiting on where an agenda goes.
     Agenda,
     Done,
@@ -353,7 +355,7 @@ pub enum PStage {
 
 /// Politics: the primary (a new speaker, two action cards, the top two agendas back on the deck in an order
 /// of the holder's choosing) and the secondary (two action cards).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Politics {
     pub who: Seat,
     primary: bool,
@@ -363,12 +365,16 @@ pub struct Politics {
     /// The agendas looked at, in the order they were taken off the deck.
     looked: SmallList<Agenda, 2>,
     next: u8,
+    /// The draw and the hand limit (`action_cards::draw`), a child of the action-card area.
+    draw: ErasedChild,
+    /// The table has no link to the draw window, or gave it no printed-name groups: the caller declines the run.
+    pub unsupported: bool,
 }
 
 impl Politics {
     #[must_use]
     pub const fn new(who: Seat, primary: bool, drop_unofficial: bool) -> Self {
-        Self { who, primary, stage: PStage::Start, drop_unofficial, looked: SmallList::new(), next: 0 }
+        Self { who, primary, stage: PStage::Start, drop_unofficial, looked: SmallList::new(), next: 0, draw: ErasedChild::idle(), unsupported: false }
     }
 
     /// Seats that may become speaker: everyone but the speaker, in seating order.
@@ -377,9 +383,22 @@ impl Politics {
         seats::seating_order(core).as_slice().iter().copied().filter(|s| *s != speaker).collect()
     }
 
-    /// Draw the two action cards and look at the top two agendas.
-    fn draw_and_look(&mut self, core: &mut CoreState) {
-        fx::draw_action_cards(core, self.who, 2, self.drop_unofficial);
+    /// Start the draw of the two action cards (a child window: the hand limit may ask).
+    fn begin_draw(&mut self, sx: &mut Sx<'_>) {
+        match sx.table.links.start(&Spawn::DrawCards { who: self.who, count: 2, drop_unofficial: self.drop_unofficial }) {
+            Some(window) => {
+                self.draw.start(window);
+                self.stage = PStage::Drawing;
+            }
+            None => {
+                self.unsupported = true;
+                self.stage = PStage::Done;
+            }
+        }
+    }
+
+    /// Look at the top two agendas (the primary).
+    fn look(&mut self, core: &mut CoreState) {
         if self.primary {
             for _ in 0..2 {
                 let Some(agenda) = core.decks_mut().agenda.draw() else { break };
@@ -402,18 +421,30 @@ impl Window for Politics {
             if self.primary && !Self::candidates(sx.state).is_empty() {
                 self.stage = PStage::Speaker;
             } else {
-                self.draw_and_look(sx.state);
+                self.begin_draw(sx);
+            }
+        }
+        if self.stage == PStage::Drawing {
+            match self.draw.step(sx) {
+                Some(Ran::Asks(a)) => return Next::Continue(a),
+                Some(Ran::Pass(next)) => return next,
+                Some(Ran::Done(report)) => {
+                    self.unsupported |= report == crate::kernel::children::Report::Left;
+                    self.look(sx.state);
+                }
+                None => self.look(sx.state),
             }
         }
         match self.stage {
             PStage::Speaker => Next::Continue(ask(SAsk::PoliticsSpeaker)),
             PStage::Agenda => Next::Continue(ask(SAsk::PoliticsAgenda { agenda: self.looked.as_slice()[usize::from(self.next)] })),
-            PStage::Start | PStage::Done => Next::Done,
+            PStage::Start | PStage::Drawing | PStage::Done => Next::Done,
         }
     }
 
-    fn ask_of(&self, core: &CoreState, _: &Kernel) -> Option<Choice> {
+    fn ask_of(&self, core: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.stage {
+            PStage::Drawing => self.draw.ask_of(core, k),
             PStage::Speaker => Some(Choice {
                 actor: self.who,
                 ask: ask(SAsk::PoliticsSpeaker),
@@ -431,6 +462,9 @@ impl Window for Politics {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == PStage::Drawing {
+            return self.draw.answer(sx, pick);
+        }
         let Pick::Opt(Opt::Strategy(chosen)) = pick else { return Err(Illegal) };
         let offered = self.ask_of(sx.state, sx.kernel).ok_or(Illegal)?;
         if !offered.opts.as_slice().contains(&Opt::Strategy(chosen)) {
@@ -439,7 +473,7 @@ impl Window for Politics {
         match (self.stage, chosen) {
             (PStage::Speaker, SOpt::Speaker(seat)) => {
                 sx.state.meta_mut().speaker = seat;
-                self.draw_and_look(sx.state);
+                self.begin_draw(sx);
             }
             (PStage::Agenda, placed @ (SOpt::Top | SOpt::Bottom)) => {
                 let agenda = self.looked.as_slice()[usize::from(self.next)];

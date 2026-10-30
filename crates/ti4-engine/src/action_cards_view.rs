@@ -473,7 +473,7 @@ fn is_probe(card: ActionCard) -> bool {
 fn probe_facts(gs: &GameState, cx: &mut Ctx, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, facts: &mut rules::Facts) -> Option<()> {
     facts.map = galaxy.is_some();
     facts.explore_empty = cx.texts.intern(Slice::Explore, "").ok()?;
-    facts.action_draw_plain = crate::strategy_cards_core::plain_draw(gs, ti4_content::ContentStore::embedded(), player, 2);
+    facts.action_draw_plain = crate::strategy_cards_core::plain_draw_within_limit(gs, ti4_content::ContentStore::embedded(), player, 2);
     Some(())
 }
 
@@ -531,6 +531,7 @@ const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
 pub(crate) fn play_table() -> ti4_engine_core::kernel::stage::AbilityTable {
     let mut table = ti4_engine_core::kernel::stage::AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
+    table.facts.card_groups = crate::reactions_core::card_groups();
     // A card that destroys ships itself (Courageous To The End) stages the destructions; the announcement of the play gives them their
     // `SHIP_DESTROYED` windows after the discard (`ti4_engine_core_factions::cards`, as for the reactions table).
     ti4_engine_core_factions::cards::register_after_play(&mut table);

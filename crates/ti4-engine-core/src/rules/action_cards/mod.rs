@@ -5,6 +5,7 @@
 //! [`has_legal_target`]). No `Env` trait: the faction answers are plain arguments.
 
 pub mod announce;
+pub mod draw;
 pub mod effects;
 pub mod perform;
 pub mod reaction_slot;

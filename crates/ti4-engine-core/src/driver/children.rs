@@ -9,6 +9,7 @@
 
 use crate::kernel::children::{AreaLinks, Erased, ErasedWindow, Report, Spawn};
 use crate::kernel::stage::AbilityTable;
+use crate::rules::action_cards::draw::DrawCards;
 use crate::rules::combat::effect_hits::{Absorb, Destroy};
 use crate::rules::explore_windows::Reward;
 use crate::rules::objective_windows::HandLimit;
@@ -27,13 +28,14 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
     Some(match request {
         Spawn::Bill { who, kind, cost } => Erased::boxed(PayBill::new(*who, *kind, *cost), |w| Report::Paid(w.outcome == Some(true))),
         Spawn::HandLimit { who } => Erased::boxed(HandLimit::new(*who), |_| Report::Nothing),
+        Spawn::DrawCards { who, count, drop_unofficial } => Erased::boxed(DrawCards::new(*who, *count, *drop_unofficial), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
         Spawn::Reward { who, step, options, skip_single } => Erased::boxed(Reward::new(*who, *step, options.as_slice(), *skip_single), |w| Report::Chose(w.chosen)),
         Spawn::Research { who, primary, cost, scope, roster } => {
             Erased::boxed(Research::new(*who, *primary, *cost, *scope).with_roster(**roster), |w| if w.failed { Report::Left } else { Report::Nothing })
         }
         Spawn::Leadership { who, primary } => Erased::boxed(Leadership::new(*who, *primary), |_| Report::Nothing),
         Spawn::Construction { who, primary, facts } => Erased::boxed(Construction::new(*who, *primary, *facts), |_| Report::Nothing),
-        Spawn::Politics { who, primary, official } => Erased::boxed(Politics::new(*who, *primary, *official), |_| Report::Nothing),
+        Spawn::Politics { who, primary, official } => Erased::boxed(Politics::new(*who, *primary, *official), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
         Spawn::Warfare { who, letnev_pool } => Erased::boxed(WarfarePrimary::new(*who, *letnev_pool), |_| Report::Nothing),
         Spawn::Diplomacy { who, card, primary, base_printing } => {
             let mode = if *primary { DMode::Primary { base_printing: *base_printing } } else { DMode::Secondary };
@@ -140,6 +142,7 @@ mod tests {
         let requests = [
             Spawn::Bill { who, kind: Spend::Influence, cost: 3 },
             Spawn::HandLimit { who },
+            Spawn::DrawCards { who, count: 2, drop_unofficial: true },
             Spawn::Reward { who, step: crate::choice::explore::Step::MerchantStation, options: crate::containers::SmallList::new(), skip_single: true },
             Spawn::Research { who, primary: false, cost: 4, scope: crate::tables::Scope(u32::MAX), roster: Box::leak(Box::default()) },
             Spawn::Leadership { who, primary: true },
