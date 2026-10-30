@@ -1,0 +1,176 @@
+{
+  "name": "v23-golden20",
+  "tier": "full",
+  "rules_version": 23,
+  "frozen": true,
+  "source": "x2:golden20",
+  "note": "imported from tools/engine_core/decision_corpus, lines byte-identical (rules version = the effective one at import for specs that did not pin it)",
+  "games": [
+    {
+      "file": "g000.jsonl.zst",
+      "steps": 1111,
+      "decisions": 1569,
+      "decisions_hash": "4886d0691592fc15",
+      "bytes": 80988,
+      "sha256": "4d94886d220779c94d9f0708f60b1a1018b970788e6e9af128c04e7d9c799d49"
+    },
+    {
+      "file": "g001.jsonl.zst",
+      "steps": 1723,
+      "decisions": 2482,
+      "decisions_hash": "8847f8c6deeb5aca",
+      "bytes": 122602,
+      "sha256": "5afd7431e3bc2df37db215ef6efea3a5853f4db1363d9ee3db7dd56e77b6a05f"
+    },
+    {
+      "file": "g002.jsonl.zst",
+      "steps": 822,
+      "decisions": 1210,
+      "decisions_hash": "6235d9437f095855",
+      "bytes": 67262,
+      "sha256": "ae4934e1ba6f5c978fa39c0997604ed74e3f08e7039df53c3703ffe2e980614f"
+    },
+    {
+      "file": "g003.jsonl.zst",
+      "steps": 1294,
+      "decisions": 1876,
+      "decisions_hash": "8576126e5d44d84c",
+      "bytes": 96703,
+      "sha256": "f19f65eb50c687b527e522176da428e84df33bae618b7523115f0439631abef7"
+    },
+    {
+      "file": "g004.jsonl.zst",
+      "steps": 1573,
+      "decisions": 2134,
+      "decisions_hash": "522618ebf91c7551",
+      "bytes": 108629,
+      "sha256": "575da2176d295ad1f7cd8c0827739f8ca658043bb53679f8c86a60da087ff67f"
+    },
+    {
+      "file": "g005.jsonl.zst",
+      "steps": 1117,
+      "decisions": 1672,
+      "decisions_hash": "eb066e8edb70f092",
+      "bytes": 85586,
+      "sha256": "185f3e1a18460fc986f6d564f6829d357ca91722b6669305bf05fa407df0ca9e"
+    },
+    {
+      "file": "g006.jsonl.zst",
+      "steps": 1289,
+      "decisions": 1873,
+      "decisions_hash": "bd4b651ba7271af8",
+      "bytes": 97349,
+      "sha256": "df734b814d5db997137b60eca33fcf90be71a04bc7131652cf379e8cee8ec7c0"
+    },
+    {
+      "file": "g007.jsonl.zst",
+      "steps": 930,
+      "decisions": 1318,
+      "decisions_hash": "5b3505a71e1e3c19",
+      "bytes": 72692,
+      "sha256": "b05e2aaf4aee5110ff8f5672c21c8485c0a4eb1f8aee4129fcf9e449534e3c15"
+    },
+    {
+      "file": "g008.jsonl.zst",
+      "steps": 1014,
+      "decisions": 1360,
+      "decisions_hash": "d682367be9efd8e7",
+      "bytes": 77584,
+      "sha256": "76c07c414c078c98b97d15f0597b976c0d1b2049cc122ed572a5d61ea9a2429f"
+    },
+    {
+      "file": "g009.jsonl.zst",
+      "steps": 1321,
+      "decisions": 2020,
+      "decisions_hash": "cd13b480396fb77b",
+      "bytes": 100127,
+      "sha256": "25ce63c98a942e38be13e77767b7b801096c3f42fb343e9fc5a570a785246c53"
+    },
+    {
+      "file": "g010.jsonl.zst",
+      "steps": 1550,
+      "decisions": 2165,
+      "decisions_hash": "e2d80c1e0586d24d",
+      "bytes": 111714,
+      "sha256": "5e765de2b05add702296dfa32b3579e530f5799b898299f477230400e8ba5ddd"
+    },
+    {
+      "file": "g011.jsonl.zst",
+      "steps": 1178,
+      "decisions": 1655,
+      "decisions_hash": "49e97008433f6f19",
+      "bytes": 87642,
+      "sha256": "52bf49d98abf6b1fd5cb472daf9feb2ea1af7e3d310937a3da52696822c496bd"
+    },
+    {
+      "file": "g012.jsonl.zst",
+      "steps": 1789,
+      "decisions": 2618,
+      "decisions_hash": "2beefe4500f6fc5d",
+      "bytes": 139477,
+      "sha256": "afd117c44cb99362493c6a593642c5af325fa30aa113ea15cdaff56c0ea90fcf"
+    },
+    {
+      "file": "g013.jsonl.zst",
+      "steps": 1950,
+      "decisions": 2814,
+      "decisions_hash": "70c291cc8678924f",
+      "bytes": 143182,
+      "sha256": "30620b13de5994fb443e578b2f56247a0fdf645f24cf2c8f3a0e8978790ea979"
+    },
+    {
+      "file": "g014.jsonl.zst",
+      "steps": 1696,
+      "decisions": 2283,
+      "decisions_hash": "ae702f0ab45fdd3e",
+      "bytes": 118262,
+      "sha256": "71a60641b4cfc3722514c754ad722fd7705aa92c2cde3ef65e424f9e05217e67"
+    },
+    {
+      "file": "g015.jsonl.zst",
+      "steps": 1851,
+      "decisions": 2767,
+      "decisions_hash": "ed96496052bf0dc2",
+      "bytes": 137597,
+      "sha256": "897c2868774daf979b34fa41ecda3975ba903d92f2e4892186ad111411526247"
+    },
+    {
+      "file": "g016.jsonl.zst",
+      "steps": 2159,
+      "decisions": 3153,
+      "decisions_hash": "d7367a8d814065e1",
+      "bytes": 162574,
+      "sha256": "4f7504979e4c2f137ca1970d5dae676fb59fec5d86c9e219e2b61436e49cc008"
+    },
+    {
+      "file": "g017.jsonl.zst",
+      "steps": 2001,
+      "decisions": 2747,
+      "decisions_hash": "bb3d8656cde83b09",
+      "bytes": 139971,
+      "sha256": "6871d3e945f60b8f1c474acce1d7f9cdd4dea83464bb4f79fb7e920b825b9518"
+    },
+    {
+      "file": "g018.jsonl.zst",
+      "steps": 1682,
+      "decisions": 2231,
+      "decisions_hash": "4adcb920ac095dc1",
+      "bytes": 120806,
+      "sha256": "7830b2443c8f7d16a91678b6253937f2fe4c2fb7bbd774518eaa42fd1c20890f"
+    },
+    {
+      "file": "g019.jsonl.zst",
+      "steps": 1844,
+      "decisions": 2733,
+      "decisions_hash": "aeea44140ff4c054",
+      "bytes": 135969,
+      "sha256": "f968e9b5649d3b1bf0c45afb0d9a949d6edadcf9328896f812e367e96080b38d"
+    }
+  ],
+  "smoke": [
+    "g000.jsonl.zst",
+    "g002.jsonl.zst",
+    "g007.jsonl.zst",
+    "g008.jsonl.zst"
+  ]
+}

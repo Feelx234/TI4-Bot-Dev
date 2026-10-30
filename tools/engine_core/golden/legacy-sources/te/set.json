@@ -1,0 +1,48 @@
+{
+  "name": "legacy-te",
+  "tier": "full",
+  "rules_version": 35,
+  "frozen": false,
+  "source": "x2:te",
+  "note": "imported from tools/engine_core/decision_corpus, lines byte-identical (rules version = the effective one at import for specs that did not pin it)",
+  "games": [
+    {
+      "file": "g000.jsonl.zst",
+      "steps": 1549,
+      "decisions": 2194,
+      "decisions_hash": "e68e5e0c34742a0f",
+      "bytes": 120915,
+      "sha256": "7df9be3bba320c3889106bf72ab71aae1c49ca82def0608b431a66a75a517317"
+    },
+    {
+      "file": "g001.jsonl.zst",
+      "steps": 1566,
+      "decisions": 2230,
+      "decisions_hash": "6ec91d2a073e97ea",
+      "bytes": 121572,
+      "sha256": "6d88774313ee47e4ee3bdfe369d5938cfaead401490e413ec38d613693843975"
+    },
+    {
+      "file": "g002.jsonl.zst",
+      "steps": 1579,
+      "decisions": 2336,
+      "decisions_hash": "d4f0bf683bcb9c31",
+      "bytes": 124044,
+      "sha256": "18ca2873468673b93287bdc281e11414bfe18ede90168baf5a4cac24b7fd8f4a"
+    },
+    {
+      "file": "g003.jsonl.zst",
+      "steps": 2097,
+      "decisions": 3184,
+      "decisions_hash": "7c608bc98e0d217a",
+      "bytes": 158046,
+      "sha256": "a109667bd20271a93bb6350ea9e3d27b55330840a34f719965fec273e04767ae"
+    }
+  ],
+  "smoke": [
+    "g000.jsonl.zst",
+    "g001.jsonl.zst",
+    "g002.jsonl.zst",
+    "g003.jsonl.zst"
+  ]
+}
