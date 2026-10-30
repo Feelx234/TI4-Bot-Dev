@@ -1,7 +1,7 @@
 # core-integration-7: merge record (2026-10-30)
 
-Branch `core-integration-7`, cut from `core-integration-6` @ `c519216e`. First round of the lent-bodies lanes: `core-w`, `core-w-l2`, `core-w-l4`.
-`core-w-l1` and `core-w-l3` are NOT merged yet (still moving; they are re-merged on request, section 5). Cheap checks only: heavy work is deferred to the
+Branch `core-integration-7`, cut from `core-integration-6` @ `c519216e`. Round 1 (sections 1 to 5): the lent-bodies lanes `core-w`, `core-w-l2`, `core-w-l4`.
+Round 2 (section 6): `core-w-l1`, `core-w-l3`, `core-d4a2`, `core-d4a3`. Only `core-w-l5` is still out. Cheap checks only: heavy work is deferred to the
 end of D1. Not pushed. The live branch was not touched.
 
 ## 1. Merges
@@ -63,6 +63,66 @@ The first runs of the chain found the breaks of section 3 one after the other (a
 
 ## 5. Deferred and next
 
-* `core-w-l1` (current tip `d94a8ad1`) and `core-w-l3` (`b5a09215`): re-merge when asked. Expected work: the Nomad numbers (above), the one-owner decision for Future Sight / Galactic Threat,
-  `core-w-l3`'s 24 commits on top of the shared `600a71ca`.
+* (round 1 note, done in round 2) `core-w-l1` and `core-w-l3`: merged, section 6.
 * Heavy: the combined gate (`tools/engine_core/end_of_d1.sh`), the golden lent census (`docs/LENT_CENSUS.md` post-fix numbers), `TI4_CORE_STRICT=1` on the golden games, the W mutation runs.
+
+## 6. Round 2: `core-w-l1`, `core-w-l3`, `core-d4a2`, `core-d4a3`
+
+### 6.1 Merges
+
+| # | Branch | Tip merged | Conflicts |
+|---|---|---|---|
+| 4 | `core-w-l1` | `8b02b7e6` | none |
+| 5 | `core-w-l3` | `b5f85d66` | 4, below |
+| 6 | `core-d4a2` | `f0bab516` | `ENGINE_KNOWN_ISSUES.md` (both appended) |
+| 7 | `core-d4a3` (on d4a2) | `8bebd8a9` | none |
+
+`core-w-l5` (from l3) is not merged, as asked.
+
+### 6.2 Conflicts of `core-w-l3` (keep both sides) and the one-owner decision
+
+| File | Resolution |
+|---|---|
+| `ti4-engine-core-factions/src/ce_movement/nomad/timing.rs` | Future Sight was ported by W7 (l4) and by W9 (l3). **One owner: the W9 module (`nomad/timing.rs`)**; W7's body is dropped. That module also owns Artuno, so taking l3's version of the file keeps the slots consistent. |
+| `ti4-engine/src/render/mod.rs` | D2-3's code-table methods (`codes`, `with_codes`, `codes_snapshot`) and W15's free-form deal methods (`register_free`, `free_index`, `free_id`, `free_net`) both kept; the families `technology` and `legendary` are no longer uninhabited (`uninhabited!(tokens, promissory)` remains) |
+| `ti4-engine/src/tactical_dual_tests.rs` | W17's and W9's tests both kept |
+| `docs/ENGINE_KNOWN_ISSUES.md` | both appended; new row `INT7-owner-01` records the owner decision |
+
+Galactic Threat: ported by l2, l4 (through l2) and l3 with identical diffs; one owner, `ca_combat/nekro/threat.rs`. No duplicate. The registry test `one_owner_per_card_*`
+(`ti4-engine-core-factions/src/cards/mod.rs`) passes.
+
+Nomad slots after the merge, all unique: Cavalry 10_001 / 10_002, Thundarian 10_003 / 10_004, Future Sight 10_005, Artuno 10_006 (also Winnu 15_001 / 15_002, Magen 16_001).
+
+### 6.3 Dead code (the two clippy warnings of round 1)
+
+`reason::COUNT` (`dual.rs`) and `outside` (`dual_window.rs`) removed. Removing `outside` made `use crate::dual_window::{outside};` in `strategy_cards_core.rs` unused,
+and the first removal broke the build there (E0432): the import is removed too. `outside_why` and `outside_battle` stay.
+
+### 6.4 Breaks the combination caused (fixed)
+
+| Where | Break | Fix |
+|---|---|---|
+| `ti4-engine/tests/decision_delivery_inventory.rs` | **rename-only registry edit**: W renamed `production_biomes` to `production_biomes_string`, and in `technology.rs` `end_turn`, `start_turn`, `production_used`, `self_assembly_after_production` to `*_string` / `self_assembly_string` | the names in the Producer rows and tuples (about 12 lines); no count changed |
+| `ti4-engine-core-tests/tests/production_mod2.rs` | the production asks gained `ability` (W5) | `ability: false` in `ask()` and the two `PlaceAsk` literals |
+| `ti4-engine-core-tests/tests/*` (test-crate struct literals) | fields added by the W lanes after d4a2/d4a3 wrote their tests: combat_roll `round: 1`; trade_window, query_trade_deals `free: [None, None]`; combat_machine `Env` (`det`, `wormhole`, `ambush`, `cause_core`, `cause_devotion`, `raid`, `ac`, `ac_subtype`, `ac_cause`); invasion_windows (`can_pay`, `dunlain`); production_window(2) `ability: false`; combat_extra, combat_barrage `raid: None` | defaults that keep each test's meaning (false / None / fresh codes) |
+| `agenda_table_effects2.rs` | W6: the For outcome of Unconventional Measures draws through a `DrawCards` child window, so it has no table effect | **assertion edit (necessary combination fix):** `Table::of(UnconventionalMeasures, For)` is now asserted `None`; the `Table::VotersDraw.draws_from_deck() &&` conjunct is dropped |
+| `combat_machine.rs` | W2: Devotion is no gate any more (the fight runs to its end) | **assertion edit:** the Devotion test expects `Some(Stop::Over)` |
+| `combat_machine.rs` `a_combat_whose_other_side_dies_to_the_barrage_alone...` | the lone-fighter kill by the barrage now runs straight to `Over` without a scoring pause in this position (all seeds: `Over`, defender 0 ships, outcome `(Some(Seat(0)), 0)`) | **assertion edit:** the test accepts both ways to the end (Scoring then Over, or Over directly); the checks that matter (zero rounds, defender gone, no combat dice) are unchanged. The seed diagnostics stay in the message |
+| test crate clippy | 4 warnings: `contains()` x2 in `action_cards_simple.rs`, `type_complexity` x2 in `combat_machine.rs`, `invasion_rules.rs` | `contains`, type aliases |
+
+Assertion edits to tests, all listed: the three rows above marked so. No other test assertion was edited.
+
+### 6.5 Checks (cheap), runner chain `r7` at `cd6ab0b8` and `s7` at the tip
+
+| Check | Result |
+|---|---|
+| `cargo check --workspace --all-targets` (same exclusions as round 1) | ok |
+| `cargo clippy` of core, factions, engine, bridge, core-tests, rule-bot-typed | ok; 0 warnings in the core, factions, bridge, core-tests, rule-bot-typed crates or in the files of round 2; the engine lib reports 22 older warnings in other files |
+| `cargo test -p ti4-engine --lib` | 4823 passed, 0 failed |
+| same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` | 4823 passed, 0 failed |
+| core + factions + rule-bot-typed + bridge `--lib` | 562 passed |
+| `decision_delivery_inventory`, `content_ids_resolve` | 4 + 4 passed |
+| `ti4-engine-core-tests` with the D4 flags | 1105 passed, 0 failed (runner chain `s7` at `d6600cf3`) |
+| `check_layers.py core`, `lint_core.sh` | 430 files, 0 violations; 432 files, 0 hits |
+
+Not run: any heavy work (the combined gate `tools/engine_core/end_of_d1.sh`, golden lent census, `TI4_CORE_STRICT=1`, mutation runs). Not pushed, live branch untouched.
