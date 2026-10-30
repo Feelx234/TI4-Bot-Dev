@@ -1794,8 +1794,8 @@ pub struct BeginRoundArgs<'a> {
 }
 
 /// Whether the round opening holds something the core window does not carry: diplomacy (attack promises),
-/// a Naaz or Letnev side (Voltron repair, Supercharge, Munitions, the Eidolon flip, the self-repairing
-/// flagship). A Letnev round agent (own or copied) is an ability of the table (the copy bails when it is eligible).
+/// a Munitions Reserves holder below rules version 8 (the payment is asked at the opening; a Naaz side and the self-repairing flagship are
+/// carried since package W2). A Letnev round agent (own or copied) is an ability of the table (the copy bails when it is eligible).
 #[must_use]
 pub fn round_opening_unported(
     gs: &GameState,
@@ -1808,7 +1808,6 @@ pub fn round_opening_unported(
 /// [`round_opening_unported`] with the reason.
 #[must_use]
 pub fn round_opening_why(gs: &GameState, content: &ti4_content::ContentStore, a: &BeginRoundArgs<'_>) -> Option<&'static str> {
-    let _ = content;
     if gs.diplomacy.enabled {
         return Some("diplomacy (attack promises)");
     }
@@ -1820,8 +1819,12 @@ pub fn round_opening_why(gs: &GameState, content: &ti4_content::ContentStore, a:
         }
         match gs.player(id).map(|p| p.faction.as_str()) {
             None => return Some("a side that is not a seated player"),
-            Some("letnev") => return Some("a Letnev side (Munitions, the self-repairing flagship)"),
             Some(_) => {}
+        }
+        // Letnev's Munitions Reserves is paid at the opening below `RULES_MUNITIONS_AFTER_ROLL` (a question and a payment); later it is
+        // decided after the roll (`roll_unported`). The self-repairing flagship (Arc Secundus) is carried by the core window (package W2).
+        if gs.rules_version < ti4_model::state::RULES_MUNITIONS_AFTER_ROLL && crate::faction_abilities::has(gs, content, id, "munitions") {
+            return Some("Munitions Reserves paid at the opening (a rules version below 8)");
         }
     }
     None

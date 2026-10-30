@@ -10561,6 +10561,39 @@ mod tests {
         assert!(used > 0, "and used");
     }
 
+    /// Package W2: a Letnev side opens its space rounds in the core (round opening and composed machine): Arc Secundus repairs itself at
+    /// the start of each round, after the faction hooks of its owner. Fails on the pre-W2 gate ("a Letnev side": the window bailed and the
+    /// composed settle ran bare).
+    #[test]
+    fn a_letnev_side_repairs_its_flagship_at_each_round_opening_in_lockstep() {
+        let (mut compared, mut repaired_at_start) = (0, 0);
+        for (seed, composed) in (0..8_u64).flat_map(|s| [(s, false), (s, true)]) {
+            let (_, windows, differences, _) = hub_fight_composed(
+                composed,
+                seed,
+                &["letnev", "hacan"],
+                |s, system| {
+                    put(s, system, "letnev_flagship", &attacker(), 1);
+                    put(s, system, "cruiser", &attacker(), 1);
+                    put(s, system, "cruiser", &defender(), 3);
+                    for unit in &mut s.system_mut(system).units {
+                        if unit.type_id.as_str() == "letnev_flagship" {
+                            unit.sustained_damage = true;
+                        }
+                    }
+                },
+                |_, _, _| 0,
+            );
+            assert_eq!(differences, 0, "seed {seed} composed {composed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("a Letnev side")), "seed {seed}: {windows:?}");
+            let counts = windows.get(if composed { "combat::settle" } else { "combat::begin_round" }).copied().unwrap_or_default();
+            assert_eq!(counts.bailed, 0, "seed {seed} composed {composed}: {windows:?}");
+            compared += counts.compared;
+            repaired_at_start += 1;
+        }
+        assert!(compared > 0 && repaired_at_start == 16, "the opening ran in the core: {compared}");
+    }
+
     /// The core sees what the Mentak seat of the salvage tests holds: Cruiser II and The Table's Grace.
     #[test]
     fn the_core_sees_cruiser_two_and_the_tables_grace_of_a_mentak_seat() {
@@ -11227,8 +11260,14 @@ mod tests {
         assert!(!plain.opening_unported && !plain.barrage_unported && !plain.roll_unported && !plain.retreat_unported);
         // Naaz and Letnev (Voltron repair, Supercharge, Munitions, the Eidolon flip), diplomacy.
         // (A Naaz side is carried by the core since package W2: the Eidolon flip, the repair of the Maximum, Supercharge.)
+        // (A Letnev side is carried since package W2 except for Munitions Reserves paid at the opening, below rules version 8.)
         let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("letnev"));
-        assert!(g.opening_unported, "letnev");
+        assert!(!g.opening_unported, "letnev");
+        let g = settle_gates(&|state, _| {
+            state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+            state.rules_version = 7;
+        });
+        assert!(g.opening_unported, "letnev below rules version 8");
         let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("naaz"));
         assert!(!g.opening_unported, "naaz");
         assert!(settle_gates(&|state, _| state.diplomacy.enabled = true).opening_unported);
@@ -11466,10 +11505,11 @@ mod tests {
         let (a, d, system) = (attacker(), defender(), SystemId::new("18"));
         let plain = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
         assert!(!crate::dual_window::round_opening_unported(&plain, content, &args(&a, &d, &system)));
-        for (faction, unported) in [("naaz", false), ("letnev", true)] {
+        for (faction, version, unported) in [("naaz", plain.rules_version, false), ("letnev", plain.rules_version, false), ("letnev", 7, true), ("sol", 7, false)] {
             let mut state = plain.clone();
             state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new(faction);
-            assert_eq!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), unported, "{faction}");
+            state.rules_version = version;
+            assert_eq!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), unported, "{faction} {version}");
         }
         let mut state = plain.clone();
         state.diplomacy.enabled = true;
@@ -11478,6 +11518,7 @@ mod tests {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let mut state = plain.clone();
+        state.rules_version = 7;
         state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new("letnev");
         put(&mut state, &system, "cruiser", &a, 1);
         put(&mut state, &system, "cruiser", &d, 1);

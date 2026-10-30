@@ -8,7 +8,8 @@
 //! Naaz repairs the Eidolon Maximum and offers Supercharge; the question rides on the tape of the step).
 //!
 //! Not covered (the adapter returns `None`, the string result stands; see `dual_window::begin_round`):
-//! diplomacy enabled (the attack-promise evaluation), a Letnev seat (Munitions Reserves, the self-repairing flagship).
+//! diplomacy enabled (the attack-promise evaluation) and a Munitions Reserves holder below rules version 8 (the payment is asked at the opening).
+//! Arc Secundus (and a Nekro flagship lent its text) repairs itself after the hooks of each participant (package W2).
 
 use super::{ships_of, Rd};
 use crate::choice::{Choice, Pick};
@@ -53,6 +54,25 @@ impl BeginRound {
     #[must_use]
     pub const fn new(f: Facts) -> Self {
         Self { f, flipped: Vec::new(), stage: Stage::Start }
+    }
+}
+
+/// `combat::repair_self_repairing`: Arc Secundus (or a Nekro flagship lent its text by the Z token) repairs itself at the start of each
+/// space combat round, after the faction hooks of the participant.
+fn repair_self_repairing(s: &mut CoreState, system: System, who: Seat) {
+    let repair: Vec<usize> = s
+        .board()
+        .sys(system)
+        .units
+        .as_slice()
+        .iter()
+        .enumerate()
+        .filter(|(_, u)| u.owner() == who && u.sustained() && super::flagship_has_text(s, who, u.kind(), super::FlagshipText::Letnev))
+        .map(|(i, _)| i)
+        .collect();
+    let units = s.board_mut().sys_mut(system).units.as_mut_slice();
+    for at in repair {
+        units[at] = units[at].with_sustained(false);
     }
 }
 
@@ -112,6 +132,7 @@ impl Window for BeginRound {
         for who in [f.attacker, f.defender] {
             let (k, mut cx) = (sx.kernel, sx.cx());
             k.hooks.general.space_combat_round_started(&mut cx, who);
+            repair_self_repairing(sx.state, f.system, who);
         }
         self.stage = Stage::Done;
         Next::Done
