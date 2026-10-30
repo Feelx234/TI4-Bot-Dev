@@ -302,3 +302,25 @@ mod cards {
         }
     }
 }
+
+// ---- P10 (report-only): the question of seat 0 does not depend on the identity of other seats' hidden cards ------------------
+
+#[test]
+fn p10_the_question_of_the_holder_does_not_depend_on_which_cards_the_others_hold() {
+    let mut findings = Vec::new();
+    let mut compared = 0;
+    for card in ActionCard::ALL {
+        let make = |st: &CoreState| -> Option<Rig<Play>> {
+            let play = Play::of(st, card, Seat(0), env())?;
+            Some(Rig::from_parts(st.clone(), ti4_engine_core_tests::kernel_all(), play).with_table(linked()).seeded(card.index() as u64 + 1))
+        };
+        let (diffs, n) = ti4_engine_core_tests::props::p10_view_independence(&make, &rich_state());
+        compared += n;
+        findings.extend(diffs.into_iter().map(|d| format!("{card:?}: {d}")));
+    }
+    eprintln!("P10: {compared} questions of seat 0 compared, {} findings", findings.len());
+    for f in findings.iter().take(30) {
+        eprintln!("P10 FINDING {f}");
+    }
+    assert!(compared >= 40, "only {compared} questions compared: the property is vacuous");
+}

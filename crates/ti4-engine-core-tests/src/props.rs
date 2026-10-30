@@ -163,3 +163,56 @@ pub fn check_all<W: Window>(make: &impl Fn(Scenario) -> (Scenario, W), sc: &Scen
     p5_option_order_is_stable(make, sc.clone(), script, shuffle);
     p6_conservation(make, sc.clone(), script);
 }
+
+/// The state with the hidden zones of every seat but `keep` replaced by other cards of the same number: each action card in a hand becomes the card
+/// 41 places further in the deck order, each secret objective the one 5 places further. The decks and the public zones are untouched.
+#[must_use]
+pub fn perturb_hidden(state: &ti4_engine_core::state::CoreState, keep: ti4_engine_core::ids::Seat) -> ti4_engine_core::state::CoreState {
+    use ti4_engine_core::generated::{ActionCard, SecretObjective};
+    let mut s = state.clone();
+    for i in 0..s.players().len() {
+        if s.players().get(i).seat == keep {
+            continue;
+        }
+        let p = s.players_mut().edit(i);
+        let hand: Vec<ActionCard> = p.cards.hand.as_slice().iter().map(|c| ActionCard::ALL[(c.index() + 41) % ActionCard::COUNT]).collect();
+        p.cards.hand = hand.into_iter().collect();
+        let secrets: Vec<SecretObjective> = p.cards.secrets.as_slice().iter().map(|c| SecretObjective::ALL[(c.index() + 5) % SecretObjective::COUNT]).collect();
+        p.cards.secrets = secrets.into_iter().collect();
+    }
+    s
+}
+
+/// P10 `options_are_a_function_of_the_view`: run the window on `state` and on `perturb_hidden(state, seat 0)` with the same answers; every question of
+/// seat 0 must be the same question with the same options. Returns the differences found (the report-only form of the property) and how many
+/// questions of seat 0 were compared.
+pub fn p10_view_independence<W: Window>(make: &dyn Fn(&ti4_engine_core::state::CoreState) -> Option<Rig<W>>, state: &ti4_engine_core::state::CoreState) -> (Vec<String>, usize) {
+    let (Some(mut a), Some(mut b)) = (make(state), make(&perturb_hidden(state, ti4_engine_core::ids::Seat(0)))) else { return (Vec::new(), 0) };
+    let mut diffs = Vec::new();
+    let mut compared = 0;
+    a.run();
+    b.run();
+    for step in 0..8 {
+        match (a.status().cloned(), b.status().cloned()) {
+            (Some(ti4_engine_core::driver::Status::Asking(x)), Some(ti4_engine_core::driver::Status::Asking(y))) => {
+                if x.actor == ti4_engine_core::ids::Seat(0) || y.actor == ti4_engine_core::ids::Seat(0) {
+                    compared += 1;
+                    if x != y {
+                        diffs.push(format!("question {step}: {:?} against {:?}", x.ask, y.ask));
+                        break;
+                    }
+                }
+                let p = x.pick(0).unwrap_or(Pick::Opt(Opt::Decline));
+                if a.try_answer(p).is_err() || b.try_answer(p).is_err() {
+                    break;
+                }
+            }
+            (Some(ti4_engine_core::driver::Status::Done), Some(ti4_engine_core::driver::Status::Done)) => break,
+            _ => {
+                diffs.push(format!("question {step}: one run asks and the other ends"));
+                break;
+            }
+        }
+    }
+    (diffs, compared)
+}
