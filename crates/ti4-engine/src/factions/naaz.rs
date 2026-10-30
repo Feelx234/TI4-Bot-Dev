@@ -343,22 +343,52 @@ fn perform_component(
     option: &ChoiceOption,
 ) -> bool {
     match option.id.as_str() {
-        FAB_RELIC if is_naaz(context.state, player) => {
-            purge_for_relic(context, player, "fabrication")
-        }
-        FAB_TOKEN if is_naaz(context.state, player) => fabricate_token(context, player),
+        FAB_RELIC if is_naaz(context.state, player) => fabrication(context, player, false, false),
+        FAB_TOKEN if is_naaz(context.state, player) => fabrication(context, player, true, false),
         BMF_ACTION => {
-            let Some(note) = held_bmf(context.state, player) else {
-                return false;
-            };
-            if !purge_for_relic(context, player, BMF) {
+            if held_bmf(context.state, player).is_none() {
                 return false;
             }
-            crate::promissory::give_back(context.state, &note);
-            true
+            fabrication(context, player, false, true)
         }
         _ => false,
     }
+}
+
+/// The three relic-fragment actions are one window of the core (`rules::relic_windows::Fabrication`): the fragment type (asked when more
+/// than one qualifies), the pool of the token, the fragments purged and the relic or token gained; for Black Market Forgery the note goes
+/// home after the relic.
+fn fabrication(context: &mut TimingContext<'_>, player: &PlayerId, token: bool, bmf: bool) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::naaz::fabrication",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(fabrication_string(&mut inner, player, token, bmf))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::faction_dual::naaz_fabrication(s, player, token, bmf, script)
+    )
+}
+
+/// [`fabrication`] on the string engine: the oracle of the dual run.
+fn fabrication_string(context: &mut TimingContext<'_>, player: &PlayerId, token: bool, bmf: bool) -> bool {
+    if token {
+        return fabricate_token(context, player);
+    }
+    if !bmf {
+        return purge_for_relic(context, player, "fabrication");
+    }
+    let Some(note) = held_bmf(context.state, player) else {
+        return false;
+    };
+    if !purge_for_relic(context, player, BMF) {
+        return false;
+    }
+    crate::promissory::give_back(context.state, &note);
+    true
 }
 
 fn fabricate_token(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
@@ -1803,6 +1833,69 @@ mod tests {
                 .any(|o| o.id == FAB_TOKEN),
             "no fragment left"
         );
+    }
+
+    /// Fabrication and Black Market Forgery are one window of the core: the fragment type (asked when more than one qualifies, none for
+    /// a lone type or only frontier fragments), the pool of the token, the purge (matching fragments first), the relic or token gained and
+    /// the note going home. The core half agrees with the string in each case and ran every time.
+    #[test]
+    fn fabrication_and_black_market_forgery_run_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |who: &PlayerId, id: &str, frags: &[(&str, i32)], answers: &[&str], setup: &dyn Fn(&mut GameState)| -> (bool, GameState) {
+            let mut state = game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            for (kind, n) in frags {
+                give_fragments(&mut state, who, kind, *n);
+            }
+            setup(&mut state);
+            let option = ChoiceOption::labelled(id, crate::faction_abilities::ACTION_KIND, id);
+            let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+                crate::fixtures::with_context(&mut state, DEFAULT, None, &mut scripted(answers), |ctx| perform_component(ctx, who, &option))
+            });
+            (done, state)
+        };
+        let nothing = |_: &mut GameState| {};
+        // Two types qualify: asked. Matching fragments go first, the frontier one stays.
+        let (done, state) = run(&a(), FAB_RELIC, &[("CULTURAL", 2), ("HAZARDOUS", 2), ("FRONTIER", 1)], &["HAZARDOUS"], &nothing);
+        assert!(done);
+        assert_eq!((fragments(&state, &a(), "HAZARDOUS"), fragments(&state, &a(), "CULTURAL"), fragments(&state, &a(), "FRONTIER")), (0, 2, 1));
+        // One matching and one frontier fragment: a lone type, no question, the frontier one is spent after the matching one.
+        let (done, state) = run(&a(), FAB_RELIC, &[("HAZARDOUS", 1), ("FRONTIER", 1)], &[], &nothing);
+        assert!(done);
+        assert_eq!((fragments(&state, &a(), "HAZARDOUS"), fragments(&state, &a(), "FRONTIER")), (0, 0));
+        // Only frontier fragments: every type is the same purge, one is offered.
+        let (done, state) = run(&a(), FAB_RELIC, &[("FRONTIER", 2)], &[], &nothing);
+        assert!(done);
+        assert_eq!(fragments(&state, &a(), "FRONTIER"), 0);
+        // The Shard of the Throne scores at once.
+        let (done, state) = run(&a(), FAB_RELIC, &[("CULTURAL", 2)], &[], &|s| s.relic_deck = vec![ti4_model::id::RelicId::new(crate::relics::SHARD)]);
+        assert!(done);
+        assert_eq!(state.player(&a()).unwrap().victory_points, 1);
+        // An empty relic deck: the action does not resolve and the fragments stay.
+        let (done, state) = run(&a(), FAB_RELIC, &[("CULTURAL", 2)], &[], &|s| s.relic_deck.clear());
+        assert!(!done);
+        assert_eq!(fragments(&state, &a(), "CULTURAL"), 2);
+        // The token: two kinds held, the kind then the pool; one kind, the pool only.
+        let (done, state) = run(&a(), FAB_TOKEN, &[("CULTURAL", 1), ("FRONTIER", 2)], &["FRONTIER", "strategic"], &nothing);
+        assert!(done);
+        assert_eq!((fragments(&state, &a(), "FRONTIER"), fragments(&state, &a(), "CULTURAL")), (1, 1));
+        let (done, _) = run(&a(), FAB_TOKEN, &[("INDUSTRIAL", 1)], &["fleet"], &nothing);
+        assert!(done);
+        // Black Market Forgery: the holder gets the relic and the note goes home.
+        let note = crate::promissory::note_id(BMF, "naaz");
+        let (done, state) = run(&b(), BMF_ACTION, &[("CULTURAL", 2)], &[], &|s| {
+            s.promissory_notes.insert(crate::promissory::note_id(BMF, "naaz"), b());
+        });
+        assert!(done);
+        assert_eq!(state.promissory_notes.get(&note), Some(&a()));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::naaz::fabrication"), (8, 0), "{r:?}");
+        let _ = take_report();
     }
 
     // -- Black Market Forgery --------------------------------------------------------------------

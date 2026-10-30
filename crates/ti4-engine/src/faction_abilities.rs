@@ -650,7 +650,7 @@ fn production_biomes_string(
 #[must_use]
 pub(crate) fn string_only_component(id: &str) -> Option<&'static str> {
     let faction = id.strip_prefix("faction|")?;
-    if id == "faction|nekro|c4r|repair" || id == "faction|nekro|c4r|draw" || id == "faction|nekro|c4r|pds" || id == "faction|yssaril|stall_tactics" || id.starts_with("faction|yssaril|mi|") || id.starts_with("faction|titans|terraform|") {
+    if id == "faction|nekro|c4r|repair" || id == "faction|nekro|c4r|draw" || id == "faction|nekro|c4r|pds" || id == "faction|yssaril|stall_tactics" || id.starts_with("faction|naaz|fabrication_") || id == "faction|naaz|bmf" || id.starts_with("faction|yssaril|mi|") || id.starts_with("faction|titans|terraform|") {
         return None; // bodies of the core (`rules::faction_component::{c4r_repair, terraform}`, `promissory_windows::StallTactics`)
     }
     Some(match faction.split('|').next()? {
@@ -659,7 +659,6 @@ pub(crate) fn string_only_component(id: &str) -> Option<&'static str> {
         "ghost" => "faction|ghost: the Wormhole Generator's destinations over the map and the dispatch of perform_component (D1b)",
         "saar" => "faction|saar: Deorbit Barrage's targets over the map, the hits and the dispatch of perform_component (D1b)",
         "titans" => "faction|titans: Terraform's planets and attachments, and the dispatch of perform_component (D1b)",
-        "naaz" => "faction|naaz: the relic or token fabrication and the Mech factory's placement, and the dispatch of perform_component (D1b)",
         "arborec" => "faction|arborec: Psychospore's placement of ground forces from the reinforcements (the placement window), and the dispatch of perform_component (D1b)",
         "mahact" => "faction|mahact: the Imperia and the command token of a seat in the fleet pool, and the dispatch of perform_component (D1b)",
         _ => return None,
@@ -1949,12 +1948,12 @@ mod tests {
     #[test]
     fn the_component_actions_that_stay_in_the_string_are_counted() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
-        for id in ["faction|production_biomes", "faction|trade_convoys", "faction|winnu|lgf", "faction|titans|terraform|elysium", "faction|nekro|c4r|repair", "faction|nekro|c4r|draw", "faction|nekro|c4r|pds", "faction|yssaril|stall_tactics", "faction|yssaril|mi|b", "faction|cabal|vortex", "somethingelse"] {
+        for id in ["faction|production_biomes", "faction|trade_convoys", "faction|winnu|lgf", "faction|naaz|fabrication_relic", "faction|naaz|fabrication_token", "faction|naaz|bmf", "faction|titans|terraform|elysium", "faction|nekro|c4r|repair", "faction|nekro|c4r|draw", "faction|nekro|c4r|pds", "faction|yssaril|stall_tactics", "faction|yssaril|mi|b", "faction|cabal|vortex", "somethingelse"] {
             assert_eq!(string_only_component(id), None, "{id}");
         }
         for id in [
             "faction|orbital_drop", "faction|muaat|star_forge", "faction|ghost|wg", "faction|saar|deorbit_barrage",
-            "faction|naaz|bmf", "faction|arborec|psychospore",
+            "faction|arborec|psychospore",
             "faction|mahact|x",
         ] {
             assert!(string_only_component(id).is_some_and(|why| why.starts_with(id.split('|').take(2).collect::<Vec<_>>().join("|").as_str())), "{id}");

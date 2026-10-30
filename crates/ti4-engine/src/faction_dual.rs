@@ -231,6 +231,43 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
+    /// What Fabrication and Black Market Forgery read (the fragments, the box of command tokens, the notes) and write (the fragments,
+    /// the relic, the token, the note going home).
+    const FABRICATION: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Ledger, Slice::Pending],
+        &[Slice::Meta, Slice::Players, Slice::Decks, Slice::Cards, Slice::Ledger],
+    );
+
+    /// The core half of the Naaz Fabrication (`token`: the command token action; else the relic) and of Black Market Forgery (`bmf`)
+    /// (`factions::naaz::perform_component`; the value: the action resolved). A turn redo's deck reserve and a command token in a Mahact
+    /// fleet pool are the string's.
+    pub fn naaz_fabrication(gs: &mut GameState, player: &PlayerId, token: bool, bmf: bool, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::driver::Driver;
+        use ti4_engine_core::kernel::stage::AbilityTable;
+        use ti4_engine_core::kernel::{Kernel, Resolver};
+        use ti4_engine_core::rules::relic_windows::{FabMode, Fabrication};
+        if let Some(why) = crate::dual_window::outside_why(gs, script)
+            .or_else(|| gs.deck_reserve.is_some().then_some("deck reserve (a turn redo replays the draws)"))
+            .or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)"))
+        {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let (mode, source) = if token { (FabMode::Token, "fabrication") } else if bmf { (FabMode::Relic { bmf: true }, "bmf") } else { (FabMode::Relic { bmf: false }, "fabrication") };
+        let mut driver = Driver::new(Fabrication::new(seat, mode, r.code(source)), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
+        let driven = with_core(gs, &mut cx, Sources::default(), FABRICATION, |core, _| {
+            crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {})
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     /// What Terraform reads and writes: the note (Cards), the planet and its attachment (Board).
     const TERRAFORM: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards],
@@ -295,6 +332,9 @@ mod stub {
         None
     }
     pub fn terraform(_: &mut GameState, _: &PlayerId, _: &str, _: bool, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn naaz_fabrication(_: &mut GameState, _: &PlayerId, _: bool, _: bool, _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
     pub fn mageon_implants(_: &mut GameState, _: &ti4_content::ContentStore, _: &PlayerId, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {

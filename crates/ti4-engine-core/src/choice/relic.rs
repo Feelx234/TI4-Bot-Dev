@@ -30,6 +30,10 @@ pub enum Ask {
     /// "gain which technology" for a source that is no relic (Research Team, an agenda): the source's interned text is the
     /// question's origin (package W13).
     GainTechnologyFrom { source: Code },
+    /// Fabrication, Black Market Forgery: "purge {count} fragment(s) of which type" (the source ability or note is the question's origin).
+    FragmentType { count: u8 },
+    /// Fabrication: which command pool gains the token.
+    TokenPool,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -49,6 +53,10 @@ pub enum Opt {
     Destroy(Planet, Shown),
     /// A technology to gain.
     Tech(Technology),
+    /// A fragment type to purge from.
+    Fragment(crate::generated::ExploreType),
+    /// A command pool to gain a token in.
+    Pool(super::strategy::Pool),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -64,4 +72,8 @@ pub enum Subtype {
     ChooseTechnology(Relic),
     /// `{source}_choose_technology` of a source that is no relic.
     ChooseTechnologyFrom(Code),
+    /// `fragment_type`.
+    FragmentType,
+    /// `token_pool`.
+    TokenPool,
 }
