@@ -622,7 +622,7 @@ mod tests {
         let probe = |state: &GameState| real::close_gates(state, sources, false);
         assert_eq!(probe(&state), Some((false, false, false)), "nothing listens at a plain table");
         // A readied Sardakk agent listens for the end of the action.
-        state.player_mut(&pid("b")).unwrap().leaders.insert(ti4_model::id::text("sardakkagent"), ti4_model::state::LeaderStatus::Readied);
+        state.player_mut(&pid("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("sardakkagent"), ti4_model::state::LeaderStatus::Readied);
         assert_eq!(probe(&state), Some((false, false, true)));
         // Dark Energy Tap fires for a ship of the active seat in a system with a frontier token.
         state.frontier_tokens.insert(system.clone());
