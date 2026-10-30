@@ -2,6 +2,7 @@
 //! D1). Replaces the private window fields of `Game` and `GameState.pending`.
 
 use super::pending_windows::{LeaderFollowers, Tokens, Trade, Voting};
+use super::{Aftermath, Tactical};
 use crate::containers::{SeatSet, SmallList};
 use crate::generated::{Agenda, Leader, StrategyCard};
 use crate::ids::Seat;
@@ -105,6 +106,10 @@ pub enum Window {
     Voting(Box<Voting>),
     /// An open transaction between two seats.
     Trade(Trade),
+    /// A tactical action (package D1b): activation, movement step, a hold being filled.
+    Tactical(Tactical),
+    /// The steps after a movement step: space combat, invasion, production (package D1b).
+    Aftermath(Box<Aftermath>),
     /// A kind with no typed payload yet.
     Untyped { kind: WindowKind, actor: Option<Seat>, data: [u32; 3] },
 }
@@ -124,6 +129,8 @@ impl Window {
             Self::Tokens(_) => WindowKind::Tokens,
             Self::Voting(_) => WindowKind::Voting,
             Self::Trade(_) => WindowKind::Trade,
+            Self::Tactical(_) => WindowKind::Tactical,
+            Self::Aftermath(_) => WindowKind::Aftermath,
             Self::Untyped { kind, .. } => *kind,
         }
     }

@@ -36,6 +36,8 @@ use crate::strategy::{SecondaryResolution, StepOutcome, StrategySecondaryWindow}
 
 #[path = "d1_windows.rs"]
 mod windows;
+#[path = "d1_action.rs"]
+mod action;
 
 const LABEL: &str = "d1::pending";
 
@@ -68,13 +70,13 @@ fn any_open(g: &Game<'_>) -> bool {
         || g.tokens.is_some()
         || g.voting.is_some()
         || g.trade.is_some()
+        || g.tactical.is_some()
+        || g.aftermath.is_some()
 }
 
 /// The string fields that hold a window no typed payload exists for, by name.
 fn untyped_open(g: &Game<'_>) -> Vec<&'static str> {
     [
-        ("tactical", g.tactical.is_some()),
-        ("aftermath", g.aftermath.is_some()),
         ("diplomacy", g.diplomacy.is_some()),
         ("agenda_talks", g.agenda_talks.is_some()),
     ]
@@ -239,6 +241,9 @@ fn observe(g: &Game<'_>, r: &Render, cx: &crate::core_sync::Ctx) -> Result<Vec<W
     out.extend(windows::tokens_of(g, r)?);
     out.extend(windows::voting_of(g, r, cx)?);
     out.extend(windows::trade_of(g, r)?);
+    // The windows of the action phase (package D1b).
+    out.extend(action::tactical_of(g, r)?);
+    out.extend(action::aftermath_of(g, r)?);
     Ok(out)
 }
 
@@ -294,6 +299,18 @@ fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render, cx: &crate::core_sync
                 &windows::voting_back(v, r, cx),
             ),
             Window::Trade(t) => compare_value(Area::Driver, "d1::pending.roundtrip", &windows::trade_key_of(g), &Some(windows::trade_key(t, r))),
+            Window::Tactical(t) => compare_value(
+                Area::Driver,
+                "d1::pending.roundtrip",
+                &g.tactical.as_ref().map(action::tactical_key),
+                &Some(action::tactical_back(t, r)),
+            ),
+            Window::Aftermath(a) => compare_value(
+                Area::Driver,
+                "d1::pending.roundtrip",
+                &g.aftermath.as_ref().map(action::aftermath_key),
+                &Some(action::aftermath_back(a, r)),
+            ),
             Window::Untyped { .. } => true,
         };
     }

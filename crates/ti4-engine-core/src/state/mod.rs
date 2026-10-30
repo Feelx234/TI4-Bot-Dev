@@ -7,6 +7,7 @@
 //! adapter marks the slices a lend loaded (`Slice` / `SliceSet`), and a package that reads a slice
 //! missing from its footprint fails in debug and in the dual run, not silently in production.
 
+mod aftermath;
 mod agenda;
 mod board;
 mod cards;
@@ -31,6 +32,7 @@ mod tactical;
 mod trade;
 mod transient;
 
+pub use aftermath::{AStage, Aftermath, Before, NoteHold, PauseLimit};
 pub use agenda::{AgendaCastRec, AgendaRec, AgendaState, Outcome, Prediction};
 pub use board::{Board, PlanetCell, PlanetFlags, SysCell, SysFlags, UnitList};
 pub use cards::{CardRef, CardZones, DeckReserve, DeckSegment, NoteKey, NoteMap, RESERVE_IDLE, RESERVE_LIVE, RESERVE_OPEN, ReserveDeck, ReservedDraw};

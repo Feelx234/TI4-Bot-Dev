@@ -6,7 +6,7 @@ use crate::containers::SmallList;
 use crate::generated::System;
 use crate::ids::Seat;
 
-use super::{NoteKey, Piece};
+use super::{NoteHold, Piece};
 
 /// Where an open tactical action has reached (the string `TacticalStage`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,5 +25,5 @@ pub enum TStage {
 pub struct Tactical {
     pub player: Seat,
     pub stage: TStage,
-    pub notes_at_start: SmallList<(NoteKey, Seat), 12>,
+    pub notes_at_start: NoteHold,
 }

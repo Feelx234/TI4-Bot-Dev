@@ -194,7 +194,7 @@ impl Machine {
 
     /// The open action as the typed payload of the pending window (`notes_at_start` is the caller's).
     #[must_use]
-    pub fn payload(&self, notes_at_start: SmallList<(crate::state::NoteKey, Seat), 12>) -> crate::state::Tactical {
+    pub fn payload(&self, notes_at_start: crate::state::NoteHold) -> crate::state::Tactical {
         use crate::state::TStage;
         let stage = match (&self.stage, &self.load) {
             (Stage::Loading, Some(l)) => TStage::Loading {
@@ -228,7 +228,7 @@ impl Machine {
     #[must_use]
     pub fn done_next(&self) -> Next {
         match self.closed {
-            Some(c) => Next::Open(crate::state::Window {
+            Some(c) => Next::Open(crate::state::Window::Untyped {
                 kind: crate::state::WindowKind::Aftermath,
                 actor: Some(c.player),
                 data: [u32::try_from(c.system.index()).unwrap_or(u32::MAX), u32::from(c.skip_to_commit), 0],

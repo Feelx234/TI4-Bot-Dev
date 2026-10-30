@@ -534,7 +534,8 @@ fn a_closed_movement_step_hands_the_aftermath_on() {
     .expect("the lend works");
     let Next::Open(window) = next else { panic!("the close opens the aftermath: {next:?}") };
     let at = <System as crate::generated::IdStr>::from_id(target.as_str()).unwrap();
-    assert_eq!((window.kind, window.actor, window.data), (WindowKind::Aftermath, Some(seat), [at.index() as u32, 0, 0]));
+    let ti4_engine_core::state::Window::Untyped { kind, actor, data } = window else { panic!("untyped hand-over: {window:?}") };
+    assert_eq!((kind, actor, data), (WindowKind::Aftermath, Some(seat), [at.index() as u32, 0, 0]));
 }
 
 // -- the remaining documented bails, one test each --------------------------------------------------------------------
