@@ -82,6 +82,7 @@ pub fn check(seen: &SeatObservation<'_>, owned: &SeenOwned) -> Found {
     hand(&mut c, seen, &typed);
     objectives(&mut c, seen, &typed);
     movement(&mut c, seen, &typed);
+    perturbation(&mut c, seen, &typed);
     found
 }
 
@@ -221,6 +222,17 @@ fn board(c: &mut Cmp<'_>, obs: &ti4_engine::choice::Observed<'_>, t: &Seen<'_>) 
             &w("units"),
             unit_texts_string(&string.units),
             view.units().iter().map(|p| (p.kind().as_str().to_owned(), c.pid(p.owner()), p.sustained(), p.galvanized())).collect(),
+        );
+        // the string model of the system, built from the typed view, for the shared string helpers
+        let model = c.owned.to_model_system(typed);
+        c.eq(
+            &w("to_model_system (units, tokens, control, planet units)"),
+            (unit_texts_string(&string.units), string.command_tokens.iter().map(|p| p.as_str().to_owned()).collect::<Vec<_>>(),
+             string.planet_control.iter().map(|(p, o)| (p.as_str().to_owned(), o.as_str().to_owned())).collect::<Vec<_>>(),
+             string.planet_units.iter().filter(|(_, u)| !u.is_empty()).map(|(p, u)| (p.as_str().to_owned(), unit_texts_string(u))).collect::<Vec<_>>()),
+            (unit_texts_string(&model.units), model.command_tokens.iter().map(|p| p.as_str().to_owned()).collect::<Vec<_>>(),
+             model.planet_control.iter().map(|(p, o)| (p.as_str().to_owned(), o.as_str().to_owned())).collect::<Vec<_>>(),
+             model.planet_units.iter().map(|(p, u)| (p.as_str().to_owned(), unit_texts_string(u))).collect::<Vec<_>>()),
         );
         c.eq(
             &w("command_tokens"),
@@ -518,4 +530,55 @@ fn movement(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
                 .collect::<Vec<_>>(),
         );
     }
+}
+
+/// A hash of every public accessor of the view, for the bound seat and every other seat (typed side only).
+fn digest(owned: &SeenOwned, me: &ti4_model::id::PlayerId, obs: &ti4_engine::choice::Observed<'_>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let Some(t) = owned.seen(me) else { return 0 };
+    let mut put = |what: &str, value: String| {
+        what.hash(&mut h);
+        value.hash(&mut h);
+    };
+    put("meta", format!("{} {:?} {:?} {:?} {} {:?} {:?}", t.round(), t.phase(), t.active(), t.speaker(), t.custodians_removed(), t.players(), t.initiative_order()));
+    let mut systems: BTreeSet<SystemId> = obs.board().keys().cloned().collect();
+    systems.extend(System::ALL.iter().take(8).map(|s| SystemId::new(s.as_str())));
+    for seat in t.players().to_vec() {
+        let v = t.seat(seat).map(|v| format!("{v:?}"));
+        put("seat", format!("{v:?}"));
+        for kind in [CoreSpend::Resources, CoreSpend::Influence] {
+            put("spend", format!("{}", t.available_spend(seat, kind)));
+        }
+        put("planets", format!("{:?} {:?} {:?}", t.controlled_planets(seat), t.systems_with_token(seat), t.systems_with_units_of(seat)));
+        put("scored", format!("{:?}", t.scored_by(seat)));
+        put("progress", format!("{:?}", t.revealed_objective_progress(seat, ti4_engine_core::query::objectives::Imagined::NONE)));
+        put("prediction", format!("{:?}", t.agenda_prediction_of(seat)));
+    }
+    for id in systems {
+        let Some(s) = System::from_id(id.as_str()) else { continue };
+        let view = t.system(s);
+        let planets: Vec<String> = view.planets().as_slice().iter().map(|p| format!("{:?}", view.planet(*p))).collect();
+        put("system", format!("{:?} {:?} {planets:?}", view.units(), view.tokens()));
+    }
+    put("agenda", format!("{:?} {} {:?} {:?} {:?}", t.agenda_in_play(), t.agendas_resolved_this_round(), t.invasion(), t.space_battle(), t.support_holders()));
+    put("notes", format!("{:?}", t.promissory_notes_in_play()));
+    put("hand", format!("{:?} {:?} {:?} {:?}", t.my_action_cards(), t.my_secrets(), t.my_notes(), t.my_secret_progress(ti4_engine_core::query::objectives::Imagined::NONE)));
+    if let Some(seat) = owned.seat(me) {
+        for dest in obs.board().iter().filter(|(_, s)| !s.units.is_empty()).map(|(id, _)| id).take(3) {
+            if let Some(d) = System::from_id(dest.as_str()) {
+                put("movable", format!("{:?}", t.movable_into(seat, d)));
+            }
+        }
+    }
+    h.finish()
+}
+
+/// The perturbation test (docs/todo/D3-bots.md 2.2 rule 4): scramble the hidden fields of the loaded state and require
+/// every accessor to answer as before.
+fn perturbation(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, _t: &Seen<'_>) {
+    let me = seen.bound_seat();
+    let scrambled = c.owned.scrambled(me);
+    let (a, b) = (digest(c.owned, me, seen.observed()), digest(&scrambled, me, seen.observed()));
+    c.eq("perturbation: digest of every accessor with other seats' hands scrambled", a, b);
 }

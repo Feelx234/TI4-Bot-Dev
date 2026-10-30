@@ -129,3 +129,64 @@ impl<'a> Seen<'a> {
         Scope(u32::from(self.kernel.sources.0))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generated::{ActionCard, Faction, PromissoryNote, SecretObjective};
+    use crate::state::{NoteKey, Player, Players, Seats};
+
+    fn two_seats() -> CoreState {
+        let mut s = CoreState::all_loaded();
+        let mut a = Player::new(Seat(0), Faction::ALL[0]);
+        let mut b = Player::new(Seat(1), Faction::ALL[1]);
+        a.cards.hand.push(ActionCard::ALL[0]);
+        a.cards.secrets.push(SecretObjective::ALL[0]);
+        b.cards.hand.push(ActionCard::ALL[5]);
+        b.cards.hand.push(ActionCard::ALL[6]);
+        b.cards.secrets.push(SecretObjective::ALL[3]);
+        s.players = Players::from_vec(vec![a, b]);
+        s.seats = Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+        s
+    }
+
+    #[test]
+    fn the_private_accessors_answer_for_the_bound_seat_only() {
+        let state = two_seats();
+        let kernel = Kernel::plain();
+        let (first, second) = (Seen::new(&state, &kernel, Seat(0)), Seen::new(&state, &kernel, Seat(1)));
+        assert_eq!(first.my_action_cards(), &[ActionCard::ALL[0]]);
+        assert_eq!(second.my_action_cards(), &[ActionCard::ALL[5], ActionCard::ALL[6]]);
+        assert_eq!(first.my_secrets(), &[SecretObjective::ALL[0]]);
+        assert_eq!(second.my_secrets(), &[SecretObjective::ALL[3]]);
+        // The public view of the other seat shows the size of the hand, never the cards.
+        assert_eq!(first.seat(Seat(1)).map(|v| v.action_cards_held), Some(2));
+        assert_eq!(second.seat(Seat(0)).map(|v| v.action_cards_held), Some(1));
+    }
+
+    #[test]
+    fn notes_in_hand_exclude_faceup_ones_and_other_seats() {
+        let mut state = two_seats();
+        let (mine, faceup, theirs) = (
+            NoteKey { note: PromissoryNote::ALL[0], faction: Faction::ALL[1] },
+            NoteKey { note: PromissoryNote::ALL[1], faction: Faction::ALL[1] },
+            NoteKey { note: PromissoryNote::ALL[2], faction: Faction::ALL[0] },
+        );
+        for (k, holder) in [(mine, Seat(0)), (faceup, Seat(0)), (theirs, Seat(1))] {
+            state.cards_mut().promissory.edit().insert(k, holder);
+        }
+        state.cards_mut().promissory_faceup.edit().insert(faceup, ());
+        let kernel = Kernel::plain();
+        let seen = Seen::new(&state, &kernel, Seat(0));
+        assert_eq!(seen.my_notes(), vec![mine], "a faceup note is public, another seat's note is not mine");
+        assert_eq!(Seen::new(&state, &kernel, Seat(1)).my_notes(), vec![theirs]);
+        assert_eq!(seen.promissory_notes_in_play().len(), 1);
+    }
+
+    #[test]
+    fn the_hidden_slices_are_not_read() {
+        for hidden in [Slice::Decks, Slice::Rng, Slice::Ledger, Slice::Pending] {
+            assert!(!READS.has(hidden), "{hidden:?} must stay out of the view's reads");
+        }
+    }
+}

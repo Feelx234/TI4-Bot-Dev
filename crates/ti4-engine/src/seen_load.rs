@@ -18,6 +18,7 @@ use crate::choice::Observed;
 use crate::core_sync::{CoreView, Ctx, Sources, Unmapped};
 
 /// One position as the typed view reads it, with the owner table that maps player ids to seats.
+#[derive(Clone)]
 pub struct SeenOwned {
     core: CoreState,
     cx: Ctx,
@@ -58,5 +59,71 @@ impl SeenOwned {
     #[must_use]
     pub fn player(&self, seat: Seat) -> Option<PlayerId> {
         self.cx.owners.id(seat).map(PlayerId::new)
+    }
+}
+
+impl SeenOwned {
+    /// The string model of one system from the typed view, for the string helpers the bot and the learned policies
+    /// share (`fleet_strength::descriptors`, `valuation`, `objectives::*Position`): they keep their string signatures in
+    /// D3 (trap T17), so the same function runs on the same data and its `f64` arithmetic stays byte-identical. Filled:
+    /// `units`, `command_tokens`, `planet_control`, `planet_units` (non-empty lists), which is every field those helpers
+    /// read; the coexistence and purge maps stay empty.
+    #[must_use]
+    pub fn to_model_system(&self, system: ti4_engine_core::generated::System) -> ti4_model::state::SystemState {
+        use crate::generated::IdStr;
+        use ti4_model::id::{PlanetId, UnitTypeId};
+        use ti4_model::units::Unit;
+        let seen = Seen::new(&self.core, self.kernel, Seat(0));
+        let view = seen.system(system);
+        let owner = |seat: Seat| PlayerId::new(self.cx.owners.id(seat).unwrap_or_default());
+        let unit = |p: &ti4_engine_core::state::Piece| Unit {
+            type_id: UnitTypeId::new(p.kind().as_str()),
+            owner: owner(p.owner()),
+            sustained_damage: p.sustained(),
+            galvanized: p.galvanized(),
+        };
+        let mut out = ti4_model::state::SystemState::default();
+        out.units = view.units().iter().map(unit).collect();
+        out.command_tokens = view.tokens().iter().map(owner).collect();
+        for planet in view.planets().as_slice() {
+            let cell = view.planet(*planet);
+            if let Some(seat) = cell.control {
+                out.planet_control.insert(PlanetId::new(planet.as_str()), owner(seat));
+            }
+            if !cell.units.is_empty() {
+                out.planet_units.insert(PlanetId::new(planet.as_str()), cell.units.iter().map(unit).collect());
+            }
+        }
+        out
+    }
+
+    /// A copy whose hidden information is scrambled, for the perturbation test: the identities and order of every
+    /// other seat's hand (action cards, secrets) change, their sizes do not (hand sizes are public). The decks, the
+    /// RNG streams, the ledger and the pending machine are not loaded at all (`seen::READS`), so there is nothing to
+    /// scramble there. Every accessor of a [`Seen`] over the copy must answer as over the original.
+    #[must_use]
+    pub fn scrambled(&self, me: &PlayerId) -> Self {
+        use ti4_engine_core::generated::{ActionCard, SecretObjective};
+        let mut out = self.clone();
+        let Some(me) = self.seat(me) else { return out };
+        let players = out.core.players().len();
+        for i in 0..players {
+            let seat = out.core.players().get(i).seat;
+            if seat == me {
+                continue;
+            }
+            let p = out.core.players_mut().edit(i);
+            let n = p.cards.hand.len();
+            p.cards.hand.clear();
+            for k in 0..n {
+                p.cards.hand.push(ActionCard::ALL[(k * 7 + usize::from(seat.0) * 13 + 3) % ActionCard::COUNT]);
+            }
+            let m = p.cards.secrets.len();
+            p.cards.secrets.clear();
+            for k in 0..m {
+                p.cards.secrets.push(SecretObjective::ALL[(k * 5 + usize::from(seat.0) * 11 + 1) % SecretObjective::COUNT]);
+            }
+        }
+        out
     }
 }
