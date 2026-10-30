@@ -446,7 +446,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         // Cabal: Vortex picks which reinforcement unit to capture (BF-cabal.md CB-06).
         module: "cabal.rs",
-        function: "vortex_perform",
+        function: "vortex_string",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1648,7 +1648,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("borrowed_commanders.rs", "ralnel_ask", 1),
     ("borrowed_commanders.rs", "crimson_ask", 1),
     ("titans.rs", "ask", 1),
-    ("cabal.rs", "vortex_perform", 1),
+    ("cabal.rs", "vortex_string", 1),
     ("cabal.rs", "stillness_of_stars", 1),
     ("cabal.rs", "alraith", 1),
     ("nomad.rs", "ask", 1),
