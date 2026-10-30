@@ -25,6 +25,7 @@ pub mod props;
 pub mod rig;
 pub mod scenario;
 pub mod smoke;
+pub mod windows;
 pub mod snap;
 
 pub use kernel::{kernel_all, kernel_plain};

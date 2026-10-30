@@ -9,13 +9,14 @@
 use std::fmt::Write as _;
 use std::rc::Rc;
 
+use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind};
 use ti4_engine_core::choice::{Ask, Choice, Opt, Pick};
 use ti4_engine_core::driver::{Driver, DriverError, Status};
 use ti4_engine_core::generated::Faction;
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::stage::{AbilityTable, Window};
 use ti4_engine_core::kernel::{Kernel, Resolver};
-use ti4_engine_core::state::{CoreState, RngDomain, SeedSource};
+use ti4_engine_core::state::{Code, CoreState, RngDomain, SeedSource};
 
 use crate::covers;
 use crate::scenario::Scenario;
@@ -65,6 +66,7 @@ pub struct Rig<W: Window> {
     order: Vec<Seat>,
     active: Option<Seat>,
     table: AbilityTable,
+    abilities: bool,
     seed: Option<u64>,
     picks: Vec<Pick>,
     pub log: Vec<Entry>,
@@ -90,12 +92,18 @@ impl<W: Window> Rig<W> {
         let active = state.meta().active;
         let table = AbilityTable::default();
         let seed = None;
-        let driver = Self::driver_for(&window, &order, active, &table, seed);
-        Self { start: state.clone(), state, kernel, driver, window0: window, order, active, table, seed, picks: Vec::new(), log: Vec::new(), stages: Vec::new(), status: None }
+        let driver = Self::driver_for(&window, &order, active, &table, seed, false, &state);
+        Self { start: state.clone(), state, kernel, driver, window0: window, order, active, table, abilities: false, seed, picks: Vec::new(), log: Vec::new(), stages: Vec::new(), status: None }
     }
 
-    fn driver_for(window: &W, order: &[Seat], active: Option<Seat>, table: &AbilityTable, seed: Option<u64>) -> Driver<W> {
-        let d = Driver::new(window.clone(), Resolver::new(order, active), table.clone(), 1);
+    fn driver_for(window: &W, order: &[Seat], active: Option<Seat>, table: &AbilityTable, seed: Option<u64>, abilities: bool, state: &CoreState) -> Driver<W> {
+        let mut resolver = Resolver::new(order, active);
+        if abilities {
+            // Register the abilities of the table for every seat, named by their slot (the adapter's texts are not needed here).
+            let defs = table.registry(state, order, &mut |spec, _| AbilityId { kind: AbilityKind::Other, key: Code(spec.slot.0) });
+            resolver.register(defs);
+        }
+        let d = Driver::new(window.clone(), resolver, table.clone(), 1);
         match seed {
             Some(s) => d.with_seeds(Rc::new(KitSeeds(s))),
             None => d,
@@ -103,13 +111,22 @@ impl<W: Window> Rig<W> {
     }
 
     fn reset(&mut self) {
-        self.driver = Self::driver_for(&self.window0, &self.order, self.active, &self.table, self.seed);
+        self.driver = Self::driver_for(&self.window0, &self.order, self.active, &self.table, self.seed, self.abilities, &self.start);
     }
 
     /// The ability table of the run (set it before the first `run`).
     #[must_use]
     pub fn with_table(mut self, table: AbilityTable) -> Self {
         self.table = table;
+        self.reset();
+        self
+    }
+
+    /// The abilities of `table` registered in the resolver of every seat (reaction windows then open around the events the window emits).
+    #[must_use]
+    pub fn with_abilities(mut self, table: AbilityTable) -> Self {
+        self.table = table;
+        self.abilities = true;
         self.reset();
         self
     }
@@ -350,6 +367,7 @@ impl<W: Window> Rig<W> {
     pub fn replay(&self) -> Self {
         let mut r = Self::from_parts(self.start.clone(), self.kernel.clone(), self.window0.clone());
         r.table = self.table.clone();
+        r.abilities = self.abilities;
         r.seed = self.seed;
         r.order.clone_from(&self.order);
         r.active = self.active;
@@ -381,6 +399,10 @@ impl<W: Window> Rig<W> {
             if let Err(e) = r.try_answer(Pick::Opt(*o)) {
                 panic!("the offered option {i} ({o:?}) is refused: {e:?}\n{}", self.transcript());
             }
+        }
+        // A question put from inside an ability is answered from the tape: the driver does not judge its picks (the ability does).
+        if self.driver.nested_facts().is_some() {
+            return;
         }
         // A foreign option is illegal and changes nothing.
         let foreign = [Opt::Number(-9_999_001), Opt::Done, Opt::Decline].into_iter().find(|o| !c.opts.iter().any(|x| x == o));
