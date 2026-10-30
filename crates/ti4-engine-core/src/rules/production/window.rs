@@ -412,6 +412,11 @@ impl Window for ProductionWindow {
                         if let Some(p) = sx.state.players_mut().by_seat_mut(self.who) {
                             p.leaders.status.insert(Leader::BerekarBerekon, LeaderStatus::Exhausted);
                         }
+                        // `leaders::exhaust`: a Nomad that hears every agent exhausted (Temporal Command Suite) is told, by a staged event.
+                        if sx.kernel.hooks.direct.nomad_watches_agent_exhaustion(sx.state) {
+                            let payload = Payload::new().with(Key::Player, Val::Seat(self.who)).with(Key::Leader, Val::Leader(Leader::BerekarBerekon));
+                            fx::stage(sx.state, fx::event(EventKind::AgentExhausted, payload));
+                        }
                         sx.state.transient_mut().production.discount_remaining += 2;
                         self.discount_remaining += 2;
                         self.agent_spent = true;

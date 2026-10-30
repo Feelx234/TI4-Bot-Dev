@@ -7010,6 +7010,49 @@ mod tests {
         crate::dual::set_fail_fast(fail_fast);
     }
 
+    /// The Winnu agent exhausted while a Nomad holds Temporal Command Suite: the event the string stages for the Nomad is staged by the
+    /// core window as well (found by the soak: the string state held an `AGENT_EXHAUSTED` mark the core had not written).
+    #[test]
+    fn the_winnu_agent_exhaustion_is_staged_for_a_nomad_that_listens() {
+        let content = ContentStore::embedded();
+        let _guard = crate::dual::tests::serial();
+        let fail_fast = crate::dual::fail_fast();
+        crate::dual::set_fail_fast(true);
+        let mask = crate::dual::AreaMask::parse("production=dual", crate::dual::AreaMask::STRING).unwrap();
+        let (mut state, system, planet) = seated();
+        state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("winnu");
+        state.player_mut(&PlayerId::new("b")).unwrap().faction = ti4_model::id::FactionId::new("nomad");
+        state.player_mut(&PlayerId::new("b")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("tcs"));
+        state.promissory_notes.clear();
+        state.system_mut(&system).set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        state.player_mut(&player()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("winnuagent"), ti4_model::state::LeaderStatus::Readied);
+        state.player_mut(&player()).unwrap().trade_goods = 10;
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut table = Table::new();
+        let mut ctx = Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+        crate::dual::with_mask(mask, || {
+            let mut window = ProductionWindow::new(&state, content, POK, &player(), &system);
+            let mut steps = 0;
+            while let Some(choice) = window.pending_choice(&state, content, POK) {
+                steps += 1;
+                assert!(steps < 40, "the window ends");
+                let pick = choice
+                    .options
+                    .iter()
+                    .find(|o| o.kind == AGENT_OPTION_KIND)
+                    .or_else(|| choice.options.iter().find(|o| o.id.starts_with("place|")))
+                    .or_else(|| choice.options.first())
+                    .cloned()
+                    .unwrap();
+                window.resolve(&mut state, &mut ctx, pick).unwrap();
+            }
+        });
+        assert!(state.faction_marks.values().any(|v| v.contains("AGENT_EXHAUSTED")), "the Nomad was told: {:?}", state.faction_marks);
+        crate::dual::set_fail_fast(fail_fast);
+    }
+
     /// The production window follows tables with a Deepwrought, Keleres, Naaz, Nomad or Yssaril seat (the tier-W factions):
     /// every step of a producer with scripted and pseudo-random answers (agents readied, commodities to spend, a mech to
     /// build) is compared with the core window. The first golden run of this change found the Naaz mech's staged event
