@@ -255,3 +255,79 @@ fn a_crimson_deploy_is_announced_flags_the_tile_and_remembers_the_unit() {
     quiet.pick(0);
     assert!(quiet.driver.window.deployed && quiet.driver.emitted.is_empty());
 }
+
+// ---- hits, defense and Harrow details -----------------------------------------------------------------
+
+#[test]
+fn a_galvanized_ground_force_destroyed_says_so_in_its_event_and_a_plain_one_does_not() {
+    covers!("rules::invasion::hits::GroundHits");
+    use ti4_engine_core::rules::invasion::hits::{Batch, GroundHits};
+    let (p1, _) = planets();
+    let (mut s, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[sys()]).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1).build();
+    let first = s.board_mut().planet_mut(p1).units.as_mut_slice().iter_mut().next().unwrap();
+    *first = first.with_galvanized(true);
+    let batch = Batch { victim: Seat(1), system: sys(), planet: p1, cause: Code(2), unit_ability: false, announce: true };
+    let mut w = GroundHits::new(batch, 2, false, true);
+    w.flush = true;
+    let mut rig = Rig::from_parts(s, k, w);
+    rig.run();
+    let flags: Vec<Option<bool>> = rig.driver.emitted.iter().filter(|e| e.kind == EventKind::GroundForceDestroyed).map(|e| e.payload.flag(Key::Galvanized)).collect();
+    assert_eq!(flags.len(), 2);
+    assert_eq!(flags.iter().filter(|f| **f == Some(true)).count(), 1, "exactly the galvanized one carries the flag: {flags:?}");
+    assert_eq!(flags.iter().filter(|f| f.is_none()).count(), 1);
+}
+
+#[test]
+fn non_euclidean_shielding_makes_one_sustain_cancel_the_next_hit_of_a_batch_too() {
+    covers!("rules::invasion::hits::GroundHits");
+    use ti4_engine_core::rules::invasion::hits::{Batch, GroundHits};
+    let (p1, _) = planets();
+    let sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheBaronyOfLetnev]).map_from(&[sys()]).unit(sys(), Some(p1), Unit::FactionlessMech, 1, 1).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1).tech(1, Technology::NonEuclideanShielding);
+    let batch = Batch { victim: Seat(1), system: sys(), planet: p1, cause: Code(2), unit_ability: false, announce: true };
+    let mut w = GroundHits::new(batch, 2, false, true);
+    w.flush = true;
+    let mut rig = Rig::new(sc, w);
+    rig.run();
+    assert_eq!(rig.driver.window.destroyed, 0, "the sustain cancels both hits");
+    let kinds: Vec<EventKind> = rig.driver.emitted.iter().map(|e| e.kind).collect();
+    assert_eq!(kinds, vec![EventKind::GroundForceSustained]);
+    assert_eq!(units_on(&rig, p1, 1), 3);
+}
+
+#[test]
+fn the_defense_dice_carry_the_text_of_their_unit_type_and_the_hit_flag() {
+    covers!("rules::invasion::defense::SpaceCannonDefense");
+    use ti4_engine_core::rules::invasion::defense::{Facts, SpaceCannonDefense};
+    let (p1, _) = planets();
+    let f = Facts { invader: Seat(0), system: sys(), planets: vec![p1], announce: false, cause: Code(2), kind: Code(5), planets_key: Code(6), unit_codes: vec![(Unit::PDSI, Code(30)), (Unit::PDSII, Code(31))] };
+    let sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[sys()]).unit(sys(), Some(p1), Unit::PDSI, 1, 1).unit(sys(), Some(p1), Unit::PDSII, 1, 1).unit(sys(), Some(p1), Unit::InfantryI, 0, 6).control(p1, 1);
+    let (s, k) = sc.build();
+    let s = active(s, p1);
+    let mut rig = Rig::from_parts(s, k, SpaceCannonDefense::new(f)).seeded(4);
+    rig.run();
+    let step = rig.state.transient().invasion.active.as_ref().unwrap().last_step.clone().expect("dice were rolled");
+    assert_eq!(step.dice.iter().map(|d| d.group).collect::<Vec<_>>(), vec![Code(30), Code(31)], "each die names the unit type that rolled it");
+    assert!(step.dice.iter().all(|d| d.player == Seat(1) && d.hit == (d.face >= d.target)));
+    assert_eq!(step.dice.iter().map(|d| d.target).collect::<Vec<_>>(), vec![6, 5]);
+}
+
+#[test]
+fn harrow_gives_the_first_bombarding_ship_the_plasma_scoring_die() {
+    covers!("rules::invasion::harrow::Harrow");
+    use ti4_engine_core::rules::invasion::harrow::{Facts, Harrow};
+    let (p1, _) = planets();
+    let sc = |plasma: bool| {
+        let mut sc = Scenario::new(&[Faction::TheL1Z1XMindnet, Faction::TheArborec]).map_from(&[sys()]).unit(sys(), None, Unit::DreadnoughtI, 0, 2).unit(sys(), Some(p1), Unit::InfantryI, 1, 4).control(p1, 1);
+        if plasma {
+            sc = sc.tech(0, Technology::PlasmaScoring);
+        }
+        sc
+    };
+    let f = Facts { invader: Seat(0), defender: Seat(1), system: sys(), planet: p1, announce: false, cause: Code(9) };
+    let mut with = Rig::new(sc(true), Harrow::new(f)).seeded(2);
+    with.run();
+    assert_eq!(with.driver.window.drawn.iter().map(|(_, d)| d.len()).collect::<Vec<_>>(), vec![2, 1], "one die more for the first roller only");
+    let mut without = Rig::new(sc(false), Harrow::new(f)).seeded(2);
+    without.run();
+    assert_eq!(without.driver.window.drawn.iter().map(|(_, d)| d.len()).collect::<Vec<_>>(), vec![1, 1]);
+}
