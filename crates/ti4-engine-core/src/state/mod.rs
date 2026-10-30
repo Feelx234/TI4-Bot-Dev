@@ -157,6 +157,12 @@ impl SliceSet {
     pub fn insert(&mut self, slice: Slice) {
         self.0 |= 1 << slice as u32;
     }
+
+    /// `set` without `slice`.
+    #[must_use]
+    pub const fn of_without(set: Self, slice: Slice) -> Self {
+        Self(set.0 & !(1 << slice as u32))
+    }
 }
 
 /// The whole game state. `Clone` is the checkpoint.

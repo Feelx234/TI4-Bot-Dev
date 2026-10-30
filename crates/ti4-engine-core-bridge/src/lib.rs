@@ -9,4 +9,6 @@ pub mod alpha;
 pub mod roundtrip;
 pub mod check_leaders;
 pub mod workload;
+pub mod shadow;
+pub mod seen_parity;
 pub mod check_tech;

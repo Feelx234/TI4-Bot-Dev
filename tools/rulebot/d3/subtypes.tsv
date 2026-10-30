@@ -1,0 +1,409 @@
+subtype	bot_site	predicates	typed_subtype	area	owner	corpus_n	corpus_sources	baseline_calls	baseline_smart	baseline_ns
+abandoned_warehouses_choose_reward			-	-	router	83	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	206	0	8259498
+abs_pick_player			-	-	router	14	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	63	0	6118479
+action_menu			turn::ActionMenu	turn	D3-3	9433	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	38425	27053	235099642325
+activate_system	lib.rs:308		uninhabited (core-a2b)	tactical	D3-3	4412	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,fixtures,golden20,te,templates	17393	17393	127099908233
+agenda_elect_tiebreak			-	-	router	7	bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,te	15	0	1303887
+agent_planet			-	reaction/agents	D3-8	77	golden20,te,templates	244	0	21230844
+agent_ship	agents.rs:126			reaction/agents	D3-8	18	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,te,templates	115	115	32554553
+alastor_participants			-	-	router			25	0	4121232
+ambush_roll	lib.rs:342			combat	D3-6	60	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	211	211	21358153
+announce_retreat	lib.rs:312		combat::AnnounceRetreat	combat	D3-6	1333	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	5562	5544	916350032
+answer_transaction	backward/holdings.rs:93			agenda/objectives/trade	D3-7	1421	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	6066	6066	975104811
+arch_expedition_pick_planet			-	-	router	22	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	67	0	7839029
+armageddon_relay			-	-	router	2	bench,bench-v5	13	0	2315780
+assassin_pick_player			-	-	router	6	bench-v1,bench-v2,bench-v3,bench-v4			
+assault_cannon_destroy			-	-	router			3	0	549898
+assign_casualty	answers.rs:82			combat	D3-6	352	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	1516	1516	189449840
+assimilate	answers.rs:120		reaction::Assimilate	strategy	D3-5	7	golden20,te	146	140	11013876
+avernus_placement			-	-	router	2	te,templates			
+aw1_choose_reward			-	-	router			2	0	80201
+aw2_choose_reward			-	-	router	1	golden20	1	0	37556
+aw3_choose_reward			-	-	router	2	golden20	4	0	397219
+aw4_choose_reward			-	-	router	1	golden20	2	0	37927
+awaken_replace			-	-	router	3	golden20,te	17	0	2270515
+bio_stims_ready			-	-	router	183	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	630	0	67623753
+bioplasmosis_move			-	-	router			48	0	13986733
+biotic_choose_reward			-	-	router			2	0	330168
+borrowed_agent_planet			-	reaction/agents	D3-8	12	golden20,templates	36	0	4017143
+bribery_pick_count			-	-	router	14	bench,bench-v1,bench-v3,bench-v4,bench-v5,golden20	59	0	5990192
+buy_token_with_influence			-	production	D3-4	3134	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	13808	13808	1771548679
+cast_vote	answers.rs:38			agenda/objectives/trade	D3-7	1518	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	7260	7198	2486544654
+cavalry_ship			reaction::Cavalry	-	router	3	golden20	20	0	2148550
+chaos_mapping_choose_system			-	-	router	1	bench-v4	62	0	18836470
+cm1_choose_reward			-	-	router	29	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	97	0	3302406
+cm2_choose_reward			-	-	router	35	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	105	0	4715714
+cm3_choose_reward			-	-	router	32	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	110	0	4659892
+codex_take_action_card			-	-	router	3	te	39	0	4184644
+commander_fighters			-	-	router			6	0	832134
+commander_give_note			-	-	router	1	golden20	6	0	986025
+commit_ground_forces	lib.rs:311		invasion::CommitGroundForces	combat	D3-6	5610	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,fixtures,golden20,te,templates	22332	22332	3112211687
+confusing_legal_text_elect			-	-	router	5	golden20	25	0	2383843
+construction_choose_ability	lib.rs:328			production	D3-4	302	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	1233	1233	166114073
+construction_rider_planet			-	agenda/objectives/trade	D3-7	3	bench,bench-v1,golden20	25	0	3623733
+courageous_to_the_end_assign_casualty			-	-	router	5	bench-v1,bench-v3	15	0	2060888
+creuss_token			-	-	router	44	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	95	0	12487900
+crf1_choose_reward			-	-	router	1	golden20	1	0	23075
+crf2_choose_reward			-	-	router			4	0	56897
+crf3_choose_reward			-	-	router			2	0	64357
+crf4_choose_reward			-	-	router			3	0	126280
+crf5_choose_reward			-	-	router			1	0	36946
+crf7_choose_reward			-	-	router			6	0	462921
+crf8_choose_reward			-	-	router			1	0	17748
+crf9_choose_reward			-	-	router			2	0	243566
+crimson_payment			-	-	router	5	te			
+cripple_pick_planet			-	-	router	21	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	57	0	8114269
+crown_of_emphidia_choose_planet			-	-	router	7	golden20	27	0	5848692
+crown_of_thalnos_relic_reroll			combat::Reroll	-	router	11	te	121	0	10051235
+deepgloom_allow_scheming			-	-	router	32	te			
+deepgloom_allow_stall_tactics			-	-	router	13	te			
+deepgloom_stall_tactics_discard			-	-	router	4	te			
+deepwrought_payment			-	-	router	1	te			
+deepwrought_reduce_research			-	-	router	8	te			
+defense_act_choose_pds			-	-	router	10	bench-v1,bench-v2,bench-v3,bench-v4	18	0	1336064
+deploy_mech			-	-	router	6	golden20,te	71	0	6476826
+destination			-	-	router	9	golden20,te	81	0	10392799
+devotion_sacrifice			-	-	router	1	bench-v2	4	0	147422
+dimensional_splicer			-	-	router	7	bench-v1,bench-v3,bench-v4,te	3	0	550008
+diplomacy_choose_system			-	-	router	247	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	1093	0	100900183
+diplomacy_rider_system			-	agenda/objectives/trade	D3-7	3	bench-v5,golden20	16	0	1668976
+discard_over_hand_limit			-	-	router	237	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	1228	0	101504550
+divert_funding_pick_technology		ends_with(_pick_technology)		strategy	D3-5	19	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	83	45	10902239
+dmz_choose_reward			-	-	router	1	te	4	0	274533
+doctor_sucaban_borrowed_exhaust	agents.rs:132			reaction/agents	D3-8			12	12	1670408
+doctor_sucaban_exhaust	agents.rs:132			reaction/agents	D3-8	43	golden20,te	543	543	78928860
+doctor_sucaban_remove_infantry	agents.rs:133			reaction/agents	D3-8					
+dominus_orb_purge_to_move			-	-	router	1	golden20	36	0	4636261
+dp1_pick_player			-	-	router	5	bench-v1,bench-v3,bench-v4			
+dp1_pick_promissory note			-	-	router	5	bench-v1,bench-v3,bench-v4			
+dp2_pick_player			-	-	router	7	bench-v1,bench-v2,bench-v3,bench-v4			
+dp2_pick_promissory note			-	-	router	7	bench-v1,bench-v2,bench-v3,bench-v4			
+dp3_pick_player			-	-	router	11	bench-v1,bench-v2,bench-v3,bench-v4			
+dp3_pick_promissory note			-	-	router	11	bench-v1,bench-v2,bench-v3,bench-v4			
+dp4_pick_player			-	-	router	3	bench-v1,bench-v3			
+dp4_pick_promissory note			-	-	router	3	bench-v1,bench-v3			
+draft_strategy_card	lib.rs:313			strategy	D3-5	2611	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	8870	7837	58652808598
+ds_choose_reward			-	-	router			1	0	32358
+ember_colossus			-	-	router	3	golden20	16	0	2715496
+end_turn	agents.rs:111		turn::EndTurn	turn	D3-3	8184	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	35043	451	5761386611
+enigmatic_device_choose_technology		ends_with(_choose_technology)		strategy	D3-5			3	3	375905
+exchange_program_answer			-	-	router	1	te			
+exchangeprogram_pick_planet			-	-	router	1	te			
+exchangeprogram_pick_player			-	-	router	1	te			
+exhaust_for_production_discount			-	-	router	3	golden20	15	0	3354334
+exp1_choose_reward			-	-	router	20	bench,bench-v1,bench-v2,bench-v5,golden20,te	116	0	4746585
+exp2_choose_reward			-	-	router	29	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	117	0	5054761
+exp3_choose_reward			-	-	router	21	bench,bench-v1,bench-v2,bench-v3,bench-v5,golden20,te	108	0	3548654
+expedition_discard_action_card			-	-	router	6	te,templates			
+expedition_place_system			-	-	router	4	te			
+expedition_placement_tiebreak			-	-	router	2	te			
+experimental_pick_space dock			-	-	router			5	0	507665
+extra_die_unit			-	-	router	1	golden20	6	0	937254
+f_deployment_pick_planet			-	-	router	7	bench,bench-v3,bench-v5,golden20	50	0	7887173
+f_researched_pick_technology		ends_with(_pick_technology)		strategy	D3-5	2	golden20	15	15	1640185
+favor			-	-	router	9	bench,bench-v1,bench-v3,bench-v4,te	40	0	4543343
+fb1_choose_reward			-	-	router	1	golden20	3	0	165930
+fb2_choose_reward			-	-	router			1	0	29054
+fb3_choose_reward			-	-	router			3	0	136925
+fb4_choose_reward			-	-	router	1	golden20	3	0	95574
+fight_ground_combat_round			invasion::FightGroundCombatRound	-	router	953	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	4397	0	676278439
+fire_team_reroll			combat::Reroll	-	router	40	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	120	0	13196279
+flayesh_planet			-	-	router			10	0	1023600
+flayesh_technology	answers.rs:124			strategy	D3-5			15	15	925624
+flock_migration_cargo			-	-	router	6	golden20	23	0	3415404
+flock_migration_ship			-	-	router	14	golden20,te	70	0	13785738
+flock_migration_to			-	-	router	11	golden20,te	56	0	8434309
+fracture_choose_ingress_system			-	-	router	20	te,templates			
+fragment_type			-	-	router	4	golden20	28	0	2345238
+frln1_choose_reward			-	-	router			2	0	91537
+frln2_choose_reward			-	-	router			2	0	141314
+frln3_choose_reward			-	-	router			2	0	107432
+fsb_pick_player			-	-	router	15	bench,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	69	0	10059211
+functioning_base_choose_reward	lib.rs:338			explore	D3-4	163	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	504	404	19978618
+gain_command_token	lib.rs:318			production	D3-4	6706	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	28944	28944	3073584793
+ghost_ship_pick_system			-	-	router	6	bench-v4,golden20	24	0	2774902
+ghost_squad_move			-	-	router	5	bench,bench-v4,bench-v5,te	19	0	3497369
+give_note			-	-	router	14	golden20,te	106	0	10811059
+grant_reallocation_choose_technology		ends_with(_choose_technology)		strategy	D3-5	8	bench,golden20	51	51	5608424
+ground_effect_sustain			-	-	router			1	0	63195
+gw_choose_reward			-	-	router			4	0	273415
+hero_card			-	-	router	11	golden20,te	42	0	7129458
+hero_follower			-	-	router	23	golden20,te	62	0	9203325
+hrf1_choose_reward			-	-	router	1	golden20	4	0	161924
+hrf2_choose_reward			-	-	router			1	0	44847
+hrf3_choose_reward			-	-	router			2	0	208725
+hrf4_choose_reward			-	-	router			1	0	73692
+hrf5_choose_reward			-	-	router			1	0	39450
+hrf6_choose_reward			-	-	router			1	0	12338
+hrf7_choose_reward			-	-	router	1	golden20	5	0	330469
+icarus_drive			-	-	router	47	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	95	0	9813863
+imperial_score_objective	lib.rs:238			agenda/objectives/trade	D3-7	174	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	746	746	59636574
+indoctrination_replace			-	-	router	60	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	136	0	22771266
+ingress_move			-	-	router	4	te,templates			
+instinct_training_cancel			reaction::InstinctTraining	-	router			5	0	489036
+insub_pick_player			-	-	router	10	bench-v1,bench-v2,bench-v3,bench-v4,golden20,te	31	0	4271223
+investments_pick_strategy_card			-	-	router	70	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	370	0	34377632
+irf1_choose_reward			-	-	router	1	golden20	2	0	91769
+irf2_choose_reward			-	-	router	1	golden20	7	0	412300
+irf4_choose_reward			-	-	router			2	0	66410
+irf5_choose_reward			-	-	router			2	0	110678
+jamming_pick_player			-	-	router	13	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	61	0	7299417
+jamming_pick_system			-	-	router	13	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	61	0	8211647
+jolnar_commander_reroll			-	-	router	2	golden20	173	0	19321802
+kyver_take_or_discard			-	-	router	10	golden20	76	0	11811558
+l1z1x_agent_swap	agents.rs:121		reaction::AgentSwap	reaction/agents	D3-8	32	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	52	52	3933679
+leader_hacanagent_branch	agents.rs:118			reaction/agents	D3-8	35	golden20,te,templates	239	239	38304978
+leader_hacanhero_free_production			production::HeroFree	-	router	2	golden20,te	34	0	6270170
+leader_jolnarhero_swap			-	-	router	11	golden20	181	0	31670568
+leader_l1z1xagent_copy_planet			-	reaction/agents	D3-8	1	golden20	2	0	176245
+leader_l1z1xhero_destination			leaders::L1z1xDestination	-	router	21	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	35	0	6776482
+leader_ssruu_round_agent_unit	agents.rs:156			reaction/agents	D3-8	82	bench,bench-v5,golden20,te	501	501	59249631
+leader_xxchaagent_ready_planet	agents.rs:119		leaders::XxchaReadyPlanet	reaction/agents	D3-8	45	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	142	126	15560903
+leader_xxchaagent_remove_infantry	agents.rs:120		leaders::XxchaRemoveInfantry	reaction/agents	D3-8	22	bench,bench-v1,bench-v2,bench-v4,bench-v5,golden20,te	69	69	4964822
+legendary_arms_vault			-	-	router	218	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	999	0	110704980
+legendary_end_of_turn	lib.rs:406		uninhabited (D1b-4)	turn	D3-3	834	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	3789	0	526284442
+legendary_exterrix			-	-	router	27	bench,golden20	195	0	24775619
+legendary_place			-	-	router	199	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	964	0	102524533
+legionnaire_payment			reaction::Legionnaire	-	router	44	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	174	0	24359307
+letnev_commander_trade_good	answers.rs:50			combat	D3-6	11	golden20	111	111	13156489
+lf1_choose_reward			-	-	router			2	0	101181
+lf2_choose_reward			-	-	router	1	golden20	4	0	170227
+lf3_choose_reward			-	-	router	1	golden20	2	0	90467
+lf4_choose_reward			-	-	router			1	0	96546
+load_cargo	lib.rs:310		uninhabited (core-a2b)	tactical	D3-3	8847	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,fixtures,golden20,te,templates	32937	32937	3791760513
+local_fabricators_choose_reward			-	-	router	232	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	500	0	16842228
+ls_choose_reward			-	-	router			2	0	83464
+lucky_pick_ship			-	-	router	1	golden20	6	0	1440178
+magen_defense_hit	answers.rs:56			combat	D3-6			2	2	328916
+mahact_hero_move			-	-	router	3	bench,golden20,te	25	0	4097199
+malleon_discard			-	-	router	2	golden20	107	0	13860335
+malleon_payment	agents.rs:117			reaction/agents	D3-8	28	golden20,te,templates	227	227	23366918
+malleon_player	agents.rs:114			reaction/agents	D3-8	28	golden20,te,templates	227	227	30630991
+mawofworlds_choose_technology		ends_with(_choose_technology)		strategy	D3-5	3	golden20,te	17	17	1258398
+meltdown_pick_planet			-	-	router	8	bench-v1,bench-v2,bench-v3,bench-v5,golden20	24	0	4322656
+mercenary_outfit_choose_reward			-	-	router	96	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	365	0	14921170
+mercenarycontract_pick_planet			-	-	router	2	te			
+mercer_place			-	-	router	16	golden20,te	188	0	19933770
+mercer_take	agents.rs:143			reaction/agents	D3-8	52	golden20,te,templates	579	579	61060078
+merchant_station_choose_reward			-	-	router			2	0	88012
+mining_initiative_pick_planet			-	-	router	15	bench,bench-v1,bench-v2,bench-v3,bench-v4,golden20,te	53	0	6470383
+mitosis_place			-	-	router	13	golden20,te	125	0	13168014
+mo1_choose_reward			-	-	router	1	templates	2	0	23715
+mo2_choose_reward			-	-	router			1	0	50706
+movement_step	lib.rs:246		uninhabited (core-a2b)	tactical	D3-3	9394	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,fixtures,golden20,te,templates	36848	36739	7060764265
+munitions_reroll_die	answers.rs:98		combat::Reroll	combat	D3-6					
+munitions_reserves_reroll	answers.rs:87		combat::MunitionsRoll	combat	D3-6	12	golden20,te	90	90	8350252
+mw_choose_reward			-	-	router			2	0	72729
+neuraloop_choose_relic_to_purge			-	-	router	8	golden20,te	15	0	1023544
+nullification_field_end_turn			-	-	router	7	bench,bench-v2,golden20	9	0	1632018
+offer_discard_law			-	-	router	53	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	290	0	48473988
+orbital_drop_choose_planet			-	-	router	11	bench,bench-v1,bench-v2,bench-v3,bench-v4	39	0	6104281
+orbital_drop_deploy_mech			-	-	router	2	bench-v2,bench-v4	7	7	38619069
+ospha_replace	agents.rs:113			reaction/agents	D3-8	34	golden20,te,templates	94	94	9556376
+ospha_ship	agents.rs:112			reaction/agents	D3-8	34	golden20,te,templates	94	94	12894839
+pay_influence			-	production	D3-4	4180	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	19050	19050	2232360899
+pay_resources			-	production	D3-4	4923	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	22224	22224	3214020478
+peace_accords_annex			-	-	router	15	bench,bench-v1,bench-v2,bench-v3,bench-v4,golden20,te,templates	64	0	4260268
+pillage_take	lib.rs:352			combat	D3-6	109	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	348	348	42150999
+piratecontract1_pick_system			-	-	router	2	te			
+piratecontract2_pick_system			-	-	router	3	te			
+piratecontract3_pick_system			-	-	router	1	te			
+piratefleet_pick_system			-	-	router	1	te			
+place_structure	objectives.rs:157			production	D3-4	920	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	3798	1142	1907599322
+place_structure_pds_alternative			-	production	D3-4	9	golden20,te	94	0	8279442
+place_unit			production::Place	-	router	105	bench,bench-v2,bench-v4,bench-v5,golden20,te	707	0	99594428
+place_units_from_reinforcements			-	-	router	118	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	433	0	48453794
+plagiarize_pick_technology		ends_with(_pick_technology)		strategy	D3-5	7	bench,bench-v2,bench-v3,golden20	27	27	2474716
+plague_pick_planet			-	-	router	21	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	55	0	6531695
+play_reaction_after_AGENDA_REVEALED		starts_with(play_reaction_after_AGENDA_REVEALED)		reaction/agents	D3-8	15	bench-v1,bench-v2,bench-v3,bench-v4			
+play_reaction_after_COMBAT_ROUND_STARTED			-	reaction/agents	D3-8	16	bench,bench-v2,bench-v3,bench-v4,bench-v5,golden20	60	4	8187287
+play_reaction_after_STRATEGY_PHASE_BEGAN			-	reaction/agents	D3-8			1	0	65768
+play_reaction_after_SYSTEM_ACTIVATED			-	reaction/agents	D3-8	26	bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	66	0	9265949
+play_reaction_after_UNITS_COMMITTED			-	reaction/agents	D3-8			3	0	287863
+play_reaction_after_VOTES_CAST			-	reaction/agents	D3-8			1	0	96956
+play_reaction_when_AGENDA_RESOLVED			-	reaction/agents	D3-8			1	0	69596
+politics_choose_speaker	answers.rs:77			agenda/objectives/trade	D3-7	214	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	976	976	75304525
+politics_place_agenda	answers.rs:80			agenda/objectives/trade	D3-7	428	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	1952	1952	272335170
+predict_agenda_outcome	agenda_vote.rs:1931			agenda/objectives/trade	D3-7	118	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	291	291	121043656
+predictive_intelligence_redistribute	lib.rs:324			production	D3-4	556	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	2212	2212	266255677
+probe_pick_system			-	-	router	4	bench-v1,bench-v2,bench-v4,golden20	29	0	2859489
+produce_one_unit			-	-	router	48	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	213	213	34524470
+produce_unit			production::Choose	production	D3-4	4734	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,fixtures,golden20,te,templates	18691	18691	76156383533
+produce_units			-	production	D3-4	1	fixtures			
+propose_transaction	lib.rs:371			agenda/objectives/trade	D3-7	1847	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	8295	8295	1070359420
+ps			-	-	router	267	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	1238	0	143134035
+psychoarchaeology_exhaust_specialty			-	-	router	126	bench-v1,golden20,te	564	0	86286363
+public_disgrace_choose_card			-	-	router	18	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	83	0	7065523
+pw_choose_reward			-	-	router			3	0	189005
+quantum_datahub_swap			-	-	router			3	0	910111
+quash			-	-	router	114	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	390	0	42121363
+ragh_destination			-	-	router	1	bench-v3	1	0	103567
+raid_formation_damage			-	-	router			3	0	637449
+reaction_after_ACTION_CARD_DISCARDED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	50	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	186	0	20798953
+reaction_after_ACTION_COMPLETED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	68	bench,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	322	0	47588799
+reaction_after_AGENDA_PHASE_BEGAN		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	26	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	149	0	18409255
+reaction_after_AGENDA_REVEALED		starts_with(reaction_after_AGENDA_REVEALED);starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	761	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	4380	4380	2018988101
+reaction_after_AGENT_EXHAUSTED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8			30	0	3800979
+reaction_after_COMBAT_ROUND_STARTED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	400	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	2278	803	340436066
+reaction_after_COMMODITIES_REPLENISHED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	113	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	283	283	45258398
+reaction_after_GROUND_COMBAT_ROLL_STEP_ENDED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	49	golden20,te	630	458	76986577
+reaction_after_GROUND_COMBAT_ROUND_STARTED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	205	bench,bench-v5,golden20,te	894	894	116240649
+reaction_after_GROUND_COMBAT_STARTED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	81	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	271	3	46787902
+reaction_after_GROUND_FORCE_DESTROYED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	343	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	670	635	116867262
+reaction_after_GROUND_FORCE_SUSTAINED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	1	golden20	17	0	2080005
+reaction_after_GROUND_ROLLS_MADE		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	48	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	124	0	15822740
+reaction_after_INVASION_BEGAN		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	72	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	334	0	47549260
+reaction_after_MOVEMENT_FINISHED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	33	golden20,te	402	198	64746865
+reaction_after_PILLAGE_USED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	1	golden20	20	20	4436337
+reaction_after_PLANET_CONTROL_GAINED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	153	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	463	0	43876598
+reaction_after_PLANET_EXPLORED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	76	golden20,te,templates	345	0	15534955
+reaction_after_PLAYER_PASSED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	2	te			
+reaction_after_PRODUCTION_USED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	149	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	749	389	106526104
+reaction_after_RELIC_GAINED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	7	golden20,te	34	0	4482619
+reaction_after_RETREAT_DECLARED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	18	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	80	0	12838736
+reaction_after_RETREAT_STEP_STARTED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	20	bench-v2,bench-v3,golden20,te	98	0	15568376
+reaction_after_SHIP_DESTROYED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	514	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	894	779	136659150
+reaction_after_SHIP_MOVED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	42	golden20,te	253	0	35826207
+reaction_after_SPACE_COMBAT_ENDED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	17	bench-v3,bench-v4,golden20	46	2	6891690
+reaction_after_SPACE_COMBAT_ROLL_STEP_ENDED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	78	golden20,te	903	558	109352174
+reaction_after_SPACE_COMBAT_STARTED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	54	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	343	20	56340849
+reaction_after_SPACE_COMBAT_WON		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	47	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	115	0	21464279
+reaction_after_STATUS_PHASE_ENDED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	4	golden20,te	68	0	8196153
+reaction_after_STRATEGY_CARD_CHOSEN		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	41	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	201	0	18645744
+reaction_after_STRATEGY_PHASE_BEGAN		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	66	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	284	0	34272235
+reaction_after_STRATEGY_PHASE_ENDED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	9	golden20,te	71	0	8233202
+reaction_after_STRATEGY_TOKEN_SPENT		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	2	te	190	0	37736592
+reaction_after_SUSTAIN_DAMAGE_USED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	108	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	499	0	85087087
+reaction_after_SYSTEM_ACTIVATED		starts_with(reaction_);starts_with(reaction_after_SYSTEM_ACTIVATED);starts_with(reaction_after_)		reaction/agents	D3-8	2471	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	10354	3782	1295532984
+reaction_after_TACTICAL_ACTION_ENDED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	579	golden20,te,templates	3552	3552	405923553
+reaction_after_TECHNOLOGY_GAINED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	1	golden20	117	0	19237346
+reaction_after_TRADE_GOODS_GAINED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	195	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	863	863	120510183
+reaction_after_TRANSACTION_RESOLVED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	51	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	110	110	14607257
+reaction_after_TURN_BEGAN		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	102	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	200	0	33184415
+reaction_after_TURN_PASSED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	287	golden20,te,templates	1002	1002	139615056
+reaction_after_UNITS_COMMITTED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	87	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	272	0	45517690
+reaction_after_UNITS_PRODUCED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	5	bench-v1,bench-v2	22	0	3742601
+reaction_after_UNIT_ABILITY_ROLLED		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	20	bench-v1,bench-v2,bench-v3,golden20,te	172	0	26444884
+reaction_after_VOTES_CAST		starts_with(reaction_);starts_with(reaction_after_)		reaction/agents	D3-8	82	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	321	0	33902620
+reaction_when_ACTION_CARD_PLAYED		starts_with(reaction_)		reaction/agents	D3-8	191	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	998	0	126896201
+reaction_when_AGENDA_RESOLVED		starts_with(reaction_)		reaction/agents	D3-8	83	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	199	0	22553854
+reaction_when_AGENDA_REVEALED		starts_with(reaction_when_AGENDA_REVEALED);starts_with(reaction_)		reaction/agents	D3-8	486	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	3335	3335	1667106329
+reaction_when_ANTI_FIGHTER_BARRAGE_HITS		starts_with(reaction_)		reaction/agents	D3-8			2	2	287864
+reaction_when_ANTI_FIGHTER_BARRAGE_STARTED		starts_with(reaction_)		reaction/agents	D3-8	39	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	158	0	27767540
+reaction_when_GROUND_FORCES_BEING_PRODUCED		starts_with(reaction_)		reaction/agents	D3-8	82	golden20,te	821	821	112830274
+reaction_when_GROUND_HITS_TO_ASSIGN		starts_with(reaction_)		reaction/agents	D3-8	9	golden20,te	73	73	9112963
+reaction_when_HITS_TO_ASSIGN		starts_with(reaction_)		reaction/agents	D3-8	118	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	670	150	95880965
+reaction_when_PLANET_CONTROL_GAINED		starts_with(reaction_)		reaction/agents	D3-8	6	bench-v1,bench-v2,bench-v3,bench-v5	21	0	3614557
+reaction_when_PRODUCTION_USED		starts_with(reaction_)		reaction/agents	D3-8	4	golden20	22	0	3606590
+reaction_when_SHIP_DESTROYED		starts_with(reaction_)		reaction/agents	D3-8	4	te			
+reaction_when_SPACE_CANNON_HITS		starts_with(reaction_)		reaction/agents	D3-8	62	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	241	23	42899026
+reaction_when_STRATEGIC_ACTION_BEGAN		starts_with(reaction_)		reaction/agents	D3-8	39	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	214	0	30583883
+reaction_when_STRATEGY_CARDS_WOULD_RETURN		starts_with(reaction_)		reaction/agents	D3-8	22	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	157	0	13480365
+reaction_when_SUSTAIN_DAMAGE_USED		starts_with(reaction_)		reaction/agents	D3-8	19	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	86	0	14960264
+reaction_when_UNIT_ABILITY_ROLLED		starts_with(reaction_)		reaction/agents	D3-8	20	golden20,te	184	0	33282537
+ready_planet	answers.rs:115			combat	D3-6	1031	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	4459	4459	404707866
+reclaimer			-	-	router	17	golden20,te	54	0	5556259
+recombination_outcome			-	-	router	49	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	200	0	18327377
+recombination_tribute			-	-	router	34	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	152	0	16697171
+redistribution_choose_settler			-	-	router	3	bench,bench-v4,bench-v5	8	0	723453
+refit_pick_infantry			-	-	router	18	bench,bench-v1,bench-v2,bench-v3,bench-v5,golden20,te	58	0	6632926
+remove_custodians	lib.rs:305		invasion::RemoveCustodians	agenda/objectives/trade	D3-7	47	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	199	199	19281864
+reparations_exhaust			-	-	router	16	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	65	0	8316697
+reparations_ready			-	-	router	7	bench,bench-v1,bench-v2,bench-v3,bench-v5,golden20	27	0	3199713
+repeal_pick_repeal			-	-	router	3	bench-v1,bench-v3,te	27	0	3250071
+rescue_pick_rescue_from			-	-	router	1	te			
+research_technology	lib.rs:319			strategy	D3-5	637	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	3101	3101	17161247462
+research_waiver			-	-	router	10	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	32	0	3365988
+research_waiver_payment			-	-	router	4	bench-v1,bench-v2,bench-v3,bench-v5	7	0	741207
+retreat_to	answers.rs:116		combat::RetreatTo	combat	D3-6	219	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	997	997	121108222
+return_over_secret_hand_limit	objectives.rs:124			agenda/objectives/trade	D3-7	489	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	2143	2143	208794679
+reveal_prototype_pick_technology		ends_with(_pick_technology)		strategy	D3-5			4	4	673413
+rw_choose_reward			-	-	router	1	golden20	4	0	128653
+salvage_produce			reaction::Salvage	-	router	4	bench-v4,golden20	10	0	1093729
+sardakk_hero_skip			-	-	router	8	golden20,te	73	0	13072534
+scanlink_explore			-	-	router	14	bench-v3,bench-v4,golden20,te	95	0	12983034
+scepter_system			-	-	router	2	bench-v3	28	0	3989814
+scheming_discard			-	-	router	76	golden20,te	422	0	39513258
+score_objective			-	agenda/objectives/trade	D3-7	933	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	3834	3834	308039339
+score_secret_objective			-	agenda/objectives/trade	D3-7	106	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	460	460	50867585
+scuttle_pick_ship			-	-	router	34	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	114	0	12267686
+seize_pick_fragment			-	-	router	5	bench-v2,bench-v3,bench-v4,golden20	34	0	3387886
+seize_pick_player			-	-	router	6	bench-v1,bench-v2,bench-v3,golden20	53	0	6804258
+self_assembly_mech	lib.rs:305			production	D3-4	43	bench,bench-v5,golden20,te,templates	297	297	31224824
+show_action_card			-	-	router	9	golden20	62	0	9818716
+silence_choose_system			-	-	router	26	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	67	0	8865359
+skilled_retreat_choose_system			combat::Withdraw	-	router	52	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	261	0	34833313
+slumberstate_allow			-	-	router	5	te,templates			
+slumberstate_planet			-	-	router	6	te,templates			
+so_ata_look			-	-	router	4	golden20	78	0	14448989
+spatial_conduit_link			-	-	router			5	0	855750
+specialist_compounds_choose_planet			-	-	router	1	te			
+spy_pick_player			-	-	router	17	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	47	0	7229972
+stall_tactics_discard			-	-	router	14	golden20	107	0	14035547
+star_forge			-	-	router	3	golden20,te	26	0	3297918
+starlancer_end_turn			-	-	router	11	bench,bench-v2,bench-v3,bench-v4,bench-v5,golden20	43	0	6091291
+starting_technology	lib.rs:315			strategy	D3-5	84	golden20,te,templates	114	114	4420681
+status_redistribute_tokens	lib.rs:329			production	D3-4	1384	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	5986	5986	485348543
+stellar_converter_choose_target			-	-	router			7	0	465942
+stillness_target	agents.rs:127			reaction/agents	D3-8	66	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	199	199	21445087
+strategize2_pick_strategy card			-	-	router	1	te			
+stymie_system			-	-	router	2	golden20	8	0	1561925
+suffi_an	agents.rs:128			reaction/agents	D3-8	75	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	250	250	30838045
+supercharge			-	-	router	26	golden20,te	100	0	14670857
+sustain_damage	answers.rs:81		combat::SustainDamage	combat	D3-6	606	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	2678	2678	395500672
+swap_first			-	-	router	11	bench,bench-v1,bench-v3,bench-v4,bench-v5,golden20	26	0	5887694
+swap_second			-	-	router	8	bench,bench-v1,bench-v3,bench-v4,bench-v5,golden20	19	0	3067523
+tactical_pick_system			-	-	router			9	0	1165227
+take_revealed_action_card			-	-	router	6	golden20,te	23	0	3452947
+tcs_transaction			-	-	router			4	0	336467
+terragenesis_token			-	-	router	16	golden20,te	119	0	5180792
+tether_border			-	-	router	4	te			
+thunders_paradox			-	-	router	1	templates			
+titan_prototype_choose_builder			-	-	router	10	bench,bench-v2,bench-v3,bench-v4,bench-v5,golden20	20	0	3287113
+toe_choose_reward			-	-	router	1	templates			
+token_pool			-	-	router	13	golden20,te	78	0	6871277
+trade_choose_replenish	answers.rs:117			agenda/objectives/trade	D3-7	311	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	1096	1096	80956048
+transit_diodes_redeploy			-	-	router	16	golden20	42	0	6922931
+umbat_player	agents.rs:114			reaction/agents	D3-8	45	golden20,te,templates	210	210	28365942
+umbat_system			-	-	router	7	golden20,te	52	0	7686063
+unexpected_pick_recall			-	-	router	16	bench,bench-v2,bench-v3,bench-v4,golden20,te	50	0	6954132
+unstable_pick_planet			-	-	router	14	bench,bench-v1,bench-v2,bench-v3,bench-v4,golden20,te	52	0	7576939
+upgrade_pick_cruiser			-	-	router	1	golden20	1	0	256697
+uprising_pick_planet			-	-	router	14	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20	54	0	7690499
+vfs1_choose_reward			-	-	router	102	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	107	0	3740005
+vfs2_choose_reward			-	-	router	15	bench,golden20,te	87	0	2893560
+vfs3_choose_reward			-	-	router	26	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	103	0	3828371
+voidwatch_note			-	-	router			11	0	1873334
+vortex_target			-	-	router	8	bench-v2,bench-v3,golden20,te	36	0	5443089
+vote_exhaust_planet	answers.rs:39			agenda/objectives/trade	D3-7	4430	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	19870	19869	7087926515
+vote_predictive_intelligence	answers.rs:45			agenda/objectives/trade	D3-7	23	bench,bench-v5,golden20,te	222	222	19023825
+vote_spend_trade_goods	answers.rs:40			agenda/objectives/trade	D3-7	6	golden20	47	47	6723989
+vote_tiebreak	answers.rs:38			agenda/objectives/trade	D3-7	58	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	247	247	38685742
+war_effort_pick_system			-	-	router	6	bench-v3,golden20,te	65	0	9324645
+war_funding			combat::WarFunding	-	router	10	golden20,te	54	0	7423865
+warfare_choose_reward			-	-	router	2	golden20	4	0	175746
+warfare_free_tactical	lib.rs:327		uninhabited (core-a2b)	tactical	D3-3	347	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	1189	995	2771789168
+warfare_redistribute_tokens	lib.rs:329			production	D3-4	683	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	2378	2378	369086221
+warfare_rider_system			-	agenda/objectives/trade	D3-7	5	bench-v5,golden20	25	0	2231273
+watcher_remove			reaction::Watcher	tactical	D3-3	3	golden20	22	0	2096970
+wrath_of_kenara_bump			combat::WrathBump	-	router			14	0	2121724
+yin_hero_commit			-	-	router	33	bench,bench-v1,bench-v2,bench-v3,bench-v4,golden20	53	0	9979294
+zeu_activate_system	agents.rs:157			reaction/agents	D3-8	33	golden20,te,templates	173	173	482815524
+~place			-	-	router	12	golden20,te	57	0	6635173
+~player			-	-	router			11	0	1420370
+~produce			-	production	D3-4	58	bench-v1,bench-v3,bench-v4,bench-v5,golden20,te	275	275	1942811329
+~remove			-	-	router	940	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	3957	953	581227391
+~strategy			-	strategy	D3-5	4725	bench,bench-v1,bench-v2,bench-v3,bench-v4,bench-v5,golden20,te,templates	18968	9429	2831144833
+~strategy_card			-	strategy	D3-5	16	bench,bench-v1,bench-v3,bench-v4,bench-v5,golden20	62	0	5335825
+~system			-	-	router	11	bench-v2,bench-v3,bench-v4,bench-v5,golden20,te	59	0	8223821
+
+# parametric predicates (code, not text): predicate -> site
+# starts_with(reaction_when_AGENDA_REVEALED)	agenda_vote.rs:1951
+# starts_with(reaction_after_AGENDA_REVEALED)	agenda_vote.rs:1952
+# starts_with(play_reaction_when_AGENDA_REVEALED)	agenda_vote.rs:1971
+# starts_with(play_reaction_after_AGENDA_REVEALED)	agenda_vote.rs:1972
+# starts_with(reaction_)	agents.rs:110
+# ends_with(_pick_technology)	answers.rs:122
+# ends_with(_choose_technology)	answers.rs:123
+# starts_with(reaction_after_SYSTEM_ACTIVATED)	answers.rs:136
+# starts_with(reaction_after_)	lib.rs:359

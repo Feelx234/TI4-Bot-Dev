@@ -17,3 +17,10 @@ Rule-bot self-play (`selfplay.sh`, see `docs/RULE_BOT_OPTIMISATION.md`).
   strength measure from round 2 on), win share, VP per seat, rounds, per faction and per map.
   `--mode separate` plays the table once with the baseline on every seat and once with the
   candidate on every seat: the same VP metrics are then the absolute strength of the bot.
+
+## D3: the typed bot (docs/todo/D3-bots.md)
+
+* `tools/rulebot/d3/census.py` counts the string touchpoints of the bot (`census.txt`) and classifies every decision subtype (`subtypes.tsv`); `python3 -I tools/rulebot/d3/test_census.py` checks both files are the regenerated text.
+* `bot_shadow` (crate `ti4-engine-core-bridge`) plays games as `selfplay run` does, answers with the string bot and compares the typed bot (`ti4-rule-bot-typed`) at every decider call: `bot_shadow --config tools/engine_profile/profile-20.json --games 0,5,11 [--bot bot_version=N] [--seen-parity STRIDE] [--mutant pick|smart|rng] [--strict]`.
+  `--seen-parity` also compares every accessor of the typed view `Seen` with `Observed` at every STRIDE-th call and runs the perturbation test (other seats' hands scrambled).
+* `cargo build -p ti4-engine-core-bridge --bin bot_shadow --features observed-count` counts the view calls (`Observed` methods, `PlayerId::new`, ...) per decision subtype and prints them; `tools/rulebot/d3/base.json` holds the baseline of the string bot before the typed one.

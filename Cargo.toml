@@ -22,6 +22,7 @@ members = [
     "crates/ti4-advisor",
     "crates/ti4-bot-agent",
     "crates/ti4-rule-bot",
+    "crates/ti4-rule-bot-typed",
     "crates/ti4-selfplay",
     "crates/ti4-replayer",
     "crates/ti4-wasm",
@@ -55,6 +56,7 @@ ti4-server = { path = "crates/ti4-server" }
 ti4-advisor = { path = "crates/ti4-advisor" }
 ti4-bot-agent = { path = "crates/ti4-bot-agent" }
 ti4-rule-bot = { path = "crates/ti4-rule-bot" }
+ti4-rule-bot-typed = { path = "crates/ti4-rule-bot-typed" }
 ti4-replayer = { path = "crates/ti4-replayer" }
 xtask = { path = "crates/xtask" }
 

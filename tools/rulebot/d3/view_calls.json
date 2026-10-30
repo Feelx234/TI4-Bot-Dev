@@ -1,0 +1,2547 @@
+{
+  "by_subtype": {
+    "abandoned_warehouses_choose_reward": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "action_menu": {
+      "calls": 401,
+      "compared": 401,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "activate_system": {
+      "calls": 180,
+      "compared": 180,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "ambush_roll": {
+      "calls": 4,
+      "compared": 4,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "announce_retreat": {
+      "calls": 61,
+      "compared": 61,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "answer_transaction": {
+      "calls": 54,
+      "compared": 54,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "assign_casualty": {
+      "calls": 10,
+      "compared": 10,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "assimilate": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "bribery_pick_count": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "buy_token_with_influence": {
+      "calls": 150,
+      "compared": 150,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "cast_vote": {
+      "calls": 58,
+      "compared": 58,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "cm1_choose_reward": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "cm3_choose_reward": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "commit_ground_forces": {
+      "calls": 271,
+      "compared": 271,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "confusing_legal_text_elect": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "construction_choose_ability": {
+      "calls": 15,
+      "compared": 15,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "destination": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "diplomacy_choose_system": {
+      "calls": 14,
+      "compared": 14,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "diplomacy_rider_system": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "discard_over_hand_limit": {
+      "calls": 8,
+      "compared": 8,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "draft_strategy_card": {
+      "calls": 107,
+      "compared": 107,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "end_turn": {
+      "calls": 353,
+      "compared": 353,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "exp1_choose_reward": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "exp2_choose_reward": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "exp3_choose_reward": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "fight_ground_combat_round": {
+      "calls": 36,
+      "compared": 36,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "functioning_base_choose_reward": {
+      "calls": 8,
+      "compared": 8,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "gain_command_token": {
+      "calls": 316,
+      "compared": 316,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "grant_reallocation_choose_technology": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "imperial_score_objective": {
+      "calls": 10,
+      "compared": 10,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "indoctrination_replace": {
+      "calls": 3,
+      "compared": 3,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "leader_ssruu_round_agent_unit": {
+      "calls": 5,
+      "compared": 5,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "leader_xxchaagent_ready_planet": {
+      "calls": 4,
+      "compared": 4,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "legendary_arms_vault": {
+      "calls": 10,
+      "compared": 10,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "legendary_end_of_turn": {
+      "calls": 58,
+      "compared": 58,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "legendary_exterrix": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "legendary_place": {
+      "calls": 16,
+      "compared": 16,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "load_cargo": {
+      "calls": 359,
+      "compared": 359,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "local_fabricators_choose_reward": {
+      "calls": 8,
+      "compared": 8,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "malleon_discard": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "malleon_payment": {
+      "calls": 5,
+      "compared": 5,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "malleon_player": {
+      "calls": 5,
+      "compared": 5,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "mercenary_outfit_choose_reward": {
+      "calls": 4,
+      "compared": 4,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "mercer_place": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "mercer_take": {
+      "calls": 10,
+      "compared": 10,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "movement_step": {
+      "calls": 387,
+      "compared": 387,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "nullification_field_end_turn": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "offer_discard_law": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "pay_influence": {
+      "calls": 199,
+      "compared": 199,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "pay_resources": {
+      "calls": 238,
+      "compared": 238,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "peace_accords_annex": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "pillage_take": {
+      "calls": 3,
+      "compared": 3,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "place_structure": {
+      "calls": 43,
+      "compared": 43,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "place_structure_pds_alternative": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "place_unit": {
+      "calls": 5,
+      "compared": 5,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "place_units_from_reinforcements": {
+      "calls": 10,
+      "compared": 10,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "plagiarize_pick_technology": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "plague_pick_planet": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "play_reaction_after_COMBAT_ROUND_STARTED": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "politics_choose_speaker": {
+      "calls": 13,
+      "compared": 13,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "politics_place_agenda": {
+      "calls": 26,
+      "compared": 26,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "predict_agenda_outcome": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "produce_one_unit": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "produce_unit": {
+      "calls": 207,
+      "compared": 207,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "propose_transaction": {
+      "calls": 65,
+      "compared": 65,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "ps": {
+      "calls": 4,
+      "compared": 4,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "public_disgrace_choose_card": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "quash": {
+      "calls": 6,
+      "compared": 6,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_ACTION_CARD_DISCARDED": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_ACTION_COMPLETED": {
+      "calls": 5,
+      "compared": 5,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_AGENDA_PHASE_BEGAN": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_AGENDA_REVEALED": {
+      "calls": 20,
+      "compared": 20,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_COMBAT_ROUND_STARTED": {
+      "calls": 21,
+      "compared": 21,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_COMMODITIES_REPLENISHED": {
+      "calls": 5,
+      "compared": 5,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_GROUND_COMBAT_ROLL_STEP_ENDED": {
+      "calls": 4,
+      "compared": 4,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_GROUND_COMBAT_ROUND_STARTED": {
+      "calls": 8,
+      "compared": 8,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_GROUND_COMBAT_STARTED": {
+      "calls": 5,
+      "compared": 5,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_GROUND_FORCE_DESTROYED": {
+      "calls": 5,
+      "compared": 5,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_GROUND_ROLLS_MADE": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_INVASION_BEGAN": {
+      "calls": 4,
+      "compared": 4,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_MOVEMENT_FINISHED": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_PLANET_CONTROL_GAINED": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_PLANET_EXPLORED": {
+      "calls": 7,
+      "compared": 7,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_PRODUCTION_USED": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_RETREAT_DECLARED": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_RETREAT_STEP_STARTED": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_SHIP_DESTROYED": {
+      "calls": 8,
+      "compared": 8,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_SHIP_MOVED": {
+      "calls": 3,
+      "compared": 3,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_SPACE_COMBAT_ENDED": {
+      "calls": 3,
+      "compared": 3,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_SPACE_COMBAT_ROLL_STEP_ENDED": {
+      "calls": 7,
+      "compared": 7,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_SPACE_COMBAT_STARTED": {
+      "calls": 5,
+      "compared": 5,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_SPACE_COMBAT_WON": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_STRATEGY_CARD_CHOSEN": {
+      "calls": 6,
+      "compared": 6,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_STRATEGY_PHASE_BEGAN": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_STRATEGY_PHASE_ENDED": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_SUSTAIN_DAMAGE_USED": {
+      "calls": 3,
+      "compared": 3,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_SYSTEM_ACTIVATED": {
+      "calls": 94,
+      "compared": 94,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_TACTICAL_ACTION_ENDED": {
+      "calls": 65,
+      "compared": 65,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_TRADE_GOODS_GAINED": {
+      "calls": 15,
+      "compared": 15,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_TRANSACTION_RESOLVED": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_UNIT_ABILITY_ROLLED": {
+      "calls": 3,
+      "compared": 3,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_after_VOTES_CAST": {
+      "calls": 6,
+      "compared": 6,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_when_ACTION_CARD_PLAYED": {
+      "calls": 6,
+      "compared": 6,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_when_AGENDA_RESOLVED": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_when_AGENDA_REVEALED": {
+      "calls": 23,
+      "compared": 23,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_when_GROUND_FORCES_BEING_PRODUCED": {
+      "calls": 13,
+      "compared": 13,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_when_GROUND_HITS_TO_ASSIGN": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_when_HITS_TO_ASSIGN": {
+      "calls": 7,
+      "compared": 7,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_when_SPACE_CANNON_HITS": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_when_STRATEGIC_ACTION_BEGAN": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_when_STRATEGY_CARDS_WOULD_RETURN": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reaction_when_UNIT_ABILITY_ROLLED": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "ready_planet": {
+      "calls": 49,
+      "compared": 49,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "remove_custodians": {
+      "calls": 3,
+      "compared": 3,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reparations_exhaust": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "reparations_ready": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "research_technology": {
+      "calls": 32,
+      "compared": 32,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "research_waiver": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "retreat_to": {
+      "calls": 12,
+      "compared": 12,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "return_over_secret_hand_limit": {
+      "calls": 23,
+      "compared": 23,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "sardakk_hero_skip": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "scanlink_explore": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "score_objective": {
+      "calls": 39,
+      "compared": 39,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "score_secret_objective": {
+      "calls": 6,
+      "compared": 6,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "seize_pick_fragment": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "seize_pick_player": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "self_assembly_mech": {
+      "calls": 4,
+      "compared": 4,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "skilled_retreat_choose_system": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "starting_technology": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "status_redistribute_tokens": {
+      "calls": 60,
+      "compared": 60,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "stillness_target": {
+      "calls": 5,
+      "compared": 5,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "suffi_an": {
+      "calls": 8,
+      "compared": 8,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "sustain_damage": {
+      "calls": 24,
+      "compared": 24,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "terragenesis_token": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "trade_choose_replenish": {
+      "calls": 14,
+      "compared": 14,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "unexpected_pick_recall": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "vfs1_choose_reward": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "vfs2_choose_reward": {
+      "calls": 1,
+      "compared": 1,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "vote_exhaust_planet": {
+      "calls": 137,
+      "compared": 137,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "vote_tiebreak": {
+      "calls": 3,
+      "compared": 3,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "warfare_free_tactical": {
+      "calls": 16,
+      "compared": 16,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "warfare_redistribute_tokens": {
+      "calls": 32,
+      "compared": 32,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "yin_hero_commit": {
+      "calls": 3,
+      "compared": 3,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "zeu_activate_system": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "~place": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "~produce": {
+      "calls": 2,
+      "compared": 2,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "~remove": {
+      "calls": 41,
+      "compared": 41,
+      "mismatches": 0,
+      "skipped": {}
+    },
+    "~strategy": {
+      "calls": 205,
+      "compared": 205,
+      "mismatches": 0,
+      "skipped": {}
+    }
+  },
+  "calls": 4896,
+  "compared": 4896,
+  "games": [
+    {
+      "choices_hash": "1b128bd108b2ce1a588938bc62b8f5ed31ca15f6c83f4bacf1f79cc2a653fa0d",
+      "decisions": 1569,
+      "decisions_hash": "4886d0691592fc15",
+      "index": 0
+    },
+    {
+      "choices_hash": "a579aa1ca3f8c2aa46b4666cde2681d561a5ea62e287cbf743f864110262ee04",
+      "decisions": 1672,
+      "decisions_hash": "eb066e8edb70f092",
+      "index": 5
+    },
+    {
+      "choices_hash": "03b1774d28c9822182b29848fd01ca62a3705d1abfad64c67219653929640392",
+      "decisions": 1655,
+      "decisions_hash": "49e97008433f6f19",
+      "index": 11
+    }
+  ],
+  "mismatches": 0,
+  "seen_parity": {
+    "compared": 0,
+    "differences": 0,
+    "positions": 0,
+    "unmapped": {}
+  },
+  "view_calls": {
+    "abandoned_warehouses_choose_reward": {
+      "Observed::objective_view": 8,
+      "Observed::revealed_objective_progress_imagining": 4,
+      "Observed::scored_by": 4,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 4,
+      "SeatObservation::held_secrets": 2
+    },
+    "action_menu": {
+      "Observed::available_spend": 12949,
+      "Observed::can_reach": 11812,
+      "Observed::controlled_planets": 22206,
+      "Observed::loadable": 28196,
+      "Observed::movable_into": 111318,
+      "Observed::movable_into_shared": 111318,
+      "Observed::objective_view": 17436,
+      "Observed::planet_is_ready": 19,
+      "Observed::players": 41901,
+      "Observed::promissory_notes": 150,
+      "Observed::revealed_objective_progress_imagining": 8622,
+      "Observed::rift_exits_into": 43014,
+      "Observed::scoreable_public": 189,
+      "Observed::scored_by": 8622,
+      "Observed::seat": 297186,
+      "Observed::system": 349534,
+      "Observed::systems_with_token": 17544,
+      "Observed::typed_movable_into": 11033,
+      "Observed::typed_rift_exits": 4072,
+      "PlanetId::new": 31926,
+      "PlayerId::new": 443,
+      "SeatObservation::held_action_cards": 825,
+      "SeatObservation::held_secret_progress": 3,
+      "SeatObservation::held_secret_progress_imagining": 8622,
+      "SeatObservation::held_secrets": 1833,
+      "SystemId::new": 79734
+    },
+    "activate_system": {
+      "Observed::available_spend": 3890,
+      "Observed::can_reach": 4067,
+      "Observed::controlled_planets": 6564,
+      "Observed::loadable": 13836,
+      "Observed::movable_into": 36734,
+      "Observed::movable_into_shared": 36734,
+      "Observed::objective_view": 7404,
+      "Observed::players": 11968,
+      "Observed::promissory_notes": 65,
+      "Observed::revealed_objective_progress_imagining": 3702,
+      "Observed::rift_exits_into": 22624,
+      "Observed::scored_by": 3702,
+      "Observed::seat": 93134,
+      "Observed::system": 130673,
+      "Observed::systems_with_token": 4887,
+      "Observed::typed_movable_into": 6290,
+      "Observed::typed_rift_exits": 3238,
+      "PlanetId::new": 13604,
+      "PlayerId::new": 201,
+      "SeatObservation::held_action_cards": 332,
+      "SeatObservation::held_secret_progress_imagining": 3702,
+      "SeatObservation::held_secrets": 596,
+      "SystemId::new": 27306
+    },
+    "ambush_roll": {
+      "Observed::objective_view": 20,
+      "Observed::revealed_objective_progress_imagining": 10,
+      "Observed::scored_by": 10,
+      "PlayerId::new": 4,
+      "SeatObservation::held_action_cards": 12,
+      "SeatObservation::held_secret_progress_imagining": 10,
+      "SeatObservation::held_secrets": 4
+    },
+    "announce_retreat": {
+      "Observed::objective_view": 320,
+      "Observed::revealed_objective_progress_imagining": 160,
+      "Observed::scored_by": 160,
+      "Observed::seat": 142,
+      "Observed::system": 120,
+      "PlayerId::new": 61,
+      "SeatObservation::held_action_cards": 183,
+      "SeatObservation::held_secret_progress_imagining": 160,
+      "SeatObservation::held_secrets": 61,
+      "SystemId::new": 61
+    },
+    "answer_transaction": {
+      "Observed::objective_view": 400,
+      "Observed::revealed_objective_progress_imagining": 200,
+      "Observed::scored_by": 200,
+      "Observed::seat": 54,
+      "PlayerId::new": 54,
+      "SeatObservation::held_action_cards": 162,
+      "SeatObservation::held_secret_progress_imagining": 200,
+      "SeatObservation::held_secrets": 54
+    },
+    "assign_casualty": {
+      "Observed::objective_view": 40,
+      "Observed::revealed_objective_progress_imagining": 20,
+      "Observed::scored_by": 20,
+      "PlayerId::new": 10,
+      "SeatObservation::held_action_cards": 10,
+      "SeatObservation::held_secret_progress_imagining": 20,
+      "SeatObservation::held_secrets": 10
+    },
+    "assimilate": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "Observed::seat": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 1,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "bribery_pick_count": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "buy_token_with_influence": {
+      "Observed::available_spend": 149,
+      "Observed::controlled_planets": 49,
+      "Observed::movable_into": 25,
+      "Observed::movable_into_shared": 25,
+      "Observed::objective_view": 856,
+      "Observed::planet_is_ready": 267,
+      "Observed::players": 30,
+      "Observed::revealed_objective_progress_imagining": 428,
+      "Observed::scored_by": 428,
+      "Observed::seat": 475,
+      "Observed::system": 202,
+      "Observed::systems_with_token": 24,
+      "Observed::typed_movable_into": 25,
+      "PlayerId::new": 150,
+      "SeatObservation::held_action_cards": 448,
+      "SeatObservation::held_secret_progress_imagining": 428,
+      "SeatObservation::held_secrets": 150,
+      "SystemId::new": 176
+    },
+    "cast_vote": {
+      "Observed::agendas_resolved_this_round": 58,
+      "Observed::controlled_planets": 1214,
+      "Observed::objective_view": 232,
+      "Observed::planet_is_ready": 8738,
+      "Observed::players": 382,
+      "Observed::revealed_objective_progress_imagining": 116,
+      "Observed::scored_by": 116,
+      "Observed::seat": 1610,
+      "PlanetId::new": 680,
+      "PlayerId::new": 58,
+      "SeatObservation::held_action_cards": 58,
+      "SeatObservation::held_secret_progress_imagining": 116,
+      "SeatObservation::held_secrets": 58
+    },
+    "cm1_choose_reward": {
+      "Observed::objective_view": 8,
+      "Observed::revealed_objective_progress_imagining": 4,
+      "Observed::scored_by": 4,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 4,
+      "SeatObservation::held_secrets": 2
+    },
+    "cm3_choose_reward": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "commit_ground_forces": {
+      "Observed::active_system": 425,
+      "Observed::objective_view": 1392,
+      "Observed::revealed_objective_progress_imagining": 696,
+      "Observed::scored_by": 696,
+      "Observed::system": 1134,
+      "PlanetId::new": 1076,
+      "PlayerId::new": 271,
+      "SeatObservation::held_action_cards": 813,
+      "SeatObservation::held_secret_progress_imagining": 696,
+      "SeatObservation::held_secrets": 271
+    },
+    "confusing_legal_text_elect": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "construction_choose_ability": {
+      "Observed::available_spend": 4,
+      "Observed::can_reach": 16,
+      "Observed::controlled_planets": 14,
+      "Observed::objective_view": 78,
+      "Observed::revealed_objective_progress_imagining": 39,
+      "Observed::scored_by": 39,
+      "Observed::seat": 41,
+      "Observed::system": 100,
+      "Observed::systems_with_token": 20,
+      "PlanetId::new": 23,
+      "PlayerId::new": 15,
+      "SeatObservation::held_action_cards": 45,
+      "SeatObservation::held_secret_progress_imagining": 39,
+      "SeatObservation::held_secrets": 15,
+      "SystemId::new": 41
+    },
+    "destination": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "diplomacy_choose_system": {
+      "Observed::objective_view": 72,
+      "Observed::revealed_objective_progress_imagining": 36,
+      "Observed::scored_by": 36,
+      "PlayerId::new": 14,
+      "SeatObservation::held_action_cards": 42,
+      "SeatObservation::held_secret_progress_imagining": 36,
+      "SeatObservation::held_secrets": 14
+    },
+    "diplomacy_rider_system": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "discard_over_hand_limit": {
+      "Observed::objective_view": 40,
+      "Observed::revealed_objective_progress_imagining": 20,
+      "Observed::scored_by": 20,
+      "PlayerId::new": 8,
+      "SeatObservation::held_action_cards": 24,
+      "SeatObservation::held_secret_progress_imagining": 20,
+      "SeatObservation::held_secrets": 8
+    },
+    "draft_strategy_card": {
+      "Observed::available_spend": 2386,
+      "Observed::can_reach": 1716,
+      "Observed::controlled_planets": 3939,
+      "Observed::loadable": 7298,
+      "Observed::movable_into": 18736,
+      "Observed::movable_into_shared": 18736,
+      "Observed::objective_view": 4891,
+      "Observed::players": 7933,
+      "Observed::promissory_notes": 39,
+      "Observed::revealed_objective_progress_imagining": 2445,
+      "Observed::rift_exits_into": 10901,
+      "Observed::scored_by": 2445,
+      "Observed::seat": 52674,
+      "Observed::strategy_card_goods": 726,
+      "Observed::system": 53936,
+      "Observed::systems_with_token": 3276,
+      "Observed::typed_movable_into": 2501,
+      "Observed::typed_rift_exits": 1915,
+      "PlanetId::new": 5289,
+      "PlayerId::new": 107,
+      "SeatObservation::held_action_cards": 275,
+      "SeatObservation::held_secret_progress": 1,
+      "SeatObservation::held_secret_progress_imagining": 2445,
+      "SeatObservation::held_secrets": 375,
+      "SystemId::new": 13898
+    },
+    "end_turn": {
+      "Observed::objective_view": 1877,
+      "Observed::revealed_objective_progress_imagining": 938,
+      "Observed::scored_by": 938,
+      "PlayerId::new": 353,
+      "SeatObservation::held_action_cards": 1055,
+      "SeatObservation::held_secret_progress": 1,
+      "SeatObservation::held_secret_progress_imagining": 938,
+      "SeatObservation::held_secrets": 353
+    },
+    "exp1_choose_reward": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "exp2_choose_reward": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "exp3_choose_reward": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "fight_ground_combat_round": {
+      "Observed::objective_view": 192,
+      "Observed::revealed_objective_progress_imagining": 96,
+      "Observed::scored_by": 96,
+      "PlayerId::new": 36,
+      "SeatObservation::held_action_cards": 108,
+      "SeatObservation::held_secret_progress_imagining": 96,
+      "SeatObservation::held_secrets": 36
+    },
+    "functioning_base_choose_reward": {
+      "Observed::objective_view": 36,
+      "Observed::revealed_objective_progress_imagining": 18,
+      "Observed::scored_by": 18,
+      "PlayerId::new": 8,
+      "SeatObservation::held_action_cards": 24,
+      "SeatObservation::held_secret_progress_imagining": 18,
+      "SeatObservation::held_secrets": 8
+    },
+    "gain_command_token": {
+      "Observed::available_spend": 68,
+      "Observed::can_reach": 159,
+      "Observed::controlled_planets": 146,
+      "Observed::objective_view": 1558,
+      "Observed::revealed_objective_progress_imagining": 778,
+      "Observed::scored_by": 778,
+      "Observed::seat": 775,
+      "Observed::system": 2729,
+      "Observed::systems_with_token": 185,
+      "PlanetId::new": 275,
+      "PlayerId::new": 316,
+      "SeatObservation::held_action_cards": 948,
+      "SeatObservation::held_secret_progress": 2,
+      "SeatObservation::held_secret_progress_imagining": 778,
+      "SeatObservation::held_secrets": 316,
+      "SystemId::new": 694
+    },
+    "grant_reallocation_choose_technology": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "Observed::seat": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 1,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "imperial_score_objective": {
+      "Observed::controlled_planets": 1,
+      "Observed::objective_view": 37,
+      "Observed::revealed_objective_progress_imagining": 18,
+      "Observed::scored_by": 18,
+      "Observed::seat": 3,
+      "Observed::system": 4,
+      "Observed::systems_with_token": 2,
+      "PlayerId::new": 9,
+      "SeatObservation::held_action_cards": 9,
+      "SeatObservation::held_secret_progress": 1,
+      "SeatObservation::held_secret_progress_imagining": 18,
+      "SeatObservation::held_secrets": 9
+    },
+    "indoctrination_replace": {
+      "Observed::objective_view": 18,
+      "Observed::revealed_objective_progress_imagining": 9,
+      "Observed::scored_by": 9,
+      "PlayerId::new": 3,
+      "SeatObservation::held_action_cards": 9,
+      "SeatObservation::held_secret_progress_imagining": 9,
+      "SeatObservation::held_secrets": 3
+    },
+    "leader_ssruu_round_agent_unit": {
+      "Observed::objective_view": 26,
+      "Observed::revealed_objective_progress_imagining": 13,
+      "Observed::scored_by": 13,
+      "PlayerId::new": 5,
+      "SeatObservation::held_action_cards": 10,
+      "SeatObservation::held_secret_progress_imagining": 13,
+      "SeatObservation::held_secrets": 5
+    },
+    "leader_xxchaagent_ready_planet": {
+      "Observed::controlled_planets": 4,
+      "Observed::objective_view": 20,
+      "Observed::revealed_objective_progress_imagining": 10,
+      "Observed::scored_by": 10,
+      "PlayerId::new": 4,
+      "SeatObservation::held_action_cards": 8,
+      "SeatObservation::held_secret_progress_imagining": 10,
+      "SeatObservation::held_secrets": 4
+    },
+    "legendary_arms_vault": {
+      "Observed::objective_view": 54,
+      "Observed::revealed_objective_progress_imagining": 27,
+      "Observed::scored_by": 27,
+      "PlayerId::new": 10,
+      "SeatObservation::held_action_cards": 30,
+      "SeatObservation::held_secret_progress_imagining": 27,
+      "SeatObservation::held_secrets": 10
+    },
+    "legendary_end_of_turn": {
+      "Observed::objective_view": 326,
+      "Observed::revealed_objective_progress_imagining": 163,
+      "Observed::scored_by": 163,
+      "PlayerId::new": 58,
+      "SeatObservation::held_action_cards": 174,
+      "SeatObservation::held_secret_progress_imagining": 163,
+      "SeatObservation::held_secrets": 58
+    },
+    "legendary_exterrix": {
+      "Observed::objective_view": 12,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 2
+    },
+    "legendary_place": {
+      "Observed::objective_view": 88,
+      "Observed::revealed_objective_progress_imagining": 44,
+      "Observed::scored_by": 44,
+      "PlayerId::new": 16,
+      "SeatObservation::held_action_cards": 48,
+      "SeatObservation::held_secret_progress_imagining": 44,
+      "SeatObservation::held_secrets": 16
+    },
+    "load_cargo": {
+      "Observed::active_system": 537,
+      "Observed::available_spend": 6,
+      "Observed::objective_view": 1792,
+      "Observed::players": 42,
+      "Observed::revealed_objective_progress_imagining": 896,
+      "Observed::scored_by": 896,
+      "Observed::seat": 300,
+      "Observed::system": 1296,
+      "Observed::systems_with_token": 278,
+      "PlanetId::new": 584,
+      "PlayerId::new": 359,
+      "SeatObservation::held_action_cards": 1023,
+      "SeatObservation::held_secret_progress_imagining": 896,
+      "SeatObservation::held_secrets": 359
+    },
+    "local_fabricators_choose_reward": {
+      "Observed::objective_view": 32,
+      "Observed::revealed_objective_progress_imagining": 16,
+      "Observed::scored_by": 16,
+      "PlayerId::new": 8,
+      "SeatObservation::held_action_cards": 24,
+      "SeatObservation::held_secret_progress_imagining": 16,
+      "SeatObservation::held_secrets": 8
+    },
+    "malleon_discard": {
+      "Observed::objective_view": 12,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 2
+    },
+    "malleon_payment": {
+      "Observed::objective_view": 26,
+      "Observed::revealed_objective_progress_imagining": 13,
+      "Observed::scored_by": 13,
+      "PlayerId::new": 5,
+      "SeatObservation::held_action_cards": 10,
+      "SeatObservation::held_secret_progress_imagining": 13,
+      "SeatObservation::held_secrets": 5
+    },
+    "malleon_player": {
+      "Observed::objective_view": 26,
+      "Observed::revealed_objective_progress_imagining": 13,
+      "Observed::scored_by": 13,
+      "PlayerId::new": 5,
+      "SeatObservation::held_action_cards": 10,
+      "SeatObservation::held_secret_progress_imagining": 13,
+      "SeatObservation::held_secrets": 5
+    },
+    "mercenary_outfit_choose_reward": {
+      "Observed::objective_view": 16,
+      "Observed::revealed_objective_progress_imagining": 8,
+      "Observed::scored_by": 8,
+      "PlayerId::new": 4,
+      "SeatObservation::held_action_cards": 12,
+      "SeatObservation::held_secret_progress_imagining": 8,
+      "SeatObservation::held_secrets": 4
+    },
+    "mercer_place": {
+      "Observed::objective_view": 12,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 2
+    },
+    "mercer_take": {
+      "Observed::active_system": 36,
+      "Observed::controlled_planets": 31,
+      "Observed::objective_view": 52,
+      "Observed::revealed_objective_progress_imagining": 26,
+      "Observed::scored_by": 26,
+      "Observed::system": 37,
+      "PlanetId::new": 25,
+      "PlayerId::new": 10,
+      "SeatObservation::held_action_cards": 20,
+      "SeatObservation::held_secret_progress_imagining": 26,
+      "SeatObservation::held_secrets": 10,
+      "SystemId::new": 36
+    },
+    "movement_step": {
+      "Observed::active_system": 1341,
+      "Observed::available_spend": 15,
+      "Observed::controlled_planets": 299,
+      "Observed::loadable": 226,
+      "Observed::movable_into": 100,
+      "Observed::movable_into_shared": 100,
+      "Observed::objective_view": 2002,
+      "Observed::objectives_implicating_system": 111,
+      "Observed::players": 54,
+      "Observed::revealed_objective_progress_imagining": 1001,
+      "Observed::rift_exits_into": 242,
+      "Observed::scored_by": 1001,
+      "Observed::seat": 1187,
+      "Observed::system": 3966,
+      "Observed::systems_with_token": 235,
+      "Observed::typed_movable_into": 95,
+      "Observed::typed_rift_exits": 176,
+      "PlanetId::new": 885,
+      "PlayerId::new": 387,
+      "SeatObservation::held_action_cards": 1077,
+      "SeatObservation::held_secret_progress_imagining": 1001,
+      "SeatObservation::held_secrets": 387,
+      "SystemId::new": 1801
+    },
+    "nullification_field_end_turn": {
+      "Observed::objective_view": 12,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 2
+    },
+    "offer_discard_law": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "pay_influence": {
+      "Observed::objective_view": 1152,
+      "Observed::revealed_objective_progress_imagining": 576,
+      "Observed::scored_by": 576,
+      "PlayerId::new": 199,
+      "SeatObservation::held_action_cards": 517,
+      "SeatObservation::held_secret_progress_imagining": 576,
+      "SeatObservation::held_secrets": 199
+    },
+    "pay_resources": {
+      "Observed::movable_into": 75,
+      "Observed::movable_into_shared": 75,
+      "Observed::objective_view": 1258,
+      "Observed::revealed_objective_progress_imagining": 629,
+      "Observed::scored_by": 629,
+      "Observed::system": 552,
+      "Observed::typed_movable_into": 75,
+      "PlayerId::new": 238,
+      "SeatObservation::held_action_cards": 646,
+      "SeatObservation::held_secret_progress_imagining": 629,
+      "SeatObservation::held_secrets": 238,
+      "SystemId::new": 590
+    },
+    "peace_accords_annex": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "pillage_take": {
+      "Observed::objective_view": 18,
+      "Observed::revealed_objective_progress_imagining": 9,
+      "Observed::scored_by": 9,
+      "PlayerId::new": 3,
+      "SeatObservation::held_action_cards": 9,
+      "SeatObservation::held_secret_progress_imagining": 9,
+      "SeatObservation::held_secrets": 3
+    },
+    "place_structure": {
+      "Observed::objective_view": 838,
+      "Observed::revealed_objective_progress_imagining": 419,
+      "Observed::scored_by": 419,
+      "PlayerId::new": 43,
+      "SeatObservation::held_action_cards": 119,
+      "SeatObservation::held_secret_progress_imagining": 419,
+      "SeatObservation::held_secrets": 69
+    },
+    "place_structure_pds_alternative": {
+      "Observed::objective_view": 12,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 2
+    },
+    "place_unit": {
+      "Observed::objective_view": 30,
+      "Observed::revealed_objective_progress_imagining": 15,
+      "Observed::scored_by": 15,
+      "PlayerId::new": 5,
+      "SeatObservation::held_action_cards": 15,
+      "SeatObservation::held_secret_progress_imagining": 15,
+      "SeatObservation::held_secrets": 5
+    },
+    "place_units_from_reinforcements": {
+      "Observed::objective_view": 52,
+      "Observed::revealed_objective_progress_imagining": 26,
+      "Observed::scored_by": 26,
+      "PlayerId::new": 10,
+      "SeatObservation::held_action_cards": 30,
+      "SeatObservation::held_secret_progress_imagining": 26,
+      "SeatObservation::held_secrets": 10
+    },
+    "plagiarize_pick_technology": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "Observed::seat": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 1,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "plague_pick_planet": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "play_reaction_after_COMBAT_ROUND_STARTED": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "politics_choose_speaker": {
+      "Observed::objective_view": 52,
+      "Observed::revealed_objective_progress_imagining": 26,
+      "Observed::scored_by": 26,
+      "Observed::seat": 6,
+      "PlayerId::new": 19,
+      "SeatObservation::held_action_cards": 13,
+      "SeatObservation::held_secret_progress_imagining": 26,
+      "SeatObservation::held_secrets": 13
+    },
+    "politics_place_agenda": {
+      "Observed::controlled_planets": 112,
+      "Observed::objective_view": 104,
+      "Observed::planet_is_ready": 806,
+      "Observed::players": 38,
+      "Observed::revealed_objective_progress_imagining": 52,
+      "Observed::scored_by": 52,
+      "Observed::seat": 112,
+      "PlayerId::new": 26,
+      "SeatObservation::held_action_cards": 26,
+      "SeatObservation::held_secret_progress_imagining": 52,
+      "SeatObservation::held_secrets": 26,
+      "SystemId::new": 1
+    },
+    "predict_agenda_outcome": {
+      "Observed::agenda_in_play": 2,
+      "Observed::controlled_planets": 36,
+      "Observed::objective_view": 8,
+      "Observed::planet_is_ready": 270,
+      "Observed::players": 11,
+      "Observed::revealed_objective_progress_imagining": 4,
+      "Observed::scored_by": 4,
+      "Observed::seat": 38,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 2,
+      "SeatObservation::held_secret_progress_imagining": 4
+    },
+    "produce_one_unit": {
+      "Observed::controlled_planets": 1,
+      "Observed::objective_view": 4,
+      "Observed::players": 1,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "Observed::seat": 7,
+      "Observed::system": 15,
+      "Observed::systems_with_token": 4,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1,
+      "SystemId::new": 1
+    },
+    "produce_unit": {
+      "Observed::available_spend": 4555,
+      "Observed::can_reach": 4839,
+      "Observed::controlled_planets": 7926,
+      "Observed::loadable": 8779,
+      "Observed::movable_into": 31593,
+      "Observed::movable_into_shared": 31593,
+      "Observed::objective_view": 5084,
+      "Observed::planet_is_ready": 138,
+      "Observed::players": 15199,
+      "Observed::promissory_notes": 20,
+      "Observed::revealed_objective_progress_imagining": 2542,
+      "Observed::rift_exits_into": 10107,
+      "Observed::scored_by": 2542,
+      "Observed::seat": 102071,
+      "Observed::system": 105975,
+      "Observed::systems_with_token": 4888,
+      "Observed::typed_movable_into": 4031,
+      "Observed::typed_rift_exits": 1536,
+      "PlanetId::new": 9237,
+      "PlayerId::new": 207,
+      "SeatObservation::held_action_cards": 599,
+      "SeatObservation::held_secret_progress_imagining": 2542,
+      "SeatObservation::held_secrets": 739,
+      "SystemId::new": 21979
+    },
+    "propose_transaction": {
+      "Observed::objective_view": 354,
+      "Observed::revealed_objective_progress_imagining": 177,
+      "Observed::scored_by": 177,
+      "Observed::seat": 65,
+      "PlayerId::new": 65,
+      "SeatObservation::held_action_cards": 195,
+      "SeatObservation::held_secret_progress_imagining": 177,
+      "SeatObservation::held_secrets": 65
+    },
+    "ps": {
+      "Observed::objective_view": 16,
+      "Observed::revealed_objective_progress_imagining": 8,
+      "Observed::scored_by": 8,
+      "PlayerId::new": 4,
+      "SeatObservation::held_action_cards": 12,
+      "SeatObservation::held_secret_progress_imagining": 8,
+      "SeatObservation::held_secrets": 4
+    },
+    "public_disgrace_choose_card": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "quash": {
+      "Observed::objective_view": 24,
+      "Observed::revealed_objective_progress_imagining": 12,
+      "Observed::scored_by": 12,
+      "PlayerId::new": 6,
+      "SeatObservation::held_action_cards": 18,
+      "SeatObservation::held_secret_progress_imagining": 12,
+      "SeatObservation::held_secrets": 6
+    },
+    "reaction_after_ACTION_CARD_DISCARDED": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_after_ACTION_COMPLETED": {
+      "Observed::objective_view": 24,
+      "Observed::revealed_objective_progress_imagining": 12,
+      "Observed::scored_by": 12,
+      "PlayerId::new": 5,
+      "SeatObservation::held_action_cards": 15,
+      "SeatObservation::held_secret_progress_imagining": 12,
+      "SeatObservation::held_secrets": 5
+    },
+    "reaction_after_AGENDA_PHASE_BEGAN": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_after_AGENDA_REVEALED": {
+      "Observed::agenda_prediction_of": 20,
+      "Observed::controlled_planets": 570,
+      "Observed::objective_view": 80,
+      "Observed::planet_is_ready": 4188,
+      "Observed::players": 171,
+      "Observed::revealed_objective_progress_imagining": 40,
+      "Observed::scored_by": 40,
+      "Observed::seat": 705,
+      "PlanetId::new": 200,
+      "PlayerId::new": 20,
+      "SeatObservation::held_action_cards": 20,
+      "SeatObservation::held_secret_progress_imagining": 40
+    },
+    "reaction_after_COMBAT_ROUND_STARTED": {
+      "Observed::objective_view": 120,
+      "Observed::revealed_objective_progress_imagining": 60,
+      "Observed::scored_by": 60,
+      "PlayerId::new": 21,
+      "SeatObservation::held_action_cards": 63,
+      "SeatObservation::held_secret_progress_imagining": 60,
+      "SeatObservation::held_secrets": 21
+    },
+    "reaction_after_COMMODITIES_REPLENISHED": {
+      "Observed::objective_view": 26,
+      "Observed::revealed_objective_progress_imagining": 13,
+      "Observed::scored_by": 13,
+      "Observed::seat": 5,
+      "PlayerId::new": 5,
+      "SeatObservation::held_action_cards": 10,
+      "SeatObservation::held_secret_progress_imagining": 13,
+      "SeatObservation::held_secrets": 5
+    },
+    "reaction_after_GROUND_COMBAT_ROLL_STEP_ENDED": {
+      "Observed::invasion": 4,
+      "Observed::objective_view": 24,
+      "Observed::revealed_objective_progress_imagining": 12,
+      "Observed::scored_by": 12,
+      "Observed::space_battle": 4,
+      "PlayerId::new": 4,
+      "SeatObservation::held_action_cards": 10,
+      "SeatObservation::held_secret_progress_imagining": 12,
+      "SeatObservation::held_secrets": 4
+    },
+    "reaction_after_GROUND_COMBAT_ROUND_STARTED": {
+      "Observed::invasion": 8,
+      "Observed::objective_view": 40,
+      "Observed::revealed_objective_progress_imagining": 20,
+      "Observed::scored_by": 20,
+      "Observed::space_battle": 8,
+      "PlayerId::new": 8,
+      "SeatObservation::held_action_cards": 16,
+      "SeatObservation::held_secret_progress_imagining": 20,
+      "SeatObservation::held_secrets": 8
+    },
+    "reaction_after_GROUND_COMBAT_STARTED": {
+      "Observed::objective_view": 30,
+      "Observed::revealed_objective_progress_imagining": 15,
+      "Observed::scored_by": 15,
+      "PlayerId::new": 5,
+      "SeatObservation::held_action_cards": 15,
+      "SeatObservation::held_secret_progress_imagining": 15,
+      "SeatObservation::held_secrets": 5
+    },
+    "reaction_after_GROUND_FORCE_DESTROYED": {
+      "Observed::objective_view": 30,
+      "Observed::revealed_objective_progress_imagining": 15,
+      "Observed::scored_by": 15,
+      "PlayerId::new": 5,
+      "SeatObservation::held_action_cards": 10,
+      "SeatObservation::held_secret_progress_imagining": 15,
+      "SeatObservation::held_secrets": 5
+    },
+    "reaction_after_GROUND_ROLLS_MADE": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_after_INVASION_BEGAN": {
+      "Observed::objective_view": 20,
+      "Observed::revealed_objective_progress_imagining": 10,
+      "Observed::scored_by": 10,
+      "PlayerId::new": 4,
+      "SeatObservation::held_action_cards": 12,
+      "SeatObservation::held_secret_progress_imagining": 10,
+      "SeatObservation::held_secrets": 4
+    },
+    "reaction_after_MOVEMENT_FINISHED": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_after_PLANET_CONTROL_GAINED": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_after_PLANET_EXPLORED": {
+      "Observed::objective_view": 30,
+      "Observed::revealed_objective_progress_imagining": 15,
+      "Observed::scored_by": 15,
+      "PlayerId::new": 7,
+      "SeatObservation::held_action_cards": 21,
+      "SeatObservation::held_secret_progress_imagining": 15,
+      "SeatObservation::held_secrets": 7
+    },
+    "reaction_after_PRODUCTION_USED": {
+      "Observed::objective_view": 12,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 2
+    },
+    "reaction_after_RETREAT_DECLARED": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_after_RETREAT_STEP_STARTED": {
+      "Observed::objective_view": 12,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 2
+    },
+    "reaction_after_SHIP_DESTROYED": {
+      "Observed::objective_view": 42,
+      "Observed::revealed_objective_progress_imagining": 21,
+      "Observed::scored_by": 21,
+      "PlayerId::new": 8,
+      "SeatObservation::held_action_cards": 15,
+      "SeatObservation::held_secret_progress_imagining": 21,
+      "SeatObservation::held_secrets": 8
+    },
+    "reaction_after_SHIP_MOVED": {
+      "Observed::objective_view": 18,
+      "Observed::revealed_objective_progress_imagining": 9,
+      "Observed::scored_by": 9,
+      "PlayerId::new": 3,
+      "SeatObservation::held_action_cards": 9,
+      "SeatObservation::held_secret_progress_imagining": 9,
+      "SeatObservation::held_secrets": 3
+    },
+    "reaction_after_SPACE_COMBAT_ENDED": {
+      "Observed::objective_view": 18,
+      "Observed::revealed_objective_progress_imagining": 9,
+      "Observed::scored_by": 9,
+      "PlayerId::new": 3,
+      "SeatObservation::held_action_cards": 9,
+      "SeatObservation::held_secret_progress_imagining": 9,
+      "SeatObservation::held_secrets": 3
+    },
+    "reaction_after_SPACE_COMBAT_ROLL_STEP_ENDED": {
+      "Observed::invasion": 3,
+      "Observed::objective_view": 38,
+      "Observed::revealed_objective_progress_imagining": 19,
+      "Observed::scored_by": 19,
+      "Observed::space_battle": 7,
+      "PlayerId::new": 7,
+      "SeatObservation::held_action_cards": 18,
+      "SeatObservation::held_secret_progress_imagining": 19,
+      "SeatObservation::held_secrets": 7
+    },
+    "reaction_after_SPACE_COMBAT_STARTED": {
+      "Observed::objective_view": 26,
+      "Observed::revealed_objective_progress_imagining": 13,
+      "Observed::scored_by": 13,
+      "PlayerId::new": 5,
+      "SeatObservation::held_action_cards": 15,
+      "SeatObservation::held_secret_progress_imagining": 13,
+      "SeatObservation::held_secrets": 5
+    },
+    "reaction_after_SPACE_COMBAT_WON": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_after_STRATEGY_CARD_CHOSEN": {
+      "Observed::objective_view": 24,
+      "Observed::revealed_objective_progress_imagining": 12,
+      "Observed::scored_by": 12,
+      "PlayerId::new": 6,
+      "SeatObservation::held_action_cards": 18,
+      "SeatObservation::held_secret_progress_imagining": 12,
+      "SeatObservation::held_secrets": 6
+    },
+    "reaction_after_STRATEGY_PHASE_BEGAN": {
+      "Observed::objective_view": 8,
+      "Observed::revealed_objective_progress_imagining": 4,
+      "Observed::scored_by": 4,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 4,
+      "SeatObservation::held_secrets": 2
+    },
+    "reaction_after_STRATEGY_PHASE_ENDED": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_after_SUSTAIN_DAMAGE_USED": {
+      "Observed::objective_view": 18,
+      "Observed::revealed_objective_progress_imagining": 9,
+      "Observed::scored_by": 9,
+      "PlayerId::new": 3,
+      "SeatObservation::held_action_cards": 9,
+      "SeatObservation::held_secret_progress_imagining": 9,
+      "SeatObservation::held_secrets": 3
+    },
+    "reaction_after_SYSTEM_ACTIVATED": {
+      "Observed::objective_view": 472,
+      "Observed::revealed_objective_progress_imagining": 236,
+      "Observed::scored_by": 236,
+      "PlayerId::new": 94,
+      "SeatObservation::held_action_cards": 282,
+      "SeatObservation::held_secret_progress_imagining": 236,
+      "SeatObservation::held_secrets": 94
+    },
+    "reaction_after_TACTICAL_ACTION_ENDED": {
+      "Observed::controlled_planets": 79,
+      "Observed::objective_view": 320,
+      "Observed::revealed_objective_progress_imagining": 160,
+      "Observed::scored_by": 160,
+      "Observed::system": 70,
+      "PlanetId::new": 52,
+      "PlayerId::new": 65,
+      "SeatObservation::held_action_cards": 130,
+      "SeatObservation::held_secret_progress_imagining": 160,
+      "SeatObservation::held_secrets": 65
+    },
+    "reaction_after_TRADE_GOODS_GAINED": {
+      "Observed::objective_view": 82,
+      "Observed::revealed_objective_progress_imagining": 41,
+      "Observed::scored_by": 41,
+      "PlayerId::new": 15,
+      "SeatObservation::held_action_cards": 41,
+      "SeatObservation::held_secret_progress_imagining": 41,
+      "SeatObservation::held_secrets": 15
+    },
+    "reaction_after_TRANSACTION_RESOLVED": {
+      "Observed::objective_view": 12,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 2
+    },
+    "reaction_after_UNIT_ABILITY_ROLLED": {
+      "Observed::objective_view": 18,
+      "Observed::revealed_objective_progress_imagining": 9,
+      "Observed::scored_by": 9,
+      "PlayerId::new": 3,
+      "SeatObservation::held_action_cards": 9,
+      "SeatObservation::held_secret_progress_imagining": 9,
+      "SeatObservation::held_secrets": 3
+    },
+    "reaction_after_VOTES_CAST": {
+      "Observed::objective_view": 24,
+      "Observed::revealed_objective_progress_imagining": 12,
+      "Observed::scored_by": 12,
+      "PlayerId::new": 6,
+      "SeatObservation::held_action_cards": 18,
+      "SeatObservation::held_secret_progress_imagining": 12,
+      "SeatObservation::held_secrets": 6
+    },
+    "reaction_when_ACTION_CARD_PLAYED": {
+      "Observed::objective_view": 34,
+      "Observed::revealed_objective_progress_imagining": 17,
+      "Observed::scored_by": 17,
+      "PlayerId::new": 6,
+      "SeatObservation::held_action_cards": 18,
+      "SeatObservation::held_secret_progress_imagining": 17,
+      "SeatObservation::held_secrets": 6
+    },
+    "reaction_when_AGENDA_RESOLVED": {
+      "Observed::objective_view": 8,
+      "Observed::revealed_objective_progress_imagining": 4,
+      "Observed::scored_by": 4,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 4,
+      "SeatObservation::held_secrets": 2
+    },
+    "reaction_when_AGENDA_REVEALED": {
+      "Observed::agenda_prediction_of": 23,
+      "Observed::controlled_planets": 568,
+      "Observed::objective_view": 92,
+      "Observed::planet_is_ready": 4385,
+      "Observed::players": 176,
+      "Observed::revealed_objective_progress_imagining": 46,
+      "Observed::scored_by": 46,
+      "Observed::seat": 607,
+      "PlayerId::new": 23,
+      "SeatObservation::held_action_cards": 23,
+      "SeatObservation::held_secret_progress_imagining": 46
+    },
+    "reaction_when_GROUND_FORCES_BEING_PRODUCED": {
+      "Observed::objective_view": 60,
+      "Observed::revealed_objective_progress_imagining": 30,
+      "Observed::scored_by": 30,
+      "PlayerId::new": 13,
+      "SeatObservation::held_action_cards": 26,
+      "SeatObservation::held_secret_progress_imagining": 30,
+      "SeatObservation::held_secrets": 13
+    },
+    "reaction_when_GROUND_HITS_TO_ASSIGN": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 2,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_when_HITS_TO_ASSIGN": {
+      "Observed::objective_view": 38,
+      "Observed::revealed_objective_progress_imagining": 19,
+      "Observed::scored_by": 19,
+      "PlayerId::new": 7,
+      "SeatObservation::held_action_cards": 18,
+      "SeatObservation::held_secret_progress_imagining": 19,
+      "SeatObservation::held_secrets": 7
+    },
+    "reaction_when_SPACE_CANNON_HITS": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_when_STRATEGIC_ACTION_BEGAN": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_when_STRATEGY_CARDS_WOULD_RETURN": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "reaction_when_UNIT_ABILITY_ROLLED": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "ready_planet": {
+      "Observed::available_spend": 4,
+      "Observed::controlled_planets": 11,
+      "Observed::objective_view": 252,
+      "Observed::players": 39,
+      "Observed::revealed_objective_progress_imagining": 126,
+      "Observed::scored_by": 126,
+      "Observed::seat": 248,
+      "Observed::system": 10,
+      "Observed::systems_with_token": 12,
+      "PlayerId::new": 49,
+      "SeatObservation::held_action_cards": 147,
+      "SeatObservation::held_secret_progress_imagining": 126
+    },
+    "remove_custodians": {
+      "Observed::objective_view": 18,
+      "Observed::revealed_objective_progress_imagining": 9,
+      "Observed::scored_by": 9,
+      "PlayerId::new": 3,
+      "SeatObservation::held_action_cards": 9,
+      "SeatObservation::held_secret_progress_imagining": 9,
+      "SeatObservation::held_secrets": 3
+    },
+    "reparations_exhaust": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "reparations_ready": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "research_technology": {
+      "Observed::available_spend": 807,
+      "Observed::can_reach": 709,
+      "Observed::controlled_planets": 1389,
+      "Observed::loadable": 1084,
+      "Observed::movable_into": 6168,
+      "Observed::movable_into_shared": 6168,
+      "Observed::objective_view": 1215,
+      "Observed::planet_is_ready": 23,
+      "Observed::players": 2625,
+      "Observed::promissory_notes": 3,
+      "Observed::revealed_objective_progress_imagining": 607,
+      "Observed::rift_exits_into": 1576,
+      "Observed::scored_by": 607,
+      "Observed::seat": 18306,
+      "Observed::system": 16643,
+      "Observed::systems_with_token": 927,
+      "Observed::typed_movable_into": 804,
+      "Observed::typed_rift_exits": 299,
+      "PlanetId::new": 1453,
+      "PlayerId::new": 32,
+      "SeatObservation::held_action_cards": 94,
+      "SeatObservation::held_secret_progress": 1,
+      "SeatObservation::held_secret_progress_imagining": 607,
+      "SeatObservation::held_secrets": 124,
+      "SystemId::new": 4241
+    },
+    "research_waiver": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "retreat_to": {
+      "Observed::objective_view": 48,
+      "Observed::revealed_objective_progress_imagining": 24,
+      "Observed::scored_by": 24,
+      "Observed::system": 26,
+      "PlayerId::new": 12,
+      "SeatObservation::held_action_cards": 12,
+      "SeatObservation::held_secret_progress_imagining": 24,
+      "SeatObservation::held_secrets": 12,
+      "SystemId::new": 26
+    },
+    "return_over_secret_hand_limit": {
+      "Observed::objective_view": 117,
+      "Observed::revealed_objective_progress_imagining": 46,
+      "Observed::scored_by": 46,
+      "PlayerId::new": 23,
+      "SeatObservation::held_action_cards": 23,
+      "SeatObservation::held_secret_progress": 25,
+      "SeatObservation::held_secret_progress_imagining": 46,
+      "SeatObservation::held_secrets": 23
+    },
+    "sardakk_hero_skip": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "scanlink_explore": {
+      "Observed::objective_view": 12,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 2
+    },
+    "score_objective": {
+      "Observed::objective_view": 157,
+      "Observed::revealed_objective_progress_imagining": 78,
+      "Observed::scored_by": 78,
+      "PlayerId::new": 39,
+      "SeatObservation::held_action_cards": 39,
+      "SeatObservation::held_secret_progress": 1,
+      "SeatObservation::held_secret_progress_imagining": 78,
+      "SeatObservation::held_secrets": 39
+    },
+    "score_secret_objective": {
+      "Observed::objective_view": 24,
+      "Observed::revealed_objective_progress_imagining": 12,
+      "Observed::scored_by": 12,
+      "PlayerId::new": 6,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 12,
+      "SeatObservation::held_secrets": 6
+    },
+    "seize_pick_fragment": {
+      "Observed::objective_view": 4,
+      "Observed::revealed_objective_progress_imagining": 2,
+      "Observed::scored_by": 2,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 2,
+      "SeatObservation::held_secrets": 1
+    },
+    "seize_pick_player": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "self_assembly_mech": {
+      "Observed::objective_view": 20,
+      "Observed::revealed_objective_progress_imagining": 10,
+      "Observed::scored_by": 10,
+      "PlayerId::new": 4,
+      "SeatObservation::held_action_cards": 12,
+      "SeatObservation::held_secret_progress_imagining": 10,
+      "SeatObservation::held_secrets": 4
+    },
+    "skilled_retreat_choose_system": {
+      "Observed::objective_view": 10,
+      "Observed::revealed_objective_progress_imagining": 5,
+      "Observed::scored_by": 5,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 5,
+      "SeatObservation::held_secrets": 2
+    },
+    "starting_technology": {
+      "Observed::objective_view": 8,
+      "Observed::revealed_objective_progress_imagining": 4,
+      "Observed::scored_by": 4,
+      "Observed::seat": 2,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 4,
+      "SeatObservation::held_secrets": 2
+    },
+    "status_redistribute_tokens": {
+      "Observed::objective_view": 241,
+      "Observed::revealed_objective_progress_imagining": 120,
+      "Observed::scored_by": 120,
+      "Observed::system": 256,
+      "PlayerId::new": 60,
+      "SeatObservation::held_action_cards": 180,
+      "SeatObservation::held_secret_progress": 1,
+      "SeatObservation::held_secret_progress_imagining": 120,
+      "SeatObservation::held_secrets": 60
+    },
+    "stillness_target": {
+      "Observed::objective_view": 26,
+      "Observed::revealed_objective_progress_imagining": 13,
+      "Observed::scored_by": 13,
+      "PlayerId::new": 5,
+      "SeatObservation::held_action_cards": 10,
+      "SeatObservation::held_secret_progress_imagining": 13,
+      "SeatObservation::held_secrets": 5
+    },
+    "suffi_an": {
+      "Observed::objective_view": 46,
+      "Observed::revealed_objective_progress_imagining": 23,
+      "Observed::scored_by": 23,
+      "PlayerId::new": 8,
+      "SeatObservation::held_action_cards": 16,
+      "SeatObservation::held_secret_progress_imagining": 23,
+      "SeatObservation::held_secrets": 8
+    },
+    "sustain_damage": {
+      "Observed::objective_view": 96,
+      "Observed::revealed_objective_progress_imagining": 48,
+      "Observed::scored_by": 48,
+      "PlayerId::new": 24,
+      "SeatObservation::held_action_cards": 24,
+      "SeatObservation::held_secret_progress_imagining": 48,
+      "SeatObservation::held_secrets": 24
+    },
+    "terragenesis_token": {
+      "Observed::objective_view": 8,
+      "Observed::revealed_objective_progress_imagining": 4,
+      "Observed::scored_by": 4,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 4,
+      "SeatObservation::held_secrets": 2
+    },
+    "trade_choose_replenish": {
+      "Observed::objective_view": 56,
+      "Observed::revealed_objective_progress_imagining": 28,
+      "Observed::scored_by": 28,
+      "PlayerId::new": 14,
+      "SeatObservation::held_action_cards": 14,
+      "SeatObservation::held_secret_progress_imagining": 28,
+      "SeatObservation::held_secrets": 14
+    },
+    "unexpected_pick_recall": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "vfs1_choose_reward": {
+      "Observed::objective_view": 8,
+      "Observed::revealed_objective_progress_imagining": 4,
+      "Observed::scored_by": 4,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 4,
+      "SeatObservation::held_secrets": 2
+    },
+    "vfs2_choose_reward": {
+      "Observed::objective_view": 6,
+      "Observed::revealed_objective_progress_imagining": 3,
+      "Observed::scored_by": 3,
+      "PlayerId::new": 1,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 3,
+      "SeatObservation::held_secrets": 1
+    },
+    "vote_exhaust_planet": {
+      "Observed::agendas_resolved_this_round": 137,
+      "Observed::controlled_planets": 2652,
+      "Observed::objective_view": 548,
+      "Observed::planet_is_ready": 19890,
+      "Observed::players": 798,
+      "Observed::revealed_objective_progress_imagining": 274,
+      "Observed::scored_by": 274,
+      "Observed::seat": 2926,
+      "PlanetId::new": 2640,
+      "PlayerId::new": 137,
+      "SeatObservation::held_action_cards": 137,
+      "SeatObservation::held_secret_progress_imagining": 274,
+      "SeatObservation::held_secrets": 137
+    },
+    "vote_tiebreak": {
+      "Observed::controlled_planets": 16,
+      "Observed::objective_view": 12,
+      "Observed::planet_is_ready": 111,
+      "Observed::players": 5,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "Observed::seat": 30,
+      "PlayerId::new": 3,
+      "SeatObservation::held_action_cards": 3,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 3
+    },
+    "warfare_free_tactical": {
+      "Observed::available_spend": 42,
+      "Observed::can_reach": 8,
+      "Observed::controlled_planets": 36,
+      "Observed::loadable": 106,
+      "Observed::movable_into": 497,
+      "Observed::movable_into_shared": 497,
+      "Observed::objective_view": 84,
+      "Observed::revealed_objective_progress_imagining": 42,
+      "Observed::rift_exits_into": 316,
+      "Observed::scored_by": 42,
+      "Observed::seat": 1010,
+      "Observed::system": 3308,
+      "Observed::systems_with_token": 28,
+      "Observed::typed_movable_into": 497,
+      "Observed::typed_rift_exits": 150,
+      "PlanetId::new": 365,
+      "PlayerId::new": 16,
+      "SeatObservation::held_action_cards": 48,
+      "SeatObservation::held_secret_progress_imagining": 42,
+      "SeatObservation::held_secrets": 16,
+      "SystemId::new": 698
+    },
+    "warfare_redistribute_tokens": {
+      "Observed::available_spend": 11,
+      "Observed::can_reach": 42,
+      "Observed::controlled_planets": 54,
+      "Observed::objective_view": 168,
+      "Observed::players": 9,
+      "Observed::revealed_objective_progress_imagining": 84,
+      "Observed::scored_by": 84,
+      "Observed::seat": 200,
+      "Observed::system": 553,
+      "Observed::systems_with_token": 79,
+      "PlanetId::new": 76,
+      "PlayerId::new": 32,
+      "SeatObservation::held_action_cards": 96,
+      "SeatObservation::held_secret_progress_imagining": 84,
+      "SeatObservation::held_secrets": 32,
+      "SystemId::new": 167
+    },
+    "yin_hero_commit": {
+      "Observed::objective_view": 18,
+      "Observed::revealed_objective_progress_imagining": 9,
+      "Observed::scored_by": 9,
+      "PlayerId::new": 3,
+      "SeatObservation::held_action_cards": 9,
+      "SeatObservation::held_secret_progress_imagining": 9,
+      "SeatObservation::held_secrets": 3
+    },
+    "zeu_activate_system": {
+      "Observed::available_spend": 2,
+      "Observed::loadable": 6,
+      "Observed::movable_into": 63,
+      "Observed::movable_into_shared": 63,
+      "Observed::objective_view": 8,
+      "Observed::revealed_objective_progress_imagining": 4,
+      "Observed::rift_exits_into": 48,
+      "Observed::scored_by": 4,
+      "Observed::seat": 98,
+      "Observed::system": 382,
+      "Observed::typed_movable_into": 63,
+      "Observed::typed_rift_exits": 24,
+      "PlanetId::new": 43,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 4,
+      "SeatObservation::held_secret_progress_imagining": 4,
+      "SeatObservation::held_secrets": 2,
+      "SystemId::new": 87
+    },
+    "~place": {
+      "Observed::objective_view": 12,
+      "Observed::revealed_objective_progress_imagining": 6,
+      "Observed::scored_by": 6,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 6,
+      "SeatObservation::held_secrets": 2
+    },
+    "~produce": {
+      "Observed::available_spend": 102,
+      "Observed::controlled_planets": 95,
+      "Observed::loadable": 42,
+      "Observed::movable_into": 397,
+      "Observed::movable_into_shared": 397,
+      "Observed::objective_view": 24,
+      "Observed::planet_is_ready": 9,
+      "Observed::players": 305,
+      "Observed::revealed_objective_progress_imagining": 12,
+      "Observed::rift_exits_into": 98,
+      "Observed::scored_by": 12,
+      "Observed::seat": 1641,
+      "Observed::system": 1509,
+      "Observed::systems_with_token": 9,
+      "Observed::typed_movable_into": 67,
+      "Observed::typed_rift_exits": 9,
+      "PlanetId::new": 182,
+      "PlayerId::new": 2,
+      "SeatObservation::held_action_cards": 6,
+      "SeatObservation::held_secret_progress_imagining": 12,
+      "SeatObservation::held_secrets": 14,
+      "SystemId::new": 239
+    },
+    "~remove": {
+      "Observed::objective_view": 238,
+      "Observed::revealed_objective_progress_imagining": 119,
+      "Observed::scored_by": 119,
+      "PlayerId::new": 41,
+      "SeatObservation::held_action_cards": 123,
+      "SeatObservation::held_secret_progress_imagining": 119,
+      "SeatObservation::held_secrets": 41
+    },
+    "~strategy": {
+      "Observed::available_spend": 63,
+      "Observed::can_reach": 89,
+      "Observed::controlled_planets": 161,
+      "Observed::movable_into": 11,
+      "Observed::movable_into_shared": 11,
+      "Observed::objective_view": 1090,
+      "Observed::planet_is_ready": 308,
+      "Observed::players": 116,
+      "Observed::revealed_objective_progress_imagining": 545,
+      "Observed::scored_by": 545,
+      "Observed::seat": 1131,
+      "Observed::system": 1118,
+      "Observed::systems_with_token": 135,
+      "Observed::typed_movable_into": 11,
+      "PlanetId::new": 154,
+      "PlayerId::new": 205,
+      "SeatObservation::held_action_cards": 597,
+      "SeatObservation::held_secret_progress_imagining": 545,
+      "SeatObservation::held_secrets": 205,
+      "SystemId::new": 365
+    }
+  }
+}

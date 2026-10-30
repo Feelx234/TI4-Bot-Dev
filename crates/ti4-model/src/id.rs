@@ -80,6 +80,7 @@ pub struct PlayerId(Arc<str>);
 
 impl PlayerId {
     pub fn new(s: impl AsRef<str>) -> Self {
+        crate::count::bump("PlayerId::new");
         Self(Arc::from(s.as_ref()))
     }
     #[must_use]
@@ -120,6 +121,7 @@ pub struct PlanetId(Arc<str>);
 
 impl PlanetId {
     pub fn new(s: impl AsRef<str>) -> Self {
+        crate::count::bump("PlanetId::new");
         Self(Arc::from(s.as_ref()))
     }
     #[must_use]
@@ -141,6 +143,7 @@ pub struct SystemId(Arc<str>);
 
 impl SystemId {
     pub fn new(s: impl AsRef<str>) -> Self {
+        crate::count::bump("SystemId::new");
         Self(Arc::from(s.as_ref()))
     }
     #[must_use]
