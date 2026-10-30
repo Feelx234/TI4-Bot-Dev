@@ -1,0 +1,16 @@
+Q0 seat 0 Strategy(DiplomacySystem)
+  >0: Strategy(System(Tempesta))
+   1: Strategy(System(Olergodt))
+   2: Strategy(System(Andeara))
+Q1 seat 0 Strategy(ReadyPlanet)
+  >0: Strategy(Ready(Tempesta, Shown { votes: 0, system: Some(Tempesta) }))
+   1: Strategy(Ready(Olergodt, Shown { votes: 0, system: Some(Olergodt) }))
+   2: Strategy(Ready(Andeara, Shown { votes: 0, system: Some(Andeara) }))
+Q2 seat 0 Strategy(ReadyPlanet)
+  >0: Strategy(Ready(Olergodt, Shown { votes: 0, system: Some(Olergodt) }))
+   1: Strategy(Ready(Andeara, Shown { votes: 0, system: Some(Andeara) }))
+done
+--- delta ---
+sys[Tempesta]: units [] tokens {} flags 0 -> units [] tokens {1, 2} flags 1
+planet[Olergodt]: control Some(0) units [] attach [] coexist {} placed_in None flags 1 -> control Some(0) units [] attach [] coexist {} placed_in None flags 0
+planet[Tempesta]: control Some(0) units [] attach [] coexist {} placed_in None flags 1 -> control Some(0) units [] attach [] coexist {} placed_in None flags 0

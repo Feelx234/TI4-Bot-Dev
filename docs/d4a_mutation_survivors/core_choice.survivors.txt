@@ -1,0 +1,14 @@
+# survivors of core/choice: 13 of 35 points (62% killed)
+crates/ti4-engine-core/src/choice/agenda.rs:27:37	[Shown::eq]	body	eq(&self, _: &Self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/choice/agenda.rs:33:73	[Shown::partial_cmp]	body	partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {  =>  { return None; }
+crates/ti4-engine-core/src/choice/agenda.rs:62:29	[Frame::voted]	cond	self.agenda == Agenda::CovertLegislation  =>  !(self.agenda == Agenda::CovertLegislation)
+crates/ti4-engine-core/src/choice/agenda.rs:62:29	[Frame::voted]	cmp	self.agenda == Agenda::CovertLegislation  =>  self.agenda != Agenda::CovertLegislation
+crates/ti4-engine-core/src/choice/agenda.rs:87:12	[Tally::push]	cmp	at >= Self::MAX  =>  at > Self::MAX
+crates/ti4-engine-core/src/choice/agenda.rs:88:20	[Tally::push]	lit	false  =>  true
+crates/ti4-engine-core/src/choice/objectives.rs:54:19	[ctx_of]	lit	false  =>  true
+crates/ti4-engine-core/src/choice/objectives.rs:57:23	[ctx_of]	lit	false  =>  true
+crates/ti4-engine-core/src/choice/objectives.rs:88:50	[score_choice]	cond	status  =>  !(status)
+crates/ti4-engine-core/src/choice/production.rs:37:37	[Shown::eq]	body	eq(&self, _: &Self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/choice/production.rs:43:73	[Shown::partial_cmp]	body	partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {  =>  { return None; }
+crates/ti4-engine-core/src/choice/strategy.rs:146:19	[ctx_from]	lit	false  =>  true
+crates/ti4-engine-core/src/choice/strategy.rs:149:23	[ctx_from]	lit	false  =>  true

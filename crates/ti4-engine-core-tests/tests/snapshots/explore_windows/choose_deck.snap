@@ -1,0 +1,6 @@
+Q0 seat 0 Explore(ChooseDeck)
+  >0: Explore(Deck(Cultural))
+   1: Explore(Deck(Hazardous))
+   2: Explore(Deck(Industrial))
+done
+--- delta ---

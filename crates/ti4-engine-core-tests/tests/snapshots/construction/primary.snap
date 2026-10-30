@@ -1,0 +1,16 @@
+Q0 seat 0 Strategy(PlaceStructure { step: 1, only_pds: false })
+   0: Strategy(Structure { pds: true, system: Wellon, planet: Wellon })
+   1: Strategy(Structure { pds: false, system: Wellon, planet: Wellon })
+   2: Strategy(Structure { pds: true, system: Thibah, planet: Thibah })
+  >3: Strategy(Structure { pds: false, system: Thibah, planet: Thibah })
+   4: Decline
+Q1 seat 0 Strategy(PlaceStructure { step: 2, only_pds: true })
+  >0: Strategy(Structure { pds: true, system: Wellon, planet: Wellon })
+   1: Strategy(Structure { pds: true, system: Thibah, planet: Thibah })
+   2: Decline
+done
+--- delta ---
+sys[Wellon]: units [] tokens {} flags 0 -> units [] tokens {} flags 1
+sys[Thibah]: units [] tokens {} flags 0 -> units [] tokens {} flags 1
+planet[Thibah]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [1xSpaceDockI/s0] attach [] coexist {} placed_in None flags 4
+planet[Wellon]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [1xPDSI/s0] attach [] coexist {} placed_in None flags 4

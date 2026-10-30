@@ -1,0 +1,11 @@
+# survivors of core/keys: 10 of 34 points (70% killed)
+crates/ti4-engine-core/src/keys/decimal.rs:17:25	[digits]	lit	0u8  =>  1u8
+crates/ti4-engine-core/src/keys/decimal.rs:51:42	[DecimalTextOrd::cmp_followed]	arith	b'0' + b[alen]  =>  b'0' - b[alen]
+crates/ti4-engine-core/src/keys/decimal.rs:52:35	[DecimalTextOrd::cmp_followed]	arith	b'0' + a[blen]  =>  b'0' - a[blen]
+crates/ti4-engine-core/src/keys/decimal.rs:66:27	[DecimalTextOrd::cmp]	lit	0  =>  1
+crates/ti4-engine-core/src/keys/decimal.rs:66:38	[DecimalTextOrd::cmp]	lit	0  =>  1
+crates/ti4-engine-core/src/keys/mark.rs:207:16	[MarkKey::cmp]	logic	i + 1 < n && atoms[i + 1] == Atom::Absent  =>  i + 1 < n || atoms[i + 1] == Atom::Absent
+crates/ti4-engine-core/src/keys/mark.rs:207:16	[MarkKey::cmp]	cmp	i + 1 < n  =>  i + 1 <= n
+crates/ti4-engine-core/src/keys/mark.rs:207:20	[MarkKey::cmp]	lit	1  =>  2
+crates/ti4-engine-core/src/keys/mark.rs:207:39	[MarkKey::cmp]	lit	1  =>  2
+crates/ti4-engine-core/src/keys/mark.rs:208:17	[MarkKey::cmp]	lit	0  =>  1

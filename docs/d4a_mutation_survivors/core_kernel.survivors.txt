@@ -1,0 +1,265 @@
+# survivors of core/kernel: 264 of 904 points (70% killed)
+crates/ti4-engine-core/src/kernel/fx.rs:52:25	[announce_staged]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx.rs:55:12	[announce_staged]	cond	batch.is_empty()  =>  !(batch.is_empty())
+crates/ti4-engine-core/src/kernel/fx.rs:61:13	[announce_staged]	assign	*next_id += 1  =>  *next_id -= 1
+crates/ti4-engine-core/src/kernel/fx.rs:61:25	[announce_staged]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/fx.rs:70:13	[announce_staged]	assign	announced += 1  =>  announced -= 1
+crates/ti4-engine-core/src/kernel/fx.rs:70:26	[announce_staged]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/fx.rs:109:27	[mirror_journal]	logic	e.id == *id && e.kind == *kind  =>  e.id == *id || e.kind == *kind
+crates/ti4-engine-core/src/kernel/fx.rs:111:97	[mirror_journal]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx.rs:123:8	[gain_trade_goods]	cmp	amount <= 0  =>  amount < 0
+crates/ti4-engine-core/src/kernel/fx.rs:136:8	[spend_trade_goods]	cmp	amount <= 0  =>  amount < 0
+crates/ti4-engine-core/src/kernel/fx.rs:205:66	[gain_victory_points]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx.rs:207:60	[gain_victory_points]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx.rs:230:20	[adjust_victory_points]	cmp	delta >= 0  =>  delta > 0
+crates/ti4-engine-core/src/kernel/fx.rs:230:29	[adjust_victory_points]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx.rs:231:60	[adjust_victory_points]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx.rs:371:52	[tokens_in_reinforcements]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx.rs:382:8	[gain_token]	cmp	granted > 0  =>  granted >= 0
+crates/ti4-engine-core/src/kernel/fx.rs:400:8	[draw_action_cards]	logic	drop_unofficial && s.decks().action.cards().iter().any(|c| ...  =>  drop_unofficial || s.decks().action.cards().iter().any(|c| ...
+crates/ti4-engine-core/src/kernel/fx.rs:461:85	[gain_control]	lit	true  =>  false
+crates/ti4-engine-core/src/kernel/fx.rs:572:57	[deal_strategy_card]	lit	99  =>  100
+crates/ti4-engine-core/src/kernel/fx_explore.rs:65:64	[spend_commodities]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_ground.rs:12:42	[next_ground]	body	next_ground(core: &CoreState) -> u32 {  =>  { return 0; }
+crates/ti4-engine-core/src/kernel/fx_ground.rs:12:42	[next_ground]	body	next_ground(core: &CoreState) -> u32 {  =>  { return 1; }
+crates/ti4-engine-core/src/kernel/fx_ground.rs:18:17	[next_ground]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_ground.rs:18:28	[next_ground]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/fx_ground.rs:60:67	[destroy_on_planet]	lit	true  =>  false
+crates/ti4-engine-core/src/kernel/fx_ground.rs:62:19	[destroy_on_planet]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_ground.rs:64:25	[destroy_on_planet]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_ground.rs:67:36	[destroy_on_planet]	cmp	destroyed >= cap  =>  destroyed > cap
+crates/ti4-engine-core/src/kernel/fx_ground.rs:68:20	[destroy_on_planet]	lit	true  =>  false
+crates/ti4-engine-core/src/kernel/fx_ground.rs:71:19	[destroy_on_planet]	logic	scope.0 & crate::tables::source_bit(d.so... && d.base_type == base  =>  scope.0 & crate::tables::source_bit(d.so... || d.base_type == base
+crates/ti4-engine-core/src/kernel/fx_ground.rs:71:19	[destroy_on_planet]	arith	scope.0 & crate::tables::source_bit(d.source)  =>  scope.0 | crate::tables::source_bit(d.source)
+crates/ti4-engine-core/src/kernel/fx_ground.rs:73:26	[destroy_on_planet]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/fx_move.rs:24:31	[spend_tactic_token]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_move.rs:80:17	[use_gravity_drive]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_move.rs:182:43	[ships_moved]	body	ships_moved(s: &CoreState) -> u32 {  =>  { return 0; }
+crates/ti4-engine-core/src/kernel/fx_move.rs:191:43	[clear_arrivals]	body	clear_arrivals(s: &mut CoreState) {  =>  { return (); }
+crates/ti4-engine-core/src/kernel/fx_pay.rs:41:67	[pay_facts]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/fx_pay.rs:41:74	[pay_facts]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/fx_pay.rs:46:12	[pay_facts]	cond	bonus != 0  =>  !(bonus != 0)
+crates/ti4-engine-core/src/kernel/fx_pay.rs:46:12	[pay_facts]	cmp	bonus != 0  =>  bonus == 0
+crates/ti4-engine-core/src/kernel/fx_pay.rs:46:21	[pay_facts]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_pay.rs:56:68	[apply_plan]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_pay.rs:57:64	[apply_plan]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_pay.rs:58:19	[apply_plan]	logic	i32::from(p.econ.trade_goods) + commodit... && plan.planets().iter().all(|planet| !boar...  =>  i32::from(p.econ.trade_goods) + commodit... || plan.planets().iter().all(|planet| !boar...
+crates/ti4-engine-core/src/kernel/fx_pay.rs:58:19	[apply_plan]	arith	i32::from(p.econ.trade_goods) + commodities  =>  i32::from(p.econ.trade_goods) - commodities
+crates/ti4-engine-core/src/kernel/fx_pay.rs:61:16	[apply_plan]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_pay.rs:66:78	[apply_plan]	arith	plan.trade_goods - from_commodities  =>  plan.trade_goods + from_commodities
+crates/ti4-engine-core/src/kernel/fx_pay.rs:90:103	[pay_all_three]	body	pay_all_three(core: &mut CoreState, k: &Kernel, env: PayEnv, seat: Sea...  =>  { return true; }
+crates/ti4-engine-core/src/kernel/fx_pay.rs:90:103	[pay_all_three]	body	pay_all_three(core: &mut CoreState, k: &Kernel, env: PayEnv, seat: Sea...  =>  { return false; }
+crates/ti4-engine-core/src/kernel/fx_pay.rs:95:78	[all_three_with]	body	all_three_with(core: &mut CoreState, f: &SeatFacts, amount: i64) -> bo...  =>  { return true; }
+crates/ti4-engine-core/src/kernel/fx_pay.rs:95:78	[all_three_with]	body	all_three_with(core: &mut CoreState, f: &SeatFacts, amount: i64) -> bo...  =>  { return false; }
+crates/ti4-engine-core/src/kernel/fx_pay.rs:96:89	[all_three_with]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_pay.rs:97:8	[all_three_with]	cond	!apply_plan(core, f, &resources) || !apply_plan(core, f, &influence)  =>  !(!apply_plan(core, f, &resources) || !apply_plan(core, f, &influence))
+crates/ti4-engine-core/src/kernel/fx_pay.rs:97:8	[all_three_with]	logic	!apply_plan(core, f, &resources) || !apply_plan(core, f, &influence)  =>  !apply_plan(core, f, &resources) && !apply_plan(core, f, &influence)
+crates/ti4-engine-core/src/kernel/fx_pay.rs:98:16	[all_three_with]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_pay.rs:103:5	[all_three_with]	lit	true  =>  false
+crates/ti4-engine-core/src/kernel/fx_pay.rs:108:50	[pay_tokens]	cmp	q::token_pool(core, seat) < amount  =>  q::token_pool(core, seat) <= amount
+crates/ti4-engine-core/src/kernel/fx_pay.rs:111:70	[pay_tokens]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_pay.rs:115:48	[pay_tokens]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_pay.rs:148:78	[pay_secret]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_pay.rs:150:94	[pay_secret]	cmp	*n > 0  =>  *n >= 0
+crates/ti4-engine-core/src/kernel/fx_pay.rs:150:99	[pay_secret]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_pay.rs:151:16	[pay_secret]	cmp	held < 2  =>  held <= 2
+crates/ti4-engine-core/src/kernel/fx_pay.rs:151:23	[pay_secret]	lit	2  =>  3
+crates/ti4-engine-core/src/kernel/fx_pay.rs:157:38	[pay_secret]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_pay.rs:172:16	[pay_secret]	cmp	p.cards.hand.len() < 5  =>  p.cards.hand.len() <= 5
+crates/ti4-engine-core/src/kernel/fx_pay.rs:172:37	[pay_secret]	lit	5  =>  6
+crates/ti4-engine-core/src/kernel/fx_pay.rs:176:37	[pay_secret]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_plots.rs:18:60	[is_firmament]	body	is_firmament(core: &CoreState, seat: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/fx_plots.rs:18:60	[is_firmament]	body	is_firmament(core: &CoreState, seat: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/kernel/fx_plots.rs:19:50	[is_firmament]	cmp	p.faction == Faction::TheFirmament  =>  p.faction != Faction::TheFirmament
+crates/ti4-engine-core/src/kernel/fx_plots.rs:25:69	[remaining_cards]	body	remaining_cards(core: &CoreState) -> SmallList<PlotCard, 5> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/kernel/fx_plots.rs:27:8	[remaining_cards]	cond	in_play.len() >= PRINTED.len()  =>  !(in_play.len() >= PRINTED.len())
+crates/ti4-engine-core/src/kernel/fx_plots.rs:27:8	[remaining_cards]	cmp	in_play.len() >= PRINTED.len()  =>  in_play.len() > PRINTED.len()
+crates/ti4-engine-core/src/kernel/fx_plots.rs:35:102	[score_as_plot]	body	score_as_plot(core: &mut CoreState, who: Seat, secret: SecretObjective...  =>  { return true; }
+crates/ti4-engine-core/src/kernel/fx_plots.rs:35:102	[score_as_plot]	body	score_as_plot(core: &mut CoreState, who: Seat, secret: SecretObjective...  =>  { return false; }
+crates/ti4-engine-core/src/kernel/fx_plots.rs:38:8	[score_as_plot]	cond	!is_firmament(core, who) || who == token || remaining_cards(core).is_empty() || ...  =>  !(!is_firmament(core, who) || who == token || remaining_cards(core).is_empty() || ...)
+crates/ti4-engine-core/src/kernel/fx_plots.rs:38:8	[score_as_plot]	logic	!is_firmament(core, who) || who == token... || core.players().by_seat(who).is_some_and(...  =>  !is_firmament(core, who) || who == token... && core.players().by_seat(who).is_some_and(...
+crates/ti4-engine-core/src/kernel/fx_plots.rs:38:8	[score_as_plot]	logic	!is_firmament(core, who) || who == token... || mine(who)  =>  !is_firmament(core, who) || who == token... && mine(who)
+crates/ti4-engine-core/src/kernel/fx_plots.rs:38:8	[score_as_plot]	logic	!is_firmament(core, who) || who == token... || !mine(token)  =>  !is_firmament(core, who) || who == token... && !mine(token)
+crates/ti4-engine-core/src/kernel/fx_plots.rs:38:8	[score_as_plot]	logic	!is_firmament(core, who) || who == token || remaining_cards(core).is_empty()  =>  !is_firmament(core, who) || who == token && remaining_cards(core).is_empty()
+crates/ti4-engine-core/src/kernel/fx_plots.rs:38:8	[score_as_plot]	logic	!is_firmament(core, who) || who == token  =>  !is_firmament(core, who) && who == token
+crates/ti4-engine-core/src/kernel/fx_plots.rs:39:12	[score_as_plot]	cmp	who == token  =>  who != token
+crates/ti4-engine-core/src/kernel/fx_plots.rs:45:16	[score_as_plot]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_plots.rs:48:8	[score_as_plot]	cond	!fx_pay::pay_secret(core, who, secret)  =>  !(!fx_pay::pay_secret(core, who, secret))
+crates/ti4-engine-core/src/kernel/fx_plots.rs:49:16	[score_as_plot]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_plots.rs:54:13	[score_as_plot]	lit	true  =>  false
+crates/ti4-engine-core/src/kernel/fx_plots.rs:56:17	[score_as_plot]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_plots.rs:62:92	[place_card]	body	place_card(core: &mut CoreState, owner: Seat, card: PlotCard, token: S...  =>  { return true; }
+crates/ti4-engine-core/src/kernel/fx_plots.rs:62:92	[place_card]	body	place_card(core: &mut CoreState, owner: Seat, card: PlotCard, token: S...  =>  { return false; }
+crates/ti4-engine-core/src/kernel/fx_plots.rs:63:8	[place_card]	cond	!remaining_cards(core).as_slice().contains(&card)  =>  !(!remaining_cards(core).as_slice().contains(&card))
+crates/ti4-engine-core/src/kernel/fx_plots.rs:64:16	[place_card]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_plots.rs:67:71	[place_card]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/fx_plots.rs:71:5	[place_card]	lit	true  =>  false
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:60:22	[unit_swaps]	cond	d.faction.is_none() && matches!(d.required_technology, crate::generated::Require...  =>  !(d.faction.is_none() && matches!(d.required_technology, crate::generated::Require...)
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:60:22	[unit_swaps]	logic	d.faction.is_none() && matches!(d.required_technology, crate::g...  =>  d.faction.is_none() || matches!(d.required_technology, crate::g...
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:97:12	[apply_unit_upgrades]	cond	core.board().planet(planet).units.as_slice().iter().any(|u| swapped(*u).is_some(...  =>  !(core.board().planet(planet).units.as_slice().iter().any(|u| swapped(*u).is_some(...)
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:126:60	[revolution_tax]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:127:27	[revolution_tax]	cond	halves == 1  =>  !(halves == 1)
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:127:27	[revolution_tax]	cmp	halves == 1  =>  halves != 1
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:127:37	[revolution_tax]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:127:41	[revolution_tax]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:127:53	[revolution_tax]	arith	(halves + 1) / 2  =>  (halves + 1) * 2
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:127:54	[revolution_tax]	arith	halves + 1  =>  halves - 1
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:127:63	[revolution_tax]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:127:68	[revolution_tax]	lit	2  =>  3
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:127:77	[revolution_tax]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:127:80	[revolution_tax]	lit	64  =>  65
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:128:51	[revolution_tax]	cmp	cost < best  =>  cost <= best
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:140:59	[note_propagation]	body	note_propagation(core: &mut CoreState, who: Seat) {  =>  { return (); }
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:144:14	[note_propagation]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/fx_strategy.rs:146:93	[note_propagation]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/hits.rs:38:8	[spend]	cmp	spent > 0  =>  spent >= 0
+crates/ti4-engine-core/src/kernel/hits.rs:50:105	[open_window]	body	open_window(sx: &mut Sx<'_>, kind: EventKind, payload: Payload, victim...  =>  { return 0; }
+crates/ti4-engine-core/src/kernel/hits.rs:50:105	[open_window]	body	open_window(sx: &mut Sx<'_>, kind: EventKind, payload: Payload, victim...  =>  { return 1; }
+crates/ti4-engine-core/src/kernel/hits.rs:51:8	[open_window]	cond	hits == 0  =>  !(hits == 0)
+crates/ti4-engine-core/src/kernel/hits.rs:51:8	[open_window]	cmp	hits == 0  =>  hits != 0
+crates/ti4-engine-core/src/kernel/hits.rs:51:16	[open_window]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/hits.rs:52:16	[open_window]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/hits.rs:57:5	[open_window]	arith	hits - spend(sx.state, victim, gained.min(hits)...  =>  hits + spend(sx.state, victim, gained.min(hits)...
+crates/ti4-engine-core/src/kernel/hits.rs:62:39	[flush_staged]	body	flush_staged(sx: &mut Sx<'_>) {  =>  { return (); }
+crates/ti4-engine-core/src/kernel/hooks/mod.rs:307:9	[HookTable::registered]	arith	self.general.registered() + self.combat.... + self.seam.registered()  =>  self.general.registered() + self.combat.... - self.seam.registered()
+crates/ti4-engine-core/src/kernel/hooks/mod.rs:307:9	[HookTable::registered]	arith	self.general.registered() + self.combat.... + self.direct.registered()  =>  self.general.registered() + self.combat.... - self.direct.registered()
+crates/ti4-engine-core/src/kernel/hooks/mod.rs:307:9	[HookTable::registered]	arith	self.general.registered() + self.combat.... + self.strategy.registered()  =>  self.general.registered() + self.combat.... - self.strategy.registered()
+crates/ti4-engine-core/src/kernel/hooks/mod.rs:307:9	[HookTable::registered]	arith	self.general.registered() + self.combat.... + self.cards.registered()  =>  self.general.registered() + self.combat.... - self.cards.registered()
+crates/ti4-engine-core/src/kernel/hooks/mod.rs:307:9	[HookTable::registered]	arith	self.general.registered() + self.combat.... + self.movement.registered()  =>  self.general.registered() + self.combat.... - self.movement.registered()
+crates/ti4-engine-core/src/kernel/hooks/mod.rs:307:9	[HookTable::registered]	arith	self.general.registered() + self.combat.... + self.economy.registered()  =>  self.general.registered() + self.combat.... - self.economy.registered()
+crates/ti4-engine-core/src/kernel/hooks/mod.rs:307:9	[HookTable::registered]	arith	self.general.registered() + self.combat.... + self.ground.registered()  =>  self.general.registered() + self.combat.... - self.ground.registered()
+crates/ti4-engine-core/src/kernel/hooks/mod.rs:307:9	[HookTable::registered]	arith	self.general.registered() + self.combat.registered()  =>  self.general.registered() - self.combat.registered()
+crates/ti4-engine-core/src/kernel/hooks/movement.rs:81:92	[MovementHooks::wormhole_limits]	body	wormhole_limits(&self, s: &CoreState, who: Seat) -> (Systems, Option<W...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/kernel/hooks/movement.rs:98:80	[MovementHooks::linked_pairs]	body	linked_pairs(&self, s: &CoreState, k: &Kernel, who: Seat) -> Pairs {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/kernel/hooks/movement.rs:104:69	[MovementHooks::blocked_pairs]	body	blocked_pairs(&self, s: &CoreState, who: Seat) -> Pairs {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/kernel/hooks/movement.rs:111:72	[MovementHooks::extra_wormhole_set]	body	extra_wormhole_set(&self, s: &CoreState) -> ExtraWormholes {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/kernel/hooks/movement.rs:119:39	[normalised]	body	normalised(pairs: Pairs) -> Pairs {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/kernel/hooks/movement.rs:122:26	[normalised]	cmp	a != b  =>  a == b
+crates/ti4-engine-core/src/kernel/hooks/movement.rs:123:27	[normalised]	cond	a < b  =>  !(a < b)
+crates/ti4-engine-core/src/kernel/hooks/movement.rs:123:27	[normalised]	cmp	a < b  =>  a <= b
+crates/ti4-engine-core/src/kernel/hooks/sites.rs:67:23	[ProducedHits::plus]	arith	self.any_ship + other.any_ship  =>  self.any_ship - other.any_ship
+crates/ti4-engine-core/src/kernel/hooks/sites.rs:68:32	[ProducedHits::plus]	arith	self.producer_assigned + other.producer_assigned  =>  self.producer_assigned - other.producer_assigned
+crates/ti4-engine-core/src/kernel/hooks/sites.rs:69:26	[ProducedHits::plus]	arith	self.non_fighter + other.non_fighter  =>  self.non_fighter - other.non_fighter
+crates/ti4-engine-core/src/kernel/mod.rs:107:21	[FirstOption::pick]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/reaction.rs:192:14	[structure_of]	logic	u.owner() == who && (u.kind() == Unit::SpaceDockI || u.kind(...  =>  u.owner() == who || (u.kind() == Unit::SpaceDockI || u.kind(...
+crates/ti4-engine-core/src/kernel/reaction.rs:192:35	[structure_of]	cmp	u.kind() == Unit::SpaceDockI  =>  u.kind() != Unit::SpaceDockI
+crates/ti4-engine-core/src/kernel/reaction.rs:201:29	[Guard::holds]	lit	true  =>  false
+crates/ti4-engine-core/src/kernel/reaction.rs:204:70	[Guard::holds]	cmp	p.seat(Key::Defender) == Some(who)  =>  p.seat(Key::Defender) != Some(who)
+crates/ti4-engine-core/src/kernel/reaction.rs:221:17	[Guard::holds]	logic	actor_is_not(e, who) && p.seat(Key::Producer) == Some(who)  =>  actor_is_not(e, who) || p.seat(Key::Producer) == Some(who)
+crates/ti4-engine-core/src/kernel/reaction.rs:227:17	[Guard::holds]	logic	actor_is_not(e, who) && p.system(Key::System) .is_some_and(|sys|...  =>  actor_is_not(e, who) || p.system(Key::System) .is_some_and(|sys|...
+crates/ti4-engine-core/src/kernel/reaction.rs:235:17	[Guard::holds]	logic	actor_is_not(e, who) && p.system(Key::System) .is_some_and(|sys|...  =>  actor_is_not(e, who) || p.system(Key::System) .is_some_and(|sys|...
+crates/ti4-engine-core/src/kernel/reaction.rs:252:125	[Guard::holds]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/reaction.rs:258:46	[Guard::holds]	lit	true  =>  false
+crates/ti4-engine-core/src/kernel/resolver.rs:207:37	[Registry::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/resolver.rs:219:12	[Registry::truncate_to]	cmp	self.abilities.len() > mark.abilities  =>  self.abilities.len() >= mark.abilities
+crates/ti4-engine-core/src/kernel/resolver.rs:270:64	[participates]	body	participates(&mut self, _ability: &AbilityDef) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/resolver.rs:276:63	[bars_faction_abilities]	body	bars_faction_abilities(&mut self, _who: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/kernel/resolver.rs:294:21	[decide]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/resolver.rs:304:87	[window_closed]	body	window_closed(&mut self, _resolver: &mut Resolver) -> Result<(), Timin...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/kernel/resolver.rs:379:27	[Resolver::new]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/resolver.rs:380:26	[Resolver::new]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/resolver.rs:388:71	[Resolver::set_emission_stack]	body	set_emission_stack(&mut self, stack: &[(EventKind, u64)]) {  =>  { return (); }
+crates/ti4-engine-core/src/kernel/resolver.rs:407:72	[Resolver::set_initiative_order]	body	set_initiative_order(&mut self, initiative_order: &[Seat]) {  =>  { return (); }
+crates/ti4-engine-core/src/kernel/resolver.rs:429:76	[Resolver::sync_lifecycle]	body	sync_lifecycle(&mut self, round_number: u32, turn_number: u32) {  =>  { return (); }
+crates/ti4-engine-core/src/kernel/resolver.rs:461:57	[Resolver::begin_turn]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/resolver.rs:472:51	[Resolver::begin_round]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/resolver.rs:473:49	[Resolver::begin_round]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/resolver.rs:513:65	[Resolver::emission_chain]	body	emission_chain(&self, event: &EventRec) -> Vec<u64> {  =>  { return Vec::new(); }
+crates/ti4-engine-core/src/kernel/resolver.rs:553:25	[Resolver::checkpoint]	cond	self.emission_stack.is_empty()  =>  !(self.emission_stack.is_empty())
+crates/ti4-engine-core/src/kernel/resolver.rs:668:28	[Resolver::run_window]	cond	announced.insert(player)  =>  !(announced.insert(player))
+crates/ti4-engine-core/src/kernel/resolver.rs:714:22	[Resolver::eligible]	cmp	ability.id.kind == AbilityKind::Ability  =>  ability.id.kind != AbilityKind::Ability
+crates/ti4-engine-core/src/kernel/resolver.rs:749:31	[Resolver::pick]	lit	false  =>  true
+crates/ti4-engine-core/src/kernel/resolver.rs:844:36	[SeatBits::has]	body	has(self, s: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/kernel/resolver.rs:848:44	[SeatBits::insert]	body	insert(&mut self, s: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/resolver.rs:848:44	[SeatBits::insert]	body	insert(&mut self, s: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/kernel/resolver.rs:850:9	[SeatBits::insert]	assign	self.0 |= s.bit()  =>  self.0 &= s.bit()
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:45:13	[add]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:48:42	[combat_only]	body	combat_only(site: &RollSite) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:63:12	[bridge_legacy]	cond	!combat_only(site)  =>  !(!combat_only(site))
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:67:13	[bridge_legacy]	arith	d.mahact_units_flagship_roll_bonus(q.s, ... + d.firmament_plots_assail_space(q.s, q.k,...  =>  d.mahact_units_flagship_roll_bonus(q.s, ... - d.firmament_plots_assail_space(q.s, q.k,...
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:67:13	[bridge_legacy]	arith	d.mahact_units_flagship_roll_bonus(q.s, ... + d.nekro_units_mech_roll_bonus(q.s, q.k, ...  =>  d.mahact_units_flagship_roll_bonus(q.s, ... - d.nekro_units_mech_roll_bonus(q.s, q.k, ...
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:80:107	[bridge_legacy]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:85:13	[bridge_legacy]	arith	bastion + agent  =>  bastion - agent
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:90:12	[bridge_legacy]	cond	to == acc  =>  !(to == acc)
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:90:12	[bridge_legacy]	cmp	to == acc  =>  to != acc
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:95:13	[bridge_legacy]	arith	e.extra_production(q.s, q.k, site.who, s... + site.planet.map_or(0, |p| e.extra_produc...  =>  e.extra_production(q.s, q.k, site.who, s... - site.planet.map_or(0, |p| e.extra_produc...
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:95:86	[bridge_legacy]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:102:49	[bridge_legacy]	cond	q.k.hooks.combat.grants_sustain(q.s, q.k, *u)  =>  !(q.k.hooks.combat.grants_sustain(q.s, q.k, *u))
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:103:45	[bridge_legacy]	cond	q.k.hooks.combat.direct_hit_immune(q.s, q.k, *u)  =>  !(q.k.hooks.combat.direct_hit_immune(q.s, q.k, *u))
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:105:12	[bridge_legacy]	cond	q.k.hooks.combat.space_cannon_barred(q.s, q.k, c.shooter, c.target, c.system)  =>  !(q.k.hooks.combat.space_cannon_barred(q.s, q.k, c.shooter, c.target, c.system))
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:108:12	[bridge_legacy]	cond	q.k.hooks.economy.cannot_produce(q.s, q.k, c.who, c.unit, c.producer)  =>  !(q.k.hooks.economy.cannot_produce(q.s, q.k, c.who, c.unit, c.producer))
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:114:22	[bridge_legacy]	logic	c.ctx == SilenceCtx::Space && piece.is_some_and(|p| d.ralnel_silenced_...  =>  c.ctx == SilenceCtx::Space || piece.is_some_and(|p| d.ralnel_silenced_...
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:114:22	[bridge_legacy]	cmp	c.ctx == SilenceCtx::Space  =>  c.ctx != SilenceCtx::Space
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:120:12	[bridge_legacy]	cond	lost || ralnel || by_ctx  =>  !(lost || ralnel || by_ctx)
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:120:12	[bridge_legacy]	logic	lost || ralnel || by_ctx  =>  lost || ralnel && by_ctx
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:120:12	[bridge_legacy]	logic	lost || ralnel  =>  lost && ralnel
+crates/ti4-engine-core/src/kernel/seam/adapters.rs:123:12	[bridge_legacy]	cond	q.k.hooks.direct.keleres_units_commit_blocked(q.s, q.k, c.who, c.system, c.plane...  =>  !(q.k.hooks.direct.keleres_units_commit_blocked(q.s, q.k, c.who, c.system, c.plane...)
+crates/ti4-engine-core/src/kernel/seam/data.rs:122:62	[ModifierRow::times]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/seam/data.rs:130:74	[ModifierRow::times]	cmp	*n == s.meta().combat_round_seq  =>  *n != s.meta().combat_round_seq
+crates/ti4-engine-core/src/kernel/seam/data.rs:135:21	[ModifierRow::times]	logic	nebula && s.meta().active.is_some_and(|a| a != who...  =>  nebula || s.meta().active.is_some_and(|a| a != who...
+crates/ti4-engine-core/src/kernel/seam/data.rs:135:63	[ModifierRow::times]	cmp	a != who  =>  a == who
+crates/ti4-engine-core/src/kernel/seam/data.rs:135:76	[ModifierRow::times]	cmp	round > 0  =>  round >= 0
+crates/ti4-engine-core/src/kernel/seam/data.rs:135:84	[ModifierRow::times]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/seam/data.rs:145:18	[ModifierRow::amount]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/seam/data.rs:152:78	[cancel_on_sustain]	body	cancel_on_sustain(q: Q<'_>, rows: &[&ModifierRow], who: Seat) -> i64 {  =>  { return 0; }
+crates/ti4-engine-core/src/kernel/seam/data.rs:152:78	[cancel_on_sustain]	body	cancel_on_sustain(q: Q<'_>, rows: &[&ModifierRow], who: Seat) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/kernel/seam/data.rs:155:65	[cancel_on_sustain]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/seam/data.rs:161:76	[grants_sustain]	body	grants_sustain(q: Q<'_>, rows: &[&ModifierRow], who: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/kernel/seam/data.rs:162:25	[grants_sustain]	logic	r.kind == RowKind::GrantsSustain && r.times(q, who, SeatSet::EMPTY, None, 0)...  =>  r.kind == RowKind::GrantsSustain || r.times(q, who, SeatSet::EMPTY, None, 0)...
+crates/ti4-engine-core/src/kernel/seam/data.rs:162:25	[grants_sustain]	cmp	r.kind == RowKind::GrantsSustain  =>  r.kind != RowKind::GrantsSustain
+crates/ti4-engine-core/src/kernel/seam/data.rs:162:61	[grants_sustain]	cmp	r.times(q, who, SeatSet::EMPTY, None, 0) > 0  =>  r.times(q, who, SeatSet::EMPTY, None, 0) >= 0
+crates/ti4-engine-core/src/kernel/seam/data.rs:162:99	[grants_sustain]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/seam/data.rs:162:104	[grants_sustain]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/seam/gather.rs:56:37	[Gather::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/seam/gather.rs:87:54	[Gather::permute_if_sorted]	body	permute_if_sorted(&mut self, p: Permute) {  =>  { return (); }
+crates/ti4-engine-core/src/kernel/seam/gather.rs:88:12	[Gather::permute_if_sorted]	cond	self.order == Order::Sorted && self.items.iter().all(|c| c.pass == Pass::Add)  =>  !(self.order == Order::Sorted && self.items.iter().all(|c| c.pass == Pass::Add))
+crates/ti4-engine-core/src/kernel/seam/gather.rs:88:12	[Gather::permute_if_sorted]	logic	self.order == Order::Sorted && self.items.iter().all(|c| c.pass == Pass...  =>  self.order == Order::Sorted || self.items.iter().all(|c| c.pass == Pass...
+crates/ti4-engine-core/src/kernel/seam/gather.rs:88:12	[Gather::permute_if_sorted]	cmp	self.order == Order::Sorted  =>  self.order != Order::Sorted
+crates/ti4-engine-core/src/kernel/seam/gather.rs:88:69	[Gather::permute_if_sorted]	cmp	c.pass == Pass::Add  =>  c.pass != Pass::Add
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.offers.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.offers.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.observers.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.observers.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.rows.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.rows.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.borrowed_stats.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.borrowed_stats.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.unit_exchange.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.unit_exchange.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.deploy_planets.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.deploy_planets.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.production_destinations.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.production_destinations.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.commit_blocked.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.commit_blocked.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.cannot_produce.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.cannot_produce.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.cannon_barred.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.cannon_barred.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.silenced.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.silenced.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.hit_immune.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.hit_immune.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.grants_sustain.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.grants_sustain.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.production_discount.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.production_discount.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() +... + self.extra_production.len()  =>  self.hit_shift.len() + self.dice.len() +... - self.extra_production.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:189:9	[Seams::registered]	arith	self.hit_shift.len() + self.dice.len() + self.planet_spend.len()  =>  self.hit_shift.len() + self.dice.len() - self.planet_spend.len()
+crates/ti4-engine-core/src/kernel/seam/mod.rs:223:56	[Seams::permute_commutative]	body	permute_commutative(&mut self, p: Permute) {  =>  { return (); }
+crates/ti4-engine-core/src/kernel/seam/mod.rs:260:29	[Permute::apply]	arith	seed | 1  =>  seed & 1
+crates/ti4-engine-core/src/kernel/seam/mod.rs:260:36	[Permute::apply]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/seam/mod.rs:261:27	[Permute::apply]	lit	1  =>  2
+crates/ti4-engine-core/src/kernel/seam/mod.rs:263:21	[Permute::apply]	assign	x ^= x >> 12  =>  x |= x >> 12
+crates/ti4-engine-core/src/kernel/seam/mod.rs:263:26	[Permute::apply]	arith	x >> 12  =>  x << 12
+crates/ti4-engine-core/src/kernel/seam/mod.rs:263:31	[Permute::apply]	lit	12  =>  13
+crates/ti4-engine-core/src/kernel/seam/mod.rs:264:21	[Permute::apply]	assign	x ^= x << 25  =>  x |= x << 25
+crates/ti4-engine-core/src/kernel/seam/mod.rs:264:26	[Permute::apply]	arith	x << 25  =>  x >> 25
+crates/ti4-engine-core/src/kernel/seam/mod.rs:264:31	[Permute::apply]	lit	25  =>  26
+crates/ti4-engine-core/src/kernel/seam/mod.rs:265:21	[Permute::apply]	assign	x ^= x >> 27  =>  x |= x >> 27
+crates/ti4-engine-core/src/kernel/seam/mod.rs:265:26	[Permute::apply]	arith	x >> 27  =>  x << 27
+crates/ti4-engine-core/src/kernel/seam/mod.rs:265:31	[Permute::apply]	lit	27  =>  28
+crates/ti4-engine-core/src/kernel/seam/mod.rs:266:44	[Permute::apply]	lit	0x2545_F491_4F6C_DD1D  =>  2685821657736338718
+crates/ti4-engine-core/src/kernel/seam/observe.rs:96:37	[Observers::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/seam/offer.rs:75:37	[Offers::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/seam/pred.rs:58:37	[Pred::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/seam/pred.rs:98:44	[Pred::permute]	body	permute(&mut self, p: Permute) {  =>  { return (); }
+crates/ti4-engine-core/src/kernel/seam/replace.rs:57:37	[Replacements::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/seam/sites.rs:28:64	[row_times]	body	row_times(&self, _q: Q<'_>, _row: &ModifierRow) -> i64 {  =>  { return 0; }
+crates/ti4-engine-core/src/kernel/seam/sites.rs:28:64	[row_times]	body	row_times(&self, _q: Q<'_>, _row: &ModifierRow) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/kernel/seam/sites.rs:29:9	[row_times]	lit	0  =>  1
+crates/ti4-engine-core/src/kernel/seam/sites.rs:52:35	[RollSite::is_fighter]	body	is_fighter(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/seam/sites.rs:52:35	[RollSite::is_fighter]	body	is_fighter(&self) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/kernel/seam/sites.rs:53:9	[RollSite::is_fighter]	cmp	self.unit.unit.data().base_type == UnitBaseType::Fighter  =>  self.unit.unit.data().base_type != UnitBaseType::Fighter
+crates/ti4-engine-core/src/kernel/seam/stack.rs:127:29	[Entry::adds_only]	lit	true  =>  false
+crates/ti4-engine-core/src/kernel/seam/stack.rs:156:37	[Stack::is_empty]	body	is_empty(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/kernel/stage.rs:93:57	[Sx::observe]	body	observe(&mut self, obs: &Obs, phase: Phase) {  =>  { return (); }
+crates/ti4-engine-core/src/kernel/stage.rs:191:80	[Sx::has_registered_play]	body	has_registered_play(&self, card: crate::generated::ActionCard) -> bool...  =>  { return true; }
+crates/ti4-engine-core/src/kernel/stage.rs:191:80	[Sx::has_registered_play]	body	has_registered_play(&self, card: crate::generated::ActionCard) -> bool...  =>  { return false; }
+crates/ti4-engine-core/src/kernel/stage.rs:204:58	[Sx::after_play]	body	after_play(&mut self) -> Result<(), TimingError> {  =>  { return Ok(()); }

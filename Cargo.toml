@@ -7,6 +7,7 @@ members = [
     "crates/ti4-engine-core",
     "crates/ti4-engine-core-factions",
     "crates/ti4-engine-core-bridge",
+    "crates/ti4-engine-core-tests",
     "crates/ti4-policy",
     "crates/ti4-sim",
     "crates/ti4-calc",
@@ -41,6 +42,7 @@ ti4-content = { path = "crates/ti4-content" }
 ti4-engine = { path = "crates/ti4-engine" }
 ti4-engine-core = { path = "crates/ti4-engine-core" }
 ti4-engine-core-factions = { path = "crates/ti4-engine-core-factions" }
+ti4-engine-core-tests = { path = "crates/ti4-engine-core-tests" }
 ti4-policy = { path = "crates/ti4-policy" }
 ti4-sim = { path = "crates/ti4-sim" }
 ti4-calc = { path = "crates/ti4-calc" }

@@ -1,0 +1,18 @@
+Q0 seat 2 Strategy(Follow { card: Politics, primary: Seat(0), costs_token: true })
+   0: Strategy(Skip)
+  >1: Strategy(Follow)
+done
+--- delta ---
+player0.strat_exhausted: {} -> -
+player0.strat_exhausted.[0]: - -> Politics
+player2.econ.strategic_tokens: 2 -> 1
+pending.staged: [] -> -
+pending.staged.[0].cancelled: - -> false
+pending.staged.[0].id: - -> 0
+pending.staged.[0].kind: - -> StrategyTokenSpent
+pending.staged.[0].payload.items.[0].[0]: - -> Player
+pending.staged.[0].payload.items.[0].[1].[0].[0]: - -> 2
+pending.staged.[0].payload.items.[1].[0]: - -> Reason
+pending.staged.[0].payload.items.[1].[1].[0].[0]: - -> 5
+pending.staged.[0].payload.lists: - -> []
+pending.staged.[0].payload.units: - -> []

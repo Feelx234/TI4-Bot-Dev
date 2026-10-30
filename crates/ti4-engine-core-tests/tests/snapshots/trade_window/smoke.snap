@@ -1,0 +1,31 @@
+Q0 seat 0 Trade(Propose { proposer: Seat(0), partner: Seat(1), name: TheArborec })
+  >0: Trade(Deal(SupportSwap { from: TheEmiratesOfHacan, to: TheArborec }))
+   1: Trade(Deal(Swap { n: 1 }))
+   2: Trade(Deal(CommoditiesForGoods { give: 2, want: 1 }))
+   3: Trade(Deal(GoodsForCommodities { give: 1, want: 1 }))
+   4: Trade(Deal(Goods { give: 0, want: 1 }))
+   5: Trade(Deal(Goods { give: 1, want: 0 }))
+   6: Trade(Deal(Goods { give: 1, want: 1 }))
+   7: Trade(Deal(Goods { give: 2, want: 0 }))
+   8: Trade(Deal(Goods { give: 2, want: 1 }))
+   9: Trade(Deal(GiftCommodities { n: 2 }))
+   10: Decline
+Q1 seat 1 Trade(Answer { responder: Seat(1), proposer: Seat(0), from: TheEmiratesOfHacan, deal: SupportSwap { from: TheEmiratesOfHacan, to: TheArborec } })
+  >0: Trade(Accept)
+   1: Trade(Refuse)
+   2: Trade(Counter)
+done
+--- delta ---
+player0.econ.victory_points: 0 -> 1
+player1.econ.victory_points: 0 -> 1
+trade.[0].[0]: - -> 1
+trade.[1]: - -> 0
+trade.support_holders: {} -> -
+trade.support_holders.[0].[0]: - -> 0
+trade.support_holders.[1]: - -> 1
+trade.this_round.[0]: [] -> -
+trade.this_round.[0].[0].[0].[0]: - -> 0
+trade.this_round.[0].[0].[1].[0]: - -> 1
+ledger.vp: 0 -> 2
+vp[0]: VpRec { player: Seat(1), delta: 1, reason: SupportForTheThrone }
+vp[1]: VpRec { player: Seat(0), delta: 1, reason: SupportForTheThrone }

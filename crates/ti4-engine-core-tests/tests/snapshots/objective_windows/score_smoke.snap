@@ -1,0 +1,13 @@
+Q0 seat 0 Objectives(Score { vp: 0 })
+  >0: Objectives(Score(Public(ReclaimAncientMonuments)))
+   1: Objectives(Score(Secret(AdaptNewStrategies)))
+   2: Decline
+done
+--- delta ---
+player0.econ.victory_points: 0 -> 2
+objectives.scored.[0].public: {} -> -
+objectives.scored.[0].public.[0]: - -> ReclaimAncientMonuments
+objectives.scored_present: {} -> -
+objectives.scored_present.[0]: - -> 0
+ledger.vp: 0 -> 1
+vp[0]: VpRec { player: Seat(0), delta: 2, reason: Objective }

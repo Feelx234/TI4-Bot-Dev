@@ -1,0 +1,67 @@
+Q0 seat 1 Agenda(UseOnAgenda { source: Quash, agenda: ArmsReduction, owner: Seat(1) })
+  >0: Agenda(UseCard)
+   1: Decline
+Q1 seat 1 Agenda(UseOnAgenda { source: Quash, agenda: ArticlesOfWar, owner: Seat(1) })
+  >0: Agenda(UseCard)
+   1: Decline
+done
+--- delta ---
+meta.agenda_seq: 0 -> 3
+player1.econ.strategic_tokens: 2 -> 0
+decks: changed
+agenda.choices: [] -> -
+agenda.choices.[0]: - -> For
+agenda.choices.[1]: - -> Against
+agenda.in_play: None -> -
+agenda.in_play.[0]: - -> IxthianArtifact
+agenda.log: [] -> -
+agenda.log.[0].agenda: - -> ArmsReduction
+agenda.log.[0].discard_reason.[0].[0]: - -> 2
+agenda.log.[0].discarded: - -> true
+agenda.log.[0].enacted: - -> false
+agenda.log.[0].law: - -> false
+agenda.log.[0].outcome: - -> None
+agenda.log.[0].redirected_to: - -> None
+agenda.log.[0].round: - -> 1
+agenda.log.[0].speaker_decided: - -> false
+agenda.log.[0].votes: - -> {}
+agenda.log.[1].agenda: - -> ArticlesOfWar
+agenda.log.[1].discard_reason.[0].[0]: - -> 2
+agenda.log.[1].discarded: - -> true
+agenda.log.[1].enacted: - -> false
+agenda.log.[1].law: - -> true
+agenda.log.[1].outcome: - -> None
+agenda.log.[1].redirected_to: - -> None
+agenda.log.[1].round: - -> 1
+agenda.log.[1].speaker_decided: - -> false
+agenda.log.[1].votes: - -> {}
+pending.staged: [] -> -
+pending.staged.[0].cancelled: - -> false
+pending.staged.[0].id: - -> 0
+pending.staged.[0].kind: - -> StrategyTokenSpent
+pending.staged.[0].payload.items.[0].[0]: - -> Player
+pending.staged.[0].payload.items.[0].[1].[0].[0]: - -> 1
+pending.staged.[0].payload.items.[1].[0]: - -> Reason
+pending.staged.[0].payload.items.[1].[1].[0].[0]: - -> 3
+pending.staged.[0].payload.lists: - -> []
+pending.staged.[0].payload.units: - -> []
+pending.staged.[1].cancelled: - -> false
+pending.staged.[1].id: - -> 0
+pending.staged.[1].kind: - -> StrategyTokenSpent
+pending.staged.[1].payload.items.[0].[0]: - -> Player
+pending.staged.[1].payload.items.[0].[1].[0].[0]: - -> 1
+pending.staged.[1].payload.items.[1].[0]: - -> Reason
+pending.staged.[1].payload.items.[1].[1].[0].[0]: - -> 3
+pending.staged.[1].payload.lists: - -> []
+pending.staged.[1].payload.units: - -> []
+ledger.events: 0 -> 10
+event[0]: Plain(PlainRec { kind: AgendaRevealed, a: Agenda(ArmsReduction), b: None })
+event[1]: Typed(EventRec { id: 1, kind: AgendaRevealed, payload: Payload { items: [(Agenda, Agenda(ArmsReduction))], units: [], lists: [] }, cancelled: false })
+event[2]: Plain(PlainRec { kind: QuashUsed, a: None, b: None })
+event[3]: Plain(PlainRec { kind: AgendaDiscarded, a: Agenda(ArmsReduction), b: None })
+event[4]: Plain(PlainRec { kind: AgendaRevealed, a: Agenda(ArticlesOfWar), b: None })
+event[5]: Typed(EventRec { id: 2, kind: AgendaRevealed, payload: Payload { items: [(Agenda, Agenda(ArticlesOfWar))], units: [], lists: [] }, cancelled: false })
+event[6]: Plain(PlainRec { kind: QuashUsed, a: None, b: None })
+event[7]: Plain(PlainRec { kind: AgendaDiscarded, a: Agenda(ArticlesOfWar), b: None })
+event[8]: Plain(PlainRec { kind: AgendaRevealed, a: Agenda(IxthianArtifact), b: None })
+event[9]: Typed(EventRec { id: 3, kind: AgendaRevealed, payload: Payload { items: [(Agenda, Agenda(IxthianArtifact))], units: [], lists: [] }, cancelled: false })

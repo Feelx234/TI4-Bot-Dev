@@ -1,0 +1,437 @@
+# survivors of core/rules/production: 436 of 861 points (49% killed)
+crates/ti4-engine-core/src/rules/production/mod.rs:130:40	[war_machine_bonus]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:137:16	[planet_value]	arith	economy::printed_value(cx.scope, planet,... + economy::attachment_bonus(cx.core(), pla...  =>  economy::printed_value(cx.scope, planet,... - economy::attachment_bonus(cx.core(), pla...
+crates/ti4-engine-core/src/rules/production/mod.rs:149:101	[silenced]	body	silenced(cx: &Cx<'_>, owner: Seat, system: System, unit: Option<Unit>,...  =>  { return false; }
+crates/ti4-engine-core/src/rules/production/mod.rs:154:82	[extra]	body	extra(cx: &Cx<'_>, who: Seat, system: System, planet: Option<Planet>) ...  =>  { return 0; }
+crates/ti4-engine-core/src/rules/production/mod.rs:158:88	[cannot]	body	cannot(cx: &Cx<'_>, who: Seat, unit: UnitBaseType, producer: UnitBaseT...  =>  { return false; }
+crates/ti4-engine-core/src/rules/production/mod.rs:163:35	[unit_production]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:163:111	[unit_production]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:167:19	[dock_resources]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:173:5	[capacity]	arith	producers(cx, who, system) .as_slice() .... + module_production(cx, who, system)  =>  producers(cx, who, system) .as_slice() .... - module_production(cx, who, system)
+crates/ti4-engine-core/src/rules/production/mod.rs:184:74	[module_production]	body	module_production(cx: &Cx<'_>, who: Seat, system: System) -> i64 {  =>  { return 0; }
+crates/ti4-engine-core/src/rules/production/mod.rs:185:5	[module_production]	arith	extra(cx, who, system, None).max(0) + module_planet_producers(cx, who, system)...  =>  extra(cx, who, system, None).max(0) - module_planet_producers(cx, who, system)...
+crates/ti4-engine-core/src/rules/production/mod.rs:191:104	[module_planet_producers]	body	module_planet_producers(cx: &Cx<'_>, who: Seat, system: System) -> Sma...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/mod.rs:195:12	[module_planet_producers]	cond	cell.units.is_empty() && cell.control.is_none()  =>  !(cell.units.is_empty() && cell.control.is_none())
+crates/ti4-engine-core/src/rules/production/mod.rs:195:12	[module_planet_producers]	logic	cell.units.is_empty() && cell.control.is_none()  =>  cell.units.is_empty() || cell.control.is_none()
+crates/ti4-engine-core/src/rules/production/mod.rs:199:17	[module_planet_producers]	arith	extra(cx, who, system, Some(*planet)) - extra(cx, who, system, None)  =>  extra(cx, who, system, Some(*planet)) + extra(cx, who, system, None)
+crates/ti4-engine-core/src/rules/production/mod.rs:200:12	[module_planet_producers]	cond	v > 0  =>  !(v > 0)
+crates/ti4-engine-core/src/rules/production/mod.rs:200:12	[module_planet_producers]	cmp	v > 0  =>  v >= 0
+crates/ti4-engine-core/src/rules/production/mod.rs:200:16	[module_planet_producers]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:209:92	[barred_capacity]	body	barred_capacity(cx: &Cx<'_>, who: Seat, system: System, unit: UnitBase...  =>  { return 0; }
+crates/ti4-engine-core/src/rules/production/mod.rs:209:92	[barred_capacity]	body	barred_capacity(cx: &Cx<'_>, who: Seat, system: System, unit: UnitBase...  =>  { return 1; }
+crates/ti4-engine-core/src/rules/production/mod.rs:244:65	[enrich_ctx]	body	enrich_ctx(s: &CoreState, ctx: &mut crate::choice::Ctx) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/production/mod.rs:246:8	[enrich_ctx]	cond	!ctx.space_battle  =>  !(!ctx.space_battle)
+crates/ti4-engine-core/src/rules/production/mod.rs:249:112	[enrich_ctx]	cmp	x == active.system  =>  x != active.system
+crates/ti4-engine-core/src/rules/production/mod.rs:250:22	[enrich_ctx]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/mod.rs:252:16	[enrich_ctx]	cond	in_system  =>  !(in_system)
+crates/ti4-engine-core/src/rules/production/mod.rs:271:78	[placements]	logic	p.owner() != who && p.kind().data().ship  =>  p.owner() != who || p.kind().data().ship
+crates/ti4-engine-core/src/rules/production/mod.rs:271:78	[placements]	cmp	p.owner() != who  =>  p.owner() == who
+crates/ti4-engine-core/src/rules/production/mod.rs:300:12	[placements]	logic	laws::production_forbidden_on(cx.core(),... || !structure_allowed(cx, who, planet, d.ba...  =>  laws::production_forbidden_on(cx.core(),... && !structure_allowed(cx, who, planet, d.ba...
+crates/ti4-engine-core/src/rules/production/mod.rs:300:12	[placements]	logic	laws::production_forbidden_on(cx.core(),... || planet.data().traits.contains(&PlanetTra...  =>  laws::production_forbidden_on(cx.core(),... && planet.data().traits.contains(&PlanetTra...
+crates/ti4-engine-core/src/rules/production/mod.rs:300:12	[placements]	logic	laws::production_forbidden_on(cx.core(),... || laws::planet_is_demilitarized(cx.core(),...  =>  laws::production_forbidden_on(cx.core(),... && laws::planet_is_demilitarized(cx.core(),...
+crates/ti4-engine-core/src/rules/production/mod.rs:312:8	[placements]	cond	made.as_slice().iter().any(|(_, pl)| pl.is_none()) || extra(cx, who, system, Non...  =>  !(made.as_slice().iter().any(|(_, pl)| pl.is_none()) || extra(cx, who, system, Non...)
+crates/ti4-engine-core/src/rules/production/mod.rs:312:8	[placements]	logic	made.as_slice().iter().any(|(_, pl)| pl.... || extra(cx, who, system, None) > 0  =>  made.as_slice().iter().any(|(_, pl)| pl.... && extra(cx, who, system, None) > 0
+crates/ti4-engine-core/src/rules/production/mod.rs:312:62	[placements]	cmp	extra(cx, who, system, None) > 0  =>  extra(cx, who, system, None) >= 0
+crates/ti4-engine-core/src/rules/production/mod.rs:312:93	[placements]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:313:12	[placements]	cond	!spots.as_slice().contains(&Spot::Space)  =>  !(!spots.as_slice().contains(&Spot::Space))
+crates/ti4-engine-core/src/rules/production/mod.rs:348:41	[Held::extras]	body	extras(&self) -> Extras<'_> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/mod.rs:355:57	[trade_good_worth]	body	trade_good_worth(cx: &Cx<'_>, who: Seat) -> i64 {  =>  { return 1; }
+crates/ti4-engine-core/src/rules/production/mod.rs:384:34	[payment_faces]	arith	face(Spend::Resources) + face(Spend::Influence)  =>  face(Spend::Resources) - face(Spend::Influence)
+crates/ti4-engine-core/src/rules/production/mod.rs:386:8	[payment_faces]	cmp	ordinary > 0  =>  ordinary >= 0
+crates/ti4-engine-core/src/rules/production/mod.rs:392:23	[payment_faces]	logic	kind == Spend::Resources && cx.core().meta().influence_pays_for_unit...  =>  kind == Spend::Resources || cx.core().meta().influence_pays_for_unit...
+crates/ti4-engine-core/src/rules/production/mod.rs:392:23	[payment_faces]	cmp	kind == Spend::Resources  =>  kind != Spend::Resources
+crates/ti4-engine-core/src/rules/production/mod.rs:394:8	[payment_faces]	logic	!freelancers && !archons_gift  =>  !freelancers || !archons_gift
+crates/ti4-engine-core/src/rules/production/mod.rs:397:20	[payment_faces]	cond	kind == Spend::Resources  =>  !(kind == Spend::Resources)
+crates/ti4-engine-core/src/rules/production/mod.rs:397:20	[payment_faces]	cmp	kind == Spend::Resources  =>  kind != Spend::Resources
+crates/ti4-engine-core/src/rules/production/mod.rs:399:8	[payment_faces]	cond	alternate > 0 && alternate != ordinary  =>  !(alternate > 0 && alternate != ordinary)
+crates/ti4-engine-core/src/rules/production/mod.rs:399:8	[payment_faces]	logic	alternate > 0 && alternate != ordinary  =>  alternate > 0 || alternate != ordinary
+crates/ti4-engine-core/src/rules/production/mod.rs:399:8	[payment_faces]	cmp	alternate > 0  =>  alternate >= 0
+crates/ti4-engine-core/src/rules/production/mod.rs:399:20	[payment_faces]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:399:25	[payment_faces]	cmp	alternate != ordinary  =>  alternate == ordinary
+crates/ti4-engine-core/src/rules/production/mod.rs:408:93	[max_face_value]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:412:48	[triad_value]	body	triad_value(cx: &Cx<'_>, who: Seat) -> i64 {  =>  { return 0; }
+crates/ti4-engine-core/src/rules/production/mod.rs:414:22	[triad_value]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:414:25	[triad_value]	lit	4  =>  5
+crates/ti4-engine-core/src/rules/production/mod.rs:414:39	[triad_value]	logic	p.cards.fragments.present & (1 << i) != ... && p.cards.fragments.counts[*i] > 0  =>  p.cards.fragments.present & (1 << i) != ... || p.cards.fragments.counts[*i] > 0
+crates/ti4-engine-core/src/rules/production/mod.rs:414:39	[triad_value]	cmp	p.cards.fragments.present & (1 << i) != 0  =>  p.cards.fragments.present & (1 << i) == 0
+crates/ti4-engine-core/src/rules/production/mod.rs:414:39	[triad_value]	arith	p.cards.fragments.present & (1 << i)  =>  p.cards.fragments.present | (1 << i)
+crates/ti4-engine-core/src/rules/production/mod.rs:414:68	[triad_value]	arith	1 << i  =>  1 >> i
+crates/ti4-engine-core/src/rules/production/mod.rs:414:68	[triad_value]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/mod.rs:414:79	[triad_value]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:414:84	[triad_value]	cmp	p.cards.fragments.counts[*i] > 0  =>  p.cards.fragments.counts[*i] >= 0
+crates/ti4-engine-core/src/rules/production/mod.rs:414:115	[triad_value]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:415:9	[triad_value]	arith	3 + kinds as i64  =>  3 - kinds as i64
+crates/ti4-engine-core/src/rules/production/mod.rs:415:9	[triad_value]	lit	3  =>  4
+crates/ti4-engine-core/src/rules/production/mod.rs:424:17	[available]	arith	cx.core().players().by_seat(who).map_or(... + ex.commodities * worth  =>  cx.core().players().by_seat(who).map_or(... - ex.commodities * worth
+crates/ti4-engine-core/src/rules/production/mod.rs:424:57	[available]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:425:26	[available]	cond	kind == Spend::Resources  =>  !(kind == Spend::Resources)
+crates/ti4-engine-core/src/rules/production/mod.rs:425:26	[available]	cmp	kind == Spend::Resources  =>  kind != Spend::Resources
+crates/ti4-engine-core/src/rules/production/mod.rs:426:5	[available]	arith	from_planets + triad_value(cx, who) + go... + war_machine  =>  from_planets + triad_value(cx, who) + go... - war_machine
+crates/ti4-engine-core/src/rules/production/mod.rs:426:5	[available]	arith	from_planets + triad_value(cx, who)  =>  from_planets - triad_value(cx, who)
+crates/ti4-engine-core/src/rules/production/mod.rs:435:57	[pay_opts]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:437:26	[pay_opts]	arith	goods * worth + ex.commodities * worth  =>  goods * worth - ex.commodities * worth
+crates/ti4-engine-core/src/rules/production/mod.rs:437:26	[pay_opts]	arith	goods * worth  =>  goods + worth
+crates/ti4-engine-core/src/rules/production/mod.rs:437:42	[pay_opts]	arith	ex.commodities * worth  =>  ex.commodities + worth
+crates/ti4-engine-core/src/rules/production/mod.rs:440:75	[pay_opts]	cmp	*o != planet  =>  *o == planet
+crates/ti4-engine-core/src/rules/production/mod.rs:449:8	[pay_opts]	cmp	goods > 0  =>  goods >= 0
+crates/ti4-engine-core/src/rules/production/mod.rs:452:25	[pay_opts]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:453:93	[pay_opts]	arith	pool - worth  =>  pool + worth
+crates/ti4-engine-core/src/rules/production/mod.rs:459:35	[small]	cond	n < 0  =>  !(n < 0)
+crates/ti4-engine-core/src/rules/production/mod.rs:459:35	[small]	cmp	n < 0  =>  n <= 0
+crates/ti4-engine-core/src/rules/production/mod.rs:459:39	[small]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:491:9	[placed_of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:493:83	[placed_of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:493:97	[placed_of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:506:108	[place_ask_standing]	body	place_ask_standing(cx: &Cx<'_>, ask: &PlaceAsk, system: System, arrivi...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/mod.rs:525:70	[place_home_standing]	body	place_home_standing(cx: &Cx<'_>, ask: &PlaceAsk) -> Standing {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/mod.rs:531:74	[place_opts]	body	place_opts(cx: &Cx<'_>, ask: &PlaceAsk) -> SmallList<PayOpt, 18> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/mod.rs:534:8	[place_opts]	cond	spots.as_slice().len() >= 2  =>  !(spots.as_slice().len() >= 2)
+crates/ti4-engine-core/src/rules/production/mod.rs:534:8	[place_opts]	cmp	spots.as_slice().len() >= 2  =>  spots.as_slice().len() > 2
+crates/ti4-engine-core/src/rules/production/mod.rs:534:34	[place_opts]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/production/mod.rs:569:39	[spot_in_space]	body	spot_in_space(spot: Spot) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/production/mod.rs:569:39	[spot_in_space]	body	spot_in_space(spot: Spot) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/production/mod.rs:573:113	[standing_at]	body	standing_at(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, system: System, a...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/mod.rs:578:109	[standing_after]	body	standing_after(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, sp...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/mod.rs:587:95	[post_build]	body	post_build(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, count:...  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/mod.rs:588:69	[post_build]	cmp	p.cards.breakthrough == Some(Breakthrough::BellumGloriosum)  =>  p.cards.breakthrough != Some(Breakthrough::BellumGloriosum)
+crates/ti4-engine-core/src/rules/production/mod.rs:590:19	[post_build]	arith	if held_sol && d.ship { fleet::capacity(... * i64::from(count > 0)  =>  if held_sol && d.ship { fleet::capacity(... + i64::from(count > 0)
+crates/ti4-engine-core/src/rules/production/mod.rs:590:22	[post_build]	cond	held_sol && d.ship  =>  !(held_sol && d.ship)
+crates/ti4-engine-core/src/rules/production/mod.rs:590:22	[post_build]	logic	held_sol && d.ship  =>  held_sol || d.ship
+crates/ti4-engine-core/src/rules/production/mod.rs:590:74	[post_build]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:590:90	[post_build]	cmp	count > 0  =>  count >= 0
+crates/ti4-engine-core/src/rules/production/mod.rs:590:98	[post_build]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:591:18	[post_build]	logic	d.base_type == UnitBaseType::Fighter || fleet::is_ground_force(unit)  =>  d.base_type == UnitBaseType::Fighter && fleet::is_ground_force(unit)
+crates/ti4-engine-core/src/rules/production/mod.rs:591:18	[post_build]	cmp	d.base_type == UnitBaseType::Fighter  =>  d.base_type != UnitBaseType::Fighter
+crates/ti4-engine-core/src/rules/production/mod.rs:593:19	[post_build]	cond	spends  =>  !(spends)
+crates/ti4-engine-core/src/rules/production/mod.rs:593:38	[post_build]	arith	i64::from(ask.free_capacity) + granted  =>  i64::from(ask.free_capacity) - granted
+crates/ti4-engine-core/src/rules/production/mod.rs:593:87	[post_build]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:594:21	[post_build]	cond	matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry)  =>  !(matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry))
+crates/ti4-engine-core/src/rules/production/mod.rs:594:94	[post_build]	arith	count - free  =>  count + free
+crates/ti4-engine-core/src/rules/production/mod.rs:594:128	[post_build]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:595:6	[post_build]	arith	i64::from(ask.remaining) - (count - free - exempt)  =>  i64::from(ask.remaining) + (count - free - exempt)
+crates/ti4-engine-core/src/rules/production/mod.rs:595:34	[post_build]	arith	count - free - exempt  =>  count - free + exempt
+crates/ti4-engine-core/src/rules/production/mod.rs:595:34	[post_build]	arith	count - free  =>  count + free
+crates/ti4-engine-core/src/rules/production/mod.rs:595:58	[post_build]	arith	i64::from(ask.free_capacity) + granted -... - exempt  =>  i64::from(ask.free_capacity) + granted -... + exempt
+crates/ti4-engine-core/src/rules/production/mod.rs:595:58	[post_build]	arith	i64::from(ask.free_capacity) + granted -... + small  =>  i64::from(ask.free_capacity) + granted -... - small
+crates/ti4-engine-core/src/rules/production/mod.rs:595:58	[post_build]	arith	i64::from(ask.free_capacity) + granted - free  =>  i64::from(ask.free_capacity) + granted + free
+crates/ti4-engine-core/src/rules/production/mod.rs:595:58	[post_build]	arith	i64::from(ask.free_capacity) + granted  =>  i64::from(ask.free_capacity) - granted
+crates/ti4-engine-core/src/rules/production/mod.rs:600:78	[standing_before]	body	standing_before(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk) -> Standing {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/mod.rs:608:41	[build_for]	cmp	only != unit  =>  only == unit
+crates/ti4-engine-core/src/rules/production/mod.rs:611:44	[build_for]	cmp	i64::from(d.cost_halves.unwrap_or(0)) > 2 * i64::from(max)  =>  i64::from(d.cost_halves.unwrap_or(0)) >= 2 * i64::from(max)
+crates/ti4-engine-core/src/rules/production/mod.rs:611:78	[build_for]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:611:84	[build_for]	arith	2 * i64::from(max)  =>  2 + i64::from(max)
+crates/ti4-engine-core/src/rules/production/mod.rs:611:84	[build_for]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/production/mod.rs:615:36	[build_for]	logic	d.base_type == UnitBaseType::Flagship && ask.flagship_free  =>  d.base_type == UnitBaseType::Flagship || ask.flagship_free
+crates/ti4-engine-core/src/rules/production/mod.rs:615:36	[build_for]	cmp	d.base_type == UnitBaseType::Flagship  =>  d.base_type != UnitBaseType::Flagship
+crates/ti4-engine-core/src/rules/production/mod.rs:616:10	[build_for]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:616:13	[build_for]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:618:10	[build_for]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:621:10	[build_for]	arith	printed - used  =>  printed + used
+crates/ti4-engine-core/src/rules/production/mod.rs:624:30	[build_for]	arith	available(cx, who, Spend::Resources, ex) + i64::from(ask.credit)  =>  available(cx, who, Spend::Resources, ex) - i64::from(ask.credit)
+crates/ti4-engine-core/src/rules/production/mod.rs:633:21	[build_for]	cond	barred == 0  =>  !(barred == 0)
+crates/ti4-engine-core/src/rules/production/mod.rs:633:21	[build_for]	cmp	barred == 0  =>  barred != 0
+crates/ti4-engine-core/src/rules/production/mod.rs:633:31	[build_for]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:637:38	[build_for]	arith	i64::from(ask.limit) - barred - same_kind  =>  i64::from(ask.limit) - barred + same_kind
+crates/ti4-engine-core/src/rules/production/mod.rs:637:38	[build_for]	arith	i64::from(ask.limit) - barred  =>  i64::from(ask.limit) + barred
+crates/ti4-engine-core/src/rules/production/mod.rs:639:20	[build_for]	cond	matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry)  =>  !(matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry))
+crates/ti4-engine-core/src/rules/production/mod.rs:639:133	[build_for]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:640:41	[build_for]	arith	usable + extra  =>  usable - extra
+crates/ti4-engine-core/src/rules/production/mod.rs:640:67	[build_for]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:653:25	[build_for]	cond	affordable  =>  !(affordable)
+crates/ti4-engine-core/src/rules/production/mod.rs:654:47	[build_for]	cond	exchange  =>  !(exchange)
+crates/ti4-engine-core/src/rules/production/mod.rs:654:90	[build_for]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/mod.rs:654:99	[build_for]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/mod.rs:654:114	[build_for]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:654:117	[build_for]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/mod.rs:687:12	[build_opts]	cond	info.exchange  =>  !(info.exchange)
+crates/ti4-engine-core/src/rules/production/offers.rs:31:19	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/offers.rs:34:23	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/offers.rs:39:20	[opts]	body	opts() -> Opts {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/offers.rs:59:54	[AgentOffer::new]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/offers.rs:59:65	[AgentOffer::new]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/offers.rs:62:37	[AgentOffer::keleres]	body	keleres(f: Faction) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/production/offers.rs:62:37	[AgentOffer::keleres]	body	keleres(f: Faction) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/production/offers.rs:67:70	[AgentOffer::holders_of]	body	holders_of(s: &CoreState, payer: Seat) -> SmallList<Seat, 8> {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/offers.rs:69:12	[AgentOffer::holders_of]	cond	s.marks().tail.contains_key(&MarkKey::KeleresAgentGoods(payer)) || s.players().b...  =>  !(s.marks().tail.contains_key(&MarkKey::KeleresAgentGoods(payer)) || s.players().b...)
+crates/ti4-engine-core/src/rules/production/offers.rs:69:12	[AgentOffer::holders_of]	logic	s.marks().tail.contains_key(&MarkKey::Ke... || s.players().by_seat(payer).is_none_or(|p...  =>  s.marks().tail.contains_key(&MarkKey::Ke... && s.players().by_seat(payer).is_none_or(|p...
+crates/ti4-engine-core/src/rules/production/offers.rs:69:121	[AgentOffer::holders_of]	cmp	p.econ.commodities <= 0  =>  p.econ.commodities < 0
+crates/ti4-engine-core/src/rules/production/offers.rs:69:143	[AgentOffer::holders_of]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/offers.rs:73:16	[AgentOffer::holders_of]	cond	Self::keleres(p.faction) && p.leaders.status.get(&Leader::XanderAlexinVictoriIII...  =>  !(Self::keleres(p.faction) && p.leaders.status.get(&Leader::XanderAlexinVictoriIII...)
+crates/ti4-engine-core/src/rules/production/offers.rs:73:16	[AgentOffer::holders_of]	logic	Self::keleres(p.faction) && p.leaders.status.get(&Leader::XanderAlex...  =>  Self::keleres(p.faction) || p.leaders.status.get(&Leader::XanderAlex...
+crates/ti4-engine-core/src/rules/production/offers.rs:73:44	[AgentOffer::holders_of]	cmp	p.leaders.status.get(&Leader::XanderAlex... == Some(&LeaderStatus::Readied)  =>  p.leaders.status.get(&Leader::XanderAlex... != Some(&LeaderStatus::Readied)
+crates/ti4-engine-core/src/rules/production/offers.rs:80:59	[AgentOffer::mark]	body	mark(s: &mut CoreState, payer: Seat, value: Atom) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/production/offers.rs:93:12	[AgentOffer::step]	cond	self.stage == Stage::Start  =>  !(self.stage == Stage::Start)
+crates/ti4-engine-core/src/rules/production/offers.rs:93:12	[AgentOffer::step]	cmp	self.stage == Stage::Start  =>  self.stage != Stage::Start
+crates/ti4-engine-core/src/rules/production/offers.rs:95:29	[AgentOffer::step]	cond	self.holders.is_empty()  =>  !(self.holders.is_empty())
+crates/ti4-engine-core/src/rules/production/offers.rs:103:68	[AgentOffer::ask_of]	body	ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {  =>  { return None; }
+crates/ti4-engine-core/src/rules/production/offers.rs:105:10	[AgentOffer::ask_of]	cmp	self.stage == Stage::Asking  =>  self.stage != Stage::Asking
+crates/ti4-engine-core/src/rules/production/offers.rs:113:79	[AgentOffer::answer]	body	answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ...  =>  { return Ok(()); }
+crates/ti4-engine-core/src/rules/production/offers.rs:115:12	[AgentOffer::answer]	cond	self.stage != Stage::Asking  =>  !(self.stage != Stage::Asking)
+crates/ti4-engine-core/src/rules/production/offers.rs:115:12	[AgentOffer::answer]	cmp	self.stage != Stage::Asking  =>  self.stage == Stage::Asking
+crates/ti4-engine-core/src/rules/production/offers.rs:118:24	[AgentOffer::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/offers.rs:123:80	[AgentOffer::answer]	cmp	p.leaders.status.get(&Leader::XanderAlex... == Some(&LeaderStatus::Readied)  =>  p.leaders.status.get(&Leader::XanderAlex... != Some(&LeaderStatus::Readied)
+crates/ti4-engine-core/src/rules/production/offers.rs:124:20	[AgentOffer::answer]	cond	ready  =>  !(ready)
+crates/ti4-engine-core/src/rules/production/offers.rs:125:24	[AgentOffer::answer]	cond	sx.kernel.hooks.direct.nomad_watches_agent_exhaustion(sx.state)  =>  !(sx.kernel.hooks.direct.nomad_watches_agent_exhaustion(sx.state))
+crates/ti4-engine-core/src/rules/production/offers.rs:132:35	[AgentOffer::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/offers.rs:134:28	[AgentOffer::answer]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/offers.rs:139:12	[AgentOffer::answer]	cond	next  =>  !(next)
+crates/ti4-engine-core/src/rules/production/offers.rs:140:13	[AgentOffer::answer]	assign	self.at += 1  =>  self.at -= 1
+crates/ti4-engine-core/src/rules/production/offers.rs:140:24	[AgentOffer::answer]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/offers.rs:141:16	[AgentOffer::answer]	cond	self.at >= self.holders.len()  =>  !(self.at >= self.holders.len())
+crates/ti4-engine-core/src/rules/production/offers.rs:141:16	[AgentOffer::answer]	cmp	self.at >= self.holders.len()  =>  self.at > self.holders.len()
+crates/ti4-engine-core/src/rules/production/offers.rs:143:31	[AgentOffer::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/pay.rs:63:75	[PayStep::question]	arith	self.used_credit + self.paid  =>  self.used_credit - self.paid
+crates/ti4-engine-core/src/rules/production/pay.rs:67:27	[PayStep::question]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/pay.rs:70:31	[PayStep::question]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/pay.rs:94:20	[PayStep::apply]	cmp	p.econ.trade_goods <= 0  =>  p.econ.trade_goods < 0
+crates/ti4-engine-core/src/rules/production/pay.rs:94:42	[PayStep::apply]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/pay.rs:102:17	[PayStep::apply]	assign	s.players_mut().by_seat_mut(self.who)?.e... -= 1  =>  s.players_mut().by_seat_mut(self.who)?.e... += 1
+crates/ti4-engine-core/src/rules/production/pay.rs:102:76	[PayStep::apply]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/pay.rs:185:81	[PayBill::next_step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/pay.rs:205:37	[PayBill::step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/pay.rs:210:24	[PayBill::step]	cmp	rules::available(&cx, self.who, self.kin... < self.cost  =>  rules::available(&cx, self.who, self.kin... <= self.cost
+crates/ti4-engine-core/src/rules/production/pay.rs:229:45	[PayBill::step]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/pay.rs:231:41	[PayBill::step]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:83:9	[Leadership::eligible]	cmp	prod::available(&Self::cx(s, k), self.wh... >= INFLUENCE_PER_TOKEN  =>  prod::available(&Self::cx(s, k), self.wh... > INFLUENCE_PER_TOKEN
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:83:9	[Leadership::eligible]	arith	prod::available(&Self::cx(s, k), self.wh... + self.credit  =>  prod::available(&Self::cx(s, k), self.wh... - self.credit
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:89:60	[Leadership::begin_pay]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:90:20	[Leadership::begin_pay]	arith	INFLUENCE_PER_TOKEN - used  =>  INFLUENCE_PER_TOKEN + used
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:91:12	[Leadership::begin_pay]	cmp	owed <= 0  =>  owed < 0
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:91:20	[Leadership::begin_pay]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:92:13	[Leadership::begin_pay]	assign	self.credit -= used  =>  self.credit += used
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:136:27	[Leadership::after_step]	arith	self.credit - step.used_credit + paid  =>  self.credit - step.used_credit - paid
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:136:27	[Leadership::after_step]	arith	self.credit - step.used_credit  =>  self.credit + step.used_credit
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:142:21	[Leadership::buy_choice]	arith	INFLUENCE_PER_TOKEN - self.credit  =>  INFLUENCE_PER_TOKEN + self.credit
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:142:60	[Leadership::buy_choice]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:145:79	[Leadership::buy_choice]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:145:103	[Leadership::buy_choice]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:269:30	[Construction::new_te]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:269:113	[Construction::new_te]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:307:24	[Construction::options]	cmp	crate::query::fleet::remaining(s, cx.sco... >= 1  =>  crate::query::fleet::remaining(s, cx.sco... > 1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:307:84	[Construction::options]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:307:90	[Construction::options]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:361:31	[Construction::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:364:35	[Construction::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:378:27	[Construction::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:381:31	[Construction::ask_of]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:395:43	[Construction::answer]	cond	self.stage == CStage::Ability  =>  !(self.stage == CStage::Ability)
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:395:43	[Construction::answer]	cmp	self.stage == CStage::Ability  =>  self.stage != CStage::Ability
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:399:48	[Construction::answer]	cond	self.stage == CStage::Ability  =>  !(self.stage == CStage::Ability)
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:399:48	[Construction::answer]	cmp	self.stage == CStage::Ability  =>  self.stage != CStage::Ability
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:400:33	[Construction::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:439:34	[KernelHooks::new]	cmp	prod::available(&cx, who, Spend::Resourc... >= tech::INHERITANCE_SYSTEMS_COST  =>  prod::available(&cx, who, Spend::Resourc... > tech::INHERITANCE_SYSTEMS_COST
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:445:46	[KernelHooks::purged]	body	purged(&self, _: Technology) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:449:61	[KernelHooks::waived_prerequisites]	body	waived_prerequisites(&self, t: Technology) -> usize {  =>  { return 0; }
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:453:9	[KernelHooks::waived_prerequisites]	arith	usize::from(analytical) + self.k.hooks.general.waived_prerequisite...  =>  usize::from(analytical) - self.k.hooks.general.waived_prerequisite...
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:456:41	[KernelHooks::extra_colours]	body	extra_colours(&self) -> Colours {  =>  { return Default::default(); }
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:460:17	[KernelHooks::extra_colours]	assign	out[i] += u16::try_from(extra.count).unwrap_or(u16...  =>  out[i] -= u16::try_from(extra.count).unwrap_or(u16...
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:466:47	[KernelHooks::inheritance_affordable]	body	inheritance_affordable(&self) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:466:47	[KernelHooks::inheritance_affordable]	body	inheritance_affordable(&self) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:540:26	[Research::begin_paid]	cmp	prod::available(&Self::cx(s, k), self.wh... >= self.cost  =>  prod::available(&Self::cx(s, k), self.wh... > self.cost
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:545:88	[Research::pay_step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:556:32	[Research::exhaust_specialties]	cmp	*n == 0  =>  *n != 0
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:556:38	[Research::exhaust_specialties]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:564:17	[Research::exhaust_specialties]	assign	waivable += crate::query::laws::research_team_waiver...  =>  waivable -= crate::query::laws::research_team_waiver...
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:566:13	[Research::exhaust_specialties]	assign	waivable += tech::relic_waivers(s, self.who)  =>  waivable -= tech::relic_waivers(s, self.who)
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:568:24	[Research::exhaust_specialties]	logic	tech::aida_waiver(s, self.who, t) > 0 && ResearchCtx::of(s, self.scope, blanked, ...  =>  tech::aida_waiver(s, self.who, t) > 0 || ResearchCtx::of(s, self.scope, blanked, ...
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:568:24	[Research::exhaust_specialties]	cmp	tech::aida_waiver(s, self.who, t) > 0  =>  tech::aida_waiver(s, self.who, t) >= 0
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:568:60	[Research::exhaust_specialties]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:569:126	[Research::exhaust_specialties]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:573:13	[Research::exhaust_specialties]	assign	waivable += 1  =>  waivable -= 1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:573:25	[Research::exhaust_specialties]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:579:16	[Research::exhaust_specialties]	cmp	need <= have  =>  need < have
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:582:32	[Research::exhaust_specialties]	arith	need - have  =>  need + have
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:583:16	[Research::exhaust_specialties]	cond	waivable > 0  =>  !(waivable > 0)
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:583:16	[Research::exhaust_specialties]	cmp	waivable > 0  =>  waivable >= 0
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:583:27	[Research::exhaust_specialties]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:585:17	[Research::exhaust_specialties]	assign	shortage -= waived  =>  shortage += waived
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:586:17	[Research::exhaust_specialties]	assign	waivable -= waived  =>  waivable += waived
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:590:20	[Research::exhaust_specialties]	cmp	exhausted_for_colour >= shortage  =>  exhausted_for_colour > shortage
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:593:20	[Research::exhaust_specialties]	logic	board::exhausted(s, *planet) || to_exhaust.as_slice().contains(planet)  =>  board::exhausted(s, *planet) && to_exhaust.as_slice().contains(planet)
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:598:45	[Research::exhaust_specialties]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:625:12	[Research::complete]	cond	tech::faction_of(t).is_none()  =>  !(tech::faction_of(t).is_none())
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:629:64	[Research::complete]	logic	h.faction != faction && !h.tech.owned.contains(t)  =>  h.faction != faction || !h.tech.owned.contains(t)
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:629:64	[Research::complete]	cmp	h.faction != faction  =>  h.faction == faction
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:644:101	[Research::settle]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:645:47	[Research::settle]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:649:19	[Research::settle]	cond	inheritance  =>  !(inheritance)
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:652:16	[Research::settle]	cond	!fx_pay::pay_first_plan(s, k, env, self.who, Spend::Resources, tech::INHERITANCE...  =>  !(!fx_pay::pay_first_plan(s, k, env, self.who, Spend::Resources, tech::INHERITANCE...)
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:653:24	[Research::settle]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:667:12	[Research::land]	cond	!self.settle(s, k, t)  =>  !(!self.settle(s, k, t))
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:668:27	[Research::land]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:673:62	[Research::after_step]	body	after_step(&mut self, s: &mut CoreState, k: &Kernel) {  =>  { return (); }
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:675:27	[Research::after_step]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:680:27	[Research::after_step]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:684:20	[Research::after_step]	arith	step.paid + worth  =>  step.paid - worth
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:685:12	[Research::after_step]	cond	paid < step.owed  =>  !(paid < step.owed)
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:685:12	[Research::after_step]	cmp	paid < step.owed  =>  paid <= step.owed
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:690:27	[Research::after_step]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:722:128	[Research::research_chosen]	body	research_chosen(s: &mut CoreState, k: &Kernel, scope: Scope, roster: U...  =>  { return true; }
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:722:128	[Research::research_chosen]	body	research_chosen(s: &mut CoreState, k: &Kernel, scope: Scope, roster: U...  =>  { return false; }
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:723:24	[Research::research_chosen]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:723:31	[Research::research_chosen]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:746:24	[Research::step]	cond	self.open(sx.state, sx.kernel).is_empty()  =>  !(self.open(sx.state, sx.kernel).is_empty())
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:754:39	[Research::step]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:797:20	[Research::answer]	cond	self.cost > 0  =>  !(self.cost > 0)
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:797:20	[Research::answer]	cmp	self.cost > 0  =>  self.cost >= 0
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:797:32	[Research::answer]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/strategy_cards.rs:799:51	[Research::answer]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/supply.rs:19:49	[spendable_goods]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/supply.rs:20:5	[spendable_goods]	arith	goods + k.hooks.direct.keleres_spendable_commodi...  =>  goods - k.hooks.direct.keleres_spendable_commodi...
+crates/ti4-engine-core/src/rules/production/supply.rs:26:8	[spend_goods]	cmp	amount <= 0  =>  amount < 0
+crates/ti4-engine-core/src/rules/production/supply.rs:32:101	[spend_goods]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/supply.rs:33:66	[spend_goods]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/supply.rs:35:5	[spend_goods]	assign	p.econ.commodities -= i16::try_from(from_commodities).unwrap_o...  =>  p.econ.commodities += i16::try_from(from_commodities).unwrap_o...
+crates/ti4-engine-core/src/rules/production/supply.rs:36:41	[spend_goods]	arith	amount - from_commodities  =>  amount + from_commodities
+crates/ti4-engine-core/src/rules/production/supply.rs:66:52	[capture_from_reinforcements]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:33:35	[small]	cond	n < 0  =>  !(n < 0)
+crates/ti4-engine-core/src/rules/production/triggered.rs:33:35	[small]	cmp	n < 0  =>  n <= 0
+crates/ti4-engine-core/src/rules/production/triggered.rs:33:39	[small]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:40:19	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/triggered.rs:43:23	[ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/triggered.rs:56:36	[printed_price]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/triggered.rs:95:49	[sling_candidates]	logic	p.owner() == who && p.kind().data().base_type == UnitBaseTyp...  =>  p.owner() == who || p.kind().data().base_type == UnitBaseTyp...
+crates/ti4-engine-core/src/rules/production/triggered.rs:106:100	[sling_candidates]	logic	is_dock(p) && p.kind().data().space_only  =>  is_dock(p) || p.kind().data().space_only
+crates/ti4-engine-core/src/rules/production/triggered.rs:109:81	[sling_candidates]	logic	p.owner() != who && p.kind().data().ship  =>  p.owner() != who || p.kind().data().ship
+crates/ti4-engine-core/src/rules/production/triggered.rs:115:16	[sling_candidates]	logic	unit.data().ship && cost <= affordable && placed_of(c, who, unit, 1) > 0  =>  unit.data().ship && cost <= affordable || placed_of(c, who, unit, 1) > 0
+crates/ti4-engine-core/src/rules/production/triggered.rs:115:16	[sling_candidates]	logic	unit.data().ship && cost <= affordable  =>  unit.data().ship || cost <= affordable
+crates/ti4-engine-core/src/rules/production/triggered.rs:115:36	[sling_candidates]	cmp	cost <= affordable  =>  cost < affordable
+crates/ti4-engine-core/src/rules/production/triggered.rs:115:58	[sling_candidates]	cmp	placed_of(c, who, unit, 1) > 0  =>  placed_of(c, who, unit, 1) >= 0
+crates/ti4-engine-core/src/rules/production/triggered.rs:115:82	[sling_candidates]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/triggered.rs:152:94	[SlingRelay::pay_step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:160:18	[SlingRelay::question]	cmp	systems.as_slice().len() > 1  =>  systems.as_slice().len() >= 1
+crates/ti4-engine-core/src/rules/production/triggered.rs:169:18	[SlingRelay::question]	cmp	ships.as_slice().len() > 1  =>  ships.as_slice().len() >= 1
+crates/ti4-engine-core/src/rules/production/triggered.rs:184:12	[SlingRelay::chosen]	cmp	owed <= 0  =>  owed < 0
+crates/ti4-engine-core/src/rules/production/triggered.rs:185:67	[SlingRelay::chosen]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:185:76	[SlingRelay::chosen]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:188:12	[SlingRelay::chosen]	cmp	super::available(&cx(s, k), self.who, Sp... < owed  =>  super::available(&cx(s, k), self.who, Sp... <= owed
+crates/ti4-engine-core/src/rules/production/triggered.rs:254:89	[SlingRelay::step]	arith	paid + small(worth)  =>  paid - small(worth)
+crates/ti4-engine-core/src/rules/production/triggered.rs:344:16	[EconomyWindow::offers]	cmp	cost <= 0  =>  cost < 0
+crates/ti4-engine-core/src/rules/production/triggered.rs:344:62	[EconomyWindow::offers]	cmp	cost > affordable  =>  cost >= affordable
+crates/ti4-engine-core/src/rules/production/triggered.rs:348:24	[EconomyWindow::offers]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:351:16	[EconomyWindow::offers]	cond	fleet::counts_against_supply(unit)  =>  !(fleet::counts_against_supply(unit))
+crates/ti4-engine-core/src/rules/production/triggered.rs:352:143	[EconomyWindow::offers]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/triggered.rs:352:156	[EconomyWindow::offers]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/triggered.rs:353:20	[EconomyWindow::offers]	cond	after.fleet_excess() > 0  =>  !(after.fleet_excess() > 0)
+crates/ti4-engine-core/src/rules/production/triggered.rs:353:20	[EconomyWindow::offers]	cmp	after.fleet_excess() > 0  =>  after.fleet_excess() >= 0
+crates/ti4-engine-core/src/rules/production/triggered.rs:353:43	[EconomyWindow::offers]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:365:20	[EconomyWindow::question]	cmp	self.budget <= 0  =>  self.budget < 0
+crates/ti4-engine-core/src/rules/production/triggered.rs:375:153	[EconomyWindow::question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:386:94	[EconomyWindow::pay_step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:392:12	[EconomyWindow::chosen]	logic	cost <= 0 || cost > i64::from(self.budget)  =>  cost <= 0 && cost > i64::from(self.budget)
+crates/ti4-engine-core/src/rules/production/triggered.rs:392:12	[EconomyWindow::chosen]	cmp	cost <= 0  =>  cost < 0
+crates/ti4-engine-core/src/rules/production/triggered.rs:396:12	[EconomyWindow::chosen]	cmp	super::available(&cx(s, k), self.who, Sp... < cost  =>  super::available(&cx(s, k), self.who, Sp... <= cost
+crates/ti4-engine-core/src/rules/production/triggered.rs:400:82	[EconomyWindow::chosen]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:406:24	[EconomyWindow::arrive]	logic	d.ship || d.base_type == UnitBaseType::Fighter  =>  d.ship && d.base_type == UnitBaseType::Fighter
+crates/ti4-engine-core/src/rules/production/triggered.rs:411:23	[EconomyWindow::arrive]	cmp	made > 0  =>  made >= 0
+crates/ti4-engine-core/src/rules/production/triggered.rs:411:30	[EconomyWindow::arrive]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/triggered.rs:428:24	[EconomyWindow::step]	logic	self.budget <= 0 || self.question(sx.state, sx.kernel).is_no...  =>  self.budget <= 0 && self.question(sx.state, sx.kernel).is_no...
+crates/ti4-engine-core/src/rules/production/triggered.rs:428:24	[EconomyWindow::step]	cmp	self.budget <= 0  =>  self.budget < 0
+crates/ti4-engine-core/src/rules/production/triggered.rs:435:24	[EconomyWindow::step]	cond	paid >= cost  =>  !(paid >= cost)
+crates/ti4-engine-core/src/rules/production/triggered.rs:435:24	[EconomyWindow::step]	cmp	paid >= cost  =>  paid > cost
+crates/ti4-engine-core/src/rules/production/triggered.rs:450:89	[EconomyWindow::step]	arith	paid + small(worth)  =>  paid - small(worth)
+crates/ti4-engine-core/src/rules/production/triggered.rs:480:77	[EconomyWindow::answer]	arith	paid + small(worth)  =>  paid - small(worth)
+crates/ti4-engine-core/src/rules/production/window.rs:71:35	[small]	cond	n < 0  =>  !(n < 0)
+crates/ti4-engine-core/src/rules/production/window.rs:71:35	[small]	cmp	n < 0  =>  n <= 0
+crates/ti4-engine-core/src/rules/production/window.rs:71:39	[small]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:80:29	[ProductionWindow::choose_ask]	lit	0_u8  =>  1u8
+crates/ti4-engine-core/src/rules/production/window.rs:83:60	[ProductionWindow::choose_ask]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/window.rs:113:23	[ProductionWindow::ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/window.rs:116:27	[ProductionWindow::ctx]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/window.rs:124:55	[ProductionWindow::agent_offerable]	body	agent_offerable(&self, s: &CoreState) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/production/window.rs:125:9	[ProductionWindow::agent_offerable]	logic	self.agent_rules && !self.purchased && !... && Self::agent_ready(s, self.who)  =>  self.agent_rules && !self.purchased && !... || Self::agent_ready(s, self.who)
+crates/ti4-engine-core/src/rules/production/window.rs:125:9	[ProductionWindow::agent_offerable]	logic	self.agent_rules && !self.purchased && !... && !self.free_this_use  =>  self.agent_rules && !self.purchased && !... || !self.free_this_use
+crates/ti4-engine-core/src/rules/production/window.rs:125:9	[ProductionWindow::agent_offerable]	logic	self.agent_rules && !self.purchased && !self.agent_spent  =>  self.agent_rules && !self.purchased || !self.agent_spent
+crates/ti4-engine-core/src/rules/production/window.rs:125:9	[ProductionWindow::agent_offerable]	logic	self.agent_rules && !self.purchased  =>  self.agent_rules || !self.purchased
+crates/ti4-engine-core/src/rules/production/window.rs:128:55	[ProductionWindow::agent_ready]	body	agent_ready(s: &CoreState, who: Seat) -> bool {  =>  { return true; }
+crates/ti4-engine-core/src/rules/production/window.rs:128:55	[ProductionWindow::agent_ready]	body	agent_ready(s: &CoreState, who: Seat) -> bool {  =>  { return false; }
+crates/ti4-engine-core/src/rules/production/window.rs:129:50	[ProductionWindow::agent_ready]	cmp	p.leaders.status.get(&Leader::BerekarBer... == Some(&LeaderStatus::Readied)  =>  p.leaders.status.get(&Leader::BerekarBer... != Some(&LeaderStatus::Readied)
+crates/ti4-engine-core/src/rules/production/window.rs:138:20	[ProductionWindow::question]	cmp	self.remaining <= 0  =>  self.remaining < 0
+crates/ti4-engine-core/src/rules/production/window.rs:138:38	[ProductionWindow::question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:138:43	[ProductionWindow::question]	cmp	self.small_exemptions <= 0  =>  self.small_exemptions < 0
+crates/ti4-engine-core/src/rules/production/window.rs:138:68	[ProductionWindow::question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:143:48	[ProductionWindow::question]	logic	self.remaining > 0 || self.small_exemptions > 0  =>  self.remaining > 0 && self.small_exemptions > 0
+crates/ti4-engine-core/src/rules/production/window.rs:143:48	[ProductionWindow::question]	cmp	self.remaining > 0  =>  self.remaining >= 0
+crates/ti4-engine-core/src/rules/production/window.rs:143:65	[ProductionWindow::question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:143:70	[ProductionWindow::question]	cmp	self.small_exemptions > 0  =>  self.small_exemptions >= 0
+crates/ti4-engine-core/src/rules/production/window.rs:143:94	[ProductionWindow::question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:144:35	[ProductionWindow::question]	logic	opts.len() > 0 || { let mut probe = ask; probe.discount_re...  =>  opts.len() > 0 && { let mut probe = ask; probe.discount_re...
+crates/ti4-engine-core/src/rules/production/window.rs:144:35	[ProductionWindow::question]	cmp	opts.len() > 0  =>  opts.len() >= 0
+crates/ti4-engine-core/src/rules/production/window.rs:144:48	[ProductionWindow::question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:146:25	[ProductionWindow::question]	assign	probe.discount_remaining += 2  =>  probe.discount_remaining -= 2
+crates/ti4-engine-core/src/rules/production/window.rs:146:53	[ProductionWindow::question]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/production/window.rs:149:24	[ProductionWindow::question]	cond	reaches  =>  !(reaches)
+crates/ti4-engine-core/src/rules/production/window.rs:158:118	[ProductionWindow::question]	arith	self.limit - self.remaining  =>  self.limit + self.remaining
+crates/ti4-engine-core/src/rules/production/window.rs:158:151	[ProductionWindow::question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:162:84	[ProductionWindow::question]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:178:20	[ProductionWindow::question]	cond	opts.as_slice().is_empty()  =>  !(opts.as_slice().is_empty())
+crates/ti4-engine-core/src/rules/production/window.rs:198:9	[ProductionWindow::spend_credit]	assign	self.credit -= used  =>  self.credit += used
+crates/ti4-engine-core/src/rules/production/window.rs:199:9	[ProductionWindow::spend_credit]	arith	cost - used  =>  cost + used
+crates/ti4-engine-core/src/rules/production/window.rs:205:77	[ProductionWindow::apply_payment]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:205:80	[ProductionWindow::apply_payment]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:215:20	[ProductionWindow::apply_payment]	cmp	p.econ.trade_goods <= 0  =>  p.econ.trade_goods < 0
+crates/ti4-engine-core/src/rules/production/window.rs:215:42	[ProductionWindow::apply_payment]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:224:17	[ProductionWindow::apply_payment]	assign	p.econ.commodities -= 1  =>  p.econ.commodities += 1
+crates/ti4-engine-core/src/rules/production/window.rs:224:39	[ProductionWindow::apply_payment]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/window.rs:240:20	[ProductionWindow::place]	logic	unit == Unit::Eidolon && s.players().by_seat(self.who).is_some_an...  =>  unit == Unit::Eidolon || s.players().by_seat(self.who).is_some_an...
+crates/ti4-engine-core/src/rules/production/window.rs:240:20	[ProductionWindow::place]	cmp	unit == Unit::Eidolon  =>  unit != Unit::Eidolon
+crates/ti4-engine-core/src/rules/production/window.rs:240:91	[ProductionWindow::place]	cmp	p.faction == crate::generated::Faction::TheNaazRokhaA...  =>  p.faction != crate::generated::Faction::TheNaazRokhaA...
+crates/ti4-engine-core/src/rules/production/window.rs:244:16	[ProductionWindow::place]	cond	naaz  =>  !(naaz)
+crates/ti4-engine-core/src/rules/production/window.rs:252:70	[ProductionWindow::place]	cmp	p.cards.breakthrough == Some(crate::generated::Breakthrough::Bel...  =>  p.cards.breakthrough != Some(crate::generated::Breakthrough::Bel...
+crates/ti4-engine-core/src/rules/production/window.rs:253:23	[ProductionWindow::place]	arith	if held_sol && d.ship { fleet::capacity(... * i64::from(made > 0)  =>  if held_sol && d.ship { fleet::capacity(... + i64::from(made > 0)
+crates/ti4-engine-core/src/rules/production/window.rs:253:26	[ProductionWindow::place]	cond	held_sol && d.ship  =>  !(held_sol && d.ship)
+crates/ti4-engine-core/src/rules/production/window.rs:253:26	[ProductionWindow::place]	logic	held_sol && d.ship  =>  held_sol || d.ship
+crates/ti4-engine-core/src/rules/production/window.rs:253:78	[ProductionWindow::place]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:253:94	[ProductionWindow::place]	cmp	made > 0  =>  made >= 0
+crates/ti4-engine-core/src/rules/production/window.rs:253:101	[ProductionWindow::place]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:254:36	[ProductionWindow::place]	arith	i64::from(self.free_capacity) + granted  =>  i64::from(self.free_capacity) - granted
+crates/ti4-engine-core/src/rules/production/window.rs:255:22	[ProductionWindow::place]	logic	d.base_type == UnitBaseType::Fighter || fleet::is_ground_force(unit)  =>  d.base_type == UnitBaseType::Fighter && fleet::is_ground_force(unit)
+crates/ti4-engine-core/src/rules/production/window.rs:255:22	[ProductionWindow::place]	cmp	d.base_type == UnitBaseType::Fighter  =>  d.base_type != UnitBaseType::Fighter
+crates/ti4-engine-core/src/rules/production/window.rs:256:23	[ProductionWindow::place]	cond	spends  =>  !(spends)
+crates/ti4-engine-core/src/rules/production/window.rs:257:25	[ProductionWindow::place]	cond	matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry)  =>  !(matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry))
+crates/ti4-engine-core/src/rules/production/window.rs:257:98	[ProductionWindow::place]	arith	count - free  =>  count + free
+crates/ti4-engine-core/src/rules/production/window.rs:258:39	[ProductionWindow::place]	arith	i64::from(self.small_exemptions) - exempt  =>  i64::from(self.small_exemptions) + exempt
+crates/ti4-engine-core/src/rules/production/window.rs:259:36	[ProductionWindow::place]	arith	i64::from(self.free_capacity) - free  =>  i64::from(self.free_capacity) + free
+crates/ti4-engine-core/src/rules/production/window.rs:260:61	[ProductionWindow::place]	arith	count - free - exempt  =>  count - free + exempt
+crates/ti4-engine-core/src/rules/production/window.rs:260:61	[ProductionWindow::place]	arith	count - free  =>  count + free
+crates/ti4-engine-core/src/rules/production/window.rs:277:86	[ProductionWindow::step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:290:74	[ProductionWindow::step]	arith	owed - worth  =>  owed + worth
+crates/ti4-engine-core/src/rules/production/window.rs:290:106	[ProductionWindow::step]	arith	paid + worth  =>  paid - worth
+crates/ti4-engine-core/src/rules/production/window.rs:293:29	[ProductionWindow::step]	assign	self.credit += worth - owed  =>  self.credit -= worth - owed
+crates/ti4-engine-core/src/rules/production/window.rs:293:44	[ProductionWindow::step]	arith	worth - owed  =>  worth + owed
+crates/ti4-engine-core/src/rules/production/window.rs:300:24	[ProductionWindow::step]	cond	!self.placement_timing_done  =>  !(!self.placement_timing_done)
+crates/ti4-engine-core/src/rules/production/window.rs:301:28	[ProductionWindow::step]	cond	self.emit_timing && fleet::is_ground_force(unit) && !unit.data().structure  =>  !(self.emit_timing && fleet::is_ground_force(unit) && !unit.data().structure)
+crates/ti4-engine-core/src/rules/production/window.rs:301:28	[ProductionWindow::step]	logic	self.emit_timing && fleet::is_ground_for... && !unit.data().structure  =>  self.emit_timing && fleet::is_ground_for... || !unit.data().structure
+crates/ti4-engine-core/src/rules/production/window.rs:301:28	[ProductionWindow::step]	logic	self.emit_timing && fleet::is_ground_force(unit)  =>  self.emit_timing || fleet::is_ground_force(unit)
+crates/ti4-engine-core/src/rules/production/window.rs:306:32	[ProductionWindow::step]	cond	sx.emit(fx::event(EventKind::GroundForcesBeingProduced, payload)).is_err()  =>  !(sx.emit(fx::event(EventKind::GroundForcesBeingProduced, payload)).is_err())
+crates/ti4-engine-core/src/rules/production/window.rs:311:54	[ProductionWindow::step]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/window.rs:319:58	[ProductionWindow::step]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/window.rs:331:24	[ProductionWindow::step]	logic	(self.remaining <= 0 && self.small_exemp... || self.question(sx.state, sx.kernel).is_no...  =>  (self.remaining <= 0 && self.small_exemp... && self.question(sx.state, sx.kernel).is_no...
+crates/ti4-engine-core/src/rules/production/window.rs:331:25	[ProductionWindow::step]	cmp	self.remaining <= 0  =>  self.remaining < 0
+crates/ti4-engine-core/src/rules/production/window.rs:331:43	[ProductionWindow::step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:331:48	[ProductionWindow::step]	cmp	self.small_exemptions <= 0  =>  self.small_exemptions < 0
+crates/ti4-engine-core/src/rules/production/window.rs:331:73	[ProductionWindow::step]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:361:43	[ProductionWindow::answer]	logic	d.base_type == UnitBaseType::Flagship && self.flagship_free  =>  d.base_type == UnitBaseType::Flagship || self.flagship_free
+crates/ti4-engine-core/src/rules/production/window.rs:361:43	[ProductionWindow::answer]	cmp	d.base_type == UnitBaseType::Flagship  =>  d.base_type != UnitBaseType::Flagship
+crates/ti4-engine-core/src/rules/production/window.rs:362:26	[ProductionWindow::answer]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:362:29	[ProductionWindow::answer]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:364:26	[ProductionWindow::answer]	lit	0  =>  1
+crates/ti4-engine-core/src/rules/production/window.rs:367:26	[ProductionWindow::answer]	arith	printed - used  =>  printed + used
+crates/ti4-engine-core/src/rules/production/window.rs:369:24	[ProductionWindow::answer]	cond	!self.free_this_use  =>  !(!self.free_this_use)
+crates/ti4-engine-core/src/rules/production/window.rs:370:57	[ProductionWindow::answer]	arith	i64::from(self.discount_remaining) - used  =>  i64::from(self.discount_remaining) + used
+crates/ti4-engine-core/src/rules/production/window.rs:372:38	[ProductionWindow::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/window.rs:374:37	[ProductionWindow::answer]	cmp	owed > 0  =>  owed >= 0
+crates/ti4-engine-core/src/rules/production/window.rs:375:84	[ProductionWindow::answer]	arith	small(cost) - owed  =>  small(cost) + owed
+crates/ti4-engine-core/src/rules/production/window.rs:382:24	[ProductionWindow::answer]	cond	Self::agent_ready(sx.state, self.who)  =>  !(Self::agent_ready(sx.state, self.who))
+crates/ti4-engine-core/src/rules/production/window.rs:386:25	[ProductionWindow::answer]	assign	sx.state.transient_mut().production.disc... += 2  =>  sx.state.transient_mut().production.disc... -= 2
+crates/ti4-engine-core/src/rules/production/window.rs:386:83	[ProductionWindow::answer]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/production/window.rs:387:25	[ProductionWindow::answer]	assign	self.discount_remaining += 2  =>  self.discount_remaining -= 2
+crates/ti4-engine-core/src/rules/production/window.rs:387:52	[ProductionWindow::answer]	lit	2  =>  3
+crates/ti4-engine-core/src/rules/production/window.rs:388:44	[ProductionWindow::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/window.rs:398:24	[ProductionWindow::answer]	cond	!done  =>  !(!done)
+crates/ti4-engine-core/src/rules/production/window.rs:402:38	[ProductionWindow::answer]	lit	true  =>  false
+crates/ti4-engine-core/src/rules/production/window.rs:403:63	[ProductionWindow::answer]	lit	1  =>  2
+crates/ti4-engine-core/src/rules/production/window.rs:414:28	[ProductionWindow::answer]	arith	paid + worth  =>  paid - worth
+crates/ti4-engine-core/src/rules/production/window.rs:418:21	[ProductionWindow::answer]	assign	self.credit += -owed  =>  self.credit -= -owed
+crates/ti4-engine-core/src/rules/production/window.rs:427:46	[ProductionWindow::answer]	lit	false  =>  true
+crates/ti4-engine-core/src/rules/production/window.rs:438:58	[ProductionWindow::agent_destinations_spent]	body	agent_destinations_spent(&self, sx: &mut Sx<'_>) {  =>  { return (); }

@@ -1,0 +1,16 @@
+Q0 seat 0 Strategy(PoliticsSpeaker)
+  >0: Strategy(Speaker(Seat(0)))
+   1: Strategy(Speaker(Seat(2)))
+Q1 seat 0 Strategy(PoliticsAgenda { agenda: JudicialAbolishment })
+  >0: Strategy(Top)
+   1: Strategy(Bottom)
+Q2 seat 0 Strategy(PoliticsAgenda { agenda: ImperialArbiter })
+  >0: Strategy(Top)
+   1: Strategy(Bottom)
+done
+--- delta ---
+meta.speaker.[0]: 1 -> 0
+player0.cards.hand: [] -> -
+player0.cards.hand.[0]: - -> AncientBurialSites
+player0.cards.hand.[1]: - -> ArchaeologicalExpedition
+decks: changed

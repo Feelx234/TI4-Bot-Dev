@@ -1,0 +1,13 @@
+Q0 seat 0 Tactical(Activate { seat: Seat(0) })
+   0: Tactical(Activate(Tempesta))
+   1: Tactical(Activate(Andeara))
+  >2: Tactical(Activate(ViraPicsIII))
+done
+--- delta ---
+meta.activation_seq: 0 -> 1
+meta.active_system: None -> -
+meta.active_system.[0]: - -> ViraPicsIII
+player0.econ.tactic_tokens: 3 -> 2
+sys[ViraPicsIII]: units [] tokens {} flags 0 -> units [] tokens {0} flags 1
+pending.tag: None -> -
+pending.tag.[0]: - -> Move

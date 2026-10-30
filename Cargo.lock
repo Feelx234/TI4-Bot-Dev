@@ -4163,6 +4163,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-engine-core-tests"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde_json",
+ "ti4-content",
+ "ti4-engine",
+ "ti4-engine-core",
+ "ti4-engine-core-bridge",
+ "ti4-engine-core-factions",
+ "ti4-model",
+]
+
+[[package]]
 name = "ti4-host"
 version = "0.1.0"
 dependencies = [
