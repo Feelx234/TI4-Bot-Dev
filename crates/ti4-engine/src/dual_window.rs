@@ -1858,14 +1858,8 @@ pub fn begin_round(
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let mut driver = Driver::new(BeginRound::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
-    let battle = |_: &ti4_engine_core::choice::Choice, _: &ti4_engine_core::state::CoreState, rendered: &mut Choice| {
-        // A question of the opening (Supercharge) is asked inside the battle: the string table adds the battle to its context.
-        if let Some(ctx) = rendered.context.take() {
-            rendered.context = Some(ctx.about_battle(&before));
-        }
-    };
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ROUND_OPENING, script), |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &battle);
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })
