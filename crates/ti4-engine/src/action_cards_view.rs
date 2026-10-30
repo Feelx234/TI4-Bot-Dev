@@ -876,9 +876,6 @@ pub fn announce_window(
         Some(after) => Some(crate::core_sync::codec::rng::positions(&cx, &after).ok()?),
         None => None,
     };
-    if std::env::var_os("TI4_B6D_TRACE").is_some() {
-        eprintln!("B6D announce {alias:?} by {player:?}: {:?}", driven.rendered.iter().map(|q| (q.prompt.clone(), q.context.as_ref().map(|c| format!("{:?}", c.target)))).collect::<Vec<_>>());
-    }
     Some(crate::dual::CoreWindow { run: crate::dual::Run::new((played, (faces, positions))).with_events_vec(events), questions: driven.rendered })
 }
 
