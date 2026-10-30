@@ -29,38 +29,7 @@ use ti4_model::state::GameState;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-fn slice_of_key(key: &str) -> Slice {
-    match key {
-        "players" => Slice::Players,
-        "seating_order" => Slice::Seats,
-        "speaker" | "phase" | "round" | "active" | "finished" | "active_system" | "strategy_cards_per_player"
-        | "rules_version" | "thunders_edge" | "legacy_device_ids" | "custodians_removed" | "fracture_in_play"
-        | "nexus_unlocked" | "styx_holder" | "thunders_edge_system" | "galactic_event" | "ion_storm"
-        | "influence_pays_for_units" | "combat_round_seq" | "production_seq" | "activation_seq" | "agenda_seq"
-        | "turn_seq" | "action_turn" | "feat_occurrence_seq" | "combat_draw_round" => Slice::Meta,
-        "diplomacy" | "transactions_this_round" | "negotiations_this_action" | "negotiations_this_round"
-        | "transactions_this_turn" | "traded_goods" | "traded_goods_for_promissory" | "promises"
-        | "support_holders" => Slice::Trade,
-        "unclaimed_strategy_cards" | "strategy_card_goods" | "card_initiative" | "initiative_overrides" => Slice::Strategy,
-        "board" | "exhausted_planets" | "planet_attachments" | "placed_planets" | "purged_systems" => Slice::Board,
-        "pending" => Slice::Pending,
-        "revealed_objectives" | "scored_objectives" | "scored_feat_occurrences" => Slice::Objectives,
-        "objective_deck" | "exploration_decks" | "relic_deck" | "agenda_deck" | "action_card_deck" | "secret_deck" => {
-            Slice::Decks
-        }
-        "discarded_action_cards" | "salvage_yard" | "promissory_notes" | "promissory_faceup" => Slice::Cards,
-        "exploration_log" | "frontier_tokens" | "ingress_tokens" | "breach_tokens" | "expedition_slices"
-        | "wormhole_tokens" => Slice::Explore,
-        "agenda_log" | "agenda_casts" | "laws" | "agenda_veto_replacement" | "covert_agenda"
-        | "agenda_elected_override" | "agenda_votes" | "agenda_choices" | "agenda_in_play" | "agenda_predictions" => {
-            Slice::Agenda
-        }
-        "relic_log" | "vp_ledger" => Slice::Ledger,
-        "rng_seed" => Slice::Rng,
-        "faction_marks" => Slice::Marks,
-        _ => Slice::Transient,
-    }
-}
+use ti4_engine::core_sync::materialize::slice_of_field as slice_of_key;
 
 #[derive(Default, Clone, Copy)]
 struct Cost {

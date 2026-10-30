@@ -20,6 +20,7 @@ mod ctx;
 mod error;
 mod footprint;
 mod lend;
+pub mod materialize;
 pub mod texts;
 
 pub mod codec;

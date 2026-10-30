@@ -111,6 +111,9 @@ pub mod churn;
 /// The string resolver as a portable image and back (D2-4a).
 #[cfg(feature = "typed-core")]
 pub mod resolver_sync;
+/// The reverse lend: a leftover string body on a materialised state (D2-5).
+#[cfg(feature = "typed-core")]
+pub mod reverse_lend;
 #[cfg(feature = "typed-core")]
 pub mod technology_core;
 /// Area::BoardQueries (package A1): the typed board queries behind a string interface.

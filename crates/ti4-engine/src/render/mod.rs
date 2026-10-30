@@ -90,6 +90,20 @@ impl Render {
         Self { seats, factions: Vec::new(), codes: RefCell::new(ti4_engine_core::containers::Interner::default()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()) }
     }
 
+    /// [`Self::new`] continuing the code table of a state's lineage (`CoreState::texts.codes`): the codes this `Render` mints
+    /// extend it, so they mean the same text in the state that took them back ([`Self::codes_snapshot`]).
+    #[must_use]
+    pub fn with_codes(self, codes: ti4_engine_core::containers::Interner) -> Self {
+        *self.codes.borrow_mut() = codes;
+        self
+    }
+
+    /// The code table as it stands (a clone: one refcount and the short local suffix).
+    #[must_use]
+    pub fn codes_snapshot(&self) -> ti4_engine_core::containers::Interner {
+        self.codes.borrow().clone()
+    }
+
     /// Set the position the following `prompt`/`option`/`details` calls render in; `None` clears it.
     pub fn set_position(&self, position: Option<Position>) {
         *self.position.borrow_mut() = position;

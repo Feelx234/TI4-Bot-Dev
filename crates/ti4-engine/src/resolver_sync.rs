@@ -248,6 +248,38 @@ pub fn cfg_state(r: &Render, cfg: &crate::dual_window::ResolverCfg, next_id: u64
     })
 }
 
+/// A resolver for a string window that runs on a materialised state (`reverse_lend::with_string`): the standing registry
+/// armed from `state`, the clock and the seats exactly as `Game::sync_timing_context` writes them, the persistent part
+/// from `carried` (the state's `pending.resolver`), an empty trace and journal (what the window adds is read back with
+/// [`export`] and [`to_state`]), `table` moved in. A `carried` without an initiative order (a state nobody stored a
+/// resolver in) takes the state's own order of that moment. The counter continues at `carried.next_id`.
+#[must_use]
+pub fn rebuild_for_lend(state: &GameState, carried: &ResolverState, table: Table, r: &Render) -> (Resolver, EventSequence) {
+    let initiative = if carried.initiative.is_empty() {
+        state.initiative_order().iter().filter_map(|p| r.seat(p.as_str())).collect()
+    } else {
+        carried.initiative.as_slice().to_vec()
+    };
+    let img = ResolverImage {
+        initiative,
+        seating: Vec::new(),
+        active: None,
+        speaker: None,
+        phase: state.phase,
+        round: u64::from(state.round),
+        turn: u64::from(state.turn_seq),
+        max_depth: Resolver::DEFAULT_MAXIMUM_DEPTH,
+        used: carried.used.to_vec(),
+        emission_stack: carried.emission_stack.clone(),
+        applied: Vec::new(),
+        log: Vec::new(),
+        next_event_id: carried.next_id,
+    };
+    let mut seq = EventSequence::new();
+    let res = rebuild(state, &img, table, r, Context::State, &mut seq);
+    (res, seq)
+}
+
 fn common_prefix<T: PartialEq>(a: &[T], b: &[T]) -> usize {
     a.iter().zip(b).take_while(|(x, y)| x == y).count()
 }
