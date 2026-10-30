@@ -1930,4 +1930,20 @@ mod tests {
         assert_eq!(state.promissory_notes.get("cf:hacan"), Some(&a()), "back with its owner");
         assert!(!lockstep(|| use_ceasefire(&mut state, &a())), "and not spent twice");
     }
+
+    #[test]
+    fn a_faceup_note_of_the_activators_own_faction_is_not_sent_anywhere_in_lockstep() {
+        // The holder is the owner's own seat (a copy in its play area): "return it to the owner" is no move.
+        let content = ContentStore::embedded();
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let mut state = dealt(&[("a", "hacan"), ("b", "jolnar")]);
+        take(&mut state, content, &a(), "an:hacan");
+        state.promissory_faceup.insert("an:hacan".to_owned());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+        let mut by_core = state.clone();
+        assert_eq!(crate::trade_write::spend_on_activation(&mut by_core, &a(), &system), Some(Vec::new()));
+        assert!(lockstep(|| spend_support_on_activation(&mut state, &a(), &system)).is_empty());
+        assert_eq!(by_core, state);
+        assert!(state.promissory_faceup.contains("an:hacan"), "still in play");
+    }
 }

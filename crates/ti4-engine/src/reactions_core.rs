@@ -537,6 +537,13 @@ mod tests {
             "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
             "promissory:letnev:ambuscade:UNIT_ABILITY_ROLLED:when",
             "ability:sol:propagation:SPACE_COMBAT_ENDED:after",
+            // The Nomad's tail (package W9): Mercer hangs on the end of a tactical action and asks which ground forces move
+            // (an option list in the text order of the systems), the Thundarian replays the roll step, Temporal Command
+            // Suite readies an agent and may open a transaction window, Thunder's Paradox hangs on TURN_BEGAN.
+            "leader:nomad:nomadagentmercer:TACTICAL_ACTION_ENDED:after",
+            "leader:nomad:nomadagentthundarian:SPACE_COMBAT_ROLL_STEP_ENDED:after",
+            "technology:nomad:tcs:AGENT_EXHAUSTED:after",
+            "breakthrough:nomad:nomadbt:TURN_BEGAN:after",
         ] {
             assert_eq!(slot_of(id), None, "{id} is not in the table");
             let why = rec(&[id], &[]).unported(&t).unwrap_or_default();
