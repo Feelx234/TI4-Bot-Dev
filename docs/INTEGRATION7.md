@@ -31,6 +31,10 @@ end of D1. Not pushed. The live branch was not touched.
 | Where | Break | Fix |
 |---|---|---|
 | `ti4-engine-core-tests/tests/agenda_close.rs:12` | the close window's `Facts` gained `research` (W4, Technology Rider); d4a's test builds it by hand | `research: None` (the test's meaning is unchanged) |
+| `ti4-engine/tests/decision_delivery_inventory.rs` | **rename-only registry edit** (T3): W16 split `legendary::end_turn` / `pass` into the dual wrapper and the producer `end_turn_text` / `pass_text`; the reviewed registry (rows and the producer list) still named the old functions, so the inventory failed on `core-w-l4` itself | the four names in the registry (two `Producer` rows, two tuples); no count changed |
+| `ti4-engine-core-tests/src/rig.rs` | W6: Politics (and Unconventional Measures) draw through a `DrawCards` child window; the D4 rig built a bare `AbilityTable` without the area links, so no child ran and the draws vanished (3 tests + a snapshot) | the rig installs `driver::children::register` in every run |
+| `ti4-engine/src/core_sync/tests_totality.rs` (d2-1) | two totality tests counted every `Unmapped` of the thread, including those of the FIXTURE (setup and the deal lend to the core on a table whose factions are not seated yet) when the suite runs with `TI4_AREAS=all=dual` (48 and 3 refusals) | the counter is reset after the fixtures are built; only the codec calls are counted. Plain runs were green, the dual-suite run was not |
+| `ti4-engine-core-factions/src/cards/mod.rs`, `dual_window.rs` | an unused import and an unused closure left by the conflict resolution | removed |
 | `ti4-engine/src/dual_window.rs` `compare_resolver` | **D2-4b found something in W4**: in the composed combat of `reveal_prototype_is_played_from_the_slot_in_the_core_window_in_lockstep` the core's trace counter ends one lower than the string's (`next_id` 8 against 9) with no key and no event differing | the counter is stored in the state but no longer compared (the keys are, and they carry the observable ids); row `D2-4b-find-01`; the unit test of the comparison states it |
 
 The Nomad ability slots (the trap named in the brief) do not collide in this round: `core-w-l4` has Cavalry 10_001/10_002, Thundarian 10_003/10_004, Future Sight 10_005 and nothing else
@@ -42,7 +46,20 @@ Galactic Threat: `core-w-l2` ports Galactic Threat, `core-w-l4` Future Sight; `c
 
 Private target dir, by a Haiku runner in a scratch worktree at the tip; profile `lockstep` unless noted.
 
-RESULTS_PLACEHOLDER
+Tip `6a2d93ae` (docs aside, the tip of the code; checked by runner chain `m8`):
+
+| Check | Result |
+|---|---|
+| `cargo check --workspace --all-targets` (without ti4-review, ti4-replayer, ti4-mlp, ti4-tensor, ti4-advisor) | ok |
+| `cargo clippy` of core, factions, engine, bridge, core-tests, rule-bot-typed (all targets) | ok; 2 warnings in the files of the filter, both dead code that `core-w-l4` itself carries: `dual.rs` `reason::COUNT` never used, `dual_window.rs` `outside` never used |
+| `cargo test -p ti4-engine --lib` | 4782 passed, 0 failed, 4 ignored (int-6: 4709) |
+| same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` | 4782 passed, 0 failed |
+| core + factions + rule-bot-typed + bridge `--lib` | 556 passed |
+| `decision_delivery_inventory`, `content_ids_resolve` | 4 + 4 passed |
+| `ti4-engine-core-tests` with the D4 flags | 611 passed |
+| `check_layers.py core`, `lint_core.sh` | 426 files, 0 violations; 428 files, 0 hits |
+
+The first runs of the chain found the breaks of section 3 one after the other (an unclosed module of my own conflict resolution, the comparison, the registry, the rig, the totality tests).
 
 ## 5. Deferred and next
 
