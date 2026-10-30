@@ -799,7 +799,7 @@ fn ssruu_borrowing_another_agent_does_not_open_the_tro_window() {
     with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || game.check_close_gates());
     let r = report();
     let _ = take_report();
-    assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.calls) >= 2, "the gates and the continuation were compared: {:?} {:?}", r.areas, r.windows);
+    assert!(r.areas.get(&Area::Driver).map_or(0, |c| c.compared.iter().sum::<u64>()) >= 2, "the gates and the continuation were compared: {:?} {:?}", r.areas, r.windows);
     assert!(!r.windows.keys().any(|k| k.starts_with("turn::close_gates [bail")), "{:?}", r.windows);
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
 }
