@@ -310,3 +310,65 @@ mod p4_p6 {
         });
     }
 }
+
+mod p5 {
+    use super::*;
+    use ti4_engine_core::containers::SeatSet;
+    use ti4_engine_core::kernel::seam::{Obs, ObsKind, Observers, Phase};
+    use ti4_engine_core::kernel::{Cx, FirstOption};
+
+    fn every_obs() -> Vec<Obs> {
+        let system = System::MecatolRex112;
+        let planet = Planet::MecatolRex;
+        vec![
+            Obs::ShipLost { system, piece: ti4_engine_core::state::Piece::new(Unit::FighterI, Seat(0)) },
+            Obs::ShipRetreated { system, to: system, owner: Seat(0) },
+            Obs::RetreatsCleared { system },
+            Obs::CombatRoundStarted { system, round: 1, who: SeatSet::default() },
+            Obs::CombatEnded { system },
+            Obs::GroundRoundStarted { system, planet, round: 1 },
+            Obs::GroundRoundEnded { system, planet, round: 1 },
+            Obs::ShipPlaced { who: Seat(0), producing: system, target: system, unit: Unit::FighterI },
+            Obs::ProductionWindowClosed { who: Seat(0), system },
+            Obs::ControlGained { who: Seat(0), system, planet },
+            Obs::Replenished { who: Seat(0) },
+        ]
+    }
+
+    #[test]
+    fn every_program_point_has_a_distinct_kind_below_the_count() {
+        covers!("kernel::seam::observe::Obs");
+        let kinds: Vec<usize> = every_obs().iter().map(|o| o.kind() as usize).collect();
+        assert_eq!(kinds.len(), ObsKind::COUNT);
+        let mut sorted = kinds.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..ObsKind::COUNT).collect::<Vec<_>>(), "one kind per point, no gaps");
+    }
+
+    #[test]
+    fn observers_fire_in_registration_order_only_for_their_kind_and_phase() {
+        covers!("kernel::seam::observe::Observers");
+        let mut k = Kernel::plain();
+        let o: &mut Observers = &mut k.hooks.seam.observers;
+        assert!(o.is_empty());
+        o.push(ObsKind::CombatEnded, Phase::After, |cx, _| cx.state.meta_mut().combat_round_seq += 2);
+        o.push(ObsKind::CombatEnded, Phase::After, |cx, _| cx.state.meta_mut().combat_round_seq *= 3);
+        o.push(ObsKind::CombatEnded, Phase::Before, |cx, _| cx.state.meta_mut().combat_round_seq = 7);
+        assert_eq!(o.len(), 3);
+        assert_eq!(o.of(ObsKind::CombatEnded, Phase::After).len(), 2);
+        assert!(o.of(ObsKind::Replenished, Phase::After).is_empty());
+        let mut s = Scenario::lobby(2).state();
+        let mut asker = FirstOption;
+        let mut cx = Cx::new(&mut s, &k, &mut asker);
+        let system = System::MecatolRex112;
+        cx.observe(&Obs::CombatEnded { system }, Phase::After);
+        assert_eq!(cx.state.meta().combat_round_seq, 6, "(0 + 2) * 3");
+        cx.observe(&Obs::CombatEnded { system }, Phase::Before);
+        assert_eq!(cx.state.meta().combat_round_seq, 7);
+        for other in every_obs().into_iter().filter(|o| o.kind() != ObsKind::CombatEnded) {
+            cx.observe(&other, Phase::After);
+            cx.observe(&other, Phase::Before);
+        }
+        assert_eq!(cx.state.meta().combat_round_seq, 7, "no other point fires these");
+    }
+}
