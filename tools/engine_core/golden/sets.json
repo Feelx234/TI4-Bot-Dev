@@ -6,9 +6,9 @@
     "rules_version": null,
     "frozen": false,
     "source": "golden ladder",
-    "games": 35,
-    "decisions": 18580,
-    "pure_share_at_record": 134
+    "games": 36,
+    "decisions": 19060,
+    "pure_share_at_record": 133
   },
   {
     "name": "legacy-bench",

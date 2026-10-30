@@ -56,6 +56,14 @@
       "sha256": "bc0f1ea353121d95587869106fd12ade44b9f457ec9ebff118f15771bff4d082"
     },
     {
+      "file": "g006.tsv.zst",
+      "steps": 400,
+      "decisions": 480,
+      "decisions_hash": "296a996e7bf838fa",
+      "bytes": 8186,
+      "sha256": "8bc5928338bffa9c3f609944bcc49e624da1af05bcbeecedf6cd8ca4323dec49"
+    },
+    {
       "file": "g007.tsv.zst",
       "steps": 400,
       "decisions": 534,
@@ -290,7 +298,7 @@
   ],
   "smoke": [
     "g001.tsv.zst",
-    "g004.tsv.zst",
+    "g006.tsv.zst",
     "g008.tsv.zst",
     "g022.tsv.zst"
   ]
