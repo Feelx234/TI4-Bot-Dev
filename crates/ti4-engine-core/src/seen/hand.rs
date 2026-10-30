@@ -19,9 +19,10 @@ impl Seen<'_> {
         self.st().players().by_seat(self.me()).map_or(&[], |p| p.cards.secrets.as_slice())
     }
 
-    /// The promissory notes in the bound seat's hand (`SeatObservation::held_promissory_notes`).
+    /// The promissory notes in the bound seat's hand, not yet faceup (`SeatObservation::held_promissory_notes`).
     #[must_use]
     pub fn my_notes(&self) -> Vec<NoteKey> {
-        promissory::held_by(self.st(), self.me())
+        let faceup = &self.st().cards().promissory_faceup;
+        promissory::held_by(self.st(), self.me()).into_iter().filter(|k| !faceup.contains_key(k)).collect()
     }
 }

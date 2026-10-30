@@ -129,6 +129,8 @@ pub mod leaders_view;
 #[cfg(feature = "typed-core")]
 pub mod production_view;
 #[cfg(feature = "typed-core")]
+pub mod seen_load;
+#[cfg(feature = "typed-core")]
 pub mod production_window_dual;
 /// The window dual of the vote (package B9).
 pub(crate) mod vote_dual;

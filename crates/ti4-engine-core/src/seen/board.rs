@@ -20,7 +20,7 @@ pub struct PlanetView<'a> {
 }
 
 /// One system's contents (`SystemState`): the space area, the command tokens, the planets in the string order.
-#[derive(Debug, Clone)]
+#[derive(Clone, Copy)]
 pub struct SystemView<'a> {
     seen: &'a Seen<'a>,
     system: System,

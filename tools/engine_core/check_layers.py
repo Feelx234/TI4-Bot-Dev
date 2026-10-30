@@ -31,6 +31,7 @@ CORE_LAYER = {
     'rules': 4,
     # L5 driver
     'driver': 5,
+    'seen': 5,
 }
 FACTIONS_LAYER = 6
 # Files that sit above their directory's layer: the movement rules builder is a query by shape (a pure

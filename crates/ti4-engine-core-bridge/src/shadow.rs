@@ -156,6 +156,18 @@ pub struct Report {
     pub games: Vec<GameReport>,
     /// `Observed` and id-constructor calls per subtype (feature `observed-count`), else empty.
     pub view_calls: BTreeMap<String, BTreeMap<&'static str, u64>>,
+    /// The typed-view parity (`seen_stride`): positions loaded, positions the typed state could not hold (by
+    /// reason), accessor answers compared, and the differences.
+    pub parity: Parity,
+}
+
+/// The result of the typed-view parity of a run.
+#[derive(Debug, Clone, Default)]
+pub struct Parity {
+    pub positions: u64,
+    pub unmapped: BTreeMap<String, u64>,
+    pub compared: u64,
+    pub mismatches: Vec<String>,
 }
 
 impl Report {
@@ -189,11 +201,13 @@ pub struct Config {
     pub bot: BTreeMap<String, String>,
     /// Stop each game after this many engine steps (the matrix limit when `None`).
     pub max_steps: Option<usize>,
+    /// Also compare the typed view (`Seen`) with the string view at every `stride`-th call (0: off).
+    pub seen_stride: usize,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { mode: Mode::SelfCheck, mutant: Mutant::None, bot: BTreeMap::new(), max_steps: None }
+        Self { mode: Mode::SelfCheck, mutant: Mutant::None, bot: BTreeMap::new(), max_steps: None, seen_stride: 0 }
     }
 }
 
@@ -208,6 +222,8 @@ struct Shadow {
     spec_json: String,
     choices: Sha256,
     report: Report,
+    parity_stride: usize,
+    calls: usize,
 }
 
 fn subtype_of(choice: &Choice) -> String {
@@ -235,6 +251,10 @@ impl Shadow {
         ti4_model::count::set_scope(None);
         let string = Answer::of(picked, smart, rng);
 
+        self.calls += 1;
+        if self.parity_stride > 0 && self.calls % self.parity_stride == 1 % self.parity_stride.max(1) {
+            self.check_view(seen, &subtype, index);
+        }
         let outcome = self.compare(choice, seen, &subtype, seat, index, string);
         let stat = self.report.by_subtype.entry(subtype).or_default();
         stat.calls += 1;
@@ -243,6 +263,24 @@ impl Shadow {
             Outcome::Skipped(reason) => *stat.skipped.entry(reason.label()).or_default() += 1,
         }
         Ok(choice.options[picked].clone())
+    }
+
+    /// The typed view against the string view of this position.
+    fn check_view(&mut self, seen: &SeatObservation<'_>, subtype: &str, decision: usize) {
+        let p = &mut self.report.parity;
+        p.positions += 1;
+        match ti4_engine::seen_load::SeenOwned::of(seen.observed()) {
+            Err(e) => *p.unmapped.entry(format!("{:?}: {} [{subtype} #{decision}]", e.slice, e.what)).or_default() += 1,
+            Ok(owned) => {
+                let found = crate::seen_parity::check(seen, &owned);
+                p.compared += found.compared;
+                for m in found.mismatches {
+                    if p.mismatches.len() < 200 {
+                        p.mismatches.push(format!("game {} decision {decision} ({subtype}): {m}", self.game));
+                    }
+                }
+            }
+        }
     }
 
     fn compare(
@@ -337,6 +375,8 @@ pub fn run(
             spec_json: spec_json(spec),
             choices: Sha256::new(),
             report: Report::default(),
+            parity_stride: cfg.seen_stride,
+            calls: 0,
         }));
         game.table.set_default(Box::new(Handle(Rc::clone(&shadow))));
         let mut steps = 0usize;
@@ -382,6 +422,12 @@ fn merge(into: &mut Report, from: Report) {
         }
     }
     into.mismatches.extend(from.mismatches);
+    into.parity.positions += from.parity.positions;
+    into.parity.compared += from.parity.compared;
+    for (k, n) in from.parity.unmapped {
+        *into.parity.unmapped.entry(k).or_default() += n;
+    }
+    into.parity.mismatches.extend(from.parity.mismatches);
 }
 
 /// The report as text: totals, the coverage table by subtype and the mismatches.
@@ -418,6 +464,23 @@ pub fn render(report: &Report, mode: Mode) -> String {
             stat.mismatches,
             skipped.join(" ")
         );
+    }
+    if report.parity.positions > 0 {
+        let p = &report.parity;
+        let _ = writeln!(
+            out,
+            "seen parity: {} positions, {} unmapped, {} accessor answers compared, {} differences",
+            p.positions,
+            p.unmapped.values().sum::<u64>(),
+            p.compared,
+            p.mismatches.len()
+        );
+        for (reason, n) in &p.unmapped {
+            let _ = writeln!(out, "  unmapped {reason}: {n}");
+        }
+        for m in p.mismatches.iter().take(40) {
+            let _ = writeln!(out, "  DIFF {m}");
+        }
     }
     for m in &report.mismatches {
         let _ = writeln!(
@@ -456,6 +519,7 @@ pub fn to_json(report: &Report) -> serde_json::Value {
         .collect();
     serde_json::json!({
         "calls": report.calls(), "compared": report.compared(), "mismatches": report.mismatches.len(),
+        "seen_parity": { "positions": report.parity.positions, "unmapped": report.parity.unmapped, "compared": report.parity.compared, "differences": report.parity.mismatches.len() },
         "games": games, "by_subtype": by_subtype, "view_calls": report.view_calls,
     })
 }

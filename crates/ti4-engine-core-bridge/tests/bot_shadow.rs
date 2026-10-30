@@ -162,3 +162,15 @@ fn bot_version_flag_reaches_both_halves() {
     bad.bot.insert("bot_version".to_owned(), "not-a-number".to_owned());
     assert!(shadow::run(&config, &bad, &|_| true, || Box::new(NoTyped)).is_err());
 }
+
+#[test]
+fn the_typed_view_agrees_with_the_string_view() {
+    let config = short_config(1500);
+    let cfg = Config { seen_stride: 7, ..Config::default() };
+    let report = run(&config, &[0], &cfg);
+    let p = &report.parity;
+    assert!(p.positions > 50, "positions: {}", p.positions);
+    assert!(p.unmapped.is_empty(), "positions the typed state could not hold: {:?}", p.unmapped);
+    assert!(p.compared > 5000, "accessor answers compared: {}", p.compared);
+    assert!(p.mismatches.is_empty(), "{:#?}", &p.mismatches[..p.mismatches.len().min(20)]);
+}

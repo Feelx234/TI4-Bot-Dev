@@ -8,4 +8,5 @@ pub mod dual_shard;
 pub mod check_leaders;
 pub mod workload;
 pub mod shadow;
+pub mod seen_parity;
 pub mod check_tech;

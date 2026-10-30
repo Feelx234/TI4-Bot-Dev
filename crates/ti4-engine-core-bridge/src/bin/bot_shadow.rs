@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! bot_shadow --config FILE [--games 0,5,11 | --games 0..5] [--shards N --shard K] [--bot key=value]...
-//!            [--max-steps N] [--mode self-check|source] [--mutant none|pick|smart|rng]
+//!            [--max-steps N] [--seen-parity STRIDE] [--mode self-check|source] [--mutant none|pick|smart|rng]
 //!            [--min-coverage subtype=0.99]... [--json FILE] [--strict]
 //! bot_shadow --spec JSON  [same flags]       one game given as a `GameSpec` (the `spec` of a mismatch report)
 //! ```
@@ -76,6 +76,7 @@ fn main() {
                 let (k, v) = kv.split_once('=').unwrap_or_else(|| fail("--min-coverage wants subtype=ratio"));
                 min_coverage.push((k.to_owned(), v.parse().unwrap_or_else(|_| fail("--min-coverage: bad ratio"))));
             }
+            "--seen-parity" => cfg.seen_stride = value("--seen-parity").parse().unwrap_or_else(|_| fail("--seen-parity: bad stride")),
             "--json" => json = Some(value("--json")),
             "--strict" => strict = true,
             other => fail(&format!("unknown argument '{other}'")),
@@ -114,7 +115,7 @@ fn main() {
     for (subtype, (have, want)) in &missed {
         eprintln!("coverage of {subtype}: {have:.4} < {want}");
     }
-    if strict && !report.mismatches.is_empty() {
+    if strict && (!report.mismatches.is_empty() || !report.parity.mismatches.is_empty()) {
         std::process::exit(1);
     }
     if !missed.is_empty() {

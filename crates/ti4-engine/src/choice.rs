@@ -797,6 +797,12 @@ impl<'a> Observed<'a> {
         )
     }
 
+    /// The position, content, source scope and map for the crate's own loaders (`seen_load`, the parity tools).
+    /// Not public: the doc of [`Observed`] promises that no method hands a decider the state.
+    pub(crate) const fn parts(&self) -> (&'a GameState, &'a ContentStore, SourceSet, Option<&'a Galaxy>) {
+        (self.state, self.content, self.sources, self.galaxy)
+    }
+
     /// The content corpus this game is played from.
     #[must_use]
     pub const fn content(&self) -> &'a ContentStore {
