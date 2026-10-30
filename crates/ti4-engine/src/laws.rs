@@ -1662,17 +1662,35 @@ mod offer_discard_lockstep {
         assert!(compared == 2 && bailed == 0, "{compared} compared, {bailed} bailed");
     }
 
-    /// A law nobody holds is no offer: the string returns before it asks and the core has no window (B9-bail-06).
+    /// A law nobody holds, or every law blanked for the turn, is no offer: the string returns before it asks, and the core half
+    /// is the window that opens no question (B9-bail-06 closed by package W1: it used to bail 532 of 552 calls of the golden games).
     #[test]
-    fn a_law_nobody_holds_has_no_window() {
+    fn a_law_nobody_holds_is_a_window_without_a_question() {
+        use crate::dual::{AreaMask, Backend, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let mask = AreaMask::parse("agenda=dual", AreaMask::all(Backend::String)).unwrap();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let content = ContentStore::embedded();
+        let presented = DiscardPresentation { effect: String::new(), facts: Vec::new() };
         let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK);
-        assert!(crate::dual_window::offer_discard(&mut state, "minister_exploration", "?", &crate::dual_window::Recording::default()).is_none());
-        state.laws.insert("minister_exploration".to_owned(), "b".to_owned());
-        assert!(crate::dual_window::offer_discard(&mut state, "minister_exploration", "?", &crate::dual_window::Recording::default()).is_some());
-        // Law's Order blanks every law for the turn: the string asks nothing.
-        state.phase = ti4_model::state::Phase::Action;
-        state.faction_marks.insert(BLANKED_TURN.to_owned(), state.turn_seq.to_string());
-        assert!(blanked(&state));
-        assert!(crate::dual_window::offer_discard(&mut state, "minister_exploration", "?", &crate::dual_window::Recording::default()).is_none());
+        let window = crate::dual_window::offer_discard(&mut state, "minister_exploration", "?", &crate::dual_window::Recording::default()).expect("a window");
+        assert!(!window.run.value && window.questions.is_empty());
+        with_mask(mask, || {
+            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+            // nobody holds it
+            assert_eq!(offer_discard(&mut state.clone(), content, POK, &mut table, None, "minister_exploration", "?", &presented), None);
+            // Law's Order blanks every law for the turn: the string asks nothing
+            let mut blanked_state = state.clone();
+            blanked_state.laws.insert("minister_exploration".to_owned(), "b".to_owned());
+            blanked_state.phase = ti4_model::state::Phase::Action;
+            blanked_state.faction_marks.insert(BLANKED_TURN.to_owned(), blanked_state.turn_seq.to_string());
+            assert!(blanked(&blanked_state));
+            assert_eq!(offer_discard(&mut blanked_state, content, POK, &mut table, None, "minister_exploration", "?", &presented), None);
+        });
+        let report = take_report();
+        assert_eq!(report.total_differences(), 0, "{report:?}");
+        let (compared, bailed) = crate::dual::local_windows("laws::offer_discard");
+        assert!(compared == 2 && bailed == 0, "{compared} compared, {bailed} bailed");
     }
 }

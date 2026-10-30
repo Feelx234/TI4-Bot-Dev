@@ -120,9 +120,12 @@ fn salvage(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let before = eff.state().clone();
     let paid = ti4_engine_core::rules::production::pay::pay_in(eff, me, i64::from(cost), ti4_engine_core::query::economy::Spend::Resources)?;
     let scope = ti4_engine_core::tables::Scope(u32::from(eff.kernel().sources.0));
-    let kernel = eff.kernel();
+    let form = {
+        let (state, kernel) = eff.read();
+        crate::cd_registry::yin::timing::placed_form_overridden(state, kernel, scope, me, base)
+    };
     let placed = paid
-        && crate::cd_registry::yin::timing::placed_form_overridden(eff.state(), kernel, scope, me, base)
+        && form
             .filter(|form| ti4_engine_core::query::fleet::remaining_all(eff.state(), scope, me, *form) > 0)
             .map(|form| fx::place_unit(eff.state(), me, system, None, form))
             .is_some();
@@ -177,7 +180,11 @@ fn place_ship(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let scope = ti4_engine_core::tables::Scope(u32::from(eff.kernel().sources.0));
     let Some(base) = scope.unit(unit).map(|d| d.base_type) else { return Ok(()) };
     // The form a seat places is `placed_unit_id` with the override of the hook table (Mentak's Corsair for a Cruiser II).
-    let Some(form) = crate::cd_registry::yin::timing::placed_form_overridden(eff.state(), eff.kernel(), scope, me, base) else { return Ok(()) };
+    let form = {
+        let (state, kernel) = eff.read();
+        crate::cd_registry::yin::timing::placed_form_overridden(state, kernel, scope, me, base)
+    };
+    let Some(form) = form else { return Ok(()) };
     if ti4_engine_core::query::fleet::remaining_all(eff.state(), scope, me, form) > 0 {
         fx::place_unit(eff.state(), me, system, None, form);
     }

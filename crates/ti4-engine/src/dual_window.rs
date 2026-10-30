@@ -1205,11 +1205,12 @@ pub fn offer_discard(gs: &mut GameState, alias: &str, prompt: &str, script: &Rec
         return None;
     }
     let law = Agenda::from_id(alias).why(crate::dual::reason::UNKNOWN_ID)?;
-    if crate::laws::blanked(gs) {
-        crate::dual::note_bail_here("the law table is blanked (the string asks nothing)");
-        return None;
-    }
-    let owner_id = PlayerId::new(gs.laws.get(alias).why("a law nobody holds (the string asks nothing)")?.clone());
+    // A law nobody holds, or every law blanked for the turn (Law's Order), is no offer: the string asks nothing and changes
+    // nothing, so the window that is compared is the one that opens no question (package W1: 532 of 552 calls of the golden
+    // games took this path and were bailed before).
+    let Some(owner_id) = crate::laws::elected(gs, alias).map(|o| PlayerId::new(o.clone())).filter(|o| gs.player(o).is_some()) else {
+        return Some(CoreWindow { run: Run::new(false), questions: Vec::new() });
+    };
     let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
     let owner = r.seat(owner_id.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let window = OfferDiscard::new(law, owner, r.code(prompt), r.code(alias));
