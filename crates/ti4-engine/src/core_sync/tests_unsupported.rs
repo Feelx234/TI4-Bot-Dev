@@ -1,6 +1,8 @@
 //! Package D2-2: the switched-off features (docs/DISABLE_XF123.md) at the entry points of the typed core, in both
 //! policies (entries: `Codec::load`, `Lend::{with_core, region, view}`, `CoreView::of`, the window tables of the dual). The policy is set per thread (`with_disabled_policy`): the process-wide switch would trip parallel tests.
 
+#![cfg(test)]
+
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;

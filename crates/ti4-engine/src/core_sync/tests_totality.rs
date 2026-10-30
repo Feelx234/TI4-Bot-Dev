@@ -1,6 +1,8 @@
 //! Package D2-1: the fixtures the typed core accepts, the census of refusals, strict mode, and one test per
 //! reachable refusal class (the audit table of `error.rs`).
 
+#![cfg(test)]
+
 use ti4_engine_core::state::{Slice, SliceSet};
 use ti4_model::id::{FactionId, PlanetId, PlayerId, StrategyCardId, TechnologyId, UnitTypeId};
 use ti4_model::state::GameState;
