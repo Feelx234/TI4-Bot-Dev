@@ -184,7 +184,7 @@ pub fn decline_additional_action(state: &mut GameState) {
         Area::Driver,
         state,
         "turn::decline_additional_action",
-        |s| s.transient_flags.clear(TransientFlags::ADDITIONAL_ACTION),
+        |s| s.transient_flags.clear(ti4_model::state::TransientFlags::ADDITIONAL_ACTION),
         real::decline_additional_action,
     );
 }
