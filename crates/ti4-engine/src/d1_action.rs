@@ -231,7 +231,7 @@ pub(super) fn aftermath_back(a: &Aftermath, r: &Render) -> AKey {
 
 /// Where the chain stood when a step ended: the `Settled` of the core, in plain data for `game.rs`.
 #[derive(Debug, Clone, Copy)]
-pub(super) enum Ended {
+pub(in super::super) enum Ended {
     /// `holds`, `contacts`.
     Fighting(bool, bool),
     /// `contacts`.
@@ -253,7 +253,7 @@ fn tag(s: AStage) -> (u8, bool) {
 }
 
 /// Compare the step the string's `AftermathWindow` went to with the core's `driver::aftermath::next` (`d1::aftermath.next`).
-pub(super) fn transition(ended: Ended, to: &AStr) {
+pub(in super::super) fn transition(ended: Ended, to: &AStr) {
     use ti4_engine_core::driver::aftermath::{Settled, next};
     if !super::active() {
         return;
