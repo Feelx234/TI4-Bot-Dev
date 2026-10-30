@@ -619,9 +619,17 @@ mod tests {
     /// that does not (the churn step is loud on anything the codecs cannot hand back unchanged).
     #[test]
     fn sending_the_state_through_the_core_before_every_step_changes_nothing() {
+        use crate::generated::IdStr;
+        // Seated with real factions: a player with the placeholder faction `generic` is refused by the codecs (T1).
+        let seated = |n: usize, seed: u64| {
+            let names = ["a", "b", "c", "d", "e", "f"];
+            let seats: Vec<(&str, &str)> = (0..n).map(|i| (names[i], ti4_engine_core::generated::Faction::ALL[i].as_str())).collect();
+            let state = crate::fixtures::seated_game(&seats, POK);
+            Game::with_seeded_random(state, ContentStore::embedded(), seed)
+        };
         for (n, seed) in GAMES {
-            let mut plain = game(n, seed);
-            let mut churned = game(n, seed);
+            let mut plain = seated(n, seed);
+            let mut churned = seated(n, seed);
             for i in 0..600 {
                 if plain.state.finished {
                     break;
