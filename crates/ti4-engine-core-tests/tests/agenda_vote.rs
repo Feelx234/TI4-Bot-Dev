@@ -31,7 +31,17 @@ fn planets_by_influence() -> [Planet; 3] {
 
 fn table() -> Scenario {
     let [a, b, c] = planets_by_influence();
-    Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat, Faction::TheYssarilTribes]).map_from(&[system_of(a), system_of(b), system_of(c)]).control(a, 0).control(b, 1).control(c, 2)
+    Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat, Faction::TheYssarilTribes]).map_from(&unique(&[system_of(a), system_of(b), system_of(c)])).control(a, 0).control(b, 1).control(c, 2)
+}
+
+fn unique(systems: &[ti4_engine_core::generated::System]) -> Vec<ti4_engine_core::generated::System> {
+    let mut out: Vec<ti4_engine_core::generated::System> = Vec::new();
+    for s in systems {
+        if !out.contains(s) {
+            out.push(*s);
+        }
+    }
+    out
 }
 
 fn back(o: Outcome) -> Opt {
@@ -53,14 +63,13 @@ fn each_voter_backs_an_outcome_and_exhausts_planets_for_their_influence() {
     rig.assert_options_sound();
     rig.pick_opt(back(Outcome::For));
     assert_eq!(rig.asked().actor, Seat(0), "the same voter now names the planets");
+    assert!(rig.opts().iter().any(|o| matches!(o, Opt::Agenda(AOpt::Exhaust { planet, .. }) if *planet == a)));
     rig.pick_where(|o| matches!(o, Opt::Agenda(AOpt::Exhaust { planet, .. }) if *planet == a));
-    rig.decline();
     assert!(rig.state.board().planet(a).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED), "the planet is spent");
-    assert_eq!(rig.asked().actor, Seat(1));
+    assert_eq!(rig.asked().actor, Seat(1), "no planet left to name: the vote is banked and the next voter is asked");
     rig.pick_opt(back(Outcome::Against));
     rig.pick_where(|o| matches!(o, Opt::Agenda(AOpt::Exhaust { planet, .. }) if *planet == b));
-    rig.decline();
-    rig.asked();
+    assert_eq!(rig.asked().actor, Seat(2));
     rig.decline();
     assert!(rig.is_done());
     assert_eq!(votes_of(&rig, Outcome::For), 1);
@@ -74,14 +83,12 @@ fn a_tie_goes_to_the_speaker_who_picks_among_the_tied_outcomes() {
     covers!("rules::agenda::window::Vote");
     let ones: Vec<Planet> = plain_systems().iter().flat_map(|s| s.data().planets.iter().copied()).filter(|p| p.data().influence == 1 && p.data().source == Source::Base && !p.data().legendary).take(2).collect();
     assert_eq!(ones.len(), 2, "two one-influence planets");
-    let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat, Faction::TheYssarilTribes]).map_from(&[system_of(ones[0]), system_of(ones[1])]).control(ones[0], 0).control(ones[1], 1).speaker(2);
+    let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat, Faction::TheYssarilTribes]).map_from(&unique(&[system_of(ones[0]), system_of(ones[1])])).control(ones[0], 0).control(ones[1], 1).speaker(2);
     let mut rig = Rig::new(sc, vote());
     rig.run().pick_opt(back(Outcome::For));
     rig.pick(0);
-    rig.decline();
     rig.pick_opt(back(Outcome::Against));
     rig.pick(0);
-    rig.decline();
     rig.decline();
     assert!(!rig.is_done(), "one vote each: a tie");
     assert_eq!(rig.asked().actor, Seat(2), "the speaker breaks it");
@@ -123,13 +130,15 @@ fn a_vote_with_no_outcome_is_done_at_once() {
 fn trade_goods_buy_extra_votes_only_for_the_spender_of_an_executive_order() {
     covers!("rules::agenda::window::Vote");
     let sc = table().goods(0, 3);
+    let [a, _, _] = planets_by_influence();
+    let exhaust_a = |o: &Opt| matches!(o, Opt::Agenda(AOpt::Exhaust { planet, .. }) if *planet == a);
     let mut plain = Rig::new(sc.clone(), vote());
     plain.run().pick_opt(back(Outcome::For));
-    plain.decline();
+    plain.pick_where(exhaust_a);
     assert_eq!(plain.asked().actor, Seat(1), "no goods question: the vote is banked");
     let mut spender = Rig::new(sc, vote().with_spender(Seat(0)));
     spender.run().pick_opt(back(Outcome::For));
-    spender.decline();
+    spender.pick_where(exhaust_a);
     assert!(spender.asked().opts.iter().any(|o| matches!(o, Opt::Agenda(AOpt::Spend(_)))), "the spender may buy votes with goods");
 }
 
