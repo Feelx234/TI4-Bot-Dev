@@ -36,6 +36,9 @@ pub mod dual;
 pub mod core_factions;
 pub mod dual_window;
 pub mod cannon_dual;
+pub mod menu_dual;
+#[cfg(all(test, feature = "typed-core"))]
+mod menu_dual_tests;
 pub mod reactions_core;
 pub mod diplomacy;
 pub mod draft;

@@ -2761,7 +2761,7 @@ impl<'a> Game<'a> {
             let exp: Vec<String> = expedition.iter().map(|o| o.id.clone()).collect();
             crate::turn_write::check_closing(&self.state, player, self.actions_this_turn, second_action, END_TURN_ID, &seen, &exp, &ids);
         }
-        Choice::new(
+        let choice = Choice::new(
             player.clone(),
             if second_action {
                 "end your turn, or take your second action"
@@ -2776,7 +2776,12 @@ impl<'a> Game<'a> {
             "end_turn",
             self.state.phase,
             self.state.round,
-        ))
+        ));
+        if dual {
+            let exp: Vec<String> = expedition.iter().map(|o| o.id.clone()).collect();
+            crate::menu_dual::check_closing_menu(&self.state, player, second_action, &seen, &exp, &choice);
+        }
+        choice
     }
 
     fn turn_options(&self) -> Option<Choice> {
@@ -2930,13 +2935,18 @@ impl<'a> Game<'a> {
             let menu: Vec<String> = choice.options.iter().map(|o| o.id.clone()).collect();
             crate::turn_write::check_turn_menu(&parts, self.state.thunders_edge, &failed, &menu);
         }
-        Some(choice.contextualized(DecisionContext::new(
+        let choice = choice.contextualized(DecisionContext::new(
             active.clone(),
             DecisionSource::Rule("22".to_owned()),
             "action_menu",
             self.state.phase,
             self.state.round,
-        )))
+        ));
+        if dual {
+            let failed: Vec<String> = self.failed_component_actions.iter().cloned().collect();
+            crate::menu_dual::check_action_menu(&self.state, &parts, self.state.thunders_edge, &failed, &choice);
+        }
+        Some(choice)
     }
 
     /// 89.1 needs a map and a tactic token to spend.
