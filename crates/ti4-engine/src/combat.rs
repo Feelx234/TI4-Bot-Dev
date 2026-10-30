@@ -10522,7 +10522,8 @@ mod tests {
                 |_, _, c| c.options.iter().position(|o| o.id.contains("yssarilagent:yinagent")).unwrap_or(0),
             );
             assert_eq!(differences, 0, "seed {seed}: {windows:?}");
-            assert!(windows.keys().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            // (A bail of the composed machine itself was silent before package W0; it names a position of the machine, not the ability.)
+            assert!(windows.keys().all(|k| !k.contains("[bail:") || k.contains("[bail: the machine")), "seed {seed}: {windows:?}");
             offered += nested.iter().filter(|k| k.contains("yssarilagent:yinagent:SHIP_DESTROYED:after")).count();
             if state.player(&attacker()).unwrap().leaders.get(ti4_model::id::text(&"yssarilagent")) == Some(&ti4_model::state::LeaderStatus::Readied) {
                 continue;
@@ -11136,8 +11137,7 @@ mod tests {
             );
         })
         .roll_unported);
-        // A Last Bastion seat's retreat note; a unit that flips (Eidolon) or fights from its planet (Voltron);
-        // a Floating Factory: the retreat gate (`retreat_unported`) names them destination by destination.
+        // A Last Bastion seat's retreat note is what the retreat gate (`retreat_unported`) still names.
         let retreat = |setup: &dyn Fn(&mut GameState, &SystemId)| {
             let (mut state, system) = arena();
             put(&mut state, &system, "cruiser", &attacker(), 1);
@@ -11147,8 +11147,9 @@ mod tests {
         };
         assert!(!retreat(&|_, _| {}));
         assert!(retreat(&|state, _| state.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("bastion")));
-        assert!(retreat(&|state, system| put(state, system, "naaz_mech_space", &attacker(), 1)));
-        assert!(retreat(&|state, system| put(state, system, "saar_spacedock", &attacker(), 1)));
+        // The dual-form units, a Voltron on a planet and a Floating Factory are carried by the core retreat window since package W3.
+        assert!(!retreat(&|state, system| put(state, system, "naaz_mech_space", &attacker(), 1)));
+        assert!(!retreat(&|state, system| put(state, system, "saar_spacedock", &attacker(), 1)));
         // Duranium Armor repairs and Devotion's hits after a round: flags the machine bails on when it reaches them.
         let g = settle_gates(&|state, _| {
             state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("da"));
@@ -11273,13 +11274,12 @@ mod tests {
     }
 
     #[test]
-    fn a_retreat_of_a_fleet_with_a_floating_factory_is_answered_in_the_string() {
-        // The move of such a retreat is the string's (`retreat_unported`): its destination question is asked and
-        // answered there, the announcements still run in the core.
-        let (asked, compared, bailed) = pending_fights(&|state, system, _| put(state, system, "saar_spacedock", &attacker(), 1), 24);
+    fn a_retreat_of_a_fleet_with_a_floating_factory_is_answered_in_the_core() {
+        // Since package W3 the Floating Factory moves like a ship in the core retreat window: its destination question
+        // is answered there, in lockstep with the string.
+        let (asked, compared, _bailed) = pending_fights(&|state, system, _| put(state, system, "saar_spacedock", &attacker(), 1), 24);
         assert!(asked.iter().any(|c| c.context.as_ref().is_some_and(|x| x.subtype == "retreat_to")));
-        assert!(bailed > 0, "retreat destinations were answered in the string: {bailed}");
-        assert!(compared > 0, "the other answers ran in the core: {compared}");
+        assert!(compared > 0, "the answers ran in the core: {compared}");
     }
 
     #[test]
@@ -12360,9 +12360,9 @@ mod tests {
     }
 
     #[test]
-    fn a_retreat_of_a_dual_form_or_loose_unit_stays_string() {
-        // Bails: a ship-form Eidolon (flips back where it lands), a Voltron fighting from its planet, a
-        // Floating Factory (moves like a ship without being one). The string result stands.
+    fn a_retreat_of_a_dual_form_or_loose_unit_runs_in_the_core_window() {
+        // Package W3: a ship-form Eidolon (flips back where it lands) and a Floating Factory (moves like a ship without
+        // being one) retreat in the core window, compared with the string.
         for unit in ["naaz_mech_space", "saar_spacedock"] {
             let (compared, bailed, _) = retreat_lockstep(
                 &[("a", "sol"), ("b", "hacan")],
@@ -12372,7 +12372,7 @@ mod tests {
                 },
                 &|_| {},
             );
-            assert_eq!((compared, bailed), (0, 1), "{unit}");
+            assert_eq!((compared, bailed), (1, 0), "{unit}");
         }
     }
 

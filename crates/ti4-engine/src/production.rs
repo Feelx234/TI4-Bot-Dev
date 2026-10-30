@@ -7169,17 +7169,17 @@ mod tests {
                     state.player_mut(&player()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("cr2"));
                     state.player_mut(&player()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("mentakbt"));
                 }
-                let buildable = buildable_for(&state, content, POK, &player());
+                let buildable = buildable_for(&state, content, ti4_model::content_types::DEFAULT, &player());
                 assert_eq!(buildable.iter().any(|id| id == "mentak_cruiser3"), grace, "{buildable:?}");
                 assert_eq!(buildable.iter().any(|id| id == "cruiser2"), false, "the Corsair stands in for Cruiser II: {buildable:?}");
                 let mut dice = crate::dice::Dice::new();
                 let mut rng = crate::rng::GameRng::new(0);
                 let mut table = Table::new();
-                let mut ctx = Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+                let mut ctx = Resolving { content, sources: ti4_model::content_types::DEFAULT, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
                 crate::dual::with_mask(mask, || {
-                    let mut window = ProductionWindow::new(&state, content, POK, &player(), &system);
+                    let mut window = ProductionWindow::new(&state, content, ti4_model::content_types::DEFAULT, &player(), &system);
                     let mut steps = 0;
-                    while let Some(choice) = window.pending_choice(&state, content, POK) {
+                    while let Some(choice) = window.pending_choice(&state, content, ti4_model::content_types::DEFAULT) {
                         steps += 1;
                         if steps > 40 {
                             break;

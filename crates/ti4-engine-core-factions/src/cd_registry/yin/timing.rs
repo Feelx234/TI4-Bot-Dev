@@ -49,7 +49,9 @@ fn build_roster(scope: Scope) -> tech::UnitRoster {
         for base in UnitBaseType::ALL {
             let own = Unit::ALL.into_iter().find(|u| {
                 let d = u.data();
-                d.base_type == base && d.upgrades_from.is_none() && d.faction.is_some_and(|tag| tech::tag_is(tag, faction)) && scope.unit(*u).is_some()
+                // The Corsair (Mentak, Thunder's Edge) is no unit of the faction sheet: The Table's Grace puts it over a Cruiser II
+                // (`unit_form_override`); the content record of the faction lists the plain cruiser (`ti4_content::units::faction_unit`).
+                *u != Unit::Corsair && d.base_type == base && d.upgrades_from.is_none() && d.faction.is_some_and(|tag| tech::tag_is(tag, faction)) && scope.unit(*u).is_some()
             });
             roster.set(faction, base, own);
         }

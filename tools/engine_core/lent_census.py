@@ -6,7 +6,8 @@
 REPORT.txt is the text `dual_run` prints (`tools/engine_core/dual_sharded.sh ... > REPORT.txt`, best with
 `TI4_NESTED_LOG=1` and the wide mask `all=dual`). It holds, per dual window, a line
 `    <label>: <compared> compared, <bailed> bailed` and, for every reason the adapters counted,
-`    <label> [bail: <why>]: 0 compared, <n> bailed`.
+`    <label> [bail: <why>]: 0 compared, <n> bailed`; a position the call site runs bare (a gate, no window opened) is
+`    <label> [gate: <why>]: 0 compared, <n> bailed`.
 
 Prints, per window: calls (compared + bailed), bailed, the share, then each reason with its runs. Reasons that start
 with `gate:` are positions the call site runs bare (no window opened): they are not part of `bailed`.
@@ -18,7 +19,7 @@ import re
 import sys
 
 NO_REASON = "NO REASON RECORDED"
-LINE = re.compile(r"^\s+(\S+?)(?: \[bail: (.*)\])?: (\d+) compared, (\d+) bailed\s*$")
+LINE = re.compile(r"^\s+(\S+?)(?: \[(bail|gate): (.*)\])?: (\d+) compared, (\d+) bailed\s*$")
 
 
 def parse(path):
@@ -28,9 +29,11 @@ def parse(path):
         m = LINE.match(line.rstrip("\n"))
         if not m:
             continue
-        label, why, compared, bailed = m.group(1), m.group(2), int(m.group(3)), int(m.group(4))
+        label, kind, why, compared, bailed = m.group(1), m.group(2), m.group(3), int(m.group(4)), int(m.group(5))
         if why is None:
             windows[label] = (compared, bailed)
+        elif kind == "gate":
+            reasons.setdefault(label, []).append(("gate: " + why, bailed))
         else:
             reasons.setdefault(label, []).append((why, bailed))
     return windows, reasons
