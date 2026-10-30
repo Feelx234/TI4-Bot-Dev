@@ -409,4 +409,79 @@ mod tests {
         let _ = take_report();
         assert_eq!(r.total_differences(), 2, "{:?}", r.differences);
     }
+
+    fn ids(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_menu_the_string_offers_is_the_core_assembly_of_its_sources() {
+        let _serial = crate::dual::tests::serial();
+        let parts: MenuParts = vec![
+            (src::STRATEGIC, ids(&["strategic|a"])),
+            (src::TACTICAL, ids(&["tactical"])),
+            (src::LEADERS, ids(&["component|leader|x"])),
+            (src::ACTION_CARDS, ids(&["action_card|0"])),
+        ];
+        let ok = ids(&["strategic|a", "tactical", "component|leader|x", "action_card|0"]);
+        let _ = take_report();
+        with_mask(driver(), || {
+            check_turn_menu(&parts, false, &[], &ok);
+            // The string put the cards before the leaders, forgot the filter, or kept a failed action: each differs.
+            check_turn_menu(&parts, false, &[], &ids(&["strategic|a", "tactical", "action_card|0", "component|leader|x"]));
+            check_turn_menu(&parts, false, &ids(&["tactical"]), &ok);
+            check_turn_menu(&parts, false, &ids(&["tactical"]), &ids(&["strategic|a", "component|leader|x", "action_card|0"]));
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(r.total_differences(), 2, "{:?}", r.differences);
+    }
+
+    #[test]
+    fn the_closing_menu_with_fleet_logistics_offers_a_second_action_and_without_it_only_the_free_options() {
+        let _serial = crate::dual::tests::serial();
+        let mut with_fl = table();
+        with_fl.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("fl"));
+        let without = table();
+        let a = pid("a");
+        let turn = vec![
+            ("pass".to_owned(), false, true),
+            ("tactical".to_owned(), false, false),
+            ("open|b".to_owned(), true, false),
+        ];
+        let _ = take_report();
+        with_mask(driver(), || {
+            // One action taken: a second is offered with the technology.
+            check_closing(&with_fl, &a, 1, true, "end_turn", &turn, &[], &ids(&["end_turn", "tactical", "open|b"]));
+            check_closing(&without, &a, 1, false, "end_turn", &turn, &ids(&["commit"]), &ids(&["end_turn", "open|b", "commit"]));
+            // Two actions taken: no third. The string saying it allowed one differs in the flag AND the options.
+            check_closing(&with_fl, &a, 2, true, "end_turn", &turn, &[], &ids(&["end_turn", "tactical", "open|b"]));
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(r.total_differences(), 1, "the third call: {:?}", r.differences);
+    }
+
+    #[test]
+    fn the_source_numbers_of_the_string_marks_are_the_positions_of_the_core_order() {
+        use ti4_engine_core::driver::menu::{ORDER, Source};
+        let marks = [
+            (src::STRATEGIC, Source::Strategic),
+            (src::TACTICAL, Source::Tactical),
+            (src::TRANSACTIONS, Source::Transactions),
+            (src::CONTACTS, Source::Contacts),
+            (src::PAYMENTS, Source::Payments),
+            (src::RELICS, Source::Relics),
+            (src::EXPLORATION, Source::Exploration),
+            (src::TECHNOLOGY, Source::Technology),
+            (src::THUNDERS_EDGE, Source::ThundersEdge),
+            (src::FACTION, Source::Faction),
+            (src::MAPPED, Source::Mapped),
+            (src::LEADERS, Source::Leaders),
+            (src::ACTION_CARDS, Source::ActionCards),
+        ];
+        for (mark, source) in marks {
+            assert_eq!(ORDER[usize::from(mark)], source);
+        }
+    }
 }
