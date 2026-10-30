@@ -3808,6 +3808,14 @@ fn settle_run(
             present.push(u);
         }
     }
+    // The start of the fight flips a dual-form unit to its ship form (`BeginRound`): the form is named by the dice of the rounds.
+    for u in present.clone() {
+        if let Some(twin) = ti4_engine_core::query::tech::other_form(u)
+            && !present.contains(&twin)
+        {
+            present.push(twin);
+        }
+    }
     present.sort_unstable();
     if present.len() > 10 {
         crate::dual::note_bail_here("more than ten unit types in the fight (the roll group texts are pre-interned)");
