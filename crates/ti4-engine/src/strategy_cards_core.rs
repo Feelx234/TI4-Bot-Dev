@@ -694,6 +694,8 @@ mod real {
     pub(crate) fn draw_hook(gs: &GameState, content: &ContentStore, player: &PlayerId, count: usize) -> Option<&'static str> {
         if crate::laws::blanked(gs) {
             Some("a turn in which the laws are blank (Law's Order)")
+        } else if gs.players.iter().any(|p| p.faction.as_str() == "ralnel") {
+            Some("a Ral Nel seat: its Data Skimmer could take the discard (non-lobby)")
         } else if gs.player(player).is_some_and(|p| p.faction.as_str() == "yssaril") {
             Some("Yssaril's Scheming and Crafty change the draw and the limit")
         } else if gs.players.iter().any(|p| crate::breakthroughs::holds(gs, &p.id, "yssarilbt")) {
@@ -1083,6 +1085,9 @@ mod tests {
         // Another seat's Yssaril changes nothing for a Sol drawer: the core follows it (W6; it was a bail).
         let beside = [("a", "sol"), ("b", "yssaril")];
         assert_eq!(run(label, &beside, |_| {}, &[], secondary("pok3politics")), (1, 0));
+        // A Ral Nel seat (never seated in the lobby): a hand-limit discard could go to its Data Skimmer.
+        let ralnel = [("a", "sol"), ("b", "ralnel")];
+        assert_eq!(run(label, &ralnel, |_| {}, &[], secondary("pok3politics")).1, 1);
         // Two seats of one faction: the speaker options would clash.
         let twins = [("a", "sol"), ("b", "hacan"), ("c", "hacan")];
         assert_eq!(run("strategy_cards::politics_primary", &twins, |_| {}, &["hacan"], primary("pok3politics")).1, 1);
