@@ -1,0 +1,10 @@
+Q0 seat 1 Combat(AssignHit)
+   0: Combat(Destroy { index: 0, unit: DestroyerI, damaged: false })
+  >1: Combat(Destroy { index: 1, unit: CarrierI, damaged: false })
+done
+--- delta ---
+sys[Tempesta]: units [1xCarrierI/s1, 3xCruiserI/s0, 1xDestroyerI/s1, 4xFighterI/s1] tokens {} flags 0 -> units [3xCruiserI/s0, 1xDestroyerI/s1, 4xFighterI/s1] tokens {} flags 0
+transient.combat.last_ship_destroyed: None -> -
+transient.combat.last_ship_destroyed.[0].[0]: - -> Tempesta
+transient.combat.last_ship_destroyed.[0].[1].[0]: - -> 1
+transient.combat.last_ship_destroyed.[0].[2]: - -> CarrierI
