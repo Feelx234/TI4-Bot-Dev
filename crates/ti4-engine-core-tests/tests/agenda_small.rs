@@ -130,3 +130,41 @@ fn offer_discard_declined_keeps_the_law_and_a_missing_law_is_not_taken() {
     illegal.expect_illegal(Pick::Number(3));
     smoke_quiet(|| offer(law, &[law]));
 }
+
+fn committee(agenda: Agenda) -> Rig<ti4_engine_core::rules::agenda::committee::Committee> {
+    Rig::new(Scenario::lobby(3).round(4), ti4_engine_core::rules::agenda::committee::Committee::new(agenda, Seat(1), Code(3)))
+}
+
+#[test]
+fn committee_formation_elects_the_named_player_without_a_vote_and_enacts_a_law() {
+    covers!("rules::agenda::committee::Committee");
+    let law = Agenda::PoliticalCensure;
+    let mut rig = committee(law);
+    rig.run();
+    assert_eq!(rig.asked().actor, Seat(1), "the owner chooses");
+    assert_eq!(rig.opts(), vec![Opt::Agenda(AOpt::Elect(Seat(0))), Opt::Agenda(AOpt::Elect(Seat(1))), Opt::Agenda(AOpt::Elect(Seat(2)))]);
+    rig.assert_options_sound();
+    rig.pick_opt(Opt::Agenda(AOpt::Elect(Seat(2))));
+    assert!(rig.is_done());
+    assert_eq!(rig.driver.window.chosen(), Some(Seat(2)));
+    assert_eq!(rig.state.agenda().laws.get(&law), Some(&Outcome::Seat(Seat(2))));
+    let rec = rig.state.agenda().log.last().expect("a log entry");
+    assert!(rec.law && rec.enacted && !rec.discarded && !rec.speaker_decided && rec.votes.is_empty());
+    assert_eq!(rec.round, 4);
+    ti4_engine_core_tests::assert_snapshot("agenda_small/committee_law", &rig.snapshot());
+}
+
+#[test]
+fn committee_formation_on_a_directive_lists_but_does_not_enact_and_refuses_other_picks() {
+    covers!("rules::agenda::committee::Committee");
+    let directive = Agenda::ALL.into_iter().find(|a| a.data().kind == AgendaType::Directive && a.data().elects == AgendaElects::Player).expect("a player-electing directive");
+    let mut rig = committee(directive);
+    rig.run();
+    rig.expect_illegal(Pick::Opt(Opt::Decline));
+    rig.expect_illegal(Pick::Number(1));
+    rig.pick(0);
+    assert!(rig.is_done());
+    assert!(rig.state.agenda().laws.is_empty());
+    assert!(!rig.state.agenda().log.last().unwrap().law);
+    smoke_quiet(|| committee(directive));
+}
