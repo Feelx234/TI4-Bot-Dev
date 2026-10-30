@@ -37,6 +37,74 @@ pub enum What {
     Rescue,
     /// kind `strategy_card`: a card for the trade good of Manipulate Investments; `step` of five, `owed` more distinct cards.
     Invest { step: u8, owed: u8 },
+    /// kind `repeal`: a law in play (Repeal Law).
+    Law,
+    /// kind `fragment`: a relic fragment of the asked seat's neighbour (Seize Artifact).
+    Fragment,
+    /// kind `reparations_exhaust`: the planet the new controller exhausts (asked of the new controller).
+    Exhaust,
+    /// kind `reparations_ready`: the planet the holder readies.
+    Ready,
+    /// kind `planet`, the id the planet alone: the deck of a planet the holder controls (Archaeological Expedition).
+    Dig,
+    /// kind `planet`, label `planet in system`: a planet of the other seat the holder offers coexistence on (Exchange Program).
+    Offer,
+    /// kind `answer`: the other seat accepts the exchange or refuses.
+    Accept,
+    /// kind `ship`: the ship Lucky Shot destroys.
+    Hull,
+    /// kind `ship`: a ship Scuttle returns; the second question (`second`) also offers to stop after one.
+    Scuttle { second: bool },
+    /// kind `crashlanding_ground` (id `ground|<unit>`) and then `crashlanding_planet` (id `planet|<planet>`): the ground force and the
+    /// planet Crash Landing lands (`second` for the planet).
+    Crash { system: System, second: bool },
+    /// kind `count`, label `spend <n> trade goods`: how many trade goods Bribery spends.
+    Spend,
+    /// kind `action_card`, label `take <card> from <seat>`, detail `from`: the card Lie in Wait takes from `from`.
+    Lie { from: Seat },
+    /// kind `technology`, label `research <id>`: the technology Focused Research researches.
+    Focus,
+    /// kind `technology`, label the name: the technology Divert Funding returns.
+    Return,
+    /// kind `technology`, label the name: the technology Divert Funding researches.
+    Funding,
+    /// kind `technology`, label the name: the prototype Reveal Prototype researches.
+    Prototype,
+    /// kind `technology`, id `<neighbour>|<tech>`, label `<neighbour>'s <name>`: the technology Plagiarize takes.
+    Steal,
+    /// kind `player`, label `<seat> gains their own breakthrough`: whose breakthrough Brilliance gives.
+    Gain,
+    /// kind `move`, subtype `ghost_squad_move`, with a decline: a move of ground forces between the planets of `system`.
+    Squad { system: System },
+    /// kind `unit`, id `system|planet|index`, label `<unit> in <system>`: a ground force Decoy Operation pulls; the second
+    /// question (`second`) also offers to stop after one.
+    Pull { second: bool },
+    /// kind `planet`, the id the planet alone: where Decoy Operation's ground forces land.
+    Land,
+    /// kind `infantry`, id `system|planet|index`, label `infantry in <system>`: an infantry Refit Troops replaces; the second
+    /// question (`second`) also offers to stop after one.
+    Troops { second: bool },
+    /// kind `cruiser`, id the place in the active system, label the unit: the cruiser Upgrade replaces.
+    Cruiser,
+    /// kind `system`, label `jam <system>`: the system Signal Jamming closes.
+    Jam,
+    /// kind `player`, id the faction, label `<faction>'s command token`: whose token Signal Jamming places in `system`.
+    JamWho { system: System },
+    /// kind `system`, label `destroyer into <system>`: the wormhole system Ghost Ship's destroyer enters.
+    Ghost,
+    /// kind `planet`, label `planet in system`: where Mercenary Contract's neutral infantry land.
+    Landing,
+    /// kind `system`: the system a neutral destroyer enters (Pirate Contract).
+    Pirate,
+    /// kind `system`, label the id: the system whose frontier token Exploration Probe explores.
+    Probe,
+    /// kind `space dock`, label `dock in <system>`, detail `system`: the system whose space dock fires (Experimental Battlestation).
+    Dock,
+    /// kind `strategy card` (with the space), label `<holder>'s <name>` (a held card) or `<name>` (an unclaimed one): the strategy card
+    /// whose secondary (Strategize) or primary (Overrule) ability the holder performs.
+    Perform,
+    /// kind `strategy_card`: the picker chooses again; `first` was taken away, `by` played the card (Public Disgrace).
+    Redraft { first: crate::generated::StrategyCard, by: Seat },
 }
 
 /// Why a seat is asked to pick a card from its own hand; it decides the prompt and the subtype.
@@ -86,6 +154,29 @@ pub enum Opt {
     Note(NoteKey),
     /// A strategy card (`What::Invest`).
     Strat(crate::generated::StrategyCard),
+    /// A law in play (`What::Law`).
+    Law(crate::generated::Agenda),
+    /// A ship in a system's space area (`What::Hull`, `What::Scuttle`): the system, its place in the unit list, the owner
+    /// and the unit form (the label names them).
+    Ship { system: System, index: u8, owner: Seat, kind: crate::generated::Unit },
+    /// yes or no (`What::Accept`).
+    Answer(bool),
+    /// "stop after one" (`What::Scuttle { second: true }`).
+    Stop,
+    /// A fragment trait (`What::Fragment`).
+    Fragment(crate::generated::ExploreType),
+    /// A unit on a planet: the system, the planet and its place in the planet's unit list (`What::Troops`).
+    Troop { system: System, planet: Planet, index: u8, kind: crate::generated::Unit },
+    /// Every ground force of one type moves from a planet to another (`What::Squad`).
+    Tech(crate::generated::Technology),
+    /// A unit type (`What::Crash`).
+    Kind(crate::generated::Unit),
+    /// A number (`What::Spend`).
+    Count(u8),
+    Steal { from: Seat, tech: crate::generated::Technology },
+    /// A strategy card another seat holds (`holder`) or nobody does (`None`, on the mat) (`What::Perform`).
+    Perform { card: crate::generated::StrategyCard, holder: Option<Seat> },
+    Move { from: Planet, to: Planet, kind: crate::generated::Unit, count: u8 },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).

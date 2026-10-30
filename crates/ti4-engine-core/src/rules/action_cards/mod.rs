@@ -6,6 +6,7 @@
 
 pub mod announce;
 pub mod effects;
+pub mod perform;
 pub mod reaction_slot;
 
 use crate::generated::{ActionCard, System, Unit, UnitBaseType};
@@ -339,6 +340,96 @@ pub struct Env {
     pub cruiser: Placed,
     /// The fighters on the Crimson hero card (Fighter Conscription places the plain fighter).
     pub fighter: Placed,
+    /// The facts the later cards of the package read (B6d): the neutral seat, the unit forms they place, the game's map.
+    pub facts: Facts,
+}
+
+/// What Fire Team and Scramble Frequency read of the staged dice that the state holds only as interned texts: the kinds of
+/// roll (`reroll_staging`'s `kind`, a text of the state's table) and, for the questions of Fire Team, the rendered name of each
+/// group of dice (a text of the question renderer's table, which is not the state's). Both are the adapter's.
+#[derive(Debug, Clone, Copy)]
+pub struct RerollFacts {
+    /// The state text of the kind `ground`.
+    pub ground: crate::state::Code,
+    /// The state texts of the kinds Scramble Frequency forces: `bombardment`, `space_cannon` and `anti_fighter_barrage`.
+    pub forced: [crate::state::Code; 3],
+    /// The renderer's text of the group of dice each staged entry of the holder stands for, by entry.
+    pub shown: [crate::state::Code; RerollFacts::GROUPS],
+    /// How many entries of the holder's staged set `shown` covers (a set with more entries is the string's).
+    pub entries: u8,
+}
+
+impl RerollFacts {
+    /// The most groups of dice one side rolls (a ground side rolls one group per combat value, `invasion::roll::NAMED`).
+    pub const GROUPS: usize = 12;
+}
+
+/// What the cards of package B6d read from outside the core (inputs of the card, like the adjacency of Argent's agent):
+/// the neutral owner of the table, the forms the seat places, the systems of the game's map that carry a wormhole.
+#[derive(Debug, Clone, Copy)]
+pub struct Facts {
+    /// The seat of the neutral owner (`neutral_units::NEUTRAL`), present in the owner table when the card needs it.
+    pub neutral: Option<Seat>,
+    /// A readied Keleres agent could be offered before a payment of the holder (the goods window and the payment window ask
+    /// the holders first: a window of its own the card does not carry).
+    pub agent_offered: bool,
+    /// The destroyer the seat places (Ghost Ship).
+    pub destroyer: Placed,
+    /// The plain dreadnought (Upgrade places `dreadnought`, not the form the seat's upgrades would give) and the ones on the
+    /// Crimson hero card.
+    pub dreadnought: Placed,
+    /// The plain mech Refit Troops places (`None` for a seat whose mech is a faction unit with an announcement of its own).
+    pub mech: Placed,
+    /// The PDS and the space dock the seat places (Infiltrate).
+    pub pds: Placed,
+    /// The holder is a Deepwrought seat (Oceanbound hears coexistence begin: dropped by decision).
+    pub holder_deepwrought: bool,
+    pub spacedock: Placed,
+    /// A replenishment at this table causes events the core does not hold (a Cabal, a siphoning Firmament plot, a Trade Agreement
+    /// in play): Harness Energy is the string's.
+    pub replenish_events: bool,
+    /// `GameState::rules_version` (Plagiarize's rules changed at 23 and 28).
+    pub rules_version: u32,
+    /// The order of technologies by their id text (the string keeps a seat's technologies in a set of ids).
+    pub tech_order: fn(crate::generated::Technology, crate::generated::Technology) -> core::cmp::Ordering,
+    /// The faction units of the scope (a unit upgrade changes the units on the board).
+    pub roster: Option<&'static crate::query::tech::UnitRoster>,
+    /// Reveal Prototype: the unit upgrades of the line of a unit of the holder in the active system.
+    pub reveal: crate::state::TechSet,
+    /// Lie in Wait: the neighbours who resolved a transaction this round (`transactions::neighbours_who_transacted`: the map's
+    /// neighbours, in the order of the transactions), the first two.
+    pub traders: [Option<Seat>; 2],
+    /// The Fracture is in play already (a breakthrough gained then rolls nothing).
+    pub fracture_in_play: bool,
+    /// The breakthrough of each seat's faction (`breakthroughs::for_faction`), by seat.
+    pub own_breakthrough: [Option<crate::generated::Breakthrough>; 16],
+    /// The order of unit types by their id text (the string orders a set of type ids; the core has no id text).
+    pub unit_order: fn(Unit, Unit) -> core::cmp::Ordering,
+    /// The map was lent to the window (the adapter had a galaxy): a card that reads the map when there is one (Exploration Probe)
+    /// takes the adjacency from it, otherwise it does what the string does without one.
+    pub map: bool,
+    /// The interned empty text of the exploration log (Exploration Probe opens the row of the card it draws; the other texts of the
+    /// row are written by the adapter).
+    pub explore_empty: crate::state::Code,
+    /// The holder draws two action cards plainly: no draw hook, the hand stays within its limit (a Lost Crew drawn by Exploration
+    /// Probe). A draw that is not plain is the string's.
+    pub action_draw_plain: bool,
+    /// Strategize and Overrule: what the adapter vouches for when the performed ability reads the string position.
+    pub carried: perform::Carried,
+    /// Fire Team and Scramble Frequency: the texts of the staged dice (`None`: the adapter computed none, the card is the string's).
+    pub reroll: Option<RerollFacts>,
+    /// Courageous To The End: the interned subtype of its casualty question (`courageous_to_the_end_assign_casualty`) and the cause
+    /// of the destructions it stages (`action_card:courageous`).
+    pub courageous_subtype: crate::state::Code,
+    pub courageous_cause: crate::state::Code,
+    /// The texts and the flag of the hit flows a card runs as children of the combat area (Experimental Battlestation).
+    pub hits: crate::kernel::children::HitTexts,
+}
+
+impl Default for Facts {
+    fn default() -> Self {
+        Self { neutral: None, agent_offered: false, destroyer: Placed::NONE, dreadnought: Placed::NONE, mech: Placed::NONE, pds: Placed::NONE, holder_deepwrought: false, spacedock: Placed::NONE, replenish_events: false, rules_version: u32::MAX, tech_order: |a, b| a.cmp(&b), roster: None, reveal: crate::state::TechSet::default(), traders: [None; 2], fracture_in_play: false, own_breakthrough: [None; 16], unit_order: |a, b| a.cmp(&b), map: false, explore_empty: crate::state::Code(0), action_draw_plain: false, carried: perform::Carried { plain_draw: false, research: false, payments: false, structures: None, trade_source: crate::state::Code(0) }, courageous_subtype: crate::state::Code(0), courageous_cause: crate::state::Code(0), hits: crate::kernel::children::HitTexts { staging: false, commander: crate::state::Code(0), casualty: crate::state::Code(0), effect_hit: crate::state::Code(0) }, reroll: None }
+    }
 }
 
 impl Simple {

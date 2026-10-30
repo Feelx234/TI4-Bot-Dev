@@ -19,6 +19,7 @@ use crate::kernel::{Kernel, Next, Resolver, TimingError};
 use crate::state::{CoreState, EventRec, RngDomain, SeedSource, Window as OpenWindow};
 
 pub mod aftermath;
+pub mod children;
 pub mod menu;
 pub mod session;
 pub mod turn_flow;

@@ -49,20 +49,57 @@ impl Decider for DeclineSlots {
 
 /// Announce `alias` as played by `player` with the resolver armed for the table; whether the play stood.
 pub(crate) fn announce(state: &mut GameState, alias: &str, player: &PlayerId, decider: Box<dyn Decider>) -> bool {
+    announce_on(state, alias, player, decider, None)
+}
+
+thread_local! {
+    static SOURCES: std::cell::Cell<ti4_model::content_types::SourceSet> = const { std::cell::Cell::new(ti4_model::content_types::POK) };
+}
+
+/// Run `f` with the announcements of this thread played under `sources` (the default is the base game and Prophecy of Kings).
+pub(crate) fn with_sources<T>(sources: ti4_model::content_types::SourceSet, f: impl FnOnce() -> T) -> T {
+    let before = SOURCES.with(|c| c.replace(sources));
+    let out = f();
+    SOURCES.with(|c| c.set(before));
+    out
+}
+
+/// [`announce`] on a map.
+pub(crate) fn announce_on(
+    state: &mut GameState,
+    alias: &str,
+    player: &PlayerId,
+    decider: Box<dyn Decider>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+) -> bool {
+    announce_seeded(state, alias, player, decider, galaxy, 0)
+}
+
+/// [`announce_on`] with the dice of the game seeded by `seed` (the state carries it too, so the core can reproduce the rolls):
+/// the cards that roll are played under several seeds to meet every outcome of the dice.
+pub(crate) fn announce_seeded(
+    state: &mut GameState,
+    alias: &str,
+    player: &PlayerId,
+    decider: Box<dyn Decider>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    seed: u64,
+) -> bool {
+    state.rng_seed = seed;
     let mut table = Table::with_default(decider);
     let mut dice = crate::dice::Dice::new();
-    let mut rng = crate::rng::GameRng::new(0);
+    let mut rng = crate::rng::GameRng::new(seed);
     let mut sequence = crate::event::EventSequence::new();
     let mut resolver = crate::fixtures::armed_resolver(state);
     let mut context = crate::timing::TimingContext {
         state,
         content: ContentStore::embedded(),
-        sources: ti4_model::content_types::POK,
+        sources: SOURCES.with(std::cell::Cell::get),
         table: &mut table,
         dice: &mut dice,
         rng: &mut rng,
         event_sequence: &mut sequence,
-        galaxy: None,
+        galaxy,
     };
     crate::reactions::announce(&mut context, &mut resolver, player, &ActionCardId::new(alias)).unwrap_or(false)
 }

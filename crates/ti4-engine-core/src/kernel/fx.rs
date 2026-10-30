@@ -550,3 +550,28 @@ mod tests {
         assert_eq!(s.ledger().vp.len(), 2);
     }
 }
+
+/// `laws::repeal`: the law leaves play; Political Censure's holder loses its point. Whether the law was in play. The body
+/// of `Resolve::repeal` (agenda area) and of the Repeal Law card (action-card area), which may not import each other.
+pub fn repeal_law(s: &mut CoreState, law: crate::generated::Agenda) -> bool {
+    use crate::keys::Outcome;
+    let owner = s.agenda_mut().laws.remove(&law);
+    if let (crate::generated::Agenda::PoliticalCensure, Some(Outcome::Seat(holder))) = (law, owner) {
+        adjust_victory_points(s, holder, -1, LedgerReason::Agenda(law));
+    }
+    owner.is_some()
+}
+
+/// `GameState::deal_strategy_card`: the card joins the holding in initiative order. `false`: no such seat. The body of
+/// `strategy_flow::deal` (strategy area), repeated for the cards that redeal (Public Disgrace).
+pub fn deal_strategy_card(s: &mut CoreState, who: Seat, card: crate::generated::StrategyCard) -> bool {
+    let Some(p) = s.players().by_seat(who) else { return false };
+    let mut held: Vec<crate::generated::StrategyCard> = p.strat.as_slice().to_vec();
+    held.push(card);
+    let init = &s.strategy().initiative;
+    held.sort_by_key(|c| init.get(c).copied().unwrap_or(99));
+    if let Some(p) = s.players_mut().by_seat_mut(who) {
+        p.strat = held.into_iter().collect();
+    }
+    true
+}

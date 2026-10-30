@@ -40,6 +40,23 @@ mod real {
         Some((cx, r.with_factions(factions)))
     }
 
+    /// The display facts of the Trade primary's question: the seat of each option and its commodities.
+    pub(crate) fn complete_trade(r: &crate::render::Render, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice) {
+        let name_of = |s: ti4_engine_core::ids::Seat| r.faction_text(s).to_owned();
+        let mut seats = serde_json::Map::new();
+        let mut commodities = serde_json::Map::new();
+        for opt in rendered.options.iter().filter(|o| !o.is_decline()) {
+            let Some(found) = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok()).map(ti4_engine_core::ids::Seat).find(|s| name_of(*s) == opt.id) else {
+                continue;
+            };
+            seats.insert(opt.id.clone(), serde_json::Value::from(r.seat_text(found)));
+            let (have, max) = core.players().by_seat(found).map_or((0, 0), |p| (p.econ.commodities, p.faction.data().commodities));
+            commodities.insert(opt.id.clone(), serde_json::json!({ "have": have, "max": max }));
+        }
+        rendered.details.insert("seats".to_owned(), serde_json::Value::Object(seats));
+        rendered.details.insert("commodities".to_owned(), serde_json::Value::Object(commodities));
+    }
+
     const TRADE: Footprint =
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
@@ -57,21 +74,7 @@ mod real {
         let kernel = Kernel::plain();
         let mut driver = Driver::new(TradePrimary::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), TRADE, |core, _| {
-            crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, core, rendered| {
-                let name_of = |s: ti4_engine_core::ids::Seat| r.faction_text(s).to_owned();
-                let mut seats = serde_json::Map::new();
-                let mut commodities = serde_json::Map::new();
-                for opt in rendered.options.iter().filter(|o| !o.is_decline()) {
-                    let Some(found) = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok()).map(ti4_engine_core::ids::Seat).find(|s| name_of(*s) == opt.id) else {
-                        continue;
-                    };
-                    seats.insert(opt.id.clone(), serde_json::Value::from(r.seat_text(found)));
-                    let (have, max) = core.players().by_seat(found).map_or((0, 0), |p| (p.econ.commodities, p.faction.data().commodities));
-                    commodities.insert(opt.id.clone(), serde_json::json!({ "have": have, "max": max }));
-                }
-                rendered.details.insert("seats".to_owned(), serde_json::Value::Object(seats));
-                rendered.details.insert("commodities".to_owned(), serde_json::Value::Object(commodities));
-            })
+            crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, core, rendered| complete_trade(&r, core, rendered))
         })
         .ok()?
         .ok()?;

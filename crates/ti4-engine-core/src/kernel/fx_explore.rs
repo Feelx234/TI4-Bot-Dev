@@ -1,0 +1,93 @@
+//! The exploration writes that cards of other areas make (package B6d, layering): the draw of an exploration card, a fragment
+//! gained, the frontier token spent, the wormhole token placed, a card kept in the play area, the commodities replenished or
+//! converted, the log row opened when a card is drawn.
+//!
+//! These bodies are state-only primitives (no window, no kernel service), and an action card plays them in the middle of its own
+//! window (Exploration Probe, Merchant Station): areas do not import each other, so the bodies are here and
+//! `rules::explore` re-exports them (the same split as [`super::fx_relic`]).
+
+use crate::generated::{Explore, ExploreType, Planet, System, Wormhole};
+use crate::ids::Seat;
+use crate::state::CoreState;
+
+/// `exploration::draw` on a position without a deck reserve: the top card of one deck. `None` when the
+/// string map has no such key or the deck is empty.
+pub fn draw(core: &mut CoreState, deck: ExploreType) -> Option<Explore> {
+    let d = core.decks_mut();
+    if d.explore_present & (1 << deck as u8) == 0 {
+        return None;
+    }
+    d.explore[deck as usize].draw()
+}
+
+/// `exploration::gain_fragment`: one fragment of `kind`. Nothing happens for a seat that is not there.
+pub fn gain_fragment(core: &mut CoreState, who: Seat, kind: ExploreType) {
+    if let Some(p) = core.players_mut().by_seat_mut(who) {
+        let n = p.cards.fragments.get(kind).unwrap_or(0);
+        p.cards.fragments.set(kind, n + 1);
+    }
+}
+
+/// `state.frontier_tokens.remove(system)`: whether a token was there.
+pub fn take_frontier(core: &mut CoreState, system: System) -> bool {
+    core.explore_mut().frontier.remove(system)
+}
+
+/// `state.wormhole_tokens.insert(kind, system)` (Gamma Wormhole, Gamma Relay).
+pub fn place_wormhole_token(core: &mut CoreState, kind: Wormhole, system: System) {
+    core.explore_mut().wormhole_tokens.insert(kind, system);
+}
+
+/// `seat.exploration_cards.push(card)` (Enigmatic Device, the exploration card): kept faceup in the play area.
+pub fn play_area_card(core: &mut CoreState, who: Seat, card: Explore) {
+    if let Some(p) = core.players_mut().by_seat_mut(who) {
+        p.cards.explore.push(card);
+    }
+}
+
+/// `exploration::gain_commodities`: up to `count` commodities, never past the faction's value. Returns the amount
+/// gained (the string side announces it to a Siphon, which the adapter does not follow).
+pub fn gain_commodities(core: &mut CoreState, who: Seat, count: i32) -> i32 {
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return 0 };
+    let limit = i32::from(p.faction.data().commodities);
+    let held = i32::from(p.econ.commodities);
+    let after = (held + count).min(limit);
+    p.econ.commodities = i16::try_from(after).unwrap_or(i16::MAX);
+    (after - held).max(0)
+}
+
+/// `exploration::convert_commodities`, the commodities half: up to `most` commodities (all when `None`) leave the
+/// seat. Returns how many; the trade goods they become are gained by the caller (`supply`).
+pub fn spend_commodities(core: &mut CoreState, who: Seat, most: Option<i32>) -> i32 {
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return 0 };
+    let held = i32::from(p.econ.commodities);
+    let moved = most.map_or(held, |cap| held.min(cap));
+    p.econ.commodities = i16::try_from(held - moved).unwrap_or(0);
+    moved
+}
+
+/// `exploration::explore_drawn`'s record: the log row opened when the card is drawn, before it resolves. The
+/// outcome, result, gains and placed texts come with `rules::explore::close_record`; `empty` is the interned empty text.
+pub fn open_record(
+    core: &mut CoreState,
+    who: Seat,
+    deck: ExploreType,
+    card: Explore,
+    planet: Option<Planet>,
+    system: Option<System>,
+    empty: crate::state::Code,
+) {
+    let round = core.meta().round;
+    core.explore_mut().log.push(crate::state::ExploreRec {
+        round,
+        player: who,
+        deck,
+        card,
+        planet,
+        outcome: empty,
+        system,
+        result: None,
+        gains: Default::default(),
+        placed: Default::default(),
+    });
+}

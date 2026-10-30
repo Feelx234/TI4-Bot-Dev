@@ -721,11 +721,19 @@ pub fn announce(
     let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
     let (content, galaxy, sources) = (*content, *galaxy, sources.clone());
     let mut refused = None;
+    // The dice of a card that rolls: only streams the core can reproduce (no test faces, no pending restore).
+    let rolls = crate::action_cards_typed::rolls(alias);
+    let reproducible = !dice.is_preloaded() && !rng.sync_pending() && rng.seed() == state.rng_seed;
+    let rng_before = rng.positions();
+    let history_start = dice.history().len();
+    let (dice, rng) = (std::cell::RefCell::new(&mut **dice), std::cell::RefCell::new(&mut **rng));
     let stood = crate::dual_window!(
         crate::dual::Area::ActionCards,
         "action_cards::announce",
         &mut **state,
         |s: &mut GameState| {
+            let mut dice = dice.borrow_mut();
+            let mut rng = rng.borrow_mut();
             let mut inner = TimingContext {
                 state: s,
                 content,
@@ -736,16 +744,21 @@ pub fn announce(
                 event_sequence: &mut **event_sequence,
                 galaxy,
             };
-            crate::dual::Run::new(match announce_text(&mut inner, resolver, player, alias) {
+            let stood = match announce_text(&mut inner, resolver, player, alias) {
                 Ok(stood) => Some(stood),
                 Err(e) => {
                     refused = Some(e);
                     None
                 }
-            })
+            };
+            let faces: Vec<u32> = dice.history().iter().skip(history_start).flat_map(|roll| roll.faces.clone()).collect();
+            crate::dual::Run::new((stood, (if rolls { faces } else { Vec::new() }, rolls.then(|| rng.positions()))))
         },
-        |s: &mut GameState, script: &crate::dual_window::Recording| crate::action_cards_typed::announce_window(s, player, alias, &sources, script)
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::action_cards_typed::announce_window(s, player, alias, &sources, script, reproducible.then_some(&rng_before), galaxy)
+        }
     );
+    let stood = stood.0;
     match (stood, refused) {
         (_, Some(e)) => Err(e),
         (stood, None) => Ok(stood.unwrap_or(false)),

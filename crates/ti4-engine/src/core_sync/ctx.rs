@@ -23,10 +23,19 @@ impl Owners {
     /// # Errors
     /// More than 16 owners.
     pub fn of(state: &GameState) -> R<Self> {
+        Self::with_extra(state, &[])
+    }
+
+    /// [`Self::of`] with owners the board does not hold yet (the neutral owner a card is about to place units for).
+    ///
+    /// # Errors
+    /// More than 16 owners.
+    pub fn with_extra(state: &GameState, extra: &[&str]) -> R<Self> {
         let plot_tokens: Vec<ti4_model::id::PlayerId> =
             state.players.iter().flat_map(|p| ti4_model::plots::read(&p.plots)).flat_map(|pl| pl.tokens).collect();
         let mut ids: BTreeSet<&str> = BTreeSet::new();
         ids.extend(plot_tokens.iter().map(|p| p.as_str()));
+        ids.extend(extra.iter().copied());
         ids.extend(state.players.iter().map(|p| p.id.as_str()));
         ids.extend(state.seating_order.iter().map(|p| p.as_str()));
         ids.insert(state.speaker.as_str());
@@ -147,16 +156,26 @@ pub struct Ctx {
     /// cannot represent: the marks and outcomes of that game stay unmapped) and the table of opaque
     /// value texts (`Atom::Blob`), persistent for the game so blob indices stay stable between lends.
     pub keys: KeysCodec,
+    /// Owners the table holds although the position does not (yet): the neutral owner of a card that places units for it.
+    extra: Vec<String>,
 }
 
 impl Ctx {
     /// # Errors
     /// More than 16 owners.
     pub fn of(state: &GameState) -> R<Self> {
-        let owners = Owners::of(state)?;
+        Self::with_extra(state, &[])
+    }
+
+    /// [`Self::of`] with the owners of `extra` in the table.
+    ///
+    /// # Errors
+    /// More than 16 owners.
+    pub fn with_extra(state: &GameState, extra: &[&str]) -> R<Self> {
+        let owners = Owners::with_extra(state, extra)?;
         let mut keys = KeysCodec::default();
         keys.owners = key_owners(&owners);
-        Ok(Self { owners, texts: Texts::default(), keys })
+        Ok(Self { owners, texts: Texts::default(), keys, extra: extra.iter().map(|e| (*e).to_owned()).collect() })
     }
 
     /// Rebuild the owner table for `state` (an owner may have appeared since the last lend), keeping
@@ -165,7 +184,8 @@ impl Ctx {
     /// # Errors
     /// More than 16 owners.
     pub fn refresh(&mut self, state: &GameState) -> R<()> {
-        let owners = Owners::of(state)?;
+        let extra: Vec<&str> = self.extra.iter().map(String::as_str).collect();
+        let owners = Owners::with_extra(state, &extra)?;
         if owners != self.owners {
             self.keys.owners = key_owners(&owners);
             self.owners = owners;

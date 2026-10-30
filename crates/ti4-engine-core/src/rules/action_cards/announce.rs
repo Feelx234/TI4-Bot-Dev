@@ -20,7 +20,7 @@
 //! * a card whose effect the core does not play (`Announce::of` is `None`), or a play inside a window whose
 //!   adapter facts are missing (`Unknown::PlayFacts`).
 
-use crate::choice::{Ask, Choice, Pick};
+use crate::choice::{Choice, Pick};
 use crate::generated::ActionCard;
 use crate::ids::Seat;
 use crate::kernel::ability::{AbilityTable, Inline, Runner, Unknown};
@@ -88,8 +88,10 @@ impl Announce {
             Effect::Simple(simple)
         } else if let Some(play) = Play::of(core, card, who, env) {
             Effect::Play(Box::new(play))
-        } else if registered && Fx::of(card).is_none() {
-            // A card the Fx table owns that refuses the position (a bail of its own) stays the string's.
+        } else if registered && Fx::of(card).is_none_or(|fx| !fx.nested()) {
+            // A card the Fx table owns that refuses the position (a bail of its own) stays the string's. A card whose window is not
+            // played from inside another window (`Fx::nested`: it reads facts only its own window supplies) is played by the
+            // registration there.
             Effect::Registered
         } else {
             return None;
@@ -101,6 +103,33 @@ impl Announce {
     #[must_use]
     pub const fn played(&self) -> bool {
         self.played
+    }
+
+    /// The system the Diplomacy primary performed by Overrule placed tokens in and the seats that got one (empty for any other play).
+    #[must_use]
+    pub fn placed_tokens(&self) -> Option<(crate::generated::System, Vec<Seat>)> {
+        match &self.effect {
+            Effect::Play(play) => play.placed_tokens().map(|(system, seats)| (system, seats.to_vec())),
+            _ => None,
+        }
+    }
+
+    /// The dice the effect rolled, in order.
+    #[must_use]
+    pub fn faces(&self) -> Vec<u32> {
+        match &self.effect {
+            Effect::Play(play) => play.faces().to_vec(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Exploration Probe: the card the frontier deck gave and what the seat held around it (see [`Play::explored`]).
+    #[must_use]
+    pub fn explored(&self) -> Option<super::effects::ProbeRow> {
+        match &self.effect {
+            Effect::Play(play) => play.explored(),
+            _ => None,
+        }
     }
 
     /// Go on until the effect asks (the question) or the flow is finished (`None`).
@@ -120,7 +149,7 @@ impl Announce {
             }
             match &mut self.effect {
                 Effect::Simple(simple) => super::play_simple(rt.state(), self.who, *simple, self.env),
-                Effect::Play(play) => play.begin(rt.state()),
+                Effect::Play(play) => rt.with_sx(|sx| play.begin(sx)),
                 Effect::Registered => rt.run_registered_play(self.who, self.card)?,
                 Effect::Unresolved => {
                     rt.emit(card_event(EventKind::ActionCardUnresolved, None, self.card))?;
@@ -133,6 +162,11 @@ impl Announce {
             {
                 let (s, k) = rt.read();
                 return Ok(play.ask_of(s, k));
+            }
+            if let Effect::Play(play) = &self.effect
+                && play.unsupported()
+            {
+                rt.unknown(Unknown::MissingFact);
             }
             self.discard(rt)?;
             // An effect may have staged a destruction (Direct Hit, Courageous to the End): a rules package that registered
@@ -169,7 +203,7 @@ impl Announce {
         while let Some(choice) = self.advance(rt)? {
             let pick = rt.ask(&choice);
             let Effect::Play(play) = &mut self.effect else { break };
-            if play.choose(rt.state(), pick).is_err() {
+            if rt.with_sx(|sx| play.choose(sx, pick)).is_err() {
                 break;
             }
         }
@@ -188,7 +222,7 @@ impl Window for Announce {
         // A refused announcement (the nesting limit) ends the flow, as the string run unwinds.
         match self.advance(sx) {
             Ok(Some(_)) => match &self.effect {
-                Effect::Play(play) => Next::Continue(Ask::Cards(play.ask_value())),
+                Effect::Play(play) => Next::Continue(play.any_ask()),
                 _ => Next::Done,
             },
             Ok(None) | Err(_) => Next::Done,
@@ -204,7 +238,7 @@ impl Window for Announce {
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         match &mut self.effect {
-            Effect::Play(play) => play.choose(sx.state, pick),
+            Effect::Play(play) => play.choose(sx, pick),
             _ => Err(Illegal),
         }
     }
@@ -224,6 +258,7 @@ fn env_of(rt: &impl Runner, who: Seat) -> Option<Env> {
         infantry: Placed { unit: seat.infantry.0, on_card: seat.infantry.1 },
         cruiser: Placed { unit: seat.cruiser.0, on_card: seat.cruiser.1 },
         fighter: Placed { unit: Some(crate::generated::Unit::FighterI), on_card: seat.fighter_on_card },
+        facts: super::Facts::default(),
     };
     Some(env)
 }
@@ -284,7 +319,7 @@ pub fn plays(card: ActionCard) -> bool {
 /// census names the card; [`play_inline`] answers `Unknown::ReflectiveShielding` if it gets there anyway).
 #[must_use]
 pub fn plays_in(t: &AbilityTable, card: ActionCard) -> bool {
-    card != ActionCard::ReflectiveShielding && (plays(card) || t.card_play(card).is_some())
+    card != ActionCard::ReflectiveShielding && (Simple::of(card).is_some() || Fx::of(card).is_some_and(Fx::nested) || t.card_play(card).is_some())
 }
 
 #[cfg(test)]
@@ -306,6 +341,7 @@ mod tests {
             infantry: Placed::NONE,
             cruiser: Placed::NONE,
             fighter: Placed::NONE,
+            facts: crate::rules::action_cards::Facts::default(),
         }
     }
 
@@ -365,11 +401,82 @@ mod tests {
         assert_eq!(kinds, [EventKind::ActionCardPlayed, EventKind::ActionCardUnresolved, EventKind::ActionCardDiscarded]);
     }
 
+    /// A rules package registers the effect of a card (`AbilityTable::add_card_play`); the component action's window plays it
+    /// on the host built from its own services, as an inline play does.
+    #[test]
+    fn a_registered_effect_runs_in_the_component_actions_window() {
+        use crate::kernel::ability::CardPlay;
+        fn bump(host: &mut crate::kernel::ability::RulesHost<'_>, _: &mut Resolver, who: Seat, _: ActionCard) -> Result<(), TimingError> {
+            host.state.players_mut().by_seat_mut(who).unwrap().econ.fleet_tokens += 7;
+            Ok(())
+        }
+        let mut s = two_seats();
+        let before = s.players().by_seat(Seat(0)).unwrap().econ.fleet_tokens;
+        let a = Announce::of(&s, ActionCard::Parley, Seat(0), env(), true, true).unwrap();
+        let mut table = plays_table();
+        table.add_card_play(CardPlay { covers: |c| c == ActionCard::Parley, effect: bump });
+        let d = run(a, &mut s, table);
+        assert!(d.window.played());
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.fleet_tokens, before + 7, "the registered effect ran");
+        let kinds: Vec<EventKind> = d.emitted.iter().map(|e| e.kind).collect();
+        assert_eq!(kinds, [EventKind::ActionCardPlayed, EventKind::ActionCardDiscarded]);
+    }
+
+    /// Bail: a galvanized ground force that falls cannot be staged (the string row has a `|g` tail the typed row cannot
+    /// hold), so the run is unknown and the adapter keeps the string's.
+    #[test]
+    fn bail_a_galvanized_ground_force_that_falls_makes_the_run_unknown() {
+        use crate::generated::{Planet, PlanetTrait};
+        let mut s = two_seats();
+        let planet = *Planet::ALL.iter().find(|p| p.data().system.is_some() && p.data().traits.contains(&PlanetTrait::Hazardous)).unwrap();
+        let system = planet.data().system.unwrap();
+        fx::place_unit(&mut s, Seat(1), system, Some(planet), Unit::InfantryI);
+        s.board_mut().planet_mut(planet).units.as_mut_slice()[0] = crate::state::Piece::new(Unit::InfantryI, Seat(1)).with_galvanized(true);
+        let a = Announce::of(&s, ActionCard::UnstablePlanet, Seat(0), env(), true, false).unwrap();
+        let d = run(a, &mut s, plays_table());
+        assert_eq!(d.unknown(), Some(Unknown::MissingFact));
+        // Without the galvanized token the same fall is staged as a ground-force row.
+        let mut s = two_seats();
+        fx::place_unit(&mut s, Seat(1), system, Some(planet), Unit::InfantryI);
+        let a = Announce::of(&s, ActionCard::UnstablePlanet, Seat(0), env(), true, false).unwrap();
+        let d = run(a, &mut s, plays_table());
+        assert_eq!(d.unknown(), None);
+        assert!(s.marks().tail.iter().any(|(k, _)| matches!(k, crate::keys::MarkKey::PrivateStagedGround(_))));
+    }
+
+    /// The cards of package B6d read facts only the adapter's play window supplies (forms, roster, map, traders): from inside
+    /// another window they are the string's, and the census says so (found by the first run of the slot test of Reveal
+    /// Prototype, which played with default facts). Courageous To The End and Experimental Battlestation are among them: they run
+    /// hit flows of the combat area as child windows through the links the play window's table carries, and the texts of their
+    /// questions and events are the play window's facts (their reaction windows are the combat area's, B12).
+    #[test]
+    fn the_b6d_cards_are_not_played_from_inside_another_window() {
+        let t = AbilityTable::default();
+        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::RevealPrototype, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad, ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation] {
+            assert!(plays(card), "{card:?} has a window of its own");
+            assert!(!plays_in(&t, card), "{card:?}");
+        }
+        assert!(plays_in(&t, ActionCard::Rally) && plays_in(&t, ActionCard::Intercept));
+    }
+
+    /// A card whose window is not played from inside another window (it reads facts only its own window supplies) but that a rules
+    /// package registered is played by the registration there (`core-b12` registers Fire Team for the ground roll's tail); a card
+    /// the window plays nested stays the window's, registered or not.
+    #[test]
+    fn a_registered_effect_wins_over_a_window_that_is_not_played_nested() {
+        let s = two_seats();
+        assert!(Announce::of(&s, ActionCard::FireTeam, Seat(0), env(), true, false).is_none(), "no facts and nothing registered");
+        let fire_team = Announce::of(&s, ActionCard::FireTeam, Seat(0), env(), true, true).expect("a registered play");
+        assert!(matches!(fire_team.effect, Effect::Registered));
+        let spy = Announce::of(&s, ActionCard::Spy, Seat(0), env(), true, true).expect("a play");
+        assert!(matches!(spy.effect, Effect::Play(_)), "a card the window plays nested is the window's");
+    }
+
     /// Bail: a card with an effect the core does not play has no announcement (the string runs).
     #[test]
     fn bail_a_card_with_an_unported_effect_has_no_announcement() {
         let s = two_seats();
-        assert!(Announce::of(&s, ActionCard::Spy, Seat(0), env(), true, false).is_none());
+        assert!(Announce::of(&s, ActionCard::Parley, Seat(0), env(), true, false).is_none());
         assert!(Announce::of(&s, ActionCard::DirectHit1, Seat(0), env(), true, false).is_none());
     }
 

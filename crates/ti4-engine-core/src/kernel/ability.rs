@@ -11,6 +11,7 @@
 //! complete for a window to be followed: an ability whose condition does not hold changes nothing, so it may be
 //! missing; one that is eligible must be in the table ([`AbilityTable::knows`]).
 
+use super::stage::Sx;
 use super::resolver::{AbilityDef, CannotDef, Host, Resolver, TimingError};
 use super::{Asker, Kernel};
 use crate::choice::reaction::{AbilityId, AbilityKind, Frequency, Relation};
@@ -362,6 +363,9 @@ pub struct AbilityTable {
     pub card_name: Option<fn(crate::generated::ActionCard) -> u32>,
     /// What follows the discard of a played reaction card: announce what its effect staged (a destroyed ship).
     pub after_play: Option<Closed>,
+    /// The calls a window makes into other rule areas (child windows, the research queries): areas do not import each
+    /// other, so the layer that may (`driver::children::register`) fills them. Empty by default.
+    pub links: super::children::AreaLinks,
     card_plays: Vec<CardPlay>,
 }
 
@@ -466,6 +470,9 @@ pub struct Tape {
     state_at: Option<Box<CoreState>>,
     /// A condition the core could not answer (`CondCx::unknown`); survives the rewind of a re-run.
     pub unknown: std::cell::Cell<Option<Unknown>>,
+    /// The events a hook of the table emitted at the top level of the window that called it (`AbilityTable::after_play`: the
+    /// `SHIP_DESTROYED` of what a played card staged): the window records them as its own, like the events of its steps.
+    pub emitted: Vec<EventRec>,
 }
 
 impl Tape {
@@ -770,6 +777,11 @@ pub trait Runner {
     fn ask(&mut self, choice: &Choice) -> Pick;
     /// The run cannot be trusted (a documented bail of the rule being run): the adapter falls back to the string.
     fn unknown(&mut self, why: Unknown);
+    /// Change the state with the seeds of the random streams at hand (a rule that rolls while it writes).
+    fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T;
+    /// Run `f` with the services of a stage (a window's `Sx`) over this runner: how a rule that is a [`Window`] with a child
+    /// window (a payment, a research) is stepped inside an effect or at the close of a window.
+    fn with_sx<T>(&mut self, f: impl FnOnce(&mut Sx<'_>) -> T) -> T;
     /// Whether a rules package registered the effect of `card` (`AbilityTable::add_card_play`): the effects that read the
     /// combat or invasion area and run on the host and the resolver of the window.
     fn has_registered_play(&self, _card: crate::generated::ActionCard) -> bool {
@@ -832,6 +844,25 @@ impl Runner for Inline<'_, '_> {
         if self.host.tape.unknown.get().is_none() {
             self.host.tape.unknown.set(Some(why));
         }
+    }
+
+    fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T {
+        f(&mut *self.host.state, self.host.seeds)
+    }
+
+    fn with_sx<T>(&mut self, f: impl FnOnce(&mut Sx<'_>) -> T) -> T {
+        let mut emitted = Vec::new();
+        let mut sx = Sx {
+            state: &mut *self.host.state,
+            kernel: self.host.kernel,
+            resolver: &mut *self.resolver,
+            table: self.host.table,
+            tape: &mut *self.host.tape,
+            next_id: &mut *self.host.next_id,
+            emitted: &mut emitted,
+            seeds: self.host.seeds,
+        };
+        f(&mut sx)
     }
 
     fn has_registered_play(&self, card: crate::generated::ActionCard) -> bool {

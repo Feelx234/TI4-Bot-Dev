@@ -8,7 +8,7 @@ use crate::choice::generic::{Content, Rule};
 use crate::choice::strategy::{gain_pool_choice, rule_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{System, Unit, UnitBaseType};
+use crate::generated::{System, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -222,21 +222,9 @@ impl Window for Leadership {
 
 // -- Construction ----------------------------------------------------------------------------------------
 
-/// The unit a seat places for one structure kind and whether it goes in the space area
-/// (`strategy_cards::construction_placement`), as the caller resolved it from the unit tables; `None`: the
-/// kind may not be placed at all (a faction effect forbids it).
-pub type Placement = Option<(Unit, bool)>;
-
-/// What a [`Construction`] window needs of the position that the core does not hold.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StructureFacts {
-    /// The PDS the seat places.
-    pub pds: Placement,
-    /// The space dock the seat places.
-    pub dock: Placement,
-    /// The code of the source `place_structure` (the adapter's text table).
-    pub source: Code,
-}
+/// What a [`Construction`] window needs of the position that the core does not hold, and the placement of one structure
+/// kind. They are kernel types (an action card asks for a Construction child through the kernel and carries these facts).
+pub use crate::kernel::children::{Placement, StructureFacts};
 
 /// The suspension points of [`Construction`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -717,6 +705,22 @@ impl Research {
             ctx: crate::choice::strategy::ctx(StrategyCard::Technology, decline, SSub::ResearchTechnology),
             opts: options,
         }
+    }
+}
+
+impl Research {
+    /// `technology::researchable` for a card that researches outside a strategy card: the technologies the seat can research
+    /// under the faction hooks of the kernel, in the order of the technology set.
+    #[must_use]
+    pub fn researchable_for(s: &CoreState, k: &Kernel, scope: Scope, who: Seat) -> SmallList<Technology, 40> {
+        tech::researchable(s, scope, reach::blanked(s), who, &KernelHooks::new(s, k, who)).iter().collect()
+    }
+
+    /// `technology::research` of a technology a card chose, the bill (if any) already paid: the prerequisites are met or
+    /// Inheritance Systems pays them, then the research completes. `false`, changing nothing, where the string `research`
+    /// answers `false` (a technology only a faction waiver opens, Inheritance Systems that cannot pay).
+    pub fn research_chosen(s: &mut CoreState, k: &Kernel, scope: Scope, roster: UnitRoster, who: Seat, t: Technology) -> bool {
+        Self::new(who, false, 0, scope).with_roster(roster).settle(s, k, t)
     }
 }
 

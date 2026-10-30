@@ -900,7 +900,12 @@ fn slot_options(
 
 /// The tables a core half needs, for one position. `None`: more than 16 owners.
 pub(crate) fn tables(gs: &GameState) -> Option<(Ctx, Render)> {
-    let cx = Ctx::of(gs).ok()?;
+    tables_with(gs, &[])
+}
+
+/// [`tables`] with owners the position does not hold yet in the table (the neutral owner of a card that places units for it).
+pub(crate) fn tables_with(gs: &GameState, extra: &[&str]) -> Option<(Ctx, Render)> {
+    let cx = Ctx::with_extra(gs, extra).ok()?;
     let r = Render::new(cx.owners.ids().to_vec());
     Some((cx, r))
 }
@@ -1890,10 +1895,18 @@ pub type BarrageOut = (Vec<PlayerId>, Vec<(u32, Vec<u32>)>, crate::rng::RngPosit
 /// The seeds of the Dice stream (the only one a window draws from here): `SHA-256(seed || "dice")`.
 pub(crate) struct DiceSeeds(pub(crate) String);
 
+/// The streams lent to a window that rolls: where they stood before the string effect.
+pub(crate) struct Lent {
+    pub(crate) before: crate::rng::RngPositions,
+}
+
 impl ti4_engine_core::state::SeedSource for DiceSeeds {
     fn seed_for(&self, seed: u64, domain: ti4_engine_core::state::RngDomain) -> [u8; 32] {
         if domain == ti4_engine_core::state::RngDomain::Dice {
             crate::rng::GameRng::derive_seed(seed, &self.0)
+        } else if domain == ti4_engine_core::state::RngDomain::Fracture {
+            // Brilliance's roll for the Fracture (`fracture::breakthrough_roll`).
+            crate::rng::GameRng::derive_seed(seed, "fracture-breakthrough")
         } else {
             [0; 32]
         }

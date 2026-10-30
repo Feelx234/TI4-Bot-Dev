@@ -75,7 +75,7 @@ pub struct Render {
     /// The position of the question being rendered, when the caller set one (`None` for the families
     /// that need none; see [`Position`]).
     position: RefCell<Option<Position>>,
-    /// Option shapes of areas whose options the string engine still builds (the strategy waivers, trade deals), by index.
+    /// Option shapes of areas whose options the string engine still builds (the strategy waivers, trade deals, waivers), by index.
     shapes: RefCell<Vec<ChoiceOption>>,
 }
 

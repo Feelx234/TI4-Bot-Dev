@@ -18,12 +18,15 @@
 //! arguments.
 
 pub mod ability;
+pub mod children;
 pub mod fx;
 pub mod fx_agenda;
+pub mod fx_explore;
+pub mod fx_ground;
 pub mod fx_move;
-pub mod fx_relic;
 pub mod fx_pay;
 pub mod fx_plots;
+pub mod fx_relic;
 pub mod fx_strategy;
 pub mod hooks;
 pub mod hits;

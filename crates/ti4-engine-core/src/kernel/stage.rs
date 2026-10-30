@@ -179,4 +179,243 @@ impl super::ability::Runner for Sx<'_> {
             self.tape.unknown.set(Some(why));
         }
     }
+
+    fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T {
+        f(&mut *self.state, self.seeds)
+    }
+
+    fn with_sx<T>(&mut self, f: impl FnOnce(&mut Sx<'_>) -> T) -> T {
+        f(self)
+    }
+
+    fn has_registered_play(&self, card: crate::generated::ActionCard) -> bool {
+        self.table.card_play(card).is_some()
+    }
+
+    fn run_registered_play(&mut self, who: crate::ids::Seat, card: crate::generated::ActionCard) -> Result<(), TimingError> {
+        let Some(play) = self.table.card_play(card).copied() else { return Ok(()) };
+        self.tape.emitted.clear();
+        let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
+        let done = (play.effect)(&mut host, &mut *self.resolver, who, card);
+        self.emitted.append(&mut self.tape.emitted);
+        done
+    }
+
+    fn after_play(&mut self) -> Result<(), TimingError> {
+        let Some(after) = self.table.after_play else { return Ok(()) };
+        self.tape.emitted.clear();
+        let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
+        let done = after(&mut host, &mut *self.resolver);
+        self.emitted.append(&mut self.tape.emitted);
+        done
+    }
+}
+
+// -- Child windows (package B6d) -------------------------------------------------------------------------
+
+/// What a [`Child`] did when it was stepped.
+#[derive(Debug)]
+pub enum Ran<W> {
+    /// The child waits on a question (the ask of [`Window::ask_of`]).
+    Asks(crate::choice::Ask),
+    /// The child asks the driver for something else (`Next::Open`, `Next::Emit`, `Next::Chain`): the parent returns it as its
+    /// own step and steps the child again.
+    Pass(Next),
+    /// The child finished; the window comes back so the parent can read what it did (a payment's `took`, a research's
+    /// `researched`).
+    Done(W),
+}
+
+/// A window run inside another window's step: the question-driven payment or research a card effect contains.
+///
+/// The parent holds the child as a field (the state stays `(window, state)`, so a checkpoint is a clone) and delegates:
+/// `step` until it returns [`Ran::Done`], `ask_of` while it runs, `answer` for a pick the child's question got. A child
+/// that finishes during `answer` is finished by the next `step` (the contract of [`Window::step`]: a window that is done
+/// answers [`Next::Done`]).
+#[derive(Debug, Clone)]
+pub struct Child<W: Window> {
+    window: Option<W>,
+}
+
+impl<W: Window> Default for Child<W> {
+    fn default() -> Self {
+        Self { window: None }
+    }
+}
+
+impl<W: Window> Child<W> {
+    /// No child.
+    #[must_use]
+    pub const fn idle() -> Self {
+        Self { window: None }
+    }
+
+    /// Start `window` as the child.
+    pub fn start(&mut self, window: W) {
+        self.window = Some(window);
+    }
+
+    /// Whether a child is running.
+    #[must_use]
+    pub const fn running(&self) -> bool {
+        self.window.is_some()
+    }
+
+    /// The running child.
+    #[must_use]
+    pub const fn window(&self) -> Option<&W> {
+        self.window.as_ref()
+    }
+
+    /// Step the child. `None` when there is none.
+    pub fn step(&mut self, sx: &mut Sx<'_>) -> Option<Ran<W>> {
+        let window = self.window.as_mut()?;
+        match window.step(sx) {
+            Next::Continue(ask) => Some(Ran::Asks(ask)),
+            Next::Done => self.window.take().map(Ran::Done),
+            other => Some(Ran::Pass(other)),
+        }
+    }
+
+    /// The question the child waits on.
+    #[must_use]
+    pub fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        self.window.as_ref()?.ask_of(s, k)
+    }
+
+    /// Give the child its answer.
+    ///
+    /// # Errors
+    /// There is no child, or the pick is not an option of its question.
+    pub fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        self.window.as_mut().ok_or(Illegal)?.answer(sx, pick)
+    }
+}
+
+#[cfg(test)]
+mod child_tests {
+    use super::*;
+    use crate::choice::{Ask, Opt, Origin, Subtype};
+    use crate::choice::cards::{Ask as CAsk, Opt as COpt, What};
+    use crate::driver::{Driver, Status};
+    use crate::generated::ActionCard;
+    use crate::ids::Seat;
+    use crate::kernel::Resolver;
+
+    /// A toy window that asks `left` yes/no questions of seat 0 and counts the answers it got.
+    #[derive(Debug, Clone)]
+    struct Asks {
+        left: u8,
+        got: u8,
+        waiting: bool,
+    }
+
+    impl Window for Asks {
+        type Stage = bool;
+        fn stage(&self) -> bool {
+            self.waiting
+        }
+        fn step(&mut self, _: &mut Sx<'_>) -> Next {
+            if self.left == 0 {
+                return Next::Done;
+            }
+            self.waiting = true;
+            Next::Continue(Ask::Cards(CAsk::Pick { card: ActionCard::Spy, what: What::Accept }))
+        }
+        fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+            (self.waiting && self.left > 0).then(|| Choice {
+                actor: Seat(0),
+                ask: Ask::Cards(CAsk::Pick { card: ActionCard::Spy, what: What::Accept }),
+                ctx: crate::choice::Ctx {
+                    origin: Origin::ActionCard(ActionCard::Spy),
+                    subtype: Subtype::Cards(crate::choice::cards::Subtype::Pick { card: ActionCard::Spy, what: What::Accept }),
+                    optional: false,
+                    target: None,
+                    outstanding: crate::containers::SmallList::new(),
+                    space_battle: false,
+                    invasion_seq: None,
+                },
+                opts: [Opt::Cards(COpt::Answer(true)), Opt::Cards(COpt::Answer(false))].into_iter().collect(),
+            })
+        }
+        fn answer(&mut self, _: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+            let Pick::Opt(Opt::Cards(COpt::Answer(yes))) = pick else { return Err(Illegal) };
+            self.got += u8::from(yes);
+            self.left -= 1;
+            self.waiting = false;
+            Ok(())
+        }
+    }
+
+    /// A parent that runs two `Asks` children one after the other and records what each got.
+    #[derive(Debug, Clone)]
+    struct Parent {
+        child: Child<Asks>,
+        started: u8,
+        results: Vec<u8>,
+    }
+
+    impl Window for Parent {
+        type Stage = u8;
+        fn stage(&self) -> u8 {
+            self.started
+        }
+        fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+            loop {
+                if !self.child.running() {
+                    if self.started == 2 {
+                        return Next::Done;
+                    }
+                    self.started += 1;
+                    self.child.start(Asks { left: 2, got: 0, waiting: false });
+                }
+                match self.child.step(sx) {
+                    Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                    Some(Ran::Pass(next)) => return next,
+                    Some(Ran::Done(done)) => self.results.push(done.got),
+                    None => return Next::Done,
+                }
+            }
+        }
+        fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+            self.child.ask_of(s, k)
+        }
+        fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+            self.child.answer(sx, pick)
+        }
+    }
+
+    /// The parent asks the child's questions, hands the picks to it, collects the finished child and starts the next one.
+    #[test]
+    fn a_child_asks_through_its_parent_and_hands_back_its_result() {
+        let mut s = CoreState::all_loaded();
+        let k = Kernel::plain();
+        let parent = Parent { child: Child::idle(), started: 0, results: Vec::new() };
+        let mut d = Driver::new(parent, Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
+        let mut status = d.run(&mut s, &k).unwrap();
+        let mut asked = 0;
+        // yes, no, no, yes
+        let answers = [0, 1, 1, 0];
+        while let Status::Asking(choice) = status {
+            let pick = choice.pick(answers[asked]).unwrap();
+            asked += 1;
+            status = d.resume(&mut s, &k, pick).unwrap();
+        }
+        assert_eq!(asked, 4, "two children, two questions each");
+        assert_eq!(d.window.results, vec![1, 1], "each child's own count came back");
+        assert!(!d.window.child.running());
+    }
+
+    /// An idle child steps to nothing and refuses an answer.
+    #[test]
+    fn an_idle_child_does_nothing_and_refuses_an_answer() {
+        let mut child: Child<Asks> = Child::idle();
+        assert!(!child.running() && child.window().is_none());
+        let mut s = CoreState::all_loaded();
+        let k = Kernel::plain();
+        let mut d = Driver::new(Parent { child: Child::idle(), started: 2, results: Vec::new() }, Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
+        assert!(matches!(d.run(&mut s, &k).unwrap(), Status::Done));
+        let _ = &mut child;
+        assert!(child.ask_of(&s, &k).is_none());
+    }
 }

@@ -135,6 +135,9 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             ti4_engine_core_factions::cards::register(&mut t);
+            // The links to the areas whose windows an action card runs as children: a play window that follows nested
+            // activity runs on this table (`follow`), not on `action_cards_view::play_table`.
+            ti4_engine_core::driver::children::register(&mut t);
             t
         })
         .clone()
@@ -430,6 +433,10 @@ mod tests {
         assert_eq!(played.unported(&t), None, "a Shields Holding is played by the core");
         played.played = vec!["fire_team".to_owned()];
         assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card fire_team)"), "a card the core does not play");
+        // Fire Team and Scramble Frequency have a window of the play (their own facts), not a nested one: from inside another
+        // window they are still the string's.
+        played.played = vec!["scramble".to_owned()];
+        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card scramble)"), "a card the core does not play nested");
     }
 
     #[test]
