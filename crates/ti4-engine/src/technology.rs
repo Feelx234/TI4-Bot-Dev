@@ -730,6 +730,28 @@ pub fn self_assembly_after_production(
     player: &PlayerId,
     system: &SystemId,
 ) -> Result<(), IllegalChoice> {
+    let mut result = Ok(());
+    let sources = ctx.sources;
+    crate::dual_window!(
+        crate::dual::Area::Technology,
+        "technology::self_assembly",
+        state,
+        |state: &mut GameState| {
+            result = self_assembly_string(state, ctx, player, system);
+            crate::dual::Run::new(result.is_ok())
+        },
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::self_assembly(state, player, system, sources, script)
+    );
+    result
+}
+
+/// [`self_assembly_after_production`] on the string engine: the oracle of the dual run.
+fn self_assembly_string(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Result<(), IllegalChoice> {
     let sar = TechnologyId::new("sar");
     let (content, sources) = (ctx.content, ctx.sources);
     if state.rules_version < ti4_model::state::RULES_SELF_ASSEMBLY

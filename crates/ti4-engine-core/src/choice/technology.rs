@@ -17,6 +17,8 @@ pub enum Ask {
     BioStims,
     /// "AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}".
     Aida { upgrades: u8 },
+    /// "Self-Assembly Routines: exhaust to place 1 mech from your reinforcements on a planet you control in this system".
+    SelfAssembly,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -39,4 +41,5 @@ pub enum Subtype {
     PredictiveIntelligenceRedistribute,
     BioStimsReady,
     AidaExhaustForProductionDiscount,
+    SelfAssemblyMech,
 }

@@ -38,6 +38,7 @@ impl Family for Fam {
             Ask::Psychoarchaeology => "Psychoarchaeology: exhaust a specialty for 1 trade good",
             Ask::Restack => "Predictive Intelligence: redistribute command tokens",
             Ask::BioStims => "Bio-Stims",
+            Ask::SelfAssembly => "Self-Assembly Routines: exhaust to place 1 mech from your reinforcements on a planet you control in this system",
             Ask::Aida { upgrades } => return format!("AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}"),
         }
         .to_owned()
@@ -48,6 +49,7 @@ impl Family for Fam {
             Subtype::PsychoarchaeologyExhaustSpecialty => "psychoarchaeology_exhaust_specialty",
             Subtype::PredictiveIntelligenceRedistribute => "predictive_intelligence_redistribute",
             Subtype::BioStimsReady => "bio_stims_ready",
+            Subtype::SelfAssemblyMech => "self_assembly_mech",
             Subtype::AidaExhaustForProductionDiscount => "exhaust_for_production_discount",
         }
         .to_owned()
@@ -59,6 +61,10 @@ impl Family for Fam {
                 .with("technology", "aida")
                 .with("discount_offered", i64::from(*upgrades)),
             (_, Opt::Exhaust) => ChoiceOption::labelled("exhaust", "production_discount", "exhaust"),
+            (Ask::SelfAssembly, Opt::Planet(planet, _)) => {
+                let id = planet.as_str();
+                ChoiceOption::labelled(id, "self_assembly", format!("exhaust Self-Assembly Routines to place a mech on {id}"))
+            }
             (Ask::Psychoarchaeology, Opt::Planet(planet, shown)) => {
                 let id = planet.as_str();
                 ChoiceOption::labelled(id, "ability", format!("exhaust {id}")).with("planet", id).with("technology", "pa").with_planet(id, shown.system.map(|s| s.as_str()))
@@ -86,7 +92,7 @@ impl Family for Fam {
 
     fn parse(_: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
-            Ask::Psychoarchaeology => Planet::from_id(id).map(|p| Opt::Planet(p, ti4_engine_core::choice::agenda::Shown::default())),
+            Ask::Psychoarchaeology | Ask::SelfAssembly => Planet::from_id(id).map(|p| Opt::Planet(p, ti4_engine_core::choice::agenda::Shown::default())),
             Ask::Restack => {
                 let (from, to) = id.split_once('|')?;
                 Some(Opt::Move { from: pool_of(from)?, to: pool_of(to)? })
