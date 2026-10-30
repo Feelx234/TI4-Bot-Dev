@@ -25,7 +25,8 @@
 use ti4_engine_core::choice::reaction::AbilityId;
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::resolver::UsedScope;
-use ti4_engine_core::state::{EventKind, Slice};
+use ti4_engine_core::containers::{Cow, SmallList};
+use ti4_engine_core::state::{EventKind, ResolverState, Slice};
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, Phase};
 
@@ -185,6 +186,37 @@ pub fn rebuild(state: &GameState, img: &ResolverImage, table: Table, r: &Render,
     res.set_journal(img.log.clone(), img.applied.clone());
     *seq = EventSequence::from_next(img.next_event_id);
     res
+}
+
+/// The persistent part of the image as the core state carries it (`CoreState::pending.resolver`, D2-4b): the
+/// spent keys, the initiative order, the open emissions and the next trace id. The clock, the seats, the
+/// journal and the trace are not in the state: they are the state's own or the events view's.
+///
+/// # Errors
+/// More than eight seats in the initiative order.
+pub fn to_state(img: &ResolverImage) -> R<ResolverState> {
+    if img.initiative.len() > 8 {
+        return Err(bad("initiative order of more than 8 seats", img.initiative.len()));
+    }
+    Ok(ResolverState {
+        used: Cow::new(img.used.clone()),
+        initiative: SmallList::from_slice(&img.initiative),
+        emission_stack: img.emission_stack.clone(),
+        next_id: img.next_event_id,
+    })
+}
+
+/// `rest` with the persistent part replaced by the state's (the string side of loading a state: the clock and
+/// the journal stay the caller's).
+#[must_use]
+pub fn with_state(rest: &ResolverImage, state: &ResolverState) -> ResolverImage {
+    ResolverImage {
+        used: state.used.to_vec(),
+        initiative: state.initiative.as_slice().to_vec(),
+        emission_stack: state.emission_stack.clone(),
+        next_event_id: state.next_id,
+        ..rest.clone()
+    }
 }
 
 fn common_prefix<T: PartialEq>(a: &[T], b: &[T]) -> usize {
@@ -446,6 +478,31 @@ mod tests {
             assert_eq!(plain.timing.applied_events(), churned.timing.applied_events());
             assert_eq!(plain.events, churned.events);
         }
+    }
+
+    /// D2-4b, string side: the persistent part of the image is the state's `ResolverState`, and the core
+    /// resolver made from it spends the very keys the string resolver spent, in the same order.
+    #[test]
+    fn the_image_is_the_core_state_and_the_core_resolver_made_from_it_agrees() {
+        let (res, seq) = spent_resolver();
+        let state = crate::setup::start_game_seeded(ContentStore::embedded(), &players(2), POK, None, 1).unwrap();
+        let r = render_for(&state);
+        let img = export(&res, &seq, &r).unwrap();
+        let carried = to_state(&img).unwrap();
+        assert_eq!(carried.next_id, 4);
+        assert_eq!(carried.used.len(), img.used.len());
+        let core = ti4_engine_core::kernel::Resolver::from_state(&carried, Cow::new(ti4_engine_core::kernel::Registry::default()));
+        assert_eq!(core.used_keys(), img.used, "the core resolver spent the string resolver's keys in order");
+        assert_eq!(core.into_state(carried.next_id), carried, "and hands them back unchanged");
+        assert_eq!(with_state(&img, &carried), img, "the state plus the rest is the image");
+        // a played game: the same holds at every sampled position
+        let mut g = game(4, 11);
+        play(&mut g, 400, 7, |g| {
+            let r = render_for(&g.state);
+            let img = export(&g.timing, g.event_sequence(), &r).unwrap();
+            let carried = to_state(&img).unwrap();
+            assert_eq!(with_state(&img, &carried), img);
+        });
     }
 
     /// What a step changes in the image, applied to the image before it, is the image after it.
