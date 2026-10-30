@@ -8,7 +8,7 @@ Census: 100 games, 7 slices, 80,701,597 calls, 81,423,969 comparisons, 79 differ
 
 * windows (`impl Window for`): **83**; covered by a test: **0** (0%); exempt: 0; uncovered: 83
 * stage variants: 278 in 82 windows; visited by a test: 0 (0%)
-* hook slots: 8; covered by `covers_slot!`: 0
+* hook slots: 199; covered by `covers_slot!`: 0
 * action cards named by a card play in the factions crate: 16; covered by `covers_card!`: 0 (0 cards declared in all)
 * `WindowKind` variants: 15
 * silent windows in the census (compared 0, bailed > 0): **3**

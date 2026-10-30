@@ -178,17 +178,22 @@ def area_of(path):
 
 
 def slot_inventory(root):
-    """`group.field` of every `pub struct XHooks`/`GeneralHooks` field of kernel/hooks, and `ability.field` of AbilityTable."""
+    """`group.slot` of every slot declared in a `hook_group! { Group { kind name(..) -> T; } }` of kernel/hooks (group = the file
+    stem, `general` for mod.rs), plus the `pub struct XHooks` fields written by hand, and `ability.field` of AbilityTable."""
     out = []
     d = os.path.join(root, CORE, "kernel", "hooks")
     for f in sorted(glob.glob(os.path.join(d, "*.rs"))):
-        group = os.path.basename(f)[:-3]
+        stem = os.path.basename(f)[:-3]
+        group = "general" if stem == "mod" else stem
         text = open(f, encoding="utf-8", errors="replace").read()
+        for m in re.finditer(r"hook_group!\s*\{", text):
+            body = text[m.end() - 1: balanced(text, m.end() - 1)]
+            for sm in re.finditer(r"^\s+(?:concat|sum|any|all|first|last|min|max|fold|\w+)\s+(\w+)\s*\(", body, re.M):
+                out.append(f"{group}.{sm.group(1)}")
         for m in re.finditer(r"pub struct (\w*Hooks)\b[^{;]*\{", text):
             body = text[m.end() - 1: balanced(text, m.end() - 1)]
             for fm in re.finditer(r"^\s*pub\s+(\w+)\s*:", body, re.M):
-                g = "general" if m.group(1) == "GeneralHooks" else group
-                out.append(f"{g}.{fm.group(1)}")
+                out.append(f"{group}.{fm.group(1)}")
     ab = os.path.join(root, CORE, "kernel", "ability.rs")
     if os.path.exists(ab):
         text = open(ab, encoding="utf-8", errors="replace").read()
@@ -615,7 +620,7 @@ def selftest():
           "pub enum CStage { Open, Ask(u8), Done }\nimpl Window for CommitWindow {\n    type Stage = CStage;\n    fn x() {}\n}\n"
           "impl<'a> crate::kernel::stage::Window for Other<'a> {\n    type Stage = OStage;\n}\nenum OStage { A, B { x: u8 } }\n")
         w(CORE + "/rules/mod.rs", "// no windows\n")
-        w(CORE + "/kernel/hooks/movement.rs", "pub struct MovementHooks {\n    pub gravity_drive: Vec<u8>,\n    pub other: u8,\n}\n")
+        w(CORE + "/kernel/hooks/movement.rs", "hook_group! {\n    MovementHooks {\n        /// doc\n        any gravity_drive(s: &CoreState) -> bool;\n        sum other(s: &CoreState) -> i32;\n    }\n}\n")
         w(CORE + "/state/pending.rs", "pub enum WindowKind { Scoring, Tokens }\n")
         w(FACTIONS + "/cards/mod.rs", "t.add_card_play(CardPlay { covers: |c| c == ActionCard::Spy, effect: spy });\n")
         w("crates/ti4-engine/src/x.rs", 'fn f() { crate::dual_window!(\n  crate::dual::Area::X,\n  "combat::settle",\n  state, 1, 2); }\n')
