@@ -412,7 +412,7 @@ impl Machine {
         true
     }
 
-    fn begin(&self, sx: &mut Sx<'_>, round: u32) {
+    fn begin(&mut self, sx: &mut Sx<'_>, round: u32) {
         let e = &self.env;
         let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce, round_seq_listens: e.round_seq_listens });
         let _ = w.step(sx);
