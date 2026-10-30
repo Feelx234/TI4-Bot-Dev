@@ -3,3 +3,5 @@
 //! tests and adapters keep their path).
 
 pub use crate::rules::combat::sustain_commander;
+
+pub mod aftermath;

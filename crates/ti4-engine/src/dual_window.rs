@@ -3631,7 +3631,7 @@ pub fn fields_of(a: &FieldsIn, r: &Render) -> Option<ti4_engine_core::state::Com
         at_start: pairs(&a.at_start)?,
         scoring: false,
         outcome: match &a.outcome {
-            Some((winner, rounds)) => Some((winner.as_ref().map(seat).transpose()?, *rounds)),
+            Some((winner, rounds)) => Some((match winner { Some(w) => Some(seat(w)?), None => None }, *rounds)),
             None => None,
         },
         end_announced: a.end_announced,

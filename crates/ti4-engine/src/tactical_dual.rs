@@ -417,22 +417,10 @@ mod real {
     /// (Meta); the limits are facts of the string.
     pub(crate) const ENFORCE: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Board]);
 
-    /// The core half of `fleet::enforce_seeing`: the units over the fleet supply, then over capacity, removed one question
-    /// at a time. The value is the number of units removed (`None`: the string refused an answer).
-    #[must_use]
-    pub fn enforce(gs: &mut GameState, content: &ContentStore, sources: SourceSet, player: &ti4_model::id::PlayerId, system: &SystemId, script: &Recording) -> Option<CoreWindow<Option<usize>>> {
-        use ti4_engine_core::rules::tactical::fleet::{Enforce, Limits};
-        const LABEL: &str = "tactical::enforce";
-        if !content.is_embedded() || script.nested {
-            return None;
-        }
-        if script.questions.iter().any(|q| q.answer.is_none()) {
-            return None;
-        }
-        let (mut cx, r) = tables(gs)?;
-        let seat = r.seat(player.as_str())?;
-        let at = <System as IdStr>::from_id(system.as_str())?;
-        // The string's limits: the one the enforcement judges by, the one the question shows, the half-weight fighters.
+    /// The string's limits for the enforcement of `player` in `system`: the one the enforcement judges by, the one the question
+    /// shows, the half-weight fighters. `Err`: more than two half-weight fighter forms, or a unit the tables do not know.
+    pub(crate) fn limits_of(gs: &GameState, content: &ContentStore, player: &ti4_model::id::PlayerId, system: &SystemId) -> Result<ti4_engine_core::rules::tactical::fleet::Limits, &'static str> {
+        use ti4_engine_core::rules::tactical::fleet::Limits;
         let enforce = crate::fleet::limit_for_enforcement(gs, content, player);
         let shown = if crate::fleet::is_unlimited(gs, player) { crate::fleet::UNLIMITED_FLEET_BILL } else { i64::from(crate::fleet::limit(gs, content, player)).max(0) };
         let mut halves = [None, None];
@@ -444,18 +432,40 @@ mod real {
         for id in types {
             if crate::factions::hooks_combat::fighter_fleet_weight_halves(gs, content, player, id) {
                 if found >= halves.len() {
-                    return bail(LABEL, "more than two half-weight fighter forms");
+                    return Err("more than two half-weight fighter forms");
                 }
-                halves[found] = Some(<CUnit as IdStr>::from_id(id)?);
+                halves[found] = Some(<CUnit as IdStr>::from_id(id).ok_or("a unit the tables do not know")?);
                 found += 1;
             }
         }
+        Ok(Limits { enforce, shown, halves })
+    }
+
+    /// The core half of `fleet::enforce_seeing`: the units over the fleet supply, then over capacity, removed one question
+    /// at a time. The value is the number of units removed (`None`: the string refused an answer).
+    #[must_use]
+    pub fn enforce(gs: &mut GameState, content: &ContentStore, sources: SourceSet, player: &ti4_model::id::PlayerId, system: &SystemId, script: &Recording) -> Option<CoreWindow<Option<usize>>> {
+        use ti4_engine_core::rules::tactical::fleet::Enforce;
+        const LABEL: &str = "tactical::enforce";
+        if !content.is_embedded() || script.nested {
+            return None;
+        }
+        if script.questions.iter().any(|q| q.answer.is_none()) {
+            return None;
+        }
+        let (mut cx, r) = tables(gs)?;
+        let seat = r.seat(player.as_str())?;
+        let at = <System as IdStr>::from_id(system.as_str())?;
+        let limits = match limits_of(gs, content, player, system) {
+            Ok(limits) => limits,
+            Err(why) => return bail(LABEL, why),
+        };
         let before = gs.clone();
         let kernel = crate::core_adapter::kernel_for(sources);
         let resolver = Resolver::new(&[seat], Some(seat));
         let mut out = None;
         let driven = with_core(gs, &mut cx, Sources::default(), ENFORCE, |core, _| {
-            let mut driver = Driver::new(Enforce::new(seat, at, Limits { enforce, shown, halves }), resolver, AbilityTable::default(), 1);
+            let mut driver = Driver::new(Enforce::new(seat, at, limits), resolver, AbilityTable::default(), 1);
             let driven = drive_with(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {});
             out = Some(driver.window.removed);
             driven
