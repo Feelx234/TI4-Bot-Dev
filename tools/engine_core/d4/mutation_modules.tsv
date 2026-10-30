@@ -1,0 +1,21 @@
+# name	crate	target	exclude (regex)	test crates (comma list; each is one mutants.sh run, results are unioned)	test args
+core/query	ti4-engine-core	crates/ti4-engine-core/src/query/		ti4-engine-core	--lib --tests
+core/state	ti4-engine-core	crates/ti4-engine-core/src/state/		ti4-engine-core	--lib --tests
+core/containers	ti4-engine-core	crates/ti4-engine-core/src/containers/		ti4-engine-core	--lib --tests
+core/keys	ti4-engine-core	crates/ti4-engine-core/src/keys/		ti4-engine-core	--lib --tests
+core/choice	ti4-engine-core	crates/ti4-engine-core/src/choice/		ti4-engine-core	--lib --tests
+core/driver	ti4-engine-core	crates/ti4-engine-core/src/driver/		ti4-engine-core	--lib --tests
+core/kernel	ti4-engine-core	crates/ti4-engine-core/src/kernel/	kernel/ability\.rs	ti4-engine-core	--lib --tests
+core/rules-top	ti4-engine-core	crates/ti4-engine-core/src/rules/	rules/(action_cards|agenda|combat|invasion|production|reactions|tactical)/	ti4-engine-core	--lib --tests
+core/rules/action_cards	ti4-engine-core	crates/ti4-engine-core/src/rules/action_cards/		ti4-engine-core	--lib --tests
+core/rules/agenda	ti4-engine-core	crates/ti4-engine-core/src/rules/agenda/		ti4-engine-core	--lib --tests
+core/rules/production	ti4-engine-core	crates/ti4-engine-core/src/rules/production/		ti4-engine-core	--lib --tests
+core/rules/tactical	ti4-engine-core	crates/ti4-engine-core/src/rules/tactical/		ti4-engine-core	--lib --tests
+core/leaf	ti4-engine-core	crates/ti4-engine-core/src/	(/(choice|containers|driver|kernel|keys|query|rules|state|generated)/)	ti4-engine-core	--lib --tests
+factions/ca_combat	ti4-engine-core-factions	crates/ti4-engine-core-factions/src/ca_combat/		ti4-engine-core-factions	--lib --tests
+factions/cb_economy	ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cb_economy/		ti4-engine-core-factions	--lib --tests
+factions/cc_ground	ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cc_ground/		ti4-engine-core-factions	--lib --tests
+factions/cd_registry	ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cd_registry/		ti4-engine-core-factions	--lib --tests
+factions/ce_movement	ti4-engine-core-factions	crates/ti4-engine-core-factions/src/ce_movement/		ti4-engine-core-factions	--lib --tests
+factions/cards	ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cards/		ti4-engine-core-factions	--lib --tests
+factions/top	ti4-engine-core-factions	crates/ti4-engine-core-factions/src/	/(ca_combat|cb_economy|cc_ground|cd_registry|ce_movement|cards)/	ti4-engine-core-factions	--lib --tests

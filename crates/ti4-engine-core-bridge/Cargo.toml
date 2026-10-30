@@ -22,6 +22,7 @@ ti4-host.workspace = true
 # The alpha round trip reads a server data directory through `Storage` (the server does not depend on the bridge).
 ti4-server.workspace = true
 ti4-wasm = { path = "../ti4-wasm" }
+serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 zstd.workspace = true

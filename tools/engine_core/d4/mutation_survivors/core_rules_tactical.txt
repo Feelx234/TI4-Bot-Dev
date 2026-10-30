@@ -1,0 +1,127 @@
+# survivors of core/rules/tactical: 126 of 126 points (0% killed); paths relative to crates/<crate>/src
+rules/tactical/activate.rs:16:85 [ask] body  ask(core: &CoreState, k: &Kernel, seat: Seat) -> Option<Vec<System>> { => { return None; }
+rules/tactical/activate.rs:18:8 [ask] cond  p.econ.tactic_tokens <= 0 => !(p.econ.tactic_tokens <= 0)
+rules/tactical/activate.rs:18:8 [ask] cmp  p.econ.tactic_tokens <= 0 => p.econ.tactic_tokens < 0
+rules/tactical/activate.rs:18:32 [ask] lit  0 => 1
+rules/tactical/activate.rs:21:52 [ask] lit  false => true
+rules/tactical/activate.rs:26:93 [run] body  run(m: &mut Machine, sx: &mut Sx<'_>, system: System) -> Result<(), Il... => { return Ok(()); }
+rules/tactical/activate.rs:28:47 [run] lit  false => true
+rules/tactical/activate.rs:42:71 [free] body  free(m: &mut Machine, sx: &mut Sx<'_>, system: System) { => { return (); }
+rules/tactical/activate.rs:53:77 [activated] body  activated(m: &mut Machine, sx: &mut Sx<'_>, seat: Seat, system: System... => { return (); }
+rules/tactical/activate.rs:60:60 [present] body  present(core: &CoreState, system: System) -> Vec<Seat> { => { return Vec::new(); }
+rules/tactical/activate.rs:71:84 [owner_of] body  owner_of(core: &CoreState, faction: crate::generated::Faction) -> Opti... => { return None; }
+rules/tactical/activate.rs:72:54 [owner_of] cmp  p.faction == faction => p.faction != faction
+rules/tactical/activate.rs:80:98 [spend_support] body  spend_support(core: &mut CoreState, activator: Seat, system: System) -... => { return Vec::new(); }
+rules/tactical/activate.rs:86:35 [spend_support] logic  **holder == activator && here.contains(owner) => **holder == activator || here.contains(owner)
+rules/tactical/activate.rs:86:35 [spend_support] cmp  **holder == activator => **holder != activator
+rules/tactical/activate.rs:98:17 [spend_support] logic  **holder == activator && key.note == not... && owner_of(core, key.faction).is_some_and(... => **holder == activator && key.note == not... || owner_of(core
+rules/tactical/activate.rs:98:17 [spend_support] logic  **holder == activator && key.note == not... && core.cards().promissory_faceup.contains_... => **holder == activator && key.note == not... || core.cards().
+rules/tactical/activate.rs:98:17 [spend_support] logic  **holder == activator && key.note == note => **holder == activator || key.note == note
+rules/tactical/activate.rs:98:17 [spend_support] cmp  **holder == activator => **holder != activator
+rules/tactical/activate.rs:99:24 [spend_support] cmp  key.note == note => key.note != note
+rules/tactical/activate.rs:101:72 [spend_support] logic  owner != activator && here.contains(&owner) => owner != activator || here.contains(&owner)
+rules/tactical/activate.rs:101:72 [spend_support] cmp  owner != activator => owner == activator
+rules/tactical/cargo.rs:25:63 [ask] body  ask(l: &Loading, seat: Seat) -> Option<Choice> { => { return None; }
+rules/tactical/cargo.rs:47:90 [answer] body  answer(m: &mut Machine, sx: &mut Sx<'_>, opt: Opt) -> Result<(), Illeg... => { return Ok(()); }
+rules/tactical/cargo.rs:52:14 [answer] lit  false => true
+rules/tactical/cargo.rs:54:8 [answer] cond  !ok => !(!ok)
+rules/tactical/cargo.rs:58:8 [answer] cond  l.hold.is_complete() => !(l.hold.is_complete())
+rules/tactical/cargo.rs:74:59 [sail] lit  true => false
+rules/tactical/cargo.rs:77:24 [sail] lit  true => false
+rules/tactical/cargo.rs:78:8 [sail] cond  !(rules.anomalies_ignored || rules.rifts_ignored) => !(!(rules.anomalies_ignored || rules.rifts_ignored))
+rules/tactical/cargo.rs:78:10 [sail] logic  rules.anomalies_ignored || rules.rifts_ignored => rules.anomalies_ignored && rules.rifts_ignored
+rules/tactical/cargo.rs:81:16 [sail] cond  rules.is_gravity_rift(*system) && !rules.rift_roll_exempt.contains(system.index(... => !(rules.is_gravity_rift(*system) && !rules.rift_roll_exempt.
+rules/tactical/cargo.rs:81:16 [sail] logic  rules.is_gravity_rift(*system) && !rules.rift_roll_exempt.contains(system.... => rules.is_gravity_rift(*system) || !rules.rift_roll_exempt.co
+rules/tactical/cargo.rs:84:20 [sail] cond  face <= RIFT_DESTROYS_ON => !(face <= RIFT_DESTROYS_ON)
+rules/tactical/cargo.rs:84:20 [sail] cmp  face <= RIFT_DESTROYS_ON => face < RIFT_DESTROYS_ON
+rules/tactical/cargo.rs:85:32 [sail] lit  false => true
+rules/tactical/cargo.rs:92:8 [sail] cond  survives => !(survives)
+rules/tactical/cargo.rs:104:8 [sail] cond  survives => !(survives)
+rules/tactical/cargo.rs:114:119 [arrived] body  arrived(m: &mut Machine, sx: &mut Sx<'_>, l: &Loading, cargo: &[transi... => { return (); }
+rules/tactical/cargo.rs:120:50 [arrived] logic  *o == piece.owner() && *u == piece.kind() => *o == piece.owner() || *u == piece.kind()
+rules/tactical/cargo.rs:120:50 [arrived] cmp  *o == piece.owner() => *o != piece.owner()
+rules/tactical/cargo.rs:120:73 [arrived] cmp  *u == piece.kind() => *u != piece.kind()
+rules/tactical/cargo.rs:121:28 [arrived] assign  entry.2 += 1 => entry.2 -= 1
+rules/tactical/cargo.rs:121:39 [arrived] lit  1 => 2
+rules/tactical/cargo.rs:122:63 [arrived] lit  1 => 2
+rules/tactical/finish.rs:25:70 [close] lit  0 => 1
+rules/tactical/finish.rs:34:46 [close] lit  false => true
+rules/tactical/fleet.rs:53:41 [Enforce::half] body  half(&self, unit: Unit) -> bool { => { return true; }
+rules/tactical/fleet.rs:53:41 [Enforce::half] body  half(&self, unit: Unit) -> bool { => { return false; }
+rules/tactical/fleet.rs:57:93 [Enforce::standing] body  standing(&self, core: &CoreState, k: &Kernel, limit: i64, halves: bool... => { return Default::default(); }
+rules/tactical/fleet.rs:58:31 [Enforce::standing] lit  false => true
+rules/tactical/fleet.rs:60:84 [Enforce::standing] cond  halves => !(halves)
+rules/tactical/fleet.rs:64:71 [Enforce::candidates] body  candidates(&self, core: &CoreState, over: Over) -> Vec<Piece> { => { return Vec::new(); }
+rules/tactical/fleet.rs:67:25 [Enforce::candidates] cmp  p.owner() == self.seat => p.owner() != self.seat
+rules/tactical/fleet.rs:76:72 [Enforce::excess] body  excess(&self, core: &CoreState, k: &Kernel, over: Over) -> i64 { => { return 0; }
+rules/tactical/fleet.rs:76:72 [Enforce::excess] body  excess(&self, core: &CoreState, k: &Kernel, over: Over) -> i64 { => { return 1; }
+rules/tactical/fleet.rs:78:73 [Enforce::excess] lit  true => false
+rules/tactical/fleet.rs:79:54 [Enforce::excess] lit  0 => 1
+rules/tactical/fleet.rs:79:57 [Enforce::excess] lit  false => true
+rules/tactical/fleet.rs:84:57 [Enforce::settle] body  settle(&mut self, core: &CoreState, k: &Kernel) { => { return (); }
+rules/tactical/fleet.rs:91:16 [Enforce::settle] cond  self.excess(core, k, over) > 0 && !self.candidates(core, over).is_empty() => !(self.excess(core, k, over) > 0 && !self.candidates(core, o
+rules/tactical/fleet.rs:91:16 [Enforce::settle] logic  self.excess(core, k, over) > 0 && !self.candidates(core, over).is_empty() => self.excess(core, k, over) > 0 || !self.candidates(core, ove
+rules/tactical/fleet.rs:91:16 [Enforce::settle] cmp  self.excess(core, k, over) > 0 => self.excess(core, k, over) >= 0
+rules/tactical/fleet.rs:91:45 [Enforce::settle] lit  0 => 1
+rules/tactical/fleet.rs:94:29 [Enforce::settle] cond  over == Over::Supply => !(over == Over::Supply)
+rules/tactical/fleet.rs:94:29 [Enforce::settle] cmp  over == Over::Supply => over != Over::Supply
+rules/tactical/fleet.rs:98:37 [Enforce::over] body  over(&self) -> Option<Over> { => { return None; }
+rules/tactical/fleet.rs:107:25 [clip] body  clip(n: i64) -> i32 { => { return 0; }
+rules/tactical/fleet.rs:107:25 [clip] body  clip(n: i64) -> i32 { => { return 1; }
+rules/tactical/fleet.rs:126:68 [Enforce::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/tactical/fleet.rs:129:12 [Enforce::ask_of] cond  cands.is_empty() || self.excess(s, k, over) <= 0 => !(cands.is_empty() || self.excess(s, k, over) <= 0)
+rules/tactical/fleet.rs:129:12 [Enforce::ask_of] logic  cands.is_empty() || self.excess(s, k, over) <= 0 => cands.is_empty() && self.excess(s, k, over) <= 0
+rules/tactical/fleet.rs:129:32 [Enforce::ask_of] cmp  self.excess(s, k, over) <= 0 => self.excess(s, k, over) < 0
+rules/tactical/fleet.rs:129:59 [Enforce::ask_of] lit  0 => 1
+rules/tactical/fleet.rs:132:60 [Enforce::ask_of] lit  true => false
+rules/tactical/fleet.rs:137:16 [Enforce::ask_of] cond  seen.contains(&key) => !(seen.contains(&key))
+rules/tactical/fleet.rs:159:79 [Enforce::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/tactical/fleet.rs:165:12 [Enforce::answer] cond  doomed.kind() != kind => !(doomed.kind() != kind)
+rules/tactical/fleet.rs:165:12 [Enforce::answer] cmp  doomed.kind() != kind => doomed.kind() == kind
+rules/tactical/fleet.rs:169:9 [Enforce::answer] assign  self.removed += 1 => self.removed -= 1
+rules/tactical/fleet.rs:169:25 [Enforce::answer] lit  1 => 2
+rules/tactical/mod.rs:138:69 [Machine::new] lit  false => true
+rules/tactical/mod.rs:138:97 [Machine::new] lit  false => true
+rules/tactical/mod.rs:169:21 [Machine::closing] lit  true => false
+rules/tactical/mod.rs:184:23 [Machine::single] lit  true => false
+rules/tactical/mod.rs:234:106 [Machine::done_next] lit  0 => 1
+rules/tactical/mod.rs:248:42 [Machine::hold] body  hold(&self) -> Option<&Hold> { => { return None; }
+rules/tactical/mod.rs:252:33 [Machine::finished] body  finished(&self) -> bool { => { return true; }
+rules/tactical/mod.rs:252:33 [Machine::finished] body  finished(&self) -> bool { => { return false; }
+rules/tactical/mod.rs:253:9 [Machine::finished] logic  self.single && self.step.is_some() => self.single || self.step.is_some()
+rules/tactical/mod.rs:258:83 [ctx] lit  false => true
+rules/tactical/mod.rs:258:143 [ctx] lit  false => true
+rules/tactical/mod.rs:274:12 [Machine::step] cond  self.closing => !(self.closing)
+rules/tactical/mod.rs:275:28 [Machine::step] lit  false => true
+rules/tactical/mod.rs:280:12 [Machine::step] cond  self.finished() => !(self.finished())
+rules/tactical/mod.rs:297:68 [Machine::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/tactical/mod.rs:298:12 [Machine::ask_of] cond  self.finished() || self.free.is_some() => !(self.finished() || self.free.is_some())
+rules/tactical/mod.rs:298:12 [Machine::ask_of] logic  self.finished() || self.free.is_some() => self.finished() && self.free.is_some()
+rules/tactical/mod.rs:321:79 [Machine::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/tactical/mod.rs:327:20 [Machine::answer] cond  !activate::ask(sx.state, sx.kernel, self.seat).is_some_and(|l| l.contains(&syste... => !(!activate::ask(sx.state, sx.kernel, self.seat).is_some_and
+rules/tactical/mod.rs:343:55 [Machine::set_stage] body  set_stage(&mut self, stage: Stage) { => { return (); }
+rules/tactical/movement.rs:20:85 [hull] body  hull(core: &CoreState, seat: Seat, origin: System, index: u16) -> Opti... => { return None; }
+rules/tactical/movement.rs:21:56 [hull] cmp  p.owner() == seat => p.owner() != seat
+rules/tactical/movement.rs:26:80 [ask] body  ask(core: &CoreState, k: &Kernel, seat: Seat) -> Option<Choice> { => { return None; }
+rules/tactical/movement.rs:29:51 [ask] lit  true => false
+rules/tactical/movement.rs:34:16 [ask] cond  seen.contains(&key) => !(seen.contains(&key))
+rules/tactical/movement.rs:46:24 [ask] lit  0 => 1
+rules/tactical/movement.rs:59:90 [answer] body  answer(m: &mut Machine, sx: &mut Sx<'_>, opt: Opt) -> Result<(), Illeg... => { return Ok(()); }
+rules/tactical/movement.rs:68:95 [answer] lit  0 => 1
+rules/tactical/movement.rs:69:16 [answer] cond  !offered.opts.0.contains(&COpt::Tactical(base)) => !(!offered.opts.0.contains(&COpt::Tactical(base)))
+rules/tactical/movement.rs:80:138 [begin_one_move] body  begin_one_move(m: &mut Machine, sx: &mut Sx<'_>, origin: System, index... => { return Ok(()); }
+rules/tactical/movement.rs:84:59 [begin_one_move] lit  true => false
+rules/tactical/movement.rs:92:12 [begin_one_move] cond  pick.path.first() != Some(&origin) || pick.path.last() != Some(&active) => !(pick.path.first() != Some(&origin) || pick.path.last() != 
+rules/tactical/movement.rs:92:12 [begin_one_move] logic  pick.path.first() != Some(&origin) || pick.path.last() != Some(&active) => pick.path.first() != Some(&origin) && pick.path.last() != So
+rules/tactical/movement.rs:92:12 [begin_one_move] cmp  pick.path.first() != Some(&origin) => pick.path.first() == Some(&origin)
+rules/tactical/movement.rs:92:50 [begin_one_move] cmp  pick.path.last() != Some(&active) => pick.path.last() == Some(&active)
+rules/tactical/movement.rs:96:15 [begin_one_move] cond  route == 0 => !(route == 0)
+rules/tactical/movement.rs:96:15 [begin_one_move] cmp  route == 0 => route != 0
+rules/tactical/movement.rs:96:24 [begin_one_move] lit  0 => 1
+rules/tactical/movement.rs:105:8 [begin_one_move] cond  gd && !fx_move::use_gravity_drive(sx.state, seat) => !(gd && !fx_move::use_gravity_drive(sx.state, seat))
+rules/tactical/movement.rs:105:8 [begin_one_move] logic  gd && !fx_move::use_gravity_drive(sx.state, se... => gd || !fx_move::use_gravity_drive(sx.state, se...
+rules/tactical/movement.rs:108:8 [begin_one_move] cond  ionian && !fx_move::use_ionian(sx.state, seat) => !(ionian && !fx_move::use_ionian(sx.state, seat))
+rules/tactical/movement.rs:108:8 [begin_one_move] logic  ionian && !fx_move::use_ionian(sx.state, seat) => ionian || !fx_move::use_ionian(sx.state, seat)
+rules/tactical/movement.rs:111:8 [begin_one_move] cond  sx.state.players().by_seat(seat).is_some_and(|p| p.cards.breakthrough == Some(Br... => !(sx.state.players().by_seat(seat).is_some_and(|p| p.cards.b
+rules/tactical/movement.rs:111:57 [begin_one_move] cmp  p.cards.breakthrough == Some(Breakthrough::GravleashManeuvers) => p.cards.breakthrough != Some(Breakthrough::GravleashManeuver
+rules/tactical/movement.rs:116:8 [begin_one_move] cond  hold.is_complete() => !(hold.is_complete())

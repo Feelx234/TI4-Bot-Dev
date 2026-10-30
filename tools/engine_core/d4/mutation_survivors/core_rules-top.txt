@@ -1,0 +1,1239 @@
+# survivors of core/rules-top: 1238 of 1460 points (15% killed); paths relative to crates/<crate>/src
+rules/abilities.rs:51:68 [has] body  has(core: &CoreState, who: Seat, ability: Ability) -> bool { => { return true; }
+rules/abilities.rs:51:68 [has] body  has(core: &CoreState, who: Seat, ability: Ability) -> bool { => { return false; }
+rules/abilities.rs:57:72 [combat_modifier] body  combat_modifier(cx: &Cx<'_>, who: Seat, ctx: CombatCtx) -> i64 { => { return 0; }
+rules/abilities.rs:57:72 [combat_modifier] body  combat_modifier(cx: &Cx<'_>, who: Seat, ctx: CombatCtx) -> i64 { => { return 1; }
+rules/abilities.rs:61:34 [combat_modifier] lit  1 => 2
+rules/abilities.rs:62:37 [combat_modifier] lit  1 => 2
+rules/abilities.rs:63:18 [combat_modifier] lit  0 => 1
+rules/abilities.rs:66:5 [combat_modifier] arith  own + cx.env.combat_hook(who, ctx) => own - cx.env.combat_hook(who, ctx)
+rules/abilities.rs:71:64 [fleet_supply] body  fleet_supply(cx: &Cx<'_>, who: Seat, base: i32) -> i32 { => { return 0; }
+rules/abilities.rs:71:64 [fleet_supply] body  fleet_supply(cx: &Cx<'_>, who: Seat, base: i32) -> i32 { => { return 1; }
+rules/abilities.rs:72:35 [fleet_supply] arith  base + armada_bonus(cx.core, who) => base - armada_bonus(cx.core, who)
+rules/abilities.rs:77:58 [armada_bonus] body  armada_bonus(core: &CoreState, who: Seat) -> i32 { => { return 0; }
+rules/abilities.rs:77:58 [armada_bonus] body  armada_bonus(core: &CoreState, who: Seat) -> i32 { => { return 1; }
+rules/abilities.rs:78:8 [armada_bonus] cond  has(core, who, Ability::Armada) => !(has(core, who, Ability::Armada))
+rules/abilities.rs:78:42 [armada_bonus] lit  2 => 3
+rules/abilities.rs:78:53 [armada_bonus] lit  0 => 1
+rules/abilities.rs:82:57 [held_cybernetic] body  held_cybernetic(core: &CoreState, who: Seat) -> i32 { => { return 0; }
+rules/abilities.rs:82:57 [held_cybernetic] body  held_cybernetic(core: &CoreState, who: Seat) -> i32 { => { return 1; }
+rules/abilities.rs:83:62 [held_cybernetic] lit  0 => 1
+rules/abilities.rs:88:31 [held_cybernetic] logic  **holder == who && k.note == crate::gene... && k.faction != me.faction => **holder == who && k.note == crate::gene... || k.faction != 
+rules/abilities.rs:88:31 [held_cybernetic] logic  **holder == who && k.note == crate::generated::PromissoryNo... => **holder == who || k.note == crate::generated::PromissoryNo.
+rules/abilities.rs:88:31 [held_cybernetic] cmp  **holder == who => **holder != who
+rules/abilities.rs:88:50 [held_cybernetic] cmp  k.note == crate::generated::PromissoryNote::Cybern... => k.note != crate::generated::PromissoryNote::Cybern...
+rules/abilities.rs:88:120 [held_cybernetic] cmp  k.faction != me.faction => k.faction == me.faction
+rules/abilities.rs:90:35 [held_cybernetic] lit  0 => 1
+rules/abilities.rs:96:65 [status_tokens] body  status_tokens(cx: &Cx<'_>, who: Seat, base: i32) -> i32 { => { return 0; }
+rules/abilities.rs:96:65 [status_tokens] body  status_tokens(cx: &Cx<'_>, who: Seat, base: i32) -> i32 { => { return 1; }
+rules/abilities.rs:99:17 [status_tokens] arith  base + versatile + i32::from(hyper) + held_cybernetic(cx.core, who) => base + versatile + i32::from(hyper) - held_cybernetic(cx.cor
+rules/abilities.rs:99:17 [status_tokens] arith  base + versatile + i32::from(hyper) => base + versatile - i32::from(hyper)
+rules/abilities.rs:99:17 [status_tokens] arith  base + versatile => base - versatile
+rules/abilities.rs:105:81 [waived_prerequisites] body  waived_prerequisites(cx: &Cx<'_>, who: Seat, tech: Technology) -> usiz... => { return 0; }
+rules/abilities.rs:105:81 [waived_prerequisites] body  waived_prerequisites(cx: &Cx<'_>, who: Seat, tech: Technology) -> usiz... => { return 1; }
+rules/abilities.rs:107:27 [waived_prerequisites] logic  !upgrade && has(cx.core, who, Ability::Analytical) => !upgrade || has(cx.core, who, Ability::Analytical)
+rules/abilities.rs:108:5 [waived_prerequisites] arith  own + cx.env.waived_hook(who, tech) => own - cx.env.waived_hook(who, tech)
+rules/abilities.rs:113:93 [substitutes_primary] body  substitutes_primary(cx: &Cx<'_>, who: Seat, card: Option<StrategyCardK... => { return true; }
+rules/abilities.rs:113:93 [substitutes_primary] body  substitutes_primary(cx: &Cx<'_>, who: Seat, card: Option<StrategyCardK... => { return false; }
+rules/abilities.rs:114:5 [substitutes_primary] logic  (has(cx.core, who, Ability::Brilliant) &... || cx.env.substitutes_primary_hook(who, car... => (has(cx.core, who, Ability::Brilliant) &... && cx.env.substi
+rules/abilities.rs:114:6 [substitutes_primary] logic  has(cx.core, who, Ability::Brilliant) && card == Some(StrategyCardKind::Technolog... => has(cx.core, who, Ability::Brilliant) || card == Some(Strate
+rules/abilities.rs:114:47 [substitutes_primary] cmp  card == Some(StrategyCardKind::Technology) => card != Some(StrategyCardKind::Technology)
+rules/abilities.rs:119:61 [trades_action_cards] body  trades_action_cards(cx: &Cx<'_>, who: Seat) -> bool { => { return true; }
+rules/abilities.rs:119:61 [trades_action_cards] body  trades_action_cards(cx: &Cx<'_>, who: Seat) -> bool { => { return false; }
+rules/abilities.rs:120:5 [trades_action_cards] logic  has(cx.core, who, Ability::Arbiters) || cx.env.trades_action_cards_hook(who) => has(cx.core, who, Ability::Arbiters) && cx.env.trades_action
+rules/abilities.rs:125:60 [ignores_neighbours] body  ignores_neighbours(cx: &Cx<'_>, who: Seat) -> bool { => { return true; }
+rules/abilities.rs:125:60 [ignores_neighbours] body  ignores_neighbours(cx: &Cx<'_>, who: Seat) -> bool { => { return false; }
+rules/abilities.rs:126:5 [ignores_neighbours] logic  has(cx.core, who, Ability::GuildShips) || cx.env.ignores_neighbours_hook(who) => has(cx.core, who, Ability::GuildShips) && cx.env.ignores_nei
+rules/abilities.rs:131:91 [secondary_is_free] body  secondary_is_free(cx: &Cx<'_>, who: Seat, card: Option<StrategyCardKin... => { return true; }
+rules/abilities.rs:131:91 [secondary_is_free] body  secondary_is_free(cx: &Cx<'_>, who: Seat, card: Option<StrategyCardKin... => { return false; }
+rules/abilities.rs:132:5 [secondary_is_free] logic  (has(cx.core, who, Ability::MastersOfTra... || cx.env.secondary_is_free_hook(who, card) => (has(cx.core, who, Ability::MastersOfTra... && cx.env.second
+rules/abilities.rs:132:6 [secondary_is_free] logic  has(cx.core, who, Ability::MastersOfTrad... && card == Some(StrategyCardKind::Trade) => has(cx.core, who, Ability::MastersOfTrad... || card == Some(
+rules/abilities.rs:132:52 [secondary_is_free] cmp  card == Some(StrategyCardKind::Trade) => card != Some(StrategyCardKind::Trade)
+rules/diplomacy.rs:36:110 [adjusted] body  adjusted(r: Relationship, trust: i16, threat: i16, cooperation: i16, h... => { return Default::default(); }
+rules/diplomacy.rs:38:17 [adjusted] arith  r.trust + trust => r.trust - trust
+rules/diplomacy.rs:38:41 [adjusted] lit  100 => 101
+rules/diplomacy.rs:38:46 [adjusted] lit  100 => 101
+rules/diplomacy.rs:39:31 [adjusted] arith  i16::from(r.threat) + threat => i16::from(r.threat) - threat
+rules/diplomacy.rs:39:67 [adjusted] lit  0 => 1
+rules/diplomacy.rs:39:70 [adjusted] lit  100 => 101
+rules/diplomacy.rs:40:23 [adjusted] arith  r.cooperation + cooperation => r.cooperation - cooperation
+rules/diplomacy.rs:40:59 [adjusted] lit  100 => 101
+rules/diplomacy.rs:40:64 [adjusted] lit  100 => 101
+rules/diplomacy.rs:41:34 [adjusted] arith  i16::from(r.hostility) + hostility => i16::from(r.hostility) - hostility
+rules/diplomacy.rs:41:76 [adjusted] lit  0 => 1
+rules/diplomacy.rs:41:79 [adjusted] lit  100 => 101
+rules/diplomacy.rs:47:50 [decayed] body  decayed(r: Relationship) -> Relationship { => { return Default::default(); }
+rules/diplomacy.rs:49:16 [decayed] arith  r.trust * 90 / 100 => r.trust * 90 * 100
+rules/diplomacy.rs:49:16 [decayed] arith  r.trust * 90 => r.trust + 90
+rules/diplomacy.rs:49:26 [decayed] lit  90 => 91
+rules/diplomacy.rs:49:31 [decayed] lit  100 => 101
+rules/diplomacy.rs:50:22 [decayed] arith  r.cooperation * 90 / 100 => r.cooperation * 90 * 100
+rules/diplomacy.rs:50:22 [decayed] arith  r.cooperation * 90 => r.cooperation + 90
+rules/diplomacy.rs:50:38 [decayed] lit  90 => 91
+rules/diplomacy.rs:50:43 [decayed] lit  100 => 101
+rules/diplomacy.rs:51:30 [decayed] arith  u16::from(r.threat) * 80 / 100 => u16::from(r.threat) * 80 * 100
+rules/diplomacy.rs:51:30 [decayed] arith  u16::from(r.threat) * 80 => u16::from(r.threat) + 80
+rules/diplomacy.rs:51:52 [decayed] lit  80 => 81
+rules/diplomacy.rs:51:57 [decayed] lit  100 => 101
+rules/diplomacy.rs:52:33 [decayed] arith  u16::from(r.hostility) * 80 / 100 => u16::from(r.hostility) * 80 * 100
+rules/diplomacy.rs:52:33 [decayed] arith  u16::from(r.hostility) * 80 => u16::from(r.hostility) + 80
+rules/diplomacy.rs:52:58 [decayed] lit  80 => 81
+rules/diplomacy.rs:52:63 [decayed] lit  100 => 101
+rules/diplomacy.rs:56:102 [adjust] body  adjust(core: &mut CoreState, observer: Seat, subject: Seat, d: [i16; 4... => { return Ok(()); }
+rules/diplomacy.rs:57:8 [adjust] cond  observer == subject => !(observer == subject)
+rules/diplomacy.rs:57:8 [adjust] cmp  observer == subject => observer != subject
+rules/diplomacy.rs:61:29 [adjust] lit  0 => 1
+rules/diplomacy.rs:61:35 [adjust] lit  1 => 2
+rules/diplomacy.rs:61:41 [adjust] lit  2 => 3
+rules/diplomacy.rs:61:47 [adjust] lit  3 => 4
+rules/diplomacy.rs:66:50 [has_row] body  has_row(core: &CoreState, who: Seat) -> bool { => { return true; }
+rules/diplomacy.rs:66:50 [has_row] body  has_row(core: &CoreState, who: Seat) -> bool { => { return false; }
+rules/diplomacy.rs:67:69 [has_row] cmp  observer == who => observer != who
+rules/diplomacy.rs:92:97 [apply_relationship_event] body  apply_relationship_event(core: &mut CoreState, event: RelEvent) -> Res... => { return Ok(()); }
+rules/diplomacy.rs:94:8 [apply_relationship_event] cond  !core.trade().diplomacy.enabled || !named(&event).into_iter().flatten().all(|s| ... => !(!core.trade().diplomacy.enabled || !named(&event).into_ite
+rules/diplomacy.rs:94:8 [apply_relationship_event] logic  !core.trade().diplomacy.enabled || !named(&event).into_iter().flatten().all... => !core.trade().diplomacy.enabled && !named(&event).into_iter(
+rules/diplomacy.rs:100:33 [apply_relationship_event] lit  3 => 4
+rules/diplomacy.rs:100:36 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:100:39 [apply_relationship_event] lit  3 => 4
+rules/diplomacy.rs:100:42 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:101:33 [apply_relationship_event] lit  3 => 4
+rules/diplomacy.rs:101:36 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:101:39 [apply_relationship_event] lit  3 => 4
+rules/diplomacy.rs:101:42 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:104:33 [apply_relationship_event] lit  5 => 6
+rules/diplomacy.rs:104:36 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:104:39 [apply_relationship_event] lit  5 => 6
+rules/diplomacy.rs:104:42 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:105:33 [apply_relationship_event] lit  5 => 6
+rules/diplomacy.rs:105:36 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:105:39 [apply_relationship_event] lit  5 => 6
+rules/diplomacy.rs:105:42 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:107:92 [apply_relationship_event] lit  20 => 21
+rules/diplomacy.rs:107:96 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:107:99 [apply_relationship_event] lit  15 => 16
+rules/diplomacy.rs:107:103 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:109:51 [apply_relationship_event] lit  40 => 41
+rules/diplomacy.rs:109:55 [apply_relationship_event] lit  15 => 16
+rules/diplomacy.rs:109:59 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:109:62 [apply_relationship_event] lit  25 => 26
+rules/diplomacy.rs:115:16 [apply_relationship_event] cond  d.judged_attacks.insert((activation_seq, attacker, victim), ()).is_some() => !(d.judged_attacks.insert((activation_seq, attacker, victim)
+rules/diplomacy.rs:118:46 [apply_relationship_event] lit  10 => 11
+rules/diplomacy.rs:118:50 [apply_relationship_event] lit  15 => 16
+rules/diplomacy.rs:118:54 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:118:57 [apply_relationship_event] lit  20 => 21
+rules/diplomacy.rs:123:66 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:123:69 [apply_relationship_event] lit  10 => 11
+rules/diplomacy.rs:123:73 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:123:76 [apply_relationship_event] lit  5 => 6
+rules/diplomacy.rs:124:67 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:124:70 [apply_relationship_event] lit  4 => 5
+rules/diplomacy.rs:124:73 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:124:76 [apply_relationship_event] lit  2 => 3
+rules/diplomacy.rs:125:69 [apply_relationship_event] lit  2 => 3
+rules/diplomacy.rs:125:72 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:125:75 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:125:78 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:128:77 [apply_relationship_event] lit  8 => 9
+rules/diplomacy.rs:128:80 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:128:83 [apply_relationship_event] lit  4 => 5
+rules/diplomacy.rs:128:86 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:130:45 [apply_relationship_event] lit  25 => 26
+rules/diplomacy.rs:130:49 [apply_relationship_event] lit  10 => 11
+rules/diplomacy.rs:130:53 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:130:56 [apply_relationship_event] lit  10 => 11
+rules/diplomacy.rs:134:77 [apply_relationship_event] lit  4 => 5
+rules/diplomacy.rs:134:80 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:134:83 [apply_relationship_event] lit  2 => 3
+rules/diplomacy.rs:134:86 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:135:79 [apply_relationship_event] lit  5 => 6
+rules/diplomacy.rs:135:82 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:135:85 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:135:88 [apply_relationship_event] lit  5 => 6
+rules/diplomacy.rs:136:80 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:136:83 [apply_relationship_event] lit  10 => 11
+rules/diplomacy.rs:136:87 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:136:90 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:137:77 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:137:81 [apply_relationship_event] lit  10 => 11
+rules/diplomacy.rs:137:85 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:137:88 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:139:43 [apply_relationship_event] lit  3 => 4
+rules/diplomacy.rs:139:46 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:139:49 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:139:52 [apply_relationship_event] lit  3 => 4
+rules/diplomacy.rs:140:46 [apply_relationship_event] lit  3 => 4
+rules/diplomacy.rs:140:49 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:140:52 [apply_relationship_event] lit  0 => 1
+rules/diplomacy.rs:140:55 [apply_relationship_event] lit  3 => 4
+rules/diplomacy.rs:147:51 [decay_relationships] body  decay_relationships(core: &mut CoreState) { => { return (); }
+rules/diplomacy.rs:148:8 [decay_relationships] cond  !core.trade().diplomacy.enabled => !(!core.trade().diplomacy.enabled)
+rules/diplomacy.rs:151:49 [decay_relationships] lit  1 => 2
+rules/diplomacy.rs:157:33 [decay_relationships] cmp  s.expires_round >= next => s.expires_round > next
+rules/diplomacy.rs:161:85 [consume_initiation] body  consume_initiation(core: &mut CoreState, actor: Seat, target: Seat) ->... => { return true; }
+rules/diplomacy.rs:161:85 [consume_initiation] body  consume_initiation(core: &mut CoreState, actor: Seat, target: Seat) ->... => { return false; }
+rules/diplomacy.rs:162:5 [consume_initiation] logic  actor != target && core.trade_mut().diplomacy.edit().initia... => actor != target || core.trade_mut().diplomacy.edit().initia.
+rules/diplomacy.rs:162:5 [consume_initiation] cmp  actor != target => actor == target
+rules/diplomacy.rs:167:54 [clear_turn_initiations] body  clear_turn_initiations(core: &mut CoreState) { => { return (); }
+rules/diplomacy_book.rs:48:8 [pending] cond  matches!(term, DealTerm::ImmediateTransfer(_)) => !(matches!(term, DealTerm::ImmediateTransfer(_)))
+rules/diplomacy_book.rs:68:48 [valid_asset] body  valid_asset(asset: &TransferAsset) -> bool { => { return true; }
+rules/diplomacy_book.rs:68:48 [valid_asset] body  valid_asset(asset: &TransferAsset) -> bool { => { return false; }
+rules/diplomacy_book.rs:75:49 [valid_asset] cmp  n > 0 => n >= 0
+rules/diplomacy_book.rs:75:53 [valid_asset] lit  0 => 1
+rules/diplomacy_book.rs:76:112 [valid_asset] lit  true => false
+rules/diplomacy_book.rs:85:8 [new_revision] cond  proposer_terms.len() > MAX_TERMS_PER_SIDE || recipient_terms.len() > MAX_TERMS_P... => !(proposer_terms.len() > MAX_TERMS_PER_SIDE || recipient_ter
+rules/diplomacy_book.rs:85:8 [new_revision] logic  proposer_terms.len() > MAX_TERMS_PER_SID... || recipient_terms.len() > MAX_TERMS_PER_SI... => proposer_terms.len() > MAX_TERMS_PER_SID... && recipient_ter
+rules/diplomacy_book.rs:85:8 [new_revision] cmp  proposer_terms.len() > MAX_TERMS_PER_SIDE => proposer_terms.len() >= MAX_TERMS_PER_SIDE
+rules/diplomacy_book.rs:85:53 [new_revision] cmp  recipient_terms.len() > MAX_TERMS_PER_SIDE => recipient_terms.len() >= MAX_TERMS_PER_SIDE
+rules/diplomacy_book.rs:88:8 [new_revision] cond  proposer_terms.is_empty() && recipient_terms.is_empty() => !(proposer_terms.is_empty() && recipient_terms.is_empty())
+rules/diplomacy_book.rs:88:8 [new_revision] logic  proposer_terms.is_empty() && recipient_terms.is_empty() => proposer_terms.is_empty() || recipient_terms.is_empty()
+rules/diplomacy_book.rs:92:8 [new_revision] cond  all().filter_map(deadline).any(|d| d < round || d > round.saturating_add(1)) => !(all().filter_map(deadline).any(|d| d < round || d > round.
+rules/diplomacy_book.rs:92:43 [new_revision] logic  d < round || d > round.saturating_add(1) => d < round && d > round.saturating_add(1)
+rules/diplomacy_book.rs:92:43 [new_revision] cmp  d < round => d <= round
+rules/diplomacy_book.rs:92:56 [new_revision] cmp  d > round.saturating_add(1) => d >= round.saturating_add(1)
+rules/diplomacy_book.rs:92:81 [new_revision] lit  1 => 2
+rules/diplomacy_book.rs:99:8 [new_revision] cond  assets.into_iter().any(|a| !valid_asset(a)) => !(assets.into_iter().any(|a| !valid_asset(a)))
+rules/diplomacy_book.rs:118:50 [has_row] body  has_row(core: &CoreState, who: Seat) -> bool { => { return true; }
+rules/diplomacy_book.rs:118:50 [has_row] body  has_row(core: &CoreState, who: Seat) -> bool { => { return false; }
+rules/diplomacy_book.rs:119:69 [has_row] cmp  observer == who => observer != who
+rules/diplomacy_book.rs:122:70 [relationship] body  relationship(core: &CoreState, a: Seat, b: Seat) -> Relationship { => { return Default::default(); }
+rules/diplomacy_book.rs:126:58 [journal] body  journal(core: &mut CoreState, event: DiplomacyEvent) { => { return (); }
+rules/diplomacy_book.rs:131:60 [deal_of] body  deal_of(core: &CoreState, id: DealId) -> Option<&Deal> { => { return None; }
+rules/diplomacy_book.rs:132:57 [deal_of] cmp  d.id == id => d.id != id
+rules/diplomacy_book.rs:135:69 [deal_mut] body  deal_mut(core: &mut CoreState, id: DealId) -> Option<&mut Deal> { => { return None; }
+rules/diplomacy_book.rs:136:72 [deal_mut] cmp  d.id == id => d.id != id
+rules/diplomacy_book.rs:148:8 [create_deal] cond  proposer == recipient => !(proposer == recipient)
+rules/diplomacy_book.rs:148:8 [create_deal] cmp  proposer == recipient => proposer != recipient
+rules/diplomacy_book.rs:151:8 [create_deal] cond  !has_row(core, proposer) || !has_row(core, recipient) => !(!has_row(core, proposer) || !has_row(core, recipient))
+rules/diplomacy_book.rs:151:8 [create_deal] logic  !has_row(core, proposer) || !has_row(core, recipient) => !has_row(core, proposer) && !has_row(core, recipient)
+rules/diplomacy_book.rs:154:8 [create_deal] cond  revision.author != proposer || revision.number != 0 => !(revision.author != proposer || revision.number != 0)
+rules/diplomacy_book.rs:154:8 [create_deal] logic  revision.author != proposer || revision.number != 0 => revision.author != proposer && revision.number != 0
+rules/diplomacy_book.rs:154:8 [create_deal] cmp  revision.author != proposer => revision.author == proposer
+rules/diplomacy_book.rs:154:39 [create_deal] cmp  revision.number != 0 => revision.number == 0
+rules/diplomacy_book.rs:154:58 [create_deal] lit  0 => 1
+rules/diplomacy_book.rs:158:33 [create_deal] lit  1 => 2
+rules/diplomacy_book.rs:174:100 [counter] body  counter(core: &mut CoreState, id: DealId, revision: DealRevision) -> R... => { return Ok(()); }
+rules/diplomacy_book.rs:176:8 [counter] cond  deal.status != DealStatus::Proposed => !(deal.status != DealStatus::Proposed)
+rules/diplomacy_book.rs:176:8 [counter] cmp  deal.status != DealStatus::Proposed => deal.status == DealStatus::Proposed
+rules/diplomacy_book.rs:179:8 [counter] cond  deal.revisions.len().saturating_sub(1) >= usize::from(MAX_COUNTERS) => !(deal.revisions.len().saturating_sub(1) >= usize::from(MAX_
+rules/diplomacy_book.rs:179:8 [counter] cmp  deal.revisions.len().saturating_sub(1) >= usize::from(MAX_COUNTERS) => deal.revisions.len().saturating_sub(1) > usize::from(MAX_COU
+rules/diplomacy_book.rs:179:44 [counter] lit  1 => 2
+rules/diplomacy_book.rs:183:8 [counter] cond  revision.number != expected || (revision.author != deal.proposer && revision.aut... => !(revision.number != expected || (revision.author != deal.pr
+rules/diplomacy_book.rs:183:8 [counter] logic  revision.number != expected || (revision.author != deal.proposer && rev... => revision.number != expected && (revision.author != deal.prop
+rules/diplomacy_book.rs:183:8 [counter] cmp  revision.number != expected => revision.number == expected
+rules/diplomacy_book.rs:183:40 [counter] logic  revision.author != deal.proposer && revision.author != deal.recipient => revision.author != deal.proposer || revision.author != deal.
+rules/diplomacy_book.rs:183:40 [counter] cmp  revision.author != deal.proposer => revision.author == deal.proposer
+rules/diplomacy_book.rs:183:76 [counter] cmp  revision.author != deal.recipient => revision.author == deal.recipient
+rules/diplomacy_book.rs:195:93 [archive_deal] body  archive_deal(core: &mut CoreState, id: DealId, round: u32) -> Result<(... => { return Ok(()); }
+rules/diplomacy_book.rs:197:8 [archive_deal] cond  !terminal(deal.status) => !(!terminal(deal.status))
+rules/diplomacy_book.rs:201:49 [archive_deal] cmp  x.id == id => x.id != id
+rules/diplomacy_book.rs:214:8 [archive_deal] cond  d.history.len() > MAX_TERMINAL_HISTORY => !(d.history.len() > MAX_TERMINAL_HISTORY)
+rules/diplomacy_book.rs:214:8 [archive_deal] cmp  d.history.len() > MAX_TERMINAL_HISTORY => d.history.len() >= MAX_TERMINAL_HISTORY
+rules/diplomacy_book.rs:215:26 [archive_deal] lit  0 => 1
+rules/diplomacy_book.rs:224:89 [decline] body  decline(core: &mut CoreState, id: DealId, actor: Seat) -> Result<(), B... => { return Ok(()); }
+rules/diplomacy_book.rs:227:49 [decline] lit  0 => 1
+rules/diplomacy_book.rs:239:100 [accept] body  accept(core: &mut CoreState, id: DealId, actor: Seat, fair: bool) -> R... => { return Ok(()); }
+rules/diplomacy_book.rs:246:12 [accept] cond  matches!(term, DealTerm::ImmediateTransfer(_)) => !(matches!(term, DealTerm::ImmediateTransfer(_)))
+rules/diplomacy_book.rs:251:67 [accept] cond  future => !(future)
+rules/diplomacy_book.rs:253:8 [accept] cond  future => !(future)
+rules/diplomacy_book.rs:255:15 [accept] cond  fair => !(fair)
+rules/diplomacy_book.rs:260:16 [accept] cmp  target != a => target == a
+rules/diplomacy_book.rs:261:16 [accept] cmp  target != b => target == b
+rules/diplomacy_book.rs:266:8 [accept] cond  !future => !(!future)
+rules/diplomacy_book.rs:303:8 [emit_signal] cond  !core.trade().diplomacy.enabled => !(!core.trade().diplomacy.enabled)
+rules/diplomacy_book.rs:306:8 [emit_signal] cond  speaker == target => !(speaker == target)
+rules/diplomacy_book.rs:306:8 [emit_signal] cmp  speaker == target => speaker != target
+rules/diplomacy_book.rs:309:8 [emit_signal] cond  core.seats().player_of(speaker).is_none() || core.seats().player_of(target).is_n... => !(core.seats().player_of(speaker).is_none() || core.seats().
+rules/diplomacy_book.rs:309:8 [emit_signal] logic  core.seats().player_of(speaker).is_none(... || core.seats().player_of(target).is_none() => core.seats().player_of(speaker).is_none(... && core.seats().
+rules/diplomacy_book.rs:313:8 [emit_signal] cond  expires_round < round || expires_round > round.saturating_add(1) => !(expires_round < round || expires_round > round.saturating_
+rules/diplomacy_book.rs:313:8 [emit_signal] logic  expires_round < round || expires_round > round.saturating_add(1) => expires_round < round && expires_round > round.saturating_ad
+rules/diplomacy_book.rs:313:8 [emit_signal] cmp  expires_round < round => expires_round <= round
+rules/diplomacy_book.rs:313:33 [emit_signal] cmp  expires_round > round.saturating_add(1) => expires_round >= round.saturating_add(1)
+rules/diplomacy_book.rs:313:70 [emit_signal] lit  1 => 2
+rules/diplomacy_book.rs:316:8 [emit_signal] cond  consume_allowance && !consume_initiation(core, speaker, target) => !(consume_allowance && !consume_initiation(core, speaker, ta
+rules/diplomacy_book.rs:316:8 [emit_signal] logic  consume_allowance && !consume_initiation(core, speaker, targe... => consume_allowance || !consume_initiation(core, speaker, targ
+rules/diplomacy_book.rs:320:33 [emit_signal] lit  1 => 2
+rules/diplomacy_book.rs:330:46 [is_settled] body  is_settled(status: SignalStatus) -> bool { => { return true; }
+rules/diplomacy_book.rs:330:46 [is_settled] body  is_settled(status: SignalStatus) -> bool { => { return false; }
+rules/diplomacy_book.rs:334:94 [judge] body  judge(core: &mut CoreState, index: usize, status: SignalStatus) -> Res... => { return Ok(()); }
+rules/diplomacy_book.rs:345:33 [judge] cond  signal.kind == SignalKind::Request => !(signal.kind == SignalKind::Request)
+rules/diplomacy_book.rs:345:33 [judge] cmp  signal.kind == SignalKind::Request => signal.kind != SignalKind::Request
+rules/diplomacy_book.rs:367:81 [voted] body  voted(core: &CoreState, seat: Seat, outcome: crate::state::Outcome) ->... => { return true; }
+rules/diplomacy_book.rs:367:81 [voted] body  voted(core: &CoreState, seat: Seat, outcome: crate::state::Outcome) ->... => { return false; }
+rules/diplomacy_book.rs:368:52 [voted] cmp  *v == outcome => *v != outcome
+rules/diplomacy_book.rs:375:84 [judge_event] body  judge_event(core: &mut CoreState, moment: Moment) -> Result<(), BookEr... => { return Ok(()); }
+rules/diplomacy_book.rs:379:12 [judge_event] cond  round > signal.expires_round => !(round > signal.expires_round)
+rules/diplomacy_book.rs:379:12 [judge_event] cmp  round > signal.expires_round => round >= signal.expires_round
+rules/diplomacy_book.rs:384:126 [judge_event] cond  agenda == actual => !(agenda == actual)
+rules/diplomacy_book.rs:384:126 [judge_event] cmp  agenda == actual => agenda != actual
+rules/diplomacy_book.rs:385:25 [judge_event] cond  voted(core, speaker, outcome) => !(voted(core, speaker, outcome))
+rules/diplomacy_book.rs:388:20 [judge_event] cond  attacker == speaker && victim == target => !(attacker == speaker && victim == target)
+rules/diplomacy_book.rs:388:20 [judge_event] logic  attacker == speaker && victim == target => attacker == speaker || victim == target
+rules/diplomacy_book.rs:388:20 [judge_event] cmp  attacker == speaker => attacker != speaker
+rules/diplomacy_book.rs:388:43 [judge_event] cmp  victim == target => victim != target
+rules/diplomacy_book.rs:393:20 [judge_event] cond  player == target && activated == system => !(player == target && activated == system)
+rules/diplomacy_book.rs:393:20 [judge_event] logic  player == target && activated == system => player == target || activated == system
+rules/diplomacy_book.rs:393:20 [judge_event] cmp  player == target => player != target
+rules/diplomacy_book.rs:393:40 [judge_event] cmp  activated == system => activated != system
+rules/diplomacy_book.rs:413:93 [settle_signals] body  settle_signals(core: &mut CoreState, completed_round: u32) -> Result<(... => { return Ok(()); }
+rules/diplomacy_book.rs:420:26 [settle_signals] logic  s.expires_round <= completed_round && !is_settled(s.status) => s.expires_round <= completed_round || !is_settled(s.status)
+rules/diplomacy_book.rs:420:26 [settle_signals] cmp  s.expires_round <= completed_round => s.expires_round < completed_round
+rules/diplomacy_book.rs:464:187 [settle_term] body  settle_term(core: &mut CoreState, id: DealId, proposer_side: bool, ind... => { return Ok(()); }
+rules/diplomacy_book.rs:467:23 [settle_term] cond  proposer_side => !(proposer_side)
+rules/diplomacy_book.rs:469:8 [settle_term] cond  *slot != PromiseStatus::Pending => !(*slot != PromiseStatus::Pending)
+rules/diplomacy_book.rs:469:8 [settle_term] cmp  *slot != PromiseStatus::Pending => *slot == PromiseStatus::Pending
+rules/diplomacy_book.rs:482:83 [update_terminal] body  update_terminal(core: &mut CoreState, id: DealId) -> Result<(), Promis... => { return Ok(()); }
+rules/diplomacy_book.rs:486:21 [update_terminal] cond  all.contains(&PromiseStatus::Broken) => !(all.contains(&PromiseStatus::Broken))
+rules/diplomacy_book.rs:488:15 [update_terminal] cond  all.iter().all(|s| *s == PromiseStatus::Fulfilled) => !(all.iter().all(|s| *s == PromiseStatus::Fulfilled))
+rules/diplomacy_book.rs:488:34 [update_terminal] cmp  *s == PromiseStatus::Fulfilled => *s != PromiseStatus::Fulfilled
+rules/diplomacy_book.rs:490:15 [update_terminal] cond  all.iter().all(|s| *s != PromiseStatus::Pending) => !(all.iter().all(|s| *s != PromiseStatus::Pending))
+rules/diplomacy_book.rs:490:34 [update_terminal] cmp  *s != PromiseStatus::Pending => *s == PromiseStatus::Pending
+rules/diplomacy_book.rs:504:189 [inspect] body  inspect(core: &CoreState, moment: Moment, terms: &[DealTerm], statuses... => { return (); }
+rules/diplomacy_book.rs:506:12 [inspect] cond  *status != PromiseStatus::Pending => !(*status != PromiseStatus::Pending)
+rules/diplomacy_book.rs:506:12 [inspect] cmp  *status != PromiseStatus::Pending => *status == PromiseStatus::Pending
+rules/diplomacy_book.rs:510:109 [inspect] cond  player == promiser && actual == system => !(player == promiser && actual == system)
+rules/diplomacy_book.rs:510:109 [inspect] logic  player == promiser && actual == system => player == promiser || actual == system
+rules/diplomacy_book.rs:510:109 [inspect] cmp  player == promiser => player != promiser
+rules/diplomacy_book.rs:510:131 [inspect] cmp  actual == system => actual != system
+rules/diplomacy_book.rs:513:107 [inspect] cond  attacker == promiser && victim == player => !(attacker == promiser && victim == player)
+rules/diplomacy_book.rs:513:107 [inspect] logic  attacker == promiser && victim == player => attacker == promiser || victim == player
+rules/diplomacy_book.rs:513:107 [inspect] cmp  attacker == promiser => attacker != promiser
+rules/diplomacy_book.rs:513:131 [inspect] cmp  victim == player => victim != player
+rules/diplomacy_book.rs:516:102 [inspect] cond  attacker == promiser && victim == player => !(attacker == promiser && victim == player)
+rules/diplomacy_book.rs:516:102 [inspect] logic  attacker == promiser && victim == player => attacker == promiser || victim == player
+rules/diplomacy_book.rs:516:102 [inspect] cmp  attacker == promiser => attacker != promiser
+rules/diplomacy_book.rs:516:126 [inspect] cmp  victim == player => victim != player
+rules/diplomacy_book.rs:519:99 [inspect] cond  agenda == actual && voted(core, promiser, outcome) => !(agenda == actual && voted(core, promiser, outcome))
+rules/diplomacy_book.rs:519:99 [inspect] logic  agenda == actual && voted(core, promiser, outcome) => agenda == actual || voted(core, promiser, outcome)
+rules/diplomacy_book.rs:519:99 [inspect] cmp  agenda == actual => agenda != actual
+rules/diplomacy_book.rs:522:128 [inspect] cond  by == promiser && who == promised => !(by == promiser && who == promised)
+rules/diplomacy_book.rs:522:128 [inspect] logic  by == promiser && who == promised => by == promiser || who == promised
+rules/diplomacy_book.rs:522:128 [inspect] cmp  by == promiser => by != promiser
+rules/diplomacy_book.rs:522:146 [inspect] cmp  who == promised => who != promised
+rules/diplomacy_book.rs:526:20 [inspect] cond  user == promiser && used == leader && actual == helped => !(user == promiser && used == leader && actual == helped)
+rules/diplomacy_book.rs:526:20 [inspect] logic  user == promiser && used == leader && actual == helped => user == promiser && used == leader || actual == helped
+rules/diplomacy_book.rs:526:20 [inspect] logic  user == promiser && used == leader => user == promiser || used == leader
+rules/diplomacy_book.rs:526:20 [inspect] cmp  user == promiser => user != promiser
+rules/diplomacy_book.rs:526:40 [inspect] cmp  used == leader => used != leader
+rules/diplomacy_book.rs:526:58 [inspect] cmp  actual == helped => actual != helped
+rules/diplomacy_book.rs:533:45 [inspect] arith  offset + index => offset - index
+rules/diplomacy_book.rs:543:90 [evaluate_event] body  evaluate_event(core: &mut CoreState, moment: Moment) -> Result<(), Pro... => { return Ok(()); }
+rules/diplomacy_book.rs:544:8 [evaluate_event] cond  !core.trade().diplomacy.enabled => !(!core.trade().diplomacy.enabled)
+rules/diplomacy_book.rs:553:12 [evaluate_event] cond  deal.status != DealStatus::Active => !(deal.status != DealStatus::Active)
+rules/diplomacy_book.rs:553:12 [evaluate_event] cmp  deal.status != DealStatus::Active => deal.status == DealStatus::Active
+rules/diplomacy_book.rs:558:127 [evaluate_event] lit  true => false
+rules/diplomacy_book.rs:558:133 [evaluate_event] lit  0 => 1
+rules/diplomacy_book.rs:559:129 [evaluate_event] lit  false => true
+rules/diplomacy_book.rs:569:86 [settle_due] body  settle_due(core: &mut CoreState, until: Option<u32>) -> Result<(), Pro... => { return Ok(()); }
+rules/diplomacy_book.rs:570:8 [settle_due] cond  !core.trade().diplomacy.enabled => !(!core.trade().diplomacy.enabled)
+rules/diplomacy_book.rs:576:12 [settle_due] cond  deal.status != DealStatus::Active => !(deal.status != DealStatus::Active)
+rules/diplomacy_book.rs:576:12 [settle_due] cmp  deal.status != DealStatus::Active => deal.status == DealStatus::Active
+rules/diplomacy_book.rs:582:110 [settle_due] lit  true => false
+rules/diplomacy_book.rs:582:116 [settle_due] lit  0 => 1
+rules/diplomacy_book.rs:583:112 [settle_due] lit  false => true
+rules/diplomacy_book.rs:586:20 [settle_due] cond  *status != PromiseStatus::Pending => !(*status != PromiseStatus::Pending)
+rules/diplomacy_book.rs:586:20 [settle_due] cmp  *status != PromiseStatus::Pending => *status == PromiseStatus::Pending
+rules/diplomacy_book.rs:589:84 [settle_due] cmp  d <= round => d < round
+rules/diplomacy_book.rs:590:33 [settle_due] cond  due => !(due)
+rules/diplomacy_book.rs:595:27 [settle_due] cond  until.is_none() => !(until.is_none())
+rules/diplomacy_book.rs:600:42 [settle_due] arith  offset + index => offset - index
+rules/diplomacy_book.rs:615:98 [settle_deadlines] body  settle_deadlines(core: &mut CoreState, completed_round: u32) -> Result... => { return Ok(()); }
+rules/diplomacy_book.rs:617:8 [settle_deadlines] cond  core.trade().diplomacy.enabled => !(core.trade().diplomacy.enabled)
+rules/diplomacy_book.rs:627:75 [settle_game_end] body  settle_game_end(core: &mut CoreState) -> Result<(), PromiseError> { => { return Ok(()); }
+rules/diplomacy_book.rs:638:8 [payment_due] cond  deal.status != DealStatus::Active => !(deal.status != DealStatus::Active)
+rules/diplomacy_book.rs:638:8 [payment_due] cmp  deal.status != DealStatus::Active => deal.status == DealStatus::Active
+rules/diplomacy_book.rs:643:64 [payment_due] cond  term_index < count => !(term_index < count)
+rules/diplomacy_book.rs:643:64 [payment_due] cmp  term_index < count => term_index <= count
+rules/diplomacy_book.rs:644:10 [payment_due] lit  true => false
+rules/diplomacy_book.rs:646:21 [payment_due] arith  term_index - count => term_index + count
+rules/diplomacy_book.rs:647:10 [payment_due] lit  false => true
+rules/diplomacy_book.rs:649:23 [payment_due] cond  proposer_side => !(proposer_side)
+rules/diplomacy_book.rs:650:8 [payment_due] cond  expected != promiser => !(expected != promiser)
+rules/diplomacy_book.rs:650:8 [payment_due] cmp  expected != promiser => expected == promiser
+rules/diplomacy_book.rs:653:8 [payment_due] cond  status != Some(&PromiseStatus::Pending) => !(status != Some(&PromiseStatus::Pending))
+rules/diplomacy_book.rs:653:8 [payment_due] cmp  status != Some(&PromiseStatus::Pending) => status == Some(&PromiseStatus::Pending)
+rules/diplomacy_book.rs:673:119 [payment_made] body  payment_made(core: &mut CoreState, id: DealId, promiser: Seat, term_in... => { return Ok(()); }
+rules/diplomacy_window.rs:84:130 [DiplomacyWindow::at] lit  false => true
+rules/diplomacy_window.rs:84:146 [DiplomacyWindow::at] lit  false => true
+rules/diplomacy_window.rs:90:23 [DiplomacyWindow::single] lit  true => false
+rules/diplomacy_window.rs:101:12 [DiplomacyWindow::actor] cond  self.responses.is_multiple_of(2) => !(self.responses.is_multiple_of(2))
+rules/diplomacy_window.rs:101:42 [DiplomacyWindow::actor] lit  2 => 3
+rules/diplomacy_window.rs:106:52 [DiplomacyWindow::revision] cond  d.builder == self.proposer => !(d.builder == self.proposer)
+rules/diplomacy_window.rs:106:52 [DiplomacyWindow::revision] cmp  d.builder == self.proposer => d.builder != self.proposer
+rules/diplomacy_window.rs:108:25 [DiplomacyWindow::revision] cond  self.deal_id.is_some() => !(self.deal_id.is_some())
+rules/diplomacy_window.rs:108:80 [DiplomacyWindow::revision] lit  1 => 2
+rules/diplomacy_window.rs:108:92 [DiplomacyWindow::revision] lit  0 => 1
+rules/diplomacy_window.rs:116:23 [DiplomacyWindow::ctx] lit  true => false
+rules/diplomacy_window.rs:119:27 [DiplomacyWindow::ctx] lit  false => true
+rules/diplomacy_window.rs:124:59 [DiplomacyWindow::opts] body  opts(list: impl IntoIterator<Item = Opt>) -> Opts { => { return Default::default(); }
+rules/diplomacy_window.rs:129:58 [DiplomacyWindow::building] body  building(&self, s: &CoreState) -> Option<Choice> { => { return None; }
+rules/diplomacy_window.rs:136:12 [DiplomacyWindow::building] cond  d.reviewing => !(d.reviewing)
+rules/diplomacy_window.rs:138:16 [DiplomacyWindow::building] cond  !d.is_empty() => !(!d.is_empty())
+rules/diplomacy_window.rs:141:16 [DiplomacyWindow::building] cond  d.can_edit() => !(d.can_edit())
+rules/diplomacy_window.rs:152:12 [DiplomacyWindow::building] cond  self.current.is_none() && d.is_empty() && !d.asking => !(self.current.is_none() && d.is_empty() && !d.asking)
+rules/diplomacy_window.rs:152:12 [DiplomacyWindow::building] logic  self.current.is_none() && d.is_empty() && !d.asking => self.current.is_none() && d.is_empty() || !d.asking
+rules/diplomacy_window.rs:152:12 [DiplomacyWindow::building] logic  self.current.is_none() && d.is_empty() => self.current.is_none() || d.is_empty()
+rules/diplomacy_window.rs:153:26 [DiplomacyWindow::building] lit  0 => 1
+rules/diplomacy_window.rs:156:34 [DiplomacyWindow::building] cond  d.asking => !(d.asking)
+rules/diplomacy_window.rs:161:65 [DiplomacyWindow::apply_item] body  apply_item(round: u32, d: &mut Draft, opt: Opt) -> bool { => { return true; }
+rules/diplomacy_window.rs:161:65 [DiplomacyWindow::apply_item] body  apply_item(round: u32, d: &mut Draft, opt: Opt) -> bool { => { return false; }
+rules/diplomacy_window.rs:164:41 [DiplomacyWindow::apply_item] lit  false => true
+rules/diplomacy_window.rs:165:17 [DiplomacyWindow::apply_item] lit  true => false
+rules/diplomacy_window.rs:168:41 [DiplomacyWindow::apply_item] lit  true => false
+rules/diplomacy_window.rs:169:17 [DiplomacyWindow::apply_item] lit  true => false
+rules/diplomacy_window.rs:172:74 [DiplomacyWindow::apply_item] lit  false => true
+rules/diplomacy_window.rs:174:31 [DiplomacyWindow::apply_item] cond  later => !(later)
+rules/diplomacy_window.rs:174:109 [DiplomacyWindow::apply_item] lit  1 => 2
+rules/diplomacy_window.rs:176:17 [DiplomacyWindow::apply_item] lit  true => false
+rules/diplomacy_window.rs:180:17 [DiplomacyWindow::apply_item] lit  true => false
+rules/diplomacy_window.rs:184:17 [DiplomacyWindow::apply_item] lit  true => false
+rules/diplomacy_window.rs:189:17 [DiplomacyWindow::apply_item] lit  true => false
+rules/diplomacy_window.rs:191:31 [DiplomacyWindow::apply_item] cond  usize::from(i) < d.side().2.len() => !(usize::from(i) < d.side().2.len())
+rules/diplomacy_window.rs:191:31 [DiplomacyWindow::apply_item] cmp  usize::from(i) < d.side().2.len() => usize::from(i) <= d.side().2.len()
+rules/diplomacy_window.rs:193:17 [DiplomacyWindow::apply_item] lit  true => false
+rules/diplomacy_window.rs:195:18 [DiplomacyWindow::apply_item] lit  false => true
+rules/diplomacy_window.rs:198:12 [DiplomacyWindow::apply_item] cond  applied && !matches!(opt, Opt::Amount(_)) => !(applied && !matches!(opt, Opt::Amount(_)))
+rules/diplomacy_window.rs:198:12 [DiplomacyWindow::apply_item] logic  applied && !matches!(opt, Opt::Amount(_)) => applied || !matches!(opt, Opt::Amount(_))
+rules/diplomacy_window.rs:199:46 [DiplomacyWindow::apply_item] lit  1 => 2
+rules/diplomacy_window.rs:206:102 [DiplomacyWindow::terms] body  terms(&self, s: &CoreState, list: &[DealTerm], giver: Seat, receiver: ... => { return None; }
+rules/diplomacy_window.rs:208:49 [DiplomacyWindow::terms] lit  false => true
+rules/diplomacy_window.rs:208:56 [DiplomacyWindow::terms] lit  false => true
+rules/diplomacy_window.rs:208:63 [DiplomacyWindow::terms] lit  false => true
+rules/diplomacy_window.rs:212:49 [DiplomacyWindow::terms] assign  out.trade_goods += i32::from(n) => out.trade_goods -= i32::from(n)
+rules/diplomacy_window.rs:213:50 [DiplomacyWindow::terms] assign  out.commodities += i32::from(n) => out.commodities -= i32::from(n)
+rules/diplomacy_window.rs:214:56 [DiplomacyWindow::terms] assign  out.fragments[ExploreType::Cultural as u... += i32::from(n) => out.fragments[ExploreType::Cultural as u... -= i32::from(n)
+rules/diplomacy_window.rs:215:57 [DiplomacyWindow::terms] assign  out.fragments[ExploreType::Hazardous as ... += i32::from(n) => out.fragments[ExploreType::Hazardous as ... -= i32::from(n)
+rules/diplomacy_window.rs:216:58 [DiplomacyWindow::terms] assign  out.fragments[ExploreType::Industrial as... += i32::from(n) => out.fragments[ExploreType::Industrial as... -= i32::from(n)
+rules/diplomacy_window.rs:217:55 [DiplomacyWindow::terms] assign  out.fragments[ExploreType::Frontier as u... += i32::from(n) => out.fragments[ExploreType::Frontier as u... -= i32::from(n)
+rules/diplomacy_window.rs:218:55 [DiplomacyWindow::terms] cond  !note => !(!note)
+rules/diplomacy_window.rs:219:28 [DiplomacyWindow::terms] lit  true => false
+rules/diplomacy_window.rs:222:49 [DiplomacyWindow::terms] cond  !card => !(!card)
+rules/diplomacy_window.rs:223:28 [DiplomacyWindow::terms] lit  true => false
+rules/diplomacy_window.rs:226:54 [DiplomacyWindow::terms] cond  !secret => !(!secret)
+rules/diplomacy_window.rs:227:30 [DiplomacyWindow::terms] lit  true => false
+rules/diplomacy_window.rs:236:98 [DiplomacyWindow::note_facts] body  note_facts(&self, s: &CoreState, key: NoteKey, giver: Seat, receiver: ... => { return Default::default(); }
+rules/diplomacy_window.rs:237:12 [DiplomacyWindow::note_facts] cond  key.note == PromissoryNote::SupportForTheThrone => !(key.note == PromissoryNote::SupportForTheThrone)
+rules/diplomacy_window.rs:237:12 [DiplomacyWindow::note_facts] cmp  key.note == PromissoryNote::SupportForTheThrone => key.note != PromissoryNote::SupportForTheThrone
+rules/diplomacy_window.rs:238:34 [DiplomacyWindow::note_facts] cmp  deals_q::available_support(s, giver) == Some(key.faction) => deals_q::available_support(s, giver) != Some(key.faction)
+rules/diplomacy_window.rs:238:105 [DiplomacyWindow::note_facts] lit  true => false
+rules/diplomacy_window.rs:249:41 [DiplomacyWindow::side] body  side(list: &[DealTerm]) -> Side { => { return Default::default(); }
+rules/diplomacy_window.rs:254:49 [DiplomacyWindow::side] assign  side.goods += i32::from(n) => side.goods -= i32::from(n)
+rules/diplomacy_window.rs:255:50 [DiplomacyWindow::side] assign  side.commodities += i32::from(n) => side.commodities -= i32::from(n)
+rules/diplomacy_window.rs:259:57 [DiplomacyWindow::side] assign  side.fragments += i32::from(n) => side.fragments -= i32::from(n)
+rules/diplomacy_window.rs:261:48 [DiplomacyWindow::side] cond  key.note == PromissoryNote::SupportForTheThrone => !(key.note == PromissoryNote::SupportForTheThrone)
+rules/diplomacy_window.rs:261:48 [DiplomacyWindow::side] cmp  key.note == PromissoryNote::SupportForTheThrone => key.note != PromissoryNote::SupportForTheThrone
+rules/diplomacy_window.rs:263:61 [DiplomacyWindow::side] lit  true => false
+rules/diplomacy_window.rs:264:68 [DiplomacyWindow::side] lit  true => false
+rules/diplomacy_window.rs:272:73 [DiplomacyWindow::accept] body  accept(&self, s: &mut CoreState, actor: Seat) -> Result<(), ()> { => { return Ok(()); }
+rules/diplomacy_window.rs:274:69 [DiplomacyWindow::accept] cmp  d.id == id => d.id != id
+rules/diplomacy_window.rs:279:20 [DiplomacyWindow::accept] cmp  (Self::side(revision.proposer_terms.as_s... <= 0.5 => (Self::side(revision.proposer_terms.as_s... < 0.5
+rules/diplomacy_window.rs:279:21 [DiplomacyWindow::accept] arith  Self::side(revision.proposer_terms.as_sl... - Self::side(revision.recipient_terms.as_s... => Self::side(revision.proposer_terms.as_sl... + Self::side(rev
+rules/diplomacy_window.rs:280:12 [DiplomacyWindow::accept] cond  !given.is_empty() || !received.is_empty() => !(!given.is_empty() || !received.is_empty())
+rules/diplomacy_window.rs:280:12 [DiplomacyWindow::accept] logic  !given.is_empty() || !received.is_empty() => !given.is_empty() && !received.is_empty()
+rules/diplomacy_window.rs:284:16 [DiplomacyWindow::accept] cond  q::why_illegal_with(s, || reach, || s.transient().misc.flags.has(crate::state::T... => !(q::why_illegal_with(s, || reach, || s.transient().misc.fla
+rules/diplomacy_window.rs:293:24 [DiplomacyWindow::end] body  end(&mut self) { => { return (); }
+rules/diplomacy_window.rs:313:68 [DiplomacyWindow::ask_of] body  ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/diplomacy_window.rs:314:12 [DiplomacyWindow::ask_of] cond  self.single && self.stepped => !(self.single && self.stepped)
+rules/diplomacy_window.rs:314:12 [DiplomacyWindow::ask_of] logic  self.single && self.stepped => self.single || self.stepped
+rules/diplomacy_window.rs:322:32 [DiplomacyWindow::ask_of] cond  self.responses.is_multiple_of(2) => !(self.responses.is_multiple_of(2))
+rules/diplomacy_window.rs:322:62 [DiplomacyWindow::ask_of] lit  2 => 3
+rules/diplomacy_window.rs:323:35 [DiplomacyWindow::ask_of] logic  self.responses < MAX_COUNTERS && self.cu... && !self.counter_abandoned => self.responses < MAX_COUNTERS && self.cu... || !self.counter
+rules/diplomacy_window.rs:323:35 [DiplomacyWindow::ask_of] logic  self.responses < MAX_COUNTERS && self.current.is_some() => self.responses < MAX_COUNTERS || self.current.is_some()
+rules/diplomacy_window.rs:323:35 [DiplomacyWindow::ask_of] cmp  self.responses < MAX_COUNTERS => self.responses <= MAX_COUNTERS
+rules/diplomacy_window.rs:325:20 [DiplomacyWindow::ask_of] cond  may_counter => !(may_counter)
+rules/diplomacy_window.rs:338:79 [DiplomacyWindow::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/diplomacy_window.rs:341:24 [DiplomacyWindow::answer] lit  true => false
+rules/diplomacy_window.rs:350:42 [DiplomacyWindow::answer] cond  matches!(statement, SignalStatement::WillVote { .. }) => !(matches!(statement, SignalStatement::WillVote { .. }))
+rules/diplomacy_window.rs:350:134 [DiplomacyWindow::answer] lit  1 => 2
+rules/diplomacy_window.rs:351:104 [DiplomacyWindow::answer] lit  false => true
+rules/diplomacy_window.rs:355:34 [DiplomacyWindow::answer] cond  !d.asking => !(!d.asking)
+rules/diplomacy_window.rs:355:58 [DiplomacyWindow::answer] lit  true => false
+rules/diplomacy_window.rs:356:48 [DiplomacyWindow::answer] lit  true => false
+rules/diplomacy_window.rs:358:39 [DiplomacyWindow::answer] lit  false => true
+rules/diplomacy_window.rs:359:36 [DiplomacyWindow::answer] lit  false => true
+rules/diplomacy_window.rs:365:28 [DiplomacyWindow::answer] cond  self.current.is_some() => !(self.current.is_some())
+rules/diplomacy_window.rs:366:54 [DiplomacyWindow::answer] lit  true => false
+rules/diplomacy_window.rs:369:41 [DiplomacyWindow::answer] cond  self.current.is_some() => !(self.current.is_some())
+rules/diplomacy_window.rs:376:29 [DiplomacyWindow::answer] assign  self.responses += 1 => self.responses -= 1
+rules/diplomacy_window.rs:376:47 [DiplomacyWindow::answer] lit  1 => 2
+rules/diplomacy_window.rs:387:28 [DiplomacyWindow::answer] cond  !Self::apply_item(round, &mut d, other) => !(!Self::apply_item(round, &mut d, other))
+rules/diplomacy_window.rs:399:32 [DiplomacyWindow::answer] logic  opt == Opt::Accept && self.accept(sx.state, actor).is_ok() => opt == Opt::Accept || self.accept(sx.state, actor).is_ok()
+rules/diplomacy_window.rs:399:32 [DiplomacyWindow::answer] cmp  opt == Opt::Accept => opt != Opt::Accept
+rules/diplomacy_window.rs:400:20 [DiplomacyWindow::answer] cond  accepted => !(accepted)
+rules/diplomacy_window.rs:402:27 [DiplomacyWindow::answer] cond  matches!(opt, Opt::Decline | Opt::Accept) => !(matches!(opt, Opt::Decline | Opt::Accept))
+rules/diplomacy_window.rs:405:27 [DiplomacyWindow::answer] cond  opt == Opt::Counter => !(opt == Opt::Counter)
+rules/diplomacy_window.rs:405:27 [DiplomacyWindow::answer] cmp  opt == Opt::Counter => opt != Opt::Counter
+rules/diplomacy_window.rs:408:43 [DiplomacyWindow::answer] cond  actor == self.proposer => !(actor == self.proposer)
+rules/diplomacy_window.rs:408:43 [DiplomacyWindow::answer] cmp  actor == self.proposer => actor != self.proposer
+rules/diplomacy_window.rs:409:36 [DiplomacyWindow::answer] cond  actor == self.proposer => !(actor == self.proposer)
+rules/diplomacy_window.rs:409:36 [DiplomacyWindow::answer] cmp  actor == self.proposer => actor != self.proposer
+rules/explore.rs:27:75 [log_relic] body  log_relic(core: &mut CoreState, who: Seat, relic: Relic, points: i32) ... => { return (); }
+rules/explore.rs:35:94 [purge_for_relic] body  purge_for_relic(core: &mut CoreState, who: Seat, kind: ExploreType) ->... => { return None; }
+rules/explore.rs:37:68 [purge_for_relic] lit  0 => 1
+rules/explore.rs:38:85 [purge_for_relic] lit  0 => 1
+rules/explore.rs:39:8 [purge_for_relic] cond  matching + frontier < FRAGMENTS_PER_RELIC => !(matching + frontier < FRAGMENTS_PER_RELIC)
+rules/explore.rs:39:8 [purge_for_relic] cmp  matching + frontier < FRAGMENTS_PER_RELIC => matching + frontier <= FRAGMENTS_PER_RELIC
+rules/explore.rs:39:8 [purge_for_relic] arith  matching + frontier => matching - frontier
+rules/explore.rs:43:25 [purge_for_relic] arith  FRAGMENTS_PER_RELIC - from_matching => FRAGMENTS_PER_RELIC + from_matching
+rules/explore.rs:46:54 [purge_for_relic] lit  0 => 1
+rules/explore.rs:47:33 [purge_for_relic] arith  have - i16::try_from(from_matching).ok()? => have + i16::try_from(from_matching).ok()?
+rules/explore.rs:48:8 [purge_for_relic] cond  from_frontier > 0 => !(from_frontier > 0)
+rules/explore.rs:48:8 [purge_for_relic] cmp  from_frontier > 0 => from_frontier >= 0
+rules/explore.rs:48:24 [purge_for_relic] lit  0 => 1
+rules/explore.rs:49:75 [purge_for_relic] lit  0 => 1
+rules/explore.rs:50:54 [purge_for_relic] arith  have - i16::try_from(from_frontier).ok()? => have + i16::try_from(from_frontier).ok()?
+rules/explore.rs:53:33 [purge_for_relic] lit  0 => 1
+rules/explore.rs:60:70 [relic_gain] body  relic_gain(core: &mut CoreState, who: Seat) -> Option<Relic> { => { return None; }
+rules/explore.rs:65:78 [exhaust_relic] body  exhaust_relic(core: &mut CoreState, who: Seat, relic: Relic) -> bool { => { return true; }
+rules/explore.rs:65:78 [exhaust_relic] body  exhaust_relic(core: &mut CoreState, who: Seat, relic: Relic) -> bool { => { return false; }
+rules/explore.rs:66:69 [exhaust_relic] lit  false => true
+rules/explore.rs:67:8 [exhaust_relic] cond  !p.cards.relics.as_slice().contains(&relic) => !(!p.cards.relics.as_slice().contains(&relic))
+rules/explore.rs:68:16 [exhaust_relic] lit  false => true
+rules/explore.rs:74:68 [purge_relic] body  purge_relic(core: &mut CoreState, who: Seat, relic: Relic) { => { return (); }
+rules/explore.rs:76:38 [purge_relic] cmp  *held != relic => *held == relic
+rules/explore.rs:81:78 [attach] body  attach(core: &mut CoreState, planet: Planet, attachment: Attachment) { => { return (); }
+rules/explore.rs:83:47 [attach] lit  true => false
+rules/explore.rs:88:73 [place_frontier_tokens] body  place_frontier_tokens(core: &mut CoreState, systems: &[System]) { => { return (); }
+rules/explore.rs:94:79 [place_ion_storm] body  place_ion_storm(core: &mut CoreState, system: System, face: Wormhole) ... => { return (); }
+rules/explore.rs:100:62 [crown_point] body  crown_point(core: &mut CoreState, who: Seat) -> bool { => { return true; }
+rules/explore.rs:100:62 [crown_point] body  crown_point(core: &mut CoreState, who: Seat) -> bool { => { return false; }
+rules/explore.rs:102:8 [crown_point] cond  !core.players().by_seat(who).is_some_and(|p| p.cards.relics.as_slice().contains(... => !(!core.players().by_seat(who).is_some_and(|p| p.cards.relic
+rules/explore.rs:103:16 [crown_point] lit  false => true
+rules/explore.rs:109:8 [crown_point] cond  !has_tomb => !(!has_tomb)
+rules/explore.rs:110:16 [crown_point] lit  false => true
+rules/explore.rs:114:5 [crown_point] lit  true => false
+rules/explore.rs:119:68 [score_point] body  score_point(core: &mut CoreState, who: Seat, relic: Relic) { => { return (); }
+rules/explore.rs:120:42 [score_point] lit  1 => 2
+rules/explore.rs:125:113 [take_discarded_action_card] body  take_discarded_action_card(core: &mut CoreState, who: Seat, card: crat... => { return true; }
+rules/explore.rs:125:113 [take_discarded_action_card] body  take_discarded_action_card(core: &mut CoreState, who: Seat, card: crat... => { return false; }
+rules/explore.rs:126:8 [take_discarded_action_card] cond  core.players().by_seat(who).is_none() => !(core.players().by_seat(who).is_none())
+rules/explore.rs:127:16 [take_discarded_action_card] lit  false => true
+rules/explore.rs:130:48 [take_discarded_action_card] cmp  *held == card => *held != card
+rules/explore.rs:130:77 [take_discarded_action_card] lit  false => true
+rules/explore.rs:135:5 [take_discarded_action_card] lit  true => false
+rules/explore.rs:140:60 [purge_planet] body  purge_planet(core: &mut CoreState, planet: Planet) { => { return (); }
+rules/explore.rs:147:30 [purge_planet] lit  false => true
+rules/explore.rs:149:41 [purge_planet] lit  true => false
+rules/explore.rs:154:58 [ready_relics_and_legendary] body  ready_relics_and_legendary(core: &mut CoreState) { => { return (); }
+rules/explore.rs:155:14 [ready_relics_and_legendary] lit  0 => 1
+rules/explore.rs:163:76 [exhaust_legendary] body  exhaust_legendary(core: &mut CoreState, who: Seat, planet: Planet) { => { return (); }
+rules/explore.rs:170:69 [exhaust_controlled_planets] body  exhaust_controlled_planets(core: &mut CoreState, who: Seat) { => { return (); }
+rules/explore.rs:179:96 [book_of_latvinia] body  book_of_latvinia(core: &mut CoreState, who: Seat, scope: crate::tables... => { return true; }
+rules/explore.rs:179:96 [book_of_latvinia] body  book_of_latvinia(core: &mut CoreState, who: Seat, scope: crate::tables... => { return false; }
+rules/explore.rs:183:16 [book_of_latvinia] cond  !found.contains(s) => !(!found.contains(s))
+rules/explore.rs:188:8 [book_of_latvinia] cond  found.len() >= 4 => !(found.len() >= 4)
+rules/explore.rs:188:8 [book_of_latvinia] cmp  found.len() >= 4 => found.len() > 4
+rules/explore.rs:188:23 [book_of_latvinia] lit  4 => 5
+rules/explore.rs:190:9 [book_of_latvinia] lit  true => false
+rules/explore.rs:193:9 [book_of_latvinia] lit  false => true
+rules/explore.rs:200:73 [silver_flame] body  silver_flame(core: &mut CoreState, who: Seat, rolled_ten: bool) { => { return (); }
+rules/explore.rs:203:8 [silver_flame] cond  rolled_ten => !(rolled_ten)
+rules/explore.rs:208:42 [silver_flame] lit  true => false
+rules/explore.rs:217:34 [silver_flame] lit  false => true
+rules/explore.rs:223:53 [silver_flame] lit  false => true
+rules/explore.rs:224:52 [silver_flame] lit  true => false
+rules/explore.rs:229:76 [remove_unit_at] body  remove_unit_at(core: &mut CoreState, planet: Planet, index: usize) { => { return (); }
+rules/explore.rs:231:8 [remove_unit_at] cond  index < units.len() => !(index < units.len())
+rules/explore.rs:231:8 [remove_unit_at] cmp  index < units.len() => index <= units.len()
+rules/explore.rs:247:77 [close_record] body  close_record(core: &mut CoreState, index: usize, closing: &Closing) { => { return (); }
+rules/explore.rs:259:79 [set_record_system] body  set_record_system(core: &mut CoreState, index: usize, system: System) ... => { return (); }
+rules/explore.rs:268:95 [place_planet] body  place_planet(core: &mut CoreState, who: Seat, system: System, planet: ... => { return true; }
+rules/explore.rs:268:95 [place_planet] body  place_planet(core: &mut CoreState, who: Seat, system: System, planet: ... => { return false; }
+rules/explore.rs:270:8 [place_planet] cond  cell.placed_in.is_some() => !(cell.placed_in.is_some())
+rules/explore.rs:271:16 [place_planet] lit  false => true
+rules/explore.rs:274:8 [place_planet] cond  !cell.flags.has(PlanetFlags::PURGED) => !(!cell.flags.has(PlanetFlags::PURGED))
+rules/explore.rs:277:44 [place_planet] lit  false => true
+rules/explore.rs:278:81 [place_planet] lit  true => false
+rules/explore.rs:279:5 [place_planet] lit  true => false
+rules/explore.rs:285:89 [demilitarize] body  demilitarize(core: &mut CoreState, scope: crate::tables::Scope, planet... => { return (); }
+rules/explore.rs:289:8 [demilitarize] cond  !cell.flags.has(PlanetFlags::UNITS_ENTRY) => !(!cell.flags.has(PlanetFlags::UNITS_ENTRY))
+rules/explore.rs:295:24 [demilitarize] cond  d.structure => !(d.structure)
+rules/explore.rs:296:24 [demilitarize] cond  matches!(d.base_type, UnitBaseType::Infantry | UnitBaseType::Mech) => !(matches!(d.base_type, UnitBaseType::Infantry | UnitBaseTyp
+rules/explore.rs:305:54 [demilitarize] lit  true => false
+rules/explore_windows.rs:31:19 [ctx] lit  false => true
+rules/explore_windows.rs:34:23 [ctx] lit  false => true
+rules/explore_windows.rs:102:12 [ChooseDeck::step] cond  self.stage == XStage::Start => !(self.stage == XStage::Start)
+rules/explore_windows.rs:102:12 [ChooseDeck::step] cmp  self.stage == XStage::Start => self.stage != XStage::Start
+rules/explore_windows.rs:118:68 [ChooseDeck::ask_of] body  ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/explore_windows.rs:119:10 [ChooseDeck::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/explore_windows.rs:127:78 [ChooseDeck::answer] body  answer(&mut self, _: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> { => { return Ok(()); }
+rules/explore_windows.rs:129:73 [ChooseDeck::answer] cond  self.traits.as_slice().contains(&t) => !(self.traits.as_slice().contains(&t))
+rules/explore_windows.rs:170:12 [DistantSuns::step] cond  self.stage == XStage::Start => !(self.stage == XStage::Start)
+rules/explore_windows.rs:170:12 [DistantSuns::step] cmp  self.stage == XStage::Start => self.stage != XStage::Start
+rules/explore_windows.rs:172:29 [DistantSuns::step] cond  self.second.is_some() => !(self.second.is_some())
+rules/explore_windows.rs:180:68 [DistantSuns::ask_of] body  ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/explore_windows.rs:181:45 [DistantSuns::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/explore_windows.rs:190:78 [DistantSuns::answer] body  answer(&mut self, _: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> { => { return Ok(()); }
+rules/explore_windows.rs:192:87 [DistantSuns::answer] cond  c == self.first || c == second => !(c == self.first || c == second)
+rules/explore_windows.rs:192:87 [DistantSuns::answer] logic  c == self.first || c == second => c == self.first && c == second
+rules/explore_windows.rs:192:87 [DistantSuns::answer] cmp  c == self.first => c != self.first
+rules/explore_windows.rs:192:106 [DistantSuns::answer] cmp  c == second => c != second
+rules/explore_windows.rs:231:12 [IonStorm::step] cond  self.stage == XStage::Start => !(self.stage == XStage::Start)
+rules/explore_windows.rs:231:12 [IonStorm::step] cmp  self.stage == XStage::Start => self.stage != XStage::Start
+rules/explore_windows.rs:234:12 [IonStorm::step] cond  self.stage == XStage::Asking => !(self.stage == XStage::Asking)
+rules/explore_windows.rs:234:12 [IonStorm::step] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/explore_windows.rs:237:68 [IonStorm::ask_of] body  ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/explore_windows.rs:238:10 [IonStorm::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/explore_windows.rs:246:79 [IonStorm::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/explore_windows.rs:248:73 [IonStorm::answer] cond  matches!(f, Wormhole::Alpha | Wormhole::Beta) => !(matches!(f, Wormhole::Alpha | Wormhole::Beta))
+rules/explore_windows.rs:351:60 [PayMechOrInfantry::infantry] body  infantry(&self, core: &CoreState) -> Option<usize> { => { return None; }
+rules/explore_windows.rs:354:27 [PayMechOrInfantry::infantry] logic  u.owner() == self.who && u.kind().data().base_type == UnitBaseTyp... => u.owner() == self.who || u.kind().data().base_type == UnitBa
+rules/explore_windows.rs:354:27 [PayMechOrInfantry::infantry] cmp  u.owner() == self.who => u.owner() != self.who
+rules/explore_windows.rs:354:52 [PayMechOrInfantry::infantry] cmp  u.kind().data().base_type == UnitBaseType::Infantry => u.kind().data().base_type != UnitBaseType::Infantry
+rules/explore_windows.rs:366:12 [PayMechOrInfantry::step] cond  self.stage == XStage::Start => !(self.stage == XStage::Start)
+rules/explore_windows.rs:366:12 [PayMechOrInfantry::step] cmp  self.stage == XStage::Start => self.stage != XStage::Start
+rules/explore_windows.rs:368:29 [PayMechOrInfantry::step] cond  !(cell.flags.has(crate::state::PlanetFlags::UNITS_ENTRY) || cell.control.is_some... => !(!(cell.flags.has(crate::state::PlanetFlags::UNITS_ENTRY) |
+rules/explore_windows.rs:368:31 [PayMechOrInfantry::step] logic  cell.flags.has(crate::state::PlanetFlags... || cell.control.is_some() => cell.flags.has(crate::state::PlanetFlags... && cell.control.
+rules/explore_windows.rs:370:23 [PayMechOrInfantry::step] cond  board::planet_units(sx.state, self.planet) .iter() .any(|u| u.owner() == self.wh... => !(board::planet_units(sx.state, self.planet) .iter() .any(|u
+rules/explore_windows.rs:372:26 [PayMechOrInfantry::step] logic  u.owner() == self.who && u.kind().data().base_type == UnitBaseTyp... => u.owner() == self.who || u.kind().data().base_type == UnitBa
+rules/explore_windows.rs:372:26 [PayMechOrInfantry::step] cmp  u.owner() == self.who => u.owner() != self.who
+rules/explore_windows.rs:372:51 [PayMechOrInfantry::step] cmp  u.kind().data().base_type == UnitBaseType::Mech => u.kind().data().base_type != UnitBaseType::Mech
+rules/explore_windows.rs:374:29 [PayMechOrInfantry::step] lit  true => false
+rules/explore_windows.rs:376:23 [PayMechOrInfantry::step] cond  self.infantry(sx.state).is_some() => !(self.infantry(sx.state).is_some())
+rules/explore_windows.rs:382:12 [PayMechOrInfantry::step] cond  self.stage == XStage::Asking => !(self.stage == XStage::Asking)
+rules/explore_windows.rs:382:12 [PayMechOrInfantry::step] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/explore_windows.rs:385:68 [PayMechOrInfantry::ask_of] body  ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/explore_windows.rs:386:10 [PayMechOrInfantry::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/explore_windows.rs:394:79 [PayMechOrInfantry::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/explore_windows.rs:399:29 [PayMechOrInfantry::answer] lit  true => false
+rules/explore_windows.rs:418:19 [relic_ctx] lit  false => true
+rules/explore_windows.rs:421:23 [relic_ctx] lit  false => true
+rules/explore_windows.rs:426:73 [holds] body  holds(core: &CoreState, who: Seat, relic: Relic) -> bool { => { return true; }
+rules/explore_windows.rs:426:73 [holds] body  holds(core: &CoreState, who: Seat, relic: Relic) -> bool { => { return false; }
+rules/explore_windows.rs:449:49 [DominusOrb::pinned] body  pinned(&self, core: &CoreState) -> bool { => { return true; }
+rules/explore_windows.rs:449:49 [DominusOrb::pinned] body  pinned(&self, core: &CoreState) -> bool { => { return false; }
+rules/explore_windows.rs:452:13 [DominusOrb::pinned] logic  Some(system) != active && board::has_space_units_of(core, system, ... => Some(system) != active || board::has_space_units_of(core, sy
+rules/explore_windows.rs:452:13 [DominusOrb::pinned] cmp  Some(system) != active => Some(system) == active
+rules/explore_windows.rs:465:12 [DominusOrb::step] cond  self.stage == XStage::Start => !(self.stage == XStage::Start)
+rules/explore_windows.rs:465:12 [DominusOrb::step] cmp  self.stage == XStage::Start => self.stage != XStage::Start
+rules/explore_windows.rs:466:29 [DominusOrb::step] cond  holds(sx.state, self.who, Relic::DominusOrb) && self.pinned(sx.state) => !(holds(sx.state, self.who, Relic::DominusOrb) && self.pinne
+rules/explore_windows.rs:466:29 [DominusOrb::step] logic  holds(sx.state, self.who, Relic::Dominus... && self.pinned(sx.state) => holds(sx.state, self.who, Relic::Dominus... || self.pinned(s
+rules/explore_windows.rs:472:12 [DominusOrb::step] cond  self.stage == XStage::Asking => !(self.stage == XStage::Asking)
+rules/explore_windows.rs:472:12 [DominusOrb::step] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/explore_windows.rs:475:68 [DominusOrb::ask_of] body  ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/explore_windows.rs:476:10 [DominusOrb::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/explore_windows.rs:484:79 [DominusOrb::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/explore_windows.rs:492:29 [DominusOrb::answer] lit  true => false
+rules/explore_windows.rs:525:57 [CrownExplore::options] body  options(&self, core: &CoreState) -> Vec<Planet> { => { return Vec::new(); }
+rules/explore_windows.rs:532:17 [CrownExplore::options] logic  crate::tables::source_bit(d.source) & se... && !d.traits.is_empty() => crate::tables::source_bit(d.source) & se... || !d.traits.is_
+rules/explore_windows.rs:532:17 [CrownExplore::options] cmp  crate::tables::source_bit(d.source) & se... != 0 => crate::tables::source_bit(d.source) & se... == 0
+rules/explore_windows.rs:532:17 [CrownExplore::options] arith  crate::tables::source_bit(d.source) & self.scope.0 => crate::tables::source_bit(d.source) | self.scope.0
+rules/explore_windows.rs:532:71 [CrownExplore::options] lit  0 => 1
+rules/explore_windows.rs:546:12 [CrownExplore::step] cond  self.stage == XStage::Start => !(self.stage == XStage::Start)
+rules/explore_windows.rs:546:12 [CrownExplore::step] cmp  self.stage == XStage::Start => self.stage != XStage::Start
+rules/explore_windows.rs:548:29 [CrownExplore::step] cond  ready && !self.options(sx.state).is_empty() => !(ready && !self.options(sx.state).is_empty())
+rules/explore_windows.rs:548:29 [CrownExplore::step] logic  ready && !self.options(sx.state).is_empty() => ready || !self.options(sx.state).is_empty()
+rules/explore_windows.rs:550:12 [CrownExplore::step] cond  self.stage == XStage::Asking => !(self.stage == XStage::Asking)
+rules/explore_windows.rs:550:12 [CrownExplore::step] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/explore_windows.rs:553:68 [CrownExplore::ask_of] body  ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/explore_windows.rs:554:10 [CrownExplore::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/explore_windows.rs:561:68 [CrownExplore::ask_of] lit  0 => 1
+rules/explore_windows.rs:567:79 [CrownExplore::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/explore_windows.rs:569:76 [CrownExplore::answer] cond  self.options(sx.state).contains(&p) => !(self.options(sx.state).contains(&p))
+rules/explore_windows.rs:570:20 [CrownExplore::answer] cond  explore::exhaust_relic(sx.state, self.who, Relic::TheCrownOfEmphidia) => !(explore::exhaust_relic(sx.state, self.who, Relic::TheCrown
+rules/leader_windows.rs:37:19 [ctx] lit  false => true
+rules/leader_windows.rs:40:23 [ctx] lit  false => true
+rules/leader_windows.rs:89:85 [XxchaAgent::offers_removal] body  offers_removal(&self, core: &CoreState, k: &Kernel, planet: Planet) ->... => { return false; }
+rules/leader_windows.rs:90:12 [XxchaAgent::offers_removal] cond  !self.has_map => !(!self.has_map)
+rules/leader_windows.rs:94:12 [XxchaAgent::offers_removal] cond  !cell.flags.has(PlanetFlags::UNITS_ENTRY) => !(!cell.flags.has(PlanetFlags::UNITS_ENTRY))
+rules/leader_windows.rs:95:20 [XxchaAgent::offers_removal] lit  false => true
+rules/leader_windows.rs:97:73 [XxchaAgent::offers_removal] lit  false => true
+rules/leader_windows.rs:98:70 [XxchaAgent::offers_removal] lit  false => true
+rules/leader_windows.rs:102:30 [XxchaAgent::offers_removal] cmp  c.control == Some(self.who) => c.control != Some(self.who)
+rules/leader_windows.rs:105:12 [XxchaAgent::offers_removal] cond  !touches_mine => !(!touches_mine)
+rules/leader_windows.rs:106:20 [XxchaAgent::offers_removal] lit  false => true
+rules/leader_windows.rs:110:13 [XxchaAgent::offers_removal] logic  u.owner() == self.who && scope.unit(u.kind()).is_some_and(|d| d.b... => u.owner() == self.who || scope.unit(u.kind()).is_some_and(|d
+rules/leader_windows.rs:110:13 [XxchaAgent::offers_removal] cmp  u.owner() == self.who => u.owner() != self.who
+rules/leader_windows.rs:110:75 [XxchaAgent::offers_removal] cmp  d.base_type == UnitBaseType::Infantry => d.base_type != UnitBaseType::Infantry
+rules/leader_windows.rs:117:12 [XxchaAgent::finish] cond  remove => !(remove)
+rules/leader_windows.rs:124:31 [XxchaAgent::finish] logic  u.owner() == who && scope.unit(u.kind()).is_some_and(|d| d.b... => u.owner() == who || scope.unit(u.kind()).is_some_and(|d| d.b
+rules/leader_windows.rs:124:31 [XxchaAgent::finish] cmp  u.owner() == who => u.owner() != who
+rules/leader_windows.rs:124:88 [XxchaAgent::finish] cmp  d.base_type == UnitBaseType::Infantry => d.base_type != UnitBaseType::Infantry
+rules/leader_windows.rs:160:41 [XxchaAgent::step] lit  false => true
+rules/leader_windows.rs:179:74 [XxchaAgent::ask_of] lit  0 => 1
+rules/leader_windows.rs:200:33 [XxchaAgent::answer] lit  true => false
+rules/leader_windows.rs:204:33 [XxchaAgent::answer] lit  false => true
+rules/leader_windows.rs:328:68 [Helmsman::named] body  named(&self, scope: Scope, p: crate::state::Piece) -> bool { => { return true; }
+rules/leader_windows.rs:328:68 [Helmsman::named] body  named(&self, scope: Scope, p: crate::state::Piece) -> bool { => { return false; }
+rules/leader_windows.rs:329:9 [Helmsman::named] logic  p.owner() == self.who && scope.unit(p.kind()).is_some_and(|d| mat... => p.owner() == self.who || scope.unit(p.kind()).is_some_and(|d
+rules/leader_windows.rs:329:9 [Helmsman::named] cmp  p.owner() == self.who => p.owner() != self.who
+rules/leader_windows.rs:335:66 [Helmsman::safe] body  safe(&self, core: &CoreState, k: &Kernel) -> Vec<System> { => { return Vec::new(); }
+rules/leader_windows.rs:357:30 [Helmsman::safe] logic  u.owner() != self.who && scope.unit(u.kind()).is_some_and(|d| d.s... => u.owner() != self.who || scope.unit(u.kind()).is_some_and(|d
+rules/leader_windows.rs:357:30 [Helmsman::safe] cmp  u.owner() != self.who => u.owner() == self.who
+rules/leader_windows.rs:362:65 [Helmsman::gather] body  gather(&mut self, sx: &mut Sx<'_>, destination: System) { => { return (); }
+rules/leader_windows.rs:366:16 [Helmsman::gather] cond  system == destination => !(system == destination)
+rules/leader_windows.rs:366:16 [Helmsman::gather] cmp  system == destination => system != destination
+rules/leader_windows.rs:370:16 [Helmsman::gather] cond  !has => !(!has)
+rules/leader_windows.rs:377:12 [Helmsman::gather] cond  !gathered.is_empty() => !(!gathered.is_empty())
+rules/leader_windows.rs:379:61 [Helmsman::gather] lit  true => false
+rules/leader_windows.rs:397:12 [Helmsman::step] cond  self.stage == LStage::Start => !(self.stage == LStage::Start)
+rules/leader_windows.rs:397:12 [Helmsman::step] cmp  self.stage == LStage::Start => self.stage != LStage::Start
+rules/leader_windows.rs:400:25 [Helmsman::step] logic  self.has_map && sx.state.board().systems().any(|(_, c)| ... => self.has_map || sx.state.board().systems().any(|(_, c)| ...
+rules/leader_windows.rs:401:27 [Helmsman::step] cond  ships => !(ships)
+rules/leader_windows.rs:417:68 [Helmsman::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/leader_windows.rs:418:10 [Helmsman::ask_of] cmp  self.stage == LStage::Destination => self.stage != LStage::Destination
+rules/leader_windows.rs:426:79 [Helmsman::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/leader_windows.rs:428:85 [Helmsman::answer] cond  self.safe(sx.state, sx.kernel).contains(&system) => !(self.safe(sx.state, sx.kernel).contains(&system))
+rules/leader_windows.rs:472:105 [RinHero::new] lit  false => true
+rules/leader_windows.rs:472:118 [RinHero::new] lit  false => true
+rules/leader_windows.rs:477:96 [RinHero::replacements] body  replacements(&self, core: &CoreState, k: &Kernel, held: Technology) ->... => { return Vec::new(); }
+rules/leader_windows.rs:486:17 [RinHero::replacements] logic  crate::tables::source_bit(d.source) & sc... && !p.tech.owned.contains(*t) => crate::tables::source_bit(d.source) & sc... || !p.tech.owned
+rules/leader_windows.rs:486:17 [RinHero::replacements] logic  crate::tables::source_bit(d.source) & sc... && d.faction.is_none_or(|tag| tech::tag_is(... => crate::tables::source_bit(d.source) & sc... || d.faction.is_
+rules/leader_windows.rs:486:17 [RinHero::replacements] logic  crate::tables::source_bit(d.source) & sc... && !d.types.contains(&TechType::Unitupgrade... => crate::tables::source_bit(d.source) & sc... || !d.types.cont
+rules/leader_windows.rs:486:17 [RinHero::replacements] logic  crate::tables::source_bit(d.source) & sc... && d.types.first() == Some(&colour) => crate::tables::source_bit(d.source) & sc... || d.types.first
+rules/leader_windows.rs:486:17 [RinHero::replacements] cmp  crate::tables::source_bit(d.source) & sc... != 0 => crate::tables::source_bit(d.source) & sc... == 0
+rules/leader_windows.rs:486:17 [RinHero::replacements] arith  crate::tables::source_bit(d.source) & scope.0 => crate::tables::source_bit(d.source) | scope.0
+rules/leader_windows.rs:486:66 [RinHero::replacements] lit  0 => 1
+rules/leader_windows.rs:487:24 [RinHero::replacements] cmp  d.types.first() == Some(&colour) => d.types.first() != Some(&colour)
+rules/leader_windows.rs:495:65 [RinHero::eligible_of] body  eligible_of(&self, core: &CoreState) -> Vec<Technology> { => { return Vec::new(); }
+rules/leader_windows.rs:500:25 [RinHero::eligible_of] logic  p.tech.owned.contains(*t) && !tech::is_u... && !t.data().types.is_empty() => p.tech.owned.contains(*t) && !tech::is_u... || !t.data().typ
+rules/leader_windows.rs:500:25 [RinHero::eligible_of] logic  p.tech.owned.contains(*t) && !tech::is_unit_upgrade(*t) => p.tech.owned.contains(*t) || !tech::is_unit_upgrade(*t)
+rules/leader_windows.rs:505:93 [RinHero::advance] body  advance(&mut self, core: &CoreState, k: &Kernel, after: Option<Technol... => { return true; }
+rules/leader_windows.rs:505:93 [RinHero::advance] body  advance(&mut self, core: &CoreState, k: &Kernel, after: Option<Technol... => { return false; }
+rules/leader_windows.rs:506:33 [RinHero::advance] lit  0 => 1
+rules/leader_windows.rs:506:74 [RinHero::advance] cmp  *t == a => *t != a
+rules/leader_windows.rs:506:115 [RinHero::advance] arith  i + 1 => i - 1
+rules/leader_windows.rs:506:119 [RinHero::advance] lit  1 => 2
+rules/leader_windows.rs:508:16 [RinHero::advance] cond  !self.replacements(core, k, t).is_empty() => !(!self.replacements(core, k, t).is_empty())
+rules/leader_windows.rs:510:36 [RinHero::advance] lit  true => false
+rules/leader_windows.rs:511:24 [RinHero::advance] lit  true => false
+rules/leader_windows.rs:514:9 [RinHero::advance] lit  false => true
+rules/leader_windows.rs:528:12 [RinHero::step] cond  self.stage == RStage::Start => !(self.stage == RStage::Start)
+rules/leader_windows.rs:528:12 [RinHero::step] cmp  self.stage == RStage::Start => self.stage != RStage::Start
+rules/leader_windows.rs:531:29 [RinHero::step] cond  self.eligible.is_empty() => !(self.eligible.is_empty())
+rules/leader_windows.rs:533:23 [RinHero::step] cond  self.advance(sx.state, sx.kernel, None) => !(self.advance(sx.state, sx.kernel, None))
+rules/leader_windows.rs:548:68 [RinHero::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/leader_windows.rs:549:39 [RinHero::ask_of] cmp  self.stage == RStage::Swap => self.stage != RStage::Swap
+rules/leader_windows.rs:563:79 [RinHero::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/leader_windows.rs:567:56 [RinHero::answer] cond  self.replacements(sx.state, sx.kernel, held).contains(&t) => !(self.replacements(sx.state, sx.kernel, held).contains(&t))
+rules/leader_windows.rs:574:25 [RinHero::answer] cond  self.advance(sx.state, sx.kernel, Some(held)) => !(self.advance(sx.state, sx.kernel, Some(held)))
+rules/leader_windows.rs:625:34 [XxchaHeroTe::new] lit  0 => 1
+rules/leader_windows.rs:687:20 [XxchaHeroTe::ask_of] cmp  self.pds_left > 0 => self.pds_left >= 0
+rules/leader_windows.rs:705:103 [XxchaHeroTe::ask_of] lit  0 => 1
+rules/leader_windows.rs:724:50 [XxchaHeroTe::answer] cmp  *left > 0 => *left >= 0
+rules/leaders.rs:68:49 [uses_the_action] body  uses_the_action(leader: Leader) -> bool { => { return true; }
+rules/leaders.rs:68:49 [uses_the_action] body  uses_the_action(leader: Leader) -> bool { => { return false; }
+rules/leaders.rs:69:5 [uses_the_action] cmp  leader.data().window == LeaderWindow::Action => leader.data().window != LeaderWindow::Action
+rules/leaders.rs:74:50 [is_action_window] body  is_action_window(leader: Leader) -> bool { => { return true; }
+rules/leaders.rs:74:50 [is_action_window] body  is_action_window(leader: Leader) -> bool { => { return false; }
+rules/leaders.rs:113:69 [combines_planet_values] body  combines_planet_values(core: &CoreState, who: Seat) -> bool { => { return true; }
+rules/leaders.rs:113:69 [combines_planet_values] body  combines_planet_values(core: &CoreState, who: Seat) -> bool { => { return false; }
+rules/leaders.rs:114:5 [combines_planet_values] cmp  status(core, who, Leader::XxekirGrom) == Some(LeaderStatus::Unlocked) => status(core, who, Leader::XxekirGrom) != Some(LeaderStatus::
+rules/leaders.rs:120:82 [has_commander_ability] body  has_commander_ability(cx: &Cx<'_>, who: Seat, commander: Leader) -> bo... => { return true; }
+rules/leaders.rs:120:82 [has_commander_ability] body  has_commander_ability(cx: &Cx<'_>, who: Seat, commander: Leader) -> bo... => { return false; }
+rules/leaders.rs:125:67 [controlled_total] body  controlled_total(cx: &Cx<'_>, who: Seat, spend: Spend) -> i64 { => { return 0; }
+rules/leaders.rs:125:67 [controlled_total] body  controlled_total(cx: &Cx<'_>, who: Seat, spend: Spend) -> i64 { => { return 1; }
+rules/leaders.rs:130:28 [controlled_total] cond  spend == Spend::Resources => !(spend == Spend::Resources)
+rules/leaders.rs:130:28 [controlled_total] cmp  spend == Spend::Resources => spend != Spend::Resources
+rules/leaders.rs:130:91 [controlled_total] lit  0 => 1
+rules/leaders.rs:137:101 [units_in_space] cmp  u.owner() == who => u.owner() != who
+rules/leaders.rs:141:41 [is_ground_force] body  is_ground_force(unit: Unit) -> bool { => { return true; }
+rules/leaders.rs:141:41 [is_ground_force] body  is_ground_force(unit: Unit) -> bool { => { return false; }
+rules/leaders.rs:142:5 [is_ground_force] logic  matches!(unit.data().base_type, UnitBase... || matches!(unit, Unit::HelTitanI | Unit::H... => matches!(unit.data().base_type, UnitBase... && matches!(unit
+rules/leaders.rs:148:84 [commander_unlocked] body  commander_unlocked(cx: &Cx<'_>, who: Seat, leader: Leader) -> Option<b... => { return None; }
+rules/leaders.rs:152:33 [commander_unlocked] cmp  controlled_total(cx, who, Spend::Resourc... >= 12 => controlled_total(cx, who, Spend::Resourc... > 12
+rules/leaders.rs:152:80 [commander_unlocked] lit  12 => 13
+rules/leaders.rs:153:31 [commander_unlocked] cmp  controlled_total(cx, who, Spend::Influen... >= 12 => controlled_total(cx, who, Spend::Influen... > 12
+rules/leaders.rs:153:78 [commander_unlocked] lit  12 => 13
+rules/leaders.rs:154:63 [commander_unlocked] cmp  p.econ.trade_goods >= 10 => p.econ.trade_goods > 10
+rules/leaders.rs:154:85 [commander_unlocked] lit  10 => 11
+rules/leaders.rs:155:53 [commander_unlocked] cmp  p.tech.owned.len() >= 8 => p.tech.owned.len() > 8
+rules/leaders.rs:155:75 [commander_unlocked] lit  8 => 9
+rules/leaders.rs:157:13 [commander_unlocked] cmp  units_in_space(core, who).filter(|(_, u)... >= 4 => units_in_space(core, who).filter(|(_, u)... > 4
+rules/leaders.rs:157:55 [commander_unlocked] cmp  u.kind().data().base_type == UnitBaseType::Dreadnought => u.kind().data().base_type != UnitBaseType::Dreadnought
+rules/leaders.rs:157:122 [commander_unlocked] lit  4 => 5
+rules/leaders.rs:161:13 [commander_unlocked] cmp  cell.units .as_slice() .iter() .filter(|... >= 5 => cell.units .as_slice() .iter() .filter(|... > 5
+rules/leaders.rs:164:29 [commander_unlocked] cmp  u.owner() == who => u.owner() != who
+rules/leaders.rs:167:21 [commander_unlocked] logic  d.ship && d.base_type != UnitBaseType::Fighter => d.ship || d.base_type != UnitBaseType::Fighter
+rules/leaders.rs:167:31 [commander_unlocked] cmp  d.base_type != UnitBaseType::Fighter => d.base_type == UnitBaseType::Fighter
+rules/leaders.rs:170:20 [commander_unlocked] lit  5 => 6
+rules/leaders.rs:174:29 [commander_unlocked] lit  false => true
+rules/leaders.rs:177:87 [commander_unlocked] lit  false => true
+rules/leaders.rs:178:17 [commander_unlocked] logic  board::space_units(core, sys).iter().any... || board::planets_of(core, sys) .any(|pl| b... => board::space_units(core, sys).iter().any... && board::planet
+rules/leaders.rs:178:62 [commander_unlocked] logic  u.owner() == who && is_ground_force(u.kind()) => u.owner() == who || is_ground_force(u.kind())
+rules/leaders.rs:178:62 [commander_unlocked] cmp  u.owner() == who => u.owner() != who
+rules/leaders.rs:180:80 [commander_unlocked] logic  u.owner() == who && is_ground_force(u.kind()) => u.owner() == who || is_ground_force(u.kind())
+rules/leaders.rs:180:80 [commander_unlocked] cmp  u.owner() == who => u.owner() != who
+rules/leaders.rs:183:32 [commander_unlocked] cond  core.meta().rules_version >= RULES_FACTION_EFFECTS => !(core.meta().rules_version >= RULES_FACTION_EFFECTS)
+rules/leaders.rs:183:32 [commander_unlocked] cmp  core.meta().rules_version >= RULES_FACTION_EFFECTS => core.meta().rules_version > RULES_FACTION_EFFECTS
+rules/leaders.rs:184:86 [commander_unlocked] cmp  *f == Feat::LastToPass => *f != Feat::LastToPass
+rules/leaders.rs:195:5 [scored_count] arith  set.public.len() + set.secret.len() => set.public.len() - set.secret.len()
+rules/leaders.rs:205:12 [unlockable] cmp  *status == LeaderStatus::Locked => *status != LeaderStatus::Locked
+rules/leaders.rs:212:16 [unlockable] logic  *status == LeaderStatus::Locked && kind(... && !out.as_slice()[..commanders].contains(l... => *status == LeaderStatus::Locked && kind(... || !out.as_slice
+rules/leaders.rs:212:16 [unlockable] logic  *status == LeaderStatus::Locked && kind(*leader) == LeaderType::Hero => *status == LeaderStatus::Locked || kind(*leader) == LeaderTy
+rules/leaders.rs:248:72 [ready] body  ready(core: &mut CoreState, who: Seat, leader: Leader) -> bool { => { return false; }
+rules/leaders.rs:274:78 [extra_die_agent] body  extra_die_agent(core: &mut CoreState, who: Seat, unit: Unit) -> bool { => { return true; }
+rules/leaders.rs:274:78 [extra_die_agent] body  extra_die_agent(core: &mut CoreState, who: Seat, unit: Unit) -> bool { => { return false; }
+rules/leaders.rs:276:69 [extra_die_agent] lit  false => true
+rules/leaders.rs:279:5 [extra_die_agent] lit  true => false
+rules/leaders.rs:283:71 [activate_letnev_hero] body  activate_letnev_hero(core: &mut CoreState, who: Seat) -> bool { => { return true; }
+rules/leaders.rs:283:71 [activate_letnev_hero] body  activate_letnev_hero(core: &mut CoreState, who: Seat) -> bool { => { return false; }
+rules/leaders.rs:285:69 [activate_letnev_hero] lit  false => true
+rules/leaders.rs:286:8 [activate_letnev_hero] cond  p.production_timers.fleet_supply_unlimited_until.is(round) => !(p.production_timers.fleet_supply_unlimited_until.is(round)
+rules/leaders.rs:287:16 [activate_letnev_hero] lit  false => true
+rules/leaders.rs:290:5 [activate_letnev_hero] lit  true => false
+rules/leaders.rs:294:70 [activate_hacan_hero] body  activate_hacan_hero(core: &mut CoreState, who: Seat) -> bool { => { return true; }
+rules/leaders.rs:294:70 [activate_hacan_hero] body  activate_hacan_hero(core: &mut CoreState, who: Seat) -> bool { => { return false; }
+rules/leaders.rs:296:69 [activate_hacan_hero] lit  false => true
+rules/leaders.rs:298:5 [activate_hacan_hero] lit  true => false
+rules/leaders.rs:342:66 [end_of_round] body  end_of_round(core: &mut CoreState) -> SmallList<Seat, 8> { => { return Default::default(); }
+rules/leaders.rs:348:12 [end_of_round] cond  p.production_timers.fleet_supply_unlimited_until.is(round) => !(p.production_timers.fleet_supply_unlimited_until.is(round)
+rules/leaders.rs:350:16 [end_of_round] cond  p.leaders.status.get(&Leader::DarktalonTreilla) == Some(&LeaderStatus::Unlocked) => !(p.leaders.status.get(&Leader::DarktalonTreilla) == Some(&L
+rules/leaders.rs:350:16 [end_of_round] cmp  p.leaders.status.get(&Leader::DarktalonT... == Some(&LeaderStatus::Unlocked) => p.leaders.status.get(&Leader::DarktalonT... != Some(&LeaderS
+rules/leaders.rs:360:72 [can_resolve_action] body  can_resolve_action(cx: &Cx<'_>, who: Seat, leader: Leader) -> bool { => { return true; }
+rules/leaders.rs:360:72 [can_resolve_action] body  can_resolve_action(cx: &Cx<'_>, who: Seat, leader: Leader) -> bool { => { return false; }
+rules/leaders.rs:366:69 [can_resolve_action] cmp  i16::from(p.faction.data().commodities) > p.econ.commodities => i16::from(p.faction.data().commodities) >= p.econ.commoditie
+rules/leaders.rs:371:30 [can_resolve_action] cmp  p.production_timers.fleet_supply_unlimit... != Some(core.meta().round) => p.production_timers.fleet_supply_unlimit... == Some(core.met
+rules/leaders.rs:373:61 [can_resolve_action] lit  true => false
+rules/leaders.rs:381:98 [action_candidates] body  action_candidates(cx: &Cx<'_>, who: Seat, delivered: impl Fn(Leader) -... => { return Default::default(); }
+rules/leaders.rs:386:12 [action_candidates] cond  usable_now(leader, *status) && is_action_window(leader) && (delivered(leader) ||... => !(usable_now(leader, *status) && is_action_window(leader) &&
+rules/leaders.rs:386:12 [action_candidates] logic  usable_now(leader, *status) && is_action... && can_resolve_action(cx, who, leader) => usable_now(leader, *status) && is_action... || can_resolve_a
+rules/leaders.rs:386:12 [action_candidates] logic  usable_now(leader, *status) && is_action... && (delivered(leader) || cx.env.leader_acti... => usable_now(leader, *status) && is_action... || (delivered(le
+rules/leaders.rs:386:12 [action_candidates] logic  usable_now(leader, *status) && is_action_window(leader) => usable_now(leader, *status) || is_action_window(leader)
+rules/leaders.rs:388:17 [action_candidates] logic  delivered(leader) || cx.env.leader_action(who, leader).is_som... => delivered(leader) && cx.env.leader_action(who, leader).is_so
+rules/objective_windows.rs:24:47 [points] body  points(core: &CoreState, who: Seat) -> u8 { => { return 0; }
+rules/objective_windows.rs:24:47 [points] body  points(core: &CoreState, who: Seat) -> u8 { => { return 1; }
+rules/objective_windows.rs:25:40 [points] lit  0 => 1
+rules/objective_windows.rs:25:86 [points] lit  0 => 1
+rules/objective_windows.rs:73:74 [ScoreOne::pay_public] body  pay_public(&self, sx: &mut Sx<'_>, obj: PublicObjective) -> bool { => { return true; }
+rules/objective_windows.rs:73:74 [ScoreOne::pay_public] body  pay_public(&self, sx: &mut Sx<'_>, obj: PublicObjective) -> bool { => { return false; }
+rules/objective_windows.rs:75:21 [ScoreOne::pay_public] lit  true => false
+rules/objective_windows.rs:83:76 [ScoreOne::priced_ok] body  priced_ok(&self, sx: &mut Sx<'_>, secret: SecretObjective) -> bool { => { return true; }
+rules/objective_windows.rs:83:76 [ScoreOne::priced_ok] body  priced_ok(&self, sx: &mut Sx<'_>, secret: SecretObjective) -> bool { => { return false; }
+rules/objective_windows.rs:84:12 [ScoreOne::priced_ok] cond  !matches!(secret, SecretObjective::DestroyHereticalWorks | SecretObjective::Form... => !(!matches!(secret, SecretObjective::DestroyHereticalWorks |
+rules/objective_windows.rs:85:20 [ScoreOne::priced_ok] lit  true => false
+rules/objective_windows.rs:87:9 [ScoreOne::priced_ok] logic  self.price.is_some() && fx_pay::pay_secret(sx.state, self.who, s... => self.price.is_some() || fx_pay::pay_secret(sx.state, self.wh
+rules/objective_windows.rs:99:12 [ScoreOne::step] cond  self.stage == SStage::Start => !(self.stage == SStage::Start)
+rules/objective_windows.rs:99:12 [ScoreOne::step] cmp  self.stage == SStage::Start => self.stage != SStage::Start
+rules/objective_windows.rs:108:68 [ScoreOne::ask_of] body  ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/objective_windows.rs:109:12 [ScoreOne::ask_of] cond  self.stage != SStage::Asking => !(self.stage != SStage::Asking)
+rules/objective_windows.rs:109:12 [ScoreOne::ask_of] cmp  self.stage != SStage::Asking => self.stage == SStage::Asking
+rules/objective_windows.rs:115:79 [ScoreOne::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/objective_windows.rs:116:12 [ScoreOne::answer] cond  self.stage != SStage::Asking => !(self.stage != SStage::Asking)
+rules/objective_windows.rs:116:12 [ScoreOne::answer] cmp  self.stage != SStage::Asking => self.stage == SStage::Asking
+rules/objective_windows.rs:121:73 [ScoreOne::answer] cond  self.offers.as_slice().contains(&Offer::Plot { secret, token }) => !(self.offers.as_slice().contains(&Offer::Plot { secret, tok
+rules/objective_windows.rs:124:20 [ScoreOne::answer] cond  !fx_plots::score_as_plot(sx.state, self.who, secret, token) => !(!fx_plots::score_as_plot(sx.state, self.who, secret, token
+rules/objective_windows.rs:129:26 [ScoreOne::answer] lit  false => true
+rules/objective_windows.rs:133:61 [ScoreOne::answer] cond  self.offers.as_slice().contains(&Offer::Objective(obj)) => !(self.offers.as_slice().contains(&Offer::Objective(obj)))
+rules/objective_windows.rs:136:48 [ScoreOne::answer] cond  !public_now => !(!public_now)
+rules/objective_windows.rs:139:28 [ScoreOne::answer] cond  !hand_holds(sx.state, self.who, s) || !(self.priced_ok(sx, s)) => !(!hand_holds(sx.state, self.who, s) || !(self.priced_ok(sx,
+rules/objective_windows.rs:139:28 [ScoreOne::answer] logic  !hand_holds(sx.state, self.who, s) || !(self.priced_ok(sx, s)) => !hand_holds(sx.state, self.who, s) && !(self.priced_ok(sx, s
+rules/objective_windows.rs:142:28 [ScoreOne::answer] cond  !fx::score_secret(sx.state, self.who, s) => !(!fx::score_secret(sx.state, self.who, s))
+rules/objective_windows.rs:210:68 [PlaceCard::ask_of] body  ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/objective_windows.rs:211:10 [PlaceCard::ask_of] cmp  self.stage == PStage::Asking => self.stage != PStage::Asking
+rules/objective_windows.rs:214:79 [PlaceCard::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/objective_windows.rs:216:84 [PlaceCard::answer] cond  fx_plots::place_card(sx.state, self.who, card, self.token) => !(fx_plots::place_card(sx.state, self.who, card, self.token)
+rules/objective_windows.rs:273:68 [HandLimit::ask_of] body  ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/objective_windows.rs:274:12 [HandLimit::ask_of] cond  self.stage != HStage::Asking => !(self.stage != HStage::Asking)
+rules/objective_windows.rs:274:12 [HandLimit::ask_of] cmp  self.stage != HStage::Asking => self.stage == HStage::Asking
+rules/objective_windows.rs:283:79 [HandLimit::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/objective_windows.rs:285:78 [HandLimit::answer] cond  hand_holds(sx.state, self.who, s) => !(hand_holds(sx.state, self.who, s))
+rules/objective_windows.rs:295:78 [hand_holds] body  hand_holds(core: &CoreState, who: Seat, secret: SecretObjective) -> bo... => { return true; }
+rules/objective_windows.rs:295:78 [hand_holds] body  hand_holds(core: &CoreState, who: Seat, secret: SecretObjective) -> bo... => { return false; }
+rules/objectives.rs:17:69 [reveal_top] body  reveal_top(core: &mut CoreState) -> Option<PublicObjective> { => { return None; }
+rules/objectives.rs:25:82 [reveal_stage] body  reveal_stage(core: &mut CoreState, stage: u8) -> Option<PublicObjectiv... => { return None; }
+rules/relic_windows.rs:22:56 [opts] body  opts(list: impl IntoIterator<Item = ROpt>) -> Opts { => { return Default::default(); }
+rules/relic_windows.rs:50:58 [Neuraloop::spendable] body  spendable(&self, core: &CoreState) -> Vec<Relic> { => { return Vec::new(); }
+rules/relic_windows.rs:67:12 [Neuraloop::step] cond  self.stage == XStage::Start => !(self.stage == XStage::Start)
+rules/relic_windows.rs:67:12 [Neuraloop::step] cmp  self.stage == XStage::Start => self.stage != XStage::Start
+rules/relic_windows.rs:68:29 [Neuraloop::step] cond  self.spendable(sx.state).is_empty() => !(self.spendable(sx.state).is_empty())
+rules/relic_windows.rs:70:12 [Neuraloop::step] cond  self.stage == XStage::Asking => !(self.stage == XStage::Asking)
+rules/relic_windows.rs:70:12 [Neuraloop::step] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/relic_windows.rs:73:68 [Neuraloop::ask_of] body  ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/relic_windows.rs:74:10 [Neuraloop::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/relic_windows.rs:85:79 [Neuraloop::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/relic_windows.rs:87:77 [Neuraloop::answer] cond  self.spendable(sx.state).contains(&r) => !(self.spendable(sx.state).contains(&r))
+rules/relic_windows.rs:130:12 [Codex::step] cond  self.stage != XStage::Done => !(self.stage != XStage::Done)
+rules/relic_windows.rs:130:12 [Codex::step] cmp  self.stage != XStage::Done => self.stage == XStage::Done
+rules/relic_windows.rs:131:29 [Codex::step] cond  self.taken >= 3 || sx.state.cards().discarded_action.is_empty() => !(self.taken >= 3 || sx.state.cards().discarded_action.is_em
+rules/relic_windows.rs:131:29 [Codex::step] logic  self.taken >= 3 || sx.state.cards().discarded_action.is_emp... => self.taken >= 3 && sx.state.cards().discarded_action.is_emp.
+rules/relic_windows.rs:131:29 [Codex::step] cmp  self.taken >= 3 => self.taken > 3
+rules/relic_windows.rs:131:43 [Codex::step] lit  3 => 4
+rules/relic_windows.rs:133:12 [Codex::step] cond  self.stage == XStage::Asking => !(self.stage == XStage::Asking)
+rules/relic_windows.rs:133:12 [Codex::step] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/relic_windows.rs:136:68 [Codex::ask_of] body  ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/relic_windows.rs:137:10 [Codex::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/relic_windows.rs:138:61 [Codex::ask_of] lit  0 => 1
+rules/relic_windows.rs:150:79 [Codex::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/relic_windows.rs:152:77 [Codex::answer] cond  sx.state.cards().discarded_action.contains(&card) => !(sx.state.cards().discarded_action.contains(&card))
+rules/relic_windows.rs:154:17 [Codex::answer] assign  self.taken += 1 => self.taken -= 1
+rules/relic_windows.rs:154:31 [Codex::answer] lit  1 => 2
+rules/relic_windows.rs:195:12 [TitanPrototype::step] cond  self.stage == XStage::Start => !(self.stage == XStage::Start)
+rules/relic_windows.rs:195:12 [TitanPrototype::step] cmp  self.stage == XStage::Start => self.stage != XStage::Start
+rules/relic_windows.rs:196:29 [TitanPrototype::step] cond  sx.state.players().iter().next().is_none() => !(sx.state.players().iter().next().is_none())
+rules/relic_windows.rs:198:12 [TitanPrototype::step] cond  self.stage == XStage::Asking => !(self.stage == XStage::Asking)
+rules/relic_windows.rs:198:12 [TitanPrototype::step] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/relic_windows.rs:201:68 [TitanPrototype::ask_of] body  ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/relic_windows.rs:202:10 [TitanPrototype::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/relic_windows.rs:214:79 [TitanPrototype::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/relic_windows.rs:216:77 [TitanPrototype::answer] cond  sx.state.players().by_seat(seat).is_some() => !(sx.state.players().by_seat(seat).is_some())
+rules/relic_windows.rs:257:12 [StellarConverter::step] cond  self.stage == XStage::Start => !(self.stage == XStage::Start)
+rules/relic_windows.rs:257:12 [StellarConverter::step] cmp  self.stage == XStage::Start => self.stage != XStage::Start
+rules/relic_windows.rs:258:29 [StellarConverter::step] cond  self.targets.is_empty() => !(self.targets.is_empty())
+rules/relic_windows.rs:260:12 [StellarConverter::step] cond  self.stage == XStage::Asking => !(self.stage == XStage::Asking)
+rules/relic_windows.rs:260:12 [StellarConverter::step] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/relic_windows.rs:263:68 [StellarConverter::ask_of] body  ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/relic_windows.rs:264:10 [StellarConverter::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/relic_windows.rs:271:103 [StellarConverter::ask_of] lit  0 => 1
+rules/relic_windows.rs:276:79 [StellarConverter::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/relic_windows.rs:278:82 [StellarConverter::answer] cond  self.targets.iter().any(|(_, p)| *p == planet) => !(self.targets.iter().any(|(_, p)| *p == planet))
+rules/relic_windows.rs:278:115 [StellarConverter::answer] cmp  *p == planet => *p != planet
+rules/relic_windows.rs:324:12 [GainTechnology::step] cond  self.stage == XStage::Start => !(self.stage == XStage::Start)
+rules/relic_windows.rs:324:12 [GainTechnology::step] cmp  self.stage == XStage::Start => self.stage != XStage::Start
+rules/relic_windows.rs:325:29 [GainTechnology::step] cond  self.options.is_empty() => !(self.options.is_empty())
+rules/relic_windows.rs:327:12 [GainTechnology::step] cond  self.stage == XStage::Asking => !(self.stage == XStage::Asking)
+rules/relic_windows.rs:327:12 [GainTechnology::step] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/relic_windows.rs:330:68 [GainTechnology::ask_of] body  ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/relic_windows.rs:331:10 [GainTechnology::ask_of] cmp  self.stage == XStage::Asking => self.stage != XStage::Asking
+rules/relic_windows.rs:339:78 [GainTechnology::answer] body  answer(&mut self, _: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> { => { return Ok(()); }
+rules/relic_windows.rs:341:71 [GainTechnology::answer] cond  self.options.contains(&t) => !(self.options.contains(&t))
+rules/scoring_book.rs:80:35 [ScoringBook::new] logic  one_per_player && has_occurrence => one_per_player || has_occurrence
+rules/scoring_book.rs:102:35 [ScoringBook::restore] logic  one_per_player && has_occurrence => one_per_player || has_occurrence
+rules/scoring_book.rs:109:40 [ScoringBook::is_complete] body  is_complete(&self) -> bool { => { return true; }
+rules/scoring_book.rs:109:40 [ScoringBook::is_complete] body  is_complete(&self) -> bool { => { return false; }
+rules/scoring_book.rs:110:9 [ScoringBook::is_complete] logic  self.pending.is_empty() && self.plot_card.is_none() => self.pending.is_empty() || self.plot_card.is_none()
+rules/scoring_book.rs:138:68 [ScoringBook::asked] body  asked(&self, offers: &mut dyn Offers) -> Option<Asked> { => { return None; }
+rules/scoring_book.rs:141:16 [ScoringBook::asked] cond  self.status && !self.public_used.contains(seat) => !(self.status && !self.public_used.contains(seat))
+rules/scoring_book.rs:141:16 [ScoringBook::asked] logic  self.status && !self.public_used.contains(seat) => self.status || !self.public_used.contains(seat)
+rules/scoring_book.rs:144:30 [ScoringBook::asked] cond  self.status && self.secret_used.contains(seat) => !(self.status && self.secret_used.contains(seat))
+rules/scoring_book.rs:144:30 [ScoringBook::asked] logic  self.status && self.secret_used.contains(seat) => self.status || self.secret_used.contains(seat)
+rules/scoring_book.rs:149:30 [ScoringBook::asked] cond  self.capped_by_occurrence && offers.scored_at_occurrence(seat) => !(self.capped_by_occurrence && offers.scored_at_occurrence(s
+rules/scoring_book.rs:149:30 [ScoringBook::asked] logic  self.capped_by_occurrence && offers.scored_at_occurrence(seat) => self.capped_by_occurrence || offers.scored_at_occurrence(sea
+rules/scoring_book.rs:152:16 [ScoringBook::asked] cond  !list.is_empty() => !(!list.is_empty())
+rules/scoring_book.rs:161:76 [ScoringBook::keeps_place] body  keeps_place(&self, asked: &Asked, offers: &mut dyn Offers) -> bool { => { return true; }
+rules/scoring_book.rs:161:76 [ScoringBook::keeps_place] body  keeps_place(&self, asked: &Asked, offers: &mut dyn Offers) -> bool { => { return false; }
+rules/scoring_book.rs:162:47 [ScoringBook::keeps_place] logic  next.offset == asked.offset && next.seat == asked.seat => next.offset == asked.offset || next.seat == asked.seat
+rules/scoring_book.rs:162:47 [ScoringBook::keeps_place] cmp  next.offset == asked.offset => next.offset != asked.offset
+rules/scoring_book.rs:162:78 [ScoringBook::keeps_place] cmp  next.seat == asked.seat => next.seat != asked.seat
+rules/scoring_book.rs:165:61 [ScoringBook::truncate_keep] body  truncate_keep(&mut self, asked: &Asked, stay: bool) { => { return (); }
+rules/scoring_book.rs:166:20 [ScoringBook::truncate_keep] arith  self.pending.len() - asked.offset - usize::from(!stay) => self.pending.len() - asked.offset + usize::from(!stay)
+rules/scoring_book.rs:166:20 [ScoringBook::truncate_keep] arith  self.pending.len() - asked.offset => self.pending.len() + asked.offset
+rules/scoring_book.rs:171:36 [ScoringBook::card_placed] body  card_placed(&mut self) { => { return (); }
+rules/scoring_book.rs:177:88 [ScoringBook::after] body  after(&mut self, asked: &Asked, outcome: Outcome, offers: &mut dyn Off... => { return (); }
+rules/scoring_book.rs:179:78 [ScoringBook::after] lit  false => true
+rules/scoring_book.rs:181:20 [ScoringBook::after] cond  !placed => !(!placed)
+rules/scoring_book.rs:189:31 [ScoringBook::after] cond  self.status => !(self.status)
+rules/scoring_book.rs:190:24 [ScoringBook::after] cond  secret => !(secret)
+rules/scoring_book.rs:196:27 [ScoringBook::after] cond  self.one_per_player => !(self.one_per_player)
+rules/scoring_book.rs:200:21 [ScoringBook::after] lit  true => false
+rules/strategy.rs:53:61 [player] body  player(core: &CoreState, seat: Seat) -> Option<&Player> { => { return None; }
+rules/strategy.rs:54:36 [player] cmp  p.seat == seat => p.seat != seat
+rules/strategy.rs:66:18 [pick_order] lit  2 => 3
+rules/strategy.rs:83:8 [next_picker] logic  order.is_empty() || core.strategy().unclaimed.is_empty() => order.is_empty() && core.strategy().unclaimed.is_empty()
+rules/strategy.rs:90:8 [next_picker] cmp  picks >= order.len() => picks > order.len()
+rules/strategy.rs:105:50 [draft] body  draft(core: &CoreState) -> Option<Draft> { => { return None; }
+rules/strategy.rs:112:82 [unused_cards] body  unused_cards(core: &CoreState, seat: Seat) -> SmallList<StrategyCard, ... => { return Default::default(); }
+rules/strategy.rs:116:16 [unused_cards] cond  !p.strat_exhausted.contains(*c) => !(!p.strat_exhausted.contains(*c))
+rules/strategy.rs:126:50 [commodity_limit] body  commodity_limit(faction: Faction) -> i32 { => { return 0; }
+rules/strategy.rs:126:50 [commodity_limit] body  commodity_limit(faction: Faction) -> i32 { => { return 1; }
+rules/strategy.rs:139:91 [secondary_is_free] body  secondary_is_free(cx: &Cx<'_>, who: Seat, card: Option<StrategyCardKin... => { return false; }
+rules/strategy.rs:140:5 [secondary_is_free] logic  card.is_some() && (cx.kernel.hooks.general.secondary_is_fr... => card.is_some() || (cx.kernel.hooks.general.secondary_is_fr..
+rules/strategy.rs:141:13 [secondary_is_free] logic  cx.kernel.hooks.general.secondary_is_fre... || cx.env.secondary_is_free(who, card) => cx.kernel.hooks.general.secondary_is_fre... && cx.env.second
+rules/strategy.rs:146:80 [secondary_eligible] body  secondary_eligible(cx: &Cx<'_>, who: Seat, card: StrategyCard) -> bool... => { return true; }
+rules/strategy.rs:146:80 [secondary_eligible] body  secondary_eligible(cx: &Cx<'_>, who: Seat, card: StrategyCard) -> bool... => { return false; }
+rules/strategy.rs:148:8 [secondary_eligible] cond  kind == Some(StrategyCardKind::Leadership) => !(kind == Some(StrategyCardKind::Leadership))
+rules/strategy.rs:148:8 [secondary_eligible] cmp  kind == Some(StrategyCardKind::Leadership) => kind != Some(StrategyCardKind::Leadership)
+rules/strategy.rs:153:16 [secondary_eligible] lit  false => true
+rules/strategy.rs:155:8 [secondary_eligible] cond  !(!secondary_costs_token(kind) || secondary_is_free(cx, who, kind) || p.econ.str... => !(!(!secondary_costs_token(kind) || secondary_is_free(cx, wh
+rules/strategy.rs:155:10 [secondary_eligible] logic  !secondary_costs_token(kind) || secondar... || p.econ.strategic_tokens > 0 => !secondary_costs_token(kind) || secondar... && p.econ.strate
+rules/strategy.rs:155:10 [secondary_eligible] logic  !secondary_costs_token(kind) || secondary_is_free(cx, who, kind) => !secondary_costs_token(kind) && secondary_is_free(cx, who, k
+rules/strategy.rs:155:78 [secondary_eligible] cmp  p.econ.strategic_tokens > 0 => p.econ.strategic_tokens >= 0
+rules/strategy.rs:155:104 [secondary_eligible] lit  0 => 1
+rules/strategy.rs:156:16 [secondary_eligible] lit  false => true
+rules/strategy.rs:164:94 [can_do_something] body  can_do_something(cx: &Cx<'_>, who: Seat, p: &Player, kind: StrategyCar... => { return true; }
+rules/strategy.rs:164:94 [can_do_something] body  can_do_something(cx: &Cx<'_>, who: Seat, p: &Player, kind: StrategyCar... => { return false; }
+rules/strategy.rs:167:16 [can_do_something] cond  !cx.env.can_research(who) => !(!cx.env.can_research(who))
+rules/strategy.rs:168:24 [can_do_something] lit  false => true
+rules/strategy.rs:170:13 [can_do_something] logic  cx.kernel.hooks.general.substitutes_prim... || cx.env.technology_secondary_affordable(w... => cx.kernel.hooks.general.substitutes_prim... && cx.env.techno
+rules/strategy.rs:170:13 [can_do_something] logic  cx.kernel.hooks.general.substitutes_prim... || cx.env.has_specialty_research_planet(who... => cx.kernel.hooks.general.substitutes_prim... && cx.env.has_sp
+rules/strategy.rs:170:13 [can_do_something] logic  cx.kernel.hooks.general.substitutes_prim... || cx.env.substitutes_primary(who, Some(kin... => cx.kernel.hooks.general.substitutes_prim... && cx.env.substi
+rules/strategy.rs:175:39 [can_do_something] cond  cx.core.meta().rules_version >= RULES_IMPERIAL_SECRET_CAP => !(cx.core.meta().rules_version >= RULES_IMPERIAL_SECRET_CAP)
+rules/strategy.rs:175:39 [can_do_something] cmp  cx.core.meta().rules_version >= RULES_IMPERIAL_SECRET_CAP => cx.core.meta().rules_version > RULES_IMPERIAL_SECRET_CAP
+rules/strategy.rs:181:36 [can_do_something] cmp  i32::from(p.econ.commodities) < commodity_limit(p.faction) => i32::from(p.econ.commodities) <= commodity_limit(p.faction)
+rules/strategy.rs:183:14 [can_do_something] lit  true => false
+rules/strategy_flow.rs:16:58 [sorted_by_initiative] lit  99 => 100
+rules/strategy_flow.rs:21:61 [deal] lit  false => true
+rules/strategy_flow.rs:28:5 [deal] lit  true => false
+rules/strategy_flow.rs:39:61 [swap] lit  false => true
+rules/strategy_flow.rs:44:8 [swap] cond  spent.remove(out) => !(spent.remove(out))
+rules/strategy_flow.rs:51:5 [swap] lit  true => false
+rules/strategy_flow.rs:55:48 [clear] body  clear(core: &mut CoreState, who: Seat) { => { return (); }
+rules/strategy_flow.rs:65:8 [exchange] logic  a == b || card_a == card_b => a == b && card_a == card_b
+rules/strategy_flow.rs:66:16 [exchange] lit  false => true
+rules/strategy_flow.rs:68:101 [exchange] lit  false => true
+rules/strategy_flow.rs:69:8 [exchange] logic  !pa.strat.as_slice().contains(&card_a) || !pb.strat.as_slice().contains(&card_b) => !pa.strat.as_slice().contains(&card_a) && !pb.strat.as_slice
+rules/strategy_flow.rs:95:8 [take_card] cmp  goods > 0 => goods >= 0
+rules/strategy_flow.rs:95:16 [take_card] lit  0 => 1
+rules/strategy_flow.rs:114:59 [replenish] body  replenish(core: &mut CoreState, who: Seat) -> i32 { => { return 0; }
+rules/strategy_flow.rs:114:59 [replenish] body  replenish(core: &mut CoreState, who: Seat) -> i32 { => { return 1; }
+rules/strategy_primaries.rs:29:54 [opts] body  opts(it: impl IntoIterator<Item = SOpt>) -> Opts { => { return Default::default(); }
+rules/strategy_primaries.rs:37:57 [sheet_total] body  sheet_total(core: &CoreState, who: Seat) -> i32 { => { return 0; }
+rules/strategy_primaries.rs:37:57 [sheet_total] body  sheet_total(core: &CoreState, who: Seat) -> i32 { => { return 1; }
+rules/strategy_primaries.rs:38:40 [sheet_total] lit  0 => 1
+rules/strategy_primaries.rs:39:9 [sheet_total] arith  i32::from(p.econ.tactic_tokens) + i32::f... + i32::from(p.econ.strategic_tokens) => i32::from(p.econ.tactic_tokens) + i32::f... - i32::from(p.ec
+rules/strategy_primaries.rs:39:9 [sheet_total] arith  i32::from(p.econ.tactic_tokens) + i32::from(p.econ.fleet_tokens) => i32::from(p.econ.tactic_tokens) - i32::from(p.econ.fleet_tok
+rules/strategy_primaries.rs:53:88 [apply_split] body  apply_split(core: &mut CoreState, who: Seat, tactic: u8, fleet: u8, st... => { return (); }
+rules/strategy_primaries.rs:93:79 [WarfarePrimary::tokens_on_board] body  tokens_on_board(core: &CoreState, who: Seat) -> SmallList<System, 16> ... => { return Default::default(); }
+rules/strategy_primaries.rs:97:46 [WarfarePrimary::floor] body  floor(&self, core: &CoreState) -> u8 { => { return 0; }
+rules/strategy_primaries.rs:97:46 [WarfarePrimary::floor] body  floor(&self, core: &CoreState) -> u8 { => { return 1; }
+rules/strategy_primaries.rs:98:71 [WarfarePrimary::floor] cmp  p.faction == Faction::TheBaronyOfLetnev => p.faction != Faction::TheBaronyOfLetnev
+rules/strategy_primaries.rs:99:12 [WarfarePrimary::floor] cond  letnev && self.letnev_zero_floor => !(letnev && self.letnev_zero_floor)
+rules/strategy_primaries.rs:99:12 [WarfarePrimary::floor] logic  letnev && self.letnev_zero_floor => letnev || self.letnev_zero_floor
+rules/strategy_primaries.rs:99:47 [WarfarePrimary::floor] lit  0 => 1
+rules/strategy_primaries.rs:99:58 [WarfarePrimary::floor] lit  2 => 3
+rules/strategy_primaries.rs:102:58 [WarfarePrimary::ask_now] body  ask_now(&self, core: &CoreState) -> Option<SAsk> { => { return None; }
+rules/strategy_primaries.rs:105:57 [WarfarePrimary::ask_now] lit  1 => 2
+rules/strategy_primaries.rs:123:12 [WarfarePrimary::step] cond  self.stage == WStage::Start => !(self.stage == WStage::Start)
+rules/strategy_primaries.rs:123:12 [WarfarePrimary::step] cmp  self.stage == WStage::Start => self.stage != WStage::Start
+rules/strategy_primaries.rs:126:12 [WarfarePrimary::step] cond  self.stage == WStage::Redistribute && sheet_total(sx.state, self.who) == 0 => !(self.stage == WStage::Redistribute && sheet_total(sx.state
+rules/strategy_primaries.rs:126:12 [WarfarePrimary::step] logic  self.stage == WStage::Redistribute && sheet_total(sx.state, self.who) == 0 => self.stage == WStage::Redistribute || sheet_total(sx.state, 
+rules/strategy_primaries.rs:126:12 [WarfarePrimary::step] cmp  self.stage == WStage::Redistribute => self.stage != WStage::Redistribute
+rules/strategy_primaries.rs:126:50 [WarfarePrimary::step] cmp  sheet_total(sx.state, self.who) == 0 => sheet_total(sx.state, self.who) != 0
+rules/strategy_primaries.rs:126:85 [WarfarePrimary::step] lit  0 => 1
+rules/strategy_primaries.rs:135:71 [WarfarePrimary::ask_of] body  ask_of(&self, core: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/strategy_primaries.rs:139:44 [WarfarePrimary::ask_of] lit  false => true
+rules/strategy_primaries.rs:144:45 [WarfarePrimary::ask_of] lit  false => true
+rules/strategy_primaries.rs:151:79 [WarfarePrimary::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/strategy_primaries.rs:154:12 [WarfarePrimary::answer] cond  !offered.opts.as_slice().contains(&Opt::Strategy(chosen)) => !(!offered.opts.as_slice().contains(&Opt::Strategy(chosen)))
+rules/strategy_primaries.rs:163:58 [WarfarePrimary::answer] lit  1 => 2
+rules/strategy_primaries.rs:225:71 [Diplomacy::systems] body  systems(core: &CoreState, who: Seat) -> SmallList<System, 16> { => { return Default::default(); }
+rules/strategy_primaries.rs:228:16 [Diplomacy::systems] cond  matches!(system, System::MecatolRex18 | System::MecatolRex112) || out.as_slice()... => !(matches!(system, System::MecatolRex18 | System::MecatolRex
+rules/strategy_primaries.rs:228:16 [Diplomacy::systems] logic  matches!(system, System::MecatolRex18 | ... || out.as_slice().last() == Some(system) => matches!(system, System::MecatolRex18 | ... && out.as_slice(
+rules/strategy_primaries.rs:228:82 [Diplomacy::systems] cmp  out.as_slice().last() == Some(system) => out.as_slice().last() != Some(system)
+rules/strategy_primaries.rs:237:83 [Diplomacy::exhausted] body  exhausted(core: &CoreState, who: Seat) -> SmallList<(System, Planet), ... => { return Default::default(); }
+rules/strategy_primaries.rs:242:55 [Diplomacy::after_choice] body  after_choice(&mut self, core: &mut CoreState) { => { return (); }
+rules/strategy_primaries.rs:247:28 [Diplomacy::after_choice] cond  *at == system => !(*at == system)
+rules/strategy_primaries.rs:247:28 [Diplomacy::after_choice] cmp  *at == system => *at != system
+rules/strategy_primaries.rs:258:40 [Diplomacy::ask_now] body  ask_now(&self) -> Option<SAsk> { => { return None; }
+rules/strategy_primaries.rs:275:12 [Diplomacy::step] cond  self.stage == DStage::Start => !(self.stage == DStage::Start)
+rules/strategy_primaries.rs:275:12 [Diplomacy::step] cmp  self.stage == DStage::Start => self.stage != DStage::Start
+rules/strategy_primaries.rs:276:16 [Diplomacy::step] cond  matches!(self.mode, DMode::Primary { .. }) && !Self::systems(sx.state, self.who)... => !(matches!(self.mode, DMode::Primary { .. }) && !Self::syste
+rules/strategy_primaries.rs:276:16 [Diplomacy::step] logic  matches!(self.mode, DMode::Primary { .. ... && !Self::systems(sx.state, self.who).is_em... => matches!(self.mode, DMode::Primary { .. ... || !Self::system
+rules/strategy_primaries.rs:282:12 [Diplomacy::step] cond  self.stage == DStage::Ready && (self.left == 0 || Self::exhausted(sx.state, self... => !(self.stage == DStage::Ready && (self.left == 0 || Self::ex
+rules/strategy_primaries.rs:282:12 [Diplomacy::step] logic  self.stage == DStage::Ready && (self.left == 0 || Self::exhausted(sx.st... => self.stage == DStage::Ready || (self.left == 0 || Self::exha
+rules/strategy_primaries.rs:282:12 [Diplomacy::step] cmp  self.stage == DStage::Ready => self.stage != DStage::Ready
+rules/strategy_primaries.rs:282:44 [Diplomacy::step] logic  self.left == 0 || Self::exhausted(sx.state, self.who).is_e... => self.left == 0 && Self::exhausted(sx.state, self.who).is_e..
+rules/strategy_primaries.rs:282:44 [Diplomacy::step] cmp  self.left == 0 => self.left != 0
+rules/strategy_primaries.rs:282:57 [Diplomacy::step] lit  0 => 1
+rules/strategy_primaries.rs:291:71 [Diplomacy::ask_of] body  ask_of(&self, core: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/strategy_primaries.rs:296:37 [Diplomacy::ask_of] lit  false => true
+rules/strategy_primaries.rs:307:85 [Diplomacy::ask_of] lit  0 => 1
+rules/strategy_primaries.rs:314:79 [Diplomacy::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/strategy_primaries.rs:317:12 [Diplomacy::answer] cond  !offered.opts.as_slice().contains(&Opt::Strategy(chosen)) => !(!offered.opts.as_slice().contains(&Opt::Strategy(chosen)))
+rules/strategy_primaries.rs:323:99 [Diplomacy::answer] cmp  *s != self.who => *s == self.who
+rules/strategy_primaries.rs:324:24 [Diplomacy::answer] cond  fx::place_command_token(sx.state, other, system) => !(fx::place_command_token(sx.state, other, system))
+rules/strategy_primaries.rs:332:17 [Diplomacy::answer] assign  self.left -= 1 => self.left += 1
+rules/strategy_primaries.rs:332:30 [Diplomacy::answer] lit  1 => 2
+rules/strategy_primaries.rs:374:61 [Politics::candidates] body  candidates(core: &CoreState) -> SmallList<Seat, 16> { => { return Default::default(); }
+rules/strategy_primaries.rs:376:74 [Politics::candidates] cmp  *s != speaker => *s == speaker
+rules/strategy_primaries.rs:380:56 [Politics::draw_and_look] body  draw_and_look(&mut self, core: &mut CoreState) { => { return (); }
+rules/strategy_primaries.rs:381:47 [Politics::draw_and_look] lit  2 => 3
+rules/strategy_primaries.rs:382:12 [Politics::draw_and_look] cond  self.primary => !(self.primary)
+rules/strategy_primaries.rs:383:22 [Politics::draw_and_look] lit  0 => 1
+rules/strategy_primaries.rs:383:25 [Politics::draw_and_look] lit  2 => 3
+rules/strategy_primaries.rs:400:12 [Politics::step] cond  self.stage == PStage::Start => !(self.stage == PStage::Start)
+rules/strategy_primaries.rs:400:12 [Politics::step] cmp  self.stage == PStage::Start => self.stage != PStage::Start
+rules/strategy_primaries.rs:401:16 [Politics::step] cond  self.primary && !Self::candidates(sx.state).is_empty() => !(self.primary && !Self::candidates(sx.state).is_empty())
+rules/strategy_primaries.rs:401:16 [Politics::step] logic  self.primary && !Self::candidates(sx.state).is_empty() => self.primary || !Self::candidates(sx.state).is_empty()
+rules/strategy_primaries.rs:414:71 [Politics::ask_of] body  ask_of(&self, core: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/strategy_primaries.rs:419:50 [Politics::ask_of] lit  false => true
+rules/strategy_primaries.rs:425:50 [Politics::ask_of] lit  false => true
+rules/strategy_primaries.rs:432:79 [Politics::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/strategy_primaries.rs:435:12 [Politics::answer] cond  !offered.opts.as_slice().contains(&Opt::Strategy(chosen)) => !(!offered.opts.as_slice().contains(&Opt::Strategy(chosen)))
+rules/strategy_primaries.rs:445:20 [Politics::answer] cond  placed == SOpt::Top => !(placed == SOpt::Top)
+rules/strategy_primaries.rs:445:20 [Politics::answer] cmp  placed == SOpt::Top => placed != SOpt::Top
+rules/strategy_primaries.rs:450:17 [Politics::answer] assign  self.next += 1 => self.next -= 1
+rules/strategy_primaries.rs:450:30 [Politics::answer] lit  1 => 2
+rules/strategy_primaries.rs:451:20 [Politics::answer] cond  usize::from(self.next) == self.looked.len() => !(usize::from(self.next) == self.looked.len())
+rules/strategy_primaries.rs:451:20 [Politics::answer] cmp  usize::from(self.next) == self.looked.len() => usize::from(self.next) != self.looked.len()
+rules/strategy_primaries.rs:503:67 [ImperialPrimary::controls_mecatol] body  controls_mecatol(core: &CoreState, who: Seat) -> bool { => { return true; }
+rules/strategy_primaries.rs:503:67 [ImperialPrimary::controls_mecatol] body  controls_mecatol(core: &CoreState, who: Seat) -> bool { => { return false; }
+rules/strategy_primaries.rs:508:49 [ImperialPrimary::finish] body  finish(&mut self, core: &mut CoreState) { => { return (); }
+rules/strategy_primaries.rs:509:12 [ImperialPrimary::finish] cond  Self::controls_mecatol(core, self.who) => !(Self::controls_mecatol(core, self.who))
+rules/strategy_primaries.rs:510:53 [ImperialPrimary::finish] lit  1 => 2
+rules/strategy_primaries.rs:526:12 [ImperialPrimary::step] cond  self.stage == IStage::Start => !(self.stage == IStage::Start)
+rules/strategy_primaries.rs:526:12 [ImperialPrimary::step] cmp  self.stage == IStage::Start => self.stage != IStage::Start
+rules/strategy_primaries.rs:527:16 [ImperialPrimary::step] cond  self.scoreable.is_empty() => !(self.scoreable.is_empty())
+rules/strategy_primaries.rs:539:68 [ImperialPrimary::ask_of] body  ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/strategy_primaries.rs:540:10 [ImperialPrimary::ask_of] cmp  self.stage == IStage::Score => self.stage != IStage::Score
+rules/strategy_primaries.rs:543:103 [ImperialPrimary::ask_of] lit  false => true
+rules/strategy_primaries.rs:547:79 [ImperialPrimary::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/strategy_primaries.rs:548:12 [ImperialPrimary::answer] cond  self.stage != IStage::Score => !(self.stage != IStage::Score)
+rules/strategy_primaries.rs:548:12 [ImperialPrimary::answer] cmp  self.stage != IStage::Score => self.stage == IStage::Score
+rules/strategy_primaries.rs:553:61 [ImperialPrimary::answer] cond  self.scoreable.as_slice().contains(&o) => !(self.scoreable.as_slice().contains(&o))
+rules/strategy_primaries.rs:556:29 [ImperialPrimary::answer] lit  true => false
+rules/strategy_primaries.rs:559:20 [ImperialPrimary::answer] cond  paid => !(paid)
+rules/strategy_primaries.rs:606:46 [TeWarfare::floor] body  floor(&self, core: &CoreState) -> u8 { => { return 0; }
+rules/strategy_primaries.rs:606:46 [TeWarfare::floor] body  floor(&self, core: &CoreState) -> u8 { => { return 1; }
+rules/strategy_primaries.rs:607:71 [TeWarfare::floor] cmp  p.faction == Faction::TheBaronyOfLetnev => p.faction != Faction::TheBaronyOfLetnev
+rules/strategy_primaries.rs:608:12 [TeWarfare::floor] cond  letnev && self.letnev_zero_floor => !(letnev && self.letnev_zero_floor)
+rules/strategy_primaries.rs:608:12 [TeWarfare::floor] logic  letnev && self.letnev_zero_floor => letnev || self.letnev_zero_floor
+rules/strategy_primaries.rs:608:47 [TeWarfare::floor] lit  0 => 1
+rules/strategy_primaries.rs:608:58 [TeWarfare::floor] lit  2 => 3
+rules/strategy_primaries.rs:611:58 [TeWarfare::ask_now] body  ask_now(&self, core: &CoreState) -> Option<SAsk> { => { return None; }
+rules/strategy_primaries.rs:631:12 [TeWarfare::step] cond  self.stage == TStage::Start => !(self.stage == TStage::Start)
+rules/strategy_primaries.rs:631:12 [TeWarfare::step] cmp  self.stage == TStage::Start => self.stage != TStage::Start
+rules/strategy_primaries.rs:632:29 [TeWarfare::step] cond  sheet_total(sx.state, self.who) > 0 => !(sheet_total(sx.state, self.who) > 0)
+rules/strategy_primaries.rs:632:29 [TeWarfare::step] cmp  sheet_total(sx.state, self.who) > 0 => sheet_total(sx.state, self.who) >= 0
+rules/strategy_primaries.rs:632:63 [TeWarfare::step] lit  0 => 1
+rules/strategy_primaries.rs:634:12 [TeWarfare::step] cond  self.stage == TStage::Choose && self.systems.is_empty() => !(self.stage == TStage::Choose && self.systems.is_empty())
+rules/strategy_primaries.rs:634:12 [TeWarfare::step] logic  self.stage == TStage::Choose && self.systems.is_empty() => self.stage == TStage::Choose || self.systems.is_empty()
+rules/strategy_primaries.rs:634:12 [TeWarfare::step] cmp  self.stage == TStage::Choose => self.stage != TStage::Choose
+rules/strategy_primaries.rs:643:71 [TeWarfare::ask_of] body  ask_of(&self, core: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/strategy_primaries.rs:649:49 [TeWarfare::ask_of] lit  false => true
+rules/strategy_primaries.rs:658:31 [TeWarfare::ask_of] lit  false => true
+rules/strategy_primaries.rs:661:35 [TeWarfare::ask_of] lit  false => true
+rules/strategy_primaries.rs:669:79 [TeWarfare::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/strategy_primaries.rs:672:12 [TeWarfare::answer] cond  !offered.opts.as_slice().contains(&Opt::Strategy(chosen)) => !(!offered.opts.as_slice().contains(&Opt::Strategy(chosen)))
+rules/strategy_secondary.rs:173:81 [SecondaryStep::new] lit  false => true
+rules/strategy_secondary.rs:269:94 [SecondaryStep::ask_of] lit  0 => 1
+rules/strategy_secondary.rs:270:14 [SecondaryStep::ask_of] logic  f.costs_token && !f.waivers.is_empty() => f.costs_token || !f.waivers.is_empty()
+rules/strategy_secondary.rs:283:26 [SecondaryStep::ask_of] cmp  self.card.data().kind == StrategyCardKind::Leadership => self.card.data().kind != StrategyCardKind::Leadership
+rules/strategy_secondary.rs:288:21 [SecondaryStep::ask_of] cond  leadership => !(leadership)
+rules/strategy_secondary.rs:288:109 [SecondaryStep::ask_of] lit  true => false
+rules/strategy_secondary.rs:307:33 [SecondaryStep::answer] lit  0 => 1
+rules/strategy_secondary.rs:310:40 [SecondaryStep::answer] lit  false => true
+rules/strategy_secondary.rs:316:37 [SecondaryStep::answer] logic  !f.costs_token && f.primary_instead => !f.costs_token || f.primary_instead
+rules/strategy_secondary.rs:328:42 [SecondaryStep::answer] lit  0 => 1
+rules/strategy_windows.rs:52:53 [TradePrimary::needs] body  needs(core: &CoreState, seat: Seat) -> bool { => { return true; }
+rules/strategy_windows.rs:52:53 [TradePrimary::needs] body  needs(core: &CoreState, seat: Seat) -> bool { => { return false; }
+rules/strategy_windows.rs:53:54 [TradePrimary::needs] cmp  p.econ.commodities < i16::from(p.faction.data().commodities) => p.econ.commodities <= i16::from(p.faction.data().commodities
+rules/strategy_windows.rs:68:99 [TradePrimary::step] cmp  *s != self.who => *s == self.who
+rules/strategy_windows.rs:84:83 [TradePrimary::ask_of] body  ask_of(&self, _: &CoreState, _: &crate::kernel::Kernel) -> Option<Choi... => { return None; }
+rules/strategy_windows.rs:85:10 [TradePrimary::ask_of] cmp  self.stage == TStage::Pick => self.stage != TStage::Pick
+rules/strategy_windows.rs:88:43 [TradePrimary::ask_of] lit  false => true
+rules/strategy_windows.rs:99:79 [TradePrimary::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/strategy_windows.rs:100:12 [TradePrimary::answer] cond  self.stage != TStage::Pick => !(self.stage != TStage::Pick)
+rules/strategy_windows.rs:100:12 [TradePrimary::answer] cmp  self.stage != TStage::Pick => self.stage == TStage::Pick
+rules/strategy_windows.rs:105:64 [TradePrimary::answer] cond  self.remaining.as_slice().contains(&seat) => !(self.remaining.as_slice().contains(&seat))
+rules/strategy_windows.rs:107:43 [TradePrimary::answer] cmp  *s != seat => *s == seat
+rules/trade.rs:23:42 [KernelEnv::has_iihq] body  has_iihq(&self, _: Seat) -> bool { => { return true; }
+rules/trade.rs:23:42 [KernelEnv::has_iihq] body  has_iihq(&self, _: Seat) -> bool { => { return false; }
+rules/trade.rs:24:9 [KernelEnv::has_iihq] lit  false => true
+rules/trade.rs:26:40 [KernelEnv::wide] body  wide(&self, who: Seat) -> bool { => { return true; }
+rules/trade.rs:26:40 [KernelEnv::wide] body  wide(&self, who: Seat) -> bool { => { return false; }
+rules/trade.rs:29:60 [KernelEnv::transaction_reach] body  transaction_reach(&self, _: Seat, _: Seat) -> bool { => { return true; }
+rules/trade.rs:29:60 [KernelEnv::transaction_reach] body  transaction_reach(&self, _: Seat, _: Seat) -> bool { => { return false; }
+rules/trade.rs:30:9 [KernelEnv::transaction_reach] lit  false => true
+rules/trade.rs:32:60 [KernelEnv::exempt_from_limit] body  exempt_from_limit(&self, _: Seat, _: Seat) -> bool { => { return true; }
+rules/trade.rs:32:60 [KernelEnv::exempt_from_limit] body  exempt_from_limit(&self, _: Seat, _: Seat) -> bool { => { return false; }
+rules/trade.rs:33:9 [KernelEnv::exempt_from_limit] lit  false => true
+rules/trade.rs:35:55 [KernelEnv::trades_action_cards] body  trades_action_cards(&self, who: Seat) -> bool { => { return true; }
+rules/trade.rs:35:55 [KernelEnv::trades_action_cards] body  trades_action_cards(&self, who: Seat) -> bool { => { return false; }
+rules/trade.rs:38:37 [KernelEnv::black_market] body  black_market(&self) -> bool { => { return true; }
+rules/trade.rs:38:37 [KernelEnv::black_market] body  black_market(&self) -> bool { => { return false; }
+rules/trade.rs:47:63 [take] body  take(core: &mut CoreState, seat: Seat, terms: &Terms) { => { return (); }
+rules/trade.rs:53:71 [take] cmp  *c == card => *c != card
+rules/trade.rs:58:74 [take] cmp  *c == secret => *c != secret
+rules/trade.rs:62:5 [take] assign  p.econ.trade_goods -= i16::try_from(terms.trade_goods).unwrap_... => p.econ.trade_goods += i16::try_from(terms.trade_goods).unwra
+rules/trade.rs:62:70 [take] lit  0 => 1
+rules/trade.rs:63:5 [take] assign  p.econ.commodities -= i16::try_from(terms.commodities).unwrap_... => p.econ.commodities += i16::try_from(terms.commodities).unwra
+rules/trade.rs:63:70 [take] lit  0 => 1
+rules/trade.rs:66:12 [take] cmp  n > 0 => n >= 0
+rules/trade.rs:66:16 [take] lit  0 => 1
+rules/trade.rs:69:41 [take] arith  held - i16::try_from(n).unwrap_or(0) => held + i16::try_from(n).unwrap_or(0)
+rules/trade.rs:69:75 [take] lit  0 => 1
+rules/trade.rs:74:12 [take] cond  p.cards.fragments.get(kind).is_some_and(|n| n <= 0) => !(p.cards.fragments.get(kind).is_some_and(|n| n <= 0))
+rules/trade.rs:74:56 [take] cmp  n <= 0 => n < 0
+rules/trade.rs:74:61 [take] lit  0 => 1
+rules/trade.rs:82:85 [move_planet_units] body  move_planet_units(core: &mut CoreState, seat: Seat, planet: Planet, to... => { return (); }
+rules/trade.rs:84:8 [move_planet_units] cond  b.planet(planet).control != Some(seat) || b.planet(to).control != Some(seat) => !(b.planet(planet).control != Some(seat) || b.planet(to).con
+rules/trade.rs:84:8 [move_planet_units] logic  b.planet(planet).control != Some(seat) || b.planet(to).control != Some(seat) => b.planet(planet).control != Some(seat) && b.planet(to).contr
+rules/trade.rs:84:8 [move_planet_units] cmp  b.planet(planet).control != Some(seat) => b.planet(planet).control == Some(seat)
+rules/trade.rs:84:50 [move_planet_units] cmp  b.planet(to).control != Some(seat) => b.planet(to).control == Some(seat)
+rules/trade.rs:90:72 [move_planet_units] cmp  u.owner() == seat => u.owner() != seat
+rules/trade.rs:101:60 [move_planet_units] lit  true => false
+rules/trade.rs:103:85 [move_planet_units] lit  true => false
+rules/trade.rs:109:63 [give] body  give(core: &mut CoreState, seat: Seat, terms: &Terms) { => { return (); }
+rules/trade.rs:113:12 [give] cond  !cell.flags.has(crate::state::PlanetFlags::PURGED) => !(!cell.flags.has(crate::state::PlanetFlags::PURGED))
+rules/trade.rs:127:16 [give] cond  n > 0 => !(n > 0)
+rules/trade.rs:127:16 [give] cmp  n > 0 => n >= 0
+rules/trade.rs:127:20 [give] lit  0 => 1
+rules/trade.rs:128:66 [give] lit  0 => 1
+rules/trade.rs:129:45 [give] arith  held + i16::try_from(n).unwrap_or(0) => held - i16::try_from(n).unwrap_or(0)
+rules/trade.rs:129:79 [give] lit  0 => 1
+rules/trade.rs:133:38 [give] arith  terms.trade_goods + terms.commodities => terms.trade_goods - terms.commodities
+rules/trade.rs:147:69 [exchange] body  exchange(core: &mut CoreState, offer: &Offer) -> Option<()> { => { return None; }
+rules/trade.rs:161:68 [record_transaction] body  record_transaction(core: &mut CoreState, a: Seat, b: Seat) { => { return (); }
+rules/trade.rs:168:60 [note_negotiation] body  note_negotiation(core: &mut CoreState, seat: Seat) { => { return (); }
+rules/trade.rs:171:51 [note_negotiation] lit  0 => 1
+rules/trade.rs:172:31 [note_negotiation] lit  1 => 2
+rules/trade.rs:177:78 [record_resolved] body  record_resolved(core: &mut CoreState, proposer: Seat, partner: Seat) { => { return (); }
+rules/trade.rs:191:74 [owner_of] body  owner_of(core: &CoreState, faction: Faction) -> Option<Option<Seat>> { => { return None; }
+rules/trade.rs:192:54 [owner_of] cmp  p.faction == faction => p.faction != faction
+rules/trade.rs:194:8 [owner_of] cond  seats.next().is_some() => !(seats.next().is_some())
+rules/trade.rs:198:69 [take_note] body  take_note(core: &mut CoreState, holder: Seat, key: NoteKey) { => { return (); }
+rules/trade.rs:200:8 [take_note] cond  qn::is_play_area(key.note, key.faction) && !qn::is_action_placed(core, key.note)... => !(qn::is_play_area(key.note, key.faction) && !qn::is_action_
+rules/trade.rs:200:8 [take_note] logic  qn::is_play_area(key.note, key.faction) ... && key.note != PromissoryNote::Antivirus => qn::is_play_area(key.note, key.faction) ... || key.note != P
+rules/trade.rs:200:8 [take_note] logic  qn::is_play_area(key.note, key.faction) && !qn::is_action_placed(core, key.note) => qn::is_play_area(key.note, key.faction) || !qn::is_action_pl
+rules/trade.rs:200:92 [take_note] cmp  key.note != PromissoryNote::Antivirus => key.note == PromissoryNote::Antivirus
+rules/trade.rs:207:69 [give_back] body  give_back(core: &mut CoreState, key: NoteKey) -> Option<()> { => { return None; }
+rules/trade.rs:209:8 [give_back] cond  core.cards().promissory.get(&key) == Some(&owner) => !(core.cards().promissory.get(&key) == Some(&owner))
+rules/trade.rs:209:8 [give_back] cmp  core.cards().promissory.get(&key) == Some(&owner) => core.cards().promissory.get(&key) != Some(&owner)
+rules/trade.rs:219:82 [play_action_note] body  play_action_note(core: &mut CoreState, seat: Seat, key: NoteKey) -> bo... => { return true; }
+rules/trade.rs:219:82 [play_action_note] body  play_action_note(core: &mut CoreState, seat: Seat, key: NoteKey) -> bo... => { return false; }
+rules/trade.rs:220:8 [play_action_note] cond  !qn::action_notes_in_hand(core, seat).contains(&key) => !(!qn::action_notes_in_hand(core, seat).contains(&key))
+rules/trade.rs:221:16 [play_action_note] lit  false => true
+rules/trade.rs:224:5 [play_action_note] lit  true => false
+rules/trade.rs:229:107 [play_convoys] body  play_convoys<K: Ord>(core: &mut CoreState, seat: Seat, text_order: imp... => { return true; }
+rules/trade.rs:229:107 [play_convoys] body  play_convoys<K: Ord>(core: &mut CoreState, seat: Seat, text_order: imp... => { return false; }
+rules/trade.rs:232:21 [play_convoys] cmp  k.note == PromissoryNote::TradeConvoys => k.note != PromissoryNote::TradeConvoys
+rules/trade.rs:235:16 [play_convoys] lit  false => true
+rules/trade.rs:238:5 [play_convoys] lit  true => false
+rules/trade.rs:243:101 [receive_support] body  receive_support(core: &mut CoreState, holder: Seat, owner_faction: Fac... => { return None; }
+rules/trade.rs:244:73 [receive_support] lit  false => true
+rules/trade.rs:245:8 [receive_support] cond  owner == holder || core.trade().support_holders.contains_key(&owner) => !(owner == holder || core.trade().support_holders.contains_k
+rules/trade.rs:245:8 [receive_support] logic  owner == holder || core.trade().support_holders.contains_ke... => owner == holder && core.trade().support_holders.contains_ke.
+rules/trade.rs:245:8 [receive_support] cmp  owner == holder => owner != holder
+rules/trade.rs:246:21 [receive_support] lit  false => true
+rules/trade.rs:251:22 [receive_support] arith  before + 1 => before - 1
+rules/trade.rs:251:31 [receive_support] lit  1 => 2
+rules/trade.rs:252:64 [receive_support] lit  0 => 1
+rules/trade.rs:253:66 [receive_support] arith  after - before => after + before
+rules/trade.rs:255:10 [receive_support] lit  true => false
+rules/trade.rs:260:67 [return_support] body  return_support(core: &mut CoreState, owner: Seat) -> bool { => { return true; }
+rules/trade.rs:260:67 [return_support] body  return_support(core: &mut CoreState, owner: Seat) -> bool { => { return false; }
+rules/trade.rs:261:86 [return_support] lit  false => true
+rules/trade.rs:264:22 [return_support] arith  before - 1 => before + 1
+rules/trade.rs:264:31 [return_support] lit  1 => 2
+rules/trade.rs:264:38 [return_support] lit  0 => 1
+rules/trade.rs:265:64 [return_support] lit  0 => 1
+rules/trade.rs:266:12 [return_support] cond  after != before => !(after != before)
+rules/trade.rs:266:12 [return_support] cmp  after != before => after == before
+rules/trade.rs:267:70 [return_support] arith  after - before => after + before
+rules/trade.rs:270:5 [return_support] lit  true => false
+rules/trade.rs:275:86 [return_all_foreign] body  return_all_foreign(core: &mut CoreState, note: PromissoryNote) -> Opti... => { return None; }
+rules/trade.rs:280:31 [return_all_foreign] logic  k.note == note && qn::faction_of(core, **holder) != Some(k... => k.note == note || qn::faction_of(core, **holder) != Some(k..
+rules/trade.rs:280:31 [return_all_foreign] cmp  k.note == note => k.note != note
+rules/trade.rs:280:49 [return_all_foreign] cmp  qn::faction_of(core, **holder) != Some(k.faction) => qn::faction_of(core, **holder) == Some(k.faction)
+rules/trade.rs:297:91 [trade_agreement] body  trade_agreement(core: &mut CoreState, owner: Seat) -> Option<Option<(S... => { return None; }
+rules/trade.rs:302:8 [trade_agreement] cond  given <= 0 => !(given <= 0)
+rules/trade.rs:302:8 [trade_agreement] cmp  given <= 0 => given < 0
+rules/trade.rs:302:17 [trade_agreement] lit  0 => 1
+rules/trade.rs:305:63 [trade_agreement] lit  0 => 1
+rules/trade.rs:307:91 [trade_agreement] lit  0 => 1
+rules/trade.rs:318:57 [clear_action_negotiations] body  clear_action_negotiations(core: &mut CoreState) { => { return (); }
+rules/trade_window.rs:78:86 [TradeWindow::open] lit  2 => 3
+rules/trade_window.rs:78:104 [TradeWindow::open] lit  false => true
+rules/trade_window.rs:87:23 [TradeWindow::at] cond  deal.is_some() => !(deal.is_some())
+rules/trade_window.rs:91:21 [TradeWindow::at] lit  false => true
+rules/trade_window.rs:99:23 [TradeWindow::single] lit  true => false
+rules/trade_window.rs:103:87 [TradeWindow::faction_of] body  faction_of(core: &CoreState, seat: Seat) -> Option<crate::generated::F... => { return None; }
+rules/trade_window.rs:114:75 [TradeWindow::why_illegal] body  why_illegal(&self, core: &CoreState, shape: Shape) -> Option<Why> { => { return None; }
+rules/trade_window.rs:130:12 [TradeWindow::step] cond  self.single && self.outcome.is_some() => !(self.single && self.outcome.is_some())
+rules/trade_window.rs:130:12 [TradeWindow::step] logic  self.single && self.outcome.is_some() => self.single || self.outcome.is_some()
+rules/trade_window.rs:135:20 [TradeWindow::step] cond  deals(sx.state, &self.facts, self.proposer, self.partner).is_empty() => !(deals(sx.state, &self.facts, self.proposer, self.partner).
+rules/trade_window.rs:157:68 [TradeWindow::ask_of] body  ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/trade_window.rs:158:12 [TradeWindow::ask_of] cond  self.single && self.outcome.is_some() => !(self.single && self.outcome.is_some())
+rules/trade_window.rs:158:12 [TradeWindow::ask_of] logic  self.single && self.outcome.is_some() => self.single || self.outcome.is_some()
+rules/trade_window.rs:164:20 [TradeWindow::ask_of] cond  shapes.is_empty() => !(shapes.is_empty())
+rules/trade_window.rs:192:79 [TradeWindow::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/trade_window.rs:196:20 [TradeWindow::answer] cond  opt == COpt::Decline => !(opt == COpt::Decline)
+rules/trade_window.rs:196:20 [TradeWindow::answer] cmp  opt == COpt::Decline => opt != COpt::Decline
+rules/trade_window.rs:200:20 [TradeWindow::answer] cond  !deals(sx.state, &self.facts, self.proposer, self.partner).contains(&shape) => !(!deals(sx.state, &self.facts, self.proposer, self.partner)
+rules/trade_window.rs:228:76 [TradeWindow::answer] lit  1 => 2
+rules/trade_window.rs:229:28 [TradeWindow::answer] cond  self.rounds_left == 0 => !(self.rounds_left == 0)
+rules/trade_window.rs:229:28 [TradeWindow::answer] cmp  self.rounds_left == 0 => self.rounds_left != 0
+rules/trade_window.rs:229:48 [TradeWindow::answer] lit  0 => 1
+rules/trade_window.rs:249:65 [TradeWindow::end] body  end(&mut self, outcome: Outcome) -> Result<(), Illegal> { => { return Ok(()); }
+rules/trade_window.rs:267:19 [ctx] lit  false => true
+rules/trade_window.rs:270:23 [ctx] lit  false => true

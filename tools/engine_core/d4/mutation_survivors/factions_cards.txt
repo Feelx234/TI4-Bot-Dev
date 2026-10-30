@@ -1,0 +1,13 @@
+# survivors of factions/cards: 12 of 63 points (80% killed); paths relative to crates/<crate>/src
+cards/mod.rs:59:124 [retreat_unported] logic  p.owner() == who && p.kind() == Unit::EidolonMaximum => p.owner() == who || p.kind() == Unit::EidolonMaximum
+cards/mod.rs:59:124 [retreat_unported] cmp  p.owner() == who => p.owner() != who
+cards/mod.rs:59:144 [retreat_unported] cmp  p.kind() == Unit::EidolonMaximum => p.kind() != Unit::EidolonMaximum
+cards/mod.rs:85:27 [skilled_retreat] lit  false => true
+cards/mod.rs:88:31 [skilled_retreat] lit  false => true
+cards/mod.rs:94:152 [skilled_retreat] cond  listed.contains(&system) => !(listed.contains(&system))
+cards/mod.rs:170:79 [direct_hit] cmp  **p == first => **p != first
+cards/mod.rs:171:82 [direct_hit] logic  p.owner() == victim && rd.is_ship(p.kind()) => p.owner() == victim || rd.is_ship(p.kind())
+cards/mod.rs:186:50 [direct_hit] logic  p.owner() == victim && p.kind() == unit => p.owner() == victim || p.kind() == unit
+cards/mod.rs:200:106 [sabotage] body  sabotage(_: &mut RulesHost<'_>, _: &mut Resolver, _: Seat, _: ActionCa... => { return Ok(()); }
+cards/mod.rs:239:8 [parley] logic  data.base_type == UnitBaseType::Mech && ... && host.state.players().by_seat(owner).is_s... => data.base_type == UnitBaseType::Mech && ... || host.state.pl
+cards/mod.rs:239:8 [parley] logic  data.base_type == UnitBaseType::Mech && data.faction.is_some() => data.base_type == UnitBaseType::Mech || data.faction.is_some

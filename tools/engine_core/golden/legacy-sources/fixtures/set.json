@@ -1,0 +1,80 @@
+{
+  "name": "legacy-fixtures",
+  "tier": "full",
+  "rules_version": null,
+  "frozen": false,
+  "source": "x2:fixtures",
+  "note": "imported from tools/engine_core/decision_corpus, lines byte-identical (rules version = the effective one at import for specs that did not pin it)",
+  "games": [
+    {
+      "file": "g003.jsonl.zst",
+      "steps": 0,
+      "decisions": 1,
+      "decisions_hash": "",
+      "bytes": 519,
+      "sha256": "3ad23d9da80f77230612751f0f26afa1145cd3883d8600e2b0a4129f2b44525a"
+    },
+    {
+      "file": "g009.jsonl.zst",
+      "steps": 0,
+      "decisions": 1,
+      "decisions_hash": "",
+      "bytes": 593,
+      "sha256": "d6134f4235b60a149828cbedee050bd44a187ca0e85503bae955502952586954"
+    },
+    {
+      "file": "g010.jsonl.zst",
+      "steps": 0,
+      "decisions": 1,
+      "decisions_hash": "",
+      "bytes": 1269,
+      "sha256": "3fc438f7d5b6792631587333f6afe20c87f6c01c2996b0d7650c73ee8ec4652f"
+    },
+    {
+      "file": "g011.jsonl.zst",
+      "steps": 0,
+      "decisions": 1,
+      "decisions_hash": "",
+      "bytes": 505,
+      "sha256": "d5ac2eed143dfe7968e32508590f9af51002f6708161673ac9e80937fb6d9dab"
+    },
+    {
+      "file": "g012.jsonl.zst",
+      "steps": 0,
+      "decisions": 1,
+      "decisions_hash": "",
+      "bytes": 582,
+      "sha256": "9a7c8202b379f17dc696571dd32f433973604010536833bee056a516340c4827"
+    },
+    {
+      "file": "g013.jsonl.zst",
+      "steps": 0,
+      "decisions": 1,
+      "decisions_hash": "",
+      "bytes": 675,
+      "sha256": "9288919a0c57f2524f3cf9d347412dab001bbe949f606a9fdb4aa5613a366ad7"
+    },
+    {
+      "file": "g014.jsonl.zst",
+      "steps": 0,
+      "decisions": 1,
+      "decisions_hash": "",
+      "bytes": 641,
+      "sha256": "167438140869626ff7b7e20d90b4472f04d586fe0fec86e994439d8f66fc5a24"
+    },
+    {
+      "file": "g015.jsonl.zst",
+      "steps": 0,
+      "decisions": 1,
+      "decisions_hash": "",
+      "bytes": 1074,
+      "sha256": "9870bd41c629aa06eb2ce2473f79078872ac1bf1b404818cf9006846003e3e24"
+    }
+  ],
+  "smoke": [
+    "g003.jsonl.zst",
+    "g009.jsonl.zst",
+    "g010.jsonl.zst",
+    "g011.jsonl.zst"
+  ]
+}
