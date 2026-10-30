@@ -34,7 +34,7 @@ fn every_option_names_its_area_and_the_generic_exits_are_exactly_decline_and_don
     assert!(Opt::Decline.is_decline() && !Opt::Done.is_decline());
     assert!(Opt::Decline.is_generic_exit() && Opt::Done.is_generic_exit() && !Opt::Number(0).is_generic_exit());
     assert_eq!(Area::ALL[0], Area::Generic);
-    assert_eq!(Area::ALL.len(), 19, "the generic area and eighteen rule areas");
+    assert_eq!(Area::ALL.len(), 20, "the generic area and nineteen rule areas (D1b2 added Turn)");
     let mut seen = Area::ALL.to_vec();
     seen.sort();
     seen.dedup();
