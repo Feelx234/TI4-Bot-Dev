@@ -505,6 +505,26 @@ mod tests {
         });
     }
 
+    /// The churn step really replaces the resolver (a no-op would pass the equality test above): what is not in
+    /// the image does not survive it, what is, does.
+    #[test]
+    fn the_churn_step_replaces_the_resolver_and_keeps_the_image() {
+        use std::sync::Arc;
+
+        use crate::timing::{Ability, Relation};
+        let mut g = game(3, 7);
+        play(&mut g, 120, 1000, |_| {});
+        g.timing.spend_key("ability:test:spent".into(), FrequencyScope::Round(9));
+        let ids = g.timing.registry_ids();
+        g.timing.register([Ability::new("ability:test:extra", g.state.players[0].id.clone(), "E", Relation::When, Arc::new(|_, _| Ok(())))]);
+        assert_eq!(g.timing.registry_ids().len(), ids.len() + 1);
+        let r = render_for(&g.state);
+        let before = export(&g.timing, g.event_sequence(), &r).unwrap();
+        g.churn_resolver();
+        assert_eq!(g.timing.registry_ids(), ids, "the registry is armed again from the state: the extra ability is gone");
+        assert_eq!(export(&g.timing, g.event_sequence(), &r).unwrap(), before, "the image is what survives");
+    }
+
     /// What a step changes in the image, applied to the image before it, is the image after it.
     #[test]
     fn a_delta_applied_to_the_image_before_gives_the_image_after() {
