@@ -142,7 +142,10 @@ fn covers_writes_the_registry() {
     assert!(covers_mod::registered().iter().any(|(k, l)| k == "window" && l == "rules::kit::ProbeWindow"));
     covers_card!(ActionCard::Spy);
     assert!(covers_mod::registered().iter().any(|(k, l)| k == "card" && l == "Spy"));
-    let on_disk = std::fs::read_to_string(covers_mod::covers_file()).unwrap_or_default();
-    assert!(on_disk.contains("window\trules::kit::ProbeWindow\t"), "the registry file {} lacks the line", covers_mod::covers_file().display());
+    // A run that sends the registry to /dev/null (the mutation runs) has nothing to read back.
+    if covers_mod::covers_file() != std::path::Path::new("/dev/null") {
+        let on_disk = std::fs::read_to_string(covers_mod::covers_file()).unwrap_or_default();
+        assert!(on_disk.contains("window\trules::kit::ProbeWindow\t"), "the registry file {} lacks the line", covers_mod::covers_file().display());
+    }
     let _ = file;
 }
