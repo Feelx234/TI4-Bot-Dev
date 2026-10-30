@@ -507,6 +507,35 @@ pub fn enforce_everywhere(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     table: &mut Table,
 ) -> Result<usize, IllegalChoice> {
+    // On `driver=dual` the whole sweep also runs as one core window (`driver::windows::enforce_all`), which compares the
+    // questions, the units removed and the board; the single enforcements inside it are not compared again.
+    let mut failed = None;
+    let removed = crate::dual_window!(
+        crate::dual::Area::Driver,
+        crate::cannon_dual::ENFORCE_ALL_LABEL,
+        state,
+        |s: &mut GameState| match enforce_everywhere_text(s, content, sources, galaxy, table) {
+            Ok(removed) => crate::dual::Run::new(Some(removed)),
+            Err(error) => {
+                failed = Some(error);
+                crate::dual::Run::new(None)
+            }
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::cannon_dual::enforce_everywhere(s, content, sources, script)
+        }
+    );
+    failed.map_or_else(|| Ok(removed.unwrap_or(0)), Err)
+}
+
+/// [`enforce_everywhere`] as the string engine runs it.
+fn enforce_everywhere_text(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+) -> Result<usize, IllegalChoice> {
     let seats: Vec<PlayerId> = state.players.iter().map(|seat| seat.id.clone()).collect();
     let systems: Vec<SystemId> = state.board.keys().cloned().collect();
     let mut removed = 0;

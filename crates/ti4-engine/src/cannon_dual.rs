@@ -337,3 +337,51 @@ pub fn aftermath_head(
     let value: HeadOut = (w.scoring, sides, capitals, w.drawn.clone(), positions);
     Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
 }
+
+// --- fleet::enforce_everywhere ---------------------------------------------------------------------------
+
+/// The label of the table-wide enforcement in the dual report.
+pub const ENFORCE_ALL_LABEL: &str = "fleet::enforce_everywhere";
+
+/// The core half of `fleet::enforce_everywhere`: the number of units removed. `None` for a table the codecs refuse, nested
+/// activity, seats not in id order, or more than two half-weight fighter forms.
+#[must_use]
+pub fn enforce_everywhere(gs: &mut GameState, content: &ContentStore, sources: SourceSet, script: &Recording) -> Option<CoreWindow<Option<usize>>> {
+    use ti4_engine_core::driver::windows::enforce_all::EnforceAll;
+    if !content.is_embedded() || script.nested || script.questions.iter().any(|q| q.answer.is_none()) {
+        return None;
+    }
+    let (mut cx, r) = tables(gs)?;
+    let mut pairs = Vec::new();
+    for seat in gs.players.iter().map(|p| p.id.clone()).collect::<Vec<_>>() {
+        for system in gs.board.keys() {
+            if gs.system_state(system).units_of(&seat).is_empty() {
+                continue;
+            }
+            let limits = match crate::tactical_dual::limits_of(gs, content, &seat, system) {
+                Ok(limits) => limits,
+                Err(why) => {
+                    note_bail(ENFORCE_ALL_LABEL, why);
+                    return None;
+                }
+            };
+            pairs.push((r.seat(seat.as_str())?, <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?, limits));
+        }
+    }
+    let before = gs.clone();
+    let kernel = crate::core_adapter::kernel_for(sources);
+    let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
+    let resolver = Resolver::new(&seats, seats.first().copied());
+    let mut driver = Driver::new(EnforceAll::new(pairs), resolver, AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), crate::tactical_dual::ENFORCE, |core, _| {
+        crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {})
+    });
+    let driven = match driven {
+        Ok(Ok(driven)) => driven,
+        _ => {
+            note_bail(ENFORCE_ALL_LABEL, "a position the codecs refuse");
+            return None;
+        }
+    };
+    Some(CoreWindow { run: Run::new(Some(driver.window.removed as usize)).with_events_vec(Vec::new()), questions: driven.rendered })
+}

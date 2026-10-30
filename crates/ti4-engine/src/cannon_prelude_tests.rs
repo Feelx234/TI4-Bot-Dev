@@ -237,3 +237,44 @@ fn a_head_with_a_heart_of_ixth_keeps_the_string_and_says_why() {
     assert_eq!(r.windows.get(HEAD).map_or(0, |w| w.compared), 0, "{:?}", r.windows);
     assert!(r.windows.iter().any(|(k, w)| k.starts_with(HEAD) && k.contains("[bail: a reroll question") && w.bailed > 0), "{:?}", r.windows);
 }
+
+const ALL: &str = "fleet::enforce_everywhere";
+
+fn sweep(seed: u64, setup: impl Fn(&mut GameState, &SystemId)) -> (GameState, usize, crate::dual::DualReport) {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+    state.rng_seed = seed;
+    let (system, _) = crate::fixtures::a_placed_planet();
+    setup(&mut state, &system);
+    let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+    let removed = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+        crate::fleet::enforce_everywhere(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT, None, &mut table).unwrap()
+    });
+    let r = report();
+    let _ = take_report();
+    (state, removed, r)
+}
+
+#[test]
+fn the_table_wide_enforcement_runs_as_one_core_window_and_removes_what_the_string_removes() {
+    let (state, removed, r) = sweep(1, |s, system| {
+        // Fighters with no carrier are over capacity; a fleet of cruisers is over the supply of a table with no tokens spare.
+        crate::fixtures::put(s, system, "fighter", &a(), 9);
+        crate::fixtures::put(s, system, "cruiser", &a(), 14);
+        crate::fixtures::put(s, system, "fighter", &b(), 6);
+        s.player_mut(&a()).unwrap().fleet_tokens = 3;
+    });
+    assert!(removed > 0, "something was over");
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(ALL).map_or(0, |w| w.compared) >= 1, "the core window ran: {:?}", r.windows);
+    assert!(state.system_state(&crate::fixtures::a_placed_planet().0).units.len() < 29);
+}
+
+#[test]
+fn a_table_inside_its_limits_asks_nothing_and_the_core_window_agrees() {
+    let (_, removed, r) = sweep(2, |s, system| crate::fixtures::put(s, system, "cruiser", &a(), 2));
+    assert_eq!(removed, 0);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(ALL).map_or(0, |w| w.compared) >= 1, "{:?}", r.windows);
+}
