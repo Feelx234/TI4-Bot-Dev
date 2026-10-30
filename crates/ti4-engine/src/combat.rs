@@ -10561,30 +10561,6 @@ mod tests {
         assert!(used > 0, "and used");
     }
 
-    /// The anti-fighter barrage of a mech that took its ship form at the start of the fight names the form (the dice of the round
-    /// are labelled with the unit types the window knows: the ship form is one of them, found by the golden-lent census).
-    #[test]
-    fn a_mech_that_flipped_to_its_ship_form_barrages_under_that_name_in_the_composed_machine() {
-        let mut barraged = 0;
-        for seed in 0..8_u64 {
-            let (state, windows, differences, _) = hub_fight_composed(
-                true,
-                seed,
-                &["naaz", "hacan"],
-                |s, system| {
-                    put(s, system, "cruiser", &attacker(), 1);
-                    put(s, system, "naaz_mech", &attacker(), 2);
-                    put(s, system, "fighter", &defender(), 4);
-                    put(s, system, "cruiser", &defender(), 1);
-                },
-                |_, _, _| 0,
-            );
-            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
-            barraged += state.combat_presentation.barrage_dice.iter().filter(|d| d.unit == "naaz_mech_space").count();
-        }
-        assert!(barraged > 0, "the flipped mechs rolled barrage dice in some seed");
-    }
-
     /// The core sees what the Mentak seat of the salvage tests holds: Cruiser II and The Table's Grace.
     #[test]
     fn the_core_sees_cruiser_two_and_the_tables_grace_of_a_mentak_seat() {

@@ -3771,6 +3771,38 @@ pub fn answer_machine(
     settle_run(gs, sources, a, rng_before, script, Some(()))
 }
 
+#[cfg(test)]
+mod twin_form_tests {
+    use ti4_engine_core::generated::Unit;
+
+    /// The composed machine's roll texts name the ship form of a Naaz mech present in its ground form (a borrowed barrage and the
+    /// dice of a round are labelled with them; found by the golden-lent census, where the label was `extra barrage`).
+    #[test]
+    fn a_dual_form_unit_brings_its_other_form_into_the_roll_texts() {
+        let mut present = vec![Unit::CruiserI, Unit::Eidolon];
+        super::with_twin_forms(&mut present);
+        assert!(present.contains(&Unit::ZGravEidolonNaazMechSpace) && present.len() == 3, "{present:?}");
+        let mut both = vec![Unit::Eidolon, Unit::ZGravEidolonNaazMechSpace];
+        super::with_twin_forms(&mut both);
+        assert_eq!(both.len(), 2, "no duplicate");
+        let mut plain = vec![Unit::CruiserI];
+        super::with_twin_forms(&mut plain);
+        assert_eq!(plain, vec![Unit::CruiserI]);
+    }
+}
+
+/// The unit types a fight can name in its dice: the types present and the other form of each dual-form unit (a Naaz mech on
+/// the board in its ground form fights in the ship form; the start of the fight flips it).
+fn with_twin_forms(present: &mut Vec<ti4_engine_core::generated::Unit>) {
+    for u in present.clone() {
+        if let Some(twin) = ti4_engine_core::query::tech::other_form(u)
+            && !present.contains(&twin)
+        {
+            present.push(twin);
+        }
+    }
+}
+
 #[allow(clippy::too_many_lines, reason = "one environment, built field by field")]
 fn settle_run(
     gs: &mut GameState,
@@ -3809,13 +3841,7 @@ fn settle_run(
         }
     }
     // The start of the fight flips a dual-form unit to its ship form (`BeginRound`): the form is named by the dice of the rounds.
-    for u in present.clone() {
-        if let Some(twin) = ti4_engine_core::query::tech::other_form(u)
-            && !present.contains(&twin)
-        {
-            present.push(twin);
-        }
-    }
+    with_twin_forms(&mut present);
     present.sort_unstable();
     if present.len() > 10 {
         crate::dual::note_bail_here("more than ten unit types in the fight (the roll group texts are pre-interned)");
