@@ -1,1 +1,22 @@
-{}
+{
+ "core/choice": 34,
+ "core/containers": 75,
+ "core/driver": 90,
+ "core/kernel": 42,
+ "core/keys": 44,
+ "core/leaf": 11,
+ "core/query": 9,
+ "core/rules-top": 15,
+ "core/rules/action_cards": 30,
+ "core/rules/agenda": 19,
+ "core/rules/production": 13,
+ "core/rules/tactical": 0,
+ "core/state": 42,
+ "factions/ca_combat": 1,
+ "factions/cards": 80,
+ "factions/cb_economy": 47,
+ "factions/cc_ground": 35,
+ "factions/cd_registry": 52,
+ "factions/ce_movement": 42,
+ "factions/top": 60
+}

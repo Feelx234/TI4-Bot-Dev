@@ -1,0 +1,17 @@
+# survivors of factions/top: 16 of 41 points (60% killed); paths relative to crates/<crate>/src
+common.rs:46:51 [flagship_of] cmp  u.data().base_type == ti4_engine_core::generated::UnitBaseType... => u.data().base_type != ti4_engine_core::generated::UnitBaseTy
+common.rs:51:14 [z_assimilated] logic  is_faction(s, who, Faction::TheNekroViru... && holds_breakthrough(s, who, Breakthrough:... => is_faction(s, who, Faction::TheNekroViru... || holds_breakth
+common.rs:52:19 [z_assimilated] cond  ok => !(ok)
+common.rs:68:13 [flagship_has_text] logic  unit == Unit::TheAlastor && z_assimilated(s, owner).any(|f| flagship... => unit == Unit::TheAlastor || z_assimilated(s, owner).any(|f| 
+common.rs:68:13 [flagship_has_text] cmp  unit == Unit::TheAlastor => unit != Unit::TheAlastor
+common.rs:68:73 [flagship_has_text] cmp  flagship_of(f) == Some(flagship) => flagship_of(f) != Some(flagship)
+common.rs:124:69 [stamped_for] body  stamped_for(s: &CoreState, key: MarkKey, who: Seat) -> bool { => { return true; }
+common.rs:124:69 [stamped_for] body  stamped_for(s: &CoreState, key: MarkKey, who: Seat) -> bool { => { return false; }
+common.rs:132:75 [private] body  private(s: &CoreState, who: Seat, kind: Word) -> Option<&MarkVal> { => { return None; }
+common.rs:137:90 [systems_with_piece] body  systems_with_piece(s: &CoreState, mut pred: impl FnMut(Piece) -> bool)... => { return Default::default(); }
+common.rs:140:12 [systems_with_piece] cond  cell.units.as_slice().iter().any(|p| pred(*p)) => !(cell.units.as_slice().iter().any(|p| pred(*p)))
+lib.rs:131:30 [missing] body  missing() -> Vec<Id> { => { return Vec::new(); }
+lib.rs:132:84 [missing] cmp  i == id => i != id
+lib.rs:135:68 [register_in_order] body  register_in_order(table: &mut HookTable, packages: &[Modules]) { => { return (); }
+lib.rs:139:20 [register_in_order] cond  *i == id => !(*i == id)
+lib.rs:139:20 [register_in_order] cmp  *i == id => *i != id

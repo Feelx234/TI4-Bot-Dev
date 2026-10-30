@@ -1,0 +1,204 @@
+# survivors of factions/cb_economy: 203 of 384 points (47% killed); paths relative to crates/<crate>/src
+cb_economy/argent/movement.rs:11:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/argent/movement.rs:17:82 [blocks_passage] body  blocks_passage(s: &CoreState, k: &Kernel, who: Seat, system: System) -... => { return true; }
+cb_economy/argent/movement.rs:17:82 [blocks_passage] body  blocks_passage(s: &CoreState, k: &Kernel, who: Seat, system: System) -... => { return false; }
+cb_economy/argent/movement.rs:20:9 [blocks_passage] logic  p.seat != who && has_tech_text(s, p.seat... && any_piece_in(s, system, |u| u.owner() ==... => p.seat != who && has_tech_text(s, p.seat... || any_piece_in(
+cb_economy/argent/movement.rs:20:9 [blocks_passage] logic  p.seat != who && has_tech_text(s, p.seat, Technology::Aer... => p.seat != who || has_tech_text(s, p.seat, Technology::Aer...
+cb_economy/argent/movement.rs:20:9 [blocks_passage] cmp  p.seat != who => p.seat == who
+cb_economy/argent/movement.rs:22:44 [blocks_passage] logic  u.owner() == p.seat && scope.unit(u.kind()).is_some_and(|d| d.s... => u.owner() == p.seat || scope.unit(u.kind()).is_some_and(|d| 
+cb_economy/argent/movement.rs:22:44 [blocks_passage] cmp  u.owner() == p.seat => u.owner() != p.seat
+cb_economy/argent/movement.rs:26:64 [free_cargo] body  free_cargo(_: &CoreState, _: &Kernel, unit: Piece) -> bool { => { return true; }
+cb_economy/argent/movement.rs:26:64 [free_cargo] body  free_cargo(_: &CoreState, _: &Kernel, unit: Piece) -> bool { => { return false; }
+cb_economy/argent/movement.rs:27:5 [free_cargo] cmp  unit.kind() == Unit::AerieSentinel => unit.kind() != Unit::AerieSentinel
+cb_economy/argent/observe.rs:14:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/argent/query.rs:40:80 [vote_bonus] lit  0 => 1
+cb_economy/argent/query.rs:57:62 [structure_on] logic  u.owner() == who && scope.unit(u.kind()).is_some_and(|d| d.s... => u.owner() == who || scope.unit(u.kind()).is_some_and(|d| d.s
+cb_economy/argent/query.rs:70:9 [plain_unit] logic  d.faction.is_none() && d.base_type == ba... && d.upgrades_from.is_none() => d.faction.is_none() && d.base_type == ba... || d.upgrades_fr
+cb_economy/argent/query.rs:70:9 [plain_unit] logic  d.faction.is_none() && d.base_type == base => d.faction.is_none() || d.base_type == base
+cb_economy/argent/query.rs:70:32 [plain_unit] cmp  d.base_type == base => d.base_type != base
+cb_economy/argent/timing.rs:24:45 [ready] body  ready(s: &CoreState, who: Seat) -> bool { => { return true; }
+cb_economy/argent/timing.rs:24:45 [ready] body  ready(s: &CoreState, who: Seat) -> bool { => { return false; }
+cb_economy/argent/timing.rs:25:46 [ready] cmp  p.leaders.status.get(&AGENT_LEADER) == Some(&LeaderStatus::Readied) => p.leaders.status.get(&AGENT_LEADER) != Some(&LeaderStatus::R
+cb_economy/argent/timing.rs:30:158 [destinations] body  destinations(s: &CoreState, facts: &ti4_engine_core::kernel::ability::... => { return None; }
+cb_economy/argent/timing.rs:38:17 [destinations] logic  allowed.contains(system) && !laws::plane... && !planet.data().traits.contains(&PlanetTr... => allowed.contains(system) && !laws::plane... || !planet.data(
+cb_economy/argent/timing.rs:38:17 [destinations] logic  allowed.contains(system) && !laws::planet_is_demilitarized(s, blanke... => allowed.contains(system) || !laws::planet_is_demilitarized(s
+cb_economy/argent/timing.rs:45:40 [agent_when] body  agent_when(c: &CondCx<'_>) -> bool { => { return true; }
+cb_economy/argent/timing.rs:45:40 [agent_when] body  agent_when(c: &CondCx<'_>) -> bool { => { return false; }
+cb_economy/argent/timing.rs:47:134 [agent_when] lit  false => true
+cb_economy/argent/timing.rs:48:8 [agent_when] cond  count <= 0 || !ready(c.state, c.def.owner) => !(count <= 0 || !ready(c.state, c.def.owner))
+cb_economy/argent/timing.rs:48:8 [agent_when] logic  count <= 0 || !ready(c.state, c.def.owner) => count <= 0 && !ready(c.state, c.def.owner)
+cb_economy/argent/timing.rs:48:8 [agent_when] cmp  count <= 0 => count < 0
+cb_economy/argent/timing.rs:48:17 [agent_when] lit  0 => 1
+cb_economy/argent/timing.rs:49:16 [agent_when] lit  false => true
+cb_economy/argent/timing.rs:52:8 [agent_when] cond  found.is_empty() => !(found.is_empty())
+cb_economy/argent/timing.rs:53:16 [agent_when] lit  false => true
+cb_economy/argent/timing.rs:56:8 [agent_when] cond  c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.state) => !(c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.sta
+cb_economy/argent/timing.rs:59:5 [agent_when] lit  true => false
+cb_economy/argent/timing.rs:62:61 [agent] body  agent(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+cb_economy/argent/timing.rs:67:8 [agent] cond  found.is_empty() || !ready(eff.state(), owner) => !(found.is_empty() || !ready(eff.state(), owner))
+cb_economy/argent/timing.rs:67:8 [agent] logic  found.is_empty() || !ready(eff.state(), owner) => found.is_empty() && !ready(eff.state(), owner)
+cb_economy/cabal/movement.rs:12:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/cabal/movement.rs:19:46 [is_tear] body  is_tear(s: &CoreState, p: Piece) -> bool { => { return true; }
+cb_economy/cabal/movement.rs:19:46 [is_tear] body  is_tear(s: &CoreState, p: Piece) -> bool { => { return false; }
+cb_economy/cabal/movement.rs:20:5 [is_tear] logic  matches!(p.kind(), Unit::DimensionalTear... && is_faction(s, p.owner(), Faction::TheVui... => matches!(p.kind(), Unit::DimensionalTear... || is_faction(s,
+cb_economy/cabal/movement.rs:25:44 [tear_systems] body  tear_systems(s: &CoreState) -> Systems { => { return Default::default(); }
+cb_economy/cabal/movement.rs:28:8 [tear_systems] cond  !s.players().iter().any(|p| p.faction == Faction::TheVuilraithCabal) => !(!s.players().iter().any(|p| p.faction == Faction::TheVuilr
+cb_economy/cabal/movement.rs:28:36 [tear_systems] cmp  p.faction == Faction::TheVuilraithCabal => p.faction != Faction::TheVuilraithCabal
+cb_economy/cabal/movement.rs:38:75 [tear_exempts_roll] body  tear_exempts_roll(s: &CoreState, mover: Seat, system: System) -> bool ... => { return true; }
+cb_economy/cabal/movement.rs:38:75 [tear_exempts_roll] body  tear_exempts_roll(s: &CoreState, mover: Seat, system: System) -> bool ... => { return false; }
+cb_economy/cabal/movement.rs:39:33 [tear_exempts_roll] logic  p.owner() == mover && is_tear(s, p) => p.owner() == mover || is_tear(s, p)
+cb_economy/cabal/movement.rs:39:33 [tear_exempts_roll] cmp  p.owner() == mover => p.owner() != mover
+cb_economy/cabal/movement.rs:43:60 [crucible_in_effect] body  crucible_in_effect(s: &CoreState, mover: Seat) -> bool { => { return true; }
+cb_economy/cabal/movement.rs:43:60 [crucible_in_effect] body  crucible_in_effect(s: &CoreState, mover: Seat) -> bool { => { return false; }
+cb_economy/cabal/movement.rs:44:5 [crucible_in_effect] cmp  mark(s, MarkKey::CabalCrucible(mover)).a... == Some(s.meta().activation_seq) => mark(s, MarkKey::CabalCrucible(mover)).a... != Some(s.meta()
+cb_economy/cabal/movement.rs:48:62 [alraith_move_bonus] body  alraith_move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 0; }
+cb_economy/cabal/movement.rs:48:62 [alraith_move_bonus] body  alraith_move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 1; }
+cb_economy/cabal/movement.rs:50:9 [alraith_move_bonus] logic  holds_breakthrough(s, site.player, Break... && site.origin.data().tile_back == Some(Til... => holds_breakthrough(s, site.player, Break... || site.origin.d
+cb_economy/cabal/movement.rs:51:16 [alraith_move_bonus] cmp  site.origin.data().tile_back == Some(TileBack::Fracture) => site.origin.data().tile_back != Some(TileBack::Fracture)
+cb_economy/cabal/offer.rs:18:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/cabal/offer.rs:43:80 [amalgamation_perform] lit  0 => 1
+cb_economy/cabal/query.rs:21:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/cabal/timing.rs:37:46 [base] body  base(unit: Unit) -> Option<UnitBaseType> { => { return None; }
+cb_economy/cabal/timing.rs:42:74 [flagship_present] body  flagship_present(s: &CoreState, owner: Seat, system: System) -> bool { => { return true; }
+cb_economy/cabal/timing.rs:42:74 [flagship_present] body  flagship_present(s: &CoreState, owner: Seat, system: System) -> bool { => { return false; }
+cb_economy/cabal/timing.rs:43:50 [flagship_present] logic  p.owner() == owner && p.kind() == Unit::TheTerrorBetween => p.owner() == owner || p.kind() == Unit::TheTerrorBetween
+cb_economy/cabal/timing.rs:43:50 [flagship_present] cmp  p.owner() == owner => p.owner() != owner
+cb_economy/cabal/timing.rs:43:72 [flagship_present] cmp  p.kind() == Unit::TheTerrorBetween => p.kind() != Unit::TheTerrorBetween
+cb_economy/cabal/timing.rs:50:64 [mark_held] body  mark_held(s: &CoreState, key: &MarkKey, who: Seat) -> bool { => { return true; }
+cb_economy/cabal/timing.rs:50:64 [mark_held] body  mark_held(s: &CoreState, key: &MarkKey, who: Seat) -> bool { => { return false; }
+cb_economy/cabal/timing.rs:56:88 [destroyed_model] body  destroyed_model(event: &EventRec, captor: Seat, own: bool) -> Option<(... => { return None; }
+cb_economy/cabal/timing.rs:58:8 [destroyed_model] cond  !own && victim == captor => !(!own && victim == captor)
+cb_economy/cabal/timing.rs:58:8 [destroyed_model] logic  !own && victim == captor => !own || victim == captor
+cb_economy/cabal/timing.rs:58:16 [destroyed_model] cmp  victim == captor => victim != captor
+cb_economy/cabal/timing.rs:66:62 [capture] body  capture(eff: &mut Eff<'_, '_>, victim: Seat, unit: Unit) { => { return (); }
+cb_economy/cabal/timing.rs:73:52 [took_part] body  took_part(event: &EventRec, who: Seat) -> bool { => { return true; }
+cb_economy/cabal/timing.rs:73:52 [took_part] body  took_part(event: &EventRec, who: Seat) -> bool { => { return false; }
+cb_economy/cabal/timing.rs:74:5 [took_part] logic  event.payload.seat(Key::Attacker) == Som... || event.payload.seat(Key::Defender) == Som... => event.payload.seat(Key::Attacker) == Som... && event.payload
+cb_economy/cabal/timing.rs:74:5 [took_part] cmp  event.payload.seat(Key::Attacker) == Some(who) => event.payload.seat(Key::Attacker) != Some(who)
+cb_economy/cabal/timing.rs:74:55 [took_part] cmp  event.payload.seat(Key::Defender) == Some(who) => event.payload.seat(Key::Defender) != Some(who)
+cb_economy/cabal/timing.rs:79:45 [reanimator_when] body  reanimator_when(c: &CondCx<'_>) -> bool { => { return true; }
+cb_economy/cabal/timing.rs:79:45 [reanimator_when] body  reanimator_when(c: &CondCx<'_>) -> bool { => { return false; }
+cb_economy/cabal/timing.rs:83:16 [reanimator_when] lit  false => true
+cb_economy/cabal/timing.rs:85:5 [reanimator_when] logic  player == me && base(unit) == Some(UnitB... && !flagship_present(c.state, me, system) => player == me && base(unit) == Some(UnitB... || !flagship_pre
+cb_economy/cabal/timing.rs:85:5 [reanimator_when] logic  player == me && base(unit) == Some(UnitB... && board::planet_units(c.state, planet).ite... => player == me && base(unit) == Some(UnitB... || board::planet
+cb_economy/cabal/timing.rs:85:5 [reanimator_when] logic  player == me && base(unit) == Some(UnitBaseType::Infantr... => player == me || base(unit) == Some(UnitBaseType::Infantr...
+cb_economy/cabal/timing.rs:85:5 [reanimator_when] cmp  player == me => player != me
+cb_economy/cabal/timing.rs:86:12 [reanimator_when] cmp  base(unit) == Some(UnitBaseType::Infantry) => base(unit) != Some(UnitBaseType::Infantry)
+cb_economy/cabal/timing.rs:87:64 [reanimator_when] logic  u.owner() == me && base(u.kind()) == Some(UnitBaseType::Mec... => u.owner() == me || base(u.kind()) == Some(UnitBaseType::Mec.
+cb_economy/cabal/timing.rs:87:64 [reanimator_when] cmp  u.owner() == me => u.owner() != me
+cb_economy/cabal/timing.rs:87:83 [reanimator_when] cmp  base(u.kind()) == Some(UnitBaseType::Mech) => base(u.kind()) != Some(UnitBaseType::Mech)
+cb_economy/cabal/timing.rs:92:66 [reanimator] body  reanimator(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+cb_economy/cabal/timing.rs:102:47 [devour_ships_when] body  devour_ships_when(c: &CondCx<'_>) -> bool { => { return true; }
+cb_economy/cabal/timing.rs:102:47 [devour_ships_when] body  devour_ships_when(c: &CondCx<'_>) -> bool { => { return false; }
+cb_economy/cabal/timing.rs:103:74 [devour_ships_when] lit  false => true
+cb_economy/cabal/timing.rs:104:5 [devour_ships_when] logic  c.event.payload.flag(Key::DuringSpaceCom... && !flagship_present(c.state, c.def.owner, ... => c.event.payload.flag(Key::DuringSpaceCom... || !flagship_pre
+cb_economy/cabal/timing.rs:104:5 [devour_ships_when] logic  c.event.payload.flag(Key::DuringSpaceCom... && mark_held(c.state, &mark_key(system, Non... => c.event.payload.flag(Key::DuringSpaceCom... || mark_held(c.s
+cb_economy/cabal/timing.rs:104:5 [devour_ships_when] cmp  c.event.payload.flag(Key::DuringSpaceCom... == Some(true) => c.event.payload.flag(Key::DuringSpaceCom... != Some(true)
+cb_economy/cabal/timing.rs:104:58 [devour_ships_when] lit  true => false
+cb_economy/cabal/timing.rs:109:48 [devour_ground_when] body  devour_ground_when(c: &CondCx<'_>) -> bool { => { return true; }
+cb_economy/cabal/timing.rs:109:48 [devour_ground_when] body  devour_ground_when(c: &CondCx<'_>) -> bool { => { return false; }
+cb_economy/cabal/timing.rs:111:101 [devour_ground_when] lit  false => true
+cb_economy/cabal/timing.rs:112:5 [devour_ground_when] logic  p.code(Key::Cause) == Some(c.codes.groun... && !flagship_present(c.state, c.def.owner, ... => p.code(Key::Cause) == Some(c.codes.groun... || !flagship_pre
+cb_economy/cabal/timing.rs:112:5 [devour_ground_when] logic  p.code(Key::Cause) == Some(c.codes.groun... && mark_held(c.state, &mark_key(system, Som... => p.code(Key::Cause) == Some(c.codes.groun... || mark_held(c.s
+cb_economy/cabal/timing.rs:112:5 [devour_ground_when] cmp  p.code(Key::Cause) == Some(c.codes.ground_combat) => p.code(Key::Cause) != Some(c.codes.ground_combat)
+cb_economy/cabal/timing.rs:117:62 [devour] body  devour(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+cb_economy/cabal/timing.rs:119:66 [devour] lit  false => true
+cb_economy/cabal/timing.rs:127:41 [terror_when] body  terror_when(c: &CondCx<'_>) -> bool { => { return true; }
+cb_economy/cabal/timing.rs:127:41 [terror_when] body  terror_when(c: &CondCx<'_>) -> bool { => { return false; }
+cb_economy/cabal/timing.rs:131:62 [terror] body  terror(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+cb_economy/cabal/timing.rs:133:66 [terror] lit  true => false
+cb_economy/cabal/timing.rs:141:67 [event_mark] body  event_mark(event: &EventRec, ground: bool) -> Option<MarkKey> { => { return None; }
+cb_economy/cabal/timing.rs:143:8 [event_mark] cond  ground => !(ground)
+cb_economy/cabal/timing.rs:149:45 [space_part_when] body  space_part_when(c: &CondCx<'_>) -> bool { => { return true; }
+cb_economy/cabal/timing.rs:149:45 [space_part_when] body  space_part_when(c: &CondCx<'_>) -> bool { => { return false; }
+cb_economy/cabal/timing.rs:150:5 [space_part_when] logic  event_mark(c.event, false).is_some() && took_part(c.event, c.def.owner) => event_mark(c.event, false).is_some() || took_part(c.event, c
+cb_economy/cabal/timing.rs:150:25 [space_part_when] lit  false => true
+cb_economy/cabal/timing.rs:153:46 [ground_part_when] body  ground_part_when(c: &CondCx<'_>) -> bool { => { return true; }
+cb_economy/cabal/timing.rs:153:46 [ground_part_when] body  ground_part_when(c: &CondCx<'_>) -> bool { => { return false; }
+cb_economy/cabal/timing.rs:154:5 [ground_part_when] logic  event_mark(c.event, true).is_some() && took_part(c.event, c.def.owner) => event_mark(c.event, true).is_some() || took_part(c.event, c.
+cb_economy/cabal/timing.rs:154:25 [ground_part_when] lit  true => false
+cb_economy/cabal/timing.rs:157:80 [write_mark] body  write_mark(eff: &mut Eff<'_, '_>, ground: bool) -> Result<(), TimingEr... => { return Ok(()); }
+cb_economy/cabal/timing.rs:165:80 [clear_mark] body  clear_mark(eff: &mut Eff<'_, '_>, ground: bool) -> Result<(), TimingEr... => { return Ok(()); }
+cb_economy/cabal/timing.rs:168:12 [clear_mark] cond  mark_held(eff.state(), &key, me) => !(mark_held(eff.state(), &key, me))
+cb_economy/cabal/timing.rs:186:103 [register_abilities] lit  false => true
+cb_economy/cabal/timing.rs:187:102 [register_abilities] lit  false => true
+cb_economy/cabal/timing.rs:188:105 [register_abilities] lit  true => false
+cb_economy/cabal/timing.rs:189:104 [register_abilities] lit  true => false
+cb_economy/deepwrought/movement.rs:10:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/deepwrought/movement.rs:15:73 [own_unit_passage] body  own_unit_passage(s: &CoreState, _: &Kernel, site: PassSite) -> bool { => { return true; }
+cb_economy/deepwrought/movement.rs:15:73 [own_unit_passage] body  own_unit_passage(s: &CoreState, _: &Kernel, site: PassSite) -> bool { => { return false; }
+cb_economy/deepwrought/observe.rs:21:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/deepwrought/observe.rs:43:46 [ready] body  ready(s: &mut CoreState, planet: Planet) { => { return (); }
+cb_economy/deepwrought/observe.rs:44:72 [ready] lit  false => true
+cb_economy/deepwrought/observe.rs:48:48 [prune_oceans] body  prune_oceans(s: &mut CoreState, who: Seat) { => { return (); }
+cb_economy/deepwrought/observe.rs:57:44 [coexisting] logic  cell.coexist.contains(who) && cell.units.as_slice().iter().any(|u| u.o... => cell.coexist.contains(who) || cell.units.as_slice().iter().a
+cb_economy/deepwrought/observe.rs:66:44 [gain_ocean] logic  holder_of(s, *p).is_none() && !s.marks().tail.contains_key(&MarkKey::D... => holder_of(s, *p).is_none() || !s.marks().tail.contains_key(&
+cb_economy/deepwrought/query.rs:27:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/deepwrought/query.rs:49:44 [coexisting_planets] logic  cell.coexist.contains(who) && cell.units.as_slice().iter().any(|u| u.o... => cell.coexist.contains(who) || cell.units.as_slice().iter().a
+cb_economy/deepwrought/query.rs:64:57 [has_research_team] body  has_research_team(s: &CoreState, who: Seat) -> bool { => { return true; }
+cb_economy/deepwrought/query.rs:71:5 [research_team_open] logic  has_research_team(s, invader) && !board::is_coexisting(s, system, planet,... => has_research_team(s, invader) || !board::is_coexisting(s, sy
+cb_economy/keleres/mod.rs:15:39 [register_m] body  register_m(t: &mut HookTable) { => { return (); }
+cb_economy/keleres/observe.rs:15:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/keleres/query.rs:28:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/keleres/query.rs:40:47 [is_mecatol_planet] body  is_mecatol_planet(planet: Planet) -> bool { => { return true; }
+cb_economy/keleres/query.rs:49:8 [extra_production_planet] logic  ti4_engine_core::query::board::controls(... && is_mecatol_planet(planet) => ti4_engine_core::query::board::controls(... || is_mecatol_pl
+cb_economy/keleres/query.rs:61:42 [spendable_commodities] lit  0 => 1
+cb_economy/keleres/query.rs:61:82 [spendable_commodities] lit  0 => 1
+cb_economy/keleres/query.rs:65:50 [is_keleres] body  is_keleres(s: &CoreState, who: Seat) -> bool { => { return true; }
+cb_economy/keleres/query.rs:74:96 [agent_could_grant] cmp  p.econ.commodities <= 0 => p.econ.commodities < 0
+cb_economy/keleres/query.rs:74:118 [agent_could_grant] lit  0 => 1
+cb_economy/mod.rs:43:84 [register_abilities] body  register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTa... => { return (); }
+cb_economy/winnu/movement.rs:15:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/winnu/movement.rs:22:8 [mecatol_on] cond  s.board().sys(System::MecatolRex112).flags.has(SysFlags::TOUCHED) => !(s.board().sys(System::MecatolRex112).flags.has(SysFlags::T
+cb_economy/winnu/movement.rs:29:56 [controls_mecatol] body  controls_mecatol(s: &CoreState, who: Seat) -> bool { => { return true; }
+cb_economy/winnu/movement.rs:29:56 [controls_mecatol] body  controls_mecatol(s: &CoreState, who: Seat) -> bool { => { return false; }
+cb_economy/winnu/movement.rs:35:67 [linked_systems] body  linked_systems(s: &CoreState, _: &Kernel, who: Seat) -> Pairs { => { return Default::default(); }
+cb_economy/winnu/movement.rs:39:8 [linked_systems] cond  !has_tech_text(s, who, Technology::LazaxGateFolding) || meta.active != Some(who)... => !(!has_tech_text(s, who, Technology::LazaxGateFolding) || me
+cb_economy/winnu/movement.rs:39:8 [linked_systems] logic  !has_tech_text(s, who, Technology::Lazax... || controls_mecatol(s, who) => !has_tech_text(s, who, Technology::Lazax... && controls_meca
+cb_economy/winnu/movement.rs:39:8 [linked_systems] logic  !has_tech_text(s, who, Technology::Lazax... || meta.active_system.is_none() => !has_tech_text(s, who, Technology::Lazax... && meta.active_s
+cb_economy/winnu/movement.rs:39:8 [linked_systems] logic  !has_tech_text(s, who, Technology::Lazax... || meta.active != Some(who) => !has_tech_text(s, who, Technology::Lazax... && meta.active !
+cb_economy/winnu/movement.rs:40:12 [linked_systems] cmp  meta.active != Some(who) => meta.active == Some(who)
+cb_economy/winnu/movement.rs:46:22 [linked_systems] cond  galaxy.coord_of(System::MecatolRex112).is_some() => !(galaxy.coord_of(System::MecatolRex112).is_some())
+cb_economy/winnu/movement.rs:47:8 [linked_systems] cond  galaxy.coord_of(mecatol).is_none() => !(galaxy.coord_of(mecatol).is_none())
+cb_economy/winnu/movement.rs:52:12 [linked_systems] cond  other != System::MecatolRex18 && other != System::MecatolRex112 && galaxy.wormho... => !(other != System::MecatolRex18 && other != System::MecatolR
+cb_economy/winnu/movement.rs:52:12 [linked_systems] logic  other != System::MecatolRex18 && other !... && galaxy.wormhole_kinds(other) & WH_ALPHA_... => other != System::MecatolRex18 && other !... || galaxy.wormho
+cb_economy/winnu/movement.rs:52:12 [linked_systems] logic  other != System::MecatolRex18 && other != System::MecatolRex112 => other != System::MecatolRex18 || other != System::MecatolRex
+cb_economy/winnu/movement.rs:52:12 [linked_systems] cmp  other != System::MecatolRex18 => other == System::MecatolRex18
+cb_economy/winnu/movement.rs:52:45 [linked_systems] cmp  other != System::MecatolRex112 => other == System::MecatolRex112
+cb_economy/winnu/movement.rs:52:79 [linked_systems] cmp  galaxy.wormhole_kinds(other) & WH_ALPHA_... != 0 => galaxy.wormhole_kinds(other) & WH_ALPHA_... == 0
+cb_economy/winnu/movement.rs:52:79 [linked_systems] arith  galaxy.wormhole_kinds(other) & WH_ALPHA_BETA => galaxy.wormhole_kinds(other) | WH_ALPHA_BETA
+cb_economy/winnu/movement.rs:52:127 [linked_systems] lit  0 => 1
+cb_economy/winnu/movement.rs:60:54 [move_bonus] body  move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 0; }
+cb_economy/winnu/movement.rs:60:54 [move_bonus] body  move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 1; }
+cb_economy/winnu/movement.rs:61:48 [move_bonus] lit  0 => 1
+cb_economy/winnu/movement.rs:62:93 [move_bonus] lit  0 => 1
+cb_economy/winnu/movement.rs:63:59 [move_bonus] lit  0 => 1
+cb_economy/winnu/movement.rs:64:110 [move_bonus] lit  0 => 1
+cb_economy/winnu/movement.rs:65:19 [move_bonus] cmp  damaged == 1 => damaged != 1
+cb_economy/winnu/movement.rs:65:30 [move_bonus] lit  1 => 2
+cb_economy/winnu/movement.rs:72:21 [move_bonus] cmp  p.owner() == site.player => p.owner() != site.player
+cb_economy/winnu/movement.rs:73:23 [move_bonus] logic  p.kind() == kind && p.sustained() == damaged => p.kind() == kind || p.sustained() == damaged
+cb_economy/winnu/movement.rs:73:23 [move_bonus] cmp  p.kind() == kind => p.kind() != kind
+cb_economy/winnu/movement.rs:73:43 [move_bonus] cmp  p.sustained() == damaged => p.sustained() != damaged
+cb_economy/winnu/movement.rs:75:9 [move_bonus] logic  origin == site.origin && first == Some(u... && holds_breakthrough(s, site.player, Break... => origin == site.origin && first == Some(u... || holds_breakth
+cb_economy/winnu/movement.rs:75:9 [move_bonus] logic  origin == site.origin && first == Some(usize::from(index)) => origin == site.origin || first == Some(usize::from(index))
+cb_economy/winnu/movement.rs:75:9 [move_bonus] cmp  origin == site.origin => origin != site.origin
+cb_economy/winnu/movement.rs:76:16 [move_bonus] cmp  first == Some(usize::from(index)) => first != Some(usize::from(index))
+cb_economy/winnu/query.rs:32:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cb_economy/winnu/query.rs:58:58 [holds_acquiescence] body  holds_acquiescence(s: &CoreState, who: Seat) -> bool { => { return true; }
+cb_economy/winnu/query.rs:71:8 [secondary_waivers] logic  holds_acquiescence(s, follower) && follower != primary => holds_acquiescence(s, follower) || follower != primary
+cb_economy/winnu/query.rs:79:8 [secondary_waived] logic  waiver.module == Faction::TheWinnu && wa... && is_winnu(cx.state, primary) => waiver.module == Faction::TheWinnu && wa... || is_winnu(cx.s
+cb_economy/winnu/query.rs:79:8 [secondary_waived] logic  waiver.module == Faction::TheWinnu && wa... && holds_acquiescence(cx.state, follower) => waiver.module == Faction::TheWinnu && wa... || holds_acquies
+cb_economy/winnu/query.rs:79:8 [secondary_waived] logic  waiver.module == Faction::TheWinnu && waiver.code == ACQUIESCENCE => waiver.module == Faction::TheWinnu || waiver.code == ACQUIES
+cb_economy/winnu/query.rs:100:8 [planet_spend_value] logic  !has_tech_text(s, who, Technology::Hegem... || !ti4_engine_core::query::board::controls... => !has_tech_text(s, who, Technology::Hegem... && !ti4_engine_c
+cb_economy/winnu/query.rs:111:19 [planet_spend_value] cond  other == Kind::Resources => !(other == Kind::Resources)
+cb_economy/winnu/query.rs:111:19 [planet_spend_value] cmp  other == Kind::Resources => other != Kind::Resources
+cb_economy/winnu/query.rs:124:49 [commander_bonus] cmp  scope.0 & ti4_engine_core::tables::sourc... != 0 => scope.0 & ti4_engine_core::tables::sourc... == 0
+cb_economy/winnu/query.rs:124:49 [commander_bonus] arith  scope.0 & ti4_engine_core::tables::source_bit(p.da... => scope.0 | ti4_engine_core::tables::source_bit(p.da...
+cb_economy/winnu/query.rs:124:115 [commander_bonus] lit  0 => 1
+cb_economy/winnu/query.rs:149:102 [support_in_play] lit  0 => 1
+cb_economy/winnu/query.rs:167:15 [unit_dice] logic  Some(unit.unit) == flagship && is_winnu(s, unit.owner) => Some(unit.unit) == flagship || is_winnu(s, unit.owner)
+cb_economy/winnu/query.rs:168:16 [unit_dice] cmp  Some(unit.unit) != flagship => Some(unit.unit) == flagship
+cb_economy/winnu/query.rs:183:50 [unit_dice] lit  0 => 1
+cb_economy/winnu/query.rs:184:8 [unit_dice] cond  Some(unit.unit) == flagship => !(Some(unit.unit) == flagship)
+cb_economy/winnu/query.rs:184:8 [unit_dice] cmp  Some(unit.unit) == flagship => Some(unit.unit) != flagship

@@ -1,0 +1,744 @@
+# survivors of core/rules/production: 743 of 861 points (13% killed); paths relative to crates/<crate>/src
+rules/production/mod.rs:72:34 [price] lit  64 => 65
+rules/production/mod.rs:77:59 [price_of] body  price_of(cx: &Cx<'_>, unit: Unit) -> (i64, usize) { => { return Default::default(); }
+rules/production/mod.rs:84:72 [producers] body  producers(cx: &Cx<'_>, who: Seat, system: System) -> Producers { => { return Default::default(); }
+rules/production/mod.rs:89:12 [producers] cond  p.owner() == who && produces(k) && !silenced(cx, who, system, Some(k), SilenceCt... => !(p.owner() == who && produces(k) && !silenced(cx, who, syst
+rules/production/mod.rs:89:12 [producers] logic  p.owner() == who && produces(k) && !silenced(cx, who, system, Some(k), Sile... => p.owner() == who && produces(k) || !silenced(cx, who, system
+rules/production/mod.rs:89:12 [producers] logic  p.owner() == who && produces(k) => p.owner() == who || produces(k)
+rules/production/mod.rs:89:12 [producers] cmp  p.owner() == who => p.owner() != who
+rules/production/mod.rs:95:16 [producers] cond  p.owner() == who && produces(p.kind()) => !(p.owner() == who && produces(p.kind()))
+rules/production/mod.rs:95:16 [producers] logic  p.owner() == who && produces(p.kind()) => p.owner() == who || produces(p.kind())
+rules/production/mod.rs:95:16 [producers] cmp  p.owner() == who => p.owner() != who
+rules/production/mod.rs:104:78 [sorted_planets] body  sorted_planets(core: &CoreState, system: System) -> SmallList<Planet, ... => { return Default::default(); }
+rules/production/mod.rs:115:85 [mobile_docks] body  mobile_docks(cx: &Cx<'_>, who: Seat, system: System) -> SmallList<Piec... => { return Default::default(); }
+rules/production/mod.rs:119:12 [mobile_docks] cond  p.owner() == who && d.space_only && d.structure && d.production.is_some() => !(p.owner() == who && d.space_only && d.structure && d.produ
+rules/production/mod.rs:119:12 [mobile_docks] logic  p.owner() == who && d.space_only && d.st... && d.production.is_some() => p.owner() == who && d.space_only && d.st... || d.production.
+rules/production/mod.rs:119:12 [mobile_docks] logic  p.owner() == who && d.space_only && d.structure => p.owner() == who && d.space_only || d.structure
+rules/production/mod.rs:119:12 [mobile_docks] logic  p.owner() == who && d.space_only => p.owner() == who || d.space_only
+rules/production/mod.rs:119:12 [mobile_docks] cmp  p.owner() == who => p.owner() != who
+rules/production/mod.rs:128:63 [war_machine_bonus] body  war_machine_bonus(core: &CoreState, who: Seat) -> i64 { => { return 0; }
+rules/production/mod.rs:128:63 [war_machine_bonus] body  war_machine_bonus(core: &CoreState, who: Seat) -> i64 { => { return 1; }
+rules/production/mod.rs:130:40 [war_machine_bonus] lit  0 => 1
+rules/production/mod.rs:130:47 [war_machine_bonus] arith  5 * p.round_marks.of(RoundKind::WarMachine).... => 5 + p.round_marks.of(RoundKind::WarMachine)....
+rules/production/mod.rs:130:47 [war_machine_bonus] lit  5 => 6
+rules/production/mod.rs:130:102 [war_machine_bonus] cmp  *n == seq => *n != seq
+rules/production/mod.rs:136:83 [planet_value] body  planet_value(cx: &Cx<'_>, who: Seat, planet: Planet, spend: Spend) -> ... => { return 0; }
+rules/production/mod.rs:136:83 [planet_value] body  planet_value(cx: &Cx<'_>, who: Seat, planet: Planet, spend: Spend) -> ... => { return 1; }
+rules/production/mod.rs:137:16 [planet_value] arith  economy::printed_value(cx.scope, planet,... + economy::attachment_bonus(cx.core(), pla... => economy::printed_value(cx.scope, planet,... - economy::attac
+rules/production/mod.rs:149:101 [silenced] body  silenced(cx: &Cx<'_>, owner: Seat, system: System, unit: Option<Unit>,... => { return false; }
+rules/production/mod.rs:154:82 [extra] body  extra(cx: &Cx<'_>, who: Seat, system: System, planet: Option<Planet>) ... => { return 0; }
+rules/production/mod.rs:154:82 [extra] body  extra(cx: &Cx<'_>, who: Seat, system: System, planet: Option<Planet>) ... => { return 1; }
+rules/production/mod.rs:155:79 [extra] lit  0 => 1
+rules/production/mod.rs:158:88 [cannot] body  cannot(cx: &Cx<'_>, who: Seat, unit: UnitBaseType, producer: UnitBaseT... => { return true; }
+rules/production/mod.rs:158:88 [cannot] body  cannot(cx: &Cx<'_>, who: Seat, unit: UnitBaseType, producer: UnitBaseT... => { return false; }
+rules/production/mod.rs:159:82 [cannot] lit  false => true
+rules/production/mod.rs:162:56 [unit_production] body  unit_production(unit: Unit, resources: i64) -> i64 { => { return 0; }
+rules/production/mod.rs:162:56 [unit_production] body  unit_production(unit: Unit, resources: i64) -> i64 { => { return 1; }
+rules/production/mod.rs:163:35 [unit_production] lit  0 => 1
+rules/production/mod.rs:163:42 [unit_production] arith  i64::from(p.value) + if p.plus_planet_resources { resources }... => i64::from(p.value) - if p.plus_planet_resources { resources 
+rules/production/mod.rs:163:66 [unit_production] cond  p.plus_planet_resources => !(p.plus_planet_resources)
+rules/production/mod.rs:163:111 [unit_production] lit  0 => 1
+rules/production/mod.rs:166:75 [dock_resources] body  dock_resources(cx: &Cx<'_>, who: Seat, planet: Option<Planet>) -> i64 ... => { return 0; }
+rules/production/mod.rs:166:75 [dock_resources] body  dock_resources(cx: &Cx<'_>, who: Seat, planet: Option<Planet>) -> i64 ... => { return 1; }
+rules/production/mod.rs:167:19 [dock_resources] lit  0 => 1
+rules/production/mod.rs:172:65 [capacity] body  capacity(cx: &Cx<'_>, who: Seat, system: System) -> i64 { => { return 0; }
+rules/production/mod.rs:172:65 [capacity] body  capacity(cx: &Cx<'_>, who: Seat, system: System) -> i64 { => { return 1; }
+rules/production/mod.rs:173:5 [capacity] arith  producers(cx, who, system) .as_slice() .... + module_production(cx, who, system) => producers(cx, who, system) .as_slice() .... - module_product
+rules/production/mod.rs:173:5 [capacity] arith  producers(cx, who, system) .as_slice() .... + war_machine_bonus(cx.core(), who) => producers(cx, who, system) .as_slice() .... - war_machine_bo
+rules/production/mod.rs:184:74 [module_production] body  module_production(cx: &Cx<'_>, who: Seat, system: System) -> i64 { => { return 0; }
+rules/production/mod.rs:184:74 [module_production] body  module_production(cx: &Cx<'_>, who: Seat, system: System) -> i64 { => { return 1; }
+rules/production/mod.rs:185:5 [module_production] arith  extra(cx, who, system, None).max(0) + module_planet_producers(cx, who, system)... => extra(cx, who, system, None).max(0) - module_planet_producer
+rules/production/mod.rs:185:38 [module_production] lit  0 => 1
+rules/production/mod.rs:191:104 [module_planet_producers] body  module_planet_producers(cx: &Cx<'_>, who: Seat, system: System) -> Sma... => { return Default::default(); }
+rules/production/mod.rs:195:12 [module_planet_producers] cond  cell.units.is_empty() && cell.control.is_none() => !(cell.units.is_empty() && cell.control.is_none())
+rules/production/mod.rs:195:12 [module_planet_producers] logic  cell.units.is_empty() && cell.control.is_none() => cell.units.is_empty() || cell.control.is_none()
+rules/production/mod.rs:199:17 [module_planet_producers] arith  extra(cx, who, system, Some(*planet)) - extra(cx, who, system, None) => extra(cx, who, system, Some(*planet)) + extra(cx, who, syste
+rules/production/mod.rs:200:12 [module_planet_producers] cond  v > 0 => !(v > 0)
+rules/production/mod.rs:200:12 [module_planet_producers] cmp  v > 0 => v >= 0
+rules/production/mod.rs:200:16 [module_planet_producers] lit  0 => 1
+rules/production/mod.rs:209:92 [barred_capacity] body  barred_capacity(cx: &Cx<'_>, who: Seat, system: System, unit: UnitBase... => { return 0; }
+rules/production/mod.rs:209:92 [barred_capacity] body  barred_capacity(cx: &Cx<'_>, who: Seat, system: System, unit: UnitBase... => { return 1; }
+rules/production/mod.rs:220:92 [structures_on] body  structures_on(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseTy... => { return 0; }
+rules/production/mod.rs:220:92 [structures_on] body  structures_on(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseTy... => { return 1; }
+rules/production/mod.rs:221:62 [structures_on] logic  p.owner() == who && p.kind().data().base_type == base => p.owner() == who || p.kind().data().base_type == base
+rules/production/mod.rs:221:62 [structures_on] cmp  p.owner() == who => p.owner() != who
+rules/production/mod.rs:221:82 [structures_on] cmp  p.kind().data().base_type == base => p.kind().data().base_type != base
+rules/production/mod.rs:226:95 [structure_allowed] body  structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBa... => { return true; }
+rules/production/mod.rs:226:95 [structure_allowed] body  structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBa... => { return false; }
+rules/production/mod.rs:227:8 [structure_allowed] cond  laws::structure_cap_lifted(cx.core(), cx.blanked, base) => !(laws::structure_cap_lifted(cx.core(), cx.blanked, base))
+rules/production/mod.rs:228:16 [structure_allowed] lit  true => false
+rules/production/mod.rs:230:8 [structure_allowed] cond  laws::planet_is_demilitarized(cx.core(), cx.blanked, planet) => !(laws::planet_is_demilitarized(cx.core(), cx.blanked, plane
+rules/production/mod.rs:231:16 [structure_allowed] lit  false => true
+rules/production/mod.rs:233:44 [structure_allowed] cmp  structures_on(cx, who, planet, base) < cap => structures_on(cx, who, planet, base) <= cap
+rules/production/mod.rs:244:65 [enrich_ctx] body  enrich_ctx(s: &CoreState, ctx: &mut crate::choice::Ctx) { => { return (); }
+rules/production/mod.rs:246:8 [enrich_ctx] cond  !ctx.space_battle => !(!ctx.space_battle)
+rules/production/mod.rs:249:112 [enrich_ctx] cmp  x == active.system => x != active.system
+rules/production/mod.rs:250:22 [enrich_ctx] lit  true => false
+rules/production/mod.rs:252:16 [enrich_ctx] cond  in_system => !(in_system)
+rules/production/mod.rs:271:78 [placements] logic  p.owner() != who && p.kind().data().ship => p.owner() != who || p.kind().data().ship
+rules/production/mod.rs:271:78 [placements] cmp  p.owner() != who => p.owner() == who
+rules/production/mod.rs:277:8 [placements] cond  system.data().anomalies.scar => !(system.data().anomalies.scar)
+rules/production/mod.rs:283:16 [placements] cond  !cannot(cx, who, d.base_type, u.kind().data().base_type) => !(!cannot(cx, who, d.base_type, u.kind().data().base_type))
+rules/production/mod.rs:300:12 [placements] cond  laws::production_forbidden_on(cx.core(), cx.blanked, planet) || laws::planet_is_... => !(laws::production_forbidden_on(cx.core(), cx.blanked, plane
+rules/production/mod.rs:300:12 [placements] logic  laws::production_forbidden_on(cx.core(),... || !structure_allowed(cx, who, planet, d.ba... => laws::production_forbidden_on(cx.core(),... && !structure_al
+rules/production/mod.rs:300:12 [placements] logic  laws::production_forbidden_on(cx.core(),... || planet.data().traits.contains(&PlanetTra... => laws::production_forbidden_on(cx.core(),... && planet.data()
+rules/production/mod.rs:300:12 [placements] logic  laws::production_forbidden_on(cx.core(),... || laws::planet_is_demilitarized(cx.core(),... => laws::production_forbidden_on(cx.core(),... && laws::planet_
+rules/production/mod.rs:308:12 [placements] cond  !spots.as_slice().contains(&s) => !(!spots.as_slice().contains(&s))
+rules/production/mod.rs:312:8 [placements] cond  made.as_slice().iter().any(|(_, pl)| pl.is_none()) || extra(cx, who, system, Non... => !(made.as_slice().iter().any(|(_, pl)| pl.is_none()) || extr
+rules/production/mod.rs:312:8 [placements] logic  made.as_slice().iter().any(|(_, pl)| pl.... || extra(cx, who, system, None) > 0 => made.as_slice().iter().any(|(_, pl)| pl.... && extra(cx, who
+rules/production/mod.rs:312:62 [placements] cmp  extra(cx, who, system, None) > 0 => extra(cx, who, system, None) >= 0
+rules/production/mod.rs:312:93 [placements] lit  0 => 1
+rules/production/mod.rs:313:12 [placements] cond  !spots.as_slice().contains(&Spot::Space) => !(!spots.as_slice().contains(&Spot::Space))
+rules/production/mod.rs:348:41 [Held::extras] body  extras(&self) -> Extras<'_> { => { return Default::default(); }
+rules/production/mod.rs:355:57 [trade_good_worth] body  trade_good_worth(cx: &Cx<'_>, who: Seat) -> i64 { => { return 1; }
+rules/production/mod.rs:361:93 [spendable_planets] body  spendable_planets(cx: &Cx<'_>, who: Seat, ex: &Extras<'_>) -> SmallLis... => { return Default::default(); }
+rules/production/mod.rs:377:98 [payment_faces] body  payment_faces(cx: &Cx<'_>, who: Seat, planet: Planet, kind: Spend) -> ... => { return Default::default(); }
+rules/production/mod.rs:383:26 [payment_faces] cmp  p.leaders.status.get(&Leader::XxekirGrom... == Some(&LeaderStatus::Unlocked) => p.leaders.status.get(&Leader::XxekirGrom... != Some(&LeaderS
+rules/production/mod.rs:384:23 [payment_faces] cond  combines => !(combines)
+rules/production/mod.rs:384:34 [payment_faces] arith  face(Spend::Resources) + face(Spend::Influence) => face(Spend::Resources) - face(Spend::Influence)
+rules/production/mod.rs:386:8 [payment_faces] cond  ordinary > 0 => !(ordinary > 0)
+rules/production/mod.rs:386:8 [payment_faces] cmp  ordinary > 0 => ordinary >= 0
+rules/production/mod.rs:386:19 [payment_faces] lit  0 => 1
+rules/production/mod.rs:392:23 [payment_faces] logic  kind == Spend::Resources && cx.core().meta().influence_pays_for_unit... => kind == Spend::Resources || cx.core().meta().influence_pays_
+rules/production/mod.rs:392:23 [payment_faces] cmp  kind == Spend::Resources => kind != Spend::Resources
+rules/production/mod.rs:393:24 [payment_faces] cmp  p.cards.breakthrough == Some(Breakthrough::ArchonsGift) => p.cards.breakthrough != Some(Breakthrough::ArchonsGift)
+rules/production/mod.rs:394:8 [payment_faces] cond  !freelancers && !archons_gift => !(!freelancers && !archons_gift)
+rules/production/mod.rs:394:8 [payment_faces] logic  !freelancers && !archons_gift => !freelancers || !archons_gift
+rules/production/mod.rs:397:20 [payment_faces] cond  kind == Spend::Resources => !(kind == Spend::Resources)
+rules/production/mod.rs:397:20 [payment_faces] cmp  kind == Spend::Resources => kind != Spend::Resources
+rules/production/mod.rs:399:8 [payment_faces] cond  alternate > 0 && alternate != ordinary => !(alternate > 0 && alternate != ordinary)
+rules/production/mod.rs:399:8 [payment_faces] logic  alternate > 0 && alternate != ordinary => alternate > 0 || alternate != ordinary
+rules/production/mod.rs:399:8 [payment_faces] cmp  alternate > 0 => alternate >= 0
+rules/production/mod.rs:399:20 [payment_faces] lit  0 => 1
+rules/production/mod.rs:399:25 [payment_faces] cmp  alternate != ordinary => alternate == ordinary
+rules/production/mod.rs:407:84 [max_face_value] body  max_face_value(cx: &Cx<'_>, who: Seat, planet: Planet, kind: Spend) ->... => { return 0; }
+rules/production/mod.rs:407:84 [max_face_value] body  max_face_value(cx: &Cx<'_>, who: Seat, planet: Planet, kind: Spend) ->... => { return 1; }
+rules/production/mod.rs:408:93 [max_face_value] lit  0 => 1
+rules/production/mod.rs:412:48 [triad_value] body  triad_value(cx: &Cx<'_>, who: Seat) -> i64 { => { return 0; }
+rules/production/mod.rs:414:22 [triad_value] lit  0 => 1
+rules/production/mod.rs:414:25 [triad_value] lit  4 => 5
+rules/production/mod.rs:414:39 [triad_value] logic  p.cards.fragments.present & (1 << i) != ... && p.cards.fragments.counts[*i] > 0 => p.cards.fragments.present & (1 << i) != ... || p.cards.fragm
+rules/production/mod.rs:414:39 [triad_value] cmp  p.cards.fragments.present & (1 << i) != 0 => p.cards.fragments.present & (1 << i) == 0
+rules/production/mod.rs:414:39 [triad_value] arith  p.cards.fragments.present & (1 << i) => p.cards.fragments.present | (1 << i)
+rules/production/mod.rs:414:68 [triad_value] arith  1 << i => 1 >> i
+rules/production/mod.rs:414:68 [triad_value] lit  1 => 2
+rules/production/mod.rs:414:79 [triad_value] lit  0 => 1
+rules/production/mod.rs:414:84 [triad_value] cmp  p.cards.fragments.counts[*i] > 0 => p.cards.fragments.counts[*i] >= 0
+rules/production/mod.rs:414:115 [triad_value] lit  0 => 1
+rules/production/mod.rs:415:9 [triad_value] arith  3 + kinds as i64 => 3 - kinds as i64
+rules/production/mod.rs:415:9 [triad_value] lit  3 => 4
+rules/production/mod.rs:424:17 [available] arith  cx.core().players().by_seat(who).map_or(... + ex.commodities * worth => cx.core().players().by_seat(who).map_or(... - ex.commodities
+rules/production/mod.rs:424:57 [available] lit  0 => 1
+rules/production/mod.rs:425:26 [available] cond  kind == Spend::Resources => !(kind == Spend::Resources)
+rules/production/mod.rs:425:26 [available] cmp  kind == Spend::Resources => kind != Spend::Resources
+rules/production/mod.rs:426:5 [available] arith  from_planets + triad_value(cx, who) + go... + war_machine => from_planets + triad_value(cx, who) + go... - war_machine
+rules/production/mod.rs:426:5 [available] arith  from_planets + triad_value(cx, who) => from_planets - triad_value(cx, who)
+rules/production/mod.rs:435:57 [pay_opts] lit  0 => 1
+rules/production/mod.rs:437:26 [pay_opts] arith  goods * worth + ex.commodities * worth => goods * worth - ex.commodities * worth
+rules/production/mod.rs:437:26 [pay_opts] arith  goods * worth => goods + worth
+rules/production/mod.rs:437:42 [pay_opts] arith  ex.commodities * worth => ex.commodities + worth
+rules/production/mod.rs:440:36 [pay_opts] arith  spendable.as_slice().iter().filter(|o| *... + goods_capacity => spendable.as_slice().iter().filter(|o| *... - goods_capacity
+rules/production/mod.rs:440:75 [pay_opts] cmp  *o != planet => *o == planet
+rules/production/mod.rs:442:16 [pay_opts] cond  paid + face + remaining_after < cost => !(paid + face + remaining_after < cost)
+rules/production/mod.rs:442:16 [pay_opts] cmp  paid + face + remaining_after < cost => paid + face + remaining_after <= cost
+rules/production/mod.rs:442:16 [pay_opts] arith  paid + face + remaining_after => paid + face - remaining_after
+rules/production/mod.rs:442:16 [pay_opts] arith  paid + face => paid - face
+rules/production/mod.rs:446:139 [pay_opts] arith  pool - removed => pool + removed
+rules/production/mod.rs:449:8 [pay_opts] cmp  goods > 0 => goods >= 0
+rules/production/mod.rs:449:16 [pay_opts] lit  0 => 1
+rules/production/mod.rs:450:93 [pay_opts] arith  pool - worth => pool + worth
+rules/production/mod.rs:452:8 [pay_opts] cond  ex.commodities > 0 => !(ex.commodities > 0)
+rules/production/mod.rs:452:8 [pay_opts] cmp  ex.commodities > 0 => ex.commodities >= 0
+rules/production/mod.rs:452:25 [pay_opts] lit  0 => 1
+rules/production/mod.rs:453:93 [pay_opts] arith  pool - worth => pool + worth
+rules/production/mod.rs:455:43 [pay_opts] arith  cost - paid => cost + paid
+rules/production/mod.rs:458:26 [small] body  small(n: i64) -> i32 { => { return 1; }
+rules/production/mod.rs:459:35 [small] cond  n < 0 => !(n < 0)
+rules/production/mod.rs:459:35 [small] cmp  n < 0 => n <= 0
+rules/production/mod.rs:459:39 [small] lit  0 => 1
+rules/production/mod.rs:489:77 [placed_of] body  placed_of(cx: &Cx<'_>, who: Seat, unit: Unit, made: usize) -> usize { => { return 0; }
+rules/production/mod.rs:489:77 [placed_of] body  placed_of(cx: &Cx<'_>, who: Seat, unit: Unit, made: usize) -> usize { => { return 1; }
+rules/production/mod.rs:490:8 [placed_of] cond  cx.q.k.hooks.economy.effect_placement_forbidden(cx.core(), cx.q.k, who, unit) => !(cx.q.k.hooks.economy.effect_placement_forbidden(cx.core(),
+rules/production/mod.rs:491:9 [placed_of] lit  0 => 1
+rules/production/mod.rs:493:83 [placed_of] lit  0 => 1
+rules/production/mod.rs:493:97 [placed_of] lit  0 => 1
+rules/production/mod.rs:506:108 [place_ask_standing] body  place_ask_standing(cx: &Cx<'_>, ask: &PlaceAsk, system: System, arrivi... => { return Default::default(); }
+rules/production/mod.rs:525:70 [place_home_standing] body  place_home_standing(cx: &Cx<'_>, ask: &PlaceAsk) -> Standing { => { return Default::default(); }
+rules/production/mod.rs:531:74 [place_opts] body  place_opts(cx: &Cx<'_>, ask: &PlaceAsk) -> SmallList<PayOpt, 18> { => { return Default::default(); }
+rules/production/mod.rs:534:8 [place_opts] cond  spots.as_slice().len() >= 2 => !(spots.as_slice().len() >= 2)
+rules/production/mod.rs:534:8 [place_opts] cmp  spots.as_slice().len() >= 2 => spots.as_slice().len() > 2
+rules/production/mod.rs:534:34 [place_opts] lit  2 => 3
+rules/production/mod.rs:569:39 [spot_in_space] body  spot_in_space(spot: Spot) -> bool { => { return true; }
+rules/production/mod.rs:569:39 [spot_in_space] body  spot_in_space(spot: Spot) -> bool { => { return false; }
+rules/production/mod.rs:573:113 [standing_at] body  standing_at(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, system: System, a... => { return Default::default(); }
+rules/production/mod.rs:578:109 [standing_after] body  standing_after(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, sp... => { return Default::default(); }
+rules/production/mod.rs:587:95 [post_build] body  post_build(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, count:... => { return Default::default(); }
+rules/production/mod.rs:588:69 [post_build] cmp  p.cards.breakthrough == Some(Breakthrough::BellumGloriosum) => p.cards.breakthrough != Some(Breakthrough::BellumGloriosum)
+rules/production/mod.rs:590:19 [post_build] arith  if held_sol && d.ship { fleet::capacity(... * i64::from(count > 0) => if held_sol && d.ship { fleet::capacity(... + i64::from(coun
+rules/production/mod.rs:590:22 [post_build] cond  held_sol && d.ship => !(held_sol && d.ship)
+rules/production/mod.rs:590:22 [post_build] logic  held_sol && d.ship => held_sol || d.ship
+rules/production/mod.rs:590:74 [post_build] lit  0 => 1
+rules/production/mod.rs:590:90 [post_build] cmp  count > 0 => count >= 0
+rules/production/mod.rs:590:98 [post_build] lit  0 => 1
+rules/production/mod.rs:591:18 [post_build] logic  d.base_type == UnitBaseType::Fighter || fleet::is_ground_force(unit) => d.base_type == UnitBaseType::Fighter && fleet::is_ground_for
+rules/production/mod.rs:591:18 [post_build] cmp  d.base_type == UnitBaseType::Fighter => d.base_type != UnitBaseType::Fighter
+rules/production/mod.rs:593:19 [post_build] cond  spends => !(spends)
+rules/production/mod.rs:593:38 [post_build] arith  i64::from(ask.free_capacity) + granted => i64::from(ask.free_capacity) - granted
+rules/production/mod.rs:593:87 [post_build] lit  0 => 1
+rules/production/mod.rs:594:21 [post_build] cond  matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry) => !(matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType
+rules/production/mod.rs:594:94 [post_build] arith  count - free => count + free
+rules/production/mod.rs:594:128 [post_build] lit  0 => 1
+rules/production/mod.rs:595:6 [post_build] arith  i64::from(ask.remaining) - (count - free - exempt) => i64::from(ask.remaining) + (count - free - exempt)
+rules/production/mod.rs:595:34 [post_build] arith  count - free - exempt => count - free + exempt
+rules/production/mod.rs:595:34 [post_build] arith  count - free => count + free
+rules/production/mod.rs:595:58 [post_build] arith  i64::from(ask.free_capacity) + granted -... - exempt => i64::from(ask.free_capacity) + granted -... + exempt
+rules/production/mod.rs:595:58 [post_build] arith  i64::from(ask.free_capacity) + granted -... + small => i64::from(ask.free_capacity) + granted -... - small
+rules/production/mod.rs:595:58 [post_build] arith  i64::from(ask.free_capacity) + granted - free => i64::from(ask.free_capacity) + granted + free
+rules/production/mod.rs:595:58 [post_build] arith  i64::from(ask.free_capacity) + granted => i64::from(ask.free_capacity) - granted
+rules/production/mod.rs:600:78 [standing_before] body  standing_before(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk) -> Standing { => { return Default::default(); }
+rules/production/mod.rs:606:155 [build_for] body  build_for(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, unit: Unit, ex: &Ex... => { return None; }
+rules/production/mod.rs:608:8 [build_for] cond  ask.only_unit.is_some_and(|only| only != unit) => !(ask.only_unit.is_some_and(|only| only != unit))
+rules/production/mod.rs:608:41 [build_for] cmp  only != unit => only == unit
+rules/production/mod.rs:611:8 [build_for] cond  ask.max_unit_cost.is_some_and(|max| i64::from(d.cost_halves.unwrap_or(0)) > 2 * ... => !(ask.max_unit_cost.is_some_and(|max| i64::from(d.cost_halve
+rules/production/mod.rs:611:44 [build_for] cmp  i64::from(d.cost_halves.unwrap_or(0)) > 2 * i64::from(max) => i64::from(d.cost_halves.unwrap_or(0)) >= 2 * i64::from(max)
+rules/production/mod.rs:611:78 [build_for] lit  0 => 1
+rules/production/mod.rs:611:84 [build_for] arith  2 * i64::from(max) => 2 + i64::from(max)
+rules/production/mod.rs:611:84 [build_for] lit  2 => 3
+rules/production/mod.rs:615:36 [build_for] cond  d.base_type == UnitBaseType::Flagship && ask.flagship_free => !(d.base_type == UnitBaseType::Flagship && ask.flagship_free
+rules/production/mod.rs:615:36 [build_for] logic  d.base_type == UnitBaseType::Flagship && ask.flagship_free => d.base_type == UnitBaseType::Flagship || ask.flagship_free
+rules/production/mod.rs:615:36 [build_for] cmp  d.base_type == UnitBaseType::Flagship => d.base_type != UnitBaseType::Flagship
+rules/production/mod.rs:616:10 [build_for] lit  0 => 1
+rules/production/mod.rs:616:13 [build_for] lit  0 => 1
+rules/production/mod.rs:617:15 [build_for] cond  ask.free_this_use => !(ask.free_this_use)
+rules/production/mod.rs:618:10 [build_for] lit  0 => 1
+rules/production/mod.rs:621:10 [build_for] arith  printed - used => printed + used
+rules/production/mod.rs:624:22 [build_for] cmp  cost <= available(cx, who, Spend::Resources, ex)... => cost < available(cx, who, Spend::Resources, ex)...
+rules/production/mod.rs:624:30 [build_for] arith  available(cx, who, Spend::Resources, ex) + i64::from(ask.credit) => available(cx, who, Spend::Resources, ex) - i64::from(ask.cre
+rules/production/mod.rs:625:8 [build_for] cond  !affordable && !exchange => !(!affordable && !exchange)
+rules/production/mod.rs:625:8 [build_for] logic  !affordable && !exchange => !affordable || !exchange
+rules/production/mod.rs:629:8 [build_for] cond  spots.as_slice().is_empty() => !(spots.as_slice().is_empty())
+rules/production/mod.rs:633:21 [build_for] cond  barred == 0 => !(barred == 0)
+rules/production/mod.rs:633:21 [build_for] cmp  barred == 0 => barred != 0
+rules/production/mod.rs:633:31 [build_for] lit  0 => 1
+rules/production/mod.rs:637:38 [build_for] arith  i64::from(ask.limit) - barred - same_kind => i64::from(ask.limit) - barred + same_kind
+rules/production/mod.rs:637:38 [build_for] arith  i64::from(ask.limit) - barred => i64::from(ask.limit) + barred
+rules/production/mod.rs:639:20 [build_for] cond  matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry) => !(matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType
+rules/production/mod.rs:639:133 [build_for] lit  0 => 1
+rules/production/mod.rs:640:41 [build_for] arith  usable + extra => usable - extra
+rules/production/mod.rs:640:67 [build_for] lit  0 => 1
+rules/production/mod.rs:641:8 [build_for] cond  made == 0 => !(made == 0)
+rules/production/mod.rs:641:8 [build_for] cmp  made == 0 => made != 0
+rules/production/mod.rs:641:16 [build_for] lit  0 => 1
+rules/production/mod.rs:645:8 [build_for] cond  placed == 0 => !(placed == 0)
+rules/production/mod.rs:645:8 [build_for] cmp  placed == 0 => placed != 0
+rules/production/mod.rs:645:18 [build_for] lit  0 => 1
+rules/production/mod.rs:653:25 [build_for] cond  affordable => !(affordable)
+rules/production/mod.rs:654:47 [build_for] cond  exchange => !(exchange)
+rules/production/mod.rs:654:90 [build_for] lit  1 => 2
+rules/production/mod.rs:654:99 [build_for] lit  1 => 2
+rules/production/mod.rs:654:114 [build_for] lit  0 => 1
+rules/production/mod.rs:654:117 [build_for] lit  0 => 1
+rules/production/mod.rs:678:103 [build_opts] body  build_opts(cx: &Cx<'_>, who: Seat, ask: &ChooseAsk, ex: &Extras<'_>) -... => { return Default::default(); }
+rules/production/mod.rs:684:12 [build_opts] cond  info.affordable => !(info.affordable)
+rules/production/mod.rs:687:12 [build_opts] cond  info.exchange => !(info.exchange)
+rules/production/offers.rs:31:19 [ctx] lit  false => true
+rules/production/offers.rs:34:23 [ctx] lit  false => true
+rules/production/offers.rs:39:20 [opts] body  opts() -> Opts { => { return Default::default(); }
+rules/production/offers.rs:59:54 [AgentOffer::new] lit  0 => 1
+rules/production/offers.rs:59:65 [AgentOffer::new] lit  false => true
+rules/production/offers.rs:62:37 [AgentOffer::keleres] body  keleres(f: Faction) -> bool { => { return true; }
+rules/production/offers.rs:62:37 [AgentOffer::keleres] body  keleres(f: Faction) -> bool { => { return false; }
+rules/production/offers.rs:67:70 [AgentOffer::holders_of] body  holders_of(s: &CoreState, payer: Seat) -> SmallList<Seat, 8> { => { return Default::default(); }
+rules/production/offers.rs:69:12 [AgentOffer::holders_of] cond  s.marks().tail.contains_key(&MarkKey::KeleresAgentGoods(payer)) || s.players().b... => !(s.marks().tail.contains_key(&MarkKey::KeleresAgentGoods(pa
+rules/production/offers.rs:69:12 [AgentOffer::holders_of] logic  s.marks().tail.contains_key(&MarkKey::Ke... || s.players().by_seat(payer).is_none_or(|p... => s.marks().tail.contains_key(&MarkKey::Ke... && s.players().b
+rules/production/offers.rs:69:121 [AgentOffer::holders_of] cmp  p.econ.commodities <= 0 => p.econ.commodities < 0
+rules/production/offers.rs:69:143 [AgentOffer::holders_of] lit  0 => 1
+rules/production/offers.rs:73:16 [AgentOffer::holders_of] cond  Self::keleres(p.faction) && p.leaders.status.get(&Leader::XanderAlexinVictoriIII... => !(Self::keleres(p.faction) && p.leaders.status.get(&Leader::
+rules/production/offers.rs:73:16 [AgentOffer::holders_of] logic  Self::keleres(p.faction) && p.leaders.status.get(&Leader::XanderAlex... => Self::keleres(p.faction) || p.leaders.status.get(&Leader::Xa
+rules/production/offers.rs:73:44 [AgentOffer::holders_of] cmp  p.leaders.status.get(&Leader::XanderAlex... == Some(&LeaderStatus::Readied) => p.leaders.status.get(&Leader::XanderAlex... != Some(&LeaderS
+rules/production/offers.rs:80:59 [AgentOffer::mark] body  mark(s: &mut CoreState, payer: Seat, value: Atom) { => { return (); }
+rules/production/offers.rs:93:12 [AgentOffer::step] cond  self.stage == Stage::Start => !(self.stage == Stage::Start)
+rules/production/offers.rs:93:12 [AgentOffer::step] cmp  self.stage == Stage::Start => self.stage != Stage::Start
+rules/production/offers.rs:95:29 [AgentOffer::step] cond  self.holders.is_empty() => !(self.holders.is_empty())
+rules/production/offers.rs:103:68 [AgentOffer::ask_of] body  ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/offers.rs:105:10 [AgentOffer::ask_of] cmp  self.stage == Stage::Asking => self.stage != Stage::Asking
+rules/production/offers.rs:113:79 [AgentOffer::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/production/offers.rs:115:12 [AgentOffer::answer] cond  self.stage != Stage::Asking => !(self.stage != Stage::Asking)
+rules/production/offers.rs:115:12 [AgentOffer::answer] cmp  self.stage != Stage::Asking => self.stage == Stage::Asking
+rules/production/offers.rs:118:24 [AgentOffer::answer] lit  true => false
+rules/production/offers.rs:123:80 [AgentOffer::answer] cmp  p.leaders.status.get(&Leader::XanderAlex... == Some(&LeaderStatus::Readied) => p.leaders.status.get(&Leader::XanderAlex... != Some(&LeaderS
+rules/production/offers.rs:124:20 [AgentOffer::answer] cond  ready => !(ready)
+rules/production/offers.rs:125:24 [AgentOffer::answer] cond  sx.kernel.hooks.direct.nomad_watches_agent_exhaustion(sx.state) => !(sx.kernel.hooks.direct.nomad_watches_agent_exhaustion(sx.s
+rules/production/offers.rs:132:35 [AgentOffer::answer] lit  true => false
+rules/production/offers.rs:134:28 [AgentOffer::answer] lit  false => true
+rules/production/offers.rs:139:12 [AgentOffer::answer] cond  next => !(next)
+rules/production/offers.rs:140:13 [AgentOffer::answer] assign  self.at += 1 => self.at -= 1
+rules/production/offers.rs:140:24 [AgentOffer::answer] lit  1 => 2
+rules/production/offers.rs:141:16 [AgentOffer::answer] cond  self.at >= self.holders.len() => !(self.at >= self.holders.len())
+rules/production/offers.rs:141:16 [AgentOffer::answer] cmp  self.at >= self.holders.len() => self.at > self.holders.len()
+rules/production/offers.rs:143:31 [AgentOffer::answer] lit  true => false
+rules/production/pay.rs:45:81 [PayStep::question] body  question(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/pay.rs:46:12 [PayStep::question] cond  self.stage == Stage::Done => !(self.stage == Stage::Done)
+rules/production/pay.rs:46:12 [PayStep::question] cmp  self.stage == Stage::Done => self.stage != Stage::Done
+rules/production/pay.rs:51:12 [PayStep::question] cond  opts.as_slice().is_empty() => !(opts.as_slice().is_empty())
+rules/production/pay.rs:63:75 [PayStep::question] arith  self.used_credit + self.paid => self.used_credit - self.paid
+rules/production/pay.rs:67:27 [PayStep::question] lit  false => true
+rules/production/pay.rs:70:31 [PayStep::question] lit  false => true
+rules/production/pay.rs:94:20 [PayStep::apply] cmp  p.econ.trade_goods <= 0 => p.econ.trade_goods < 0
+rules/production/pay.rs:94:42 [PayStep::apply] lit  0 => 1
+rules/production/pay.rs:102:17 [PayStep::apply] assign  s.players_mut().by_seat_mut(self.who)?.e... -= 1 => s.players_mut().by_seat_mut(self.who)?.e... += 1
+rules/production/pay.rs:102:76 [PayStep::apply] lit  1 => 2
+rules/production/pay.rs:141:68 [PayStep::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/pay.rs:145:79 [PayStep::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/production/pay.rs:185:81 [PayBill::next_step] lit  0 => 1
+rules/production/pay.rs:205:37 [PayBill::step] lit  0 => 1
+rules/production/pay.rs:210:24 [PayBill::step] cmp  rules::available(&cx, self.who, self.kin... < self.cost => rules::available(&cx, self.who, self.kin... <= self.cost
+rules/production/pay.rs:229:45 [PayBill::step] lit  false => true
+rules/production/pay.rs:231:41 [PayBill::step] lit  false => true
+rules/production/pay.rs:238:68 [PayBill::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/pay.rs:242:79 [PayBill::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/production/strategy_cards.rs:82:60 [Leadership::eligible] body  eligible(&self, s: &CoreState, k: &Kernel) -> bool { => { return true; }
+rules/production/strategy_cards.rs:82:60 [Leadership::eligible] body  eligible(&self, s: &CoreState, k: &Kernel) -> bool { => { return false; }
+rules/production/strategy_cards.rs:83:9 [Leadership::eligible] cmp  prod::available(&Self::cx(s, k), self.wh... >= INFLUENCE_PER_TOKEN => prod::available(&Self::cx(s, k), self.wh... > INFLUENCE_PER_
+rules/production/strategy_cards.rs:83:9 [Leadership::eligible] arith  prod::available(&Self::cx(s, k), self.wh... + self.credit => prod::available(&Self::cx(s, k), self.wh... - self.credit
+rules/production/strategy_cards.rs:89:60 [Leadership::begin_pay] lit  0 => 1
+rules/production/strategy_cards.rs:90:20 [Leadership::begin_pay] arith  INFLUENCE_PER_TOKEN - used => INFLUENCE_PER_TOKEN + used
+rules/production/strategy_cards.rs:91:12 [Leadership::begin_pay] cond  owed <= 0 => !(owed <= 0)
+rules/production/strategy_cards.rs:91:12 [Leadership::begin_pay] cmp  owed <= 0 => owed < 0
+rules/production/strategy_cards.rs:91:20 [Leadership::begin_pay] lit  0 => 1
+rules/production/strategy_cards.rs:92:13 [Leadership::begin_pay] assign  self.credit -= used => self.credit += used
+rules/production/strategy_cards.rs:94:19 [Leadership::begin_pay] cond  prod::available(&Self::cx(s, k), self.who, Spend::Influence, &Extras::default())... => !(prod::available(&Self::cx(s, k), self.who, Spend::Influenc
+rules/production/strategy_cards.rs:94:19 [Leadership::begin_pay] cmp  prod::available(&Self::cx(s, k), self.wh... < owed => prod::available(&Self::cx(s, k), self.wh... <= owed
+rules/production/strategy_cards.rs:97:55 [Leadership::begin_pay] lit  0 => 1
+rules/production/strategy_cards.rs:116:29 [Leadership::free_one] body  free_one(&mut self) { => { return (); }
+rules/production/strategy_cards.rs:117:21 [Leadership::free_one] lit  1 => 2
+rules/production/strategy_cards.rs:122:31 [Leadership::after_step] body  after_step(&mut self) { => { return (); }
+rules/production/strategy_cards.rs:132:20 [Leadership::after_step] arith  step.paid + worth => step.paid - worth
+rules/production/strategy_cards.rs:133:12 [Leadership::after_step] cond  paid < step.owed => !(paid < step.owed)
+rules/production/strategy_cards.rs:133:12 [Leadership::after_step] cmp  paid < step.owed => paid <= step.owed
+rules/production/strategy_cards.rs:136:27 [Leadership::after_step] arith  self.credit - step.used_credit + paid - step.owed => self.credit - step.used_credit + paid + step.owed
+rules/production/strategy_cards.rs:136:27 [Leadership::after_step] arith  self.credit - step.used_credit + paid => self.credit - step.used_credit - paid
+rules/production/strategy_cards.rs:136:27 [Leadership::after_step] arith  self.credit - step.used_credit => self.credit + step.used_credit
+rules/production/strategy_cards.rs:142:21 [Leadership::buy_choice] arith  INFLUENCE_PER_TOKEN - self.credit => INFLUENCE_PER_TOKEN + self.credit
+rules/production/strategy_cards.rs:142:60 [Leadership::buy_choice] lit  0 => 1
+rules/production/strategy_cards.rs:145:79 [Leadership::buy_choice] lit  0 => 1
+rules/production/strategy_cards.rs:145:89 [Leadership::buy_choice] cmp  self.credit > 0 => self.credit >= 0
+rules/production/strategy_cards.rs:145:103 [Leadership::buy_choice] lit  0 => 1
+rules/production/strategy_cards.rs:147:35 [Leadership::buy_choice] lit  false => true
+rules/production/strategy_cards.rs:147:53 [Leadership::buy_choice] lit  true => false
+rules/production/strategy_cards.rs:163:24 [Leadership::step] cond  self.primary => !(self.primary)
+rules/production/strategy_cards.rs:172:24 [Leadership::step] cond  !self.eligible(sx.state, sx.kernel) => !(!self.eligible(sx.state, sx.kernel))
+rules/production/strategy_cards.rs:202:79 [Leadership::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/production/strategy_cards.rs:203:12 [Leadership::answer] cond  self.stage == LStage::Pay => !(self.stage == LStage::Pay)
+rules/production/strategy_cards.rs:203:12 [Leadership::answer] cmp  self.stage == LStage::Pay => self.stage != LStage::Pay
+rules/production/strategy_cards.rs:209:58 [Leadership::answer] lit  1 => 2
+rules/production/strategy_cards.rs:210:17 [Leadership::answer] assign  self.left -= 1 => self.left += 1
+rules/production/strategy_cards.rs:210:30 [Leadership::answer] lit  1 => 2
+rules/production/strategy_cards.rs:211:20 [Leadership::answer] cond  self.left == 0 => !(self.left == 0)
+rules/production/strategy_cards.rs:211:20 [Leadership::answer] cmp  self.left == 0 => self.left != 0
+rules/production/strategy_cards.rs:211:33 [Leadership::answer] lit  0 => 1
+rules/production/strategy_cards.rs:269:30 [Construction::new_te] lit  true => false
+rules/production/strategy_cards.rs:269:113 [Construction::new_te] lit  false => true
+rules/production/strategy_cards.rs:272:33 [Construction::only_pds] body  only_pds(&self) -> bool { => { return true; }
+rules/production/strategy_cards.rs:272:33 [Construction::only_pds] body  only_pds(&self) -> bool { => { return false; }
+rules/production/strategy_cards.rs:273:9 [Construction::only_pds] logic  self.stage == CStage::Second && self.te.is_none() => self.stage == CStage::Second || self.te.is_none()
+rules/production/strategy_cards.rs:273:9 [Construction::only_pds] cmp  self.stage == CStage::Second => self.stage != CStage::Second
+rules/production/strategy_cards.rs:276:30 [Construction::step_no] body  step_no(&self) -> u8 { => { return 0; }
+rules/production/strategy_cards.rs:276:30 [Construction::step_no] body  step_no(&self) -> u8 { => { return 1; }
+rules/production/strategy_cards.rs:278:27 [Construction::step_no] lit  0 => 1
+rules/production/strategy_cards.rs:279:39 [Construction::step_no] lit  2 => 3
+rules/production/strategy_cards.rs:280:26 [Construction::step_no] lit  1 => 2
+rules/production/strategy_cards.rs:284:50 [Construction::placement] body  placement(&self, pds: bool) -> Placement { => { return Default::default(); }
+rules/production/strategy_cards.rs:285:12 [Construction::placement] cond  pds => !(pds)
+rules/production/strategy_cards.rs:293:74 [Construction::options] body  options(&self, s: &CoreState, k: &Kernel) -> SmallList<SOpt, 16> { => { return Default::default(); }
+rules/production/strategy_cards.rs:297:16 [Construction::options] cond  crate::query::objectives::is_space_station(*planet) => !(crate::query::objectives::is_space_station(*planet))
+rules/production/strategy_cards.rs:300:25 [Construction::options] lit  true => false
+rules/production/strategy_cards.rs:300:31 [Construction::options] lit  false => true
+rules/production/strategy_cards.rs:301:20 [Construction::options] cond  self.only_pds() && !pds => !(self.only_pds() && !pds)
+rules/production/strategy_cards.rs:301:20 [Construction::options] logic  self.only_pds() && !pds => self.only_pds() || !pds
+rules/production/strategy_cards.rs:305:31 [Construction::options] cond  pds => !(pds)
+rules/production/strategy_cards.rs:306:20 [Construction::options] cond  (in_space || prod::structure_allowed(&cx, self.who, *planet, base)) && crate::qu... => !((in_space || prod::structure_allowed(&cx, self.who, *plane
+rules/production/strategy_cards.rs:306:20 [Construction::options] logic  (in_space || prod::structure_allowed(&cx... && crate::query::fleet::remaining(s, cx.sco... => (in_space || prod::structure_allowed(&cx... || crate::query:
+rules/production/strategy_cards.rs:306:21 [Construction::options] logic  in_space || prod::structure_allowed(&cx, self.who, *... => in_space && prod::structure_allowed(&cx, self.who, *...
+rules/production/strategy_cards.rs:307:24 [Construction::options] cmp  crate::query::fleet::remaining(s, cx.sco... >= 1 => crate::query::fleet::remaining(s, cx.sco... > 1
+rules/production/strategy_cards.rs:307:84 [Construction::options] lit  0 => 1
+rules/production/strategy_cards.rs:307:90 [Construction::options] lit  1 => 2
+rules/production/strategy_cards.rs:316:40 [Construction::ask_now] body  ask_now(&self) -> Option<SAsk> { => { return None; }
+rules/production/strategy_cards.rs:326:25 [Construction::advance] logic  self.primary && self.stage == CStage::First => self.primary || self.stage == CStage::First
+rules/production/strategy_cards.rs:326:41 [Construction::advance] cmp  self.stage == CStage::First => self.stage != CStage::First
+rules/production/strategy_cards.rs:338:12 [Construction::step] cond  self.stage == CStage::Start => !(self.stage == CStage::Start)
+rules/production/strategy_cards.rs:338:12 [Construction::step] cmp  self.stage == CStage::Start => self.stage != CStage::Start
+rules/production/strategy_cards.rs:339:29 [Construction::step] cond  self.te.is_some() => !(self.te.is_some())
+rules/production/strategy_cards.rs:351:68 [Construction::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/strategy_cards.rs:361:31 [Construction::ask_of] lit  false => true
+rules/production/strategy_cards.rs:364:35 [Construction::ask_of] lit  false => true
+rules/production/strategy_cards.rs:378:27 [Construction::ask_of] lit  false => true
+rules/production/strategy_cards.rs:381:31 [Construction::ask_of] lit  false => true
+rules/production/strategy_cards.rs:388:79 [Construction::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/production/strategy_cards.rs:391:12 [Construction::answer] cond  !offered.opts.as_slice().contains(&chosen) => !(!offered.opts.as_slice().contains(&chosen))
+rules/production/strategy_cards.rs:395:43 [Construction::answer] cond  self.stage == CStage::Ability => !(self.stage == CStage::Ability)
+rules/production/strategy_cards.rs:395:43 [Construction::answer] cmp  self.stage == CStage::Ability => self.stage != CStage::Ability
+rules/production/strategy_cards.rs:399:48 [Construction::answer] cond  self.stage == CStage::Ability => !(self.stage == CStage::Ability)
+rules/production/strategy_cards.rs:399:48 [Construction::answer] cmp  self.stage == CStage::Ability => self.stage != CStage::Ability
+rules/production/strategy_cards.rs:400:33 [Construction::answer] lit  true => false
+rules/production/strategy_cards.rs:404:29 [Construction::answer] cond  self.stage != CStage::Ability => !(self.stage != CStage::Ability)
+rules/production/strategy_cards.rs:404:29 [Construction::answer] cmp  self.stage != CStage::Ability => self.stage == CStage::Ability
+rules/production/strategy_cards.rs:405:71 [Construction::answer] cond  self.stage != CStage::Ability => !(self.stage != CStage::Ability)
+rules/production/strategy_cards.rs:405:71 [Construction::answer] cmp  self.stage != CStage::Ability => self.stage == CStage::Ability
+rules/production/strategy_cards.rs:439:34 [KernelHooks::new] cmp  prod::available(&cx, who, Spend::Resourc... >= tech::INHERITANCE_SYSTEMS_COST => prod::available(&cx, who, Spend::Resourc... > tech::INHERITA
+rules/production/strategy_cards.rs:445:46 [KernelHooks::purged] body  purged(&self, _: Technology) -> bool { => { return false; }
+rules/production/strategy_cards.rs:449:61 [KernelHooks::waived_prerequisites] body  waived_prerequisites(&self, t: Technology) -> usize { => { return 0; }
+rules/production/strategy_cards.rs:449:61 [KernelHooks::waived_prerequisites] body  waived_prerequisites(&self, t: Technology) -> usize { => { return 1; }
+rules/production/strategy_cards.rs:451:26 [KernelHooks::waived_prerequisites] logic  !tech::is_unit_upgrade(t) && self.s.players().by_seat(self.who).is_so... => !tech::is_unit_upgrade(t) || self.s.players().by_seat(self.w
+rules/production/strategy_cards.rs:453:9 [KernelHooks::waived_prerequisites] arith  usize::from(analytical) + self.k.hooks.general.waived_prerequisite... => usize::from(analytical) - self.k.hooks.general.waived_prereq
+rules/production/strategy_cards.rs:456:41 [KernelHooks::extra_colours] body  extra_colours(&self) -> Colours { => { return Default::default(); }
+rules/production/strategy_cards.rs:457:24 [KernelHooks::extra_colours] lit  0u16 => 1u16
+rules/production/strategy_cards.rs:460:17 [KernelHooks::extra_colours] assign  out[i] += u16::try_from(extra.count).unwrap_or(u16... => out[i] -= u16::try_from(extra.count).unwrap_or(u16...
+rules/production/strategy_cards.rs:466:47 [KernelHooks::inheritance_affordable] body  inheritance_affordable(&self) -> bool { => { return true; }
+rules/production/strategy_cards.rs:466:47 [KernelHooks::inheritance_affordable] body  inheritance_affordable(&self) -> bool { => { return false; }
+rules/production/strategy_cards.rs:470:52 [KernelHooks::waiver_offer] body  waiver_offer(&self, t: Technology) -> bool { => { return true; }
+rules/production/strategy_cards.rs:539:58 [Research::begin_paid] body  begin_paid(&mut self, s: &CoreState, k: &Kernel) { => { return (); }
+rules/production/strategy_cards.rs:540:26 [Research::begin_paid] cmp  prod::available(&Self::cx(s, k), self.wh... >= self.cost => prod::available(&Self::cx(s, k), self.wh... > self.cost
+rules/production/strategy_cards.rs:541:25 [Research::begin_paid] cond  affordable => !(affordable)
+rules/production/strategy_cards.rs:545:88 [Research::pay_step] lit  0 => 1
+rules/production/strategy_cards.rs:550:82 [Research::exhaust_specialties] body  exhaust_specialties(&self, s: &mut CoreState, k: &Kernel, t: Technolog... => { return (); }
+rules/production/strategy_cards.rs:552:12 [Research::exhaust_specialties] cond  tech::war_sun_prerequisites_waived(s, blanked, t) => !(tech::war_sun_prerequisites_waived(s, blanked, t))
+rules/production/strategy_cards.rs:556:12 [Research::exhaust_specialties] cond  reqs.iter().all(|n| *n == 0) => !(reqs.iter().all(|n| *n == 0))
+rules/production/strategy_cards.rs:556:32 [Research::exhaust_specialties] cmp  *n == 0 => *n != 0
+rules/production/strategy_cards.rs:556:38 [Research::exhaust_specialties] lit  0 => 1
+rules/production/strategy_cards.rs:564:17 [Research::exhaust_specialties] assign  waivable += crate::query::laws::research_team_waiver... => waivable -= crate::query::laws::research_team_waiver...
+rules/production/strategy_cards.rs:566:13 [Research::exhaust_specialties] assign  waivable += tech::relic_waivers(s, self.who) => waivable -= tech::relic_waivers(s, self.who)
+rules/production/strategy_cards.rs:568:24 [Research::exhaust_specialties] logic  tech::aida_waiver(s, self.who, t) > 0 && ResearchCtx::of(s, self.scope, blanked, ... => tech::aida_waiver(s, self.who, t) > 0 || ResearchCtx::of(s, 
+rules/production/strategy_cards.rs:568:24 [Research::exhaust_specialties] cmp  tech::aida_waiver(s, self.who, t) > 0 => tech::aida_waiver(s, self.who, t) >= 0
+rules/production/strategy_cards.rs:568:60 [Research::exhaust_specialties] lit  0 => 1
+rules/production/strategy_cards.rs:569:126 [Research::exhaust_specialties] lit  false => true
+rules/production/strategy_cards.rs:572:12 [Research::exhaust_specialties] cond  aida => !(aida)
+rules/production/strategy_cards.rs:573:13 [Research::exhaust_specialties] assign  waivable += 1 => waivable -= 1
+rules/production/strategy_cards.rs:573:25 [Research::exhaust_specialties] lit  1 => 2
+rules/production/strategy_cards.rs:579:16 [Research::exhaust_specialties] cond  need <= have => !(need <= have)
+rules/production/strategy_cards.rs:579:16 [Research::exhaust_specialties] cmp  need <= have => need < have
+rules/production/strategy_cards.rs:582:32 [Research::exhaust_specialties] arith  need - have => need + have
+rules/production/strategy_cards.rs:583:16 [Research::exhaust_specialties] cond  waivable > 0 => !(waivable > 0)
+rules/production/strategy_cards.rs:583:16 [Research::exhaust_specialties] cmp  waivable > 0 => waivable >= 0
+rules/production/strategy_cards.rs:583:27 [Research::exhaust_specialties] lit  0 => 1
+rules/production/strategy_cards.rs:585:17 [Research::exhaust_specialties] assign  shortage -= waived => shortage += waived
+rules/production/strategy_cards.rs:586:17 [Research::exhaust_specialties] assign  waivable -= waived => waivable += waived
+rules/production/strategy_cards.rs:588:44 [Research::exhaust_specialties] lit  0 => 1
+rules/production/strategy_cards.rs:590:20 [Research::exhaust_specialties] cond  exhausted_for_colour >= shortage => !(exhausted_for_colour >= shortage)
+rules/production/strategy_cards.rs:590:20 [Research::exhaust_specialties] cmp  exhausted_for_colour >= shortage => exhausted_for_colour > shortage
+rules/production/strategy_cards.rs:593:20 [Research::exhaust_specialties] cond  board::exhausted(s, *planet) || to_exhaust.as_slice().contains(planet) => !(board::exhausted(s, *planet) || to_exhaust.as_slice().cont
+rules/production/strategy_cards.rs:593:20 [Research::exhaust_specialties] logic  board::exhausted(s, *planet) || to_exhaust.as_slice().contains(planet) => board::exhausted(s, *planet) && to_exhaust.as_slice().contai
+rules/production/strategy_cards.rs:596:20 [Research::exhaust_specialties] cond  tech::specialties_now(s, self.scope, *planet).as_slice().contains(&colour) => !(tech::specialties_now(s, self.scope, *planet).as_slice().c
+rules/production/strategy_cards.rs:598:21 [Research::exhaust_specialties] assign  exhausted_for_colour += 1 => exhausted_for_colour -= 1
+rules/production/strategy_cards.rs:598:45 [Research::exhaust_specialties] lit  1 => 2
+rules/production/strategy_cards.rs:602:12 [Research::exhaust_specialties] cond  tech::psychoarchaeology_frees_specialties(s, self.who) => !(tech::psychoarchaeology_frees_specialties(s, self.who))
+rules/production/strategy_cards.rs:611:75 [Research::complete] body  complete(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) { => { return (); }
+rules/production/strategy_cards.rs:616:12 [Research::complete] cond  faction == Faction::TheNekroVirus => !(faction == Faction::TheNekroVirus)
+rules/production/strategy_cards.rs:616:12 [Research::complete] cmp  faction == Faction::TheNekroVirus => faction != Faction::TheNekroVirus
+rules/production/strategy_cards.rs:625:12 [Research::complete] cond  tech::faction_of(t).is_none() => !(tech::faction_of(t).is_none())
+rules/production/strategy_cards.rs:629:64 [Research::complete] logic  h.faction != faction && !h.tech.owned.contains(t) => h.faction != faction || !h.tech.owned.contains(t)
+rules/production/strategy_cards.rs:629:64 [Research::complete] cmp  h.faction != faction => h.faction == faction
+rules/production/strategy_cards.rs:640:81 [Research::settle] body  settle(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) -> boo... => { return false; }
+rules/production/strategy_cards.rs:644:101 [Research::settle] lit  false => true
+rules/production/strategy_cards.rs:645:47 [Research::settle] lit  true => false
+rules/production/strategy_cards.rs:649:19 [Research::settle] cond  inheritance => !(inheritance)
+rules/production/strategy_cards.rs:652:16 [Research::settle] cond  !fx_pay::pay_first_plan(s, k, env, self.who, Spend::Resources, tech::INHERITANCE... => !(!fx_pay::pay_first_plan(s, k, env, self.who, Spend::Resour
+rules/production/strategy_cards.rs:653:24 [Research::settle] lit  false => true
+rules/production/strategy_cards.rs:663:9 [Research::settle] lit  true => false
+rules/production/strategy_cards.rs:666:71 [Research::land] body  land(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) { => { return (); }
+rules/production/strategy_cards.rs:667:12 [Research::land] cond  !self.settle(s, k, t) => !(!self.settle(s, k, t))
+rules/production/strategy_cards.rs:668:27 [Research::land] lit  true => false
+rules/production/strategy_cards.rs:673:62 [Research::after_step] body  after_step(&mut self, s: &mut CoreState, k: &Kernel) { => { return (); }
+rules/production/strategy_cards.rs:675:27 [Research::after_step] lit  true => false
+rules/production/strategy_cards.rs:680:27 [Research::after_step] lit  true => false
+rules/production/strategy_cards.rs:684:20 [Research::after_step] arith  step.paid + worth => step.paid - worth
+rules/production/strategy_cards.rs:685:12 [Research::after_step] cond  paid < step.owed => !(paid < step.owed)
+rules/production/strategy_cards.rs:685:12 [Research::after_step] cmp  paid < step.owed => paid <= step.owed
+rules/production/strategy_cards.rs:690:27 [Research::after_step] lit  true => false
+rules/production/strategy_cards.rs:698:12 [Research::research_choice] cond  decline => !(decline)
+rules/production/strategy_cards.rs:701:23 [Research::research_choice] cond  decline => !(decline)
+rules/production/strategy_cards.rs:701:85 [Research::research_choice] lit  0 => 1
+rules/production/strategy_cards.rs:722:128 [Research::research_chosen] body  research_chosen(s: &mut CoreState, k: &Kernel, scope: Scope, roster: U... => { return true; }
+rules/production/strategy_cards.rs:722:128 [Research::research_chosen] body  research_chosen(s: &mut CoreState, k: &Kernel, scope: Scope, roster: U... => { return false; }
+rules/production/strategy_cards.rs:723:24 [Research::research_chosen] lit  false => true
+rules/production/strategy_cards.rs:723:31 [Research::research_chosen] lit  0 => 1
+rules/production/strategy_cards.rs:738:24 [Research::step] logic  self.primary && !self.open(sx.state, sx.kernel).is_empty... => self.primary || !self.open(sx.state, sx.kernel).is_empty...
+rules/production/strategy_cards.rs:746:24 [Research::step] cond  self.open(sx.state, sx.kernel).is_empty() => !(self.open(sx.state, sx.kernel).is_empty())
+rules/production/strategy_cards.rs:749:89 [Research::step] lit  true => false
+rules/production/strategy_cards.rs:754:39 [Research::step] lit  true => false
+rules/production/strategy_cards.rs:771:63 [Research::ask_of] lit  true => false
+rules/production/strategy_cards.rs:797:20 [Research::answer] cond  self.cost > 0 => !(self.cost > 0)
+rules/production/strategy_cards.rs:797:20 [Research::answer] cmp  self.cost > 0 => self.cost >= 0
+rules/production/strategy_cards.rs:797:32 [Research::answer] lit  0 => 1
+rules/production/strategy_cards.rs:799:51 [Research::answer] lit  0 => 1
+rules/production/supply.rs:19:49 [spendable_goods] lit  0 => 1
+rules/production/supply.rs:20:5 [spendable_goods] arith  goods + k.hooks.direct.keleres_spendable_commodi... => goods - k.hooks.direct.keleres_spendable_commodi...
+rules/production/supply.rs:26:8 [spend_goods] cmp  amount <= 0 => amount < 0
+rules/production/supply.rs:32:101 [spend_goods] lit  0 => 1
+rules/production/supply.rs:33:66 [spend_goods] lit  false => true
+rules/production/supply.rs:35:5 [spend_goods] assign  p.econ.commodities -= i16::try_from(from_commodities).unwrap_o... => p.econ.commodities += i16::try_from(from_commodities).unwrap
+rules/production/supply.rs:36:41 [spend_goods] arith  amount - from_commodities => amount + from_commodities
+rules/production/supply.rs:66:52 [capture_from_reinforcements] lit  0 => 1
+rules/production/triggered.rs:32:26 [small] body  small(n: i64) -> i32 { => { return 0; }
+rules/production/triggered.rs:32:26 [small] body  small(n: i64) -> i32 { => { return 1; }
+rules/production/triggered.rs:33:35 [small] cond  n < 0 => !(n < 0)
+rules/production/triggered.rs:33:35 [small] cmp  n < 0 => n <= 0
+rules/production/triggered.rs:33:39 [small] lit  0 => 1
+rules/production/triggered.rs:40:19 [ctx] lit  false => true
+rules/production/triggered.rs:43:23 [ctx] lit  false => true
+rules/production/triggered.rs:55:38 [printed_price] body  printed_price(unit: Unit) -> i64 { => { return 0; }
+rules/production/triggered.rs:55:38 [printed_price] body  printed_price(unit: Unit) -> i64 { => { return 1; }
+rules/production/triggered.rs:56:36 [printed_price] lit  false => true
+rules/production/triggered.rs:66:60 [systems_of] body  systems_of(cands: &Candidates) -> SmallList<System, 8> { => { return Default::default(); }
+rules/production/triggered.rs:69:12 [systems_of] cond  !out.as_slice().contains(system) => !(!out.as_slice().contains(system))
+rules/production/triggered.rs:77:79 [ships_in] body  ships_in(cands: &Candidates, system: System) -> SmallList<(Unit, i64),... => { return Default::default(); }
+rules/production/triggered.rs:80:12 [ships_in] cond  *sys == system => !(*sys == system)
+rules/production/triggered.rs:80:12 [ships_in] cmp  *sys == system => *sys != system
+rules/production/triggered.rs:90:94 [sling_candidates] body  sling_candidates(c: &Cx<'_>, who: Seat, buildable: &[Option<Unit>; 9])... => { return Default::default(); }
+rules/production/triggered.rs:95:49 [sling_candidates] logic  p.owner() == who && p.kind().data().base_type == UnitBaseTyp... => p.owner() == who || p.kind().data().base_type == UnitBaseTyp
+rules/production/triggered.rs:95:49 [sling_candidates] cmp  p.owner() == who => p.owner() != who
+rules/production/triggered.rs:95:69 [sling_candidates] cmp  p.kind().data().base_type == UnitBaseType::Spacedock => p.kind().data().base_type != UnitBaseType::Spacedock
+rules/production/triggered.rs:99:20 [sling_candidates] cond  board::planet_units(core, planet).iter().any(is_dock) => !(board::planet_units(core, planet).iter().any(is_dock))
+rules/production/triggered.rs:106:24 [sling_candidates] logic  !dock_planets.as_slice().is_empty() || cell.units.as_slice().iter().any(|p| is_... => !dock_planets.as_slice().is_empty() && cell.units.as_slice()
+rules/production/triggered.rs:106:100 [sling_candidates] logic  is_dock(p) && p.kind().data().space_only => is_dock(p) || p.kind().data().space_only
+rules/production/triggered.rs:109:25 [sling_candidates] logic  coexisting_dock || cell.units.as_slice().iter().any(|p| p.o... => coexisting_dock && cell.units.as_slice().iter().any(|p| p.o.
+rules/production/triggered.rs:109:81 [sling_candidates] logic  p.owner() != who && p.kind().data().ship => p.owner() != who || p.kind().data().ship
+rules/production/triggered.rs:109:81 [sling_candidates] cmp  p.owner() != who => p.owner() == who
+rules/production/triggered.rs:110:12 [sling_candidates] cond  !has_dock || blockaded => !(!has_dock || blockaded)
+rules/production/triggered.rs:110:12 [sling_candidates] logic  !has_dock || blockaded => !has_dock && blockaded
+rules/production/triggered.rs:115:16 [sling_candidates] cond  unit.data().ship && cost <= affordable && placed_of(c, who, unit, 1) > 0 => !(unit.data().ship && cost <= affordable && placed_of(c, who
+rules/production/triggered.rs:115:16 [sling_candidates] logic  unit.data().ship && cost <= affordable && placed_of(c, who, unit, 1) > 0 => unit.data().ship && cost <= affordable || placed_of(c, who, 
+rules/production/triggered.rs:115:16 [sling_candidates] logic  unit.data().ship && cost <= affordable => unit.data().ship || cost <= affordable
+rules/production/triggered.rs:115:36 [sling_candidates] cmp  cost <= affordable => cost < affordable
+rules/production/triggered.rs:115:58 [sling_candidates] cmp  placed_of(c, who, unit, 1) > 0 => placed_of(c, who, unit, 1) >= 0
+rules/production/triggered.rs:115:82 [sling_candidates] lit  1 => 2
+rules/production/triggered.rs:115:87 [sling_candidates] lit  0 => 1
+rules/production/triggered.rs:152:94 [SlingRelay::pay_step] lit  0 => 1
+rules/production/triggered.rs:155:70 [SlingRelay::question] body  question(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/triggered.rs:160:18 [SlingRelay::question] cmp  systems.as_slice().len() > 1 => systems.as_slice().len() >= 1
+rules/production/triggered.rs:160:45 [SlingRelay::question] lit  1 => 2
+rules/production/triggered.rs:169:18 [SlingRelay::question] cmp  ships.as_slice().len() > 1 => ships.as_slice().len() >= 1
+rules/production/triggered.rs:169:43 [SlingRelay::question] lit  1 => 2
+rules/production/triggered.rs:173:165 [SlingRelay::question] lit  0 => 1
+rules/production/triggered.rs:182:93 [SlingRelay::chosen] body  chosen(&mut self, s: &CoreState, k: &Kernel, system: System, unit: Uni... => { return (); }
+rules/production/triggered.rs:184:12 [SlingRelay::chosen] cond  owed <= 0 => !(owed <= 0)
+rules/production/triggered.rs:184:12 [SlingRelay::chosen] cmp  owed <= 0 => owed < 0
+rules/production/triggered.rs:184:20 [SlingRelay::chosen] lit  0 => 1
+rules/production/triggered.rs:185:67 [SlingRelay::chosen] lit  0 => 1
+rules/production/triggered.rs:185:76 [SlingRelay::chosen] lit  0 => 1
+rules/production/triggered.rs:188:12 [SlingRelay::chosen] cond  super::available(&cx(s, k), self.who, Spend::Resources, &Extras::default()) < ow... => !(super::available(&cx(s, k), self.who, Spend::Resources, &E
+rules/production/triggered.rs:188:12 [SlingRelay::chosen] cmp  super::available(&cx(s, k), self.who, Sp... < owed => super::available(&cx(s, k), self.who, Sp... <= owed
+rules/production/triggered.rs:192:82 [SlingRelay::chosen] lit  0 => 1
+rules/production/triggered.rs:195:74 [SlingRelay::finish] body  finish(&mut self, s: &mut CoreState, system: System, unit: Unit) { => { return (); }
+rules/production/triggered.rs:197:25 [SlingRelay::finish] lit  true => false
+rules/production/triggered.rs:238:24 [SlingRelay::step] cond  paid >= cost => !(paid >= cost)
+rules/production/triggered.rs:238:24 [SlingRelay::step] cmp  paid >= cost => paid > cost
+rules/production/triggered.rs:254:89 [SlingRelay::step] arith  paid + small(worth) => paid - small(worth)
+rules/production/triggered.rs:264:68 [SlingRelay::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/triggered.rs:268:79 [SlingRelay::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/production/triggered.rs:277:66 [SlingRelay::answer] cmp  *u == unit => *u != unit
+rules/production/triggered.rs:286:77 [SlingRelay::answer] arith  paid + small(worth) => paid - small(worth)
+rules/production/triggered.rs:337:83 [EconomyWindow::offers] body  offers(&self, s: &CoreState, k: &Kernel) -> SmallList<(Unit, u8, i64),... => { return Default::default(); }
+rules/production/triggered.rs:344:16 [EconomyWindow::offers] cond  cost <= 0 || cost > i64::from(self.budget) || cost > affordable => !(cost <= 0 || cost > i64::from(self.budget) || cost > affor
+rules/production/triggered.rs:344:16 [EconomyWindow::offers] logic  cost <= 0 || cost > i64::from(self.budge... || cost > affordable => cost <= 0 || cost > i64::from(self.budge... && cost > afford
+rules/production/triggered.rs:344:16 [EconomyWindow::offers] logic  cost <= 0 || cost > i64::from(self.budget) => cost <= 0 && cost > i64::from(self.budget)
+rules/production/triggered.rs:344:16 [EconomyWindow::offers] cmp  cost <= 0 => cost < 0
+rules/production/triggered.rs:344:24 [EconomyWindow::offers] lit  0 => 1
+rules/production/triggered.rs:344:29 [EconomyWindow::offers] cmp  cost > i64::from(self.budget) => cost >= i64::from(self.budget)
+rules/production/triggered.rs:344:62 [EconomyWindow::offers] cmp  cost > affordable => cost >= affordable
+rules/production/triggered.rs:348:16 [EconomyWindow::offers] cond  made == 0 => !(made == 0)
+rules/production/triggered.rs:348:16 [EconomyWindow::offers] cmp  made == 0 => made != 0
+rules/production/triggered.rs:348:24 [EconomyWindow::offers] lit  0 => 1
+rules/production/triggered.rs:351:16 [EconomyWindow::offers] cond  fleet::counts_against_supply(unit) => !(fleet::counts_against_supply(unit))
+rules/production/triggered.rs:352:143 [EconomyWindow::offers] lit  1 => 2
+rules/production/triggered.rs:352:156 [EconomyWindow::offers] lit  true => false
+rules/production/triggered.rs:353:20 [EconomyWindow::offers] cond  after.fleet_excess() > 0 => !(after.fleet_excess() > 0)
+rules/production/triggered.rs:353:20 [EconomyWindow::offers] cmp  after.fleet_excess() > 0 => after.fleet_excess() >= 0
+rules/production/triggered.rs:353:43 [EconomyWindow::offers] lit  0 => 1
+rules/production/triggered.rs:362:70 [EconomyWindow::question] body  question(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/triggered.rs:365:20 [EconomyWindow::question] cond  self.budget <= 0 => !(self.budget <= 0)
+rules/production/triggered.rs:365:20 [EconomyWindow::question] cmp  self.budget <= 0 => self.budget < 0
+rules/production/triggered.rs:365:35 [EconomyWindow::question] lit  0 => 1
+rules/production/triggered.rs:369:20 [EconomyWindow::question] cond  offers.as_slice().is_empty() => !(offers.as_slice().is_empty())
+rules/production/triggered.rs:375:153 [EconomyWindow::question] lit  0 => 1
+rules/production/triggered.rs:386:94 [EconomyWindow::pay_step] lit  0 => 1
+rules/production/triggered.rs:390:76 [EconomyWindow::chosen] body  chosen(&mut self, s: &CoreState, k: &Kernel, unit: Unit, made: u8) { => { return (); }
+rules/production/triggered.rs:392:12 [EconomyWindow::chosen] cond  cost <= 0 || cost > i64::from(self.budget) => !(cost <= 0 || cost > i64::from(self.budget))
+rules/production/triggered.rs:392:12 [EconomyWindow::chosen] logic  cost <= 0 || cost > i64::from(self.budget) => cost <= 0 && cost > i64::from(self.budget)
+rules/production/triggered.rs:392:12 [EconomyWindow::chosen] cmp  cost <= 0 => cost < 0
+rules/production/triggered.rs:392:20 [EconomyWindow::chosen] lit  0 => 1
+rules/production/triggered.rs:392:25 [EconomyWindow::chosen] cmp  cost > i64::from(self.budget) => cost >= i64::from(self.budget)
+rules/production/triggered.rs:396:12 [EconomyWindow::chosen] cond  super::available(&cx(s, k), self.who, Spend::Resources, &Extras::default()) < co... => !(super::available(&cx(s, k), self.who, Spend::Resources, &E
+rules/production/triggered.rs:396:12 [EconomyWindow::chosen] cmp  super::available(&cx(s, k), self.who, Sp... < cost => super::available(&cx(s, k), self.who, Sp... <= cost
+rules/production/triggered.rs:400:82 [EconomyWindow::chosen] lit  0 => 1
+rules/production/triggered.rs:404:91 [EconomyWindow::arrive] body  arrive(&mut self, s: &mut CoreState, k: &Kernel, unit: Unit, made: u8,... => { return (); }
+rules/production/triggered.rs:406:24 [EconomyWindow::arrive] logic  d.ship || d.base_type == UnitBaseType::Fighter => d.ship && d.base_type == UnitBaseType::Fighter
+rules/production/triggered.rs:406:34 [EconomyWindow::arrive] cmp  d.base_type == UnitBaseType::Fighter => d.base_type != UnitBaseType::Fighter
+rules/production/triggered.rs:408:18 [EconomyWindow::arrive] lit  0 => 1
+rules/production/triggered.rs:409:57 [EconomyWindow::arrive] cond  in_space => !(in_space)
+rules/production/triggered.rs:411:9 [EconomyWindow::arrive] assign  self.built |= made > 0 => self.built &= made > 0
+rules/production/triggered.rs:411:23 [EconomyWindow::arrive] cmp  made > 0 => made >= 0
+rules/production/triggered.rs:411:30 [EconomyWindow::arrive] lit  0 => 1
+rules/production/triggered.rs:412:9 [EconomyWindow::arrive] assign  self.budget -= cost => self.budget += cost
+rules/production/triggered.rs:428:24 [EconomyWindow::step] cond  self.budget <= 0 || self.question(sx.state, sx.kernel).is_none() => !(self.budget <= 0 || self.question(sx.state, sx.kernel).is_
+rules/production/triggered.rs:428:24 [EconomyWindow::step] logic  self.budget <= 0 || self.question(sx.state, sx.kernel).is_no... => self.budget <= 0 && self.question(sx.state, sx.kernel).is_no
+rules/production/triggered.rs:428:24 [EconomyWindow::step] cmp  self.budget <= 0 => self.budget < 0
+rules/production/triggered.rs:428:39 [EconomyWindow::step] lit  0 => 1
+rules/production/triggered.rs:435:24 [EconomyWindow::step] cond  paid >= cost => !(paid >= cost)
+rules/production/triggered.rs:435:24 [EconomyWindow::step] cmp  paid >= cost => paid > cost
+rules/production/triggered.rs:450:89 [EconomyWindow::step] arith  paid + small(worth) => paid - small(worth)
+rules/production/triggered.rs:460:68 [EconomyWindow::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/triggered.rs:464:79 [EconomyWindow::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/production/triggered.rs:480:77 [EconomyWindow::answer] arith  paid + small(worth) => paid - small(worth)
+rules/production/triggered.rs:523:52 [HeroOffer::unlocked] body  unlocked(s: &CoreState, who: Seat) -> bool { => { return true; }
+rules/production/triggered.rs:523:52 [HeroOffer::unlocked] body  unlocked(s: &CoreState, who: Seat) -> bool { => { return false; }
+rules/production/triggered.rs:524:50 [HeroOffer::unlocked] cmp  p.leaders.status.get(&Leader::HarrughGef... == Some(&LeaderStatus::Unlocked) => p.leaders.status.get(&Leader::HarrughGef... != Some(&LeaderS
+rules/production/triggered.rs:527:58 [HeroOffer::question] body  question(&self, s: &CoreState) -> Option<Choice> { => { return None; }
+rules/production/triggered.rs:528:12 [HeroOffer::question] cond  self.stage == HeroStage::Done || !Self::unlocked(s, self.who) => !(self.stage == HeroStage::Done || !Self::unlocked(s, self.w
+rules/production/triggered.rs:528:12 [HeroOffer::question] logic  self.stage == HeroStage::Done || !Self::unlocked(s, self.who) => self.stage == HeroStage::Done && !Self::unlocked(s, self.who
+rules/production/triggered.rs:528:12 [HeroOffer::question] cmp  self.stage == HeroStage::Done => self.stage != HeroStage::Done
+rules/production/triggered.rs:557:68 [HeroOffer::ask_of] body  ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/triggered.rs:561:79 [HeroOffer::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/production/triggered.rs:572:29 [HeroOffer::answer] lit  true => false
+rules/production/window.rs:70:26 [small] body  small(n: i64) -> i32 { => { return 0; }
+rules/production/window.rs:70:26 [small] body  small(n: i64) -> i32 { => { return 1; }
+rules/production/window.rs:71:35 [small] cond  n < 0 => !(n < 0)
+rules/production/window.rs:71:35 [small] cmp  n < 0 => n <= 0
+rules/production/window.rs:71:39 [small] lit  0 => 1
+rules/production/window.rs:80:29 [ProductionWindow::choose_ask] lit  0_u8 => 1u8
+rules/production/window.rs:83:60 [ProductionWindow::choose_ask] lit  1 => 2
+rules/production/window.rs:113:23 [ProductionWindow::ctx] lit  false => true
+rules/production/window.rs:116:27 [ProductionWindow::ctx] lit  false => true
+rules/production/window.rs:124:55 [ProductionWindow::agent_offerable] body  agent_offerable(&self, s: &CoreState) -> bool { => { return true; }
+rules/production/window.rs:124:55 [ProductionWindow::agent_offerable] body  agent_offerable(&self, s: &CoreState) -> bool { => { return false; }
+rules/production/window.rs:125:9 [ProductionWindow::agent_offerable] logic  self.agent_rules && !self.purchased && !... && Self::agent_ready(s, self.who) => self.agent_rules && !self.purchased && !... || Self::agent_r
+rules/production/window.rs:125:9 [ProductionWindow::agent_offerable] logic  self.agent_rules && !self.purchased && !... && !self.free_this_use => self.agent_rules && !self.purchased && !... || !self.free_th
+rules/production/window.rs:125:9 [ProductionWindow::agent_offerable] logic  self.agent_rules && !self.purchased && !self.agent_spent => self.agent_rules && !self.purchased || !self.agent_spent
+rules/production/window.rs:125:9 [ProductionWindow::agent_offerable] logic  self.agent_rules && !self.purchased => self.agent_rules || !self.purchased
+rules/production/window.rs:128:55 [ProductionWindow::agent_ready] body  agent_ready(s: &CoreState, who: Seat) -> bool { => { return true; }
+rules/production/window.rs:128:55 [ProductionWindow::agent_ready] body  agent_ready(s: &CoreState, who: Seat) -> bool { => { return false; }
+rules/production/window.rs:129:50 [ProductionWindow::agent_ready] cmp  p.leaders.status.get(&Leader::BerekarBer... == Some(&LeaderStatus::Readied) => p.leaders.status.get(&Leader::BerekarBer... != Some(&LeaderS
+rules/production/window.rs:133:70 [ProductionWindow::question] body  question(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/window.rs:138:20 [ProductionWindow::question] cond  self.remaining <= 0 && self.small_exemptions <= 0 => !(self.remaining <= 0 && self.small_exemptions <= 0)
+rules/production/window.rs:138:20 [ProductionWindow::question] logic  self.remaining <= 0 && self.small_exemptions <= 0 => self.remaining <= 0 || self.small_exemptions <= 0
+rules/production/window.rs:138:20 [ProductionWindow::question] cmp  self.remaining <= 0 => self.remaining < 0
+rules/production/window.rs:138:38 [ProductionWindow::question] lit  0 => 1
+rules/production/window.rs:138:43 [ProductionWindow::question] cmp  self.small_exemptions <= 0 => self.small_exemptions < 0
+rules/production/window.rs:138:68 [ProductionWindow::question] lit  0 => 1
+rules/production/window.rs:143:20 [ProductionWindow::question] cond  self.agent_offerable(s) && (self.remaining > 0 || self.small_exemptions > 0) => !(self.agent_offerable(s) && (self.remaining > 0 || self.sma
+rules/production/window.rs:143:20 [ProductionWindow::question] logic  self.agent_offerable(s) && (self.remaining > 0 || self.small_exempt... => self.agent_offerable(s) || (self.remaining > 0 || self.small
+rules/production/window.rs:143:48 [ProductionWindow::question] logic  self.remaining > 0 || self.small_exemptions > 0 => self.remaining > 0 && self.small_exemptions > 0
+rules/production/window.rs:143:48 [ProductionWindow::question] cmp  self.remaining > 0 => self.remaining >= 0
+rules/production/window.rs:143:65 [ProductionWindow::question] lit  0 => 1
+rules/production/window.rs:143:70 [ProductionWindow::question] cmp  self.small_exemptions > 0 => self.small_exemptions >= 0
+rules/production/window.rs:143:94 [ProductionWindow::question] lit  0 => 1
+rules/production/window.rs:144:35 [ProductionWindow::question] logic  opts.len() > 0 || { let mut probe = ask; probe.discount_re... => opts.len() > 0 && { let mut probe = ask; probe.discount_re..
+rules/production/window.rs:144:35 [ProductionWindow::question] cmp  opts.len() > 0 => opts.len() >= 0
+rules/production/window.rs:144:48 [ProductionWindow::question] lit  0 => 1
+rules/production/window.rs:146:25 [ProductionWindow::question] assign  probe.discount_remaining += 2 => probe.discount_remaining -= 2
+rules/production/window.rs:146:53 [ProductionWindow::question] lit  2 => 3
+rules/production/window.rs:149:24 [ProductionWindow::question] cond  reaches => !(reaches)
+rules/production/window.rs:153:20 [ProductionWindow::question] cond  opts.len() == 0 => !(opts.len() == 0)
+rules/production/window.rs:153:20 [ProductionWindow::question] cmp  opts.len() == 0 => opts.len() != 0
+rules/production/window.rs:153:34 [ProductionWindow::question] lit  0 => 1
+rules/production/window.rs:158:118 [ProductionWindow::question] arith  self.limit - self.remaining => self.limit + self.remaining
+rules/production/window.rs:158:151 [ProductionWindow::question] lit  0 => 1
+rules/production/window.rs:162:84 [ProductionWindow::question] lit  0 => 1
+rules/production/window.rs:163:20 [ProductionWindow::question] cond  opts.as_slice().is_empty() => !(opts.as_slice().is_empty())
+rules/production/window.rs:178:20 [ProductionWindow::question] cond  opts.as_slice().is_empty() => !(opts.as_slice().is_empty())
+rules/production/window.rs:196:51 [ProductionWindow::spend_credit] body  spend_credit(&mut self, cost: i32) -> i32 { => { return 0; }
+rules/production/window.rs:196:51 [ProductionWindow::spend_credit] body  spend_credit(&mut self, cost: i32) -> i32 { => { return 1; }
+rules/production/window.rs:198:9 [ProductionWindow::spend_credit] assign  self.credit -= used => self.credit += used
+rules/production/window.rs:199:9 [ProductionWindow::spend_credit] arith  cost - used => cost + used
+rules/production/window.rs:203:90 [ProductionWindow::apply_payment] body  apply_payment(&self, s: &mut CoreState, k: &Kernel, picked: POpt) -> O... => { return None; }
+rules/production/window.rs:205:77 [ProductionWindow::apply_payment] lit  0 => 1
+rules/production/window.rs:205:80 [ProductionWindow::apply_payment] lit  0 => 1
+rules/production/window.rs:207:58 [ProductionWindow::apply_payment] cmp  **o == picked => **o != picked
+rules/production/window.rs:215:20 [ProductionWindow::apply_payment] cond  p.econ.trade_goods <= 0 => !(p.econ.trade_goods <= 0)
+rules/production/window.rs:215:20 [ProductionWindow::apply_payment] cmp  p.econ.trade_goods <= 0 => p.econ.trade_goods < 0
+rules/production/window.rs:215:42 [ProductionWindow::apply_payment] lit  0 => 1
+rules/production/window.rs:218:17 [ProductionWindow::apply_payment] assign  p.econ.trade_goods -= 1 => p.econ.trade_goods += 1
+rules/production/window.rs:218:39 [ProductionWindow::apply_payment] lit  1 => 2
+rules/production/window.rs:224:17 [ProductionWindow::apply_payment] assign  p.econ.commodities -= 1 => p.econ.commodities += 1
+rules/production/window.rs:224:39 [ProductionWindow::apply_payment] lit  1 => 2
+rules/production/window.rs:232:94 [ProductionWindow::place] body  place(&mut self, s: &mut CoreState, k: &Kernel, unit: Unit, spot: Spot... => { return (); }
+rules/production/window.rs:240:20 [ProductionWindow::place] logic  unit == Unit::Eidolon && s.players().by_seat(self.who).is_some_an... => unit == Unit::Eidolon || s.players().by_seat(self.who).is_so
+rules/production/window.rs:240:20 [ProductionWindow::place] cmp  unit == Unit::Eidolon => unit != Unit::Eidolon
+rules/production/window.rs:240:91 [ProductionWindow::place] cmp  p.faction == crate::generated::Faction::TheNaazRokhaA... => p.faction != crate::generated::Faction::TheNaazRokhaA...
+rules/production/window.rs:241:18 [ProductionWindow::place] lit  0 => 1
+rules/production/window.rs:244:16 [ProductionWindow::place] cond  naaz => !(naaz)
+rules/production/window.rs:252:70 [ProductionWindow::place] cmp  p.cards.breakthrough == Some(crate::generated::Breakthrough::Bel... => p.cards.breakthrough != Some(crate::generated::Breakthrough:
+rules/production/window.rs:253:23 [ProductionWindow::place] arith  if held_sol && d.ship { fleet::capacity(... * i64::from(made > 0) => if held_sol && d.ship { fleet::capacity(... + i64::from(made
+rules/production/window.rs:253:26 [ProductionWindow::place] cond  held_sol && d.ship => !(held_sol && d.ship)
+rules/production/window.rs:253:26 [ProductionWindow::place] logic  held_sol && d.ship => held_sol || d.ship
+rules/production/window.rs:253:78 [ProductionWindow::place] lit  0 => 1
+rules/production/window.rs:253:94 [ProductionWindow::place] cmp  made > 0 => made >= 0
+rules/production/window.rs:253:101 [ProductionWindow::place] lit  0 => 1
+rules/production/window.rs:254:36 [ProductionWindow::place] arith  i64::from(self.free_capacity) + granted => i64::from(self.free_capacity) - granted
+rules/production/window.rs:255:22 [ProductionWindow::place] logic  d.base_type == UnitBaseType::Fighter || fleet::is_ground_force(unit) => d.base_type == UnitBaseType::Fighter && fleet::is_ground_for
+rules/production/window.rs:255:22 [ProductionWindow::place] cmp  d.base_type == UnitBaseType::Fighter => d.base_type != UnitBaseType::Fighter
+rules/production/window.rs:256:23 [ProductionWindow::place] cond  spends => !(spends)
+rules/production/window.rs:256:82 [ProductionWindow::place] lit  0 => 1
+rules/production/window.rs:257:25 [ProductionWindow::place] cond  matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType::Infantry) => !(matches!(d.base_type, UnitBaseType::Fighter | UnitBaseType
+rules/production/window.rs:257:98 [ProductionWindow::place] arith  count - free => count + free
+rules/production/window.rs:257:159 [ProductionWindow::place] lit  0 => 1
+rules/production/window.rs:258:39 [ProductionWindow::place] arith  i64::from(self.small_exemptions) - exempt => i64::from(self.small_exemptions) + exempt
+rules/production/window.rs:259:36 [ProductionWindow::place] arith  i64::from(self.free_capacity) - free => i64::from(self.free_capacity) + free
+rules/production/window.rs:260:32 [ProductionWindow::place] arith  i64::from(self.remaining) - (count - free - exempt) => i64::from(self.remaining) + (count - free - exempt)
+rules/production/window.rs:260:61 [ProductionWindow::place] arith  count - free - exempt => count - free + exempt
+rules/production/window.rs:260:61 [ProductionWindow::place] arith  count - free => count + free
+rules/production/window.rs:277:86 [ProductionWindow::step] lit  0 => 1
+rules/production/window.rs:289:32 [ProductionWindow::step] cond  owed > worth => !(owed > worth)
+rules/production/window.rs:289:32 [ProductionWindow::step] cmp  owed > worth => owed >= worth
+rules/production/window.rs:290:74 [ProductionWindow::step] arith  owed - worth => owed + worth
+rules/production/window.rs:290:106 [ProductionWindow::step] arith  paid + worth => paid - worth
+rules/production/window.rs:293:29 [ProductionWindow::step] assign  self.credit += worth - owed => self.credit -= worth - owed
+rules/production/window.rs:293:44 [ProductionWindow::step] arith  worth - owed => worth + owed
+rules/production/window.rs:300:24 [ProductionWindow::step] cond  !self.placement_timing_done => !(!self.placement_timing_done)
+rules/production/window.rs:301:28 [ProductionWindow::step] cond  self.emit_timing && fleet::is_ground_force(unit) && !unit.data().structure => !(self.emit_timing && fleet::is_ground_force(unit) && !unit.
+rules/production/window.rs:301:28 [ProductionWindow::step] logic  self.emit_timing && fleet::is_ground_for... && !unit.data().structure => self.emit_timing && fleet::is_ground_for... || !unit.data().
+rules/production/window.rs:301:28 [ProductionWindow::step] logic  self.emit_timing && fleet::is_ground_force(unit) => self.emit_timing || fleet::is_ground_force(unit)
+rules/production/window.rs:306:32 [ProductionWindow::step] cond  sx.emit(fx::event(EventKind::GroundForcesBeingProduced, payload)).is_err() => !(sx.emit(fx::event(EventKind::GroundForcesBeingProduced, pa
+rules/production/window.rs:311:54 [ProductionWindow::step] lit  true => false
+rules/production/window.rs:319:58 [ProductionWindow::step] lit  false => true
+rules/production/window.rs:331:24 [ProductionWindow::step] cond  (self.remaining <= 0 && self.small_exemptions <= 0) || self.question(sx.state, s... => !((self.remaining <= 0 && self.small_exemptions <= 0) || sel
+rules/production/window.rs:331:24 [ProductionWindow::step] logic  (self.remaining <= 0 && self.small_exemp... || self.question(sx.state, sx.kernel).is_no... => (self.remaining <= 0 && self.small_exemp... && self.question
+rules/production/window.rs:331:25 [ProductionWindow::step] logic  self.remaining <= 0 && self.small_exemptions <= 0 => self.remaining <= 0 || self.small_exemptions <= 0
+rules/production/window.rs:331:25 [ProductionWindow::step] cmp  self.remaining <= 0 => self.remaining < 0
+rules/production/window.rs:331:43 [ProductionWindow::step] lit  0 => 1
+rules/production/window.rs:331:48 [ProductionWindow::step] cmp  self.small_exemptions <= 0 => self.small_exemptions < 0
+rules/production/window.rs:331:73 [ProductionWindow::step] lit  0 => 1
+rules/production/window.rs:342:68 [ProductionWindow::ask_of] body  ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> { => { return None; }
+rules/production/window.rs:347:79 [ProductionWindow::answer] body  answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> ... => { return Ok(()); }
+rules/production/window.rs:361:43 [ProductionWindow::answer] cond  d.base_type == UnitBaseType::Flagship && self.flagship_free => !(d.base_type == UnitBaseType::Flagship && self.flagship_fre
+rules/production/window.rs:361:43 [ProductionWindow::answer] logic  d.base_type == UnitBaseType::Flagship && self.flagship_free => d.base_type == UnitBaseType::Flagship || self.flagship_free
+rules/production/window.rs:361:43 [ProductionWindow::answer] cmp  d.base_type == UnitBaseType::Flagship => d.base_type != UnitBaseType::Flagship
+rules/production/window.rs:362:26 [ProductionWindow::answer] lit  0 => 1
+rules/production/window.rs:362:29 [ProductionWindow::answer] lit  0 => 1
+rules/production/window.rs:363:31 [ProductionWindow::answer] cond  self.free_this_use => !(self.free_this_use)
+rules/production/window.rs:364:26 [ProductionWindow::answer] lit  0 => 1
+rules/production/window.rs:367:26 [ProductionWindow::answer] arith  printed - used => printed + used
+rules/production/window.rs:369:24 [ProductionWindow::answer] cond  !self.free_this_use => !(!self.free_this_use)
+rules/production/window.rs:370:57 [ProductionWindow::answer] arith  i64::from(self.discount_remaining) - used => i64::from(self.discount_remaining) + used
+rules/production/window.rs:372:38 [ProductionWindow::answer] lit  true => false
+rules/production/window.rs:374:37 [ProductionWindow::answer] cond  owed > 0 => !(owed > 0)
+rules/production/window.rs:374:37 [ProductionWindow::answer] cmp  owed > 0 => owed >= 0
+rules/production/window.rs:374:44 [ProductionWindow::answer] lit  0 => 1
+rules/production/window.rs:375:84 [ProductionWindow::answer] arith  small(cost) - owed => small(cost) + owed
+rules/production/window.rs:382:24 [ProductionWindow::answer] cond  Self::agent_ready(sx.state, self.who) => !(Self::agent_ready(sx.state, self.who))
+rules/production/window.rs:386:25 [ProductionWindow::answer] assign  sx.state.transient_mut().production.disc... += 2 => sx.state.transient_mut().production.disc... -= 2
+rules/production/window.rs:386:83 [ProductionWindow::answer] lit  2 => 3
+rules/production/window.rs:387:25 [ProductionWindow::answer] assign  self.discount_remaining += 2 => self.discount_remaining -= 2
+rules/production/window.rs:387:52 [ProductionWindow::answer] lit  2 => 3
+rules/production/window.rs:388:44 [ProductionWindow::answer] lit  true => false
+rules/production/window.rs:398:24 [ProductionWindow::answer] cond  !done => !(!done)
+rules/production/window.rs:402:38 [ProductionWindow::answer] lit  true => false
+rules/production/window.rs:403:63 [ProductionWindow::answer] lit  1 => 2
+rules/production/window.rs:413:28 [ProductionWindow::answer] arith  owed - worth => owed + worth
+rules/production/window.rs:414:28 [ProductionWindow::answer] arith  paid + worth => paid - worth
+rules/production/window.rs:415:33 [ProductionWindow::answer] cond  owed > 0 => !(owed > 0)
+rules/production/window.rs:415:33 [ProductionWindow::answer] cmp  owed > 0 => owed >= 0
+rules/production/window.rs:415:40 [ProductionWindow::answer] lit  0 => 1
+rules/production/window.rs:418:21 [ProductionWindow::answer] assign  self.credit += -owed => self.credit -= -owed
+rules/production/window.rs:427:46 [ProductionWindow::answer] lit  false => true
+rules/production/window.rs:438:58 [ProductionWindow::agent_destinations_spent] body  agent_destinations_spent(&self, sx: &mut Sx<'_>) { => { return (); }

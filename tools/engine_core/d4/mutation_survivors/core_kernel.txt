@@ -1,0 +1,518 @@
+# survivors of core/kernel: 517 of 904 points (42% killed); paths relative to crates/<crate>/src
+kernel/fx.rs:32:43 [has_staged] body  has_staged(s: &CoreState) -> bool { => { return false; }
+kernel/fx.rs:52:25 [announce_staged] lit  0 => 1
+kernel/fx.rs:55:12 [announce_staged] cond  batch.is_empty() => !(batch.is_empty())
+kernel/fx.rs:61:13 [announce_staged] assign  *next_id += 1 => *next_id -= 1
+kernel/fx.rs:61:25 [announce_staged] lit  1 => 2
+kernel/fx.rs:70:13 [announce_staged] assign  announced += 1 => announced -= 1
+kernel/fx.rs:70:26 [announce_staged] lit  1 => 2
+kernel/fx.rs:90:52 [journal_mark] body  journal_mark(resolver: &Resolver) -> usize { => { return 0; }
+kernel/fx.rs:109:27 [mirror_journal] logic  e.id == *id && e.kind == *kind => e.id == *id || e.kind == *kind
+kernel/fx.rs:111:97 [mirror_journal] lit  false => true
+kernel/fx.rs:123:8 [gain_trade_goods] cmp  amount <= 0 => amount < 0
+kernel/fx.rs:135:78 [spend_trade_goods] body  spend_trade_goods(s: &mut CoreState, who: Seat, amount: i32) -> bool { => { return true; }
+kernel/fx.rs:135:78 [spend_trade_goods] body  spend_trade_goods(s: &mut CoreState, who: Seat, amount: i32) -> bool { => { return false; }
+kernel/fx.rs:136:8 [spend_trade_goods] cond  amount <= 0 => !(amount <= 0)
+kernel/fx.rs:136:8 [spend_trade_goods] cmp  amount <= 0 => amount < 0
+kernel/fx.rs:136:18 [spend_trade_goods] lit  0 => 1
+kernel/fx.rs:137:16 [spend_trade_goods] lit  true => false
+kernel/fx.rs:139:66 [spend_trade_goods] lit  false => true
+kernel/fx.rs:140:8 [spend_trade_goods] cond  i32::from(p.econ.trade_goods) < amount => !(i32::from(p.econ.trade_goods) < amount)
+kernel/fx.rs:140:8 [spend_trade_goods] cmp  i32::from(p.econ.trade_goods) < amount => i32::from(p.econ.trade_goods) <= amount
+kernel/fx.rs:141:16 [spend_trade_goods] lit  false => true
+kernel/fx.rs:143:5 [spend_trade_goods] assign  p.econ.trade_goods -= i16::try_from(amount).unwrap_or(i16::MAX... => p.econ.trade_goods += i16::try_from(amount).unwrap_or(i16::M
+kernel/fx.rs:144:5 [spend_trade_goods] lit  true => false
+kernel/fx.rs:169:66 [replenish_commodities] lit  0 => 1
+kernel/fx.rs:171:19 [replenish_commodities] arith  limit - p.econ.commodities => limit + p.econ.commodities
+kernel/fx.rs:171:51 [replenish_commodities] lit  0 => 1
+kernel/fx.rs:205:66 [gain_victory_points] lit  0 => 1
+kernel/fx.rs:207:60 [gain_victory_points] lit  0 => 1
+kernel/fx.rs:214:97 [reveal_stage] body  reveal_stage(s: &mut CoreState, stage: u8) -> Option<crate::generated:... => { return None; }
+kernel/fx.rs:215:62 [reveal_stage] cmp  crate::query::objectives::stage_of(*o) == Some(stage) => crate::query::objectives::stage_of(*o) != Some(stage)
+kernel/fx.rs:228:66 [adjust_victory_points] lit  0 => 1
+kernel/fx.rs:230:20 [adjust_victory_points] cond  delta >= 0 => !(delta >= 0)
+kernel/fx.rs:230:20 [adjust_victory_points] cmp  delta >= 0 => delta > 0
+kernel/fx.rs:230:29 [adjust_victory_points] lit  0 => 1
+kernel/fx.rs:230:80 [adjust_victory_points] arith  before + delta => before - delta
+kernel/fx.rs:230:100 [adjust_victory_points] lit  0 => 1
+kernel/fx.rs:231:60 [adjust_victory_points] lit  0 => 1
+kernel/fx.rs:232:19 [adjust_victory_points] arith  after - before => after + before
+kernel/fx.rs:238:77 [record_score] body  record_score(s: &mut CoreState, who: Seat, objective: ObjectiveRef) { => { return (); }
+kernel/fx.rs:253:80 [record_occurrence_score] body  record_occurrence_score(s: &mut CoreState, who: Seat, occurrence: u64)... => { return (); }
+kernel/fx.rs:255:8 [record_occurrence_score] cond  !feats.contains(&(who, occurrence)) => !(!feats.contains(&(who, occurrence)))
+kernel/fx.rs:262:84 [score_public] body  score_public(s: &mut CoreState, who: Seat, objective: ObjectiveRef) ->... => { return 0; }
+kernel/fx.rs:262:84 [score_public] body  score_public(s: &mut CoreState, who: Seat, objective: ObjectiveRef) ->... => { return 1; }
+kernel/fx.rs:274:85 [score_secret] body  score_secret(s: &mut CoreState, who: Seat, secret: SecretObjective) ->... => { return true; }
+kernel/fx.rs:274:85 [score_secret] body  score_secret(s: &mut CoreState, who: Seat, secret: SecretObjective) ->... => { return false; }
+kernel/fx.rs:275:8 [score_secret] cond  !s.players().by_seat(who).is_some_and(|p| p.cards.secrets.as_slice().contains(&s... => !(!s.players().by_seat(who).is_some_and(|p| p.cards.secrets.
+kernel/fx.rs:276:16 [score_secret] lit  false => true
+kernel/fx.rs:280:39 [score_secret] cmp  *held != secret => *held == secret
+kernel/fx.rs:283:5 [score_secret] lit  true => false
+kernel/fx.rs:287:42 [finish_if_won] body  finish_if_won(s: &mut CoreState) { => { return (); }
+kernel/fx.rs:288:8 [finish_if_won] cond  s.players().iter().any(|p| i32::from(p.econ.victory_points) >= VICTORY_TARGET) => !(s.players().iter().any(|p| i32::from(p.econ.victory_points
+kernel/fx.rs:288:35 [finish_if_won] cmp  i32::from(p.econ.victory_points) >= VICTORY_TARGET => i32::from(p.econ.victory_points) > VICTORY_TARGET
+kernel/fx.rs:289:33 [finish_if_won] lit  true => false
+kernel/fx.rs:295:78 [draw_secret] body  draw_secret(s: &mut CoreState, who: Seat) -> Option<SecretObjective> { => { return None; }
+kernel/fx.rs:303:78 [return_secret] body  return_secret(s: &mut CoreState, who: Seat, secret: SecretObjective) { => { return (); }
+kernel/fx.rs:305:39 [return_secret] cmp  *held != secret => *held == secret
+kernel/fx.rs:312:73 [make_public] body  make_public(s: &mut CoreState, secret: SecretObjective) -> bool { => { return true; }
+kernel/fx.rs:312:73 [make_public] body  make_public(s: &mut CoreState, secret: SecretObjective) -> bool { => { return false; }
+kernel/fx.rs:314:8 [make_public] cond  s.objectives().revealed.as_slice().contains(&o) => !(s.objectives().revealed.as_slice().contains(&o))
+kernel/fx.rs:315:16 [make_public] lit  false => true
+kernel/fx.rs:318:5 [make_public] lit  true => false
+kernel/fx.rs:336:61 [place_unit] lit  true => false
+kernel/fx.rs:358:53 [place_command_token] lit  true => false
+kernel/fx.rs:370:67 [tokens_in_reinforcements] body  tokens_in_reinforcements(s: &CoreState, who: Seat) -> i32 { => { return 1; }
+kernel/fx.rs:371:52 [tokens_in_reinforcements] lit  0 => 1
+kernel/fx.rs:372:9 [tokens_in_reinforcements] arith  i32::from(p.econ.tactic_tokens) + i32::f... + i32::from(p.econ.strategic_tokens) => i32::from(p.econ.tactic_tokens) + i32::f... - i32::from(p.ec
+kernel/fx.rs:372:9 [tokens_in_reinforcements] arith  i32::from(p.econ.tactic_tokens) + i32::from(p.econ.fleet_tokens) => i32::from(p.econ.tactic_tokens) - i32::from(p.econ.fleet_tok
+kernel/fx.rs:375:6 [tokens_in_reinforcements] arith  TOKENS_PER_FACTION - on_sheet - i32::try_from(on_board).unwrap_or(i32::M... => TOKENS_PER_FACTION - on_sheet + i32::try_from(on_board).unwr
+kernel/fx.rs:375:6 [tokens_in_reinforcements] arith  TOKENS_PER_FACTION - on_sheet => TOKENS_PER_FACTION + on_sheet
+kernel/fx.rs:375:87 [tokens_in_reinforcements] lit  0 => 1
+kernel/fx.rs:381:67 [gain_token] lit  0 => 1
+kernel/fx.rs:382:8 [gain_token] cmp  granted > 0 => granted >= 0
+kernel/fx.rs:400:8 [draw_action_cards] cond  drop_unofficial && s.decks().action.cards().iter().any(|c| matches!(c, ActionCar... => !(drop_unofficial && s.decks().action.cards().iter().any(|c|
+kernel/fx.rs:400:8 [draw_action_cards] logic  drop_unofficial && s.decks().action.cards().iter().any(|c| ... => drop_unofficial || s.decks().action.cards().iter().any(|c| .
+kernel/fx.rs:404:21 [draw_action_cards] lit  0 => 1
+kernel/fx.rs:410:18 [draw_action_cards] lit  1 => 2
+kernel/fx.rs:417:100 [grant_technology] body  grant_technology(s: &mut CoreState, who: Seat, tech: crate::generated:... => { return true; }
+kernel/fx.rs:417:100 [grant_technology] body  grant_technology(s: &mut CoreState, who: Seat, tech: crate::generated:... => { return false; }
+kernel/fx.rs:423:66 [spend_strategic_token] lit  false => true
+kernel/fx.rs:424:8 [spend_strategic_token] cmp  p.econ.strategic_tokens > 0 => p.econ.strategic_tokens >= 0
+kernel/fx.rs:428:9 [spend_strategic_token] lit  false => true
+kernel/fx.rs:461:85 [gain_control] lit  true => false
+kernel/fx.rs:556:78 [repeal_law] body  repeal_law(s: &mut CoreState, law: crate::generated::Agenda) -> bool { => { return true; }
+kernel/fx.rs:556:78 [repeal_law] body  repeal_law(s: &mut CoreState, law: crate::generated::Agenda) -> bool { => { return false; }
+kernel/fx.rs:560:43 [repeal_law] lit  1 => 2
+kernel/fx.rs:568:58 [deal_strategy_card] lit  false => true
+kernel/fx.rs:572:57 [deal_strategy_card] lit  99 => 100
+kernel/fx.rs:576:5 [deal_strategy_card] lit  true => false
+kernel/fx_explore.rs:17:8 [draw] arith  d.explore_present & (1 << deck as u8) => d.explore_present | (1 << deck as u8)
+kernel/fx_explore.rs:17:49 [draw] lit  0 => 1
+kernel/fx_explore.rs:24:75 [gain_fragment] body  gain_fragment(core: &mut CoreState, who: Seat, kind: ExploreType) { => { return (); }
+kernel/fx_explore.rs:26:55 [gain_fragment] lit  0 => 1
+kernel/fx_explore.rs:27:37 [gain_fragment] arith  n + 1 => n - 1
+kernel/fx_explore.rs:27:41 [gain_fragment] lit  1 => 2
+kernel/fx_explore.rs:37:84 [place_wormhole_token] body  place_wormhole_token(core: &mut CoreState, kind: Wormhole, system: Sys... => { return (); }
+kernel/fx_explore.rs:42:72 [play_area_card] body  play_area_card(core: &mut CoreState, who: Seat, card: Explore) { => { return (); }
+kernel/fx_explore.rs:51:69 [gain_commodities] lit  0 => 1
+kernel/fx_explore.rs:56:6 [gain_commodities] arith  after - held => after + held
+kernel/fx_explore.rs:56:24 [gain_commodities] lit  0 => 1
+kernel/fx_explore.rs:61:86 [spend_commodities] body  spend_commodities(core: &mut CoreState, who: Seat, most: Option<i32>) ... => { return 0; }
+kernel/fx_explore.rs:61:86 [spend_commodities] body  spend_commodities(core: &mut CoreState, who: Seat, most: Option<i32>) ... => { return 1; }
+kernel/fx_explore.rs:62:69 [spend_commodities] lit  0 => 1
+kernel/fx_explore.rs:65:40 [spend_commodities] arith  held - moved => held + moved
+kernel/fx_explore.rs:65:64 [spend_commodities] lit  0 => 1
+kernel/fx_explore.rs:79:4 [open_record] body  open_record( core: &mut CoreState, who: Seat, deck: ExploreType, card:... => { return (); }
+kernel/fx_ground.rs:12:42 [next_ground] body  next_ground(core: &CoreState) -> u32 { => { return 0; }
+kernel/fx_ground.rs:12:42 [next_ground] body  next_ground(core: &CoreState) -> u32 { => { return 1; }
+kernel/fx_ground.rs:18:17 [next_ground] lit  0 => 1
+kernel/fx_ground.rs:18:24 [next_ground] arith  n + 1 => n - 1
+kernel/fx_ground.rs:18:28 [next_ground] lit  1 => 2
+kernel/fx_ground.rs:60:67 [destroy_on_planet] lit  true => false
+kernel/fx_ground.rs:62:19 [destroy_on_planet] lit  0 => 1
+kernel/fx_ground.rs:64:25 [destroy_on_planet] lit  0 => 1
+kernel/fx_ground.rs:67:36 [destroy_on_planet] cmp  destroyed >= cap => destroyed > cap
+kernel/fx_ground.rs:68:20 [destroy_on_planet] lit  true => false
+kernel/fx_ground.rs:71:19 [destroy_on_planet] logic  scope.0 & crate::tables::source_bit(d.so... && d.base_type == base => scope.0 & crate::tables::source_bit(d.so... || d.base_type =
+kernel/fx_ground.rs:71:19 [destroy_on_planet] arith  scope.0 & crate::tables::source_bit(d.source) => scope.0 | crate::tables::source_bit(d.source)
+kernel/fx_ground.rs:73:26 [destroy_on_planet] lit  1 => 2
+kernel/fx_move.rs:22:66 [spend_tactic_token] body  spend_tactic_token(s: &mut CoreState, who: Seat) -> bool { => { return true; }
+kernel/fx_move.rs:22:66 [spend_tactic_token] body  spend_tactic_token(s: &mut CoreState, who: Seat) -> bool { => { return false; }
+kernel/fx_move.rs:23:66 [spend_tactic_token] lit  false => true
+kernel/fx_move.rs:24:8 [spend_tactic_token] cond  p.econ.tactic_tokens > 0 => !(p.econ.tactic_tokens > 0)
+kernel/fx_move.rs:24:8 [spend_tactic_token] cmp  p.econ.tactic_tokens > 0 => p.econ.tactic_tokens >= 0
+kernel/fx_move.rs:24:31 [spend_tactic_token] lit  0 => 1
+kernel/fx_move.rs:25:9 [spend_tactic_token] assign  p.econ.tactic_tokens -= 1 => p.econ.tactic_tokens += 1
+kernel/fx_move.rs:25:33 [spend_tactic_token] lit  1 => 2
+kernel/fx_move.rs:26:9 [spend_tactic_token] lit  true => false
+kernel/fx_move.rs:28:9 [spend_tactic_token] lit  false => true
+kernel/fx_move.rs:38:111 [activate] body  activate(s: &mut CoreState, who: Seat, system: System, mahact_leave: b... => { return Ok(()); }
+kernel/fx_move.rs:39:8 [activate] cond  s.board().sys(system).cmd.contains(who) && !mahact_leave => !(s.board().sys(system).cmd.contains(who) && !mahact_leave)
+kernel/fx_move.rs:39:8 [activate] logic  s.board().sys(system).cmd.contains(who) && !mahact_leave => s.board().sys(system).cmd.contains(who) || !mahact_leave
+kernel/fx_move.rs:42:8 [activate] cond  !spend_tactic_token(s, who) => !(!spend_tactic_token(s, who))
+kernel/fx_move.rs:46:39 [activate] lit  true => false
+kernel/fx_move.rs:54:55 [begin_move] body  begin_move(s: &mut CoreState, system: System) { => { return (); }
+kernel/fx_move.rs:58:62 [begin_move] lit  1 => 2
+kernel/fx_move.rs:63:67 [gravity_drive_available] body  gravity_drive_available(s: &CoreState, who: Seat) -> bool { => { return true; }
+kernel/fx_move.rs:63:67 [gravity_drive_available] body  gravity_drive_available(s: &CoreState, who: Seat) -> bool { => { return false; }
+kernel/fx_move.rs:66:26 [gravity_drive_available] logic  p.tech.owned.contains(Technology::Gravit... && !p.timers.gravity_drive_used_activation.... => p.tech.owned.contains(Technology::Gravit... || !p.timers.gra
+kernel/fx_move.rs:70:65 [use_gravity_drive] body  use_gravity_drive(s: &mut CoreState, who: Seat) -> bool { => { return true; }
+kernel/fx_move.rs:70:65 [use_gravity_drive] body  use_gravity_drive(s: &mut CoreState, who: Seat) -> bool { => { return false; }
+kernel/fx_move.rs:71:8 [use_gravity_drive] cond  !gravity_drive_available(s, who) => !(!gravity_drive_available(s, who))
+kernel/fx_move.rs:72:16 [use_gravity_drive] lit  false => true
+kernel/fx_move.rs:78:13 [use_gravity_drive] lit  true => false
+kernel/fx_move.rs:80:17 [use_gravity_drive] lit  false => true
+kernel/fx_move.rs:86:60 [ionian_available] body  ionian_available(s: &CoreState, who: Seat) -> bool { => { return true; }
+kernel/fx_move.rs:86:60 [ionian_available] body  ionian_available(s: &CoreState, who: Seat) -> bool { => { return false; }
+kernel/fx_move.rs:87:5 [ionian_available] logic  s.players().by_seat(who).is_some_and(|p|... && crate::query::board::controls(s, who, Pl... => s.players().by_seat(who).is_some_and(|p|... || crate::query:
+kernel/fx_move.rs:92:58 [use_ionian] body  use_ionian(s: &mut CoreState, who: Seat) -> bool { => { return true; }
+kernel/fx_move.rs:92:58 [use_ionian] body  use_ionian(s: &mut CoreState, who: Seat) -> bool { => { return false; }
+kernel/fx_move.rs:93:8 [use_ionian] cond  !ionian_available(s, who) => !(!ionian_available(s, who))
+kernel/fx_move.rs:94:16 [use_ionian] lit  false => true
+kernel/fx_move.rs:99:5 [use_ionian] lit  true => false
+kernel/fx_move.rs:104:76 [anchor_gravleash] body  anchor_gravleash(s: &mut CoreState, origin: System, own_move: i32) { => { return (); }
+kernel/fx_move.rs:112:89 [move_ship] body  move_ship(s: &mut CoreState, origin: System, destination: System, piec... => { return (); }
+kernel/fx_move.rs:119:113 [take_aboard] body  take_aboard(s: &mut CoreState, from: System, destination: System, piec... => { return (); }
+kernel/fx_move.rs:125:71 [destroy_ship] body  destroy_ship(s: &mut CoreState, origin: System, piece: Piece) { => { return (); }
+kernel/fx_move.rs:130:95 [lose_passenger] body  lose_passenger(s: &mut CoreState, from: System, piece: Piece, source: ... => { return (); }
+kernel/fx_move.rs:132:8 [lose_passenger] cmp  piece.kind() == Unit::SpecOpsII => piece.kind() != Unit::SpecOpsII
+kernel/fx_move.rs:135:9 [lose_passenger] assign  p.misc.spec_ops_destroyed += 1 => p.misc.spec_ops_destroyed -= 1
+kernel/fx_move.rs:135:38 [lose_passenger] lit  1 => 2
+kernel/fx_move.rs:139:91 [remove_first] body  remove_first(s: &mut CoreState, system: System, planet: Option<Planet>... => { return (); }
+kernel/fx_move.rs:141:64 [remove_first] lit  true => false
+kernel/fx_move.rs:146:59 [remove_first] cmp  *u == piece => *u != piece
+kernel/fx_move.rs:151:65 [push_space] body  push_space(s: &mut CoreState, system: System, piece: Piece) { => { return (); }
+kernel/fx_move.rs:153:39 [push_space] lit  true => false
+kernel/fx_move.rs:158:77 [flip_ion_storm] body  flip_ion_storm(s: &mut CoreState, from: System, to: System) -> bool { => { return true; }
+kernel/fx_move.rs:158:77 [flip_ion_storm] body  flip_ion_storm(s: &mut CoreState, from: System, to: System) -> bool { => { return false; }
+kernel/fx_move.rs:159:65 [flip_ion_storm] lit  false => true
+kernel/fx_move.rs:160:8 [flip_ion_storm] cond  system != from && system != to => !(system != from && system != to)
+kernel/fx_move.rs:160:8 [flip_ion_storm] logic  system != from && system != to => system != from || system != to
+kernel/fx_move.rs:160:8 [flip_ion_storm] cmp  system != from => system == from
+kernel/fx_move.rs:160:26 [flip_ion_storm] cmp  system != to => system == to
+kernel/fx_move.rs:161:16 [flip_ion_storm] lit  false => true
+kernel/fx_move.rs:163:22 [flip_ion_storm] cond  face == Wormhole::Alpha => !(face == Wormhole::Alpha)
+kernel/fx_move.rs:163:22 [flip_ion_storm] cmp  face == Wormhole::Alpha => face != Wormhole::Alpha
+kernel/fx_move.rs:165:5 [flip_ion_storm] lit  true => false
+kernel/fx_move.rs:169:49 [count_arrival] body  count_arrival(s: &mut CoreState) -> u32 { => { return 0; }
+kernel/fx_move.rs:169:49 [count_arrival] body  count_arrival(s: &mut CoreState) -> u32 { => { return 1; }
+kernel/fx_move.rs:174:14 [count_arrival] lit  0 => 1
+kernel/fx_move.rs:176:47 [count_arrival] arith  moved + 1 => moved - 1
+kernel/fx_move.rs:176:55 [count_arrival] lit  1 => 2
+kernel/fx_move.rs:177:5 [count_arrival] arith  moved + 1 => moved - 1
+kernel/fx_move.rs:177:13 [count_arrival] lit  1 => 2
+kernel/fx_move.rs:182:43 [ships_moved] body  ships_moved(s: &CoreState) -> u32 { => { return 0; }
+kernel/fx_move.rs:182:43 [ships_moved] body  ships_moved(s: &CoreState) -> u32 { => { return 1; }
+kernel/fx_move.rs:186:14 [ships_moved] lit  0 => 1
+kernel/fx_move.rs:191:43 [clear_arrivals] body  clear_arrivals(s: &mut CoreState) { => { return (); }
+kernel/fx_pay.rs:41:67 [pay_facts] lit  1 => 2
+kernel/fx_pay.rs:41:74 [pay_facts] lit  1 => 2
+kernel/fx_pay.rs:46:12 [pay_facts] cond  bonus != 0 => !(bonus != 0)
+kernel/fx_pay.rs:46:12 [pay_facts] cmp  bonus != 0 => bonus == 0
+kernel/fx_pay.rs:46:21 [pay_facts] lit  0 => 1
+kernel/fx_pay.rs:55:75 [apply_plan] body  apply_plan(core: &mut CoreState, f: &SeatFacts, plan: &PlanC) -> bool ... => { return true; }
+kernel/fx_pay.rs:55:75 [apply_plan] body  apply_plan(core: &mut CoreState, f: &SeatFacts, plan: &PlanC) -> bool ... => { return false; }
+kernel/fx_pay.rs:56:68 [apply_plan] lit  0 => 1
+kernel/fx_pay.rs:57:64 [apply_plan] lit  false => true
+kernel/fx_pay.rs:58:19 [apply_plan] logic  i32::from(p.econ.trade_goods) + commodit... && plan.planets().iter().all(|planet| !boar... => i32::from(p.econ.trade_goods) + commodit... || plan.planets(
+kernel/fx_pay.rs:58:19 [apply_plan] cmp  i32::from(p.econ.trade_goods) + commodit... >= plan.trade_goods => i32::from(p.econ.trade_goods) + commodit... > plan.trade_goo
+kernel/fx_pay.rs:58:19 [apply_plan] arith  i32::from(p.econ.trade_goods) + commodities => i32::from(p.econ.trade_goods) - commodities
+kernel/fx_pay.rs:60:8 [apply_plan] cond  !payable => !(!payable)
+kernel/fx_pay.rs:61:16 [apply_plan] lit  false => true
+kernel/fx_pay.rs:66:78 [apply_plan] arith  plan.trade_goods - from_commodities => plan.trade_goods + from_commodities
+kernel/fx_pay.rs:71:5 [apply_plan] lit  true => false
+kernel/fx_pay.rs:76:117 [pay_first_plan] body  pay_first_plan(core: &mut CoreState, k: &Kernel, env: PayEnv, seat: Se... => { return true; }
+kernel/fx_pay.rs:76:117 [pay_first_plan] body  pay_first_plan(core: &mut CoreState, k: &Kernel, env: PayEnv, seat: Se... => { return false; }
+kernel/fx_pay.rs:81:92 [first_plan_with] body  first_plan_with(core: &mut CoreState, f: &SeatFacts, kind: Spend, amou... => { return true; }
+kernel/fx_pay.rs:81:92 [first_plan_with] body  first_plan_with(core: &mut CoreState, f: &SeatFacts, kind: Spend, amou... => { return false; }
+kernel/fx_pay.rs:84:17 [first_plan_with] lit  false => true
+kernel/fx_pay.rs:90:103 [pay_all_three] body  pay_all_three(core: &mut CoreState, k: &Kernel, env: PayEnv, seat: Sea... => { return true; }
+kernel/fx_pay.rs:90:103 [pay_all_three] body  pay_all_three(core: &mut CoreState, k: &Kernel, env: PayEnv, seat: Sea... => { return false; }
+kernel/fx_pay.rs:95:78 [all_three_with] body  all_three_with(core: &mut CoreState, f: &SeatFacts, amount: i64) -> bo... => { return true; }
+kernel/fx_pay.rs:95:78 [all_three_with] body  all_three_with(core: &mut CoreState, f: &SeatFacts, amount: i64) -> bo... => { return false; }
+kernel/fx_pay.rs:96:89 [all_three_with] lit  false => true
+kernel/fx_pay.rs:97:8 [all_three_with] cond  !apply_plan(core, f, &resources) || !apply_plan(core, f, &influence) => !(!apply_plan(core, f, &resources) || !apply_plan(core, f, &
+kernel/fx_pay.rs:97:8 [all_three_with] logic  !apply_plan(core, f, &resources) || !apply_plan(core, f, &influence) => !apply_plan(core, f, &resources) && !apply_plan(core, f, &in
+kernel/fx_pay.rs:98:16 [all_three_with] lit  false => true
+kernel/fx_pay.rs:103:5 [all_three_with] lit  true => false
+kernel/fx_pay.rs:107:75 [pay_tokens] body  pay_tokens(core: &mut CoreState, seat: Seat, amount: i32) -> bool { => { return true; }
+kernel/fx_pay.rs:107:75 [pay_tokens] body  pay_tokens(core: &mut CoreState, seat: Seat, amount: i32) -> bool { => { return false; }
+kernel/fx_pay.rs:108:8 [pay_tokens] cond  core.players().by_seat(seat).is_none() || q::token_pool(core, seat) < amount => !(core.players().by_seat(seat).is_none() || q::token_pool(co
+kernel/fx_pay.rs:108:8 [pay_tokens] logic  core.players().by_seat(seat).is_none() || q::token_pool(core, seat) < amount => core.players().by_seat(seat).is_none() && q::token_pool(core
+kernel/fx_pay.rs:108:50 [pay_tokens] cmp  q::token_pool(core, seat) < amount => q::token_pool(core, seat) <= amount
+kernel/fx_pay.rs:109:16 [pay_tokens] lit  false => true
+kernel/fx_pay.rs:111:70 [pay_tokens] lit  false => true
+kernel/fx_pay.rs:115:9 [pay_tokens] assign  *pool -= i16::try_from(take).unwrap_or(0) => *pool += i16::try_from(take).unwrap_or(0)
+kernel/fx_pay.rs:115:48 [pay_tokens] lit  0 => 1
+kernel/fx_pay.rs:116:9 [pay_tokens] assign  owed -= take => owed += take
+kernel/fx_pay.rs:118:5 [pay_tokens] cmp  owed == 0 => owed != 0
+kernel/fx_pay.rs:118:13 [pay_tokens] lit  0 => 1
+kernel/fx_pay.rs:122:80 [pay_trade_goods] body  pay_trade_goods(core: &mut CoreState, seat: Seat, amount: i32) -> bool... => { return true; }
+kernel/fx_pay.rs:122:80 [pay_trade_goods] body  pay_trade_goods(core: &mut CoreState, seat: Seat, amount: i32) -> bool... => { return false; }
+kernel/fx_pay.rs:124:20 [pay_trade_goods] cond  i32::from(p.econ.trade_goods) >= amount => !(i32::from(p.econ.trade_goods) >= amount)
+kernel/fx_pay.rs:124:20 [pay_trade_goods] cmp  i32::from(p.econ.trade_goods) >= amount => i32::from(p.econ.trade_goods) > amount
+kernel/fx_pay.rs:126:13 [pay_trade_goods] lit  true => false
+kernel/fx_pay.rs:128:14 [pay_trade_goods] lit  false => true
+kernel/fx_pay.rs:133:97 [pay_cost] body  pay_cost(core: &mut CoreState, k: &Kernel, env: PayEnv, seat: Seat, co... => { return true; }
+kernel/fx_pay.rs:133:97 [pay_cost] body  pay_cost(core: &mut CoreState, k: &Kernel, env: PayEnv, seat: Seat, co... => { return false; }
+kernel/fx_pay.rs:145:87 [pay_secret] body  pay_secret(core: &mut CoreState, seat: Seat, secret: SecretObjective) ... => { return true; }
+kernel/fx_pay.rs:145:87 [pay_secret] body  pay_secret(core: &mut CoreState, seat: Seat, secret: SecretObjective) ... => { return false; }
+kernel/fx_pay.rs:148:78 [pay_secret] lit  false => true
+kernel/fx_pay.rs:150:94 [pay_secret] cmp  *n > 0 => *n >= 0
+kernel/fx_pay.rs:150:99 [pay_secret] lit  0 => 1
+kernel/fx_pay.rs:151:16 [pay_secret] cond  held < 2 => !(held < 2)
+kernel/fx_pay.rs:151:16 [pay_secret] cmp  held < 2 => held <= 2
+kernel/fx_pay.rs:151:23 [pay_secret] lit  2 => 3
+kernel/fx_pay.rs:152:24 [pay_secret] lit  false => true
+kernel/fx_pay.rs:154:28 [pay_secret] lit  2i16 => 3i16
+kernel/fx_pay.rs:157:38 [pay_secret] lit  0 => 1
+kernel/fx_pay.rs:158:37 [pay_secret] arith  n - take => n + take
+kernel/fx_pay.rs:159:21 [pay_secret] assign  owed -= take => owed += take
+kernel/fx_pay.rs:164:20 [pay_secret] cond  frags.get(kind).is_some_and(|n| n <= 0) => !(frags.get(kind).is_some_and(|n| n <= 0))
+kernel/fx_pay.rs:164:52 [pay_secret] cmp  n <= 0 => n < 0
+kernel/fx_pay.rs:164:57 [pay_secret] lit  0 => 1
+kernel/fx_pay.rs:168:13 [pay_secret] cmp  owed == 0 => owed != 0
+kernel/fx_pay.rs:168:21 [pay_secret] lit  0 => 1
+kernel/fx_pay.rs:171:78 [pay_secret] lit  false => true
+kernel/fx_pay.rs:172:16 [pay_secret] cond  p.cards.hand.len() < 5 => !(p.cards.hand.len() < 5)
+kernel/fx_pay.rs:172:16 [pay_secret] cmp  p.cards.hand.len() < 5 => p.cards.hand.len() <= 5
+kernel/fx_pay.rs:172:37 [pay_secret] lit  5 => 6
+kernel/fx_pay.rs:173:24 [pay_secret] lit  false => true
+kernel/fx_pay.rs:175:22 [pay_secret] lit  0 => 1
+kernel/fx_pay.rs:175:25 [pay_secret] lit  5 => 6
+kernel/fx_pay.rs:176:37 [pay_secret] lit  0 => 1
+kernel/fx_pay.rs:178:13 [pay_secret] lit  true => false
+kernel/fx_pay.rs:180:14 [pay_secret] lit  true => false
+kernel/fx_plots.rs:18:60 [is_firmament] body  is_firmament(core: &CoreState, seat: Seat) -> bool { => { return true; }
+kernel/fx_plots.rs:18:60 [is_firmament] body  is_firmament(core: &CoreState, seat: Seat) -> bool { => { return false; }
+kernel/fx_plots.rs:19:50 [is_firmament] cmp  p.faction == Faction::TheFirmament => p.faction != Faction::TheFirmament
+kernel/fx_plots.rs:25:69 [remaining_cards] body  remaining_cards(core: &CoreState) -> SmallList<PlotCard, 5> { => { return Default::default(); }
+kernel/fx_plots.rs:27:8 [remaining_cards] cond  in_play.len() >= PRINTED.len() => !(in_play.len() >= PRINTED.len())
+kernel/fx_plots.rs:27:8 [remaining_cards] cmp  in_play.len() >= PRINTED.len() => in_play.len() > PRINTED.len()
+kernel/fx_plots.rs:35:102 [score_as_plot] body  score_as_plot(core: &mut CoreState, who: Seat, secret: SecretObjective... => { return true; }
+kernel/fx_plots.rs:35:102 [score_as_plot] body  score_as_plot(core: &mut CoreState, who: Seat, secret: SecretObjective... => { return false; }
+kernel/fx_plots.rs:38:8 [score_as_plot] cond  !is_firmament(core, who) || who == token || remaining_cards(core).is_empty() || ... => !(!is_firmament(core, who) || who == token || remaining_card
+kernel/fx_plots.rs:38:8 [score_as_plot] logic  !is_firmament(core, who) || who == token... || core.players().by_seat(who).is_some_and(... => !is_firmament(core, who) || who == token... && core.players(
+kernel/fx_plots.rs:38:8 [score_as_plot] logic  !is_firmament(core, who) || who == token... || mine(who) => !is_firmament(core, who) || who == token... && mine(who)
+kernel/fx_plots.rs:38:8 [score_as_plot] logic  !is_firmament(core, who) || who == token... || !mine(token) => !is_firmament(core, who) || who == token... && !mine(token)
+kernel/fx_plots.rs:38:8 [score_as_plot] logic  !is_firmament(core, who) || who == token || remaining_cards(core).is_empty() => !is_firmament(core, who) || who == token && remaining_cards(
+kernel/fx_plots.rs:38:8 [score_as_plot] logic  !is_firmament(core, who) || who == token => !is_firmament(core, who) && who == token
+kernel/fx_plots.rs:39:12 [score_as_plot] cmp  who == token => who != token
+kernel/fx_plots.rs:45:16 [score_as_plot] lit  false => true
+kernel/fx_plots.rs:48:8 [score_as_plot] cond  !fx_pay::pay_secret(core, who, secret) => !(!fx_pay::pay_secret(core, who, secret))
+kernel/fx_plots.rs:49:16 [score_as_plot] lit  false => true
+kernel/fx_plots.rs:54:13 [score_as_plot] lit  true => false
+kernel/fx_plots.rs:56:17 [score_as_plot] lit  false => true
+kernel/fx_plots.rs:62:92 [place_card] body  place_card(core: &mut CoreState, owner: Seat, card: PlotCard, token: S... => { return true; }
+kernel/fx_plots.rs:62:92 [place_card] body  place_card(core: &mut CoreState, owner: Seat, card: PlotCard, token: S... => { return false; }
+kernel/fx_plots.rs:63:8 [place_card] cond  !remaining_cards(core).as_slice().contains(&card) => !(!remaining_cards(core).as_slice().contains(&card))
+kernel/fx_plots.rs:64:16 [place_card] lit  false => true
+kernel/fx_plots.rs:67:71 [place_card] lit  false => true
+kernel/fx_plots.rs:71:5 [place_card] lit  true => false
+kernel/fx_strategy.rs:19:8 [take_note] cond  qn::is_play_area(key.note, key.faction) && !qn::is_action_placed(core, key.note)... => !(qn::is_play_area(key.note, key.faction) && !qn::is_action_
+kernel/fx_strategy.rs:19:8 [take_note] logic  qn::is_play_area(key.note, key.faction) ... && key.note != crate::generated::Promissory... => qn::is_play_area(key.note, key.faction) ... || key.note != c
+kernel/fx_strategy.rs:19:8 [take_note] logic  qn::is_play_area(key.note, key.faction) && !qn::is_action_placed(core, key.note) => qn::is_play_area(key.note, key.faction) || !qn::is_action_pl
+kernel/fx_strategy.rs:21:12 [take_note] cmp  key.note != crate::generated::PromissoryNote::Antivi... => key.note == crate::generated::PromissoryNote::Antivi...
+kernel/fx_strategy.rs:30:69 [exhaust_leader] lit  false => true
+kernel/fx_strategy.rs:44:87 [exhaust_technology] body  exhaust_technology(core: &mut CoreState, who: Seat, tech: Technology) ... => { return true; }
+kernel/fx_strategy.rs:44:87 [exhaust_technology] body  exhaust_technology(core: &mut CoreState, who: Seat, tech: Technology) ... => { return false; }
+kernel/fx_strategy.rs:45:69 [exhaust_technology] lit  false => true
+kernel/fx_strategy.rs:46:5 [exhaust_technology] logic  p.tech.owned.contains(tech) && p.tech.exhausted.insert(tech) => p.tech.owned.contains(tech) || p.tech.exhausted.insert(tech)
+kernel/fx_strategy.rs:60:22 [unit_swaps] cond  d.faction.is_none() && matches!(d.required_technology, crate::generated::Require... => !(d.faction.is_none() && matches!(d.required_technology, cra
+kernel/fx_strategy.rs:60:22 [unit_swaps] logic  d.faction.is_none() && matches!(d.required_technology, crate::g... => d.faction.is_none() || matches!(d.required_technology, crate
+kernel/fx_strategy.rs:85:39 [apply_unit_upgrades] cmp  *from == piece.kind() => *from != piece.kind()
+kernel/fx_strategy.rs:97:12 [apply_unit_upgrades] cond  core.board().planet(planet).units.as_slice().iter().any(|u| swapped(*u).is_some(... => !(core.board().planet(planet).units.as_slice().iter().any(|u
+kernel/fx_strategy.rs:126:60 [revolution_tax] lit  0 => 1
+kernel/fx_strategy.rs:127:27 [revolution_tax] cond  halves == 1 => !(halves == 1)
+kernel/fx_strategy.rs:127:27 [revolution_tax] cmp  halves == 1 => halves != 1
+kernel/fx_strategy.rs:127:37 [revolution_tax] lit  1 => 2
+kernel/fx_strategy.rs:127:41 [revolution_tax] lit  1 => 2
+kernel/fx_strategy.rs:127:53 [revolution_tax] arith  (halves + 1) / 2 => (halves + 1) * 2
+kernel/fx_strategy.rs:127:54 [revolution_tax] arith  halves + 1 => halves - 1
+kernel/fx_strategy.rs:127:63 [revolution_tax] lit  1 => 2
+kernel/fx_strategy.rs:127:68 [revolution_tax] lit  2 => 3
+kernel/fx_strategy.rs:127:77 [revolution_tax] lit  0 => 1
+kernel/fx_strategy.rs:127:80 [revolution_tax] lit  64 => 65
+kernel/fx_strategy.rs:128:51 [revolution_tax] cmp  cost < best => cost <= best
+kernel/fx_strategy.rs:140:59 [note_propagation] body  note_propagation(core: &mut CoreState, who: Seat) { => { return (); }
+kernel/fx_strategy.rs:144:14 [note_propagation] lit  0 => 1
+kernel/fx_strategy.rs:146:93 [note_propagation] lit  1 => 2
+kernel/hits.rs:38:8 [spend] cmp  spent > 0 => spent >= 0
+kernel/hits.rs:50:105 [open_window] body  open_window(sx: &mut Sx<'_>, kind: EventKind, payload: Payload, victim... => { return 0; }
+kernel/hits.rs:50:105 [open_window] body  open_window(sx: &mut Sx<'_>, kind: EventKind, payload: Payload, victim... => { return 1; }
+kernel/hits.rs:51:8 [open_window] cond  hits == 0 => !(hits == 0)
+kernel/hits.rs:51:8 [open_window] cmp  hits == 0 => hits != 0
+kernel/hits.rs:51:16 [open_window] lit  0 => 1
+kernel/hits.rs:52:16 [open_window] lit  0 => 1
+kernel/hits.rs:57:5 [open_window] arith  hits - spend(sx.state, victim, gained.min(hits)... => hits + spend(sx.state, victim, gained.min(hits)...
+kernel/hits.rs:62:39 [flush_staged] body  flush_staged(sx: &mut Sx<'_>) { => { return (); }
+kernel/hooks/mod.rs:306:40 [HookTable::registered] body  registered(&self) -> usize { => { return 0; }
+kernel/hooks/mod.rs:307:9 [HookTable::registered] arith  self.general.registered() + self.combat.... + self.seam.registered() => self.general.registered() + self.combat.... - self.seam.regi
+kernel/hooks/mod.rs:307:9 [HookTable::registered] arith  self.general.registered() + self.combat.... + self.direct.registered() => self.general.registered() + self.combat.... - self.direct.re
+kernel/hooks/mod.rs:307:9 [HookTable::registered] arith  self.general.registered() + self.combat.... + self.strategy.registered() => self.general.registered() + self.combat.... - self.strategy.
+kernel/hooks/mod.rs:307:9 [HookTable::registered] arith  self.general.registered() + self.combat.... + self.cards.registered() => self.general.registered() + self.combat.... - self.cards.reg
+kernel/hooks/mod.rs:307:9 [HookTable::registered] arith  self.general.registered() + self.combat.... + self.movement.registered() => self.general.registered() + self.combat.... - self.movement.
+kernel/hooks/mod.rs:307:9 [HookTable::registered] arith  self.general.registered() + self.combat.... + self.economy.registered() => self.general.registered() + self.combat.... - self.economy.r
+kernel/hooks/mod.rs:307:9 [HookTable::registered] arith  self.general.registered() + self.combat.... + self.ground.registered() => self.general.registered() + self.combat.... - self.ground.re
+kernel/hooks/mod.rs:307:9 [HookTable::registered] arith  self.general.registered() + self.combat.registered() => self.general.registered() - self.combat.registered()
+kernel/hooks/movement.rs:81:92 [MovementHooks::wormhole_limits] body  wormhole_limits(&self, s: &CoreState, who: Seat) -> (Systems, Option<W... => { return Default::default(); }
+kernel/hooks/movement.rs:98:80 [MovementHooks::linked_pairs] body  linked_pairs(&self, s: &CoreState, k: &Kernel, who: Seat) -> Pairs { => { return Default::default(); }
+kernel/hooks/movement.rs:104:69 [MovementHooks::blocked_pairs] body  blocked_pairs(&self, s: &CoreState, who: Seat) -> Pairs { => { return Default::default(); }
+kernel/hooks/movement.rs:111:72 [MovementHooks::extra_wormhole_set] body  extra_wormhole_set(&self, s: &CoreState) -> ExtraWormholes { => { return Default::default(); }
+kernel/hooks/movement.rs:119:39 [normalised] body  normalised(pairs: Pairs) -> Pairs { => { return Default::default(); }
+kernel/hooks/movement.rs:122:26 [normalised] cmp  a != b => a == b
+kernel/hooks/movement.rs:123:27 [normalised] cond  a < b => !(a < b)
+kernel/hooks/movement.rs:123:27 [normalised] cmp  a < b => a <= b
+kernel/hooks/sites.rs:67:23 [ProducedHits::plus] arith  self.any_ship + other.any_ship => self.any_ship - other.any_ship
+kernel/hooks/sites.rs:68:32 [ProducedHits::plus] arith  self.producer_assigned + other.producer_assigned => self.producer_assigned - other.producer_assigned
+kernel/hooks/sites.rs:69:26 [ProducedHits::plus] arith  self.non_fighter + other.non_fighter => self.non_fighter - other.non_fighter
+kernel/mod.rs:107:21 [FirstOption::pick] lit  0 => 1
+kernel/reaction.rs:192:14 [structure_of] logic  u.owner() == who && (u.kind() == Unit::SpaceDockI || u.kind(... => u.owner() == who || (u.kind() == Unit::SpaceDockI || u.kind(
+kernel/reaction.rs:192:35 [structure_of] cmp  u.kind() == Unit::SpaceDockI => u.kind() != Unit::SpaceDockI
+kernel/reaction.rs:201:29 [Guard::holds] lit  true => false
+kernel/reaction.rs:204:70 [Guard::holds] cmp  p.seat(Key::Defender) == Some(who) => p.seat(Key::Defender) != Some(who)
+kernel/reaction.rs:208:41 [Guard::holds] logic  p.seat(Key::Player) == Some(who) || p.seat(Key::Partner) == Some(who) => p.seat(Key::Player) == Some(who) && p.seat(Key::Partner) == 
+kernel/reaction.rs:208:41 [Guard::holds] cmp  p.seat(Key::Player) == Some(who) => p.seat(Key::Player) != Some(who)
+kernel/reaction.rs:208:77 [Guard::holds] cmp  p.seat(Key::Partner) == Some(who) => p.seat(Key::Partner) != Some(who)
+kernel/reaction.rs:210:17 [Guard::holds] logic  actor_is(e, who) && s.players().by_seat(who).is_some_and(|pl... => actor_is(e, who) || s.players().by_seat(who).is_some_and(|pl
+kernel/reaction.rs:213:17 [Guard::holds] logic  actor_is_not(e, who) && s.meta() .active .and_then(|a| s.players... => actor_is_not(e, who) || s.meta() .active .and_then(|a| s.pla
+kernel/reaction.rs:219:41 [Guard::holds] logic  actor_is_not(e, who) && p.seat(Key::Controller) == Some(who) => actor_is_not(e, who) || p.seat(Key::Controller) == Some(who)
+kernel/reaction.rs:219:65 [Guard::holds] cmp  p.seat(Key::Controller) == Some(who) => p.seat(Key::Controller) != Some(who)
+kernel/reaction.rs:221:17 [Guard::holds] logic  actor_is_not(e, who) && p.seat(Key::Prod... && p.flag(Key::DirectHittable) != Some(fals... => actor_is_not(e, who) && p.seat(Key::Prod... || p.flag(Key::D
+kernel/reaction.rs:221:17 [Guard::holds] logic  actor_is_not(e, who) && p.seat(Key::Producer) == Some(who) => actor_is_not(e, who) || p.seat(Key::Producer) == Some(who)
+kernel/reaction.rs:222:24 [Guard::holds] cmp  p.seat(Key::Producer) == Some(who) => p.seat(Key::Producer) != Some(who)
+kernel/reaction.rs:224:24 [Guard::holds] cmp  p.flag(Key::DirectHittable) != Some(false) => p.flag(Key::DirectHittable) == Some(false)
+kernel/reaction.rs:224:60 [Guard::holds] lit  false => true
+kernel/reaction.rs:227:17 [Guard::holds] logic  actor_is_not(e, who) && p.system(Key::System) .is_some_and(|sys|... => actor_is_not(e, who) || p.system(Key::System) .is_some_and(|
+kernel/reaction.rs:235:17 [Guard::holds] logic  actor_is_not(e, who) && p.system(Key::System) .is_some_and(|sys|... => actor_is_not(e, who) || p.system(Key::System) .is_some_and(|
+kernel/reaction.rs:246:35 [Guard::holds] logic  actor_is(e, who) && p.flag(Key::Last) == Some(true) => actor_is(e, who) || p.flag(Key::Last) == Some(true)
+kernel/reaction.rs:246:55 [Guard::holds] cmp  p.flag(Key::Last) == Some(true) => p.flag(Key::Last) != Some(true)
+kernel/reaction.rs:246:81 [Guard::holds] lit  true => false
+kernel/reaction.rs:248:17 [Guard::holds] logic  actor_is(e, who) && p.flag(Key::DuringSpaceCombat) == Some(t... => actor_is(e, who) || p.flag(Key::DuringSpaceCombat) == Some(t
+kernel/reaction.rs:248:37 [Guard::holds] cmp  p.flag(Key::DuringSpaceCombat) == Some(true) => p.flag(Key::DuringSpaceCombat) != Some(true)
+kernel/reaction.rs:248:76 [Guard::holds] lit  true => false
+kernel/reaction.rs:252:125 [Guard::holds] lit  false => true
+kernel/reaction.rs:258:46 [Guard::holds] lit  true => false
+kernel/reaction.rs:263:43 [Guard::holds] logic  actor_is_not(e, who) && p.seat(Key::PreviousOwner) == Some(who) => actor_is_not(e, who) || p.seat(Key::PreviousOwner) == Some(w
+kernel/reaction.rs:263:67 [Guard::holds] cmp  p.seat(Key::PreviousOwner) == Some(who) => p.seat(Key::PreviousOwner) != Some(who)
+kernel/read.rs:25:31 [Rd::new] lit  false => true
+kernel/read.rs:69:48 [Rd::is_ship] body  is_ship(&self, unit: Unit) -> bool { => { return true; }
+kernel/read.rs:75:51 [Rd::is_fighter] body  is_fighter(&self, unit: Unit) -> bool { => { return true; }
+kernel/read.rs:75:51 [Rd::is_fighter] body  is_fighter(&self, unit: Unit) -> bool { => { return false; }
+kernel/read.rs:76:41 [Rd::is_fighter] cmp  d.base_type == UnitBaseType::Fighter => d.base_type != UnitBaseType::Fighter
+kernel/resolver.rs:207:37 [Registry::is_empty] body  is_empty(&self) -> bool { => { return true; }
+kernel/resolver.rs:207:37 [Registry::is_empty] body  is_empty(&self) -> bool { => { return false; }
+kernel/resolver.rs:219:12 [Registry::truncate_to] cmp  self.abilities.len() > mark.abilities => self.abilities.len() >= mark.abilities
+kernel/resolver.rs:270:64 [participates] body  participates(&mut self, _ability: &AbilityDef) -> bool { => { return true; }
+kernel/resolver.rs:276:63 [bars_faction_abilities] body  bars_faction_abilities(&mut self, _who: Seat) -> bool { => { return false; }
+kernel/resolver.rs:294:21 [decide] lit  0 => 1
+kernel/resolver.rs:304:87 [window_closed] body  window_closed(&mut self, _resolver: &mut Resolver) -> Result<(), Timin... => { return Ok(()); }
+kernel/resolver.rs:379:27 [Resolver::new] lit  1 => 2
+kernel/resolver.rs:380:26 [Resolver::new] lit  1 => 2
+kernel/resolver.rs:388:71 [Resolver::set_emission_stack] body  set_emission_stack(&mut self, stack: &[(EventKind, u64)]) { => { return (); }
+kernel/resolver.rs:403:66 [Resolver::set_seating_order] body  set_seating_order(&mut self, seating_order: &[Seat]) { => { return (); }
+kernel/resolver.rs:407:72 [Resolver::set_initiative_order] body  set_initiative_order(&mut self, initiative_order: &[Seat]) { => { return (); }
+kernel/resolver.rs:429:76 [Resolver::sync_lifecycle] body  sync_lifecycle(&mut self, round_number: u32, turn_number: u32) { => { return (); }
+kernel/resolver.rs:435:74 [Resolver::set_counters] body  set_counters(&mut self, round_number: u64, turn_number: u64) { => { return (); }
+kernel/resolver.rs:441:82 [Resolver::spend] body  spend(&mut self, ability: AbilityId, scope: UsedScope, counter: u64) { => { return (); }
+kernel/resolver.rs:461:57 [Resolver::begin_turn] lit  1 => 2
+kernel/resolver.rs:472:51 [Resolver::begin_round] lit  1 => 2
+kernel/resolver.rs:473:49 [Resolver::begin_round] lit  1 => 2
+kernel/resolver.rs:513:65 [Resolver::emission_chain] body  emission_chain(&self, event: &EventRec) -> Vec<u64> { => { return Vec::new(); }
+kernel/resolver.rs:553:25 [Resolver::checkpoint] cond  self.emission_stack.is_empty() => !(self.emission_stack.is_empty())
+kernel/resolver.rs:668:28 [Resolver::run_window] cond  announced.insert(player) => !(announced.insert(player))
+kernel/resolver.rs:714:22 [Resolver::eligible] cmp  ability.id.kind == AbilityKind::Ability => ability.id.kind != AbilityKind::Ability
+kernel/resolver.rs:749:31 [Resolver::pick] lit  false => true
+kernel/resolver.rs:775:31 [Resolver::player_order] cond  self.seating_order.is_empty() => !(self.seating_order.is_empty())
+kernel/resolver.rs:818:66 [Resolver::used_keys] body  used_keys(&self) -> Vec<(AbilityId, UsedScope, u64)> { => { return Vec::new(); }
+kernel/resolver.rs:844:36 [SeatBits::has] body  has(self, s: Seat) -> bool { => { return false; }
+kernel/resolver.rs:848:44 [SeatBits::insert] body  insert(&mut self, s: Seat) -> bool { => { return true; }
+kernel/resolver.rs:848:44 [SeatBits::insert] body  insert(&mut self, s: Seat) -> bool { => { return false; }
+kernel/resolver.rs:850:9 [SeatBits::insert] assign  self.0 |= s.bit() => self.0 &= s.bit()
+kernel/seam/adapters.rs:45:13 [add] lit  0 => 1
+kernel/seam/adapters.rs:48:42 [combat_only] body  combat_only(site: &RollSite) -> bool { => { return true; }
+kernel/seam/adapters.rs:63:12 [bridge_legacy] cond  !combat_only(site) => !(!combat_only(site))
+kernel/seam/adapters.rs:67:13 [bridge_legacy] arith  d.mahact_units_flagship_roll_bonus(q.s, ... + d.firmament_plots_assail_space(q.s, q.k,... => d.mahact_units_flagship_roll_bonus(q.s, ... - d.firmament_pl
+kernel/seam/adapters.rs:67:13 [bridge_legacy] arith  d.mahact_units_flagship_roll_bonus(q.s, ... + d.nekro_units_mech_roll_bonus(q.s, q.k, ... => d.mahact_units_flagship_roll_bonus(q.s, ... - d.nekro_units_
+kernel/seam/adapters.rs:80:107 [bridge_legacy] lit  0 => 1
+kernel/seam/adapters.rs:85:13 [bridge_legacy] arith  bastion + agent => bastion - agent
+kernel/seam/adapters.rs:90:12 [bridge_legacy] cond  to == acc => !(to == acc)
+kernel/seam/adapters.rs:90:12 [bridge_legacy] cmp  to == acc => to != acc
+kernel/seam/adapters.rs:95:13 [bridge_legacy] arith  e.extra_production(q.s, q.k, site.who, s... + site.planet.map_or(0, |p| e.extra_produc... => e.extra_production(q.s, q.k, site.who, s... - site.planet.ma
+kernel/seam/adapters.rs:95:86 [bridge_legacy] lit  0 => 1
+kernel/seam/adapters.rs:102:49 [bridge_legacy] cond  q.k.hooks.combat.grants_sustain(q.s, q.k, *u) => !(q.k.hooks.combat.grants_sustain(q.s, q.k, *u))
+kernel/seam/adapters.rs:103:45 [bridge_legacy] cond  q.k.hooks.combat.direct_hit_immune(q.s, q.k, *u) => !(q.k.hooks.combat.direct_hit_immune(q.s, q.k, *u))
+kernel/seam/adapters.rs:105:12 [bridge_legacy] cond  q.k.hooks.combat.space_cannon_barred(q.s, q.k, c.shooter, c.target, c.system) => !(q.k.hooks.combat.space_cannon_barred(q.s, q.k, c.shooter, 
+kernel/seam/adapters.rs:108:12 [bridge_legacy] cond  q.k.hooks.economy.cannot_produce(q.s, q.k, c.who, c.unit, c.producer) => !(q.k.hooks.economy.cannot_produce(q.s, q.k, c.who, c.unit, 
+kernel/seam/adapters.rs:114:22 [bridge_legacy] logic  c.ctx == SilenceCtx::Space && piece.is_some_and(|p| d.ralnel_silenced_... => c.ctx == SilenceCtx::Space || piece.is_some_and(|p| d.ralnel
+kernel/seam/adapters.rs:114:22 [bridge_legacy] cmp  c.ctx == SilenceCtx::Space => c.ctx != SilenceCtx::Space
+kernel/seam/adapters.rs:120:12 [bridge_legacy] cond  lost || ralnel || by_ctx => !(lost || ralnel || by_ctx)
+kernel/seam/adapters.rs:120:12 [bridge_legacy] logic  lost || ralnel || by_ctx => lost || ralnel && by_ctx
+kernel/seam/adapters.rs:120:12 [bridge_legacy] logic  lost || ralnel => lost && ralnel
+kernel/seam/adapters.rs:123:12 [bridge_legacy] cond  q.k.hooks.direct.keleres_units_commit_blocked(q.s, q.k, c.who, c.system, c.plane... => !(q.k.hooks.direct.keleres_units_commit_blocked(q.s, q.k, c.
+kernel/seam/data.rs:122:62 [ModifierRow::times] lit  0 => 1
+kernel/seam/data.rs:130:74 [ModifierRow::times] cmp  *n == s.meta().combat_round_seq => *n != s.meta().combat_round_seq
+kernel/seam/data.rs:135:21 [ModifierRow::times] logic  nebula && s.meta().active.is_some_and(|a| a != who... => nebula || s.meta().active.is_some_and(|a| a != who...
+kernel/seam/data.rs:135:63 [ModifierRow::times] cmp  a != who => a == who
+kernel/seam/data.rs:135:76 [ModifierRow::times] cmp  round > 0 => round >= 0
+kernel/seam/data.rs:135:84 [ModifierRow::times] lit  0 => 1
+kernel/seam/data.rs:145:18 [ModifierRow::amount] lit  0 => 1
+kernel/seam/data.rs:152:78 [cancel_on_sustain] body  cancel_on_sustain(q: Q<'_>, rows: &[&ModifierRow], who: Seat) -> i64 { => { return 0; }
+kernel/seam/data.rs:152:78 [cancel_on_sustain] body  cancel_on_sustain(q: Q<'_>, rows: &[&ModifierRow], who: Seat) -> i64 { => { return 1; }
+kernel/seam/data.rs:155:65 [cancel_on_sustain] lit  0 => 1
+kernel/seam/data.rs:161:76 [grants_sustain] body  grants_sustain(q: Q<'_>, rows: &[&ModifierRow], who: Seat) -> bool { => { return false; }
+kernel/seam/data.rs:162:25 [grants_sustain] logic  r.kind == RowKind::GrantsSustain && r.times(q, who, SeatSet::EMPTY, None, 0)... => r.kind == RowKind::GrantsSustain || r.times(q, who, SeatSet:
+kernel/seam/data.rs:162:25 [grants_sustain] cmp  r.kind == RowKind::GrantsSustain => r.kind != RowKind::GrantsSustain
+kernel/seam/data.rs:162:61 [grants_sustain] cmp  r.times(q, who, SeatSet::EMPTY, None, 0) > 0 => r.times(q, who, SeatSet::EMPTY, None, 0) >= 0
+kernel/seam/data.rs:162:99 [grants_sustain] lit  0 => 1
+kernel/seam/data.rs:162:104 [grants_sustain] lit  0 => 1
+kernel/seam/gather.rs:56:37 [Gather::is_empty] body  is_empty(&self) -> bool { => { return true; }
+kernel/seam/gather.rs:56:37 [Gather::is_empty] body  is_empty(&self) -> bool { => { return false; }
+kernel/seam/gather.rs:87:54 [Gather::permute_if_sorted] body  permute_if_sorted(&mut self, p: Permute) { => { return (); }
+kernel/seam/gather.rs:88:12 [Gather::permute_if_sorted] cond  self.order == Order::Sorted && self.items.iter().all(|c| c.pass == Pass::Add) => !(self.order == Order::Sorted && self.items.iter().all(|c| c
+kernel/seam/gather.rs:88:12 [Gather::permute_if_sorted] logic  self.order == Order::Sorted && self.items.iter().all(|c| c.pass == Pass... => self.order == Order::Sorted || self.items.iter().all(|c| c.p
+kernel/seam/gather.rs:88:12 [Gather::permute_if_sorted] cmp  self.order == Order::Sorted => self.order != Order::Sorted
+kernel/seam/gather.rs:88:69 [Gather::permute_if_sorted] cmp  c.pass == Pass::Add => c.pass != Pass::Add
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.offers.len() => self.hit_shift.len() + self.dice.len() +... - self.offers.le
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.observers.len() => self.hit_shift.len() + self.dice.len() +... - self.observers
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.rows.len() => self.hit_shift.len() + self.dice.len() +... - self.rows.len(
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.borrowed_stats.len() => self.hit_shift.len() + self.dice.len() +... - self.borrowed_
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.unit_exchange.len() => self.hit_shift.len() + self.dice.len() +... - self.unit_exch
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.deploy_planets.len() => self.hit_shift.len() + self.dice.len() +... - self.deploy_pl
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.production_destinations.len() => self.hit_shift.len() + self.dice.len() +... - self.productio
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.commit_blocked.len() => self.hit_shift.len() + self.dice.len() +... - self.commit_bl
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.cannot_produce.len() => self.hit_shift.len() + self.dice.len() +... - self.cannot_pr
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.cannon_barred.len() => self.hit_shift.len() + self.dice.len() +... - self.cannon_ba
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.silenced.len() => self.hit_shift.len() + self.dice.len() +... - self.silenced.
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.hit_immune.len() => self.hit_shift.len() + self.dice.len() +... - self.hit_immun
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.grants_sustain.len() => self.hit_shift.len() + self.dice.len() +... - self.grants_su
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.production_discount.len() => self.hit_shift.len() + self.dice.len() +... - self.productio
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() +... + self.extra_production.len() => self.hit_shift.len() + self.dice.len() +... - self.extra_pro
+kernel/seam/mod.rs:189:9 [Seams::registered] arith  self.hit_shift.len() + self.dice.len() + self.planet_spend.len() => self.hit_shift.len() + self.dice.len() - self.planet_spend.l
+kernel/seam/mod.rs:223:56 [Seams::permute_commutative] body  permute_commutative(&mut self, p: Permute) { => { return (); }
+kernel/seam/mod.rs:260:29 [Permute::apply] arith  seed | 1 => seed & 1
+kernel/seam/mod.rs:260:36 [Permute::apply] lit  1 => 2
+kernel/seam/mod.rs:261:27 [Permute::apply] lit  1 => 2
+kernel/seam/mod.rs:263:21 [Permute::apply] assign  x ^= x >> 12 => x |= x >> 12
+kernel/seam/mod.rs:263:26 [Permute::apply] arith  x >> 12 => x << 12
+kernel/seam/mod.rs:263:31 [Permute::apply] lit  12 => 13
+kernel/seam/mod.rs:264:21 [Permute::apply] assign  x ^= x << 25 => x |= x << 25
+kernel/seam/mod.rs:264:26 [Permute::apply] arith  x << 25 => x >> 25
+kernel/seam/mod.rs:264:31 [Permute::apply] lit  25 => 26
+kernel/seam/mod.rs:265:21 [Permute::apply] assign  x ^= x >> 27 => x |= x >> 27
+kernel/seam/mod.rs:265:26 [Permute::apply] arith  x >> 27 => x << 27
+kernel/seam/mod.rs:265:31 [Permute::apply] lit  27 => 28
+kernel/seam/mod.rs:266:44 [Permute::apply] lit  0x2545_F491_4F6C_DD1D => 2685821657736338718
+kernel/seam/observe.rs:91:33 [Observers::len] body  len(&self) -> usize { => { return 0; }
+kernel/seam/observe.rs:96:37 [Observers::is_empty] body  is_empty(&self) -> bool { => { return true; }
+kernel/seam/observe.rs:96:37 [Observers::is_empty] body  is_empty(&self) -> bool { => { return false; }
+kernel/seam/observe.rs:97:9 [Observers::is_empty] cmp  self.len() == 0 => self.len() != 0
+kernel/seam/observe.rs:97:23 [Observers::is_empty] lit  0 => 1
+kernel/seam/offer.rs:75:37 [Offers::is_empty] body  is_empty(&self) -> bool { => { return true; }
+kernel/seam/offer.rs:75:37 [Offers::is_empty] body  is_empty(&self) -> bool { => { return false; }
+kernel/seam/offer.rs:76:9 [Offers::is_empty] cmp  self.len() == 0 => self.len() != 0
+kernel/seam/offer.rs:76:23 [Offers::is_empty] lit  0 => 1
+kernel/seam/pred.rs:58:37 [Pred::is_empty] body  is_empty(&self) -> bool { => { return true; }
+kernel/seam/pred.rs:58:37 [Pred::is_empty] body  is_empty(&self) -> bool { => { return false; }
+kernel/seam/pred.rs:94:38 [Pred::why] cmp  (r.f)(q, site) == wanted => (r.f)(q, site) != wanted
+kernel/seam/pred.rs:98:44 [Pred::permute] body  permute(&mut self, p: Permute) { => { return (); }
+kernel/seam/replace.rs:52:33 [Replacements::len] body  len(&self) -> usize { => { return 0; }
+kernel/seam/replace.rs:57:37 [Replacements::is_empty] body  is_empty(&self) -> bool { => { return true; }
+kernel/seam/replace.rs:57:37 [Replacements::is_empty] body  is_empty(&self) -> bool { => { return false; }
+kernel/seam/sites.rs:28:64 [row_times] body  row_times(&self, _q: Q<'_>, _row: &ModifierRow) -> i64 { => { return 0; }
+kernel/seam/sites.rs:28:64 [row_times] body  row_times(&self, _q: Q<'_>, _row: &ModifierRow) -> i64 { => { return 1; }
+kernel/seam/sites.rs:29:9 [row_times] lit  0 => 1
+kernel/seam/sites.rs:52:35 [RollSite::is_fighter] body  is_fighter(&self) -> bool { => { return true; }
+kernel/seam/sites.rs:52:35 [RollSite::is_fighter] body  is_fighter(&self) -> bool { => { return false; }
+kernel/seam/sites.rs:53:9 [RollSite::is_fighter] cmp  self.unit.unit.data().base_type == UnitBaseType::Fighter => self.unit.unit.data().base_type != UnitBaseType::Fighter
+kernel/seam/stack.rs:127:29 [Entry::adds_only] lit  true => false
+kernel/seam/stack.rs:156:37 [Stack::is_empty] body  is_empty(&self) -> bool { => { return true; }
+kernel/seam/stack.rs:156:37 [Stack::is_empty] body  is_empty(&self) -> bool { => { return false; }
+kernel/seam/stack.rs:226:45 [Stack::eval] arith  to - value => to + value
+kernel/stage.rs:93:57 [Sx::observe] body  observe(&mut self, obs: &Obs, phase: Phase) { => { return (); }
+kernel/stage.rs:191:80 [Sx::has_registered_play] body  has_registered_play(&self, card: crate::generated::ActionCard) -> bool... => { return true; }
+kernel/stage.rs:191:80 [Sx::has_registered_play] body  has_registered_play(&self, card: crate::generated::ActionCard) -> bool... => { return false; }
+kernel/stage.rs:204:58 [Sx::after_play] body  after_play(&mut self) -> Result<(), TimingError> { => { return Ok(()); }
+kernel/trigger.rs:144:23 [Trigger::from_event] cond  matches!( kind, TriggerKind::ActionCardPlayed | TriggerKind::ActionCardDiscarded... => !(matches!( kind, TriggerKind::ActionCardPlayed | TriggerKin
+kernel/trigger.rs:160:25 [Trigger::from_event] cond  matches!(kind, TriggerKind::AgendaRevealed | TriggerKind::AgendaResolved) => !(matches!(kind, TriggerKind::AgendaRevealed | TriggerKind::

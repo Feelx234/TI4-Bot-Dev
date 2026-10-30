@@ -1,0 +1,240 @@
+# survivors of factions/cc_ground: 239 of 370 points (35% killed); paths relative to crates/<crate>/src
+cc_ground/borrowed/mod.rs:14:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/borrowed/query.rs:33:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/borrowed/query.rs:51:50 [unit_roll_modifier] lit  0 => 1
+cc_ground/borrowed/query.rs:71:12 [firmament_planets] cond  !cell.units.as_slice().iter().any(|u| u.owner() == who && scope.unit(u.kind()).i... => !(!cell.units.as_slice().iter().any(|u| u.owner() == who && 
+cc_ground/borrowed/query.rs:71:50 [firmament_planets] logic  u.owner() == who && scope.unit(u.kind()).is_some_and(|d| d.s... => u.owner() == who || scope.unit(u.kind()).is_some_and(|d| d.s
+cc_ground/borrowed/timing.rs:39:49 [sol_holds] body  sol_holds(s: &CoreState, who: Seat) -> bool { => { return true; }
+cc_ground/borrowed/timing.rs:39:49 [sol_holds] body  sol_holds(s: &CoreState, who: Seat) -> bool { => { return false; }
+cc_ground/borrowed/timing.rs:40:5 [sol_holds] logic  s.meta().rules_at_least(RULES_SOL) && s.players().by_seat(who).is_some_and(|p|... => s.meta().rules_at_least(RULES_SOL) || s.players().by_seat(wh
+cc_ground/borrowed/timing.rs:40:84 [sol_holds] cmp  p.faction == Faction::TheFederationOfSol => p.faction != Faction::TheFederationOfSol
+cc_ground/borrowed/timing.rs:43:52 [letnev_holds] body  letnev_holds(s: &CoreState, who: Seat) -> bool { => { return true; }
+cc_ground/borrowed/timing.rs:43:52 [letnev_holds] body  letnev_holds(s: &CoreState, who: Seat) -> bool { => { return false; }
+cc_ground/borrowed/timing.rs:44:5 [letnev_holds] logic  s.meta().rules_at_least(RULES_LETNEV) && s.players().by_seat(who).is_some_and(|p|... => s.meta().rules_at_least(RULES_LETNEV) || s.players().by_seat
+cc_ground/borrowed/timing.rs:44:87 [letnev_holds] cmp  p.faction == Faction::TheBaronyOfLetnev => p.faction != Faction::TheBaronyOfLetnev
+cc_ground/borrowed/timing.rs:59:62 [readied] body  readied(s: &CoreState, who: Seat, agent: Leader) -> bool { => { return true; }
+cc_ground/borrowed/timing.rs:59:62 [readied] body  readied(s: &CoreState, who: Seat, agent: Leader) -> bool { => { return false; }
+cc_ground/borrowed/timing.rs:60:46 [readied] cmp  p.leaders.status.get(&agent) == Some(&LeaderStatus::Readied) => p.leaders.status.get(&agent) != Some(&LeaderStatus::Readied)
+cc_ground/borrowed/timing.rs:75:98 [plan] body  plan(s: &CoreState, k: &Kernel, event: &EventRec, owner: Seat, ground:... => { return None; }
+cc_ground/borrowed/timing.rs:77:8 [plan] cond  !(if ground { sol_holds(s, owner) } else { letnev_holds(s, owner) }) || !readied... => !(!(if ground { sol_holds(s, owner) } else { letnev_holds(s,
+cc_ground/borrowed/timing.rs:77:8 [plan] logic  !(if ground { sol_holds(s, owner) } else... || !readied(s, owner, agent) => !(if ground { sol_holds(s, owner) } else... && !readied(s, o
+cc_ground/borrowed/timing.rs:77:13 [plan] cond  ground => !(ground)
+cc_ground/borrowed/timing.rs:83:8 [plan] cond  round_seq != s.meta().combat_round_seq => !(round_seq != s.meta().combat_round_seq)
+cc_ground/borrowed/timing.rs:83:8 [plan] cmp  round_seq != s.meta().combat_round_seq => round_seq == s.meta().combat_round_seq
+cc_ground/borrowed/timing.rs:87:8 [plan] cond  attacker == defender || s.players().by_seat(attacker).is_none() || s.players().b... => !(attacker == defender || s.players().by_seat(attacker).is_n
+cc_ground/borrowed/timing.rs:87:8 [plan] logic  attacker == defender || s.players().by_s... || s.players().by_seat(defender).is_none() => attacker == defender || s.players().by_s... && s.players().b
+cc_ground/borrowed/timing.rs:87:8 [plan] logic  attacker == defender || s.players().by_seat(attacker).is_none() => attacker == defender && s.players().by_seat(attacker).is_non
+cc_ground/borrowed/timing.rs:87:8 [plan] cmp  attacker == defender => attacker != defender
+cc_ground/borrowed/timing.rs:90:28 [plan] cond  ground => !(ground)
+cc_ground/borrowed/timing.rs:92:12 [plan] cond  s.board().planet(planet).units.is_empty() => !(s.board().planet(planet).units.is_empty())
+cc_ground/borrowed/timing.rs:102:12 [plan] cond  ground => !(ground)
+cc_ground/borrowed/timing.rs:109:33 [plan] cmp  u.owner() == seat => u.owner() != seat
+cc_ground/borrowed/timing.rs:120:53 [condition] body  condition(c: &CondCx<'_>, ground: bool) -> bool { => { return true; }
+cc_ground/borrowed/timing.rs:120:53 [condition] body  condition(c: &CondCx<'_>, ground: bool) -> bool { => { return false; }
+cc_ground/borrowed/timing.rs:121:8 [condition] cond  plan(c.state, c.kernel, c.event, c.def.owner, ground).is_none() => !(plan(c.state, c.kernel, c.event, c.def.owner, ground).is_n
+cc_ground/borrowed/timing.rs:122:16 [condition] lit  false => true
+cc_ground/borrowed/timing.rs:125:8 [condition] cond  c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.state) => !(c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.sta
+cc_ground/borrowed/timing.rs:128:5 [condition] lit  true => false
+cc_ground/borrowed/timing.rs:158:23 [question] lit  false => true
+cc_ground/borrowed/timing.rs:161:27 [question] lit  false => true
+cc_ground/borrowed/timing.rs:168:76 [effect] body  effect(eff: &mut Eff<'_, '_>, ground: bool) -> Result<(), TimingError>... => { return Ok(()); }
+cc_ground/borrowed/timing.rs:180:8 [effect] cond  !plan.candidates.contains(&chosen) => !(!plan.candidates.contains(&chosen))
+cc_ground/borrowed/timing.rs:204:119 [register_abilities] lit  true => false
+cc_ground/borrowed/timing.rs:207:36 [register_abilities] lit  true => false
+cc_ground/borrowed/timing.rs:210:116 [register_abilities] lit  false => true
+cc_ground/borrowed/timing.rs:213:36 [register_abilities] lit  false => true
+cc_ground/firmament/movement.rs:12:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/firmament/movement.rs:31:54 [move_bonus] body  move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 0; }
+cc_ground/firmament/movement.rs:31:54 [move_bonus] body  move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 1; }
+cc_ground/firmament/movement.rs:32:8 [move_bonus] cond  !flagship_has_text(s, site.player, site.ship, Unit::HeavensEye) => !(!flagship_has_text(s, site.player, site.ship, Unit::Heaven
+cc_ground/firmament/movement.rs:33:16 [move_bonus] lit  0 => 1
+cc_ground/firmament/movement.rs:35:61 [move_bonus] lit  0 => 1
+cc_ground/firmament/movement.rs:37:16 [move_bonus] logic  s.board().sys(active).units.as_slice().i... || board::planets_of(s, active) .any(|plane... => s.board().sys(active).units.as_slice().i... && board::planet
+cc_ground/firmament/movement.rs:44:52 [unladen_pass] body  unladen_pass(s: &CoreState, who: Seat) -> bool { => { return true; }
+cc_ground/firmament/movement.rs:44:52 [unladen_pass] body  unladen_pass(s: &CoreState, who: Seat) -> bool { => { return false; }
+cc_ground/firmament/offer.rs:27:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/firmament/offer.rs:32:47 [plot_card] body  plot_card(index: u16) -> Option<PlotCard> { => { return None; }
+cc_ground/firmament/offer.rs:45:78 [place_card] body  place_card(cx: &mut Cx<'_>, owner: Seat, card: u16, token: Seat) -> bo... => { return true; }
+cc_ground/firmament/offer.rs:45:78 [place_card] body  place_card(cx: &mut Cx<'_>, owner: Seat, card: u16, token: Seat) -> bo... => { return false; }
+cc_ground/firmament/offer.rs:46:52 [place_card] lit  false => true
+cc_ground/firmament/offer.rs:47:8 [place_card] cond  !remaining(cx.state)[card as usize] => !(!remaining(cx.state)[card as usize])
+cc_ground/firmament/offer.rs:48:16 [place_card] lit  false => true
+cc_ground/firmament/offer.rs:53:75 [place_card] lit  false => true
+cc_ground/firmament/offer.rs:55:5 [place_card] lit  true => false
+cc_ground/firmament/query.rs:36:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/firmament/query.rs:79:18 [assail_shift] lit  0 => 1
+cc_ground/firmament/query.rs:81:14 [assail_shift] lit  0 => 1
+cc_ground/firmament/query.rs:83:8 [assail_shift] cond  n == 0 => !(n == 0)
+cc_ground/firmament/query.rs:83:8 [assail_shift] cmp  n == 0 => n != 0
+cc_ground/firmament/query.rs:83:13 [assail_shift] lit  0 => 1
+cc_ground/firmament/query.rs:120:56 [moved_of] body  moved_of(s: &CoreState, kind: Unit) -> Option<u32> { => { return None; }
+cc_ground/firmament/query.rs:123:8 [moved_of] cond  num(seq) != Some(s.meta().activation_seq) => !(num(seq) != Some(s.meta().activation_seq))
+cc_ground/firmament/query.rs:123:8 [moved_of] cmp  num(seq) != Some(s.meta().activation_seq) => num(seq) == Some(s.meta().activation_seq)
+cc_ground/firmament/query.rs:129:16 [moved_of] cmp  *u == kind => *u != kind
+cc_ground/firmament/query.rs:138:92 [space_cannon_silenced] body  space_cannon_silenced(s: &CoreState, k: &Kernel, active: Seat, system:... => { return true; }
+cc_ground/firmament/query.rs:138:92 [space_cannon_silenced] body  space_cannon_silenced(s: &CoreState, k: &Kernel, active: Seat, system:... => { return false; }
+cc_ground/firmament/query.rs:139:8 [space_cannon_silenced] cond  !stamped_for(s, MarkKey::FirmamentAgent(), active) => !(!stamped_for(s, MarkKey::FirmamentAgent(), active))
+cc_ground/firmament/query.rs:140:16 [space_cannon_silenced] lit  false => true
+cc_ground/firmament/query.rs:145:12 [space_cannon_silenced] cond  u.owner() == active && scope.unit(u.kind()).is_some_and(|d| d.ship) => !(u.owner() == active && scope.unit(u.kind()).is_some_and(|d
+cc_ground/firmament/query.rs:145:12 [space_cannon_silenced] logic  u.owner() == active && scope.unit(u.kind()).is_some_and(|d| d.s... => u.owner() == active || scope.unit(u.kind()).is_some_and(|d| 
+cc_ground/firmament/query.rs:145:12 [space_cannon_silenced] cmp  u.owner() == active => u.owner() != active
+cc_ground/firmament/query.rs:146:52 [space_cannon_silenced] cmp  *kind == u.kind() => *kind != u.kind()
+cc_ground/firmament/query.rs:147:33 [space_cannon_silenced] assign  *n += 1 => *n -= 1
+cc_ground/firmament/query.rs:147:39 [space_cannon_silenced] lit  1 => 2
+cc_ground/firmament/query.rs:148:46 [space_cannon_silenced] lit  1 => 2
+cc_ground/firmament/query.rs:152:76 [space_cannon_silenced] cmp  moved >= *count => moved > *count
+cc_ground/firmament/query.rs:156:68 [has_viper_on] body  has_viper_on(s: &CoreState, who: Seat, planet: Planet) -> bool { => { return true; }
+cc_ground/firmament/query.rs:157:51 [has_viper_on] logic  u.owner() == who && u.kind() == Unit::ViperEX23 => u.owner() == who || u.kind() == Unit::ViperEX23
+cc_ground/firmament/query.rs:163:5 [viper_open] logic  has_viper_on(s, invader, planet) && !board::is_coexisting(s, system, planet,... => has_viper_on(s, invader, planet) || !board::is_coexisting(s,
+cc_ground/firmament/query.rs:177:23 [remaining] lit  0usize => 1usize
+cc_ground/firmament/query.rs:180:24 [remaining] lit  1 => 2
+cc_ground/firmament/query.rs:186:8 [remaining] cmp  in_play >= 5 => in_play > 5
+cc_ground/firmament/query.rs:186:19 [remaining] lit  5 => 6
+cc_ground/firmament/query.rs:187:17 [remaining] lit  false => true
+cc_ground/ghost/movement.rs:14:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/ghost/movement.rs:21:54 [extra_wormholes] body  extra_wormholes(s: &CoreState) -> ExtraWormholes { => { return Default::default(); }
+cc_ground/ghost/movement.rs:24:12 [extra_wormholes] cond  cell.units.as_slice().iter().any(|p| flagship_has_text(s, p.owner(), p.kind(), U... => !(cell.units.as_slice().iter().any(|p| flagship_has_text(s, 
+cc_ground/ghost/movement.rs:32:49 [agent_link] body  agent_link(s: &CoreState) -> Option<System> { => { return None; }
+cc_ground/ghost/movement.rs:36:6 [agent_link] logic  num(seq) == Some(s.meta().activation_seq... && s.meta().active_system == Some(sys) => num(seq) == Some(s.meta().activation_seq... || s.meta().acti
+cc_ground/ghost/movement.rs:36:6 [agent_link] cmp  num(seq) == Some(s.meta().activation_seq) => num(seq) != Some(s.meta().activation_seq)
+cc_ground/ghost/movement.rs:36:51 [agent_link] cmp  s.meta().active_system == Some(sys) => s.meta().active_system != Some(sys)
+cc_ground/ghost/movement.rs:39:67 [linked_systems] body  linked_systems(s: &CoreState, _: &Kernel, who: Seat) -> Pairs { => { return Default::default(); }
+cc_ground/ghost/movement.rs:42:8 [linked_systems] cond  is_faction(s, who, Faction::TheGhostsOfCreuss) => !(is_faction(s, who, Faction::TheGhostsOfCreuss))
+cc_ground/ghost/movement.rs:47:27 [linked_systems] cmp  galaxy.wormhole_kinds_unsuppressed(*sys)... != 0 => galaxy.wormhole_kinds_unsuppressed(*sys)... == 0
+cc_ground/ghost/movement.rs:47:27 [linked_systems] arith  galaxy.wormhole_kinds_unsuppressed(*sys) & WH_ALPHA_BETA => galaxy.wormhole_kinds_unsuppressed(*sys) | WH_ALPHA_BETA
+cc_ground/ghost/movement.rs:47:87 [linked_systems] lit  0 => 1
+cc_ground/ghost/movement.rs:50:31 [linked_systems] arith  i + 1 => i - 1
+cc_ground/ghost/movement.rs:50:35 [linked_systems] lit  1 => 2
+cc_ground/ghost/movement.rs:58:16 [linked_systems] cond  other != linked => !(other != linked)
+cc_ground/ghost/movement.rs:58:16 [linked_systems] cmp  other != linked => other == linked
+cc_ground/ghost/movement.rs:68:59 [has_alpha_or_beta] body  has_alpha_or_beta(s: &CoreState, sys: System) -> bool { => { return true; }
+cc_ground/ghost/movement.rs:68:59 [has_alpha_or_beta] body  has_alpha_or_beta(s: &CoreState, sys: System) -> bool { => { return false; }
+cc_ground/ghost/movement.rs:71:12 [has_alpha_or_beta] cond  *at == sys => !(*at == sys)
+cc_ground/ghost/movement.rs:71:12 [has_alpha_or_beta] cmp  *at == sys => *at != sys
+cc_ground/ghost/movement.rs:72:13 [has_alpha_or_beta] assign  kinds |= wormhole_bit(*kind) => kinds &= wormhole_bit(*kind)
+cc_ground/ghost/movement.rs:76:12 [has_alpha_or_beta] cmp  at == sys => at != sys
+cc_ground/ghost/movement.rs:78:9 [has_alpha_or_beta] assign  kinds |= wormhole_bit(face) => kinds &= wormhole_bit(face)
+cc_ground/ghost/movement.rs:80:8 [has_alpha_or_beta] cond  s.meta().flags.has(ti4_engine_core::state::MetaFlags::NEXUS_UNLOCKED) && sys == ... => !(s.meta().flags.has(ti4_engine_core::state::MetaFlags::NEXU
+cc_ground/ghost/movement.rs:80:8 [has_alpha_or_beta] logic  s.meta().flags.has(ti4_engine_core::stat... && sys == System::MalliceLockedNexus => s.meta().flags.has(ti4_engine_core::stat... || sys == System
+cc_ground/ghost/movement.rs:80:81 [has_alpha_or_beta] cmp  sys == System::MalliceLockedNexus => sys != System::MalliceLockedNexus
+cc_ground/ghost/movement.rs:81:9 [has_alpha_or_beta] assign  kinds |= WH_ALPHA_BETA => kinds &= WH_ALPHA_BETA
+cc_ground/ghost/movement.rs:84:5 [has_alpha_or_beta] cmp  kinds & WH_ALPHA_BETA != 0 => kinds & WH_ALPHA_BETA == 0
+cc_ground/ghost/movement.rs:84:5 [has_alpha_or_beta] arith  kinds & WH_ALPHA_BETA => kinds | WH_ALPHA_BETA
+cc_ground/ghost/movement.rs:84:30 [has_alpha_or_beta] lit  0 => 1
+cc_ground/ghost/movement.rs:88:54 [move_bonus] body  move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 0; }
+cc_ground/ghost/movement.rs:88:54 [move_bonus] body  move_bonus(s: &CoreState, site: MoveSite) -> i32 { => { return 1; }
+cc_ground/ghost/movement.rs:89:56 [move_bonus] lit  0 => 1
+cc_ground/ghost/movement.rs:91:9 [move_bonus] logic  p.faction == Faction::TheGhostsOfCreuss && (p.home_system == Some(site.origin) || h... => p.faction == Faction::TheGhostsOfCreuss || (p.home_system ==
+cc_ground/ghost/movement.rs:91:9 [move_bonus] cmp  p.faction == Faction::TheGhostsOfCreuss => p.faction != Faction::TheGhostsOfCreuss
+cc_ground/ghost/movement.rs:92:17 [move_bonus] logic  p.home_system == Some(site.origin) || has_alpha_or_beta(s, site.origin) => p.home_system == Some(site.origin) && has_alpha_or_beta(s, s
+cc_ground/ghost/movement.rs:92:17 [move_bonus] cmp  p.home_system == Some(site.origin) => p.home_system != Some(site.origin)
+cc_ground/ghost/query.rs:21:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/ghost/query.rs:31:68 [wormhole_count] cmp  at == system => at != system
+cc_ground/ghost/query.rs:32:27 [wormhole_count] logic  s.meta().flags.has(MetaFlags::NEXUS_UNLO... && system == System::MalliceLockedNexus => s.meta().flags.has(MetaFlags::NEXUS_UNLO... || system == Sys
+cc_ground/ghost/query.rs:32:76 [wormhole_count] cmp  system == System::MalliceLockedNexus => system != System::MalliceLockedNexus
+cc_ground/ghost/query.rs:32:116 [wormhole_count] lit  2 => 3
+cc_ground/ghost/query.rs:36:5 [wormhole_count] arith  printed + tokens + storm + nexus + hil_colish => printed + tokens + storm + nexus - hil_colish
+cc_ground/ghost/query.rs:36:5 [wormhole_count] arith  printed + tokens + storm + nexus => printed + tokens + storm - nexus
+cc_ground/ghost/query.rs:36:5 [wormhole_count] arith  printed + tokens + storm => printed + tokens - storm
+cc_ground/ghost/query.rs:42:62 [extra_production] logic  p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.s... => p.owner() == who || scope.unit(p.kind()).is_some_and(|d| d.s
+cc_ground/mahact/mod.rs:13:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/mahact/query.rs:38:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/mahact/query.rs:51:53 [is_mahact] body  is_mahact(s: &CoreState, who: Seat) -> bool { => { return true; }
+cc_ground/mahact/query.rs:56:51 [purges_alliance] body  purges_alliance(faction: Faction) -> bool { => { return true; }
+cc_ground/mahact/query.rs:56:51 [purges_alliance] body  purges_alliance(faction: Faction) -> bool { => { return false; }
+cc_ground/mahact/query.rs:57:5 [purges_alliance] cmp  faction == Faction::TheMahactGeneSorcerers => faction != Faction::TheMahactGeneSorcerers
+cc_ground/mahact/query.rs:90:8 [arvicon_rex] cond  site.kind != RollKind::Combat || u.ctx != CombatCtx::Space => !(site.kind != RollKind::Combat || u.ctx != CombatCtx::Space
+cc_ground/mahact/query.rs:90:8 [arvicon_rex] logic  site.kind != RollKind::Combat || u.ctx != CombatCtx::Space => site.kind != RollKind::Combat && u.ctx != CombatCtx::Space
+cc_ground/mahact/query.rs:90:8 [arvicon_rex] cmp  site.kind != RollKind::Combat => site.kind == RollKind::Combat
+cc_ground/mahact/query.rs:90:41 [arvicon_rex] cmp  u.ctx != CombatCtx::Space => u.ctx == CombatCtx::Space
+cc_ground/mahact/query.rs:105:61 [flagship_roll_bonus] lit  0 => 1
+cc_ground/mahact/query.rs:116:53 [ship_movement_barred] body  ship_movement_barred(s: &CoreState) -> bool { => { return false; }
+cc_ground/mahact/query.rs:130:8 [secondary_waivers] logic  follower == primary || !is_mahact(s, follower) => follower == primary && !is_mahact(s, follower)
+cc_ground/mahact/timing.rs:32:39 [condition] body  condition(c: &CondCx<'_>) -> bool { => { return true; }
+cc_ground/mahact/timing.rs:32:39 [condition] body  condition(c: &CondCx<'_>) -> bool { => { return false; }
+cc_ground/mahact/timing.rs:33:56 [condition] lit  0 => 1
+cc_ground/mahact/timing.rs:34:5 [condition] logic  c.event.payload.seat(Key::Player) == Som... && c.event.payload.unit(Key::Unit) == Some(... => c.event.payload.seat(Key::Player) == Som... || c.event.paylo
+cc_ground/mahact/timing.rs:34:5 [condition] cmp  c.event.payload.seat(Key::Player) == Some(c.def.owner) => c.event.payload.seat(Key::Player) != Some(c.def.owner)
+cc_ground/mahact/timing.rs:34:63 [condition] cmp  c.event.payload.unit(Key::Unit) == Some(unit_of(slot)) => c.event.payload.unit(Key::Unit) != Some(unit_of(slot))
+cc_ground/mahact/timing.rs:37:76 [watchers_of_commodities] body  watchers_of_commodities(s: &ti4_engine_core::state::CoreState) -> bool... => { return true; }
+cc_ground/mahact/timing.rs:37:76 [watchers_of_commodities] body  watchers_of_commodities(s: &ti4_engine_core::state::CoreState) -> bool... => { return false; }
+cc_ground/mahact/timing.rs:41:67 [legionnaire] body  legionnaire(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+cc_ground/mahact/timing.rs:43:58 [legionnaire] lit  0 => 1
+cc_ground/mahact/timing.rs:44:18 [legionnaire] cmp  slot.0 == LEGIONNAIRE_II.0 => slot.0 != LEGIONNAIRE_II.0
+cc_ground/mahact/timing.rs:45:8 [legionnaire] cond  watchers_of_commodities(eff.state()) => !(watchers_of_commodities(eff.state()))
+cc_ground/mahact/timing.rs:54:36 [legionnaire] cmp  held < limit => held <= limit
+cc_ground/mahact/timing.rs:54:50 [legionnaire] cmp  held > 0 => held >= 0
+cc_ground/mahact/timing.rs:54:57 [legionnaire] lit  0 => 1
+cc_ground/mahact/timing.rs:55:22 [legionnaire] cond  can_gain && can_convert => !(can_gain && can_convert)
+cc_ground/mahact/timing.rs:55:22 [legionnaire] logic  can_gain && can_convert => can_gain || can_convert
+cc_ground/mahact/timing.rs:56:25 [legionnaire] cond  second => !(second)
+cc_ground/mahact/timing.rs:63:27 [legionnaire] lit  false => true
+cc_ground/mahact/timing.rs:66:31 [legionnaire] lit  false => true
+cc_ground/mahact/timing.rs:75:8 [legionnaire] cond  convert => !(convert)
+cc_ground/mahact/timing.rs:77:13 [legionnaire] assign  p.econ.commodities -= 1 => p.econ.commodities += 1
+cc_ground/mahact/timing.rs:77:35 [legionnaire] lit  1 => 2
+cc_ground/mahact/timing.rs:79:25 [legionnaire] cond  second => !(second)
+cc_ground/mahact/timing.rs:80:54 [legionnaire] lit  1 => 2
+cc_ground/mahact/timing.rs:82:9 [legionnaire] assign  p.econ.commodities += 1 => p.econ.commodities -= 1
+cc_ground/mahact/timing.rs:82:31 [legionnaire] lit  1 => 2
+cc_ground/mahact/timing.rs:84:8 [legionnaire] cond  second => !(second)
+cc_ground/mahact/timing.rs:85:19 [legionnaire] arith  match eff.state().marks().tail.get(&Mark... + 1 => match eff.state().marks().tail.get(&Mark... - 1
+cc_ground/mahact/timing.rs:87:18 [legionnaire] lit  0 => 1
+cc_ground/mahact/timing.rs:88:13 [legionnaire] lit  1 => 2
+cc_ground/mahact/timing.rs:94:50 [register_abilities] body  register_abilities(t: &mut AbilityTable) { => { return (); }
+cc_ground/mentak/movement.rs:10:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/mentak/movement.rs:16:79 [may_move_through_ships] body  may_move_through_ships(s: &CoreState, k: &Kernel, site: PassSite) -> b... => { return true; }
+cc_ground/mentak/movement.rs:16:79 [may_move_through_ships] body  may_move_through_ships(s: &CoreState, k: &Kernel, site: PassSite) -> b... => { return false; }
+cc_ground/mentak/movement.rs:17:8 [may_move_through_ships] cond  site.ship != Unit::Corsair => !(site.ship != Unit::Corsair)
+cc_ground/mentak/movement.rs:17:8 [may_move_through_ships] cmp  site.ship != Unit::Corsair => site.ship == Unit::Corsair
+cc_ground/mentak/movement.rs:18:16 [may_move_through_ships] lit  false => true
+cc_ground/mentak/movement.rs:22:9 [may_move_through_ships] logic  p.owner() != site.player && scope.unit(p.kind()).is_some_and(|d| d.s... => p.owner() != site.player || scope.unit(p.kind()).is_some_and
+cc_ground/mentak/movement.rs:22:9 [may_move_through_ships] cmp  p.owner() != site.player => p.owner() == site.player
+cc_ground/mentak/movement.rs:23:53 [may_move_through_ships] logic  d.ship && d.base_type != UnitBaseType::Fighter => d.ship || d.base_type != UnitBaseType::Fighter
+cc_ground/mentak/movement.rs:23:63 [may_move_through_ships] cmp  d.base_type != UnitBaseType::Fighter => d.base_type == UnitBaseType::Fighter
+cc_ground/mentak/query.rs:26:37 [register] body  register(t: &mut HookTable) { => { return (); }
+cc_ground/mentak/query.rs:43:88 [may_sustain] logic  u.kind() == Unit::MollTerminus && u.owner() != unit.owner => u.kind() == Unit::MollTerminus || u.owner() != unit.owner
+cc_ground/mentak/query.rs:43:88 [may_sustain] cmp  u.kind() == Unit::MollTerminus => u.kind() != Unit::MollTerminus
+cc_ground/mentak/query.rs:43:122 [may_sustain] cmp  u.owner() != unit.owner => u.owner() == unit.owner
+cc_ground/mentak/query.rs:44:18 [may_sustain] lit  false => true
+cc_ground/mentak/timing.rs:31:39 [condition] body  condition(c: &CondCx<'_>) -> bool { => { return true; }
+cc_ground/mentak/timing.rs:31:39 [condition] body  condition(c: &CondCx<'_>) -> bool { => { return false; }
+cc_ground/mentak/timing.rs:34:5 [condition] logic  tech::owns(c.state, me, Technology::Salv... && p.seat(Key::Winner).is_some() => tech::owns(c.state, me, Technology::Salv... || p.seat(Key::W
+cc_ground/mentak/timing.rs:34:5 [condition] logic  tech::owns(c.state, me, Technology::Salv... && (p.seat(Key::Attacker) == Some(me) || p.... => tech::owns(c.state, me, Technology::Salv... || (p.seat(Key::
+cc_ground/mentak/timing.rs:35:13 [condition] logic  p.seat(Key::Attacker) == Some(me) || p.seat(Key::Defender) == Some(me) => p.seat(Key::Attacker) == Some(me) && p.seat(Key::Defender) =
+cc_ground/mentak/timing.rs:35:13 [condition] cmp  p.seat(Key::Attacker) == Some(me) => p.seat(Key::Attacker) != Some(me)
+cc_ground/mentak/timing.rs:35:50 [condition] cmp  p.seat(Key::Defender) == Some(me) => p.seat(Key::Defender) != Some(me)
+cc_ground/mentak/timing.rs:39:60 [gain] body  gain(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+cc_ground/mentak/timing.rs:42:50 [gain] lit  1 => 2
+cc_ground/mentak/timing.rs:48:50 [took_part] body  took_part(c: &CondCx<'_>, who: Seat) -> bool { => { return true; }
+cc_ground/mentak/timing.rs:48:50 [took_part] body  took_part(c: &CondCx<'_>, who: Seat) -> bool { => { return false; }
+cc_ground/mentak/timing.rs:50:5 [took_part] logic  p.seat(Key::Attacker) == Some(who) || p.seat(Key::Defender) == Some(who) => p.seat(Key::Attacker) == Some(who) && p.seat(Key::Defender) 
+cc_ground/mentak/timing.rs:50:5 [took_part] cmp  p.seat(Key::Attacker) == Some(who) => p.seat(Key::Attacker) != Some(who)
+cc_ground/mentak/timing.rs:50:43 [took_part] cmp  p.seat(Key::Defender) == Some(who) => p.seat(Key::Defender) != Some(who)
+cc_ground/mentak/timing.rs:54:113 [recorded] body  recorded(s: &ti4_engine_core::state::CoreState, system: ti4_engine_cor... => { return None; }
+cc_ground/mentak/timing.rs:61:40 [start_when] body  start_when(c: &CondCx<'_>) -> bool { => { return true; }
+cc_ground/mentak/timing.rs:61:40 [start_when] body  start_when(c: &CondCx<'_>) -> bool { => { return false; }
+cc_ground/mentak/timing.rs:63:5 [start_when] logic  took_part(c, me) && c.event.payload.syst... && c.state.players().by_seat(me).is_some_an... => took_part(c, me) && c.event.payload.syst... || c.state.playe
+cc_ground/mentak/timing.rs:63:5 [start_when] logic  took_part(c, me) && c.event.payload.system(Key::System).is_s... => took_part(c, me) || c.event.payload.system(Key::System).is_s
+cc_ground/mentak/timing.rs:65:58 [start_when] cmp  p.leaders.status.get(&HERO) == Some(&ti4_engine_core::state::LeaderStat... => p.leaders.status.get(&HERO) != Some(&ti4_engine_core::state:
+cc_ground/mentak/timing.rs:68:61 [purge] body  purge(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+cc_ground/mentak/timing.rs:72:8 [purge] cond  p.leaders.status.contains_key(&HERO) => !(p.leaders.status.contains_key(&HERO))
+cc_ground/mentak/timing.rs:79:40 [ships_when] body  ships_when(c: &CondCx<'_>) -> bool { => { return true; }
+cc_ground/mentak/timing.rs:79:40 [ships_when] body  ships_when(c: &CondCx<'_>) -> bool { => { return false; }
+cc_ground/mentak/timing.rs:81:5 [ships_when] logic  p.seat(Key::Player).is_some_and(|loser| ... && p.system(Key::System).is_some_and(|syste... => p.seat(Key::Player).is_some_and(|loser| ... || p.system(Key:
+cc_ground/mentak/timing.rs:81:45 [ships_when] cmp  loser != c.def.owner => loser == c.def.owner
+cc_ground/mentak/timing.rs:81:113 [ships_when] cmp  recorded(c.state, system) == Some(c.def.owner) => recorded(c.state, system) != Some(c.def.owner)
+cc_ground/mentak/timing.rs:85:66 [place_ship] body  place_ship(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+cc_ground/mentak/timing.rs:92:8 [place_ship] cond  matches!(base, ti4_engine_core::generated::UnitBaseType::Cruiser | ti4_engine_co... => !(matches!(base, ti4_engine_core::generated::UnitBaseType::C
+cc_ground/mentak/timing.rs:97:8 [place_ship] cond  ti4_engine_core::query::fleet::remaining(eff.state(), scope, me, form, 0) > 0 => !(ti4_engine_core::query::fleet::remaining(eff.state(), scop
+cc_ground/mentak/timing.rs:97:8 [place_ship] cmp  ti4_engine_core::query::fleet::remaining... > 0 => ti4_engine_core::query::fleet::remaining... >= 0
+cc_ground/mentak/timing.rs:97:79 [place_ship] lit  0 => 1
+cc_ground/mentak/timing.rs:97:84 [place_ship] lit  0 => 1
+cc_ground/mentak/timing.rs:103:38 [end_when] body  end_when(c: &CondCx<'_>) -> bool { => { return true; }
+cc_ground/mentak/timing.rs:103:38 [end_when] body  end_when(c: &CondCx<'_>) -> bool { => { return false; }
+cc_ground/mentak/timing.rs:104:62 [end_when] cmp  recorded(c.state, system) == Some(c.def.owner) => recorded(c.state, system) != Some(c.def.owner)
+cc_ground/mentak/timing.rs:107:61 [close] body  close(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> { => { return Ok(()); }
+cc_ground/mentak/timing.rs:110:12 [close] cmp  recorded(eff.state(), system) == Some(me) => recorded(eff.state(), system) != Some(me)
+cc_ground/mentak/timing.rs:117:50 [register_abilities] body  register_abilities(t: &mut AbilityTable) { => { return (); }
+cc_ground/mod.rs:33:84 [register_abilities] body  register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTa... => { return (); }
+cc_ground/mod.rs:39:80 [register_first] body  register_first(t: &mut ti4_engine_core::kernel::ability::AbilityTable)... => { return (); }

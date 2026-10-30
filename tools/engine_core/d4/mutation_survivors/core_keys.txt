@@ -1,0 +1,20 @@
+# survivors of core/keys: 19 of 34 points (44% killed); paths relative to crates/<crate>/src
+keys/atom.rs:174:47 [Option::from_atom] body  from_atom(atom: Atom) -> Option<Self> { => { return None; }
+keys/decimal.rs:17:25 [digits] lit  0u8 => 1u8
+keys/decimal.rs:51:42 [DecimalTextOrd::cmp_followed] arith  b'0' + b[alen] => b'0' - b[alen]
+keys/decimal.rs:52:35 [DecimalTextOrd::cmp_followed] arith  b'0' + a[blen] => b'0' - a[blen]
+keys/decimal.rs:66:27 [DecimalTextOrd::cmp] lit  0 => 1
+keys/decimal.rs:66:38 [DecimalTextOrd::cmp] lit  0 => 1
+keys/mark.rs:190:62 [MarkKey::partial_cmp] body  partial_cmp(&self, other: &Self) -> Option<Ordering> { => { return None; }
+keys/mark.rs:207:16 [MarkKey::cmp] cond  i + 1 < n && atoms[i + 1] == Atom::Absent => !(i + 1 < n && atoms[i + 1] == Atom::Absent)
+keys/mark.rs:207:16 [MarkKey::cmp] logic  i + 1 < n && atoms[i + 1] == Atom::Absent => i + 1 < n || atoms[i + 1] == Atom::Absent
+keys/mark.rs:207:16 [MarkKey::cmp] cmp  i + 1 < n => i + 1 <= n
+keys/mark.rs:207:20 [MarkKey::cmp] lit  1 => 2
+keys/mark.rs:207:29 [MarkKey::cmp] cmp  atoms[i + 1] == Atom::Absent => atoms[i + 1] != Atom::Absent
+keys/mark.rs:207:35 [MarkKey::cmp] arith  i + 1 => i - 1
+keys/mark.rs:207:39 [MarkKey::cmp] lit  1 => 2
+keys/mark.rs:208:17 [MarkKey::cmp] lit  0 => 1
+keys/mark.rs:213:18 [MarkKey::cmp] lit  0 => 1
+keys/mark.rs:215:16 [MarkKey::cmp] cond  ordering != Ordering::Equal => !(ordering != Ordering::Equal)
+keys/mark.rs:215:16 [MarkKey::cmp] cmp  ordering != Ordering::Equal => ordering == Ordering::Equal
+keys/order.rs:27:73 [next_byte] body  next_byte(pairs: PrefixPairs, a: usize, b: usize) -> Option<u8> { => { return None; }
