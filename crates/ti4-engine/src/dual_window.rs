@@ -975,6 +975,19 @@ pub(crate) fn outside(gs: &GameState, script: &Recording) -> bool {
     outside_battle(gs, script) || gs.diplomacy.enabled
 }
 
+/// [`outside`] with the reason (the census text).
+pub(crate) fn outside_why(gs: &GameState, script: &Recording) -> Option<&'static str> {
+    if script.nested {
+        Some("nested activity (a card or an ability played inside the window)")
+    } else if gs.active_space_combat.is_some() || gs.active_invasion.is_some() {
+        Some("a question asked inside a battle or an invasion")
+    } else if gs.diplomacy.enabled {
+        Some("diplomacy on")
+    } else {
+        None
+    }
+}
+
 /// [`outside`] without the diplomacy clause (the structured negotiation window is the diplomacy feature itself).
 pub(crate) fn outside_battle(gs: &GameState, script: &Recording) -> bool {
     script.nested || gs.active_space_combat.is_some() || gs.active_invasion.is_some()

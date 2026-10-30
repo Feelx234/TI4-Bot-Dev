@@ -12,6 +12,7 @@ use ti4_model::id::{ActionCardId, PlayerId};
 use ti4_model::state::GameState;
 
 use crate::core_sync::{CoreView, Ctx, Sources};
+use crate::dual::Why;
 use crate::generated::IdStr;
 
 /// What the action-card reads need.
@@ -222,7 +223,7 @@ pub fn play_simple(state: &mut GameState, player: &PlayerId, effect: &str, sourc
         _ => return None,
     };
     let (mut cx, r) = crate::dual_window::tables(state)?;
-    let seat = r.seat(player.as_str())?;
+    let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let fp = crate::core_sync::Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Transient, Slice::Board, Slice::Agenda, Slice::Cards],
         &[Slice::Players, Slice::Transient, Slice::Board, Slice::Agenda, Slice::Cards],
@@ -277,7 +278,7 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
 fn tables_of(gs: &GameState, card: ActionCard) -> Option<(Ctx, crate::render::Render)> {
     if rules::effects::Fx::of(card) == Some(rules::effects::Fx::Jam) {
         // The rival is named by faction: two seats of one faction would clash, which the string cannot tell apart either.
-        let (cx, r) = crate::dual_window::tables(gs)?;
+        let (cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let factions: Vec<String> = r
             .seats
             .iter()
@@ -552,7 +553,7 @@ pub fn play_window(
     use ti4_engine_core::kernel::Kernel;
     let card = ActionCard::from_id(alias.as_str())?;
     let (mut cx, r) = tables_of(gs, card)?;
-    let seat = r.seat(player.as_str())?;
+    let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let mut env = env_of(gs, player, sources, &r);
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
@@ -580,7 +581,7 @@ pub fn play_window(
     let lent = lend_rolls(alias, before_rolls, "action_cards::play")?;
     let before = gs.clone();
     let hitting = hits_card(card);
-    let combat = if hitting { Some(crate::core_combat::window_env(gs, &cx, sources.clone())?) } else { None };
+    let combat = if hitting { Some(crate::core_combat::window_env(gs, &cx, sources.clone()).why("the combat environment could not be built from the position (a value the codecs refuse)")?) } else { None };
     let technology = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::technology);
     if technology && technology_unported(gs, sources, player) {
         crate::dual::note_bail("action_cards::play", "a technology gained at a table the research window does not carry");
@@ -668,7 +669,7 @@ pub fn play_window(
     if let Some(row) = &row {
         close_row(gs, player, row)?;
     }
-    crate::dual_window::apply_staged(gs, &r, &staged)?;
+    crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
     stage_placed_tokens(gs, &r, placed_tokens);
     let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
     let positions = match rng_after {
@@ -694,7 +695,7 @@ fn recorded_details(c: &ti4_engine_core::choice::Choice, script: &crate::dual_wi
 #[must_use]
 pub fn discard(state: &mut GameState, player: &PlayerId, index: usize) -> Option<Option<ActionCardId>> {
     let (mut cx, r) = crate::dual_window::tables(state)?;
-    let seat = r.seat(player.as_str())?;
+    let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let fp = crate::core_sync::Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players], &[Slice::Players]);
     let taken = crate::core_sync::with_core(state, &mut cx, Sources::default(), fp, |core, _| rules::discard_from_hand(core, seat, index)).ok()?;
     Some(taken.map(|card| ActionCardId::new(card.as_str())))
@@ -740,7 +741,7 @@ pub fn announce_window(
         return None;
     }
     let (mut cx, r) = tables_of(gs, card)?;
-    let seat = r.seat(player.as_str())?;
+    let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let mut env = env_of(gs, player, sources, &r);
     env.infantry = placed(gs, player, sources, "infantry")?;
     env.cruiser = placed(gs, player, sources, "cruiser")?;
@@ -774,7 +775,7 @@ pub fn announce_window(
     let lent = lend_rolls(alias, before_rolls, "action_cards::announce")?;
     let letnev = gs.player(player)?.faction.as_str() == "letnev";
     let before = gs.clone();
-    let window = crate::core_combat::window_env(gs, &cx, sources.clone())?;
+    let window = crate::core_combat::window_env(gs, &cx, sources.clone()).why("the combat environment could not be built from the position (a value the codecs refuse)")?;
     let technology = rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::technology);
     if technology && technology_unported(gs, sources, player) {
         crate::dual::note_bail("action_cards::announce", "a technology gained at a table the research window does not carry");
@@ -869,7 +870,7 @@ pub fn announce_window(
     if let Some(row) = &row {
         close_row(gs, player, row)?;
     }
-    crate::dual_window::apply_staged(gs, &r, &staged)?;
+    crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
     stage_placed_tokens(gs, &r, placed_tokens);
     let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
     let positions = match rng_after {

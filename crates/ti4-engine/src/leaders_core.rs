@@ -162,7 +162,6 @@ mod real {
         Some(swapped)
     }
 
-    use crate::dual_window::outside;
 
     /// Whether a commodity change at this table causes events the core does not hold: a Cabal (its replenish
     /// note), a siphoning Firmament plot, a Trade Agreement in play.
@@ -184,7 +183,8 @@ mod real {
     /// The core half of `leaders::xxcha_agent`. `None` when the position is outside what the core holds (see
     /// [`outside`]; a map on one side only).
     pub fn xxcha_agent(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
@@ -202,7 +202,7 @@ mod real {
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
@@ -212,7 +212,8 @@ mod real {
     pub fn xxcha_hero_te(gs: &mut GameState, player: &PlayerId, facts: &crate::leaders::HeroTeFacts, script: &Recording) -> Option<CoreWindow<bool>> {
         use ti4_engine_core::generated::{Planet, System, Unit};
         use ti4_engine_core::rules::leader_windows::XxchaHeroTe;
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let form = |f: &Option<(ti4_model::id::UnitTypeId, usize)>| -> Option<Option<(Unit, usize)>> {
@@ -241,13 +242,14 @@ mod real {
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
         crate::dual_window::apply_staged(gs, &r, &staged)?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
     /// The core half of `leaders::l1z1x_hero` (The Helmsman). `None` as for [`xxcha_agent`].
     pub fn l1z1x_hero(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
@@ -265,7 +267,7 @@ mod real {
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
@@ -275,7 +277,8 @@ mod real {
     /// position (the units are not in the form the owned upgrades demand: the string re-forms them after a swap
     /// and the core does not), and as [`xxcha_agent`] otherwise.
     pub fn jolnar_hero(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let mut formed = gs.clone();
@@ -300,17 +303,19 @@ mod real {
         })
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
     /// The core half of `leaders::hacan_agent`. `None` where a commodity change causes events the core does not
     /// hold: a siphoning Firmament plot, a Cabal at the table, a Trade Agreement in play.
     pub fn hacan_agent(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         if replenish_causes_events(gs) {
+            crate::dual::note_bail_here("a replenishment that causes events the core does not hold (Cabal, a siphoning plot, a Trade Agreement)");
             return None;
         }
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
@@ -325,7 +330,7 @@ mod real {
         })
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 

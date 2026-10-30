@@ -352,7 +352,8 @@ mod real {
         details: &dyn Fn(&ti4_engine_core::choice::Choice, &CoreState, &mut crate::choice::Choice),
         value: impl FnOnce(&W) -> Option<T>,
     ) -> Option<CoreWindow<T>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
@@ -365,8 +366,8 @@ mod real {
         })
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
-        Some(CoreWindow { run: Run::new(value(&driver.window)?).with_events_vec(events), questions: driven.rendered })
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+        Some(CoreWindow { run: Run::new(value(&driver.window).why("the window ended without a value")?).with_events_vec(events), questions: driven.rendered })
     }
 
     fn no_details(_: &ti4_engine_core::choice::Choice, _: &CoreState, _: &mut crate::choice::Choice) {}
@@ -462,9 +463,9 @@ mod real {
         options: &[String],
         script: &Recording,
     ) -> Option<CoreWindow<Option<String>>> {
-        let relic = typed::<Relic>(relic).why(crate::dual::reason::UNKNOWN_ID)?;
+        let relic = typed::<Relic>(relic).why("a source that is no relic (Research Team, an agenda: the string question alone)")?;
         let list: Option<Vec<Technology>> = options.iter().map(|t| typed::<Technology>(t)).collect();
-        let list = list?;
+        let list = list.why("a technology option the core tables do not know")?;
         drive_window(gs, RELIC_WINDOW, player, |s| GainTechnology::new(s, relic, &list), script, &no_details, |w| {
             Some(w.chosen.map(|t| t.as_str().to_owned()))
         })

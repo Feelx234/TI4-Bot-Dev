@@ -66,7 +66,7 @@ mod real {
 
     use super::At;
     use crate::dual::{CoreWindow, Run, note_bail};
-    use crate::dual_window::{Recording, drive, outside, tables};
+    use crate::dual_window::{Recording, drive, tables};
     use crate::core_sync::{Footprint, Sources, with_core};
     use crate::generated::IdStr;
     use crate::render::trade::{note_id, shape_of};
@@ -150,7 +150,8 @@ mod real {
     /// follow: diplomacy on or a nested emission, a free-form deal, a Pride of Kenara planet card, a faction two
     /// seats play, a question nobody answered, a position the codecs refuse.
     pub fn step(gs: &mut GameState, content: &ContentStore, galaxy: &Galaxy, at: &At, script: &Recording) -> Option<CoreWindow<Traded>> {
-        if outside(gs, script) || !content.is_embedded() {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (!content.is_embedded()).then_some("content other than the embedded store")) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let answer = script.questions.first().and_then(|q| q.answer.clone())?;
