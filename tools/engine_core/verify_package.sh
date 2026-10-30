@@ -32,8 +32,14 @@ base_ref="${BASE_REF:-engine-core-state-base}"; games="${GAMES:-20}"
 mkdir -p "$out"; : > "$out/summary.txt"
 fail=0
 note() { echo "$*" | tee -a "$out/summary.txt"; }
-check() { local name="$1"; shift; local t0=$SECONDS
-  if "$@" > "$out/$name.log" 2>&1; then note "ok   $name ($((SECONDS - t0)) s)"; else note "FAIL $name (see $out/$name.log)"; fail=1; fi; }
+# A step that runs longer than STEP_TIMEOUT seconds (default 3600; the position checks use POSITIONS_TIMEOUT, default
+# 2400) fails as "timeout": one step must not hold the heavy lane for hours (the lane is the caller's, for the whole gate).
+check() { local name="$1"; shift; local t0=$SECONDS cap="${STEP_TIMEOUT:-3600}"
+  [[ "$name" == dual-positions ]] && cap="${POSITIONS_TIMEOUT:-2400}"
+  timeout --foreground "$cap" "$@" > "$out/$name.log" 2>&1; local rc=$?
+  if [[ $rc == 0 ]]; then note "ok   $name ($((SECONDS - t0)) s)"
+  elif [[ $rc == 124 ]]; then note "FAIL $name (timeout after ${cap} s, see $out/$name.log)"; fail=1
+  else note "FAIL $name (see $out/$name.log)"; fail=1; fi; }
 cd "$repo"
 if [[ "$area" == none ]]; then on=""; off=""; dual=""; else
   on="TI4_AREAS=$area=core"; off="TI4_AREAS=$area=string"; dual="TI4_AREAS=$area=dual"; fi
@@ -117,8 +123,8 @@ if [[ -n "$dual" ]]; then
   if [[ "$area" == movement ]]; then
     check dual-templates "$target/gate/core_equivalence" templates --routes
     note "     $(tail -1 "$out/dual-templates.log")"
-    check dual-positions "$target/gate/core_equivalence" golden tools/engine_profile/profile-20.json 20 10
-    note "     $(tail -1 "$out/dual-positions.log")"
+    check dual-positions tools/engine_core/positions_sharded.sh "$target/gate/core_equivalence" tools/engine_profile/profile-20.json 20 "${POSITIONS_STRIDE:-40}" "$out/dual-positions-shards"
+    note "     $(grep '^shard' "$out/dual-positions.log" | tr '\n' ' ' | cut -c1-400)"
   fi
 fi
 
