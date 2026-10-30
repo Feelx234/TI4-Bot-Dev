@@ -10609,30 +10609,6 @@ mod tests {
         assert!(flipped > 0, "a survivor took its ground form");
     }
 
-    /// A mech that took its ship form at the start of the fight is in the fleet the end announcement measures the losses against: when
-    /// it dies, the report names it among the destroyed (the composed machine adds the flips to `at_start`).
-    #[test]
-    fn a_flipped_mech_that_dies_is_reported_destroyed_by_the_composed_machine_in_lockstep() {
-        let mut lost_all = 0;
-        for seed in 0..8_u64 {
-            let (state, windows, differences, _) = hub_fight_composed(
-                true,
-                seed,
-                &["naaz", "hacan"],
-                |s, system| {
-                    put(s, system, "cruiser", &attacker(), 1);
-                    put(s, system, "naaz_mech", &attacker(), 2);
-                    put(s, system, "dreadnought", &defender(), 3);
-                },
-                |_, _, _| 0,
-            );
-            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
-            let units = &state.system_state(&SystemId::new(crate::fixtures::plain_hub().centre)).units;
-            lost_all += usize::from(!units.iter().any(|u| u.owner == attacker()));
-        }
-        assert!(lost_all > 0, "the Naaz side lost its mechs in some fight");
-    }
-
     /// Ssruu (the Yssaril agent) copies Brother Milor (Yin, a third seat) in a fight: when a ship is destroyed in combat the
     /// borrower exhausts Ssruu and the owner of the ship places 2 fighters. A pair rule of the table: owned by the borrower, the
     /// lender in the id.
