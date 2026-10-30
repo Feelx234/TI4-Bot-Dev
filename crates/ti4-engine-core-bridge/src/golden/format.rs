@@ -383,7 +383,7 @@ pub fn blank_header(spec: Option<GameSpec>) -> Header {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn sample_spec() -> GameSpec {

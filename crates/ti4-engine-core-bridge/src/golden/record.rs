@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use ti4_selfplay::spec::GameSpec;
 
 use super::bless::save_games;
-use super::corpus::{self, Plan, hex_of};
+use super::corpus::{Plan, hex_of};
 use super::format::{GameFile, Header, Limits, Tier, blank_header, dec_of_full_line};
 use super::replay::{RecordReq, Recording, Replayer};
 use super::sets::{GameEntry, SetMeta};

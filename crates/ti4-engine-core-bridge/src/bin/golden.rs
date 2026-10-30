@@ -24,7 +24,7 @@ use ti4_engine_core_bridge::golden::bless::{self, BlessArgs, GitEnv};
 use ti4_engine_core_bridge::golden::corpus;
 use ti4_engine_core_bridge::golden::format::{GameFile, Limits, Tier};
 use ti4_engine_core_bridge::golden::record::{self, ImportInput, RecordJob, RecordOpts};
-use ti4_engine_core_bridge::golden::replay::{self, Divergence, EngineReplayer, Replayer};
+use ti4_engine_core_bridge::golden::replay::{self, EngineReplayer, Replayer};
 use ti4_engine_core_bridge::golden::sets::{self, SetMeta};
 use ti4_model::state::RULES_VERSION;
 
