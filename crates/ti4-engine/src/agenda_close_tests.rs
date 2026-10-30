@@ -592,3 +592,72 @@ fn the_plain_events_of_a_covert_close_with_a_prediction_are_counted_and_compared
         assert_eq!(report.plain.get(&format!("{LABEL} | {name}")), Some(&1), "{name}: {:?}", report.plain);
     }
 }
+
+// -- Future Sight (package W7) --------------------------------------------------------------------------------------
+
+/// A table whose seat `nomad` ("a" backed for, "b" backed against) is the Nomad.
+fn nomad_table(nomad: &str) -> GameState {
+    let content = ContentStore::embedded();
+    let factions = if nomad == "a" { [("a", "nomad"), ("b", "xxcha"), ("c", "arborec")] } else { [("a", "hacan"), ("b", "nomad"), ("c", "arborec")] };
+    let mut state = crate::fixtures::seated_game(&factions, DEFAULT);
+    crate::promissory::deal(&mut state, content, DEFAULT);
+    state.phase = Phase::Agenda;
+    state.player_mut(&p(nomad)).unwrap().trade_goods = 0;
+    // Artuno the Betrayer, readied, listens to every gain of trade goods (an unported ability of the Nomad agents): the close
+    // would bail on it. The agent is spent here; `bail_future_sight_with_artuno_readied_is_counted` pins the other case.
+    state.player_mut(&p(nomad)).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentartuno"), ti4_model::state::LeaderStatus::Exhausted);
+    state
+}
+
+/// W7 regression: Future Sight ("after an outcome you voted for or predicted is resolved: gain 1 trade good") was an unported
+/// ability that bailed the whole close (12 of 141 closes per 20 golden games, 39 of 161 with a Nomad at the table); the core
+/// table carries it and the window is compared.
+#[test]
+fn future_sight_pays_a_trade_good_for_a_voted_or_a_plainly_predicted_outcome_in_lockstep() {
+    let goods = |g: &Game<'_>, who: &str| g.state.player(&p(who)).unwrap().trade_goods;
+    // Voted for the outcome that won.
+    let (g, compared, bailed, diff) = lockstep(|| close(game(nomad_table("a"), &[]), law_vote("checks", Some("for"))));
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g, "a"), 1);
+    // Voted for the loser, no prediction: nothing.
+    let (g, compared, bailed, diff) = lockstep(|| close(game(nomad_table("a"), &[]), law_vote("checks", Some("against"))));
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g, "a"), 0);
+    // Backed the loser but predicted the winner plainly.
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let mut s = nomad_table("b");
+        predict(&mut s, "b", "for");
+        close(game(s, &[]), law_vote("checks", Some("for")))
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g, "b"), 1, "a plain prediction counts");
+    // A prediction made with a rider is text `outcome|card`, which never equals the outcome (the string's reading, kept): only the
+    // rider pays.
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let mut s = nomad_table("b");
+        predict(&mut s, "b", "for|trade_rider");
+        close(game(s, &[]), law_vote("checks", Some("for")))
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g, "b"), 5, "the rider's five goods and no Future Sight");
+    // Another faction's vote earns nothing.
+    let (g, compared, bailed, diff) = lockstep(|| close(game(nomad_table("b"), &[]), law_vote("checks", Some("for"))));
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g, "a"), 0);
+    assert_eq!(goods(&g, "b"), 0, "the Nomad backed the loser");
+}
+
+/// Bail: a Nomad whose agent Artuno is readied would be asked about the trade good Future Sight gains (Artuno's exhaust is an
+/// unported ability, package W9): the close is the string's, with the nested reason named.
+#[test]
+fn bail_future_sight_with_artuno_readied_is_counted() {
+    let (g, compared, bailed, _) = lockstep(|| {
+        let mut s = nomad_table("a");
+        s.player_mut(&p("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentartuno"), ti4_model::state::LeaderStatus::Readied);
+        let g = close(game(s, &[]), law_vote("checks", Some("for")));
+        assert_eq!(crate::dual::report().windows.get("game::close_vote [bail: nested (unported ability leader:*:nomadagentartuno:TRADE_GOODS_GAINED:after)]").map(|w| w.bailed), Some(1));
+        g
+    });
+    assert_eq!((compared, bailed), (0, 1));
+    assert_eq!(g.state.player(&p("a")).unwrap().trade_goods, 1, "the string pays it");
+}

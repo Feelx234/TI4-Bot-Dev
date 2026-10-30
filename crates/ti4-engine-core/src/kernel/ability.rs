@@ -127,6 +127,8 @@ pub struct Codes {
     pub supply_base: crate::state::Code,
     /// The `source` `mentak` of the trade good Salvage Operations gains.
     pub mentak: crate::state::Code,
+    /// The `source` `future_sight` of the trade good the Nomad's Future Sight gains.
+    pub future_sight: crate::state::Code,
     /// The `reason` of the strategy token Instinct Training spends.
     pub instinct_training: crate::state::Code,
     /// The causes `action_card:direct_hit` and `action_card:courageous` of a destroyed ship.

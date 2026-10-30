@@ -54,6 +54,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_SHIP, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_GROUND, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::WATCHER, kind: "unit", card: "empyrean_mech" },
+    Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::FUTURE_SIGHT, kind: "ability", card: "future_sight" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_PLAY, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_RETURN, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
@@ -469,6 +470,7 @@ impl Follow {
         self.table.codes.action_card = r.code("action_card");
         self.table.codes.supply_base = r.code("forward_supply_base");
         self.table.codes.mentak = r.code("mentak");
+        self.table.codes.future_sight = r.code("future_sight");
         self.table.codes.instinct_training = r.code("instinct_training");
         self.table.codes.direct_hit = r.code("action_card:direct_hit");
         self.table.codes.cavalry = r.code("cavalry");
@@ -677,7 +679,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
