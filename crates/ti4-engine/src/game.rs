@@ -561,6 +561,187 @@ impl AftermathWindow {
         self.pending_event_scoring.take()
     }
 
+    /// The end of a space combat after its feats: whether the active seat holds the space, "after you win a space combat", the fight's
+    /// scratch cleared, every seat's fleet in the system enforced, whether a contact is possible. `(holds, contacts)`.
+    ///
+    /// On `driver=dual` the part up to the contacts also runs as a core window (`driver::windows::aftermath::FightOver`) for the
+    /// positions `cannon_dual::over_unported` does not exclude.
+    fn fight_over(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        before_combat: &crate::combat::BeforeCombat,
+        outcome: &crate::combat::CombatOutcome,
+        log: &mut Vec<String>,
+    ) -> Result<(bool, bool), crate::combat::CombatError> {
+        if crate::dual::backend(crate::dual::Area::Driver) != crate::dual::Backend::Dual {
+            return Self::fight_over_text(state, ctx, player, system, before_combat, outcome, log);
+        }
+        let (content, sources) = (ctx.content, ctx.sources);
+        let announce = ctx.timing.is_some();
+        let args = crate::cannon_dual::OverArgs { active: player, system, before: before_combat, outcome, announce };
+        if let Some(why) = crate::cannon_dual::over_unported(state, &args) {
+            crate::dual::note_bail(crate::cannon_dual::OVER_LABEL, why);
+            return Self::fight_over_text(state, ctx, player, system, before_combat, outcome, log);
+        }
+        let failed = std::cell::Cell::new(false);
+        let mut result = None;
+        crate::dual_window!(
+            crate::dual::Area::Driver,
+            crate::cannon_dual::OVER_LABEL,
+            state,
+            |s: &mut GameState| {
+                let r = Self::fight_over_text(s, ctx, player, system, before_combat, outcome, log);
+                failed.set(r.is_err());
+                let value = r.as_ref().map_or((false, false), |v| *v);
+                result = Some(r);
+                crate::dual::Run::new(value)
+            },
+            |s: &mut GameState, script: &crate::dual_window::Recording| {
+                if failed.get() {
+                    return None;
+                }
+                crate::cannon_dual::fight_over(s, content, sources, args, script)
+            }
+        );
+        result.expect("the string closure ran")
+    }
+
+    /// The string body of [`Self::fight_over`].
+    fn fight_over_text(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        before_combat: &crate::combat::BeforeCombat,
+        outcome: &crate::combat::CombatOutcome,
+        log: &mut Vec<String>,
+    ) -> Result<(bool, bool), crate::combat::CombatError> {
+        // 49: an invasion only happens if the active player still holds the space.
+        // Membership, not seating order: the activator may be seated behind a
+        // survivor, and only the activator's holding matters.
+        let holds =
+            crate::combat::combatants(state, ctx.content, ctx.sources, system)
+                .iter()
+                .any(|last| last == player);
+        // Coalescence (Titans of Ul): units the Awaken ability put beside rival ground
+        // forces must fight in the Ground Combat step even with no ship left to
+        // invade from, so the invasion step opens for them.
+        let holds = holds
+            || !crate::factions::hooks_ground::forced_combat_planets(
+                state,
+                ctx.content,
+                ctx.sources,
+                player,
+                system,
+            )
+            .is_empty();
+        // The Crimson Revenant's DEPLOY: "you may commit 1 mech, even if you have no
+        // units in the system", so the step opens for it when no ship holds the space.
+        let nobody_there =
+            crate::combat::combatants(state, ctx.content, ctx.sources, system)
+                .is_empty();
+        let holds = holds
+            || (nobody_there
+                && crate::factions::crimson::can_deploy(
+                    state,
+                    ctx.content,
+                    ctx.sources,
+                    player,
+                    system,
+                ));
+        if outcome.rounds > 0 {
+            // "After you win a space combat." A draw wins nothing, so a fight that
+            // ended without a winner opens no window — which is what Skilled Retreat
+            // is for.
+            if let Some(winner) = outcome.winner.clone() {
+                // The losers' ships are off the board by now, so the opponents
+                // are named from the snapshot the fight opened with: every side
+                // but the winner. A two-player fight — the common case — is
+                // exactly "your opponent"; a wider fight is each of the others.
+                // The handoff exists beside the payload because the window that
+                // follows cannot read the payload itself.
+                let opponents: Vec<_> = before_combat
+                    .sides()
+                    .iter()
+                    .filter(|side| **side != winner)
+                    .cloned()
+                    .collect();
+                state.last_combat_sides =
+                    Some((system.clone(), opponents.clone()));
+                let mut payload = BTreeMap::new();
+                payload.insert(
+                    "player".to_owned(),
+                    serde_json::Value::String(winner.to_string()),
+                );
+                payload.insert(
+                    "system".to_owned(),
+                    serde_json::Value::String(system.to_string()),
+                );
+                payload.insert(
+                    "opponents".to_owned(),
+                    serde_json::Value::Array(
+                        opponents
+                            .iter()
+                            .map(|side| serde_json::Value::String(side.to_string()))
+                            .collect(),
+                    ),
+                );
+                // Shard of the Throne moves to whoever beat its owner.
+                if opponents.iter().any(|side| {
+                    crate::laws::elected(state, "shard_of_the_throne")
+                        .is_some_and(|owner| *owner == side.to_string())
+                }) {
+                    crate::laws::steal_throne_card(
+                        state,
+                        "shard_of_the_throne",
+                        &winner,
+                    );
+                }
+                ctx.emit(state, "SPACE_COMBAT_WON", payload)?;
+            }
+            log.push("SPACE_COMBAT_RESOLVED".to_owned());
+        }
+        state.active_space_combat = None;
+        // 16.3 at the moment the carrier dies, not at the end of the turn.
+        //
+        // A space combat that destroys a carrier strands whatever it was holding:
+        // fighters, ground forces and mechs that no longer have capacity to sit in.
+        // Enforcement ran only at the end of the turn, so those units were still on the
+        // board for the invasion below and could capture a planet they should never
+        // have reached -- the rules had already removed them, and the board was only
+        // reconciled once the invasion was over. Both players' fleets are checked,
+        // because either can lose a carrier here.
+        //
+        // This asks the losing seat which units to drop, so it moves a decision earlier
+        // in the turn rather than adding a new kind of one. That perturbs recorded
+        // trajectories against policies trained before it; accepted deliberately on the
+        // owner's ruling, 2026-09-08.
+        let galaxy = ctx.timing.as_ref().and_then(|timing| timing.galaxy);
+        for seat in state
+            .players
+            .iter()
+            .map(|seat| seat.id.clone())
+            .collect::<Vec<_>>()
+        {
+            crate::fleet::enforce_seeing(
+                state,
+                ctx.content,
+                ctx.sources,
+                galaxy,
+                ctx.table,
+                &seat,
+                system,
+            )
+            .map_err(crate::combat::CombatError::from)?;
+        }
+        let contacts =
+            !crate::diplomacy::candidates::available_contacts(state, player)
+                .is_empty();
+        Ok((holds, contacts))
+    }
+
     /// Open the step after combat (or after a negotiation pause): invasion when the active
     /// player holds the space, else production.
     fn next_step(
@@ -743,39 +924,6 @@ impl AftermathWindow {
                         window.settle_open(state, ctx)?;
                         continue;
                     }
-                    // 49: an invasion only happens if the active player still holds the space.
-                    // Membership, not seating order: the activator may be seated behind a
-                    // survivor, and only the activator's holding matters.
-                    let holds =
-                        crate::combat::combatants(state, ctx.content, ctx.sources, &self.system)
-                            .iter()
-                            .any(|last| last == &self.player);
-                    // Coalescence (Titans of Ul): units the Awaken ability put beside rival ground
-                    // forces must fight in the Ground Combat step even with no ship left to
-                    // invade from, so the invasion step opens for them.
-                    let holds = holds
-                        || !crate::factions::hooks_ground::forced_combat_planets(
-                            state,
-                            ctx.content,
-                            ctx.sources,
-                            &self.player,
-                            &self.system,
-                        )
-                        .is_empty();
-                    // The Crimson Revenant's DEPLOY: "you may commit 1 mech, even if you have no
-                    // units in the system", so the step opens for it when no ship holds the space.
-                    let nobody_there =
-                        crate::combat::combatants(state, ctx.content, ctx.sources, &self.system)
-                            .is_empty();
-                    let holds = holds
-                        || (nobody_there
-                            && crate::factions::crimson::can_deploy(
-                                state,
-                                ctx.content,
-                                ctx.sources,
-                                &self.player,
-                                &self.system,
-                            ));
                     if let Some(outcome) = window.outcome()
                         && !self.feats_noted
                     {
@@ -796,97 +944,9 @@ impl AftermathWindow {
                             return Ok(());
                         }
                     }
-                    if let Some(outcome) = window.outcome()
-                        && outcome.rounds > 0
-                    {
-                        // "After you win a space combat." A draw wins nothing, so a fight that
-                        // ended without a winner opens no window — which is what Skilled Retreat
-                        // is for.
-                        if let Some(winner) = outcome.winner.clone() {
-                            // The losers' ships are off the board by now, so the opponents
-                            // are named from the snapshot the fight opened with: every side
-                            // but the winner. A two-player fight — the common case — is
-                            // exactly "your opponent"; a wider fight is each of the others.
-                            // The handoff exists beside the payload because the window that
-                            // follows cannot read the payload itself.
-                            let opponents: Vec<_> = self
-                                .before_combat
-                                .sides()
-                                .iter()
-                                .filter(|side| **side != winner)
-                                .cloned()
-                                .collect();
-                            state.last_combat_sides =
-                                Some((self.system.clone(), opponents.clone()));
-                            let mut payload = BTreeMap::new();
-                            payload.insert(
-                                "player".to_owned(),
-                                serde_json::Value::String(winner.to_string()),
-                            );
-                            payload.insert(
-                                "system".to_owned(),
-                                serde_json::Value::String(self.system.to_string()),
-                            );
-                            payload.insert(
-                                "opponents".to_owned(),
-                                serde_json::Value::Array(
-                                    opponents
-                                        .iter()
-                                        .map(|side| serde_json::Value::String(side.to_string()))
-                                        .collect(),
-                                ),
-                            );
-                            // Shard of the Throne moves to whoever beat its owner.
-                            if opponents.iter().any(|side| {
-                                crate::laws::elected(state, "shard_of_the_throne")
-                                    .is_some_and(|owner| *owner == side.to_string())
-                            }) {
-                                crate::laws::steal_throne_card(
-                                    state,
-                                    "shard_of_the_throne",
-                                    &winner,
-                                );
-                            }
-                            ctx.emit(state, "SPACE_COMBAT_WON", payload)?;
-                        }
-                        self.log.push("SPACE_COMBAT_RESOLVED".to_owned());
-                    }
-                    state.active_space_combat = None;
-                    // 16.3 at the moment the carrier dies, not at the end of the turn.
-                    //
-                    // A space combat that destroys a carrier strands whatever it was holding:
-                    // fighters, ground forces and mechs that no longer have capacity to sit in.
-                    // Enforcement ran only at the end of the turn, so those units were still on the
-                    // board for the invasion below and could capture a planet they should never
-                    // have reached -- the rules had already removed them, and the board was only
-                    // reconciled once the invasion was over. Both players' fleets are checked,
-                    // because either can lose a carrier here.
-                    //
-                    // This asks the losing seat which units to drop, so it moves a decision earlier
-                    // in the turn rather than adding a new kind of one. That perturbs recorded
-                    // trajectories against policies trained before it; accepted deliberately on the
-                    // owner's ruling, 2026-09-08.
-                    let galaxy = ctx.timing.as_ref().and_then(|timing| timing.galaxy);
-                    for seat in state
-                        .players
-                        .iter()
-                        .map(|seat| seat.id.clone())
-                        .collect::<Vec<_>>()
-                    {
-                        crate::fleet::enforce_seeing(
-                            state,
-                            ctx.content,
-                            ctx.sources,
-                            galaxy,
-                            ctx.table,
-                            &seat,
-                            &self.system,
-                        )
-                        .map_err(crate::combat::CombatError::from)?;
-                    }
-                    let contacts =
-                        !crate::diplomacy::candidates::available_contacts(state, &self.player)
-                            .is_empty();
+                    let outcome = window.outcome().expect("the fight has an outcome");
+                    let (holds, contacts) =
+                        Self::fight_over(state, ctx, &self.player, &self.system, &self.before_combat, &outcome, &mut self.log)?;
                     self.stage = if contacts {
                         Aftermath::Negotiating { invade: holds }
                     } else {

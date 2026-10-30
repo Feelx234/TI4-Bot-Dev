@@ -185,3 +185,111 @@ impl Window for Head {
         }
     }
 }
+
+// --- the end of the space combat -------------------------------------------------------------------------
+
+use crate::containers::SmallList;
+use crate::kernel::fx;
+use crate::rules::combat::feats::Outcome;
+use crate::state::{EventKind, Key, List, Payload, Val};
+
+use super::enforce_all::EnforceAll;
+
+/// The facts of the end of a fight.
+#[derive(Debug, Clone)]
+pub struct OverFacts {
+    /// The active seat.
+    pub player: Seat,
+    pub system: System,
+    pub outcome: Outcome,
+    /// The sides when the fight opened, in seating order (`BeforeCombat::sides`).
+    pub sides: SmallList<Seat, 8>,
+    /// The resolver carries the timing machinery (`ctx.emit` announces).
+    pub announce: bool,
+    /// The interned payload key `opponents`.
+    pub opponents_key: Code,
+    /// Every seat's enforcement in the system, in the table's order (those with ships there).
+    pub pairs: Vec<(Seat, System, Limits)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverStage {
+    Announcing,
+    Enforcing,
+    Done,
+}
+
+/// `AftermathWindow::settle`, the part of the Fighting arm after the feats: whether the active seat holds the space, "after you
+/// win a space combat", the fight's scratch cleared, and the enforcement of every seat's fleet in the system.
+#[derive(Debug, Clone)]
+pub struct FightOver {
+    pub f: OverFacts,
+    stage: OverStage,
+    enforce: Child<EnforceAll>,
+    /// An invasion step follows: a ship of the active seat holds the space, or Coalescence forces a ground combat.
+    pub holds: bool,
+    /// The fight lasted at least a round (`SPACE_COMBAT_RESOLVED` is logged).
+    pub resolved: bool,
+}
+
+impl FightOver {
+    #[must_use]
+    pub fn new(f: OverFacts) -> Self {
+        Self { f, stage: OverStage::Announcing, enforce: Child::idle(), holds: false, resolved: false }
+    }
+}
+
+impl Window for FightOver {
+    type Stage = OverStage;
+
+    fn stage(&self) -> OverStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        loop {
+            match self.stage {
+                OverStage::Announcing => {
+                    let (player, system) = (self.f.player, self.f.system);
+                    // 49: an invasion only happens if the active seat still holds the space (membership, not seating order),
+                    // or Coalescence forces a ground combat.
+                    let rd = Rd::new(sx.state, sx.kernel).with_blanked(reach::blanked(sx.state));
+                    self.holds = combatants(rd, system).as_slice().contains(&player)
+                        || !sx.kernel.hooks.ground.forced_combat_planets(sx.state, sx.kernel, player, system).is_empty();
+                    if self.f.outcome.rounds > 0 {
+                        if let Some(winner) = self.f.outcome.winner {
+                            let mut opponents = SmallList::<Seat, 4>::new();
+                            for side in self.f.sides.as_slice().iter().filter(|s| **s != winner) {
+                                opponents.push(*side);
+                            }
+                            sx.state.transient_mut().combat.last_combat_sides = Some((system, opponents.clone()));
+                            if self.f.announce {
+                                let mut payload = Payload::new().with(Key::Player, Val::Seat(winner)).with(Key::System, Val::System(system));
+                                payload.set_list(Key::Other(self.f.opponents_key), List::Seats(opponents));
+                                let _ = sx.emit(fx::event(EventKind::SpaceCombatWon, payload));
+                            }
+                        }
+                        self.resolved = true;
+                    }
+                    sx.state.transient_mut().combat.active_space_combat = None;
+                    self.enforce.start(EnforceAll::new(self.f.pairs.clone()));
+                    self.stage = OverStage::Enforcing;
+                }
+                OverStage::Enforcing => match self.enforce.step(sx) {
+                    Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                    Some(Ran::Pass(next)) => return next,
+                    Some(Ran::Done(_)) | None => self.stage = OverStage::Done,
+                },
+                OverStage::Done => return Next::Done,
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.stage == OverStage::Enforcing { self.enforce.ask_of(s, k) } else { None }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == OverStage::Enforcing { self.enforce.answer(sx, pick) } else { Err(Illegal) }
+    }
+}

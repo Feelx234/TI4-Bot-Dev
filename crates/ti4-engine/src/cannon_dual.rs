@@ -502,3 +502,122 @@ pub fn combat_feats(
     })
     .ok()
 }
+
+// --- the end of the space combat -------------------------------------------------------------------------
+
+/// The label of the end of a fight in the dual report.
+pub const OVER_LABEL: &str = "aftermath::fight_over";
+
+/// What the string `AftermathWindow::fight_over` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct OverArgs<'a> {
+    pub active: &'a PlayerId,
+    pub system: &'a SystemId,
+    pub before: &'a crate::combat::BeforeCombat,
+    pub outcome: &'a crate::combat::CombatOutcome,
+    pub announce: bool,
+}
+
+const OVER: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Board, Slice::Transient, Slice::Players, Slice::Marks, Slice::Pending, Slice::Ledger],
+);
+
+/// Why the end of the fight holds something the core window does not carry (`None`: it is carried): a dropped faction, Titans
+/// (Coalescence's forced combats are a hook the combat kernel does not register), a diplomacy table (a contact pauses the chain),
+/// Shard of the Throne changing hands (a law's theft), neutral sides.
+#[must_use]
+pub fn over_unported(gs: &GameState, a: &OverArgs<'_>) -> Option<&'static str> {
+    if crate::tactical_dual::dropped_faction_at_the_table(gs) {
+        return Some("a faction dropped by decision at the table");
+    }
+    if gs.players.iter().any(|p| p.faction.as_str() == "titans") {
+        return Some("Titans of Ul at the table (Coalescence)");
+    }
+    if gs.diplomacy.enabled {
+        return Some("structured diplomacy on");
+    }
+    if gs.laws.contains_key("shard_of_the_throne") {
+        return Some("Shard of the Throne in play (its theft)");
+    }
+    if a.before.sides().iter().any(|s| crate::neutral_units::is_neutral(s)) {
+        return Some("a neutral side");
+    }
+    None
+}
+
+/// The core half of `AftermathWindow::fight_over` up to the contacts: `(holds, false)`. `None` for a position the codecs refuse,
+/// nested activity the reaction table does not follow, or a limit the core cannot name.
+#[must_use]
+pub fn fight_over(gs: &mut GameState, content: &ContentStore, sources: SourceSet, a: OverArgs<'_>, script: &Recording) -> Option<CoreWindow<(bool, bool)>> {
+    use ti4_engine_core::driver::windows::aftermath::{FightOver, OverFacts};
+    use ti4_engine_core::rules::combat::feats::Outcome;
+    if !content.is_embedded() {
+        note_bail(OVER_LABEL, "content other than the embedded one");
+        return None;
+    }
+    let Some((mut cx, r)) = tables(gs) else {
+        note_bail(OVER_LABEL, "owner tables");
+        return None;
+    };
+    nested_check(script)?;
+    let player = r.seat(a.active.as_str())?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str())?;
+    let mut sides = ti4_engine_core::containers::SmallList::new();
+    for side in a.before.sides() {
+        sides.push(r.seat(side.as_str())?);
+    }
+    let winner = match &a.outcome.winner {
+        Some(w) => Some(r.seat(w.as_str())?),
+        None => None,
+    };
+    let mut pairs = Vec::new();
+    for seat in gs.players.iter().map(|p| p.id.clone()).collect::<Vec<_>>() {
+        if gs.system_state(a.system).units_of(&seat).is_empty() {
+            continue;
+        }
+        match crate::tactical_dual::limits_of(gs, content, &seat, a.system) {
+            Ok(limits) => pairs.push((r.seat(seat.as_str())?, system, limits)),
+            Err(why) => {
+                note_bail(OVER_LABEL, why);
+                return None;
+            }
+        }
+    }
+    let before = gs.clone();
+    let Some(env) = crate::tactical_dual::env_of(&before, &cx, sources) else {
+        note_bail(OVER_LABEL, "window env");
+        return None;
+    };
+    let facts = OverFacts {
+        player,
+        system,
+        outcome: Outcome { winner, rounds: a.outcome.rounds },
+        sides,
+        announce: a.announce,
+        opponents_key: r.code("opponents"),
+        pairs,
+    };
+    let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
+    let mut driver = Driver::new(FightOver::new(facts), Resolver::new(&seats, Some(player)), AbilityTable::default(), 1);
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OVER, script), |core, _| {
+        let driven = crate::dual_window::drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    });
+    let driven = match driven {
+        Ok(Ok(driven)) => driven,
+        Ok(Err(why)) => {
+            note_bail(OVER_LABEL, &format!("driver: {why:?}"));
+            return None;
+        }
+        Err(why) => {
+            note_bail(OVER_LABEL, &format!("lend: {why:?}"));
+            return None;
+        }
+    };
+    apply_staged(gs, &r, &staged)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
+    Some(CoreWindow { run: Run::new((driver.window.holds, false)).with_events_vec(events), questions: driven.rendered })
+}
