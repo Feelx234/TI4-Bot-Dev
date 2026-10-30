@@ -189,6 +189,14 @@ pub fn decline_additional_action(state: &mut GameState) {
     );
 }
 
+/// A hook between the steps of a turn end that the core does not run (`driver::turn_flow::HOOKS`): counted under
+/// `turn::hooks [bail: <name>]` on `driver=dual`, the worklist of the lent bodies (D1b2-bail-05).
+pub fn note_lent_hook(hook: &str) {
+    if crate::dual::backend(Area::Driver) == crate::dual::Backend::Dual {
+        crate::dual::note_bail("turn::hooks", hook);
+    }
+}
+
 /// The writes of the close of a tactical action (`Game::close_tactical`): no system is active and the legacy pending tag is
 /// cleared (the aftermath window, a field of `Game`, is dropped by the caller).
 pub fn close_tactical_writes(state: &mut GameState) {

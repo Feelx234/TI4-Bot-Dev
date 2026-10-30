@@ -111,6 +111,22 @@ pub fn strategy_phase_flip(core: &mut CoreState) -> Option<Seat> {
     first
 }
 
+/// The hooks between the steps of `Game::advance_turn_inner` that are still string bodies (they ask questions of the owners of
+/// cards the core does not run), in the order the string runs them. `fleet::enforce_everywhere` between them is a core window
+/// (`driver::windows::enforce_all`); the `TURN_PASSED` reaction windows are the A5 shim's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hook {
+    /// Minister of War: discard the law to retrieve a command token and act again (before the turn moves on).
+    MinisterOfWar,
+    /// `technology::end_turn`: the technologies that read "at the end of your turn".
+    TechnologyEndTurn,
+    /// `legendary::end_turn`: the legendary planets that read "at the end of your turn".
+    LegendaryEndTurn,
+}
+
+/// The hooks in the order `Game::advance_turn_inner` runs them.
+pub const HOOKS: [Hook; 3] = [Hook::MinisterOfWar, Hook::TechnologyEndTurn, Hook::LegendaryEndTurn];
+
 /// `faction_techs::return_spec_ops` (the turn prelude): "at the start of your next turn, place each unit that is on this card
 /// on a planet you control in your home system", on the first such planet (by id); with none controlled they wait on the card.
 /// `infantry` is the unit placed (`sol_infantry2`, the adapter's to name). Returns how many were placed.
@@ -402,5 +418,10 @@ mod tests {
         let mut s = table();
         action_phase_ended(&mut s);
         assert_eq!((s.meta.phase, s.meta.active), (Phase::Status, None));
+    }
+
+    #[test]
+    fn the_lent_hooks_of_a_turn_end_run_in_the_order_of_the_string() {
+        assert_eq!(HOOKS, [Hook::MinisterOfWar, Hook::TechnologyEndTurn, Hook::LegendaryEndTurn]);
     }
 }

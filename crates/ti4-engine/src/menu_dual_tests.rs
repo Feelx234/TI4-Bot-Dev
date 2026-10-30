@@ -37,3 +37,13 @@ fn the_action_menu_and_the_closing_menu_render_from_the_typed_family_exactly_as_
     assert!(menus >= 6, "the action menu was compared: {:?}", r.windows);
     assert!(closings >= 1, "the closing menu was compared: {:?}", r.windows);
 }
+
+#[test]
+fn the_hooks_between_the_steps_of_a_turn_end_are_counted_as_lent_by_name() {
+    let (_, r) = round_of_play(42);
+    for hook in ["technology::end_turn", "legendary::end_turn"] {
+        let key = format!("turn::hooks [bail: {hook}]");
+        assert!(r.windows.get(&key).is_some_and(|w| w.bailed > 0), "{key}: {:?}", r.windows.keys().filter(|k| k.starts_with("turn::")).collect::<Vec<_>>());
+    }
+    assert!(r.windows.get("fleet::enforce_everywhere").map_or(0, |w| w.compared) >= 1, "the sweep ran in the core: {:?}", r.windows.keys().collect::<Vec<_>>());
+}

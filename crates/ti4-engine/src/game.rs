@@ -7304,6 +7304,7 @@ impl<'a> Game<'a> {
         // reinforcements -- then they may perform 1 additional action." Offered before the turn
         // moves on, since the additional action is this player's.
         if self.state.phase == Phase::Action {
+            crate::turn_write::note_lent_hook("minister_of_war");
             self.minister_of_war();
             if crate::turn_write::take_retention(&mut self.state) {
                 self.emit("TURN_RETAINED");
@@ -7323,6 +7324,7 @@ impl<'a> Game<'a> {
         if self.state.phase == Phase::Action
             && let Some(active) = ended.clone()
         {
+            crate::turn_write::note_lent_hook("technology::end_turn");
             let _ = crate::technology::end_turn(
                 &mut self.state,
                 self.content,
@@ -7336,6 +7338,7 @@ impl<'a> Game<'a> {
             // Predictive Intelligence spend a card, and The Acropolis readies one -- readying
             // last means what it readied survives into the next round rather than being offered
             // straight back to a spender in the same window.
+            crate::turn_write::note_lent_hook("legendary::end_turn");
             let _ = crate::legendary::end_turn(
                 &mut self.state,
                 self.content,
