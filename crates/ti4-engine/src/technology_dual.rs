@@ -390,4 +390,16 @@ mod tests {
         });
         let _ = (state, counts);
     }
+
+    #[test]
+    fn a_nekro_seat_that_does_not_own_the_card_may_carry_its_text_on_a_valefar_assimilator_so_the_string_decides() {
+        let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "hacan")], POK);
+        crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+        let mut probe = state.clone();
+        assert_eq!(super::exhaust_text(&mut probe, &a(), "pi"), None, "the core does not decide for a Nekro");
+        assert_eq!(probe, state, "and writes nothing");
+        // Any other faction: a card it does not own is simply not exhausted.
+        let mut other = game(&[], &[]);
+        assert_eq!(super::exhaust_text(&mut other, &a(), "pi"), Some(false));
+    }
 }
