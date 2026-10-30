@@ -70,8 +70,13 @@ pub struct Render {
     /// The faction text of every seat (empty for a seat with no player), where a family names seats by
     /// faction (the Trade primary's options); empty when the caller set none.
     pub factions: Vec<String>,
-    /// Texts the core holds as a [`Code`] (open string sets until X1 closes them).
-    codes: RefCell<Vec<String>>,
+    /// Texts the core holds as a [`Code`] (open string sets until X1 closes them): ability ids, event names outside the
+    /// closed set, reaction texts. **Window-local until the flip** (D2-4b decision): its codes mean something only with
+    /// the `Render` that minted them, so a `ResolverState` built through it is read back through the same `Render`.
+    /// At D2-8 the `Render` borrows the game's `CoreState::texts.codes` instead, and these become state-owned like every
+    /// other `Code`. Same `Interner` as the state's (a lookup is a search, not a scan; the codes are the same dense
+    /// insertion-order indices as before).
+    codes: RefCell<ti4_engine_core::containers::Interner>,
     /// The position of the question being rendered, when the caller set one (`None` for the families
     /// that need none; see [`Position`]).
     position: RefCell<Option<Position>>,
@@ -82,7 +87,7 @@ pub struct Render {
 impl Render {
     #[must_use]
     pub fn new(seats: Vec<String>) -> Self {
-        Self { seats, factions: Vec::new(), codes: RefCell::new(Vec::new()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()) }
+        Self { seats, factions: Vec::new(), codes: RefCell::new(ti4_engine_core::containers::Interner::default()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()) }
     }
 
     /// Set the position the following `prompt`/`option`/`details` calls render in; `None` clears it.
@@ -134,11 +139,11 @@ impl Render {
 
     /// The code of a text (the same text always gets the same code in one `Render`).
     pub fn code(&self, text: &str) -> Code {
-        let mut codes = self.codes.borrow_mut();
-        let i = codes.iter().position(|c| c == text).unwrap_or_else(|| {
-            codes.push(text.to_owned());
-            codes.len() - 1
-        });
+        let i = self
+            .codes
+            .borrow_mut()
+            .intern(text.as_bytes(), ti4_engine_core::state::CODE_CAPACITY)
+            .expect("fewer than 65536 distinct codes");
         Code(u16::try_from(i).expect("fewer than 65536 distinct codes"))
     }
 
@@ -167,12 +172,12 @@ impl Render {
     /// The code of a text already interned, without interning it.
     #[must_use]
     pub fn find_code(&self, text: &str) -> Option<Code> {
-        self.codes.borrow().iter().position(|c| c == text).and_then(|i| u16::try_from(i).ok()).map(Code)
+        self.codes.borrow().find(text.as_bytes()).and_then(|i| u16::try_from(i).ok()).map(Code)
     }
 
     #[must_use]
     pub fn code_text(&self, code: Code) -> String {
-        self.codes.borrow()[usize::from(code.0)].clone()
+        String::from_utf8_lossy(self.codes.borrow().get(u32::from(code.0)).expect("a code this Render issued")).into_owned()
     }
 }
 
