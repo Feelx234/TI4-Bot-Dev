@@ -51,6 +51,16 @@ Test files in `crates/ti4-engine-core-tests/tests/`:
   P9 report-only).
 * D4-0: `tools/engine_core/d4/test_inventory.py` + `test_disposition.tsv` + `docs/D4_TEST_DISPOSITION.md`, `tools/engine_core/d4_gate.sh`.
 
+## Mutation ratchet: deferred to the end of D1
+
+By the user's directive no heavy run is started until D1 is finished. The ratchet runs of this lane stopped after `core/rules-top` (the last
+module of the list). To resume: one heavy-lock hold, `d4a_ratchet.sh`-style (lane B's `tools/engine_core/mutation_ratchet.sh` with
+`MODE=baseline EXTRA_TEST_CRATES=ti4-engine-core-tests JOBS=2`) on the modules not yet measured (`core/leaf`) and again on all modules after the
+survivor-driven tests below are added. The tests needed to pass in a mutation tree are in place (`source_hygiene` skips `__mutant.rs`,
+`covers_writes_the_registry` skips its read-back for `D4_COVERS_FILE=/dev/null`). Weak spots by survivors, for the next tests: agenda
+`table_effects.rs` and `effects.rs` (Resolve beyond the point cards), `rules/action_cards` (the card effects: per-card text tests), production
+`ProductionWindow` details, `query/trade_deals.rs`, `query/tech.rs`, `kernel/resolver.rs` setters.
+
 ## Not done
 
 * Window tests of: diplomacy windows and Keleres/Firmament/Obsidian windows (dropped by decision: `AgentOffer`, `PlaceCard`, `DiplomacyWindow`),
