@@ -93,6 +93,39 @@ pub fn check_pass_on(before: &GameState, after: &GameState, ended: Option<&Playe
     crate::dual::compare_value(Area::Driver, "turn::pass_on", &string, &core);
 }
 
+/// `phase::advance_phase`, Strategy arm: Political Stability is spent.
+pub fn reset_stability(state: &mut GameState) {
+    write(
+        Area::Driver,
+        state,
+        "turn::stability_reset",
+        |s| {
+            for player in &mut s.players {
+                player.stability = false;
+            }
+        },
+        real::reset_stability,
+    );
+}
+
+/// `phase::advance_phase`, Strategy arm, once the faction hooks have run: the action phase begins with nobody active; returns
+/// the seat first in initiative order.
+pub fn strategy_phase_flip(state: &mut GameState) -> Option<PlayerId> {
+    write(
+        Area::Driver,
+        state,
+        "turn::strategy_phase_ended",
+        |s| {
+            let first = s.initiative_order().first().cloned();
+            s.phase = ti4_model::state::Phase::Action;
+            s.action_turn = 0;
+            s.active = None;
+            first
+        },
+        real::strategy_phase_flip,
+    )
+}
+
 /// `faction_techs::return_spec_ops`, the turn prelude's placement of the Spec Ops units waiting on the card.
 pub fn return_spec_ops(state: &mut GameState, player: &PlayerId) -> u32 {
     write(Area::Driver, state, "turn::return_spec_ops", |s| crate::faction_techs::return_spec_ops(s, player), |s| real::return_spec_ops(s, player))
@@ -291,6 +324,17 @@ mod real {
         }
     }
 
+    const FLIP: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Strategy], &[Slice::Meta]);
+    const STABILITY: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players], &[Slice::Players]);
+
+    pub fn reset_stability(gs: &mut GameState) -> Option<()> {
+        lend_with(gs, STABILITY, |core, _| rules::reset_stability(core))
+    }
+
+    pub fn strategy_phase_flip(gs: &mut GameState) -> Option<Option<PlayerId>> {
+        lend_with(gs, FLIP, |core, r| Some(rules::strategy_phase_flip(core).map(|s| r.player(s))))?
+    }
+
     pub fn return_spec_ops(gs: &mut GameState, p: &PlayerId) -> Option<u32> {
         lend_with(gs, SPEC_OPS, |core, r| Some(rules::return_spec_ops(core, r.seat(p.as_str())?)))?
     }
@@ -404,6 +448,12 @@ mod real {
     }
     pub fn then(_: bool, _: bool) -> u8 {
         0
+    }
+    pub fn reset_stability(_: &mut GameState) -> Option<()> {
+        None
+    }
+    pub fn strategy_phase_flip(_: &mut GameState) -> Option<Option<PlayerId>> {
+        None
     }
     pub fn return_spec_ops(_: &mut GameState, _: &PlayerId) -> Option<u32> {
         None
@@ -705,5 +755,27 @@ mod tests {
         let r = report();
         let _ = take_report();
         assert_eq!(r.total_differences(), 1, "only the unrecorded prepared turn differs: {:?}", r.differences);
+    }
+
+    #[test]
+    fn the_strategy_phase_ends_into_the_action_phase_with_the_first_in_initiative_and_stability_spent() {
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut state = table();
+        state.phase = Phase::Strategy;
+        state.player_mut(&pid("b")).unwrap().stability = true;
+        let before_seq = state.turn_seq;
+        with_mask(driver(), || {
+            super::super::phase::advance_phase(&mut state);
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(state.phase, Phase::Action);
+        assert!(state.active.is_some() && state.turn_seq == before_seq + 1, "the first turn began");
+        assert!(state.players.iter().all(|p| !p.stability), "stability is spent");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        for label in ["turn::stability_reset", "turn::strategy_phase_ended", "turn::begin_action_turn"] {
+            assert!(r.windows.get(label).map_or(0, |w| w.compared) >= 1 || r.areas.get(&Area::Driver).is_some_and(|c| c.calls > 0), "{label}: {:?}", r.windows);
+        }
     }
 }

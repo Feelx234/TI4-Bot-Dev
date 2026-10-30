@@ -88,6 +88,29 @@ pub fn begin_next_round(core: &mut CoreState, cards: &[StrategyCard]) -> Result<
     Ok(())
 }
 
+/// `phase::advance_phase`, Strategy arm, the part that is not a faction hook: Political Stability is spent (the retention
+/// covered the strategy phase just played).
+pub fn reset_stability(core: &mut CoreState) {
+    let seats: SmallList<Seat, 8> = core.players().iter().map(|p| p.seat).collect();
+    for seat in seats.as_slice() {
+        if let Some(p) = core.players_mut().by_seat_mut(*seat) {
+            p.econ.stability = false;
+        }
+    }
+}
+
+/// `phase::advance_phase`, Strategy arm, after the faction hooks have placed their initiative tokens: the action phase begins
+/// with nobody active. Returns the seat first in initiative order, whose turn the caller then begins
+/// ([`begin_action_turn`]); `None` for a table without seats.
+pub fn strategy_phase_flip(core: &mut CoreState) -> Option<Seat> {
+    let first = initiative_order(core).as_slice().first().copied();
+    let meta = core.meta_mut();
+    meta.phase = Phase::Action;
+    meta.action_turn = 0;
+    meta.active = None;
+    first
+}
+
 /// `faction_techs::return_spec_ops` (the turn prelude): "at the start of your next turn, place each unit that is on this card
 /// on a planet you control in your home system", on the first such planet (by id); with none controlled they wait on the card.
 /// Returns how many were placed.
