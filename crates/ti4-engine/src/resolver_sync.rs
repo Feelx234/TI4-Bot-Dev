@@ -650,6 +650,32 @@ mod tests {
         Game::with_seeded_random(state, ContentStore::embedded(), seed)
     }
 
+    /// Diagnostic for D2-5-find-02: which card and which seat disagree at the first position where it happens.
+    #[test]
+    #[ignore = "diagnostic"]
+    fn diag_has_legal_target() {
+        crate::dual::with_mask(crate::dual::AreaMask::STRING, || {
+            use crate::generated::IdStr;
+            let (n, seed) = GAMES[0];
+            let mut game = seated_game(n, seed);
+            for step in 0..60 {
+                for p in game.state.players.clone() {
+                    for card in ti4_engine_core::generated::ActionCard::ALL {
+                        let alias = ti4_model::id::ActionCardId::new(card.as_str());
+                        let typed = crate::action_cards_typed::has_legal_target(&game.state, &p.id, &alias);
+                        let string = crate::action_cards::has_legal_target_text(&game.state, ContentStore::embedded(), POK, &p.id, &alias);
+                        if let Some(t) = typed {
+                            if t != string {
+                                eprintln!("DIAG step {step} seat {} card {} string {string} core {t}", p.id, card.as_str());
+                            }
+                        }
+                    }
+                }
+                assert!(game.step().error.is_none());
+            }
+        });
+    }
+
     /// FINDING (D2-5, docs/ENGINE_KNOWN_ISSUES.md D2-5-find-02), kept as a repro: the plain random game of a 3-seat table
     /// (`GAMES[0]`) reaches a string/core difference in `action_cards::has_legal_target` (string `true`, core `false`) at its
     /// 50th step when every area is on `Dual`. Not a churn effect (no churn is on) and not fixed here: the port copies the string.
