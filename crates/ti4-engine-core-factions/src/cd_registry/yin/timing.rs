@@ -49,7 +49,9 @@ fn build_roster(scope: Scope) -> tech::UnitRoster {
         for base in UnitBaseType::ALL {
             let own = Unit::ALL.into_iter().find(|u| {
                 let d = u.data();
-                d.base_type == base && d.upgrades_from.is_none() && d.faction.is_some_and(|tag| tech::tag_is(tag, faction)) && scope.unit(*u).is_some()
+                // The Corsair (Mentak, Thunder's Edge) is no unit of the faction sheet: The Table's Grace puts it over a Cruiser II
+                // (`unit_form_override`); the content record of the faction lists the plain cruiser (`ti4_content::units::faction_unit`).
+                *u != Unit::Corsair && d.base_type == base && d.upgrades_from.is_none() && d.faction.is_some_and(|tag| tech::tag_is(tag, faction)) && scope.unit(*u).is_some()
             });
             roster.set(faction, base, own);
         }
@@ -60,6 +62,11 @@ fn build_roster(scope: Scope) -> tech::UnitRoster {
 /// `placed_unit_id` of a seat for a base type: the upgrade it owns, else its faction's own unit, else the plain one.
 pub fn placed_form(s: &CoreState, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
     tech::unit_form(s, scope, &roster(scope), who, base)
+}
+
+/// [`placed_form`] with the faction override of the hook table (`action_cards::placed_unit_id`: Mentak's Corsair).
+pub fn placed_form_overridden(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, scope: Scope, who: Seat, base: UnitBaseType) -> Option<Unit> {
+    ti4_engine_core::kernel::fx_strategy::placed_unit(s, k, scope, &roster(scope), who, base)
 }
 
 /// `in_reinforcements`: the form the player places, and one of it left in the box.

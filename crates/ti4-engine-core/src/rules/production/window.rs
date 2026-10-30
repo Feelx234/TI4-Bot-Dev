@@ -256,7 +256,6 @@ impl ProductionWindow {
             Spot::Remote(sys, at) => (sys, at),
             Spot::Card => (self.system, None),
         };
-        let naaz = unit == Unit::Eidolon && s.players().by_seat(self.who).is_some_and(|p| p.faction == crate::generated::Faction::TheNaazRokhaAlliance);
         for _ in 0..made {
             if spot == Spot::Card {
                 // The Crimson hero card is not a place on the board.
@@ -266,11 +265,8 @@ impl ProductionWindow {
             }
             fx::place_unit(s, self.who, system, planet, unit);
             self.produced.push((unit, spot));
-            if naaz {
-                // `supply::stage_naaz_mech_placed`: Absolute Synergy resolves before the next action.
-                let payload = Payload::new().with(Key::Player, Val::Seat(self.who)).with(Key::System, Val::System(system));
-                fx::stage(s, fx::event(EventKind::NaazMechPlaced, payload));
-            }
+            // Absolute Synergy resolves before the next action.
+            fx::stage_naaz_mech_placed(s, self.who, system, unit);
         }
         // The Last Bastion's Icon is exhausted by placing the ships in one of its systems.
         if made > 0 && spot != Spot::Card && system != self.system {

@@ -2460,6 +2460,24 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Every agenda the core has no effect window for bails with a reason (it was a silent `None` in the golden games).
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn an_agenda_without_a_core_window_bails_with_a_reason() {
+        let _serial = crate::dual::tests::serial();
+        let mut bailed = 0;
+        for agenda in <ti4_engine_core::generated::Agenda as crate::generated::IdStr>::IDS.iter().copied() {
+            let mut probe = crate::fixtures::game(&["a", "b", "c"]);
+            let before = crate::dual::reasons_counted();
+            let window = crate::dual_window::agenda_effect(&mut probe, agenda, "a", &crate::dual_window::EffectArgs { for_voters: &[], against_voters: &[], sources: POK, galaxy: None, rolls: None }, &crate::dual_window::Recording::default());
+            if window.is_none() {
+                bailed += 1;
+                assert!(crate::dual::reasons_counted() > before, "{agenda}: a bail names its reason");
+            }
+        }
+        assert!(bailed > 0, "some of these agendas have no core window");
+    }
+
     /// Search Warrant deals the elected player two secrets.
     #[test]
     fn a_search_warrant_deals_two_secrets() {

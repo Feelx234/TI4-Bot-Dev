@@ -116,23 +116,37 @@ fn salvage(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     };
     let Pick::Opt(Opt::Reaction(ROpt::Produce { unit, cost })) = eff.ask(&choice) else { return Ok(()) };
     let base = unit.data().base_type;
-    // The form a seat places for a cruiser (Mentak's Corsair) or a flagship is the string's `placed_unit_id`: the window bails.
-    if matches!(base, ti4_engine_core::generated::UnitBaseType::Cruiser | ti4_engine_core::generated::UnitBaseType::Flagship) {
-        eff.unknown(ti4_engine_core::kernel::ability::Unknown::MissingFact);
-        return Ok(());
-    }
+    // The form a seat places is `placed_unit_id` with the override of the hook table (Mentak's Corsair for a Cruiser II).
     let before = eff.state().clone();
     let paid = ti4_engine_core::rules::production::pay::pay_in(eff, me, i64::from(cost), ti4_engine_core::query::economy::Spend::Resources)?;
     let scope = ti4_engine_core::tables::Scope(u32::from(eff.kernel().sources.0));
+    let form = {
+        let (state, kernel) = eff.read();
+        crate::cd_registry::yin::timing::placed_form_overridden(state, kernel, scope, me, base)
+    };
     let placed = paid
-        && crate::cd_registry::yin::timing::placed_form(eff.state(), scope, me, base)
+        && form
             .filter(|form| ti4_engine_core::query::fleet::remaining_all(eff.state(), scope, me, *form) > 0)
             .map(|form| fx::place_unit(eff.state(), me, system, None, form))
             .is_some();
-    if !placed {
+    if placed {
+        // `place_units_counted` ignores the unit-form override; the string brings the new ship to its form with `apply_unit_upgrades`
+        // for the whole seat (every unit on the board takes the form the seat is entitled to).
+        upgrade_forms(eff, me, scope);
+    } else {
         *eff.state() = before;
     }
     Ok(())
+}
+
+/// `technology::apply_unit_upgrades` with the hook table's override (the seat's units take the form it is entitled to).
+fn upgrade_forms(eff: &mut Eff<'_, '_>, me: Seat, scope: ti4_engine_core::tables::Scope) {
+    let roster = crate::cd_registry::yin::timing::roster(scope);
+    let swaps = {
+        let (state, kernel) = eff.read();
+        ti4_engine_core::kernel::fx_strategy::unit_swaps(state, kernel, scope, &roster, me)
+    };
+    ti4_engine_core::kernel::fx_strategy::apply_swaps(eff.state(), me, &swaps);
 }
 
 const HERO: Leader = Leader::IpswitchLooseCannon;
@@ -179,15 +193,15 @@ fn place_ship(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let (Some(system), Some(unit)) = (eff.event.payload.system(Key::System), eff.event.payload.unit(Key::Unit)) else { return Ok(()) };
     let scope = ti4_engine_core::tables::Scope(u32::from(eff.kernel().sources.0));
     let Some(base) = scope.unit(unit).map(|d| d.base_type) else { return Ok(()) };
-    // The form a seat places for a cruiser (Mentak's Corsair override) and for a flagship (the Keleres variants) is the
-    // string's answer (`placed_unit_id`), not the unit tables': the window bails.
-    if matches!(base, ti4_engine_core::generated::UnitBaseType::Cruiser | ti4_engine_core::generated::UnitBaseType::Flagship) {
-        eff.unknown(ti4_engine_core::kernel::ability::Unknown::MissingFact);
-        return Ok(());
-    }
-    let Some(form) = crate::cd_registry::yin::timing::placed_form(eff.state(), scope, me, base) else { return Ok(()) };
+    // The form a seat places is `placed_unit_id` with the override of the hook table (Mentak's Corsair for a Cruiser II).
+    let form = {
+        let (state, kernel) = eff.read();
+        crate::cd_registry::yin::timing::placed_form_overridden(state, kernel, scope, me, base)
+    };
+    let Some(form) = form else { return Ok(()) };
     if ti4_engine_core::query::fleet::remaining_all(eff.state(), scope, me, form) > 0 {
         fx::place_unit(eff.state(), me, system, None, form);
+        upgrade_forms(eff, me, scope);
     }
     Ok(())
 }
@@ -239,6 +253,27 @@ mod tests {
             .with(Key::Winner, Val::Seat(Seat(0)))
             .with_list(Key::Destroyed, List::Units([(Seat(1), Unit::DreadnoughtI), (Seat(1), Unit::DestroyerI)].into_iter().collect()));
         (s, f, p)
+    }
+
+    /// Package W3: the form a Mentak seat places for a cruiser (Salvage Operations, Ipswitch) is the hook table's: the plain cruiser,
+    /// Cruiser II with the technology, the Corsair with The Table's Grace on top of it.
+    #[test]
+    fn the_form_a_mentak_seat_places_for_a_cruiser_follows_the_hook_table() {
+        use ti4_engine_core::generated::{Breakthrough, Technology as T, UnitBaseType};
+        use ti4_engine_core::kernel::Kernel;
+        let (mut s, k) = table(&[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan]);
+        let kernel = {
+            let mut hooks = ti4_engine_core::hooks::HookTable::new();
+            crate::cc_ground::mentak::query::register(&mut hooks);
+            Kernel { hooks, ..k }
+        };
+        let scope = ti4_engine_core::tables::Scope(u32::MAX);
+        let form = |s: &CoreState| crate::cd_registry::yin::timing::placed_form_overridden(s, &kernel, scope, Seat(0), UnitBaseType::Cruiser);
+        assert_eq!(form(&s), Some(Unit::CruiserI));
+        s.players_mut().edit(0).tech.owned.insert(T::CruiserII);
+        assert_eq!(form(&s), Some(Unit::CruiserII));
+        s.players_mut().edit(0).cards.breakthrough = Some(Breakthrough::TheTablesGrace);
+        assert_eq!(form(&s), Some(Unit::Corsair));
     }
 
     #[test]

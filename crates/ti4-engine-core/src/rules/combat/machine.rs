@@ -82,13 +82,16 @@ pub struct Env {
     pub alpha: Vec<Unit>,
     pub retreat_cause: Code,
     pub retreat_pool: Code,
-    /// A retreat the core does not carry (flip, Voltron, Floating Factory, Last Bastion, a flagship that
-    /// raises an event on arrival, Dark Energy Tap).
+    /// A retreat the core does not carry (the Last Bastion, a flagship that raises an event on arrival). The dual-form units, the
+    /// Voltron and the Floating Factory are carried by the retreat window since package W3.
     pub retreat_unported: bool,
     /// Per side (attacker, defender): the neighbours of the system a fleet may retreat to as far as the movement
     /// rules go, and whether the side may retreat at all (Intercept, the Mahact hero).
     pub neighbors: [Vec<(System, bool)>; 2],
     pub may_retreat: [bool; 2],
+    /// Per side: Dark Energy Tap is owned ("your ships can retreat into adjacent systems that do not contain other players' units, even
+    /// if you have no units or planets there": the holder's destinations are the union of the two rules).
+    pub det: [bool; 2],
     /// Per side: Duranium Armor is owned; the Yin (Devotion) hits-after-a-round module is in the game.
     pub duranium: [bool; 2],
     pub devotion: bool,
@@ -221,7 +224,7 @@ impl Machine {
             return Vec::new();
         }
         let rd = Self::rd(s, k);
-        self.env.neighbors[side]
+        let mut spots: Vec<System> = self.env.neighbors[side]
             .iter()
             .filter(|(_, enter)| *enter)
             .map(|(n, _)| *n)
@@ -232,7 +235,18 @@ impl Machine {
                 }
                 cell.units.iter().any(|u| u.owner() == seat) || qboard::controls_a_planet_in(s, *n, seat)
             })
-            .collect()
+            .collect();
+        // Dark Energy Tap: the holder alone adds the neighbours with no other player's unit at all (ships or ground forces), after the others.
+        if self.env.det[side] {
+            for (n, _) in self.env.neighbors[side].iter().filter(|(_, enter)| *enter) {
+                let foreign = s.board().sys(*n).units.iter().any(|u| u.owner() != seat)
+                    || super::planets_of_sorted(s, *n).iter().any(|p| s.board().planet(*p).units.iter().any(|u| u.owner() != seat));
+                if !foreign && !spots.contains(n) {
+                    spots.push(*n);
+                }
+            }
+        }
+        spots
     }
 
     /// The presentation at the top of every turn of the loop.
@@ -382,10 +396,17 @@ impl Machine {
         true
     }
 
-    fn begin(&self, sx: &mut Sx<'_>, round: u32) {
+    fn begin(&mut self, sx: &mut Sx<'_>, round: u32) {
         let e = &self.env;
         let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce, round_seq_listens: e.round_seq_listens });
         let _ = w.step(sx);
+        // A unit that took its ship form joins the fleet the end announcement measures the losses against.
+        for (owner, form) in w.flipped {
+            if let Some((_, fleet)) = self.fields.at_start.iter_mut().find(|(s, _)| *s == owner) {
+                fleet.push(form);
+                fleet.sort_unstable();
+            }
+        }
     }
 
     fn barrage(&mut self, sx: &mut Sx<'_>, round: u32) {

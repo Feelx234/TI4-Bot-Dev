@@ -5686,6 +5686,37 @@ mod tests {
         assert_eq!(state.player(&player).unwrap().tactic_tokens, tokens);
     }
 
+    /// Found by the census of `tools/rulebot/golden-lent.json` (a Mahact at the table): the Thunder's Edge Warfare asks the user the
+    /// reinforcements, which the core counted without the tokens in a Mahact fleet pool (one too many). Like the Warfare primary,
+    /// the core window declines with such a token, counted.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn thunders_edge_warfare_declines_with_a_token_in_a_mahact_pool() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "mahact")], POK);
+        let player = PlayerId::new("a");
+        let hub = plain_hub();
+        state.phase = ti4_model::state::Phase::Action;
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        // a token of `a` in the fleet pool of the Mahact seat `b`
+        state.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
+        assert!(state.tokens_held_by_mahact(&player) > 0);
+        let keep = held_distribution(&state, &player);
+        let system = hub.galaxy.system_ids()[0].to_owned();
+        with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(vec![keep, system])));
+            let _ = primary(&mut state, ContentStore::embedded(), POK, Some(&hub.galaxy), &mut table, &player, "te6warfare").unwrap();
+        });
+        let r = report();
+        let _ = take_report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        assert_eq!(crate::dual::local_windows("strategy_cards::te6_warfare"), (0, 1), "{:?}", r.windows);
+    }
+
     /// The tactic/fleet/strategy distribution the player holds, as a redistribution answer id.
     fn held_distribution(state: &GameState, player: &PlayerId) -> String {
         let seat = state.player(player).unwrap();

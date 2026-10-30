@@ -60,6 +60,9 @@ pub enum Ask {
     Wrath,
     /// Munitions Reserves after the roll: pay 2 trade goods to reroll missed dice.
     MunitionsRoll,
+    /// Supercharge (Naaz): "at the start of a combat round, you may exhaust this card to apply +1 to the results of all of your
+    /// units' combat rolls during this combat round".
+    Supercharge,
 }
 
 /// Which card asked the per-die reroll question.
@@ -101,6 +104,8 @@ pub enum Opt {
     Kenara { count: u8 },
     /// Munitions Reserves: `choose` the dice one by one, or reroll all `misses` missed dice.
     Munitions { choose: bool, misses: u8 },
+    /// Exhaust Supercharge.
+    UseSupercharge,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -119,4 +124,5 @@ pub enum Subtype {
     WarFunding,
     WrathBump,
     MunitionsRoll,
+    Supercharge,
 }

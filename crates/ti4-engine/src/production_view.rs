@@ -36,18 +36,18 @@ pub struct ProdView<'a> {
 
 /// Whether the producing seat or a seat that can act on it holds a faction whose production hooks the typed
 /// window does not carry yet, for the windows that pay and place themselves (the invasion's custodians and toll
-/// payments): the seat's own (Deepwrought oceans, Keleres commodities, Naaz mechs, Mentak's Corsair form) and the
+/// payments): the seat's own (Deepwrought oceans, Keleres commodities, Naaz mechs; Mentak's Corsair form is a unit the
+/// buildable list names since package W3) and the
 /// cross-seat ones (Yssaril's borrowed agents, Nomad's agent watch; Argent's agent is an ability of the core
 /// table).
 pub(crate) fn unported_window(state: &GameState, player: &PlayerId) -> bool {
-    use crate::factions::{deepwrought, keleres, mentak, naaz, nomad, yssaril};
+    use crate::factions::{deepwrought, keleres, naaz, nomad, yssaril};
     let own = [
         deepwrought::MODULE.alias,
         keleres::MODULE_M.alias,
         keleres::MODULE_X.alias,
         keleres::MODULE_A.alias,
         naaz::MODULE.alias,
-        mentak::MODULE.alias,
     ];
     let cross = [nomad::MODULE.alias, yssaril::MODULE.alias];
     state.player(player).is_some_and(|p| own.contains(&p.faction.as_str()))
@@ -61,15 +61,6 @@ pub(crate) fn unported_triggered(state: &GameState, player: &PlayerId) -> bool {
     use crate::factions::keleres;
     let keleres = [keleres::MODULE_M.alias, keleres::MODULE_X.alias, keleres::MODULE_A.alias];
     unported_window(state, player) || state.players.iter().any(|p| keleres.contains(&p.faction.as_str()))
-}
-
-/// The same question for the production window and its payment steps, which follow the table's abilities and carry
-/// the faction hooks of the seats of Deepwrought, Keleres, Naaz, Nomad and Yssaril (the lockstep tests
-/// `the_tier_w_factions_run_in_lockstep_on_the_core_production_window` and the golden dual). Left to the string: the
-/// Mentak's Corsair form (the Last Bastion's Icon and the Crimson card are spots of the core window since B12).
-pub(crate) fn unported_production(state: &GameState, player: &PlayerId) -> bool {
-    use crate::factions::mentak;
-    state.player(player).is_some_and(|p| p.faction.as_str() == mentak::MODULE.alias)
 }
 
 /// The kernel of the production reads: the seams of the laws and relics, and the bridge to the legacy
@@ -270,15 +261,10 @@ const fn engine_spend(s: ti4_engine_core::query::economy::Spend) -> crate::produ
 /// `production::buildable_for` over the typed tables: what a seat may produce, as unit ids. The gates and
 /// the upgrade rules are the string's (a war sun needs its technology unless the faction prints one;
 /// an owned upgrade replaces the unit; mechs and flagships exist only as the faction's own). `None`:
-/// something is not in the tables, or a module could rename a form (Mentak's Corsair, whose seats the
-/// view declines anyway).
+/// something is not in the tables.
 #[must_use]
 pub fn buildable_for(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Option<Vec<String>> {
     use ti4_engine_core::query::tech as q;
-    // Mentak's Corsair form override (`unit_form_override`) is not a core hook yet.
-    if state.player(player).is_some_and(|p| p.faction.as_str() == crate::factions::mentak::MODULE.alias) {
-        return None;
-    }
     let seat = state.player(player)?;
     let faction: ti4_engine_core::generated::Faction = typed(seat.faction.as_str())?;
     let owned = crate::technology_core::owned_set(seat)?;
@@ -298,7 +284,11 @@ pub fn buildable_for(state: &GameState, content: &ContentStore, sources: SourceS
             .or(own)
             .map(|u| IdStr::as_str(u).to_owned())
             .or_else(|| (!matches!(base_id, "mech" | "flagship")).then(|| base_id.to_owned()));
-        out.extend(chosen);
+        // A module may name another form for this base type (`unit_form_override`: Mentak's Corsair, The Table's Grace); the
+        // core hook of the Mentak crate is the same rule (`unit_form_override` of `cc_ground::mentak::query`).
+        let overridden = crate::factions::hooks_strategy::unit_form_override(state, content, sources, player, base_id, chosen.as_deref().unwrap_or_default())
+            .map(|form| form.as_str().to_owned());
+        out.extend(overridden.or(chosen));
     }
     Some(out)
 }

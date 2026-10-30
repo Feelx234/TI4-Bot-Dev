@@ -338,6 +338,15 @@ pub fn place_unit(s: &mut CoreState, who: Seat, system: System, planet: Option<P
     }
 }
 
+/// `supply::stage_naaz_mech_placed`: a Naaz mech put on the board announces itself (`NAAZ_MECH_PLACED`), so Absolute Synergy
+/// can resolve before the next action. Other units and other factions stage nothing.
+pub fn stage_naaz_mech_placed(s: &mut CoreState, who: Seat, system: System, unit: Unit) {
+    if unit == Unit::Eidolon && s.players().by_seat(who).is_some_and(|p| p.faction == crate::generated::Faction::TheNaazRokhaAlliance) {
+        let payload = Payload::new().with(Key::Player, Val::Seat(who)).with(Key::System, Val::System(system));
+        stage(s, event(EventKind::NaazMechPlaced, payload));
+    }
+}
+
 /// Remove the first unit of this type and owner from a system's space area or a planet; whether one
 /// was removed. Order of the others is kept.
 pub fn remove_unit(s: &mut CoreState, who: Seat, system: System, planet: Option<Planet>, unit: Unit) -> bool {

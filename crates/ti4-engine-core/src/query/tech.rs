@@ -625,6 +625,19 @@ pub fn unit_form(core: &CoreState, scope: Scope, roster: &UnitRoster, seat: Seat
         .or_else(|| generic_unit(scope, base))
 }
 
+/// `fleet::other_form`: the other form of a dual-form unit. The Naaz mech and the Z-Grav Eidolon name each other (the
+/// strings `naaz_mech` / `naaz_mech_space`; same base type, same faction); every other unit, the Absol Eidolon (its
+/// ground form is the plain Eidolon's replacement text, there is no `absol_naaz_mech`) and the Eidolon Maximum
+/// (`naaz_voltron`: ship and ground force in one record) have none.
+#[must_use]
+pub const fn other_form(unit: Unit) -> Option<Unit> {
+    match unit {
+        Unit::Eidolon => Some(Unit::ZGravEidolonNaazMechSpace),
+        Unit::ZGravEidolonNaazMechSpace => Some(Unit::Eidolon),
+        _ => None,
+    }
+}
+
 // --- scars, faction technologies, starting technologies ----------------------------------------
 
 /// `entropic_scars::is_scar`.

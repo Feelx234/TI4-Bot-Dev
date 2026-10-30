@@ -322,6 +322,7 @@ pub fn l1z1x_agent(core: &mut CoreState, scope: Scope, target: Seat, system: Sys
         let list = &mut core.board_mut().planet_mut(*planet).units;
         if let Some(at) = list.as_slice().iter().position(infantry) {
             list.as_mut_slice()[at] = Piece::new(mech, target);
+            crate::kernel::fx::stage_naaz_mech_placed(core, target, system, mech);
             return true;
         }
     }

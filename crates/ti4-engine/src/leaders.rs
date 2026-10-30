@@ -2992,6 +2992,22 @@ mod tests {
             let units = state.system_state(&system).planet_units.get(&lodor).cloned().unwrap_or_default();
             assert_eq!(units.len(), 2);
             assert!(units.iter().any(|u| u.type_id.as_str().ends_with("mech")), "{units:?}");
+
+            // I48S for a Naaz seat (package W3): the mech that replaces the infantry announces itself (`NAAZ_MECH_PLACED`), on both sides.
+            let mut state = seated_clean(&[("a", "l1z1x"), ("b", "naaz")]);
+            holding(&mut state, "l1z1xagent", LeaderStatus::Readied);
+            crate::fixtures::put_on_planet(&mut state, &system, &lodor, "infantry", &PlayerId::new("b"), 2);
+            state.active = Some(PlayerId::new("b"));
+            state.active_system = Some(system.clone());
+            assert!(
+                crate::leaders_core::l1z1x_agent(&mut state.clone(), POK, &player(), &PlayerId::new("b"), &system, "naaz_mech").is_some(),
+                "the core takes the Naaz mech"
+            );
+            let staged_before = crate::supply::staged_event_types(&state);
+            assert!(use_it(&mut state, &LeaderId::new("l1z1xagent")));
+            let units = state.system_state(&system).planet_units.get(&lodor).cloned().unwrap_or_default();
+            assert!(units.iter().any(|u| u.type_id.as_str() == "naaz_mech"), "{units:?}");
+            assert_eq!(crate::supply::staged_event_types(&state).len(), staged_before.len() + 1, "{:?}", crate::supply::staged_event_types(&state));
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
@@ -3134,14 +3150,14 @@ mod tests {
             crate::technology::apply_unit_upgrades(&mut formed, content, POK, &player());
             assert!(!formed.identical(&state), "the owned upgrade changes the units' form");
             assert!(crate::leaders_core::jolnar_hero(&mut state, content, &player(), POK, &none).is_none());
-            // I48S: the Naaz mech announces its placement, and a favour keeps a diplomacy promise: both string.
+            // I48S: a favour keeps a diplomacy promise: string (the Naaz mech's announcement is the core's since package W3).
             let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
             let system = ti4_model::id::SystemId::new("26");
             let take = |state: &mut GameState, mech: &str| {
                 crate::leaders_core::l1z1x_agent(state, POK, &player(), &PlayerId::new("b"), &system, mech)
             };
             assert!(take(&mut state.clone(), "sol_mech").is_some());
-            assert_eq!(take(&mut state.clone(), "naaz_mech"), None, "the Naaz mech placement is announced by the string side");
+            assert!(take(&mut state.clone(), "naaz_mech").is_some(), "the Naaz mech placement is announced by the core window");
             state.diplomacy.enabled = true;
             assert_eq!(take(&mut state, "sol_mech"), None, "a favour for another seat keeps a promise");
             // A Cabal at the table: the replenish event is the string side's.
@@ -3156,8 +3172,8 @@ mod tests {
         let _ = take_report();
     }
 
-    /// The documented bails of Xxekir Grom (B7-bail-10): a question inside a battle, diplomacy promises, a Naaz mech
-    /// (its placement is announced), a unit form the core tables do not know. The string arm answers alone.
+    /// The documented bails of Xxekir Grom (B7-bail-10): a question inside a battle, diplomacy promises, a unit form the
+    /// core tables do not know. The string arm answers alone. (A Naaz mech is announced by the core window since package W3.)
     #[test]
     fn xxekir_grom_bails_where_the_core_holds_less() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
@@ -3190,7 +3206,7 @@ mod tests {
                 mech: Some((ti4_model::id::UnitTypeId::new(form), 1)),
             };
             assert!(crate::leaders_core::xxcha_hero_te(&mut state.clone(), &player(), &good, &none).is_some(), "the core takes the position");
-            assert!(crate::leaders_core::xxcha_hero_te(&mut state.clone(), &player(), &with_mech("naaz_mech".to_owned()), &none).is_none(), "the Naaz mech placement is announced");
+            assert!(crate::leaders_core::xxcha_hero_te(&mut state.clone(), &player(), &with_mech("naaz_mech".to_owned()), &none).is_some(), "the Naaz mech is announced by the core window");
             assert!(crate::leaders_core::xxcha_hero_te(&mut state.clone(), &player(), &with_mech(["no", "such", "form"].join("_")), &none).is_none());
         });
         let r = report();

@@ -53,7 +53,7 @@ fn trade_good_worth(s: &CoreState, who: Seat, worth: i64) -> i64 {
 }
 
 /// The Table's Grace: the Corsair stands in for Cruiser II for the holder.
-fn unit_form_override(s: &CoreState, _: &Kernel, who: Seat, base: UnitBaseType, chosen: Unit) -> Option<Unit> {
+pub fn unit_form_override(s: &CoreState, _: &Kernel, who: Seat, base: UnitBaseType, chosen: Unit) -> Option<Unit> {
     (base == UnitBaseType::Cruiser
         && chosen == Unit::CruiserII
         && is_faction(s, who, Faction::TheMentakCoalition)

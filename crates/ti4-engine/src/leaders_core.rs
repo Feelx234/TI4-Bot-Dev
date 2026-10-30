@@ -26,7 +26,7 @@ mod real {
     use ti4_model::content_types::SourceSet;
 
     use crate::core_adapter::typed;
-    use crate::dual::{CoreWindow, Run};
+    use crate::dual::{CoreWindow, Run, Why};
     use crate::dual_window::Recording;
     use crate::generated::IdStr;
     use crate::core_sync::{Footprint, Sources};
@@ -48,19 +48,19 @@ mod real {
 
     /// `leaders::ready`.
     pub fn ready(gs: &mut GameState, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
-        let l = typed::<Leader>(leader.as_str())?;
+        let l = typed::<Leader>(leader.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, player, |core, who| rules::ready(core, who, l))
     }
 
     /// `leaders::exhaust`.
     pub fn exhaust(gs: &mut GameState, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
-        let l = typed::<Leader>(leader.as_str())?;
+        let l = typed::<Leader>(leader.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, player, |core, who| rules::exhaust(core, who, l))
     }
 
     /// `leaders::purge`.
     pub fn purge(gs: &mut GameState, player: &PlayerId, leader: &LeaderId) -> Option<bool> {
-        let l = typed::<Leader>(leader.as_str())?;
+        let l = typed::<Leader>(leader.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, player, |core, who| rules::purge(core, who, l))
     }
 
@@ -83,7 +83,7 @@ mod real {
 
     /// `leaders::end_of_round`.
     pub fn end_of_round(gs: &mut GameState) -> Option<Vec<PlayerId>> {
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seats = crate::core_sync::with_core(gs, &mut cx, Sources::default(), WRITES, |core, _| {
             rules::end_of_round(core).as_slice().to_vec()
         })
@@ -98,14 +98,19 @@ mod real {
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Map, Slice::Pending], &[Slice::Board]);
     const XXCHA_NO_MAP: Footprint =
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board]);
+    /// Xxekir Grom places units (a Naaz mech is announced: the staged event waits in the pending slice).
+    const XXCHA_HERO: Footprint =
+        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board, Slice::Pending]);
     const HACAN: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
     const BOARD: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Board]);
+    /// [`BOARD`] for the writes that announce a Naaz mech (the staged event waits in the pending slice).
+    const BOARD_STAGED: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board, Slice::Pending]);
 
     /// Jace X. 4th Air Legion.
     pub fn sol_hero(gs: &mut GameState, player: &PlayerId) -> Option<bool> {
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let who = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let who = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_hero(core, who)).ok()
     }
 
@@ -123,13 +128,13 @@ mod real {
             typed::<ti4_engine_core::generated::System>(system.as_str())?,
             typed::<ti4_engine_core::generated::Planet>(planet.as_str())?,
         );
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let who = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let who = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::sol_commander(core, who, system, planet, unit, count)).ok()
     }
 
-    /// I48S: the swap of one infantry of `target` for `mech` (a unit form without a core `Unit`, the Naaz mech
-    /// whose placement is announced, and a favour that keeps a diplomacy promise stay with the string arm).
+    /// I48S: the swap of one infantry of `target` for `mech` (a unit form without a core `Unit` and a favour that keeps a
+    /// diplomacy promise stay with the string arm; a Naaz mech is announced by the core rule since package W3).
     pub fn l1z1x_agent(
         gs: &mut GameState,
         sources: SourceSet,
@@ -138,17 +143,25 @@ mod real {
         system: &ti4_model::id::SystemId,
         mech: &str,
     ) -> Option<bool> {
-        if mech == "naaz_mech" || (gs.diplomacy.enabled && target != player) {
+        if gs.diplomacy.enabled && target != player {
+            crate::dual::note_bail_here("a favour that keeps a diplomacy promise");
             return None;
         }
         let (mech, system) = (typed::<ti4_engine_core::generated::Unit>(mech)?, typed::<ti4_engine_core::generated::System>(system.as_str())?);
         let scope = ti4_engine_core::tables::Scope(u32::try_from(crate::core_adapter::scope(sources).0).ok()?);
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(target.as_str())?;
-        crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD, |core, _| rules::l1z1x_agent(core, scope, seat, system, mech)).ok()
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(target.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let mut staged = Vec::new();
+        let swapped = crate::core_sync::with_core(gs, &mut cx, Sources::default(), BOARD_STAGED, |core, _| {
+            let swapped = rules::l1z1x_agent(core, scope, seat, system, mech);
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            swapped
+        })
+        .ok()?;
+        crate::dual_window::apply_staged(gs, &r, &staged)?;
+        Some(swapped)
     }
 
-    use crate::dual_window::outside;
 
     /// Whether a commodity change at this table causes events the core does not hold: a Cabal (its replenish
     /// note), a siphoning Firmament plot, a Trade Agreement in play.
@@ -170,11 +183,12 @@ mod real {
     /// The core half of `leaders::xxcha_agent`. `None` when the position is outside what the core holds (see
     /// [`outside`]; a map on one side only).
     pub fn xxcha_agent(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let has_map = galaxy.is_some();
@@ -185,55 +199,61 @@ mod real {
             }
             Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
         })
-        .ok()??
-        .ok()?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
     /// The core half of Xxekir Grom (`xxchahero-te`): up to four PDS or mechs onto controlled planets, each planet
-    /// readied. `None` as for [`xxcha_agent`], and for a unit form the tables do not know or the Naaz mech (its
-    /// placement is announced, which the core window does not do).
+    /// readied. `None` as for [`xxcha_agent`], and for a unit form the tables do not know (a Naaz mech is announced by the
+    /// window since package W3).
     pub fn xxcha_hero_te(gs: &mut GameState, player: &PlayerId, facts: &crate::leaders::HeroTeFacts, script: &Recording) -> Option<CoreWindow<bool>> {
         use ti4_engine_core::generated::{Planet, System, Unit};
         use ti4_engine_core::rules::leader_windows::XxchaHeroTe;
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let form = |f: &Option<(ti4_model::id::UnitTypeId, usize)>| -> Option<Option<(Unit, usize)>> {
             match f {
                 None => Some(None),
-                Some((unit, _)) if unit.as_str() == "naaz_mech" => None,
-                Some((unit, left)) => Some(Some((typed::<Unit>(unit.as_str())?, (*left).min(usize::from(XxchaHeroTe::MOST))))),
+                Some((unit, left)) => Some(Some((typed::<Unit>(unit.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, (*left).min(usize::from(XxchaHeroTe::MOST))))),
             }
         };
         let (pds, mech) = (form(&facts.pds)?, form(&facts.mech)?);
         let planets: Vec<(System, Planet)> = facts
             .planets
             .iter()
-            .map(|(s, p)| Some((typed::<System>(s.as_str())?, typed::<Planet>(p.as_str())?)))
+            .map(|(s, p)| Some((typed::<System>(s.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, typed::<Planet>(p.as_str()).why(crate::dual::reason::UNKNOWN_ID)?)))
             .collect::<Option<_>>()?;
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = Kernel::plain();
         let before = gs.clone();
         let mut driver = Driver::new(XxchaHeroTe::new(seat, &planets, pds, mech), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
-        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), XXCHA_NO_MAP, |core, _| {
-            crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
+        let mut staged = Vec::new();
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), XXCHA_HERO, |core, _| {
+            let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
         })
-        .ok()?
-        .ok()?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        crate::dual_window::apply_staged(gs, &r, &staged)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
     /// The core half of `leaders::l1z1x_hero` (The Helmsman). `None` as for [`xxcha_agent`].
     pub fn l1z1x_hero(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let has_map = galaxy.is_some();
@@ -244,9 +264,10 @@ mod real {
             }
             Some(crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script))
         })
-        .ok()??
-        .ok()?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
@@ -256,7 +277,8 @@ mod real {
     /// position (the units are not in the form the owned upgrades demand: the string re-forms them after a swap
     /// and the core does not), and as [`xxcha_agent`] otherwise.
     pub fn jolnar_hero(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let mut formed = gs.clone();
@@ -271,31 +293,33 @@ mod real {
             .collect();
         let mut by_alias: Vec<_> = ti4_engine_core::generated::Technology::ALL.to_vec();
         by_alias.sort_by_key(|t| t.as_str());
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let mut driver = Driver::new(RinHero::new(seat, order, by_alias), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLAYERS, |core, _| {
             crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
         })
-        .ok()?
-        .ok()?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
     /// The core half of `leaders::hacan_agent`. `None` where a commodity change causes events the core does not
     /// hold: a siphoning Firmament plot, a Cabal at the table, a Trade Agreement in play.
     pub fn hacan_agent(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         if replenish_causes_events(gs) {
+            crate::dual::note_bail_here("a replenishment that causes events the core does not hold (Cabal, a siphoning plot, a Trade Agreement)");
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
         let mut driver = Driver::new(HacanAgent::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
@@ -304,9 +328,9 @@ mod real {
                 rendered.details.insert("commodities".to_owned(), crate::strategy_cards::commodity_standing(&before, content, player));
             })
         })
-        .ok()?
-        .ok()?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 

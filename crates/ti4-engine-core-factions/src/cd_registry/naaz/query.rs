@@ -64,7 +64,7 @@ pub fn unit_roll_modifier(s: &CoreState, _: &Kernel, unit: CombatUnit) -> i64 {
     i64::from(stamped)
 }
 
-fn supercharge(q: Q<'_>, site: &RollSite, _: i64) -> Delta {
+pub fn supercharge(q: Q<'_>, site: &RollSite, _: i64) -> Delta {
     if !matches!(site.kind, RollKind::Combat | RollKind::Ground) {
         return Delta::None;
     }

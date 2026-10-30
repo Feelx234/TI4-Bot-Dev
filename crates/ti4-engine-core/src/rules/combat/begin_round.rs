@@ -2,12 +2,13 @@
 //!
 //! The round counter and the presentation are set, last round's hit and dice records are cleared, round 1
 //! keeps the barrage's starting fleet, and `SPACE_COMBAT_STARTED` (round 1) and `COMBAT_ROUND_STARTED` are
-//! announced. The window carries its facts in fields (package B3's approach): `fleet_at_start` is not touched
-//! here because the round-1 form flip that would change it is a bail.
+//! announced. In round 1 a ground-form dual-form unit in the space area takes its ship form ("at the start of a space combat",
+//! the Naaz Eidolon; [`BeginRound::flipped`] tells the machine, which adds the forms to the fleet of the start), and after the
+//! announcement the faction effects of the start of a round run for each participant (the hook `space_combat_round_started`:
+//! Naaz repairs the Eidolon Maximum and offers Supercharge; the question rides on the tape of the step).
 //!
 //! Not covered (the adapter returns `None`, the string result stands; see `dual_window::begin_round`):
-//! diplomacy enabled (the attack-promise evaluation), a Naaz or Letnev seat (Voltron repair, Supercharge, Munitions), a dual-form unit in
-//! the space area (Eidolon flip), and a self-repairing flagship damaged in the system.
+//! diplomacy enabled (the attack-promise evaluation), a Letnev seat (Munitions Reserves, the self-repairing flagship).
 
 use super::{ships_of, Rd};
 use crate::choice::{Choice, Pick};
@@ -40,16 +41,18 @@ pub struct Facts {
     pub round_seq_listens: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct BeginRound {
     pub f: Facts,
+    /// The dual-form units that took their ship form at the start of the combat: `(owner, new form)`.
+    pub flipped: Vec<(Seat, crate::generated::Unit)>,
     stage: Stage,
 }
 
 impl BeginRound {
     #[must_use]
     pub const fn new(f: Facts) -> Self {
-        Self { f, stage: Stage::Start }
+        Self { f, flipped: Vec::new(), stage: Stage::Start }
     }
 }
 
@@ -66,6 +69,7 @@ impl Window for BeginRound {
         }
         let f = self.f;
         sx.state.meta_mut().combat_round_seq = sx.state.meta().combat_round_seq.saturating_add(1);
+        let scope = Rd::new(sx.state, sx.kernel).scope();
         let rd = Rd::new(sx.state, sx.kernel).with_blanked(reach::blanked(sx.state));
         let mut round_start = ships_of(rd, f.attacker, f.system);
         round_start.extend(ships_of(rd, f.defender, f.system));
@@ -82,6 +86,11 @@ impl Window for BeginRound {
             p.barrage_dice.clear();
         }
         p.round_start = round_start;
+        if f.round == 1 {
+            // "At the start of a space combat" a ground-form dual-form unit in the space area takes its ship form, so it fights
+            // (`fleet::flip_to_ship_forms`, before the announcement).
+            self.flipped = crate::kernel::fx_strategy::flip_space_area(sx.state, scope, &[f.attacker, f.defender], f.system, true);
+        }
         let base = Payload::new()
             .with(Key::System, Val::System(f.system))
             .with(Key::Attacker, Val::Seat(f.attacker))
@@ -98,6 +107,11 @@ impl Window for BeginRound {
                 base
             };
             let _ = sx.emit(fx::event(EventKind::CombatRoundStarted, announced));
+        }
+        // The faction offers made at the round's opening window, before any dice, for each participant.
+        for who in [f.attacker, f.defender] {
+            let (k, mut cx) = (sx.kernel, sx.cx());
+            k.hooks.general.space_combat_round_started(&mut cx, who);
         }
         self.stage = Stage::Done;
         Next::Done

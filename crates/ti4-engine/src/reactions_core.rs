@@ -315,10 +315,10 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
             table.facts.set_reach(who, system, neighbours);
         }
     });
-    for (who, system, destinations) in &script.withdraw {
+    for (who, system, round_seq, destinations) in &script.withdraw {
         let (Some(who), Some(system)) = (r.seat(who), <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(system)) else { continue };
         let destinations = destinations.iter().filter_map(|d| <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(d)).collect();
-        table.facts.set_withdraw(who, system, destinations);
+        table.facts.set_withdraw(who, system, *round_seq, destinations);
     }
     table.facts.reroll = REROLL.with(|v| v.borrow().clone());
     for (a, b, adjacent) in &script.adjacent {

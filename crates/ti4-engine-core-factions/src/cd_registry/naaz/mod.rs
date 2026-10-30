@@ -6,6 +6,7 @@ use ti4_engine_core::hooks::HookTable;
 
 pub mod observe;
 mod offer;
+pub use offer::space_round_started;
 pub mod query;
 
 /// Every tier, in the order movement, query, observe, offer.

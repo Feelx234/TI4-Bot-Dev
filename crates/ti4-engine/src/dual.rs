@@ -1277,7 +1277,7 @@ pub fn run_dual_window<R: PartialEq + Debug>(
         let sig = recording.signature();
         with_report(|r| *r.nested.entry(format!("{label} | {sig}")).or_default() += 1);
     }
-    let core_run = crate::dual_window::with_label(label, || core(&mut core_state, &recording));
+    let core_run = crate::dual_window::with_label(label, || reasoned(label, || core(&mut core_state, &recording)));
     let Some(core_run) = core_run else {
         note_window(label, false);
         crate::lend_table::probe(label, &core_state, state);
@@ -1310,17 +1310,98 @@ pub(crate) fn note_plain<'a>(label: &str, names: impl IntoIterator<Item = &'a st
     });
 }
 
+thread_local! {
+    /// How many reasons this thread noted ([`note_bail`]): a window whose core half returns `None` with the same count as
+    /// before it ran bailed without saying why ([`NO_REASON`]).
+    static REASONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The reason the census shows for a core half that returned `None` without naming one (package W0 of
+/// docs/todo/lent-bodies.md): no census of the golden games may print it, and a window adapter that does is a bug of the
+/// adapter, not a lend. `tools/engine_core/lent_census.py` fails on it.
+pub const NO_REASON: &str = "NO REASON RECORDED";
+
+/// The reasons the window adapters share (package W0): every `None` of an adapter names one of these or its own.
+pub(crate) mod reason {
+    pub const NO_TABLES: &str = "the position has more than 16 owners or a value the codecs refuse";
+    pub const NO_SEAT: &str = "the player has no seat in the typed tables";
+    pub const NOT_LENDABLE: &str = "the typed state could not be lent (a value the codecs refuse)";
+    pub const DRIVER_REFUSED: &str = "the core window refused the recorded answer or stage";
+    pub const STAGED_UNAPPLIED: &str = "a staged event the string side cannot take back";
+    pub const EVENT_UNTYPED: &str = "an event the core window emitted has no string form";
+    pub const UNKNOWN_ID: &str = "an id the core tables do not know";
+    pub const NEUTRAL: &str = "a neutral side";
+    pub const COUNT: &str = "a count the window cannot hold";
+}
+
+/// How many reasons this thread has counted (a test compares it before and after a core half that bailed).
+#[cfg(test)]
+pub(crate) fn reasons_counted() -> u64 {
+    REASONS.with(std::cell::Cell::get)
+}
+
 /// Count a bail-out of a window adapter under `label` and its `why` (shown in the report next to the window's
 /// own `compared` and `bailed` counts, which stay on the plain label).
 pub fn note_bail(label: &str, why: &str) {
+    REASONS.with(|c| c.set(c.get() + 1));
     with_report(|r| r.windows.entry(format!("{label} [bail: {why}]")).or_default().bailed += 1);
+}
+
+/// Count a position the string runs bare because a gate of the call site excludes it from the window (no window opened, so
+/// nothing is `bailed` under the plain label): `"<label> [gate: <why>]"`.
+pub fn note_gate(area: Area, label: &str, why: &str) {
+    if backend(area) == Backend::Dual {
+        with_report(|r| r.windows.entry(format!("{label} [gate: {why}]")).or_default().bailed += 1);
+    }
+}
+
+/// Run the core half `body` of the window `label`; when it bails (`None`) without a reason, count [`NO_REASON`].
+pub(crate) fn reasoned<T>(label: &str, body: impl FnOnce() -> Option<T>) -> Option<T> {
+    let before = REASONS.with(std::cell::Cell::get);
+    let out = body();
+    if out.is_none() && REASONS.with(std::cell::Cell::get) == before {
+        note_bail(label, NO_REASON);
+    }
+    out
+}
+
+/// Count a bail with the label of the window whose core half is running.
+pub(crate) fn note_bail_here(why: &str) {
+    note_bail(crate::dual_window::current_label(), why);
+}
+
+/// `Option`/`Result` into a reasoned `None`: `x.why("the position has more than 16 owners")?`.
+pub(crate) trait Why<T> {
+    /// `self` as an `Option`; on `None` / `Err`, count the bail with `why` under the running window's label.
+    fn why(self, why: &str) -> Option<T>;
+}
+
+impl<T> Why<T> for Option<T> {
+    fn why(self, why: &str) -> Option<T> {
+        if self.is_none() {
+            note_bail_here(why);
+        }
+        self
+    }
+}
+
+impl<T, E> Why<T> for Result<T, E> {
+    fn why(self, why: &str) -> Option<T> {
+        match self {
+            Ok(v) => Some(v),
+            Err(_) => {
+                note_bail_here(why);
+                None
+            }
+        }
+    }
 }
 
 /// The question half of a stage window (`Window::ask_of`): the string window's pending question, compared
 /// with the one the core window puts at the same position. `core` returns `None` when the position holds
 /// something the core cannot express (counted as a bail-out under `label`, nothing compared).
 pub fn run_dual_ask(area: Area, label: &str, string: Option<&Choice>, core: impl FnOnce() -> Option<Choice>) {
-    let Some(core) = core() else {
+    let Some(core) = crate::dual_window::with_label(label, || reasoned(label, core)) else {
         note_window(label, false);
         return;
     };
@@ -1514,6 +1595,30 @@ pub(crate) mod tests {
         assert_eq!(m.backend(Area::Driver), Backend::Core);
         assert!(AreaMask::parse("nope=core", AreaMask::STRING).is_err());
         assert_eq!(with_mask(AreaMask::all(Backend::Dual), || mask().backend(Area::Kernel)), Backend::Dual);
+    }
+
+    /// Package W0: a core half that bails (`None`) always leaves a reason in the report: its own when it names one
+    /// (`note_bail`, `Why`), `NO_REASON` otherwise, so a census can fail on a silent bail.
+    #[test]
+    fn a_core_half_that_bails_always_leaves_a_reason() {
+        let _guard = serial();
+        let _ = take_report();
+        let mut s = state();
+        let run = |s: &mut GameState, core: fn(&mut GameState, &crate::dual_window::Recording) -> Option<CoreWindow<u8>>| {
+            with_mask(AreaMask::all(Backend::Dual), || run_dual_window(Area::Driver, "w0::probe", s, |_| Run::new(1_u8), core))
+        };
+        assert_eq!(run(&mut s, |_, _| None), 1);
+        assert_eq!(run(&mut s, |_, _| {
+            note_bail_here("a reason of its own");
+            None
+        }), 1);
+        assert_eq!(run(&mut s, |_, _| None::<u8>.why("a reason from the helper").map(|_| unreachable!())), 1);
+        let r = take_report();
+        let count = |why: &str| r.windows.get(&format!("w0::probe [bail: {why}]")).map_or(0, |w| w.bailed);
+        assert_eq!(count(NO_REASON), 1, "{:?}", r.windows);
+        assert_eq!(count("a reason of its own"), 1);
+        assert_eq!(count("a reason from the helper"), 1);
+        assert_eq!(r.windows["w0::probe"].bailed, 3);
     }
 
     #[test]

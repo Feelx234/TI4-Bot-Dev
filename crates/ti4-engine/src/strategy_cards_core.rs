@@ -29,10 +29,10 @@ mod real {
 
     use crate::choice::Choice;
     use crate::core_sync::{with_core, Ctx, Footprint, Sources};
-    use crate::dual::{CoreWindow, Run};
+    use crate::dual::{CoreWindow, Run, Why};
     use crate::dual_window::{drive_with, Driven, Recording};
     use crate::generated::IdStr;
-    use crate::dual_window::outside;
+    use crate::dual_window::{outside};
     use crate::preview::{Delta, Preview, Quantity};
     use crate::render::Render;
     use crate::strategy_core::named_tables;
@@ -63,8 +63,8 @@ mod real {
         let kernel = Kernel::plain();
         let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_with(&mut driver, core, &kernel, r, &before, script, complete))
-            .ok()?
-            .ok()?;
+            .why(crate::dual::reason::NOT_LENDABLE)?
+            .why(crate::dual::reason::DRIVER_REFUSED)?;
         Some((driver.window, driven))
     }
 
@@ -132,11 +132,12 @@ mod real {
     /// holds: a question inside a battle or an invasion, diplomacy on, a nested emission, a command token in a
     /// Mahact fleet pool (the reinforcements differ), a seat the tables do not hold.
     pub fn warfare_primary(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) || gs.tokens_held_by_mahact(player) > 0 {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)")) {
+            crate::dual::note_bail_here(why);
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let letnev = gs.player(player)?.faction.as_str() == "letnev";
         let window = WarfarePrimary::new(seat, gs.rules_version >= ti4_model::state::RULES_LETNEV_FLEET_POOL);
         let (window, driven) =
@@ -167,11 +168,12 @@ mod real {
         secondary: bool,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let base = card == "base2";
         let printed = if base { StrategyCard::DiplomacyBase } else { StrategyCard::DiplomacyCodex };
         let mode = if secondary {
@@ -256,8 +258,8 @@ mod real {
         let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let fp = Footprint { reads: crate::production_view::READS, writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Cards, Slice::Marks]) };
         let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_at(&mut driver, core, kernel, r, &before, script, complete))
-            .ok()?
-            .ok()?;
+            .why(crate::dual::reason::NOT_LENDABLE)?
+            .why(crate::dual::reason::DRIVER_REFUSED)?;
         Some((driver.window, driven))
     }
 
@@ -293,11 +295,12 @@ mod real {
         primary: bool,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) || gs.tokens_held_by_mahact(player) > 0 || crate::production_view::unported_window(gs, player) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)")).or_else(|| (crate::production_view::unported_window(gs, player)).then_some("a table with a seat the production windows do not carry (Naaz, Nomad, Yssaril, Keleres, Deepwrought)")) {
+            crate::dual::note_bail_here(why);
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let letnev = gs.player(player)?.faction.as_str() == "letnev";
         let before = gs.clone();
         let gained = std::cell::Cell::new(0_usize);
@@ -333,12 +336,14 @@ mod real {
     /// name, what `production_view::unported_window` declines.
     pub(crate) fn structure_facts(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, r: &Render) -> Option<StructureFacts> {
         if crate::production_view::unported_window(gs, player) || crate::laws::industry_produces_on_placement(gs, player) {
+            crate::dual::note_bail_here("a seat the production windows do not carry, or Minister of Industry (a production after the dock)");
             return None;
         }
         let alternatives = gs.controlled_planets(player).into_iter().any(|(system, planet)| {
             !crate::factions::hooks_economy::pds_placement_alternatives(gs, content, sources, player, system, planet).is_empty()
         });
         if alternatives {
+            crate::dual::note_bail_here("a structure the seat may place instead of a PDS (Titans' Hecatoncheires)");
             return None;
         }
         let placement = |kind: &str| -> Option<Placement> {
@@ -362,11 +367,12 @@ mod real {
         primary: bool,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let facts = structure_facts(gs, content, sources, player, &r)?;
         let (window, driven) = run_production(gs, &mut cx, &r, Construction::new(seat, primary, facts), seat, script, &|_, _, _| {})?;
         Some(finish(&driven, &window))
@@ -384,11 +390,12 @@ mod real {
         systems: &[ti4_model::id::SystemId],
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let facts = structure_facts(gs, content, sources, player, &r)?;
         let producing: Vec<ti4_engine_core::generated::System> =
             systems.iter().map(|s| crate::core_adapter::typed::<ti4_engine_core::generated::System>(s.as_str())).collect::<Option<_>>()?;
@@ -407,11 +414,14 @@ mod real {
     /// and the system of the free tactical action. `systems` are the string's (the map and the systems in play).
     /// The value is the chosen system. `None` as for Warfare's redistribution, inside a battle or an invasion.
     pub fn warfare_te(gs: &mut GameState, player: &PlayerId, systems: &[String], script: &Recording) -> Option<CoreWindow<Option<String>>> {
-        if outside(gs, script) {
+        // A command token in a Mahact fleet pool is not in the reinforcements: the core's count of them differs (found by the census of
+        // `golden-lent.json`, a Mahact at the table: `details.reinforcements` one too many in 8 games of 19).
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)")) {
+            crate::dual::note_bail_here(why);
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let letnev = gs.player(player)?.faction.as_str() == "letnev";
         let typed: Vec<ti4_engine_core::generated::System> =
             systems.iter().map(|s| crate::core_adapter::typed::<ti4_engine_core::generated::System>(s)).collect::<Option<_>>()?;
@@ -432,18 +442,19 @@ mod real {
     /// siphoning plot, a Trade Agreement), where the game's limit is not the faction's printed value, inside a
     /// battle, an invasion or a nested emission, and with diplomacy on.
     pub fn replenish_secondary(gs: &mut GameState, content: &ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) || crate::leaders_core::replenish_causes_events(gs) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (crate::leaders_core::replenish_causes_events(gs)).then_some("a replenishment that causes events the core does not hold (Cabal, a siphoning plot, a Trade Agreement)")) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let limit = crate::strategy_cards::commodity_limit(gs, content, player);
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let same = with_core(gs, &mut cx, Sources::default(), REPLENISH, |core, _| {
             let printed = core.players().by_seat(seat).map(|p| i32::from(p.faction.data().commodities));
             (printed == Some(limit)).then(|| fx::replenish_commodities(core, seat))
         })
-        .ok()?;
-        same?;
+        .why(crate::dual::reason::NOT_LENDABLE)?;
+        same.why("the faction's printed commodity limit is not the game's")?;
         Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: Vec::new() })
     }
 
@@ -500,22 +511,24 @@ mod real {
         cost: i64,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        if outside(gs, script)
-            || gs.rules_version < ti4_model::state::RULES_TECH_PAYMENT_CHOICE
-            || research_unported(gs, content, sources, player)
+        if let Some(why) = crate::dual_window::outside_why(gs, script)
+            .or_else(|| (gs.rules_version < ti4_model::state::RULES_TECH_PAYMENT_CHOICE).then_some("a game below the technology payment choice"))
+            .or_else(|| research_unported(gs, content, sources, player).then_some("a seat whose own effects on a research are questions or forms (Deepwrought, Keleres, Mentak, Last Bastion, Crimson) or a purged technology"))
         {
+            crate::dual::note_bail_here(why);
             return None;
         }
-        let roster = *crate::technology_core::roster_for(content, sources)?;
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let roster = *crate::technology_core::roster_for(content, sources).why("the unit roster of the sources is not known")?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let scope = crate::technology_core::scope(sources);
         let before = gs.clone();
         let agree = with_core(gs, &mut cx, Sources::default(), Footprint::reads(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks, Slice::Strategy, Slice::Cards, Slice::Trade, Slice::Transient, Slice::Explore]), |core, _| {
             research_hooks_agree(core, &before, content, sources, player, seat)
         })
-        .ok()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?;
         if !agree {
+            crate::dual::note_bail_here("the research hooks of the string and the core disagree (a hook the core does not carry)");
             return None;
         }
         let (window, driven) = run_production(gs, &mut cx, &r, Research::new(seat, primary, cost, scope).with_roster(roster), seat, script, &|c, _, rendered| {
@@ -528,6 +541,7 @@ mod real {
             }
         })?;
         if window.failed {
+            crate::dual::note_bail_here("the research window left the path the core carries (a research only a faction waiver opens)");
             return None;
         }
         Some(finish(&driven, &window))
@@ -542,16 +556,18 @@ mod real {
     /// primary of a seat that does not hold Mecatol Rex). `None` where the draw is not plain: the hand would go
     /// over its limit (a question to return one), a reserve is replaying draws, a nested emission.
     pub fn draw_secret(gs: &mut GameState, content: &ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) || gs.deck_reserve.is_some() {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.deck_reserve.is_some()).then_some("deck reserve (a turn redo replays the draws)")) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let limit = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
         if crate::secrets::held_count(gs, content, player) + 1 > limit {
+            crate::dual::note_bail_here("the hand would pass its limit (the string asks which secret to return)");
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
-        with_core(gs, &mut cx, Sources::default(), SECRET, |core, _| fx::draw_secret(core, seat)).ok()?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        with_core(gs, &mut cx, Sources::default(), SECRET, |core, _| fx::draw_secret(core, seat)).why(crate::dual::reason::NOT_LENDABLE)?;
         Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: Vec::new() })
     }
 
@@ -571,43 +587,50 @@ mod real {
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
         use ti4_engine_core::generated::PublicObjective;
-        if outside(gs, script) || gs.deck_reserve.is_some() || gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.deck_reserve.is_some()).then_some("deck reserve (a turn redo replays the draws)")).or_else(|| (gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres"))).then_some("a Keleres seat (non-lobby)")) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let scoreable = crate::objectives::scoreable_on(gs, content, sources, player, galaxy);
         let typed: Vec<PublicObjective> = scoreable
             .iter()
             .map(|o| crate::core_adapter::typed::<PublicObjective>(o.as_str()))
-            .collect::<Option<_>>()?;
+            .collect::<Option<_>>()
+            .why("a scoreable objective the tables do not know")?;
         let mut most = 0;
         let mut priced = false;
         for (alias, objective) in scoreable.iter().zip(&typed) {
             let points = i32::from(ti4_engine_core::query::objectives::points_of(*objective));
             if crate::objectives::points_for(content, alias) != Some(points) {
+                crate::dual::note_bail_here("an objective whose points the tables read otherwise");
                 return None;
             }
             most = most.max(points);
             priced |= ti4_engine_core::query::objectives::cost_of(*objective).is_some();
         }
         if priced && price_is_string(gs, player) {
+            crate::dual::note_bail_here("a bought objective at a table whose payment the production kernel does not follow (ocean cards)");
             return None;
         }
         let controls = gs.controlled_planets(player).into_iter().any(|(system, _)| crate::seating::is_mecatol(system.as_str()));
         if controls {
-            if gs.player(player)?.victory_points + most + 1 > crate::objectives::VICTORY_TARGET {
+            if gs.player(player).why(crate::dual::reason::NO_SEAT)?.victory_points + most + 1 > crate::objectives::VICTORY_TARGET {
+                crate::dual::note_bail_here("a point that would pass the victory target");
                 return None;
             }
         } else {
-            if gs.player(player)?.victory_points + most > crate::objectives::VICTORY_TARGET {
+            if gs.player(player).why(crate::dual::reason::NO_SEAT)?.victory_points + most > crate::objectives::VICTORY_TARGET {
+                crate::dual::note_bail_here("a point that would pass the victory target");
                 return None;
             }
             let limit = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
             if crate::secrets::held_count(gs, content, player) + 1 > limit {
+                crate::dual::note_bail_here("the hand would pass its limit (the string asks which secret to return)");
                 return None;
             }
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let held = crate::secrets::held_count(gs, content, player);
         let max = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
@@ -633,8 +656,8 @@ mod real {
                 }
             })
         })
-        .ok()?
-        .ok()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
         if let Some(objective) = driver.window.scored {
             crate::objectives::award_tail(gs, content, sources, player.clone(), &ti4_model::id::ObjectiveId::new(objective.as_str()));
         }
@@ -683,11 +706,12 @@ mod real {
     /// The core half of the two Politics abilities. `None` as for Warfare, with two seats of one faction (the
     /// speaker options are named by faction) and where the draw is not plain.
     pub fn politics(gs: &mut GameState, content: &ContentStore, player: &PlayerId, primary: bool, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) || gs.deck_reserve.is_some() || !plain_draw(gs, content, player, 2) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.deck_reserve.is_some()).then_some("deck reserve (a turn redo replays the draws)")).or_else(|| (!plain_draw(gs, content, player, 2)).then_some("a draw that is not plain (a hand over its limit, a draw bonus, a hooked draw)")) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let (mut cx, r) = named_tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let (window, driven) = drive_window(gs, &mut cx, &r, POLITICS, Politics::new(seat, primary, gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK), seat, script, &|c, _, rendered| {
             complete_politics(&r, content, c, rendered);
         })?;

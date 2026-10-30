@@ -19,15 +19,14 @@ mod real {
     use ti4_model::state::GameState;
 
     use crate::core_sync::{Footprint, Sources};
-    use crate::dual::{CoreWindow, Run};
+    use crate::dual::{CoreWindow, Run, Why};
     use crate::dual_window::Recording;
-    use crate::dual_window::outside;
     use crate::leaders_core::replenish_causes_events;
 
     /// The tables of a window whose options name seats by faction. `None`: more than 16 owners, or two seats
     /// of one faction (the option ids would clash).
     pub(crate) fn named_tables(gs: &GameState) -> Option<(crate::core_sync::Ctx, crate::render::Render)> {
-        let (cx, r) = crate::dual_window::tables(gs)?;
+        let (cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let factions: Vec<String> = r
             .seats
             .iter()
@@ -65,19 +64,20 @@ mod real {
     /// change that causes events (Cabal, Siphon, Trade Agreement), two seats of one faction (the options are
     /// named by faction), a seat the tables do not hold.
     pub fn trade_primary(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if outside(gs, script) || replenish_causes_events(gs) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (replenish_causes_events(gs)).then_some("a replenishment that causes events the core does not hold (Cabal, a siphoning plot, a Trade Agreement)")) {
+            crate::dual::note_bail_here(why);
             return None;
         }
         let (mut cx, r) = named_tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
         let mut driver = Driver::new(TradePrimary::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), TRADE, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, core, rendered| complete_trade(&r, core, rendered))
         })
-        .ok()?
-        .ok()?;
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
         // The announcement of the three trade goods is staged on the string state (not a codec slice).
         crate::supply::note_trade_goods_gained(gs, player, TRADE_PRIMARY_GOODS, "trade_primary");
         Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: driven.rendered })

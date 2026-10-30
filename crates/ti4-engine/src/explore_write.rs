@@ -33,7 +33,7 @@ mod real {
     use crate::core_adapter::typed;
     use crate::core_sync::conv::{explore_key, explore_type};
     use crate::core_sync::{Footprint, Sources};
-    use crate::dual::{CoreWindow, Run};
+    use crate::dual::{CoreWindow, Run, Why};
     use crate::dual_window::Recording;
     use crate::generated::IdStr;
 
@@ -81,25 +81,25 @@ mod real {
 
     /// `relics::exhaust`.
     pub fn relic_exhaust(gs: &mut GameState, player: &PlayerId, relic: &str) -> Option<bool> {
-        let r = typed::<Relic>(relic)?;
+        let r = typed::<Relic>(relic).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, Some(player), |core, who| rules::exhaust_relic(core, seat_of(who), r))
     }
 
     /// `relics::purge`.
     pub fn relic_purge(gs: &mut GameState, player: &PlayerId, relic: &RelicId) -> Option<()> {
-        let r = typed::<Relic>(relic.as_str())?;
+        let r = typed::<Relic>(relic.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, Some(player), |core, who| rules::purge_relic(core, seat_of(who), r))
     }
 
     /// The attachment write of `explore_drawn`'s Attach arm.
     pub fn attach(gs: &mut GameState, planet: &PlanetId, attachment: &str) -> Option<()> {
-        let (p, a) = (typed::<Planet>(planet.as_str())?, typed::<Attachment>(attachment)?);
+        let (p, a) = (typed::<Planet>(planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, typed::<Attachment>(attachment).why(crate::dual::reason::UNKNOWN_ID)?);
         lend(gs, None, |core, _| rules::attach(core, p, a))
     }
 
     /// `state.frontier_tokens.remove(system)`.
     pub fn take_frontier(gs: &mut GameState, system: &SystemId) -> Option<bool> {
-        let s = typed::<System>(system.as_str())?;
+        let s = typed::<System>(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, None, |core, _| rules::take_frontier(core, s))
     }
 
@@ -112,27 +112,65 @@ mod real {
 
     /// The gamma token of Gamma Wormhole and Gamma Relay.
     pub fn place_gamma_token(gs: &mut GameState, system: &SystemId) -> Option<()> {
-        let s = typed::<System>(system.as_str())?;
+        let s = typed::<System>(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, None, |core, _| rules::place_wormhole_token(core, Wormhole::Gamma, s))
     }
 
     /// `planets::place` for the Mirage planet token: whether the planet was put on the board.
     pub fn place_planet(gs: &mut GameState, player: &PlayerId, system: &SystemId, planet: &PlanetId) -> Option<bool> {
-        let (s, p) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?);
+        let (s, p) = (typed::<System>(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, typed::<Planet>(planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?);
         lend(gs, Some(player), |core, who| rules::place_planet(core, seat_of(who), s, p))
     }
 
     /// The unit `exploration::place_on_planet` puts on a planet (the form and the supply were settled by the caller;
     /// the Naaz mech's staged event is the caller's too).
     pub fn place_unit(gs: &mut GameState, player: &PlayerId, system: &SystemId, planet: &PlanetId, unit: &ti4_model::id::UnitTypeId) -> Option<()> {
-        let (s, p) = (typed::<System>(system.as_str())?, typed::<Planet>(planet.as_str())?);
+        let (s, p) = (typed::<System>(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, typed::<Planet>(planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?);
         let u = typed::<ti4_engine_core::generated::Unit>(unit.as_str())?;
         lend(gs, Some(player), |core, who| ti4_engine_core::kernel::fx::place_unit(core, seat_of(who), s, Some(p), u))
     }
 
+    /// `exploration::place_on_planet` as one core write (package W3): the seat's own form of `base`, the placement ban and the
+    /// reinforcements (31.4), the unit on the planet and a Naaz mech announced. Whether a unit was placed (`Some(false)`: nothing
+    /// changed). The faction hooks are the kernel of the production reads (Naaz bans its mech placements, Mentak's Corsair
+    /// replaces Cruiser II).
+    pub fn place_for(
+        gs: &mut GameState,
+        content: &ti4_content::ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+        system: &SystemId,
+        planet: &PlanetId,
+        base: &str,
+    ) -> Option<bool> {
+        use ti4_engine_core::generated::UnitBaseType;
+        let (s, p, base) = (typed::<System>(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, typed::<Planet>(planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, typed::<UnitBaseType>(base).why(crate::dual::reason::UNKNOWN_ID)?);
+        let scope = crate::technology_core::scope(sources);
+        let roster = crate::technology_core::roster_for(content, sources)?;
+        let kernel = crate::production_view::kernel();
+        const PLACE: Footprint = Footprint::new(
+            &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards, Slice::Marks, Slice::Pending],
+            &[Slice::Board, Slice::Pending],
+        );
+        if gs.deck_reserve.is_some() {
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let who = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let mut staged = Vec::new();
+        let placed = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLACE, |core, _| {
+            let placed = ti4_engine_core::kernel::fx_strategy::place_for(core, kernel, scope, roster, who, s, Some(p), base).is_some();
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            placed
+        })
+        .ok()?;
+        crate::dual_window::apply_staged(gs, &r, &staged)?;
+        Some(placed)
+    }
+
     /// `exploration::demilitarize`.
     pub fn demilitarize(gs: &mut GameState, sources: SourceSet, planet: &PlanetId) -> Option<()> {
-        let p = typed::<Planet>(planet.as_str())?;
+        let p = typed::<Planet>(planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         let scope = crate::core_adapter::scope(sources);
         lend(gs, None, |core, _| rules::demilitarize(core, scope, p))
     }
@@ -152,9 +190,9 @@ mod real {
         if gs.deck_reserve.is_some() {
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let who = match player {
-            Some(p) => Some(r.seat(p.as_str())?),
+            Some(p) => Some(r.seat(p.as_str()).why(crate::dual::reason::NO_SEAT)?),
             None => None,
         };
         let codes: Vec<_> = texts.iter().map(|t| cx.texts.intern(Slice::Explore, t)).collect::<Result<_, _>>().ok()?;
@@ -171,13 +209,13 @@ mod real {
         system: Option<&SystemId>,
     ) -> Option<()> {
         let kind = explore_type(Slice::Decks, deck).ok()?;
-        let card = typed::<Explore>(card)?;
+        let card = typed::<Explore>(card).why(crate::dual::reason::UNKNOWN_ID)?;
         let planet = match planet {
-            Some(p) => Some(typed::<Planet>(p.as_str())?),
+            Some(p) => Some(typed::<Planet>(p.as_str()).why(crate::dual::reason::UNKNOWN_ID)?),
             None => None,
         };
         let system = match system {
-            Some(s) => Some(typed::<System>(s.as_str())?),
+            Some(s) => Some(typed::<System>(s.as_str()).why(crate::dual::reason::UNKNOWN_ID)?),
             None => None,
         };
         lend_texts(gs, Some(player), &[""], |core, who, codes| {
@@ -212,7 +250,7 @@ mod real {
 
     /// `record.system = Some(system)`.
     pub fn set_record_system(gs: &mut GameState, index: usize, system: &SystemId) -> Option<()> {
-        let s = typed::<System>(system.as_str())?;
+        let s = typed::<System>(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, None, |core, _| rules::set_record_system(core, index, s))
     }
 
@@ -223,13 +261,13 @@ mod real {
 
     /// `legendary::exhaust`.
     pub fn exhaust_legendary(gs: &mut GameState, player: &PlayerId, planet: &PlanetId) -> Option<()> {
-        let p = typed::<Planet>(planet.as_str())?;
+        let p = typed::<Planet>(planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, Some(player), |core, who| rules::exhaust_legendary(core, seat_of(who), p))
     }
 
     /// An exploration card kept faceup in the play area (Enigmatic Device).
     pub fn play_area_card(gs: &mut GameState, player: &PlayerId, card: &str) -> Option<()> {
-        let c = typed::<Explore>(card)?;
+        let c = typed::<Explore>(card).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, Some(player), |core, who| rules::play_area_card(core, seat_of(who), c))
     }
 
@@ -240,7 +278,7 @@ mod real {
 
     /// `state.exhausted_planets.remove(planet)`: whether it was exhausted.
     pub fn ready_planet(gs: &mut GameState, planet: &PlanetId) -> Option<bool> {
-        let p = typed::<Planet>(planet.as_str())?;
+        let p = typed::<Planet>(planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         lend(gs, None, |core, _| ti4_engine_core::kernel::fx::ready_planet(core, p))
     }
 
@@ -294,15 +332,23 @@ mod real {
         &[Slice::Board],
     );
 
-    /// What a window of this file cannot follow: a question asked inside a battle or an invasion (its context
-    /// carries the battle), diplomacy promises a favour keeps, a nested emission, a question nobody answered
+    /// What a window of this file cannot follow: a question asked inside a space battle (its context
+    /// carries the battle; an invasion is followed), diplomacy promises a favour keeps, a nested emission, a question nobody answered
     /// yet (the string window unwound; its value is not an answer).
-    fn outside(gs: &GameState, script: &Recording) -> bool {
-        gs.deck_reserve.is_some()
-            || script.nested
-            || gs.active_space_combat.is_some()
-            || gs.diplomacy.enabled
-            || script.questions.iter().any(|q| q.answer.is_none())
+    fn outside_why(gs: &GameState, script: &Recording) -> Option<&'static str> {
+        if gs.deck_reserve.is_some() {
+            Some("deck reserve (a turn redo replays the draws)")
+        } else if script.nested {
+            Some("nested activity (a card or an ability played inside the window)")
+        } else if gs.active_space_combat.is_some() {
+            Some("a question asked inside a space battle (its context carries the battle)")
+        } else if gs.diplomacy.enabled {
+            Some("diplomacy on")
+        } else if script.questions.iter().any(|q| q.answer.is_none()) {
+            Some("a question nobody answered yet (the string window unwound)")
+        } else {
+            None
+        }
     }
 
     fn drive_window<W: ti4_engine_core::kernel::stage::Window + Clone + InInvasion, T>(
@@ -314,21 +360,22 @@ mod real {
         details: &dyn Fn(&ti4_engine_core::choice::Choice, &CoreState, &mut crate::choice::Choice),
         value: impl FnOnce(&W) -> Option<T>,
     ) -> Option<CoreWindow<T>> {
-        if outside(gs, script) {
+        if let Some(why) = outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
             return None;
         }
-        let (mut cx, r) = crate::dual_window::tables(gs)?;
-        let seat = r.seat(player.as_str())?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
         let mut driver = Driver::new(window(seat).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, details)
         })
-        .ok()?
-        .ok()?;
-        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>()?;
-        Some(CoreWindow { run: Run::new(value(&driver.window)?).with_events_vec(events), questions: driven.rendered })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let events: Vec<_> = driver.emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+        Some(CoreWindow { run: Run::new(value(&driver.window).why("the window ended without a value")?).with_events_vec(events), questions: driven.rendered })
     }
 
     fn no_details(_: &ti4_engine_core::choice::Choice, _: &CoreState, _: &mut crate::choice::Choice) {}
@@ -343,13 +390,13 @@ mod real {
     /// The core half of Distant Suns' pick: draws the second card, asks, the value is the card to resolve.
     pub fn distant_suns(gs: &mut GameState, player: &PlayerId, deck: &str, first: &str, script: &Recording) -> Option<CoreWindow<String>> {
         let deck = explore_type(Slice::Decks, deck).ok()?;
-        let first = typed::<Explore>(first)?;
+        let first = typed::<Explore>(first).why(crate::dual::reason::UNKNOWN_ID)?;
         drive_window(gs, WINDOW, player, |s| DistantSuns::new(s, deck, first), script, &no_details, |w| Some(w.chosen.as_str().to_owned()))
     }
 
     /// The core half of the ion storm card's question: asks the side, places the token; the value is the side.
     pub fn ion_storm(gs: &mut GameState, player: &PlayerId, system: &SystemId, script: &Recording) -> Option<CoreWindow<String>> {
-        let system = typed::<System>(system.as_str())?;
+        let system = typed::<System>(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         drive_window(
             gs,
             WINDOW,
@@ -382,7 +429,7 @@ mod real {
 
     /// The core half of the Neuraloop's question (the value: the relic named, `None` for a decline).
     pub fn neuraloop(gs: &mut GameState, holder: &PlayerId, revealed: &str, script: &Recording) -> Option<CoreWindow<Option<String>>> {
-        let revealed = typed::<PublicObjective>(revealed)?;
+        let revealed = typed::<PublicObjective>(revealed).why(crate::dual::reason::UNKNOWN_ID)?;
         drive_window(gs, RELIC_WINDOW, holder, |s| Neuraloop::new(s, revealed), script, &no_details, |w| {
             Some(w.chosen.map(|r| r.as_str().to_owned()))
         })
@@ -395,7 +442,7 @@ mod real {
 
     /// The core half of the Titan Prototype's question (the value: the player named).
     pub fn titan_prototype(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<Option<String>>> {
-        let (_, r) = crate::dual_window::tables(gs)?;
+        let (_, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         drive_window(gs, RELIC_WINDOW, player, TitanPrototype::new, script, &no_details, |w| {
             Some(w.chosen.map(|seat| r.seat_text(seat).to_owned()))
         })
@@ -409,7 +456,7 @@ mod real {
         script: &Recording,
     ) -> Option<CoreWindow<Option<String>>> {
         let list: Option<Vec<(System, Planet)>> =
-            targets.iter().map(|(s, p)| Some((typed::<System>(s.as_str())?, typed::<Planet>(p.as_str())?))).collect();
+            targets.iter().map(|(s, p)| Some((typed::<System>(s.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, typed::<Planet>(p.as_str()).why(crate::dual::reason::UNKNOWN_ID)?))).collect();
         let list = list?;
         drive_window(gs, STELLAR_WINDOW, player, |s| StellarConverter::new(s, &list), script, &no_details, |w| {
             Some(w.destroyed.map(|p| p.as_str().to_owned()))
@@ -424,9 +471,9 @@ mod real {
         options: &[String],
         script: &Recording,
     ) -> Option<CoreWindow<Option<String>>> {
-        let relic = typed::<Relic>(relic)?;
+        let relic = typed::<Relic>(relic).why("a source that is no relic (Research Team, an agenda: the string question alone)")?;
         let list: Option<Vec<Technology>> = options.iter().map(|t| typed::<Technology>(t)).collect();
-        let list = list?;
+        let list = list.why("a technology option the core tables do not know")?;
         drive_window(gs, RELIC_WINDOW, player, |s| GainTechnology::new(s, relic, &list), script, &no_details, |w| {
             Some(w.chosen.map(|t| t.as_str().to_owned()))
         })
@@ -442,7 +489,7 @@ mod real {
         reward: &str,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        let (card_id, planet_id) = (typed::<Explore>(card)?, typed::<Planet>(planet.as_str())?);
+        let (card_id, planet_id) = (typed::<Explore>(card).why(crate::dual::reason::UNKNOWN_ID)?, typed::<Planet>(planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?);
         let kind = match reward {
             "gain 1 trade good" => PayReward::TradeGood,
             "ready this planet" => PayReward::ReadyPlanet,
@@ -508,6 +555,9 @@ mod stub {
     use crate::dual_window::Recording;
 
     pub fn draw(_: &mut GameState, _: &str) -> Option<Option<String>> {
+        None
+    }
+    pub fn place_for(_: &mut GameState, _: &ti4_content::ContentStore, _: ti4_model::content_types::SourceSet, _: &PlayerId, _: &SystemId, _: &PlanetId, _: &str) -> Option<bool> {
         None
     }
     pub fn gain_fragment(_: &mut GameState, _: &PlayerId, _: &str) -> Option<()> {

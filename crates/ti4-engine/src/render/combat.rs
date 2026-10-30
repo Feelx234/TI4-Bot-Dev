@@ -76,6 +76,7 @@ impl Family for Fam {
             Ask::WarFunding => "War Funding: reroll all of your opponent's dice and your misses".to_owned(),
             Ask::Wrath => "Wrath of Kenara: spend trade goods to add 1 to dice".to_owned(),
             Ask::MunitionsRoll => "spend 2 trade goods for Munitions Reserves".to_owned(),
+            Ask::Supercharge => "Supercharge: exhaust to apply +1 to each combat roll this round".to_owned(),
         }
     }
 
@@ -94,6 +95,7 @@ impl Family for Fam {
             Subtype::WarFunding => "war_funding".to_owned(),
             Subtype::WrathBump => "wrath_of_kenara_bump".to_owned(),
             Subtype::MunitionsRoll => "munitions_reserves_reroll".to_owned(),
+            Subtype::Supercharge => "supercharge".to_owned(),
         }
     }
 
@@ -132,6 +134,7 @@ impl Family for Fam {
                 return ChoiceOption::labelled(format!("hfix|{entry}:{die}:{sign}"), "heart_ixth", label);
             }
             Opt::UseWarFunding => return ChoiceOption::labelled("use", "promissory_note", "use War Funding"),
+            Opt::UseSupercharge => return ChoiceOption::labelled("sc", "technology", "exhaust Supercharge"),
             Opt::Kenara { count } => {
                 return ChoiceOption::labelled(
                     format!("kenara|{count}"),
@@ -229,7 +232,7 @@ impl Family for Fam {
                 Ask::RerollDie { unit, .. } => {
                     w.payload.insert("unit".to_owned(), serde_json::Value::String(_r.code_text(*unit)));
                 }
-                Ask::HeartIxth | Ask::WarFunding | Ask::Wrath | Ask::MunitionsRoll => {}
+                Ask::HeartIxth | Ask::WarFunding | Ask::Wrath | Ask::MunitionsRoll | Ask::Supercharge => {}
                 _ => {
                     w.label = Some("take the hit".to_owned());
                     if let Ask::CancelHit { window: Some(own), .. } = a {

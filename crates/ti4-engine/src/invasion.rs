@@ -3599,6 +3599,11 @@ impl InvasionWindow {
         ctx: &mut Resolving<'_>,
     ) -> Result<(), IllegalChoice> {
         let planets = self.report.committed.clone();
+        crate::dual::note_gate(
+            crate::dual::Area::Invasion,
+            "invasion::finish_committing",
+            "the Research Team offer and the forced combats of the commitment are the string's (5b)",
+        );
         // Research Team: "When ground forces are committed", before anything else follows.
         self.offer_research_team(state, ctx, &planets)?;
         self.announce_and_defend_windowed(state, ctx, &planets);
@@ -5021,6 +5026,11 @@ impl InvasionWindow {
         planet: &PlanetId,
         previous: Option<&PlayerId>,
     ) {
+        crate::dual::note_gate(
+            crate::dual::Area::Invasion,
+            "invasion::finish_control_gain",
+            "the control-gain chain (Assimilate, PLANET_CONTROL_GAINED and its windows, technology AFTER windows, legendary and Fracture, exploration) is the string's (5a)",
+        );
         let (content, sources) = (ctx.content, ctx.sources);
         // L1Z1X's Assimilate converts the structures on a planet as it changes hands, before
         // anything else looks at what is standing on it.
@@ -10539,6 +10549,129 @@ mod tests {
         assert_eq!(agent, Some(ti4_model::state::LeaderStatus::Readied));
     }
 
+    /// Package W1: a readied The Thundarian does not stop the tail of the ground roll step from running as a core window. The card
+    /// listens to the event that ends the step (outside the tail), and a replay rolls the pair and runs the tail again. The same
+    /// fight as `the_thundarian_replays_the_ground_roll_without_assigning_its_hits`, with the invasion on `Dual`.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_thundarian_watching_does_not_stop_the_tail_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b) = (invader(), holder());
+        for (holder_of_card, used) in [(false, false), (true, false), (true, true)] {
+            for nomad_seat in [a.clone(), b.clone()] {
+                let (mut state, system, planet) = arena();
+                // Real faction ids: the codec refuses the fixture faction, and the core half would silently bail.
+                for (seat, faction) in state.players.iter_mut().zip(if nomad_seat == a { ["nomad", "hacan"] } else { ["arborec", "nomad"] }) {
+                    seat.faction = ti4_model::id::FactionId::new(faction);
+                }
+                state.promissory_notes.clear();
+                state.system_mut(&system).set_control(planet.clone(), b.clone());
+                on_planet(&mut state, &system, &planet, "infantry", &a, 1);
+                on_planet(&mut state, &system, &planet, "infantry", &b, 1);
+                if holder_of_card {
+                    state.player_mut(&nomad_seat).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentthundarian"), ti4_model::state::LeaderStatus::Readied);
+                }
+                let name = crate::promissory::faction_name(&state, &nomad_seat);
+                let window = format!("leader:{name}:nomadagentthundarian:GROUND_COMBAT_ROLL_STEP_ENDED:after");
+                let script = vec!["fight".to_owned(), if used { window } else { "decline".to_owned() }];
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(4);
+                state.rng_seed = 4;
+                let _ = crate::dual::take_report();
+                let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+                let asks = crate::dual::with_mask(mask, || {
+                    drive_invasion(
+                        &mut state,
+                        &system,
+                        Stage::Fighting { planets: vec![planet.clone()], index: 0, defender: b.clone() },
+                        InvasionReport { committed: vec![planet.clone()], ..InvasionReport::default() },
+                        script,
+                        &mut dice,
+                        &mut rng,
+                    )
+                });
+                let report = crate::dual::report();
+                let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+                assert!(report.differences.is_empty(), "{holder_of_card}/{used}/{nomad_seat}: {shown}");
+                let w = report.windows.get("invasion::roll_ground_tail").cloned().unwrap_or_default();
+                assert!(w.compared > 0, "{holder_of_card}/{used}/{nomad_seat}: the tail ran in the core: {:?} / {asks:?}", report.windows);
+                assert!(
+                    report.windows.keys().all(|k| !k.contains("invasion::roll_ground_tail [bail: The Thundarian")),
+                    "{holder_of_card}/{used}/{nomad_seat}: {:?}",
+                    report.windows
+                );
+                let _ = crate::dual::take_report();
+            }
+        }
+    }
+
+    /// Package W1: Naaz's Supercharge and the repair of the Eidolon Maximum at the start of a ground round run in the core window
+    /// (`ground_combat_round_started` of the Naaz crate; the question rides on the tape of the step). Both answers, both sides
+    /// holding the technology, a damaged Maximum, with the invasion on `Dual`: no difference, the window ran in the core and the
+    /// +1 shows in the dice.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn naaz_supercharge_and_the_maximum_repair_run_in_the_core_begin_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b) = (invader(), holder());
+        for (answer, seed) in [("sc", 4_u64), ("decline", 4), ("sc", 9), ("decline", 9)] {
+            let (mut state, system, planet) = arena();
+            for (seat, faction) in state.players.iter_mut().zip(["naaz", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &a, 2);
+            on_planet(&mut state, &system, &planet, "naaz_voltron", &a, 1);
+            on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            for unit in state.system_mut(&system).planet_units.get_mut(&planet).unwrap() {
+                if unit.type_id.as_str() == "naaz_voltron" {
+                    unit.sustained_damage = true;
+                }
+            }
+            state.player_mut(&a).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("sc"));
+            // As in a game: the invasion is active, so the question names it (`invasion=<seq>` in the decision context).
+            state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+                system: system.clone(),
+                invader: a.clone(),
+                seq: 88,
+                phase: "fighting".to_owned(),
+                planet: None,
+                defender: None,
+                ground_round: 0,
+                last_step: None,
+            });
+            state.rng_seed = seed;
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            let script = vec!["fight".to_owned(), answer.to_owned()];
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+            let asks = crate::dual::with_mask(mask, || {
+                drive_invasion(
+                    &mut state,
+                    &system,
+                    Stage::Fighting { planets: vec![planet.clone()], index: 0, defender: b.clone() },
+                    InvasionReport { committed: vec![planet.clone()], ..InvasionReport::default() },
+                    script,
+                    &mut dice,
+                    &mut rng,
+                )
+            });
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+            assert!(report.differences.is_empty(), "{answer}/{seed}: {shown}");
+            let w = report.windows.get("invasion::begin_ground_round").cloned().unwrap_or_default();
+            assert!(w.compared > 0 && w.bailed == 0, "{answer}/{seed}: the opening ran in the core: {:?}", report.windows);
+            assert!(asks.iter().any(|q| q.iter().any(|o| o == "sc")), "{answer}/{seed}: Supercharge was offered: {asks:?}");
+            // (A later round of the fight asks again and the scripted decider has run out of answers: only a used card is certain.)
+            if answer == "sc" {
+                assert!(state.player(&a).unwrap().exhausted_technologies.contains(ti4_model::id::text(&"sc")), "{answer}/{seed}: the card is exhausted when it was used");
+            }
+            let _ = crate::dual::take_report();
+        }
+    }
+
     /// A system with two non-station planets, so a relocation has somewhere to go.
     fn dual_arena() -> (GameState, SystemId, PlanetId, PlanetId) {
         let content = ContentStore::embedded();
@@ -10605,6 +10738,44 @@ mod tests {
             &mut rng,
         );
         (asks, state)
+    }
+
+    /// Package W3: Parley played by the holder returns a Naaz mech the invader landed to the space area in its SHIP form
+    /// (`naaz_mech_space`: a ground form is never in a space area). The card is played inside the window of the landing
+    /// (`invasion::commit_one`), where the core ability table plays it (`cards::parley`, `fx_strategy::flip_form`) and the result
+    /// is compared with the string's `flip_form` (R-bail-11 closed).
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn parley_flips_a_landed_naaz_mech_in_the_core_commit_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b) = (invader(), holder());
+        let (mut state, system, planet) = arena();
+        for (seat, faction) in state.players.iter_mut().zip(["naaz", "hacan"]) {
+            seat.faction = ti4_model::id::FactionId::new(faction);
+        }
+        state.promissory_notes.clear();
+        state.system_mut(&system).set_control(planet.clone(), b.clone());
+        on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+        in_space(&mut state, &system, "naaz_mech", &a, 1);
+        state.player_mut(&b).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("parley")];
+        state.rng_seed = 5;
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(5);
+        let slot = format!("reaction:{}:UNITS_COMMITTED:after", crate::promissory::faction_name(&state, &b));
+        let script = vec![format!("commit|0|{planet}"), slot, "done_committing".to_owned()];
+        let _ = crate::dual::take_report();
+        let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+        let _asks = crate::dual::with_mask(mask, || {
+            drive_invasion(&mut state, &system, Stage::Committing, InvasionReport::default(), script, &mut dice, &mut rng)
+        });
+        let report = crate::dual::report();
+        let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+        assert!(report.differences.is_empty(), "{shown}");
+        let w = report.windows.get("invasion::commit_one").cloned().unwrap_or_default();
+        assert!(w.compared > 0 && w.bailed == 0, "the landing ran in the core with Parley in its ability table: {:?}", report.windows);
+        let space: Vec<String> = state.system_state(&system).units_of(&a).into_iter().map(|u| u.type_id.to_string()).collect();
+        assert_eq!(space, ["naaz_mech_space"], "back in space in its ship form");
+        let _ = crate::dual::take_report();
     }
 
     #[test]
@@ -12901,8 +13072,9 @@ mod core_ground_round_prechecks {
         assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
         // A copied round agent is carried (numbered and announced).
         assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, true)), None);
+        // A Naaz side is carried since package W1 (Supercharge and the Maximum's repair are a hook of the core window).
         let (state, s, p) = game("naaz", "hacan");
-        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), Some("Naaz Supercharge"));
+        assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
         // Letnev only offers the Dunlain Reaper with infantry on the planet.
         let (mut state, s, p) = game("sol", "letnev");
         assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);

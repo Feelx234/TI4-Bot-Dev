@@ -108,23 +108,14 @@ const fn skilled_retreat_covers(card: ActionCard) -> bool {
     matches!(card, ActionCard::SkilledRetreat1 | ActionCard::SkilledRetreat2 | ActionCard::SkilledRetreat3 | ActionCard::SkilledRetreat4)
 }
 
-/// `dual_window::retreat_unported`: what the retreat window of the core does not carry (Bastion's retreat note, a Naaz
-/// dual-form unit, a structure that moves like a ship, an Eidolon Maximum on a planet).
-fn retreat_unported(host: &RulesHost<'_>, who: Seat, system: System, destination: System) -> bool {
-    let s = &*host.state;
-    if s.players().iter().any(|p| p.faction == Faction::LastBastion) {
+/// `dual_window::retreat_unported`: what the retreat window of the core does not carry (Bastion's retreat note; the dual-form
+/// units, a Voltron on a planet and a structure that moves like a ship are carried since package W3).
+fn retreat_unported(host: &RulesHost<'_>, _who: Seat, _system: System, _destination: System) -> bool {
+    if host.state.players().iter().any(|p| p.faction == Faction::LastBastion) {
         ti4_engine_core::unsupported::hit(ti4_engine_core::unsupported::Disabled::LastBastion);
         return true;
     }
-    let rd = Rd::new(s, host.kernel);
-    let dual_form = |p: &ti4_engine_core::state::Piece| {
-        matches!(p.kind(), Unit::Eidolon | Unit::ZGravEidolonNaazMechSpace | Unit::ZGravEidolonAbsolNaazMechSpace)
-    };
-    let loose = |p: &ti4_engine_core::state::Piece| rd.data(p.kind()).is_some_and(|d| ti4_engine_core::tables::moves_as_ship(d) && !d.ship);
-    let mine = |sys: System| s.board().sys(sys).units.iter().filter(move |p| p.owner() == who).copied().collect::<Vec<_>>();
-    mine(system).iter().any(|p| dual_form(p) || loose(p))
-        || mine(destination).iter().any(dual_form)
-        || ti4_engine_core::query::board::planets_of(s, system).any(|planet| s.board().planet(planet).units.iter().any(|p| p.owner() == who && p.kind() == Unit::EidolonMaximum))
+    false
 }
 
 /// `action_cards::skilled_retreat`: "move all of your ships from the active system into an adjacent system that does not
@@ -132,7 +123,7 @@ fn retreat_unported(host: &RulesHost<'_>, who: Seat, system: System, destination
 /// destinations are the map's (the adapter noted them: the core is lent no galaxy); the move is the retreat window's.
 fn skilled_retreat(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat, card: ActionCard) -> Result<(), TimingError> {
     let Some(system) = host.state.meta().active_system else { return Ok(()) };
-    let Some(listed) = host.table.facts.withdraw(who, system).map(<[System]>::to_vec) else { return Ok(()) };
+    let Some(listed) = host.table.facts.withdraw(who, system, host.state.meta().combat_round_seq).map(<[System]>::to_vec) else { return Ok(()) };
     let Some(&first) = listed.first() else { return Ok(()) };
     let rd = Rd::new(&*host.state, host.kernel).with_blanked(reach::blanked(&*host.state));
     let there = |d: System| u16::try_from(combat::ships_of(rd, who, d).len()).unwrap_or(u16::MAX);
@@ -302,17 +293,18 @@ fn parley(host: &mut RulesHost<'_>, _: &mut Resolver, _: Seat, _: ActionCard) ->
         // An earlier window in the same emission took the unit from the planet.
         return Ok(());
     }
-    // A dual-form unit goes back to space in its ship form: the Naaz mech's flip is the string's.
-    let data = unit.kind().data();
-    if data.base_type == UnitBaseType::Mech && data.faction.is_some() && host.state.players().by_seat(owner).is_some_and(|p| p.faction == Faction::TheNaazRokhaAlliance) {
-        host.tape.unknown.set(Some(ti4_engine_core::kernel::ability::Unknown::UnportedCard));
-        return Ok(());
-    }
     let units = &mut host.state.board_mut().planet_mut(planet).units;
     if let Some(at) = units.iter().position(|u| *u == unit) {
         units.remove(at);
     }
     host.state.board_mut().sys_mut(system).units.push(unit);
+    // A dual-form unit that landed as its ground form goes back to space in its ship form (the string's `flip_form`
+    // on the first unit of that owner and kind in the space area): the ground form is never in a space area.
+    let scope = ti4_engine_core::tables::Scope(u32::from(host.kernel.sources.0));
+    let ship = |u: ti4_engine_core::generated::Unit| scope.unit(u).is_some_and(|d| d.ship);
+    if !ship(unit.kind()) && ti4_engine_core::query::tech::other_form(unit.kind()).is_some_and(ship) {
+        ti4_engine_core::kernel::fx_strategy::flip_form(host.state, scope, owner, system, None, unit.kind());
+    }
     Ok(())
 }
 
@@ -561,7 +553,7 @@ mod tests {
         }
         s.board_mut().sys_mut(system).units.push(Piece::new(Unit::CruiserI, Seat(1)));
         let mut t = registered();
-        t.facts.set_withdraw(Seat(0), system, destinations.to_vec());
+        t.facts.set_withdraw(Seat(0), system, 3, destinations.to_vec());
         (s, t, system)
     }
 
@@ -611,6 +603,23 @@ mod tests {
         assert_eq!(there, vec![0, 1], "each option shows the ships already there");
     }
 
+    /// A window can hold several plays of the card (a round of each seat, the map changes between them): the play of round 3 reads the
+    /// destinations the string found in round 3, not the ones of an earlier or a later round (found by the golden-lent census, where the
+    /// last note of the seat won).
+    #[test]
+    fn skilled_retreat_reads_the_destinations_of_its_own_round() {
+        let (a, b) = (System::ALL[1], System::ALL[2]);
+        let (mut s, mut t, system) = retreat_fight(&[a]);
+        t.facts = Default::default();
+        t.facts.set_withdraw(Seat(0), system, 2, vec![b]);
+        t.facts.set_withdraw(Seat(0), system, 3, vec![a]);
+        t.facts.set_withdraw(Seat(0), system, 4, vec![b]);
+        let (unknown, asked) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert_eq!((unknown, asked.is_none()), (None, true), "one destination is not a question");
+        let mine = |s: &CoreState, sys: System| s.board().sys(sys).units.iter().filter(|p| p.owner() == Seat(0)).count();
+        assert_eq!((mine(&s, a), mine(&s, b)), (3, 0), "the fleet went to the destination of round 3");
+    }
+
     #[test]
     fn skilled_retreat_without_a_map_does_nothing() {
         let (mut s, t, system) = retreat_fight(&[]);
@@ -623,13 +632,8 @@ mod tests {
     }
 
     #[test]
-    fn bail_skilled_retreat_with_a_dual_form_unit_or_the_last_bastion() {
+    fn bail_skilled_retreat_with_the_last_bastion() {
         let to = System::ALL[1];
-        let (mut s, t, system) = retreat_fight(&[to]);
-        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::Eidolon, Seat(0)));
-        let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
-        assert_eq!(unknown, Some(Unknown::UnportedCard));
-        assert_eq!(s.board().sys(system).units.iter().filter(|p| p.owner() == Seat(0)).count(), 4, "nothing moved");
         let (mut s, t, system) = retreat_fight(&[to]);
         s.players_mut().by_seat_mut(Seat(1)).unwrap().faction = Faction::LastBastion;
         let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
@@ -637,16 +641,76 @@ mod tests {
         assert_eq!(s.board().sys(system).units.iter().filter(|p| p.owner() == Seat(0)).count(), 3);
     }
 
+    /// Package W3: the retreat window carries the dual-form units. A Z-Grav Eidolon retreats as part of the fleet and takes its
+    /// ground form where it lands (with every other ship-form Eidolon of the owner already there); an Eidolon Maximum on a planet
+    /// of the system leaves its planet with the fleet; a Floating Factory (a structure that moves like a ship) moves on its own.
     #[test]
-    fn bail_parley_of_a_naaz_mech_whose_form_flips() {
+    fn skilled_retreat_carries_the_dual_form_units_the_voltron_and_the_floating_factory() {
+        let to = System::ALL[1];
+        let (mut s, t, system) = retreat_fight(&[to]);
+        let planet = ti4_engine_core::generated::Planet::ALL[0];
+        // the system's planet: the Maximum stands on it
+        s.board_mut().planet_mut(planet).placed_in = Some(system);
+        s.board_mut().planet_mut(planet).units.push(Piece::new(Unit::EidolonMaximum, Seat(0)));
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(0)));
+        s.board_mut().sys_mut(to).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(0)));
+        s.board_mut().sys_mut(to).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(1)));
+        let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert_eq!(unknown, None);
+        let kinds = |s: &CoreState, sys: System, who: Seat| s.board().sys(sys).units.iter().filter(|p| p.owner() == who).map(|p| p.kind()).collect::<Vec<_>>();
+        assert!(s.board().planet(planet).units.is_empty(), "the Maximum left its planet");
+        let landed = kinds(&s, to, Seat(0));
+        assert!(landed.contains(&Unit::EidolonMaximum), "{landed:?}");
+        assert!(landed.contains(&Unit::Eidolon) && !landed.contains(&Unit::ZGravEidolonNaazMechSpace), "the Z-Grav forms took their ground form where they landed: {landed:?}");
+        assert_eq!(kinds(&s, to, Seat(1)), [Unit::ZGravEidolonNaazMechSpace], "another player's units are not flipped");
+        assert_eq!(kinds(&s, system, Seat(0)), [], "the fleet left");
+    }
+
+    /// A Floating Factory (a structure that moves like a ship) leaves under its own power, and an Eidolon Maximum on a planet joins the
+    /// retreat only while its owner has a ship in the space area (`planetary_maximum_participates`).
+    #[test]
+    fn a_floating_factory_moves_and_a_maximum_follows_only_a_fleet_with_a_ship() {
+        let to = System::ALL[1];
+        let planet = ti4_engine_core::generated::Planet::ALL[0];
+        let (mut s, t, system) = retreat_fight(&[to]);
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::FloatingFactoryI, Seat(0)));
+        let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert_eq!(unknown, None);
+        assert!(s.board().sys(to).units.iter().any(|p| p.owner() == Seat(0) && p.kind() == Unit::FloatingFactoryI), "the factory left");
+        assert!(!s.board().sys(system).units.iter().any(|p| p.owner() == Seat(0) && p.kind() == Unit::FloatingFactoryI), "and is no longer there");
+        // No ship in the space area: the Maximum stays on its planet.
+        let (mut s, t, system) = retreat_fight(&[to]);
+        s.board_mut().sys_mut(system).units.retain(|p| p.owner() != Seat(0));
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::InfantryI, Seat(0)));
+        s.board_mut().planet_mut(planet).placed_in = Some(system);
+        s.board_mut().planet_mut(planet).units.push(Piece::new(Unit::EidolonMaximum, Seat(0)));
+        let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert_eq!(unknown, None);
+        assert!(s.board().planet(planet).units.iter().any(|p| p.kind() == Unit::EidolonMaximum), "the Maximum stayed: its owner had no ship in space");
+        assert!(!s.board().sys(to).units.iter().any(|p| p.kind() == Unit::EidolonMaximum));
+    }
+
+    #[test]
+    fn parley_returns_a_landed_naaz_mech_to_space_in_its_ship_form() {
         let (mut s, _) = table(&[Faction::TheNaazRokhaAlliance, Faction::TheEmiratesOfHacan]);
         let system = System::ALL[0];
         let planet = ti4_engine_core::generated::Planet::ALL[0];
         let piece = Piece::new(Unit::Eidolon, Seat(0));
         s.board_mut().planet_mut(planet).units.push(piece);
+        // an earlier Eidolon of the same owner already stands in space: the string flips the FIRST one of that kind in the list
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::Eidolon, Seat(0)).with_sustained(true));
         s.transient_mut().combat.last_committed_unit = Some((Seat(0), system, planet, piece));
-        assert_eq!(run(&mut s, &registered(), ActionCard::Parley, Seat(1), false), Ok(Some(Unknown::UnportedCard)));
-        assert_eq!(s.board().planet(planet).units.len(), 1, "the unit stayed");
+        assert_eq!(run(&mut s, &registered(), ActionCard::Parley, Seat(1), false), Ok(None));
+        assert_eq!(s.board().planet(planet).units.len(), 0, "left the planet");
+        let space: Vec<_> = s.board().sys(system).units.iter().map(|p| (p.kind(), p.sustained())).collect();
+        assert_eq!(space, [(Unit::ZGravEidolonNaazMechSpace, true), (Unit::Eidolon, false)]);
+        // an ordinary unit is not flipped
+        let (mut s, _) = table(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]);
+        let piece = Piece::new(Unit::InfantryI, Seat(0));
+        s.board_mut().planet_mut(planet).units.push(piece);
+        s.transient_mut().combat.last_committed_unit = Some((Seat(0), system, planet, piece));
+        assert_eq!(run(&mut s, &registered(), ActionCard::Parley, Seat(1), false), Ok(None));
+        assert_eq!(s.board().sys(system).units.iter().map(|p| p.kind()).collect::<Vec<_>>(), [Unit::InfantryI]);
     }
 
     #[test]
