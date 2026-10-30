@@ -72,7 +72,8 @@ fn an_exchange_takes_both_sides_before_either_is_given() {
 #[test]
 fn a_support_for_the_throne_leg_naming_a_faction_two_seats_play_stops_the_exchange_untouched() {
     covers!("rules::trade");
-    let mut s = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec, Faction::TheArborec]).goods(0, 5).state();
+    let mut s = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec, Faction::TheEmiratesOfHacan]).goods(0, 5).state();
+    s.players_mut().by_seat_mut(Seat(2)).unwrap().faction = Faction::TheArborec; // two seats play one faction
     let support = NoteFacts { payable: true, receivable: true, mv: Some(NoteMove::Support(Faction::TheArborec)) };
     let offer = Offer { proposer: Seat(0), partner: Seat(1), given: Terms { trade_goods: 2, note: Some(support), ..Terms::default() }, received: Terms::default() };
     let before = s.clone();
@@ -116,8 +117,8 @@ fn a_note_changes_hands_and_goes_home() {
     t::take_note(&mut s, Seat(1), nobody);
     assert_eq!(t::give_back(&mut s, nobody), Some(()), "a faction nobody plays: nothing happens");
     assert_eq!(s.cards().promissory.get(&nobody), Some(&Seat(1)));
-    let twice = Scenario::new(&[Faction::TheArborec, Faction::TheArborec, Faction::TheEmbersOfMuaat]).state();
-    let mut twice = twice;
+    let mut twice = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan, Faction::TheEmbersOfMuaat]).state();
+    twice.players_mut().by_seat_mut(Seat(1)).unwrap().faction = Faction::TheArborec;
     assert_eq!(t::give_back(&mut twice, NoteKey { note: PromissoryNote::TradeAgreement, faction: Faction::TheArborec }), None, "two seats play the owner's faction");
 }
 

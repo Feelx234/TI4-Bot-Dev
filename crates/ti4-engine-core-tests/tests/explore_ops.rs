@@ -12,7 +12,7 @@ fn table() -> Scenario {
 }
 
 fn mech() -> Unit {
-    Unit::ALL.into_iter().find(|u| u.data().base_type == UnitBaseType::Mech && !u.data().structure).expect("a mech")
+    Unit::FactionlessMech
 }
 
 fn fragments(s: &mut CoreState, who: u8, counts: &[(ExploreType, i16)]) {

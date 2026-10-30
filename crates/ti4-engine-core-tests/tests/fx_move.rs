@@ -91,12 +91,13 @@ fn ships_move_between_spaces_passengers_are_taken_aboard_and_losses_remove_the_f
 #[test]
 fn a_special_operations_passenger_lost_is_counted() {
     covers!("kernel::fx_move::lose_passenger");
-    let (a, _) = first_planet();
+    let (a, planet) = first_planet();
     let spec = Piece::new(Unit::SpecOpsII, Seat(0));
-    let mut s = table().unit(a, None, Unit::SpecOpsII, 0, 1).state();
-    mv::lose_passenger(&mut s, a, spec, None);
+    let mut s = table().unit(a, Some(planet), Unit::SpecOpsII, 0, 1).state();
+    mv::lose_passenger(&mut s, a, spec, Some(planet));
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().misc.spec_ops_destroyed, 1);
-    mv::lose_passenger(&mut s, a, Piece::new(Unit::InfantryI, Seat(0)), None);
+    assert!(s.board().planet(planet).units.as_slice().is_empty(), "it left the planet");
+    mv::lose_passenger(&mut s, a, Piece::new(Unit::InfantryI, Seat(0)), Some(planet));
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().misc.spec_ops_destroyed, 1, "only Special Operations count");
 }
 

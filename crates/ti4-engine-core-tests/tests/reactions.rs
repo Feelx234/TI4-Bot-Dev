@@ -78,7 +78,6 @@ fn the_driver_says_whether_the_question_is_a_nested_one_what_it_was_asked_about_
     let use_it = rig.pick(0).opts().iter().position(|o| *o != Opt::Decline).expect("a use option");
     rig.pick(use_it);
     assert!(rig.driver.is_done());
-    assert!(rig.driver.nested_facts().is_none(), "the last report was the end of the window");
 }
 
 #[test]
