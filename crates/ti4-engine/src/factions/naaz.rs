@@ -569,6 +569,11 @@ fn unit_roll_modifier(state: &GameState, content: &ContentStore, sources: Source
     )
 }
 
+/// The Supercharge term of a roll as the string state holds it (the core bridge subtracts it: the core reads its own mark).
+pub(crate) fn supercharge_text(state: &GameState, content: &ContentStore, sources: SourceSet, unit: &CombatUnit<'_>) -> i64 {
+    unit_roll_modifier_text(state, content, sources, unit)
+}
+
 fn unit_roll_modifier_text(
     state: &GameState,
     _content: &ContentStore,

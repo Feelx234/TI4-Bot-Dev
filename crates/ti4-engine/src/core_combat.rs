@@ -164,7 +164,8 @@ fn register_string_bridge(seams: &mut Seams) {
                     Some(&system),
                     Some(&planet),
                 );
-                Some(whole - mordred)
+                let supercharge = o.with_unit(site.unit, |cu| crate::factions::naaz::supercharge_text(&o.gs, ContentStore::embedded(), o.sources, cu)).unwrap_or(0);
+                Some(whole - mordred - supercharge)
             })
             .flatten()
             .unwrap_or(0));
@@ -190,7 +191,10 @@ fn register_string_bridge(seams: &mut Seams) {
             );
             let assail =
                 crate::factions::firmament_plots::assail_space(&o.gs, ContentStore::embedded(), o.sources, &player, system.as_ref());
-            module + unit_mod + mahact + assail
+            let supercharge = o
+                .with_unit(u, |cu| crate::factions::naaz::supercharge_text(&o.gs, ContentStore::embedded(), o.sources, cu))
+                .unwrap_or(0);
+            module + unit_mod - supercharge + mahact + assail
         })
         .unwrap_or(0))
     });
@@ -865,6 +869,13 @@ pub fn combat_kernel(sources: SourceSet) -> Option<Kernel> {
     kernel.hooks.economy.action_cards_forbidden.push(ti4_engine_core_factions::cd_registry::yssaril::query::action_cards_forbidden);
     // The Table's Grace: the Corsair stands in for the Cruiser II a Mentak seat places (Salvage Operations, Ipswitch).
     kernel.hooks.strategy.unit_form_override.push(ti4_engine_core_factions::cc_ground::mentak::query::unit_form_override);
+    // Supercharge: the +1 of the round it was used in is read from the core's own mark (the string bridge below leaves it out; a
+    // snapshot of the string state would carry it into the rounds after).
+    kernel.hooks.seam.hit_shift.push_add(
+        Source::Faction(ti4_engine_core::generated::Faction::TheNaazRokhaAlliance),
+        Layer::Faction,
+        ti4_engine_core_factions::cd_registry::naaz::query::supercharge,
+    );
     // Naaz at the start of a space combat round: the Eidolon Maximum is repaired and Supercharge is offered.
     kernel.hooks.general.space_combat_round_started.push(ti4_engine_core_factions::cd_registry::naaz::space_round_started);
     // The agents' exhaustion is announced to a Nomad that listens (the round agents read it).

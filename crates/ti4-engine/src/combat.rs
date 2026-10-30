@@ -10541,10 +10541,6 @@ mod tests {
                 },
                 |seed, _, c| if c.prompt.starts_with("Supercharge") { usize::from(seed % 2 == 1) } else { 0 },
             );
-            if differences > 0 {
-                let marks: Vec<_> = state.faction_marks.iter().filter(|(k, _)| k.contains("supercharge")).collect();
-                eprintln!("seed {seed}: marks {marks:?}; exhausted {:?}; seq {}; nested {nested:?}", state.player(&attacker()).unwrap().exhausted_technologies, state.combat_round_seq);
-            }
             assert_eq!(differences, 0, "seed {seed} composed {composed}: {windows:?}");
             assert!(windows.keys().all(|k| !k.contains("a Naaz side")), "seed {seed}: {windows:?}");
             compared_settle += windows.get(if composed { "combat::settle" } else { "combat::begin_round" }).map_or(0, |w| w.compared);
