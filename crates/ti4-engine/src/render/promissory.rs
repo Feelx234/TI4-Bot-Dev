@@ -42,19 +42,25 @@ impl Family for Fam {
     type Subtype = Subtype;
 
     fn prompt(_: &Render, a: &Ask) -> String {
-        let Ask::PlaceUnits { unit, fit } = a;
-        format!("place up to {fit} {}", base_name(*unit))
+        match a {
+            Ask::PlaceUnits { unit, fit } => format!("place up to {fit} {}", base_name(*unit)),
+            Ask::C4rPds => "???_ERROR_ERROR_???: choose a planet you control".to_owned(),
+        }
     }
 
     fn subtype(_: &Render, s: &Subtype) -> String {
         match s {
             Subtype::PlaceUnitsFromReinforcements => "place_units_from_reinforcements",
+            Subtype::C4rPlanet => "c4r_planet",
         }
         .to_owned()
     }
 
     fn option(_: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
-        let (Ask::PlaceUnits { unit, fit }, Opt::Spot(system, planet)) = (a, o);
+        let (Ask::PlaceUnits { unit, fit }, Opt::Spot(system, planet)) = (a, o) else {
+            let Opt::Spot(system, planet) = o;
+            return ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "nekro_c4r_planet", format!("place a PDS on {} in {}", planet.as_str(), system.as_str()));
+        };
         let (system, planet, base) = (system.as_str(), planet.as_str(), base_name(*unit));
         ChoiceOption::labelled(format!("{system}|{planet}"), PLACE_KIND, format!("place {fit}x {base} on {planet} in {system}"))
             .with("system", system)
@@ -71,7 +77,7 @@ impl Family for Fam {
 /// and system. Needs the options, so the adapter calls it with the core question.
 pub fn complete_place_units(choice: &ti4_engine_core::choice::Choice, rendered: &mut crate::choice::Choice) {
     use ti4_engine_core::choice::Opt as COpt;
-    let ti4_engine_core::choice::Ask::Promissory(Ask::PlaceUnits { unit, fit }) = choice.ask else { return };
+    let ti4_engine_core::choice::Ask::Promissory(Ask::PlaceUnits { unit, fit }) = choice.ask else { return }; // the card's own question has no offer card
     let content = ti4_content::ContentStore::embedded();
     let base = base_name(unit);
     let captions: Vec<(String, serde_json::Value)> = choice

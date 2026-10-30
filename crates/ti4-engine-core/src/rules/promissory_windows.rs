@@ -26,6 +26,10 @@ pub enum Then {
     /// Then, ... return this card to the Sol player." The strategy token of `owner` is spent and announced (`reason` is the interned
     /// `military_support`), and the note of `owner`'s faction goes home.
     MilitarySupport { owner: Seat, reason: Code },
+    /// ???_ERROR_ERROR_??? (Nekro): "Exhaust this card to place 1 PDS on a planet you control". The planets are the ones under the
+    /// structure cap (79.2), the question is the card's own (not optional, no question for one planet), and the card is exhausted once
+    /// the PDS stands: a placement that happened nowhere leaves the card ready.
+    C4rPds,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,13 +84,29 @@ impl PlaceUnits {
             .iter()
             .copied()
             .filter(|(system, planet)| self.within.is_none_or(|only| only == *system) && !laws::planet_is_demilitarized(s, blanked, *planet))
+            .filter(|(_, planet)| !self.capped() || self.under_cap(s, blanked, *planet))
             .collect()
+    }
+
+    /// The placement is the card's PDS: the structure cap applies and the question is the card's own.
+    const fn capped(&self) -> bool {
+        matches!(self.then, Then::C4rPds)
+    }
+
+    /// Whether the placed unit's base type is still under the structure cap on `planet` (79.2).
+    fn under_cap(&self, s: &CoreState, blanked: bool, planet: Planet) -> bool {
+        self.unit.is_some_and(|unit| laws::structure_allowed(s, blanked, self.who, planet, unit.data().base_type))
+    }
+
+    /// The question the window waits on.
+    fn question(&self, s: &CoreState, unit: Unit) -> PAsk {
+        if self.capped() { PAsk::C4rPds } else { PAsk::PlaceUnits { unit, fit: self.wanted(s) } }
     }
 
     fn ctx(&self) -> Ctx {
         Ctx {
-            origin: Origin::FactionAbility(Content::Other(self.ability)),
-            subtype: Subtype::Promissory(PSub::PlaceUnitsFromReinforcements),
+            origin: if self.capped() { Origin::FactionAbility(Content::Technology(crate::generated::Technology::ERRORERROR)) } else { Origin::FactionAbility(Content::Other(self.ability)) },
+            subtype: Subtype::Promissory(if self.capped() { PSub::C4rPlanet } else { PSub::PlaceUnitsFromReinforcements }),
             optional: false,
             target: None,
             outstanding: SmallList::new(),
@@ -98,6 +118,11 @@ impl PlaceUnits {
     fn follow(&self, s: &mut CoreState) {
         match self.then {
             Then::Nothing => {}
+            Then::C4rPds => {
+                if self.placed > 0 {
+                    crate::kernel::fx_strategy::exhaust_technology(s, self.who, crate::generated::Technology::ERRORERROR);
+                }
+            }
             Then::MilitarySupport { owner, reason } => {
                 if fx::spend_strategic_token(s, owner) {
                     // `supply::note_strategy_token_spent(.., "military_support")`.
@@ -143,7 +168,7 @@ impl Window for PlaceUnits {
             }
         }
         match (self.stage, self.unit) {
-            (PStage::Asking, Some(unit)) => Next::Continue(Ask::Promissory(PAsk::PlaceUnits { unit, fit: self.wanted(sx.state) })),
+            (PStage::Asking, Some(unit)) => Next::Continue(Ask::Promissory(self.question(sx.state, unit))),
             _ => Next::Done,
         }
     }
@@ -154,7 +179,7 @@ impl Window for PlaceUnits {
         if self.optional {
             opts.push(Opt::Decline);
         }
-        Some(Choice { actor: self.who, ask: Ask::Promissory(PAsk::PlaceUnits { unit, fit: self.wanted(s) }), ctx: self.ctx(), opts })
+        Some(Choice { actor: self.who, ask: Ask::Promissory(self.question(s, unit)), ctx: self.ctx(), opts })
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
@@ -729,5 +754,52 @@ mod tests {
         let mut d = draw_driver(false);
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert!(d.window.unsupported);
+    }
+
+    #[test]
+    fn the_c4r_pds_is_asked_under_the_structure_cap_and_exhausts_the_card_only_when_the_unit_stands() {
+        use crate::generated::Technology;
+        let (k, pds) = (Kernel::plain(), unit_of(UnitBaseType::Pds));
+        let setup = |on_first: usize| {
+            let mut s = table();
+            control(&mut s, 2);
+            s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::ERRORERROR);
+            for _ in 0..on_first {
+                fx::place_unit(&mut s, Seat(0), planets()[0].0, Some(planets()[0].1), pds);
+            }
+            s
+        };
+        let exhausted = |s: &CoreState| s.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::ERRORERROR);
+        let w = || PlaceUnits::new(Seat(0), Some(pds), 1, None, false, Scope(u32::MAX), Code(0), Then::C4rPds);
+        // Both planets are under the cap: the card's own question, no decline, the context names the card and the subtype.
+        let mut s = setup(1);
+        let mut d = driver(w());
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!(c.ask, Ask::Promissory(PAsk::C4rPds));
+        assert_eq!((c.ctx.origin, c.ctx.subtype), (Origin::FactionAbility(Content::Technology(Technology::ERRORERROR)), Subtype::Promissory(PSub::C4rPlanet)));
+        assert_eq!(c.opts.as_slice(), &[Opt::Promissory(POpt::Spot(planets()[0].0, planets()[0].1)), Opt::Promissory(POpt::Spot(planets()[1].0, planets()[1].1))]);
+        assert!(!exhausted(&s), "nothing before the answer");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(c.opts.as_slice()[0])).unwrap(), Status::Done);
+        assert_eq!((count(&s, planets()[0].1, pds), d.window.placed, exhausted(&s)), (2, 1, true));
+        // The first planet is at the cap of two: it is not offered, the lone planet takes the PDS without a question.
+        let mut s = setup(2);
+        let mut d = driver(w());
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert_eq!((count(&s, planets()[0].1, pds), count(&s, planets()[1].1, pds), exhausted(&s)), (2, 1, true));
+        // Homeland Defense Act lifts the cap: the first planet is offered again.
+        let mut s = setup(2);
+        s.agenda_mut().laws.insert(crate::generated::Agenda::HomelandDefenseAct, crate::keys::Outcome::For);
+        let mut d = driver(w());
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        assert_eq!(c.opts.as_slice().len(), 2);
+        // Nothing stands (the cap on every planet, or the box empty): the card stays ready.
+        let mut s = setup(2);
+        for _ in 0..2 {
+            fx::place_unit(&mut s, Seat(0), planets()[1].0, Some(planets()[1].1), pds);
+        }
+        let mut d = driver(w());
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert_eq!((d.window.placed, exhausted(&s)), (0, false));
     }
 }

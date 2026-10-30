@@ -11,6 +11,8 @@ pub enum Ask {
     /// "place up to {fit} {unit}": where the units from the reinforcements go (the planets the placer controls). `unit` is the form the
     /// seat places (the prompt and the facts read its base type); `fit` is how many go to the one spot chosen.
     PlaceUnits { unit: Unit, fit: u8 },
+    /// ???_ERROR_ERROR_???, the PDS: "choose a planet you control" (the planets under the structure cap).
+    C4rPds,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -25,4 +27,6 @@ pub enum Opt {
 pub enum Subtype {
     /// `place_units_from_reinforcements`.
     PlaceUnitsFromReinforcements,
+    /// `c4r_planet`.
+    C4rPlanet,
 }

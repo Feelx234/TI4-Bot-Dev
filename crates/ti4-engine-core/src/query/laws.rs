@@ -101,6 +101,30 @@ pub fn structure_cap_lifted(core: &CoreState, blanked: bool, base: UnitBaseType)
     base == UnitBaseType::Pds && active(core, blanked, DEFENSE_ACT)
 }
 
+/// `production::structure_limit`.
+#[must_use]
+pub const fn structure_limit(base: UnitBaseType) -> Option<usize> {
+    match base {
+        UnitBaseType::Spacedock => Some(1),
+        UnitBaseType::Pds => Some(2),
+        _ => None,
+    }
+}
+
+/// `production::structure_allowed` (79.2) from the position alone (it reads no hook): whether another structure of this base type may
+/// stand on the planet. Homeland Defense Act lifts the PDS cap, a demilitarized planet takes none, otherwise the printed cap.
+#[must_use]
+pub fn structure_allowed(core: &CoreState, blanked: bool, who: Seat, planet: Planet, base: UnitBaseType) -> bool {
+    if structure_cap_lifted(core, blanked, base) {
+        return true;
+    }
+    if planet_is_demilitarized(core, blanked, planet) {
+        return false;
+    }
+    let on = board::planet_units(core, planet).iter().filter(|p| p.owner() == who && p.kind().data().base_type == base).count();
+    structure_limit(base).is_none_or(|cap| on < cap)
+}
+
 /// `laws::bombardment_forbidden`: Conventions of War, on a planet in scope with the CULTURAL trait.
 #[must_use]
 pub fn bombardment_forbidden(core: &CoreState, blanked: bool, scope: super::Scope, planet: Planet) -> bool {

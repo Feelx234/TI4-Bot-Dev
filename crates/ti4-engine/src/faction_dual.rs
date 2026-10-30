@@ -101,6 +101,51 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
+    /// What the Nekro PDS reads (the planets, the structure cap, the box, the laws) and writes (the PDS and the exhausted card).
+    const C4R_PLACE: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks, Slice::Pending],
+        &[Slice::Players, Slice::Board],
+    );
+
+    /// The core half of Nekro's ???_ERROR_ERROR_??? PDS (`factions::nekro_units::place_pds`; the value: the PDS was placed and the card
+    /// exhausted). `pds` is the form the seat places (`None`: nothing). A seat that carries the text on something else than its own card
+    /// (a Valefar Assimilator) and a faction rule that forbids the placement are the string's.
+    pub fn c4r_place_pds(gs: &mut GameState, player: &PlayerId, pds: Option<&UnitTypeId>, forbidden: bool, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::driver::Driver;
+        use ti4_engine_core::kernel::stage::AbilityTable;
+        use ti4_engine_core::kernel::{Kernel, Resolver};
+        use ti4_engine_core::rules::promissory_windows::{PlaceUnits, Then};
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if forbidden {
+            crate::dual::note_bail_here("a faction rule forbids the placement of the PDS (the string asks the planet, then places nothing)");
+            return None;
+        }
+        if !gs.player(player).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"nekroc4r"))) {
+            crate::dual::note_bail_here("???_ERROR_ERROR_??? carried by something other than the player's own card (a Valefar Assimilator)");
+            return None;
+        }
+        let unit = match pds {
+            Some(id) => Some(crate::core_adapter::typed::<Unit>(id.as_str()).why("a unit form the typed tables do not know")?),
+            None => None,
+        };
+        let scope = scope(sources)?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let mut driver = Driver::new(PlaceUnits::new(seat, unit, 1, None, false, scope, r.code("nekroc4r"), Then::C4rPds), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
+        let driven = with_core(gs, &mut cx, Sources::default(), C4R_PLACE, |core, _| {
+            crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {})
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        Some(CoreWindow { run: Run::new(driver.window.placed > 0).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     /// What the Nekro draw reads and writes: the hand and the deck, the staged discard mark, the laws that cap the hand.
     const C4R_DRAW: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Decks, Slice::Agenda, Slice::Marks, Slice::Cards, Slice::Pending],
@@ -201,6 +246,9 @@ mod stub {
     }
 
     pub fn c4r_repair(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn c4r_place_pds(_: &mut GameState, _: &PlayerId, _: Option<&UnitTypeId>, _: bool, _: ti4_model::content_types::SourceSet, _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
     pub fn terraform(_: &mut GameState, _: &PlayerId, _: &str, _: bool, _: &Recording) -> Option<CoreWindow<bool>> {
