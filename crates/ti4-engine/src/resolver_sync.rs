@@ -268,7 +268,6 @@ mod tests {
     #[test]
     fn i1_the_image_round_trips_on_every_position_of_played_games() {
         let mut checked = 0;
-        let mut spent = 0;
         for (n, seed) in GAMES {
             let mut g = game(n, seed);
             play(&mut g, 600, 5, |g| {
@@ -278,12 +277,59 @@ mod tests {
                 let rebuilt = rebuild(&g.state, &img, Table::default(), &r, Context::Image, &mut seq);
                 assert_eq!(export(&rebuilt, &seq, &r).unwrap(), img);
                 assert_eq!(seq.peek(), img.next_event_id);
-                spent += img.used.len();
                 checked += 1;
             });
         }
         assert!(checked > 200, "positions checked: {checked}");
-        assert!(spent > 0, "no game spent a frequency key; the test would prove nothing about `used`");
+    }
+
+    /// A resolver that really spent keys of every scope (random games spend none: the standing slots are
+    /// `Unlimited`), and the counter that went with it.
+    fn spent_resolver() -> (Resolver, EventSequence) {
+        use std::sync::Arc;
+
+        use crate::timing::{Ability, Frequency, Relation};
+        let a = PlayerId::new("a");
+        let mut res = Resolver::new(players(2), Some(a.clone()), Table::default());
+        res.sync_lifecycle(2, 5);
+        let ability = |id: &str, f: Frequency| {
+            Ability::new(id, a.clone(), "E", Relation::When, Arc::new(|_, _| Ok(()))).with_frequency(f)
+        };
+        res.register([
+            ability("ability:t:trigger", Frequency::OncePerTrigger),
+            ability("ability:t:turn", Frequency::OncePerTurn),
+            ability("ability:t:round", Frequency::OncePerRound),
+            ability("ability:t:free", Frequency::Unlimited),
+        ]);
+        let mut seq = EventSequence::new();
+        for _ in 0..3 {
+            let event = seq.next("E", std::collections::BTreeMap::new()).unwrap();
+            res.emit(event, |_| {}).unwrap();
+        }
+        (res, seq)
+    }
+
+    /// I1 with keys spent: every scope round-trips, in the order spent, and nothing else changes.
+    #[test]
+    fn i1_spent_keys_of_every_scope_round_trip_in_order() {
+        let (res, seq) = spent_resolver();
+        let state = crate::setup::start_game_seeded(ContentStore::embedded(), &players(2), POK, None, 1).unwrap();
+        let r = render_for(&state);
+        let img = export(&res, &seq, &r).unwrap();
+        let scopes: Vec<UsedScope> = img.used.iter().map(|(_, s, _)| *s).collect();
+        for scope in [UsedScope::Trigger, UsedScope::Turn, UsedScope::Round] {
+            assert!(scopes.contains(&scope), "{scope:?} was not spent: {:?}", img.used);
+        }
+        assert!(img.used.iter().any(|(_, s, n)| *s == UsedScope::Turn && *n == 5));
+        assert!(img.used.iter().any(|(_, s, n)| *s == UsedScope::Round && *n == 2));
+        // the Trigger keys name the three events
+        let triggers: Vec<u64> = img.used.iter().filter(|(_, s, _)| *s == UsedScope::Trigger).map(|(_, _, n)| *n).collect();
+        assert_eq!(triggers, vec![1, 2, 3]);
+        let mut next = EventSequence::new();
+        let rebuilt = rebuild(&state, &img, Table::default(), &r, Context::Image, &mut next);
+        assert_eq!(export(&rebuilt, &next, &r).unwrap(), img);
+        assert_eq!(rebuilt.used_keys(), res.used_keys(), "the same keys in the same order");
+        assert_eq!(next.peek(), 4);
     }
 
     /// I2: arming the registry again from the current state gives the registry of the long-lived resolver
@@ -335,21 +381,18 @@ mod tests {
     /// I4: the Trigger keys are event ids of the carried counter; a fresh counter would collide with them.
     #[test]
     fn i4_trigger_keys_stay_below_the_carried_event_counter() {
-        let mut spent = 0;
         for (n, seed) in GAMES {
             let mut g = game(n, seed);
             play(&mut g, 600, 5, |g| {
                 let r = render_for(&g.state);
                 let img = export(&g.timing, g.event_sequence(), &r).unwrap();
                 for (_, scope, id) in &img.used {
-                    spent += 1;
                     if *scope == UsedScope::Trigger {
                         assert!(*id < img.next_event_id, "a spent Trigger({id}) at counter {}", img.next_event_id);
                     }
                 }
             });
         }
-        assert!(spent > 0, "no frequency key was ever spent; the test proves nothing");
         // The counter is carried, not restarted: a Trigger key of a later event than a fresh counter's first ids.
         let g = game(3, 7);
         let r = render_for(&g.state);
