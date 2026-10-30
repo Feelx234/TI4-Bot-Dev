@@ -786,7 +786,9 @@ fn a_planetary_maximum_is_never_assigned_the_hits_of_the_guns_in_lockstep() {
 fn ssruu_borrowing_another_agent_does_not_open_the_tro_window() {
     let _guard = crate::dual::tests::serial();
     let _ = take_report();
-    let state = crate::fixtures::seated_game(&[("a", "yssaril"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+    let mut state = crate::fixtures::seated_game(&[("a", "yssaril"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+    state.promissory_notes.clear();
+    state.promissory_faceup.clear();
     let content = ContentStore::embedded();
     assert!(
         !crate::factions::hooks_cards::borrowable_agents(&state, content, &a()).is_empty(),
