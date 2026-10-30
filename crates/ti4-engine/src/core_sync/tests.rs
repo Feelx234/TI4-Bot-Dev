@@ -187,7 +187,7 @@ mod text_tables {
     fn with_promises(texts: &[&str]) -> GameState {
         let mut gs = game();
         for t in texts {
-            gs.promises.insert((PlayerId::new("a"), PlayerId::new("b"), (*t).to_owned()), true);
+            gs.promises.insert((PlayerId::new("a"), PlayerId::new("b"), (*t).to_owned()), Some(true));
         }
         gs
     }
