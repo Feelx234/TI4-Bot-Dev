@@ -1036,17 +1036,16 @@ pub fn sustain_commander(
     Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(events), questions: driven.rendered })
 }
 
-/// Seats (bit per seat) whose action card draw a faction hook changes: every seat with Yssaril in the game
-/// (Scheming), else the seats a draw bonus applies to.
+/// Seats (bit per seat) whose action card draw a faction hook changes (`strategy_cards_core::draw_hook`: the drawer's own
+/// Scheming and Crafty, a borrowed Scheming, a bonus card, a turn with blank laws). A hand that ends over its limit is not a
+/// hook: the core's draw window asks the discard.
 #[must_use]
 pub fn draw_hooks(gs: &GameState, r: &Render) -> u16 {
     let content = ti4_content::ContentStore::embedded();
-    let yssaril = gs.players.iter().any(|p| p.faction.as_str() == "yssaril");
     let mut hooked = 0;
     for (at, id) in r.seats.iter().enumerate().take(16) {
         let player = PlayerId::new(id.as_str());
-        let bonus = [1, 2, 3].iter().any(|n| crate::factions::hooks_economy::action_card_draw_bonus(gs, content, &player, *n) != 0);
-        if yssaril || bonus {
+        if [1, 2, 3].iter().any(|n| crate::strategy_cards_core::draw_hook(gs, content, &player, *n).is_some()) {
             hooked |= 1 << at;
         }
     }
@@ -1169,7 +1168,7 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
     };
     let before = gs.clone();
     let kernel = Kernel::plain();
-    let mut driver = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1);
+    let mut driver = Driver::new(window, Resolver::new(&[], None), crate::reactions_core::linked_table(), 1);
     let mut staged = Vec::new();
     let mut footprint = if driver.window.needs_map() { AGENDA_EFFECT_MAP } else { AGENDA_EFFECT };
     if rolls.is_some() {

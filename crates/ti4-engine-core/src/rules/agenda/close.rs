@@ -12,7 +12,7 @@
 //! point, Trade Rider five trade goods, Politics Rider three action cards and the speaker token, Keleres Rider an
 //! action card and two trade goods, Leadership Rider three command tokens (a pool question each, rule 52.4) and
 //! Sanction nothing. The riders that research or place (Technology, Construction, Diplomacy, Warfare), a draw a
-//! faction hook changes or that leaves the hand over its limit, and a rules version below the pool question
+//! faction hook changes, and a rules version below the pool question
 //! (`RULES_COMMAND_TOKEN_POOL`) end the window `unsupported`: the adapter drops it and the string result stands.
 //!
 //! The plain events of the string's `Game::emit` (`AGENDA_RESOLVED`, `AGENDA_DISCARDED`, `COVERT_AGENDA_RESOLVED`,
@@ -25,16 +25,14 @@ use crate::choice::{Ask, Choice, Opt, Pick};
 use crate::containers::SmallList;
 use crate::generated::Agenda;
 use crate::ids::Seat;
-use crate::kernel::stage::{Illegal, Sx, Window};
+use crate::kernel::children::{ErasedChild, Report, Spawn};
+use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::{fx, fx_agenda, Kernel, Next};
 use crate::keys::{LedgerReason, Outcome, Prediction, PredictionTag};
-use crate::query::laws;
 use crate::state::{Code, CoreState, EventKind, EventRec, Key, Payload, PlainArg, PlainKind, PlainRec, TransientFlags, Val};
 
 /// `ti4_model::state::RULES_COMMAND_TOKEN_POOL`: from here Leadership Rider asks the pool of each token.
 pub const RULES_COMMAND_TOKEN_POOL: u32 = 12;
-/// `action_cards::HAND_LIMIT`: the printed limit (LRR 2.4), which the law cap of Sanctions lowers.
-const HAND_LIMIT: usize = 7;
 
 /// What the window cannot read off the state.
 #[derive(Debug, Clone, Copy)]
@@ -57,7 +55,18 @@ pub enum Stage {
     Predict,
     /// Waiting on the pool of a Leadership Rider token.
     Lead,
+    /// A rider's action cards are drawn as a child window (the hand limit may ask a discard).
+    Draw,
     Done,
+}
+
+/// What follows a rider's draw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tail {
+    /// Politics Rider: the speaker token.
+    Speaker,
+    /// Keleres Rider: two trade goods.
+    Goods,
 }
 
 /// The close of a vote.
@@ -84,6 +93,9 @@ pub struct Close {
     discarded: bool,
     failed: bool,
     unsupported: bool,
+    /// The draw of a Politics or Keleres Rider and what follows it.
+    draw: ErasedChild,
+    tail: Tail,
 }
 
 impl Close {
@@ -117,6 +129,8 @@ impl Close {
             discarded: false,
             failed: false,
             unsupported: false,
+            draw: ErasedChild::idle(),
+            tail: Tail::Speaker,
         }
     }
 
@@ -233,14 +247,31 @@ impl Close {
         }
     }
 
-    /// Whether a faction hook changes the seat's draw or the draw would leave the hand over its limit (the string
-    /// asks a discard then).
-    fn plain_draw(&self, s: &CoreState, who: Seat, count: usize) -> bool {
-        if self.facts.hooked & (1 << u16::from(who.0)) != 0 {
+    /// Whether a faction hook changes the seat's draw (the adapter's mask): the draw is the string's. A hand that ends over its
+    /// limit is the draw window's own question.
+    fn hooked(&self, who: Seat) -> bool {
+        self.facts.hooked & (1 << u16::from(who.0)) != 0
+    }
+
+    /// Start the draw of `count` cards for `who` as a child window; `false` (the run is unsupported) when it cannot be followed.
+    fn start_draw(&mut self, sx: &mut Sx<'_>, who: Seat, count: usize, tail: Tail) -> bool {
+        if self.hooked(who) {
+            self.stop();
             return false;
         }
-        let limit = laws::action_card_limit(s, self.facts.blanked, HAND_LIMIT);
-        s.players().by_seat(who).is_some_and(|p| p.cards.hand.len() + count <= limit)
+        match sx.table.links.start(&Spawn::DrawCards { who, count, drop_unofficial: self.facts.drop_unofficial }) {
+            Some(window) => {
+                self.draw.start(window);
+                self.who = who;
+                self.tail = tail;
+                self.stage = Stage::Draw;
+                true
+            }
+            None => {
+                self.stop();
+                false
+            }
+        }
     }
 
     /// `rider_payoff` for one correct prediction. `true` when a question was put (the window waits on it).
@@ -263,22 +294,8 @@ impl Close {
             Some(PredictionTag::TradeRider) => {
                 fx::gain_trade_goods_staged(sx.state, who, 5, self.facts.trade_rider);
             }
-            Some(PredictionTag::PoliticRider) => {
-                if !self.plain_draw(sx.state, who, 3) {
-                    self.stop();
-                    return false;
-                }
-                fx::draw_action_cards(sx.state, who, 3, self.facts.drop_unofficial);
-                sx.state.meta_mut().speaker = who;
-            }
-            Some(PredictionTag::KeleresRider) => {
-                if !self.plain_draw(sx.state, who, 1) {
-                    self.stop();
-                    return false;
-                }
-                fx::draw_action_cards(sx.state, who, 1, self.facts.drop_unofficial);
-                fx::gain_trade_goods_staged(sx.state, who, 2, self.facts.keleres_rider);
-            }
+            Some(PredictionTag::PoliticRider) => return self.start_draw(sx, who, 3, Tail::Speaker),
+            Some(PredictionTag::KeleresRider) => return self.start_draw(sx, who, 1, Tail::Goods),
             // Research and placement riders ask questions of their own.
             Some(PredictionTag::TechRider | PredictionTag::ConstRider | PredictionTag::DiploRider | PredictionTag::WarRider) => {
                 self.stop();
@@ -339,19 +356,40 @@ impl Window for Close {
                     if hit {
                         sx.plain(PlainRec::one(PlainKind::AgendaPredictionCorrect, PlainArg::Seat(seat)));
                     }
-                    if hit && self.pay(sx, seat, tag) {
+                    if hit && self.pay(sx, seat, tag) && self.stage == Stage::Lead {
                         return Next::Continue(Ask::Strategy(SAsk::GainPool { left: self.left }));
                     }
                 }
+                Stage::Draw => match self.draw.step(sx) {
+                    Some(Ran::Asks(a)) => return Next::Continue(a),
+                    Some(Ran::Pass(next)) => return next,
+                    Some(Ran::Done(Report::Left)) => self.stop(),
+                    Some(Ran::Done(_)) | None => {
+                        match self.tail {
+                            Tail::Speaker => sx.state.meta_mut().speaker = self.who,
+                            Tail::Goods => {
+                                fx::gain_trade_goods_staged(sx.state, self.who, 2, self.facts.keleres_rider);
+                            }
+                        }
+                        self.stage = Stage::Predict;
+                    }
+                },
             }
         }
     }
 
-    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
-        (self.stage == Stage::Lead).then(|| gain_pool_choice(self.who, self.left))
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        match self.stage {
+            Stage::Lead => Some(gain_pool_choice(self.who, self.left)),
+            Stage::Draw => self.draw.ask_of(s, k),
+            _ => None,
+        }
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == Stage::Draw {
+            return self.draw.answer(sx, pick);
+        }
         let Pick::Opt(Opt::Strategy(SOpt::Pool(pool))) = pick else { return Err(Illegal) };
         if self.stage != Stage::Lead {
             return Err(Illegal);
@@ -412,10 +450,20 @@ mod tests {
         Close::new(facts(), agenda, None, winner, &[(A, Outcome::For), (B, Outcome::Against)], &COUNTS, &[Outcome::For, Outcome::Against])
     }
 
+    /// The table of a window that runs children: the links of the areas and the printed-name groups (each card its own name).
+    fn linked(groups: bool) -> AbilityTable {
+        let mut t = AbilityTable::default();
+        crate::driver::children::register(&mut t);
+        if groups {
+            t.facts.card_groups = (0..ActionCard::COUNT).map(|i| u8::try_from(i).unwrap()).collect();
+        }
+        t
+    }
+
     /// Run the window, answering each pool question with `pools` in turn.
     fn run(window: Close, s: &mut CoreState, pools: &[Pool]) -> Driver<Close> {
         let k = Kernel::plain();
-        let mut d = Driver::new(window, Resolver::new(&[A], Some(A)), AbilityTable::default(), 1);
+        let mut d = Driver::new(window, Resolver::new(&[A], Some(A)), linked(true), 1);
         let mut status = d.run(s, &k).unwrap();
         for pool in pools {
             assert!(matches!(status, Status::Asking(_)), "asks before {pool:?}");
@@ -666,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn a_draw_that_a_hook_changes_or_that_overflows_the_hand_is_not_expressed() {
+    fn a_draw_that_a_hook_changes_is_not_expressed() {
         let deck = vec![ActionCard::ALL[0]; 4];
         let mut s = game();
         s.decks_mut().action.set(deck.clone());
@@ -674,19 +722,63 @@ mod tests {
         let hooked = Facts { hooked: 1 << 2, ..facts() };
         let w = Close::new(hooked, law(), None, Some(Outcome::For), &[], &COUNTS, &[]);
         assert!(run(w, &mut s, &[]).window.unsupported());
-        // Hand at 4: three more reaches the limit of seven exactly, which is plain.
+        assert_eq!(s.players().by_seat(C).unwrap().cards.hand.len(), 0, "nothing was drawn");
+        // Hand at 4: three more reaches the limit of seven exactly.
         let mut s = game();
-        s.decks_mut().action.set(deck.clone());
+        s.decks_mut().action.set(deck);
         s.players_mut().by_seat_mut(C).unwrap().cards.hand = vec![ActionCard::ALL[5]; 4].into_iter().collect();
         predict(&mut s, C, Prediction::Tagged(Outcome::For, PredictionTag::PoliticRider));
         assert!(!run(close(law(), Some(Outcome::For)), &mut s, &[]).window.unsupported());
         assert_eq!(s.players().by_seat(C).unwrap().cards.hand.len(), 7);
-        // Hand at 5: three more is over the limit of seven.
+    }
+
+    /// W6 regression: a Politics Rider draw that ends over the hand limit was `unsupported` (a rider or draw the core does not pay,
+    /// 8 of 141 closes per 20 golden games); the child draw window asks the discard, and the speaker token comes after it.
+    #[test]
+    fn a_politics_rider_draw_over_the_hand_limit_asks_the_discard_then_takes_the_speaker_token() {
         let mut s = game();
-        s.decks_mut().action.set(deck);
-        s.players_mut().by_seat_mut(C).unwrap().cards.hand = vec![ActionCard::ALL[5]; 5].into_iter().collect();
+        s.decks_mut().action.set(vec![ActionCard::ALL[0], ActionCard::ALL[1], ActionCard::ALL[2]]);
+        s.players_mut().by_seat_mut(C).unwrap().cards.hand = (10..15).map(|i| ActionCard::ALL[i]).collect();
         predict(&mut s, C, Prediction::Tagged(Outcome::For, PredictionTag::PoliticRider));
-        assert!(run(close(law(), Some(Outcome::For)), &mut s, &[]).window.unsupported());
+        let k = Kernel::plain();
+        let mut d = Driver::new(close(law(), Some(Outcome::For)), Resolver::new(&[A], Some(A)), linked(true), 1);
+        let Status::Asking(choice) = d.run(&mut s, &k).unwrap() else { panic!("eight cards: a discard") };
+        assert_eq!(choice.actor, C);
+        assert_eq!(choice.ask, Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8 }));
+        assert_eq!(s.meta().speaker, Seat(0), "the token waits for the discard");
+        assert_eq!(d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap(), Status::Done);
+        assert_eq!(s.players().by_seat(C).unwrap().cards.hand.len(), 7);
+        assert_eq!(s.meta().speaker, C);
+        assert!(!d.window.unsupported());
+    }
+
+    /// The Keleres Rider's goods come after its card's discard.
+    #[test]
+    fn a_keleres_rider_draw_over_the_hand_limit_asks_the_discard_then_pays_the_goods() {
+        let mut s = game();
+        s.decks_mut().action.set(vec![ActionCard::ALL[0]]);
+        s.players_mut().by_seat_mut(B).unwrap().cards.hand = (10..17).map(|i| ActionCard::ALL[i]).collect();
+        predict(&mut s, B, Prediction::Tagged(Outcome::For, PredictionTag::KeleresRider));
+        let k = Kernel::plain();
+        let mut d = Driver::new(close(law(), Some(Outcome::For)), Resolver::new(&[A], Some(A)), linked(true), 1);
+        let Status::Asking(choice) = d.run(&mut s, &k).unwrap() else { panic!("eight cards: a discard") };
+        assert_eq!(goods(&s, B), 0, "the goods follow the discard");
+        assert_eq!(d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap(), Status::Done);
+        assert_eq!((s.players().by_seat(B).unwrap().cards.hand.len(), goods(&s, B)), (7, 2));
+    }
+
+    /// Bail: a table without the link to the draw window (or without printed-name groups over the limit) ends the window unsupported.
+    #[test]
+    fn bail_a_rider_draw_without_the_link_or_the_groups_is_unsupported() {
+        for table in [AbilityTable::default(), linked(false)] {
+            let mut s = game();
+            s.decks_mut().action.set(vec![ActionCard::ALL[0]; 4]);
+            s.players_mut().by_seat_mut(C).unwrap().cards.hand = (10..17).map(|i| ActionCard::ALL[i]).collect();
+            predict(&mut s, C, Prediction::Tagged(Outcome::For, PredictionTag::PoliticRider));
+            let mut d = Driver::new(close(law(), Some(Outcome::For)), Resolver::new(&[A], Some(A)), table, 1);
+            assert_eq!(d.run(&mut s, &Kernel::plain()).unwrap(), Status::Done);
+            assert!(d.window.unsupported());
+        }
     }
 
     #[test]

@@ -922,4 +922,63 @@ mod tests {
         assert_eq!(s.decks().secret.len(), 1);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.victory_points, 1, "exactly one point");
     }
+
+    // -- Politics: the draw is a child window (package W6) -----------------------------------------------------------
+
+    /// Two seats: seat 0 (the speaker, holding Politics) draws two cards from `deck` with `hand` in its hand; `agendas` on the
+    /// agenda deck.
+    fn politics_table(hand: usize, deck: &[crate::generated::ActionCard], agendas: &[Agenda]) -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheArborec), Player::new(Seat(1), Faction::TheEmiratesOfHacan)]);
+        s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand = (0..hand).map(|i| crate::generated::ActionCard::ALL[100 + i]).collect();
+        s.decks_mut().action = Deck::new(deck.to_vec());
+        s.decks_mut().agenda = Deck::new(agendas.to_vec());
+        s
+    }
+
+    fn groups_table() -> AbilityTable {
+        let mut t = table(true);
+        t.facts.card_groups = (0..crate::generated::ActionCard::COUNT).map(|i| u8::try_from(i).unwrap()).collect();
+        t
+    }
+
+    /// The secondary draws two cards; over the limit the discard is asked, and the primary asks the speaker first and the agendas
+    /// after the discard.
+    #[test]
+    fn politics_asks_the_speaker_then_the_discard_then_the_agendas() {
+        use crate::generated::ActionCard as C;
+        let k = Kernel::plain();
+        let mut s = politics_table(6, &[C::ALL[0], C::ALL[1], C::ALL[2]], &[Agenda::ALL[0], Agenda::ALL[1]]);
+        let mut d = Driver::new(Politics::new(Seat(0), true, false), Resolver::new(&[Seat(0)], Some(Seat(0))), groups_table(), 1);
+        let mut asked = Vec::new();
+        let mut status = d.run(&mut s, &k).unwrap();
+        while let Status::Asking(choice) = status {
+            asked.push(choice.ask);
+            status = d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap();
+        }
+        assert_eq!(asked[0], Ask::Strategy(SAsk::PoliticsSpeaker));
+        assert_eq!(asked[1], Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8 }));
+        assert!(matches!(asked[2], Ask::Strategy(SAsk::PoliticsAgenda { .. })) && matches!(asked[3], Ask::Strategy(SAsk::PoliticsAgenda { .. })), "{asked:?}");
+        assert_eq!(asked.len(), 4);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 7);
+        assert_eq!(s.meta().speaker, Seat(1));
+        assert!(!d.window.unsupported);
+        // The secondary draws and looks at no agenda.
+        let mut s = politics_table(6, &[C::ALL[0], C::ALL[1], C::ALL[2]], &[Agenda::ALL[0]]);
+        let mut d = Driver::new(Politics::new(Seat(0), false, false), Resolver::new(&[Seat(0)], Some(Seat(0))), groups_table(), 1);
+        let Status::Asking(choice) = d.run(&mut s, &k).unwrap() else { panic!("a discard") };
+        assert_eq!(d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap(), Status::Done);
+        assert_eq!(s.decks().agenda.len(), 1, "no agenda was looked at");
+    }
+
+    /// Bail: a table without the link to the draw window ends the window unsupported, drawing nothing.
+    #[test]
+    fn bail_politics_without_the_draw_link_is_unsupported() {
+        let mut s = politics_table(0, &[crate::generated::ActionCard::ALL[0]], &[]);
+        let mut d = Driver::new(Politics::new(Seat(0), false, false), Resolver::new(&[Seat(0)], Some(Seat(0))), table(false), 1);
+        assert_eq!(d.run(&mut s, &Kernel::plain()).unwrap(), Status::Done);
+        assert!(d.window.unsupported);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 0);
+    }
 }

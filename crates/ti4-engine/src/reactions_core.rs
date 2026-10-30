@@ -191,6 +191,7 @@ pub fn table() -> AbilityTable {
             // The links to the areas whose windows an action card runs as children: a play window that follows nested
             // activity runs on this table (`follow`), not on `action_cards_view::play_table`.
             ti4_engine_core::driver::children::register(&mut t);
+            t.facts.card_groups = card_groups();
             t
         })
         .clone()
@@ -376,6 +377,16 @@ fn card_tables() -> &'static (Vec<u8>, Vec<bool>) {
             .collect();
         (group, effect)
     })
+}
+
+/// The table of a core window that runs children of other areas but follows no ability: the links of the areas and the
+/// printed-name groups of the action cards.
+#[must_use]
+pub(crate) fn linked_table() -> AbilityTable {
+    let mut table = AbilityTable::default();
+    ti4_engine_core::driver::children::register(&mut table);
+    table.facts.card_groups = card_groups();
+    table
 }
 
 /// The printed-name group of each action card (the index of the first card with the same name): the windows that offer one

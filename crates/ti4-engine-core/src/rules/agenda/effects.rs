@@ -25,7 +25,8 @@ use crate::choice::{Ask, Choice, Opt, Pick};
 use crate::containers::SmallList;
 use crate::generated::{Agenda, Planet, SecretObjective, System, Wormhole};
 use crate::ids::Seat;
-use crate::kernel::stage::{Illegal, Sx, Window};
+use crate::kernel::children::{ErasedChild, Report, Spawn};
+use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::{fx, Kernel, Next};
 use crate::keys::{LedgerReason, Outcome};
 use crate::query::objectives as q;
@@ -59,6 +60,9 @@ pub enum Kind {
     Gamma,
     /// Archived Secret, Search Warrant: the seat draws this many secret objectives, each followed by the hand limit.
     Draw(Seat, u8),
+    /// Unconventional Measures, For: two action cards for each For voter, each draw a child window that asks the hand limit's
+    /// discard (package W6; the voters and the hooks are the facts').
+    Cards,
     /// The card does nothing when it passes.
     Nothing,
     /// An effect of [`Table`] (the table writes of `table_effects`).
@@ -87,6 +91,8 @@ pub enum Stage {
     Apply,
     /// Waiting on "return a secret objective to the deck" (a draw went over the limit).
     Asking,
+    /// A voter's action cards are drawn as a child window.
+    Drawing,
     Done,
 }
 
@@ -111,6 +117,8 @@ pub struct Resolve {
     cursor: u8,
     /// The faces of the dice the effect rolled, in order (Executive Sanctions, Ixthian Artifact).
     faces: SmallList<u32, 16>,
+    /// Unconventional Measures: the draw of the voter being served.
+    draw: ErasedChild,
 }
 
 impl Resolve {
@@ -167,7 +175,7 @@ impl Resolve {
             ) => Kind::Nothing,
             _ => return None,
         };
-        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new() })
+        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() })
     }
 
     /// [`Resolve::of`], then the table effects: `facts` carries the ballot and everything the table reads.
@@ -180,17 +188,18 @@ impl Resolve {
             (Agenda::SeedOfAnEmpire, Outcome::For) => Some(Kind::Seed(agenda, true)),
             (Agenda::SeedOfAnEmpire, _) => Some(Kind::Seed(agenda, false)),
             (Agenda::HomelandDefenseAct, Outcome::Against) => Some(Kind::Defense),
+            (Agenda::UnconventionalMeasures, Outcome::For) => Some(Kind::Cards),
             (Agenda::ExecutiveSanctions, Outcome::Against) => Some(Kind::Sanctions),
             (Agenda::ExecutiveSanctions, Outcome::For) | (Agenda::IxthianArtifact, Outcome::Against) => Some(Kind::Nothing),
             (Agenda::IxthianArtifact, Outcome::For) => Some(Kind::Crater),
             _ => None,
         };
         if let Some(kind) = special {
-            return Some(Self { kind, stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new() });
+            return Some(Self { kind, stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() });
         }
         let (table, deferred) = Table::of(agenda, outcome, facts.has_galaxy)?;
         let done = if deferred { Done::Deferred } else { Done::Resolved };
-        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new() })
+        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() })
     }
 
     /// Whether the table effect met a position it does not express (its result is not to be compared).
@@ -202,7 +211,7 @@ impl Resolve {
     /// `laws::repeal` of `law`.
     #[must_use]
     pub const fn repeal(law: Agenda) -> Self {
-        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new() }
+        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() }
     }
 
     /// Whether the effect rolls dice (it needs the random streams of the state).
@@ -226,7 +235,7 @@ impl Resolve {
     /// Whether the effect turns a card of a deck, as a draw does.
     #[must_use]
     pub const fn draws(&self) -> bool {
-        matches!(self.kind, Kind::Draw(..)) || matches!(self.kind, Kind::Table(t) if t.draws_from_deck())
+        matches!(self.kind, Kind::Draw(..) | Kind::Cards) || matches!(self.kind, Kind::Table(t) if t.draws_from_deck())
     }
 
     /// Whether the repealed law was in play.
@@ -295,6 +304,49 @@ impl Resolve {
     }
 }
 
+impl Resolve {
+    /// Unconventional Measures, For: each For voter (in the ballot's order) draws two action cards, then the hand limit.
+    fn cards(&mut self, sx: &mut Sx<'_>) -> Next {
+        loop {
+            if self.draw.running() {
+                match self.draw.step(sx) {
+                    Some(Ran::Asks(a)) => return Next::Continue(a),
+                    Some(Ran::Pass(next)) => return next,
+                    Some(Ran::Done(Report::Left)) => {
+                        self.unsupported = true;
+                        self.stage = Stage::Done;
+                        return Next::Done;
+                    }
+                    Some(Ran::Done(_)) | None => self.cursor += 1,
+                }
+                continue;
+            }
+            let Some(facts) = &self.facts else {
+                self.unsupported = true;
+                self.stage = Stage::Done;
+                return Next::Done;
+            };
+            let Some(&seat) = facts.for_voters.as_slice().get(usize::from(self.cursor)) else {
+                self.stage = Stage::Done;
+                return Next::Done;
+            };
+            // A draw a hook changes is the string's.
+            let window = if facts.hooked & (1 << u16::from(seat.0)) != 0 {
+                None
+            } else {
+                sx.table.links.start(&Spawn::DrawCards { who: seat, count: 2, drop_unofficial: facts.drop_unofficial })
+            };
+            let Some(window) = window else {
+                self.unsupported = true;
+                self.stage = Stage::Done;
+                return Next::Done;
+            };
+            self.draw.start(window);
+            self.stage = Stage::Drawing;
+        }
+    }
+}
+
 impl Window for Resolve {
     type Stage = Stage;
 
@@ -305,6 +357,9 @@ impl Window for Resolve {
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if let Kind::Draw(who, count) = self.kind {
             return self.draw(sx, who, count);
+        }
+        if self.kind == Kind::Cards {
+            return self.cards(sx);
         }
         match self.kind {
             Kind::Seed(agenda, high) => return self.seed(sx, agenda, high),
@@ -372,7 +427,7 @@ impl Window for Resolve {
                         self.unsupported = true;
                     }
                 }
-                Kind::Nothing | Kind::Draw(..) | Kind::Seed(..) | Kind::Defense => {}
+                Kind::Nothing | Kind::Draw(..) | Kind::Cards | Kind::Seed(..) | Kind::Defense => {}
                 Kind::Table(table) => {
                     if let Some(facts) = &self.facts
                         && !table.apply(sx.state, facts)
@@ -393,10 +448,11 @@ impl Window for Resolve {
         Next::Done
     }
 
-    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.kind {
             Kind::Seed(..) => return self.seed_question(s),
             Kind::Defense => return self.defense_question(s),
+            Kind::Cards => return self.draw.ask_of(s, k),
             _ => {}
         }
         let Kind::Draw(who, _) = self.kind else { return None };
@@ -413,6 +469,7 @@ impl Window for Resolve {
         match self.kind {
             Kind::Seed(agenda, _) => return self.seed_answer(sx, agenda, pick),
             Kind::Defense => return self.defense_answer(sx, pick),
+            Kind::Cards => return self.draw.answer(sx, pick),
             _ => {}
         }
         let Kind::Draw(who, _) = self.kind else { return Err(Illegal) };
@@ -488,9 +545,19 @@ mod tests {
 
     fn run(window: Resolve, s: &mut CoreState, seed: u8) -> Driver<Resolve> {
         let k = Kernel::plain();
-        let mut d = Driver::new(window, Resolver::new(&[], None), AbilityTable::default(), 1).with_seeds(std::rc::Rc::new(Seeds(seed)));
+        let mut d = Driver::new(window, Resolver::new(&[], None), linked(true), 1).with_seeds(std::rc::Rc::new(Seeds(seed)));
         assert_eq!(d.run(s, &k).unwrap(), crate::driver::Status::Done);
         d
+    }
+
+    /// The table of a window that runs children: the links of the areas and the printed-name groups (each card its own name).
+    fn linked(groups: bool) -> AbilityTable {
+        let mut t = AbilityTable::default();
+        crate::driver::children::register(&mut t);
+        if groups {
+            t.facts.card_groups = (0..ActionCard::COUNT).map(|i| u8::try_from(i).unwrap()).collect();
+        }
+        t
     }
 
     fn hand(s: &mut CoreState, seat: Seat, n: usize) {
@@ -513,21 +580,57 @@ mod tests {
         assert_eq!((held(&s, a), held(&s, b), held(&s, Seat(2))), (2, 0, 2));
         assert_eq!(s.decks().action.cards().len(), 1);
         assert!(!d.window.unsupported());
-        // A hooked seat, a hand that would overflow the limit (7) or a lowered limit: not expressed.
-        for (hooked, cards, blanked_limit) in [(1_u16, 0, false), (0, 6, false)] {
-            let mut s = table(3);
-            s.decks_mut().action.set(vec![ActionCard::ALL[0]; 4]);
-            hand(&mut s, a, cards);
-            let f = EffectFacts { hooked, blanked: blanked_limit, ..facts(&[a]) };
-            let d = run(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &f).unwrap(), &mut s, 1);
-            assert!(d.window.unsupported(), "hooked {hooked}, {cards} cards");
-        }
-        // Five cards and two more reach the limit exactly: plain.
+        // A hooked seat is the string's: nothing is drawn.
+        let mut s = table(3);
+        s.decks_mut().action.set(vec![ActionCard::ALL[0]; 4]);
+        let f = EffectFacts { hooked: 1, ..facts(&[a]) };
+        let d = run(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &f).unwrap(), &mut s, 1);
+        assert!(d.window.unsupported());
+        assert_eq!(held(&s, a), 0);
+        // Five cards and two more reach the limit exactly: no question.
         let mut s = table(3);
         s.decks_mut().action.set(vec![ActionCard::ALL[0]; 4]);
         hand(&mut s, a, 5);
         assert!(!run(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &facts(&[a])).unwrap(), &mut s, 1).window.unsupported());
         assert_eq!(held(&s, a), 7);
+    }
+
+    /// W6 regression: Unconventional Measures' draw that ends over the hand limit was `unsupported` (the string asks the discard);
+    /// the child draw window asks it, voter after voter.
+    #[test]
+    fn unconventional_measures_for_asks_the_discard_of_a_voter_over_the_limit() {
+        let (a, c) = (Seat(0), Seat(2));
+        let mut s = table(3);
+        s.decks_mut().action.set(vec![ActionCard::ALL[0]; 6]);
+        hand(&mut s, a, 6);
+        hand(&mut s, c, 6);
+        let f = facts(&[a, c]);
+        let k = Kernel::plain();
+        let mut d = Driver::new(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &f).unwrap(), Resolver::new(&[], None), linked(true), 1);
+        let mut asked = Vec::new();
+        let mut status = d.run(&mut s, &k).unwrap();
+        while let crate::driver::Status::Asking(choice) = status {
+            asked.push((choice.actor, choice.ask));
+            status = d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap();
+        }
+        let ask = Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8 });
+        assert_eq!(asked, vec![(a, ask), (c, ask)], "each voter is asked in the ballot's order");
+        assert_eq!((held(&s, a), held(&s, c)), (7, 7));
+        assert!(!d.window.unsupported());
+        // Bail: a table without the link or the groups cannot ask: the window is unsupported.
+        for table in [AbilityTable::default(), linked(false)] {
+            let mut s = table_with_hand(a, 6);
+            let mut d = Driver::new(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &facts(&[a])).unwrap(), Resolver::new(&[], None), table, 1);
+            assert_eq!(d.run(&mut s, &k).unwrap(), crate::driver::Status::Done);
+            assert!(d.window.unsupported());
+        }
+    }
+
+    fn table_with_hand(seat: Seat, n: usize) -> CoreState {
+        let mut s = table(3);
+        s.decks_mut().action.set(vec![ActionCard::ALL[0]; 4]);
+        hand(&mut s, seat, n);
+        s
     }
 
     #[test]

@@ -557,10 +557,7 @@ mod real {
 
     /// The core table of a window that runs the hand limit as a child: the links of the areas are installed.
     fn linked() -> AbilityTable {
-        let mut table = AbilityTable::default();
-        ti4_engine_core::driver::children::register(&mut table);
-        table.facts.card_groups = crate::reactions_core::card_groups();
-        table
+        crate::reactions_core::linked_table()
     }
 
     /// The core half of Imperial's secret objective draw (`secrets::draw` called by the secondary and by the
