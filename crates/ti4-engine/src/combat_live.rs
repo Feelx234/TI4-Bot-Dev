@@ -759,4 +759,205 @@ mod tests {
         let full = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), ti4_model::content_types::FULL);
         assert_eq!(full.table.facts.roster.expect("a roster").get(Faction::TheNaaluCollective, UnitBaseType::Mech), Unit::from_id("naalu_mech_te"), "a game with Thunder's Edge its reprint");
     }
+
+    // -- lane G2: the abilities of the PRODUCTION_USED window the Winnu hold ---------------------------------------------------------------
+
+    /// Whether the string asked a question with an option whose id contains `needle`.
+    fn string_offered(state: &GameState, galaxy: &Galaxy, script: &[&str], builds: u32, needle: &str) -> bool {
+        string_run(state, galaxy, script, builds).asked.iter().any(|q| q.options.iter().any(|o| o.id.contains(needle)))
+    }
+
+    /// Berekar Berekon (another seat's use of PRODUCTION), Hegemonic Trade Policy and Ssruu's copy of the agent, in lockstep with the string.
+    #[test]
+    fn the_winnu_abilities_of_the_production_window_run_in_lockstep_with_the_string() {
+        use ti4_model::id::{LeaderId, TechnologyId};
+        use ti4_model::state::LeaderStatus;
+        let (hub, origin, target, dock, _other) = dock_hub();
+        for (label, setup, needle) in [
+            ("agent", 0, "winnuagent:PRODUCTION_USED"),
+            ("htp", 1, "htp:PRODUCTION_USED"),
+            ("ssruu", 2, "yssarilagent:winnuagent:PRODUCTION_USED"),
+        ] {
+            for builds in [0, 1] {
+                let mut state = match setup {
+                    0 => dock_table("hacan", "winnu", &target, &dock),
+                    1 => dock_table("winnu", "hacan", &target, &dock),
+                    _ => {
+                        let mut s = table(&[("a", "hacan"), ("b", "yssaril"), ("c", "winnu")]);
+                        s.system_mut(&target).planet_control.insert(dock.clone(), a());
+                        crate::fixtures::put_on_planet(&mut s, &target, &dock, "spacedock", &a(), 1);
+                        s.player_mut(&a()).unwrap().trade_goods = 6;
+                        s
+                    }
+                };
+                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                match setup {
+                    0 => {
+                        state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("winnuagent"), LeaderStatus::Readied);
+                    }
+                    1 => crate::technology::grant(&mut state, &a(), &TechnologyId::new("htp")),
+                    _ => {
+                        state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+                        state.player_mut(&PlayerId::new("c")).unwrap().leaders.insert(LeaderId::new("winnuagent"), LeaderStatus::Readied);
+                    }
+                }
+                let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0)];
+                assert!(string_offered(&state, &hub.galaxy, &script, builds, needle), "{label}: the string offers the ability");
+                let diffs = lockstep_buying(state, &hub.galaxy, &script, builds);
+                assert!(diffs.is_empty(), "{label} buying {builds}: {diffs:#?}");
+            }
+        }
+    }
+
+    /// The Winnu note the planets they take during their own tactical action (the marks Reclamation and the Reclaimer read).
+    #[test]
+    fn the_winnu_note_the_planet_they_take_in_their_tactical_action_in_lockstep_with_the_string() {
+        let (hub, origin, target, _dock, _other) = dock_hub();
+        for faction in ["winnu", "hacan"] {
+            let mut state = table(&[("a", faction), ("b", "sol")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &origin, "infantry", &a(), 3);
+            let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "load|0", "load|1", "load|2", "done_moving"];
+            let diffs = lockstep_buying(state.clone(), &hub.galaxy, &script, 0);
+            assert!(diffs.is_empty(), "{faction}: {diffs:#?}");
+            let marks = string_run(&state, &hub.galaxy, &script, 0).state["faction_marks"].clone();
+            assert_eq!(marks.get("private:a:winnu:gained").is_some(), faction == "winnu", "{faction}: {marks}");
+        }
+    }
+
+    /// A hub whose centre is ordinary and whose ring holds the beta wormhole systems 25 (first) and 64 (across the centre), both with planets: a ship of 25
+    /// reaches 64 by one hop.
+    fn beta_hub() -> (crate::fixtures::Hub, SystemId, SystemId) {
+        let plain = crate::fixtures::plain_systems(8);
+        let ids: Vec<String> = [plain[0].as_str(), "25", plain[1].as_str(), plain[2].as_str(), "64", plain[3].as_str(), plain[4].as_str()].iter().map(|s| (*s).to_owned()).collect();
+        (crate::fixtures::hub_from(&ids), SystemId::new("25"), SystemId::new("64"))
+    }
+
+    /// Sai Seravus (the Ghosts' commander): the carrier that went through the wormhole is joined by a fighter from the reinforcements once the movement
+    /// step is over, if the commander says so; the whole action is compared (the events, the questions, the position).
+    #[test]
+    fn sai_seravus_places_fighters_for_ships_that_moved_through_wormholes_in_lockstep() {
+        let (hub, origin, target) = beta_hub();
+        for pick in ["fighters|1", "decline"] {
+            let mut state = table(&[("a", "ghost"), ("b", "hacan")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("ghostcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            // The agent (Emissary Taivra) would be offered at the activation of a wormhole system: it is lane M6c's.
+            state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("ghostagent"), ti4_model::state::LeaderStatus::Exhausted);
+            let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_moving", pick];
+            // The `routes` of a move question (the alternatives to a wormhole route) are lane M6c's.
+            let diffs: Vec<String> = lockstep_buying(state.clone(), &hub.galaxy, &script, 0).into_iter().filter(|d| !d.contains("detailsroutes")).collect();
+            assert!(diffs.is_empty(), "{pick}: {diffs:#?}");
+            let fighters = |s: &Side| s.state["board"][target.as_str()]["units"].as_array().map_or(0, |u| u.iter().filter(|x| x["type_id"] == "fighter").count());
+            assert_eq!(fighters(&string_run(&state, &hub.galaxy, &script, 0)), usize::from(pick != "decline"), "{pick}");
+        }
+    }
+
+    /// The Empyrean abilities of the end of the movement step and of every arrival (Acamar, Voidwatch, Xuange), in lockstep with the string over a whole
+    /// tactical action. `b` plays the Empyrean (or another faction holding the technology / commander), `a` moves in.
+    #[test]
+    fn the_empyrean_abilities_of_the_movement_step_run_in_lockstep_with_the_string() {
+        use ti4_model::id::{LeaderId, TechnologyId};
+        use ti4_model::state::LeaderStatus;
+        let planetless = "39";
+        let planet2 = dock_hub().3;
+        let cases: [(&str, &str); 3] = [("acamar", "leader:empyrean:empyreanagent:MOVEMENT_FINISHED:after"), ("voidwatch", "technology:empyrean:vw:MOVEMENT_FINISHED:after"), ("xuange", "leader:empyrean:empyreancommander:SHIP_MOVED:after")];
+        for (label, needle) in cases {
+            let (hub, origin, target) = if label == "acamar" {
+                let hub = crate::fixtures::hub_with_centre(planetless);
+                let origin = SystemId::new(hub.outer[0].clone());
+                (hub, origin, SystemId::new(planetless))
+            } else {
+                let (hub, origin, target, _, _) = dock_hub();
+                (hub, origin, target)
+            };
+            let mut state = table(&[("a", "hacan"), ("b", "empyrean")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            // The string places a frontier token on every planetless system when it is given the map: the native run starts from the position after.
+            match label {
+                "acamar" => {
+                    state.frontier_tokens.insert(SystemId::new(planetless));
+                    state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("empyreanagent"), LeaderStatus::Readied);
+                }
+                "voidwatch" => {
+                    crate::technology::grant(&mut state, &b(), &TechnologyId::new("vw"));
+                    crate::fixtures::put_on_planet(&mut state, &target, &planet2, "infantry", &b(), 1);
+                }
+                _ => {
+                    state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("empyreancommander"), LeaderStatus::Unlocked);
+                    state.system_mut(&target).command_tokens.insert(b());
+                }
+            }
+            // The Empyrean's token return is offered at the arrival of the ship, before the movement step is closed.
+            let moved = mv(&origin, 0);
+            let script: Vec<&str> = if label == "xuange" { vec![TACTICAL_ACTION_ID, target.as_str(), &moved, needle, "done_moving"] } else { vec![TACTICAL_ACTION_ID, target.as_str(), &moved, "done_moving"] };
+            if label == "voidwatch" {
+                assert!(string_run(&state, &hub.galaxy, &script, 0).asked.iter().any(|q| q.prompt.starts_with("Voidwatch")), "the mover is asked which note to give");
+            } else {
+                assert!(string_offered(&state, &hub.galaxy, &script, 0, needle), "{label}: the string offers the ability");
+            }
+            let diffs = lockstep_buying(state.clone(), &hub.galaxy, &script, 0);
+            assert!(diffs.is_empty(), "{label}: {diffs:#?}");
+        }
+    }
+
+    /// Claire Gibson (the Sol commander): at the start of a ground combat on a planet the Sol hold, an infantry from the reinforcements joins the defence, if
+    /// the commander says so; the whole action is compared with the string's.
+    #[test]
+    fn claire_gibson_places_an_infantry_at_the_start_of_a_ground_combat_in_lockstep() {
+        use ti4_model::id::LeaderId;
+        use ti4_model::state::LeaderStatus;
+        for (label, decline) in [("accepted", false), ("declined", true)] {
+            let (hub, origin, target, planet) = planet_hub();
+            let mut state = table(&[("a", "hacan"), ("b", "sol")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &origin, "infantry", &a(), 3);
+            state.system_mut(&target).planet_control.insert(planet.clone(), b());
+            crate::fixtures::put_on_planet(&mut state, &target, &planet, "infantry", &b(), 1);
+            state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("solcommander"), LeaderStatus::Unlocked);
+            let mut script = vec![TACTICAL_ACTION_ID.to_owned(), target.to_string(), mv(&origin, 0), "load|0".to_owned(), "load|1".to_owned(), "load|2".to_owned(), "done_moving".to_owned()];
+            if decline {
+                // The three commits come first (the defender's window opens when the combat does).
+                script.extend(["commit|0|0.0.0".to_owned(), "commit|0|0.0.0".to_owned(), "commit|0|0.0.0".to_owned(), "decline".to_owned()]);
+            }
+            let script: Vec<&str> = script.iter().map(String::as_str).collect();
+            assert!(string_offered(&state, &hub.galaxy, &script, 0, "solcommander:GROUND_COMBAT_STARTED"), "{label}: the string offers the commander");
+            let diffs = lockstep_buying(state, &hub.galaxy, &script, 0);
+            assert!(diffs.is_empty(), "{label}: {diffs:#?}");
+        }
+    }
+
+    /// Dart and Tai (the Naaz commander): the planet the Naaz take from another player is explored; the whole action is compared with the string's.
+    #[test]
+    fn dart_and_tai_explore_a_planet_taken_from_another_player_in_lockstep() {
+        use ti4_model::id::LeaderId;
+        use ti4_model::state::LeaderStatus;
+        let content = ContentStore::embedded();
+        let probe = table(&[("a", "naaz"), ("b", "sol")]);
+        let (system, planet): (String, ti4_model::id::PlanetId) = ti4_content::galaxy::all_systems(content, POK)
+            .iter()
+            .filter(|(_, sys)| !sys.is_anomaly() && !sys.is_hyperlane())
+            .find_map(|(id, sys)| {
+                let planets: Vec<String> = sys.planets().into_iter().map(str::to_owned).collect();
+                let [only] = planets.as_slice() else { return None };
+                let ok = ti4_content::galaxy::planet(content, only, POK).is_some_and(|p| p.homeworld_of().is_none() && !p.is_legendary() && !p.is_space_station() && !p.is_placed_during_play())
+                    && !crate::planets::traits_now(&probe, content, POK, &ti4_model::id::PlanetId::new(only.clone())).is_empty();
+                ok.then(|| ((*id).to_owned(), ti4_model::id::PlanetId::new(only.clone())))
+            })
+            .expect("a system with one explorable planet");
+        let target = SystemId::new(system);
+        let hub = crate::fixtures::hub_with_centre(target.as_str());
+        let origin = SystemId::new(hub.outer[0].clone());
+        let mut state = table(&[("a", "naaz"), ("b", "sol")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &origin, "infantry", &a(), 3);
+        state.system_mut(&target).planet_control.insert(planet.clone(), b());
+        crate::fixtures::put_on_planet(&mut state, &target, &planet, "infantry", &b(), 1);
+        state.player_mut(&a()).unwrap().leaders.insert(LeaderId::new("naazcommander"), LeaderStatus::Unlocked);
+        let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "load|0", "load|1", "load|2", "done_moving"];
+        let diffs = lockstep_buying(state.clone(), &hub.galaxy, &script, 0);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+        let side = string_run(&state, &hub.galaxy, &script, 0);
+        assert!(side.asked.iter().any(|q| q.options.iter().any(|o| o.id.contains("naazcommander:PLANET_CONTROL_GAINED"))), "the string offers the commander: {:?}", side.asked.iter().map(|q| q.prompt.clone()).collect::<Vec<_>>());
+    }
 }

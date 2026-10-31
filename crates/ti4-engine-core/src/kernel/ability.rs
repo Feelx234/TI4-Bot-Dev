@@ -86,6 +86,9 @@ pub enum Unknown {
     TurnGap(super::turn_codes::TurnGap),
     /// The live agenda phase cannot follow the string here yet (lane D, `driver::agenda`).
     AgendaGap(super::agenda_codes::AgendaGap),
+    /// An ability the string registers and the core table has no rule for, held by a seat at the moment its event is announced (lane G,
+    /// `ti4_engine_core_factions::silent::gaps`): the slot of the listed gap.
+    AbilityGap(Slot),
 }
 
 /// The positions the native production step (`driver::windows::production`) does not run, each a counted bail of the live path. The words are
@@ -261,6 +264,34 @@ pub struct Codes {
     pub turn: super::turn_codes::TurnCodes,
     /// The texts of the agenda phase (lane D).
     pub agenda: super::agenda_codes::AgendaCodes,
+    /// The texts of the formerly silent abilities (lane G).
+    pub silent: SilentCodes,
+    /// The texts of the leader and unit abilities lane G2 ported (`silent::{winnu, ...}`).
+    pub g2: G2Codes,
+}
+
+/// The texts the questions of lane G2's abilities name as their source (`Content::Other`) or compare an event against, interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct G2Codes {
+    /// The unit `winnu_mech` (Reclaimer).
+    pub winnu_mech: crate::state::Code,
+    /// The `source` `muaat` of the trade good Magmus gains.
+    pub muaat: crate::state::Code,
+    /// The leader `cabalagent`, the `source` of the trade goods The Stillness of Stars gains.
+    pub cabal_agent: crate::state::Code,
+}
+
+/// The texts of the questions and gains of the formerly silent abilities (lane G), interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SilentCodes {
+    /// The unit alias `lw2`: the source of the Letani Warrior II's landing question.
+    pub lw2: crate::state::Code,
+    /// The `source` `scavenge` of the trade good Scavenge gains.
+    pub scavenge: crate::state::Code,
+    /// The faction ability `mitosis`, the source of Arborec's question.
+    pub mitosis: crate::state::Code,
+    /// The leader `naazagent`, the source of Garv and Gunn's question.
+    pub naaz_agent: crate::state::Code,
 }
 
 /// The `source` texts of `UNITS_PRODUCED`: `ability` for the units an ability produces, `production` for the PRODUCTION of a unit (the adapter's

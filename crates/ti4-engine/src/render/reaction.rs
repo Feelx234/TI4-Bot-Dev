@@ -39,6 +39,7 @@ impl Family for Fam {
             Ask::Salvage => "Salvage Operations: produce 1 ship of a type destroyed in the combat".to_owned(),
             Ask::Indoctrination { planet } => format!("Indoctrination on {}: replace an enemy infantry", planet.as_str()),
             Ask::Terragenesis { planet } => format!("Terragenesis: sleeper token for {}", planet.as_str()),
+            Ask::G(g) => super::silent::prompt(r, g),
             Ask::Watcher { actor } => format!("Watcher: which mech cancels {}'s action card", r.seat_text(*actor)),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
@@ -60,6 +61,7 @@ impl Family for Fam {
             Subtype::Salvage => "salvage_produce".to_owned(),
             Subtype::Indoctrination => "indoctrination_replace".to_owned(),
             Subtype::Terragenesis => "terragenesis_token".to_owned(),
+            Subtype::G(g) => super::silent::subtype(g),
         }
     }
 
@@ -106,6 +108,7 @@ impl Family for Fam {
             (Ask::Terragenesis { planet }, Opt::Sleeper { from: Some(from) }) => {
                 ChoiceOption::labelled(format!("move|{}", from.as_str()), "sleeper", format!("move the sleeper token on {} to {}", from.as_str(), planet.as_str()))
             }
+            (Ask::G(g), Opt::G(o)) => super::silent::option(r, g, o),
             (Ask::Watcher { .. }, Opt::Site { system, planet }) => {
                 let system = system.as_str();
                 let place = planet.map_or_else(|| "space".to_owned(), |p| p.as_str().to_owned());
@@ -125,6 +128,9 @@ impl Family for Fam {
         if let Ask::Salvage | Ask::Indoctrination { .. } = a {
             // The id is the base type: the option is matched against the rendered ones of its question.
             return None;
+        }
+        if let Ask::G(g) = a {
+            return super::silent::parse(r, g, id);
         }
         if let Ask::Terragenesis { .. } = a {
             return match id.strip_prefix("move|") {

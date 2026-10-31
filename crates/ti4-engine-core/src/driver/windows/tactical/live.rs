@@ -51,16 +51,7 @@ pub fn advance_tactical(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick
 }
 
 fn driver_of(window: TacticalAction, core: &CoreState, env: &Env<'_>) -> Driver<TacticalAction> {
-    let mut d = Driver::from_state(window, core, env.registry.clone(), crate::driver::windows::live_common::table_at(core, env)).with_seeds(env.seeds.clone());
-    let m = core.meta();
-    d.resolver.set_phase(m.phase);
-    d.resolver.set_active_player(m.active);
-    d.resolver.set_speaker(Some(m.speaker));
-    d.resolver.set_seating_order(core.seats().seating_order());
-    d.resolver.set_counters(u64::from(m.round), u64::from(m.turn_seq));
-    // The windows of an emission go to the seats in the position's initiative order (`chain::sync_initiative`; the live resolver of `driver::live` sets it too).
-    d.resolver.set_initiative_order(crate::query::seats::initiative_order(core).as_slice());
-    d
+    crate::driver::windows::live_common::driver_of(window, core, env)
 }
 
 fn is_option(choice: &crate::choice::Choice, pick: &Pick) -> bool {
