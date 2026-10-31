@@ -410,3 +410,72 @@ fn galactic_crisis_pact_is_a_counted_gap_of_the_live_path_not_a_silent_skip() {
     };
     assert_eq!(stop, live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::AgendaGap(ti4_engine_core::kernel::agenda_codes::AgendaGap::NoEffect(15)))));
 }
+
+#[test]
+fn covert_legislation_decides_the_face_down_agenda_that_resolves_like_the_string() {
+    let mut state = agenda_table(&FOUR, &["covert", "checks", "conscription"]);
+    state.rules_version = ti4_model::state::RULES_VERSION;
+    let (string, native) = both(&based(state), &[]);
+    assert_same(&string, &native);
+    assert!(string.events.iter().any(|e| e.starts_with("COVERT_AGENDA_RESOLVED:")), "{:?}", string.events);
+}
+
+#[test]
+fn committee_formation_discarded_elects_the_player_its_owner_names_and_skips_the_vote_like_the_string() {
+    let mut state = agenda_table(&FOUR, &["secret", "conscription"]);
+    state.laws.insert("committee".to_owned(), "b".to_owned());
+    let state = based(state);
+    let (string, native) = both(&state, &["discard", "c"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "AGENDA_RESOLVED:secret:c"), "{:?}", string.events);
+    // Declined, the agenda is voted on as usual.
+    let (string, native) = both(&state, &["decline"]);
+    assert_same(&string, &native);
+    assert!(string.questions.iter().any(|q| q.prompt == "vote for which outcome"));
+}
+
+#[test]
+fn a_rider_of_the_first_seat_is_paid_like_the_string() {
+    let failures = rider_sweep(&[], |rider| with_hand(agenda_table(&FOUR, &["checks", "conscription"]), "a", &[rider]));
+    assert!(failures.is_empty(), "{} riders differ:\n{}", failures.len(), failures.join("\n"));
+}
+
+#[test]
+fn research_grant_reallocation_below_rules_version_14_takes_one_fleet_token_like_the_string() {
+    let mut state = rich_table("grant_reallocation");
+    state.rules_version = ti4_model::state::RULES_AGENDA_GRANT_REVEAL - 1;
+    state.player_mut(&pid("a")).unwrap().fleet_tokens = 3;
+    let (string, native) = both(&based(state), &[]);
+    assert_same(&string, &native);
+    assert!(!string.questions.iter().any(|q| q.prompt.starts_with("gain which")));
+}
+
+#[test]
+fn demilitarized_zone_wipes_the_planet_and_the_destroyed_ground_forces_are_announced_in_the_next_step_like_the_string() {
+    let mut state = rich_table("demilitarized_zone");
+    // A sustained mech and an infantry of seat b on a planet seat b holds.
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    state.system_mut(&system).set_control(planet.clone(), pid("b"));
+    crate::fixtures::put(&mut state, &system, "infantry", &pid("b"), 0);
+    state.system_mut(&system).planet_units.entry(planet.clone()).or_default().push(ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("infantry"), pid("b")));
+    let mut mech = ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("mech"), pid("b"));
+    mech.sustained_damage = true;
+    state.system_mut(&system).planet_units.entry(planet).or_default().push(mech);
+    let (string, native) = both(&based(state), &[]);
+    assert_same(&string, &native);
+    assert!(string.events.iter().filter(|e| *e == "GROUND_FORCE_DESTROYED").count() >= 2, "{:?}", string.events);
+}
+
+#[test]
+#[ignore = "exploration aid"]
+fn explore_committee() {
+    let mut state = agenda_table(&FOUR, &["secret", "conscription"]);
+    state.laws.insert("committee".to_owned(), "b".to_owned());
+    let state = based(state);
+    let (string, native) = both(&state, &["discard", "c"]);
+    for (name, run) in [("string", &string), ("native", &native)] {
+        for q in run.questions.iter().take(3) {
+            eprintln!("{name}: {} | {} | {:?} | {:?} | {:?}", q.player, q.prompt, q.options.iter().map(|o| (&o.id, &o.kind, &o.label)).collect::<Vec<_>>(), q.details, q.context.as_ref().map(|c| (c.actor.clone(), format!("{:?}", c.source), c.subtype.clone())));
+        }
+    }
+}

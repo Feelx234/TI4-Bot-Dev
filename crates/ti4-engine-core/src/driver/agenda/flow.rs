@@ -38,6 +38,7 @@ pub enum Opened {
 /// A text of the state's own table (`AgendaRecord::discard_reason`).
 fn state_code(core: &mut CoreState, text: &[u8]) -> Code {
     // The state's own text table mints the code (a code means the same text in every lineage of the state); the table holds 65 535 texts.
+    // mutants:skip: the fallbacks are unreachable (the table is never full here and an index fits a code)
     Code(u16::try_from(core.texts.codes.intern(text, CODE_CAPACITY).unwrap_or(0)).unwrap_or(0))
 }
 

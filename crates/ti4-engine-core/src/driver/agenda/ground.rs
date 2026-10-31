@@ -21,7 +21,7 @@ fn staged(sx: &Sx<'_>) -> Vec<(MarkKey, Payload)> {
         let MarkVal::Rec(f) = value else { continue };
         let [MarkVal::Atom(Atom::Word(Word::Destroyed)), MarkVal::Atom(Atom::System(system)), MarkVal::Atom(Atom::Planet(planet)), MarkVal::Atom(Atom::Seat(owner)), MarkVal::Atom(Atom::Unit(unit)), MarkVal::Atom(Atom::Word(damaged)), MarkVal::Atom(Atom::Destroy(DestroyReason::Agenda(agenda))), rest @ ..] = f.as_slice() else { continue };
         let at = *agenda as usize;
-        if at >= GROUND_CAUSES {
+        if at >= GROUND_CAUSES { // mutants:skip: unreachable (an agenda's index is below its count), the guard spares an index panic
             continue;
         }
         let mut payload = Payload::new()

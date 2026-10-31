@@ -55,7 +55,7 @@ fn close_facts(sx: &Sx<'_>) -> Facts {
 fn effect_facts(sx: &Sx<'_>, ballot: &[(crate::ids::Seat, Outcome)]) -> EffectFacts {
     let codes = sx.table.codes;
     let voters = |wanted: Outcome| -> SmallList<crate::ids::Seat, 8> { ballot.iter().filter(|(_, o)| *o == wanted).map(|(s, _)| *s).collect() };
-    let mut mahact_held = [0; 8];
+    let mut mahact_held = [0; 8]; // mutants:skip: every seat's entry is written below
     for (at, held) in mahact_held.iter_mut().enumerate() {
         if let Ok(seat) = u8::try_from(at) {
             *held = crate::kernel::fx::tokens_held_by_mahact(sx.state, crate::ids::Seat(seat));

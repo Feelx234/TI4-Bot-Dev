@@ -131,3 +131,89 @@ fn a_silent_table_asks_the_speaker_and_the_answer_closes_the_vote() {
     assert!(s.pending().window(WindowKind::Voting).is_none());
     assert_eq!(s.agenda().log.last().map(|r| (r.outcome, r.speaker_decided)), Some((Some(Outcome::Against), true)));
 }
+
+// -- the job that opens the phase ------------------------------------------------------------------------------------------------------
+
+use ti4_engine_core::driver::agenda::advance_agenda;
+use ti4_engine_core::kernel::agenda_codes::AgendaGap;
+use ti4_engine_core::kernel::ability::Unknown;
+use ti4_engine_core::state::{DriverFlags, MetaFlags};
+
+#[test]
+fn the_agenda_job_is_a_counted_gap_outside_the_agenda_phase_and_before_the_custodians_are_gone() {
+    covers!("driver::agenda::flow::run_open");
+    let k = Kernel::plain();
+    let env = env(&k);
+    let gap = Err(LiveError::Unknown(Unknown::AgendaGap(AgendaGap::PhaseNotReady)));
+    // The wrong phase, with the custodians gone.
+    let mut s = table();
+    s.meta_mut().flags.set(MetaFlags::CUSTODIANS_REMOVED, true);
+    s.meta_mut().phase = Phase::Strategy;
+    let held = s.clone();
+    assert_eq!(advance_agenda(&mut s, &env, None), gap);
+    assert_eq!(s, held, "a gap leaves the position as it was");
+    // The agenda phase, the custodians still on Mecatol Rex.
+    let mut s = table();
+    s.meta_mut().phase = Phase::Agenda;
+    assert_eq!(advance_agenda(&mut s, &env, None), gap);
+    // Both in order, and nothing in the deck: the phase ends, the flag is set, the planets ready.
+    let mut s = table();
+    s.meta_mut().phase = Phase::Agenda;
+    s.meta_mut().flags.set(MetaFlags::CUSTODIANS_REMOVED, true);
+    s.decks_mut().agenda.set(Vec::new());
+    let held = Planet::ALL.iter().copied().find(|p| s.board().planet(*p).control.is_some()).expect("a held planet");
+    ti4_engine_core::kernel::fx::exhaust_planet(&mut s, held);
+    let (live, _) = advance_agenda(&mut s, &env, None).unwrap();
+    assert_eq!(live, Live::Done);
+    assert!(s.pending().driver.has(DriverFlags::AGENDA_RESOLVED));
+    assert!(s.board().planets().all(|(_, c)| !c.flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED)), "8.4: the planets ready");
+}
+
+// -- the ground forces an agenda's effect destroyed ---------------------------------------------------------------------------------------
+
+#[test]
+fn the_staged_ground_forces_of_an_agenda_are_announced_with_their_cause_by_the_next_reconcile() {
+    covers!("driver::agenda::ground");
+    use ti4_engine_core::driver::turn::advance_reconcile;
+    use ti4_engine_core::keys::DestroyReason;
+    use ti4_engine_core::generated::Unit;
+    use ti4_engine_core::state::{Code, Key, Piece, Val};
+    let k = Kernel::plain();
+    let mut env = env(&k);
+    env.table.codes.agenda.ground_cause[Agenda::CoreMining as usize] = Code(7);
+    let mut s = table();
+    let planet = Planet::ALL.iter().copied().find(|p| s.board().planet(*p).control == Some(Seat(1))).expect("a planet of seat 1");
+    let system = planet.data().system.expect("a placed planet");
+    let piece = Piece::new(Unit::FactionlessMech, Seat(1)).with_sustained(true).with_galvanized(true);
+    ti4_engine_core::kernel::fx_ground::stage_destroyed(&mut s, system, planet, piece, DestroyReason::Agenda(Agenda::CoreMining));
+    let (_, out) = advance_reconcile(&mut s, &env, None).unwrap();
+    let rec = out.emitted.iter().find(|e| e.kind == ti4_engine_core::state::EventKind::GroundForceDestroyed).expect("the destruction is announced");
+    assert_eq!(rec.payload.get(Key::Cause), Some(Val::Code(Code(7))), "the cause is the agenda's text");
+    assert_eq!(rec.payload.get(Key::Damaged), Some(Val::Flag(true)));
+    assert_eq!(rec.payload.get(Key::Galvanized), Some(Val::Flag(true)));
+    assert_eq!(rec.payload.get(Key::Player), Some(Val::Seat(Seat(1))));
+    assert!(s.marks().tail.iter().all(|(k, _)| !matches!(k, ti4_engine_core::keys::MarkKey::PrivateStagedGround(_))), "the row is gone");
+}
+
+// -- Research Grant Reallocation -----------------------------------------------------------------------------------------------------------
+
+#[test]
+fn a_grant_offers_the_technologies_of_the_games_sources_and_pays_the_prerequisites_with_fleet_tokens() {
+    covers!("driver::agenda::grant::Grant");
+    use ti4_engine_core::choice::relic::Opt as ROpt;
+    use ti4_engine_core::driver::agenda::grant::Grant;
+    use ti4_engine_core::kernel::agenda_codes::AgendaCodes;
+    use ti4_engine_core::tables::Scope;
+    let base_only = Scope(ti4_engine_core::tables::source_bit(Source::Base));
+    let mut rig = Rig::new(Scenario::lobby(2).tokens(0, 0, 4, 0), Grant::new(Seat(0), base_only, Some(Box::leak(Box::default())), AgendaCodes::default()));
+    rig.run();
+    let techs: Vec<Technology> = rig.opts().iter().filter_map(|o| if let Opt::Relic(ROpt::Tech(t)) = o { Some(*t) } else { None }).collect();
+    assert!(!techs.is_empty() && techs.iter().all(|t| t.data().source == Source::Base), "only the sources in play: {techs:?}");
+    let chosen = *techs.iter().find(|t| ti4_engine_core::query::tech::prerequisites(**t).iter().any(|n| *n > 0)).expect("a technology with a prerequisite");
+    let cost: i16 = ti4_engine_core::query::tech::prerequisites(chosen).iter().map(|n| i16::try_from(*n).unwrap()).sum();
+    rig.pick_opt(Opt::Relic(ROpt::Tech(chosen)));
+    assert!(rig.is_done());
+    let p = rig.state.players().by_seat(Seat(0)).unwrap();
+    assert!(p.tech.owned.contains(chosen), "gained, not researched");
+    assert_eq!(p.econ.fleet_tokens, (4 - cost).max(0), "one fleet token back to the reinforcements for each prerequisite");
+}

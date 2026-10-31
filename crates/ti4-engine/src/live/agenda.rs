@@ -98,6 +98,10 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
             }
         }
     }
+    // Committee Formation's election: the string asks it without a decision context (`Live::committee_elect`).
+    if let Ask::Agenda(AAsk::Committee { .. }) = choice.ask {
+        rendered.context = None;
+    }
     if let Ask::Agenda(AAsk::DiscardLaw { law: Agenda::CommitteeFormation, .. }) = choice.ask {
         // The prompt names the agenda the election is for: the one in play (revealed, not yet voted on).
         let alias = core.agenda().in_play.map_or("", |a| IdStr::as_str(a));
