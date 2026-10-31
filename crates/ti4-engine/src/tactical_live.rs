@@ -578,6 +578,46 @@ mod tests {
         }
     }
 
+    /// A clone of the position taken while a hook of the activation waits on its question (the question is a nested one: the journal holds the
+    /// answers given so far) continues identically: same question after the answer, same position.
+    #[test]
+    fn a_clone_taken_while_a_hook_waits_continues_identically() {
+        use ti4_engine_core::choice::{relic::Opt as ROpt, Opt as COpt, Pick};
+        use ti4_engine_core::driver::live::{advance, Live};
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        state.system_mut(&origin).command_tokens.insert(a());
+        state.player_mut(&a()).unwrap().relics.push(ti4_model::id::RelicId::new("dominusorb"));
+        let _guard = crate::dual::tests::serial();
+        let rng = crate::rng::GameRng::new(state.rng_seed).positions();
+        let mut cx = Ctx::of(&state).expect("owners");
+        let render = Render::new(cx.owners.ids().to_vec());
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&rng) }, SliceSet::ALL).expect("the position loads");
+        let seat = render.seat("a").expect("seat a");
+        open_tactical(&mut core, seat);
+        let kernel = crate::live::kernel::kernel_for(POK);
+        let env = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), POK);
+        let system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system");
+        let (live, _) = advance(&mut core, &env, None).expect("the activation question");
+        assert!(matches!(live, Live::Asks(_)));
+        let pick = Pick::Opt(COpt::Tactical(TOpt::Activate(system)));
+        let (live, _) = advance(&mut core, &env, Some(pick)).expect("the hook's question");
+        let Live::Asks(asking) = live else { panic!("the Dominus Orb asks") };
+        assert!(asking.nested.is_some() || core.pending().nested.is_some(), "a question asked from inside the step");
+        let mut twin = core.clone();
+        let purge = Pick::Opt(COpt::Relic(ROpt::Purge));
+        let (a_live, _) = advance(&mut core, &env, Some(purge)).expect("the original continues");
+        let (b_live, _) = advance(&mut twin, &env, Some(purge)).expect("the clone continues");
+        let ask_of = |l: Live| match l {
+            Live::Asks(x) => Some(x.choice),
+            Live::Done => None,
+        };
+        assert_eq!(ask_of(a_live), ask_of(b_live), "the same next question");
+        let (ja, jb) = (materialize::materialize(&core, &cx, &state).expect("materializes"), materialize::materialize(&twin, &cx, &state).expect("materializes"));
+        assert_eq!(serde_json::to_value(&ja).unwrap(), serde_json::to_value(&jb).unwrap(), "the same position");
+    }
+
     /// Mahact's commander lets the seat activate a system that holds its own token; the hook chain returns both tokens and ends the turn.
     /// The Starlancer of a Mahact seat in the system, with the activator's token in its fleet pool, may end the turn too (the activator gains
     /// the token into a pool of its choice).

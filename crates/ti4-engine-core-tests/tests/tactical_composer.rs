@@ -20,7 +20,7 @@ use ti4_engine_core_tests::scenario::plain_systems;
 
 
 fn codes() -> TacticalCodes {
-    TacticalCodes { tactic: Code(21), space_cannon: Code(22), space_cannon_cause: Code(23), casualty: Code(24), commander: Code(25), pre_roll: Code(26), faction_technology: Code(27) }
+    TacticalCodes { tactic: Code(21), space_cannon: Code(22), space_cannon_cause: Code(23), casualty: Code(24), commander: Code(25), pre_roll: Code(26), faction_technology: Code(27), nullification_field: Code(28), starlancer: Code(29), peace_prompt: Code(30), peace_source: Code(31) }
 }
 
 fn env(k: &Kernel, seed: u64) -> Env<'_> {
@@ -191,17 +191,37 @@ fn a_free_tactical_action_activates_without_a_token_and_asks_for_the_movement() 
 }
 
 #[test]
-fn a_hook_of_the_activation_that_asks_is_a_counted_gap_and_the_position_is_put_back() {
+fn a_hook_of_the_activation_that_asks_puts_its_question_and_a_clone_taken_while_it_waits_continues_identically() {
     covers!("driver::windows::tactical::TacticalAction");
+    covers!("driver::windows::tactical::hooks");
     let (sc, tiles) = row();
-    let (mut core, k) = sc.tech(1, Technology::SpatialConduitCylinders).build();
+    // Seat 0 holds Spatial Conduit Cylinders and has cruisers on B and C: activating B offers the link.
+    let (mut core, k) = sc.tech(0, Technology::SpatialConduitCylinders).build();
     let env = env(&k, 1);
     open_tactical(&mut core, Seat(0));
     let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the activation is asked") };
-    let held = core.clone();
-    let got = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3])))));
-    assert_eq!(got, Err(LiveError::Unknown(Unknown::UnportedTactical(TacticalGap::ActivationHook))));
-    assert_eq!(core, held, "the activation is undone with the bail");
+    let Live::Asks(hook) = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[1]))))).unwrap().0 else { panic!("the hook asks") };
+    assert!(matches!(hook.choice.ask, Ask::Tactical(TAsk::Hook { hook: ti4_engine_core::choice::tactical::Hook::SpatialConduit, .. })), "{:?}", hook.choice.ask);
+    assert_eq!(hook.choice.actor, Seat(0));
+    assert!(core.pending().nested.is_some(), "the question is held in the journal");
+    let mut twin = core.clone();
+    for (who, c) in [("original", &mut core), ("clone", &mut twin)] {
+        let Live::Asks(next) = advance_tactical(c, &env, Some(Pick::Opt(Opt::Decline))).unwrap().0 else { panic!("{who}: the movement step is asked") };
+        assert_eq!(next.choice.ask, Ask::Tactical(TAsk::Move { seat: Seat(0) }), "{who}");
+    }
+    assert_eq!(core, twin, "the clone continues to the same position");
+    // Used, the link is written for the activation and the plain record follows; the tail clears it.
+    let (sc, tiles) = row();
+    let (mut core, k) = sc.tech(0, Technology::SpatialConduitCylinders).build();
+    let env2 = crate::env(&k, 1);
+    open_tactical(&mut core, Seat(0));
+    let Live::Asks(q) = advance_tactical(&mut core, &env2, None).unwrap().0 else { panic!("the activation is asked") };
+    let Live::Asks(hook) = advance_tactical(&mut core, &env2, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[1]))))).unwrap().0 else { panic!("the hook asks") };
+    let Live::Asks(_) = advance_tactical(&mut core, &env2, Some(pick(&hook.choice, |o| matches!(o, Opt::Tactical(TOpt::Use))))).unwrap().0 else { panic!("the movement step is asked") };
+    let kinds: Vec<PlainKind> = core.ledger().events.iter().filter_map(|e| e.plain().map(|p| p.kind)).collect();
+    assert!(kinds.contains(&PlainKind::SpatialConduit));
+    assert!(core.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::SpatialConduitCylinders));
+    assert_eq!(core.players().by_seat(Seat(0)).unwrap().timers.spatial_conduit.get(), Some(core.meta().activation_seq));
 }
 
 #[test]
@@ -224,7 +244,7 @@ fn the_tail_announces_the_end_of_the_action_only_when_somebody_listens() {
 }
 
 #[test]
-fn an_exploration_at_the_end_of_the_action_is_a_counted_gap() {
+fn the_crown_of_emphidia_asks_at_the_end_of_the_action_and_a_clone_continues_identically() {
     covers!("driver::windows::tactical::TacticalAction");
     let (sc, tiles) = row();
     let (mut core, k) = sc.build();
@@ -234,9 +254,14 @@ fn an_exploration_at_the_end_of_the_action_is_a_counted_gap() {
     let env = env(&k, 1);
     assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
     core.pending_mut().close(WindowKind::Aftermath);
-    let held = core.clone();
-    assert_eq!(advance_tactical(&mut core, &env, None), Err(LiveError::Unknown(Unknown::UnportedTactical(TacticalGap::ExplorationAtTheEnd))));
-    assert_eq!(core, held);
+    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the Crown asks") };
+    assert!(matches!(q.choice.ask, Ask::Relic(_)), "{:?}", q.choice.ask);
+    let mut twin = core.clone();
+    let (a, _) = advance_tactical(&mut core, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (b, _) = advance_tactical(&mut twin, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+    assert_eq!((a, b), (Live::Done, Live::Done));
+    assert_eq!(core, twin);
+    assert!(tactical(&core).is_none(), "declined, the action ends");
 }
 
 #[test]
@@ -362,10 +387,11 @@ fn a_ceasefire_note_denies_the_movement_step_and_goes_home() {
 }
 
 #[test]
-fn a_yssaril_ssruu_next_to_a_sardakk_seat_is_a_counted_gap_at_the_tail() {
+fn a_yssaril_ssruu_next_to_a_sardakk_seat_is_a_gap_at_the_tail_only_where_t_ro_could_place() {
     covers!("driver::windows::tactical::TacticalAction");
     let p = plain_systems();
-    for (ssruu, sardakk, expect_gap) in [(true, true, true), (false, true, false), (true, false, false)] {
+    // The active system has no planet the actor controls: T'ro (and a copy of it) has nothing to place on, so nothing is missed silently.
+    for (ssruu, sardakk, expect_gap) in [(true, true, false), (false, true, false), (true, false, false)] {
         let other = if sardakk { Faction::SardakkNorr } else { Faction::TheArborec };
         let seat1 = if ssruu { Faction::TheYssarilTribes } else { Faction::TheMahactGeneSorcerers };
         let _ = seat1;
