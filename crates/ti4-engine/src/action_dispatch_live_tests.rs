@@ -63,3 +63,21 @@ fn extreme_duress_on_the_acting_seat_punishes_a_card_action_like_the_string() {
     assert_same(&string, &native);
     assert!(string.events.iter().any(|e| e.starts_with("EXTREME_DURESS:")), "{:?}", string.events);
 }
+
+/// A Winnu seat that holds Mecatol Rex and a ready Lazax Gate Folding.
+fn lazax_table() -> GameState {
+    let mut state = action_table(&[("a", "winnu"), ("b", "sol"), ("c", "hacan")]);
+    state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("lgf"));
+    let mecatol = ti4_model::id::SystemId::new(crate::seating::mecatol_on(&state));
+    let planet = ti4_model::id::PlanetId::new(ti4_engine_core::generated::Planet::MecatolRex.as_str());
+    state.board.entry(mecatol).or_default().set_control(planet, pid("a"));
+    super::turn_live_tests::based(state)
+}
+
+#[test]
+fn lazax_gate_folding_chosen_from_the_menu_places_the_infantry_like_the_string() {
+    let state = lazax_table();
+    let (string, native) = both(&state, &["faction|winnu|lgf"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "COMPONENT_ACTION_RESOLVED"), "{:?}", string.events);
+}

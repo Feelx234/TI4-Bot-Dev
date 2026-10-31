@@ -18,6 +18,7 @@ pub mod closing;
 pub mod component;
 pub mod draft;
 pub mod end;
+pub mod faction;
 pub mod facts;
 pub mod inline;
 pub mod phase;
