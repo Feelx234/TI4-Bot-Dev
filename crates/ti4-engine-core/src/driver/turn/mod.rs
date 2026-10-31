@@ -105,13 +105,24 @@ pub fn open_job_of(core: &CoreState) -> Option<TurnJob> {
 /// # Errors
 /// As [`advance`]; [`LiveError::NotOpen`] for an answer when no job is open.
 pub fn advance_job(job: TurnJob, core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
-    if !is_open::<TurnFlowWin>(core) {
+    // A job this call opens leaves with the call when it fails: the position is as it was.
+    let fresh = if is_open::<TurnFlowWin>(core) {
+        None
+    } else {
         if answer.is_some() {
             return Err(LiveError::NotOpen);
         }
+        let before = core.clone();
         open_job(core, job);
+        Some(before)
+    };
+    let result = advance::<TurnFlowWin>(core, env, answer);
+    if result.is_err()
+        && let Some(before) = fresh
+    {
+        *core = before;
     }
-    advance::<TurnFlowWin>(core, env, answer)
+    result
 }
 
 /// The question the open job waits on (`None`: a fresh or absent job asks nothing yet).

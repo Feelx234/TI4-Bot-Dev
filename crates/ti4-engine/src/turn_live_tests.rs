@@ -32,12 +32,21 @@ type Seen = Rc<RefCell<Vec<Choice>>>;
 struct Script {
     ids: VecDeque<String>,
     seen: Seen,
+    /// Take the first option when the script has run out (and record it in `taken`), instead of stopping the body.
+    first_after: Option<Rc<RefCell<Vec<String>>>>,
 }
 
 impl Decider for Script {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         self.seen.borrow_mut().push(choice.clone());
-        let Some(id) = self.ids.pop_front() else { return Err(IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() }) };
+        let Some(id) = self.ids.pop_front().or_else(|| {
+            let taken = self.first_after.as_ref()?;
+            let id = choice.options.first()?.id.clone();
+            taken.borrow_mut().push(id.clone());
+            Some(id)
+        }) else {
+            return Err(IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() });
+        };
         choice.options.iter().find(|o| o.id == id).cloned().ok_or_else(|| panic!("the script answers {id:?}, the question {:?} offers {:?}", choice.prompt, choice.ids()))
     }
 }
@@ -75,12 +84,27 @@ fn without_staged(mut state: Value) -> (Value, Vec<String>) {
 fn string_run(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Game<'static>)) -> Run {
     let _serial = crate::dual::tests::serial();
     let seen: Seen = Rc::default();
-    let table = Table::with_default(Box::new(Script { ids: ids.iter().map(|s| (*s).to_owned()).collect(), seen: seen.clone() }));
+    let table = Table::with_default(Box::new(Script { ids: ids.iter().map(|s| (*s).to_owned()).collect(), seen: seen.clone(), first_after: None }));
     let mut game = super::Game::with_table(state.clone(), ContentStore::embedded(), table);
     body(&mut game);
     let questions = seen.borrow().clone();
     let (state, staged) = without_staged(serde_json::to_value(&game.state).expect("serializes"));
     Run { questions, events: game.events.clone(), state, rng: game.rng_positions(), staged }
+}
+
+/// [`string_run`] that takes the first option of every question after the scripted ones: the answers it took, for the native run.
+fn string_run_first(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Game<'static>)) -> (Run, Vec<String>) {
+    let _serial = crate::dual::tests::serial();
+    let seen: Seen = Rc::default();
+    let taken: Rc<RefCell<Vec<String>>> = Rc::default();
+    let table = Table::with_default(Box::new(Script { ids: ids.iter().map(|s| (*s).to_owned()).collect(), seen: seen.clone(), first_after: Some(taken.clone()) }));
+    let mut game = super::Game::with_table(state.clone(), ContentStore::embedded(), table);
+    body(&mut game);
+    let questions = seen.borrow().clone();
+    let (state, staged) = without_staged(serde_json::to_value(&game.state).expect("serializes"));
+    let mut all: Vec<String> = ids.iter().map(|s| (*s).to_owned()).collect();
+    all.extend(taken.borrow().iter().cloned());
+    (Run { questions, events: game.events.clone(), state, rng: game.rng_positions(), staged }, all)
 }
 
 /// The native job on a copy of `state`: open it (when `job` is given), then one `live_step` of `arm` per string step until the window
@@ -97,6 +121,12 @@ fn native_steps(state: &GameState, steps: &[(Arm, Option<TurnJob>)], reconcile: 
 
 /// Like [`native_steps`], each step saying whether the reconcile hooks run before it (a string step starts with them).
 fn native_marked(state: &GameState, steps: &[(bool, Arm, Option<TurnJob>)], ids: &[&str]) -> Run {
+    let steps: Vec<(bool, Option<Arm>, Option<TurnJob>)> = steps.iter().map(|(r, a, j)| (*r, Some(*a), *j)).collect();
+    native_marked_arms(state, &steps, ids)
+}
+
+/// [`native_marked`] where a step may be the reconcile alone (`None`).
+fn native_marked_arms(state: &GameState, steps: &[(bool, Option<Arm>, Option<TurnJob>)], ids: &[&str]) -> Run {
     let mut cx = Ctx::of(state).expect("a table the codecs carry");
     let render = Render::new(cx.owners.ids().to_vec());
     let game = super::Game::with_table(state.clone(), ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption)));
@@ -120,6 +150,7 @@ fn native_marked(state: &GameState, steps: &[(bool, Arm, Option<TurnJob>)], ids:
         if let Some(job) = job {
             open_job(&mut core, *job);
         }
+        let Some(arm) = arm else { continue };
         loop {
             let step = live::live_step(&mut core, *arm, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native arm stopped: {e:?}"));
             if step.finished {
@@ -498,6 +529,11 @@ fn a_retained_turn_skips_the_closing_menu_like_the_string() {
 
 /// What the native job says where the core does not assemble the menu: the gap, and the position untouched.
 fn native_stop(state: &GameState, arm: Arm, job: TurnJob) -> (crate::live::Stop, bool) {
+    native_stop_with(state, arm, Some(job), &[])
+}
+
+/// [`native_stop`] with scripted answers and the job optional.
+fn native_stop_with(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&str]) -> (crate::live::Stop, bool) {
     let mut cx = Ctx::of(state).expect("a table the codecs carry");
     let render = Render::new(cx.owners.ids().to_vec());
     let game = super::Game::with_table(state.clone(), ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption)));
@@ -507,9 +543,11 @@ fn native_stop(state: &GameState, arm: Arm, job: TurnJob) -> (crate::live::Stop,
     let kernel = live::kernel::kernel_for(DEFAULT);
     let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
     let lcx = live::Cx::new(&render, &env);
-    open_job(&mut core, job);
+    if let Some(job) = job {
+        open_job(&mut core, job);
+    }
     let held = core.clone();
-    let stop = live::live_step(&mut core, arm, &lcx, &mut Scripted::new(Vec::<String>::new())).expect_err("the job stops");
+    let stop = live::live_step(&mut core, arm, &lcx, &mut Scripted::new(ids.iter().copied())).expect_err("the job stops");
     (stop, core == held)
 }
 
@@ -522,4 +560,110 @@ fn fleet_logistics_offers_a_second_action_which_the_core_does_not_assemble_yet()
     let (stop, untouched) = native_stop(&state, Arm::Ask, TurnJob::Finish);
     assert_eq!(stop, crate::live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources))));
     assert!(untouched, "the gap leaves the position as it was, ACTION_COMPLETED included");
+}
+
+// -- the reconcile hooks and the rest of the end of a turn ---------------------------------------------------------------------
+
+/// One string step of a position whose turn is prepared (the arm is `Ask`, cut off at the menu) against the native reconcile alone.
+fn reconcile_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
+    let string = string_run(state, ids, |g| {
+        g.prepared_turn_seq = Some(g.state.turn_seq);
+        let _ = g.step();
+    });
+    let mut string = string;
+    if string.questions.last().is_some_and(|q| q.context.as_ref().is_some_and(|c| c.subtype == "action_menu")) {
+        string.questions.pop();
+    }
+    let native = native_marked_arms(state, &[(true, None, None)], ids);
+    (string, native)
+}
+
+#[test]
+fn a_technology_nobody_announced_is_announced_by_the_next_step_like_the_string() {
+    let mut state = action_table(&THREE);
+    // The first look records the starting set; a technology gained after it is announced.
+    {
+        let mut game = super::Game::with_table(state.clone(), ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption)));
+        game.prepared_turn_seq = Some(game.state.turn_seq);
+        let _ = game.step();
+        state = game.state.clone();
+    }
+    state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("st"));
+    let (string, native) = reconcile_both(&state, &[]);
+    assert_same(&string, &native);
+    assert!(string.events.iter().any(|e| e == "TECHNOLOGY_GAINED"), "{:?}", string.events);
+}
+
+#[test]
+fn spec_ops_destroyed_roll_to_survive_from_the_streams_of_the_game_like_the_string() {
+    let mut state = action_table(&[("a", "sol"), ("b", "hacan"), ("c", "arborec")]);
+    state.player_mut(&pid("a")).unwrap().spec_ops_destroyed = 4;
+    let (string, native) = reconcile_both(&state, &[]);
+    assert_same(&string, &native);
+    assert_eq!(string.events.iter().filter(|e| e.starts_with("SPEC_OPS_")).count(), 4, "{:?}", string.events);
+}
+
+#[test]
+fn the_nexus_latch_and_styxs_victory_point_are_reconciled_like_the_string() {
+    let mut state = action_table(&THREE);
+    crate::fixtures::put(&mut state, &SystemId::new("82a"), "cruiser", &pid("b"), 1);
+    let content = ContentStore::embedded();
+    let styx = ti4_content::galaxy::planet(content, "styx", DEFAULT).expect("Styx is in the corpus");
+    state.system_mut(&SystemId::new(styx.system_id().expect("placed"))).set_control(ti4_model::id::PlanetId::new("styx"), pid("c"));
+    let (string, native) = reconcile_both(&state, &[]);
+    assert_same(&string, &native);
+    assert!(string.state["nexus_unlocked"].as_bool().unwrap_or(false), "the latch is set");
+}
+
+#[test]
+fn ships_over_the_fleet_supply_are_removed_one_question_at_a_time_at_the_end_of_a_turn_like_the_string() {
+    let mut state = action_table(&THREE);
+    let (system, _) = crate::fixtures::a_placed_planet();
+    crate::fixtures::put(&mut state, &system, "cruiser", &pid("b"), 9);
+    let (string, answers) = string_run_first(&state, &[], |g| g.advance_turn().expect("the turn passes"));
+    assert!(!string.questions.is_empty(), "the fleet is over its supply: the owner is asked what goes");
+    let ids: Vec<&str> = answers.iter().map(String::as_str).collect();
+    let native = native_run(&state, Arm::Ask, Some(TurnJob::End), &ids);
+    assert_same(&string, &native);
+}
+
+#[test]
+fn bio_stims_readies_a_specialty_planet_at_the_end_of_a_turn_like_the_string() {
+    let mut state = action_table(&THREE);
+    let content = ContentStore::embedded();
+    let planet = ti4_content::galaxy::planet(content, "cealdri", DEFAULT).expect("a specialty planet");
+    let system = SystemId::new(planet.system_id().expect("placed"));
+    state.system_mut(&system).set_control(ti4_model::id::PlanetId::new("cealdri"), pid("a"));
+    state.exhausted_planets.insert(ti4_model::id::PlanetId::new("cealdri"));
+    state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("bs"));
+    let (string, native) = end_both(&state, &["ready|planet|cealdri"]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.len(), 1);
+}
+
+#[test]
+fn the_last_card_of_the_draft_ends_it_without_a_gap_and_the_swap_laws_are_gaps() {
+    use ti4_engine_core::kernel::ability::Unknown;
+    use ti4_engine_core::kernel::turn_codes::TurnGap;
+    // Two seats, one card each: the second pick is the last.
+    let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+    state.strategy_cards_per_player = 1;
+    let first = state.unclaimed_strategy_cards.remove(0);
+    state.deal_strategy_card(&pid("a"), first);
+    let state = based(state);
+    let last = state.unclaimed_strategy_cards[0].to_string();
+    let mut announced = state.clone();
+    announced.starting_tech_picks.clear();
+    let string = string_run(&state, &[last.as_str()], |g| {
+        g.strategy_phase_announced = true;
+        assert!(g.step().error.is_none());
+    });
+    let native = native_marked_arms(&state, &[(true, Some(Arm::Ask), None)], &[last.as_str()]);
+    assert_same(&string, &native);
+    // Imperial Arbiter elected for a seat that holds a card, with another seat holding one: the core stops with a counted gap.
+    let mut arbiter = state.clone();
+    arbiter.laws.insert("arbiter".to_owned(), "a".to_owned());
+    let (stop, untouched) = native_stop_with(&arbiter, Arm::Ask, None, &[last.as_str()]);
+    assert_eq!(stop, crate::live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(Unknown::TurnGap(TurnGap::ImperialArbiter))));
+    assert!(untouched);
 }

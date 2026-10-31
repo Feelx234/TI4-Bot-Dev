@@ -47,6 +47,8 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
         }
         // "Which command token comes back": the string asks it without a context (`minister_of_war_text`).
         Ask::Turn(TurnAsk::MinisterToken) => rendered.context = None,
+        // The fleet sweep's "remove a unit" question: the string asks it without a context (`fleet::enforce_seeing`).
+        Ask::Tactical(ti4_engine_core::choice::tactical::Ask::Remove { .. }) => rendered.context = None,
         // The starting technology: the pick, the rule, the faction, what the seat holds; per option the colour, the other owners and
         // the number of prerequisites (`starting_tech::choice`).
         Ask::Technology(TAsk::StartingTech { number, of, rule }) => starting_tech(core, choice, number, of, rule, rendered),
