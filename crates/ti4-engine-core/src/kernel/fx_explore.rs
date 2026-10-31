@@ -127,38 +127,27 @@ pub struct RowIn {
     pub attached: Option<crate::generated::Attachment>,
 }
 
-/// The texts a log row is closed with (`ExplorationRecord::{outcome, result, gains, placed}`).
+/// The texts a log row is closed with (`ExploreRec::{outcome, result, gains, placed}`), already interned in the position's text table by the
+/// adapter's words function (the core never sees a text).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RowOut {
-    pub outcome: String,
-    pub result: String,
-    pub gains: Vec<(String, i32)>,
-    pub placed: Vec<String>,
+    pub outcome: crate::state::Code,
+    /// `None`: the empty text, which is not written.
+    pub result: Option<crate::state::Code>,
+    pub gains: Vec<(crate::state::Code, i32)>,
+    pub placed: Vec<crate::state::Code>,
 }
 
-/// The adapter's `row_words`.
-pub type WordsFn = fn(&RowIn) -> RowOut;
+/// The adapter's `row_words`: the words of the row, minted in the text table of `core` (`None`: the table is full).
+pub type WordsFn = fn(&mut CoreState, &RowIn) -> Option<RowOut>;
 
-/// Close the log row at `index` with the words (the texts are minted in the position's text table).
-pub fn close_row(core: &mut CoreState, index: usize, words: &RowOut) -> Option<()> {
-    use crate::state::{Code, CODE_CAPACITY};
-    let mut mint = |text: &str| -> Option<Code> { core.texts.codes.intern(text.as_bytes(), CODE_CAPACITY).and_then(|i| u16::try_from(i).ok()).map(Code) };
-    let outcome = mint(&words.outcome)?;
-    // The string writes an empty `result` as the empty text and the core keeps `None` for it.
-    let result = if words.result.is_empty() { None } else { Some(mint(&words.result)?) };
-    let mut gains = Vec::with_capacity(words.gains.len());
-    for (key, n) in &words.gains {
-        gains.push((mint(key)?, *n));
-    }
-    let mut placed = Vec::with_capacity(words.placed.len());
-    for text in &words.placed {
-        placed.push(mint(text)?);
-    }
+/// Close the log row at `index` with the words.
+pub fn close_row(core: &mut CoreState, index: usize, words: RowOut) -> Option<()> {
     let rec = core.explore_mut().log.get_mut(index)?;
-    rec.outcome = outcome;
-    rec.result = result;
-    rec.gains = gains.into_iter().collect();
-    rec.placed = placed.into_iter().collect();
+    rec.outcome = words.outcome;
+    rec.result = words.result;
+    rec.gains = words.gains.into_iter().collect();
+    rec.placed = words.placed.into_iter().collect();
     Some(())
 }
 

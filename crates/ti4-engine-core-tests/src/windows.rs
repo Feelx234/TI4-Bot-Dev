@@ -55,13 +55,11 @@ use ti4_engine_core::state::Code;
 /// The words a log row is closed with in the tests: how the card resolved, the goods around it, the tokens it placed, the card kept
 /// and the attachment put on the planet (the adapter's `row_words` is the string's).
 #[must_use]
-pub fn explore_words(r: &RowIn) -> RowOut {
-    RowOut {
-        outcome: format!("{:?}", r.how),
-        result: format!("goods {}>{} cmd {}>{} gamma {:?} ion {:?} kept {:?} attached {:?}", r.before.trade_goods, r.after.trade_goods, r.before.command_tokens, r.after.command_tokens, r.gamma, r.ion, r.kept, r.attached),
-        gains: Vec::new(),
-        placed: Vec::new(),
-    }
+pub fn explore_words(core: &mut ti4_engine_core::state::CoreState, r: &RowIn) -> Option<RowOut> {
+    let mut mint = |text: &str| -> Option<Code> { core.texts.codes.intern(text.as_bytes(), ti4_engine_core::state::CODE_CAPACITY).and_then(|i| u16::try_from(i).ok()).map(Code) };
+    let outcome = mint(&format!("{:?}", r.how))?;
+    let result = mint(&format!("goods {}>{} cmd {}>{} gamma {:?} ion {:?} kept {:?} attached {:?}", r.before.trade_goods, r.after.trade_goods, r.before.command_tokens, r.after.command_tokens, r.gamma, r.ion, r.kept, r.attached))?;
+    Some(RowOut { outcome, result: Some(result), gains: Vec::new(), placed: Vec::new() })
 }
 
 /// The source `trade_agreement` the kit's table names.

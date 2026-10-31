@@ -894,10 +894,10 @@ impl Exploring {
                 }
                 Some(planet) => {
                     if let Some(attachment) = attachment_for(card, planet) {
-                        crate::rules::explore::attach(sx.state, planet, attachment);
+                        explore::attach(sx.state, planet, attachment);
                     }
                     if card == Explore::DemilitarizedZone && sx.state.meta().rules_at_least(RULES_DMZ_EXPLORATION) {
-                        crate::rules::explore::demilitarize(sx.state, Self::scope(sx.kernel), planet);
+                        explore::demilitarize(sx.state, Self::scope(sx.kernel), planet);
                     }
                     self.run.how = EHow::Attached;
                     self.close(sx);
@@ -1237,8 +1237,9 @@ impl Exploring {
         let after = qexplore::holdings(sx.state, who, planet);
         let kept = sx.state.players().by_seat(who).and_then(|p| p.cards.explore.as_slice().last().copied());
         let attached = planet.and_then(|p| board::attachments(sx.state, p).as_slice().last().copied());
-        let text = words(&fx_explore::RowIn { planet, card, how: self.run.how, before: self.run.before, after, gamma: self.run.gamma, ion: self.run.ion, kept, attached });
-        if fx_explore::close_row(sx.state, row as usize, &text).is_none() {
+        let row_in = fx_explore::RowIn { planet, card, how: self.run.how, before: self.run.before, after, gamma: self.run.gamma, ion: self.run.ion, kept, attached };
+        let Some(text) = words(sx.state, &row_in) else { return self.fail(EWhy::NoTexts) };
+        if fx_explore::close_row(sx.state, row as usize, text).is_none() {
             return self.fail(EWhy::NoTexts);
         }
         self.run.finished = true;

@@ -40,9 +40,9 @@ mod real {
         &[Slice::Meta, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Marks, Slice::Pending, Slice::Ledger, Slice::Explore],
     );
 
-    /// The words of the log row of a card: the string's `row_words` over what the core window read.
+    /// The words of the log row of a card: the string's `row_words` over what the core window read, minted in the position's text table.
     #[must_use]
-    pub fn words(r: &RowIn) -> RowOut {
+    pub fn words(core: &mut CoreState, r: &RowIn) -> Option<RowOut> {
         let planet = r.planet.map(|p| PlanetId::new(IdStr::as_str(p)));
         let card = IdStr::as_str(r.card).to_owned();
         let outcome = match r.how {
@@ -62,7 +62,15 @@ mod real {
         let kept = r.kept.map(IdStr::as_str);
         let attached = r.attached.map(IdStr::as_str);
         let w = crate::exploration::row_words(&Holdings::from_core(r.before), &Holdings::from_core(r.after), planet.as_ref(), &outcome, tokens, kept, attached);
-        RowOut { outcome: w.text, result: w.result, gains: w.gains.into_iter().collect(), placed: w.placed }
+        let mut mint = |text: &str| -> Option<ti4_engine_core::state::Code> {
+            core.texts.codes.intern(text.as_bytes(), ti4_engine_core::state::CODE_CAPACITY).and_then(|i| u16::try_from(i).ok()).map(ti4_engine_core::state::Code)
+        };
+        let outcome = mint(&w.text)?;
+        // The string writes an empty `result` as the empty text and the core keeps `None` for it.
+        let result = if w.result.is_empty() { None } else { Some(mint(&w.result)?) };
+        let gains = w.gains.iter().map(|(key, n)| Some((mint(key)?, *n))).collect::<Option<Vec<_>>>()?;
+        let placed = w.placed.iter().map(|text| mint(text)).collect::<Option<Vec<_>>>()?;
+        Some(RowOut { outcome, result, gains, placed })
     }
 
     /// The event texts of an exploration, in the render table.
