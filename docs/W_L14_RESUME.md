@@ -18,7 +18,26 @@ dual, bench, soak, ratchet, workspace clippy, census): a full zero-bail playthro
 | Irreproducible dice in the Mahact hero documented and tested (XF-7: counted bail outside the product, assertion inside) | | | `mahact_units::tests::a_hero_fought_with_test_faces_*` |
 
 ## Left (precise reasons)
-See the final report of the lane and `docs/ENGINE_KNOWN_ISSUES.md` rows W14-design-01..06.
+* **A scoring window after a won ground combat in the Yin hero** (`dual_window::yin_hero` still declines a recording with a "score an objective" question; `CommittedFight::scoring` lists the occurrences). The string opens it inside
+  `InvasionWindow::fight_committed_planet` after each ground round, over `state.initiative_order()`, with the secrets whose phase is Action and whose feat was recorded for the occurrence
+  (`secrets::scoreable_event`: only the twelve feat secrets, all Action-timed, plus a leaked public one) and asks through `ask_seeing`. A core port needs an `EventScoring` window (a `ScoringBook` walk over
+  core-computed `Offers`, a `ScoreOne` child per player, the plain `OBJECTIVE_SCORED:{alias}` record and the `GAME_FINISHED` stop), a `FStage::Scoring` in `CommittedFight` that runs it for each occurrence in `scoring`, a link in
+  `driver::children`, and the adapter must compare the plain records the string pushes (`ctx.emit("OBJECTIVE_SCORED:..")`) which `Run::with_events_vec` does not carry. The live driver's own `EventScoring` arm (`core-m3-invasion`,
+  `driver/session.rs`) runs a scoring pause after a window, which would order a hero's scoring after the whole hero. **The Mahact hero has no scoring window to port**: the string consumes the pause of its combat
+  (`window.take_scoring_occurrence()` in `resolve_resolving`) and the core fight matches (lane 9).
+* **Van Hauge, the Spinner, the Yin Ascendant** (reasons in `docs/ENGINE_KNOWN_ISSUES.md` W14-design-03): Van Hauge needs the combat machine to drain staged destructions at the string's four points (a retreat, produced hits, after
+  `SPACE_COMBAT_ROUND_ENDED`, the end announcement) instead of bailing at a transition; the Spinner a placement question over planets and ship spaces (`PlaceUnits` has planets only); the Ascendant is a Thunder's Edge breakthrough.
+  There is no Ssruu copy of Indoctrination (Ssruu copies the agent only; the Milor copies are the pair rules).
+* **Remaining gates of the combat machine** (`SettleArgs::gate_why`, `Machine::bailed`) after Supercharge: a neutral side (lane 11), diplomacy, goods only a Keleres agent could make spendable, a Last Bastion retreat (all dropped
+  by decision), the Heart of Ixth (Thunder's Edge), and irreproducible dice (XF-7: a product assertion; the counted bail is reached only by dev tools and unit tests with test faces).
+* **Two seats of one faction**: the lobby cannot seat them (`FactionAssignmentError::DuplicateChoice`); left.
+* **The Deepgloom Executable** (a Thunder's Edge breakthrough that lets another seat borrow Scheming), blank laws (Keleres' Law's Order) and a Ral Nel seat keep a draw with the string (`draw_hook`).
+* **The inline Lost Crew of an action card's effect** (`rules/action_cards/effects.rs`) still needs a hook-free draw within the limit (`plain_draw_within_limit`): lane 11's (action cards inside other windows). The agenda *effect* window
+  (`dual_window::agenda_effect`, plain kernel) keeps a faction-hooked draw with the string (`draw_hooks_on_plain_kernel`); the vote close follows the hooks.
 
 ## Checks (cheap only; private target dir `/root/deploytmp/core-w-l14`, `CARGO_BUILD_JOBS=2`)
-See the final report. Not run: golden / wide dual, benches, soak, ratchet, workspace clippy, census.
+* `cargo test -p ti4-engine --lib`: 4894 passed, 0 failed, plain and with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` (final code); `cargo test -p ti4-engine-core-tests` (all binaries), `-p ti4-engine-core -p ti4-engine-core-factions`: green.
+* `tools/engine_core/check_layers.py core`: 442 files, 0 violations; `tools/engine_core/lint_core.sh`: 0 hits.
+* Regression tests that fail on the pre-W14 code: the Naaz pair test (counted bail before), `politics_follows_scheming_and_crafty_in_the_core_window` and the four former bail tests of the Yssaril draw, `a_supercharge_carried_by_a_valefar_assimilator_*`, the core `yin_greyfire`, `draw_hooks`, `production_home` additions.
+* Mutation (single-file, scratch worktree `core-w-l14-mut`, `/root/deploytmp/core-w-l14/mut/{runmut.py,spec1.py}`, Haiku runner): see the final report.
+Not run: golden / wide dual, benches, soak, ratchet, workspace clippy, census.
