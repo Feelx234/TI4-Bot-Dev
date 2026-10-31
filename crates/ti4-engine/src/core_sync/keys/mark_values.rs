@@ -74,6 +74,20 @@ const STAGED_GROUND: Sh = Sh::Alt(&[
             Sh::A(K::Destroy),
         ],
     ),
+    // A ground force of the space area (Nova Seed cargo): the row names the system where the planet goes
+    // (`muaat::destroy_others`, "there is no planet, so the system id stands in").
+    Sh::Rec(
+        b'|',
+        &[
+            Sh::A(K::Word(&[Word::Destroyed])),
+            SYS,
+            SYS,
+            SEAT,
+            UNIT,
+            BOOL,
+            Sh::A(K::Destroy),
+        ],
+    ),
 ]);
 
 const SAAR_BOOST: Sh = Sh::Alt(&[
