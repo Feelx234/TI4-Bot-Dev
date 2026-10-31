@@ -102,6 +102,8 @@ mod tests {
         state: GameState,
         /// The scoring occurrences the invasion queued, in order: (occurrence, combat).
         scoring: Vec<(u64, bool)>,
+        /// The events the invasion announced: (name, payload), in order.
+        events: Vec<(String, std::collections::BTreeMap<String, serde_json::Value>)>,
     }
 
     fn armed_resolver(state: &GameState, players: Vec<PlayerId>) -> crate::timing::Resolver {
@@ -175,7 +177,8 @@ mod tests {
         state.active_invasion = None;
         drop(ctx);
         let (asked, answers) = (asked.borrow().clone(), answers.borrow().clone());
-        Run { asked, answers, state, scoring }
+        let events = resolver.applied_events().iter().map(|e| (e.event_type.clone(), e.payload.clone())).collect();
+        Run { asked, answers, state, scoring, events }
     }
 
     const FP: Footprint = Footprint::new(
@@ -184,7 +187,7 @@ mod tests {
     );
 
     /// The native run of the same invasion: the arm `Arm::Invasion` through `live_step`, answered by `answers` in order.
-    fn live_run(mut gs: GameState, seed: u64, system: &SystemId, invader: &str, answers: &[String], hero: bool) -> Result<(Vec<Choice>, GameState, Vec<(u64, bool)>), (Stop, Vec<Choice>)> {
+    fn live_run(mut gs: GameState, seed: u64, system: &SystemId, invader: &str, answers: &[String], hero: bool) -> Result<(Vec<Choice>, GameState, Vec<(u64, bool)>, Vec<(String, std::collections::BTreeMap<String, serde_json::Value>)>), (Stop, Vec<Choice>)> {
         let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
         let rng_before = GameRng::new(seed).positions();
         let seeds: Rc<dyn ti4_engine_core::state::SeedSource> = Rc::new(TextSeeds::of(&cx));
@@ -204,6 +207,7 @@ mod tests {
         let mut native_dice: Vec<(Option<u8>, Vec<u8>)> = Vec::new();
         let mut steps = 0;
         let mut windows: Vec<(u64, bool)> = Vec::new();
+        let mut events: Vec<(String, std::collections::BTreeMap<String, serde_json::Value>)> = Vec::new();
         let mut outcome: Result<(), Stop> = Ok(());
         let mut seen_all: Vec<Choice> = Vec::new();
         let r_ref = &r;
@@ -227,6 +231,11 @@ mod tests {
                 match live_step(core, Arm::Invasion, &live, &mut asker) {
                     Ok(step) => {
                         asked.extend(step.asked);
+                        for e in &step.out.emitted {
+                            if let Some(ev) = crate::dual_window::event_of(r_ref, e) {
+                                events.push((ev.event_type, ev.payload));
+                            }
+                        }
                         // The event scoring window of a pause: nobody has anything to score here, so it closes at once.
                         for w in &step.out.opened {
                             if let ti4_engine_core::state::Window::EventScoring(sc) = w {
@@ -253,7 +262,7 @@ mod tests {
             eprintln!("NATIVE DICE {native_dice:?}");
         }
         match outcome {
-            Ok(()) => Ok((asked, gs, windows)),
+            Ok(()) => Ok((asked, gs, windows, events)),
             Err(stop) => Err((stop, if seen_all.is_empty() { asked } else { seen_all })),
         }
     }
@@ -287,7 +296,7 @@ mod tests {
         let string = string_run(state.clone(), seed, system, "a", hero, pick);
         let mut padded = string.answers.clone();
         padded.extend(std::iter::repeat_n("fight".to_owned(), 6));
-        let (asked, gs, windows) = match live_run(state.clone(), seed, system, "a", &padded, hero) {
+        let (asked, gs, windows, events) = match live_run(state.clone(), seed, system, "a", &padded, hero) {
             Ok(r) => r,
             Err((stop, seen)) => panic!(
                 "{label}: the native run stopped: {stop:?}\nnative {:?}\nstring {:?}",
@@ -299,6 +308,7 @@ mod tests {
             eprintln!("QUESTIONS {label}: {:?}", string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>());
         }
         assert_same_questions(&asked, &string.asked);
+        assert_eq!(events, string.events, "{label}: the events the invasion announced");
         assert_eq!(windows, string.scoring, "{label}: the scoring windows the invasion pauses for");
         assert_eq!(gs.feat_occurrence_seq, string.state.feat_occurrence_seq, "{label}: the feat occurrences");
         assert!(gs.active_invasion.is_none() && string.state.active_invasion.is_none());

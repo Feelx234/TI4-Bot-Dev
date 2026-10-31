@@ -216,12 +216,12 @@ impl InvasionMachine {
         if sx.state.players().by_seat(invader).is_some_and(|p| p.leaders.status.get(&crate::generated::Leader::AgnlanOln) == Some(&crate::state::LeaderStatus::Unlocked)) {
             return Err(Why::JolNarCommanderReroll);
         }
-        let (kind, system, hits) = {
+        let (system, hits) = {
             let set = sx.state.transient().combat.reroll_staging.iter().find(|(who, _)| *who == invader).map(|(_, set)| set).ok_or(Why::BombardmentDiceMismatch)?;
-            (set.kind, set.system, staged_hits(set))
+            (set.system, staged_hits(set))
         };
         let payload = Payload::new()
-            .with(Key::Kind, Val::Code(kind))
+            .with(Key::Kind, Val::Code(codes.bombardment_cause))
             .with(Key::Player, Val::Seat(invader))
             .with(Key::System, Val::System(system))
             .with(Key::Hits, Val::Int(i64::from(hits)));
