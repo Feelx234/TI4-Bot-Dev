@@ -129,6 +129,9 @@ pub struct Invasion {
     pub temp_commits: Vec<(Planet, Vec<Piece>)>,
     /// Already committed hero combats leave invasion/control continuations to their caller.
     pub combat_only: bool,
+    /// The round in progress was numbered by a copied round agent when it began (the Sol agent, readied or lent): decided once at the start of
+    /// the round, because the agent exhausts at that very start and the roll tail must not number the round again. LIVE only.
+    pub round_copied: bool,
 }
 
 impl Invasion {
@@ -147,6 +150,7 @@ impl Invasion {
             extra_commits: Vec::new(),
             temp_commits: Vec::new(),
             combat_only: false,
+            round_copied: false,
         }
     }
 

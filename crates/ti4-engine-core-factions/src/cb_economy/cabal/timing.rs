@@ -6,13 +6,13 @@
 //! marks are `cabal:devour:{system}[|{planet}]` holding the seat that took part.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
-use ti4_engine_core::generated::{Faction, Planet, System, Unit, UnitBaseType};
+use ti4_engine_core::generated::{Faction, Planet, PromissoryNote, System, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec};
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::query::board;
-use ti4_engine_core::state::{CoreState, EventKind, EventRec, Key};
+use ti4_engine_core::state::{CoreState, EventKind, EventRec, Key, NoteKey};
 use ti4_engine_core::tables::Scope;
 
 /// Reanimator (`unit:..:cabal_mech:GROUND_FORCE_DESTROYED:after`).
@@ -30,6 +30,45 @@ pub const MARK_SPACE: Slot = Slot(3006);
 pub const CLEAR_SPACE: Slot = Slot(3007);
 pub const MARK_GROUND: Slot = Slot(3008);
 pub const CLEAR_GROUND: Slot = Slot(3009);
+/// Crucible (`promissory:*:crucible:SYSTEM_ACTIVATED:after`).
+pub const CRUCIBLE: Slot = Slot(3010);
+
+/// The Crucible note of the Cabal.
+const CRUCIBLE_NOTE: NoteKey = NoteKey { note: PromissoryNote::Crucible, faction: CABAL };
+
+/// `crucible_playable`: `holder` holds the Cabal's note in hand (not faceup) and is not the Cabal itself.
+fn crucible_playable(s: &CoreState, holder: Seat) -> bool {
+    s.cards().promissory.get(&CRUCIBLE_NOTE) == Some(&holder)
+        && !s.cards().promissory_faceup.contains_key(&CRUCIBLE_NOTE)
+        && s.players().iter().find(|p| p.faction == CABAL).is_some_and(|owner| owner.seat != holder)
+}
+
+/// The string arms the note while a Cabal is seated, and for a Nekro seat whatever the table (`cabal::timing_abilities`).
+fn cabal_seated(s: &CoreState, who: Seat) -> bool {
+    s.players().iter().any(|p| p.faction == CABAL) || s.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheNekroVirus)
+}
+
+fn crucible_when(c: &CondCx<'_>) -> bool {
+    c.event.payload.seat(Key::Player) == Some(c.def.owner) && crucible_playable(c.state, c.def.owner)
+}
+
+/// "Your ships do not roll for gravity rifts during this movement ... Then, return this card to the Vuil'raith player": the stamp of this
+/// activation (`rift_crucible` reads it) and the note home.
+fn crucible(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let me = eff.owner();
+    if eff.event.payload.seat(Key::Player) != Some(me) || !crucible_playable(eff.state(), me) {
+        return Ok(());
+    }
+    let seq = eff.state().meta().activation_seq;
+    eff.state().marks_mut().tail.edit().insert(MarkKey::CabalCrucible(me), MarkVal::Atom(Atom::Num(seq)));
+    ti4_engine_core::kernel::fx::give_back_note(eff.state(), CRUCIBLE_NOTE);
+    Ok(())
+}
+
+/// The ability of the activation window (`activation::register`).
+pub fn register_activation(t: &mut AbilityTable) {
+    t.add(Spec::new(CRUCIBLE, AbilityKind::Promissory, EventKind::SystemActivated, Relation::After, crucible).applies(Applies::Held(cabal_seated)).optional().when(crucible_when));
+}
 
 const SCOPE: Scope = Scope(u32::MAX);
 const CABAL: Faction = Faction::TheVuilraithCabal;

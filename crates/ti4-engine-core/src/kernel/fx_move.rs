@@ -58,6 +58,44 @@ pub fn begin_move(s: &mut CoreState, system: System) {
     meta.activation_seq = meta.activation_seq.saturating_add(1);
 }
 
+/// Spatial Conduit Cylinders (`faction_techs::spatial_conduit_links`): for this activation the active system is adjacent to every
+/// other system with a unit of the seat in its space area, both directions. Written into the map's extra links (the string recomputes them
+/// from the activation counter at every step; the core keeps them until [`clear_conduit_links`]). A map slice without a galaxy changes nothing.
+pub fn set_conduit_links(s: &mut CoreState, who: Seat, system: System) {
+    use crate::bits::SysSet;
+    let Some(galaxy) = s.galaxy() else { return };
+    let others: Vec<System> = s.board().systems().filter(|(other, cell)| *other != system && cell.units.as_slice().iter().any(|u| u.owner() == who)).map(|(other, _)| other).collect();
+    let mut links: Vec<(System, SysSet)> = Vec::new();
+    let mut entry = |key: System, value: System| match links.iter().position(|(k, _)| *k == key) {
+        Some(at) => {
+            links[at].1.insert(value.index());
+        }
+        None => {
+            let mut set = SysSet::EMPTY;
+            set.insert(value.index());
+            links.push((key, set));
+        }
+    };
+    for other in &others {
+        entry(system, *other);
+        entry(*other, system);
+    }
+    let mut next = (**galaxy).clone();
+    next.extra_links = links;
+    s.map_mut().set_galaxy(next);
+}
+
+/// The links of [`set_conduit_links`] end with the activation.
+pub fn clear_conduit_links(s: &mut CoreState) {
+    let Some(galaxy) = s.galaxy() else { return };
+    if galaxy.extra_links.is_empty() {
+        return;
+    }
+    let mut next = (**galaxy).clone();
+    next.extra_links.clear();
+    s.map_mut().set_galaxy(next);
+}
+
 /// `technology::gravity_drive_available`.
 #[must_use]
 pub fn gravity_drive_available(s: &CoreState, who: Seat) -> bool {

@@ -415,6 +415,23 @@ mod tests {
         // `trigger.event_id`: the string's first step is the turn prelude (`TURN_BEGAN`), which numbers one event the native run does not take.
         // `combat_round_seq`: the native invasion bumps the counter once more than the string's window over a ground fight (a finding for lane
         // M3: `driver::windows::invasion::fight` and `GroundRollTail::bump`), compared separately in the invasion tests.
+        // The string's `#seen:` rows of `faction_marks` (what each seat has been shown) are no rule; a map left with none of its own rows is no map.
+        fn without_seen(v: &Value) -> Value {
+            match v {
+                Value::Object(map) => Value::Object(
+                    map.iter()
+                        .filter_map(|(k, v)| {
+                            let v = without_seen(v);
+                            (k != "faction_marks" || v.as_object().is_none_or(|o| !o.is_empty())).then(|| (k.clone(), v))
+                        })
+                        .filter(|(k, _)| !k.contains("#seen:"))
+                        .collect(),
+                ),
+                Value::Array(items) => Value::Array(items.iter().map(without_seen).collect()),
+                other => other.clone(),
+            }
+        }
+        let (left, right) = (&without_seen(left), &without_seen(right));
         diff_json(left, right, 60).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("event_id") && !d.path.ends_with("combat_round_seq") && !matches!(d.path.as_str(), "action_turn" | "active" | "turn_seq" | "/action_turn" | "/active" | "/turn_seq") && !d.path.ends_with("action_turn") && !d.path.ends_with("active") && !d.path.ends_with("turn_seq")).take(10).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
@@ -586,6 +603,14 @@ mod tests {
             let other = if faction == "letnev" { "sol" } else { "letnev" };
             for (mine, theirs) in [(faction, other), (other, faction)] {
                 let mut state = table(&[("a", mine), ("b", theirs)]);
+                // The Mahact starts with Predictive Intelligence and Bio-Stims, the free windows of the END OF THE TURN (lane B's `TurnEnd`): the
+                // string asks them after the action (seven token moves and the ready, the script being spent), the combat does not. They were the
+                // "8 more questions after the action" of docs/M6B_RESUME.md; the position of this sweep leaves them out.
+                for seat in [a(), b()] {
+                    for tech in ["pi", "bs"] {
+                        state.player_mut(&seat).unwrap().technologies.remove(&ti4_model::TechnologyId::new(tech));
+                    }
+                }
                 crate::fixtures::put(&mut state, &target, "dreadnought", &a(), 2);
                 crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
                 crate::fixtures::put(&mut state, &target, "fighter", &a(), 2);
@@ -596,17 +621,37 @@ mod tests {
                     eprintln!("== {mine} v {theirs}");
                 }
                 // (Every difference after the first follows from it: the questions shift.)
-                if let Some(d) = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]).into_iter().next() {
+                let all = std::env::var_os("M6C_ALL").is_some();
+                for d in lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]).into_iter().take(if all { 12 } else { 1 }) {
                     failures.push(format!("{mine} v {theirs}: {d}"));
                 }
             }
         }
-        // The residual, counted (docs/M5_RESUME.md): the activation hooks of the tactical action that ask (Mahact at the table).
-        failures.retain(|f| !(f.contains("BAIL: a hook of the activation") && (f.contains("mahact") || f.contains("titans"))));
-        // Residuals of the neighbours' lanes, not of this island (docs/M5_RESUME.md): the Saar agent is a string-registered SYSTEM_ACTIVATED
-        // ability the core registry lacks (M6, open item 2), and the Empyrean commander's unlock is a hook slot nobody fills yet (A2/F2:
-        // `commander_unlocked`).
-        failures.retain(|f| !(f.starts_with("saar v") || f.starts_with("letnev v saar")) && !f.contains("leaders.empyreancommander"));
+        // Residual of a neighbour's lane, not of this island (docs/M5_RESUME.md): the Empyrean commander's unlock is a hook slot nobody fills yet
+        // (A2/F2: `commander_unlocked`). (The Saar agent was the other one: it is a core rule of the activation window since lane M6c.)
+        failures.retain(|f| !f.contains("leaders.empyreancommander"));
+        // (Mahact at the table: both residual differences of docs/M6B_RESUME.md are closed. The extra questions were its end-of-turn technologies,
+        // above; the fleet limit of 4 against 3 was Edict, "when you win a combat, take your opponent's token into your fleet pool", which the
+        // core table lacked: it is `cc_ground::mahact::timing::edict` now.)
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// T'ro (the Sardakk agent, and Ssruu copying it) at the end of a tactical action: the actor may place 2 infantry on a planet it controls in the
+    /// active system. Offered after the action (`TACTICAL_ACTION_ENDED`), exhausted before the placement is asked.
+    #[test]
+    fn tro_places_two_infantry_at_the_end_of_the_action_in_lockstep() {
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let hub = crate::fixtures::hub_with_centre(system.as_str());
+        let (origin, target) = (SystemId::new(hub.outer[0].clone()), SystemId::new(hub.centre.clone()));
+        let mut failures = Vec::new();
+        for lobby in [vec![("a", "sol"), ("b", "sardakk")], vec![("a", "sol"), ("b", "yssaril"), ("c", "sardakk")], vec![("a", "sardakk"), ("b", "hacan")]] {
+            let mut state = table(&lobby);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put_on_planet(&mut state, &target, &planet, "infantry", &a(), 1);
+            for d in lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]) {
+                failures.push(format!("{lobby:?}: {d}"));
+            }
+        }
         assert!(failures.is_empty(), "{failures:#?}");
     }
 

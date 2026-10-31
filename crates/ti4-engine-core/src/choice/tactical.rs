@@ -18,6 +18,18 @@ pub enum Over {
     Capacity,
 }
 
+/// The activation hooks that put a use-or-decline question (`faction_techs`, `mahact_units`): the active seat's Spatial Conduit Cylinders, the
+/// Nullification Field of another seat, a Mahact Starlancer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Hook {
+    /// "make the system adjacent to every system with your units" (technology `scc`).
+    SpatialConduit,
+    /// "exhaust and spend a strategy token to end the active seat's turn" (technology `nf`).
+    NullificationField,
+    /// "spend the active seat's command token to end their turn" (the Mahact mech).
+    Starlancer,
+}
+
 /// What the area asks. Parameters only; the option list is derived by the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ask {
@@ -30,6 +42,10 @@ pub enum Ask {
     /// `seat` removes a unit from `system` (it is `over` its limit); the figures are the display facts of the string
     /// question: ships charged against the fleet supply and its limit, capacity consumed and provided.
     Remove { seat: Seat, system: System, over: Over, charged: i32, limit: i32, consumed: i32, transport: i32 },
+    /// `seat` may use `hook` after `active` activated `system`.
+    Hook { seat: Seat, hook: Hook, active: Seat, system: System },
+    /// Scanlink Drone Network: `seat` may explore a planet of `system` that holds its units.
+    Scanlink { seat: Seat, system: System },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -50,6 +66,10 @@ pub enum Opt {
     DoneLoading { ground: u8, fighters: u8, available: u8 },
     /// Remove candidate `index` (a unit `kind` of the seat in the space area); interchangeable units are offered once.
     Remove { index: u16, kind: Unit },
+    /// Use the hook (id `use`).
+    Use,
+    /// Explore this planet (Scanlink Drone Network).
+    Explore(Planet),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -63,4 +83,8 @@ pub enum Subtype {
     LoadCargo,
     /// `remove_unit` (the string question carries no context; the dual compares without one).
     RemoveUnit,
+    /// `spatial_conduit_link`, `nullification_field_end_turn`, `starlancer_end_turn`.
+    Hook(Hook),
+    /// `scanlink_explore`.
+    ScanlinkExplore,
 }

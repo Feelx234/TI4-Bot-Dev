@@ -17,6 +17,7 @@ mod cargo;
 mod finish;
 pub mod fleet;
 mod movement;
+pub mod routes;
 
 use crate::choice::generic::Rule;
 use crate::choice::tactical::{Ask, Opt, Subtype};
@@ -146,11 +147,13 @@ pub struct Machine {
     /// The machine runs LIVE (`driver::windows::tactical`): the typed events it emits are mirrored into the ordered emission queue
     /// and its plain events are written to it as they happen (`Game::emit_typed` and `Game::emit`). The dual's machine keeps both aside.
     live: bool,
+    /// The activated system held the seat's own command token before the activation (Mahact's commander): the activation ends the turn.
+    pub held_before: bool,
 }
 
 impl Machine {
     fn new(seat: Seat, stage: Stage, facts: Facts) -> Self {
-        Self { seat, stage, facts, load: None, route: None, single: false, free: None, closing: false, closed: None, step: None, plain: Vec::new(), dice: Vec::new(), bailed: None, live: false }
+        Self { seat, stage, facts, load: None, route: None, single: false, free: None, closing: false, closed: None, step: None, plain: Vec::new(), dice: Vec::new(), bailed: None, live: false, held_before: false }
     }
 
     /// The seat is to choose a system to activate.
@@ -277,7 +280,7 @@ impl Machine {
             }
             // The close is this machine's `closing` step; the stages after it are the composer's (`driver::windows::tactical`).
             TStage::Closing => Self::closing(open.player, facts),
-            TStage::Free(_) | TStage::Hooks | TStage::Heading(_) | TStage::Aftermath | TStage::Tail => Self::moving(open.player, facts),
+            TStage::Free(_) | TStage::Hooks(_) | TStage::Heading(_) | TStage::Aftermath | TStage::Tail => Self::moving(open.player, facts),
         }
     }
 

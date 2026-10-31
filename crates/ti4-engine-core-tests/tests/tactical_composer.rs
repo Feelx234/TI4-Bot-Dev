@@ -20,7 +20,7 @@ use ti4_engine_core_tests::scenario::plain_systems;
 
 
 fn codes() -> TacticalCodes {
-    TacticalCodes { tactic: Code(21), space_cannon: Code(22), space_cannon_cause: Code(23), casualty: Code(24), commander: Code(25), pre_roll: Code(26), faction_technology: Code(27) }
+    TacticalCodes { tactic: Code(21), space_cannon: Code(22), space_cannon_cause: Code(23), casualty: Code(24), commander: Code(25), pre_roll: Code(26), faction_technology: Code(27), nullification_field: Code(28), starlancer: Code(29), peace_prompt: Code(30), peace_source: Code(31) }
 }
 
 fn env(k: &Kernel, seed: u64) -> Env<'_> {
@@ -191,17 +191,37 @@ fn a_free_tactical_action_activates_without_a_token_and_asks_for_the_movement() 
 }
 
 #[test]
-fn a_hook_of_the_activation_that_asks_is_a_counted_gap_and_the_position_is_put_back() {
+fn a_hook_of_the_activation_that_asks_puts_its_question_and_a_clone_taken_while_it_waits_continues_identically() {
     covers!("driver::windows::tactical::TacticalAction");
+    covers!("driver::windows::tactical::hooks");
     let (sc, tiles) = row();
-    let (mut core, k) = sc.tech(1, Technology::SpatialConduitCylinders).build();
+    // Seat 0 holds Spatial Conduit Cylinders and has cruisers on B and C: activating B offers the link.
+    let (mut core, k) = sc.tech(0, Technology::SpatialConduitCylinders).build();
     let env = env(&k, 1);
     open_tactical(&mut core, Seat(0));
     let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the activation is asked") };
-    let held = core.clone();
-    let got = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3])))));
-    assert_eq!(got, Err(LiveError::Unknown(Unknown::UnportedTactical(TacticalGap::ActivationHook))));
-    assert_eq!(core, held, "the activation is undone with the bail");
+    let Live::Asks(hook) = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[1]))))).unwrap().0 else { panic!("the hook asks") };
+    assert!(matches!(hook.choice.ask, Ask::Tactical(TAsk::Hook { hook: ti4_engine_core::choice::tactical::Hook::SpatialConduit, .. })), "{:?}", hook.choice.ask);
+    assert_eq!(hook.choice.actor, Seat(0));
+    assert!(core.pending().nested.is_some(), "the question is held in the journal");
+    let mut twin = core.clone();
+    for (who, c) in [("original", &mut core), ("clone", &mut twin)] {
+        let Live::Asks(next) = advance_tactical(c, &env, Some(Pick::Opt(Opt::Decline))).unwrap().0 else { panic!("{who}: the movement step is asked") };
+        assert_eq!(next.choice.ask, Ask::Tactical(TAsk::Move { seat: Seat(0) }), "{who}");
+    }
+    assert_eq!(core, twin, "the clone continues to the same position");
+    // Used, the link is written for the activation and the plain record follows; the tail clears it.
+    let (sc, tiles) = row();
+    let (mut core, k) = sc.tech(0, Technology::SpatialConduitCylinders).build();
+    let env2 = crate::env(&k, 1);
+    open_tactical(&mut core, Seat(0));
+    let Live::Asks(q) = advance_tactical(&mut core, &env2, None).unwrap().0 else { panic!("the activation is asked") };
+    let Live::Asks(hook) = advance_tactical(&mut core, &env2, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[1]))))).unwrap().0 else { panic!("the hook asks") };
+    let Live::Asks(_) = advance_tactical(&mut core, &env2, Some(pick(&hook.choice, |o| matches!(o, Opt::Tactical(TOpt::Use))))).unwrap().0 else { panic!("the movement step is asked") };
+    let kinds: Vec<PlainKind> = core.ledger().events.iter().filter_map(|e| e.plain().map(|p| p.kind)).collect();
+    assert!(kinds.contains(&PlainKind::SpatialConduit));
+    assert!(core.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::SpatialConduitCylinders));
+    assert_eq!(core.players().by_seat(Seat(0)).unwrap().timers.spatial_conduit.get(), Some(core.meta().activation_seq));
 }
 
 #[test]
@@ -224,7 +244,7 @@ fn the_tail_announces_the_end_of_the_action_only_when_somebody_listens() {
 }
 
 #[test]
-fn an_exploration_at_the_end_of_the_action_is_a_counted_gap() {
+fn the_crown_of_emphidia_asks_at_the_end_of_the_action_and_a_clone_continues_identically() {
     covers!("driver::windows::tactical::TacticalAction");
     let (sc, tiles) = row();
     let (mut core, k) = sc.build();
@@ -234,9 +254,14 @@ fn an_exploration_at_the_end_of_the_action_is_a_counted_gap() {
     let env = env(&k, 1);
     assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
     core.pending_mut().close(WindowKind::Aftermath);
-    let held = core.clone();
-    assert_eq!(advance_tactical(&mut core, &env, None), Err(LiveError::Unknown(Unknown::UnportedTactical(TacticalGap::ExplorationAtTheEnd))));
-    assert_eq!(core, held);
+    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the Crown asks") };
+    assert!(matches!(q.choice.ask, Ask::Relic(_)), "{:?}", q.choice.ask);
+    let mut twin = core.clone();
+    let (a, _) = advance_tactical(&mut core, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (b, _) = advance_tactical(&mut twin, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+    assert_eq!((a, b), (Live::Done, Live::Done));
+    assert_eq!(core, twin);
+    assert!(tactical(&core).is_none(), "declined, the action ends");
 }
 
 #[test]
@@ -362,10 +387,11 @@ fn a_ceasefire_note_denies_the_movement_step_and_goes_home() {
 }
 
 #[test]
-fn a_yssaril_ssruu_next_to_a_sardakk_seat_is_a_counted_gap_at_the_tail() {
+fn a_yssaril_ssruu_next_to_a_sardakk_seat_is_a_gap_at_the_tail_only_where_t_ro_could_place() {
     covers!("driver::windows::tactical::TacticalAction");
     let p = plain_systems();
-    for (ssruu, sardakk, expect_gap) in [(true, true, true), (false, true, false), (true, false, false)] {
+    // The active system has no planet the actor controls: T'ro (and a copy of it) has nothing to place on, so nothing is missed silently.
+    for (ssruu, sardakk, expect_gap) in [(true, true, false), (false, true, false), (true, false, false)] {
         let other = if sardakk { Faction::SardakkNorr } else { Faction::TheArborec };
         let seat1 = if ssruu { Faction::TheYssarilTribes } else { Faction::TheMahactGeneSorcerers };
         let _ = seat1;
@@ -384,4 +410,172 @@ fn a_yssaril_ssruu_next_to_a_sardakk_seat_is_a_counted_gap_at_the_tail() {
             assert_eq!(got.map(|r| r.0), Ok(Live::Done), "ssruu {ssruu} sardakk {sardakk}");
         }
     }
+}
+
+// -- lane M6c: the survivors of the mutation check of `hooks.rs`, `routes.rs` and `tail.rs` ---------------------------------------------------
+
+/// T'ro's mark is written for a Sardakk seat whose agent is readied OR exhausted (an exhausted T'ro can still be copied with Ssruu), not for a
+/// seat that does not hold it.
+#[test]
+fn the_sardakk_mark_is_written_for_a_readied_or_exhausted_tro_only() {
+    covers!("driver::windows::tactical::TacticalAction");
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::LeaderStatus;
+    let p = plain_systems();
+    for (status, expect) in [(Some(LeaderStatus::Readied), true), (Some(LeaderStatus::Exhausted), true), (Some(LeaderStatus::Locked), false), (None, false)] {
+        let sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::SardakkNorr])
+            .map_hexes(&[(p[0], Hex::new(0, 0)), (p[1], Hex::new(1, 0)), (p[2], Hex::new(2, 0)), (p[3], Hex::new(3, 0))])
+            .tokens(0, 3, 4, 2)
+            .active(Some(0))
+            .unit(p[1], None, Unit::CruiserI, 0, 1);
+        let (mut core, k) = sc.build();
+        match status {
+            Some(s) => {
+                core.players.edit(1).leaders.status.insert(Leader::Tro, s);
+            }
+            None => {
+                core.players.edit(1).leaders.status.remove(&Leader::Tro);
+            }
+        }
+        let env = env(&k, 1);
+        open_tactical(&mut core, Seat(0));
+        let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!() };
+        advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(p[3]))))).unwrap();
+        let want = expect.then(|| MarkVal::Atom(Atom::System(p[3])));
+        assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), want, "T'ro {status:?}");
+    }
+}
+
+fn conduit_links(core: &CoreState) -> usize {
+    core.galaxy().map_or(0, |g| g.extra_links.len())
+}
+
+/// The links a Spatial Conduit made last for the activation: a hook that ends the turn clears them (the Mahact commander returns the tokens and
+/// ends it), and so does the tail of a plain action.
+#[test]
+fn the_conduit_links_are_cleared_when_a_hook_ends_the_turn_and_when_the_tail_closes() {
+    covers!("driver::windows::tactical::TacticalAction");
+    use ti4_engine_core::state::LeaderStatus;
+    // A hook ends the turn: the Mahact commander on a system that holds the seat's own token.
+    let (sc, tiles) = row();
+    let (mut core, k) = sc.command_token(row().1[3], 0).build();
+    let mut mahact = core.players().by_seat(Seat(0)).map(|p| p.faction);
+    let _ = mahact.take();
+    core.players.edit(0).faction = Faction::TheMahactGeneSorcerers;
+    core.players.edit(0).leaders.status.insert(Leader::IlNaViroset, LeaderStatus::Unlocked);
+    ti4_engine_core::kernel::fx_move::set_conduit_links(&mut core, Seat(0), tiles[3]);
+    assert!(conduit_links(&core) > 0, "the links are set before the activation");
+    let env1 = env(&k, 1);
+    open_tactical(&mut core, Seat(0));
+    let Live::Asks(q) = advance_tactical(&mut core, &env1, None).unwrap().0 else { panic!() };
+    advance_tactical(&mut core, &env1, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
+    assert_eq!(conduit_links(&core), 0, "the turn ended by the hook: the links are gone");
+
+    // A plain action: the tail clears them.
+    let (sc, tiles) = row();
+    let (mut core, k) = sc.build();
+    let env = env(&k, 1);
+    assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
+    core.pending_mut().close(WindowKind::Aftermath);
+    ti4_engine_core::kernel::fx_move::set_conduit_links(&mut core, Seat(0), tiles[3]);
+    assert!(conduit_links(&core) > 0);
+    assert_eq!(advance_tactical(&mut core, &env, None).unwrap().0, Live::Done);
+    assert_eq!(conduit_links(&core), 0, "the tail cleared the links");
+}
+
+/// Field Marshal Mercer (not a rule of the table yet) is a counted gap at the tail exactly where he would be offered: a planet the actor controls in
+/// the active system AND a ground force of the actor somewhere; a copy needs a readied Ssruu.
+#[test]
+fn mercer_is_a_gap_at_the_tail_only_with_a_planet_and_a_ground_force_and_the_event_goes_out_only_to_a_listener() {
+    covers!("driver::windows::tactical::TacticalAction");
+    use ti4_engine_core::state::LeaderStatus;
+    let p = plain_systems();
+    let tiles = [p[0], p[1], p[2], p[3]];
+    let planet = tiles[3].data().planets[0];
+    // (controls the planet, has a ground force, expect the gap)
+    for (controls, ground, expect_gap) in [(true, true, true), (true, false, false), (false, true, false)] {
+        let mut sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheNomad])
+            .map_hexes(&[(p[0], Hex::new(0, 0)), (p[1], Hex::new(1, 0)), (p[2], Hex::new(2, 0)), (p[3], Hex::new(3, 0))])
+            .tokens(0, 3, 4, 2)
+            .active(Some(0))
+            .unit(p[2], None, Unit::CruiserI, 0, 1);
+        if controls {
+            sc = sc.control(planet, 0);
+        }
+        if ground {
+            sc = sc.unit(p[1], Some(tiles[1].data().planets[0]), Unit::InfantryI, 0, 1);
+        }
+        let (mut core, k) = sc.build();
+        core.players.edit(1).leaders.status.insert(Leader::FieldMarshalMercer, LeaderStatus::Readied);
+        let env = env(&k, 1);
+        assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
+        core.pending_mut().close(WindowKind::Aftermath);
+        let got = advance_tactical(&mut core, &env, None);
+        if expect_gap {
+            assert_eq!(got, Err(LiveError::Unknown(Unknown::UnportedTactical(TacticalGap::SsruuLends))), "controls {controls} ground {ground}");
+        } else {
+            assert_eq!(got.map(|r| r.0), Ok(Live::Done), "controls {controls} ground {ground}");
+        }
+    }
+    // The end of the action is announced to a listener: an exhausted T'ro listens only through a readied Ssruu.
+    let ended = |c: &CoreState| c.ledger().events.iter().any(|e| matches!(e, Emit::Typed(r) if r.kind == EventKind::TacticalActionEnded));
+    for (ssruu, expect) in [(false, false), (true, true)] {
+        let (sc, tiles) = row();
+        let (mut core, k) = sc.build();
+        core.players.edit(1).leaders.status.insert(Leader::Tro, LeaderStatus::Exhausted);
+        if ssruu {
+            core.players.edit(0).faction = Faction::TheYssarilTribes;
+            core.players.edit(0).leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
+        }
+        let env = env(&k, 1);
+        assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
+        core.pending_mut().close(WindowKind::Aftermath);
+        let _ = advance_tactical(&mut core, &env, None);
+        assert_eq!(ended(&core), expect, "ssruu {ssruu}");
+    }
+}
+
+/// `ship_routes` on a hub (a centre and a ring of six): the ship at ring 0 going to the system across. The default first, at most `MAX_ROUTES`,
+/// each a different set of systems; Gravity Drive adds boosted routes; a ship that ignores rifts rolls for none.
+#[test]
+fn the_routes_of_a_ship_are_the_default_first_at_most_five_and_follow_the_boosts_and_the_rifts() {
+    covers!("rules::tactical::routes");
+    use ti4_engine_core::rules::tactical::routes::{ship_routes, MAX_ROUTES};
+    let p = plain_systems();
+    let ring = [Hex::new(1, 0), Hex::new(0, 1), Hex::new(-1, 1), Hex::new(-1, 0), Hex::new(0, -1), Hex::new(1, -1)];
+    let mut tiles = vec![(p[0], Hex::new(0, 0))];
+    tiles.extend(ring.iter().enumerate().map(|(i, h)| (p[i + 1], *h)));
+    let (origin, target) = (p[1], p[4]);
+    let scenario = |centre: System| {
+        let mut t = tiles.clone();
+        t[0].0 = centre;
+        Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_hexes(&t).tokens(0, 3, 4, 2).active(Some(0)).active_system(target).tech(0, Technology::CruiserII).unit(origin, None, Unit::CruiserII, 0, 1)
+    };
+    // Plain ring: the move value 3 reaches seven different sets of systems; five are offered, the default first.
+    let (core, k) = scenario(p[0]).build();
+    let routes = ship_routes(&core, &k, Seat(0), origin, 0, Unit::CruiserII, (false, false));
+    assert_eq!(routes.len(), 5, "{routes:?}");
+    assert_eq!(MAX_ROUTES, 5, "the limit the string documents");
+    assert!(routes[0].default && routes.iter().skip(1).all(|r| !r.default));
+    assert!(routes.iter().all(|r| r.path.first() == Some(&origin) && r.path.last() == Some(&target) && !r.gd && !r.ionian));
+    let sets: std::collections::BTreeSet<Vec<System>> = routes.iter().map(|r| { let mut s = r.path.clone(); s.sort(); s }).collect();
+    assert_eq!(sets.len(), routes.len(), "no two routes visit the same systems");
+    // Gravity Drive: with the rift in the centre the plain route of a slower ship rolls for it, and a boosted route round the ring is the safe way round;
+    // without the technology there is none.
+    let slow = |sc: Scenario| sc.unit(origin, None, Unit::DestroyerI, 0, 1);
+    let (core, k) = slow(scenario(System::GravityRift)).build();
+    assert!(ship_routes(&core, &k, Seat(0), origin, 1, Unit::DestroyerI, (false, false)).iter().all(|r| !r.gd));
+    let (core, k) = slow(scenario(System::GravityRift).tech(0, Technology::GravityDrive)).build();
+    let boosted = ship_routes(&core, &k, Seat(0), origin, 1, Unit::DestroyerI, (false, false));
+    assert!(boosted[0].default && !boosted[0].gd && boosted.iter().skip(1).any(|r| r.gd), "{boosted:?}");
+    // The Ionian Fuel Refinery (Tempesta controlled, not exhausted) boosts the same way.
+    let (core, k) = slow(scenario(System::GravityRift).control(Planet::Tempesta, 0)).build();
+    assert!(ship_routes(&core, &k, Seat(0), origin, 1, Unit::DestroyerI, (false, false)).iter().skip(1).any(|r| r.ionian));
+    // A gravity rift in the centre: the route through it rolls for it, unless the ship ignores rifts (Circlet of the Void).
+    let (mut core, k) = scenario(System::GravityRift).build();
+    let rolling = ship_routes(&core, &k, Seat(0), origin, 0, Unit::CruiserII, (false, false));
+    assert_eq!(rolling[0].rifts, vec![System::GravityRift], "{rolling:?}");
+    core.players.edit(0).cards.relics.push(ti4_engine_core::generated::Relic::CircletOfTheVoid);
+    let ignoring = ship_routes(&core, &k, Seat(0), origin, 0, Unit::CruiserII, (false, false));
+    assert!(ignoring.iter().all(|r| r.rifts.is_empty()), "{ignoring:?}");
 }

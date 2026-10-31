@@ -258,6 +258,8 @@ pub struct Codes {
     pub tactical: TacticalCodes,
     /// The texts of the invasion composer (`driver::windows::invasion`).
     pub invasion: InvasionCodes,
+    /// The texts of the questions of the activation-window abilities (lane M6c).
+    pub activation: ActivationCodes,
     /// The texts of the events of an exploration (`rules::explore_windows::Exploring`).
     pub explore: ExploreCodes,
     /// The texts of the events of a use of PRODUCTION (`driver::windows::production`).
@@ -301,6 +303,19 @@ impl Default for ExploreCodes {
     }
 }
 
+/// The texts of the questions of the activation-window abilities (lane M6c), interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ActivationCodes {
+    /// The unit alias `ghost_mech`, the source of Icarus Drive's question.
+    pub ghost_mech: crate::state::Code,
+    /// The leader alias `saaragent`, the source of Captain Mendosa's question.
+    pub saar_agent: crate::state::Code,
+    /// The leader alias `sardakkagent`, the source of T'ro's placement.
+    pub sardakk_agent: crate::state::Code,
+    /// The faction ability `edict`, the source of the Mahact's question.
+    pub edict: crate::state::Code,
+}
+
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind
 /// and loss causes of the space cannon offense, the casualty subtype and the Letnev commander's source, the presentation phase of a
 /// battle about to be rolled. Interned by the adapter like the rest of [`Codes`].
@@ -316,6 +331,13 @@ pub struct TacticalCodes {
     pub pre_roll: crate::state::Code,
     /// `faction_technology`: the source of the trade goods E-Res Siphons gains.
     pub faction_technology: crate::state::Code,
+    /// `nullification_field`: the reason of the strategy token the Nullification Field spends.
+    pub nullification_field: crate::state::Code,
+    /// `mahact_mech`: the source of the Starlancer's question.
+    pub starlancer: crate::state::Code,
+    /// The prompt of the Minister of Peace's offer to discard its law, and the law's alias (`minister_peace`).
+    pub peace_prompt: crate::state::Code,
+    pub peace_source: crate::state::Code,
 }
 
 /// The texts the invasion composer puts into the position: the step kinds and causes of its records, the dice groups and the text of every

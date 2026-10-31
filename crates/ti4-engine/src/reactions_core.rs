@@ -59,9 +59,12 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_GROUND, kind: "ability", card: "technological_singularity_close" },
     Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::HERO_FINISH, kind: "leader", card: "sardakkhero" },
     Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::MECH_HIT, kind: "unit", card: "sardakk_mech" },
+    Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::TRO, kind: "leader", card: "sardakkagent" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_SHIP, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_GROUND, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::WATCHER, kind: "unit", card: "empyrean_mech" },
+    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::PASSAGE, kind: "ability", card: "aetherpassage" },
+    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::STREAM, kind: "technology", card: "as" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::FUTURE_SIGHT, kind: "ability", card: "future_sight" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_PLAY, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_RETURN, kind: "promissory", card: "cavalry" },
@@ -82,6 +85,14 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
     Named { slot: cabal::REANIMATOR, kind: "unit", card: "cabal_mech" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::PROMISE, kind: "promissory", card: "pop" },
+    Named { slot: cabal::CRUCIBLE, kind: "promissory", card: "crucible" },
+    Named { slot: ti4_engine_core_factions::cd_registry::naalu::timing::NEUROGLAIVE, kind: "technology", card: "ng" },
+    Named { slot: ti4_engine_core_factions::cc_ground::ghost::timing::TAIVRA, kind: "leader", card: "ghostagent" },
+    Named { slot: ti4_engine_core_factions::cc_ground::ghost::timing::ICARUS, kind: "unit", card: "ghost_mech" },
+    Named { slot: ti4_engine_core_factions::ce_movement::saar::timing::MENDOSA, kind: "leader", card: "saaragent" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::EDICT_SPACE, kind: "ability", card: "edict" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::EDICT_GROUND, kind: "ability", card: "edict" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
     Named { slot: cabal::DEVOUR_GROUND, kind: "ability", card: "devour" },
     Named { slot: cabal::TERROR_SHIPS, kind: "unit", card: "cabal_flagship" },
@@ -98,12 +109,20 @@ fn rel_segment(spec: &Spec) -> &'static str {
     if spec.slot == ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_SHIP { "produce" } else { relation_text(spec.relation) }
 }
 
+/// The event segment of a registered id: the spec's event, except for T'ro, whose id says `ACTION_COMPLETED` although the string registers it on
+/// `TACTICAL_ACTION_ENDED` (the id was written for the event it was first hung on).
+fn event_segment(r: &Render, spec: &Spec) -> String {
+    if spec.slot == ti4_engine_core_factions::cd_registry::sardakk::timing::TRO { "ACTION_COMPLETED".to_owned() } else { event_text(r, spec.event) }
+}
+
 /// How the string spells the id of a pair rule (Ssruu's copies): `A` is `leader:{lender faction}:{lender}:yssarilagent:{agent}:EVENT:rel`,
-/// `B` is `leader:ssruu-copy:{borrower}:{agent}:{lender}:EVENT:after`.
+/// `B` is `leader:ssruu-copy:{borrower}:{agent}:{lender}:EVENT:after`, `C` (Captain Mendosa's) is
+/// `leader:{lender faction}:{lender}:yssarilagent:{borrower}:{agent}:EVENT:rel`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PairStyle {
     A,
     B,
+    C,
 }
 
 const PAIRS: &[(Slot, &str, PairStyle)] = &[
@@ -112,6 +131,9 @@ const PAIRS: &[(Slot, &str, PairStyle)] = &[
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::SOL, "solagent", PairStyle::B),
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::LETNEV, "letnevagent", PairStyle::B),
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::ARGENT, "argentagent", PairStyle::A),
+    (ti4_engine_core_factions::ce_movement::saar::timing::MENDOSA_COPY, "saaragent", PairStyle::C),
+    (ti4_engine_core_factions::cc_ground::ghost::timing::TAIVRA_COPY, "ghostagent", PairStyle::A),
+    (ti4_engine_core_factions::cd_registry::sardakk::timing::TRO_COPY, "sardakkagent", PairStyle::A),
 ];
 
 fn is_reaction_slot(slot: Slot) -> bool {
@@ -163,11 +185,12 @@ pub fn with_reroll<T>(facts: ti4_engine_core::kernel::ability::RerollFacts, body
 
 /// The registered id of `spec` for an owner called `owner`.
 pub(crate) fn id_text(r: &Render, spec: &Spec, owner: &str, owner_seat: &str, lender: Option<&(String, String)>) -> String {
-    let (event, rel) = (event_text(r, spec.event), rel_segment(spec));
+    let (event, rel) = (event_segment(r, spec), rel_segment(spec));
     if let (Some((lender_faction, lender_seat)), Some((_, agent, style))) = (lender, PAIRS.iter().find(|p| p.0 == spec.slot)) {
         return match style {
             PairStyle::A => format!("leader:{lender_faction}:{lender_seat}:yssarilagent:{agent}:{event}:{rel}"),
             PairStyle::B => format!("leader:ssruu-copy:{owner_seat}:{agent}:{lender_seat}:{event}:{rel}"),
+            PairStyle::C => format!("leader:{lender_faction}:{lender_seat}:yssarilagent:{owner_seat}:{agent}:{event}:{rel}"),
         };
     }
     if is_reaction_slot(spec.slot) {
@@ -202,6 +225,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::ce_movement::register_late_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_late_abilities(&mut t);
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
+            ti4_engine_core_factions::activation::register(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             ti4_engine_core_factions::cards::register(&mut t);
             // The links to the areas whose windows an action card runs as children: a play window that follows nested
@@ -245,6 +269,10 @@ pub fn slot_of(id: &str) -> Option<Slot> {
         return Some(Slot(ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE + u16::try_from(at).ok()?));
     }
     // Ssruu's copies: the lender and the agent are inside the id.
+    if parts.len() == 8 && parts[0] == "leader" && parts[3] == "yssarilagent" {
+        let all = specs();
+        return PAIRS.iter().filter(|p| p.2 == PairStyle::C && p.1 == parts[5]).find(|p| all.iter().find(|s| s.slot == p.0).is_some_and(|s| event_text(&r, s.event) == parts[6] && relation_text(s.relation) == parts[7])).map(|p| p.0);
+    }
     if parts.len() == 7 && parts[0] == "leader" {
         let all = specs();
         let found = if parts[1] == "ssruu-copy" {
@@ -267,7 +295,7 @@ pub fn slot_of(id: &str) -> Option<Slot> {
     let all = specs();
     NAMED.iter().filter(|n| n.kind == kind && n.card == card).find_map(|n| {
         let spec = all.iter().find(|s| s.slot == n.slot)?;
-        (event_text(&r, spec.event) == event && rel_segment(spec) == rel).then_some(n.slot)
+        (event_segment(&r, spec) == event && rel_segment(spec) == rel).then_some(n.slot)
     })
 }
 
@@ -547,7 +575,12 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             commander: r.code("letnevcommander"),
             pre_roll: r.code("pre_roll"),
             faction_technology: r.code("faction_technology"),
+            nullification_field: r.code("nullification_field"),
+            starlancer: r.code("mahact_mech"),
+            peace_prompt: r.code(crate::tactical_live::PEACE_PROMPT),
+            peace_source: r.code("minister_peace"),
         };
+        table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent"), sardakk_agent: r.code("sardakkagent"), edict: r.code("edict") };
         table.codes.turn = crate::live::turn::codes(r);
         table.codes.agenda = crate::live::agenda::codes(r);
 }
@@ -815,7 +848,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")], [("a", "ghost"), ("b", "sol")], [("a", "saar"), ("b", "sol")], [("a", "sol"), ("b", "saar")], [("a", "mahact"), ("b", "sol")], [("a", "sol"), ("b", "mahact")], [("a", "ghost"), ("b", "yssaril")], [("a", "yssaril"), ("b", "ghost")], [("a", "sardakk"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sardakk")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
@@ -881,4 +914,69 @@ mod tests {
             }
         }
     }
+
+    /// The silent-gap class: an ability the string registers on `SYSTEM_ACTIVATED` and the core table has no slot for would be MISSING from a
+    /// live (native) activation without a bail (the dual bailed on it through `nested_check`). Every such ability is either carried by the
+    /// native hook chain (`driver::windows::tactical::hooks`, named below), or dropped content (Thunder's Edge, the dropped factions), or the test
+    /// fails: a new string ability must be ported or listed, with its reason.
+    #[test]
+    fn every_system_activated_ability_the_string_registers_is_ported_or_accounted_for() {
+        let lobby = ["arborec", "argent", "cabal", "empyrean", "ghost", "hacan", "jolnar", "l1z1x", "letnev", "mahact", "mentak", "muaat", "naalu", "naaz", "nekro", "nomad", "saar", "sardakk", "sol", "titans", "winnu", "xxcha", "yin", "yssaril"];
+        let mut missing = std::collections::BTreeSet::new();
+        for faction in lobby {
+            let other = if faction == "sol" { "hacan" } else { "sol" };
+            // A third seat of Yssaril (Ssruu) arms the copies of the agents that are string abilities of their own.
+            for third in [None, Some("yssaril")] {
+                let mut seats = vec![("a", faction), ("b", other)];
+                if let Some(third) = third.filter(|t| *t != faction && *t != other) {
+                    seats.push(("c", third));
+                }
+                let gs = crate::fixtures::seated_game(&seats, ti4_model::content_types::POK);
+                let resolver = crate::fixtures::armed_resolver(&gs);
+                for a in resolver.kernel_view().abilities.iter().filter(|a| a.event == "SYSTEM_ACTIVATED" && slot_of(&a.id).is_none()) {
+                    missing.insert(anonymous(&a.id));
+                }
+            }
+        }
+        let accounted: Vec<String> = ACTIVATION_ACCOUNTED.iter().map(|(id, _)| (*id).to_owned()).collect();
+        let missing: Vec<String> = missing.into_iter().collect();
+        assert_eq!(missing, accounted, "string-registered SYSTEM_ACTIVATED abilities without a core slot");
+        // The in-scope ones are an open list, never a silent one: `Gap` rows are named in docs/M6B_RESUME.md with their owner.
+        assert!(ACTIVATION_ACCOUNTED.iter().all(|(_, status)| matches!(*status, Status::Carried(_) | Status::Dropped(_) | Status::Gap(_))));
+    }
+
+    /// What becomes of a string `SYSTEM_ACTIVATED` ability the core table has no slot for.
+    #[derive(Clone, Copy)]
+    enum Status {
+        /// The native hook chain performs it (`driver::windows::tactical::hooks`), by the named function.
+        Carried(&'static str),
+        /// Out of the agreed content, by decision.
+        Dropped(&'static str),
+        /// In scope and NOT ported: an eligible activation misses the offer silently in the native path (the lockstep against the string
+        /// shows it as a missing question). The reason names what the port needs.
+        Gap(&'static str),
+    }
+
+    /// The string abilities of `SYSTEM_ACTIVATED` the core table has no slot for, sorted as the test sorts them, each with what carries it.
+    const ACTIVATION_ACCOUNTED: &[(&str, Status)] = &[
+        ("ability:*:awaken:SYSTEM_ACTIVATED:after", Status::Gap("Titans Awaken: a sleeper token per planet of the system, each replaced by a PDS (or, with Hecatoncheires, a mech and an infantry): the questions are asked first, the units come from the supply (`supply::allowed`), Coalescence is a mark of the activation")),
+        ("ability:*:incursion:SYSTEM_ACTIVATED:when", Status::Dropped("Crimson Rebellion")),
+        ("ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the Winnu mark Reclamation reads)")),
+        ("ability:*:survivalinstinct:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
+        ("breakthrough:*:argentbt:SYSTEM_ACTIVATED:when", Status::Dropped("Thunder's Edge breakthrough")),
+        ("breakthrough:*:argentbt_mark:SYSTEM_ACTIVATED:when", Status::Dropped("Thunder's Edge breakthrough")),
+        ("breakthrough:*:empyreanbt:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
+        ("breakthrough:*:empyreanbt_allow:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
+        ("breakthrough:*:winnubt:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
+        ("leader:*:arboreccommander:SYSTEM_ACTIVATED:after", Status::Gap("Arborec commander Dirzuga Rophal: \"produce 1 unit\" in the system is a PRODUCTION window run as a child of the ability (`produce(..)`): the core's production composer (lane M2) is not yet runnable from inside a rule of the table")),
+        ("leader:*:c:l1z1xagent:a:SYSTEM_ACTIVATED:after", Status::Gap("the Ssruu copy of the L1Z1X agent (I48S): the string asks the BENEFICIARY which infantry to replace (`leaders::l1z1x_copy_activation_plan`), unlike the agent itself; found by the audit's Yssaril third seat")),
+        ("leader:*:firmamentagent:SYSTEM_ACTIVATED:after", Status::Dropped("Firmament")),
+        ("leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the T'ro mark of the end of the action)")),
+        ("leader:*:yssarilcommander:SYSTEM_ACTIVATED:after", Status::Gap("Yssaril commander So Ata: the look is a `CardsReveal` mark with the end-of-action clear (`yssarilcommander_clear` on ACTION_COMPLETED, lane B's finish) and a hidden-information note of the rng")),
+        ("promissory:*:nanolink:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
+        ("unit:*:arborec_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Arborec flagship Duha Menaimon: \"produce up to 5 units\" is a PRODUCTION window run as a child of the ability (see the commander)")),
+        ("unit:*:deepwrought_mech:SYSTEM_ACTIVATED:when", Status::Dropped("Deepwrought")),
+        ("unit:*:keleres_flagship:SYSTEM_ACTIVATED:when", Status::Dropped("Keleres")),
+        ("unit:*:titans_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Titans flagship Ouranos: DEPLOY replaces a PDS by the flagship (the Nekro flagship when the Z token carries the text): the deploy needs the supply, the planet question and the unit swap")),
+    ];
 }

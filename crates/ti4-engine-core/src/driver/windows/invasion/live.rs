@@ -30,6 +30,7 @@ pub fn open_invasion(core: &mut CoreState, invader: Seat, system: System, notes:
         extra_commits: Vec::new(),
         temp_commits: Vec::new(),
         combat_only: false,
+        round_copied: false,
     });
     m.to_pending(core);
 }
@@ -52,6 +53,7 @@ pub fn open_at_commit(core: &mut CoreState, invader: Seat, system: System, notes
         extra_commits: Vec::new(),
         temp_commits: Vec::new(),
         combat_only: false,
+        round_copied: false,
     });
     m.to_pending(core);
 }
@@ -100,14 +102,7 @@ pub fn advance_invasion(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick
 }
 
 fn driver_of(window: InvasionMachine, core: &CoreState, env: &Env<'_>) -> Driver<InvasionMachine> {
-    let mut d = Driver::from_state(window, core, env.registry.clone(), env.table.clone()).with_seeds(env.seeds.clone());
-    let m = core.meta();
-    d.resolver.set_phase(m.phase);
-    d.resolver.set_active_player(m.active);
-    d.resolver.set_speaker(Some(m.speaker));
-    d.resolver.set_seating_order(core.seats().seating_order());
-    d.resolver.set_counters(u64::from(m.round), u64::from(m.turn_seq));
-    d
+    crate::driver::windows::live_common::driver_of(window, core, env)
 }
 
 fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {

@@ -24,7 +24,7 @@ use crate::hooks::{MoveSite, PassSite};
 use crate::keys::MarkKey;
 use crate::movement::CoreRules;
 use crate::state::{CoreState, Phase, RoundKind, SysFlags};
-use crate::tables::{Scope, moves_as_ship};
+use crate::tables::{Flags as _, Scope, moves_as_ship};
 
 use super::laws;
 
@@ -153,6 +153,58 @@ fn link(list: &mut Vec<(SystemIx, SysSet)>, a: SystemIx, b: SystemIx) {
             }
         }
     }
+}
+
+/// `movement::PlayerAdjacency::neighbours`: the systems next to `system` as `seat` sees the map (the wormholes the pieces carry, the links the
+/// modules make, minus the borders they block); `None` while the map slice holds no galaxy. The abilities that read "adjacent" in the
+/// activation window (Aetherstream, the Ghosts agent) use it.
+#[must_use]
+pub fn neighbours_for(core: &CoreState, k: &Kernel, seat: Seat, system: SystemIx) -> Option<SysSet> {
+    if !core.loaded.has(crate::state::Slice::Map) {
+        return None;
+    }
+    let galaxy = core.galaxy()?;
+    let hooks = &k.hooks.movement;
+    let extras = hooks.extra_wormhole_set(core);
+    let mut found = if extras.is_empty() {
+        galaxy.adjacent(system)
+    } else {
+        let mut copy = (**galaxy).clone();
+        for (at, kind) in extras.as_slice() {
+            copy.add_token_wormholes(*at, crate::tables::wormhole_bit(*kind));
+        }
+        copy.adjacent(system)
+    };
+    for (a, b) in hooks.linked_pairs(core, k, seat).as_slice() {
+        if *a == system {
+            found.insert(b.index());
+        } else if *b == system {
+            found.insert(a.index());
+        }
+    }
+    found.remove(system.index());
+    for (a, b) in hooks.blocked_pairs(core, seat).as_slice() {
+        if *a == system {
+            found.remove(b.index());
+        } else if *b == system {
+            found.remove(a.index());
+        }
+    }
+    Some(found)
+}
+
+/// Aetherstream's "adjacent to an anomaly" (`empyrean::adjacent_to_anomaly`): a neighbour of `system` for `seat` is a printed anomaly or a
+/// gravity rift a piece made.
+#[must_use]
+pub fn adjacent_to_anomaly(core: &CoreState, k: &Kernel, seat: Seat, system: SystemIx) -> Option<bool> {
+    let neighbours = neighbours_for(core, k, seat, system)?;
+    let rifts = k.hooks.movement.gravity_rifts(core);
+    let scope = scope_of(k);
+    Some(neighbours.iter().any(|i| {
+        let other = system_at(i);
+        rifts.as_slice().contains(&other)
+            || scope.system(other).is_some_and(|d| [crate::tables::SystemFlags::NEBULA, crate::tables::SystemFlags::SUPERNOVA, crate::tables::SystemFlags::ASTEROID_FIELD, crate::tables::SystemFlags::GRAVITY_RIFT].iter().any(|f| d.has(*f)))
+    }))
 }
 
 /// One seat's movement rules for every destination of one position.

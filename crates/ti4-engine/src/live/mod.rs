@@ -156,9 +156,9 @@ pub struct StepOut {
 pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let (phase, round) = (core.meta().phase, core.meta().round);
     // The position the question is asked in: the options of a production question carry numbers only the position gives (`Render::position`). The
-    // display facts read the position the question was put in: a question asked from inside a step (an emission, a job of the turn flow) was
-    // put in a position the driver has rolled back since.
-    let at = asking.at.as_deref().or(asking.nested.as_ref().map(|(_, at)| &**at)).unwrap_or(core);
+    // display facts read the position the question was put in: a question asked from inside an emission or from inside a step (a job of the turn
+    // flow) was put in a position the driver has rolled back since. The innermost one wins: an emission's step is nested in the job that asked.
+    let at = asking.nested.as_ref().map(|(_, at)| &**at).or(asking.at.as_deref()).unwrap_or(core);
     if matches!(asking.choice.ask, ti4_engine_core::choice::Ask::Trade(_)) {
         trade::sync(cx.render, at);
     }
@@ -177,8 +177,18 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
 /// The pick an option id means in `choice`: what the render layer reads back, else the option whose rendered id it is.
 #[must_use]
 pub fn pick_of(r: &Render, choice: &CoreChoice, id: &str) -> Option<ti4_engine_core::choice::Pick> {
-    render::parse_pick(r, &choice.ask, id).or_else(|| {
-        choice.opts.iter().find(|o| render::option(r, &choice.ask, o).id == id).map(|o| ti4_engine_core::choice::Pick::Opt(*o))
+    use ti4_engine_core::choice::{tactical::Opt as TOpt, Opt};
+    let own = |id: &str| render::parse_pick(r, &choice.ask, id).or_else(|| choice.opts.iter().find(|o| render::option(r, &choice.ask, o).id == id).map(|o| ti4_engine_core::choice::Pick::Opt(*o)));
+    own(id).or_else(|| {
+        // `move|origin|i|rN`: route N of the option `move|origin|i` (not an option of the question; the machine checks it against its list).
+        let (base, n) = crate::tactical::route_suffix(id)?;
+        let route = u8::try_from(n).ok()?;
+        match own(base)? {
+            ti4_engine_core::choice::Pick::Opt(Opt::Tactical(TOpt::Move { origin, index, kind, damaged, capacity, gd, ionian, .. })) => {
+                Some(ti4_engine_core::choice::Pick::Opt(Opt::Tactical(TOpt::Move { origin, index, kind, damaged, capacity, gd, ionian, route })))
+            }
+            _ => None,
+        }
     })
 }
 

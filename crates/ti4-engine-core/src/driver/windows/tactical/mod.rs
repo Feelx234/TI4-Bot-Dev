@@ -69,12 +69,14 @@ pub struct TacticalAction {
     head: Option<Head>,
     /// The step ended by handing the action to the aftermath: the entry stays on the stack ([`live::advance_tactical`]).
     pub parked: bool,
+    /// A hook of the activation ended the turn: the action leaves the stack without a tail.
+    pub ended: bool,
 }
 
 impl TacticalAction {
     #[must_use]
     pub const fn new(p: Tactical) -> Self {
-        Self { p, leaf: None, head: None, parked: false }
+        Self { p, leaf: None, head: None, parked: false, ended: false }
     }
 
     /// The seat whose action it is.
@@ -112,11 +114,6 @@ impl TacticalAction {
         Some(Head::enforcing(f, enforce))
     }
 
-    /// Whether a hook of the activation that this window does not carry is in the position.
-    fn hook_gap(core: &CoreState, k: &Kernel, seat: Seat) -> Option<TacticalGap> {
-        facts::activation_hook_held(core, k, seat).then_some(TacticalGap::ActivationHook)
-    }
-
     /// The stage of the leaf machine after an answer, as the payload.
     fn sync_from_leaf(&mut self, leaf: &Machine) {
         self.p.stage = leaf.payload(self.p.notes_at_start.clone()).stage;
@@ -152,7 +149,7 @@ impl Window for TacticalAction {
         match &self.p.stage {
             TStage::Activating => Tag::Activating,
             TStage::Free(_) => Tag::Free,
-            TStage::Hooks => Tag::Hooks,
+            TStage::Hooks(_) => Tag::Hooks,
             TStage::Moving => Tag::Moving,
             TStage::Loading { .. } => Tag::Loading,
             TStage::Closing => Tag::Closing,
@@ -179,9 +176,6 @@ impl Window for TacticalAction {
                     }
                     let Some(leaf) = self.leaf.as_mut() else { return Self::bail(sx, TacticalGap::NoProgress) };
                     leaf.facts = Self::leaf_facts(&codes);
-                    if matches!(self.p.stage, TStage::Activating) && facts::mahact_in_play(sx.state) {
-                        return Self::bail(sx, TacticalGap::ActivationHook);
-                    }
                     match leaf.step(sx) {
                         Next::Continue(ask) => return Next::Continue(ask),
                         Next::Done if matches!(self.p.stage, TStage::Activating) => {
@@ -199,16 +193,21 @@ impl Window for TacticalAction {
                     self.leaf = None;
                     self.p.stage = TStage::Moving;
                 }
-                TStage::Hooks => {
+                TStage::Hooks(returns) => {
                     let Some(system) = sx.state.meta().active_system else { return Self::bail(sx, TacticalGap::NoProgress) };
-                    if let Some(gap) = Self::hook_gap(sx.state, sx.kernel, seat) {
-                        return Self::bail(sx, gap);
-                    }
                     self.leaf = None;
-                    self.p.stage = match hooks::run(sx, seat, system) {
-                        hooks::After::Move => TStage::Moving,
-                        hooks::After::Close => TStage::Closing,
-                    };
+                    match hooks::run(sx, seat, system, returns) {
+                        hooks::After::Move => self.p.stage = TStage::Moving,
+                        hooks::After::Close => self.p.stage = TStage::Closing,
+                        // A question found the tape dry: the driver rolls the step back and asks it.
+                        hooks::After::Halt => return Next::Done,
+                        hooks::After::EndTurn => {
+                            // The action is over: the turn flow's `End` job was opened by the hook; this window leaves the stack.
+                            self.p.stage = TStage::Tail;
+                            self.ended = true;
+                            return Next::Done;
+                        }
+                    }
                 }
                 TStage::Closing => {
                     let Some(system) = sx.state.meta().active_system else {
@@ -238,19 +237,29 @@ impl Window for TacticalAction {
                     head.f.cannon.casualty = codes.casualty;
                     head.f.cannon.commander = codes.commander;
                     head.f.pre_roll = codes.pre_roll;
-                    match head.step(sx) {
-                        Next::Continue(ask) => {
-                            if head.stage() != super::aftermath::Stage::Enforcing {
-                                return Self::bail(sx, TacticalGap::CannonHits);
+                    loop {
+                        match head.step(sx) {
+                            Next::Continue(ask) if head.stage() == super::aftermath::Stage::Enforcing => return Next::Continue(ask),
+                            // A question of the space cannon offense (a sustain, a casualty to choose, a reroll): it goes to the TAPE, the
+                            // way the hooks and the turn flow's jobs ask. The driver rolls the step back at the question and the caller's
+                            // answers replay it; the enforcement that precedes it is re-derived from the position (it is over by then).
+                            Next::Continue(_) => {
+                                let Some(choice) = head.ask_of(sx.state, sx.kernel) else { return Self::bail(sx, TacticalGap::NoProgress) };
+                                let pick = sx.ask(&choice);
+                                if crate::driver::turn::inline::halted(sx) {
+                                    return Next::Done;
+                                }
+                                if head.answer(sx, pick).is_err() {
+                                    return Self::bail(sx, TacticalGap::NoProgress);
+                                }
                             }
-                            return Next::Continue(ask);
+                            Next::Done => {
+                                let head = self.head.take().expect("checked above");
+                                self.open_aftermath(sx, &head, h.skip_to_commit);
+                                return Next::Done;
+                            }
+                            other => return other,
                         }
-                        Next::Done => {
-                            let head = self.head.take().expect("checked above");
-                            self.open_aftermath(sx, &head, h.skip_to_commit);
-                            return Next::Done;
-                        }
-                        other => return other,
                     }
                 }
                 TStage::Aftermath => {
@@ -285,6 +294,11 @@ impl Window for TacticalAction {
         }
     }
 
+    fn accepts_unlisted(&self, pick: &Pick) -> bool {
+        // `|rN`: a route of the list the question shows is not an option of the question; the machine checks it against its list.
+        matches!(pick, Pick::Opt(crate::choice::Opt::Tactical(crate::choice::tactical::Opt::Move { route, .. })) if *route > 0)
+    }
+
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         let codes = sx.table.codes.tactical;
         match self.p.stage.clone() {
@@ -304,7 +318,7 @@ impl Window for TacticalAction {
                 }
                 result?;
                 match leaf.step.take() {
-                    Some(Step::Activated) => self.p.stage = TStage::Hooks,
+                    Some(Step::Activated) => self.p.stage = TStage::Hooks(leaf.held_before),
                     Some(Step::Finished) => self.p.stage = TStage::Closing,
                     _ => self.sync_from_leaf(&leaf),
                 }

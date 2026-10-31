@@ -10,7 +10,7 @@
 //! Not ported: the produce half, Pillage, Mentak's agent and commander, Table's Grace.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
-use ti4_engine_core::generated::{Leader, Technology, Unit};
+use ti4_engine_core::generated::{Faction, Leader, PromissoryNote, System, Technology, Unit};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::kernel::ability::{AbilityTable, AdapterFacts, CondCx, Eff, Slot, Spec};
@@ -18,7 +18,7 @@ use ti4_engine_core::kernel::fx_pay;
 use ti4_engine_core::kernel::fx;
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::query::tech;
-use ti4_engine_core::state::{CoreState, EventKind, Key, Payload};
+use ti4_engine_core::state::{CoreState, EventKind, Key, NoteKey, Payload};
 
 /// Salvage Operations (`technology:*:so:SPACE_COMBAT_ENDED:after`).
 pub const SALVAGE_TRADE_GOOD: Slot = Slot(8001);
@@ -30,6 +30,34 @@ pub const HERO_START: Slot = Slot(8002);
 pub const HERO_SHIPS: Slot = Slot(8003);
 /// Ipswitch, the end of the combat (`leader:*:mentakhero:SPACE_COMBAT_ENDED:after`).
 pub const HERO_END: Slot = Slot(8004);
+/// Promise of Protection, the return (`promissory:*:pop:SYSTEM_ACTIVATED:after`).
+pub const PROMISE: Slot = Slot(8006);
+
+/// The Promise of Protection note of the Mentak.
+const PROMISE_NOTE: NoteKey = NoteKey { note: PromissoryNote::PromiseOfProtection, faction: Faction::TheMentakCoalition };
+
+/// `pop_to_return`: "If you activate a system that contains 1 or more of the Mentak player's units, return this card to the Mentak player."
+/// `holder` activated `system`, holds the Mentak's note faceup in its play area, is not the Mentak and the Mentak has a unit in the system
+/// (space or a planet).
+fn promise_returns(s: &CoreState, holder: Seat, system: System, who: Option<Seat>) -> bool {
+    if who != Some(holder) || s.cards().promissory.get(&PROMISE_NOTE) != Some(&holder) || !s.cards().promissory_faceup.contains_key(&PROMISE_NOTE) {
+        return false;
+    }
+    let Some(mentak) = s.players().iter().find(|p| p.faction == PROMISE_NOTE.faction).map(|p| p.seat) else { return false };
+    mentak != holder
+        && (ti4_engine_core::query::board::space_units(s, system).iter().any(|u| u.owner() == mentak)
+            || ti4_engine_core::query::board::planets_of(s, system).any(|planet| ti4_engine_core::query::board::planet_units(s, planet).iter().any(|u| u.owner() == mentak)))
+}
+
+fn promise_when(c: &CondCx<'_>) -> bool {
+    let p = &c.event.payload;
+    p.system(Key::System).is_some_and(|system| promise_returns(c.state, c.def.owner, system, p.seat(Key::Player)))
+}
+
+fn promise_return(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    fx::give_back_note(eff.state(), PROMISE_NOTE);
+    Ok(())
+}
 
 fn condition(c: &CondCx<'_>) -> bool {
     let me = c.def.owner;
@@ -228,6 +256,12 @@ pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(HERO_END, AbilityKind::Leader, EventKind::SpaceCombatEnded, Relation::After, close).when(end_when));
 }
 
+/// The abilities of the activation window of this faction, registered apart (the string's bucket order of `SYSTEM_ACTIVATED` is kept by
+/// `activation::register`).
+pub fn register_activation(t: &mut AbilityTable) {
+    t.add(Spec::new(PROMISE, AbilityKind::Promissory, EventKind::SystemActivated, Relation::After, promise_return).when(promise_when));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,5 +328,25 @@ mod tests {
         assert_eq!(salvage_options(&s, &AdapterFacts::default(), Seat(0), &p), Err(()), "no buildable list or payment kernel lent");
         s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.remove(Technology::SalvageOperations);
         assert_eq!(salvage_options(&s, &f, Seat(0), &p), Ok(Vec::new()), "without the technology");
+    }
+
+    #[test]
+    fn promise_of_protection_goes_home_when_the_holder_activates_a_system_with_a_mentak_unit() {
+        let (mut s, _) = table(&[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan]);
+        let (here, elsewhere) = (System::ALL[0], System::ALL[1]);
+        s.board_mut().sys_mut(here).units.push(Piece::new(Unit::CruiserI, Seat(0)));
+        // Not held: nothing to return.
+        assert!(!promise_returns(&s, Seat(1), here, Some(Seat(1))));
+        s.cards_mut().promissory.edit().insert(PROMISE_NOTE, Seat(1));
+        assert!(!promise_returns(&s, Seat(1), here, Some(Seat(1))), "in the hand, not faceup");
+        s.cards_mut().promissory_faceup.edit().insert(PROMISE_NOTE, ());
+        assert!(promise_returns(&s, Seat(1), here, Some(Seat(1))));
+        assert!(!promise_returns(&s, Seat(1), elsewhere, Some(Seat(1))), "no Mentak unit in the system");
+        assert!(!promise_returns(&s, Seat(1), here, Some(Seat(0))), "another player activates");
+        assert!(!promise_returns(&s, Seat(0), here, Some(Seat(0))), "the Mentak holds nothing");
+        let mut eff_state = s.clone();
+        fx::give_back_note(&mut eff_state, PROMISE_NOTE);
+        assert_eq!(eff_state.cards().promissory.get(&PROMISE_NOTE), Some(&Seat(0)));
+        assert!(!eff_state.cards().promissory_faceup.contains_key(&PROMISE_NOTE));
     }
 }
