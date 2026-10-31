@@ -421,6 +421,7 @@ mod tests {
         let ran = ran_counts();
         let lent = lent_counts();
         assert!(played.report.differences.is_empty(), "{:#?}", played.report.differences);
+        assert!(ran.keys().any(|k| k.starts_with("tokens (window ended")), "the ending step of the window is counted apart: {ran:?}");
         assert!(ran.get("tokens").copied().unwrap_or(0) >= 2, "the arm ran in shadow at least on the first and the last token: {ran:?}");
         assert!(lent.contains_key("tactical: not native") && lent.contains_key("aftermath: not native"), "the other arms are lent and counted: {lent:?}");
         assert!(!lent.keys().any(|k| k.starts_with("tokens:")), "no tokens step was lent: {lent:?}");
@@ -466,6 +467,7 @@ mod tests {
         let left = compare_questions(false, &one, &one, 3);
         assert_eq!((left.len(), left[0].path.as_str(), left[0].right.as_str()), (1, "native.questions.unconsumed", "3"));
         assert!(compare_questions(false, &one, &one, 0).is_empty(), "none left is no difference");
+        assert_eq!(compare_questions(false, &one, &one, 1).len(), 1, "a single answer left is one");
         // The same shape for the events.
         let (e1, e2) = (vec!["A".to_owned()], vec!["A".to_owned(), "B".to_owned()]);
         assert!(compare_events(true, &e2, &e1).is_empty());

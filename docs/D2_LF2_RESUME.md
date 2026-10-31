@@ -100,4 +100,14 @@ Not merged: `disable-xf123` (already inside `core-w-l11`'s base; KQ owns the ref
 
 ## Mutation results
 
-(filled in below by the runner's report)
+Single-file runs (`tools/engine_core/mutants.sh`, Haiku runners, committed snapshots `ae92c018` then `3499b5b4` in a scratch worktree):
+
+| file | first run | after the survivor tests |
+|---|---|---|
+| `bridge/src/islands.rs` | 13/13 killed | |
+| `bridge/src/native_subject.rs` | 32/56 killed, 24 survived | 50/56; the 6 left: two `>=` to `>` on equal lengths (equivalent: the truncation is the identity), `unconsumed > 0` to `>= 0` (equivalent: a zero difference is no leaf), `round()` returning 1 (indistinguishable on a game still in round 1), and two killed since by tests added after the run (the `finished` counter key, a single unconsumed answer) |
+| `engine/src/live/plays.rs` | 9/31 (engine lib only) | engine lib 26/31, bridge `play_facts` 28/31; the survivors of the two suites are disjoint, so every mutant is killed by one of them |
+| `core/src/driver/live.rs` (`table_at`) | 1/1 killed | |
+| `engine/src/dual.rs` (`set_fail_fast`, `fail_fast`) | 2/3 | 3/3 (test `fail_fast_reads_back_what_was_set`) |
+
+Equivalent/accepted: the delegating accessors `finished` and `disabled` of `NativeSubject` carry `// mutants:skip`.
