@@ -13,6 +13,9 @@ pub fn kernel_for(sources: SourceSet) -> &'static Kernel {
     slot.get_or_init(|| {
         let mut hooks = ti4_engine_core::kernel::HookTable::new();
         ti4_engine_core_factions::register_all(&mut hooks);
+        // The laws, relics and technologies the core carries (the data rows of the combat seams, the ground abilities).
+        ti4_engine_core::kernel::seam::providers::register_core(&mut hooks);
+        ti4_engine_core::kernel::seam::providers::register_ground_abilities(&mut hooks);
         let base = crate::core_adapter::kernel_for(sources);
         Kernel { hooks, sources: base.sources }
     })

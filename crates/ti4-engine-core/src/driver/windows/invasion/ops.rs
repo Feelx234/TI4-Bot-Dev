@@ -76,7 +76,22 @@ impl InvasionMachine {
         troops
     }
 
+    /// The question of the stage, with the invasion's sequence number in its context (the string's `about_invasion`: a question about this system).
     pub(super) fn question(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        let mut choice = self.stage_question(s, k)?;
+        if let Some(active) = s.transient().invasion.active.as_ref()
+            && !choice.ctx.space_battle
+            && match choice.ctx.target {
+                Some(crate::choice::Target::System(t) | crate::choice::Target::Planet { system: t, .. }) => t == self.p.system,
+                _ => true,
+            }
+        {
+            choice.ctx.invasion_seq = Some(active.seq);
+        }
+        Some(choice)
+    }
+
+    fn stage_question(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         let (invader, system) = (self.p.invader, self.p.system);
         match &self.p.stage {
             IStage::Bombarding if self.p.bombard.cursor.is_some() => self.bomb_window(s, true).ask_of(s, k),

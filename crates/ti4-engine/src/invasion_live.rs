@@ -127,6 +127,7 @@ mod tests {
             guard += 1;
             assert!(guard < 400, "the string invasion does not end");
         }
+        eprintln!("STRING DICE {:?}", ctx.dice.history().iter().map(|r| (r.reason.clone(), r.hits_on, r.faces.clone())).collect::<Vec<_>>());
         state.active_invasion = None;
         drop(ctx);
         let (asked, answers) = (asked.borrow().clone(), answers.borrow().clone());
@@ -139,7 +140,7 @@ mod tests {
     );
 
     /// The native run of the same invasion: the arm `Arm::Invasion` through `live_step`, answered by `answers` in order.
-    fn live_run(mut gs: GameState, seed: u64, system: &SystemId, invader: &str, answers: &[String], hero: bool) -> Result<(Vec<Choice>, GameState, usize), Stop> {
+    fn live_run(mut gs: GameState, seed: u64, system: &SystemId, invader: &str, answers: &[String], hero: bool) -> Result<(Vec<Choice>, GameState, usize), (Stop, Vec<Choice>)> {
         let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
         let rng_before = GameRng::new(seed).positions();
         let seeds: Rc<dyn ti4_engine_core::state::SeedSource> = Rc::new(TextSeeds::of(&cx));
@@ -156,8 +157,10 @@ mod tests {
         let seat = r.seat(invader).expect("a seat");
         let src = Sources { galaxy: None, rng: Some(&rng_before) };
         let mut asked = Vec::new();
+        let mut native_dice: Vec<(Option<u8>, Vec<u8>)> = Vec::new();
         let mut steps = 0;
         let mut outcome: Result<(), Stop> = Ok(());
+        let mut seen_all: Vec<Choice> = Vec::new();
         let r_ref = &r;
         with_core(&mut gs, &mut cx, src, FP, |core, _| {
             let kernel = crate::live::kernel::kernel_for(POK);
@@ -169,6 +172,7 @@ mod tests {
                 open_invasion(core, seat, sys, NoteHold::new());
             }
             let live = Cx::new(r_ref, &env);
+            let _ = &native_dice;
             let mut asker = Scripted::new(answers.iter().cloned());
             loop {
                 steps += 1;
@@ -186,15 +190,20 @@ mod tests {
                         }
                     }
                     Err(stop) => {
-                        asked.extend(asker.seen.clone());
+                        seen_all = asker.seen.clone();
                         outcome = Err(stop);
                         break;
                     }
                 }
             }
+            native_dice = core.ledger().dice.iter().map(|d| (d.hits_on, d.faces.iter().copied().collect())).collect();
         })
         .expect("lendable");
-        outcome.map(|()| (asked, gs, steps))
+        eprintln!("NATIVE DICE {:?}", native_dice);
+        match outcome {
+            Ok(()) => Ok((asked, gs, steps)),
+            Err(stop) => Err((stop, if seen_all.is_empty() { asked } else { seen_all })),
+        }
     }
 
     fn assert_same_questions(live: &[Choice], string: &[Choice]) {
@@ -231,10 +240,17 @@ mod tests {
             state.system_mut(&system).set_control(planet.clone(), b.clone());
             crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 2);
             let string = string_run(state.clone(), seed, &system, "a", Box::new(|_| 0));
-            let (asked, gs, _) = match live_run(state.clone(), seed, &system, "a", &string.answers, false) {
+            let mut padded = string.answers.clone();
+            padded.extend(std::iter::repeat_n("fight".to_owned(), 6));
+            let (asked, gs, _) = match live_run(state.clone(), seed, &system, "a", &padded, false) {
                 Ok(r) => r,
-                Err(stop) => panic!("{invader} seed {seed}: the native run stopped: {stop:?}"),
+                Err((stop, seen)) => panic!(
+                    "{invader} seed {seed}: the native run stopped: {stop:?}\nnative {:?}\nstring {:?}",
+                    seen.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>(),
+                    string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>()
+                ),
             };
+            eprintln!("{invader} native units {:?}\nstring units {:?}", gs.system_state(&system).planet_units, string.state.system_state(&system).planet_units);
             assert_same_questions(&asked, &string.asked);
             for (id, label) in [(&a, "a"), (&b, "b")] {
                 let (l, s) = (gs.player(id).unwrap(), string.state.player(id).unwrap());
