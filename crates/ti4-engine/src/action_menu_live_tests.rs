@@ -80,3 +80,12 @@ fn a_leader_printed_during_the_action_phase_is_a_free_option_of_the_closing_menu
     let closing = string.questions.last().expect("the closing menu was asked");
     assert!(closing.options.iter().any(|o| o.id == "component|leader|hacanagent"), "{:?}", closing.ids());
 }
+
+#[test]
+fn a_pass_at_a_table_of_four_lobby_factions_leaves_the_staged_events_the_string_leaves() {
+    for seats in [[("a", "jolnar"), ("b", "l1z1x"), ("c", "arborec"), ("d", "mentak")], [("a", "mentak"), ("b", "jolnar"), ("c", "l1z1x"), ("d", "arborec")]] {
+        let state = action_table(&seats);
+        let (string, native) = step_both(&state, &["pass"]);
+        assert_same(&string, &native);
+    }
+}
