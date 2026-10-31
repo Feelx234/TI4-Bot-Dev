@@ -139,3 +139,22 @@ pub fn play_card(sx: &mut Sx<'_>, who: Seat, key: u32, card: crate::generated::A
     fx::mirror_journal(sx.state, sx.resolver, mark);
     conclude(sx, who, key, if played { Verdict::Resolved } else { Verdict::Failed { withhold: false } }, false)
 }
+
+/// The events a window staged for the announcement its string twin makes at once (`spend_strategy_token_announced`: Orbital Drop's token), announced
+/// now, in the order staged, through the reaction windows (a window they open may stage more).
+pub fn flush_staged_events(sx: &mut Sx<'_>) -> Flow {
+    while fx::has_staged(sx.state) {
+        for rec in fx::drain_staged(sx.state) {
+            if super::inline::halted(sx) {
+                return Flow::Halt;
+            }
+            if sx.emit_mirrored(rec).is_err() {
+                if !super::inline::halted(sx) {
+                    super::inline::gap(sx, crate::kernel::turn_codes::TurnGap::EmissionRefused);
+                }
+                return Flow::Halt;
+            }
+        }
+    }
+    if super::inline::halted(sx) { Flow::Halt } else { Flow::Done }
+}

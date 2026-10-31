@@ -41,6 +41,8 @@ pub struct TurnCodes {
     pub units: Code,
     /// `extreme_duress`: the source of the trade goods an Extreme Duress hands the holder.
     pub extreme_duress: Code,
+    /// `orbital_drop`: the source of Orbital Drop's questions and of its token event.
+    pub orbital_drop: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.

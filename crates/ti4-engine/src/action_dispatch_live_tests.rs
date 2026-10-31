@@ -129,3 +129,21 @@ fn the_trade_primary_at_a_cabal_table_stages_the_goods_before_the_replenish_like
     assert_same(&string, &native);
     assert_eq!(string.staged, ["TRADE_GOODS_GAINED", "COMMODITIES_REPLENISHED"], "the string's order");
 }
+
+fn orbital_table() -> GameState {
+    let mut state = action_table(&THREE);
+    state.player_mut(&pid("a")).unwrap().strategic_tokens = 2;
+    super::turn_live_tests::based(state)
+}
+
+#[test]
+fn orbital_drop_chosen_from_the_menu_drops_the_infantry_like_the_string() {
+    let state = orbital_table();
+    // The planet (when the seat has more than one), then the offered mech is declined.
+    let (string, taken) = string_run_first(&state, &["faction|orbital_drop"], |g| {
+        let _ = g.step();
+    });
+    let native = native_marked(&state, &[(true, Arm::TurnPrelude, None), (false, Arm::Ask, None)], &taken.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_same(&string, &native);
+    assert!(has(&string, "COMPONENT_ACTION_RESOLVED"), "{:?} / {:?}", string.events, taken);
+}

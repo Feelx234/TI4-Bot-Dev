@@ -38,6 +38,7 @@ pub fn codes(r: &Render) -> TurnCodes {
         dark_pact: r.code("dark_pact"),
         tcs: r.code("tcs"),
         extreme_duress: r.code("extreme_duress"),
+        orbital_drop: r.code("orbital_drop"),
         strategy_secondary: r.code("strategy_secondary"),
         trade_primary: r.code("trade_primary"),
         place_structure: r.code("place_structure"),
