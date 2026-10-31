@@ -14,7 +14,11 @@ use ti4_engine_core::kernel::ability::AbilityTable;
 pub fn register_abilities(t: &mut AbilityTable) {
     gift::register_abilities(t);
     mitosis::register_abilities(t);
-    pillage::register_abilities(t);
     returns::register_abilities(t);
     scavenge::register_abilities(t);
+}
+
+/// Pillage, before the movement package: the Nomad's Artuno shares `TRADE_GOODS_GAINED` with it and the Mentak module comes first in the string.
+pub fn register_before_movement(t: &mut AbilityTable) {
+    pillage::register_abilities(t);
 }

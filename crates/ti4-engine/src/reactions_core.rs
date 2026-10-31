@@ -204,6 +204,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::magen_defense::register_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
+            ti4_engine_core_factions::silent::register_before_movement(&mut t);
             ti4_engine_core_factions::ce_movement::register_abilities(&mut t);
             // The string order of the faction modules: only abilities of one window share a bucket, and Mahact's
             // Legionnaire and Yin's agent do (GROUND_FORCE_DESTROYED), Mentak's Salvage Operations and the Nomad's
