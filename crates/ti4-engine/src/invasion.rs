@@ -10954,6 +10954,8 @@ mod tests {
                 let w = report.windows.get(label).cloned().unwrap_or_default();
                 assert!(w.compared > 0 && w.bailed == 0, "{holders:?} seed {seed}: {label} ran in the core: {:?}", report.windows);
             }
+            // Bail-as-failure: the whole fight ran natively.
+            assert!(report.windows.iter().all(|(label, w)| w.bailed == 0 || !(label.contains("[bail:") || label.contains("[gate:"))), "{holders:?} seed {seed}: {:?}", report.windows);
             let _ = crate::dual::take_report();
         }
     }

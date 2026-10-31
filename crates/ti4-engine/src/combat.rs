@@ -11256,6 +11256,7 @@ mod tests {
             );
             assert_eq!(differences, 0, "seed {seed}: {windows:?}");
             bailed += windows.iter().filter(|(k, v)| k.contains("Waylay") && v.bailed > 0).count();
+            assert!(windows.iter().all(|(k, v)| v.bailed == 0 || !(k.contains("[bail:") || k.contains("[gate:"))), "seed {seed}: the Waylay fight ran natively: {windows:?}");
             compared += windows.iter().filter(|(k, _)| k.starts_with("combat::settle")).map(|(_, v)| v.compared).sum::<u64>();
         }
         assert_eq!(bailed, 0, "no Waylay barrage bails");
@@ -11421,6 +11422,7 @@ mod tests {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
+        BAIL_KEYS.with(|k| k.borrow_mut().clear());
         let mut asked = Vec::new();
         for seed in 0..16_u64 {
             let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "xxcha")], ti4_model::content_types::DEFAULT);
@@ -11464,11 +11466,24 @@ mod tests {
         }
         let counts = r.windows.get("combat::roll_round").cloned().unwrap_or_default();
         let settle = r.windows.get("combat::settle").cloned().unwrap_or_default();
+        // Every bail and gate of the fights, for the tests that play a whole sub-scenario with bail-as-failure (`no_bails`).
+        BAIL_KEYS.with(|k| k.borrow_mut().extend(r.windows.iter().filter(|(label, w)| (label.contains("[bail:") || label.contains("[gate:")) && w.bailed > 0).map(|(label, _)| label.clone())));
         let _ = take_report();
         if composed {
             return (asked, settle.compared, settle.bailed);
         }
         (asked, counts.compared, counts.bailed)
+    }
+
+    thread_local! {
+        /// The labels of the bails and gates the whole fights of the last `roll_step_fights` reported.
+        static BAIL_KEYS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// Bail-as-failure: no window of the fights bailed or was gated (the product plays the position natively). Clears the record.
+    fn no_bails(what: &str) {
+        let keys = BAIL_KEYS.with(|k| std::mem::take(&mut *k.borrow_mut()));
+        assert!(keys.is_empty(), "{what}: the fights bailed: {keys:?}");
     }
 
     thread_local! {
@@ -11639,13 +11654,19 @@ mod tests {
     }
 
     #[test]
-    fn a_sustain_in_a_game_below_the_faction_bugfixes_is_answered_in_the_string() {
-        // The commander's offer and the two-hit cancel of Non-Euclidean Shielding differ below
-        // `RULES_FACTION_BUGFIXES`: the core machine does not answer a sustain there (the other answers still run).
-        let (asked, compared, bailed) = pending_fights(&|state, _, _| state.rules_version = ti4_model::state::RULES_FACTION_BUGFIXES - 1, 12);
+    fn a_sustain_in_a_game_below_the_faction_bugfixes_is_answered_in_the_core() {
+        // The commander's offer and the two-hit cancel of Non-Euclidean Shielding exist from `RULES_FACTION_BUGFIXES`: below it the core
+        // machine answers a sustain too (package W10; it bailed before), asking no commander and cancelling one hit.
+        let (asked, compared, bailed) = pending_fights(
+            &|state, _, _| {
+                state.rules_version = ti4_model::state::RULES_FACTION_BUGFIXES - 1;
+                state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("nes"));
+            },
+            12,
+        );
         assert!(asked.iter().any(|c| c.context.as_ref().is_some_and(|x| x.subtype == "sustain_damage")));
-        assert!(bailed > 0, "sustains were answered in the string: {bailed}");
-        assert!(compared > 0, "the other answers ran in the core: {compared}");
+        assert_eq!(bailed, 0, "sustains were answered in the core: {bailed}");
+        assert!(compared > 0, "the answers ran in the core: {compared}");
     }
 
     #[test]
@@ -11838,6 +11859,7 @@ mod tests {
         let offers = asked.iter().filter(|c| c.prompt.starts_with("spend 2 trade goods for Munitions Reserves")).count();
         assert!(offers > 10, "the opening asked for the payment: {offers}");
         assert_eq!(bailed, 0, "the machine carries the opening: {compared} compared");
+        no_bails("Munitions Reserves at the opening");
     }
 
     /// Package W2: a readied The Thundarian is an ability of the core table: the roll step emits the step-ended event, offers the card to
@@ -11978,6 +12000,7 @@ mod tests {
         let (settle_compared, settle_bailed) = SETTLE_COUNTS.with(std::cell::Cell::get);
         assert_eq!(settle_bailed, 0, "the machine carries the roll that ends the fight: {settle_compared} compared");
         assert!(settle_compared > 0);
+        no_bails("a roll that ends the fight");
     }
 
     #[test]
@@ -11998,6 +12021,7 @@ mod tests {
         let (settle_compared, settle_bailed) = SETTLE_COUNTS.with(std::cell::Cell::get);
         assert_eq!(settle_bailed, 0, "the machine carries a pool of cancelled hits: {settle_compared} compared");
         assert!(settle_compared > 0);
+        no_bails("a pool of cancelled hits");
     }
 
     /// Package W10: the Jol-Nar commander ("after you roll dice for a unit ability: you may reroll any of those dice") asks about each die of
@@ -12024,6 +12048,7 @@ mod tests {
         let per_die = asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == "jolnar_commander_reroll")).count();
         assert!(per_die > 10, "the holder was asked about dice: {per_die}");
         assert_eq!(bailed, 0, "the machine carries the commander's rerolls: {compared} compared");
+        no_bails("the Jol-Nar commander in the barrage");
     }
 
     #[test]

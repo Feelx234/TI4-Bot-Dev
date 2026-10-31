@@ -167,7 +167,8 @@ pub enum Stage {
 /// A sustain being answered: the commander's offer runs before the hits are counted.
 #[derive(Debug, Clone)]
 struct Sustaining {
-    commander: SustainCommander,
+    /// Rear Admiral Farran's payment after a sustain (rules version 17 and later; the window did not ask before).
+    commander: Option<SustainCommander>,
     offer: Offer,
     unit: Unit,
     round: u32,
@@ -933,7 +934,7 @@ impl Window for Machine {
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         if self.awaiting {
             if let Some(sus) = &self.sustaining {
-                return sus.commander.ask_of(s, k);
+                return sus.commander.as_ref().and_then(|c| c.ask_of(s, k));
             }
             return if self.answered { None } else { self.pending_choice(s, k) };
         }
@@ -952,7 +953,7 @@ impl Window for Machine {
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         if self.awaiting {
             if let Some(sus) = self.sustaining.as_mut() {
-                return sus.commander.answer(sx, pick);
+                return sus.commander.as_mut().ok_or(Illegal)?.answer(sx, pick);
             }
             if self.answered {
                 return Err(Illegal);
@@ -993,6 +994,11 @@ impl Machine {
 // -- the decisions the settle stops at (string `pending_choice` / `resolve`) ----------------------------------
 
 impl Machine {
+    /// The hits one use of SUSTAIN DAMAGE cancels: one, or two with Non-Euclidean Shielding from rules version 17.
+    fn cancels(s: &CoreState, rd: Rd<'_>, player: Seat) -> usize {
+        if s.meta().rules_at_least(super::RULES_FACTION_BUGFIXES) { cancel_per_sustain(rd, player) } else { 1 }
+    }
+
     fn bail(&mut self) {
         self.stop = Some(Stop::Bailed(Bail::Unported));
         self.answered = true;
@@ -1000,14 +1006,16 @@ impl Machine {
 
     fn step_awaiting(&mut self, sx: &mut Sx<'_>) -> Next {
         if let Some(sus) = self.sustaining.as_mut() {
-            if let Next::Continue(ask) = sus.commander.step(sx) {
+            if let Some(commander) = sus.commander.as_mut()
+                && let Next::Continue(ask) = commander.step(sx)
+            {
                 self.stage = Stage::Asking;
                 return Next::Continue(ask);
             }
             // The commander has answered (or there is none): the use is announced, the hits it cancels counted.
             let Some(sus) = self.sustaining.take() else { return Next::Done };
             let _ = emit_used(sx, &sus.offer, sus.unit);
-            let cancels = cancel_per_sustain(Self::rd(sx.state, sx.kernel), sus.offer.player);
+            let cancels = Self::cancels(sx.state, Self::rd(sx.state, sx.kernel), sus.offer.player);
             let mut queue = sus.queue;
             if let Some(front) = queue.first_mut() {
                 front.hits = front.hits.saturating_sub(u32::try_from(cancels).unwrap_or(u32::MAX));
@@ -1195,7 +1203,7 @@ impl Machine {
                         match apply_sustain(rd, front.player, env_system, site) {
                             None => {
                                 // No such unit sustains: nothing happens, but the use still cancels its hits.
-                                let cancels = cancel_per_sustain(rd, front.player);
+                                let cancels = Self::cancels(sx.state, rd, front.player);
                                 if let Some(f) = queue.first_mut() {
                                     f.hits = f.hits.saturating_sub(u32::try_from(cancels).unwrap_or(u32::MAX));
                                 }
@@ -1216,7 +1224,8 @@ impl Machine {
                                     staging: self.env.staging,
                                     announce: self.env.announce,
                                 };
-                                self.sustaining = Some(Sustaining { commander: SustainCommander::new(front.player, self.env.commander), offer, unit, round, queue });
+                                let commander = sx.state.meta().rules_at_least(super::RULES_FACTION_BUGFIXES).then(|| SustainCommander::new(front.player, self.env.commander));
+                                self.sustaining = Some(Sustaining { commander, offer, unit, round, queue });
                                 return Ok(());
                             }
                         }

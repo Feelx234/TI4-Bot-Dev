@@ -4163,10 +4163,7 @@ pub fn answer_machine(
     string_pays: bool,
 ) -> Option<CoreWindow<SettleOut>> {
     if matches!(a.step, StepS::Queue(false, ..)) {
-        if gs.rules_version < ti4_model::state::RULES_FACTION_BUGFIXES {
-            crate::dual::note_bail_here("a sustain answer in a game below the faction bug fixes");
-            return None;
-        }
+        // (A sustain below `RULES_FACTION_BUGFIXES` asks no commander and cancels one hit: the machine follows the version.)
         let front = match &a.step {
             StepS::Queue(_, _, queue) => queue.first().map(|p| p.player.clone()),
             _ => None,
