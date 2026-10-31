@@ -10,6 +10,7 @@
 #     the line number left out). The baseline is the engine's old warnings; it may only shrink. `UPDATE_BASELINE=1` rewrites it.
 # Engine warnings that are gone from the output are listed (to shrink the baseline) but do not fail.
 set -uo pipefail
+export LC_ALL=C
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo" || exit 2
 out="${1:-${CARGO_TARGET_DIR:-target}/clippy-core.txt}"
