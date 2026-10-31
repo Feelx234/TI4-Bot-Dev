@@ -605,7 +605,10 @@ mod tests {
         let mut asked = 0;
         for seed in 1..=12_u64 {
             let (state, system) = first_claim("titans", &["cultural"], seed);
-            asked += with_bail_is_failure(true, || check(&format!("titans first claim {seed}"), &state, seed, &system, false, prefer(&["ability:titans:terragenesis", "place", "move"])));
+            // (The dual driver of the exploration has no ability registry, so it declines a Titans planet exploration with a counted bail; that is the
+            // dual's, not the live path's: the string runs alone here.)
+            let run = || check(&format!("titans first claim {seed}"), &state, seed, &system, false, prefer(&["ability:titans:terragenesis", "place", "move"]));
+            asked += with_bail_is_failure(true, || crate::dual::with_mask(crate::dual::AreaMask::STRING, run));
         }
         assert!(asked > 12);
         let r = report();
