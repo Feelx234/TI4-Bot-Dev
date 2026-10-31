@@ -25,7 +25,6 @@ use crate::kernel::turn_codes::TurnGap;
 use crate::query::reach;
 use crate::query::seats::initiative_order;
 use crate::rules::token_gain::TokenGain;
-use crate::kernel::ability::Unknown;
 use crate::state::{CoreState, DriverFlags, PlainKind, PlainRec, TurnJob, WindowKind};
 use crate::tables::{Flags, Scope, SystemFlags};
 
@@ -120,20 +119,15 @@ pub fn ask_scoring(core: &CoreState, env: &Env<'_>) -> Result<Option<Asking>, Li
     ask_window::<StatusScoring>(core, env)
 }
 
-/// `Arm::EventScoring`. The window closes into nothing: the agenda queue an agenda window leaves on the stack is the agenda lane's.
+/// `Arm::EventScoring`. The window closes into the agenda lane's job when an agenda close left its queue on the stack
+/// (`AgendaQueueAfterEventScoring`): the next agenda is revealed and put to a vote in the same call.
 ///
 /// # Errors
 /// As [`advance_scoring`].
 pub fn advance_event_scoring(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
-    let before = core.clone();
-    let result = advance_window::<EventScoring>(core, env, answer, None);
-    // The agendas an agenda window held back while its scoring occurrence was open (`agenda_queue_after_event_scoring`) go to a vote next:
-    // that is the agenda lane's (KV3); until it takes the queue the close is a counted gap, never a silent skip.
-    if matches!(result, Ok((Live::Done, _))) && core.pending().window(WindowKind::AgendaQueueAfterEventScoring).is_some() {
-        *core = before;
-        return Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::AgendaQueue)));
-    }
-    result
+    // The agendas an agenda window held back while its scoring occurrence was open (`agenda_queue_after_event_scoring`) go to a vote next.
+    let queued = core.pending().window(WindowKind::AgendaQueueAfterEventScoring).is_some();
+    advance_window::<EventScoring>(core, env, answer, queued.then_some(TurnJob::AgendaNext))
 }
 
 /// The question of `Arm::EventScoring`.

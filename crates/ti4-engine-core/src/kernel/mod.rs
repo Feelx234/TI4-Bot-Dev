@@ -39,6 +39,7 @@ pub mod seam;
 pub mod stage;
 pub mod trigger;
 pub mod turn_codes;
+pub mod agenda_codes;
 
 pub use hooks::HookTable;
 pub use next::Next;

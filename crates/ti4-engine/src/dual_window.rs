@@ -722,6 +722,7 @@ pub fn drive_windowed<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::DataSkimmer => "a discard the Data Skimmer could take",
                 ti4_engine_core::kernel::ability::Unknown::PlayFacts => "an action card the core does not play",
                 ti4_engine_core::kernel::ability::Unknown::TurnGap(_) => "a place the live turn flow does not follow",
+                ti4_engine_core::kernel::ability::Unknown::AgendaGap(_) => "a place the live agenda phase does not follow",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);

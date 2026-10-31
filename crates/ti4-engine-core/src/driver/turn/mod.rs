@@ -56,6 +56,8 @@ impl Window for TurnFlowWin {
             TurnJob::StatusOpen => crate::driver::windows::status::run_open(sx),
             TurnJob::StatusBookkeeping => crate::driver::windows::status_bookkeeping::run_bookkeeping(sx),
             TurnJob::StatusFinish => crate::driver::windows::status_finish::run_finish(sx),
+            TurnJob::AgendaOpen => crate::driver::agenda::flow::run_open(sx),
+            TurnJob::AgendaNext => crate::driver::agenda::flow::run_next(sx),
         };
         Next::Done
     }

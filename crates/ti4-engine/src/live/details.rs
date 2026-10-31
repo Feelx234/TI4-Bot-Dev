@@ -18,6 +18,7 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
         _ => {}
     }
     super::turn::complete(core, choice, rendered);
+    super::agenda::complete(core, choice, rendered);
 }
 
 /// `tokens::with_pool_details(.., mode, to_place)`: the pools as they stand, the tokens in reinforcements, Letnev's Armada, then the tokens

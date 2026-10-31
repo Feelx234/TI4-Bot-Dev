@@ -28,4 +28,8 @@ pub enum TurnJob {
     StatusBookkeeping,
     /// The token gain closed (`Game::finish_status_phase`, lane C): 81.5 redistribution to 81.8 and the phase's end.
     StatusFinish,
+    /// The agenda phase opens (`Game::step_agenda`, lane D): the agendas off the deck, the reveal chain, the first vote.
+    AgendaOpen,
+    /// An agenda's scoring window closed with agendas held behind it (`step_event_scoring`'s close, lane D): the next reveal and vote.
+    AgendaNext,
 }

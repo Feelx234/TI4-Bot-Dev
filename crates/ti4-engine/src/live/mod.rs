@@ -13,6 +13,7 @@
 //! A failed call (illegal answer, a script that ran out, a position the core does not run) restores the position the call started
 //! from: the generic rollback of a step (a `CoreState` clone; the string clones `state` in `step_secondary`, `step_vote`, ...).
 
+pub mod agenda;
 pub mod arms;
 pub mod coverage;
 pub mod details;

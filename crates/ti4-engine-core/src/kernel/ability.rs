@@ -82,6 +82,8 @@ pub enum Unknown {
     PlayFacts,
     /// The live turn flow cannot follow the string here yet (lane B, `driver::turn`).
     TurnGap(super::turn_codes::TurnGap),
+    /// The live agenda phase cannot follow the string here yet (lane D, `driver::agenda`).
+    AgendaGap(super::agenda_codes::AgendaGap),
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -158,6 +160,8 @@ pub struct Codes {
     pub not_from_supply: [crate::state::Code; 5],
     /// The texts of the turn flow (lane B).
     pub turn: super::turn_codes::TurnCodes,
+    /// The texts of the agenda phase (lane D).
+    pub agenda: super::agenda_codes::AgendaCodes,
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of
