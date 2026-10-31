@@ -103,10 +103,14 @@ impl Render {
     }
 
     /// Make this `Render` and the state's own code table one: the texts a window minted straight into the state (the exploration's log words)
-    /// reach the render, the codes the render handed out reach the state, whichever has more (one of them is always a prefix of the other: the
-    /// live loop syncs after every call that can mint).
+    /// reach the render, the codes the render handed out reach the state, whichever has more. Only when one table is a prefix of the other (the
+    /// live loop keeps them so: it syncs after every call that can mint); two tables that disagree are left alone (a render built apart from the state).
     pub fn sync_codes(&self, state: &mut ti4_engine_core::containers::Interner) {
         let mut mine = self.codes.borrow_mut();
+        let common = mine.len().min(state.len());
+        if (0..common).any(|i| mine.get(i as u32) != state.get(i as u32)) {
+            return;
+        }
         match mine.len().cmp(&state.len()) {
             std::cmp::Ordering::Greater => *state = mine.clone(),
             std::cmp::Ordering::Less => *mine = state.clone(),

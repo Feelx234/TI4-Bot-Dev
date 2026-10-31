@@ -161,3 +161,6 @@ fn orbital_drop_at_a_table_without_a_module_announces_nothing_like_the_string() 
     assert_same(&string, &native);
     assert!(!has(&string, "STRATEGY_TOKEN_SPENT"), "{:?}", string.events);
 }
+
+// (Ggrocuto Rinn reads the map's adjacency: this file's harness loads no map. The route runs in the shadow of `native_play`, and `tests/action_dispatch.rs`
+// of the core tests runs it on a map.)

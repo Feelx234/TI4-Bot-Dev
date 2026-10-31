@@ -469,7 +469,7 @@ impl NativeSubject {
 }
 
 /// The position without the marks that hold the events effects staged for the next step's announcement.
-fn without_staged_marks(mut state: Value) -> Value {
+pub(crate) fn without_staged_marks(mut state: Value) -> Value {
     if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
         marks.retain(|k, _| !k.starts_with("private:#staged:event:"));
     }
@@ -487,13 +487,13 @@ fn without_staged_marks(mut state: Value) -> Value {
 /// tactical and strategic actions and the action cards are the core's (lane F2b).
 fn menu_body_is_lent(id: &str) -> bool {
     (id.starts_with("faction|") && id != "faction|winnu|lgf")
-        || (id.starts_with("component|") && !id.starts_with("component|trade|"))
+        || (id.starts_with("component|") && !id.starts_with("component|trade|") && id != "component|leader|xxchaagent")
         || id.starts_with("relic|")
         || id.starts_with("play_area:")
 }
 
 /// Take the `private:#staged:event:*` marks out of a position: the `type` of each, in key order.
-fn strip_staged(state: &mut Value) -> Vec<String> {
+pub(crate) fn strip_staged(state: &mut Value) -> Vec<String> {
     let mut names = Vec::new();
     if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
         let keys: Vec<String> = marks.keys().filter(|k| k.starts_with("private:#staged:event:")).cloned().collect();

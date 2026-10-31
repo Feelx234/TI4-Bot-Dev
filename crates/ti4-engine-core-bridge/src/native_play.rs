@@ -763,7 +763,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 if group.iter().all(|p| p.asked.is_empty()) && !owed.legacy.is_empty() && legacy.options().is_some() {
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
                     let events: Vec<String> = group.iter().flat_map(|p| p.events.iter().cloned()).collect();
-                    if let Some((at, n, l)) = owed.settle_native(events) {
+                    if let Some((at, n, l)) = owed.settle(events, Vec::new()) {
                         first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l });
                         break End::Finished;
                     }
@@ -775,7 +775,23 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 // exploration's reward after a first claim, the rewards of a card played in a window): the legacy game gets the answers of
                 // the next native steps too (played on a fork), and the group grows by the native steps whose answers the legacy used.
                 let ahead = answers_ahead(&native, AHEAD);
-                let run = run_legacy(&mut legacy, &group, &ahead);
+                let mut run = run_legacy(&mut legacy, &group, &ahead);
+                // The native steps ran on where the string takes a step of its own with no question (the close of an action): that step uses no
+                // answer; its events meet what the native pushed ahead, and the legacy game is stepped again with the same answers.
+                let mut catch_up = 0;
+                while run.records.is_empty() && !owed.native.is_empty() && run.info.error.is_none() && !group.iter().all(|p| p.asked.is_empty()) && catch_up < 4 {
+                    let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
+                    let _ = (legacy.decisions_since(), legacy.events_since());
+                    if let Some((at, n, l)) = owed.settle(Vec::new(), run.events.clone()) {
+                        first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l });
+                        break;
+                    }
+                    run = run_legacy(&mut legacy, &group, &ahead);
+                    catch_up += 1;
+                }
+                if first_difference.is_some() {
+                    break End::Finished;
+                }
                 let mut used = run.records.len();
                 let mut have: usize = group.iter().map(|p| p.asked.len()).sum();
                 while have < used {
@@ -822,16 +838,17 @@ struct Owed {
 }
 
 impl Owed {
-    /// Native events with no legacy step of their own: matched against what the legacy steps pushed ahead. `Some((index, native, legacy))` at the first
-    /// line that differs.
-    fn settle_native(&mut self, events: Vec<String>) -> Option<(usize, String, String)> {
-        let native: Vec<String> = self.native.drain(..).chain(events).collect();
-        let common = native.len().min(self.legacy.len());
-        if let Some(at) = (0..common).find(|i| native[*i] != self.legacy[*i]) {
-            return Some((at, native[at].clone(), self.legacy[at].clone()));
+    /// New events of either side with no step of the other to meet: matched against what the other side pushed ahead. `Some((index, native, legacy))`
+    /// at the first line that differs.
+    fn settle(&mut self, native_new: Vec<String>, legacy_new: Vec<String>) -> Option<(usize, String, String)> {
+        let native: Vec<String> = self.native.drain(..).chain(native_new).collect();
+        let legacy: Vec<String> = self.legacy.drain(..).chain(legacy_new).collect();
+        let common = native.len().min(legacy.len());
+        if let Some(at) = (0..common).find(|i| native[*i] != legacy[*i]) {
+            return Some((at, native[at].clone(), legacy[at].clone()));
         }
-        self.legacy.drain(..common);
         self.native = native[common..].to_vec();
+        self.legacy = legacy[common..].to_vec();
         None
     }
 }
@@ -924,9 +941,17 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     owed.native = native_stream[common..].to_vec();
     owed.legacy = legacy_stream[common..].to_vec();
     if strict {
+        // The events effects staged for the next step's announcement are marks of JSON in the legacy position and `Pending::staged` in the core's:
+        // compared by name, in order, and kept out of the position (the position carries only what the codec carries).
+        let mut legacy_state = legacy.state_json();
+        let legacy_staged = crate::native_subject::strip_staged(&mut legacy_state);
+        let native_staged: Vec<String> = native.core.pending().staged.iter().map(|e| ti4_engine::kernel_sync::text::event_text(&native.render, e.kind)).collect();
+        if legacy_staged != native_staged {
+            return Some(diff("staged", "pending.staged".to_owned(), format!("{native_staged:?}"), format!("{legacy_staged:?}")));
+        }
         match native.materialized_over(base) {
             Ok(after) => {
-                if let Some(d) = crate::native_subject::first_leaf(&legacy.state_json(), &after) {
+                if let Some(d) = crate::native_subject::first_leaf(&legacy_state, &crate::native_subject::without_staged_marks(after)) {
                     return Some(diff("state", d.path, d.right, d.left));
                 }
             }
