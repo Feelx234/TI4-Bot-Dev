@@ -506,4 +506,23 @@ mod tests {
         }
         assert_eq!(seen_chain, 24);
     }
+
+    /// The Letnev commander (Rear Admiral Farran) pays after a sustain: a child question of the sustain's answer, asked through the tape, and
+    /// the Letnev agent's round window beside it.
+    #[test]
+    fn the_letnev_commander_and_agent_react_in_the_fight_in_lockstep() {
+        let (hub, _origin, target) = hub();
+        for seed in 1..=4_u64 {
+            let mut state = table(&[("a", "sol"), ("b", "letnev")]);
+            state.rng_seed = seed;
+            state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("letnevcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            state.player_mut(&b()).unwrap().trade_goods = 3;
+            crate::fixtures::put(&mut state, &target, "dreadnought", &a(), 2);
+            crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+            crate::fixtures::put(&mut state, &target, "dreadnought", &b(), 2);
+            crate::fixtures::put(&mut state, &target, "carrier", &b(), 1);
+            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]);
+            assert!(diffs.is_empty(), "seed {seed}: {diffs:#?}");
+        }
+    }
 }
