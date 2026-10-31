@@ -13,6 +13,7 @@
 //! A failed call (illegal answer, a script that ran out, a position the core does not run) restores the position the call started
 //! from: the generic rollback of a step (a `CoreState` clone; the string clones `state` in `step_secondary`, `step_vote`, ...).
 
+pub mod agenda;
 pub mod arms;
 pub mod coverage;
 pub mod details;
@@ -405,7 +406,7 @@ mod tests {
             assert_eq!(*core, held);
             assert_eq!(live_step(core, Arm::Tokens, &live, &mut Scripted::new(["no_such_pool"])), Err(Stop::Illegal));
             assert_eq!(*core, held);
-            assert_eq!(live_step(core, Arm::Voting, &live, &mut Scripted::new(["x"])), Err(Stop::NoLiveFn(Arm::Voting)));
+            assert_eq!(live_step(core, Arm::Diplomacy, &live, &mut Scripted::new(["x"])), Err(Stop::NoLiveFn(Arm::Diplomacy)));
             assert_eq!(*core, held);
         })
         .unwrap();

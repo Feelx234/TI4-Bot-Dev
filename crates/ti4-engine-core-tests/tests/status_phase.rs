@@ -560,13 +560,16 @@ fn a_status_secret_is_offered_by_its_position_not_by_a_feat_and_not_twice() {
 }
 
 #[test]
-fn an_event_window_that_leaves_the_agenda_queue_behind_is_a_counted_gap() {
+fn an_event_window_that_leaves_the_agenda_queue_behind_closes_into_the_next_reveal() {
+    // Lane D took the queue: the window's close runs the job that reveals the agendas held behind it (here the deck is empty and the
+    // agenda elects a law nobody holds: nothing goes to a vote and the phase ends).
     let (mut s, k) = Scenario::lobby(2).phase(Phase::Agenda).build();
     open_event(&mut s, ScoringTiming::Agenda, 1, true);
     s.pending_mut().open(ti4_engine_core::state::Window::AgendaQueueAfterEventScoring([Agenda::ALL[0]].into_iter().collect()));
-    let held = s.clone();
-    assert_eq!(ti4_engine_core::driver::windows::status::advance_event_scoring(&mut s, &env(&k), None), gap(TurnGap::AgendaQueue));
-    assert_eq!(s, held);
+    let (live, _) = ti4_engine_core::driver::windows::status::advance_event_scoring(&mut s, &env(&k), None).unwrap();
+    assert_eq!(live, Live::Done);
+    assert!(s.pending().window(ti4_engine_core::state::WindowKind::AgendaQueueAfterEventScoring).is_none(), "the queue was taken");
+    assert!(s.pending().window(ti4_engine_core::state::WindowKind::TurnFlow).is_none() && s.pending().window(ti4_engine_core::state::WindowKind::Voting).is_none());
     let (mut plain, k) = Scenario::lobby(2).phase(Phase::Agenda).build();
     open_event(&mut plain, ScoringTiming::Agenda, 1, true);
     assert_eq!(ti4_engine_core::driver::windows::status::advance_event_scoring(&mut plain, &env(&k), None).unwrap().0, Live::Done);

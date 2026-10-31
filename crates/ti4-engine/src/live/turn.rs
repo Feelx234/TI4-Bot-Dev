@@ -99,7 +99,7 @@ fn starting_tech(core: &CoreState, choice: &CoreChoice, number: u8, of: u8, rule
 }
 
 /// `laws::offer_discard_text`'s display facts for `law`.
-fn discard_law(law: Agenda, effect: &str, rendered: &mut Choice) {
+pub(super) fn discard_law(law: Agenda, effect: &str, rendered: &mut Choice) {
     let alias = IdStr::as_str(law);
     let content = ContentStore::embedded();
     let record = content.get(ContentType::Agendas, alias);

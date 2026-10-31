@@ -549,6 +549,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             faction_technology: r.code("faction_technology"),
         };
         table.codes.turn = crate::live::turn::codes(r);
+        table.codes.agenda = crate::live::agenda::codes(r);
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {

@@ -10,6 +10,7 @@ pub mod combat;
 pub mod enforce_all;
 pub mod live_common;
 pub mod invasion;
+pub mod hooked_draw;
 pub mod minister;
 pub mod production;
 pub mod scoring;

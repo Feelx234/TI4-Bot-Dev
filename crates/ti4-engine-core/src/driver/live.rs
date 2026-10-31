@@ -249,6 +249,8 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
         Arm::Invasion => Some(crate::driver::windows::invasion::advance_invasion),
         Arm::Production => Some(crate::driver::windows::production::advance_production),
         Arm::Aftermath => Some(crate::driver::windows::chain::advance_aftermath),
+        Arm::Agenda => Some(super::agenda::advance_agenda),
+        Arm::Voting => Some(super::agenda::advance_voting),
         Arm::TurnPrelude => Some(super::turn::advance_prelude),
         Arm::StrategyAnnounce => Some(super::turn::advance_announce),
         Arm::Phase => Some(super::turn::advance_phase),
@@ -269,7 +271,8 @@ pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
         Arm::Invasion => Some(crate::driver::windows::invasion::ask_invasion),
         Arm::Production => Some(crate::driver::windows::production::ask_production),
         Arm::Aftermath => Some(crate::driver::windows::chain::ask_aftermath),
-        Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase | Arm::Status => Some(super::turn::ask_job),
+        Arm::Voting => Some(super::agenda::ask_voting),
+        Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase | Arm::Status | Arm::Agenda => Some(super::turn::ask_job),
         Arm::Ask => Some(super::turn::ask::ask_ask),
         Arm::Trade => Some(super::windows::trade::ask_trade),
         _ => None,
@@ -427,7 +430,7 @@ mod tests {
         assert_eq!(advance::<Toy>(&mut s, &env, Some(pick(9))), Err(LiveError::Illegal), "an ability the window does not offer");
         assert_eq!(s, held);
         assert!(live_arm(Arm::Tokens).is_some() && ask_arm_fn(Arm::Tokens).is_some());
-        assert!(live_arm(Arm::Voting).is_none() && ask_arm_fn(Arm::Voting).is_none(), "an arm no lane has ported stays lent");
+        assert!(live_arm(Arm::Diplomacy).is_none() && ask_arm_fn(Arm::Diplomacy).is_none(), "an arm no lane has ported stays lent");
     }
 
     /// The play facts of a card played inside the window are those of the position the call starts from (`table_at`): the provider is

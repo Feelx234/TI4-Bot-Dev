@@ -24,6 +24,8 @@ fn facts(for_voters: &[u8]) -> EffectFacts {
         hooked: 0,
         drop_unofficial: false,
         blanked: false,
+        roster: None,
+        redistribution: Code(4),
     }
 }
 

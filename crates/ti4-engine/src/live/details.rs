@@ -20,6 +20,7 @@ pub fn complete(core: &CoreState, k: &ti4_engine_core::kernel::Kernel, choice: &
         _ => {}
     }
     super::turn::complete(core, choice, rendered);
+    super::agenda::complete(core, choice, rendered);
 }
 
 /// `tokens::with_pool_details(.., mode, to_place)`: the pools as they stand, the tokens in reinforcements, Letnev's Armada, then the tokens
