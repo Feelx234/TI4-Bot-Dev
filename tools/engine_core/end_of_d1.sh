@@ -91,6 +91,12 @@ step dual-drv "sharded golden dual, driver=dual alone" \
   "TI4_DUAL_FAIL_FAST=1 SHARDS=$SHARDS tools/engine_core/dual_sharded.sh $T/gate/dual_run $CFG $GAMES driver=dual $out/dual-driver-shards"
 step dual-wide "sharded golden dual, the wide mask" \
   "TI4_DUAL_FAIL_FAST=1 SHARDS=$SHARDS tools/engine_core/dual_sharded.sh $T/gate/dual_run $CFG $GAMES $WIDE $out/dual-wide-shards"
+# The lent set (tools/rulebot/golden-lent.json: the factions with most guards) with the probe on, so the table of lent sites is built
+# from 39 games and not only the 20 golden ones (docs/todo/D2-remaining.md 3.1 R6). It counts what the probe sees (the bails of
+# `run_dual_window`/`run_dual_ask`); gate rows, nested windows and the `dual_typed!`/`dual!`/`dual::write` None fallbacks are NOT
+# in the probe yet (that is the lent_sites.py inventory of D2-5r R3): this step widens the corpus, not the kinds of site.
+step dual-lent "sharded dual of the lent set (golden-lent.json), every area on Dual, bail probe on (a second corpus for the census)" \
+  "rm -f $out/bail-probe-lent.tsv; TI4_BAIL_PROBE=$out/bail-probe-lent.tsv TI4_DUAL_FAIL_FAST=1 SHARDS=$SHARDS tools/engine_core/dual_sharded.sh $T/gate/dual_run tools/rulebot/golden-lent.json $GAMES all=dual $out/dual-lent-shards"
 step board-t  "board_equivalence: map templates" \
   "$T/gate/board_equivalence templates"
 step board-g  "board_equivalence: golden positions" \
@@ -107,8 +113,12 @@ for mode in off resolver state resolver,state; do
 done
 step census   "golden lent census: the labels the core bails at (bail probe merged into the table) and the golden games on core / string" \
   "if [[ ! -s $out/bail-probe.tsv ]]; then echo \"census: $out/bail-probe.tsv is missing or empty: it is written by the step dual-all (TI4_BAIL_PROBE); run dual-all first (same --out), or --from dual-all\"; exit 1; fi \
-   && $T/gate/bail_table $out/bail-probe.tsv > $out/bails.rs.txt \
+   && $T/gate/bail_table $out/bail-probe.tsv \$( [[ -s $out/bail-probe-lent.tsv ]] && echo $out/bail-probe-lent.tsv ) > $out/bails.rs.txt \
    && $T/gate/golden check --mask all=core && $T/gate/golden check --mask all=string"
+# Strict product mode (TI4_CORE_STRICT=1: the W17 product assertions, docs/todo/D2-remaining.md finding 5) is exercised by a gate here and
+# only here: dual-all itself must stay un-strict (a strict assertion would turn a counted bail into a panic and empty the probe).
+step strict   "TI4_CORE_STRICT=1: the golden replays on core and the driver dual over the golden games (0 product assertions)" \
+  "TI4_CORE_STRICT=1 $T/gate/golden check --mask all=core && TI4_CORE_STRICT=1 TI4_DUAL_FAIL_FAST=1 SHARDS=$SHARDS tools/engine_core/dual_sharded.sh $T/gate/dual_run $CFG $GAMES driver=dual $out/strict-shards"
 step soak     "soak corpus: one round through the dual (every lane, masks all/driver/wide)" \
   "SOAK_HOLDS_LOCK=1 DUAL_RUN=$T/gate/dual_run SHARDS=$SHARDS SLICE_GAMES=$SOAK_GAMES ROUNDS=1 SOAK_DIR=$out/soak SOAK_WORK=$out/soak-work tools/engine_core/soak.sh run > $out/soak-run.txt 2>&1; rc=\$?; cat $out/soak-run.txt; [[ \$rc == 0 ]] && ! grep -q INCOMPLETE $out/soak-run.txt"
 step d4gate   "the cheap steps of the D4 gate (no engine in the test crate's default build, coverage check, golden check)" \
