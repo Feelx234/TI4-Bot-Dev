@@ -84,14 +84,10 @@ fn infiltrate_needs_plastic_left_in_the_box_counted_as_it_goes_and_a_form_no_rul
     // Two rival docks, the holder's box holds one: the first swaps, the second stays (31.4: "counted as it goes").
     let t = plain_systems();
     let (sys, planet) = (t[1], t[1].data().planets[0]);
-    let other = t[1].data().planets.get(1).copied();
     let mut sc = arena().control(planet, 0).unit(sys, Some(planet), Unit::SpaceDockI, 1, 2);
     // The holder's other two docks stand elsewhere: a box of three holds one.
     let elsewhere = t[2].data().planets[0];
-    sc = sc.unit(t[2], Some(elsewhere), Unit::SpaceDockI, 0, 1);
-    if let Some(p) = other {
-        sc = sc.unit(sys, Some(p), Unit::SpaceDockI, 0, 1);
-    }
+    sc = sc.unit(t[2], Some(elsewhere), Unit::SpaceDockI, 0, 2);
     let s = sc.state();
     let swaps = infiltrate_swaps(&s, ALL, Seat(0), planet, (None, None), &|_| false);
     assert_eq!(swaps.len(), 1, "one dock left in the box, two rival docks: one swap");

@@ -14,7 +14,7 @@
 //! [`Machine::bailed`] names the reason. They are all string-only on purpose and have a test each
 //! (`combat.rs`, `the_composed_combat_*`): a Naaz or Letnev round opening, diplomacy, Assault Cannon or other
 //! hits at the start of a combat, a neutral side,
-//! Duranium Armor, Devotion, a retreat that moves a flipping unit or a Floating Factory or a Last Bastion
+//! Duranium Armor, a retreat that moves a flipping unit or a Floating Factory or a Last Bastion
 //! seat's fleet, a roll that ends the fight, destructions waiting for their announcement, reactions.
 //!
 //! A decision that is pending when the machine stops (`Stop::Pending`) is the string's `pending_choice`; the
@@ -138,7 +138,7 @@ pub use crate::state::CombatFields as Fields;
 pub enum Bail {
     /// A roll that emptied a fleet mid-way (the fight ends inside the roll step).
     RollEndsFight,
-    /// A position outside what the machine carries (a gate of the `Env`, a cancellation, Duranium Armor, Devotion, staged destructions, a retreat the core does not move).
+    /// A position outside what the machine carries (a gate of the `Env`, a cancellation, Duranium Armor, staged destructions, a retreat the core does not move).
     Unported,
 }
 

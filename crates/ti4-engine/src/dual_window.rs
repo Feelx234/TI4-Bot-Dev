@@ -4588,7 +4588,7 @@ fn settle_run(
         use ti4_engine_core::rules::combat::machine::Bail;
         crate::dual::note_bail_here(match why {
             Bail::RollEndsFight => "the machine: a roll that ends the fight",
-            Bail::Unported => "the machine: a position it does not carry (cancelled hits, Duranium, staged destructions, Devotion, a retreat the core does not move)",
+            Bail::Unported => "the machine: a position it does not carry (cancelled hits, Duranium, staged destructions, a retreat the core does not move)",
         });
         return None;
     }
