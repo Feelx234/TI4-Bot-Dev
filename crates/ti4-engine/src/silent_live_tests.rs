@@ -145,6 +145,13 @@ fn mitosis_asks_where_the_infantry_goes_at_the_start_of_the_status_phase_like_th
 
 // -- Winnu (lane G2): Reclamation, the Reclaimer, the marks, Hegemonic Trade Policy and Berekar Berekon -----------------------------------------
 
+/// `assert_same` looks at the source and the subtype of a question's context; the questions of these abilities agree on the whole context (optional, battle,
+/// invasion, target, trigger).
+fn assert_same_contexts(string: &super::turn_live_tests::Run, native: &super::turn_live_tests::Run) {
+    let contexts = |run: &super::turn_live_tests::Run| run.questions.iter().map(|q| serde_json::to_value(&q.context).expect("serializes")).collect::<Vec<_>>();
+    assert_eq!(contexts(string), contexts(native), "the contexts of the questions");
+}
+
 use ti4_engine_core::driver::turn::open_job;
 use ti4_engine_core::state::TurnJob;
 
@@ -215,6 +222,7 @@ fn the_reclaimer_places_one_structure_on_a_planet_it_stands_on_like_the_string()
         }
         let (string, native) = finish_first(&state, &answers);
         assert_same(&string, &native);
+        assert_same_contexts(&string, &native);
         assert!(!string.questions.is_empty());
     }
 }
@@ -256,6 +264,7 @@ fn garv_and_gunn_explore_a_planet_of_the_player_whose_turn_ends_like_the_string(
         let answers: Vec<&str> = answers.iter().map(String::as_str).collect();
         let (string, native) = end_first(&state, &answers);
         assert_same(&string, &native);
+        assert_same_contexts(&string, &native);
         let explored = string.state["exploration_log"].as_array().map_or(0, Vec::len);
         assert_eq!(explored, usize::from(answers[0] != "decline"), "{answers:?}");
     }
@@ -272,5 +281,6 @@ fn ssruus_copy_of_garv_and_gunn_names_the_planet_by_its_name_like_the_string() {
     let planet = planet.to_string();
     let (string, native) = end_first(&state, &["leader:naaz:b:yssarilagent:naazagent:TURN_PASSED:after", &planet]);
     assert_same(&string, &native);
+    assert_same_contexts(&string, &native);
     assert_eq!(string.state["exploration_log"].as_array().map_or(0, Vec::len), 1);
 }

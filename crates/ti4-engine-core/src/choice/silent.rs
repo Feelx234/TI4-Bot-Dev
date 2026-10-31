@@ -95,6 +95,6 @@ impl Ask {
     /// timing context's `ask_seeing` do, the ones it builds by hand do not.
     #[must_use]
     pub const fn carries_trigger(&self) -> bool {
-        matches!(self, Self::Landing(_) | Self::Mitosis | Self::Pillage | Self::Reclaimer | Self::Stillness | Self::NaazAgent | Self::NaazCopy)
+        matches!(self, Self::Landing(_) | Self::Mitosis | Self::Pillage)
     }
 }

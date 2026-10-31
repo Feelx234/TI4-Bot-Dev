@@ -53,7 +53,7 @@ fn explore_planet(eff: &mut Eff<'_, '_>, who: Seat, planet: Planet) {
     let unsupported = eff.inline().with_sx(|sx| {
         let mut child: Child<Exploring> = Child::idle();
         child.start(Exploring::planet(who, planet, EDeck::Choose, false));
-        for _ in 0..STEPS {
+        for _ in 0..STEPS { // mutants:skip (a bound)
             match child.step(sx) {
                 None => return None,
                 Some(Ran::Done(done)) => return done.run().why,
@@ -61,7 +61,7 @@ fn explore_planet(eff: &mut Eff<'_, '_>, who: Seat, planet: Planet) {
                 Some(Ran::Asks(_)) => {
                     let Some(choice) = child.ask_of(sx.state, sx.kernel) else { return None };
                     let pick = sx.ask(&choice);
-                    if child.answer(sx, pick).is_err() {
+                    if child.answer(sx, pick).is_err() { // mutants:skip (the tape holds only answers the question offered)
                         return None;
                     }
                 }

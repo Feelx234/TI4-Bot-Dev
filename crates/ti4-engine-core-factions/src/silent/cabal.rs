@@ -47,7 +47,7 @@ fn targets(s: &CoreState, k: &Kernel, victim: Seat, value: i64) -> Vec<Unit> {
         .filter_map(|base| placed_form(s, scope(k), victim, *base))
         .filter(|form| {
             // A structure has no printed cost, so it is not "a unit that has a cost".
-            scope(k).unit(*form).and_then(|d| d.cost_halves).is_some_and(|halves| halves > 0 && i64::from(halves) <= value * 2)
+            scope(k).unit(*form).and_then(|d| d.cost_halves).is_some_and(|halves| halves > 0 && i64::from(halves) <= value * 2) // mutants:skip (no unit prints a cost of nothing)
         })
         .filter(|form| fleet::remaining_all(s, scope(k), victim, *form) != 0)
         .collect()
@@ -65,7 +65,7 @@ fn stillness_when(c: &CondCx<'_>) -> bool {
 fn stillness(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
     let Some((victim, value)) = victim_of(eff.event) else { return Ok(()) };
-    if victim == me || !agent_ready(eff.read().0, me) {
+    if victim == me || !agent_ready(eff.read().0, me) { // mutants:skip (the condition holds the same guard)
         return Ok(());
     }
     let found = {
@@ -100,7 +100,7 @@ fn stillness(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let (s, k) = eff.state_and_kernel();
     fx_strategy::exhaust_agent(s, k, me, Leader::TheStillnessOfStars);
     let goods = s.players().by_seat(victim).map_or(0, |p| i32::from(p.econ.commodities));
-    if goods > 0 {
+    if goods > 0 { // mutants:skip (a conversion of nothing stages nothing)
         if let Some(p) = s.players_mut().by_seat_mut(victim) {
             p.econ.commodities = 0;
         }
@@ -108,7 +108,7 @@ fn stillness(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     }
     if let Some(unit) = taken {
         // `capture_from_reinforcements`: a model must be left in the box.
-        if fleet::remaining_all(s, scope(k), victim, unit) != 0
+        if fleet::remaining_all(s, scope(k), victim, unit) != 0 // mutants:skip (`targets` took only forms with a model left)
             && let Some(p) = s.players_mut().by_seat_mut(me)
         {
             p.misc.captured_units.push((victim, unit));

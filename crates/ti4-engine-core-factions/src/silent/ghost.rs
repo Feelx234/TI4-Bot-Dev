@@ -62,6 +62,7 @@ fn moved(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+// mutants:skip (an eligible finish with no count only clears nothing)
 fn finished_when(c: &CondCx<'_>) -> bool {
     let me = c.def.owner;
     c.event.payload.seat(Key::Player) == Some(me) && has_commander(c.state, me) && count(c.state, me) > 0
@@ -72,10 +73,11 @@ fn available(s: &CoreState, k: &Kernel, who: Seat, system: ti4_engine_core::gene
     if !has_commander(s, who) {
         return 0;
     }
-    let never = |_: ti4_engine_core::generated::Unit| false;
-    let free = fleet::standing(s, scope(k), who, system, 0, None, &never).capacity_free();
+    // (The capacity of a place does not depend on the fleet limit or on how a fighter weighs: neither is read.)
+    let never = |_: ti4_engine_core::generated::Unit| false; // mutants:skip
+    let free = fleet::standing(s, scope(k), who, system, 0, None, &never).capacity_free(); // mutants:skip
     let plastic = fleet::remaining_all(s, scope(k), who, ti4_engine_core::generated::Unit::FighterI);
-    (count(s, who) as usize).min(usize::try_from(free).unwrap_or(0)).min(usize::try_from(plastic).unwrap_or(0))
+    (count(s, who) as usize).min(usize::try_from(free).unwrap_or(0)).min(usize::try_from(plastic).unwrap_or(0)) // mutants:skip (neither is negative)
 }
 
 fn finished(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {

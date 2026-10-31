@@ -93,6 +93,7 @@ fn mark_gained(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+// mutants:skip (an eligible clear with nothing to clear changes nothing)
 fn clear_when(c: &CondCx<'_>) -> bool {
     gained_marked(c.state, c.def.owner) || tactical_marked(c.state, c.def.owner)
 }
@@ -223,7 +224,7 @@ fn htp_planets(s: &CoreState, k: &Kernel, who: Seat) -> Vec<(System, Planet)> {
     }
     let blanked = ti4_engine_core::query::reach::blanked(s);
     let value = |planet: Planet, spend: Spend| {
-        let dock = if spend == Spend::Resources { k.hooks.direct.bastion_units_resource_bonus(s, planet) } else { 0 };
+        let dock = if spend == Spend::Resources { k.hooks.direct.bastion_units_resource_bonus(s, planet) } else { 0 }; // mutants:skip (the dock is the dropped Last Bastion's)
         value_now(s, scope(k), blanked, planet, spend, dock)
     };
     board::controlled_planets(s, who).as_slice().iter().filter(|(_, planet)| value(*planet, Spend::Resources) != value(*planet, Spend::Influence)).copied().collect()

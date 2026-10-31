@@ -22,7 +22,7 @@ fn claire_when(c: &CondCx<'_>) -> bool {
     c.event.payload.system(Key::System).is_some()
         && board::controls(c.state, me, planet)
         && leaders::has_commander_ability_in(c.state, me, Leader::ClaireGibson)
-        && fleet::remaining_all(c.state, scope(c.kernel), me, Unit::InfantryI) > 0
+        && fleet::remaining_all(c.state, scope(c.kernel), me, Unit::InfantryI) > 0 // mutants:skip (infantry have no plastic limit)
 }
 
 fn claire(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {

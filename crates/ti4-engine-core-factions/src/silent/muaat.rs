@@ -20,11 +20,10 @@ fn magmus_when(c: &CondCx<'_>) -> bool {
 }
 
 fn magmus(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    // (The condition holds who spent the token and that the commander is in force.)
     let me = eff.owner();
-    if eff.event.payload.seat(Key::Player) == Some(me) && ti4_engine_core::query::leaders::has_commander_ability_in(eff.state(), me, Leader::Magmus) {
-        let source = eff.codes().g2.muaat;
-        fx::gain_trade_goods_staged(eff.state(), me, 1, source);
-    }
+    let source = eff.codes().g2.muaat;
+    fx::gain_trade_goods_staged(eff.state(), me, 1, source);
     Ok(())
 }
 
@@ -39,13 +38,9 @@ fn unlock_when(c: &CondCx<'_>) -> bool {
 }
 
 fn unlock(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    // (The condition holds that the commander is locked and that this seat's use made a war sun.)
     let me = eff.owner();
-    if ti4_engine_core::query::leaders::status(eff.state(), me, Leader::Magmus) == Some(LeaderStatus::Locked)
-        && eff.event.payload.seat(Key::Player) == Some(me)
-        && matches!(eff.event.payload.list(Key::Other(eff.codes().production.units)), Some(List::Produced(units)) if units.as_slice().iter().any(|(unit, _)| unit.data().base_type == UnitBaseType::Warsun))
-    {
-        ti4_engine_core::rules::leaders::unlock(eff.state(), me, &[Leader::Magmus]);
-    }
+    ti4_engine_core::rules::leaders::unlock(eff.state(), me, &[Leader::Magmus]);
     Ok(())
 }
 

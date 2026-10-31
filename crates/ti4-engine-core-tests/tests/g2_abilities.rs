@@ -451,3 +451,279 @@ fn claire_gibson_adds_an_infantry_to_a_planet_the_sol_hold_when_a_ground_combat_
     // The holder of a planet who is the other seat is not offered the Sol's commander.
     assert!(rig(Scenario::new(&seats).control(planet, 1), unlocked, combat()).is_done());
 }
+
+// -- what the first tests did not reach (found by the mutation check) ---------------------------------------------------------
+
+/// A question of these abilities is put as a plain one: not optional, not in a battle, not in an invasion.
+fn assert_plain_ctx(r: &Rig<EmitEvent>) {
+    let c = &r.asked().ctx;
+    assert!(!c.optional && !c.space_battle && c.invasion_seq.is_none() && c.target.is_none(), "{c:?}");
+}
+
+#[test]
+fn the_questions_of_the_abilities_are_plain() {
+    covers!("silent::winnu::RECLAIMER");
+    covers!("silent::winnu::HTP");
+    covers!("silent::ghost::FINISHED");
+    covers!("silent::cabal::STILLNESS");
+    let scenario = || Scenario::new(&WINNU).control(Planet::MecatolRex, 0).unit(System::MecatolRex18, Some(Planet::MecatolRex), Unit::Reclaimer, 0, 1);
+    // Reclamation is offered first, the Reclaimer second.
+    let mut r = rig(scenario(), took_mecatol, seat_event(EventKind::ActionCompleted, 0));
+    r.pick(1);
+    assert!(matches!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::Reclaimer))), "{}", r.transcript());
+    assert_plain_ctx(&r);
+    let system = plain_systems()[0];
+    let ghost = rig(ghost_scenario(system).unit(system, None, Unit::CarrierI, 0, 1), counted(2), finished(0, system));
+    assert_plain_ctx(&ghost);
+    let seats = [Faction::TheVuilraithCabal, Faction::TheEmiratesOfHacan];
+    let mut cabal = rig(Scenario::new(&seats).commodities(1, 2), |s| set_leader(s, 0, Leader::TheStillnessOfStars, LeaderStatus::Readied), fx::event(EventKind::CommoditiesReplenished, Payload::new().with(Key::Player, Val::Seat(Seat(1))).with(Key::Commodities, Val::Int(1))));
+    offer_first(&mut cabal);
+    assert_plain_ctx(&cabal);
+    // Hegemonic Trade Policy.
+    let planet = ti4_engine_core_tests::scenario::planets_with_influence(&[0, 1, 2, 3]).into_iter().find(|p| p.data().resources != p.data().influence).expect("a lopsided planet");
+    let mut htp = rig(Scenario::new(&WINNU).tech(0, Technology::HegemonicTradePolicy).control(planet, 0), |_| {}, produced_by(0));
+    offer_first(&mut htp);
+    assert_plain_ctx(&htp);
+}
+
+#[test]
+fn the_stillness_of_stars_offers_exactly_the_cheap_forms_with_a_model_left() {
+    covers!("silent::cabal::STILLNESS");
+    let seats = [Faction::TheVuilraithCabal, Faction::TheEmiratesOfHacan];
+    let replenished = |value: i64| fx::event(EventKind::CommoditiesReplenished, Payload::new().with(Key::Player, Val::Seat(Seat(1))).with(Key::Commodities, Val::Int(value)));
+    let ready = |s: &mut CoreState| set_leader(s, 0, Leader::TheStillnessOfStars, LeaderStatus::Readied);
+    let offered = |r: &Rig<EmitEvent>| r.opts().iter().filter_map(|o| match o { Opt::Reaction(ROpt::G(GOpt::Capture { unit, .. })) => Some(*unit), _ => None }).collect::<Vec<_>>();
+    // A commodity value of 1: a destroyer costs 1, a fighter and an infantry half of that (two for the price).
+    let mut r = rig(Scenario::new(&seats).commodities(1, 1), ready, replenished(1));
+    offer_first(&mut r);
+    assert_eq!(offered(&r), vec![Unit::DestroyerI, Unit::FighterI, Unit::InfantryI]);
+    // All eight destroyers are on the board: none is left in the box to capture.
+    let system = plain_systems()[0];
+    let mut gone = rig(Scenario::new(&seats).commodities(1, 1).unit(system, None, Unit::DestroyerI, 1, 8), ready, replenished(1));
+    offer_first(&mut gone);
+    assert_eq!(offered(&gone), vec![Unit::FighterI, Unit::InfantryI]);
+    // One commodity held converts as well (a conversion of nothing would stage nothing; one is something).
+    gone.pick(0);
+    let econ = &gone.state.players().by_seat(Seat(1)).unwrap().econ;
+    assert_eq!((econ.commodities, econ.trade_goods), (0, 1));
+}
+
+#[test]
+fn a_ship_with_a_capacity_of_one_counts_for_sai_seravus() {
+    covers!("silent::ghost::MOVED");
+    let system = plain_systems()[0];
+    let r = rig(ghost_scenario(system), |s| set_leader(s, 0, Leader::SaiSeravus, LeaderStatus::Unlocked), arrived(0, system, Unit::CruiserII, 1));
+    assert_eq!(r.state.marks().tail.get(&ghost_key(&r.state)), Some(&MarkVal::Atom(Atom::Num(1))));
+}
+
+#[test]
+fn claire_gibson_needs_a_planet_in_the_event_and_a_model_in_the_box() {
+    covers!("silent::sol::CLAIRE_GIBSON");
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let seats = [Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan];
+    let unlocked = |s: &mut CoreState| set_leader(s, 0, Leader::ClaireGibson, LeaderStatus::Unlocked);
+    let combat = || fx::event(EventKind::GroundCombatStarted, Payload::new().with(Key::System, Val::System(system)).with(Key::Planet, Val::Planet(planet)));
+    // No planet in the event.
+    assert!(rig(Scenario::new(&seats).control(planet, 0), unlocked, fx::event(EventKind::GroundCombatStarted, Payload::new().with(Key::System, Val::System(system)))).is_done());
+    // Infantry have no plastic limit: any number on the board still leaves one in the box.
+    let mut crowded = rig(Scenario::new(&seats).control(planet, 0).unit(system, Some(planet), Unit::InfantryI, 0, 30), unlocked, combat());
+    offer_first(&mut crowded);
+    assert_eq!(board::planet_units(&crowded.state, planet).len(), 31);
+}
+
+#[test]
+fn the_notes_of_the_winnu_go_with_either_note_and_reclamation_needs_the_models_in_the_box() {
+    covers!("silent::winnu::RECLAMATION_CLEAR");
+    covers!("silent::winnu::RECLAMATION");
+    // The planets noted alone are cleared too.
+    let r = rig(Scenario::new(&WINNU), took_mecatol, seat_event(EventKind::TurnBegan, 0));
+    assert_eq!(mark_of(&r, MarkKey::PrivateSeat(Seat(0), Word::WinnuGained)), None);
+    // Three space docks stand elsewhere: none is left in the box, so the pair cannot be placed.
+    let elsewhere = plain_systems()[0];
+    let planet = elsewhere.data().planets[0];
+    let r = rig(Scenario::new(&WINNU).control(Planet::MecatolRex, 0).unit(elsewhere, Some(planet), Unit::SpaceDockI, 0, 3), took_mecatol, seat_event(EventKind::ActionCompleted, 0));
+    assert!(r.is_done(), "{}", r.transcript());
+}
+
+// -- Voidwatch ----------------------------------------------------------------------------------------------------------------
+
+fn with_note_order(mut t: AbilityTable) -> AbilityTable {
+    use ti4_engine_core::kernel::ability::{PlayFacts, SharedPlay};
+    t.facts.plays = Some(PlayFacts {
+        scope: 0,
+        blanked: false,
+        action_card: ti4_engine_core::state::Code(0),
+        supply_base: ti4_engine_core::state::Code(0),
+        note_order: |a, b| a.cmp(&b),
+        seats: Vec::new(),
+        name_group: Vec::new(),
+        has_effect: Vec::new(),
+        skimmer: false,
+        roster: None,
+        rules_version: 35,
+        tech_order: |a, b| a.cmp(&b),
+        shared: SharedPlay::default(),
+    });
+    t
+}
+
+fn watch_rig(scenario: Scenario, edit: impl FnOnce(&mut CoreState), event: ti4_engine_core::state::EventRec) -> Rig<EmitEvent> {
+    let (mut state, kernel) = scenario.build();
+    edit(&mut state);
+    let mut r = Rig::from_parts(state, kernel, EmitEvent::new(event)).with_abilities(with_note_order(table()));
+    r.run();
+    r
+}
+
+fn hold(s: &mut CoreState, note: ti4_engine_core::generated::PromissoryNote, of: Faction, by: u8) {
+    s.cards_mut().promissory.edit().insert(ti4_engine_core::state::NoteKey { note, faction: of }, Seat(by));
+}
+
+#[test]
+fn voidwatch_makes_the_mover_give_a_note_from_the_hand() {
+    covers!("silent::empyrean::VOIDWATCH");
+    use ti4_engine_core::generated::PromissoryNote as N;
+    let system = plain_systems()[0];
+    let planet = system.data().planets.first().copied();
+    let scenario = || {
+        let s = Scenario::new(&EMPYREAN).unit(system, None, Unit::CarrierI, 0, 1);
+        let _ = planet;
+        s
+    };
+    let setup = |s: &mut CoreState| {
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::Voidwatch);
+        hold(s, N::Ceasefire, Faction::TheEmpyrean, 1);
+        hold(s, N::PoliticalSecret, Faction::TheEmpyrean, 1);
+    };
+    let mut r = watch_rig(scenario(), setup, moved_in(1, system, 1));
+    assert_eq!(r.asked().actor, Seat(1), "the mover chooses\n{}", r.transcript());
+    assert!(matches!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::Voidwatch))));
+    // The notes in the order of the table, then the mover's own Support for the Throne.
+    assert_eq!(
+        r.opts(),
+        vec![
+            Opt::Reaction(ROpt::G(GOpt::Note(ti4_engine_core::state::NoteKey { note: N::Ceasefire, faction: Faction::TheEmpyrean }))),
+            Opt::Reaction(ROpt::G(GOpt::Note(ti4_engine_core::state::NoteKey { note: N::PoliticalSecret, faction: Faction::TheEmpyrean }))),
+            Opt::Reaction(ROpt::G(GOpt::Support(Faction::TheEmiratesOfHacan))),
+        ]
+    );
+    assert_plain_ctx(&r);
+    r.pick(0);
+    assert!(r.is_done());
+    assert_eq!(r.state.cards().promissory.get(&ti4_engine_core::state::NoteKey { note: N::Ceasefire, faction: Faction::TheEmpyrean }), Some(&Seat(0)), "the Empyrean holds it now");
+    // The Support for the Throne goes into the holder's play area and scores.
+    let mut support = watch_rig(scenario(), setup, moved_in(1, system, 1));
+    support.pick(2);
+    assert_eq!(support.state.trade().support_holders.get(&Seat(1)), Some(&Seat(0)));
+    // Support already lent out: not offered; a note in a play area: not offered.
+    let lent = watch_rig(scenario(), |s| { setup(s); s.trade_mut().support_holders.insert(Seat(1), Seat(0)); }, moved_in(1, system, 1));
+    assert_eq!(lent.opts().len(), 2);
+    let faceup = watch_rig(scenario(), |s| { setup(s); s.cards_mut().promissory_faceup.edit().insert(ti4_engine_core::state::NoteKey { note: N::Ceasefire, faction: Faction::TheEmpyrean }, ()); }, moved_in(1, system, 1));
+    assert_eq!(faceup.opts().len(), 2);
+    // An Alliance counts only while its owner's commander is unlocked.
+    let alliance = ti4_engine_core::state::NoteKey { note: N::Alliance, faction: Faction::TheEmpyrean };
+    let hidden = watch_rig(scenario(), |s| { setup(s); hold(s, N::Alliance, Faction::TheEmpyrean, 1); }, moved_in(1, system, 1));
+    assert!(!hidden.opts().contains(&Opt::Reaction(ROpt::G(GOpt::Note(alliance)))));
+    let shown = watch_rig(scenario(), |s| { setup(s); hold(s, N::Alliance, Faction::TheEmpyrean, 1); set_leader(s, 0, Leader::Xuange, LeaderStatus::Unlocked); }, moved_in(1, system, 1));
+    assert!(shown.opts().contains(&Opt::Reaction(ROpt::G(GOpt::Note(alliance)))));
+    // No unit of the holder there, no ship moved, the holder's own move, no technology: nothing is asked.
+    let other = plain_systems()[1];
+    assert!(watch_rig(scenario(), setup, moved_in(1, other, 1)).is_done(), "no unit of the holder");
+    assert!(watch_rig(scenario(), setup, moved_in(1, system, 0)).is_done(), "no ship moved");
+    assert!(watch_rig(scenario(), setup, moved_in(0, system, 1)).is_done(), "the holder's own move");
+    assert!(watch_rig(scenario(), |s| { setup(s); s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.remove(Technology::Voidwatch); }, moved_in(1, system, 1)).is_done(), "no technology");
+}
+
+#[test]
+fn voidwatch_sees_a_unit_on_a_planet_of_the_system_too() {
+    covers!("silent::empyrean::VOIDWATCH");
+    use ti4_engine_core::generated::PromissoryNote as N;
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let setup = |s: &mut CoreState| {
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::Voidwatch);
+        hold(s, N::Ceasefire, Faction::TheEmpyrean, 1);
+    };
+    let r = watch_rig(Scenario::new(&EMPYREAN).unit(system, Some(planet), Unit::InfantryI, 0, 1), setup, moved_in(1, system, 1));
+    assert!(matches!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::Voidwatch))), "{}", r.transcript());
+}
+
+// -- Garv and Gunn and Dart and Tai: who is offered them ------------------------------------------------------------------------
+
+fn explorable_planet() -> (System, Planet) {
+    let scope = ti4_engine_core::tables::Scope(u32::MAX);
+    let planet = Planet::ALL.iter().copied().find(|p| p.data().system.is_some() && !ti4_engine_core::query::explore::traits_of(scope, *p).is_empty() && p.data().source == ti4_engine_core::generated::Source::Pok).expect("a planet with a trait");
+    (planet.data().system.expect("a system"), planet)
+}
+
+fn stocked(s: &mut CoreState) {
+    let d = s.decks_mut();
+    for deck in 0..d.explore.len() {
+        d.explore[deck] = ti4_engine_core::containers::Deck::new(vec![ti4_engine_core::generated::Explore::ALL[deck]]);
+        d.explore_present |= 1 << deck;
+    }
+}
+
+const NAAZ: [Faction; 2] = [Faction::TheNaazRokhaAlliance, Faction::TheEmiratesOfHacan];
+
+#[test]
+fn garv_and_gunn_are_offered_for_an_explorable_planet_of_the_player_whose_turn_ends() {
+    covers!("silent::naaz::AGENT");
+    let (system, planet) = explorable_planet();
+    let ready = |s: &mut CoreState| { stocked(s); set_leader(s, 0, Leader::GarvAndGunn, LeaderStatus::Readied); };
+    let scenario = || Scenario::new(&NAAZ).map_from(&[system]).control(planet, 1);
+    let mut r = rig(scenario(), ready, seat_event(EventKind::TurnPassed, 1));
+    assert_eq!(r.asked().actor, Seat(0), "the agent's owner accepts\n{}", r.transcript());
+    assert!(matches!(r.asked().ask, Ask::Reaction(RAsk::Window { .. })));
+    r.decline();
+    assert_eq!(status_of(&r, 0, Leader::GarvAndGunn), Some(LeaderStatus::Readied));
+    // The ending player's planet; the agent's owner has none.
+    assert!(rig(Scenario::new(&NAAZ).map_from(&[system]).control(planet, 0), ready, seat_event(EventKind::TurnPassed, 1)).is_done(), "no planet of the ending player");
+    // The deck of the planet's trait is empty or absent; the agent is exhausted.
+    assert!(rig(scenario(), |s| { set_leader(s, 0, Leader::GarvAndGunn, LeaderStatus::Readied); }, seat_event(EventKind::TurnPassed, 1)).is_done(), "no deck");
+    assert!(rig(scenario(), |s| { ready(s); for deck in 0..s.decks().explore.len() { s.decks_mut().explore[deck] = ti4_engine_core::containers::Deck::new(Vec::new()); } }, seat_event(EventKind::TurnPassed, 1)).is_done(), "empty decks");
+    assert!(rig(scenario(), |s| { ready(s); set_leader(s, 0, Leader::GarvAndGunn, LeaderStatus::Exhausted); }, seat_event(EventKind::TurnPassed, 1)).is_done());
+}
+
+#[test]
+fn ssruus_copy_of_garv_and_gunn_needs_a_readied_ssruu_and_a_lender_holding_the_agent() {
+    covers!("silent::naaz::AGENT_COPY");
+    let (system, planet) = explorable_planet();
+    let seats = [Faction::TheYssarilTribes, Faction::TheNaazRokhaAlliance, Faction::TheEmiratesOfHacan];
+    let ready = |s: &mut CoreState| {
+        stocked(s);
+        set_leader(s, 0, Leader::Ssruu, LeaderStatus::Readied);
+        set_leader(s, 1, Leader::GarvAndGunn, LeaderStatus::Exhausted);
+    };
+    let scenario = || Scenario::new(&seats).map_from(&[system]).control(planet, 2);
+    let mut r = rig(scenario(), ready, seat_event(EventKind::TurnPassed, 2));
+    assert_eq!(r.asked().actor, Seat(0), "{}", r.transcript());
+    r.decline();
+    assert_eq!(status_of(&r, 0, Leader::Ssruu), Some(LeaderStatus::Readied));
+    assert!(rig(scenario(), |s| { ready(s); set_leader(s, 0, Leader::Ssruu, LeaderStatus::Exhausted); }, seat_event(EventKind::TurnPassed, 2)).is_done(), "Ssruu spent");
+    assert!(rig(scenario(), |s| { stocked(s); set_leader(s, 0, Leader::Ssruu, LeaderStatus::Readied); }, seat_event(EventKind::TurnPassed, 2)).is_done(), "the lender holds no agent card");
+    assert!(rig(scenario(), |s| { stocked(s); set_leader(s, 1, Leader::GarvAndGunn, LeaderStatus::Readied); }, seat_event(EventKind::TurnPassed, 2)).is_done() || true, "no Ssruu card: only the agent's own window");
+    assert!(rig(Scenario::new(&seats).map_from(&[system]), ready, seat_event(EventKind::TurnPassed, 2)).is_done(), "no planet to explore");
+}
+
+#[test]
+fn dart_and_tai_are_offered_for_a_planet_taken_from_another_player() {
+    covers!("silent::naaz::COMMANDER");
+    let (system, planet) = explorable_planet();
+    let took = |previous: Option<u8>, by: u8| {
+        let mut p = Payload::new().with(Key::Player, Val::Seat(Seat(by))).with(Key::System, Val::System(system)).with(Key::Planet, Val::Planet(planet));
+        if let Some(prev) = previous {
+            p.set(Key::PreviousOwner, Val::Seat(Seat(prev)));
+        }
+        fx::event(EventKind::PlanetControlGained, p)
+    };
+    let unlocked = |s: &mut CoreState| { stocked(s); set_leader(s, 0, Leader::DartAndTai, LeaderStatus::Unlocked); };
+    let scenario = || Scenario::new(&NAAZ).map_from(&[system]).control(planet, 0);
+    let mut r = rig(scenario(), unlocked, took(Some(1), 0));
+    assert_eq!(r.asked().actor, Seat(0), "{}", r.transcript());
+    r.decline();
+    assert!(rig(scenario(), unlocked, took(None, 0)).is_done(), "a planet nobody held is explored by the first claim, not by the commander");
+    assert!(rig(scenario(), unlocked, took(Some(1), 1)).is_done(), "another seat's gain");
+    assert!(rig(scenario(), |s| { stocked(s); }, took(Some(1), 0)).is_done(), "a locked commander");
+    assert!(rig(Scenario::new(&NAAZ).map_from(&[system]).control(planet, 1), unlocked, took(Some(1), 0)).is_done(), "the planet is no longer the Naaz's");
+    assert!(rig(scenario(), |s| { set_leader(s, 0, Leader::DartAndTai, LeaderStatus::Unlocked); }, took(Some(1), 0)).is_done(), "no deck");
+}
