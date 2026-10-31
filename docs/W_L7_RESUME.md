@@ -59,7 +59,12 @@ neighbours before the forge, the Nucleus exhausting only its own card (`the_nucl
 Star Forge test), a faction rule that bars a form (`a_faction_rule_that_bars_the_form_hides_it_and_places_none`), the box cap of `place_counted`
 (`units_are_placed_only_as_far_as_the_box_holds`), the facts of the chosen player in a shared system. Equivalent mutants: the `sort_unstable` of the
 war-sun / flagship / planet lists (the board iterates in id order already) and the "pick was offered" guard of `Umbat::answer` (the driver
-rejects an unoffered pick first). Batch 2 (`production/one.rs`, `ChaosMapping`) and batch 3 (re-run of the six closed survivors): see the report.
+rejects an unoffered pick first). Batch 2 (24 mutants of `production/one.rs` and `ChaosMapping`): 16 killed, 8 survived, 1 invalid snippet. Closed by new tests (batch 3: 10 of 10
+killed, together with the six survivors of batch 1): the staged Naaz mech, the fleet-supply-only `unsupported`, the start value of `unsupported`,
+the named effect's origin and optional flag. Equivalent mutants: the one-spot test of the placement question (`> 0` for `> 1`; with one spot the
+step places without asking), the affordability re-check at the choice (a candidate is affordable by construction), the "pick was offered" guards of
+`ProduceOne::answer` and `ChaosMapping::answer` (the driver rejects it first). Open, low value: the `paid` argument of `pay_opts` in the
+`Paying` step (a mutant passing 0 survived).
 
 ## Not run (by the directive)
 
