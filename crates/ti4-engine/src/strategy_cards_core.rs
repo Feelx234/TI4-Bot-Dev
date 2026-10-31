@@ -441,34 +441,18 @@ mod real {
         Some(CoreWindow { run: Run::new(value).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
-    /// The core half of the primary of the Thunder's Edge Construction (`te4construction`): the choice of a structure
-    /// or a production, then the structures. `systems` are the ones that can produce (the string's
-    /// `production::capacity`). `None` as for [`construction`], and where the holder chooses the production: a whole
-    /// production window nested in the card (the string's).
+    /// The core half of the primary of the Thunder's Edge Construction (`te4construction`): the choice of a structure or a use of
+    /// PRODUCTION, the use as a child window of the production area (the facts of each system that can produce, `systems` in the string's
+    /// order), then the structures. `None` as for [`construction`], and where the use holds something the core does not carry.
     pub fn construction_te(
         gs: &mut GameState,
         content: &ContentStore,
         sources: SourceSet,
         player: &PlayerId,
-        systems: &[ti4_model::id::SystemId],
+        _systems: &[ti4_model::id::SystemId],
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script) {
-            crate::dual::note_bail_here(why);
-            return None;
-        }
-        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
-        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
-        let facts = structure_facts(gs, content, sources, player, &r)?;
-        let producing: Vec<ti4_engine_core::generated::System> =
-            systems.iter().map(|s| crate::core_adapter::typed::<ti4_engine_core::generated::System>(s.as_str())).collect::<Option<_>>()?;
-        let window = Construction::new_te(seat, facts, r.code("te4construction"), &producing);
-        let (window, driven) = run_production(gs, &mut cx, &r, window, seat, script, &|_, _, _| {})?;
-        if window.produces {
-            crate::dual::note_bail("strategy_cards::te4_construction", "the production of the Thunder's Edge Construction (a production window nested in the card)");
-            return None;
-        }
-        Some(finish(&driven, &window))
+        crate::hero_dual::te_construction(gs, content, sources, player, script)
     }
 
     // -- Thunder's Edge Warfare -----------------------------------------------------------------------------

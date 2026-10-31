@@ -1345,8 +1345,15 @@ fn use_leader_strategy_primary(
             let mut inner = TimingContext { state: s, content, sources: sources.clone(), table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
             let done = hero_primary_string(&mut inner, player, cards.clone());
             let value = match &done {
-                Ok((card, ability)) => (Some(card.to_string()), *ability == crate::strategy_cards::Ability::Resolved),
-                Err(_) => (None, false),
+                Ok((card, ability)) => (
+                    Some(card.to_string()),
+                    *ability == crate::strategy_cards::Ability::Resolved,
+                    match ability {
+                        crate::strategy_cards::Ability::FreeTactical(system) => Some(system.to_string()),
+                        _ => None,
+                    },
+                ),
+                Err(_) => (None, false, None),
             };
             result = Some(done);
             crate::dual::Run::new(value)

@@ -809,7 +809,7 @@ pub enum WStage {
 /// follow its secondary." The seat chooses one of `cards` (a question even for one) and the primary of the card is performed by the
 /// ability's own window as a child ([`fx_perform::begin`]); who may follow is the game's (`Game::select_leader_strategy_followers`).
 /// [`Self::chosen`]: the card. `unsupported`: a primary the core does not carry (the Imperial primary at a table the scoring tables do not follow, the Thunder's Edge Construction and
-/// Warfare primaries, a hook-changed draw, a research a faction waiver opens) or no link to the child.
+/// Warfare primaries at a table whose facts the adapter could not give, a hook-changed draw, a research a faction waiver opens) or no link to the child.
 /// [`Self::tokens`]: the system the Diplomacy primary placed tokens in and the seats that got one, announced by the adapter.
 #[derive(Debug, Clone)]
 pub struct WinnuHero {
@@ -822,13 +822,17 @@ pub struct WinnuHero {
     pub tokens: Option<(System, SmallList<Seat, 8>)>,
     /// The public objective the Imperial primary scored (what the score sets off is the adapter's).
     pub scored: Option<crate::generated::PublicObjective>,
+    /// The system of the free tactical action of the Thunder's Edge Warfare primary: the game plays it next (`Ability::FreeTactical`).
+    pub free: Option<System>,
+    /// What the use of PRODUCTION of the Thunder's Edge Construction primary made, with the system it ran in (the adapter announces it).
+    pub produced: Option<(System, Made)>,
     pub unsupported: bool,
 }
 
 impl WinnuHero {
     #[must_use]
     pub fn new(who: Seat, facts: PerformFacts, cards: Vec<StrategyCard>) -> Self {
-        Self { who, facts, cards, stage: WStage::Start, chosen: None, child: ErasedChild::idle(), tokens: None, scored: None, unsupported: false }
+        Self { who, facts, cards, stage: WStage::Start, chosen: None, child: ErasedChild::idle(), tokens: None, scored: None, free: None, produced: None, unsupported: false }
     }
 }
 
@@ -850,6 +854,8 @@ impl Window for WinnuHero {
                         self.unsupported |= done.failed;
                         self.tokens = done.tokens;
                         self.scored = done.scored;
+                        self.free = done.free;
+                        self.produced = done.made.zip(done.made_in).map(|(made, system)| (system, made));
                         self.stage = WStage::Done;
                     }
                     None => self.stage = WStage::Done,

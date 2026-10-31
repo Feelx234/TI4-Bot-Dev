@@ -271,6 +271,7 @@ mod real {
         player: &PlayerId,
         seat: ti4_engine_core::ids::Seat,
         r: &crate::render::Render,
+        cards: &[ti4_engine_core::generated::StrategyCard],
     ) -> ti4_engine_core::kernel::fx_perform::Facts {
         let content = ti4_content::ContentStore::embedded();
         ti4_engine_core::kernel::fx_perform::Facts {
@@ -282,7 +283,62 @@ mod real {
             mahact_held: gs.tokens_held_by_mahact(player),
             home: home_of(gs, content, sources, player, seat),
             imperial: crate::strategy_cards_core::imperial_facts(gs, content, sources.clone(), galaxy, player).ok().map(|(facts, _)| facts),
+            free: free_systems(gs, galaxy, r, cards),
+            te_uses: te_uses(gs, content, sources, player, seat, r, cards),
         }
+    }
+
+    /// The systems the free tactical action of the Thunder's Edge Warfare primary is offered in (`strategy_cards::te6_warfare`): the printed
+    /// map and every system in play beside it, in the string's order; none outside the action phase or without a galaxy. `None`: a system
+    /// the typed tables do not know, or more than the facts hold (only asked for when the card is among `cards`).
+    pub(crate) fn free_systems(
+        gs: &GameState,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        r: &crate::render::Render,
+        cards: &[ti4_engine_core::generated::StrategyCard],
+    ) -> Option<ti4_engine_core::kernel::children::FreeSystems> {
+        use ti4_engine_core::kernel::children::FreeSystems;
+        let source = r.code("te6warfare");
+        let mut ids: Vec<String> = Vec::new();
+        if let (true, Some(galaxy), true) = (cards.contains(&ti4_engine_core::generated::StrategyCard::WarfareThundersEdge), galaxy, gs.phase == ti4_model::state::Phase::Action) {
+            ids = galaxy.system_ids_holding_things().into_iter().map(ToOwned::to_owned).collect();
+            for system in gs.board.keys() {
+                if !galaxy.is_hyperlane(system.as_str()) && !ids.iter().any(|s| s == system.as_str()) {
+                    ids.push(system.to_string());
+                }
+            }
+        }
+        let systems: Vec<System> = ids.iter().map(|id| typed::<System>(id)).collect::<Option<_>>()?;
+        FreeSystems::new(source, &systems)
+    }
+
+    /// The uses of PRODUCTION the Thunder's Edge Construction primary may choose (`strategy_cards::te4_construction`): the facts of the use in
+    /// each system of the board that can produce, in the order of the board. `None`: a table the production windows do not carry, or more
+    /// systems than the facts hold (only asked for when the card is among `cards`).
+    pub(crate) fn te_uses(
+        gs: &GameState,
+        content: &ti4_content::ContentStore,
+        sources: &SourceSet,
+        player: &PlayerId,
+        seat: ti4_engine_core::ids::Seat,
+        r: &crate::render::Render,
+        cards: &[ti4_engine_core::generated::StrategyCard],
+    ) -> Option<ti4_engine_core::kernel::children::TeUses> {
+        use ti4_engine_core::kernel::children::TeUses;
+        let source = r.code("te4construction");
+        let mut uses = Vec::new();
+        if cards.contains(&ti4_engine_core::generated::StrategyCard::ConstructionThundersEdge) {
+            for system in gs.board.keys().filter(|system| crate::production::capacity(gs, content, sources.clone(), player, system) > 0) {
+                match crate::leaders_core::home_facts(gs, content, sources.clone(), seat, player, system) {
+                    Ok(facts) => uses.push(facts),
+                    Err(why) => {
+                        crate::dual::note_bail_here(why);
+                        return None;
+                    }
+                }
+            }
+        }
+        TeUses::new(source, &uses)
     }
 
     /// What the Warfare secondary finds at the seat's home system (`strategy_cards::home_production`): nothing without a home system or
@@ -352,7 +408,7 @@ mod real {
             Sources::default(),
             crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM).union(Footprint::new(&[Slice::Objectives], &[Slice::Objectives])),
             |core, _| {
-                let facts = perform_facts(core, &before, sources, galaxy, player, seat, &r);
+                let facts = perform_facts(core, &before, sources, galaxy, player, seat, &r, &list);
                 home_system = match facts.home {
                     ti4_engine_core::kernel::fx_perform::Home::Use(home) => Some(home.produce.system),
                     _ => None,
@@ -384,7 +440,7 @@ mod real {
     }
 
     /// The core half of Winnu's Mathis Mathinus (`factions::winnu::use_leader_strategy_primary`; the value: the card chosen and whether its
-    /// primary resolved plainly). `cards` are the strategy cards the string offers, in its order.
+    /// primary resolved plainly, the system of the free tactical action the Thunder's Edge Warfare primary leaves to the game). `cards` are the strategy cards the string offers, in its order.
     pub fn winnu_hero(
         gs: &mut GameState,
         player: &PlayerId,
@@ -392,7 +448,7 @@ mod real {
         sources: &SourceSet,
         galaxy: Option<&ti4_content::galaxy::Galaxy>,
         script: &Recording,
-    ) -> Option<CoreWindow<(Option<String>, bool)>> {
+    ) -> Option<CoreWindow<(Option<String>, bool, Option<String>)>> {
         use ti4_engine_core::generated::StrategyCard;
         if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
@@ -427,22 +483,30 @@ mod real {
             Sources::default(),
             crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM).union(Footprint::new(&[Slice::Objectives], &[Slice::Objectives])),
             |core, _| {
-                let facts = perform_facts(core, &before, sources, galaxy, player, seat, &r);
+                let facts = perform_facts(core, &before, sources, galaxy, player, seat, &r, &list);
                 let mut driver = Driver::new(WinnuHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
-                let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
+                let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &details);
                 staged = std::mem::take(&mut core.pending_mut().staged);
-                out = Some((driver.window.chosen, driver.window.tokens.clone(), driver.window.scored, driver.window.unsupported));
+                out = Some((driver.window.chosen, driver.window.tokens.clone(), driver.window.scored, driver.window.unsupported, driver.window.free, driver.window.produced.clone()));
                 driven
             },
         )
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        let (chosen, tokens, scored, unsupported) = out?;
+        let (chosen, tokens, scored, unsupported, free, produced) = out?;
         if unsupported {
-            crate::dual::note_bail_here("an ability the core does not carry (the Imperial primary at a table the scoring tables do not follow, a Thunder's Edge primary, a changed draw, a research a waiver opens)");
+            crate::dual::note_bail_here("an ability the core does not carry (the Imperial primary at a table the scoring tables do not follow, a Thunder's Edge primary at a table whose facts the core could not take, a changed draw, a research a waiver opens)");
+            return None;
+        }
+        let announced = produced.as_ref().is_some_and(|(_, made)| !made.as_slice().is_empty());
+        if announced && !staged.is_empty() {
+            crate::dual::note_bail_here("staged events of the primary would interleave with the announcement of its production");
             return None;
         }
         crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        if let Some((system, made)) = produced {
+            announce_use(gs, player, system, &made);
+        }
         crate::action_cards_view::stage_placed_tokens(gs, &r, tokens.map(|(system, seats)| (system, seats.as_slice().to_vec())));
         // What a public score sets off (leaders unlocking, Yin's breakthrough) and the winner are the string's tail of the primary.
         if let Some(objective) = scored {
@@ -452,7 +516,64 @@ mod real {
             gs.finished = crate::objectives::winner(gs).is_some();
         }
         let card = chosen.map(|card| crate::generated::IdStr::as_str(card).to_owned());
-        Some(CoreWindow { run: Run::new((card, true)).with_events_vec(Vec::new()), questions: driven.rendered })
+        let free = free.map(|system| system.as_str().to_owned());
+        Some(CoreWindow { run: Run::new((card, free.is_none(), free)).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
+    /// What the primary of the Thunder's Edge Construction reads (the production view, the staged events) and writes (the structures and the
+    /// units, the payment, the staged events).
+    const TE_CONSTRUCTION: Footprint = Footprint {
+        reads: crate::production_view::READS.union(ti4_engine_core::state::SliceSet::of(&[Slice::Pending])),
+        writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Cards, Slice::Transient, Slice::Marks, Slice::Pending]),
+    };
+
+    /// The core half of the primary of the Thunder's Edge Construction played by its holder (`strategy_cards::te4_construction`; the value: it
+    /// resolved): the choice of a structure or a use of PRODUCTION, the use as a child window of the production area, and the structures.
+    pub fn te_construction(
+        gs: &mut GameState,
+        content: &ti4_content::ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::generated::StrategyCard;
+        use ti4_engine_core::rules::production::strategy_cards::Construction;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let facts = crate::strategy_cards_core::structure_facts(gs, content, sources.clone(), player, &r)?;
+        let uses = te_uses(gs, content, &sources, player, seat, &r, &[StrategyCard::ConstructionThundersEdge])?;
+        let list: Vec<_> = uses.uses().collect();
+        let window = Construction::new_te_producing(seat, facts, uses.source, &list);
+        let before = gs.clone();
+        let kernel = crate::production_view::kernel_of(sources.clone());
+        let mut staged = Vec::new();
+        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), performing_table(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), TE_CONSTRUCTION, |core, _| {
+            let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &|_, _, _| {});
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported || driver.window.produces {
+            crate::dual::note_bail_here("the use of PRODUCTION of the Thunder's Edge Construction holds something the core does not carry");
+            return None;
+        }
+        let produced = driver.window.produced.clone();
+        let announced = produced.as_ref().is_some_and(|(_, made)| !made.as_slice().is_empty());
+        if announced && !staged.is_empty() {
+            crate::dual::note_bail_here("staged events of the primary would interleave with the announcement of its production");
+            return None;
+        }
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        if let Some((system, made)) = produced {
+            announce_use(gs, player, system, &made);
+        }
+        Some(CoreWindow { run: Run::new(true).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
     /// What Conservator Procyon reads (the ships, the decks, the seat's holdings) and writes (the frontier tokens, the log, the cards, the
@@ -633,7 +754,7 @@ mod stub {
         _: &ti4_model::content_types::SourceSet,
         _: Option<&ti4_content::galaxy::Galaxy>,
         _: &crate::dual_window::Recording,
-    ) -> Option<crate::dual::CoreWindow<(Option<String>, bool)>> {
+    ) -> Option<crate::dual::CoreWindow<(Option<String>, bool, Option<String>)>> {
         None
     }
 

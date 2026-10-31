@@ -11,12 +11,13 @@
 //! ability):
 //! * the Warfare secondary at a table the production windows do not carry (the adapter gave no facts);
 //! * the Imperial primary where the scoring tables do not follow the position (the adapter gave no facts);
-//! * the Thunder's Edge Construction and Warfare primaries (the choice of a production, the free tactical action).
+//! * the Thunder's Edge Construction and Warfare primaries at a table whose facts the adapter could not give ([`Facts::free`],
+//!   [`Facts::te_uses`]: more systems than the facts hold, a use of PRODUCTION the production windows do not carry).
 
 use crate::containers::SmallList;
 use crate::generated::{PublicObjective, StrategyCard, StrategyCardKind, System};
 use crate::ids::Seat;
-use crate::kernel::children::{HomeFacts, ImperialFacts, Made, Report, Spawn, StructureFacts};
+use crate::kernel::children::{FreeSystems, HomeFacts, ImperialFacts, Made, Report, Spawn, StructureFacts, TeUses};
 use crate::kernel::fx;
 use crate::kernel::stage::Sx;
 use crate::query::tech::UnitRoster;
@@ -82,6 +83,11 @@ pub struct Facts {
     pub home: Home,
     /// The Imperial primary's scoring facts (`None`: the primary is the string's).
     pub imperial: Option<ImperialFacts>,
+    /// The systems of the free tactical action of the Thunder's Edge Warfare primary (an empty list: the string resolves it with no question;
+    /// `None`: the primary is the string's).
+    pub free: Option<FreeSystems>,
+    /// The uses of PRODUCTION the Thunder's Edge Construction primary may choose (`None`: the primary is the string's).
+    pub te_uses: Option<TeUses>,
 }
 
 /// How an ability began.
@@ -132,25 +138,34 @@ pub fn begin(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, f: F
             Began::Run(Spawn::Research { who, primary, cost, scope: f.scope, roster })
         }
         (StrategyCardKind::Leadership, primary) => {
-            // A command token held in a Mahact pool changes the reinforcements the pool questions preview.
-            if !carried.payments || f.mahact_held > 0 {
+            // (A command token held in a Mahact pool is not in the reinforcements: `fx::tokens_in_reinforcements` reads the marks.)
+            if !carried.payments {
                 return Began::Unsupported;
             }
             Began::Run(Spawn::Leadership { who, primary })
         }
         (StrategyCardKind::Construction, primary) => {
-            // The Thunder's Edge primary asks a structure or a production first (the production is the string's).
-            let (Some(facts), false) = (carried.structures, primary && card == StrategyCard::ConstructionThundersEdge) else {
-                return Began::Unsupported;
-            };
+            let Some(facts) = carried.structures else { return Began::Unsupported };
+            // The Thunder's Edge primary asks a structure or a use of PRODUCTION first.
+            if primary && card == StrategyCard::ConstructionThundersEdge {
+                return match f.te_uses {
+                    Some(uses) => Began::Run(Spawn::ConstructionTe { who, facts, uses }),
+                    None => Began::Unsupported,
+                };
+            }
             Began::Run(Spawn::Construction { who, primary, facts })
         }
         (StrategyCardKind::Warfare, true) => {
-            // The Thunder's Edge primary is a free tactical action (the string's).
-            if f.mahact_held > 0 || card == StrategyCard::WarfareThundersEdge {
-                return Began::Unsupported;
+            let letnev_pool = f.rules_version >= RULES_LETNEV_FLEET_POOL;
+            // The Thunder's Edge primary: the redistribution, then a tactical action without a command token (the game's).
+            if card == StrategyCard::WarfareThundersEdge {
+                return match f.free {
+                    Some(free) if free.systems().is_empty() => Began::Done,
+                    Some(free) => Began::Run(Spawn::TeWarfare { who, letnev_pool, free }),
+                    None => Began::Unsupported,
+                };
             }
-            Began::Run(Spawn::Warfare { who, letnev_pool: f.rules_version >= RULES_LETNEV_FLEET_POOL })
+            Began::Run(Spawn::Warfare { who, letnev_pool })
         }
         (StrategyCardKind::Diplomacy, primary) => {
             let base_printing = primary && card == StrategyCard::DiplomacyBase && f.rules_version >= RULES_BASE_DIPLOMACY;
@@ -178,12 +193,16 @@ pub struct Finished {
     pub made: Option<Made>,
     /// The public objective the Imperial primary scored (what the score sets off is the adapter's).
     pub scored: Option<PublicObjective>,
+    /// The system of the free tactical action of the Thunder's Edge Warfare primary: the game plays it next (`Ability::FreeTactical`).
+    pub free: Option<System>,
+    /// The system of the use of PRODUCTION the Thunder's Edge Construction primary ran, when it ran one (`made` is what it made).
+    pub made_in: Option<System>,
 }
 
 /// What the ability announces when it is done, from the [`Report`] of its window: the three trade goods of the Trade primary
 /// (staged, as the string stages them after its window). `trade_source` is the interned `trade_primary`.
 pub fn finish(report: Report, s: &mut CoreState, trade_source: Code) -> Finished {
-    let none = Finished { failed: false, tokens: None, made: None, scored: None };
+    let none = Finished { failed: false, tokens: None, made: None, scored: None, free: None, made_in: None };
     match report {
         Report::Left => Finished { failed: true, ..none },
         Report::Placed(system, seats) => Finished { tokens: Some((system, seats)), ..none },
@@ -193,6 +212,9 @@ pub fn finish(report: Report, s: &mut CoreState, trade_source: Code) -> Finished
         }
         Report::Made(made) => Finished { made: Some(made), ..none },
         Report::Scored(scored) => Finished { scored, ..none },
+        Report::Free(free) => Finished { free, ..none },
+        Report::Produced(Some((system, made))) => Finished { made: Some(made), made_in: Some(system), ..none },
+        Report::Produced(None) => none,
         Report::Nothing | Report::Paid(_) | Report::Chose(_) | Report::Destroyed(_) | Report::Built(_) | Report::Removed(_) => none,
     }
 }

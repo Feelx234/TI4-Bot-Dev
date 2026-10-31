@@ -19,7 +19,7 @@ use crate::rules::production::home::HomeProduction;
 use crate::rules::production::one::ProduceOne;
 use crate::rules::production::window::ProductionWindow;
 use crate::rules::tactical::fleet::{Enforce, Limits};
-use crate::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, Politics, WarfarePrimary};
+use crate::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, Politics, TeWarfare, WarfarePrimary};
 use crate::rules::strategy_windows::{TradePrimary, TRADE_PRIMARY_GOODS};
 
 /// Install the links of the areas whose windows an action card runs as children.
@@ -45,6 +45,11 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
         Spawn::Construction { who, primary, facts } => Erased::boxed(Construction::new(*who, *primary, *facts), |_| Report::Nothing),
         Spawn::TitanBuild { who, facts, goods } => Erased::boxed(TitanBuild::new(*who, *facts, *goods), |w| Report::Built(w.built)),
         Spawn::Politics { who, primary, official } => Erased::boxed(Politics::new(*who, *primary, *official), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
+        Spawn::ConstructionTe { who, facts, uses: te } => {
+            let uses: Vec<_> = te.uses().collect();
+            Erased::boxed(Construction::new_te_producing(*who, *facts, te.source, &uses), |w| if w.unsupported { Report::Left } else { Report::Produced(w.produced.clone()) })
+        }
+        Spawn::TeWarfare { who, letnev_pool, free } => Erased::boxed(TeWarfare::new(*who, free.systems(), *letnev_pool, free.source), |w| Report::Free(w.chosen)),
         Spawn::Warfare { who, letnev_pool } => Erased::boxed(WarfarePrimary::new(*who, *letnev_pool), |_| Report::Nothing),
         Spawn::Diplomacy { who, card, primary, base_printing } => {
             let mode = if *primary { DMode::Primary { base_printing: *base_printing } } else { DMode::Secondary };

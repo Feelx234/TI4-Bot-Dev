@@ -10,6 +10,7 @@ use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
 use crate::generated::{System, UnitBaseType};
 use crate::ids::Seat;
+use crate::kernel::children::{HomeFacts, Made};
 use crate::kernel::fx;
 use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -19,6 +20,7 @@ use crate::state::{Code, CoreState};
 use crate::tables::Scope;
 
 use crate::rules::production as prod;
+use super::home::HomeProduction;
 use super::pay::{PayBill, PayStep, Stage as PayStage};
 use super::{Cx as ProdCx, Extras};
 
@@ -232,6 +234,8 @@ pub enum CStage {
     Start,
     /// The Thunder's Edge printing: a structure or a production?
     Ability,
+    /// The use of PRODUCTION the Thunder's Edge primary chose (a child window of the production area).
+    Producing,
     /// The first (or only) structure.
     First,
     /// The primary's second structure (a PDS).
@@ -243,7 +247,7 @@ pub enum CStage {
 /// secondary (one PDS or space dock). The Titans' alternative to a PDS, the production Minister of Industry
 /// grants after a space dock and a unit form the unit tables do not name stay with the string caller (the
 /// adapter bails).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Construction {
     pub who: Seat,
     primary: bool,
@@ -251,8 +255,15 @@ pub struct Construction {
     stage: CStage,
     /// The Thunder's Edge primary: the interned `te4construction` and the systems that can produce.
     te: Option<(Code, Vec<System>)>,
-    /// The holder chose the production of the Thunder's Edge primary (a whole production window, the string's).
+    /// The facts of the use of PRODUCTION in each of those systems ([`Self::with_uses`]); empty: the production is not carried.
+    uses: Vec<HomeFacts>,
+    using: Child<HomeProduction>,
+    /// The holder chose the production of the Thunder's Edge primary and the window does not carry it (no facts for the use): the window ends.
     pub produces: bool,
+    /// The use of PRODUCTION the Thunder's Edge primary ran: the system and what it made.
+    pub produced: Option<(System, Made)>,
+    /// The use of PRODUCTION held something the core does not carry (a Self-Assembly Routines window the table has no link to).
+    pub unsupported: bool,
     /// A structure was placed (the Titan Prototype reads it: "if they do not").
     pub placed: bool,
 }
@@ -260,7 +271,7 @@ pub struct Construction {
 impl Construction {
     #[must_use]
     pub const fn new(who: Seat, primary: bool, facts: StructureFacts) -> Self {
-        Self { who, primary, facts, stage: CStage::Start, te: None, produces: false, placed: false }
+        Self { who, primary, facts, stage: CStage::Start, te: None, uses: Vec::new(), using: Child::idle(), produces: false, produced: None, unsupported: false, placed: false }
     }
 
     /// The primary of the Thunder's Edge Construction: one of a structure or a use of PRODUCTION (`systems` can produce,
@@ -268,7 +279,18 @@ impl Construction {
     /// production is not carried: choosing it sets [`Construction::produces`] and ends the window.
     #[must_use]
     pub fn new_te(who: Seat, facts: StructureFacts, source: Code, systems: &[System]) -> Self {
-        Self { who, primary: true, facts, stage: CStage::Start, te: Some((source, systems.to_vec())), produces: false, placed: false }
+        Self { who, primary: true, facts, stage: CStage::Start, te: Some((source, systems.to_vec())), uses: Vec::new(), using: Child::idle(), produces: false, produced: None, unsupported: false, placed: false }
+    }
+
+    /// The Thunder's Edge primary with its production carried: `uses` are the facts of the use of PRODUCTION in each system that can produce, in
+    /// the order the choice offers them (`source` is the interned `te4construction`). A use is the window of the production area
+    /// ([`HomeProduction`]: the Hacan hero's offer, the production, the effects at the end of the use), then the second structure.
+    #[must_use]
+    pub fn new_te_producing(who: Seat, facts: StructureFacts, source: Code, uses: &[HomeFacts]) -> Self {
+        let systems: Vec<System> = uses.iter().map(|u| u.produce.system).collect();
+        let mut window = Self::new_te(who, facts, source, &systems);
+        window.uses = uses.to_vec();
+        window
     }
 
     fn only_pds(&self) -> bool {
@@ -318,6 +340,7 @@ impl Construction {
     fn ask_now(&self) -> Option<SAsk> {
         match self.stage {
             CStage::Ability => Some(SAsk::ConstructionAbility),
+            CStage::Producing => None,
             CStage::First | CStage::Second => Some(SAsk::PlaceStructure { step: self.step_no(), only_pds: self.only_pds() }),
             CStage::Start | CStage::Done => None,
         }
@@ -340,6 +363,20 @@ impl Window for Construction {
         if self.stage == CStage::Start {
             self.stage = if self.te.is_some() { CStage::Ability } else { CStage::First };
         }
+        if self.stage == CStage::Producing {
+            match self.using.step(sx) {
+                Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                Some(Ran::Pass(next)) => return next,
+                Some(Ran::Done(used)) => {
+                    self.unsupported |= used.unsupported;
+                    if let Some((_, made)) = &mut self.produced {
+                        *made = used.made();
+                    }
+                    self.stage = if self.unsupported { CStage::Done } else { CStage::Second };
+                }
+                None => self.stage = CStage::Second,
+            }
+        }
         // A step with no structure to place asks nothing and passes on.
         while matches!(self.stage, CStage::First | CStage::Second) && self.options(sx.state, sx.kernel).is_empty() {
             self.advance();
@@ -351,6 +388,9 @@ impl Window for Construction {
     }
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.stage == CStage::Producing {
+            return self.using.ask_of(s, k);
+        }
         let a = self.ask_now()?;
         if let (CStage::Ability, Some((source, systems))) = (self.stage, &self.te) {
             let options = opts(std::iter::once(SOpt::Build).chain(systems.iter().map(|system| SOpt::Produce(*system))));
@@ -388,6 +428,9 @@ impl Window for Construction {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == CStage::Producing {
+            return self.using.answer(sx, pick);
+        }
         let offered = self.ask_of(sx.state, sx.kernel).ok_or(Illegal)?;
         let Pick::Opt(chosen) = pick else { return Err(Illegal) };
         if !offered.opts.as_slice().contains(&chosen) {
@@ -398,9 +441,18 @@ impl Window for Construction {
                 self.stage = CStage::First;
                 return Ok(());
             }
-            Opt::Strategy(SOpt::Produce(_)) if self.stage == CStage::Ability => {
-                self.produces = true;
-                self.stage = CStage::Done;
+            Opt::Strategy(SOpt::Produce(system)) if self.stage == CStage::Ability => {
+                match self.uses.iter().find(|u| u.produce.system == system) {
+                    Some(facts) => {
+                        self.using.start(HomeProduction::new(*facts));
+                        self.produced = Some((system, Made::new()));
+                        self.stage = CStage::Producing;
+                    }
+                    None => {
+                        self.produces = true;
+                        self.stage = CStage::Done;
+                    }
+                }
                 return Ok(());
             }
             Opt::Decline if self.stage != CStage::Ability => {}

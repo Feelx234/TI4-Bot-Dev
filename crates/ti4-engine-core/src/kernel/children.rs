@@ -99,6 +99,69 @@ pub struct HomeFacts {
     pub agent_rules: bool,
 }
 
+/// How many systems the free tactical action of the Thunder's Edge Warfare primary can name (the map, the systems in play beside it).
+pub const FREE_SYSTEMS: usize = 96;
+/// How many systems the production of the Thunder's Edge Construction primary can name.
+pub const TE_USES: usize = 12;
+
+/// The systems the free tactical action of the Thunder's Edge Warfare primary may be played in ("any system": the printed map and every
+/// system in play beside it), in the order the string offers them, and the interned source `te6warfare` of the question
+/// (`Spawn::TeWarfare`). `None` from [`Self::new`]: more systems than the facts hold, the adapter declines the run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FreeSystems {
+    pub source: Code,
+    len: u8,
+    ids: [System; FREE_SYSTEMS],
+}
+
+impl FreeSystems {
+    #[must_use]
+    pub fn new(source: Code, systems: &[System]) -> Option<Self> {
+        if systems.len() > FREE_SYSTEMS {
+            return None;
+        }
+        let mut ids = [System::ALL[0]; FREE_SYSTEMS];
+        ids[..systems.len()].copy_from_slice(systems);
+        Some(Self { source, len: u8::try_from(systems.len()).ok()?, ids })
+    }
+
+    /// The systems, in the order of the question.
+    #[must_use]
+    pub fn systems(&self) -> &[System] {
+        &self.ids[..usize::from(self.len)]
+    }
+}
+
+/// What `Spawn::ConstructionTe` (the Thunder's Edge Construction primary) needs of the position that the core does not hold beyond the
+/// structures: the interned source `te4construction` of the choice and the facts of the use of PRODUCTION in each system that can produce,
+/// in the order the string offers them (`HomeFacts`: the same use as the Warfare secondary's, in another system). `None` from [`Self::new`]:
+/// more systems than the facts hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TeUses {
+    pub source: Code,
+    len: u8,
+    uses: [Option<HomeFacts>; TE_USES],
+}
+
+impl TeUses {
+    #[must_use]
+    pub fn new(source: Code, uses: &[HomeFacts]) -> Option<Self> {
+        if uses.len() > TE_USES {
+            return None;
+        }
+        let mut held = [None; TE_USES];
+        for (slot, facts) in held.iter_mut().zip(uses) {
+            *slot = Some(*facts);
+        }
+        Some(Self { source, len: u8::try_from(uses.len()).ok()?, uses: held })
+    }
+
+    /// The uses, in the order of the question.
+    pub fn uses(&self) -> impl Iterator<Item = HomeFacts> + '_ {
+        self.uses[..usize::from(self.len)].iter().filter_map(|u| *u)
+    }
+}
+
 /// What `Spawn::Imperial` (the Imperial primary) needs of the position that the core does not hold: the public objectives the seat could
 /// score (the string's `objectives::scoreable_on`), up to sixteen, and the environment of the payment of a bought objective.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,6 +214,10 @@ pub enum Report {
     Removed(u32),
     /// The Imperial primary finished: the public objective the holder scored, if any (what the score sets off is the adapter's).
     Scored(Option<PublicObjective>),
+    /// The Thunder's Edge Warfare primary finished: the system of the free tactical action the game plays next (`None`: no system to offer).
+    Free(Option<System>),
+    /// The Thunder's Edge Construction primary finished: the use of PRODUCTION it ran, the system and what it made (`None`: a structure was chosen).
+    Produced(Option<(System, Made)>),
 }
 
 /// A window of another area, run as a child: the object-safe face of [`Window`] plus what the finished window reports.
@@ -283,6 +350,9 @@ pub enum Spawn {
     Leadership { who: Seat, primary: bool },
     /// The Construction ability.
     Construction { who: Seat, primary: bool, facts: StructureFacts },
+    /// The primary of the Thunder's Edge Construction: a structure or a use of PRODUCTION in one of `uses`, then another structure; reports
+    /// [`Report::Produced`] (or [`Report::Left`] when the use holds something the core does not carry).
+    ConstructionTe { who: Seat, facts: StructureFacts, uses: TeUses },
     /// The Titan Prototype's build for `who`: three resources for a structure, else a trade good (`goods` is the interned
     /// source `relic`); reports [`Report::Built`].
     TitanBuild { who: Seat, facts: StructureFacts, goods: Code },
@@ -293,6 +363,9 @@ pub enum Spawn {
     Politics { who: Seat, primary: bool, official: bool },
     /// The Warfare primary; `letnev_pool`: the Letnev fleet pool may be emptied.
     Warfare { who: Seat, letnev_pool: bool },
+    /// The primary of the Thunder's Edge Warfare (`strategy_primaries::TeWarfare`): the redistribution before the action and the system of the
+    /// free tactical action; reports [`Report::Free`] (the tactical action and the redistribution after it are the game's).
+    TeWarfare { who: Seat, letnev_pool: bool, free: FreeSystems },
     /// The Diplomacy ability of `card`; the primary readies every planet of the system when `base_printing`.
     Diplomacy { who: Seat, card: StrategyCard, primary: bool, base_printing: bool },
     /// The Trade primary; reports [`Report::Goods`].
