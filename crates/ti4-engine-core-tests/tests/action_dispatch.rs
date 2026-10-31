@@ -111,8 +111,8 @@ fn a_strategic_action_chosen_from_the_menu_stops_nowhere_and_opens_the_follower_
 
 #[test]
 fn an_option_no_window_runs_yet_is_a_gap_that_names_it_and_leaves_the_position() {
-    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
-    s.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::DarktalonTreilla, ti4_engine_core::state::LeaderStatus::Unlocked);
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).hand(1, &[ti4_engine_core::generated::ActionCard::ALL[0]]).build();
+    s.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::KyverBladeAndKey, ti4_engine_core::state::LeaderStatus::Unlocked);
     let e = env_r(&k);
     let held = s.clone();
     let result = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(_))));
@@ -249,4 +249,143 @@ fn carth_chosen_from_the_menu_is_a_free_use_that_gains_commodities_and_leaves_th
     let kinds = plain(&s);
     assert!(kinds.contains(&PlainKind::LeaderAbilityResolved), "{kinds:?}");
     assert!(!kinds.contains(&PlainKind::ComponentActionResolved) && typed(&s, EventKind::ActionCompleted) == 0, "a free use is not the action: {kinds:?}");
+}
+
+fn status(s: &CoreState, seat: u8, leader: ti4_engine_core::generated::Leader) -> Option<ti4_engine_core::state::LeaderStatus> {
+    s.players().by_seat(Seat(seat)).unwrap().leaders.status.get(&leader).copied()
+}
+
+/// Lane F2d: Nekro Malleon is printed "during the action phase" (a free use). The Nekro seat names a player who could pay, that player pays a
+/// command token and gains 2 trade goods; the agent exhausts, `LEADER_ABILITY_RESOLVED` is told and the turn stays open.
+#[test]
+fn nekro_malleon_chosen_from_the_menu_is_a_free_use_where_the_payer_spends_a_token_for_two_goods() {
+    use ti4_engine_core::choice::leaders::Opt as LOpt;
+    use ti4_engine_core::choice::strategy::Pool;
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::new(&[Faction::TheNekroVirus, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system])
+        .control(planet, 0)
+        .tokens(0, 3, 3, 2)
+        .tokens(1, 3, 3, 2)
+        .goods(1, 0)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::NekroMalleon, LeaderStatus::Readied);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::NekroMalleon)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "the player who pays is asked");
+    pick(&mut s, &e, |o| matches!(o, Opt::Leaders(LOpt::Player(Seat(1))))).unwrap();
+    pick(&mut s, &e, |o| matches!(o, Opt::Leaders(LOpt::Token(Pool::Tactic)))).unwrap();
+    let payer = s.players().by_seat(Seat(1)).unwrap();
+    assert_eq!((payer.econ.trade_goods, payer.econ.tactic_tokens), (2, 2), "the payer spent a tactic token for two goods");
+    assert_eq!(status(&s, 0, Leader::NekroMalleon), Some(LeaderStatus::Exhausted));
+    let kinds = plain(&s);
+    assert!(kinds.contains(&PlainKind::LeaderAbilityResolved), "{kinds:?}");
+    assert!(!kinds.contains(&PlainKind::ComponentActionResolved) && typed(&s, EventKind::ActionCompleted) == 0, "a free use is not the action: {kinds:?}");
+}
+
+/// Lane F2d: Jace X. returns every command token of the seat to its reinforcements, is purged, and (an ACTION) ends the action.
+#[test]
+fn jace_x_chosen_from_the_menu_returns_the_command_tokens_is_purged_and_ends_the_action() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan, Faction::TheArborec])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system])
+        .control(planet, 0)
+        .command_token(system, 0)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::JaceX4thAirLegion, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    assert!(s.board().sys(system).cmd.contains(Seat(0)));
+    pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::JaceX4thAirLegion)))).unwrap();
+    assert!(!s.board().sys(system).cmd.contains(Seat(0)), "the token went back");
+    assert_eq!(status(&s, 0, Leader::JaceX4thAirLegion), Some(LeaderStatus::Purged));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2d: Darktalon Treilla lifts the fleet supply for the round. She is not purged by the use: she stays in play (`leaders::exhaust` moves only
+/// a readied card) and the end of the round purges her.
+#[test]
+fn darktalon_treilla_chosen_from_the_menu_lifts_the_fleet_supply_and_stays_in_play_until_the_round_ends() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).round(2).tokens(0, 3, 3, 2).build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::DarktalonTreilla, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::DarktalonTreilla)))).unwrap();
+    assert!(ti4_engine_core::query::fleet::is_unlimited(&s, Seat(0)), "the fleet supply is lifted");
+    assert_eq!(status(&s, 0, Leader::DarktalonTreilla), Some(LeaderStatus::Unlocked), "not purged by the use");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+    assert_eq!(ti4_engine_core::rules::leaders::end_of_round(&mut s).as_slice(), &[Seat(0)]);
+    assert_eq!(status(&s, 0, Leader::DarktalonTreilla), Some(LeaderStatus::Purged), "the end of the round purges her");
+}
+
+/// Lane F2d: a copy of Ggrocuto Rinn through Ssruu runs the same body and exhausts Ssruu, not the copied agent.
+#[test]
+fn a_copy_of_an_agent_through_ssruu_exhausts_ssruu_and_not_the_copied_agent() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheXxchaKingdom, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system])
+        .control(planet, 0)
+        .exhaust(planet)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
+    s.players_mut().edit(1).leaders.status.insert(Leader::GgrocutoRinn, LeaderStatus::Readied);
+    let e = env_r(&k);
+    pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Borrowed(Leader::GgrocutoRinn)))).unwrap();
+    assert!(!ti4_engine_core::query::board::exhausted(&s, planet), "the planet is ready");
+    assert_eq!(status(&s, 0, Leader::Ssruu), Some(LeaderStatus::Exhausted), "Ssruu carries the text, so Ssruu exhausts");
+    assert_eq!(status(&s, 1, Leader::GgrocutoRinn), Some(LeaderStatus::Readied), "the copied agent stays ready");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2d: the promissory notes that are component actions of the holder (Trade Convoys, Blood Pact, Dark Pact, Promise of Protection) go
+/// faceup into the play area and end the action.
+#[test]
+fn an_action_note_chosen_from_the_menu_goes_faceup_and_ends_the_action() {
+    use ti4_engine_core::generated::PromissoryNote as N;
+    use ti4_engine_core::kernel::hooks::components as c;
+    use ti4_engine_core::state::NoteKey;
+    for (note, owner, code) in [
+        (N::TradeConvoys, Faction::TheEmiratesOfHacan, c::TRADE_CONVOYS),
+        (N::BloodPact, Faction::TheEmpyrean, c::BLOOD_PACT),
+        (N::DarkPact, Faction::TheEmpyrean, c::DARK_PACT),
+        (N::PromiseOfProtection, Faction::TheMentakCoalition, c::PROMISE_OF_PROTECTION),
+    ] {
+        let others: Vec<Faction> = [Faction::TheFederationOfSol, Faction::TheArborec, Faction::TheXxchaKingdom].into_iter().filter(|f| *f != owner).take(2).collect();
+        let (mut s, k) = Scenario::new(&[others[0], others[1], owner]).phase(Phase::Action).active(Some(0)).tokens(0, 3, 3, 2).build();
+        let key = NoteKey { note, faction: owner };
+        s.cards_mut().promissory.edit().insert(key, Seat(0));
+        let e = env_r(&k);
+        pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == code)).unwrap();
+        assert!(s.cards().promissory_faceup.contains_key(&key), "{note:?} is faceup");
+        assert!(plain(&s).contains(&PlainKind::ComponentActionResolved), "{note:?}");
+    }
+}
+
+/// Lane F2d: Production Biomes spends a strategy token, gains 4 goods for the holder and 2 for the named player, and ends the action.
+#[test]
+fn production_biomes_chosen_from_the_menu_spends_a_token_and_pays_the_holder_four_and_the_named_player_two() {
+    use ti4_engine_core::choice::technology::Opt as TOpt;
+    let (mut s, k) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).tech(0, Technology::ProductionBiomes).tokens(0, 3, 3, 2).goods(0, 0).goods(1, 0).build();
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == ti4_engine_core::kernel::hooks::components::PRODUCTION_BIOMES)).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "who gains is asked");
+    pick(&mut s, &e, |o| matches!(o, Opt::Technology(TOpt::Player(Seat(1))))).unwrap();
+    let goods = |seat: u8| s.players().by_seat(Seat(seat)).unwrap().econ.trade_goods;
+    assert_eq!((goods(0), goods(1)), (4, 2));
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens, 1, "the token is spent");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
 }

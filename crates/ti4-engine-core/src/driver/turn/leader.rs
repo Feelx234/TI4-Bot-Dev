@@ -158,12 +158,10 @@ fn letani_ospha(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: 
     agent_action(sx, who, key, leader, borrowed, window.used)
 }
 
-/// Darktalon Treilla: fleet supply is unlimited until the end of this round. She is exhausted, not purged (`end_of_round` purges her).
+/// Darktalon Treilla: fleet supply is unlimited until the end of this round. She is not purged by the use (`end_of_round` purges her); the
+/// string `exhaust` moves only a readied card, so an unlocked hero stays as she is.
 fn darktalon(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let used = crate::rules::leaders::activate_letnev_hero(sx.state, who);
-    if used {
-        crate::rules::leaders::exhaust(sx.state, who, Leader::DarktalonTreilla);
-    }
     conclude(sx, who, key, if used { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, true)
 }
 
