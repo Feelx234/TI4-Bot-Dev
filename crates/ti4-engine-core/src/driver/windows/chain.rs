@@ -406,12 +406,24 @@ fn merge(out: &mut Out, more: Out) {
     out.opened.extend(more.opened);
 }
 
-fn flush_open(core: &mut CoreState) {
+/// The events the sub-windows emitted in this step, not yet written to the queue. The string mirrors its timing log into `Game::events` when
+/// the step returns (`mirror_timing_log`), before the aftermath's own plain events (`AftermathWindow::log`) are drained; the live path does the
+/// same at the three places the step ends: [`mirror_then_flush`]. (The top-level emissions of the step: an event a reaction emitted inside
+/// another is not here.)
+type Typed = std::cell::RefCell<Vec<crate::state::EventRec>>;
+
+/// Write the emitted events of the step, then the aftermath's plain log (`flush`).
+fn mirror_then_flush(typed: &Typed, log: &mut SmallList<crate::state::PlainKind, 4>, core: &mut CoreState) {
+    fx::mirror_recs(core, std::mem::take(&mut *typed.borrow_mut()));
+    flush(log, core);
+}
+
+fn flush_open(core: &mut CoreState, typed: &Typed) {
     let mut log = SmallList::new();
     if let Some(OpenWindow::Aftermath(a)) = core.pending_mut().window_mut(WindowKind::Aftermath) {
         std::mem::swap(&mut log, &mut a.log);
     }
-    flush(&mut log, core);
+    mirror_then_flush(typed, &mut log, core);
 }
 
 fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
@@ -420,11 +432,12 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
     }
     sync_initiative(core);
     let mut out = Out::default();
+    let typed = Typed::default();
     let mut answer = answer;
     // (A step that runs sub-windows back to back always makes progress; the bound only guards a defect.)
     for _ in 0..64 {
         if is_open(core, WindowKind::EventScoring) {
-            flush_open(core);
+            flush_open(core, &typed);
             return Ok((Live::Done, out));
         }
         let sub = if is_open(core, WindowKind::Combat) {
@@ -443,16 +456,18 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
                 if w.parked {
                     After::Park
                 } else {
-                    flush(&mut w.p.log, core);
+                    typed.borrow_mut().extend(out.emitted.iter().cloned());
+                    mirror_then_flush(&typed, &mut w.p.log, core);
                     After::Close
                 }
             })?,
         };
+        typed.borrow_mut().extend(more.emitted.iter().cloned());
         merge(&mut out, more);
         match live {
             Live::Asks(a) => {
                 if a.nested.is_none() {
-                    flush_open(core);
+                    flush_open(core, &typed);
                 }
                 return Ok((Live::Asks(a), out));
             }

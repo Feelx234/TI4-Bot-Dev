@@ -185,6 +185,11 @@ impl<M: MaskChoice> MaskSubject<M> {
         self.game.table.log.records.get(self.records_seen..).unwrap_or_default()
     }
 
+    /// Drop the answers a step did not use.
+    pub(crate) fn clear_script(&self) {
+        self.script.borrow_mut().clear();
+    }
+
     /// The events pushed since the last [`Subject::events_since`], not consumed.
     pub(crate) fn peek_events(&self) -> &[String] {
         self.game.events.get(self.events_seen..).unwrap_or_default()

@@ -255,6 +255,44 @@ fn an_undefended_system_goes_straight_on_to_the_invasion() {
     assert!(!kinds.contains(&PlainKind::SpaceCombatResolved), "a fight of no rounds announces nothing");
 }
 
+/// The string mirrors its timing log into `Game::events` when the step returns: what the invasion emitted (the landing, the control) is in the
+/// queue, in the order of the emissions, before the aftermath's own plain events (`INVASION_RESOLVED`). Found by `native_play --shadow` (sol, 4
+/// players, seed 1: the native events of a first claim were `INVASION_RESOLVED` alone).
+#[test]
+fn the_events_an_invasion_emitted_are_mirrored_into_the_queue_before_its_resolved_line() {
+    covers!("driver::windows::chain::AftermathChain");
+    let (p1, _) = (sys().data().planets[0], 0);
+    let (mut core, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
+        .map_from(&[sys()])
+        .active(Some(0))
+        .active_system(sys())
+        .tokens(0, 3, 6, 3)
+        .unit(sys(), None, Unit::CarrierI, 0, 1)
+        .unit(sys(), Some(p1), Unit::InfantryI, 1, 1)
+        .control(p1, 1)
+        .build();
+    for _ in 0..4 {
+        core.board_mut().sys_mut(sys()).units.push(ti4_engine_core::state::Piece::new(Unit::InfantryI, Seat(0)));
+    }
+    let env = env(&k, 3, &[]);
+    open_aftermath(&mut core);
+    let (_, end) = play(&mut core, &env, &mut first);
+    assert_eq!(end, Ok(()));
+    let line: Vec<String> = core
+        .ledger()
+        .events
+        .iter()
+        .map(|e| match e {
+            Emit::Typed(t) => format!("typed {:?}", t.kind),
+            Emit::Plain(p) => format!("plain {:?}", p.kind),
+        })
+        .collect();
+    let at = |what: &str| line.iter().position(|l| l == what).unwrap_or_else(|| panic!("{what} is not in the queue: {line:?}"));
+    assert!(at("typed UnitsCommitted") < at("typed PlanetControlGained"), "{line:?}");
+    assert!(at("typed PlanetControlGained") < at("plain InvasionResolved"), "the typed events come before the aftermath's own line: {line:?}");
+    assert_eq!(line.iter().filter(|l| *l == "typed PlanetControlGained").count(), 1, "one planet changed hands, mirrored once: {line:?}");
+}
+
 #[test]
 fn the_skip_to_the_commit_step_opens_the_invasion_at_its_commit_step() {
     covers!("driver::windows::chain::AftermathChain");
