@@ -242,6 +242,8 @@ mod tests {
         state: Value,
         /// The native run stopped on a position the core does not run (a bail), worded.
         bail: Option<String>,
+        /// The positions of the random streams after the run (the rift dice).
+        rng: String,
     }
 
     /// Records every question the string table is asked and answers from the script; a spent script refuses (the step then fails and the
@@ -258,6 +260,14 @@ mod tests {
             let Some(id) = self.queue.borrow_mut().pop_front().or_else(|| c.options.first().map(|o| o.id.clone())) else {
                 return Err(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: "<no option>".to_owned(), offered: Vec::new() });
             };
+            // `move|origin|i|rN`: a route of the option, which is not an option of the question; the string reads the suffix off the answer.
+            if let Some((base, _)) = crate::tactical::route_suffix(&id)
+                && let Some(option) = c.options.iter().find(|o| o.id == base)
+            {
+                let mut routed = option.clone();
+                routed.id = id.clone();
+                return Ok(routed);
+            }
             c.options.iter().find(|o| o.id == id).cloned().ok_or(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: id, offered: c.ids().into_iter().map(str::to_owned).collect() })
         }
     }
@@ -281,7 +291,7 @@ mod tests {
         // The first question is the action menu's.
         let asked = asked.borrow().iter().skip(1).filter(|c| !c.options.is_empty()).cloned().collect::<Vec<_>>();
         let asked = asked.into_iter().take(script.len() - 1).collect();
-        Side { asked, events: game.events.clone(), state: serde_json::to_value(&game.state).expect("serialises"), bail: None }
+        Side { asked, events: game.events.clone(), state: serde_json::to_value(&game.state).expect("serialises"), bail: None, rng: format!("{:?}", game.rng_positions()) }
     }
 
     /// Answers from one shared queue: the questions of a step (stage and nested) take what the script has next.
@@ -333,7 +343,8 @@ mod tests {
         let asked = seen.borrow().clone();
         let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
         let after = materialize::materialize(&core, &cx, state).expect("materializes");
-        Side { asked, events, state: serde_json::to_value(&after).expect("serialises"), bail }
+        let rng = format!("{:?}", crate::core_sync::codec::rng::positions(&cx, core.rng()).expect("every stream has a text"));
+        Side { asked, events, state: serde_json::to_value(&after).expect("serialises"), bail, rng }
     }
 
     fn leaves(label: &str, left: &Value, right: &Value) -> Vec<String> {
@@ -380,6 +391,9 @@ mod tests {
         }
         if !prefix {
             out.extend(leaves("state", &s.state, &n.state));
+            if s.rng != n.rng {
+                out.push(format!("rng positions: string {} native {}", s.rng, n.rng));
+            }
         }
         out
     }
@@ -533,8 +547,34 @@ mod tests {
             state.system_mut(&origin).command_tokens.insert(a());
             state.player_mut(&a()).unwrap().relics.push(ti4_model::id::RelicId::new("dominusorb"));
             let mv = id(&origin, 0);
-            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], false);
+            // Declined, the own token still pins the carrier: nothing to move.
+            let script: Vec<&str> = if answer == "purge" { vec![TACTICAL_ACTION_ID, target.as_str(), answer, &mv] } else { vec![TACTICAL_ACTION_ID, target.as_str(), answer] };
+            let diffs = lockstep(state, &hub.galaxy, &script, false);
             assert!(diffs.is_empty(), "{answer}: {diffs:#?}");
+        }
+    }
+
+    /// A ship that exits a gravity rift rolls a die (1-3 loses it and its hold): the native run draws from the same stream as the string, so the
+    /// positions of the streams agree as well as the board, for a number of seeds (lost and arrived both occur).
+    #[test]
+    fn a_ship_exiting_a_gravity_rift_rolls_the_string_dice_in_lockstep() {
+        let rift = crate::fixtures::a_system_where("gravity rift");
+        let plain = crate::fixtures::plain_systems(2);
+        let galaxy = Galaxy::placed(
+            ContentStore::embedded(),
+            &[(plain[0].as_str(), ti4_model::hex::Hex::new(0, 0)), (rift.as_str(), ti4_model::hex::Hex::new(1, 0)), (plain[1].as_str(), ti4_model::hex::Hex::new(2, 0))],
+            POK,
+        )
+        .expect("a line of three systems");
+        let (origin, target) = (ti4_model::id::SystemId::new(&plain[0]), ti4_model::id::SystemId::new(&plain[1]));
+        for seed in 0..16_u64 {
+            let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+            state.rng_seed = seed;
+            crate::fixtures::put(&mut state, &origin, "carrier2", &a(), 1);
+            crate::fixtures::put(&mut state, &origin, "infantry", &a(), 2);
+            let mv = id(&origin, 0);
+            let diffs = lockstep(state, &galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "load|1"], false);
+            assert!(diffs.is_empty(), "seed {seed}: {diffs:#?}");
         }
     }
 

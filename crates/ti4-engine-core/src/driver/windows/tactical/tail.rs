@@ -32,13 +32,17 @@ fn ssruu_lends(core: &CoreState) -> bool {
 fn agent_listens(core: &CoreState, scope: crate::tables::Scope, actor: Seat, system: System, lends: bool) -> bool {
     let tro_readied = core.players().iter().any(|p| p.leaders.status.get(&Leader::Tro) == Some(&LeaderStatus::Readied));
     let mercer = core.players().iter().any(|p| p.leaders.status.get(&Leader::FieldMarshalMercer) == Some(&LeaderStatus::Readied));
-    if mercer {
+    let lands = board::planets_of(core, system).any(|p| board::controls(core, actor, p));
+    // Mercer: "up to two ground forces" of the actor to a planet it controls in the active system (`nomad_agents::mercer_window`).
+    let ground_force = |u: &crate::state::Piece| u.owner() == actor && matches!(u.kind().data().base_type, crate::generated::UnitBaseType::Infantry | crate::generated::UnitBaseType::Mech);
+    let has_ground_forces = core.board().systems().any(|(sys, cell)| cell.units.as_slice().iter().any(ground_force) || board::planets_of(core, sys).any(|p| board::planet_units(core, p).iter().any(ground_force)));
+    if mercer && lands && has_ground_forces {
         return true;
     }
     if !(tro_readied || lends) {
         return false;
     }
-    fleet::remaining_all(core, scope, actor, Unit::InfantryI) > 0 && board::planets_of(core, system).any(|p| board::controls(core, actor, p))
+    fleet::remaining_all(core, scope, actor, Unit::InfantryI) > 0 && lands
 }
 
 /// The Crown of Emphidia and Dark Energy Tap (`close_tactical`): the Crown's holder may explore a planet it controls (the deck is the planet's
