@@ -418,6 +418,26 @@ pub type ResearchableFn = fn(&CoreState, &Kernel, Scope, Seat) -> SmallList<Tech
 /// `technology::research` of a technology a card chose, the bill (if any) already paid; whether it was researched.
 pub type ResearchFn = fn(&mut CoreState, &Kernel, Scope, UnitRoster, Seat, Technology) -> bool;
 
+/// What a window that hosts `ProduceOne` in its own payload calls (the state is [`crate::state::OneRun`]; the window object is rebuilt from it at
+/// every call by the production area): the facts the seat produces with, one step, the question, one answer.
+#[derive(Clone, Copy)]
+pub struct OneLink {
+    /// What the seat may produce and the fleet limit it is judged by (`production::home::{buildable_for, fleet_limit}`).
+    pub facts: fn(&CoreState, &Kernel, &UnitRoster, Seat) -> Option<([Option<Unit>; 9], i32)>,
+    /// Run the unit to its next question or its end (`Next::Done`).
+    pub step: fn(crate::state::OneRun, &mut Sx<'_>) -> (crate::state::OneRun, Next),
+    /// The question it waits on.
+    pub ask: fn(&crate::state::OneRun, &CoreState, &Kernel) -> Option<Choice>,
+    /// Apply an answer.
+    pub answer: fn(crate::state::OneRun, &mut Sx<'_>, Pick) -> Result<crate::state::OneRun, Illegal>,
+}
+
+impl std::fmt::Debug for OneLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OneLink")
+    }
+}
+
 /// The calls a window makes into other areas, by function pointer. Filled by `crate::driver::children::register`; empty by
 /// default (a window that needs a link then declines its run).
 #[derive(Clone, Copy, Default)]
@@ -430,11 +450,13 @@ pub struct AreaLinks {
     pub research: Option<ResearchFn>,
     /// Start a child window the faction crate owns (Self-Assembly Routines): consulted when [`Self::spawn`] does not know the request.
     pub spawn_extra: Option<SpawnFn>,
+    /// `ProduceOne` kept by its host's payload (Freelancers inside an exploration).
+    pub one: Option<OneLink>,
 }
 
 impl std::fmt::Debug for AreaLinks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AreaLinks").field("spawn", &self.spawn.is_some()).field("researchable", &self.researchable.is_some()).field("research", &self.research.is_some()).field("spawn_extra", &self.spawn_extra.is_some()).finish()
+        f.debug_struct("AreaLinks").field("spawn", &self.spawn.is_some()).field("researchable", &self.researchable.is_some()).field("research", &self.research.is_some()).field("spawn_extra", &self.spawn_extra.is_some()).field("one", &self.one.is_some()).finish()
     }
 }
 

@@ -133,7 +133,9 @@ pub struct StepOut {
 #[must_use]
 pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let (phase, round) = (core.meta().phase, core.meta().round);
-    let mut rendered = Typed::new(cx.render, asking.choice.clone(), phase, round).rendered;
+    // The position the question is asked in: the options of a production question carry numbers only the position gives (`Render::position`).
+    let position = render::Position { state: std::rc::Rc::new(core.clone()), kernel: kernel::static_of(cx.env.kernel) };
+    let mut rendered = Typed::new_at(cx.render, position, asking.choice.clone(), phase, round).rendered;
     (cx.complete)(core, &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).

@@ -79,6 +79,8 @@ pub enum EStage {
     Ion,
     /// A window of another area runs as a child (the draw of action cards, the secret objective's hand limit).
     Linked(EThen),
+    /// Freelancers: one unit is produced (`ExploreRun::one` is the window's state).
+    Producing,
     Done,
 }
 
@@ -151,6 +153,8 @@ pub struct ExploreRun {
     pub why: Option<EWhy>,
     /// The card was resolved to its end and the row closed.
     pub finished: bool,
+    /// Freelancers' unit in production (`EStage::Producing`): the plain state of `ProduceOne`, kept here between two questions.
+    pub one: Option<crate::state::OneRun>,
 }
 
 impl ExploreRun {
@@ -178,6 +182,7 @@ impl ExploreRun {
             empty: false,
             why: None,
             finished: false,
+            one: None,
         }
     }
 

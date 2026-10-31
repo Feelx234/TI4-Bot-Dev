@@ -19,7 +19,7 @@ mod real {
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::Resolver;
     use ti4_engine_core::rules::explore_windows::Exploring;
-    use ti4_engine_core::state::{CoreState, EDeck, EHow, EWhy, Slice};
+    use ti4_engine_core::state::{CoreState, EDeck, EHow, ETarget, EWhy, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlanetId, PlayerId, SystemId};
     use ti4_model::state::GameState;
@@ -83,6 +83,7 @@ mod real {
         for card in Explore::ALL {
             codes.cards[card as usize] = r.code(IdStr::as_str(card));
         }
+        codes.freelancers = r.code("Freelancers");
         codes
     }
 
@@ -195,7 +196,14 @@ mod real {
         let mut table = table(&r, content, sources);
         ti4_engine_core_factions::self_assembly::register_links(&mut table);
         let mut staged = Vec::new();
-        let mut driver = crate::window_driver::driver_for(window(seat), Resolver::new(&[seat], Some(seat)), table, 1);
+        let window = window(seat);
+        // Terragenesis is a rule of the core table (the live path's registry has it); this driver has no registry, so the string's window for it
+        // is not followed.
+        if window.run().announce && matches!(window.run().target, ETarget::Planet(_)) && gs.player(player).is_some_and(|p| p.faction.as_str() == "titans") {
+            crate::dual::note_bail_here(unsupported_text(EWhy::Terragenesis));
+            return None;
+        }
+        let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), table, 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), crate::dual_window::nested_fp(FP, script), |core, _| {
             let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
             staged = std::mem::take(&mut core.pending_mut().staged);

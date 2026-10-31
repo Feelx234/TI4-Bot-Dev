@@ -535,7 +535,7 @@ impl InvasionMachine {
     /// The exploration of a first claim, kept as data in the payload (`IStage::Exploring`): run it to its next question or its end, then the
     /// chain of control goes on with the next planet. A run the window does not carry is a counted bail of the native path.
     pub(super) fn explore_first_claim(&mut self, sx: &mut Sx<'_>, planets: Vec<Planet>, index: u8, planet: Planet, run: ExploreRun) -> Result<(), Bail> {
-        let mut exploring = Exploring::hosted(run);
+        let mut exploring = Exploring::hosted(run).with_one(crate::driver::children::one_link());
         if let Next::Continue(_) = exploring.step(sx) {
             self.p.stage = IStage::Exploring { planets, index, planet, run: Box::new(exploring.into_run()) };
             return Ok(());

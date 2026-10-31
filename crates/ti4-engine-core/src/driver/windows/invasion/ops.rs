@@ -119,7 +119,7 @@ impl InvasionMachine {
                 let next = remaining.first().copied()?;
                 Some(NextCombat::new(invader, system, *planet, next).question())
             }
-            IStage::Exploring { run, .. } => Exploring::hosted((**run).clone()).ask_of(s, k),
+            IStage::Exploring { run, .. } => Exploring::hosted((**run).clone()).with_one(crate::driver::children::one_link()).ask_of(s, k),
             _ => None,
         }
     }
@@ -454,7 +454,7 @@ impl InvasionMachine {
             IStage::Fighting { .. } => self.answer_fight(sx, pick),
             IStage::ChoosingNextCombat { .. } => self.answer_next_combat(sx, pick),
             IStage::Exploring { planets, index, planet, run } => {
-                let mut exploring = Exploring::hosted(*run);
+                let mut exploring = Exploring::hosted(*run).with_one(crate::driver::children::one_link());
                 exploring.answer(sx, pick)?;
                 self.p.stage = IStage::Exploring { planets, index, planet, run: Box::new(exploring.into_run()) };
                 Ok(())

@@ -22,7 +22,7 @@ use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
 use crate::query::fleet::{self, Arrival};
 use crate::query::reach;
-use crate::state::CoreState;
+use crate::state::{CoreState, OneRun};
 use crate::tables::Scope;
 
 fn cx<'a>(s: &'a CoreState, k: &'a Kernel) -> Cx<'a> {
@@ -86,15 +86,7 @@ pub fn sort(c: &Cx<'_>, who: Seat, system: System, buildable: &[Option<Unit>; 9]
 
 pub use crate::kernel::children::OneFacts;
 
-/// The suspension points of [`ProduceOne`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OStage {
-    Start,
-    Choosing,
-    Paying { unit: Unit, cost: i32, paid: i32 },
-    Placing { unit: Unit },
-    Done,
-}
+pub use crate::state::OStage;
 
 /// "Produce one unit in `system`" (see the module). [`Self::made`]: the unit that stands and where.
 #[derive(Debug, Clone)]
@@ -109,6 +101,18 @@ pub struct ProduceOne {
 }
 
 impl ProduceOne {
+    /// The window as its plain state makes it (a host keeps [`OneRun`] between two questions).
+    #[must_use]
+    pub const fn resume(run: OneRun) -> Self {
+        Self { who: run.who, system: run.system, facts: run.facts, stage: run.stage, made: run.made, unsupported: run.unsupported }
+    }
+
+    /// The plain state of the window.
+    #[must_use]
+    pub const fn run(&self) -> OneRun {
+        OneRun { who: self.who, system: self.system, facts: self.facts, stage: self.stage, made: self.made, unsupported: self.unsupported }
+    }
+
     #[must_use]
     pub const fn new(who: Seat, system: System, facts: OneFacts) -> Self {
         Self { who, system, facts, stage: OStage::Start, made: None, unsupported: false }

@@ -189,6 +189,8 @@ pub struct Codes {
     pub salvage: crate::state::Code,
     /// The faction ability `indoctrination`, the source of the Yin's question.
     pub indoctrination: crate::state::Code,
+    /// The faction ability `terragenesis`, the source of the Titans' question.
+    pub terragenesis: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
     /// The subtype `assign_casualty` of a casualty question and the cause `action_card:reflective_shielding` of a loss to the hits a
@@ -228,12 +230,14 @@ pub struct ExploreCodes {
     pub decks: [crate::state::Code; crate::generated::ExploreType::COUNT],
     /// The text of each card, by `Explore` index.
     pub cards: [crate::state::Code; crate::generated::Explore::COUNT],
+    /// The printed name `Freelancers`, the source of the unit its cards produce.
+    pub freelancers: crate::state::Code,
 }
 
 impl Default for ExploreCodes {
     fn default() -> Self {
         let z = crate::state::Code(0);
-        Self { filled: false, goods: z, trade_agreement: z, decks: [z; crate::generated::ExploreType::COUNT], cards: [z; crate::generated::Explore::COUNT] }
+        Self { filled: false, goods: z, trade_agreement: z, decks: [z; crate::generated::ExploreType::COUNT], cards: [z; crate::generated::Explore::COUNT], freelancers: z }
     }
 }
 

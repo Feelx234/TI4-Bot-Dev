@@ -79,6 +79,7 @@ pub fn explore_table() -> AbilityTable {
     for (i, slot) in codes.cards.iter_mut().enumerate() {
         *slot = Code(200 + i as u16);
     }
+    codes.freelancers = Code(300);
     table.codes.explore = codes;
     table
 }
