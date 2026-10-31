@@ -689,7 +689,7 @@ mod tests {
             for builds in [0, 1] {
                 let mut state = dock_table(faction, other, &target, &dock);
                 crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
-                let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_moving"];
+                let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_loading", "done_moving"];
                 if let Some(d) = lockstep_buying(state, &hub.galaxy, &script, builds).into_iter().next() {
                     failures.push(format!("{faction} buying {builds}: {d}"));
                 }
@@ -722,7 +722,7 @@ mod tests {
     #[test]
     fn a_won_invasion_with_a_space_dock_goes_on_to_the_production_step_in_lockstep() {
         let (hub, origin, target, dock, other) = dock_hub();
-        for faction in ["sol", "hacan", "yssaril", "nomad", "winnu"] {
+        for faction in ["sol", "hacan", "yssaril", "xxcha", "winnu"] {
             let rival = if faction == "hacan" { "sol" } else { "hacan" };
             let mut state = dock_table(faction, rival, &target, &dock);
             state.system_mut(&target).planet_control.insert(other.clone(), b());
