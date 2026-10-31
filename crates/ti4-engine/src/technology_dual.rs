@@ -527,6 +527,34 @@ mod tests {
         assert_eq!(counts, (1, 0));
     }
 
+    /// Found by the end-of-D1 gate run (`dual_run ... all=dual`, golden game 16): the options of Transit Diodes list the ground
+    /// forces of a system by planet, in the string's order (the planet id text), not in the order the map names the planets.
+    #[test]
+    fn transit_diodes_list_the_planets_of_a_system_in_the_order_of_their_ids_in_lockstep() {
+        use ti4_engine_core::generated::{Planet, System};
+        let system = System::ALL
+            .iter()
+            .copied()
+            .find(|sys| {
+                let p = sys.data().planets;
+                p.len() >= 2 && p.windows(2).any(|w| w[0].as_str() > w[1].as_str()) && p.iter().all(|x| x.data().source == ti4_engine_core::generated::Source::Base)
+            })
+            .expect("a base system whose planets are not named in id order");
+        let there: Vec<Planet> = system.data().planets.to_vec();
+        let destination = specialty_planets(8).into_iter().find(|(sys, _)| sys != system.as_str()).expect("a planet elsewhere");
+        let (system_id, destination_id) = (SystemId::new(system.as_str()), (SystemId::new(destination.0.as_str()), PlanetId::new(destination.1.as_str())));
+        let (state, counts, bails) = lockstep("technology::start_turn", || {
+            let mut state = game(&["td"], &[destination.clone()]);
+            for planet in &there {
+                crate::fixtures::put_on_planet(&mut state, &system_id, &PlanetId::new(planet.as_str()), "infantry", &a(), 1);
+            }
+            run_start(&mut state, &["decline"]);
+            state
+        });
+        assert_eq!(counts, (1, 0), "{bails:?}");
+        let _ = (state, destination_id);
+    }
+
     #[test]
     fn predictive_intelligence_moves_tokens_until_done_and_exhausts_the_card_in_lockstep() {
         let (state, counts, bails) = lockstep("technology::end_turn", || {
