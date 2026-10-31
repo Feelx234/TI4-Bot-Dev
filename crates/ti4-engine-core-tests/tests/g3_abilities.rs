@@ -258,3 +258,48 @@ mod tekklar {
         assert!(mark(&none).is_some());
     }
 }
+
+// -- T'ro's activation mark ---------------------------------------------------------------------------------------------------
+
+mod tro_marks {
+    use super::*;
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::LeaderStatus;
+
+    fn marked(system: System, who: &'static [u8], agent: Option<LeaderStatus>) -> impl FnOnce(&mut CoreState) {
+        move |s| {
+            for seat in who {
+                s.marks_mut().tail.edit().insert(MarkKey::SardakkAgentTactical(Seat(*seat)), MarkVal::Atom(Atom::System(system)));
+            }
+            if let Some(status) = agent {
+                s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::Tro, status);
+            }
+        }
+    }
+
+    fn has(r: &Rig<EmitEvent>, seat: u8) -> bool {
+        r.state.marks().tail.get(&MarkKey::SardakkAgentTactical(Seat(seat))).is_some()
+    }
+
+    fn by(kind: EventKind, seat: u8) -> ti4_engine_core::state::EventRec {
+        fx::event(kind, Payload::new().with(Key::Player, Val::Seat(Seat(seat))))
+    }
+
+    #[test]
+    fn a_turn_or_a_strategic_action_forgets_the_activation_of_that_player_only() {
+        covers!("silent::g3::tro_marks::TURN");
+        covers!("silent::g3::tro_marks::STRATEGIC");
+        let (system, _) = two_planet_system();
+        let scenario = || Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan]);
+        for kind in [EventKind::TurnBegan, EventKind::StrategicActionBegan] {
+            let r = rig(scenario(), marked(system, &[0, 1], Some(LeaderStatus::Readied)), by(kind, 1));
+            assert!(r.is_done() && has(&r, 0) && !has(&r, 1), "{kind:?}: {}", r.transcript());
+            // An exhausted agent still cleans up (the card is held); a seat without the card does not (nothing registered a mark for it).
+            let spent = rig(scenario(), marked(system, &[1], Some(LeaderStatus::Exhausted)), by(kind, 1));
+            assert!(!has(&spent, 1), "{kind:?}");
+            let without = rig(scenario(), marked(system, &[1], None), by(kind, 1));
+            assert!(has(&without, 1), "{kind:?}: the Sardakk seat holds no agent card in this position");
+        }
+    }
+}

@@ -18,7 +18,7 @@ pub const FIRST_SLOT: u16 = 41_000;
 
 /// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
 pub const SUFFI_AN: usize = 11;
-pub const SUFFI_AN_COPY: usize = 46;
+pub const SUFFI_AN_COPY: usize = 44;
 
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
@@ -100,8 +100,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Leader, event: EventKind::TurnPassed, relation: Relation::After, holds: |c| leader(c, Faction::TheNaazRokhaAlliance, LeaderType::Agent) }, // naazagent
     Gap { kind: AbilityKind::Leader, event: EventKind::PlanetControlGained, relation: Relation::After, holds: |c| leader(c, Faction::TheNaazRokhaAlliance, LeaderType::Commander) }, // naazcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::TechnologyGained, relation: Relation::After, holds: |c| leader(c, Faction::TheNekroVirus, LeaderType::Commander) }, // nekrocommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::StrategicActionBegan, relation: Relation::After, holds: |c| leader(c, Faction::SardakkNorr, LeaderType::Agent) }, // sardakkagent_strategic
-    Gap { kind: AbilityKind::Leader, event: EventKind::TurnBegan, relation: Relation::After, holds: downstream }, // sardakkagent_turn
     Gap { kind: AbilityKind::Leader, event: EventKind::TurnBegan, relation: Relation::After, holds: downstream }, // sardakkhero_turn
     Gap { kind: AbilityKind::Leader, event: EventKind::GroundCombatStarted, relation: Relation::After, holds: |c| leader(c, Faction::TheFederationOfSol, LeaderType::Commander) }, // solcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::When, holds: |c| leader(c, Faction::TheTitansOfUl, LeaderType::Commander) }, // titanscommander
