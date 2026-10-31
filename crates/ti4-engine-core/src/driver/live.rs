@@ -240,18 +240,20 @@ pub type AskFn = fn(&CoreState, &Env<'_>) -> Result<Option<Asking>, LiveError>;
 /// arm HERE, one line in each of the two matches (the only edit this file takes from the lanes), and removes its `Lent::Arm` use.
 #[must_use]
 pub fn live_arm(arm: Arm) -> Option<LiveFn> {
-    use crate::rules::token_gain::TokenGain;
     match arm {
-        Arm::Tokens => Some(advance::<TokenGain>),
+        Arm::Tokens => Some(super::windows::status::advance_tokens),
+        Arm::Status => Some(super::windows::status::advance_status),
+        Arm::Scoring => Some(super::windows::status::advance_scoring),
+        Arm::EventScoring => Some(super::windows::status::advance_event_scoring),
         Arm::Tactical => Some(crate::driver::windows::tactical::advance_tactical),
         Arm::Invasion => Some(crate::driver::windows::invasion::advance_invasion),
         Arm::Production => Some(crate::driver::windows::production::advance_production),
-        Arm::EventScoring => Some(crate::driver::windows::scoring::advance_event_scoring),
         Arm::Aftermath => Some(crate::driver::windows::chain::advance_aftermath),
         Arm::TurnPrelude => Some(super::turn::advance_prelude),
         Arm::StrategyAnnounce => Some(super::turn::advance_announce),
         Arm::Phase => Some(super::turn::advance_phase),
         Arm::Ask => Some(super::turn::ask::advance_ask),
+        Arm::Trade => Some(super::windows::trade::advance_trade),
         _ => None,
     }
 }
@@ -259,16 +261,17 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
 /// The ask counterpart of [`live_arm`] (the two entries of an arm go together).
 #[must_use]
 pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
-    use crate::rules::token_gain::TokenGain;
     match arm {
-        Arm::Tokens => Some(ask::<TokenGain>),
+        Arm::Tokens => Some(super::windows::status::ask_tokens),
+        Arm::Scoring => Some(super::windows::status::ask_scoring),
+        Arm::EventScoring => Some(super::windows::status::ask_event_scoring),
         Arm::Tactical => Some(crate::driver::windows::tactical::ask_tactical),
         Arm::Invasion => Some(crate::driver::windows::invasion::ask_invasion),
         Arm::Production => Some(crate::driver::windows::production::ask_production),
-        Arm::EventScoring => Some(crate::driver::windows::scoring::ask_event_scoring),
         Arm::Aftermath => Some(crate::driver::windows::chain::ask_aftermath),
-        Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase => Some(super::turn::ask_job),
+        Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase | Arm::Status => Some(super::turn::ask_job),
         Arm::Ask => Some(super::turn::ask::ask_ask),
+        Arm::Trade => Some(super::windows::trade::ask_trade),
         _ => None,
     }
 }

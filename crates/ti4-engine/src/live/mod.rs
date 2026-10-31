@@ -19,6 +19,7 @@ pub mod details;
 pub mod env;
 pub mod kernel;
 pub mod plays;
+pub mod trade;
 pub mod turn;
 
 use std::collections::VecDeque;
@@ -155,6 +156,9 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     // display facts read the position the question was put in: a question asked from inside a step (an emission, a job of the turn flow) was
     // put in a position the driver has rolled back since.
     let at = asking.at.as_deref().or(asking.nested.as_ref().map(|(_, at)| &**at)).unwrap_or(core);
+    if matches!(asking.choice.ask, ti4_engine_core::choice::Ask::Trade(_)) {
+        trade::sync(cx.render, at);
+    }
     let position = render::Position { state: std::rc::Rc::new(at.clone()), kernel: kernel::static_of(cx.env.kernel) };
     let mut rendered = Typed::new_at(cx.render, position, asking.choice.clone(), phase, round).rendered;
     (cx.complete)(at, cx.env.kernel, &asking.choice, &mut rendered);
@@ -246,7 +250,16 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
         let rendered = render_asking(cx, core, &asking);
         step.asked.push(rendered.clone());
         let id = asker.ask(&Question { asking: &asking, rendered })?;
-        let Some(pick) = pick_of(cx.render, &asking.choice, &id) else { return Err(Stop::Illegal) };
+        // A free-form deal arrives as text: its terms are written to the window before the pick that names them is applied.
+        let named = trade::pick(core, &asking.choice, &id);
+        let pick = match named {
+            Some(Ok(pick)) => pick,
+            Some(Err(why)) => return Err(Stop::Live(LiveError::Unknown(why))),
+            None => match pick_of(cx.render, &asking.choice, &id) {
+                Some(pick) => pick,
+                None => return Err(Stop::Illegal),
+            },
+        };
         let (live, out) = advance(core, env, Some(pick))?;
         merge(&mut step, out);
         match live {
@@ -279,6 +292,24 @@ mod tests {
     use super::*;
     use crate::core_sync::{with_core, Footprint, Sources};
     use crate::tokens::{with_pool_details, TokenGain as StringGain};
+
+    /// The scripted answers, then the first option of whatever the close of the window asks.
+    struct FirstAfter(Scripted);
+
+    impl Asker for FirstAfter {
+        fn ask(&mut self, q: &Question<'_>) -> Result<String, Stop> {
+            if self.0.left() > 0 {
+                return self.0.ask(q);
+            }
+            // A redistribution keeps the sheet as it stands, so the pools can still be compared with the string's.
+            let pools = q.rendered.details.get("pools").cloned();
+            let keep = pools.and_then(|p| {
+                let n = |k: &str| p.get(k).and_then(serde_json::Value::as_i64);
+                Some(format!("{}|{}|{}", n("tactic")?, n("fleet")?, n("strategic")?))
+            });
+            Ok(keep.filter(|id| q.rendered.options.iter().any(|o| o.id == *id)).unwrap_or_else(|| q.rendered.options[0].id.clone()))
+        }
+    }
 
     /// The vertical slice of the live loop: `Arm::Tokens` run natively end to end against the string engine's own window
     /// (`tokens::TokenGain`, `Game::step_token_gain`). Same questions (prompt, option ids, kinds, labels, context, display
@@ -328,9 +359,9 @@ mod tests {
             open(core, &TokenGain::new(Tokens { pending: SmallList::from_slice(&seats), placed: SmallList::new(), report: StatusReport::default() }));
             let live = Cx::new(render, &env);
             for id in answers {
-                let mut asker = Scripted::new([id]);
+                let mut asker = FirstAfter(Scripted::new([id]));
                 let step = live_step(core, Arm::Tokens, &live, &mut asker).expect("the arm runs");
-                live_questions.extend(asker.seen);
+                live_questions.extend(asker.0.seen);
                 finished.push(step.finished);
             }
             emitted = core.ledger.events.iter().cloned().collect::<Vec<_>>();
@@ -339,7 +370,8 @@ mod tests {
         let live_events: Vec<String> =
             emitted.iter().map(|e| crate::render::events::pushed_of(render, &cx, e).expect("every event has a text").text().to_owned()).collect();
 
-        assert_eq!(live_questions.len(), string_questions.len());
+        // The last token also runs the close (the redistributions, answered with their first option): what the string asks comes first.
+        live_questions.truncate(string_questions.len());
         for (live, string) in live_questions.iter().zip(&string_questions) {
             assert_eq!(live.player, string.player);
             assert_eq!(live.prompt, string.prompt);
@@ -347,7 +379,7 @@ mod tests {
             assert_eq!(live.details, string.details);
             assert_eq!(live.context, string.context);
         }
-        assert_eq!(live_events, string_events, "the plain events, in order");
+        assert_eq!(live_events[..string_events.len()], string_events, "the plain events, in order (the close's follow)");
         assert_eq!(finished, [false, false, true], "the window ends with the last token, as `is_complete`");
         // Position: the tokens landed in the pools the string put them in.
         for who in &order {

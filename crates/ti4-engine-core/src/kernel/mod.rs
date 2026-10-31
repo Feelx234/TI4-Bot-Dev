@@ -37,6 +37,7 @@ pub mod reaction;
 pub mod resolver;
 pub mod seam;
 pub mod stage;
+pub mod trade_env;
 pub mod trigger;
 pub mod turn_codes;
 

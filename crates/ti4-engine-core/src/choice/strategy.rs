@@ -33,6 +33,9 @@ pub enum Ask {
     /// Warfare: the final split of the `total` command tokens on the sheet, at least `floor` in the fleet
     /// pool.
     WarfareRedistribute { total: u8, floor: u8 },
+    /// 81.5: the final split of the `total` command tokens on the sheet at the end of the status phase's token gain, at least
+    /// `floor` in the fleet pool (`strategy_cards::redistribute_tokens`, subtype `status_redistribute_tokens`).
+    StatusRedistribute { total: u8, floor: u8 },
     /// Diplomacy primary: the system whose other players get a command token.
     DiplomacySystem,
     /// 34.2: "ready which planet" (Diplomacy primary and secondary).
@@ -124,6 +127,8 @@ pub enum Subtype {
     GainCommandToken,
     WarfareRecallToken,
     WarfareRedistributeTokens,
+    /// `status_redistribute_tokens` (81.5).
+    StatusRedistributeTokens,
     DiplomacyChooseSystem,
     ReadyPlanet,
     PoliticsChooseSpeaker,

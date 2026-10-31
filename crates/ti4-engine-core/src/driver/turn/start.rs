@@ -33,14 +33,23 @@ fn technologies(sx: &mut Sx<'_>, active: Seat) -> Flow {
     run(sx, &mut TurnStart::new(active, sx.table.codes.turn.psychoarchaeology))
 }
 
-/// `Game::refresh_commander_unlocks`. Every in-scope faction states its commander's unlock condition (`commander_unlocked`, lane F2's hook slots), so
-/// the seat's locked commanders are judged here; no commander is left to the string.
+/// The leaders `leaders::check_unlocks` would unlock for `seat` now. Every in-scope faction states its commander's unlock condition
+/// (`commander_unlocked`, lane F2's hook slots), so the seat's locked commanders are all judged. `mapless`: the check of
+/// `objectives::award_tail`, which has no map (Naalu's commander asks about the Mecatol area; the status phase checks again with one).
+pub(crate) fn unlockable(sx: &Sx<'_>, seat: Seat, mapless: bool) -> leaders::Leaders {
+    let env = KernelEnv::new(sx.state, sx.kernel);
+    let lcx = leaders::Cx { core: sx.state, env: &env, scope: reach::scope_of(sx.kernel), blanked: reach::blanked(sx.state) };
+    let mut list = leaders::unlockable(&lcx, seat);
+    if mapless {
+        // Naalu's commander (Maban): no map, no Mecatol area, so it stays locked.
+        list.retain(|l| *l != crate::generated::Leader::Maban);
+    }
+    list
+}
+
+/// `Game::refresh_commander_unlocks`.
 fn commanders(sx: &mut Sx<'_>, active: Seat) {
-    let unlocking = {
-        let env = KernelEnv::new(sx.state, sx.kernel);
-        let lcx = leaders::Cx { core: sx.state, env: &env, scope: reach::scope_of(sx.kernel), blanked: reach::blanked(sx.state) };
-        leaders::unlockable(&lcx, active)
-    };
+    let unlocking = unlockable(sx, active, false);
     leaders::unlock(sx.state, active, unlocking.as_slice());
     for leader in unlocking.as_slice() {
         sx.plain(PlainRec::one(PlainKind::LeaderUnlocked, PlainArg::Leader(*leader)));

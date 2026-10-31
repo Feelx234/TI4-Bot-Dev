@@ -102,6 +102,12 @@ pub trait Subject: Sized {
     fn disabled(&self) -> Option<String>;
     /// The decision hash of the whole game so far (what `dual_run` compares).
     fn decisions_hash(&self) -> String;
+    /// Whether a transaction window is open, so the step the subject takes next is a trade step. The string's `legal_options()` has no trade branch
+    /// (`step_trade` asks the table itself), so before a trade step a legacy subject shows the ACTION MENU where the new engine shows the proposal:
+    /// the harness does not compare the offered question of such a step (the decisions the step settles are still compared, by hash and by record).
+    fn in_transaction(&self) -> bool {
+        false
+    }
     /// Differences the subject found itself during its last step, besides what the harness compares (the `NativeSubject`'s shadow run
     /// of a native arm against the legacy step). Taken once per step; the harness adds them to the step's differences.
     fn take_extra(&mut self) -> Vec<Raw> {
@@ -200,6 +206,10 @@ impl<M: MaskChoice> Subject for MaskSubject<M> {
 
     fn options(&self) -> Option<Choice> {
         dual::with_mask(self.mask, || self.game.legal_options())
+    }
+
+    fn in_transaction(&self) -> bool {
+        self.game.step_facts().open & ti4_engine_core::driver::session::bit(ti4_engine_core::state::WindowKind::Trade) != 0
     }
 
     fn answer(&mut self, option_id: &str) {
@@ -390,12 +400,14 @@ pub fn play_scenario<A: Subject, B: Subject>(spec: &GameSpec, limits: Limits, ju
             stopped = Some(format!("limit: {steps} steps, round {}", b.round()));
             break;
         }
-        let offered_a = a.options();
-        let offered_b = b.options();
-        let subtype = offered_b
-            .as_ref()
-            .and_then(|c| c.context.as_ref())
-            .map_or_else(|| "-".to_owned(), |c| c.subtype.clone());
+        // T-I5-1 (docs/todo/D2-islands-machines.md, question 6): the pre-step question of a trade step is not comparable.
+        let trading = a.in_transaction() || b.in_transaction();
+        let (offered_a, offered_b) = if trading { (None, None) } else { (a.options(), b.options()) };
+        let subtype = if trading {
+            "transaction".to_owned()
+        } else {
+            offered_b.as_ref().and_then(|c| c.context.as_ref()).map_or_else(|| "-".to_owned(), |c| c.subtype.clone())
+        };
         let info_b = b.step();
         let records_b = b.decisions_since();
         for r in &records_b {

@@ -165,9 +165,25 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
             }
             None => false,
         },
-        // The jobs of the turn flow open themselves (`driver::turn`): they need no window of the legacy game.
-        Arm::TurnPrelude | Arm::Phase | Arm::StrategyAnnounce | Arm::Ask => true,
+        // The transaction window (lane M1): the payload the legacy game holds, free-form deal included.
+        Arm::Trade => open_observed(windows, core, WindowKind::Trade),
+        // The scoring windows of the status phase and of the secrets timed on an action or an agenda (lane C): the payload the legacy game holds.
+        Arm::Scoring => open_observed(windows, core, WindowKind::Scoring),
+        Arm::EventScoring => open_observed(windows, core, WindowKind::EventScoring),
+        // The jobs of the turn flow open themselves (`driver::turn`): they need no window of the legacy game. `Status` opens the scoring window.
+        Arm::TurnPrelude | Arm::Phase | Arm::StrategyAnnounce | Arm::Ask | Arm::Status => true,
         _ => false,
+    }
+}
+
+/// Open the window of `kind` the legacy game holds on the materialized position. `false`: it holds none.
+fn open_observed(windows: &[Window], core: &mut CoreState, kind: WindowKind) -> bool {
+    match windows.iter().find(|w| w.kind() == kind) {
+        Some(w) => {
+            core.pending_mut().open(w.clone());
+            true
+        }
+        None => false,
     }
 }
 
@@ -175,7 +191,14 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
 /// (the questions, the events and the position), not on the prefix. `Phase` is the whole of `step_phase`, and `Ask` (the draft, the starting technology, the closing menu) is the whole of its step; the prelude and the
 /// announcement go on into the question of the same legacy step (the action menu, the draft), which the arm does not own.
 const fn close_is_native(arm: Arm) -> bool {
-    matches!(arm, Arm::Phase | Arm::Ask)
+    matches!(arm, Arm::Phase | Arm::Ask | Arm::Status | Arm::Tokens | Arm::Scoring | Arm::EventScoring | Arm::Trade)
+}
+
+
+/// The arms whose native step also runs the close when it applies the LAST answer, where the legacy game closes in its NEXT step (a step
+/// that finds nothing to ask): the legacy answer step is compared on the prefix, the legacy close step on everything.
+const fn closes_one_step_early(arm: Arm) -> bool {
+    matches!(arm, Arm::Scoring | Arm::EventScoring)
 }
 
 /// The `private:#staged:event:*` marks of a string position (events staged for the next step's announcement).
@@ -206,6 +229,9 @@ fn slices_for(has_galaxy: bool) -> SliceSet {
 const fn window_of(arm: Arm) -> Option<WindowKind> {
     match arm {
         Arm::Tokens => Some(WindowKind::Tokens),
+        Arm::Scoring => Some(WindowKind::Scoring),
+        Arm::EventScoring => Some(WindowKind::EventScoring),
+        Arm::Trade => Some(WindowKind::Trade),
         _ => None,
     }
 }
@@ -299,6 +325,7 @@ impl NativeSubject {
         let kernel = live::kernel::kernel_for(shadow.sources);
         let env = live::env::env_with_plays(&shadow.render, &shadow.core, kernel, Rc::new(TextSeeds::of(&shadow.cx)), shadow.sources);
         let cx = live::Cx::new(&shadow.render, &env);
+        let answers_taken = answers.clone();
         let mut asker = Scripted::new(answers);
         // The last card of the draft is not asked by the table either.
         let mut lone = live::LoneCard(&mut asker);
@@ -332,6 +359,12 @@ impl NativeSubject {
                 lend(shadow.arm, &format!("gap {why:?}"));
                 return;
             }
+            // The arm closed one legacy step early and the close asks something: the answers are the next legacy step's (the close step),
+            // where the arm is run again from the legacy position and compared in full.
+            Err(live::Stop::Exhausted) if closes_one_step_early(shadow.arm) => {
+                count(&RAN, format!("{name} (the close needs the next legacy step's answers)"));
+                return;
+            }
             Err(stop) => {
                 count(&RAN, name.to_owned());
                 leaves(Category::Value, "native.stop", &json!("ran"), &json!(format!("{stop:?}")), &mut out);
@@ -341,33 +374,46 @@ impl NativeSubject {
         };
         count(&RAN, name.to_owned());
         let finished = step.finished;
-        // A step whose close is the legacy's is compared on the prefix once the window ended.
-        let ended = finished && !close_is_native(shadow.arm);
+        let open_after = window_of(shadow.arm).map(|kind| self.inner.game().step_facts().open & bit(kind) != 0);
+        // A step whose close is the legacy's is compared on the prefix once the window ended; so is a step that closed one legacy step early.
+        let early = closes_one_step_early(shadow.arm) && finished && open_after == Some(true);
+        let ended = finished && (!close_is_native(shadow.arm) || early);
         if ended {
-            count(&RAN, format!("{name} (window ended; the close is the legacy's)"));
+            count(&RAN, format!("{name} (window ended; the close is {})", if early { "the next legacy step's" } else { "the legacy's" }));
         }
         let native: Vec<Value> = asker.seen.iter().map(|c| json!({ "player": c.player.as_str(), "prompt": c.prompt, "options": c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>() })).collect();
         let legacy: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
-        out.extend(compare_questions(ended, &legacy, &native, asker.left()));
+        out.extend(compare_questions(ended, early, &legacy, &native, asker.left()));
         let pushed = ti4_engine::render::events::pushed_since(&shadow.render, &shadow.cx, &shadow.core, from);
         match pushed {
             Some(lines) => {
                 let texts: Vec<String> = lines.iter().map(|p| p.text().to_owned()).collect();
-                out.extend(compare_events(ended, events, &texts));
+                out.extend(compare_events(ended, early, events, &texts));
             }
             None => leaves(Category::Event, "native.events", &json!(events), &json!("a line the tables cannot name"), &mut out),
         }
+        // The events an effect staged are marks of JSON in the legacy state and `Pending::staged` in the core: compared by name, in order, and kept
+        // out of the position (the position carries only what the codec carries).
+        let mut legacy_state = self.inner.state_json();
+        let legacy_staged = strip_staged(&mut legacy_state);
+        let native_staged: Vec<String> = shadow.core.pending().staged.iter().map(|e| ti4_engine::kernel_sync::text::event_text(&shadow.render, e.kind)).collect();
+        if !native_staged.is_empty() || !legacy_staged.is_empty() {
+            leaves(Category::Event, "native.staged", &json!(legacy_staged), &json!(native_staged), &mut out);
+        }
         match materialize::materialize(&shadow.core, &shadow.cx, &shadow.base) {
             Ok(after) => {
-                let native_state = serde_json::to_value(&after).unwrap_or(Value::Null);
-                out.extend(compare_state(ended, &self.inner.state_json(), &native_state));
+                let mut native_state = serde_json::to_value(&after).unwrap_or(Value::Null);
+                strip_staged(&mut native_state);
+                out.extend(compare_state(ended, &legacy_state, &native_state));
             }
             Err(e) => leaves(Category::State, "native.state", &json!("materializes"), &json!(e.to_string()), &mut out),
         }
         // The window ended when the legacy window ended.
-        if let Some(kind) = window_of(shadow.arm) {
-            let open_after = self.inner.game().step_facts().open & bit(kind) != 0;
-            leaves(Category::Value, "native.finished", &json!(!open_after), &json!(step.finished), &mut out);
+        if let Some(open_after) = open_after {
+            leaves(Category::Value, "native.finished", &json!(!open_after || early), &json!(step.finished), &mut out);
+        }
+        if !out.is_empty() && std::env::var_os("TI4_NATIVE_TRACE").is_some() {
+            eprintln!("native difference in arm {name}: answers {answers_taken:?}, legacy events {events:?}");
         }
         self.report(shadow.arm, out);
     }
@@ -379,11 +425,27 @@ impl NativeSubject {
 // step that leaves it open must agree on everything, the position included. The position at the end of a window is compared when the
 // close is the core's too (KS5).
 
+/// Take the `private:#staged:event:*` marks out of a position: the `type` of each, in key order.
+fn strip_staged(state: &mut Value) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
+        let keys: Vec<String> = marks.keys().filter(|k| k.starts_with("private:#staged:event:")).cloned().collect();
+        for key in keys {
+            let text = marks.remove(&key).and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();
+            let event: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            names.push(event.get("type").and_then(Value::as_str).unwrap_or("?").to_owned());
+        }
+    }
+    names
+}
+
 /// The questions of the step: the legacy step's against the arm's (`native.questions...`); the answers the arm did not take are a
 /// difference unless the window ended (the remainder takes them).
-fn compare_questions(finished: bool, legacy: &[Value], native: &[Value], unconsumed: usize) -> Vec<Raw> {
+fn compare_questions(finished: bool, early: bool, legacy: &[Value], native: &[Value], unconsumed: usize) -> Vec<Raw> {
     let mut out = Vec::new();
     let legacy = if finished && legacy.len() >= native.len() { &legacy[..native.len()] } else { legacy };
+    // The arm closed one legacy step early: what it asked beyond the legacy step is the next legacy step's.
+    let native = if early && native.len() >= legacy.len() { &native[..legacy.len()] } else { native };
     leaves(Category::Decision, "native.questions", &Value::Array(legacy.to_vec()), &Value::Array(native.to_vec()), &mut out);
     if unconsumed > 0 && !finished {
         leaves(Category::Decision, "native.questions.unconsumed", &json!(0), &json!(unconsumed), &mut out);
@@ -392,9 +454,10 @@ fn compare_questions(finished: bool, legacy: &[Value], native: &[Value], unconsu
 }
 
 /// The plain events of the step (`native.events...`).
-fn compare_events(finished: bool, legacy: &[String], native: &[String]) -> Vec<Raw> {
+fn compare_events(finished: bool, early: bool, legacy: &[String], native: &[String]) -> Vec<Raw> {
     let mut out = Vec::new();
     let legacy = if finished && legacy.len() >= native.len() { &legacy[..native.len()] } else { legacy };
+    let native = if early && native.len() >= legacy.len() { &native[..legacy.len()] } else { native };
     leaves(Category::Event, "native.events", &json!(legacy), &json!(native), &mut out);
     out
 }
@@ -465,6 +528,11 @@ impl Subject for NativeSubject {
 
     fn rng_positions(&self) -> RngPositions {
         self.inner.rng_positions()
+    }
+
+    // mutants:skip (delegation to the legacy subject)
+    fn in_transaction(&self) -> bool {
+        self.inner.in_transaction()
     }
 
     // mutants:skip (delegation to the legacy subject)
@@ -556,10 +624,14 @@ mod tests {
     }
 
     fn play_spec(spec: &GameSpec) -> crate::oracle::Played {
+        play_spec_for(spec, LIMITS)
+    }
+
+    fn play_spec_for(spec: &GameSpec, limits: Limits) -> crate::oracle::Played {
         let list = AllowList::default();
         let mut tally = Tally::new(&list);
         let mut judge = Judge { list: &list, tally: &mut tally, scenario: "native".to_owned() };
-        play_scenario::<NativeSubject, MaskSubject<LegacyMask>>(spec, LIMITS, &mut judge).expect("builds").expect("not skipped")
+        play_scenario::<NativeSubject, MaskSubject<LegacyMask>>(spec, limits, &mut judge).expect("builds").expect("not skipped")
     }
 
     fn arm_tokens() {
@@ -578,10 +650,28 @@ mod tests {
         let ran = ran_counts();
         let lent = lent_counts();
         assert!(played.report.differences.is_empty(), "{:#?}", played.report.differences);
-        assert!(ran.keys().any(|k| k.starts_with("tokens (window ended")), "the ending step of the window is counted apart: {ran:?}");
-        assert!(ran.get("tokens").copied().unwrap_or(0) >= 2, "the arm ran in shadow at least on the first and the last token: {ran:?}");
+        assert!(ran.get("tokens").copied().unwrap_or(0) >= 3, "the arm ran in shadow on every token, the last one with its close: {ran:?}");
         assert!(lent.contains_key("tactical: not native") && lent.contains_key("aftermath: not native"), "the other arms are lent and counted: {lent:?}");
         assert!(!lent.keys().any(|k| k.starts_with("tokens:")), "no tokens step was lent: {lent:?}");
+    }
+
+    /// The status phase's arms (the opening, the scoring window, the token gain with its close, and the event window when a secret asks for
+    /// one) run in shadow behind a legacy game through round one: every step is compared (questions, events, the position when the window
+    /// closes) and the two agree.
+    #[test]
+    fn the_status_phase_arms_shadowed_behind_a_legacy_game_through_round_one_agree_with_it() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        TAMPER.with(|t| t.set(0));
+        set_native_arms(NativeArms::of(&[Arm::Status, Arm::Scoring, Arm::EventScoring, Arm::Tokens]));
+        let _ = (lent_counts(), ran_counts());
+        let played = play();
+        let ran = ran_counts();
+        let other: Vec<_> = played.report.differences.iter().filter(|d| !d.core_side.contains("CommanderUnlock")).collect();
+        assert!(other.is_empty(), "{:#?}", other.iter().take(8).collect::<Vec<_>>());
+        eprintln!("ran: {ran:?}");
+        for arm in ["status", "scoring", "tokens"] {
+            assert!(ran.keys().any(|k| k.starts_with(arm)), "{arm} ran in shadow: {ran:?}");
+        }
     }
 
     /// The jobs of the turn flow (the start of a turn, the phase changes, the announcement of the first strategy phase) run in shadow behind
@@ -645,6 +735,61 @@ mod tests {
         assert!(seen.iter().all(|s| *s), "a known silent difference is gone: delete its line from KNOWN_SILENT ({seen:?})");
     }
 
+    /// Round one with every lobby faction in turn (six tables of four), the status phase's arms in shadow and a counted bail a failure: no
+    /// difference but the counted gap of a commander whose unlock condition no hook states yet (`TurnGap::CommanderUnlock`), and the arms ran.
+    #[test]
+    fn the_status_phase_arms_agree_with_the_legacy_game_for_every_lobby_faction() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        TAMPER.with(|t| t.set(0));
+        let (mut gaps, mut ran_status) = (0, 0);
+        for group in LOBBY_FACTIONS.chunks(4) {
+            set_native_arms(NativeArms::of(&[Arm::Status, Arm::Scoring, Arm::EventScoring, Arm::Tokens]));
+            let _ = (lent_counts(), ran_counts());
+            let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
+            let ran = ran_counts();
+            let other: Vec<_> = played.report.differences.iter().filter(|d| !d.core_side.contains("CommanderUnlock")).collect();
+            gaps += played.report.differences.len() - other.len();
+            assert!(other.is_empty(), "{group:?}: {:#?}", other.iter().take(5).collect::<Vec<_>>());
+            ran_status += ran.get("status").copied().unwrap_or(0);
+        }
+        assert!(ran_status >= 1, "the opening of the status phase ran in shadow");
+        eprintln!("commander gaps counted: {gaps}");
+    }
+
+    /// The trade island (lane M1) in shadow behind real games: the transaction windows the rule bot opens in the first rounds of a table of
+    /// each group of lobby factions are run by the core with the same answers and compared step by step (questions as rendered, plain events,
+    /// the events left staged, the position at every step, the close). A counted bail is a failure. The window must be seen to open and
+    /// be answered, or the run proves nothing.
+    #[test]
+    fn the_trade_arm_agrees_with_the_legacy_game_over_real_transactions_for_every_lobby_faction() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        TAMPER.with(|t| t.set(0));
+        let mut steps = 0;
+        for group in LOBBY_FACTIONS.chunks(4) {
+            set_native_arms(NativeArms::of(&[Arm::Trade]));
+            let _ = (lent_counts(), ran_counts());
+            let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec_for(&spec_of(group), Limits { max_rounds: 3, max_steps: 60_000 }));
+            let ran = ran_counts();
+            assert!(played.report.differences.is_empty(), "{group:?}: {:#?}", played.report.differences.iter().take(5).collect::<Vec<_>>());
+            steps += ran.iter().filter(|(k, _)| k.starts_with("trade")).map(|(_, n)| *n).sum::<u64>();
+            eprintln!("{group:?}: trade steps in shadow {:?}", ran.iter().filter(|(k, _)| k.starts_with("trade")).collect::<Vec<_>>());
+        }
+        assert!(steps >= 10, "transactions were seen: {steps} trade steps in shadow");
+    }
+
+    /// The trade arm's compare finds a perturbed native position too: a trade good more at the end of a step is a `State` difference.
+    #[test]
+    fn a_perturbed_native_trade_position_is_reported_as_a_state_difference() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        set_native_arms(NativeArms::of(&[Arm::Trade]));
+        let _ = (lent_counts(), ran_counts());
+        TAMPER.with(|t| t.set(1));
+        let played = play_spec_for(&spec_of(&LOBBY_FACTIONS[..4]), Limits { max_rounds: 3, max_steps: 60_000 });
+        TAMPER.with(|t| t.set(0));
+        let hit = played.report.differences.iter().find(|d| d.category == Category::State && d.path.starts_with("native.state") && d.path.contains("trade_goods"));
+        assert!(hit.is_some(), "{:#?}", played.report.differences.iter().take(3).collect::<Vec<_>>());
+    }
+
     /// The compare finds a perturbed native position (state), and a perturbed pool (the plain events of the step do not change, the
     /// position does): the harness reports it as a `State` difference at the path of the field.
     #[test]
@@ -671,27 +816,27 @@ mod tests {
     fn a_step_that_ends_the_window_is_compared_on_the_prefix_and_one_that_leaves_it_open_on_everything() {
         let (one, two) = (vec![q("p1")], vec![q("p1"), q("p2")]);
         // The legacy step asked more than the arm.
-        assert!(compare_questions(true, &two, &one, 0).is_empty(), "the remainder's question is not a difference when the window ended");
-        let open = compare_questions(false, &two, &one, 0);
+        assert!(compare_questions(true, false, &two, &one, 0).is_empty(), "the remainder's question is not a difference when the window ended");
+        let open = compare_questions(false, false, &two, &one, 0);
         assert_eq!(open.len(), 1, "{open:?}");
         assert_eq!((open[0].category, open[0].path.as_str()), (Category::Decision, "native.questions[1]"));
         // The arm asked more than the legacy step: a difference either way.
-        assert_eq!(compare_questions(true, &one, &two, 0).len(), 1);
-        assert_eq!(compare_questions(false, &one, &two, 0).len(), 1);
+        assert_eq!(compare_questions(true, false, &one, &two, 0).len(), 1);
+        assert_eq!(compare_questions(false, false, &one, &two, 0).len(), 1);
         // A different question in the shared prefix is a difference either way.
-        assert_eq!(compare_questions(true, &[q("p1")], &[q("other")], 0).len(), 1);
+        assert_eq!(compare_questions(true, false, &[q("p1")], &[q("other")], 0).len(), 1);
         // The answers the arm did not take: the remainder takes them when the window ended.
-        assert!(compare_questions(true, &one, &one, 3).is_empty());
-        let left = compare_questions(false, &one, &one, 3);
+        assert!(compare_questions(true, false, &one, &one, 3).is_empty());
+        let left = compare_questions(false, false, &one, &one, 3);
         assert_eq!((left.len(), left[0].path.as_str(), left[0].right.as_str()), (1, "native.questions.unconsumed", "3"));
-        assert!(compare_questions(false, &one, &one, 0).is_empty(), "none left is no difference");
-        assert_eq!(compare_questions(false, &one, &one, 1).len(), 1, "a single answer left is one");
+        assert!(compare_questions(false, false, &one, &one, 0).is_empty(), "none left is no difference");
+        assert_eq!(compare_questions(false, false, &one, &one, 1).len(), 1, "a single answer left is one");
         // The same shape for the events.
         let (e1, e2) = (vec!["A".to_owned()], vec!["A".to_owned(), "B".to_owned()]);
-        assert!(compare_events(true, &e2, &e1).is_empty());
-        assert_eq!(compare_events(false, &e2, &e1).len(), 1);
-        assert_eq!(compare_events(true, &e1, &e2).len(), 1);
-        assert_eq!(compare_events(true, &["A".to_owned()], &["Z".to_owned()]).len(), 1);
+        assert!(compare_events(true, false, &e2, &e1).is_empty());
+        assert_eq!(compare_events(false, false, &e2, &e1).len(), 1);
+        assert_eq!(compare_events(true, false, &e1, &e2).len(), 1);
+        assert_eq!(compare_events(true, false, &["A".to_owned()], &["Z".to_owned()]).len(), 1);
         // The position: not compared when the window ended, leaf by leaf when it did not, with the path of the leaf.
         let (l, r) = (json!({ "players": [{ "trade_goods": 1 }], "round": 2 }), json!({ "players": [{ "trade_goods": 2 }], "round": 2 }));
         assert!(compare_state(true, &l, &r).is_empty());

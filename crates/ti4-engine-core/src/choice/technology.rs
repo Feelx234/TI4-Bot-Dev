@@ -32,6 +32,8 @@ pub enum Ask {
     ChaosMapping,
     /// "choose a starting technology" (`number` of `of` when the seat picks several), drawn by `rule` (setup, before the first card is drafted).
     StartingTech { number: u8, of: u8, rule: StartRule },
+    /// "Temporal Command Suite: perform a transaction with {partner}" (Nomad): `partner` owns the agent that was readied.
+    TcsTransaction { partner: Seat },
 }
 
 /// Where a starting technology pick draws from (`ti4_model::state::StartingTechSource`).
@@ -69,6 +71,8 @@ pub enum Opt {
     System(System),
     /// A starting technology.
     Tech(Technology),
+    /// Temporal Command Suite: perform the transaction (`transact`).
+    Transact,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -88,4 +92,6 @@ pub enum Subtype {
     ChaosMappingChooseSystem,
     /// `starting_technology`.
     StartingTechnology,
+    /// `tcs_transaction`.
+    TcsTransaction,
 }

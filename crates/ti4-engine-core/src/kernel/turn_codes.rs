@@ -22,6 +22,12 @@ pub struct TurnCodes {
     pub strategy_card: Code,
     /// `starting_technology`: the source of a starting technology question.
     pub starting_technology: Code,
+    /// `transaction`: the source of the trade goods a deal gives (the live trade window).
+    pub transaction: Code,
+    /// `dark_pact`: the source of the trade good Dark Pact gains.
+    pub dark_pact: Code,
+    /// `tcs`: the source of Temporal Command Suite's question.
+    pub tcs: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.
@@ -64,4 +70,16 @@ pub enum TurnGap {
     /// The seat chose an option of the closing menu that is not "end your turn" (a free leader's component action): the dispatch of a menu option is the
     /// string's (`Dispatch::Lend`, KM2).
     MenuDispatch,
+    /// A free-form deal names a card, note, planet or fragment kind the typed tables do not know (the string answers with a rejection).
+    TradeTerms,
+    /// Plots Within Plots left a plot card to place (the Firmament, a dropped faction).
+    PlotCard,
+    /// A ship stands in an Entropic Scar (Thunder's Edge: the faction technologies of the status phase).
+    EntropicScar,
+    /// A promissory note's faction is played by two seats, so the note has no one owner to go home to.
+    NoteOwner,
+    /// An event scoring window closed with the agendas of its agenda phase waiting on the stack: the vote is the agenda lane's.
+    AgendaQueue,
+    /// A secret objective the core cannot judge (Strengthen Bonds, Produce en Masse).
+    ScoringSecret,
 }

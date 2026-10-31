@@ -235,7 +235,10 @@ mod tests {
         assert_eq!(step(&mut s, &f, needs(), NativeArms::ALL), Step::Lend(Lent::Arm(Arm::Voting)));
         assert_eq!(
             NativeArms::registered(),
-            NativeArms::of(&[Arm::Tokens, Arm::EventScoring, Arm::Aftermath, Arm::Tactical, Arm::Invasion, Arm::Production, Arm::TurnPrelude, Arm::StrategyAnnounce, Arm::Phase, Arm::Ask])
+            NativeArms::of(&[
+                Arm::Tokens, Arm::EventScoring, Arm::Scoring, Arm::Status, Arm::Trade, Arm::Aftermath, Arm::Tactical, Arm::Invasion, Arm::Production, Arm::TurnPrelude,
+                Arm::StrategyAnnounce, Arm::Phase, Arm::Ask
+            ])
         );
         assert_eq!(NativeArms::ALL.bits().count_ones(), 21);
         assert!(NativeArms::NONE.bits() == 0 && !NativeArms::NONE.has(Arm::Tokens));

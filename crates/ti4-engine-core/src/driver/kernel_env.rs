@@ -133,6 +133,10 @@ impl leaders::Env for KernelEnv<'_> {
         self.kernel.hooks.direct.bastion_units_resource_bonus(self.core, planet)
     }
     fn mecatol_area(&self) -> Option<SysSet> {
+        // A position without the map slice is a game without a galaxy: the string's `galaxy: None`.
+        if !self.core.loaded.has(crate::state::Slice::Map) {
+            return None;
+        }
         let g = self.core.galaxy()?;
         let mecatol = objectives::mecatol_in_galaxy(self.core);
         let mut set = g.adjacent(mecatol);

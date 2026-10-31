@@ -13,4 +13,8 @@ pub mod invasion;
 pub mod minister;
 pub mod production;
 pub mod scoring;
+pub mod status;
+pub mod status_bookkeeping;
+pub mod status_finish;
 pub mod tactical;
+pub mod trade;
