@@ -67,3 +67,30 @@ only left for a child that hands back a `Next`.
   Muaat) keep `Spawn::Produce` with the adapter's `finish_uses`.
 * The `buildable` units and the fleet limit of the window are read when the use starts (the string reads them at every question); a reaction that changes them mid-use is not followed.
 * Keleres' agent window, Agency Supply Network, Deepwrought (dropped by decision).
+
+## Findings fixed on the way (each guarded by a test that fails on the old code)
+
+* the tape runner dropped the finished `HeroOffer` (`Child` hands the window back on `Done`), so a taken hero left a HOME use at full price: core test `a_home_use_with_the_hero_taken_makes_every_unit_free` (fails on the old runner, checked) and the lockstep `the_hacan_hero_makes_the_use_free_and_is_purged_in_lockstep` (Home).
+* a hosted Freelancers unit was asked its stale payment after the answer (`pay -3 more resources`: the host asks before it steps): `Exploring::answer` now settles the unit at once; guarded by `invasion_live::a_titans_first_claim_explores_natively_with_terragenesis_in_lockstep_with_the_string_window` (seed 9 failed before).
+* Freelancers resolves the card only when a unit stands (the string's answer is "was a unit made"): `exploring_freelancers` asserts `how`.
+* `Slot(15001)` clashed with the Instinct-Training/other slots (`debug_assert` "registered twice" in the engine table): Terragenesis is `Slot(17001)`.
+* `live::render_asking` rendered without a position, so the options of a production question panicked ("a listed option is offered in its position"): it renders with `Typed::new_at` now.
+* Finding for lane A2: `live::env::env_for` names the faction units of the FULL source scope (`roster_for(.., FULL)`), a POK game's Naalu mech is `naalu_mech` but the live roster says `naalu_mech_te`; the lockstep overrides the roster with the game's scope. The `previews` of a played card's reaction question (War Machine) are missing from the native context (display fact of the play slot), the lockstep strips them.
+
+## Tests (cheap)
+
+* core-tests: `production_use` (17: modes, start and end effects, journal across a dropped driver, clone mid-window, payload identity, gaps), `titans_terragenesis` (4), `exploring_freelancers` (2), `exploring` (hosted hand-limit discard through the tape, invasion seq on a tape question), existing `production_home`/`production_one`/`invasion_composer`/`hero_windows` unchanged and green.
+* engine `game::production_step_tests` (child of `game`, calls the private `AftermathWindow::enter_production`; declared by 3 lines in `game.rs` like `cannon_prelude_tests`): the string `enter_production` + window (`resolve` ends with `finish_use`) / `production::resolve_timed` / `produce_by_ability` against the native `Arm::Production` through `live_step`, compared question by question (player, prompt, options, details, context), events (name and payload) and the whole position, bail = failure: a plain use, every faction of the product in three modes (Tactical, Home, Ability), Sarween Tools, AI Development Algorithm (used / declined), the Hacan hero (both modes, used / declined), Prophecy of Ixth (destroyer / fighters), Self-Assembly Routines (used / declined), War Machine (played / declined), a system that produces nothing. `invasion_live` (Titans first claim with Terragenesis, Freelancers cards now in the decks of the first-claim sweep), `exploring_dual` (Freelancers no longer bails but the over-supply unit; Titans bail only in the dual driver).
+
+## Mutation checks (single file, Haiku runner on the committed snapshot be75e9ba in a scratch worktree, `tools/engine_core/mutants.sh`)
+
+| file | first run | after the survivor tests |
+|---|---|---|
+| `driver/windows/production/mod.rs` (vs `production_use`) | 38/52 killed, 14 survived | tests added for the hero gate (locked / capacity 0 / counter +1), the Home close (swap cleared), `made()`; the four loop bounds carry `// mutants:skip` (bounds no window reaches). Not re-mutated. The `emit_timing = true` (#8) and `0 -> 1` (#11, window `capacity <= 0`) points are covered by the engine lockstep only |
+| `cd_registry/titans/offer.rs` (vs `titans_terragenesis`) | 24/29, 5 survived | ctx assertions added (`optional`, `space_battle`); two defensive guards (`||` of the effect, the placement guard) carry `// mutants:skip`. Not re-mutated |
+| `explore_windows.rs` new fns only (vs `exploring`, `exploring_freelancers`) | 6/10, 4 survived | `how` asserted for a declined / made unit, the invasion number on a tape question; the loop bound carries a skip. Not re-mutated |
+
+## Checks (private target `/root/deploytmp/core-m2`, `CARGO_BUILD_JOBS=2`, no incremental)
+
+See the final report of the lane for the numbers of the last run. `tools/engine_core/check_layers.py core` 0 violations, `lint_core.sh` 0 hits.
+Not run (standing rule): golden / wide dual, benches, soak, ratchet, census, workspace clippy, `playthrough` (the aftermath arm of lane M5 does not call `Arm::Production` yet, so a game does not reach the island natively).
