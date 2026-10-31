@@ -1,5 +1,7 @@
 # D2 lane A (`core-d2-f-live`): the live loop, resume note (2026-10-31)
 
+> UPDATE (lane A2, `core-d2-f-live2`): sections 4-5 below were refreshed; what lane A2 did, how to run the cheap playthrough and the open list for lane F2 are in `docs/D2_LF2_RESUME.md`.
+
 Branch `core-d2-f-live` = `core-integration-8` (67994b33) merged with `core-d2-l1` (714b0074; no conflicts). Lane A is the SINGLE OWNER of the shared
 live-loop contract: KF1/KF2 of `docs/todo/D2-islands-composition.md` (branch `core-todo-d2d`) and M0 of `docs/todo/D2-islands-machines.md` (branch
 `core-todo-d2c`) are ONE design, written down here. Every other lane (M1 trade, M2 production, M3 invasion, M4 combat, M5 aftermath, M6 tactical, composition
@@ -72,25 +74,29 @@ round trip, the illegal-answer rollback and the clone-mid-window check are core 
 * **`live/kernel.rs`**: `kernel_for(sources)` is the hook table with EVERY faction module (`register_all`). `core_adapter::kernel_for` is the movement table only; the live
   loop must use this one.
 * **`live/env.rs`**: `env_for(&Render, &CoreState, kernel, seeds) -> Env` builds the registry/table from the core position (no string `GameState`), sharing
-  `reactions_core::{table, set_table_codes, id_text}` with the replay path. Missing: the `plays` facts (see its header).
-* **KF4**: `Pending::failed_component_actions` (+ `note_failed_component`, cleared by `turn_flow::end_turn_scratch`). It is not in any codec: the stack is not serialized.
+  `reactions_core::{table, set_table_codes, id_text}` with the replay path. The `plays` facts of an action card played inside a window are `live::plays` (A2); build the `Env` with `env_with_plays` (the bare `env_for` leaves them out).
+* **KF4**: `Pending::failed_component_actions` (+ `note_failed_component`, cleared by `turn_flow::forget_failed_components` (the live turn-end composer calls it; `end_turn_scratch` is lent to the dual without the Pending slice)). It is not in any codec: the stack is not serialized.
 * **KF6**: `window_driver::driver_live`; the 99 `driver_for` sites stay (replay path); a site is converted when its live opener goes through `live::advance`.
 * **Nested rendering from the core**: `dual_window::NestedPos` (+ `of_core`), `DecisionContext::{about_battle_in, about_invasion_in}`; `live::render_asking` completes nested questions.
 * **`playthrough` bin** (`ti4-engine-core-bridge/src/bin/playthrough.rs`): whole games per lobby faction (seat a), 4/6 players, `card_set te`, `starting_tech`, all areas
   `Dual` by default, `TI4_BAIL_IS_FAILURE` on; prints per-game lines, bails by cause (the `zero_bail.py` shape), unmapped, lent, live coverage; exit 1 unless ZERO BAIL.
 
-## 5. Open in lane A (in this order)
+## 5. Lane A: what was open and where it stands (refreshed by A2)
 
-1. **`plays` facts for `Env`** (action cards played inside a live window): `reactions_core::play_facts` reads the string position. Until then such a play stops the step
-   with `LiveError::Unknown(PlayFacts)` (a counted bail).
-2. **NativeSubject** (oracle, bridge): NOT built. Plan: a `Subject` that holds a legacy `Game` as the lender (bridge only) and, for each step whose `step_arm` is in
-   `NativeArms` and has a live function, runs the arm on a `CoreState` materialized from the pre-step `Game::fork()` with `Scripted` answers taken from the legacy step's
-   decisions, then compares questions, plain events, `GameState` slices and the closing position with the legacy post-step position (`oracle::<arm>` labels), counting
-   `product::note_lent` for every step it leaves to the legacy. The window payload of the pre-step position comes from `d1_pending::observe` (`tokens_of`, ...).
-   It needs a small `Game` API (`fork`, observed windows) and a write-back path; that is why it is lane A's next item and NOT done.
-3. Final KF2 validation named in the doc: `drive_live` against the replay `drive` over the existing `dual_window!` corpus (the Core backend of ONE area run through
-   `live::advance`); needs the `plays` facts for the areas with card plays, so start with `strategy::secondary` after lane E ports its follower facts.
+1. `plays` facts for `Env`: DONE in A2 (`live::plays`, `AdapterFacts::plays_provider`, `driver::live::table_at`, `live::env::env_with_plays`; the bridge check `check_play_facts` compares them with the string facts field by field; merged with `core-w-l11`, whose `SeatPlayMore`/`SharedPlay` are filled from the core too).
+2. `NativeSubject`: DONE in A2, built as a SHADOW run behind a legacy game rather than the plan above (the legacy game steps for real, no cascade): `ti4-engine-core-bridge/src/native_subject.rs`, `oracle --native ARMS`; see `docs/D2_LF2_RESUME.md`.
+3. Final KF2 validation (`drive_live` against the replay `drive` over the `dual_window!` corpus): still open; the shadow oracle covers the arm level (one arm exists: tokens). Start with `strategy::secondary` after lane E ports its follower facts.
+4. The two empty hook slots (`commander_unlocked`, `leader_action`): open, lane F2, exact list in `docs/D2_LF2_RESUME.md`.
+5. `playthrough` for the island lanes: DONE in A2 (`--quick`, per-island table, gate-profile recipe).
 
-## 6. Checks run (cheap) and not run
+## 6. Checks run (cheap) and results
 
-See the final report of the lane. Not run: any heavy gate (golden/wide dual, benches, soak, mutation ratchet, census, workspace clippy).
+* `cargo test -p ti4-engine-core --lib`: 464 passed. `check_layers.py core`: 0 violations; `lint_core.sh`: 0 hits.
+* `cargo test -p ti4-engine --lib` (default areas): 4894 passed after the fix below (the first run failed 7 tests: clearing `failed_component_actions` inside `end_turn_scratch` needs the `Pending` slice, which the dual does not lend; it is its own step now).
+* `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine --lib -- dual:: dual_window window_driver live:: decision_context d1_pending d1_action reactions_core product::`: 99 passed. `dual::tests::detects_an_injected_difference_in_each_category` fails ALONE under `TI4_DUAL_FAIL_FAST=1` (the env var is read lazily by `init_default` after `serial()` turned fail-fast off): pre-existing, not touched.
+* `cargo test -p ti4-engine-core-bridge --test kernel_env`: passes; reports the two empty hook slots (`commander_unlocked` 935, `leader_action` 1265 answers the string gives that no faction module registers yet).
+* Single-file mutation checks (Haiku runner, committed snapshot): `driver/live.rs` 12 mutants, 7 killed, 5 survived; `rules/token_gain.rs` 14 mutants, 10 killed, 4 survived. Tests added for 6 of the 9 survivors; 3 are equivalent mutants (`restore_stage` negation is caught by the driver's own `NotAsking`; `left()`'s unreachable default `0`).
+* FINDING by the first `playthrough` run: `unsupported::find` (called by `Driver::run` under the gate policy `Panic`) read the Trade slice of a position that a dual window had not lent and panicked in the first technology window of EVERY game of a gate binary. Fixed (`find` reads loaded slices only) with a regression test; `dual_run`/`end_of_d1.sh` had never reached it because the heavy run has not happened yet.
+* `playthrough --factions sol --players 4 --seeds 1 --maxsteps 300` (debug build, all=dual, te set, starting_tech): 300 steps in 2 rounds, 575 counted bails; the biggest causes: `d1::step [bail: tactical]` 110, `aftermath` 64, `turn_prelude` 35, `turn::hooks [bail: legendary::end_turn / minister_of_war / technology::end_turn]` 34 each, `ask.closing` 28, `invasion::control_gain_exploration [gate]` 21, `ask.draft` 15, `tokens` 9, `trade` 6, `status` 1, `strategy_announce` 1. A whole game in a debug build under all=dual takes more than 17 CPU minutes for 2500 steps: use a release build for whole games.
+
+Not run: any heavy gate (golden/wide dual, benches, soak, mutation ratchet, census, workspace clippy), the armed dual. (A2's checks: `docs/D2_LF2_RESUME.md`.)

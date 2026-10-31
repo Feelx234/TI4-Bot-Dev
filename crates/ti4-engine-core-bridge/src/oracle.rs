@@ -102,6 +102,11 @@ pub trait Subject: Sized {
     fn disabled(&self) -> Option<String>;
     /// The decision hash of the whole game so far (what `dual_run` compares).
     fn decisions_hash(&self) -> String;
+    /// Differences the subject found itself during its last step, besides what the harness compares (the `NativeSubject`'s shadow run
+    /// of a native arm against the legacy step). Taken once per step; the harness adds them to the step's differences.
+    fn take_extra(&mut self) -> Vec<Raw> {
+        Vec::new()
+    }
 }
 
 // --- the mask subjects ---------------------------------------------------------------------------
@@ -161,6 +166,23 @@ pub struct MaskSubject<M: MaskChoice> {
     events_seen: usize,
     records_seen: usize,
     _mask: PhantomData<M>,
+}
+
+impl<M: MaskChoice> MaskSubject<M> {
+    /// The legacy game (the lender of the `NativeSubject`).
+    pub(crate) const fn game(&self) -> &Game<'static> {
+        &self.game
+    }
+
+    /// The decisions settled since the last [`Subject::decisions_since`], not consumed.
+    pub(crate) fn peek_records(&self) -> &[DecisionRecord] {
+        self.game.table.log.records.get(self.records_seen..).unwrap_or_default()
+    }
+
+    /// The events pushed since the last [`Subject::events_since`], not consumed.
+    pub(crate) fn peek_events(&self) -> &[String] {
+        self.game.events.get(self.events_seen..).unwrap_or_default()
+    }
 }
 
 impl<M: MaskChoice> Subject for MaskSubject<M> {
@@ -384,7 +406,9 @@ pub fn play_scenario<A: Subject, B: Subject>(spec: &GameSpec, limits: Limits, ju
         steps += 1;
         let view_a = StepView { offered: offered_a, info: info_a, records: records_a, events: a.events_since(), rng: a.rng_positions(), state: a.state_json() };
         let view_b = StepView { offered: offered_b, info: info_b, records: records_b, events: b.events_since(), rng: b.rng_positions(), state: b.state_json() };
-        let raw = compare_views(&view_a, &view_b);
+        let mut raw = compare_views(&view_a, &view_b);
+        raw.extend(a.take_extra());
+        raw.extend(b.take_extra());
         report.areas.entry(Area::Driver).or_default().calls += 1;
         for category in [Category::Decision, Category::DecisionHash, Category::Value, Category::Event, Category::Rng, Category::State] {
             count(&mut report, category, raw.iter().filter(|r| r.category == category).count() as u64);

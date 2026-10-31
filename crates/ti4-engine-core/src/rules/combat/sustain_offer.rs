@@ -9,9 +9,13 @@
 //! Below `RULES_FACTION_EFFECTS` the Rear Admiral Farran trade good is paid without a question (the string
 //! `pay_sustain_commander`): the window reads the version from the state's meta and goes on to the event.
 //!
+//! The hits a Reflective Shielding reaction stages during the emission are absorbed by the window, as
+//! the string `emit_sustain_used` does right after the event.
+//!
 //! Not covered (the adapter returns `None`, the string result stands): staged planet sustainers
-//! (`supply::staging_enabled`), and the hits a Reflective Shielding reaction stages during the emission.
+//! (`supply::staging_enabled`).
 
+use super::effect_hits::Absorb;
 use super::sustain_commander::SustainCommander;
 use super::{cancel_per_sustain, direct_hittable_at, apply_sustain, sustain_opts, Rd};
 use crate::choice::combat::{Ask as CAsk, Opt as COpt, Subtype as CSub};
@@ -20,6 +24,7 @@ use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Owed, OwedKind, Pick, Subtype
 use crate::containers::SmallList;
 use crate::generated::{System, Unit};
 use crate::ids::Seat;
+use crate::kernel::children::HitTexts;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -35,7 +40,25 @@ pub enum Stage {
     Asking,
     /// The commander's offer runs (its question is ours).
     Commander,
+    /// The hits a Reflective Shielding played in the window of the use stages are absorbed by the producer of the hit that was cancelled
+    /// (the child [`Absorb`]).
+    Reflecting,
     Done,
+}
+
+/// "When one of your ships uses SUSTAIN DAMAGE during combat: produce 2 hits against your opponent's ships in the active system." The
+/// hits the card staged while the event of the use was announced (`pending_reflective_hits`) land on the producer of the hit that was
+/// cancelled, absorbed like the hits of a combat roll (string `emit_sustain_used`). `None`: nothing was staged (or the staging is no
+/// card's of this use). The texts are the table's (`Codes`): a card is played only where the table follows nested activity.
+pub fn reflective_hits(sx: &mut Sx<'_>, o: &Offer) -> Option<Box<Absorb>> {
+    let (system, target, hits) = sx.state.transient_mut().combat.pending_reflective_hits.take()?;
+    if target == o.player {
+        return None;
+    }
+    let codes = sx.table.codes;
+    let hit_texts = HitTexts { staging: o.staging, commander: o.source, casualty: codes.assign_casualty, effect_hit: codes.reflective_cause };
+    let absorb = Absorb::new(target, o.player, system, u16::try_from(hits).unwrap_or(u16::MAX), hit_texts).announced();
+    Some(Box::new(if o.in_combat { absorb.in_space_combat() } else { absorb }))
 }
 
 /// The facts of one offer.
@@ -59,12 +82,14 @@ pub struct Offer {
 }
 
 /// The window: the offer, the hits still owed and where it has got to.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SustainOffer {
     pub offer: Offer,
     pub hits: u16,
     stage: Stage,
     commander: SustainCommander,
+    /// The absorption of the hits a Reflective Shielding staged, under way.
+    reflecting: Option<Box<Absorb>>,
     /// The unit that sustained, until its event is emitted.
     used: Option<Unit>,
     /// The last unit that sustained: where it stood and how it stands now (the `combat:sustain_target`
@@ -75,7 +100,14 @@ pub struct SustainOffer {
 impl SustainOffer {
     #[must_use]
     pub fn new(offer: Offer, hits: u16) -> Self {
-        Self { offer, hits, stage: Stage::Offering, commander: SustainCommander::new(offer.player, offer.source), used: None, last: None }
+        Self { offer, hits, stage: Stage::Offering, commander: SustainCommander::new(offer.player, offer.source), reflecting: None, used: None, last: None }
+    }
+
+    /// The use is over: the hits it cancels are counted and the offer starts again.
+    fn finish_use(&mut self, sx: &mut Sx<'_>) {
+        let cancels = cancel_per_sustain(Self::rd(sx.state, sx.kernel), self.offer.player);
+        self.hits = self.hits.saturating_sub(u16::try_from(cancels).unwrap_or(u16::MAX));
+        self.stage = Stage::Offering;
     }
 
     pub(super) fn rd<'a>(s: &'a CoreState, k: &'a Kernel) -> Rd<'a> {
@@ -173,10 +205,21 @@ impl Window for SustainOffer {
                     _ => {
                         let unit = self.used.take().expect("a sustain is under way");
                         let _ = self.emit_used(sx, unit);
-                        let cancels = cancel_per_sustain(Self::rd(sx.state, sx.kernel), self.offer.player);
-                        self.hits = self.hits.saturating_sub(u16::try_from(cancels).unwrap_or(u16::MAX));
-                        self.stage = Stage::Offering;
+                        self.reflecting = reflective_hits(sx, &self.offer);
+                        if self.reflecting.is_some() {
+                            self.stage = Stage::Reflecting;
+                        } else {
+                            self.finish_use(sx);
+                        }
                     }
+                },
+                Stage::Reflecting => match self.reflecting.as_mut().map(|w| w.step(sx)) {
+                    Some(Next::Continue(a)) => return Next::Continue(a),
+                    Some(Next::Done) | None => {
+                        self.reflecting = None;
+                        self.finish_use(sx);
+                    }
+                    Some(other) => return other,
                 },
                 Stage::Done => return Next::Done,
             }
@@ -205,6 +248,7 @@ impl Window for SustainOffer {
                 })
             }
             Stage::Commander => self.commander.ask_of(s, k),
+            Stage::Reflecting => self.reflecting.as_ref().and_then(|w| w.ask_of(s, k)),
             _ => None,
         }
     }
@@ -213,6 +257,7 @@ impl Window for SustainOffer {
         match self.stage {
             Stage::Asking => self.take(sx, pick),
             Stage::Commander => self.commander.answer(sx, pick),
+            Stage::Reflecting => self.reflecting.as_mut().ok_or(Illegal)?.answer(sx, pick),
             _ => Err(Illegal),
         }
     }

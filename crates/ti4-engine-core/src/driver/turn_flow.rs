@@ -197,10 +197,15 @@ pub fn take_retention(core: &mut CoreState) -> bool {
 /// for the negotiation limit, and a Black Market or Expedition marker outlives no turn.
 pub fn end_turn_scratch(core: &mut CoreState) {
     trade::clear_action_negotiations(core);
-    core.pending_mut().failed_component_actions.clear();
     let flags = &mut core.transient_mut().misc.flags;
     flags.clear(TransientFlags::BLACK_MARKET);
     flags.clear(TransientFlags::EXPEDITION_CLAIMED);
+}
+
+/// `Game::advance_turn_inner` forgets the component actions that failed this turn (`Pending::failed_component_actions`). A separate
+/// step from [`end_turn_scratch`]: the dual lends that one without the `Pending` slice, the live turn-end composer calls both.
+pub fn forget_failed_components(core: &mut CoreState) {
+    core.pending_mut().failed_component_actions.clear();
 }
 
 /// What the end of a turn announces, in the order the string pushes it. `Passed` is the plain `TURN_PASSED` and the typed event
@@ -399,14 +404,14 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_component_action_is_remembered_once_and_forgotten_when_the_turn_ends() {
+    fn a_failed_component_action_is_remembered_once_and_forgotten_by_the_turn_end_step() {
         use crate::state::Code;
         let mut s = table();
         s.pending.note_failed_component(Code(7));
         s.pending.note_failed_component(Code(7));
         s.pending.note_failed_component(Code(9));
         assert_eq!(s.pending.failed_component_actions.as_slice(), [Code(7), Code(9)]);
-        end_turn_scratch(&mut s);
+        forget_failed_components(&mut s);
         assert!(s.pending.failed_component_actions.is_empty());
     }
 

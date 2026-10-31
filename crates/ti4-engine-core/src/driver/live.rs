@@ -110,8 +110,18 @@ fn sync_clock(r: &mut Resolver, core: &CoreState) {
     r.set_counters(u64::from(m.round), u64::from(m.turn_seq));
 }
 
+/// The ability table of one call: the game's table with the play facts of THIS position (a card played inside the window reads what a
+/// seat places, the research it opens, the Mahact pools; they change every step, so they are computed here, never kept in the `Env`).
+fn table_at(core: &CoreState, env: &Env<'_>) -> AbilityTable {
+    let mut table = env.table.clone();
+    if let Some(provider) = &table.facts.plays_provider {
+        table.facts.plays = (provider.0)(core, env.kernel);
+    }
+    table
+}
+
 fn driver_of<M: Held>(window: M, core: &CoreState, env: &Env<'_>) -> Driver<M> {
-    let mut d = Driver::from_state(window, core, env.registry.clone(), env.table.clone()).with_seeds(env.seeds.clone());
+    let mut d = Driver::from_state(window, core, env.registry.clone(), table_at(core, env)).with_seeds(env.seeds.clone());
     sync_clock(&mut d.resolver, core);
     d
 }
@@ -377,6 +387,79 @@ mod tests {
         assert_eq!(s, held, "the rollback restores the position, the suspension included");
         let mut closed = position();
         assert_eq!(advance::<Toy>(&mut closed, &env, None), Err(LiveError::NotOpen));
+    }
+
+    #[test]
+    fn a_nested_pick_that_is_no_option_is_refused_and_the_registry_names_the_native_arms() {
+        let k = Kernel::plain();
+        let env = env(&k);
+        let mut s = position();
+        open(&mut s, &Toy { emitted: false });
+        assert!(is_open::<Toy>(&s), "an opened window is on the stack");
+        advance::<Toy>(&mut s, &env, None).unwrap();
+        let held = s.clone();
+        assert_eq!(advance::<Toy>(&mut s, &env, Some(pick(9))), Err(LiveError::Illegal), "an ability the window does not offer");
+        assert_eq!(s, held);
+        assert!(live_arm(Arm::Tokens).is_some() && ask_arm_fn(Arm::Tokens).is_some());
+        assert!(live_arm(Arm::Voting).is_none() && ask_arm_fn(Arm::Voting).is_none(), "an arm no lane has ported stays lent");
+    }
+
+    /// The play facts of a card played inside the window are those of the position the call starts from (`table_at`): the provider is
+    /// asked at every call, never once per game. The ability reads the facts it finds and gains that many trade goods.
+    #[test]
+    fn the_play_facts_an_ability_finds_are_computed_from_the_position_of_the_call() {
+        use crate::kernel::ability::{PlayFacts, PlaysProvider};
+        let k = Kernel::plain();
+        let mut env = env(&k);
+        let mut table = AbilityTable::default();
+        table.add(
+            Spec::new(Slot(1), AbilityKind::Ability, EventKind::TradeGoodsGained, Relation::After, |eff| {
+                // The facts of the position: `rules_version` stands for any fact that changes during a game.
+                let seen = eff.adapter_facts().plays.as_ref().map_or(0, |p| i32::try_from(p.rules_version).unwrap_or(i32::MAX));
+                fx::gain_trade_goods(eff.state(), Seat(0), seen);
+                Ok(())
+            })
+            .optional(),
+        );
+        table.facts.plays_provider = Some(PlaysProvider(std::sync::Arc::new(|core, _| {
+            Some(PlayFacts {
+                scope: 0,
+                blanked: false,
+                action_card: Code(0),
+                supply_base: Code(0),
+                note_order: |a, b| a.cmp(&b),
+                seats: Vec::new(),
+                name_group: Vec::new(),
+                has_effect: Vec::new(),
+                skimmer: false,
+                roster: None,
+                rules_version: core.meta().rules_version,
+                tech_order: |a, b| a.cmp(&b),
+                shared: crate::kernel::ability::SharedPlay::default(),
+            })
+        })));
+        env.table = table;
+        // Two positions that differ in the one fact: the same Env, the same window, the facts follow the position.
+        for version in [5u32, 9] {
+            let mut s = position();
+            s.meta_mut().rules_version = version;
+            assert_eq!(table_at(&s, &env).facts.plays.as_ref().map(|p| p.rules_version), Some(version));
+            open(&mut s, &Toy { emitted: false });
+            advance::<Toy>(&mut s, &env, None).unwrap();
+            advance::<Toy>(&mut s, &env, Some(pick(1))).unwrap();
+            advance::<Toy>(&mut s, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+            assert_eq!(goods(&s), i16::try_from(version).unwrap(), "the ability found the facts of THIS position");
+        }
+        // No provider: the table's own facts stand (none), and the ability sees no play facts.
+        let mut plain = env.clone();
+        plain.table.facts.plays_provider = None;
+        assert!(table_at(&position(), &plain).facts.plays.is_none());
+        let mut s = position();
+        open(&mut s, &Toy { emitted: false });
+        advance::<Toy>(&mut s, &plain, None).unwrap();
+        advance::<Toy>(&mut s, &plain, Some(pick(1))).unwrap();
+        advance::<Toy>(&mut s, &plain, Some(Pick::Opt(Opt::Decline))).unwrap();
+        assert_eq!(goods(&s), 0, "without a provider a card finds no play facts");
     }
 
     #[test]

@@ -87,11 +87,9 @@ pub(super) fn note_ask(source: &'static str) {
     }
 }
 
-/// Read the facts the arm of this step is chosen from (after the reconcile hooks) and keep them for [`check`].
-pub(super) fn snapshot_facts(g: &mut Game<'_>) {
-    if !active() {
-        return;
-    }
+/// The facts the arm of a step is chosen from, read from the string windows now (`Game::step_facts`; the D1 dual snapshots them
+/// after the reconcile hooks of the step).
+pub(super) fn facts_of(g: &Game<'_>) -> ti4_engine_core::driver::session::Facts {
     use ti4_engine_core::driver::session::{Facts, bit};
     let open = [
         (g.leader_followers.is_some(), WindowKind::LeaderFollowers),
@@ -115,9 +113,7 @@ pub(super) fn snapshot_facts(g: &mut Game<'_>) {
         ti4_model::state::Phase::Status => ti4_engine_core::state::Phase::Status,
         ti4_model::state::Phase::Agenda => ti4_engine_core::state::Phase::Agenda,
     };
-    g.d1.arm = None;
-    g.d1.ask = None;
-    g.d1.facts = Some(Facts {
+    Facts {
         finished: g.state.finished,
         blocked: g.blocked.is_some(),
         open,
@@ -130,7 +126,23 @@ pub(super) fn snapshot_facts(g: &mut Game<'_>) {
         round: g.state.round,
         starting_picks_done: g.state.starting_tech_picks.is_empty(),
         turn_closing: g.turn_closing.is_some(),
-    });
+    }
+}
+
+/// The typed windows the string fields hold (`Game::observed_windows`).
+#[cfg(feature = "native-subject")]
+pub(super) fn observed(g: &Game<'_>, r: &Render, cx: &crate::core_sync::Ctx) -> Result<Vec<Window>, &'static str> {
+    observe(g, r, cx)
+}
+
+/// Read the facts the arm of this step is chosen from (after the reconcile hooks) and keep them for [`check`].
+pub(super) fn snapshot_facts(g: &mut Game<'_>) {
+    if !active() {
+        return;
+    }
+    g.d1.arm = None;
+    g.d1.ask = None;
+    g.d1.facts = Some(facts_of(g));
 }
 
 pub(super) use action::{Ended, transition};

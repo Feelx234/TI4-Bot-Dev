@@ -116,6 +116,10 @@ impl Window for AssaultCannon {
                             let only = *only;
                             self.lose(sx, victim, only);
                         }
+                        _ if super::is_neutral(sx.state, victim) => {
+                            let doomed = super::neutral_pick(&targets).unwrap_or(targets[0]);
+                            self.lose(sx, victim, doomed);
+                        }
                         _ => self.stage = Stage::Asking,
                     }
                 }
