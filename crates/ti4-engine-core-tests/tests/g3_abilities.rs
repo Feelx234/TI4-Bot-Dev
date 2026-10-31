@@ -14,6 +14,8 @@ fn table() -> AbilityTable {
     ti4_engine_core_factions::silent::register_before_movement(&mut t);
     ti4_engine_core_factions::silent::g3::register_after_ca_combat(&mut t);
     ti4_engine_core_factions::silent::register_abilities(&mut t);
+    // (Every card is a name of its own: the printed-name groups a draw's discard question lists.)
+    t.facts.card_groups = (0..ti4_engine_core::generated::ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
     t
 }
 
@@ -577,5 +579,87 @@ mod acidos {
         assert!(rig(scenario(), deck, gained(0)).is_done(), "locked");
         assert!(rig(scenario(), |s| { unlocked(s); deck(s); }, gained(1)).is_done(), "another seat gained it");
         assert!(rig(scenario(), |s| { unlocked(s); s.decks_mut().action.set(vec![]); }, gained(0)).is_done(), "no deck");
+    }
+}
+
+// -- Suffi An --------------------------------------------------------------------------------------------------------------------
+
+mod suffi_an {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent3::{Ask as TAsk, Opt as TOpt};
+    use ti4_engine_core::generated::{ActionCard, Leader};
+    use ti4_engine_core::state::LeaderStatus;
+
+    fn gained(seat: u8) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::TradeGoodsGained, Payload::new().with(Key::Player, Val::Seat(Seat(seat))))
+    }
+
+    fn scenario(system: System, planets: &[Planet], factions: &[Faction]) -> Scenario {
+        Scenario::new(factions).map_from(&[system]).unit(system, Some(planets[0]), Unit::InfantryI, 0, 1).unit(system, Some(planets[1]), Unit::InfantryI, 1, 1).goods(1, 3)
+    }
+
+    fn edit(copy: bool) -> impl FnOnce(&mut CoreState) {
+        move |s| {
+            s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::SuffiAnMentakagent, LeaderStatus::Readied);
+            if copy {
+                s.players_mut().by_seat_mut(Seat(2)).unwrap().leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
+            }
+            s.decks_mut().action.set(vec![ActionCard::ALL[0], ActionCard::ALL[1], ActionCard::ALL[2]]);
+        }
+    }
+
+    fn hand(r: &Rig<EmitEvent>, seat: u8) -> usize {
+        r.state.players().by_seat(Seat(seat)).unwrap().cards.hand.len()
+    }
+
+    #[test]
+    fn the_agent_is_offered_right_after_the_take_and_both_draw_a_card() {
+        covers!("silent::g3::suffi_an::SUFFI_AN");
+        let (system, planets) = two_planet_system();
+        let mut r = rig(scenario(system, &planets, &[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan]), edit(false), gained(1));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("pillage");
+        r.pick(use_it);
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::SuffiAn { target: Seat(1) }))), "{}", r.transcript());
+        assert_eq!(r.opts(), vec![Opt::Reaction(ROpt::G(GOpt::T(TOpt::Exhaust))), Opt::Decline]);
+        r.pick(0);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!((hand(&r, 0), hand(&r, 1)), (1, 1), "one card each");
+        assert_eq!(r.state.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::SuffiAnMentakagent), Some(&LeaderStatus::Exhausted));
+        // Declined: nothing is drawn and the agent stays ready.
+        let mut declined = rig(scenario(system, &planets, &[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan]), edit(false), gained(1));
+        declined.pick(use_it);
+        declined.decline();
+        assert!(declined.is_done());
+        assert_eq!((hand(&declined, 0), hand(&declined, 1)), (0, 0));
+        // An exhausted agent or an empty deck: Pillage alone.
+        let mut exhausted = rig(scenario(system, &planets, &[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan]), |s| { edit(false)(s); s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::SuffiAnMentakagent, LeaderStatus::Exhausted); }, gained(1));
+        exhausted.pick(use_it);
+        assert!(exhausted.is_done(), "{}", exhausted.transcript());
+    }
+
+    #[test]
+    fn with_a_ssruu_copy_at_the_table_the_use_is_announced_and_both_answer() {
+        covers!("silent::g3::suffi_an::SUFFI_AN");
+        covers!("silent::g3::suffi_an::SUFFI_AN_COPY");
+        let (system, planets) = two_planet_system();
+        let factions = [Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan, Faction::TheYssarilTribes];
+        let mut r = rig(scenario(system, &planets, &factions), edit(true), gained(1));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("pillage");
+        r.pick(use_it);
+        // The owner's window runs the question; the copy of the Yssaril comes after (its own window, optional).
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::SuffiAn { target: Seat(1) }))), "{}", r.transcript());
+        r.decline();
+        assert_eq!(r.asked().actor, Seat(2), "the Yssaril is asked whether to use Ssruu's copy: {}", r.transcript());
+        let copy = r.opts().iter().position(|o| *o != Opt::Decline).expect("the copy");
+        r.pick(copy);
+        // The Yssaril draws with Scheming (a bonus card, then a discard it is asked for): 2 - 1 cards, and the pillaged player 1.
+        assert_eq!(r.asked().actor, Seat(2), "{}", r.transcript());
+        r.pick(0);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!((hand(&r, 0), hand(&r, 1), hand(&r, 2)), (0, 1, 1), "the Yssaril and the pillaged player draw");
+        assert_eq!(r.state.players().by_seat(Seat(2)).unwrap().leaders.status.get(&Leader::Ssruu), Some(&LeaderStatus::Exhausted));
+        assert_eq!(r.state.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::SuffiAnMentakagent), Some(&LeaderStatus::Readied), "the lender's card is not exhausted");
     }
 }

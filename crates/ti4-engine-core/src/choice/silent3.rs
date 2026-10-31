@@ -15,6 +15,8 @@ pub enum Ask {
     ExoSelf,
     /// Exotrireme II: the ship to destroy, number `round + 1` of up to 2.
     ExoVictim { round: u8 },
+    /// Suffi An (Mentak agent): exhaust to draw 1 action card each with `target`, the player pillaged.
+    SuffiAn { target: Seat },
 }
 
 /// One answer.
@@ -27,6 +29,8 @@ pub enum Opt {
     /// A ship of the list the question was built from (`index`), its owner, kind and whether it is damaged; `victim`: one of the up-to-two ships (the other is the
     /// Exotrireme II itself).
     Ship { index: u8, owner: Seat, unit: Unit, damaged: bool, victim: bool },
+    /// Exhaust the agent (the answer `exhaust`).
+    Exhaust,
 }
 
 /// The machine identifier of the question.
@@ -40,6 +44,8 @@ pub enum Subtype {
     ExoSelf,
     /// `exotrireme_victim`.
     ExoVictim,
+    /// `suffi_an`.
+    SuffiAn,
 }
 
 impl Ask {
@@ -49,7 +55,7 @@ impl Ask {
     pub const fn carries_trigger(&self) -> bool {
         match self {
             Self::Ragh { .. } => false,
-            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } => false,
+            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } | Self::SuffiAn { .. } => false,
         }
     }
 }

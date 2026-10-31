@@ -104,6 +104,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::g3::exo2::EXO2, kind: "technology", card: "exo2" },
     Named { slot: ti4_engine_core_factions::silent::g3::zeu::ZEU, kind: "leader", card: "naaluagent-te" },
     Named { slot: ti4_engine_core_factions::silent::g3::nekro_commander::ACIDOS, kind: "leader", card: "nekrocommander" },
+    Named { slot: ti4_engine_core_factions::silent::g3::suffi_an::SUFFI_AN, kind: "leader", card: "mentakagent" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR, kind: "promissory", card: "tekklar" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_END, kind: "promissory", card: "tekklar_end" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_TURN, kind: "promissory", card: "tekklar_turn" },
@@ -131,6 +132,7 @@ const PAIRS: &[(Slot, &str, PairStyle)] = &[
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::SOL, "solagent", PairStyle::B),
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::LETNEV, "letnevagent", PairStyle::B),
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::ARGENT, "argentagent", PairStyle::A),
+    (ti4_engine_core_factions::silent::g3::suffi_an::SUFFI_AN_COPY, "mentakagent", PairStyle::A),
 ];
 
 fn is_reaction_slot(slot: Slot) -> bool {

@@ -78,6 +78,11 @@ fn the_registry_of_the_g3_rules_equals_the_string_one() {
 fn g3_pairs() -> Vec<[(&'static str, &'static str); 2]> {
     const LOBBY: [&str; 24] = ["arborec", "argent", "cabal", "empyrean", "ghost", "hacan", "jolnar", "l1z1x", "letnev", "mahact", "mentak", "muaat", "naalu", "naaz", "nekro", "nomad", "saar", "sardakk", "sol", "titans", "winnu", "xxcha", "yin", "yssaril"];
     let mut pairs = Vec::new();
+    // The copies of Ssruu: the lender seated with a Yssaril.
+    for lender in ["mentak"] {
+        pairs.push([("a", lender), ("b", "yssaril")]);
+        pairs.push([("a", "yssaril"), ("b", lender)]);
+    }
     for faction in LOBBY {
         let other = if faction == "sol" { "hacan" } else { "sol" };
         pairs.push([("a", faction), ("b", other)]);

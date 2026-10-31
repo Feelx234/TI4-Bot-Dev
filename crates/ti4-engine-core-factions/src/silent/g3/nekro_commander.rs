@@ -1,6 +1,6 @@
 //! nekro: Acidos, the commander (`factions::borrowed_commanders::nekro_commander`): "After you gain a technology: you may draw 1 action card." Optional; the seat has the commander's ability
 //! (its own unlocked commander, a faceup Alliance, a Yin grant) and the deck is not empty. Registered for every seat (`leader:*:nekrocommander:TECHNOLOGY_GAINED:after`).
-//! The draw is the plain one (`g3::draw::plain`): a draw that would ask (Scheming, a full hand) is a loud gap.
+//! The draw is the core's draw window stepped inside the effect (`g3::draw::draw`): Scheming's bonus card and discard and the hand limit are asked.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::Leader;
@@ -19,7 +19,7 @@ fn condition(c: &CondCx<'_>) -> bool {
 
 fn draw(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
-    let _ = super::draw::plain(eff, me, 1, ACIDOS);
+    super::draw::draw(eff, me, 1, ACIDOS);
     Ok(())
 }
 

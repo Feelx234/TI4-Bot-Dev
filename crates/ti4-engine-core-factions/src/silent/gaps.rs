@@ -16,10 +16,6 @@ use ti4_engine_core::state::{EventKind, Key, LeaderStatus};
 /// The slot of the first row.
 pub const FIRST_SLOT: u16 = 41_000;
 
-/// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
-pub const SUFFI_AN: usize = 11;
-pub const SUFFI_AN_COPY: usize = 39;
-
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
     pub kind: AbilityKind,
@@ -98,7 +94,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| leader(c, Faction::TheEmpyrean, LeaderType::Commander) }, // empyreancommander
     Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| leader(c, Faction::TheGhostsOfCreuss, LeaderType::Commander) }, // ghostcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| leader(c, Faction::TheGhostsOfCreuss, LeaderType::Commander) }, // ghostcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::PillageUsed, relation: Relation::After, holds: |c| leader(c, Faction::TheMentakCoalition, LeaderType::Agent) }, // mentakagent
     Gap { kind: AbilityKind::Leader, event: EventKind::SpaceCombatWon, relation: Relation::After, holds: |c| leader(c, Faction::TheMentakCoalition, LeaderType::Commander) }, // mentakcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::StrategyTokenSpent, relation: Relation::After, holds: |c| leader(c, Faction::TheEmbersOfMuaat, LeaderType::Commander) }, // muaatcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::UnitsProduced, relation: Relation::After, holds: |c| leader(c, Faction::TheEmbersOfMuaat, LeaderType::Commander) }, // muaatcommander_unlock
@@ -131,7 +126,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Unit, event: EventKind::ActionCompleted, relation: Relation::After, holds: |c| unit_in_play(c, Faction::TheWinnu, UnitBaseType::Mech) }, // winnu_mech
     // -- ported by no lane yet
     // -- the copies Ssruu makes of an agent of a seated faction
-    Gap { kind: AbilityKind::Leader, event: EventKind::PillageUsed, relation: Relation::After, holds: |c| copies(c, Faction::TheMentakCoalition) }, // yssarilagent: mentakagent
     Gap { kind: AbilityKind::Leader, event: EventKind::TurnPassed, relation: Relation::After, holds: |c| copies(c, Faction::TheNaazRokhaAlliance) }, // yssarilagent: naazagent
     Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::After, holds: |c| copies(c, Faction::TheWinnu) }, // yssarilagent: winnuagent
     // -- the activation abilities lane M6c lists as gaps (its audit); delete the row when the lane ports the rule

@@ -13,6 +13,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
     let _ = r;
     match a {
         Ask::Ragh { planet } => format!("Ragh's Call: where do the Saar ground forces on {} go", planet.as_str()),
+        Ask::SuffiAn { target } => format!("Suffi An: exhaust to draw 1 action card each with {}", r.seat_text(*target)),
         Ask::ExoSelf => "Exotrireme II: which one is destroyed".to_owned(),
         Ask::ExoVictim { round } => format!("Exotrireme II: destroy ship {} of up to 2", u32::from(*round) + 1),
         Ask::Alastor { planet, unit } => format!("The Alastor: how many {} on {} fight as ships?", unit.as_str(), planet.as_str()),
@@ -23,6 +24,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
     match s {
         Subtype::Ragh => "ragh_destination",
         Subtype::Alastor => "alastor_participants",
+        Subtype::SuffiAn => "suffi_an",
         Subtype::ExoSelf => "exotrireme_self",
         Subtype::ExoVictim => "exotrireme_victim",
     }
@@ -32,6 +34,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
 pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
     let _ = r;
     match (a, o) {
+        (Ask::SuffiAn { .. }, Opt::Exhaust) => ChoiceOption::labelled("exhaust", "agent", "exhaust Suffi An: you and the pillaged player each draw 1 action card"),
         (Ask::ExoSelf | Ask::ExoVictim { .. }, Opt::Ship { index, owner, unit, damaged, victim }) => {
             let who = r.seat_text(*owner);
             let label = format!("destroy {who}'s {}{}", unit.as_str(), if *damaged { " (damaged)" } else { "" });
@@ -52,6 +55,7 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
     match a {
         // The ships of the exotrireme questions are matched against the rendered options (the id is an index into the question's list).
         Ask::ExoSelf | Ask::ExoVictim { .. } => None,
+        Ask::SuffiAn { .. } => (id == "exhaust").then_some(ROpt::G(GOpt::T(Opt::Exhaust))),
         Ask::Alastor { .. } => Some(ROpt::G(GOpt::T(Opt::Count(id.strip_prefix("alastor|")?.parse().ok()?)))),
         Ask::Ragh { .. } => {
             let (system, planet) = id.split_once('|')?;
