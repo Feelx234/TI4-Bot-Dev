@@ -13465,7 +13465,8 @@ mod core_ground_round_prechecks {
         state.system_mut(&s).planet_units.entry(p.clone()).or_default().push(Unit::new(UnitTypeId::new("infantry"), b.clone()));
         assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
         let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
-        assert_eq!(begin_ground_unported(&state, &begin(&neutral, &b, &s, &p, false)), Some("neutral side"));
+        // The neutral force is carried since package W11 (an owner without a seat, with the rules' own answers).
+        assert_eq!(begin_ground_unported(&state, &begin(&neutral, &b, &s, &p, false)), None);
     }
 
     /// Dice an ability rolled need the streams (`Sources::rng`, a seeded driver); a window that is lent none cannot
@@ -13574,8 +13575,10 @@ mod core_ground_round_prechecks {
         state.faction_marks.insert(crate::combat::ROLL_REPLAY_MARK.to_owned(), String::new());
         assert_eq!(roll_tail_unported(&state, &args), Some("roll replay mark"));
         state.faction_marks.clear();
+        // (A neutral side is carried since package W11.)
         let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
         let args = RollTailArgs { invader: &neutral, ..args };
-        assert_eq!(roll_tail_unported(&state, &args), Some("neutral side"));
+        state.faction_marks.clear();
+        assert_eq!(roll_tail_unported(&state, &args), None);
     }
 }

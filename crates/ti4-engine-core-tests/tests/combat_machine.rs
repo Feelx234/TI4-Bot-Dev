@@ -72,6 +72,7 @@ fn env() -> Env {
         duranium: [false, false],
         devotion: false,
         end_codes: EndCodes { losers: Code(40), retreated: Code(41), reasons: [Code(42), Code(43), Code(44), Code(45)] },
+        show_neutral: false,
         casualty: Code(13),
         commander: Code(14),
         det: [false, false],

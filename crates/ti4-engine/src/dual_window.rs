@@ -1030,6 +1030,17 @@ pub(crate) fn tables_with(gs: &GameState, extra: &[&str]) -> Option<(Ctx, Render
     Some((cx, r))
 }
 
+/// [`tables`] for a window about these sides. The neutral force has no seat in the game, and its owner is read from the board: once the
+/// last of its units has fallen (the end announcement of the fight that wiped it out) it would have none, so a side that is the neutral
+/// owner puts it in the table.
+pub(crate) fn tables_of_sides(gs: &GameState, sides: &[&PlayerId]) -> Option<(Ctx, Render)> {
+    if sides.iter().any(|p| crate::neutral_units::is_neutral(p)) {
+        tables_with(gs, &[crate::neutral_units::NEUTRAL])
+    } else {
+        tables(gs)
+    }
+}
+
 /// [`tables`] for the tests of other modules.
 #[cfg(test)]
 pub(crate) fn tables_for_tests(gs: &GameState) -> Option<(Ctx, Render)> {
@@ -1463,8 +1474,6 @@ pub struct AssignArgs<'a> {
     pub announce_staging: bool,
     /// The resolver carries the timing machinery.
     pub announce: bool,
-    /// The player is a neutral owner (its casualty order is the reference card's, string-only).
-    pub neutral: bool,
 }
 
 /// The core half of `combat::assign_remaining`. `None` for neutral owners, reaction activity inside the
@@ -1477,11 +1486,7 @@ pub fn assign_hits(
     script: &Recording,
 ) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::combat::assign::{Assign, AssignHits};
-    if a.neutral {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.player]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let player = r.seat(a.player.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
@@ -1599,11 +1604,7 @@ pub fn absorb_ground(
     script: &Recording,
 ) -> Option<CoreWindow<()>> {
     use ti4_engine_core::rules::invasion::absorb::AbsorbGround;
-    if crate::neutral_units::is_neutral(player) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[player]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
@@ -1807,11 +1808,7 @@ pub fn assault_cannon(
     script: &Recording,
 ) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::combat::assault_cannon::{AssaultCannon, Facts};
-    if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.attacker, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let attacker = r.seat(a.attacker.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let defender = r.seat(a.defender.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -1896,9 +1893,9 @@ pub fn round_opening_why(gs: &GameState, content: &ti4_content::ContentStore, a:
         if crate::factions::nekro::assimilated_card(gs, id, "sc").is_some() {
             return Some("Supercharge carried by a Valefar Assimilator");
         }
-        match gs.player(id).map(|p| p.faction.as_str()) {
-            None => return Some("a side that is not a seated player"),
-            Some(_) => {}
+        // (The neutral force has no seat: the core holds it as an owner without one.)
+        if gs.player(id).is_none() && !crate::neutral_units::is_neutral(id) {
+            return Some("a side that is not a seated player");
         }
         // Letnev's Munitions Reserves is paid at the opening below `RULES_MUNITIONS_AFTER_ROLL` (a question and a payment: the core
         // window asks it since package W10); later it is decided after the roll (`roll_unported`). Goods a Keleres agent could turn
@@ -1922,15 +1919,11 @@ pub fn begin_round(
     script: &Recording,
 ) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::combat::begin_round::{BeginRound, Facts};
-    if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
     if let Some(why) = round_opening_why(gs, content, &a) {
         crate::dual::note_bail_here(why);
         return None;
     }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.attacker, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let attacker = r.seat(a.attacker.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let defender = r.seat(a.defender.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -2025,15 +2018,11 @@ pub fn retreat_to(
     script: &Recording,
 ) -> Option<CoreWindow<usize>> {
     use ti4_engine_core::rules::combat::retreat::{Facts, Retreat};
-    if crate::neutral_units::is_neutral(a.player) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
     if let Some(why) = retreat_why(gs, content, sources, a.player, a.system, a.destination) {
         crate::dual::note_bail_here(why);
         return None;
     }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.player]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let player = r.seat(a.player.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
@@ -2142,7 +2131,12 @@ fn barrage_why_with(gs: &GameState, a: &BarrageArgs<'_>, argent: bool) -> Option
         return Some("the Heart of Ixth (Thunder's Edge relic)");
     }
     for id in [a.attacker, a.defender] {
-        let Some(p) = gs.player(id) else { return Some("a side that is not a seated player") };
+        let Some(p) = gs.player(id) else {
+            if crate::neutral_units::is_neutral(id) {
+                continue;
+            }
+            return Some("a side that is not a seated player");
+        };
         if argent && p.faction.as_str() == "argent" {
             return Some("an Argent side (the excess hits of the barrage)");
         }
@@ -2184,15 +2178,11 @@ pub fn barrage_step(
         crate::dual::note_bail_here("irreproducible dice (test faces or a stream restore)");
         return None;
     }
-    if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
     if let Some(why) = barrage_step_why(gs, &a) {
         crate::dual::note_bail_here(why);
         return None;
     }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.attacker, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     waylay_check(gs, script)?;
     let attacker = r.seat(a.attacker.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -2304,11 +2294,7 @@ pub fn produce_hits(
         crate::dual::note_bail_here("irreproducible dice (test faces or a stream restore)");
         return None;
     }
-    if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.attacker, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let attacker = r.seat(a.attacker.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let defender = r.seat(a.defender.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -2405,11 +2391,7 @@ pub fn roll_step(
         crate::dual::note_bail_here("irreproducible dice (test faces or a stream restore)");
         return None;
     }
-    if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.attacker, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let attacker = r.seat(a.attacker.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let defender = r.seat(a.defender.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -2618,11 +2600,7 @@ pub fn flow_step(
     script: &Recording,
 ) -> Option<CoreWindow<FlowOut>> {
     use ti4_engine_core::rules::combat::flow::{Facts, Flow, Pend, Phase, Step};
-    if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.attacker, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let seats = |l: &[PlayerId]| l.iter().map(seat).collect::<Option<Vec<_>>>();
@@ -2732,11 +2710,7 @@ pub fn announce_end(
     script: &Recording,
 ) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::combat::end_announce::{Codes, EndAnnounce, Facts};
-    if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.attacker, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let (attacker, defender) = (seat(a.attacker)?, seat(a.defender)?);
@@ -2796,11 +2770,7 @@ pub fn raid_formation(
         crate::dual::note_bail_here("a producer that is not an Argent seat");
         return None;
     }
-    if crate::neutral_units::is_neutral(a.target) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.target]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let producer = r.seat(a.producer.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let target = r.seat(a.target.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -3119,11 +3089,7 @@ pub fn ground_hits(
 ) -> Option<CoreWindow<HitsOut>> {
     use ti4_engine_core::rules::invasion::hits::{Batch, GroundHits};
     const LABEL: &str = "invasion::ground_hits";
-    if crate::neutral_units::is_neutral(a.victim) {
-        crate::dual::note_bail(LABEL, "neutral victim");
-        return None;
-    }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.victim]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let seat = r.seat(a.victim.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
@@ -3351,8 +3317,6 @@ const DEFENSE: Footprint = Footprint::new(
 pub fn defense_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, a: &DefenseArgs<'_>) -> Option<&'static str> {
     if !a.reproducible {
         Some("irreproducible dice (test faces or a stream restore)")
-    } else if crate::neutral_units::is_neutral(a.invader) {
-        Some("neutral invader")
     } else if !crate::entropic_scars::abilities_usable(content, sources, a.system, Some(a.system)) {
         Some("entropic scar")
     } else if crate::technology::has_technology_text(gs, a.invader, "l4") {
@@ -3375,7 +3339,7 @@ pub fn space_cannon_defense(
     script: &Recording,
 ) -> Option<CoreWindow<DefenseOut>> {
     use ti4_engine_core::rules::invasion::defense::{Facts, SpaceCannonDefense};
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.invader]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let invader = r.seat(a.invader.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
@@ -3458,8 +3422,6 @@ const GROUND_ROLL: Footprint = Footprint::new(
 pub fn ground_roll_unported(gs: &GameState, a: &GroundRollArgs<'_>) -> Option<&'static str> {
     if !a.reproducible {
         Some("irreproducible dice (test faces or a stream restore)")
-    } else if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
-        Some("neutral side")
     } else {
         // (X-89 Bacterial Weapon doubles the hits in the core window since package W10.)
         None
@@ -3476,7 +3438,7 @@ fn holds_x89(gs: &GameState, id: &PlayerId) -> bool {
 #[must_use]
 pub fn ground_roll(gs: &mut GameState, a: &GroundRollArgs<'_>, rng_before: &crate::rng::RngPositions, script: &Recording) -> Option<CoreWindow<GroundRollOut>> {
     use ti4_engine_core::rules::invasion::roll::{Facts, GroundRoll, NAMED};
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.attacker, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let attacker = r.seat(a.attacker.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let defender = r.seat(a.defender.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -3562,9 +3524,6 @@ const ROUND_HITS_HARROW: Footprint = Footprint::new(
 /// (a Ral Nel mech on the planet), a neutral side.
 #[must_use]
 pub fn round_hits_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, a: &RoundHitsArgs<'_>) -> Option<&'static str> {
-    if crate::neutral_units::is_neutral(a.invader) || crate::neutral_units::is_neutral(a.defender) {
-        return Some("neutral side");
-    }
     if a.harrow && !a.reproducible {
         return Some("irreproducible dice (test faces or a stream restore)");
     }
@@ -3586,7 +3545,7 @@ pub fn round_hits_unported(gs: &GameState, content: &ti4_content::ContentStore, 
 #[must_use]
 pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceSet, a: &RoundHitsArgs<'_>, script: &Recording) -> Option<CoreWindow<RoundOut>> {
     use ti4_engine_core::rules::invasion::round::{Facts, GroundRoundHits};
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.invader, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let invader = r.seat(a.invader.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let defender = r.seat(a.defender.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -3664,9 +3623,6 @@ pub struct BeginGroundArgs<'a> {
 #[must_use]
 pub fn begin_ground_unported(gs: &GameState, a: &BeginGroundArgs<'_>) -> Option<&'static str> {
     let sides = [a.invader, a.defender];
-    if sides.into_iter().any(crate::neutral_units::is_neutral) {
-        return Some("neutral side");
-    }
     let faction = |id: &PlayerId| gs.player(id).map_or("", |p| p.faction.as_str());
     // Naaz's Supercharge and the Eidolon Maximum's repair are the core hook since package W1; a Supercharge a Valefar Assimilator
     // carries is the text of another card, which the core hook does not read.
@@ -3693,7 +3649,7 @@ const BEGIN_GROUND: Footprint = Footprint::new(
 #[must_use]
 pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Recording) -> Option<CoreWindow<bool>> {
     use ti4_engine_core::rules::invasion::begin::{BeginGroundRound, Facts};
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.invader, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let invader = r.seat(a.invader.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let defender = r.seat(a.defender.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -3821,9 +3777,7 @@ pub struct RollTailArgs<'a> {
 /// state the step left (the replay mark is cleared before the event, so the tail never sees one).
 #[must_use]
 pub fn roll_tail_unported(gs: &GameState, a: &RollTailArgs<'_>) -> Option<&'static str> {
-    if crate::neutral_units::is_neutral(a.invader) || crate::neutral_units::is_neutral(a.defender) {
-        Some("neutral side")
-    } else if gs.faction_marks.contains_key(crate::combat::ROLL_REPLAY_MARK) {
+    if gs.faction_marks.contains_key(crate::combat::ROLL_REPLAY_MARK) {
         Some("roll replay mark")
     } else {
         None
@@ -3846,7 +3800,7 @@ pub fn roll_tail(
     script: &Recording,
 ) -> Option<CoreWindow<(usize, usize, Vec<ti4_model::state::InvasionDie>)>> {
     use ti4_engine_core::rules::invasion::tail::{Facts, GroundRollTail};
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[a.invader, a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let invader = r.seat(a.invader.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let defender = r.seat(a.defender.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -4222,13 +4176,9 @@ fn settle_run(
 ) -> Option<CoreWindow<SettleOut>> {
     use ti4_engine_core::rules::combat::flow::{Phase, Step};
     use ti4_engine_core::rules::combat::machine::{Env, Machine, Stop};
-    if crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
     // The first round begins the occurrence itself, once the opening has not ended the fight.
     let begin_occurrence = a.begin_occurrence && a.occurrence.is_none();
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[&a.attacker, &a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     waylay_check(gs, script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
@@ -4334,6 +4284,7 @@ fn settle_run(
         cause_devotion: r.code("faction_ability:devotion"),
         casualty: r.code("assign_casualty"),
         commander: r.code("letnevcommander"),
+        show_neutral: true,
         end_codes: ti4_engine_core::rules::combat::end_announce::Codes {
             losers: r.code("losers"),
             retreated: r.code("retreated"),

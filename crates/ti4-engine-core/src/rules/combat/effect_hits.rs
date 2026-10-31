@@ -104,6 +104,11 @@ impl Window for Destroy {
                             self.lose(sx, only);
                             self.stage = DestroyStage::Done;
                         }
+                        _ if super::is_neutral(sx.state, self.who) => {
+                            let doomed = super::neutral_pick(&alive).unwrap_or(alive[0]);
+                            self.lose(sx, doomed);
+                            self.stage = DestroyStage::Done;
+                        }
                         _ => self.stage = DestroyStage::Asking,
                     }
                 }

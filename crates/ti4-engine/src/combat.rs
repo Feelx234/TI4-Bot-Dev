@@ -3782,7 +3782,6 @@ fn assign_remaining_windowed(
         during_space_combat,
         announce_staging: crate::supply::staging_enabled(state),
         announce: ctx.timing.is_some(),
-        neutral: crate::neutral_units::is_neutral(player),
     };
     crate::dual_window!(
         crate::dual::Area::Driver,
@@ -6464,9 +6463,6 @@ impl CombatWindow {
     /// [`Self::roll_unported`] with the reason (the census text).
     fn roll_why(&self, state: &GameState, content: &ContentStore) -> Option<&'static str> {
         let sides = [&self.attacker, &self.defender];
-        if crate::neutral_units::is_neutral(&self.attacker) || crate::neutral_units::is_neutral(&self.defender) {
-            return Some("a neutral side");
-        }
         // A readied The Thundarian is an ability of the core table since package W2 (its window and the replay of the step are the
         // core roll step's); a Yssaril copy of it is not, and bails as "nested (unported ability ...)" when it is offered.
         sides
@@ -6954,14 +6950,9 @@ impl CombatWindow {
         // The hits the modules produce at the start of a combat (Ambush, Impulse Core, Dimensional Splicer) are the machine's window
         // `ProduceHits` since package W2; Assault Cannon is not (it asks the casualty of its own window).
         let opening_why = crate::dual_window::round_opening_why(state, content, &round_probe).or_else(|| {
-            sides.iter().find_map(|side| {
-                if state.player(side).is_none() {
-                    return Some("a side that is not a seated player");
-                }
-                // Assault Cannon is the machine's window (`AssaultCannon`) except against a neutral side (its casualty order is the reference
-                // card's, string-only).
-                (has_tech(side, "asc") && sides.iter().any(|s| crate::neutral_units::is_neutral(s))).then_some("Assault Cannon at a neutral side")
-            })
+            // (A side that is not a seated player is the neutral force: the core holds it as an owner without a seat, with the rules' own
+            // answers; Assault Cannon is the machine's window against it too.)
+            sides.iter().find_map(|side| (state.player(side).is_none() && !crate::neutral_units::is_neutral(side)).then_some("a side that is not a seated player"))
         });
         let ac = sides.iter().any(|side| has_tech(side, "asc"));
         let opening_unported = opening_why.is_some();
@@ -7197,12 +7188,8 @@ impl CombatWindow {
                     front_alive = ships_of(state, content, sources, &front.player, &self.system).len();
                     offered_before = self.hit_reaction_offered.contains(&(*round, front.player.clone()));
                     sustainers = !self.sustainers(state, content, sources, &front.player).is_empty();
-                    let producer_picks = front.producer_assigns && assigning;
                     // (A pool of cancelled hits is spent by the core flow window itself.)
-                    bare |= front.hits > 0
-                        && front_alive > 0
-                        && ((assigning && self.casualty_candidates(state, content, sources, front).len() == 1)
-                            || (crate::neutral_units::is_neutral(&front.player) && !producer_picks));
+                    bare |= front.hits > 0 && front_alive > 0 && assigning && self.casualty_candidates(state, content, sources, front).len() == 1;
                 } else if self.hit_phase == HitPhase::Round {
                     bare |= [&self.attacker, &self.defender].into_iter().any(|side| {
                         self.damaged_before_round.get(side).is_some_and(|l| !l.is_empty())
@@ -7212,7 +7199,7 @@ impl CombatWindow {
             }
             _ => bare = true,
         }
-        if bare || crate::neutral_units::is_neutral(&attacker) || crate::neutral_units::is_neutral(&defender) {
+        if bare {
             return run(self, state, ctx);
         }
         let announce = ctx.timing.is_some();
@@ -7232,8 +7219,9 @@ impl CombatWindow {
             state,
             |s: &mut GameState| {
                 let result = run(self, s, ctx);
-                let returned = matches!(result, Ok(Flow::Return));
-                failed.set(!matches!(result, Ok(Flow::Continue | Flow::Return)));
+                // A neutral side's pending decision is answered by the rules (`Flow::Resolve`): for the window it is a decision left pending.
+                let returned = matches!(result, Ok(Flow::Return | Flow::Resolve(_)));
+                failed.set(!matches!(result, Ok(Flow::Continue | Flow::Return | Flow::Resolve(_))));
                 let next = Self::flow_step_of(&self.stage);
                 // Hits a module queued after the round (not carried): the window left the flow.
                 failed.set(failed.get() || (matches!(step, StepS::Retreating(..)) && matches!(next, StepS::Queue(..))));
@@ -12049,6 +12037,36 @@ mod tests {
         assert!(per_die > 10, "the holder was asked about dice: {per_die}");
         assert_eq!(bailed, 0, "the machine carries the commander's rerolls: {compared} compared");
         no_bails("the Jol-Nar commander in the barrage");
+    }
+
+    /// The defender `b`'s ships become the neutral force's (Pirate Fleet, Pirate Contract): a composition per seed.
+    fn neutral_garrison(state: &mut GameState, seed: u64) {
+        let system = SystemId::new("18");
+        state.system_mut(&system).units.retain(|u| u.owner != defender());
+        let neutral = crate::neutral_units::owner();
+        let kinds: &[&str] = match seed % 4 {
+            0 => &["neutral_carrier", "neutral_cruiser", "neutral_destroyer", "neutral_fighter", "neutral_fighter"],
+            1 => &["neutral_destroyer"],
+            2 => &["neutral_dreadnought", "neutral_dreadnought", "neutral_destroyer"],
+            _ => &["neutral_cruiser", "neutral_fighter", "neutral_fighter", "neutral_fighter"],
+        };
+        for kind in kinds {
+            put(state, &system, kind, &neutral, 1);
+        }
+    }
+
+    /// Package W11: a neutral force (Pirate Fleet, Pirate Contract, Mercenary Contract) fights through the core windows: the round opening,
+    /// the barrage, the roll step, the hit queue with the rules' own answers (a sustain is taken, a hit goes to the unit lowest on the
+    /// reference card, nobody is asked for the neutral side), no retreat, the end announcement. Fails on the pre-W11 gates ("a neutral side").
+    #[test]
+    fn a_neutral_side_fights_in_the_core_in_lockstep() {
+        for composed in [false, true] {
+            let (asked, compared, bailed) = roll_step_fights(&neutral_garrison, 0, composed);
+            assert!(asked.iter().all(|c| c.player.as_str() != crate::neutral_units::NEUTRAL), "the neutral side is never asked: {composed}");
+            assert!(compared > 0, "the fights were compared (composed {composed}): {compared} compared, {bailed} bailed");
+            assert_eq!(bailed, 0, "composed {composed}: the core carries a neutral side");
+            no_bails(&format!("a neutral side (composed {composed})"));
+        }
     }
 
     #[test]

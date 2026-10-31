@@ -125,6 +125,9 @@ pub struct Env {
     pub casualty: Code,
     /// The interned source of the trade good of the Letnev commander (`"letnevcommander"`).
     pub commander: Code,
+    /// The decisions the rules answer for a neutral side are put as questions and answered by the machine itself (the lockstep with the
+    /// string engine, whose neutral answer is a question it answers at once, compares them); off, nothing is asked.
+    pub show_neutral: bool,
 }
 
 pub use crate::state::CombatFields as Fields;
@@ -161,7 +164,16 @@ pub enum Stage {
     Barraging,
     /// The pending decision (or the commander's offer inside its answer) waits on the players.
     Asking,
+    /// A neutral side's decision is put (`Env::show_neutral`) and answered by the rules.
+    Auto,
     Done,
+}
+
+/// What the rules answer to a neutral side's decision.
+#[derive(Debug, Clone, Copy)]
+enum Taken {
+    Sustain { opt: Opt, site: crate::choice::combat::SustainSite, unit: Unit },
+    Destroy { opt: Opt, doomed: Piece },
 }
 
 /// A sustain being answered: the commander's offer runs before the hits are counted.
@@ -202,6 +214,8 @@ pub struct Machine {
     awaiting: bool,
     answered: bool,
     sustaining: Option<Sustaining>,
+    /// The neutral side's decision being shown (`Env::show_neutral`).
+    auto: Option<Choice>,
     /// The last unit that sustained: where it stood and how it stands now.
     pub last_sustain: Option<(crate::choice::combat::SustainSite, Piece)>,
 }
@@ -227,6 +241,7 @@ impl Machine {
             awaiting: false,
             answered: false,
             sustaining: None,
+            auto: None,
             last_sustain: None,
         }
     }
@@ -338,11 +353,9 @@ impl Machine {
                     front_alive = ships_of(rd, front.player, env.system).len();
                     offered_before = self.fields.offered.contains(&(*round, front.player));
                     sustainers = !sustain_candidates(rd, front.player, env.system, true, false, env.staging).is_empty();
-                    let producer_picks = front.producer_assigns && *assigning;
-                    // (Hits the round's pool cancels are spent by the flow window itself, before anything else is asked.)
-                    if front.hits > 0 && front_alive > 0 && super::is_neutral(sx.state, front.player) && !producer_picks {
-                        return None;
-                    }
+                    // (Hits the round's pool cancels are spent by the flow window itself, before anything else is asked; a neutral side's
+                    // automatic answer comes after the flow, in `transition`.)
+                    let _ = assigning;
                 }
             }
             _ => {}
@@ -416,7 +429,108 @@ impl Machine {
             self.conclude(sx, rounds);
             return Some(out.returned);
         }
+        if out.returned && self.neutral_due(sx) {
+            if self.env.show_neutral {
+                self.auto = self.pending_choice(sx.state, sx.kernel);
+                if self.auto.is_none() {
+                    return None;
+                }
+            } else if !self.neutral_answer(sx) {
+                return None;
+            }
+            return Some(false);
+        }
         Some(out.returned)
+    }
+
+    /// Whether the decision pending at `fields.step` is a neutral side's, which the rules answer.
+    fn neutral_due(&self, sx: &Sx<'_>) -> bool {
+        let Step::Queue { assigning, queue, .. } = &self.fields.step else { return false };
+        let Some(front) = queue.first() else { return false };
+        front.hits > 0 && super::is_neutral(sx.state, front.player) && !(front.producer_assigns && *assigning)
+    }
+
+    /// What the rules answer to the neutral side's decision at `fields.step` (Thunder's Edge rules 5 and 7; string `neutral_answer`): a
+    /// sustain is always taken (the first option), a hit goes to the unit lowest on the reference card.
+    fn neutral_taken(&self, sx: &Sx<'_>) -> Option<Taken> {
+        let Step::Queue { assigning, .. } = &self.fields.step else { return None };
+        let front = *match &self.fields.step {
+            Step::Queue { queue, .. } => queue.first()?,
+            _ => return None,
+        };
+        let system = self.env.system;
+        let rd = Self::rd(sx.state, sx.kernel);
+        if *assigning {
+            let candidates = Self::candidates(rd, &front, system);
+            let kinds: Vec<Unit> = candidates.iter().map(|(_, p)| p.kind()).collect();
+            let at = super::neutral_casualty(&kinds)?;
+            let key = (candidates[at].1.kind(), candidates[at].1.sustained());
+            // The option is the first unit of its (type, damage): the string finds it by those two.
+            let (index, doomed) = candidates.iter().find(|(_, p)| (p.kind(), p.sustained()) == key).copied()?;
+            return Some(Taken::Destroy { opt: Opt::Combat(COpt::Destroy { index, unit: key.0, damaged: key.1 }), doomed });
+        }
+        let own = u16::try_from(ships_of(rd, front.player, system).len()).unwrap_or(u16::MAX);
+        let ask = CAsk::CancelHit {
+            system,
+            hits: u16::try_from(front.hits).unwrap_or(u16::MAX),
+            non_fighters_first: front.non_fighters_only && ships_of(rd, front.player, system).iter().any(|p| !rd.is_fighter(p.kind())),
+            staging: self.env.staging,
+            ability: false,
+            in_combat: true,
+            window: Some(own),
+        };
+        let opt = sustain_opts(rd, front.player, ask).as_slice().first().copied()?;
+        let Opt::Combat(COpt::Sustain { site, unit, .. }) = opt else { return None };
+        Some(Taken::Sustain { opt, site, unit })
+    }
+
+    /// The option the rules take at the neutral side's pending `choice`.
+    fn neutral_choice_taken(&self, sx: &Sx<'_>, _choice: &Choice) -> Option<Opt> {
+        match self.neutral_taken(sx)? {
+            Taken::Destroy { opt, .. } | Taken::Sustain { opt, .. } => Some(opt),
+        }
+    }
+
+    /// A decision pending for a neutral side is answered by the rules, not by a player: applied, nothing asked. A hit a producer assigns
+    /// (Devotion) is the producer's to place. `true`: it answered.
+    fn neutral_answer(&mut self, sx: &mut Sx<'_>) -> bool {
+        let Step::Queue { assigning, round, mut queue } = self.fields.step.clone() else { return false };
+        let Some(front) = queue.first().copied() else { return false };
+        let system = self.env.system;
+        if front.hits == 0 || !super::is_neutral(sx.state, front.player) || (front.producer_assigns && assigning) {
+            return false;
+        }
+        let Some(taken) = self.neutral_taken(sx) else { return false };
+        match taken {
+            Taken::Destroy { doomed, .. } => {
+                remove_ship(sx, system, front.player, doomed);
+                announce_loss(sx, system, front.player, doomed.kind(), self.env.end_cause(), true, self.env.announce);
+                queue[0].hits = front.hits.saturating_sub(1);
+            }
+            Taken::Sustain { site, unit, .. } => {
+                let rd = Self::rd(sx.state, sx.kernel);
+                let cancels = u32::try_from(Self::cancels(sx.state, rd, front.player)).unwrap_or(u32::MAX);
+                if let Some((after, piece)) = apply_sustain(rd, front.player, system, site) {
+                    *sx.state = after;
+                    super::sustain_offer::remember_target(sx.state, system, self.env.staging, site, piece);
+                    let offer = Offer {
+                        player: front.player,
+                        producer: front.producer,
+                        system,
+                        ability: false,
+                        in_combat: true,
+                        non_fighters_first: false,
+                        source: self.env.commander,
+                        staging: self.env.staging,
+                        announce: self.env.announce,
+                    };
+                    let _ = emit_used(sx, &offer, unit);
+                }
+                queue[0].hits = front.hits.saturating_sub(cancels);
+            }
+        }
+        self.fields.step = Step::Queue { assigning: false, round, queue };
+        true
     }
 
     /// A single possible casualty is not a decision (string `hit_queue_head_string`): the ship is lost, the hit
@@ -432,7 +546,7 @@ impl Machine {
         let cancelled = sx.state.players().by_seat(front.player).and_then(|p| p.card_timers.cancel_hits_round).is_some_and(|(r, h)| r == sx.state.meta().combat_round_seq && h > 0);
         let targets = hit_targets(rd, front.player, env_system, false, front.non_fighters_only);
         let [only] = targets.as_slice() else { return false };
-        if cancelled || super::is_neutral(sx.state, front.player) {
+        if cancelled {
             return false;
         }
         let only = *only;
@@ -758,6 +872,10 @@ impl Machine {
     /// Run the loop. `None`: a position the machine does not carry (the reason is in `stop`).
     fn run(&mut self, sx: &mut Sx<'_>) -> Option<Next> {
         loop {
+            if let Some(choice) = &self.auto {
+                self.stage = Stage::Auto;
+                return Some(Next::Continue(choice.ask));
+            }
             if let Some(ac) = &mut self.ac_w {
                 match ac.step(sx) {
                     Next::Continue(ask) => {
@@ -938,6 +1056,9 @@ impl Window for Machine {
             }
             return if self.answered { None } else { self.pending_choice(s, k) };
         }
+        if let Some(choice) = &self.auto {
+            return Some(choice.clone());
+        }
         if let Some(ac) = &self.ac_w {
             return ac.ask_of(s, k);
         }
@@ -959,6 +1080,20 @@ impl Window for Machine {
                 return Err(Illegal);
             }
             return self.answer_pending(sx, pick);
+        }
+        if let Some(choice) = self.auto.take() {
+            // The rules' own answer: the pick must be the one asked for (the string answers its question with it).
+            let Pick::Opt(opt) = pick else { return Err(Illegal) };
+            if !choice.opts.as_slice().contains(&opt) {
+                self.auto = Some(choice);
+                return Err(Illegal);
+            }
+            self.stage = Stage::Running;
+            let expected = self.neutral_choice_taken(sx, &choice);
+            if expected != Some(opt) || !self.neutral_answer(sx) {
+                return Err(Illegal);
+            }
+            return Ok(());
         }
         if let Some(ac) = self.ac_w.as_mut() {
             return ac.answer(sx, pick);

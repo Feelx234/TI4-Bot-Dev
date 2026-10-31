@@ -2168,14 +2168,11 @@ impl Play {
         }
         let scope = self.env.scope;
         let ship = |seat: Seat| board::space_units(core, system).iter().any(|p| p.owner() == seat && scope.unit(p.kind()).is_some_and(|d| d.ship));
-        let Some(opponent) = seats::seating_order(core).as_slice().iter().copied().find(|s| *s != self.who && ship(*s)) else {
-            // Only a neutral owner's ship is left to fight (the string names it the opponent, after the seated ones; nobody chooses its
-            // loss): the string's, declined before anything is rolled.
-            if board::space_units(core, system).iter().any(|p| !seats::is_player(core, p.owner()) && scope.unit(p.kind()).is_some_and(|d| d.ship)) {
-                self.unsupported = true;
-            }
-            return;
-        };
+        // A neutral owner's ship is "your opponent" after the seated ones (the string's `combatants`); nobody chooses its loss: the hit flow
+        // gives it to the unit lowest on the reference card.
+        let seated = seats::seating_order(core).as_slice().iter().copied().find(|s| *s != self.who && ship(*s));
+        let neutral = || board::space_units(core, system).iter().find(|p| !seats::is_player(core, p.owner()) && scope.unit(p.kind()).is_some_and(|d| d.ship)).map(|p| p.owner());
+        let Some(opponent) = seated.or_else(neutral) else { return };
         let Some(value) = scope.unit(unit).and_then(|d| d.combat).map(|roll| u32::from(roll.hits_on)).filter(|v| *v > 0) else { return };
         for _ in 0..COURAGEOUS_DICE {
             let face = sx.die(RngDomain::Dice, DIE_SIDES);
@@ -4111,18 +4108,16 @@ mod tests {
         assert!(Play::of(&naaz, ActionCard::ExperimentalBattlestation, Seat(0), hits_env()).is_some());
     }
 
-    /// Bail: a neutral owner's ship is "your opponent" after the seated ones (nobody chooses its loss: the roster order of its
-    /// reference card): the string plays the card, declined before any die is rolled. A seated opponent comes first.
+    /// A neutral owner's ship is "your opponent" after the seated ones (nobody chooses its loss: the hit flow gives it to the unit lowest
+    /// on the reference card). A seated opponent comes first.
     #[test]
-    fn bail_courageous_to_the_end_declines_when_only_a_neutral_ship_is_left() {
+    fn courageous_to_the_end_against_a_neutral_ship_rolls_and_a_seated_opponent_comes_first() {
         use crate::generated::Unit as U;
         let neutral = |s: &mut CoreState, system: System| s.board_mut().sys_mut(system).units.push(Piece::new(U::NeutralDestroyer, Seat(9)));
         let (mut s, system) = fight(&[(U::CruiserI, 0)], Some((Seat(0), U::DreadnoughtI)));
         neutral(&mut s, system);
-        let before = s.clone();
         let run = played_hits(s, ActionCard::CourageousToTheEnd, 3, 0);
-        assert!(run.unsupported && run.faces.is_empty(), "declined before the dice");
-        assert!(run.after == before, "and nothing changed");
+        assert!(!run.unsupported && run.faces.len() == 2, "the neutral ship is the opponent: its dice are rolled");
         let (mut s, system) = fight(&[(U::CruiserI, 0), (U::CruiserI, 1)], Some((Seat(0), U::DreadnoughtI)));
         neutral(&mut s, system);
         let run = played_hits(s, ActionCard::CourageousToTheEnd, 3, 0);
