@@ -66,6 +66,8 @@ const LEAVES: usize = 8;
 static NATIVE: Mutex<NativeArms> = Mutex::new(NativeArms::NONE);
 static GAPS_LENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static KEEP_GOING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static KEPT: Mutex<BTreeMap<String, (u64, String)>> = Mutex::new(BTreeMap::new());
 static LENT: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
 static RAN: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
 
@@ -89,6 +91,37 @@ pub fn set_shadow_closing(on: bool) {
 
 fn shadow_closing() -> bool {
     CLOSING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Do not stop a scenario at the first difference: the follower of a `NativeSubject` is a legacy game, so a difference never makes the two games diverge, and
+/// the whole game can be surveyed (`oracle --keep-going`). The differences are collected by kind in [`kept_differences`] instead of being returned to the
+/// harness (which would stop at the first).
+pub fn set_keep_going(on: bool) {
+    KEEP_GOING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The differences collected under [`set_keep_going`], by `<arm> <category> <path with the indices blanked>`: how many, and the first one's two sides (taken).
+#[must_use]
+pub fn kept_differences() -> BTreeMap<String, (u64, String)> {
+    std::mem::take(&mut *KEPT.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+}
+
+/// `[12]` and `.12.` of a path to `[]` and `.#.`: the same difference at another place of the board is one kind.
+fn blank_indices(path: &str) -> String {
+    let mut out = String::new();
+    let mut digits = false;
+    for c in path.chars() {
+        if c.is_ascii_digit() {
+            if !digits {
+                out.push('#');
+            }
+            digits = true;
+        } else {
+            digits = false;
+            out.push(c);
+        }
+    }
+    out
 }
 
 fn gaps_are_lent() -> bool {
@@ -246,6 +279,20 @@ impl NativeSubject {
         Some(Shadow { arm, core, cx, render, base: g.state.clone(), sources: g.content_sources() })
     }
 
+    /// Hand the differences of the step to the harness, or collect them under [`set_keep_going`].
+    fn report(&mut self, arm: Arm, out: Vec<Raw>) {
+        if !KEEP_GOING.load(std::sync::atomic::Ordering::Relaxed) {
+            self.extra.extend(out);
+            return;
+        }
+        let mut kept = KEPT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for r in out {
+            let key = format!("{} {:?} {}", arms::name(arm), r.category, blank_indices(&r.path));
+            let entry = kept.entry(key).or_insert_with(|| (0, format!("string {} | core {}", r.left, r.right)));
+            entry.0 += 1;
+        }
+    }
+
     /// Run the arm on the materialized position with the answers of the legacy step and compare with what the legacy step did.
     fn compare(&mut self, mut shadow: Shadow, answers: Vec<String>, records: &[DecisionRecord], events: &[String]) {
         let name = arms::name(shadow.arm);
@@ -264,7 +311,7 @@ impl NativeSubject {
                 Err(stop) => {
                     let mut out = Vec::new();
                     leaves(Category::Value, "native.stop", &json!("reconciled"), &json!(format!("{stop:?}")), &mut out);
-                    self.extra.extend(out);
+                    self.report(shadow.arm, out);
                     return;
                 }
             }
@@ -288,7 +335,7 @@ impl NativeSubject {
             Err(stop) => {
                 count(&RAN, name.to_owned());
                 leaves(Category::Value, "native.stop", &json!("ran"), &json!(format!("{stop:?}")), &mut out);
-                self.extra.extend(out);
+                self.report(shadow.arm, out);
                 return;
             }
         };
@@ -322,7 +369,7 @@ impl NativeSubject {
             let open_after = self.inner.game().step_facts().open & bit(kind) != 0;
             leaves(Category::Value, "native.finished", &json!(!open_after), &json!(step.finished), &mut out);
         }
-        self.extra.extend(out);
+        self.report(shadow.arm, out);
     }
 }
 
@@ -554,25 +601,48 @@ mod tests {
         }
     }
 
-    /// Round one of a real game with every lobby faction in turn (six tables of four), the turn-flow arms in shadow and a counted bail a
-    /// failure: no difference but the counted gap of a commander whose unlock condition no hook states yet (`TurnGap::CommanderUnlock`,
-    /// the 12 factions of `docs/D2_LF2_RESUME.md`: delete the allowance when the hook slots are filled), and the arms ran.
+    /// The silent differences the turn-flow arms are known to have against the legacy game (`docs/M7_RESUME.md`): an ability the string registers and the core
+    /// registry lacks, so the core does not ask the question the string asks. The text is a part of the string side of the first example. A difference that
+    /// is not one of these fails the test; when one is fixed its line must be deleted (the test also demands that every listed one is still seen). Each line is
+    /// the words that identify the difference and its consequences in the position.
+    ///
+    /// * Arborec's Mitosis ("at the start of the status phase, place 1 infantry from your reinforcements on a planet you control", `arborec/offer.rs` lists it as
+    ///   "points left"): the string asks where, the core asks nothing and the infantry is missing from the board.
+    const KNOWN_SILENT: [&[&str]; 1] = [&["Mitosis", "arborec_infantry"]];
+
+    /// Whole games with every lobby faction in turn (six tables of four), the turn-flow arms in shadow and a counted bail a failure: no difference but the
+    /// known silent ones (kept going: a difference never makes the follower diverge, the follower is a legacy game), and the arms ran.
     #[test]
     fn the_turn_flow_arms_agree_with_the_legacy_game_for_every_lobby_faction() {
         let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         TAMPER.with(|t| t.set(0));
-        let mut gaps = 0;
+        set_keep_going(true);
+        let _ = kept_differences();
+        let mut seen = vec![false; KNOWN_SILENT.len()];
         for group in LOBBY_FACTIONS.chunks(4) {
             set_native_arms(NativeArms::of(&[Arm::TurnPrelude, Arm::Phase, Arm::StrategyAnnounce, Arm::Ask]));
             let _ = (lent_counts(), ran_counts());
             let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
             let ran = ran_counts();
-            let other: Vec<_> = played.report.differences.iter().filter(|d| !d.core_side.contains("CommanderUnlock")).collect();
-            gaps += played.report.differences.len() - other.len();
-            assert!(other.is_empty(), "{group:?}: {:#?}", other.iter().take(5).collect::<Vec<_>>());
+            assert!(played.report.differences.is_empty(), "{group:?}: kept going, nothing is returned to the harness: {:#?}", played.report.differences.iter().take(5).collect::<Vec<_>>());
             assert!(ran.keys().any(|k| k.starts_with("turn_prelude")), "{group:?}: the prelude ran in shadow: {ran:?}");
+            let unknown: Vec<String> = kept_differences()
+                .into_iter()
+                // The count of answers the core did not take is the other face of a question it did not ask.
+                .filter(|(kind, _)| !kind.ends_with("native.questions.unconsumed"))
+                .filter(|(kind, (_, example))| match KNOWN_SILENT.iter().position(|known| known.iter().any(|w| example.contains(w) || kind.contains(w))) {
+                    Some(at) => {
+                        seen[at] = true;
+                        false
+                    }
+                    None => true,
+                })
+                .map(|(kind, (n, example))| format!("{n}x {kind}: {example}"))
+                .collect();
+            assert!(unknown.is_empty(), "{group:?}: differences nobody knows: {unknown:#?}");
         }
-        assert!(gaps > 0, "the commanders without a hook are still counted, not skipped");
+        set_keep_going(false);
+        assert!(seen.iter().all(|s| *s), "a known silent difference is gone: delete its line from KNOWN_SILENT ({seen:?})");
     }
 
     /// The compare finds a perturbed native position (state), and a perturbed pool (the plain events of the step do not change, the

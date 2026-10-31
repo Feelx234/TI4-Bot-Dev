@@ -135,14 +135,38 @@ fn the_closing_menu_holds_only_the_end_of_the_turn_when_no_source_can_offer_a_fr
 }
 
 #[test]
-fn a_leader_printed_during_the_action_phase_is_a_free_option_the_core_does_not_assemble_yet() {
+fn a_leader_printed_during_the_action_phase_is_a_free_option_of_the_closing_menu() {
     let agent = Leader::ALL.iter().copied().find(|l| l.data().kind == LeaderType::Agent && l.data().window == LeaderWindow::ActionPhase).unwrap();
     let faction = Faction::ALL.iter().copied().find(|f| ti4_engine_core::query::tech::tag_is(agent.data().faction, *f)).unwrap();
     let (mut s, k) = Scenario::new(&[faction, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
     s.players_mut().edit(0).leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Readied);
-    assert_eq!(closing::options(&s, &k, Seat(0)), Err(TurnGap::MenuSources));
+    // The menu lists exactly what the action menu's leaders source lists and calls free: "end your turn" first, then those.
+    let free: Vec<TuOpt> = ti4_engine_core::driver::menu_sources::leaders(&s, &k, Seat(0)).into_iter().filter(|o| ti4_engine_core::driver::menu_sources::leader_is_free(*o) == Some(true)).collect();
+    let mut expected = vec![TuOpt::EndTurn];
+    expected.extend(free.iter().copied());
+    assert_eq!(closing::options(&s, &k, Seat(0)), Ok(expected));
     s.players_mut().edit(0).leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Exhausted);
     assert_eq!(closing::options(&s, &k, Seat(0)), Ok(vec![TuOpt::EndTurn]), "an exhausted agent offers nothing");
+}
+
+#[test]
+fn a_free_leader_of_the_closing_menu_is_asked_and_its_dispatch_is_a_counted_gap() {
+    use ti4_engine_core::generated::Leader as L;
+    let faction = Faction::ALL.iter().copied().find(|f| ti4_engine_core::query::tech::tag_is(L::CarthOfGoldenSands.data().faction, *f)).unwrap();
+    let (mut s, k) = Scenario::new(&[faction, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
+    s.players_mut().edit(0).leaders.status.insert(L::CarthOfGoldenSands, ti4_engine_core::state::LeaderStatus::Readied);
+    s.pending_mut().turn_closing = Some(Seat(0));
+    let e = env(&k);
+    let q = ask_ask(&s, &e).unwrap().unwrap().choice;
+    let carth = Opt::Turn(TuOpt::Leader(L::CarthOfGoldenSands));
+    assert_eq!(q.opts.as_slice(), &[Opt::Turn(TuOpt::EndTurn), carth][..], "end your turn first, then the free leader");
+    // Taking it is the string's dispatch: a counted gap, the position as it was.
+    let held = s.clone();
+    assert_eq!(advance_ask(&mut s, &e, Some(Pick::Opt(carth))), Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuDispatch))));
+    assert_eq!(s, held);
+    // Ending the turn still ends it.
+    assert_eq!(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Turn(TuOpt::EndTurn)))).unwrap().0, Live::Done);
+    assert_eq!(s.pending().turn_closing, None);
 }
 
 #[test]

@@ -86,10 +86,14 @@ pub fn advance_ask(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) ->
         AskArm::Closing => {
             let question = closing_question(core, env)?;
             let Some(pick) = answer else { return Ok((Live::Asks(Box::new(asking(question))), Out::default())) };
-            // "End your turn" ends it; anything else the menu offers takes an action (Fleet Logistics' second one) or is a free option:
-            // the menu's sources are not native, so the question offers nothing else yet.
-            if !question.opts.iter().any(|o| *o == pick_opt(pick)) {
+            // "End your turn" ends it. A free option the menu now lists (a leader printed "During the action phase") is a component action whose
+            // dispatch (`use_leader`, KM2) is the string's: the step stops with a counted gap, the question was complete.
+            let picked = pick_opt(pick);
+            if !question.opts.iter().any(|o| *o == picked) {
                 return Err(LiveError::Illegal);
+            }
+            if picked != Opt::Turn(crate::choice::turn::Opt::EndTurn) {
+                return Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuDispatch)));
             }
             super::advance_job(TurnJob::End, core, env, None)
         }
