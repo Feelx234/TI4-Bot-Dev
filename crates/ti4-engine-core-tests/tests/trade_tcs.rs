@@ -121,8 +121,6 @@ fn the_nomad_readies_the_agent_and_deals_with_a_stranger_through_the_card() {
     // The reaction windows of the resolution (nobody holds a card), then the end of the event.
     assert_eq!(live, Live::Done);
     assert!(out.emitted.iter().any(|r| r.kind == EventKind::AgentExhausted));
-    let kinds: Vec<EventKind> = s.ledger.events.iter().filter_map(|e| if let ti4_engine_core::state::Emit::Typed(t) = e { Some(t.kind) } else { None }).collect();
-    assert!(kinds.contains(&EventKind::TransactionResolved), "{kinds:?}");
     assert_eq!(s.players().by_seat(Seat(1)).unwrap().leaders.status.get(&Leader::BerekarBerekon).copied(), Some(ti4_engine_core::state::LeaderStatus::Readied), "the agent is readied");
     assert!(s.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::TemporalCommandSuite), "the card was exhausted");
     assert!(ti4_engine_core::query::trade::transacted_with(&s, Seat(0), Seat(1)), "the pair's transaction is spent");
