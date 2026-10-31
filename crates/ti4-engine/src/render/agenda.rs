@@ -7,7 +7,7 @@
 
 use serde_json::{Map, Value, json};
 use ti4_content::ContentStore;
-use ti4_engine_core::choice::agenda::{Ask, Face, Frame, Opt, Shown, Subtype, UseSource};
+use ti4_engine_core::choice::agenda::{Ask, Face, Frame, Opt, Rider, Shown, Subtype, UseSource};
 use ti4_engine_core::generated::{Agenda, AgendaElects, Planet, SecretObjective, StrategyCard};
 use ti4_engine_core::keys::Outcome;
 use ti4_model::content_types::ContentType;
@@ -89,6 +89,9 @@ impl Family for Fam {
             Ask::Tiebreak { .. } => "speaker breaks the tie".to_owned(),
             Ask::NameTied => "which tied player does the agenda name".to_owned(),
             Ask::Settler => "which of the trailing players may settle the planet".to_owned(),
+            Ask::RiderTarget { rider: Rider::Construction } => "Construction Rider: place a space dock on which planet".to_owned(),
+            Ask::RiderTarget { rider: Rider::Diplomacy } => "Diplomacy Rider: choose a system".to_owned(),
+            Ask::RiderTarget { rider: Rider::Warfare } => "Warfare Rider: place a dreadnought in which system".to_owned(),
             Ask::Structure => "destroy one of your structures".to_owned(),
             Ask::DiscardLaw { prompt, .. } => r.code_text(*prompt),
             Ask::Committee { agenda } => format!("{}: elect which player", agenda.as_str()),
@@ -104,6 +107,9 @@ impl Family for Fam {
 
     fn subtype(_: &Render, s: &Subtype) -> String {
         match s {
+            Subtype::RiderTarget(Rider::Construction) => "construction_rider_planet",
+            Subtype::RiderTarget(Rider::Diplomacy) => "diplomacy_rider_system",
+            Subtype::RiderTarget(Rider::Warfare) => "warfare_rider_system",
             Subtype::CastVote => "cast_vote",
             Subtype::ExhaustPlanet => "vote_exhaust_planet",
             Subtype::SpendTradeGoods => "vote_spend_trade_goods",
@@ -126,6 +132,14 @@ impl Family for Fam {
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match (a, o) {
             (Ask::Committee { .. }, Opt::Elect(seat)) => ChoiceOption::labelled(r.seat_text(*seat), "player", format!("elect {}", r.seat_text(*seat))),
+            (Ask::RiderTarget { .. }, Opt::Spot { system, planet }) => {
+                let (id, kind) = match planet {
+                    Some(planet) => (format!("{}|{}", system.as_str(), planet.as_str()), "planet"),
+                    None => (system.as_str().to_owned(), "system"),
+                };
+                let label = id.replace('|', " ");
+                ChoiceOption::labelled(id, kind, label)
+            }
             (Ask::NameTied | Ask::Settler, Opt::Elect(seat)) => ChoiceOption::labelled(r.seat_text(*seat), "elect", r.seat_text(*seat)),
             (Ask::Structure, Opt::Structure { index, planet, system }) => {
                 ChoiceOption::labelled(index.to_string(), "scuttle", format!("destroy the one on {}", planet.as_str()))
@@ -148,7 +162,7 @@ impl Family for Fam {
         match a {
             Ask::NameTied | Ask::Settler | Ask::Committee { .. } => r.seat(id).map(Opt::Elect),
             // The planet and the system are the position's: the pick is matched against the offered options.
-            Ask::Structure => None,
+            Ask::Structure | Ask::RiderTarget { .. } => None,
             Ask::DiscardLaw { .. } => (id == "discard").then_some(Opt::DiscardLaw),
             Ask::UseOnAgenda { .. } => (id == "use").then_some(Opt::UseCard),
             _ => Self::parse_vote(r, a, id),
@@ -273,7 +287,7 @@ impl Fam {
                 "tribute|token" => Some(Opt::TributeToken),
                 _ => None,
             },
-            Ask::NameTied | Ask::Settler | Ask::Structure | Ask::DiscardLaw { .. } | Ask::UseOnAgenda { .. } | Ask::Committee { .. } => None,
+            Ask::NameTied | Ask::Settler | Ask::Structure | Ask::DiscardLaw { .. } | Ask::UseOnAgenda { .. } | Ask::Committee { .. } | Ask::RiderTarget { .. } => None,
         }
     }
 

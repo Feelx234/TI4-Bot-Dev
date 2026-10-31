@@ -29,6 +29,7 @@ pub fn codes(r: &Render) -> AgendaCodes {
         committee: r.code("committee"),
         committee_prompt: r.code(COMMITTEE_PROMPT),
         agenda: r.code("agenda"),
+        fleet_pool: r.code("fleet"),
         defense_act: r.code("defense_act"),
         tech_corpus: |a, b| corpus_rank(a).cmp(&corpus_rank(b)),
         redistribution: r.code("redistribution"),

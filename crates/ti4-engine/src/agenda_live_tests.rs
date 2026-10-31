@@ -353,3 +353,14 @@ fn explore_tech_rider() {
         }
     }
 }
+
+#[test]
+#[ignore = "exploration aid"]
+fn explore_politics_rider_yssaril() {
+    let state = with_hand(agenda_table(&[("a", "sol"), ("b", "yssaril"), ("c", "arborec"), ("d", "letnev")], &["checks", "conscription"]), "b", &["politic_rider"]);
+    let (string, native) = both(&state, &[]);
+    let cut = |r: &Run| r.events.iter().take(24).cloned().collect::<Vec<_>>();
+    eprintln!("string {:?}\nnative {:?}", cut(&string), cut(&native));
+    eprintln!("string q {:?}", string.questions.iter().filter(|q| q.player.as_str() == "b" && !q.prompt.starts_with("exhaust") && !q.prompt.starts_with("vote")).map(|q| q.prompt.clone()).collect::<Vec<_>>());
+    eprintln!("native q {:?}", native.questions.iter().filter(|q| q.player.as_str() == "b" && !q.prompt.starts_with("exhaust") && !q.prompt.starts_with("vote")).map(|q| q.prompt.clone()).collect::<Vec<_>>());
+}

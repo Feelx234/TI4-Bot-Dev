@@ -149,7 +149,8 @@ impl Reveal {
                 payload: Payload::new().with(Key::Agenda, Val::Agenda(self.alias)),
                 cancelled: false,
             };
-            if sx.emit_mirrored(rec).is_err() {
+            // `Live::emit_typed`: the card moves a faction effect staged in that window (a Scheming discard) are announced now.
+            if sx.emit_mirrored(rec).is_err() || crate::kernel::fx_cards::announce_staged_cards(sx).is_err() {
                 self.failed = true;
                 return true;
             }

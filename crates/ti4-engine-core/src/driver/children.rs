@@ -9,7 +9,7 @@
 
 use crate::kernel::children::{AreaLinks, Erased, ErasedWindow, Report, Spawn};
 use crate::kernel::stage::AbilityTable;
-use crate::rules::action_cards::draw::DrawCards;
+use crate::driver::windows::hooked_draw::HookedDraw;
 use crate::rules::combat::effect_hits::{Absorb, Destroy};
 use crate::rules::explore_windows::Reward;
 use crate::rules::objective_windows::HandLimit;
@@ -31,7 +31,7 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
     Some(match request {
         Spawn::Bill { who, kind, cost } => Erased::boxed(PayBill::new(*who, *kind, *cost), |w| Report::Paid(w.outcome == Some(true))),
         Spawn::HandLimit { who } => Erased::boxed(HandLimit::new(*who), |_| Report::Nothing),
-        Spawn::DrawCards { who, count, drop_unofficial } => Erased::boxed(DrawCards::new(*who, *count, *drop_unofficial), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
+        Spawn::DrawCards { who, count, drop_unofficial } => Erased::boxed(HookedDraw::new(*who, *count, *drop_unofficial), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
         Spawn::Reward { who, step, options, skip_single } => Erased::boxed(Reward::new(*who, *step, options.as_slice(), *skip_single), |w| Report::Chose(w.chosen)),
         Spawn::Research { who, primary, cost, scope, roster } => {
             Erased::boxed(Research::new(*who, *primary, *cost, *scope).with_roster(**roster), |w| if w.failed { Report::Left } else { Report::Nothing })

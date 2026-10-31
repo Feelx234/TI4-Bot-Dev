@@ -38,24 +38,6 @@ pub enum Closed {
     Next(VotingWin),
 }
 
-/// The seats (bit per seat) whose action-card draw a faction hook changes: the drawer's own Scheming and Crafty, a bonus card with the
-/// draw, a changed hand limit, a turn with blank laws (Law's Order). Their draws are not the plain draw window's.
-fn draw_hooks(sx: &Sx<'_>) -> u16 {
-    let core: &CoreState = sx.state;
-    let blanked = reach::blanked(core);
-    let k = sx.kernel;
-    let mut mask = 0u16;
-    for p in core.players().iter() {
-        let bonus = [1usize, 2, 3].iter().any(|n| k.hooks.economy.action_card_draw_bonus(core, k, p.seat, *n) != 0);
-        let base = crate::rules::action_cards::hand_limit(core, blanked, |l| l);
-        let limit = crate::rules::action_cards::hand_limit(core, blanked, |l| k.hooks.economy.action_card_limit(core, k, p.seat, l));
-        if blanked || p.faction == crate::generated::Faction::TheYssarilTribes || bonus || limit != base {
-            mask |= 1 << u16::from(p.seat.0);
-        }
-    }
-    mask
-}
-
 fn close_facts(sx: &Sx<'_>) -> Facts {
     let codes = sx.table.codes.agenda;
     let scope = reach::scope_of(sx.kernel);
@@ -64,8 +46,9 @@ fn close_facts(sx: &Sx<'_>) -> Facts {
         keleres_rider: codes.keleres_rider,
         drop_unofficial: sx.state.meta().rules_at_least(RULES_OFFICIAL_ACTION_DECK),
         blanked: reach::blanked(sx.state),
-        hooked: draw_hooks(sx),
+        hooked: 0,
         research: sx.table.facts.plays.as_ref().and_then(|p| p.roster).map(|roster| (scope, roster)),
+        fleet_pool: sx.table.codes.agenda.fleet_pool,
     }
 }
 
@@ -89,7 +72,7 @@ fn effect_facts(sx: &Sx<'_>, ballot: &[(crate::ids::Seat, Outcome)]) -> EffectFa
         pool: codes.reinforcements,
         has_galaxy: sx.state.loaded.has(Slice::Map),
         defense_act: codes.agenda.defense_act,
-        hooked: draw_hooks(sx),
+        hooked: 0,
         drop_unofficial: sx.state.meta().rules_at_least(RULES_OFFICIAL_ACTION_DECK),
         blanked: reach::blanked(sx.state),
         roster: sx.table.facts.plays.as_ref().and_then(|p| p.roster),

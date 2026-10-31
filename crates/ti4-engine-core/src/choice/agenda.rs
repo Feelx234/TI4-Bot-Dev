@@ -130,6 +130,19 @@ pub enum Ask {
     UseOnAgenda { source: UseSource, agenda: Agenda, owner: Seat },
     /// Committee Formation, after the owner discarded the card: which player the agenda elects (no vote follows).
     Committee { agenda: Agenda },
+    /// A correct Construction, Diplomacy or Warfare Rider with several places to choose from: where the reward goes.
+    RiderTarget { rider: Rider },
+}
+
+/// The riders whose payoff is a place the seat picks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Rider {
+    /// A space dock on a planet the seat controls.
+    Construction,
+    /// A command token from every other seat in a system with a planet the seat controls.
+    Diplomacy,
+    /// A dreadnought in a system with a ship of the seat.
+    Warfare,
 }
 
 /// What a [`Ask::UseOnAgenda`] question offers.
@@ -155,7 +168,7 @@ impl Ask {
             | Self::Recombine { frame, .. }
             | Self::Tribute { frame, .. }
             | Self::Tiebreak { frame } => Some(frame),
-            Self::NameTied | Self::Settler | Self::Structure | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } | Self::Committee { .. } => None,
+            Self::NameTied | Self::Settler | Self::Structure | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } | Self::Committee { .. } | Self::RiderTarget { .. } => None,
         }
     }
 }
@@ -192,6 +205,8 @@ pub enum Opt {
     DiscardLaw,
     /// `UseOnAgenda`: use the card or ability.
     UseCard,
+    /// `RiderTarget`: the system, and for a planet reward the planet in it.
+    Spot { system: System, planet: Option<Planet> },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -212,6 +227,7 @@ pub enum Subtype {
     UseFavor,
     UseSecret,
     CommitteeElect,
+    RiderTarget(Rider),
 }
 
 impl Ask {
@@ -234,6 +250,7 @@ impl Ask {
             Self::UseOnAgenda { source: UseSource::Favor, .. } => Subtype::UseFavor,
             Self::UseOnAgenda { source: UseSource::Secret, .. } => Subtype::UseSecret,
             Self::Committee { .. } => Subtype::CommitteeElect,
+            Self::RiderTarget { rider } => Subtype::RiderTarget(*rider),
         }
     }
 }

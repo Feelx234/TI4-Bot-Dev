@@ -20,6 +20,8 @@ pub struct AgendaCodes {
     pub committee_prompt: Code,
     /// `agenda`, the source of a trade-good gain of an agenda effect.
     pub agenda: Code,
+    /// `fleet`: the pool of the command tokens a Diplomacy Rider places.
+    pub fleet_pool: Code,
     /// `defense_act`, the content Homeland Defense Act's question cites.
     pub defense_act: Code,
     /// `redistribution` and `grant_reallocation`: the sources of the questions of those two effects.
@@ -46,6 +48,7 @@ impl Default for AgendaCodes {
             committee: Code(0),
             committee_prompt: Code(0),
             agenda: Code(0),
+            fleet_pool: Code(0),
             defense_act: Code(0),
             redistribution: Code(0),
             grant: Code(0),

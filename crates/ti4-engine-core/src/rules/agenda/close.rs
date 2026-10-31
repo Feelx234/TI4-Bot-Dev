@@ -20,10 +20,11 @@
 //! program points of the pushes; the `AGENDA_RESOLVED` event is mirrored when its emission returns (package P1).
 
 use super::{is_law, undisputed_winner};
+use crate::choice::agenda::{Ask as AAsk, Opt as AOpt, Rider};
 use crate::choice::strategy::{gain_pool_choice, Ask as SAsk, Opt as SOpt};
 use crate::choice::{Ask, Choice, Opt, Pick};
 use crate::containers::SmallList;
-use crate::generated::Agenda;
+use crate::generated::{Agenda, System, Planet, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::children::{ErasedChild, Report, Spawn};
 use crate::kernel::stage::{Illegal, Ran, Sx, Window};
@@ -35,6 +36,10 @@ use crate::tables::Scope;
 
 /// `ti4_model::state::RULES_COMMAND_TOKEN_POOL`: from here Leadership Rider asks the pool of each token.
 pub const RULES_COMMAND_TOKEN_POOL: u32 = 12;
+/// `ti4_model::state::RULES_TECH_RIDER`: from here the placement riders ask for the place.
+pub const RULES_TECH_RIDER: u32 = 9;
+/// `ti4_model::state::RULES_FACTION_BUGFIXES`.
+const RULES_FACTION_BUGFIXES: u32 = 17;
 
 /// What the window cannot read off the state.
 #[derive(Debug, Clone, Copy)]
@@ -52,6 +57,8 @@ pub struct Facts {
     /// position the research window does not carry (a seat whose own effects on a research are questions or forms, hooks the core
     /// table answers differently), and the rider ends the window `unsupported`.
     pub research: Option<(Scope, &'static UnitRoster)>,
+    /// The pool `fleet` of the command token a Diplomacy Rider makes the other seats place.
+    pub fleet_pool: Code,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +71,8 @@ pub enum Stage {
     /// A rider's action cards are drawn, or its technology researched, as a child window (the hand limit may ask a discard; the
     /// research asks which technology).
     Draw,
+    /// A placement rider has several places to choose from.
+    Target,
     Done,
 }
 
@@ -105,6 +114,9 @@ pub struct Close {
     /// The draw of a Politics or Keleres Rider and what follows it.
     draw: ErasedChild,
     tail: Tail,
+    /// A placement rider waiting for its place: which, and the places on offer (`None` planet: a system).
+    rider: Rider,
+    spots: SmallList<(System, Option<Planet>), 24>,
 }
 
 impl Close {
@@ -140,6 +152,8 @@ impl Close {
             unsupported: false,
             draw: ErasedChild::idle(),
             tail: Tail::Speaker,
+            rider: Rider::Construction,
+            spots: SmallList::new(),
         }
     }
 
@@ -207,7 +221,7 @@ impl Close {
             _ => payload.set(Key::Player, Val::Outcome(winner)),
         }
         let rec = EventRec { id: 0, kind: EventKind::AgendaResolved, payload, cancelled: false };
-        if sx.emit_mirrored(rec).is_err() {
+        if sx.emit_mirrored(rec).is_err() || crate::kernel::fx_cards::announce_staged_cards(sx).is_err() {
             self.failed = true;
             self.finish();
             return;
@@ -319,9 +333,103 @@ impl Close {
             Some(PredictionTag::PoliticRider) => self.start_draw(sx, who, 3, Tail::Speaker),
             Some(PredictionTag::KeleresRider) => self.start_draw(sx, who, 1, Tail::Goods),
             Some(PredictionTag::TechRider) => self.start_research(sx, who),
-            // The placement riders ask questions of their own.
-            Some(PredictionTag::ConstRider | PredictionTag::DiploRider | PredictionTag::WarRider) => {
-                self.stop();
+            Some(PredictionTag::ConstRider) => self.place_rider(sx, who, Rider::Construction),
+            Some(PredictionTag::DiploRider) => self.place_rider(sx, who, Rider::Diplomacy),
+            Some(PredictionTag::WarRider) => self.place_rider(sx, who, Rider::Warfare),
+        }
+    }
+
+    /// The places a placement rider offers `who`, in the string's order: the controlled planets without a space dock yet (79.2; the dock I
+    /// forms only: the string compares the unit's id with `spacedock`), the systems with a planet the seat controls, the systems with a
+    /// ship of the seat.
+    fn spots_of(core: &CoreState, who: Seat, rider: Rider) -> SmallList<(System, Option<Planet>), 24> {
+        let mut out = SmallList::new();
+        match rider {
+            Rider::Construction => {
+                for (system, planet) in crate::query::board::controlled_planets(core, who).as_slice() {
+                    let docked = core.board().planet(*planet).units.as_slice().iter().any(|p| {
+                        let d = p.kind().data();
+                        d.base_type == UnitBaseType::Spacedock && d.replaces.is_none()
+                    });
+                    if !docked {
+                        out.push((*system, Some(*planet)));
+                    }
+                }
+            }
+            Rider::Diplomacy => {
+                for (system, _) in crate::query::board::controlled_planets(core, who).as_slice() {
+                    if !out.as_slice().iter().any(|(s, _)| s == system) {
+                        out.push((*system, None));
+                    }
+                }
+            }
+            Rider::Warfare => {
+                for system in System::ALL {
+                    if core.board().sys(system).units.as_slice().iter().any(|p| p.owner() == who) {
+                        out.push((system, None));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// `asked_rider_payoff`: one place is forced, several are asked, none pays nothing.
+    fn place_rider(&mut self, sx: &mut Sx<'_>, who: Seat, rider: Rider) {
+        if !sx.state.meta().rules_at_least(RULES_TECH_RIDER) {
+            self.stop();
+            return;
+        }
+        let spots = Self::spots_of(sx.state, who, rider);
+        match spots.as_slice() {
+            [] => {}
+            [(system, planet)] => self.place(sx, who, rider, *system, *planet),
+            _ => {
+                self.who = who;
+                self.rider = rider;
+                self.spots = spots;
+                self.stage = Stage::Target;
+            }
+        }
+    }
+
+    fn target_question(&self) -> Choice {
+        let opts = self.spots.as_slice().iter().map(|(system, planet)| Opt::Agenda(AOpt::Spot { system: *system, planet: *planet })).collect();
+        super::question(self.who, AAsk::RiderTarget { rider: self.rider }, crate::choice::Origin::ActionCard(match self.rider {
+            Rider::Construction => crate::generated::ActionCard::ConstructionRider,
+            Rider::Diplomacy => crate::generated::ActionCard::DiplomacyRider,
+            Rider::Warfare => crate::generated::ActionCard::WarfareRider,
+        }), opts)
+    }
+
+    /// The reward at the chosen place.
+    fn place(&mut self, sx: &mut Sx<'_>, who: Seat, rider: Rider, system: System, planet: Option<Planet>) {
+        match rider {
+            Rider::Construction => {
+                let (Some((scope, roster)), Some(planet)) = (self.facts.research, planet) else {
+                    self.stop();
+                    return;
+                };
+                let Some(dock) = crate::kernel::fx_strategy::placed_unit(sx.state, sx.kernel, scope, roster, who, UnitBaseType::Spacedock) else { return };
+                // From rules version 17 a space-only form (Saar's Floating Factory) is placed as itself in the space area of the planet's system.
+                let in_space = sx.state.meta().rules_at_least(RULES_FACTION_BUGFIXES) && dock.data().space_only;
+                crate::kernel::fx::place_unit(sx.state, who, system, if in_space { None } else { Some(planet) }, dock);
+            }
+            Rider::Diplomacy => {
+                let others: SmallList<Seat, 8> = sx.state.seats().seating_order().iter().copied().filter(|o| *o != who).collect();
+                let holders: SmallList<Seat, 8> = others.as_slice().iter().copied().filter(|o| sx.state.players().by_seat(*o).is_some_and(|p| p.econ.fleet_tokens > 0)).collect();
+                for other in holders.as_slice() {
+                    if let Some(p) = sx.state.players_mut().by_seat_mut(*other) {
+                        p.econ.fleet_tokens -= 1;
+                    }
+                    if fx::place_command_token(sx.state, *other, system) {
+                        let payload = Payload::new().with(Key::Player, Val::Seat(*other)).with(Key::System, Val::System(system)).with(Key::Pool, Val::Code(self.facts.fleet_pool));
+                        fx::stage(sx.state, fx::event(EventKind::CommandTokenPlaced, payload));
+                    }
+                }
+            }
+            Rider::Warfare => {
+                fx::place_unit(sx.state, who, system, None, Unit::DreadnoughtI);
             }
         }
     }
@@ -360,6 +468,7 @@ impl Window for Close {
                 Stage::Done => return Next::Done,
                 Stage::Start => self.start(sx),
                 Stage::Lead => return Next::Continue(Ask::Strategy(SAsk::GainPool { left: self.left })),
+                Stage::Target => return Next::Continue(Ask::Agenda(AAsk::RiderTarget { rider: self.rider })),
                 Stage::Predict => {
                     if self.at >= self.queue.len() {
                         self.enact(sx);
@@ -384,6 +493,9 @@ impl Window for Close {
                     if hit && self.stage == Stage::Lead {
                         return Next::Continue(Ask::Strategy(SAsk::GainPool { left: self.left }));
                     }
+                    if hit && self.stage == Stage::Target {
+                        return Next::Continue(Ask::Agenda(AAsk::RiderTarget { rider: self.rider }));
+                    }
                 }
                 Stage::Draw => match self.draw.step(sx) {
                     Some(Ran::Asks(a)) => return Next::Continue(a),
@@ -407,6 +519,7 @@ impl Window for Close {
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.stage {
             Stage::Lead => Some(gain_pool_choice(self.who, self.left)),
+            Stage::Target => Some(self.target_question()),
             Stage::Draw => self.draw.ask_of(s, k),
             _ => None,
         }
@@ -415,6 +528,15 @@ impl Window for Close {
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         if self.stage == Stage::Draw {
             return self.draw.answer(sx, pick);
+        }
+        if self.stage == Stage::Target {
+            let Pick::Opt(Opt::Agenda(AOpt::Spot { system, planet })) = pick else { return Err(Illegal) };
+            if !self.spots.as_slice().contains(&(system, planet)) {
+                return Err(Illegal);
+            }
+            self.place(sx, self.who, self.rider, system, planet);
+            self.stage = Stage::Predict;
+            return Ok(());
         }
         let Pick::Opt(Opt::Strategy(SOpt::Pool(pool))) = pick else { return Err(Illegal) };
         if self.stage != Stage::Lead {
@@ -444,7 +566,7 @@ mod tests {
     const C: Seat = Seat(2);
 
     fn facts() -> Facts {
-        Facts { trade_rider: Code(1), keleres_rider: Code(2), drop_unofficial: false, blanked: false, hooked: 0, research: None }
+        Facts { trade_rider: Code(1), keleres_rider: Code(2), drop_unofficial: false, blanked: false, hooked: 0, research: None, fleet_pool: Code(3) }
     }
 
     fn game() -> CoreState {

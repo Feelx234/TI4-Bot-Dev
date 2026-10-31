@@ -93,6 +93,7 @@ pub fn close(
         blanked: crate::laws::blanked(gs),
         hooked: crate::dual_window::draw_hooks(gs, &r),
         research: rider_research(gs, &mut cx, &r, content, sources, window.winner()),
+        fleet_pool: r.code("fleet"),
     };
     let before = gs.clone();
     let kernel = crate::production_view::kernel();
