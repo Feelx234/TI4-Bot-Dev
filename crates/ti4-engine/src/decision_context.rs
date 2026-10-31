@@ -443,28 +443,41 @@ impl DecisionContext {
     }
 
     #[must_use]
-    pub fn about_battle(mut self, state: &ti4_model::state::GameState) -> Self {
-        if let Some((system, _, _)) = &state.active_space_combat {
+    pub fn about_battle(self, state: &ti4_model::state::GameState) -> Self {
+        self.about_battle_in(state.active_space_combat.as_ref().map(|(system, _, _)| system.clone()))
+    }
+
+    /// [`Self::about_battle`] from the one fact it reads: the system of the space combat in progress (the live path reads it from the
+    /// core position, `transient.combat.active_space_combat`).
+    #[must_use]
+    pub fn about_battle_in(mut self, combat_system: Option<ti4_model::id::SystemId>) -> Self {
+        if let Some(system) = combat_system {
             self.space_battle = true;
-            self.target = Some(DecisionTarget::System(system.clone()));
+            self.target = Some(DecisionTarget::System(system));
         }
         self
     }
 
     #[must_use]
-    pub fn about_invasion(mut self, state: &ti4_model::state::GameState) -> Self {
+    pub fn about_invasion(self, state: &ti4_model::state::GameState) -> Self {
+        self.about_invasion_in(state.active_invasion.as_ref().map(|active| (active.system.clone(), active.seq)))
+    }
+
+    /// [`Self::about_invasion`] from the one fact it reads: the system and sequence number of the invasion in progress.
+    #[must_use]
+    pub fn about_invasion_in(mut self, invasion: Option<(ti4_model::id::SystemId, u64)>) -> Self {
         if !self.space_battle {
-            if let Some(active) = &state.active_invasion {
+            if let Some((system, seq)) = invasion {
                 let in_system = match &self.target {
                     Some(
-                        DecisionTarget::System(system)
-                        | DecisionTarget::Planet { system, .. }
-                        | DecisionTarget::Unit { system, .. },
-                    ) => system == &active.system,
+                        DecisionTarget::System(target)
+                        | DecisionTarget::Planet { system: target, .. }
+                        | DecisionTarget::Unit { system: target, .. },
+                    ) => target == &system,
                     _ => true,
                 };
                 if in_system {
-                    self.invasion_seq = Some(active.seq);
+                    self.invasion_seq = Some(seq);
                 }
             }
         }

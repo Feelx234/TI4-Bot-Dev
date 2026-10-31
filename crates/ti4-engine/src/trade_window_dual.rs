@@ -53,7 +53,6 @@ mod real {
     use ti4_content::ContentStore;
     use ti4_content::galaxy::Galaxy;
     use ti4_engine_core::choice::trade::Shape;
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::ActionCard;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
@@ -216,7 +215,7 @@ mod real {
                 None => None,
             };
             let window = TradeWindow::at(sp, sq, deal, at.rounds_left, facts).single();
-            let mut driver = Driver::new(window, Resolver::new(&[sp, sq], Some(sp)), AbilityTable::default(), 1);
+            let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[sp, sq], Some(sp)), AbilityTable::default(), 1);
             match drive(&mut driver, core, &kernel, &r, &before, script) {
                 Ok(driven) => Ok((driven, driver.window.outcome)),
                 Err(_) => Err("a run the driver refused"),

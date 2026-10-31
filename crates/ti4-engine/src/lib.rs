@@ -35,6 +35,8 @@ pub mod dice;
 pub mod dual;
 pub mod core_factions;
 pub mod dual_window;
+#[cfg(feature = "typed-core")]
+pub mod window_driver;
 pub mod cannon_dual;
 pub mod menu_dual;
 #[cfg(all(test, feature = "typed-core"))]
@@ -85,6 +87,7 @@ pub mod kernel_sync;
 pub mod laws;
 pub mod leaders;
 pub mod legendary;
+pub mod live;
 pub mod magen_defense;
 pub mod map_feasibility;
 pub mod movement;

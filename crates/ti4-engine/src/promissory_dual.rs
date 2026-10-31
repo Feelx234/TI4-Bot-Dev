@@ -12,7 +12,6 @@ pub use stub::*;
 
 #[cfg(feature = "typed-core")]
 mod real {
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::Unit;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
@@ -56,7 +55,7 @@ mod real {
         let before = gs.clone();
         let kernel = Kernel::plain();
         let window = PlaceUnits::new(seat, unit, 2, None, true, scope, r.code("ms"), Then::MilitarySupport { owner: owner_seat, reason: r.code("military_support") });
-        let mut driver = Driver::new(window, Resolver::new(&[seat, owner_seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat, owner_seat], Some(seat)), AbilityTable::default(), 1);
         let mut staged = Vec::new();
         let driven = with_core(gs, &mut cx, Sources::default(), WINDOW, |core, _| {
             let driven = drive_with(&mut driver, core, &kernel, &r, &before, script, &|c, _, rendered| crate::render::promissory::complete_place_units(c, rendered));

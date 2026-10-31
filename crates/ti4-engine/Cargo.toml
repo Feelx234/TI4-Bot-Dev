@@ -35,6 +35,9 @@ typed-core = ["dep:ti4-engine-core", "dep:ti4-engine-core-factions"]
 # subtype. Counting only; docs/todo/D3-bots.md D3-0 item 5.
 observed-count = ["ti4-model/observed-count"]
 string-movement = []
+# `Game::step_facts` / `Game::observed_windows`: what the oracle's `NativeSubject` (ti4-engine-core-bridge) reads of a legacy game. Test
+# tooling only: no production crate (server, wasm, host) enables it.
+native-subject = ["typed-core"]
 # The same off switch for the objectives area (`objectives_core`; package A4).
 string-objectives = []
 # The same for the faction modules (`Area::Factions`, wave C): forces the string `factions::MODULES` dispatch.

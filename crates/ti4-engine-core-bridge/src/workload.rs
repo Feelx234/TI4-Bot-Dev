@@ -113,6 +113,24 @@ impl Decider for Shared {
     }
 }
 
+/// The decider a golden game's seats are played by: the shipped rule bot, drawing its random choices from
+/// `seed` (what [`golden_games`] installs; the oracle's leading subject uses the same).
+#[must_use]
+pub fn golden_decider(seed: u64) -> Box<dyn Decider> {
+    Box::new(Shared(Rc::new(RefCell::new(Bot { seed, decided: 0, random: SeededRandom::new(seed) }))))
+}
+
+/// Install the bot overrides of a config (`bot_version`, knobs) as the bot every seat plays, as `selfplay run` does.
+///
+/// # Errors
+/// Overrides that do not form a tuning.
+pub fn install_bot_tuning(matrix: &Matrix) -> Result<(), String> {
+    if !matrix.bot.is_empty() {
+        ti4_rule_bot::tuning::set(ti4_selfplay::driver::tuning_from(&matrix.bot)?);
+    }
+    Ok(())
+}
+
 /// The games of a selfplay config.
 ///
 /// # Errors
@@ -162,9 +180,7 @@ pub fn golden_games(
     let (matrix, specs) = specs(config)?;
     // The config's `bot` overrides (`bot_version`, knobs) are the bot every seat plays, as in `selfplay run`; a config
     // without any (the golden profiles) plays the shipped tuning, untouched.
-    if !matrix.bot.is_empty() {
-        ti4_rule_bot::tuning::set(ti4_selfplay::driver::tuning_from(&matrix.bot)?);
-    }
+    install_bot_tuning(&matrix)?;
     let mut positions = Vec::new();
     let mut hashes = Vec::new();
     for (index, spec) in specs.iter().take(games).enumerate() {
@@ -172,12 +188,7 @@ pub fn golden_games(
             continue;
         }
         let mut game = spec.build()?;
-        game.table
-            .set_default(Box::new(Shared(Rc::new(RefCell::new(Bot {
-                seed: spec.seed,
-                decided: 0,
-                random: SeededRandom::new(spec.seed),
-            })))));
+        game.table.set_default(golden_decider(spec.seed));
         let mut steps = 0usize;
         while !game.state.finished
             && game.state.round <= matrix.limits.max_rounds

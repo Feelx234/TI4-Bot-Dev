@@ -104,11 +104,17 @@ pub const fn of_faction(f: Faction) -> Option<Disabled> {
 /// The first switched-off feature the position uses.
 #[must_use]
 pub fn find(s: &CoreState) -> Option<Disabled> {
-    if s.trade().diplomacy.enabled {
+    use crate::state::Slice;
+    // A window lends the slices it needs, not all of them: a feature whose slice is not loaded cannot be read, and cannot be what
+    // the window runs on (the entry check of the wrapper reads the whole state). Reading an unloaded slice panics.
+    if s.loaded.has(Slice::Trade) && s.trade().diplomacy.enabled {
         return Some(Disabled::Diplomacy);
     }
-    if s.cards().reserve.is_some() {
+    if s.loaded.has(Slice::Cards) && s.cards().reserve.is_some() {
         return Some(Disabled::DeckReserve);
+    }
+    if !s.loaded.has(Slice::Players) {
+        return None;
     }
     s.players().iter().find_map(|p| of_faction(p.faction))
 }
@@ -156,6 +162,21 @@ mod tests {
         let mut s = CoreState::all_loaded();
         s.players = Players::from_vec(factions.iter().enumerate().map(|(i, f)| Player::new(Seat(i as u8), *f)).collect());
         s
+    }
+
+    /// Regression (the first `playthrough` run): `Driver::run` guards its position under `Policy::Panic`, and a dual window lends only the
+    /// slices it needs; `find` read the trade slice of a position that did not load it and panicked inside the first technology window.
+    #[test]
+    fn a_position_that_did_not_load_a_slice_is_searched_without_it() {
+        let mut s = table(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]);
+        s.loaded = crate::state::SliceSet::of(&[crate::state::Slice::Meta, crate::state::Slice::Players]);
+        assert_eq!(find(&s), None);
+        let mut with_crimson = table(&[Faction::TheArborec, Faction::TheCrimsonRebellion]);
+        with_crimson.loaded = crate::state::SliceSet::of(&[crate::state::Slice::Players]);
+        assert_eq!(find(&with_crimson), Some(Disabled::Crimson), "what is loaded is still judged");
+        let mut nothing = table(&[Faction::TheCrimsonRebellion]);
+        nothing.loaded = crate::state::SliceSet::EMPTY;
+        assert_eq!(find(&nothing), None);
     }
 
     /// One position per family, with the family it must be named as.

@@ -578,7 +578,6 @@ pub fn play_window(
     before_rolls: Option<&crate::rng::RngPositions>,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<crate::action_cards_typed::Rolled>> {
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::Kernel;
     let card = ActionCard::from_id(alias.as_str())?;
     let (mut cx, r) = tables_of(gs, card)?;
@@ -676,7 +675,7 @@ pub fn play_window(
             env.facts.carried = carried_of(core, &before, sources, player, seat, &r);
         }
         let play = rules::effects::Play::of(core, card, seat, env)?;
-        let mut driver = Driver::new(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
+        let mut driver = crate::window_driver::driver_for(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
         if let Some(seeds) = driver_seeds {
             driver = driver.with_seeds(seeds);
         }
@@ -766,7 +765,6 @@ pub fn announce_window(
     before_rolls: Option<&crate::rng::RngPositions>,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<(Option<bool>, crate::action_cards_typed::Rolled)>> {
-    use ti4_engine_core::driver::Driver;
     let card = ActionCard::from_id(alias.as_str()).why("an action card the core tables do not know")?;
     if !rules::announce::plays(card) && crate::action_cards::effect_for(alias).is_some() {
         crate::dual::note_bail_here("a card the announce window does not play (it has no core effect, or the table plays it inside a window)");
@@ -867,7 +865,7 @@ pub fn announce_window(
             crate::dual::note_bail_here("a card the core announce window does not play");
         }
         let announce = announce?;
-        let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
+        let mut driver = crate::window_driver::driver_for(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
         if let Some(seeds) = seeds {
             driver = driver.with_seeds(seeds);
         }
@@ -986,17 +984,27 @@ pub(crate) fn own_breakthroughs(state: &GameState, r: &crate::render::Render) ->
 /// Reveal Prototype's candidates: the unit upgrades "of the same type as 1 of your units that is participating in this combat"
 /// (the string's line matching of `baseUpgrade` and the unnamed second-generation line by name).
 pub(crate) fn reveal_set(state: &GameState, player: &PlayerId, sources: &ti4_model::content_types::SourceSet) -> ti4_engine_core::state::TechSet {
-    use ti4_model::content_types::ContentType;
-    let content = ti4_content::ContentStore::embedded();
-    let mut out = ti4_engine_core::state::TechSet::default();
-    let Some(system) = state.active_system.clone() else { return out };
-    let types = ti4_content::units::catalogue(content, sources.clone());
+    let Some(system) = state.active_system.clone() else { return ti4_engine_core::state::TechSet::default() };
+    let types = ti4_content::units::catalogue(ti4_content::ContentStore::embedded(), sources.clone());
     let units = state.system_state(&system).units.clone();
     let lines: Vec<&str> = units
         .iter()
         .filter(|u| &u.owner == player)
         .filter_map(|u| types.get(u.type_id.as_str()).map(ti4_content::units::UnitType::base_type))
         .collect();
+    reveal_set_of_lines(&lines, sources)
+}
+
+/// [`reveal_set`] from the lines (base type texts) of the seat's units in the active system: the live loop reads them from the core
+/// position (`live::plays`), so both sides share the matching, quirks included.
+pub(crate) fn reveal_set_of_lines(lines: &[&str], sources: &ti4_model::content_types::SourceSet) -> ti4_engine_core::state::TechSet {
+    use ti4_model::content_types::ContentType;
+    let content = ti4_content::ContentStore::embedded();
+    let mut out = ti4_engine_core::state::TechSet::default();
+    if lines.is_empty() {
+        return out;
+    }
+    let types = ti4_content::units::catalogue(content, sources.clone());
     for tech in ti4_engine_core::generated::Technology::ALL {
         let alias = ti4_model::id::TechnologyId::new(crate::generated::IdStr::as_str(tech));
         if !crate::technology::is_unit_upgrade(content, &alias) {

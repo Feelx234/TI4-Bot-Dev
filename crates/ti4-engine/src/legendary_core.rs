@@ -15,7 +15,6 @@ pub use stub::*;
 mod real {
     use ti4_content::ContentStore;
     use ti4_engine_core::choice::legendary::When;
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::{Planet, System};
     use ti4_engine_core::kernel::Resolver;
     use ti4_engine_core::rules::legendary::Legendary;
@@ -112,7 +111,7 @@ mod real {
         }
         let before = gs.clone();
         let kernel = crate::production_view::kernel();
-        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), crate::reactions_core::linked_table(), 1);
+        let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), crate::reactions_core::linked_table(), 1);
         let mut staged = Vec::new();
         let driven = with_core(gs, &mut cx, Sources::default(), LEGENDARY, |core, _| {
             let driven = drive_with(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {});

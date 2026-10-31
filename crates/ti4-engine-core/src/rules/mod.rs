@@ -43,5 +43,6 @@ pub mod strategy_secondary;
 pub mod strategy_windows;
 pub mod tactical;
 pub mod technology_windows;
+pub mod token_gain;
 pub mod trade;
 pub mod trade_window;
