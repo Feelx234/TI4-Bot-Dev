@@ -32,6 +32,7 @@ pub const SPACE: u16 = 0x8000;
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.leader_action.push(leader_action);
     t.general.commander_unlocked.push(commander_unlocked);
     t.strategy.extra_prerequisite_colours.push(extra_prerequisite_colours);
     t.strategy.research_waiver_offer.push(research_waiver_offer);
@@ -89,6 +90,18 @@ pub fn research_waiver_offer(s: &CoreState, _: &Kernel, who: Seat, tech: Technol
     Some(ResearchWaiver {
         waiver: Waiver { module: Faction::TheYinBrotherhood, code: YIN_INFANTRY },
         payments: payments.iter().map(|(code, _, _)| Waiver { module: Faction::TheYinBrotherhood, code: *code }).collect(),
+    })
+}
+
+// -- leader hooks (package F2) ----------------------------------------
+
+/// Dannel of the Tenth: the reinforcements hold an infantry of the form the seat places (`yin::in_reinforcements`).
+pub fn leader_action(s: &CoreState, k: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::DannelOfTheTenth).then(|| {
+        let scope = crate::common::scope(k);
+        let roster = super::timing::roster(scope);
+        ti4_engine_core::query::tech::unit_form(s, scope, &roster, who, UnitBaseType::Infantry)
+            .is_some_and(|form| ti4_engine_core::query::fleet::remaining_all(s, scope, who, form) > 0)
     })
 }
 

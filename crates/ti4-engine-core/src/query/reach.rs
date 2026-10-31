@@ -54,6 +54,12 @@ fn live_token(core: &CoreState, seat: Seat, card: Technology) -> Option<Technolo
     core.players().iter().any(|o| o.seat != seat && o.tech.owned.contains(target)).then_some(target)
 }
 
+/// `nekro::assimilators_with_tokens`: how many Valefar Assimilator cards of `seat` have their token on a technology (Nekro Acidos' unlock).
+#[must_use]
+pub fn assimilators_with_tokens(core: &CoreState, seat: Seat) -> usize {
+    ASSIMILATORS.iter().filter(|card| live_token(core, seat, **card).is_some()).count()
+}
+
 /// `technology::has_technology_text`: the technology is owned, or carried by a Valefar Assimilator
 /// (the gate for what a technology's effect does; not ownership for prerequisites).
 #[must_use]

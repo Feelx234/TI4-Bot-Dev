@@ -25,6 +25,7 @@ pub mod dispatch;
 pub mod kernel_env;
 pub mod live;
 pub mod menu;
+pub mod menu_sources;
 pub mod session;
 pub mod step;
 pub mod tactical_tail;

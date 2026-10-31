@@ -386,8 +386,9 @@ pub fn end_of_round(core: &mut CoreState) -> SmallList<Seat, 8> {
     purged
 }
 
-/// The arms of `can_resolve_action` the core can decide itself; the rest is asked of the [`Env`].
-fn can_resolve_action(cx: &Cx<'_>, who: Seat, leader: Leader) -> bool {
+/// `leaders::can_resolve_action`: the arms the core can decide itself; the rest is asked of the [`Env`].
+#[must_use]
+pub fn can_resolve_action(cx: &Cx<'_>, who: Seat, leader: Leader) -> bool {
     let core = cx.core;
     match leader {
         // "Ready any planet" needs a planet to be readying.

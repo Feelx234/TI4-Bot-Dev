@@ -39,6 +39,8 @@ pub mod dual_window;
 pub mod window_driver;
 pub mod cannon_dual;
 pub mod menu_dual;
+#[cfg(feature = "typed-core")]
+pub mod menu_sources_view;
 #[cfg(all(test, feature = "typed-core"))]
 mod menu_dual_tests;
 pub mod reactions_core;

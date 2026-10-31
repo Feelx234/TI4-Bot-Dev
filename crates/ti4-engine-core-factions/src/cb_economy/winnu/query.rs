@@ -30,6 +30,8 @@ pub const ACQUIESCENCE: u16 = 0;
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.commander_unlocked.push(commander_unlocked);
+    t.general.leader_action.push(leader_action);
     t.ground.custodians_free.push(custodians_free);
     t.economy.planet_spend_value.push(planet_spend_value);
     t.general.unit_dice.push(unit_dice);
@@ -184,6 +186,19 @@ pub fn unit_dice(s: &CoreState, k: &Kernel, unit: CombatUnit, dice: i64) -> i64 
     if Some(unit.unit) == flagship { dice + theirs } else { theirs }
 }
 
+
+// -- leader hooks (package F2) ----------------------------------------
+
+/// Rickar Rickani, unlock: control Mecatol Rex (the combat half of the unlock is a reaction).
+pub fn commander_unlocked(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::RickarRickani).then(|| ti4_engine_core::query::board::controls_a_planet_in(s, ti4_engine_core::query::objectives::mecatol_on(s), who))
+}
+
+/// Mathis Mathinus: a Winnu seat and some strategy card in the game, held or unclaimed (`winnu::leader_action`).
+pub fn leader_action(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::MathisMathinus)
+        .then(|| is_faction(s, who, Faction::TheWinnu) && (s.players().iter().any(|p| !p.strat.as_slice().is_empty()) || !s.strategy().unclaimed.as_slice().is_empty()))
+}
 
 #[cfg(test)]
 mod tests {
