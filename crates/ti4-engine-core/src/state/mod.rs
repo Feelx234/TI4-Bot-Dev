@@ -14,6 +14,7 @@ mod cards;
 mod decks;
 mod event;
 mod explore;
+mod explore_run;
 mod invasion;
 mod ledger;
 mod map;
@@ -43,6 +44,7 @@ pub use cards::{CardRef, CardZones, DeckReserve, DeckSegment, NoteKey, NoteMap, 
 pub use decks::Decks;
 pub use event::{Key, List, Payload, Tally, Val};
 pub use explore::{Expedition, ExploreRec, ExploreState};
+pub use explore_run::{EDeck, EHow, EStage, EThen, ETarget, EWhy, ExploreRun, Holdings};
 pub use ledger::{EventKind, EventRec, Ledger, LedgerReason, RelicRec, RollPurpose, RollRec, VpRec};
 pub use map::MapSlice;
 pub use marks::{Family, MarkKey, MarkMap, MarkVal, Marks};

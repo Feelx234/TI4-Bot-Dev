@@ -11,7 +11,8 @@ use crate::kernel::children::{AreaLinks, Erased, ErasedWindow, Report, Spawn};
 use crate::kernel::stage::AbilityTable;
 use crate::rules::action_cards::draw::DrawCards;
 use crate::rules::combat::effect_hits::{Absorb, Destroy};
-use crate::rules::explore_windows::Reward;
+use crate::kernel::children::ExploreEnd;
+use crate::rules::explore_windows::{Exploring, Reward};
 use crate::rules::objective_windows::HandLimit;
 use crate::rules::production::pay::PayBill;
 use crate::rules::production::strategy_cards::{Construction, Leadership, Research, TitanBuild};
@@ -32,6 +33,15 @@ pub fn register(t: &mut AbilityTable) {
 fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
     Some(match request {
         Spawn::Bill { who, kind, cost } => Erased::boxed(PayBill::new(*who, *kind, *cost), |w| Report::Paid(w.outcome == Some(true))),
+        Spawn::ExploreFrontier { who, system } => Erased::boxed(Exploring::frontier(*who, *system, false, true), |w| {
+            Report::Explored(if w.unsupported().is_some() {
+                ExploreEnd::Unsupported
+            } else if w.empty() {
+                ExploreEnd::Empty
+            } else {
+                ExploreEnd::Explored
+            })
+        }),
         Spawn::HandLimit { who } => Erased::boxed(HandLimit::new(*who), |_| Report::Nothing),
         Spawn::DrawCards { who, count, drop_unofficial } => Erased::boxed(DrawCards::new(*who, *count, *drop_unofficial), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
         Spawn::Reward { who, step, options, skip_single } => Erased::boxed(Reward::new(*who, *step, options.as_slice(), *skip_single), |w| Report::Chose(w.chosen)),

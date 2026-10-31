@@ -221,6 +221,6 @@ pub fn finish(report: Report, s: &mut CoreState, trade_source: Code) -> Finished
         Report::Free(free) => Finished { free, ..none },
         Report::Produced(Some((system, made))) => Finished { made: Some(made), made_in: Some(system), ..none },
         Report::Produced(None) => none,
-        Report::Nothing | Report::Paid(_) | Report::Chose(_) | Report::Destroyed(_) | Report::Built(_) | Report::Removed(_) => none,
+        Report::Nothing | Report::Paid(_) | Report::Chose(_) | Report::Destroyed(_) | Report::Built(_) | Report::Removed(_) | Report::Explored(_) => none,
     }
 }

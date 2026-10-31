@@ -185,6 +185,29 @@ pub struct Codes {
     pub not_from_supply: [crate::state::Code; 5],
     /// The texts of the invasion composer (`driver::windows::invasion`).
     pub invasion: InvasionCodes,
+    /// The texts of the events of an exploration (`rules::explore_windows::Exploring`).
+    pub explore: ExploreCodes,
+}
+
+/// The texts the events of an exploration carry: the source `exploration` of the trade goods it gains, the deck and the card of
+/// `PLANET_EXPLORED` and the `trade_agreement` source of a replenishment (the adapter's event texts, not the state's). Not filled
+/// (`filled` false): the exploration declines its run.
+#[derive(Debug, Clone, Copy)]
+pub struct ExploreCodes {
+    pub filled: bool,
+    pub goods: crate::state::Code,
+    pub trade_agreement: crate::state::Code,
+    /// The text of each deck, by `ExploreType` index.
+    pub decks: [crate::state::Code; crate::generated::ExploreType::COUNT],
+    /// The text of each card, by `Explore` index.
+    pub cards: [crate::state::Code; crate::generated::Explore::COUNT],
+}
+
+impl Default for ExploreCodes {
+    fn default() -> Self {
+        let z = crate::state::Code(0);
+        Self { filled: false, goods: z, trade_agreement: z, decks: [z; crate::generated::ExploreType::COUNT], cards: [z; crate::generated::Explore::COUNT] }
+    }
 }
 
 /// The texts the invasion composer puts into the position: the step kinds and causes of its records, the dice groups and the text of every
@@ -300,6 +323,8 @@ pub struct AdapterFacts {
     /// The printed name of each action card as the index of the first card with the same name, for the windows that offer one
     /// option per name outside a card play (the hand limit, package W6). Empty: the adapter did not say, the window declines.
     pub card_groups: Vec<u8>,
+    /// The words of the log row an exploration closes (`exploration::row_words`), set by the adapter. `None`: the exploration declines.
+    pub explore_words: Option<crate::kernel::fx_explore::WordsFn>,
 }
 
 /// What the cards that reroll staged dice (Fire Team) need of the adapter: the state text of the ground kind, and for each

@@ -222,6 +222,19 @@ pub enum Report {
     Free(Option<System>),
     /// The Thunder's Edge Construction primary finished: the use of PRODUCTION it ran, the system and what it made (`None`: a structure was chosen).
     Produced(Option<(System, Made)>),
+    /// An exploration finished: how it ended.
+    Explored(ExploreEnd),
+}
+
+/// How an exploration ended (`Report::Explored`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExploreEnd {
+    /// The card was resolved and its row closed.
+    Explored,
+    /// The deck ran out.
+    Empty,
+    /// The exploration declined its run (a card the core does not carry, no texts, no link to a child).
+    Unsupported,
 }
 
 /// A window of another area, run as a child: the object-safe face of [`Window`] plus what the finished window reports.
@@ -400,6 +413,9 @@ pub enum Spawn {
     Imperial { who: Seat, facts: ImperialFacts },
     /// Self-Assembly Routines' offer at the end of a use of PRODUCTION in `system` (a window of the faction crate: the table's extra link).
     SelfAssembly { who: Seat, system: System },
+    /// `explore_windows::Exploring` of the frontier token in `system`, spent first and announced to nobody (the string explores it with no
+    /// timing handle); reports [`Report::Explored`].
+    ExploreFrontier { who: Seat, system: System },
 }
 
 /// Starts the child window a [`Spawn`] names; `None` for a request the table does not know.
