@@ -12,7 +12,7 @@
 //! secret the core cannot judge (Strengthen Bonds, Produce en Masse), and a commander of a faction whose unlock hook no module registers
 //! yet (the unlock check after a public score, see `turn::start::unlockable`).
 
-use crate::choice::objectives::Offer;
+use crate::choice::objectives::{score_choice, Offer};
 use crate::choice::{Choice, Pick};
 use crate::containers::SmallList;
 use crate::generated::{ObjectivePhase, SecretObjective};
@@ -198,7 +198,9 @@ impl<const EVENT: bool> Window for ScoringWin<EVENT> {
             return None;
         }
         let asked = self.next(core, k).ok()??;
-        self.one(&asked, k, core).ask_of(core, k)
+        // `ScoreOne::ask_of` answers only after its own `step`; the question is the same function of the position.
+        let vp = core.players().by_seat(asked.seat).map_or(0, |p| u8::try_from(p.econ.victory_points.max(0)).unwrap_or(u8::MAX));
+        Some(score_choice(asked.seat, vp, !EVENT, asked.offers.as_slice()))
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {

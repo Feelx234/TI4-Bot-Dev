@@ -46,6 +46,10 @@ mod cannon_prelude_tests;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "turn_live_tests.rs"]
 mod turn_live_tests;
+// The lockstep of the native status phase (lane C) against the string steps it replaces.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "status_live_tests.rs"]
+mod status_live_tests;
 #[cfg(not(feature = "typed-core"))]
 mod d1_pending {
     pub(super) const fn active() -> bool {

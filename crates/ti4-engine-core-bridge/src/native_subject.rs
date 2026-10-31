@@ -107,9 +107,23 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
             }
             None => false,
         },
-        // The jobs of the turn flow open themselves (`driver::turn`): they need no window of the legacy game.
-        Arm::TurnPrelude | Arm::Phase | Arm::StrategyAnnounce | Arm::Ask => true,
+        // The scoring windows of the status phase and of the secrets timed on an action or an agenda (lane C): the payload the legacy game holds.
+        Arm::Scoring => open_observed(windows, core, WindowKind::Scoring),
+        Arm::EventScoring => open_observed(windows, core, WindowKind::EventScoring),
+        // The jobs of the turn flow open themselves (`driver::turn`): they need no window of the legacy game. `Status` opens the scoring window.
+        Arm::TurnPrelude | Arm::Phase | Arm::StrategyAnnounce | Arm::Ask | Arm::Status => true,
         _ => false,
+    }
+}
+
+/// Open the window of `kind` the legacy game holds on the materialized position. `false`: it holds none.
+fn open_observed(windows: &[Window], core: &mut CoreState, kind: WindowKind) -> bool {
+    match windows.iter().find(|w| w.kind() == kind) {
+        Some(w) => {
+            core.pending_mut().open(w.clone());
+            true
+        }
+        None => false,
     }
 }
 
@@ -117,7 +131,13 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
 /// (the questions, the events and the position), not on the prefix. `Phase` is the whole of `step_phase`; the prelude and the
 /// announcement go on into the question of the same legacy step (the action menu, the draft), which the arm does not own.
 const fn close_is_native(arm: Arm) -> bool {
-    matches!(arm, Arm::Phase)
+    matches!(arm, Arm::Phase | Arm::Status | Arm::Tokens | Arm::Scoring | Arm::EventScoring)
+}
+
+/// The arms whose native step also runs the close when it applies the LAST answer, where the legacy game closes in its NEXT step (a step
+/// that finds nothing to ask): the legacy answer step is compared on the prefix, the legacy close step on everything.
+const fn closes_one_step_early(arm: Arm) -> bool {
+    matches!(arm, Arm::Scoring | Arm::EventScoring)
 }
 
 /// The slices a position loads: all, and the map only when the game has a string galaxy (as `Game::churn_state`).
@@ -129,6 +149,8 @@ fn slices_for(has_galaxy: bool) -> SliceSet {
 const fn window_of(arm: Arm) -> Option<WindowKind> {
     match arm {
         Arm::Tokens => Some(WindowKind::Tokens),
+        Arm::Scoring => Some(WindowKind::Scoring),
+        Arm::EventScoring => Some(WindowKind::EventScoring),
         _ => None,
     }
 }
@@ -231,10 +253,12 @@ impl NativeSubject {
             }
         };
         let finished = step.finished;
-        // A step whose close is the legacy's is compared on the prefix once the window ended.
-        let ended = finished && !close_is_native(shadow.arm);
+        let open_after = window_of(shadow.arm).map(|kind| self.inner.game().step_facts().open & bit(kind) != 0);
+        // A step whose close is the legacy's is compared on the prefix once the window ended; so is a step that closed one legacy step early.
+        let early = closes_one_step_early(shadow.arm) && finished && open_after == Some(true);
+        let ended = finished && (!close_is_native(shadow.arm) || early);
         if ended {
-            count(&RAN, format!("{name} (window ended; the close is the legacy's)"));
+            count(&RAN, format!("{name} (window ended; the close is {})", if early { "the next legacy step's" } else { "the legacy's" }));
         }
         let native: Vec<Value> = asker.seen.iter().map(|c| json!({ "player": c.player.as_str(), "prompt": c.prompt, "options": c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>() })).collect();
         let legacy: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
@@ -255,9 +279,8 @@ impl NativeSubject {
             Err(e) => leaves(Category::State, "native.state", &json!("materializes"), &json!(e.to_string()), &mut out),
         }
         // The window ended when the legacy window ended.
-        if let Some(kind) = window_of(shadow.arm) {
-            let open_after = self.inner.game().step_facts().open & bit(kind) != 0;
-            leaves(Category::Value, "native.finished", &json!(!open_after), &json!(step.finished), &mut out);
+        if let Some(open_after) = open_after {
+            leaves(Category::Value, "native.finished", &json!(!open_after || early), &json!(step.finished), &mut out);
         }
         self.extra.extend(out);
     }
@@ -463,10 +486,28 @@ mod tests {
         let ran = ran_counts();
         let lent = lent_counts();
         assert!(played.report.differences.is_empty(), "{:#?}", played.report.differences);
-        assert!(ran.keys().any(|k| k.starts_with("tokens (window ended")), "the ending step of the window is counted apart: {ran:?}");
-        assert!(ran.get("tokens").copied().unwrap_or(0) >= 2, "the arm ran in shadow at least on the first and the last token: {ran:?}");
+        assert!(ran.get("tokens").copied().unwrap_or(0) >= 3, "the arm ran in shadow on every token, the last one with its close: {ran:?}");
         assert!(lent.contains_key("tactical: not native") && lent.contains_key("aftermath: not native"), "the other arms are lent and counted: {lent:?}");
         assert!(!lent.keys().any(|k| k.starts_with("tokens:")), "no tokens step was lent: {lent:?}");
+    }
+
+    /// The status phase's arms (the opening, the scoring window, the token gain with its close, and the event window when a secret asks for
+    /// one) run in shadow behind a legacy game through round one: every step is compared (questions, events, the position when the window
+    /// closes) and the two agree.
+    #[test]
+    fn the_status_phase_arms_shadowed_behind_a_legacy_game_through_round_one_agree_with_it() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        TAMPER.with(|t| t.set(0));
+        set_native_arms(NativeArms::of(&[Arm::Status, Arm::Scoring, Arm::EventScoring, Arm::Tokens]));
+        let _ = (lent_counts(), ran_counts());
+        let played = play();
+        let ran = ran_counts();
+        let other: Vec<_> = played.report.differences.iter().filter(|d| !d.core_side.contains("CommanderUnlock")).collect();
+        assert!(other.is_empty(), "{:#?}", other.iter().take(8).collect::<Vec<_>>());
+        eprintln!("ran: {ran:?}");
+        for arm in ["status", "scoring", "tokens"] {
+            assert!(ran.keys().any(|k| k.starts_with(arm)), "{arm} ran in shadow: {ran:?}");
+        }
     }
 
     /// The jobs of the turn flow (the start of a turn, the phase changes, the announcement of the first strategy phase) run in shadow behind

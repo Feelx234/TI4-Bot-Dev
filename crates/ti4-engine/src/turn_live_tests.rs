@@ -25,11 +25,11 @@ use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
 use crate::render::Render;
 
-type Seen = Rc<RefCell<Vec<Choice>>>;
+pub(super) type Seen = Rc<RefCell<Vec<Choice>>>;
 
 /// A table that answers with the next scripted option id and records every question it was asked. A question with no scripted answer
 /// stops the string body (an error report), which is how the harness cuts the block off where the string's step goes on to the menu.
-struct Script {
+pub(super) struct Script {
     ids: VecDeque<String>,
     seen: Seen,
     /// Take the first option when the script has run out (and record it in `taken`), instead of stopping the body.
@@ -56,18 +56,18 @@ pub fn pid(s: &str) -> PlayerId {
 }
 
 /// What a run left.
-struct Run {
-    questions: Vec<Choice>,
-    events: Vec<String>,
-    state: Value,
-    rng: crate::rng::RngPositions,
+pub(super) struct Run {
+    pub(super) questions: Vec<Choice>,
+    pub(super) events: Vec<String>,
+    pub(super) state: Value,
+    pub(super) rng: crate::rng::RngPositions,
     /// The events effects staged for a later announcement (the string keeps them as `private:#staged:event:*` marks, the core in
     /// `Pending::staged`), by name, in order.
-    staged: Vec<String>,
+    pub(super) staged: Vec<String>,
 }
 
 /// Take the staged-event marks out of a string position: their names, and the position without them.
-fn without_staged(mut state: Value) -> (Value, Vec<String>) {
+pub(super) fn without_staged(mut state: Value) -> (Value, Vec<String>) {
     let mut staged = Vec::new();
     if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
         let keys: Vec<String> = marks.keys().filter(|k| k.starts_with("private:#staged:event:")).cloned().collect();
@@ -81,7 +81,7 @@ fn without_staged(mut state: Value) -> (Value, Vec<String>) {
 }
 
 /// The string body on a copy of `state`, answered by `ids`.
-fn string_run(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Game<'static>)) -> Run {
+pub(super) fn string_run(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Game<'static>)) -> Run {
     let _serial = crate::dual::tests::serial();
     let seen: Seen = Rc::default();
     let table = Table::with_default(Box::new(Script { ids: ids.iter().map(|s| (*s).to_owned()).collect(), seen: seen.clone(), first_after: None }));
@@ -93,7 +93,7 @@ fn string_run(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Gam
 }
 
 /// [`string_run`] that takes the first option of every question after the scripted ones: the answers it took, for the native run.
-fn string_run_first(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Game<'static>)) -> (Run, Vec<String>) {
+pub(super) fn string_run_first(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Game<'static>)) -> (Run, Vec<String>) {
     let _serial = crate::dual::tests::serial();
     let seen: Seen = Rc::default();
     let taken: Rc<RefCell<Vec<String>>> = Rc::default();
@@ -179,7 +179,7 @@ fn shape(c: &Choice) -> Value {
 }
 
 /// Both runs agree on the questions, the events and the position.
-fn assert_same(string: &Run, native: &Run) {
+pub(super) fn assert_same(string: &Run, native: &Run) {
     assert_eq!(string.questions.iter().map(shape).collect::<Vec<_>>(), native.questions.iter().map(shape).collect::<Vec<_>>(), "the questions");
     assert_eq!(string.events, native.events, "the events");
     assert_eq!(string.staged, native.staged, "the events left staged for the next step");
@@ -190,7 +190,7 @@ fn assert_same(string: &Run, native: &Run) {
 
 /// The position a game starts from: what the constructor does to a state (the baselines `announce_gains` keeps) is part of it for both
 /// sides.
-fn based(state: GameState) -> GameState {
+pub(super) fn based(state: GameState) -> GameState {
     super::Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption))).state
 }
 
