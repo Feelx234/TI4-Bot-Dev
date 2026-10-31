@@ -414,10 +414,12 @@ impl NativeSubject {
         let native: Vec<Value> = asker.seen.iter().map(|c| json!({ "player": c.player.as_str(), "prompt": c.prompt, "options": c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>() })).collect();
         let legacy: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
         out.extend(compare_questions(ended, early, &legacy, &native, asker.left()));
+        let mut native_texts: Vec<String> = Vec::new();
         let pushed = ti4_engine::render::events::pushed_since(&shadow.render, &shadow.cx, &shadow.core, from);
         match pushed {
             Some(lines) => {
                 let texts: Vec<String> = lines.iter().map(|p| p.text().to_owned()).collect();
+                native_texts.clone_from(&texts);
                 out.extend(compare_events(ended, early, events, &texts));
             }
             None => leaves(Category::Event, "native.events", &json!(events), &json!("a line the tables cannot name"), &mut out),
@@ -444,7 +446,7 @@ impl NativeSubject {
             leaves(Category::Value, "native.finished", &json!(!open_after || early), &json!(step.finished), &mut out);
         }
         if !out.is_empty() && std::env::var_os("TI4_NATIVE_TRACE").is_some() {
-            eprintln!("native difference in arm {name}: answers {answers_taken:?}, legacy events {events:?}");
+            eprintln!("native difference in arm {name}: answers {answers_taken:?}, legacy events {events:?}, native events {native_texts:?}, native questions {:?}", asker.seen.iter().map(|c| c.prompt.clone()).collect::<Vec<_>>());
         }
         self.report(shadow.arm, out);
     }

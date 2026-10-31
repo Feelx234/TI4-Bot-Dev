@@ -117,7 +117,7 @@ impl Window for Redistribute {
 // -- 81.6 to 81.8 ----------------------------------------------------------------------------------------------
 
 /// `status::resolve_after_token_gain`: ready, repair, return. Choice-free.
-fn resolve_after_token_gain(core: &mut CoreState) {
+fn resolve_after_token_gain(core: &mut CoreState, artuno: crate::state::Code) {
     // 81.6: exhausted technologies, relics and legendary ability cards, leaders ready.
     for i in 0..core.players().len() {
         core.players_mut().edit(i).tech.exhausted = crate::state::TechSet::EMPTY;
@@ -125,7 +125,9 @@ fn resolve_after_token_gain(core: &mut CoreState) {
     explore::ready_relics_and_legendary(core);
     let seats: Vec<Seat> = core.players().iter().map(|p| p.seat).collect();
     for seat in &seats {
-        let _ = leaders::ready_all(core, *seat);
+        for leader in leaders::ready_all(core, *seat).as_slice() {
+            leaders::agent_readied(core, *seat, *leader, artuno);
+        }
     }
     // The Crown of Emphidia pays out before the cards are readied.
     for seat in &seats {
@@ -236,6 +238,9 @@ fn emit_and_announce(sx: &mut Sx<'_>, kind: EventKind, payload: Payload) -> Flow
     announce_staged_cards(sx)
 }
 
+/// The index of the text `artuno` in `Codes::not_from_supply`.
+const ARTUNO: usize = 4;
+
 /// The job.
 pub fn run_finish(sx: &mut Sx<'_>) -> Flow {
     // 81.5: the rearrangement of everything already held, in initiative order (before 81.8 destroys it).
@@ -256,7 +261,7 @@ pub fn run_finish(sx: &mut Sx<'_>) -> Flow {
     if halted(sx) {
         return Flow::Halt;
     }
-    resolve_after_token_gain(sx.state);
+    resolve_after_token_gain(sx.state, sx.table.codes.not_from_supply[ARTUNO]);
     sx.plain(PlainRec::bare(PlainKind::CommandTokensGained));
     if genesis(sx) == Flow::Halt {
         return Flow::Halt;
