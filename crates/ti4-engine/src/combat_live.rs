@@ -392,6 +392,20 @@ mod tests {
         Side { asked, events, after: after_events, state: serde_json::to_value(&materialized).expect("serialises"), bail }
     }
 
+    /// The `#seen:` marks of the per-step reconcile hooks (`starting_tech::settle`, `announce_gains`: lane B's `live_reconcile`) are the string's
+    /// first step and not part of the aftermath; `leaves` already drops a difference whose PATH names them, but a map that holds nothing else is
+    /// absent on one side and present on the other (a Yssaril table), a difference at the map's own path. Both sides lose them here, and a map
+    /// left empty is no map.
+    fn without_seen_marks(mut state: Value) -> Value {
+        if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
+            marks.retain(|k, _| !k.contains("#seen:"));
+            if marks.is_empty() {
+                state.as_object_mut().map(|o| o.remove("faction_marks"));
+            }
+        }
+        state
+    }
+
     fn leaves(label: &str, left: &Value, right: &Value) -> Vec<String> {
         // `active`, `action_turn`, `turn_seq`: the string closes the action into the next turn (`finish_action`, the turn flow's, not run here).
         // `trigger.event_id`: the string's first step is the turn prelude (`TURN_BEGAN`), which numbers one event the native run does not take.
@@ -441,7 +455,7 @@ mod tests {
         if string_after.iter().map(|e| e.as_str()).ne(n_after.iter().map(String::as_str)) {
             out.push(format!("events: string {string_after:?} native {n_after:?}"));
         }
-        out.extend(leaves("state", &s.state, &n.state));
+        out.extend(leaves("state", &without_seen_marks(s.state.clone()), &without_seen_marks(n.state.clone())));
         if std::env::var_os("M5_DEBUG").is_some() {
             for (i, q) in s.asked.iter().enumerate() {
                 eprintln!("Q{i} {} {}: {:?}", q.player, q.prompt, q.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>());
@@ -690,7 +704,7 @@ mod tests {
     fn a_won_space_fight_over_a_space_dock_goes_on_to_the_production_step_in_lockstep() {
         let (hub, origin, target, dock, _other) = dock_hub();
         for seed in 1..=3_u64 {
-            for faction in ["sol", "jolnar", "saar"] {
+            for faction in ["sol", "jolnar", "xxcha"] {
                 let mut state = dock_table(faction, "hacan", &target, &dock);
                 state.rng_seed = seed;
                 crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 2);
