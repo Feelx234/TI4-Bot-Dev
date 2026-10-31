@@ -109,7 +109,7 @@ pub(super) fn string_run_first(state: &GameState, ids: &[&str], body: impl FnOnc
 
 /// The native job on a copy of `state`: open it (when `job` is given), then one `live_step` of `arm` per string step until the window
 /// ends. Every answer is consumed in order.
-fn native_run(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&str]) -> Run {
+pub(super) fn native_run(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&str]) -> Run {
     native_steps(state, &[(arm, job)], false, ids)
 }
 
@@ -215,7 +215,7 @@ fn the_end_of_a_plain_turn_passes_on_like_the_string() {
     assert!(string.events.iter().any(|e| e == "TURN_PASSED"), "{:?}", string.events);
 }
 
-fn end_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
+pub(super) fn end_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
     let string = string_run(state, ids, |g| g.advance_turn().expect("the turn passes"));
     let native = native_run(state, Arm::Ask, Some(TurnJob::End), ids);
     (string, native)
@@ -296,7 +296,7 @@ fn predictive_intelligence_restacks_one_token_per_answer_like_the_string() {
 
 /// The string's step up to the question of the action menu (the table has no answer for it, which cuts the step off there), the native
 /// reconcile and prelude on a copy. `ids` answer the questions of the prelude.
-fn prelude_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
+pub(super) fn prelude_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
     let string = string_run(state, ids, |g| {
         let _ = g.step();
     });
@@ -354,7 +354,7 @@ fn spec_ops_return_and_a_military_support_note_start_the_turn_like_the_string() 
 use ti4_model::id::{StrategyCardId, SystemId};
 use ti4_model::state::Phase as StringPhase;
 
-fn phase_both(state: &GameState) -> (Run, Run) {
+pub(super) fn phase_both(state: &GameState) -> (Run, Run) {
     let string = string_run(state, &[], |g| {
         let result = g.step_phase();
         assert!(result.error.is_none(), "the phase moves: {:?}", result.error);
@@ -364,7 +364,7 @@ fn phase_both(state: &GameState) -> (Run, Run) {
 }
 
 /// A table at the end of the strategy phase: every seat holds a card.
-fn drafted(seats: &[(&str, &str)]) -> GameState {
+pub(super) fn drafted(seats: &[(&str, &str)]) -> GameState {
     let mut state = crate::fixtures::seated_dealt(seats, DEFAULT);
     state.phase = StringPhase::Strategy;
     let cards: Vec<StrategyCardId> = state.unclaimed_strategy_cards.clone();
@@ -505,7 +505,7 @@ fn argent_flight_chooses_two_of_three_starting_technologies_like_the_string() {
 
 // -- the end of an action ----------------------------------------------------------------------------------------------------------
 
-fn finish_both(state: &GameState) -> (Run, Run) {
+pub(super) fn finish_both(state: &GameState) -> (Run, Run) {
     let string = string_run(state, &[], |g| g.finish_action().expect("the action finishes"));
     let native = native_run(state, Arm::Ask, Some(TurnJob::Finish), &[]);
     (string, native)
@@ -551,7 +551,7 @@ fn native_stop_with(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&s
 // -- the reconcile hooks and the rest of the end of a turn ---------------------------------------------------------------------
 
 /// One string step of a position whose turn is prepared (the arm is `Ask`, cut off at the menu) against the native reconcile alone.
-fn reconcile_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
+pub(super) fn reconcile_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
     let string = string_run(state, ids, |g| {
         g.prepared_turn_seq = Some(g.state.turn_seq);
         let _ = g.step();

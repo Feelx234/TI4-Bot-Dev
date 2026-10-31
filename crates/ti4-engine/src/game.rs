@@ -74,6 +74,10 @@ mod action_dispatch_live_tests;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "strategic_live_tests.rs"]
 mod strategic_live_tests;
+// The lockstep of the formerly silent abilities (lane G) in the turn flow; shares the harness of the turn-flow tests.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "silent_live_tests.rs"]
+mod silent_live_tests;
 #[cfg(not(feature = "typed-core"))]
 mod d1_pending {
     pub(super) const fn active() -> bool {

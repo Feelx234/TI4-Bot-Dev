@@ -92,6 +92,8 @@ pub enum Ask {
     AgentShip { copy: bool },
     /// Edict (Mahact), "when you win a combat": whose command token goes into the fleet pool when several opponents qualify.
     Edict,
+    /// A question of a formerly silent ability (lane G).
+    G(super::silent::Ask),
 }
 
 /// What a Nekro takes of an opponent's technology through an ability.
@@ -137,6 +139,8 @@ pub enum Opt {
     Boost { n: u8, system: crate::generated::System, unit: crate::generated::Unit, own: u8, top: u8 },
     /// An opponent whose token Edict takes (the option id is the seat's text).
     Opponent(Seat),
+    /// An answer of a formerly silent ability (lane G).
+    G(super::silent::Opt),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -166,4 +170,6 @@ pub enum Subtype {
     AgentShip,
     /// `edict_opponent`.
     Edict,
+    /// A question of a formerly silent ability (lane G).
+    G(super::silent::Subtype),
 }

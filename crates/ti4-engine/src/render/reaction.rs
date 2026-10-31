@@ -42,6 +42,7 @@ impl Family for Fam {
             Ask::AgentShip { copy } => format!("Captain Mendosa{}: raise which of the activating player's ships", if *copy { " (Ssruu)" } else { "" }),
             Ask::Edict => "Edict: whose command token goes in your fleet pool".to_owned(),
             Ask::IcarusDrive => "Icarus Drive: remove the mech to place or move a Creuss wormhole token into its system".to_owned(),
+            Ask::G(g) => super::silent::prompt(r, g),
             Ask::Watcher { actor } => format!("Watcher: which mech cancels {}'s action card", r.seat_text(*actor)),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
@@ -66,6 +67,7 @@ impl Family for Fam {
             Subtype::IcarusDrive => "icarus_drive".to_owned(),
             Subtype::AgentShip => "agent_ship".to_owned(),
             Subtype::Edict => "edict_opponent".to_owned(),
+            Subtype::G(g) => super::silent::subtype(g),
         }
     }
 
@@ -123,6 +125,7 @@ impl Family for Fam {
                 let (kind, system) = (kind.as_str(), system.as_str());
                 ChoiceOption::labelled(format!("{kind}|{system}"), "creuss_token", format!("Icarus Drive: the {kind} token into {system}")).with("system", system)
             }
+            (Ask::G(g), Opt::G(o)) => super::silent::option(r, g, o),
             (Ask::Watcher { .. }, Opt::Site { system, planet }) => {
                 let system = system.as_str();
                 let place = planet.map_or_else(|| "space".to_owned(), |p| p.as_str().to_owned());
@@ -142,6 +145,9 @@ impl Family for Fam {
         if let Ask::Salvage | Ask::Indoctrination { .. } | Ask::AgentShip { .. } = a {
             // The id is the base type: the option is matched against the rendered ones of its question.
             return None;
+        }
+        if let Ask::G(g) = a {
+            return super::silent::parse(r, g, id);
         }
         if let Ask::Terragenesis { .. } = a {
             return match id.strip_prefix("move|") {

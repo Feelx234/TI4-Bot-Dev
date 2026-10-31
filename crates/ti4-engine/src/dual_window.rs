@@ -728,6 +728,7 @@ pub fn drive_windowed<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::UnportedProduction(why) => crate::production_live::gap_text(why),
                 ti4_engine_core::kernel::ability::Unknown::TurnGap(_) => "a place the live turn flow does not follow",
                 ti4_engine_core::kernel::ability::Unknown::AgendaGap(_) => "a place the live agenda phase does not follow",
+                ti4_engine_core::kernel::ability::Unknown::AbilityGap(_) => "a string ability the core table has no rule for (a listed gap)",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -1040,6 +1041,7 @@ impl NestedPos {
 fn with_trigger_of(choice: &CoreChoice) -> bool {
     use ti4_engine_core::choice::reaction::Ask as RAsk;
     match choice.ask {
+        ti4_engine_core::choice::Ask::Reaction(RAsk::G(g)) => g.carries_trigger(),
         ti4_engine_core::choice::Ask::Reaction(a) => !matches!(a, RAsk::Legionnaire { .. } | RAsk::Cavalry | RAsk::Assimilate | RAsk::Watcher { .. } | RAsk::Salvage | RAsk::Indoctrination { .. } | RAsk::IcarusDrive | RAsk::AgentShip { .. } | RAsk::Edict),
         ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::PlayCard { .. }) => true,
         _ => false,

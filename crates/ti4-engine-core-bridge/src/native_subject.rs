@@ -743,13 +743,14 @@ mod tests {
     /// is not one of these fails the test; when one is fixed its line must be deleted (the test also demands that every listed one is still seen). Each line is
     /// the words that identify the difference and its consequences in the position.
     ///
-    /// * Arborec's Mitosis ("at the start of the status phase, place 1 infantry from your reinforcements on a planet you control", `arborec/offer.rs` lists it as
-    ///   "points left"): the string asks where, the core asks nothing and the infantry is missing from the board.
+    /// Arborec's Mitosis ("at the start of the status phase, place 1 infantry from your reinforcements on a planet you control"): a rule of the core table
+    /// now (lane G, `silent::mitosis`); the abilities still without a rule are loud gaps of the live path (`silent::gaps`).
+    ///
     /// * A strategic action whose ability the core cannot begin (`TurnGap::StrategyAbility`: lane E's counted gap -- Thunder's Edge Warfare's free
     ///   tactical action over a map the facts do not hold, Doctor Sucaban's offer in a research, a placement a faction effect changes): the menu now
     ///   routes the strategic action natively (lane F2b), so the shadow meets the gap the strategic lane documented. It is a COUNTED gap (the step
     ///   stops, the position is kept), not a silent difference.
-    const KNOWN_SILENT: [&[&str]; 2] = [&["Mitosis", "arborec_infantry"], &["StrategyAbility"]];
+    const KNOWN_SILENT: [&[&str]; 1] = [&["StrategyAbility"]];
 
     /// Whole games with every lobby faction in turn (six tables of four), the turn-flow arms in shadow and a counted bail a failure: no difference but the
     /// known silent ones (kept going: a difference never makes the follower diverge, the follower is a legacy game), and the arms ran.
