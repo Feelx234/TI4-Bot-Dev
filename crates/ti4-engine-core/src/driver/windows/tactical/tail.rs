@@ -70,6 +70,22 @@ fn explorations(sx: &mut Sx<'_>, player: Seat, system: System) -> Flow {
     Flow::Done
 }
 
+/// THE seam of the strategic-action lane (lane E, not started): where the turn goes when the free tactical action of Thunder's Edge Warfare is
+/// over and a window of the strategy card waits for it. `Then::LeaderStrategy`: a hero's primary resolves next (the after-action redistribution,
+/// `redistribute_around_te_warfare(.., false)`, then the follower selection); `Then::Secondary`: the follower window held for after the action
+/// resumes (`Window::StrategySecondaryAfterTactical`). Both are the follower composer's, which also asks the redistribution (`SAsk::
+/// TeWarfareRedistribute` exists; the machine around it does not): until it exists the tail stops with the counted gap, never a silent skip.
+/// Lane E replaces the body of this function (and nothing else of the tail) by opening its window and returning `Next::Done`; the free
+/// tactical action's own work (`TACTICAL_ACTION_COMPLETE` above) is complete when it is called. Naaz and Winnu hero primaries (lanes W13/W14)
+/// run natively from the primary's own window and do not come through here.
+fn resume_strategy(sx: &mut Sx<'_>, then: tail::Then) -> Next {
+    match then {
+        tail::Then::LeaderStrategy => TacticalAction::bail(sx, TacticalGap::LeaderStrategy),
+        tail::Then::Secondary => TacticalAction::bail(sx, TacticalGap::WarfareSecondary),
+        tail::Then::FinishAction => unreachable!("the plain end of the action is not a strategy continuation"),
+    }
+}
+
 pub(super) fn run(a: &mut TacticalAction, sx: &mut Sx<'_>) -> Next {
     let active = sx.state.meta().active;
     let system = sx.state.meta().active_system;
@@ -98,9 +114,9 @@ pub(super) fn run(a: &mut TacticalAction, sx: &mut Sx<'_>) -> Next {
     crate::kernel::fx_move::clear_conduit_links(sx.state);
     sx.plain(PlainRec::bare(PlainKind::TacticalActionComplete));
     let pending = sx.state.pending();
-    match tail::then(pending.window(WindowKind::LeaderStrategy).is_some(), pending.window(WindowKind::StrategySecondaryAfterTactical).is_some()) {
-        tail::Then::LeaderStrategy => TacticalAction::bail(sx, TacticalGap::LeaderStrategy),
-        tail::Then::Secondary => TacticalAction::bail(sx, TacticalGap::WarfareSecondary),
+    let then = tail::then(pending.window(WindowKind::LeaderStrategy).is_some(), pending.window(WindowKind::StrategySecondaryAfterTactical).is_some());
+    match then {
+        tail::Then::LeaderStrategy | tail::Then::Secondary => resume_strategy(sx, then),
         tail::Then::FinishAction => {
             let _ = a;
             // `finish_action`: `ACTION_COMPLETED`, then the closing menu or the end of the turn, is the turn flow's job.

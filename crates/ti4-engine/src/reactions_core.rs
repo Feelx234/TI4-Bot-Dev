@@ -948,7 +948,7 @@ mod tests {
 
     /// The string abilities of `SYSTEM_ACTIVATED` the core table has no slot for, sorted as the test sorts them, each with what carries it.
     const ACTIVATION_ACCOUNTED: &[(&str, Status)] = &[
-        ("ability:*:awaken:SYSTEM_ACTIVATED:after", Status::Gap("Titans Awaken: a sleeper token in the system, replaced by a PDS or a mech (cd_registry/titans/offer.rs is empty)")),
+        ("ability:*:awaken:SYSTEM_ACTIVATED:after", Status::Gap("Titans Awaken: a sleeper token per planet of the system, each replaced by a PDS (or, with Hecatoncheires, a mech and an infantry): the questions are asked first, the units come from the supply (`supply::allowed`), Coalescence is a mark of the activation")),
         ("ability:*:incursion:SYSTEM_ACTIVATED:when", Status::Dropped("Crimson Rebellion")),
         ("ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the Winnu mark Reclamation reads)")),
         ("ability:*:survivalinstinct:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
@@ -957,14 +957,15 @@ mod tests {
         ("breakthrough:*:empyreanbt:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
         ("breakthrough:*:empyreanbt_allow:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
         ("breakthrough:*:winnubt:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
-        ("leader:*:arboreccommander:SYSTEM_ACTIVATED:after", Status::Gap("Arborec commander: after another player's activation, a production in the system")),
+        ("leader:*:arboreccommander:SYSTEM_ACTIVATED:after", Status::Gap("Arborec commander Dirzuga Rophal: \"produce 1 unit\" in the system is a PRODUCTION window run as a child of the ability (`produce(..)`): the core's production composer (lane M2) is not yet runnable from inside a rule of the table")),
+        ("leader:*:c:l1z1xagent:a:SYSTEM_ACTIVATED:after", Status::Gap("the Ssruu copy of the L1Z1X agent (I48S): the string asks the BENEFICIARY which infantry to replace (`leaders::l1z1x_copy_activation_plan`), unlike the agent itself; found by the audit's Yssaril third seat")),
         ("leader:*:firmamentagent:SYSTEM_ACTIVATED:after", Status::Dropped("Firmament")),
         ("leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the T'ro mark of the end of the action)")),
-        ("leader:*:yssarilcommander:SYSTEM_ACTIVATED:after", Status::Gap("Yssaril commander So Ata: after another player's activation, look at a hand")),
+        ("leader:*:yssarilcommander:SYSTEM_ACTIVATED:after", Status::Gap("Yssaril commander So Ata: the look is a `CardsReveal` mark with the end-of-action clear (`yssarilcommander_clear` on ACTION_COMPLETED, lane B's finish) and a hidden-information note of the rng")),
         ("promissory:*:nanolink:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
-        ("unit:*:arborec_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Arborec flagship Duha Menaimon: a production in the activated system")),
+        ("unit:*:arborec_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Arborec flagship Duha Menaimon: \"produce up to 5 units\" is a PRODUCTION window run as a child of the ability (see the commander)")),
         ("unit:*:deepwrought_mech:SYSTEM_ACTIVATED:when", Status::Dropped("Deepwrought")),
         ("unit:*:keleres_flagship:SYSTEM_ACTIVATED:when", Status::Dropped("Keleres")),
-        ("unit:*:titans_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Titans flagship Ouranos")),
+        ("unit:*:titans_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Titans flagship Ouranos: DEPLOY replaces a PDS by the flagship (the Nekro flagship when the Z token carries the text): the deploy needs the supply, the planet question and the unit swap")),
     ];
 }
