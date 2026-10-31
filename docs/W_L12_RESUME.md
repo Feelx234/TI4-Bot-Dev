@@ -31,7 +31,6 @@ sustain in the machine (< 17), the ground round numbering (< 16), Gravleash (< 1
 
 ## What is left, with the precise reason
 
-(The list is updated at the end of the lane; see the report.)
 
 * **Temporal Command Suite itself (the ability and its trade window as a child) and Mercer (Nomad)**. The string TCS answers `AGENT_EXHAUSTED` when the staged events are flushed
   (`Game::announce_staged_ground_events` / `supply::try_flush_staged_events`, at the start of a step and after component and leader actions): that flush is no dual window and
@@ -45,3 +44,14 @@ sustain in the machine (< 17), the ground round numbering (< 16), Gravleash (< 1
   windows, legendary and Fracture, exploration) was not touched: it is the D1 composition (the gate `invasion::finish_control_gain`), a chain of windows of several areas on one
   planet gain that needs the exploration windows of `rules::explore_windows` hosted inside the invasion's control step, not a single new window. Integrated Economy / Sling Relay at a
   Keleres or Deepwrought table are dropped; the first claim of a Fracture planet is Thunder's Edge.
+
+## Checks (cheap only; private target dir `/root/deploytmp/core-w-l12`, `CARGO_BUILD_JOBS=2`, deleted at the end)
+
+* `cargo test -p ti4-engine --lib`: 4884 passed, 0 failed; the same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: 4884 passed, 0 failed.
+* core + factions + bridge `--lib`: 624 passed; `ti4-engine-core-tests`: 1198 passed (new: `forced_combats.rs`, Hecatoncheires in `construction.rs`, the legacy commander in `combat_small.rs`, the Ssruu copy in `leader_production.rs`).
+* `check_layers.py core`: 438 files, 0 violations; `lint_core.sh`: 440 files, 0 hits.
+* Mutation checks (every mutant of the new core halves fails its tests; 20 of 20 killed): `sustain_offer.rs` (the unasked payment, the version read), `leader_production.rs` (the Ssruu carrier, the lender's status), `invasion/forced.rs`
+  (the Slumberstate question, the coexistence write, the committed-twice guard, the breakthrough check), `production/strategy_cards.rs` (the Hecatoncheires offer, the mech fit, the infantry, the legacy first plan),
+  `leaders_core.rs` (the atomic copy), `muaat_component.rs` (the Z-token flagship, the carried war sun), `kernel/fx_strategy.rs` (the staged `AGENT_EXHAUSTED`). Run with `runmut.py` in the lane's worktree itself (not a scratch worktree: a second
+  target directory would not fit the 6 GB budget); one run committed a mutated file by accident (`git add -A` while the batch ran) and the next commit restores it.
+* Not run: golden / wide dual sweeps, benches, soak, the mutation ratchet, workspace clippy, the census (the rule of the lane: only when a full zero-bail playthrough is possible).
