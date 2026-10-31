@@ -382,3 +382,84 @@ fn the_question_is_a_pure_read_and_a_payload_roundtrips_through_the_machine() {
     let _ = Trade::opened(Seat(0), Seat(1));
     let _ = advance::<TradeWindow>;
 }
+
+#[test]
+fn the_gains_are_staged_only_while_staging_is_on_and_the_goods_move_either_way() {
+    let (mut s, k) = table();
+    let mut e = env(&k);
+    e.table.facts.staging = false;
+    begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
+    advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 2, want: 1 }))).unwrap();
+    advance_trade(&mut s, &e, Some(accept())).unwrap();
+    assert_eq!((goods(&s, 0), goods(&s, 1)), (1, 2), "the deal is struck");
+    assert!(s.pending().staged.is_empty(), "no seated faction has a module: the string stages nothing");
+    assert_eq!(plain_kinds(&s), [PlainKind::TransactionOffered, PlainKind::Transaction]);
+}
+
+/// The reaction window of TRANSACTION_RESOLVED is offered to every seat in the initiative order of the position, not only to the active seat
+/// (the live resolver carried an empty initiative order: only seat 0 was asked).
+#[test]
+fn the_resolution_opens_its_reaction_window_to_a_seat_that_is_not_the_active_one() {
+    use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind, Ask as RAsk, Opt as ROpt, Relation};
+    use ti4_engine_core::kernel::resolver::AbilityDef;
+    use ti4_engine_core::kernel::stage::{Slot, Spec};
+    let (mut s, k) = table();
+    let mut e = env(&k);
+    let id = AbilityId { kind: AbilityKind::Ability, key: Code(1) };
+    let mut resolver = ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1), Seat(2)], Some(Seat(0)));
+    resolver.register([AbilityDef::new(id, Seat(1), EventKind::TransactionResolved, Relation::After).with_optional(true).with_arg(1)]);
+    e.registry = Cow::new(resolver.registry().clone());
+    e.table.add(Spec::new(Slot(1), AbilityKind::Ability, EventKind::TransactionResolved, Relation::After, |eff| {
+        ti4_engine_core::kernel::fx::gain_trade_goods(eff.state(), Seat(1), 5);
+        Ok(())
+    })
+    .optional());
+    begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
+    advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
+    let (live, _) = advance_trade(&mut s, &e, Some(accept())).unwrap();
+    let q = question(live);
+    assert_eq!((q.actor, q.ask), (Seat(1), Ask::Reaction(RAsk::Window { event: EventKind::TransactionResolved, relation: Relation::After })));
+    assert!(is_open::<TradeWindow>(&s), "the window waits on the reaction question, suspended in the position");
+    let (live, _) = advance_trade(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(id))))).unwrap();
+    assert_eq!(live, Live::Done);
+    assert_eq!(goods(&s, 1), 1 + 5, "one good given, one received, and the ability ran once");
+}
+
+#[test]
+fn the_menu_partners_and_the_neighbours_who_traded_are_read_from_the_position() {
+    use ti4_engine_core::kernel::trade_env::{lie_in_wait_traders, open_partners_live};
+    let (mut s, k) = table();
+    // Seats 0 and 1 are neighbours; seat 2 is a stranger to both, but Hacan's Guild Ships reach it.
+    assert_eq!(open_partners_live(&s, &k, Seat(0)).as_slice(), &[Seat(1), Seat(2)]);
+    assert_eq!(open_partners_live(&s, &k, Seat(1)).as_slice(), &[Seat(0)], "Arborec reaches its neighbour only; Yin is a stranger to it");
+    assert!(open_partners_live(&s, &k, Seat(2)).as_slice() == [Seat(0)], "the stranger reaches only the seat that reaches it");
+    // The pair spent for the turn is not offered again; the negotiation limit of the action closes the menu.
+    ti4_engine_core::rules::trade::record_transaction(&mut s, Seat(0), Seat(1));
+    assert_eq!(open_partners_live(&s, &k, Seat(0)).as_slice(), &[Seat(2)]);
+    ti4_engine_core::rules::trade::note_negotiation(&mut s, Seat(0));
+    ti4_engine_core::rules::trade::note_negotiation(&mut s, Seat(0));
+    assert!(open_partners_live(&s, &k, Seat(0)).is_empty());
+    // Lie in Wait: nobody traded yet; then the pair did, and the holder's neighbours who traded come in the order of the transactions.
+    assert_eq!(lie_in_wait_traders(&s, &k, Seat(1)), [None, None]);
+    ti4_engine_core::rules::trade::record_resolved(&mut s, Seat(1), Seat(0));
+    assert_eq!(lie_in_wait_traders(&s, &k, Seat(2)), [None, None], "a stranger has no neighbours");
+    ti4_engine_core::rules::trade::record_resolved(&mut s, Seat(0), Seat(1));
+    assert_eq!(lie_in_wait_traders(&s, &k, Seat(0)), [Some(Seat(1)), None], "a neighbour who traded twice counts once");
+    // A position without a map has no neighbours.
+    s.map = ti4_engine_core::state::MapSlice::default();
+    assert!(open_partners_live(&s, &k, Seat(0)).is_empty());
+    assert_eq!(lie_in_wait_traders(&s, &k, Seat(0)), [None, None]);
+}
+
+#[test]
+fn a_module_that_exempts_the_pair_from_the_limit_leaves_it_unrecorded() {
+    use ti4_engine_core::kernel::HookTable;
+    let (mut s, mut k) = table();
+    let mut hooks: HookTable = k.hooks.clone();
+    hooks.cards.transaction_limit_exempt.push(|_, _, _, _| true);
+    k.hooks = hooks;
+    let e = env(&k);
+    begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
+    assert!(!ti4_engine_core::query::trade::transacted_with(&s, Seat(0), Seat(1)), "an exempt pair is not recorded");
+    assert_eq!(s.trade().negotiations_this_action.get(&Seat(0)), Some(&1), "the negotiation is counted all the same");
+}

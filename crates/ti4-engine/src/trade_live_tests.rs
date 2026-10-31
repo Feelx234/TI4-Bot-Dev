@@ -496,3 +496,25 @@ fn the_partners_the_menu_offers_are_the_strings_over_strangers_limits_and_reach(
         }
     }
 }
+
+/// An Alliance conveys nothing until its owner's commander is unlocked (`promissory::commander_unlocked`): the core reads the leader status
+/// of the owner from the position. Mahact's Hubris: nobody gives the Mahact seat an Alliance.
+#[test]
+fn an_alliance_is_offered_when_its_owners_commander_is_unlocked_and_never_to_mahact_like_the_string() {
+    // Locked: no `an:` option; unlocked: the Alliance is sold at its posted price.
+    let locked = table(&SOL_HACAN, &[]);
+    let (string, native) = both(&locked, "b", "hacan", &["decline"]);
+    assert_same(&string, &native);
+    assert!(string.questions[0].options.iter().all(|o| !o.id.contains("an:sol")), "{:?}", string.questions[0].ids());
+    let mut t = table(&SOL_HACAN, &[]);
+    t.state.player_mut(&pid("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("solcommander"), ti4_model::state::LeaderStatus::Unlocked);
+    let (string, native) = both(&t, "b", "hacan", &["pnan:sol:3", "accept"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "TRANSACTION_RESOLVED"), "{:?}", string.events);
+    // Mahact as the partner: the Alliance is not among the deals.
+    let mut t = table(&[("a", "sol"), ("b", "mahact")], &[]);
+    t.state.player_mut(&pid("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("solcommander"), ti4_model::state::LeaderStatus::Unlocked);
+    let (string, native) = both(&t, "b", "mahact", &["decline"]);
+    assert_same(&string, &native);
+    assert!(string.questions[0].options.iter().all(|o| !o.id.contains("an:sol")), "{:?}", string.questions[0].ids());
+}
