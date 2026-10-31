@@ -80,6 +80,7 @@ fn a_decline_pays_nothing_and_places_nothing() {
     rig.run().decline();
     assert!(rig.is_done());
     assert_eq!(rig.driver.window.made, None);
+    assert!(!rig.driver.window.unsupported, "a decline is no unit over the supply");
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 6);
 }
 
@@ -155,6 +156,56 @@ fn a_ground_force_with_two_docks_asks_where() {
     assert_eq!(rig.driver.window.made, Some((Unit::InfantryI, Spot::Planet(pb))));
     assert_eq!(rig.state.board().planet(pb).units.as_slice().iter().filter(|p| p.kind() == Unit::InfantryI).count(), 1);
     assert_eq!(rig.state.board().planet(pa).units.as_slice().iter().filter(|p| p.kind() == Unit::InfantryI).count(), 0);
+}
+
+#[test]
+fn a_unit_placed_into_a_system_already_over_its_fleet_supply_ends_the_window_unsupported() {
+    covers!("rules::production::one::ProduceOne");
+    let (system, _) = first_planet();
+    // A limit of zero with a ship standing: a fighter is no ship against the pool and the dock carries it, yet the system is over
+    // its supply, which the string's enforcement would ask about.
+    let mut r = rig(6, 0);
+    ti4_engine_core::kernel::fx::place_unit(&mut r.state, Seat(0), system, None, Unit::CarrierI);
+    r.run();
+    r.pick_where(|o| matches!(o, Opt::Production(POpt::One { unit: Unit::FighterI, .. })));
+    pay_with_goods(&mut r);
+    assert!(r.is_done());
+    assert!(r.driver.window.unsupported);
+}
+
+#[test]
+fn a_naaz_mech_announces_itself_when_it_stands() {
+    covers!("rules::production::one::ProduceOne");
+    let (system, planet) = first_planet();
+    let sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheArborec]).map_from(&[system]).control(planet, 0).unit(system, Some(planet), Unit::SpaceDockI, 0, 1).goods(0, 6).tokens(0, 3, 3, 2);
+    let mut b = [None; 9];
+    b[0] = Some(Unit::Eidolon);
+    let mut rig = Rig::new(sc, ProduceOne::new(Seat(0), system, OneFacts { buildable: b, fleet_limit: 8, name: None, alias: None }));
+    rig.run();
+    rig.pick_where(|o| matches!(o, Opt::Production(POpt::One { unit: Unit::Eidolon, .. })));
+    pay_with_goods(&mut rig);
+    assert!(rig.is_done(), "{}", rig.transcript());
+    assert_eq!(rig.driver.window.made, Some((Unit::Eidolon, Spot::Planet(planet))));
+    assert_eq!(rig.state.pending().staged.len(), 1, "Absolute Synergy resolves before the next action");
+}
+
+#[test]
+fn a_named_effect_asks_as_its_content_with_the_decline_optional() {
+    covers!("rules::production::one::ProduceOne");
+    use ti4_engine_core::choice::generic::Content;
+    let (system, _) = first_planet();
+    let named = OneFacts { buildable: buildable(), fleet_limit: 8, name: Some(Code(7)), alias: Some(Code(8)) };
+    let mut rig = Rig::new(scenario(6), ProduceOne::new(Seat(0), system, named));
+    rig.run();
+    assert_eq!(rig.asked().ctx.origin, ti4_engine_core::choice::Origin::Content(Content::Other(Code(8))));
+    assert!(rig.asked().ctx.optional);
+    let mut plain = rig_plain();
+    plain.run();
+    assert!(!plain.asked().ctx.optional);
+}
+
+fn rig_plain() -> Rig<ProduceOne> {
+    rig(6, 8)
 }
 
 #[test]

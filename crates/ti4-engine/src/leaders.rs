@@ -2414,12 +2414,12 @@ pub(crate) fn string_only_leader(id: &str) -> Option<&'static str> {
         "nekrohero" => "nekrohero: destroys a planet's units and gains a technology. Read in lane 7 and kept: the destroyed ground forces are staged as `hooks_ground` text entries (`destroyed|system|planet|owner|unit|damage|cause`) that the core's staged-event bridge does not write, and the technology candidates are the active deck in content order (`technology::active_aliases`) gained by `technology::gain`",
         "naazhero" => "naazhero: a relic and the secondary of one or two strategy cards chosen at run time. Read in lane 7 and kept: `Spawn` names no child for the secondaries of Warfare (home production) and Imperial as a continuation of a leader, and a failed secondary restores the whole position (a snapshot of the state)",
         "winnuhero" => "winnuhero: the primary of any strategy card, then the secondary offered to the other players (`use_leader_strategy_primary`, D1b dispatch). Read in lane 7 and kept: the primary of Imperial and the follow-up of every other seat are not children a leader can start",
-        "empyreanhero" => "empyreanhero: explores every frontier token that holds a ship (the exploration composition, D1)",
-        "cabalhero" => "cabalhero: a hunt over the gravity rifts and the ships in or next to them (the map and the combat windows)",
-        "argenthero" => "argenthero: moves the fleets of the board by the Flock's migration (the map and the movement windows)",
-        "yinhero" => "yinhero: lands infantry and fights the ground combat (the invasion composition, D1b)",
-        "yssarilhero" => "yssarilhero: every seat reveals a card, a random discard from the game's stream and the hand limit (the reveal rules are strings)",
-        "mahacthero" => "mahacthero: a space combat between two sides chosen on the map (the tactical composition, D1b)",
+        "empyreanhero" => "empyreanhero: explores every frontier token that holds a ship (the exploration composition, D1). Kept in lane 7: each exploration is a loop of `explore_frontier` whose rewards run other areas' bodies, with a rollback of the state, the dice and the stream on a failure",
+        "cabalhero" => "cabalhero: a hunt over the gravity rifts and the ships in or next to them. Kept in lane 7: one die per ship from the game's stream, `supply::capture_from_board`, the cargo the capture strands and `fleet::enforce_seeing` (a window the core cannot start as a child), all under a whole-state rollback",
+        "argenthero" => "argenthero: moves the fleets of the board by the Flock's migration. Kept in lane 7: ships one at a time between command-token systems with their cargo (`migrate`), a movement the core runs only inside the tactical movement windows",
+        "yinhero" => "yinhero: lands infantry and fights the ground combat. Kept in lane 7: the Game path (`use_leader_timed`) runs each chosen planet through the eventful ground-combat window with its timing events (the invasion composition, D1b)",
+        "yssarilhero" => "yssarilhero: every seat reveals a card, a random discard from the game's stream and the hand limit. Kept in lane 7: the reveals are `hooks_cards` marks, the discards draw from the stream's domain `yssarilhero` and the hand limit follows",
+        "mahacthero" => "mahacthero: a space combat between two sides chosen on the map. Kept in lane 7: the pair is asked over the map, then the whole space combat runs with no retreat (the tactical composition, D1b)",
         _ => return None,
     })
 }
