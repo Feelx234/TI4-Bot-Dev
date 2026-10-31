@@ -564,9 +564,6 @@ mod tests {
         crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
         crate::fixtures::put(&mut state, &system, "infantry", &a, 2);
         for deck in state.exploration_decks.values_mut() {
-            // (Freelancers produce a unit with influence: a child window the native exploration does not keep between two questions yet,
-            // a counted bail covered by its own test.)
-            deck.retain(|card| !card.starts_with("frln"));
             let n = deck.len().max(1);
             deck.rotate_left(usize::try_from(seed).unwrap_or(0) % n);
         }
@@ -598,20 +595,21 @@ mod tests {
         let _ = take_report();
     }
 
-    /// A first claim whose exploration the native window does not carry is a counted bail naming it (Freelancers, Terragenesis), and with the
-    /// acceptance switch on the bail is a failure of the run (`bail::live::invasion`).
+    /// A first claim by the Titans explores natively too: Terragenesis ("after you explore a planet: place or move a sleeper token onto it") is a rule of the
+    /// core table, so the window of the ability is offered inside the exploration and its question is the string's. Bail-as-failure is on.
     #[test]
-    fn a_first_claim_the_window_does_not_carry_is_a_bail_and_with_the_switch_on_a_failure() {
+    fn a_titans_first_claim_explores_natively_with_terragenesis_in_lockstep_with_the_string_window() {
         use crate::dual::{report, take_report, with_bail_is_failure};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
-        let (state, system) = first_claim("titans", &["cultural"], 1);
-        let string = string_run(state.clone(), 1, &system, "a", false, prefer(&[]));
-        let out = with_bail_is_failure(true, || live_run(state.clone(), 1, &system, "a", &string.answers, false));
-        let Err((Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(why)), _)) = out else { panic!("a Titans first claim bails: {:?}", out.map(|_| ())) };
-        assert!(format!("{why:?}").contains("Exploration(Terragenesis)"), "{why:?}");
+        let mut asked = 0;
+        for seed in 1..=12_u64 {
+            let (state, system) = first_claim("titans", &["cultural"], seed);
+            asked += with_bail_is_failure(true, || check(&format!("titans first claim {seed}"), &state, seed, &system, false, prefer(&["ability:titans:terragenesis", "place", "move"])));
+        }
+        assert!(asked > 12);
         let r = report();
-        assert!(r.differences.iter().any(|d| d.label.contains("bail::live::invasion")), "{:?}", r.differences);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
 

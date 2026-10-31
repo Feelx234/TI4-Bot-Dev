@@ -1175,6 +1175,10 @@ impl Exploring {
         if run.unsupported {
             return self.fail(EWhy::Freelancers);
         }
+        // The card resolved when a unit stands (the string's `produce_one_paying_with_influence` answers whether one was made).
+        if run.made.is_none() {
+            self.run.how = EHow::Unresolved;
+        }
         self.close(sx);
     }
 
@@ -1434,6 +1438,9 @@ impl Window for Exploring {
             EStage::Producing => {
                 let (link, run) = (self.one.ok_or(Illegal)?, self.run.one.ok_or(Illegal)?);
                 self.run.one = Some((link.answer)(run, sx, pick)?);
+                // Settle at once, like every other stage: a host that asks after an answer (the invasion) must not see the unit's stale question
+                // (a payment that is covered, a placement with one spot).
+                let _ = self.produce(sx);
                 Ok(())
             }
             EStage::Deck => {

@@ -188,7 +188,9 @@ fn live_run(mut gs: GameState, system: &SystemId, policy: &Policy, open: fn(ti4_
     let r_ref = &r;
     with_core(&mut gs, &mut cx, src, FP, |core, _| {
         let kernel = crate::live::kernel::kernel_for(POK);
-        let env: Env<'_> = crate::live::env::env_with_plays(r_ref, core, kernel, seeds.clone(), POK);
+        let mut env: Env<'_> = crate::live::env::env_with_plays(r_ref, core, kernel, seeds.clone(), POK);
+        // (The live Env names the faction units of the FULL scope; this game is a POK game.)
+        env.table.facts.roster = crate::technology_core::roster_for(ContentStore::embedded(), POK);
         open_production(core, open(seat, sys));
         let live = Cx::new(r_ref, &env);
         struct Answers {
