@@ -34,6 +34,8 @@ pub enum Ask {
     Ouranos,
     /// So Ata (the Yssaril commander): what to look at on `target`.
     SoAta { target: Seat },
+    /// I48S copied through Ssruu: which of the activating player's infantry in the active system becomes a mech (asked to that player).
+    L1z1xCopy,
 }
 
 /// One answer.
@@ -56,6 +58,8 @@ pub enum Subtype {
     Ouranos,
     /// `so_ata_look`.
     SoAta,
+    /// `leader_l1z1xagent_copy_planet`.
+    L1z1xCopy,
 }
 
 impl Ask {
@@ -64,7 +68,7 @@ impl Ask {
     #[must_use]
     pub const fn carries_trigger(&self) -> bool {
         match self {
-            Self::Awaken { .. } | Self::Ouranos | Self::SoAta { .. } => false,
+            Self::Awaken { .. } | Self::Ouranos | Self::SoAta { .. } | Self::L1z1xCopy => false,
         }
     }
 }

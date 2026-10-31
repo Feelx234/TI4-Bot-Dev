@@ -59,7 +59,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:a:yssarilagent:mentakagent:PILLAGE_USED:after",
     "leader:*:a:yssarilagent:naazagent:TURN_PASSED:after",
     "leader:*:a:yssarilagent:winnuagent:PRODUCTION_USED:after",
-    "leader:*:c:l1z1xagent:a:SYSTEM_ACTIVATED:after",
     "leader:*:nomadagentmercer:TACTICAL_ACTION_ENDED:after",
 ];
 

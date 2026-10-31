@@ -148,6 +148,7 @@ const PAIRS: &[(Slot, &str, PairStyle)] = &[
     (ti4_engine_core_factions::ce_movement::saar::timing::MENDOSA_COPY, "saaragent", PairStyle::C),
     (ti4_engine_core_factions::cc_ground::ghost::timing::TAIVRA_COPY, "ghostagent", PairStyle::A),
     (ti4_engine_core_factions::cd_registry::sardakk::timing::TRO_COPY, "sardakkagent", PairStyle::A),
+    (ti4_engine_core_factions::cd_registry::yssaril::ssruu::L1Z1X, "l1z1xagent", PairStyle::B),
 ];
 
 fn is_reaction_slot(slot: Slot) -> bool {
@@ -868,7 +869,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")], [("a", "ghost"), ("b", "sol")], [("a", "saar"), ("b", "sol")], [("a", "sol"), ("b", "saar")], [("a", "mahact"), ("b", "sol")], [("a", "sol"), ("b", "mahact")], [("a", "ghost"), ("b", "yssaril")], [("a", "yssaril"), ("b", "ghost")], [("a", "sardakk"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sardakk")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")], [("a", "ghost"), ("b", "sol")], [("a", "saar"), ("b", "sol")], [("a", "sol"), ("b", "saar")], [("a", "mahact"), ("b", "sol")], [("a", "sol"), ("b", "mahact")], [("a", "ghost"), ("b", "yssaril")], [("a", "yssaril"), ("b", "ghost")], [("a", "sardakk"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sardakk")], [("a", "arborec"), ("b", "hacan")], [("a", "hacan"), ("b", "arborec")], [("a", "titans"), ("b", "hacan")], [("a", "hacan"), ("b", "titans")], [("a", "yssaril"), ("b", "l1z1x")], [("a", "l1z1x"), ("b", "yssaril")], [("a", "arborec"), ("b", "nekro")], [("a", "nekro"), ("b", "arborec")], [("a", "titans"), ("b", "yssaril")], [("a", "yssaril"), ("b", "arborec")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
@@ -979,7 +980,6 @@ mod tests {
 
     /// The string abilities of `SYSTEM_ACTIVATED` the core table has no slot for, sorted as the test sorts them, each with what carries it.
     const ACTIVATION_ACCOUNTED: &[(&str, Status)] = &[
-        ("ability:*:awaken:SYSTEM_ACTIVATED:after", Status::Gap("Titans Awaken: a sleeper token per planet of the system, each replaced by a PDS (or, with Hecatoncheires, a mech and an infantry): the questions are asked first, the units come from the supply (`supply::allowed`), Coalescence is a mark of the activation")),
         ("ability:*:incursion:SYSTEM_ACTIVATED:when", Status::Dropped("Crimson Rebellion")),
         ("ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the Winnu mark Reclamation reads)")),
         ("ability:*:survivalinstinct:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
@@ -988,15 +988,10 @@ mod tests {
         ("breakthrough:*:empyreanbt:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
         ("breakthrough:*:empyreanbt_allow:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
         ("breakthrough:*:winnubt:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
-        ("leader:*:arboreccommander:SYSTEM_ACTIVATED:after", Status::Gap("Arborec commander Dirzuga Rophal: \"produce 1 unit\" in the system is a PRODUCTION window run as a child of the ability (`produce(..)`): the core's production composer (lane M2) is not yet runnable from inside a rule of the table")),
-        ("leader:*:c:l1z1xagent:a:SYSTEM_ACTIVATED:after", Status::Gap("the Ssruu copy of the L1Z1X agent (I48S): the string asks the BENEFICIARY which infantry to replace (`leaders::l1z1x_copy_activation_plan`), unlike the agent itself; found by the audit's Yssaril third seat")),
         ("leader:*:firmamentagent:SYSTEM_ACTIVATED:after", Status::Dropped("Firmament")),
         ("leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the T'ro mark of the end of the action)")),
-        ("leader:*:yssarilcommander:SYSTEM_ACTIVATED:after", Status::Gap("Yssaril commander So Ata: the look is a `CardsReveal` mark with the end-of-action clear (`yssarilcommander_clear` on ACTION_COMPLETED, lane B's finish) and a hidden-information note of the rng")),
         ("promissory:*:nanolink:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
-        ("unit:*:arborec_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Arborec flagship Duha Menaimon: \"produce up to 5 units\" is a PRODUCTION window run as a child of the ability (see the commander)")),
         ("unit:*:deepwrought_mech:SYSTEM_ACTIVATED:when", Status::Dropped("Deepwrought")),
         ("unit:*:keleres_flagship:SYSTEM_ACTIVATED:when", Status::Dropped("Keleres")),
-        ("unit:*:titans_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Titans flagship Ouranos: DEPLOY replaces a PDS by the flagship (the Nekro flagship when the Z token carries the text): the deploy needs the supply, the planet question and the unit swap")),
     ];
 }

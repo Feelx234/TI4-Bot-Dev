@@ -1046,4 +1046,38 @@ mod tests {
             assert!(diffs.is_empty(), "so ata {script:?}: {diffs:#?}");
         }
     }
+
+    /// I48S copied through Ssruu: the string asks the activating player which infantry becomes a mech.
+    #[test]
+    fn the_ssruu_copy_of_i48s_asks_the_activating_player_in_lockstep() {
+        let (hub, planets) = planet_hub(2);
+        let centre = ti4_model::id::SystemId::new(hub.centre.clone());
+        let ring = ti4_model::id::SystemId::new(hub.outer[1].clone());
+        let mv = id(&ring, 0);
+        let copy = "leader:ssruu-copy:a:l1z1xagent:b:SYSTEM_ACTIVATED:after";
+        let base = |on: usize| {
+            let mut state = table(&[("a", "yssaril"), ("b", "l1z1x")]);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yssarilagent"), ti4_model::state::LeaderStatus::Readied);
+            state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("l1z1xagent"), ti4_model::state::LeaderStatus::Exhausted);
+            for planet in &planets[..on] {
+                crate::fixtures::put_on_planet(&mut state, &centre, planet, "infantry", &a(), 1);
+            }
+            crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+            state
+        };
+        for (on, answers) in [
+            (1, vec![copy]),
+            (2, vec![copy, planets[0].as_str()]),
+            (2, vec![copy, planets[1].as_str()]),
+            (2, vec!["decline"]),
+        ] {
+            let mut script = vec![TACTICAL_ACTION_ID, centre.as_str()];
+            script.extend(answers.iter().copied());
+            script.push(mv.as_str());
+            let diffs = lockstep(base(on), &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "ssruu i48s {script:?}: {diffs:#?}");
+        }
+    }
 }
