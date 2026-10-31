@@ -639,23 +639,20 @@ mod tests {
     /// A system of two ordinary planets as the centre of the hub (the target of the action), with the two planets: seat `a` holds the first one
     /// and a space dock on it.
     fn dock_hub() -> (crate::fixtures::Hub, SystemId, SystemId, ti4_model::id::PlanetId, ti4_model::id::PlanetId) {
-        use ti4_engine_core::generated::Planet;
-        let (system, planets): (ti4_engine_core::generated::System, Vec<Planet>) = Planet::ALL
+        let content = ContentStore::embedded();
+        let (system, planets): (String, Vec<String>) = ti4_content::galaxy::all_systems(content, POK)
             .iter()
-            .filter(|p| p.data().homeworld_of.is_none())
-            .filter_map(|p| p.data().system.map(|s| (s, *p)))
-            .fold(std::collections::BTreeMap::<_, Vec<Planet>>::new(), |mut m, (s, p)| {
-                m.entry(s).or_default().push(p);
-                m
+            .filter(|(_, sys)| !sys.is_anomaly() && !sys.is_hyperlane())
+            .map(|(id, sys)| ((*id).to_owned(), sys.planets().into_iter().map(str::to_owned).collect::<Vec<_>>()))
+            .find(|(_, ps)| {
+                ps.len() == 2
+                    && ps.iter().all(|p| ti4_content::galaxy::planet(content, p, POK).is_some_and(|p| p.homeworld_of().is_none() && !p.is_legendary() && !p.is_space_station() && !p.is_placed_during_play()))
             })
-            .into_iter()
-            .find(|(s, ps)| ps.len() == 2 && !ps.iter().any(|p| p.data().homeworld_of.is_some()) && !s.data().planets.iter().any(|p| p.data().legendary))
             .expect("a system with two ordinary planets");
-        let target = SystemId::new(crate::generated::IdStr::as_str(system));
+        let target = SystemId::new(system);
         let hub = crate::fixtures::hub_with_centre(target.as_str());
         let origin = SystemId::new(hub.outer[0].clone());
-        let id = |p: Planet| ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(p));
-        (hub, origin, target, id(planets[0]), id(planets[1]))
+        (hub, origin, target, ti4_model::id::PlanetId::new(planets[0].clone()), ti4_model::id::PlanetId::new(planets[1].clone()))
     }
 
     /// The position of the production tests: `a` holds the first planet of the target with a space dock on it.
