@@ -582,8 +582,9 @@ mod tests {
     /// answers given so far) continues identically: same question after the answer, same position.
     #[test]
     fn a_clone_taken_while_a_hook_waits_continues_identically() {
-        use ti4_engine_core::choice::{relic::Opt as ROpt, Opt as COpt, Pick};
-        use ti4_engine_core::driver::live::{advance, Live};
+        use ti4_engine_core::choice::{relic::Opt as ROpt, tactical::Opt as TOpt, Opt as COpt, Pick};
+        use ti4_engine_core::driver::live::Live;
+        use ti4_engine_core::driver::windows::tactical::advance_tactical as advance;
         let (hub, origin, target) = hub();
         let mut state = table(&[("a", "sol"), ("b", "hacan")]);
         crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
