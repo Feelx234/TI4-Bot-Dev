@@ -289,6 +289,8 @@ pub struct AdapterFacts {
     /// The kernel whose economy hooks a payment inside an ability reads (the production kernel; the combat kernel holds none of
     /// the faction hooks of a payment). Set by the adapter.
     pub pay_kernel: Option<fn() -> &'static Kernel>,
+    /// The faction units of the scope (the form Assimilate places; set by the live `Env`).
+    pub roster: Option<&'static crate::query::tech::UnitRoster>,
     adjacent: Vec<(crate::generated::System, crate::generated::System, bool)>,
     buildable: Vec<(Seat, Vec<crate::generated::Unit>)>,
     /// The texts of the staged rerolls (Fire Team, Scramble Frequency), set by the adapter of a window that stages dice.

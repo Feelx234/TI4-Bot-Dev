@@ -438,4 +438,22 @@ mod tests {
         assert!(r.differences.iter().any(|d| d.label.contains("bail::live::invasion")), "{:?}", r.differences);
         let _ = take_report();
     }
+
+    /// The 14 alpha saves carry no rules version (version 0): every legacy branch of the invasion (the round is not numbered, the rival structures are
+    /// destroyed BEFORE the capture is announced, no copied round agent) runs natively with the same questions and the same position.
+    #[test]
+    fn a_version_zero_game_runs_natively_like_the_string_window() {
+        let _guard = crate::dual::tests::serial();
+        for (seed, version) in [(1_u64, 0_u32), (2, 0), (3, 1), (4, 15), (5, 0), (6, 16)] {
+            let (mut state, system, planet) = game(&[("a", "l1z1x"), ("b", if seed % 2 == 0 { "letnev" } else { "sol" })], seed);
+            state.rules_version = version;
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 7);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &b, 1);
+            check(&format!("version {version}"), &state, seed, &system, false, prefer(&[]));
+        }
+    }
 }

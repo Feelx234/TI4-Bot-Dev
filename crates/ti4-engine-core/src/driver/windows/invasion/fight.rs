@@ -97,19 +97,15 @@ impl InvasionMachine {
         Ok(())
     }
 
-    /// `add_forced_combats`: the planets a faction rule forces the invader to fight on (Titans' Coalescence).
+    /// `add_forced_combats`: the planets a faction rule forces the invader to fight on (Titans' Coalescence), the window of lane 12. Its question
+    /// (Slumberstate Computing, a Thunder's Edge breakthrough) is out of the agreed content: a counted bail.
     pub(super) fn add_forced_combats(&mut self, sx: &mut Sx<'_>) {
-        let (invader, system) = (self.p.invader, self.p.system);
-        let planets: Vec<Planet> = sx.kernel.hooks.ground.forced_combat_planets(sx.state, sx.kernel, invader, system).iter().copied().collect();
-        if planets.is_empty() {
-            return;
-        }
-        // Slumberstate Computing (the Titans breakthrough of Thunder's Edge) offers to coexist instead: out of the agreed content.
-        if sx.state.players().by_seat(invader).is_some_and(|p| p.cards.breakthrough == Some(crate::generated::Breakthrough::SlumberstateComputing)) {
+        let mut w = crate::rules::invasion::forced::ForcedCombats::new(self.p.invader, self.p.system, self.p.report.committed.clone());
+        if matches!(w.step(sx), crate::kernel::Next::Continue(_)) {
             Self::bail_flag(sx, Why::Slumberstate);
             return;
         }
-        for planet in planets {
+        for planet in w.added {
             if !self.p.report.committed.contains(&planet) {
                 self.p.report.committed.push(planet);
             }
@@ -135,9 +131,6 @@ impl InvasionMachine {
     fn round_unported(&self, s: &CoreState, k: &Kernel, defender: Seat) -> Option<Bail> {
         let sides = [self.p.invader, defender];
         let owned = |who: Seat, t: Technology| s.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(t));
-        if sides.iter().any(|w| owned(*w, Technology::X89BacterialWeapon)) {
-            return Some(Why::X89);
-        }
         let status = |p: &crate::state::Player, card: Leader| p.leaders.status.get(&card).copied();
         let thundarian = s.players().iter().any(|p| status(p, Leader::TheThundarian) == Some(crate::state::LeaderStatus::Readied))
             || s.players().iter().any(|b| b.faction == crate::generated::Faction::TheYssarilTribes && status(b, Leader::Ssruu) == Some(crate::state::LeaderStatus::Readied));
@@ -248,6 +241,8 @@ impl InvasionMachine {
         let (invader, system) = (self.p.invader, self.p.system);
         let codes = sx.table.codes.invasion;
         let copied = Self::copied_round(sx.state);
+        let owns_x89 = |who: Seat| sx.state.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(Technology::X89BacterialWeapon));
+        let x89 = [owns_x89(invader), owns_x89(defender)];
         let before: Vec<Piece> = sx.state.board().planet(planet).units.iter().copied().collect();
         // The dice, then the end of the "Roll Dice" step (the reroll windows open at the announcements).
         let mut roll = GroundRoll::new(RollFacts {
@@ -258,12 +253,13 @@ impl InvasionMachine {
             kind: codes.ground,
             names: codes.names.to_vec(),
             unit_codes: Unit::ALL.iter().map(|u| (*u, codes.unit(*u))).collect(),
+            x89,
         });
         let _ = roll.step(sx);
         if roll.unsupported {
             return Err(Why::RollCannotName);
         }
-        let mut tail = GroundRollTail::new(TailFacts { invader, defender, system, planet, rolled: roll.hits, bump: !copied, announce: true });
+        let mut tail = GroundRollTail::new(TailFacts { invader, defender, system, planet, rolled: roll.hits, bump: !copied, announce: true, x89 });
         let _ = tail.step(sx);
         // Hits a faction adds to a roll once the dice are final (Valkyrie Particle Weave).
         let extra = |who: Seat, hits: u32, other: u32| sx.kernel.hooks.ground.ground_rolls_extra_hits(sx.state, sx.kernel, who, system, planet, hits as usize, other as usize);
@@ -551,7 +547,7 @@ impl InvasionMachine {
             return Err(Why::IntegratedEconomy);
         }
         let infiltrate_fix = sx.state.meta().rules_at_least(1);
-        let roster = sx.table.facts.plays.as_ref().and_then(|p| p.roster);
+        let roster = sx.table.facts.roster.or_else(|| sx.table.facts.plays.as_ref().and_then(|p| p.roster));
         let mut w = ControlGained::new(ControlFacts { invader, system, planet, previous, infiltrate_fix, announce: true }, roster);
         let _ = w.step(sx);
         if w.unsupported {

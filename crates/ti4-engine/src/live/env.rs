@@ -30,6 +30,8 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
     let mut table = table();
     set_table_codes(&mut table, r);
     table.facts.staging = false;
+    // The faction units (the form an Assimilate seat places on a planet it takes).
+    table.facts.roster = crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), ti4_model::content_types::FULL);
     let mut name = |spec: &Spec, who: Seat, lender: Option<Seat>| {
         ability_id(r, &id_text(r, spec, &faction(who), r.seat_text(who), lender.map(|l| (faction(l), r.seat_text(l).to_owned())).as_ref()))
     };
