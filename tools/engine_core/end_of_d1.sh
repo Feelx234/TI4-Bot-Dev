@@ -110,7 +110,7 @@ step census   "golden lent census: the labels the core bails at (bail probe merg
    && $T/gate/bail_table $out/bail-probe.tsv > $out/bails.rs.txt \
    && $T/gate/golden check --mask all=core && $T/gate/golden check --mask all=string"
 step soak     "soak corpus: one round through the dual (every lane, masks all/driver/wide)" \
-  "SOAK_HOLDS_LOCK=1 DUAL_RUN=$T/gate/dual_run SHARDS=$SHARDS SLICE_GAMES=$SOAK_GAMES ROUNDS=1 SOAK_DIR=$out/soak SOAK_WORK=$out/soak-work tools/engine_core/soak.sh run"
+  "SOAK_HOLDS_LOCK=1 DUAL_RUN=$T/gate/dual_run SHARDS=$SHARDS SLICE_GAMES=$SOAK_GAMES ROUNDS=1 SOAK_DIR=$out/soak SOAK_WORK=$out/soak-work tools/engine_core/soak.sh run | tee $out/soak-run.txt; ! grep -q INCOMPLETE $out/soak-run.txt"
 step d4gate   "the cheap steps of the D4 gate (no engine in the test crate's default build, coverage check, golden check)" \
   "tools/engine_core/d4_gate.sh 3 4 5"
 step ratchet  "mutation ratchet of the core modules (floors in tools/engine_core/mutation_floor.json) -- LAST" \
