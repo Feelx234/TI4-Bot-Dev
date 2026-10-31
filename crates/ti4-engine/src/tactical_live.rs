@@ -76,6 +76,41 @@ fn rifts_on(core: &CoreState, k: &Kernel, seat: ti4_engine_core::Seat, path: &[S
     }
 }
 
+/// The routes of one option as `tactical::MoveRoute` serialises them (a false flag and an empty list are left out).
+fn route_json(option_id: &str, routes: &[ti4_engine_core::rules::tactical::routes::Route]) -> serde_json::Value {
+    let ids = |list: &[System]| list.iter().map(|s| <System as crate::generated::IdStr>::as_str(*s).to_owned()).collect::<Vec<_>>();
+    routes
+        .iter()
+        .enumerate()
+        .map(|(n, r)| {
+            let mut m = serde_json::Map::new();
+            m.insert("path".to_owned(), json!(ids(&r.path)));
+            m.insert("answer".to_owned(), json!(if n == 0 { option_id.to_owned() } else { format!("{option_id}|r{n}") }));
+            m.insert("default".to_owned(), json!(r.default));
+            if r.gd {
+                m.insert("gravity_drive".to_owned(), json!(true));
+            }
+            if r.ionian {
+                m.insert("ionian".to_owned(), json!(true));
+            }
+            if !r.rifts.is_empty() {
+                m.insert("rifts".to_owned(), json!(ids(&r.rifts)));
+            }
+            if r.wormholes != 0 {
+                m.insert("wormholes".to_owned(), json!(r.wormholes));
+            }
+            if !r.anomalies.is_empty() {
+                m.insert("anomalies".to_owned(), json!(ids(&r.anomalies)));
+            }
+            if !r.pickups.is_empty() {
+                m.insert("pickups".to_owned(), json!(ids(&r.pickups)));
+            }
+            serde_json::Value::Object(m)
+        })
+        .collect::<Vec<_>>()
+        .into()
+}
+
 /// `tactical::preview_moves` and the `movable` count of `movement_options`.
 fn move_details(core: &CoreState, k: &Kernel, seat: ti4_engine_core::Seat, choice: &CoreChoice, rendered: &mut Choice) {
     let Some(active) = core.meta().active_system else { return };
@@ -142,6 +177,19 @@ fn move_details(core: &CoreState, k: &Kernel, seat: ti4_engine_core::Seat, choic
     }
     if !rift_map.is_empty() {
         rendered.details.insert("rift_exits".to_owned(), rift_map.into());
+    }
+    if core.meta().rules_at_least(ti4_model::state::RULES_MOVEMENT_ROUTES) {
+        let mut listed = serde_json::Map::new();
+        for (i, opt) in choice.opts.iter().enumerate() {
+            let COpt::Tactical(TOpt::Move { origin, index, kind, gd, ionian, .. }) = opt else { continue };
+            let routes = ti4_engine_core::rules::tactical::routes::ship_routes(core, k, seat, *origin, *index, *kind, (*gd, *ionian));
+            if routes.len() > 1 {
+                listed.insert(ids[i].clone(), route_json(&ids[i], &routes));
+            }
+        }
+        if !listed.is_empty() {
+            rendered.details.insert("routes".to_owned(), listed.into());
+        }
     }
     rendered.details.insert("fleet_supply".to_owned(), supply);
 }
@@ -275,7 +323,7 @@ mod tests {
                     bail = Some(super::gap_text(gap).to_owned());
                     break;
                 }
-                Err(e) => panic!("the native step: {e:?}"),
+                Err(e) => panic!("the native step: {e:?}; asked so far: {:?}", seen.borrow().iter().map(|c| (c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>()),
             }
         }
         let asked = seen.borrow().clone();
@@ -428,15 +476,15 @@ mod tests {
     fn spatial_conduit_cylinders_asks_and_links_in_lockstep() {
         let (hub, origin, target) = hub();
         let far = ti4_model::id::SystemId::new(hub.outer.iter().find(|s| **s != origin.as_str() && **s != target.as_str()).cloned().expect("another outer system"));
-        for answer in ["use", "decline"] {
+        for (answer, route) in [("use", 0), ("decline", 0), ("use", 1)] {
             let mut state = table(&[("a", "jolnar"), ("b", "hacan")]);
             state.player_mut(&a()).unwrap().technologies.insert(ti4_model::TechnologyId::new("scc"));
             crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
             crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
             crate::fixtures::put(&mut state, &far, "cruiser", &a(), 1);
-            let mv = id(&origin, 0);
+            let mv = if route == 0 { id(&origin, 0) } else { format!("{}|r{route}", id(&origin, 0)) };
             let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], false);
-            assert!(diffs.is_empty(), "{answer}: {diffs:#?}");
+            assert!(diffs.is_empty(), "{answer} route {route}: {diffs:#?}");
         }
     }
 
@@ -455,7 +503,8 @@ mod tests {
                 holder.strategic_tokens = 2;
             }
             let mv = id(&origin, 0);
-            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], true);
+            let script: Vec<&str> = if answer == "use" { vec![TACTICAL_ACTION_ID, target.as_str(), answer] } else { vec![TACTICAL_ACTION_ID, target.as_str(), answer, &mv] };
+            let diffs = lockstep(state, &hub.galaxy, &script, true);
             assert!(diffs.is_empty(), "nullification field {answer}: {diffs:#?}");
         }
         for answer in ["discard", "decline"] {
@@ -464,7 +513,8 @@ mod tests {
             crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
             state.laws.insert("minister_peace".to_owned(), "b".to_owned());
             let mv = id(&origin, 0);
-            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], true);
+            let script: Vec<&str> = if answer == "discard" { vec![TACTICAL_ACTION_ID, target.as_str(), answer] } else { vec![TACTICAL_ACTION_ID, target.as_str(), answer, &mv] };
+            let diffs = lockstep(state, &hub.galaxy, &script, true);
             assert!(diffs.is_empty(), "minister of peace {answer}: {diffs:#?}");
         }
     }

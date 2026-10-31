@@ -17,6 +17,7 @@ mod cargo;
 mod finish;
 pub mod fleet;
 mod movement;
+pub mod routes;
 
 use crate::choice::generic::Rule;
 use crate::choice::tactical::{Ask, Opt, Subtype};

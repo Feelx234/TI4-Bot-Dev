@@ -295,6 +295,11 @@ impl Window for TacticalAction {
         }
     }
 
+    fn accepts_unlisted(&self, pick: &Pick) -> bool {
+        // `|rN`: a route of the list the question shows is not an option of the question; the machine checks it against its list.
+        matches!(pick, Pick::Opt(crate::choice::Opt::Tactical(crate::choice::tactical::Opt::Move { route, .. })) if *route > 0)
+    }
+
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         let codes = sx.table.codes.tactical;
         match self.p.stage.clone() {

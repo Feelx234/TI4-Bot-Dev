@@ -191,6 +191,13 @@ impl CoreRules {
             || self.gravity_rift_systems.contains(system.index())
     }
 
+    /// `MovementRules::is_anomalous`: an asteroid field, a nebula, a supernova or a gravity rift (the board's or one an ability created). For
+    /// describing a route; the movement rules read the kinds themselves.
+    #[must_use]
+    pub fn is_anomalous(&self, system: SystemIx) -> bool {
+        [SystemFlags::NEBULA, SystemFlags::SUPERNOVA, SystemFlags::ASTEROID_FIELD, SystemFlags::GRAVITY_RIFT].iter().any(|f| self.has(system, *f)) || self.gravity_rift_systems.contains(system.index())
+    }
+
     const fn nebulae_are_open(&self) -> bool {
         self.nebulae_open || self.anomalies_ignored || self.nebulae_ignored
     }

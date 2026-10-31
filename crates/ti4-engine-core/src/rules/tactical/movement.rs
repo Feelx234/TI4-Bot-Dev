@@ -98,9 +98,10 @@ fn begin_one_move(m: &mut Machine, sx: &mut Sx<'_>, origin: System, index: u16, 
         let path = rules.path_from_ship(origin, value, Some(ship.kind())).ok_or(Illegal)?;
         (path, boosts.0, boosts.1)
     } else {
-        // The routes of the offer are the string's list (display facts); without the chosen one the machine stops.
-        m.bailed = Some(super::Bail::Route);
-        return Err(Illegal);
+        // `|rN`: the N-th route of the list the question showed (the same function builds both).
+        let routes = super::routes::ship_routes(sx.state, sx.kernel, seat, origin, index, ship.kind(), boosts);
+        let chosen = routes.get(usize::from(route)).ok_or(Illegal)?;
+        (chosen.path.clone(), chosen.gd, chosen.ionian)
     };
     if gd && !fx_move::use_gravity_drive(sx.state, seat) {
         return Err(Illegal);

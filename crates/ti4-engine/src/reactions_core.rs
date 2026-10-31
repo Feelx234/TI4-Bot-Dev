@@ -891,10 +891,53 @@ mod tests {
                 missing.insert(anonymous(&a.id));
             }
         }
+        let accounted: Vec<String> = ACTIVATION_ACCOUNTED.iter().map(|(id, _)| (*id).to_owned()).collect();
         let missing: Vec<String> = missing.into_iter().collect();
-        assert_eq!(missing, ACTIVATION_ACCOUNTED.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(), "string-registered SYSTEM_ACTIVATED abilities without a core slot");
+        assert_eq!(missing, accounted, "string-registered SYSTEM_ACTIVATED abilities without a core slot");
+        // The in-scope ones are an open list, never a silent one: `Gap` rows are named in docs/M6B_RESUME.md with their owner.
+        assert!(ACTIVATION_ACCOUNTED.iter().all(|(_, status)| matches!(*status, Status::Carried(_) | Status::Dropped(_) | Status::Gap(_))));
     }
 
-    /// The string abilities of `SYSTEM_ACTIVATED` the core table has no slot for, each with what carries it. (Filled by the first run.)
-    const ACTIVATION_ACCOUNTED: &[&str] = &[];
+    /// What becomes of a string `SYSTEM_ACTIVATED` ability the core table has no slot for.
+    #[derive(Clone, Copy)]
+    enum Status {
+        /// The native hook chain performs it (`driver::windows::tactical::hooks`), by the named function.
+        Carried(&'static str),
+        /// Out of the agreed content, by decision.
+        Dropped(&'static str),
+        /// In scope and NOT ported: an eligible activation misses the offer silently in the native path (the lockstep against the string
+        /// shows it as a missing question). The reason names what the port needs.
+        Gap(&'static str),
+    }
+
+    /// The string abilities of `SYSTEM_ACTIVATED` the core table has no slot for, sorted as the test sorts them, each with what carries it.
+    const ACTIVATION_ACCOUNTED: &[(&str, Status)] = &[
+        ("ability:*:aetherpassage:SYSTEM_ACTIVATED:after", Status::Gap("Empyrean Aether Passage: a player to choose, then the adjacency of the activation (linked_systems)")),
+        ("ability:*:awaken:SYSTEM_ACTIVATED:after", Status::Gap("Titans Awaken: a sleeper token in the system, replaced by a PDS or a mech (cd_registry/titans/offer.rs is empty)")),
+        ("ability:*:incursion:SYSTEM_ACTIVATED:when", Status::Dropped("Crimson Rebellion")),
+        ("ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the Winnu mark Reclamation reads)")),
+        ("ability:*:survivalinstinct:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
+        ("breakthrough:*:argentbt:SYSTEM_ACTIVATED:when", Status::Dropped("Thunder's Edge breakthrough")),
+        ("breakthrough:*:argentbt_mark:SYSTEM_ACTIVATED:when", Status::Dropped("Thunder's Edge breakthrough")),
+        ("breakthrough:*:empyreanbt:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
+        ("breakthrough:*:empyreanbt_allow:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
+        ("breakthrough:*:winnubt:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
+        ("leader:*:a:yssarilagent:b:saaragent:SYSTEM_ACTIVATED:after", Status::Gap("the Ssruu copy of the Saar agent (needs the Saar agent)")),
+        ("leader:*:arboreccommander:SYSTEM_ACTIVATED:after", Status::Gap("Arborec commander: after another player's activation, a production in the system")),
+        ("leader:*:firmamentagent:SYSTEM_ACTIVATED:after", Status::Dropped("Firmament")),
+        ("leader:*:ghostagent:SYSTEM_ACTIVATED:after", Status::Gap("Ghosts agent Emissary Taivra: wormholes adjacent for the activation (linked_systems)")),
+        ("leader:*:saaragent:SYSTEM_ACTIVATED:after", Status::Gap("Saar agent: a move value boost remembered against the activation (agent_move_bonus)")),
+        ("leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the T'ro mark of the end of the action)")),
+        ("leader:*:yssarilcommander:SYSTEM_ACTIVATED:after", Status::Gap("Yssaril commander So Ata: after another player's activation, look at a hand")),
+        ("promissory:*:crucible:SYSTEM_ACTIVATED:after", Status::Gap("Cabal promissory Crucible")),
+        ("promissory:*:nanolink:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
+        ("promissory:*:pop:SYSTEM_ACTIVATED:after", Status::Gap("Promise of Protection (promissory)")),
+        ("technology:*:as:SYSTEM_ACTIVATED:after", Status::Gap("Empyrean Aetherstream")),
+        ("technology:*:ng:SYSTEM_ACTIVATED:after", Status::Gap("Naalu Neuroglaive (technology ng)")),
+        ("unit:*:arborec_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Arborec flagship Duha Menaimon: a production in the activated system")),
+        ("unit:*:deepwrought_mech:SYSTEM_ACTIVATED:when", Status::Dropped("Deepwrought")),
+        ("unit:*:ghost_mech:SYSTEM_ACTIVATED:after", Status::Gap("Ghosts mech Quantum (wormhole token)")),
+        ("unit:*:keleres_flagship:SYSTEM_ACTIVATED:when", Status::Dropped("Keleres")),
+        ("unit:*:titans_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Titans flagship Ouranos")),
+    ];
 }
