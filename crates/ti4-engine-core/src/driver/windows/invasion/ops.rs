@@ -415,12 +415,6 @@ impl InvasionMachine {
         let mut w = LandOne::new(self.p.invader, self.p.system, true).with_pool(pool);
         let _ = w.step(sx);
         w.answer(sx, pick)?;
-        if w.unsupported {
-            return {
-                crate::driver::windows::invasion::InvasionMachine::bail_flag(sx, Why::ShipFormFlip);
-                Ok(())
-            };
-        }
         if let Some(t) = w.landed {
             if let Pick::Opt(Opt::Invasion(IOpt::Commit { planet, .. })) = pick {
                 if t.temporary {

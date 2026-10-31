@@ -60,7 +60,6 @@ pub const fn unported_text(why: ti4_engine_core::kernel::ability::Unported) -> &
         }
         U::BombardmentDiceMismatch => "the bombardment dice do not match the plan",
         U::JolNarCommanderReroll => "the Jol-Nar commander's reroll of the bombardment dice",
-        U::ShipFormFlip => "a ship-form unit flipping on landing (Naaz Eidolon)",
         U::X89 => "X-89 Bacterial Weapon in a ground round",
         U::Thundarian => "The Thundarian watching the roll step",
         U::Dacxive => "Dacxive Animators in a ground combat",
@@ -459,6 +458,25 @@ mod tests {
             check(defender, &state, seed, &home, false, prefer(&[]));
             let _ = planet;
         }
+    }
+
+    /// A Naaz mech that stands in space in its ship form lands in its ground form (the Z-Grav Eidolon flips as it is committed).
+    #[test]
+    fn a_ship_form_unit_flips_to_its_ground_form_as_it_lands() {
+        use crate::dual::{take_report, with_bail_is_failure};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        for seed in 1..=4_u64 {
+            let (mut state, system, planet) = game(&[("a", "naaz"), ("b", "jolnar")], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &system, "naaz_mech_space", &a, 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 3);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            with_bail_is_failure(true, || check("naaz eidolon", &state, seed, &system, false, prefer(&[])));
+        }
+        let _ = take_report();
     }
 
     /// A planet taken pays the Minister of Exploration a trade good, and the Crown of Emphidia changes hands when the planet is in its owner's

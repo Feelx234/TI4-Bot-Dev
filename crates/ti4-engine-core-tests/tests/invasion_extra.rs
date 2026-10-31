@@ -204,7 +204,7 @@ fn the_search_starts_at_the_given_index_and_reports_the_index_of_the_planet_it_f
 // ---- landing ----------------------------------------------------------------------------------------
 
 #[test]
-fn a_landing_touches_the_tile_flags_the_planet_and_marks_a_ship_form_unit_as_not_followed() {
+fn a_landing_touches_the_tile_flags_the_planet_and_flips_a_ship_form_unit_to_its_ground_form() {
     covers!("rules::invasion::commit::CommitGround");
     covers!("rules::invasion::commit::LandOne");
     let (p1, _) = planets();
@@ -217,19 +217,22 @@ fn a_landing_touches_the_tile_flags_the_planet_and_marks_a_ship_form_unit_as_not
     assert!(!rig.driver.window.unsupported, "an infantry is a plain landing");
     assert!(rig.state.board().planet(p1).flags.has(PlanetFlags::UNITS_ENTRY));
     assert!(rig.state.board().sys(sys()).flags.has(SysFlags::TOUCHED));
-    // The Eidolon, a mech in its ship form, flips on landing: the core does not follow it.
+    // The Eidolon, a mech in its ship form, flips to its ground form as it lands, in both landing windows.
     let (mut s, k) = sc().build();
-    let ship_mech = Unit::ALL.into_iter().find(|u| u.data().ship && u.data().base_type == ti4_engine_core::generated::UnitBaseType::Mech).expect("a mech with a ship form");
+    let ship_mech = Unit::ZGravEidolonNaazMechSpace;
+    let ground_mech = ti4_engine_core::query::tech::other_form(ship_mech).expect("its ground form");
     s.board_mut().sys_mut(sys()).units.push(Piece::new(ship_mech, Seat(0)));
     let mut ship = Rig::from_parts(s.clone(), k.clone(), CommitGround::new(Seat(0), sys()));
     ship.run();
     ship.pick(0);
-    assert!(ship.driver.window.unsupported);
+    assert!(!ship.driver.window.unsupported);
+    assert_eq!(ship.state.board().planet(p1).units.as_slice().iter().map(|u| u.kind()).collect::<Vec<_>>(), vec![ground_mech], "CommitGround lands the ground form");
     let mut one = Rig::from_parts(s, k, LandOne::new(Seat(0), sys(), true));
     one.run();
     one.pick(0);
-    assert!(one.driver.window.unsupported, "LandOne says so too");
-    assert_eq!(one.state.transient().combat.last_committed_unit.map(|(_, _, p, u)| (p, u.kind())), Some((p1, ship_mech)));
+    assert!(!one.driver.window.unsupported);
+    assert_eq!(one.state.board().planet(p1).units.as_slice().iter().map(|u| u.kind()).collect::<Vec<_>>(), vec![ground_mech], "LandOne lands the ground form");
+    assert_eq!(one.state.transient().combat.last_committed_unit.map(|(_, _, p, u)| (p, u.kind())), Some((p1, ship_mech)), "the committed unit is remembered as it was chosen");
     // The commit question carries the usual fields.
     let ctx = rig.driver.window.question(&rig.state, &rig.kernel).ctx;
     assert!(!ctx.optional && !ctx.space_battle && ctx.invasion_seq.is_none() && ctx.outstanding.is_empty());

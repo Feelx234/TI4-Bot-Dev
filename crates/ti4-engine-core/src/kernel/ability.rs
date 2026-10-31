@@ -105,7 +105,6 @@ pub enum Unported {
     Exploration(crate::state::EWhy),
     BombardmentDiceMismatch,
     JolNarCommanderReroll,
-    ShipFormFlip,
     X89,
     Thundarian,
     Dacxive,
