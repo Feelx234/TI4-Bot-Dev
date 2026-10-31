@@ -15,6 +15,7 @@ pub mod absorb;
 pub mod advance;
 pub mod begin;
 pub mod bombard;
+pub mod bombard_roll;
 pub mod commit;
 pub mod control;
 pub mod defense;

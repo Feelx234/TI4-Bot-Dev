@@ -173,7 +173,7 @@ pub fn space_cannon_offense(
     apply_staged(gs, &r, &staged)?;
     let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
-    let value: Out = (driver.window.scoring, driver.window.drawn.clone(), positions);
+    let value: Out = (driver.window.scoring, driver.window.first_draws(), positions);
     Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
 }
 

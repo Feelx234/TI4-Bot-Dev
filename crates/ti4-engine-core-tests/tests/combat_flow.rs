@@ -244,6 +244,41 @@ fn the_end_of_a_combat_reports_winner_losers_reason_and_the_ships_lost() {
     assert_eq!(lost.as_slice(), &[(Seat(1), Unit::DestroyerI), (Seat(1), Unit::FighterI)]);
 }
 
+/// W15: the Cabal's participation mark of the combat (`cabal:devour:{system}`, written when it began) goes with the announcement of the end
+/// when one of the two sides holds it; the mark of another seat, the mark of another system and an unannounced end are left alone.
+#[test]
+fn the_end_of_a_combat_clears_the_participation_mark_a_side_holds_and_only_that() {
+    covers!("rules::combat::end_announce::EndAnnounce");
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    let other = plain_systems().into_iter().find(|s| *s != sys()).expect("another tile");
+    let held = |s: &CoreState, system: System| s.marks().tail.get(&MarkKey::CabalDevour(system, None)).cloned();
+    let mark = |s: &mut CoreState, system: System, seat: u8| {
+        s.marks_mut().tail.edit().insert(MarkKey::CabalDevour(system, None), MarkVal::Atom(Atom::Seat(Seat(seat))));
+    };
+    for holder in [0_u8, 1] {
+        let (mut state, kernel) = arena().unit(sys(), None, Unit::CruiserI, 0, 1).build();
+        mark(&mut state, sys(), holder);
+        mark(&mut state, other, holder);
+        let mut rig = Rig::from_parts(state, kernel, EndAnnounce::new(end_facts(Some(Seat(0)), false, true)));
+        rig.run();
+        assert!(rig.is_done());
+        assert_eq!(held(&rig.state, sys()), None, "holder {holder}: the mark of this combat is cleared");
+        assert_eq!(held(&rig.state, other), Some(MarkVal::Atom(Atom::Seat(Seat(holder)))), "the mark of another system stays");
+    }
+    // A mark held by a seat that is not a side of the combat stays (the string clears only the ability holder's own).
+    let (mut state, kernel) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec, Faction::TheVuilraithCabal]).map_from(&[sys(), plain_systems()[1]]).unit(sys(), None, Unit::CruiserI, 0, 1).build();
+    mark(&mut state, sys(), 2);
+    let mut rig = Rig::from_parts(state, kernel, EndAnnounce::new(end_facts(Some(Seat(0)), false, true)));
+    rig.run();
+    assert_eq!(held(&rig.state, sys()), Some(MarkVal::Atom(Atom::Seat(Seat(2)))));
+    // Without the resolver's announcements (no event, no abilities) nothing is cleared.
+    let (mut state, kernel) = arena().unit(sys(), None, Unit::CruiserI, 0, 1).build();
+    mark(&mut state, sys(), 0);
+    let mut quiet = Rig::from_parts(state, kernel, EndAnnounce::new(end_facts(Some(Seat(0)), false, false)));
+    quiet.run();
+    assert_eq!(held(&quiet.state, sys()), Some(MarkVal::Atom(Atom::Seat(Seat(0)))));
+}
+
 #[test]
 fn a_draw_has_no_winner_key_and_each_reason_has_its_own_text() {
     covers!("rules::combat::end_announce::EndAnnounce");

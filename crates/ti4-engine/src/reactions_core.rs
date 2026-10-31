@@ -686,10 +686,13 @@ mod tests {
         let mut played = rec(&[id], &[id]);
         played.played = vec!["sh1".to_owned()];
         assert_eq!(played.unported(&t), None, "a Shields Holding is played by the core");
-        // Scramble Frequency has a window of the play (`Fx::Scramble`), not a nested one: from inside another window it is still the
-        // string's. (Fire Team is a registered card play of the core, B12: it is followed here.)
-        played.played = vec!["scramble".to_owned()];
-        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card scramble)"), "a card the core does not play");
+        // Scramble Frequency has a window of the play (`Fx::Scramble`) and, since package W15, a registered play for the windows that stage
+        // dice (the barrage and the space cannon offense) beside Fire Team's (B12): both are followed here.
+        played.played = vec!["scramble".to_owned(), "fire_team".to_owned()];
+        assert_eq!(played.unported(&t), None, "a Scramble Frequency and a Fire Team are played by the registered plays of the core");
+        // Another card the core does not play stays named.
+        played.played = vec!["upgrade".to_owned()];
+        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card upgrade)"), "a card the core does not play");
     }
 
     #[test]
@@ -703,12 +706,10 @@ mod tests {
         assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card upgrade)"));
         r.played = vec!["reveal_prototype".to_owned()];
         assert_eq!(r.unported(&t), None, "W4: Reveal Prototype is played by the core");
-        r.played = vec!["reflective".to_owned(), "ghost_squad".to_owned()];
-        assert_eq!(r.unported(&t), None, "W11: Reflective Shielding and Ghost Squad are played by the core");
-        for card in ["courageous", "scramble"] {
-            r.played = vec![card.to_owned()];
-            assert_eq!(r.unported(&t).as_deref(), Some(&*format!("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card {card})")), "{card} stays the string's");
-        }
+        r.played = vec!["reflective".to_owned(), "ghost_squad".to_owned(), "courageous".to_owned()];
+        assert_eq!(r.unported(&t), None, "W11: Reflective Shielding and Ghost Squad are played by the core, W15: Courageous To The End too");
+        r.played = vec!["scramble".to_owned()];
+        assert_eq!(r.unported(&t), None, "W15: Scramble Frequency is played by the registered play of the cards module");
         r.played = vec!["s_retreat1".to_owned(), "intercept".to_owned(), "dh2".to_owned(), "parley".to_owned()];
         assert_eq!(r.unported(&t), None, "the cards of the card module are played by the core");
     }

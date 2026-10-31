@@ -97,6 +97,44 @@ fn ran_system(x: &Ran) -> String {
     x.state.active_system.as_ref().map(ToString::to_string).unwrap_or_default()
 }
 
+/// Scramble Frequency (package W15): the active seat holds it and the gunners' roll is drawn again whole. The offense stages the
+/// gunner's dice for the event `UNIT_ABILITY_ROLLED` and takes the hits from the faces that remain; the redraws are the ledger's and
+/// the window's `drawn` beside the string's dice history. Fails on the pre-W15 window, which staged nothing for the card (the play was
+/// followed by nobody: the window bailed, named) -- here bail-as-failure: the window is compared on every seed.
+#[test]
+fn scramble_frequency_played_against_the_guns_draws_their_dice_again_in_the_core_in_lockstep() {
+    let scramble = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        pds_at_b(s, system, planet);
+        s.player_mut(&a()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("scramble")];
+    };
+    let (ran, r) = lockstep(0..24, &[("a", "sol"), ("b", "hacan")], scramble);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(compared(&r) >= 18, "the core window ran: {:?}", r.windows);
+    assert!(r.windows.iter().all(|(label, w)| w.bailed == 0 || !label.contains("scramble")), "no window bailed on the card: {:?}", r.windows);
+    let played = ran.iter().filter(|x| x.state.action_card_plays.iter().any(|(_, c)| c.as_str() == "scramble")).count();
+    assert!(played > 10, "Scramble Frequency was played on {played} of the runs");
+    assert!(ran.iter().all(|x| x.dice > 0), "the guns rolled");
+}
+
+/// Two gunners: the card is played against the first gunner's roll (the one who holds it is not the roller), the second gunner's dice are
+/// staged for their own event; hits are read from the faces that remain for each. Three seats, so the holder may be a gunner itself.
+#[test]
+fn scramble_frequency_against_two_gunners_agrees_for_each_in_lockstep() {
+    let two = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        crate::fixtures::put_on_planet(s, system, planet, "pds", &b(), 3);
+        crate::fixtures::put_on_planet(s, system, planet, "pds", &PlayerId::new("c"), 3);
+        crate::fixtures::put(s, system, "cruiser", &a(), 6);
+        for who in ["a", "b", "c"] {
+            s.player_mut(&PlayerId::new(who)).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("scramble")];
+        }
+    };
+    let (ran, r) = lockstep(0..30, &[("a", "sol"), ("b", "hacan"), ("c", "letnev")], two);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(compared(&r) >= 25, "the core window ran: {:?}", r.windows);
+    let plays: usize = ran.iter().map(|x| x.state.action_card_plays.iter().filter(|(_, c)| c.as_str() == "scramble").count()).sum();
+    assert!(plays > 10, "Scramble Frequency was played {plays} times");
+}
+
 #[test]
 fn a_dreadnought_is_offered_its_sustain_and_graviton_binds_the_loss_in_lockstep() {
     let gls = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
