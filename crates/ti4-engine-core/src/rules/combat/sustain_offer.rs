@@ -244,7 +244,7 @@ impl SustainOffer {
                 } else {
                     // `pay_sustain_commander`: the old rule pays the holder's trade good at once, no question.
                     if super::sustain_commander::pays_on_sustain(sx.state, self.offer.player) {
-                        let _ = &self.offer;
+                        fx::gain_trade_goods_staged(sx.state, self.offer.player, 1, self.offer.source);
                     }
                     SustainCommander::settled(self.offer.player, self.offer.source)
                 };
