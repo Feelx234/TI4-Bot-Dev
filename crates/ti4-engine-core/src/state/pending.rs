@@ -255,7 +255,7 @@ pub struct Pending {
     /// order it was made with, the open emissions, the next trace id.
     pub resolver: super::ResolverState,
     /// `Game.failed_component_actions`: the component actions that failed this turn (their menu ids, interned), which the turn menu
-    /// does not offer again; cleared when the turn ends (`driver::turn_flow::end_turn_scratch`) and in a hypothetical turn.
+    /// does not offer again; cleared by `driver::turn_flow::forget_failed_components` when the turn ends and in a hypothetical turn.
     pub failed_component_actions: SmallList<super::Code, 8>,
     /// The suspended nested question of the live window (see [`Nested`]); written by `driver::live::advance` only.
     pub nested: Option<Nested>,

@@ -73,7 +73,7 @@ round trip, the illegal-answer rollback and the clone-mid-window check are core 
   loop must use this one.
 * **`live/env.rs`**: `env_for(&Render, &CoreState, kernel, seeds) -> Env` builds the registry/table from the core position (no string `GameState`), sharing
   `reactions_core::{table, set_table_codes, id_text}` with the replay path. Missing: the `plays` facts (see its header).
-* **KF4**: `Pending::failed_component_actions` (+ `note_failed_component`, cleared by `turn_flow::end_turn_scratch`). It is not in any codec: the stack is not serialized.
+* **KF4**: `Pending::failed_component_actions` (+ `note_failed_component`, cleared by `turn_flow::forget_failed_components` (the live turn-end composer calls it; `end_turn_scratch` is lent to the dual without the Pending slice)). It is not in any codec: the stack is not serialized.
 * **KF6**: `window_driver::driver_live`; the 99 `driver_for` sites stay (replay path); a site is converted when its live opener goes through `live::advance`.
 * **Nested rendering from the core**: `dual_window::NestedPos` (+ `of_core`), `DecisionContext::{about_battle_in, about_invasion_in}`; `live::render_asking` completes nested questions.
 * **`playthrough` bin** (`ti4-engine-core-bridge/src/bin/playthrough.rs`): whole games per lobby faction (seat a), 4/6 players, `card_set te`, `starting_tech`, all areas
