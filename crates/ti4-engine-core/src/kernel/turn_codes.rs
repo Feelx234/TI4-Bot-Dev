@@ -43,6 +43,21 @@ pub struct TurnCodes {
     pub extreme_duress: Code,
     /// `orbital_drop`: the source of Orbital Drop's questions and of its token event.
     pub orbital_drop: Code,
+    /// `nekroagent`: the source of the trade goods Nekro Malleon gains.
+    pub nekroagent: Code,
+    /// `star_forge` (the source of Star Forge's question and the reason of its token event), `muaat_mech` (the source of the Ember
+    /// Colossus question) and `inferno` (the reason of The Inferno's token event).
+    pub star_forge: Code,
+    pub muaat_mech: Code,
+    pub inferno: Code,
+    /// `production_biomes`: the reason of the token Production Biomes spends and the source of the goods it gives.
+    pub production_biomes: Code,
+    /// `fabrication` and `bmf`: the origins of the Naaz Fabrication and Black Market Forgery questions.
+    pub fabrication: Code,
+    pub bmf: Code,
+    /// `stall_tactics` and `yssaril_mech`: the sources of the Yssaril Stall Tactics question and of the mech it places.
+    pub stall_tactics: Code,
+    pub yssaril_mech: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.
