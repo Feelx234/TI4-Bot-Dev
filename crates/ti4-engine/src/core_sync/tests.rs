@@ -142,6 +142,29 @@ fn the_sustain_target_mark_is_typed_and_round_trips() {
     }
 }
 
+/// `private:#staged:ground:*` rows: a ground force that fell on a planet names the planet; one that fell in the space area (Nova
+/// Seed cargo, `muaat::destroy_others`) names the system twice. Both are typed (seven fields) and store back byte for byte; before
+/// this was fixed the second form was "mark not typed" and `TI4_CHURN=state` stopped on it (end-of-D1 run, bench-v5 seed 85).
+#[test]
+fn a_staged_ground_destruction_in_the_space_area_is_typed_and_round_trips() {
+    let mut gs = game();
+    let on_planet = "destroyed|37|meer|b|infantry|false|nova_seed";
+    let in_space = "destroyed|37|37|b|infantry|false|nova_seed";
+    for (i, text) in [on_planet, in_space].into_iter().enumerate() {
+        gs.faction_marks.clear();
+        gs.faction_marks.insert("private:#staged:ground:00000000".into(), text.into());
+        let mut cx = Ctx::of(&gs).unwrap();
+        let core = Codec::load(&mut cx, &gs, Sources::default(), SliceSet::of(&[Slice::Marks]))
+            .unwrap_or_else(|e| panic!("case {i}: {e}"));
+        let typed = core.marks().tail.iter().any(|(k, v)| matches!(k, ti4_engine_core::keys::MarkKey::PrivateStagedGround(0)) && matches!(v, ti4_engine_core::keys::MarkVal::Rec(f) if f.len() == 7));
+        assert!(typed, "case {i} loads as seven typed fields");
+        let mut back = gs.clone();
+        back.faction_marks.clear();
+        Codec::store(&cx, &core, &mut back, SliceSet::of(&[Slice::Marks])).unwrap();
+        assert_eq!(back.faction_marks, gs.faction_marks, "case {i}");
+    }
+}
+
 #[test]
 fn text_codes_are_stable_between_lends() {
     let mut gs = game();
