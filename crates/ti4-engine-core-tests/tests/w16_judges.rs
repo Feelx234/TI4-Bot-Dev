@@ -137,3 +137,24 @@ fn the_potential_goods_of_a_seat_are_the_trade_goods_it_can_spend_and_bribery_wa
         assert_eq!(ti4_engine_core::rules::action_cards::cost_is_payable(&s, Seat(1), C::Bribery, supply::potential_goods(&s, &k, Seat(1))), Some(goods >= 1));
     }
 }
+
+#[test]
+fn infiltrate_counts_the_plastic_of_each_kind_on_its_own_and_as_it_goes() {
+    covers!("rules::action_cards::infiltrate_swaps");
+    let t = plain_systems();
+    let (sys, planet) = (t[1], t[1].data().planets[0]);
+    let far = t[2].data().planets[0];
+    // Two rival docks, a box of two docks: both swap (the second sees one used, not two).
+    let s = arena().control(planet, 0).unit(sys, Some(planet), Unit::SpaceDockI, 1, 2).unit(t[2], Some(far), Unit::SpaceDockI, 0, 1).state();
+    assert_eq!(infiltrate_swaps(&s, ALL, Seat(0), planet, (None, None), &|_| false).len(), 2);
+    // One PDS left in the box and one dock left: a rival PDS and a rival dock both swap (the kinds count apart).
+    let s = arena()
+        .control(planet, 0)
+        .unit(sys, Some(planet), Unit::PDSI, 1, 1)
+        .unit(sys, Some(planet), Unit::SpaceDockI, 1, 1)
+        .unit(t[2], Some(far), Unit::PDSI, 0, 5)
+        .unit(t[2], Some(far), Unit::SpaceDockI, 0, 2)
+        .state();
+    let swaps = infiltrate_swaps(&s, ALL, Seat(0), planet, (None, None), &|_| false);
+    assert_eq!(swaps.len(), 2, "one PDS and one dock: {swaps:?}");
+}

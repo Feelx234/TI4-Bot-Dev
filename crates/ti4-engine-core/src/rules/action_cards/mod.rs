@@ -156,7 +156,7 @@ pub fn infiltrate_swaps(core: &CoreState, scope: Scope, who: Seat, planet: Plane
         };
         // `supply::allowed(.., 1) > 0` and `supply::remaining(..) - used > 0` of the plain form of the base type.
         let left = crate::query::fleet::remaining(core, scope, who, plain, 0);
-        if forbidden(plain) || left <= 0 || left - used[slot] <= 0 {
+        if forbidden(plain) || left - used[slot] <= 0 {
             continue;
         }
         used[slot] += 1;

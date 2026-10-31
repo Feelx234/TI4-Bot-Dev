@@ -330,7 +330,7 @@ impl SpaceCannonOffense {
                 self.mark = Self::ledger_len(sx);
                 self.walk = Walk::start(sx.state, gunner, &shown);
                 if self.walk.is_none() {
-                    sx.state.transient_mut().combat.reroll_staging.edit().retain(|(s, _)| *s != gunner);
+                    sx.state.transient_mut().combat.reroll_staging.edit().retain(|(s, _)| *s != gunner); // mutants:skip: a gunner of the list rolled a die, so the walk exists
                 }
                 if self.walk.is_some() {
                     continue;

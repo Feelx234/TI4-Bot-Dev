@@ -326,3 +326,32 @@ fn a_walk_without_the_resolvers_announcements_leaves_no_staged_dice_behind() {
     }
     assert!(walked > 10);
 }
+
+#[test]
+fn an_attachments_cannon_is_labelled_by_its_planet_in_the_commanders_question() {
+    covers!("rules::combat::space_cannon_offense::SpaceCannonOffense");
+    use ti4_engine_core::generated::Attachment;
+    let planets = sys().data().planets;
+    let mut asked_labels = 0;
+    for seed in 0..40u64 {
+        let sc = arena().unit(sys(), None, Unit::CruiserI, 0, 12).control(planets[0], 1);
+        let (mut state, kernel) = sc.build();
+        state.board_mut().planet_mut(planets[0]).attach.push(Attachment::Geoform);
+        let mut facts = cannon_facts(vec![Seat(1)]);
+        facts.planet_texts = vec![(planets[0], Code(51), Code(61))];
+        let mut rig = Rig::from_parts(state, kernel, SpaceCannonOffense::new(facts)).seeded(seed);
+        rig.run();
+        while !rig.is_done() {
+            if let Ask::Combat(CAsk::RerollDie { unit, .. }) = rig.asked().ask.clone() {
+                assert_eq!(unit, Code(61), "the shown label of the attachment's cannon");
+                let staged = rig.state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == Seat(1)).map(|(_, set)| set.clone()).unwrap();
+                assert!(staged.rolls.iter().all(|r| r.unit == Code(51)), "the staged entry carries the attachment's text");
+                asked_labels += 1;
+                rig.decline();
+            } else {
+                rig.pick(0);
+            }
+        }
+    }
+    assert!(asked_labels > 10);
+}

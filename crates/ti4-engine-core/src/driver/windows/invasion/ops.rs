@@ -225,13 +225,11 @@ impl InvasionMachine {
             .collect()
     }
 
-    /// The walk begins when the invader holds the commander and rolled a die (`reroll_window`: `has_dice`). `true`: a question is open.
-    fn begin_walk(&mut self, sx: &mut Sx<'_>) -> bool {
-        if !Self::holds_commander(sx.state, self.p.invader) || Walk::start(sx.state, self.p.invader, &[]).is_none() {
-            return false;
+    /// The walk begins when the invader holds the commander and rolled a die (`reroll_window`: `has_dice`); `walk` is set while a question is open.
+    fn begin_walk(&mut self, sx: &mut Sx<'_>) {
+        if Self::holds_commander(sx.state, self.p.invader) && Walk::start(sx.state, self.p.invader, &[]).is_some() {
+            self.p.bombard.walk = Some(IWalk { shown: Self::shown(sx.state, self.p.invader, &sx.table.codes.invasion), ..IWalk::default() });
         }
-        self.p.bombard.walk = Some(IWalk { shown: Self::shown(sx.state, self.p.invader, &sx.table.codes.invasion), ..IWalk::default() });
-        true
     }
 
     /// The answer to the commander's question about one die; the last one draws the picked dice again and closes the walk.
@@ -515,9 +513,7 @@ impl InvasionMachine {
                         // The invader's Jol-Nar commander is asked about each die before the event goes out.
                         if !self.p.bombard.walked {
                             self.p.bombard.walked = true;
-                            if self.begin_walk(sx) {
-                                return Ok(());
-                            }
+                            self.begin_walk(sx);
                         }
                         if self.p.bombard.walk.is_some() {
                             return Ok(());
