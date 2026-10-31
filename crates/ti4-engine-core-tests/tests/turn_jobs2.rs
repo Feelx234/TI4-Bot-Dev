@@ -378,3 +378,128 @@ fn the_end_of_the_round_resets_both_flags_and_the_levy_needs_the_revolution_agai
     assert!(!s.pending().driver.has(DriverFlags::STATUS_RESOLVED) && !s.pending().driver.has(DriverFlags::AGENDA_RESOLVED));
     assert!(planets.iter().all(|p| !s.board().planet(*p).flags.has(PlanetFlags::EXHAUSTED)), "a revolution in favour levies nothing");
 }
+
+// -- third batch: gating of the prelude, the datahub's conditions one by one, the job window's own functions ----------------------------
+
+#[test]
+fn the_datahub_gap_needs_the_technology_a_token_three_goods_and_another_seat_with_a_card() {
+    let seats = [Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol, Faction::TheNaaluCollective];
+    let with = |tech: bool, tokens: i16, goods: i16| {
+        let (mut s, k) = last_pick(&seats);
+        if tech {
+            s.players_mut().edit(0).tech.owned.insert(Technology::QuantumDatahubNode);
+        }
+        s.players_mut().edit(0).econ.strategic_tokens = tokens;
+        s.players_mut().edit(0).econ.trade_goods = goods;
+        (s, k)
+    };
+    let (mut s, k) = with(true, 1, 3);
+    assert_eq!(take_last(&mut s, &k), gap(TurnGap::QuantumDatahub));
+    for (tech, tokens, goods) in [(false, 1, 3), (true, 0, 3), (true, 1, 2), (false, 5, 9), (true, 0, 9), (false, 1, 2)] {
+        let (mut s, k) = with(tech, tokens, goods);
+        assert_eq!(take_last(&mut s, &k).unwrap().0, Live::Done, "{tech} {tokens} {goods}");
+    }
+    // The owner is the picker and no other seat holds a card: nobody to swap with.
+    let (mut s, k) = Scenario::new(&seats[..2]).phase(Phase::Strategy).active(None).tech(0, Technology::QuantumDatahubNode).tokens(0, 1, 1, 1).goods(0, 5).build();
+    s.meta_mut().strategy_cards_per_player = 1;
+    s.strategy_mut().unclaimed = [StrategyCard::Imperial].into_iter().collect();
+    assert_eq!(take_last(&mut s, &k).unwrap().0, Live::Done);
+}
+
+#[test]
+fn a_card_the_mat_does_not_hold_is_refused_by_the_job_and_leaves_the_position() {
+    use ti4_engine_core::driver::turn::advance_job;
+    let (mut s, k) = last_pick(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]);
+    let held = s.clone();
+    assert_eq!(advance_job(TurnJob::Draft(StrategyCard::Trade), &mut s, &env(&k), None), gap(TurnGap::ReplayDiverged));
+    assert_eq!(s, held);
+}
+
+#[test]
+fn military_support_returns_home_with_a_token_and_is_announced() {
+    use ti4_engine_core::driver::turn::advance_prelude;
+    use ti4_engine_core::kernel::ability::{PlayFacts, PlaysProvider, SharedPlay};
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).tokens(0, 3, 3, 2).build();
+    let key = ti4_engine_core::state::NoteKey { note: PromissoryNote::MilitarySupport, faction: Faction::TheFederationOfSol };
+    s.cards_mut().promissory.edit().insert(key, Seat(1));
+    let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
+    let mut e = env(&k);
+    e.table.facts.plays_provider = Some(PlaysProvider(std::sync::Arc::new(move |core, _| {
+        Some(PlayFacts {
+            scope: 0,
+            blanked: false,
+            action_card: ti4_engine_core::state::Code(0),
+            supply_base: ti4_engine_core::state::Code(0),
+            note_order: |a, b| a.cmp(&b),
+            seats: Vec::new(),
+            name_group: Vec::new(),
+            has_effect: Vec::new(),
+            skimmer: false,
+            roster: Some(roster),
+            rules_version: core.meta().rules_version,
+            tech_order: |a, b| a.cmp(&b),
+            shared: SharedPlay::default(),
+        })
+    })));
+    let held = s.clone();
+    // Without the play facts the job cannot know the form the holder places.
+    assert_eq!(advance_prelude(&mut s, &env(&k), None), gap(TurnGap::NoRoster));
+    assert_eq!(s, held);
+    advance_prelude(&mut s, &e, None).unwrap();
+    assert_eq!(plain(&s), [PlainRec::bare(PlainKind::MilitarySupportUsed)]);
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens, 1, "the strategy token is spent");
+    assert_eq!(s.cards().promissory.get(&key).copied(), Some(Seat(0)), "the note goes home");
+    // A note nobody holds elsewhere does nothing.
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).build();
+    advance_prelude(&mut s, &env(&k), None).unwrap();
+    assert!(plain(&s).is_empty());
+}
+
+#[test]
+fn only_a_locked_commander_without_a_hook_stops_the_prelude() {
+    use ti4_engine_core::driver::turn::advance_prelude;
+    use ti4_engine_core::state::LeaderStatus;
+    let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).build();
+    let of = |kind| Leader::ALL.iter().copied().find(|l| l.data().faction == FactionTag::Arborec && l.data().kind == kind).unwrap();
+    // The commander is unlocked already and the hero is locked: neither is a locked commander.
+    s.players_mut().edit(0).leaders.status.insert(of(LeaderType::Commander), LeaderStatus::Unlocked);
+    s.players_mut().edit(0).leaders.status.insert(of(LeaderType::Hero), LeaderStatus::Locked);
+    assert_eq!(advance_prelude(&mut s, &env(&k), None).unwrap().0, Live::Done);
+    // A faction with a hook (Hacan's Gila the Silvertongue) is judged, not stopped.
+    let (mut s, k) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
+    let gila = Leader::GilaTheSilvertongue;
+    s.players_mut().edit(0).leaders.status.insert(gila, LeaderStatus::Locked);
+    s.players_mut().edit(0).econ.trade_goods = 10;
+    advance_prelude(&mut s, &env(&k), None).unwrap();
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&gila), Some(&LeaderStatus::Unlocked));
+    assert_eq!(plain(&s), [PlainRec::one(PlainKind::LeaderUnlocked, ti4_engine_core::state::PlainArg::Leader(gila))]);
+}
+
+#[test]
+fn the_job_window_keeps_only_which_job_it_is() {
+    use ti4_engine_core::driver::live::{ask, is_open};
+    use ti4_engine_core::driver::turn::{ask_job, open_finish, open_job_of, TurnFlowWin};
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
+    let e = env(&k);
+    assert_eq!(open_job_of(&s), None);
+    assert!(ask_job(&s, &e).unwrap().is_none(), "no job, no question");
+    open_finish(&mut s);
+    assert_eq!(open_job_of(&s), Some(TurnJob::Finish));
+    assert!(is_open::<TurnFlowWin>(&s));
+    assert!(ask::<TurnFlowWin>(&s, &e).unwrap().is_none(), "a job that has not run asks nothing yet");
+    // A question put by a job is asked by the job, and an answer to a job with no question is refused.
+    let planet_system = ti4_engine_core_tests::scenario::first_planet().0;
+    let (mut m, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).command_token(planet_system, 0).build();
+    m.agenda_mut().laws.insert(Agenda::MinisterOfWar, Outcome::Seat(Seat(0)));
+    let e = env(&k);
+    advance_job(TurnJob::End, &mut m, &e, None).unwrap();
+    assert!(ask_job(&m, &e).unwrap().is_some());
+}
+
+#[test]
+fn predictive_intelligence_is_a_window_of_the_action_phase_only() {
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Agenda).active(Some(0)).tech(0, Technology::PredictiveIntelligence).tokens(0, 2, 2, 2).build();
+    assert_eq!(advance_job(TurnJob::End, &mut s, &env(&k), None).unwrap().0, Live::Done, "no restack is asked outside the action phase");
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::PredictiveIntelligence).tokens(0, 2, 2, 2).build();
+    assert!(matches!(advance_job(TurnJob::End, &mut s, &env(&k), None).unwrap().0, Live::Asks(_)));
+}
