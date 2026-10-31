@@ -2375,6 +2375,42 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Package W10: the effects at the end of a production by an ability run after the core child (`leaders_core::announce_uses`): the Prophecy
+    /// of Ixth is discarded by a thin production (fewer than two fighters), a planet-value swap lapses with the use. Before it the window
+    /// bailed at a table with the law in play or a swapped value ("an end-of-use effect of the production").
+    #[test]
+    fn umbat_runs_the_end_of_use_effects_in_lockstep() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let leader = LeaderId::new(AGENT);
+        let mut kept = 0;
+        for (n, fighters_wanted) in [(0, 0), (1, 2)] {
+            let mut state = muaat_game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            set_status(&mut state, &a(), AGENT, LeaderStatus::Readied);
+            let b_home = home_of(&state, &b());
+            put(&mut state, &b_home, "warsun", &b(), 1);
+            state.laws.insert("prophecy".to_owned(), "b".to_owned());
+            // A planet value swapped for the use in progress (it lapses with the use).
+            state.production_value_swapped_planet = Some(PlanetId::new("jord"));
+            state.faction_marks.insert("production:value_swap_seq".to_owned(), state.production_seq.to_string());
+            let _ = fighters_wanted;
+            let mut table = queued(&["b"]);
+            let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || with_context(&mut state, DEFAULT, None, &mut table, |ctx| use_leader(ctx, &a(), &leader)));
+            assert_eq!(done, Some(true), "{n}");
+            assert!(state.production_value_swapped_planet.is_none(), "the swap lapsed with the use");
+            kept += usize::from(state.laws.contains_key("prophecy"));
+        }
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::muaat::agent"), (2, 0), "{r:?}");
+        let _ = kept;
+        let _ = take_report();
+    }
+
     /// A Nekro seat may carry the text of The Inferno on its own flagship (the Z token), and a Nekro holder of Fires of the Gashlai may
     /// carry the war sun technology on a Valefar Assimilator: the string decides both, counted as bails with their reasons.
     #[test]

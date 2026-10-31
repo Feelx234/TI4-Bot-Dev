@@ -8,12 +8,16 @@
 //! Naaz repairs the Eidolon Maximum and offers Supercharge; the question rides on the tape of the step).
 //!
 //! Not covered (the adapter returns `None`, the string result stands; see `dual_window::begin_round`):
-//! diplomacy enabled (the attack-promise evaluation) and a Munitions Reserves holder below rules version 8 (the payment is asked at the opening).
+//! diplomacy enabled (the attack-promise evaluation) and goods a Keleres agent could turn into spendable ones for a Munitions Reserves
+//! holder below rules version 8 (the payment is asked at the opening: `Facts::munitions_start`, package W10).
 //! Arc Secundus (and a Nekro flagship lent its text) repairs itself after the hooks of each participant (package W2).
 
 use super::{ships_of, Rd};
-use crate::choice::{Choice, Pick};
-use crate::generated::System;
+use crate::choice::combat::{Ask as CAsk, Opt as COpt, Subtype as CSub};
+use crate::choice::generic::Content;
+use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Pick, Subtype};
+use crate::containers::SmallList;
+use crate::generated::{Ability, System};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -61,6 +65,9 @@ pub struct Facts {
     pub announce: bool,
     /// A round agent (Letnev's own, or a Yssaril copy of it) listens: `COMBAT_ROUND_STARTED` carries `round_seq`.
     pub round_seq_listens: bool,
+    /// Per side (attacker, defender): Munitions Reserves is paid at the opening (a holder below `RULES_MUNITIONS_AFTER_ROLL`; later it is
+    /// decided after the roll, in the roll step).
+    pub munitions_start: [bool; 2],
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +82,40 @@ impl BeginRound {
     #[must_use]
     pub const fn new(f: Facts) -> Self {
         Self { f, flipped: Vec::new(), stage: Stage::Start }
+    }
+
+    /// Letnev's Munitions Reserves below `RULES_MUNITIONS_AFTER_ROLL` (string `faction_abilities::space_combat_round_started` /
+    /// `munitions_offer`): "at the start of each round of space combat, you may spend 2 trade goods to re-roll any number of your dice
+    /// during that combat round". Asked when the 2 trade goods are held; paying marks the round, and the roll step rerolls the misses.
+    fn munitions(sx: &mut Sx<'_>, who: Seat) {
+        let held = sx.state.players().by_seat(who).map_or(0, |p| i32::from(p.econ.trade_goods));
+        if held < super::roll::MUNITIONS_COST {
+            return;
+        }
+        let choice = Choice {
+            actor: who,
+            ask: Ask::Combat(CAsk::MunitionsStart { have: u16::try_from(held).unwrap_or(u16::MAX) }),
+            ctx: Ctx {
+                origin: Origin::FactionAbility(Content::Ability(Ability::MunitionsReserves)),
+                subtype: Subtype::Combat(CSub::MunitionsRoll),
+                optional: false,
+                target: None,
+                outstanding: SmallList::new(),
+                space_battle: false,
+                invasion_seq: None,
+            },
+            opts: [Opt::Combat(COpt::MunitionsStart), Opt::Decline].into_iter().collect(),
+        };
+        if sx.ask(&choice) != Pick::Opt(Opt::Combat(COpt::MunitionsStart)) {
+            return;
+        }
+        if !fx::spend_trade_goods(sx.state, who, super::roll::MUNITIONS_COST) {
+            return;
+        }
+        let round = sx.state.meta().combat_round_seq;
+        if let Some(p) = sx.state.players_mut().by_seat_mut(who) {
+            p.combat_timers.munitions_round.set(Some(round));
+        }
     }
 }
 
@@ -150,9 +191,12 @@ impl Window for BeginRound {
             let _ = sx.emit(fx::event(EventKind::CombatRoundStarted, announced));
         }
         // The faction offers made at the round's opening window, before any dice, for each participant.
-        for who in [f.attacker, f.defender] {
+        for (at, who) in [f.attacker, f.defender].into_iter().enumerate() {
             let (k, mut cx) = (sx.kernel, sx.cx());
             k.hooks.general.space_combat_round_started(&mut cx, who);
+            if f.munitions_start[at] {
+                Self::munitions(sx, who);
+            }
             repair_self_repairing(sx.state, f.system, who);
         }
         self.stage = Stage::Done;

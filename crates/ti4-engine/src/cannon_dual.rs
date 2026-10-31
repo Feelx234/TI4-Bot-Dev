@@ -5,7 +5,7 @@
 //! What stays with the string (bails, each counted under the label with its reason): irreproducible dice, a seat of a faction
 //! dropped by decision, seats not in id order (the string iterates its gunners by player id), a Jol-Nar commander or a Heart of
 //! Ixth (their reroll windows ask), a Letnev commander that pays on a sustain without being unlocked, games below the rules
-//! version of the faction effects, neutral units in the system, nested activity the reaction table does not follow.
+//! version of the faction effects, nested activity the reaction table does not follow.
 
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
@@ -21,7 +21,7 @@ use ti4_model::state::GameState;
 
 use crate::core_sync::{Footprint, Sources, with_core};
 use crate::dual::{CoreWindow, Run, note_bail};
-use crate::dual_window::{DiceSeeds, Recording, apply_staged, drive_windowed, event_of, nested_check, nested_fp, tables};
+use crate::dual_window::{DiceSeeds, Recording, apply_staged, drive_windowed, event_of, nested_check, nested_fp, tables, tables_of_sides};
 use crate::event::Event;
 use crate::generated::IdStr;
 
@@ -74,10 +74,6 @@ pub fn unported(gs: &GameState, a: &Args<'_>) -> Option<&'static str> {
                 && p.leaders.get(ti4_model::id::text("letnevcommander")) != Some(&ti4_model::state::LeaderStatus::Unlocked))
     }) {
         return Some("a reroll question (Jol-Nar commander, Heart of Ixth) or a commander payment not held as unlocked");
-    }
-    let board = gs.system_state(a.system);
-    if board.units.iter().chain(board.planet_units.values().flatten()).any(|u| crate::neutral_units::is_neutral(&u.owner)) {
-        return Some("neutral units in the system");
     }
     None
 }
@@ -526,7 +522,7 @@ const OVER: Footprint = Footprint::new(
 
 /// Why the end of the fight holds something the core window does not carry (`None`: it is carried): a dropped faction, Titans
 /// (Coalescence's forced combats are a hook the combat kernel does not register), a diplomacy table (a contact pauses the chain),
-/// Shard of the Throne changing hands (a law's theft), neutral sides.
+/// Shard of the Throne changing hands (a law's theft).
 #[must_use]
 pub fn over_unported(gs: &GameState, a: &OverArgs<'_>) -> Option<&'static str> {
     if crate::tactical_dual::dropped_faction_at_the_table(gs) {
@@ -541,9 +537,6 @@ pub fn over_unported(gs: &GameState, a: &OverArgs<'_>) -> Option<&'static str> {
     if gs.laws.contains_key("shard_of_the_throne") {
         return Some("Shard of the Throne in play (its theft)");
     }
-    if a.before.sides().iter().any(|s| crate::neutral_units::is_neutral(s)) {
-        return Some("a neutral side");
-    }
     None
 }
 
@@ -557,7 +550,9 @@ pub fn fight_over(gs: &mut GameState, content: &ContentStore, sources: SourceSet
         note_bail(OVER_LABEL, "content other than the embedded one");
         return None;
     }
-    let Some((mut cx, r)) = tables(gs) else {
+    // (The neutral force is a side of the fight even when its last unit fell in it: the owner table puts it in.)
+    let sides: Vec<&PlayerId> = a.before.sides().iter().collect();
+    let Some((mut cx, r)) = tables_of_sides(gs, &sides) else {
         note_bail(OVER_LABEL, "owner tables");
         return None;
     };

@@ -407,3 +407,34 @@ fn the_heart_of_ixth_is_asked_of_its_holder_but_an_answer_changes_nothing_yet() 
     };
     assert_eq!(take(&mut rig), take(&mut plain), "the answer changed no die");
 }
+
+// ---- a roll that ends the fight (package W10) -----------------------------------------------------
+
+#[test]
+fn a_crown_reroll_that_destroys_the_last_ship_ends_the_fight_inside_the_step() {
+    covers!("rules::combat::roll::RollStep");
+    let (mut ended, mut went_on) = (0, 0);
+    for seed in 0..80u64 {
+        let mut rig = crown_rig(seed, true);
+        rig.run();
+        assert!(!rig.is_done());
+        rig.pick(0);
+        assert!(rig.is_done());
+        let w = &rig.driver.window;
+        let attacker_ships = rig.state.board().sys(sys()).units.iter().filter(|p| p.owner() == Seat(0)).count();
+        if w.ended {
+            ended += 1;
+            assert_eq!(attacker_ships, 0, "seed {seed}: the fleet the rerolls emptied");
+            // The other side never rolled and nothing was queued, counted or announced as the end of the step.
+            assert_eq!(w.drawn.len(), 2, "seed {seed}: the roll and the reroll only");
+            assert!(w.queue.is_empty());
+            assert!(rig.state.transient().combat.combat_round_hits.is_empty(), "no hits are recorded for the round");
+            assert_eq!(rig.state.ledger().dice.len(), 2);
+        } else {
+            went_on += 1;
+            assert_eq!(attacker_ships, 1);
+            assert_eq!(w.drawn.len(), 3, "seed {seed}: the defender rolled too");
+        }
+    }
+    assert!(ended > 0 && went_on > 0, "the seeds cover both: {ended} ended, {went_on} went on");
+}

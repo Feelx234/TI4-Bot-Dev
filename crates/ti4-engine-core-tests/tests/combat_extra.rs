@@ -52,6 +52,10 @@ fn bfacts(announce: bool) -> BarrageFacts {
         extra: Code(4),
         unit_codes: vec![(Unit::DestroyerI, Code(10)), (Unit::DestroyerII, Code(11))],
         raid: None,
+        commander: [false, false],
+        shown: vec![(Unit::DestroyerI, Code(10)), (Unit::DestroyerII, Code(11))],
+        extra_shown: Code(12),
+        hit_texts: ti4_engine_core::kernel::children::HitTexts { staging: false, commander: Code(13), casualty: Code(14), effect_hit: Code(15) },
     }
 }
 

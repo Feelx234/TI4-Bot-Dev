@@ -10909,6 +10909,107 @@ mod tests {
         }
     }
 
+    /// Package W10: X-89 Bacterial Weapon doubles the hits of its holder's ground combat rolls in the core windows (the roll pair and the
+    /// tail that re-reads the staged dice): a whole ground fight on `Invasion=dual` with the technology held by the invader, the defender
+    /// or both, with no difference and both windows compared (before: the gates "X-89 Bacterial Weapon").
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn x89_doubles_the_ground_hits_in_the_core_windows_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b) = (invader(), holder());
+        for (holders, seed) in [([true, false], 4_u64), ([false, true], 5), ([true, true], 6), ([true, false], 11)] {
+            let (mut state, system, planet) = arena();
+            for (seat, faction) in state.players.iter_mut().zip(["sol", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &a, 4);
+            on_planet(&mut state, &system, &planet, "infantry", &b, 4);
+            for (who, held) in [(&a, holders[0]), (&b, holders[1])] {
+                if held {
+                    state.player_mut(who).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("x89c4"));
+                }
+            }
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            state.rng_seed = seed;
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+            let _ = crate::dual::with_mask(mask, || {
+                drive_invasion(
+                    &mut state,
+                    &system,
+                    Stage::Fighting { planets: vec![planet.clone()], index: 0, defender: b.clone() },
+                    InvasionReport { committed: vec![planet.clone()], ..InvasionReport::default() },
+                    vec!["fight".to_owned()],
+                    &mut dice,
+                    &mut rng,
+                )
+            });
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+            assert!(report.differences.is_empty(), "{holders:?} seed {seed}: {shown}");
+            for label in ["invasion::roll_ground", "invasion::roll_ground_tail"] {
+                let w = report.windows.get(label).cloned().unwrap_or_default();
+                assert!(w.compared > 0 && w.bailed == 0, "{holders:?} seed {seed}: {label} ran in the core: {:?}", report.windows);
+            }
+            // Bail-as-failure: the whole fight ran natively.
+            assert!(report.windows.iter().all(|(label, w)| w.bailed == 0 || !(label.contains("[bail:") || label.contains("[gate:"))), "{holders:?} seed {seed}: {:?}", report.windows);
+            let _ = crate::dual::take_report();
+        }
+    }
+
+    /// Package W11: a ground combat against neutral infantry (Mercenary Contract) runs in the core windows: the start of the round, the
+    /// dice, the tail, the hits (the casualty goes to the unit lowest on the reference card, nobody is asked for the neutral side).
+    /// Fails on the pre-W11 gates ("neutral side").
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn a_ground_combat_against_neutral_infantry_runs_in_the_core_windows_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let a = invader();
+        let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
+        for seed in 0..8_u64 {
+            let (mut state, system, planet) = arena();
+            for (seat, faction) in state.players.iter_mut().zip(["sol", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            on_planet(&mut state, &system, &planet, "infantry", &a, 2 + usize::try_from(seed % 4).unwrap());
+            on_planet(&mut state, &system, &planet, "neutral_infantry", &neutral, 2 + usize::try_from(seed % 3).unwrap());
+            if seed % 2 == 1 {
+                on_planet(&mut state, &system, &planet, "mech", &a, 1);
+            }
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            state.rng_seed = seed;
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+            let _ = crate::product::with_strict(std::env::var("W11_STRICT").is_ok(), || crate::dual::with_mask(mask, || {
+                drive_invasion(
+                    &mut state,
+                    &system,
+                    Stage::Fighting { planets: vec![planet.clone()], index: 0, defender: neutral.clone() },
+                    InvasionReport { committed: vec![planet.clone()], ..InvasionReport::default() },
+                    vec!["fight".to_owned()],
+                    &mut dice,
+                    &mut rng,
+                )
+            }));
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+            assert!(report.differences.is_empty(), "seed {seed}: {shown}");
+            for label in ["invasion::roll_ground", "invasion::roll_ground_tail", "invasion::begin_ground_round"] {
+                let w = report.windows.get(label).cloned().unwrap_or_default();
+                assert!(w.compared > 0 && w.bailed == 0, "seed {seed}: {label} ran in the core: {:?}", report.windows);
+            }
+            // Bail-as-failure: the whole fight ran natively (the exploration of a first claim of the planet is the exploration area's gate).
+            let others = |label: &String| !label.contains("control_gain_exploration");
+            assert!(report.windows.iter().filter(|(label, _)| others(label)).all(|(_, w)| w.bailed == 0), "seed {seed}: no window bailed: {:?}", report.windows);
+            let _ = crate::dual::take_report();
+        }
+    }
+
     /// Package W1: Naaz's Supercharge and the repair of the Eidolon Maximum at the start of a ground round run in the core window
     /// (`ground_combat_round_started` of the Naaz crate; the question rides on the tape of the step). Both answers, both sides
     /// holding the technology, a damaged Maximum, with the invasion on `Dual`: no difference, the window ran in the core and the
@@ -11159,6 +11260,11 @@ mod tests {
         let a = invader();
         let b = holder();
         let (mut state, system, planet, other) = dual_arena();
+        for (seat, faction) in state.players.iter_mut().zip(["sol", "hacan"]) {
+            seat.faction = ti4_model::id::FactionId::new(faction);
+        }
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
         state
             .system_mut(&system)
             .set_control(planet.clone(), b.clone());
@@ -11180,7 +11286,7 @@ mod tests {
         let script: Vec<String> = if with_card {
             vec![
                 commit,
-                "reaction:generic:UNITS_COMMITTED:after".to_owned(),
+                "reaction:hacan:UNITS_COMMITTED:after".to_owned(),
                 format!("move|{planet}|{other}|infantry"),
                 "decline".to_owned(),
             ]
@@ -11197,6 +11303,25 @@ mod tests {
             &mut rng,
         );
         (asks, state, system, planet, other)
+    }
+
+    /// W11: Ghost Squad ("after another player commits ground forces to a planet you control: move any number of your ground forces ...") is
+    /// played from the standing slot of the commitment's window by the core: the holder's moves are its questions, the facts are handed in
+    /// by the host. Fails on the pre-W11 bail "unported ability reaction:*:UNITS_COMMITTED:after (card ghost_squad)".
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn ghost_squad_is_played_in_the_commit_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let _ = crate::dual::take_report();
+        let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+        let (_, state, system, planet, other) = crate::product::with_strict(std::env::var("W11_STRICT").is_ok(), || crate::dual::with_mask(mask, || ghost_run(true)));
+        let report = crate::dual::report();
+        let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+        assert!(report.differences.is_empty(), "{shown}");
+        assert!(report.windows.keys().all(|k| !k.contains("ghost_squad") && !k.contains("(card ")), "{:?}", report.windows);
+        assert!(report.windows.get("invasion::commit_one").is_some_and(|w| w.compared > 0 && w.bailed == 0), "{:?}", report.windows);
+        assert!(!state.system_state(&system).on_planet(&other).is_empty(), "the forces moved");
+        let _ = (planet, crate::dual::take_report());
     }
 
     #[test]
@@ -11278,7 +11403,7 @@ mod tests {
             vec![format!("move|{from}|{to}|infantry"), "decline".to_owned()]
         };
         let reaction_offer = vec![
-            "reaction:generic:UNITS_COMMITTED:after".to_owned(),
+            "reaction:hacan:UNITS_COMMITTED:after".to_owned(),
             "decline".to_owned(),
         ];
         assert_eq!(
@@ -13414,7 +13539,8 @@ mod core_ground_round_prechecks {
         state.system_mut(&s).planet_units.entry(p.clone()).or_default().push(Unit::new(UnitTypeId::new("infantry"), b.clone()));
         assert_eq!(begin_ground_unported(&state, &begin(&a, &b, &s, &p, false)), None);
         let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
-        assert_eq!(begin_ground_unported(&state, &begin(&neutral, &b, &s, &p, false)), Some("neutral side"));
+        // The neutral force is carried since package W11 (an owner without a seat, with the rules' own answers).
+        assert_eq!(begin_ground_unported(&state, &begin(&neutral, &b, &s, &p, false)), None);
     }
 
     /// Dice an ability rolled need the streams (`Sources::rng`, a seeded driver); a window that is lent none cannot
@@ -13517,13 +13643,16 @@ mod core_ground_round_prechecks {
         let args = RollTailArgs { invader: &a, defender: &b, system: &s, planet: &p, rolled: (1, 1), bump: true, announce: true };
         assert_eq!(roll_tail_unported(&state, &args), None);
         state.player_mut(&a).unwrap().technologies.insert(ti4_model::TechnologyId::new("x89c4"));
-        assert_eq!(roll_tail_unported(&state, &args), Some("X-89 Bacterial Weapon"));
+        // (X-89 Bacterial Weapon doubles the hits in the core window since package W10.)
+        assert_eq!(roll_tail_unported(&state, &args), None);
         state.player_mut(&a).unwrap().technologies.clear();
         state.faction_marks.insert(crate::combat::ROLL_REPLAY_MARK.to_owned(), String::new());
         assert_eq!(roll_tail_unported(&state, &args), Some("roll replay mark"));
         state.faction_marks.clear();
+        // (A neutral side is carried since package W11.)
         let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
         let args = RollTailArgs { invader: &neutral, ..args };
-        assert_eq!(roll_tail_unported(&state, &args), Some("neutral side"));
+        state.faction_marks.clear();
+        assert_eq!(roll_tail_unported(&state, &args), None);
     }
 }

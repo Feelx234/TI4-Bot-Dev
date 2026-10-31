@@ -429,10 +429,8 @@ impl Window for Resolve {
                 }
                 Kind::Nothing | Kind::Draw(..) | Kind::Cards | Kind::Seed(..) | Kind::Defense => {}
                 Kind::Table(table) => {
-                    if let Some(facts) = &self.facts
-                        && !table.apply(sx.state, facts)
-                    {
-                        self.unsupported = true;
+                    if let Some(facts) = &self.facts {
+                        table.apply(sx.state, facts);
                     }
                 }
                 Kind::Reveal(secret) => {

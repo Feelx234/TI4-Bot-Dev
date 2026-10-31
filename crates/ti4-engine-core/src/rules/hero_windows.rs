@@ -58,7 +58,7 @@ pub enum FStage {
 /// 1 technology of the specialty's colour. Then, purge this card." The planet and the technology are chosen before anything changes (a
 /// single candidate is taken unasked; no technology candidate gains none); then every other seat's unit on the planet leaves it, the
 /// ground forces staged as destroyed (cause `nekrohero`), the goods are gained (announced) and the technology is granted.
-/// [`Self::used`]: some planet was devoured. [`Self::unsupported`]: a galvanized ground force fell (the staged row cannot hold it).
+/// [`Self::used`]: some planet was devoured (a galvanized ground force that falls is staged with the string's trailing `|g` field).
 #[derive(Debug, Clone)]
 pub struct NekroHero {
     pub who: Seat,
@@ -68,13 +68,12 @@ pub struct NekroHero {
     stage: FStage,
     chosen: Option<usize>,
     pub used: bool,
-    pub unsupported: bool,
 }
 
 impl NekroHero {
     #[must_use]
     pub fn new(who: Seat, source: Code, planets: Vec<Devourable>) -> Self {
-        Self { who, source, planets, stage: FStage::Start, chosen: None, used: false, unsupported: false }
+        Self { who, source, planets, stage: FStage::Start, chosen: None, used: false }
     }
 
     fn chosen_planet(&self) -> Option<&Devourable> {
@@ -108,10 +107,8 @@ impl NekroHero {
             if let Some(at) = sx.state.board().planet(planet).units.as_slice().iter().position(|p| p == piece) {
                 sx.state.board_mut().planet_mut(planet).units.remove(at);
             }
-            if fleet::is_ground_force(piece.kind())
-                && fx_ground_stage(sx.state, system, planet, *piece).is_err()
-            {
-                self.unsupported = true;
+            if fleet::is_ground_force(piece.kind()) {
+                fx_ground_stage(sx.state, system, planet, *piece);
             }
         }
         fx::gain_trade_goods_staged(sx.state, self.who, target.goods, self.source);
@@ -122,8 +119,8 @@ impl NekroHero {
 }
 
 /// `hooks_ground::stage_ground_force_destroyed` with the cause `nekrohero`.
-fn fx_ground_stage(core: &mut CoreState, system: System, planet: Planet, piece: crate::state::Piece) -> Result<(), ()> {
-    crate::kernel::fx_ground::stage_destroyed(core, system, planet, piece, DestroyReason::LeaderBare(Leader::UNITDSGNFLAYESH))
+fn fx_ground_stage(core: &mut CoreState, system: System, planet: Planet, piece: crate::state::Piece) {
+    crate::kernel::fx_ground::stage_destroyed(core, system, planet, piece, DestroyReason::LeaderBare(Leader::UNITDSGNFLAYESH));
 }
 
 impl Window for NekroHero {

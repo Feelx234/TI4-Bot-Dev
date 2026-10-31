@@ -1968,6 +1968,35 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Package W10: a Nekro seat that carries Production Biomes on a Valefar Assimilator (its token sits on the technology another seat owns)
+    /// runs the window in the core too; the carrier is the card exhausted. Before it the adapter bailed ("carried by something other than
+    /// the player's own card").
+    #[test]
+    fn production_biomes_carried_by_a_valefar_assimilator_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "sol"), ("c", "arborec")], POK);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let nekro = PlayerId::new("a");
+        state.player_mut(&PlayerId::new("b")).unwrap().technologies.insert(TechnologyId::new("pm"));
+        let seat = state.player_mut(&nekro).unwrap();
+        seat.technologies.insert(TechnologyId::new("vax"));
+        seat.assimilated_technologies.insert("vax".to_owned(), TechnologyId::new("pm"));
+        seat.strategic_tokens = 2;
+        let biomes = crate::choice::ChoiceOption::labelled("faction|production_biomes", ACTION_KIND, "Production Biomes");
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(["b".to_owned()])));
+        let done = with_mask(AreaMask::STRING.with(Area::Technology, Backend::Dual), || with_table_context(&mut state, None, &mut table, |context| perform_component(context, &nekro, &biomes)));
+        assert!(done);
+        assert!(state.player(&nekro).unwrap().exhausted_technologies.contains(&TechnologyId::new("vax")), "the assimilator is the card exhausted");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("faction_abilities::production_biomes"), (1, 0), "{r:?}");
+        let _ = take_report();
+    }
+
     /// The component actions that stay in the string are counted at `perform_component` (W11-open-01); Production Biomes and Trade
     /// Convoys are not among them. Fails when the gate is removed or a core port is listed as string-only.
     #[test]

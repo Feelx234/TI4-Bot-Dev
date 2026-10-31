@@ -340,7 +340,7 @@ fn the_commander_window_alone_refuses_every_pick_that_is_not_its_own() {
 // ---- BeginRound ------------------------------------------------------------------------------
 
 fn begin(round: u32, announce: bool, listens: bool) -> BeginFacts {
-    BeginFacts { attacker: Seat(0), defender: Seat(1), system: sys(), round, phase: Code(4), announce, round_seq_listens: listens }
+    BeginFacts { attacker: Seat(0), defender: Seat(1), system: sys(), round, phase: Code(4), announce, round_seq_listens: listens, munitions_start: [false, false] }
 }
 
 fn fleets() -> Scenario {
@@ -463,4 +463,53 @@ fn the_retreat_window_never_asks() {
     rig.run();
     assert!(rig.is_done());
     assert_eq!(rig.driver.window.ask_of(&rig.state, &rig.kernel), None);
+}
+
+#[test]
+fn munitions_reserves_is_asked_at_the_opening_and_paid_below_rules_version_eight() {
+    covers!("rules::combat::begin_round::BeginRound");
+    use ti4_engine_core::choice::generic::Content;
+    use ti4_engine_core::choice::Origin;
+    let sc = || fleets().goods(0, 3).goods(1, 3);
+    let facts = |start: [bool; 2]| BeginFacts { munitions_start: start, ..begin(1, true, false) };
+    // The holder with the goods is asked; a payment spends 2 trade goods and marks the round for the roll step.
+    let mut rig = Rig::new(sc(), BeginRound::new(facts([true, false])));
+    rig.run();
+    assert_eq!(rig.asked().actor, Seat(0));
+    assert_eq!(rig.asked().ask, Ask::Combat(CAsk::MunitionsStart { have: 3 }));
+    assert_eq!(rig.asked().ctx.subtype, Subtype::Combat(CSub::MunitionsRoll));
+    assert_eq!(rig.asked().ctx.origin, Origin::FactionAbility(Content::Ability(ti4_engine_core::generated::Ability::MunitionsReserves)));
+    assert_eq!(rig.opts(), vec![c(COpt::MunitionsStart), Opt::Decline]);
+    rig.pick(0);
+    assert!(rig.is_done());
+    let p = rig.state.players().by_seat(Seat(0)).unwrap();
+    assert_eq!(p.econ.trade_goods, 1, "2 of the 3 trade goods paid");
+    assert!(p.combat_timers.munitions_round.is(1), "for this round only: the round sequence of the opening");
+    // Declining pays nothing and marks nothing.
+    let mut declined = Rig::new(sc(), BeginRound::new(facts([true, false])));
+    declined.run();
+    declined.decline();
+    assert!(declined.is_done());
+    let p = declined.state.players().by_seat(Seat(0)).unwrap();
+    assert_eq!((p.econ.trade_goods, p.combat_timers.munitions_round.get()), (3, None));
+    // Exactly the 2 trade goods pay.
+    let (exact, kernel) = sc().goods(0, 2).build();
+    let mut rig = Rig::from_parts(exact, kernel, BeginRound::new(facts([true, false])));
+    rig.run();
+    assert!(!rig.is_done(), "two trade goods are enough");
+    // Not asked: a side that does not hold the ability, or holds fewer than 2 trade goods.
+    let mut none = Rig::new(sc(), BeginRound::new(facts([false, false])));
+    none.run();
+    assert!(none.is_done());
+    let (mut poor, kernel) = sc().build();
+    poor.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 1;
+    let mut rig = Rig::from_parts(poor, kernel, BeginRound::new(facts([true, false])));
+    rig.run();
+    assert!(rig.is_done(), "one trade good cannot pay");
+    // Both sides: the attacker first, then the defender.
+    let mut both = Rig::new(sc(), BeginRound::new(facts([true, true])));
+    both.run();
+    assert_eq!(both.asked().actor, Seat(0));
+    both.pick(0);
+    assert_eq!(both.asked().actor, Seat(1));
 }

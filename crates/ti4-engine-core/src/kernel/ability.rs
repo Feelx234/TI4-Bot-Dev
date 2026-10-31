@@ -80,9 +80,6 @@ pub enum Unknown {
     DataSkimmer,
     /// The play of a card needs what the adapter did not compute (`AdapterFacts::plays`).
     PlayFacts,
-    /// Reflective Shielding played inside a window: it stages hits that the string sustain step drains after the
-    /// window closes (the combat area's absorption), which the core windows do not.
-    ReflectiveShielding,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -150,6 +147,10 @@ pub struct Codes {
     pub salvage: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
+    /// The subtype `assign_casualty` of a casualty question and the cause `action_card:reflective_shielding` of a loss to the hits a
+    /// Reflective Shielding stages.
+    pub assign_casualty: crate::state::Code,
+    pub reflective_cause: crate::state::Code,
     /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
     /// `trade_agreement`, `artuno` (Artuno the Betrayer does not copy them).
     pub not_from_supply: [crate::state::Code; 5],
@@ -174,6 +175,61 @@ pub struct SeatPlay {
     /// Reveal Prototype: the seat can spend the four resources and a unit upgrade is open to it (`action_cards::cost_is_payable`, which the core
     /// does not judge: the adapter vouches for it).
     pub reveal_payable: bool,
+    /// The other facts a card played from inside a window reads of this seat (the forms it places, the Keleres agent, Deepwrought).
+    pub more: SeatPlayMore,
+}
+
+/// The unit a seat places (`None`: nothing) and the ships of that type on the Crimson card (`rules::action_cards::Placed`).
+pub type PlacedFacts = (Option<crate::generated::Unit>, i64);
+
+/// What a card played from inside a window reads of the seat that plays it, besides the infantry and the cruiser (the adapter's
+/// answers, handed in by the host window like the rest of [`PlayFacts`]; `rules::action_cards::Facts`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SeatPlayMore {
+    pub destroyer: PlacedFacts,
+    pub dreadnought: PlacedFacts,
+    pub mech: PlacedFacts,
+    pub pds: PlacedFacts,
+    pub spacedock: PlacedFacts,
+    /// A readied Keleres agent could be offered before a payment of the seat.
+    pub agent_offered: bool,
+    /// The seat is a Deepwrought seat (dropped by decision).
+    pub holder_deepwrought: bool,
+}
+
+/// What a card played from inside a window reads of the table, besides what [`PlayFacts`] says (handed in by the host window).
+#[derive(Debug, Clone, Copy)]
+pub struct SharedPlay {
+    /// The seat of the neutral owner, when the table has one.
+    pub neutral: Option<Seat>,
+    /// A replenishment at this table causes events the core does not hold.
+    pub replenish_events: bool,
+    /// The Fracture is in play.
+    pub fracture_in_play: bool,
+    /// The breakthrough of each seat's faction.
+    pub own_breakthrough: [Option<crate::generated::Breakthrough>; 16],
+    /// The order of unit types by their id text.
+    pub unit_order: fn(crate::generated::Unit, crate::generated::Unit) -> core::cmp::Ordering,
+    /// Courageous To The End: the interned subtype of its casualty question and the cause of the destructions it stages.
+    pub courageous_subtype: crate::state::Code,
+    pub courageous_cause: crate::state::Code,
+    /// The texts and the flag of the hit flows a card runs as children of the combat area.
+    pub hits: crate::kernel::children::HitTexts,
+}
+
+impl Default for SharedPlay {
+    fn default() -> Self {
+        Self {
+            neutral: None,
+            replenish_events: false,
+            fracture_in_play: false,
+            own_breakthrough: [None; 16],
+            unit_order: |a, b| a.cmp(&b),
+            courageous_subtype: crate::state::Code(0),
+            courageous_cause: crate::state::Code(0),
+            hits: crate::kernel::children::HitTexts::default(),
+        }
+    }
 }
 
 /// The play of an action card from inside a window (the reaction slot, the cards declared in a window): the
@@ -202,6 +258,8 @@ pub struct PlayFacts {
     pub rules_version: u32,
     /// The order of technologies by their id text.
     pub tech_order: fn(crate::generated::Technology, crate::generated::Technology) -> core::cmp::Ordering,
+    /// What the cards that read the table read (see [`SharedPlay`]).
+    pub shared: SharedPlay,
 }
 
 /// Computes the [`PlayFacts`] of a position: a function of the core position and the kernel alone (the live loop has no string state).

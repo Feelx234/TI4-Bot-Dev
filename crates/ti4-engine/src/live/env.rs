@@ -46,5 +46,7 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
 pub fn env_with_plays<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<dyn SeedSource>, sources: ti4_model::content_types::SourceSet) -> Env<'a> {
     let mut env = env_for(r, core, kernel, seeds);
     env.table.facts.plays_provider = Some(super::plays::provider(r, sources));
+    // Losses are announced when some seat's faction has a module (`supply::staging_enabled`): fixed by the seating, set once.
+    env.table.facts.staging = super::plays::staging_enabled(core);
     env
 }

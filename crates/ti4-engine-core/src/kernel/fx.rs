@@ -405,15 +405,36 @@ pub fn remove_command_token(s: &mut CoreState, who: Seat, system: System) -> boo
     s.board_mut().sys_mut(system).cmd.remove(who)
 }
 
-/// Command tokens in a seat's reinforcements: sixteen less the sheet and the board (`GameState::
-/// tokens_in_reinforcements`; a token in a Mahact fleet pool is the caller's to bail on).
+/// How many of `who`'s command tokens sit in a Mahact fleet pool (`GameState::tokens_held_by_mahact`: the fleet pool marks of every seat).
+/// Zero where the marks are not part of the lend (the window's footprint does not read them).
+#[must_use]
+pub fn tokens_held_by_mahact(s: &CoreState, who: Seat) -> i32 {
+    use crate::keys::{Atom, MarkKey, MarkVal};
+    if !s.loaded.has(crate::state::Slice::Marks) {
+        return 0;
+    }
+    let held: usize = s
+        .marks()
+        .tail
+        .iter()
+        .filter(|(k, _)| matches!(k, MarkKey::MahactFleet(_)))
+        .map(|(_, v)| match v {
+            MarkVal::List(items) => items.iter().filter(|i| matches!(i, MarkVal::Atom(Atom::Seat(owner)) if *owner == who)).count(),
+            _ => 0,
+        })
+        .sum();
+    i32::try_from(held).unwrap_or(i32::MAX)
+}
+
+/// Command tokens in a seat's reinforcements: sixteen less the sheet, the board and the Mahact fleet pools (`GameState::
+/// tokens_in_reinforcements`).
 #[must_use]
 pub fn tokens_in_reinforcements(s: &CoreState, who: Seat) -> i32 {
     let on_sheet = s.players().by_seat(who).map_or(0, |p| {
         i32::from(p.econ.tactic_tokens) + i32::from(p.econ.fleet_tokens) + i32::from(p.econ.strategic_tokens)
     });
     let on_board = s.board().systems().filter(|(_, cell)| cell.cmd.contains(who)).count();
-    (TOKENS_PER_FACTION - on_sheet - i32::try_from(on_board).unwrap_or(i32::MAX)).max(0)
+    (TOKENS_PER_FACTION - on_sheet - i32::try_from(on_board).unwrap_or(i32::MAX) - tokens_held_by_mahact(s, who)).max(0)
 }
 
 /// `GameState::gain_token` for a positive count: at most what is in reinforcements. Returns how many were gained.
