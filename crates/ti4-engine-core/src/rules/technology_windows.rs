@@ -4,7 +4,7 @@
 //! Each is the string code split at its questions. Psychoarchaeology asks again after each use until no specialty planet is
 //! ready or the owner declines; Predictive Intelligence moves one token per answer (at most as many as the owner holds) and
 //! exhausts the card when anything moved; Bio-Stims readies one planet or technology and exhausts itself.
-//! What stays with the string (the adapter bails): Transit Diodes and Chaos Mapping at the start of a turn.
+//! Chaos Mapping (lane 7) follows Transit Diodes at the start of a turn: the system is asked here, the unit is a child window (`Spawn::ProduceOne`).
 
 use crate::choice::agenda::Shown;
 use crate::choice::strategy::Pool;
@@ -579,7 +579,7 @@ impl Window for TurnEnd {
                             p.tech.exhausted.remove(tech);
                         }
                     }
-                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) | TOpt::Token(..) => return Err(Illegal),
+                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) | TOpt::Token(..) | TOpt::System(_) => return Err(Illegal),
                 }
                 fx_exhaust(sx.state, self.who, Technology::BioStims);
                 self.stage = EStage::Done;
@@ -803,44 +803,192 @@ impl TransitDiodes {
     }
 }
 
-/// The free windows at the start of an action-phase turn: Psychoarchaeology, then Transit Diodes.
+// -- Chaos Mapping --------------------------------------------------------------------------------
+
+/// What the adapter tells the Chaos Mapping window: the systems with a PRODUCTION capacity (`production::capacity > 0`, in system
+/// order: a read of the production area) and the facts of the one-unit production that follows.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChaosFacts {
+    pub systems: Vec<System>,
+    pub one: crate::kernel::children::OneFacts,
+}
+
+/// The suspension points of [`ChaosMapping`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CStage {
+    Start,
+    Asking,
+    Producing,
+    Done,
+}
+
+/// "Chaos Mapping": at the start of a turn the owner may choose a system with a PRODUCTION capacity and produce one unit there (the
+/// single-unit production, a child window: `Spawn::ProduceOne`). A decline ends it. [`Self::unsupported`]: the child ended over the
+/// fleet supply or the capacity of its system, where the string asks which units go.
+#[derive(Debug, Clone)]
+pub struct ChaosMapping {
+    pub who: Seat,
+    facts: ChaosFacts,
+    stage: CStage,
+    child: crate::kernel::children::ErasedChild,
+    pub unsupported: bool,
+}
+
+impl ChaosMapping {
+    #[must_use]
+    pub fn new(who: Seat, facts: ChaosFacts) -> Self {
+        Self { who, facts, stage: CStage::Start, child: crate::kernel::children::ErasedChild::idle(), unsupported: false }
+    }
+}
+
+impl Window for ChaosMapping {
+    type Stage = CStage;
+
+    fn stage(&self) -> CStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        use crate::kernel::children::Report;
+        use crate::kernel::stage::Ran;
+        if self.stage == CStage::Start {
+            self.stage = if owns(sx.state, self.who, Technology::ChaosMapping) && !self.facts.systems.is_empty() { CStage::Asking } else { CStage::Done };
+        }
+        if self.stage == CStage::Producing {
+            match self.child.step(sx) {
+                Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                Some(Ran::Pass(next)) => return next,
+                Some(Ran::Done(report)) => {
+                    self.unsupported = report == Report::Left;
+                    self.stage = CStage::Done;
+                }
+                None => self.stage = CStage::Done,
+            }
+        }
+        match self.stage {
+            CStage::Asking => Next::Continue(Ask::Technology(TAsk::ChaosMapping)),
+            _ => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        match self.stage {
+            CStage::Asking => Some(Choice {
+                actor: self.who,
+                ask: Ask::Technology(TAsk::ChaosMapping),
+                ctx: ctx(Technology::ChaosMapping, TSub::ChaosMappingChooseSystem),
+                opts: self.facts.systems.iter().map(|system| Opt::Technology(TOpt::System(*system))).chain(std::iter::once(Opt::Decline)).collect::<Opts>(),
+            }),
+            CStage::Producing => self.child.ask_of(s, k),
+            CStage::Start | CStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == CStage::Producing {
+            return self.child.answer(sx, pick);
+        }
+        if self.stage != CStage::Asking {
+            return Err(Illegal);
+        }
+        match pick {
+            Pick::Opt(Opt::Decline) => self.stage = CStage::Done,
+            Pick::Opt(Opt::Technology(TOpt::System(system))) if self.facts.systems.contains(&system) => {
+                match sx.table.links.start(&crate::kernel::children::Spawn::ProduceOne { who: self.who, system, facts: self.facts.one }) {
+                    Some(window) => {
+                        self.child.start(window);
+                        self.stage = CStage::Producing;
+                    }
+                    None => {
+                        self.unsupported = true;
+                        self.stage = CStage::Done;
+                    }
+                }
+            }
+            _ => return Err(Illegal),
+        }
+        Ok(())
+    }
+}
+
+/// The free windows at the start of an action-phase turn: Psychoarchaeology, then Transit Diodes, then Chaos Mapping (when the
+/// adapter gave its facts: [`Self::with_chaos_mapping`]).
+#[derive(Debug, Clone)]
 pub struct TurnStart {
     psycho: Psychoarchaeology,
     transit: TransitDiodes,
-    on_transit: bool,
+    chaos: Option<ChaosMapping>,
+    on: u8,
 }
 
 impl TurnStart {
     #[must_use]
     pub const fn new(who: Seat, source: Code) -> Self {
-        Self { psycho: Psychoarchaeology::new(who, source), transit: TransitDiodes::new(who), on_transit: false }
+        Self { psycho: Psychoarchaeology::new(who, source), transit: TransitDiodes::new(who), chaos: None, on: 0 }
+    }
+
+    /// Also run Chaos Mapping after Transit Diodes.
+    #[must_use]
+    pub fn with_chaos_mapping(mut self, facts: ChaosFacts) -> Self {
+        self.chaos = Some(ChaosMapping::new(self.psycho.who, facts));
+        self
+    }
+
+    /// The Chaos Mapping production ended over the fleet supply or the capacity of its system.
+    #[must_use]
+    pub fn unsupported(&self) -> bool {
+        self.chaos.as_ref().is_some_and(|c| c.unsupported)
     }
 }
 
 impl Window for TurnStart {
-    type Stage = (bool, Stage);
+    type Stage = (u8, Stage);
 
     fn stage(&self) -> Self::Stage {
-        if self.on_transit { (true, self.transit.stage()) } else { (false, self.psycho.stage()) }
+        match self.on {
+            0 => (0, self.psycho.stage()),
+            1 => (1, self.transit.stage()),
+            _ => (2, match self.chaos.as_ref().map(ChaosMapping::stage) {
+                Some(CStage::Asking | CStage::Producing) => Stage::Asking,
+                Some(CStage::Start) => Stage::Start,
+                _ => Stage::Done,
+            }),
+        }
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        if !self.on_transit {
+        if self.on == 0 {
             match self.psycho.step(sx) {
-                Next::Done => self.on_transit = true,
+                Next::Done => self.on = 1,
                 waiting => return waiting,
             }
         }
-        self.transit.step(sx)
+        if self.on == 1 {
+            match self.transit.step(sx) {
+                Next::Done => self.on = 2,
+                waiting => return waiting,
+            }
+        }
+        match self.chaos.as_mut() {
+            Some(chaos) => chaos.step(sx),
+            None => Next::Done,
+        }
     }
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
-        if self.on_transit { self.transit.ask_of(s, k) } else { self.psycho.ask_of(s, k) }
+        match self.on {
+            0 => self.psycho.ask_of(s, k),
+            1 => self.transit.ask_of(s, k),
+            _ => self.chaos.as_ref()?.ask_of(s, k),
+        }
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        if self.on_transit { self.transit.answer(sx, pick) } else { self.psycho.answer(sx, pick) }
+        match self.on {
+            0 => self.psycho.answer(sx, pick),
+            1 => self.transit.answer(sx, pick),
+            _ => self.chaos.as_mut().ok_or(Illegal)?.answer(sx, pick),
+        }
     }
 }
 

@@ -28,6 +28,8 @@ pub enum Ask {
     Vortex,
     /// "Wormhole Generator: place or move a Creuss wormhole token" (Ghost): into which system, which token.
     WormholeGenerator,
+    /// "Chaos Mapping": in which system to produce one unit (at the start of a turn).
+    ChaosMapping,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -50,6 +52,8 @@ pub enum Opt {
     Capture(Seat, Unit),
     /// Wormhole Generator: this Creuss token goes into this system.
     Token(crate::generated::Wormhole, System),
+    /// Chaos Mapping: produce one unit in this system.
+    System(System),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -65,4 +69,6 @@ pub enum Subtype {
     VortexTarget,
     /// `creuss_token`.
     CreussToken,
+    /// `chaos_mapping_choose_system`.
+    ChaosMappingChooseSystem,
 }

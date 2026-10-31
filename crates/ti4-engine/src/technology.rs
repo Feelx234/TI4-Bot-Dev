@@ -208,7 +208,7 @@ pub fn start_turn(
             result = start_turn_string(state, content, sources, galaxy, table, player);
             crate::dual::Run::new(result.is_ok())
         },
-        |state: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::start_turn(state, player, script)
+        |state: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::start_turn(state, content, sources, player, script)
     );
     result
 }

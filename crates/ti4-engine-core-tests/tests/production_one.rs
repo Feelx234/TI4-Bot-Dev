@@ -219,3 +219,91 @@ fn the_one_unit_window_survives_every_answer_policy_with_its_properties() {
     smoke_quiet(|| rig(6, 8));
     smoke_quiet(|| rig(2, 1));
 }
+
+// -- Chaos Mapping ----------------------------------------------------------------------------------
+
+use ti4_engine_core::choice::technology::Opt as TOpt;
+use ti4_engine_core::generated::Technology;
+use ti4_engine_core::rules::technology_windows::{ChaosFacts, ChaosMapping, TurnStart};
+use ti4_engine_core::state::Code;
+
+fn chaos_scenario(own: bool) -> Scenario {
+    let sc = scenario(6);
+    if own { sc.tech(0, Technology::ChaosMapping) } else { sc }
+}
+
+fn chaos(own: bool) -> Rig<ChaosMapping> {
+    let (system, _) = first_planet();
+    let facts = ChaosFacts { systems: vec![system], one: facts(8) };
+    Rig::new(chaos_scenario(own), ChaosMapping::new(Seat(0), facts))
+}
+
+#[test]
+fn chaos_mapping_asks_the_system_then_runs_one_unit_as_a_child() {
+    covers!("rules::technology_windows::ChaosMapping");
+    let (system, _) = first_planet();
+    let mut rig = chaos(true);
+    rig.run();
+    assert_eq!(rig.asked().ask, Ask::Technology(ti4_engine_core::choice::technology::Ask::ChaosMapping));
+    assert_eq!(rig.opts(), vec![Opt::Technology(TOpt::System(system)), Opt::Decline]);
+    rig.assert_options_sound();
+    rig.pick_opt(Opt::Technology(TOpt::System(system)));
+    assert!(matches!(rig.asked().ask, Ask::Production(PAsk::One(_))), "the one-unit question of the child: {:?}", rig.asked().ask);
+    rig.pick_where(|o| matches!(o, Opt::Production(POpt::One { unit: Unit::DestroyerI, .. })));
+    while !rig.is_done() && matches!(rig.asked().ask, Ask::Production(PAsk::Pay(_))) {
+        rig.pick_where(|o| matches!(o, Opt::Production(POpt::TradeGood { .. })));
+    }
+    assert!(rig.is_done(), "{}", rig.transcript());
+    assert!(!rig.driver.window.unsupported);
+    assert_eq!(rig.state.board().sys(system).units.as_slice().iter().filter(|p| p.kind() == Unit::DestroyerI).count(), 1);
+}
+
+#[test]
+fn chaos_mapping_declined_or_without_the_card_or_a_system_does_nothing() {
+    covers!("rules::technology_windows::ChaosMapping");
+    let mut declined = chaos(true);
+    declined.run().decline();
+    assert!(declined.is_done());
+    assert_eq!(delta(declined.start_state(), &declined.state), "");
+    let mut without = chaos(false);
+    without.run();
+    assert!(without.is_done(), "no question without the card");
+    let (system, _) = first_planet();
+    let _ = system;
+    let mut nowhere = Rig::new(chaos_scenario(true), ChaosMapping::new(Seat(0), ChaosFacts { systems: Vec::new(), one: facts(8) }));
+    nowhere.run();
+    assert!(nowhere.is_done(), "no system can produce");
+}
+
+#[test]
+fn chaos_mapping_reports_a_unit_that_stands_over_its_system_as_unsupported() {
+    covers!("rules::technology_windows::ChaosMapping");
+    let (system, _) = first_planet();
+    let mut rig = chaos(true);
+    for _ in 0..3 {
+        ti4_engine_core::kernel::fx::place_unit(&mut rig.state, Seat(0), system, None, Unit::FighterI);
+    }
+    rig.run().pick_opt(Opt::Technology(TOpt::System(system)));
+    rig.pick_where(|o| matches!(o, Opt::Production(POpt::One { unit: Unit::FighterI, .. })));
+    while !rig.is_done() && matches!(rig.asked().ask, Ask::Production(PAsk::Pay(_))) {
+        rig.pick_where(|o| matches!(o, Opt::Production(POpt::TradeGood { .. })));
+    }
+    assert!(rig.is_done());
+    assert!(rig.driver.window.unsupported, "the fourth fighter has nothing to ride in");
+}
+
+#[test]
+fn the_start_of_a_turn_runs_chaos_mapping_after_the_other_windows_when_given_its_facts() {
+    covers!("rules::technology_windows::ChaosMapping");
+    let (system, _) = first_planet();
+    let window = TurnStart::new(Seat(0), Code(0)).with_chaos_mapping(ChaosFacts { systems: vec![system], one: facts(8) });
+    let mut rig = Rig::new(chaos_scenario(true), window);
+    rig.run();
+    assert_eq!(rig.asked().ask, Ask::Technology(ti4_engine_core::choice::technology::Ask::ChaosMapping), "nothing before it applies");
+    rig.decline();
+    assert!(rig.is_done());
+    let mut plain = Rig::new(chaos_scenario(true), TurnStart::new(Seat(0), Code(0)));
+    plain.run();
+    assert!(plain.is_done(), "without the facts the window ends as before");
+    assert!(!plain.driver.window.unsupported());
+}

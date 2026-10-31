@@ -163,6 +163,21 @@ const TRIGGERED_FOOTPRINT: Footprint = Footprint {
     writes: SliceSet::of(&[Slice::Board, Slice::Players]),
 };
 
+/// [`buildable_of`] for the windows of other areas that run a single-unit production.
+pub(crate) fn buildable_for_window(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Option<[Option<ti4_engine_core::generated::Unit>; 9]> {
+    buildable_of(gs, content, sources, player)
+}
+
+/// The fleet limit as `fleet::over_supply` (the enforcement) works it out.
+pub(crate) fn enforcement_limit(gs: &GameState, content: &ContentStore, player: &PlayerId) -> Option<i32> {
+    let limit = if gs.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES && crate::fleet::is_unlimited(gs, player) {
+        crate::fleet::UNLIMITED_FLEET_BILL
+    } else {
+        i64::from(crate::fleet::limit(gs, content, player)).max(0)
+    };
+    i32::try_from(limit).why("a count beyond 32 bits")
+}
+
 /// The seat's buildable units as the windows carry them (`None`: more than nine, or an id the tables do not know).
 fn buildable_of(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Option<[Option<ti4_engine_core::generated::Unit>; 9]> {
     let ids = crate::production_view::buildable_for(gs, content, sources, player).why("the buildable units are not known to the core")?;
@@ -317,12 +332,7 @@ pub fn produce_one(
         return None;
     }
     let buildable = buildable_of(gs, content, sources, player)?;
-    let fleet_limit = if gs.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES && crate::fleet::is_unlimited(gs, player) {
-        crate::fleet::UNLIMITED_FLEET_BILL
-    } else {
-        i64::from(crate::fleet::limit(gs, content, player)).max(0)
-    };
-    let fleet_limit = i32::try_from(fleet_limit).why("a count beyond 32 bits")?;
+    let fleet_limit = enforcement_limit(gs, content, player)?;
     let (mut cx, r) = tables(gs).why(NO_TABLES)?;
     let seat = r.seat(player.as_str()).why(NO_SEAT)?;
     let typed_system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(system.as_str()).why("a system the core tables do not know")?;

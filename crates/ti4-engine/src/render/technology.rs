@@ -43,6 +43,7 @@ impl Family for Fam {
             Ask::ProductionBiomes => "Production Biomes: who gains 2 trade goods",
             Ask::Vortex => "Vortex: which unit type do you take",
             Ask::WormholeGenerator => "Wormhole Generator: place or move a Creuss wormhole token",
+            Ask::ChaosMapping => "Chaos Mapping",
             Ask::Aida { upgrades } => return format!("AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}"),
         }
         .to_owned()
@@ -59,12 +60,17 @@ impl Family for Fam {
             Subtype::ProductionBiomesChoosePlayer => "production_biomes_choose_player",
             Subtype::VortexTarget => "vortex_target",
             Subtype::CreussToken => "creuss_token",
+            Subtype::ChaosMappingChooseSystem => "chaos_mapping_choose_system",
         }
         .to_owned()
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match (a, o) {
+            (_, Opt::System(system)) => {
+                let system = system.as_str();
+                ChoiceOption::labelled(system, "production", format!("produce one unit in {system}")).with("system", system).with("technology", "cm")
+            }
             (_, Opt::Token(kind, system)) => {
                 let (kind, system) = (kind.as_str(), system.as_str());
                 ChoiceOption::labelled(format!("{kind}|{system}"), "creuss_token", format!("Wormhole Generator: the {kind} token into {system}")).with("system", system)
@@ -123,6 +129,7 @@ impl Family for Fam {
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
             Ask::ProductionBiomes => r.seat(id).map(Opt::Player),
+            Ask::ChaosMapping => System::from_id(id).map(Opt::System),
             Ask::WormholeGenerator => {
                 let (kind, system) = id.split_once('|')?;
                 Some(Opt::Token(ti4_engine_core::generated::Wormhole::from_id(kind)?, System::from_id(system)?))

@@ -2411,9 +2411,9 @@ fn dispatch_leader(
 #[must_use]
 pub(crate) fn string_only_leader(id: &str) -> Option<&'static str> {
     Some(match id {
-        "nekrohero" => "nekrohero: destroys a planet's units and gains a technology (the planet and technology candidates are string reads: specialties now, the active deck and the faction technologies; the gain is `technology::gain` with its events; the destroyed ground forces are staged: D1b destruction flush)",
-        "naazhero" => "naazhero: the secondary of one or two strategy cards as children of the leader window (the strategy windows are children of the card, not of a leader)",
-        "winnuhero" => "winnuhero: the primary of a strategy card as the continuation of the leader (`use_leader_strategy_primary`, D1b dispatch)",
+        "nekrohero" => "nekrohero: destroys a planet's units and gains a technology. Read in lane 7 and kept: the destroyed ground forces are staged as `hooks_ground` text entries (`destroyed|system|planet|owner|unit|damage|cause`) that the core's staged-event bridge does not write, and the technology candidates are the active deck in content order (`technology::active_aliases`) gained by `technology::gain`",
+        "naazhero" => "naazhero: a relic and the secondary of one or two strategy cards chosen at run time. Read in lane 7 and kept: `Spawn` names no child for the secondaries of Warfare (home production) and Imperial as a continuation of a leader, and a failed secondary restores the whole position (a snapshot of the state)",
+        "winnuhero" => "winnuhero: the primary of any strategy card, then the secondary offered to the other players (`use_leader_strategy_primary`, D1b dispatch). Read in lane 7 and kept: the primary of Imperial and the follow-up of every other seat are not children a leader can start",
         "empyreanhero" => "empyreanhero: explores every frontier token that holds a ship (the exploration composition, D1)",
         "cabalhero" => "cabalhero: a hunt over the gravity rifts and the ships in or next to them (the map and the combat windows)",
         "argenthero" => "argenthero: moves the fleets of the board by the Flock's migration (the map and the movement windows)",

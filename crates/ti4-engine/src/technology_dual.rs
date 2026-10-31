@@ -196,13 +196,63 @@ mod real {
         })
     }
 
-    /// The core half of `technology::start_turn`.
-    pub fn start_turn(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if owned_ready(gs, player, "cm", false) {
-            crate::dual::note_bail_here("Chaos Mapping at the start of a turn (a production nested in the card)");
+    /// The core half of `technology::start_turn`. Chaos Mapping's single unit is a child window of the core (`Spawn::ProduceOne`); the
+    /// adapter hands the window the systems with a PRODUCTION capacity and the facts of the unit. A seat that carries the card on a
+    /// Valefar Assimilator, a table the single-unit production does not carry and a unit that ends over the fleet supply or the capacity
+    /// of its system are the string's.
+    pub fn start_turn(gs: &mut GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::rules::technology_windows::ChaosFacts;
+        let has_text = crate::technology::has_technology_text(gs, player, "cm");
+        if !has_text {
+            return drive_one(gs, player, script, |seat, r| TurnStart::new(seat, r.code("psychoarchaeology")));
+        }
+        if !owned_ready(gs, player, "cm", false) {
+            crate::dual::note_bail_here("Chaos Mapping carried by something other than the player's own card (a Valefar Assimilator)");
             return None;
         }
-        drive_one(gs, player, script, |seat, r| TurnStart::new(seat, r.code("psychoarchaeology")))
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if crate::production_view::unported_triggered(gs, player) {
+            crate::dual::note_bail_here("a table whose seats the single-unit production does not carry (Keleres, Deepwrought)");
+            return None;
+        }
+        let systems: Vec<ti4_engine_core::generated::System> = gs
+            .board
+            .keys()
+            .filter(|system| crate::production::capacity(gs, content, sources, player, system) > 0)
+            .map(|system| crate::core_adapter::typed::<ti4_engine_core::generated::System>(system.as_str()))
+            .collect::<Option<_>>()
+            .why(crate::dual::reason::UNKNOWN_ID)?;
+        let buildable = crate::production_window_dual::buildable_for_window(gs, content, sources, player)?;
+        let fleet_limit = crate::production_window_dual::enforcement_limit(gs, content, player)?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let facts = ChaosFacts { systems, one: ti4_engine_core::kernel::children::OneFacts { buildable, fleet_limit, name: None, alias: None } };
+        let before = gs.clone();
+        let kernel = crate::production_view::kernel();
+        let mut table = AbilityTable::default();
+        ti4_engine_core::driver::children::register(&mut table);
+        let mut driver = Driver::new(TurnStart::new(seat, r.code("psychoarchaeology")).with_chaos_mapping(facts), Resolver::new(&[seat], Some(seat)), table, 1);
+        let footprint = Footprint {
+            reads: crate::production_view::READS.union(ti4_engine_core::state::SliceSet::of(&[Slice::Pending])),
+            writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Marks, Slice::Pending]),
+        };
+        let mut staged = Vec::new();
+        let driven = with_core(gs, &mut cx, Sources::default(), footprint, |core, _| {
+            let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &|_, _, _| {});
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported() {
+            crate::dual::note_bail_here("Chaos Mapping's unit stands over the fleet supply or the capacity of its system (the string asks which units go)");
+            return None;
+        }
+        apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        Some(CoreWindow { run: Run::new(driven.finished).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
     /// The core half of `technology::production_used`.
@@ -260,7 +310,7 @@ mod stub {
     use crate::dual::CoreWindow;
     use crate::dual_window::Recording;
 
-    pub fn start_turn(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+    pub fn start_turn(_: &mut GameState, _: &ti4_content::ContentStore, _: ti4_model::content_types::SourceSet, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
     pub fn production_biomes(_: &mut GameState, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
@@ -386,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn a_turn_start_with_nothing_to_offer_asks_nothing_in_lockstep_and_chaos_mapping_stays_the_strings() {
+    fn a_turn_start_with_nothing_to_offer_asks_nothing_in_lockstep() {
         let planets = specialty_planets(1);
         // No Psychoarchaeology: no question, the core window ends at once.
         let (_, counts, _) = lockstep("technology::start_turn", || run_start(&mut game(&[], &planets), &[]));
@@ -398,10 +448,46 @@ mod tests {
             run_start(&mut state, &[]);
         });
         assert_eq!(counts, (1, 0));
-        // A Chaos Mapping (a production nested in the card): the string's, counted with its reason.
+        // A Chaos Mapping with no system that can produce: the core window asks nothing either.
         let (_, counts, bails) = lockstep("technology::start_turn", || run_start(&mut game(&["cm"], &planets), &[]));
-        assert_eq!(counts, (0, 1));
-        assert!(bails.iter().any(|b| b.contains("Chaos Mapping")), "{bails:?}");
+        assert_eq!(counts, (1, 0), "{bails:?}");
+    }
+
+    /// Chaos Mapping (package W12, lane 7): the choice of the system, then one unit as a child window of the core (`ProduceOne`). The
+    /// core half agrees with the string for a destroyer paid with a trade good, a decline of the system and of the unit, and it ran each time.
+    #[test]
+    fn chaos_mapping_chooses_a_system_and_produces_one_unit_in_lockstep() {
+        let planets = specialty_planets(1);
+        let (system, planet) = (SystemId::new(planets[0].0.as_str()), PlanetId::new(planets[0].1.as_str()));
+        let make = || {
+            let mut state = game(&["cm"], &planets);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &a(), 1);
+            state.player_mut(&a()).unwrap().trade_goods = 1;
+            state.exhausted_planets.insert(planet.clone());
+            state
+        };
+        let built = |state: &GameState| state.system_state(&system).units_of(&a()).iter().any(|unit| unit.type_id.as_str() == "destroyer");
+        let (state, counts, bails) = lockstep("technology::start_turn", || {
+            let mut state = make();
+            run_start(&mut state, &[system.as_str(), "build|destroyer|1", "trade_good"]);
+            state
+        });
+        assert_eq!(counts, (1, 0), "{bails:?}");
+        assert!(built(&state));
+        let (state, counts, bails) = lockstep("technology::start_turn", || {
+            let mut state = make();
+            run_start(&mut state, &["decline"]);
+            state
+        });
+        assert_eq!(counts, (1, 0), "{bails:?}");
+        assert!(!built(&state));
+        let (state, counts, bails) = lockstep("technology::start_turn", || {
+            let mut state = make();
+            run_start(&mut state, &[system.as_str(), "decline"]);
+            state
+        });
+        assert_eq!(counts, (1, 0), "{bails:?}");
+        assert!(!built(&state));
     }
 
     /// Transit Diodes (package W12): ground forces move to planets the seat controls, up to four times, a planet that received one
