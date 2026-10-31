@@ -18,7 +18,7 @@ use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
-use crate::state::{CoreState, EventKind, Key, Payload, Val};
+use crate::state::{Code, CoreState, EventKind, Key, Payload, Val};
 
 /// Most rounds of one combat (`combat::MAX_ROUNDS`).
 pub const MAX_ROUNDS: u32 = 50;
@@ -71,6 +71,8 @@ pub enum Stage {
 
 #[derive(Debug, Clone)]
 pub struct Flow {
+    /// The causes a retreat's lost ships are staged and announced under: set, the effects staged on the end of a round are announced after it.
+    drain: Option<(Code, Code)>,
     pub f: Facts,
     pub step: Step,
     pub out: Option<Out>,
@@ -80,7 +82,14 @@ pub struct Flow {
 impl Flow {
     #[must_use]
     pub fn new(f: Facts, step: Step) -> Self {
-        Self { f, step, out: None, stage: Stage::Start }
+        Self { drain: None, f, step, out: None, stage: Stage::Start }
+    }
+
+    /// The same transition draining the destructions an effect staged on the end of a round (`announce_round_ended`).
+    #[must_use]
+    pub const fn with_drain(mut self, retreat: (Code, Code)) -> Self {
+        self.drain = Some(retreat);
+        self
     }
 
     fn round_ended(&self, sx: &mut Sx<'_>, round: u32) {
@@ -91,6 +100,9 @@ impl Flow {
                 .with(Key::Attacker, Val::Seat(self.f.attacker))
                 .with(Key::Defender, Val::Seat(self.f.defender));
             let _ = sx.emit(fx::event(EventKind::SpaceCombatRoundEnded, payload));
+        }
+        if let Some(retreat) = self.drain {
+            super::assign::drain_staged(sx, self.f.announce, retreat);
         }
     }
 

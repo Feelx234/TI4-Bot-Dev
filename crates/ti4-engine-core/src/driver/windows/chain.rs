@@ -378,6 +378,13 @@ pub fn advance_aftermath(core: &mut CoreState, env: &Env<'_>, answer: Option<Pic
     result
 }
 
+/// The resolver's seat order is the position's initiative order: the windows of an emission go to the seats in that order, and a resolver
+/// carried by a position that never set it (the first window of a game) would offer them to the first seat alone.
+pub fn sync_initiative(core: &mut CoreState) {
+    let order: SmallList<Seat, 8> = crate::query::seats::initiative_order(core).iter().copied().collect();
+    core.pending_mut().resolver.initiative = order;
+}
+
 fn merge(out: &mut Out, more: Out) {
     out.emitted.extend(more.emitted);
     out.opened.extend(more.opened);
@@ -395,6 +402,7 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
     if !is_open(core, WindowKind::Aftermath) {
         return Err(LiveError::NotOpen);
     }
+    sync_initiative(core);
     let mut out = Out::default();
     let mut answer = answer;
     // (A step that runs sub-windows back to back always makes progress; the bound only guards a defect.)

@@ -249,6 +249,7 @@ pub fn advance_event_scoring(
     env: &crate::driver::live::Env<'_>,
     answer: Option<Pick>,
 ) -> Result<(crate::driver::live::Live, crate::driver::live::Out), crate::driver::live::LiveError> {
+    super::chain::sync_initiative(core);
     crate::driver::live::advance::<EventScoring>(core, env, answer)
 }
 

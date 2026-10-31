@@ -43,7 +43,10 @@ impl EnforceAll {
     #[must_use]
     pub fn resumed(mut self, core: &CoreState, k: &Kernel) -> Self {
         while let Some((seat, system, limits)) = self.pairs.get(self.at).copied() {
-            if Enforce::new(seat, system, limits).resumed(core, k).stage() != crate::rules::tactical::fleet::EStage::Done {
+            let held = Enforce::new(seat, system, limits).resumed(core, k);
+            if held.stage() != crate::rules::tactical::fleet::EStage::Done {
+                // This pair is the one asking: its window is the running child.
+                self.child.start(held);
                 break;
             }
             self.at += 1;

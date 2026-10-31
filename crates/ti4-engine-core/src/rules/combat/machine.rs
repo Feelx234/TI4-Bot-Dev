@@ -411,6 +411,9 @@ impl Machine {
         let facts = self.flow_facts(sx, over)?;
         let before = self.fields.step.clone();
         let mut flow = Flow::new(facts, before.clone());
+        if self.live {
+            flow = flow.with_drain((self.env.retreat_cause, self.env.retreat_event));
+        }
         let _ = flow.step(sx);
         let out: Out = flow.out.clone()?;
         if let Step::Queue { round, queue, .. } = &before {
@@ -676,8 +679,12 @@ impl Machine {
     }
 
     /// The window finished: its hits are the queue of the moment (`open_start_hits`, `open_round_end_hits`), or the round goes on.
-    fn finish_produce(&mut self) {
+    fn finish_produce(&mut self, sx: &mut Sx<'_>) {
         let Some((w, moment, round)) = self.produce.take() else { return };
+        if self.live {
+            // Whatever the hook staged is announced before the hits are queued (`produce_hits`).
+            self.announce_staged(sx);
+        }
         self.drawn.extend(w.drawn.iter().cloned());
         let queue = self.produced_queue(&w.produced);
         match moment {
@@ -749,13 +756,7 @@ impl Machine {
     /// `announce_staged_destructions`: every destruction an effect staged is announced as `SHIP_DESTROYED`, in staging order, until
     /// nothing is left (an announcement can stage more).
     fn announce_staged(&self, sx: &mut Sx<'_>) {
-        while !sx.state.transient().combat.pending_destructions.is_empty() {
-            let staged = std::mem::take(&mut sx.state.transient_mut().combat.pending_destructions).as_slice().to_vec();
-            for d in staged {
-                let cause = if d.reason == self.env.retreat_cause { self.env.retreat_event } else { d.reason };
-                announce_loss(sx, d.system, d.owner, d.unit, cause, d.during_space_combat, self.env.announce);
-            }
-        }
+        super::assign::drain_staged(sx, self.env.announce, (self.env.retreat_cause, self.env.retreat_event));
     }
 
     fn end_announce(&mut self, sx: &mut Sx<'_>) {
@@ -778,6 +779,9 @@ impl Machine {
             announce: e.announce,
         };
         let mut w = EndAnnounce::new(facts);
+        if self.live {
+            w = w.with_drain((self.env.retreat_cause, self.env.retreat_event));
+        }
         let _ = w.step(sx);
     }
 
@@ -842,7 +846,7 @@ impl Machine {
                     }
                     _ => {
                         self.stage = Stage::Running;
-                        self.finish_produce();
+                        self.finish_produce(sx);
                         continue;
                     }
                 }
@@ -1239,9 +1243,6 @@ impl Machine {
             }
             Step::Queue { assigning: true, queue, .. } => {
                 let front = queue.first()?;
-                if front.producer_assigns {
-                    return None;
-                }
                 let candidates = Self::candidates(rd, front, env.system);
                 if candidates.len() < 2 {
                     return None;
@@ -1256,8 +1257,9 @@ impl Machine {
                     seen.push(key);
                     opts.push(Opt::Combat(COpt::Destroy { index, unit: key.0, damaged: key.1 }));
                 }
+                // A producer-assigned hit (Devotion) is the producer's choice of the victim's ship.
                 Some(Choice {
-                    actor: front.player,
+                    actor: if front.producer_assigns { front.producer } else { front.player },
                     ask: Ask::Combat(CAsk::AssignHit),
                     ctx: self.ctx(Rule::R78_4, Subtype::Combat(CSub::Casualty(env.casualty)), Some(front.hits)),
                     opts,
