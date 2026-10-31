@@ -26,20 +26,23 @@ Fixes (all in `ti4-engine-core-bridge/src/native_play.rs` unless said):
 
 `TI4_NATIVE_PLAY_TRACE=1` now also prints, per compared group, the answers given to the legacy game, the decisions it recorded and both event lists.
 
-## 2. How far `native_play --shadow` goes now (cheap build, `gate` profile)
+## 2. How far `native_play --shadow` goes now (cheap build, `gate` profile; steps = native steps, compared = legacy steps compared)
 
-| game | steps (compared groups) | first stop |
+| game | steps (compared) | first stop |
 |---|---|---|
-| sol, 4p hyperlanes, seed 1 | 54 (36) | `GAP ask.action_menu`: `TurnGap::StrategyAbility` (Thunder's Edge Warfare's free tactical action / Doctor Sucaban's research offer): lane M6c/M6d (`open_free`, `resume_strategy`) |
+| sol, 4p hyperlanes, seed 1 (the quick game) | 54 (36) | `GAP ask.action_menu`: `TurnGap::StrategyAbility` (Thunder's Edge Warfare's free tactical action / Doctor Sucaban's research offer): lane M6c/M6d (`open_free`, `resume_strategy`) |
+| hacan, 5p, seed 3 | **98 (73)**: the whole action phase of round 1 | difference at `[phase]` (status phase): the legacy offers `infantry\|05\|nestphar` / `mech\|05\|nestphar` (Arborec's Mitosis) where the native asks `tactic_tokens`: the status phase does not ask Mitosis. Owner: C (status) / the Arborec faction module |
+| naalu, 5p, seed 12 | 64 (42) | difference at the menu step: native `STRATEGIC_ACTION_COMPLETE` where the legacy has `STRATEGY_TOKEN_SPENT` first (order of the closing of a strategic action vs a spent token). Owner: E |
 | sol, 3p, seed 2 | 31 (20) | difference at the aftermath: the space cannon of the activated system (see 3) |
-| hacan, 5p, seed 3 | 46 (34) | `GAP ask.closing`: `Unrouted(5, ..)`, a leader use (Carth / another agent from the closing menu): this lane, not done |
-| arborec, 6p standard, seed 4 | 20 (16) | difference at the aftermath: the space cannon (see 3) |
-| letnev, 4p hyperlanes, seed 5 | 14 (12) | difference at `[tactical]`: the native movement question offers `done_moving` only where the legacy offers `move|10|2` (see 3) |
-| xxcha, 3p, seed 6 | 23 (15) | `GAP ask.action_menu`: `Unrouted(11, ..)`: a faction component (Muaat Star Forge, the seat that moves next): this lane, not done |
-| jolnar, 5p, seed 7 | 10 (8) | difference at `[tactical]`: the legacy offers `leader:saar:saaragent:SYSTEM_ACTIVATED:after` / decline, the native tactical step does not (see 3) |
-| winnu, 4p outer rim, seed 8 | 24 (19) | `GAP tactical`: `UnportedTactical(ActivationHook)` (`activation_hook_held`: Mahact / Nullification Field / ... in play): lane M6 |
+| arborec, 6p standard, seed 4 | 20 (16) | the same space cannon difference |
+| letnev, 4p hyperlanes, seed 5 | 14 (12) | `[tactical]`: the native movement question offers `done_moving` only where the legacy offers `move\|10\|2` (see 3) |
+| xxcha, 3p, seed 6 | 23 (15) | `GAP ask.action_menu`: `Unrouted(11, ..)`: a faction component (Star Forge or the like) |
+| sol, 3p, seed 9 | 11 (8) | `GAP ask.action_menu`: `Unrouted(5, ..)`: Nekro Malleon (the core window `NekroMalleon` exists; it needs the interned `nekroagent` source code in a `Codes` table and the action-card name groups in the play facts) |
+| jolnar, 5p, seed 7 / mentak, 4p, seed 10 | 10 (8) / 14 (12) | `[tactical]`: the legacy offers `leader:saar:saaragent:SYSTEM_ACTIVATED:after` / decline, the native tactical step does not (see 3) |
+| winnu, 4p outer rim, seed 8 | 24 (19) | `GAP tactical`: `UnportedTactical(ActivationHook)` (`activation_hook_held`): lane M6 |
+| yssaril, 6p outer rim, seed 11 | 21 (17) | `GAP tactical`: `UnportedTactical(SsruuLends)`: lane M6 / G |
 
-No game finishes natively yet.
+No game finishes natively yet; the hacan game plays a whole round of actions natively and in lockstep with the string (73 legacy steps compared, no difference until the status phase).
 
 ## 3. Differences / gaps found and NOT fixed, with owners
 
@@ -50,11 +53,11 @@ No game finishes natively yet.
 * **Saar agent reaction after a system is activated** (jolnar seed 7): the native tactical step does not open the `SYSTEM_ACTIVATED:after` reaction of the Saar agent. Owner: G (abilities) / H1.
 * **Diplomacy primary stages no `COMMAND_TOKEN_PLACED`** at a table with a module (xxcha seed 6 before F6 showed it; the strategic lockstep covers trade, politics, leadership, imperial only). To re-check after F6: it may be fine now. Owner: E.
 * **Activation hooks** (`UnportedTactical(ActivationHook)`), **Thunder's Edge Warfare / Doctor Sucaban** (`StrategyAbility`): M6c/M6d, as in KM2 section 3 (not merged here: 20 and 12 conflicts).
-* **Not routed from the menu** (this lane, `Unrouted(kind, key)`): every leader except Ggrocuto Rinn (kind 5), Production as an ability (6), relics in use (7), Enigmatic Device (8), faction components (11: Production Biomes, Trade Convoys, Blood/Dark Pact, Wormhole Generator, Promise of Protection, Muaat, Naaz, Yssaril, Nekro C4R, Terraform, Cabal's Vortex).
+* **Not routed from the menu** (this lane, `Unrouted(kind, key)`): every leader except Ggrocuto Rinn and Carth (kind 5; Nekro Malleon next), Production as an ability (6), relics in use (7), Enigmatic Device (8), faction components (11: Production Biomes, Trade Convoys, Blood/Dark Pact, Wormhole Generator, Promise of Protection, Muaat, Naaz, Yssaril, Nekro C4R, Terraform, Cabal's Vortex).
 
 ## 4. What is native now (additions to KM2 section 2)
 
-* `driver/turn/leader.rs`: Ggrocuto Rinn (Xxcha agent), chosen from the menu: the core window `XxchaAgent`, the agent exhausted through `fx_strategy::exhaust_ready_agent` (a listening Nomad is told), `conclude` (staged
+* `driver/turn/leader.rs`: Carth of Golden Sands (a free use: `LEADER_ABILITY_RESOLVED`, the turn stays open; core test `carth_chosen_from_the_menu_is_a_free_use_that_gains_commodities_and_leaves_the_turn_open`) and Ggrocuto Rinn (Xxcha agent), chosen from the menu: the core window `XxchaAgent`, the agent exhausted through `fx_strategy::exhaust_ready_agent` (a listening Nomad is told), `conclude` (staged
   destructions/cards announced, Extreme Duress, `COMPONENT_ACTION_RESOLVED`/`_FAILED`, `finish_action`). `NativeSubject::menu_body_is_lent` no longer lends `component|leader|xxchaagent`. Evidence: core test
   `ggrocuto_rinn_chosen_from_the_menu_readies_the_planet_exhausts_the_agent_and_ends_the_action` (a map, an exhausted planet); the shadow of sol seed 1 plays through the real use (step 43 on). The engine lockstep file
   (`action_dispatch_live_tests`) loads no map, so the lockstep against the string for this leader is the `native_play` shadow (a lockstep with a galaxy is the next test to add).
@@ -72,6 +75,18 @@ No game finishes natively yet.
 
 ## 6. Checks run (cheap)
 
-* `cargo test -p ti4-engine-core-tests --test action_dispatch --test aftermath_chain`: 8 + 18 passed. `cargo test -p ti4-engine --lib action_dispatch_live_tests`: 10 passed. `check_layers.py core`: 513 files, 0 violations. `lint_core.sh`: 515 files, 0 hits.
-* Bridge lib tests: see the end of this file.
-* Not run (standing rule): golden/wide dual sweeps, benches, soak, the mutation ratchet, census, workspace clippy, the whole engine lib once at the end (see the end), all 141 core test binaries. The mutation check of the new core halves (`leader.rs`, `chain.rs` mirror, `fx::mirror_recs`) was NOT run.
+* `cargo test -p ti4-engine-core-tests --test action_dispatch`: 9 passed (5 of KM2, the Xxcha and Carth routes, the Orbital Drop boundary, the closing-menu second action); `--test aftermath_chain`: 18 passed (incl. the mirror test).
+* `cargo test -p ti4-engine --lib` (whole, plain areas, once at the end): **5137 passed, 0 failed, 7 ignored**. `cargo test -p ti4-engine-core-bridge --lib`: 102 passed + the 3 stale `native_play` tests brought to the game they now play (54 steps, gap
+  `StrategyAbility`; the pinned 11 steps / `AskSource` were the state before the menu dispatch) and 3 new ones: 26 `native_play` tests pass after the update (the other 79 passed in the earlier whole run).
+* `check_layers.py core`: 513 files, 0 violations. `lint_core.sh`: 515 files, 0 hits.
+* `native_play --shadow`: the table of section 2 (`CARGO_TARGET_DIR=/root/deploytmp/core-f2c`, deleted afterwards).
+* Not run (standing rule): golden/wide dual sweeps, `TI4_AREAS=all=dual`, benches, soak, the mutation ratchet, census, workspace clippy, all 141 core test binaries. **The mutation check of the new core halves was NOT run** (`driver/turn/leader.rs`, the mirror in
+  `driver/windows/chain.rs`, `kernel/fx.rs::mirror_recs`, `Render::sync_codes`): the first tests exist, the survivors are unknown. The failure arms of `leader.rs` (a leader that resolves nothing) are unreachable through the menu (the offer needs an exhausted planet / a
+  possible target): `// mutants:skip` them with that reason at the pass.
+
+## 7. Next (in order)
+
+1. The remaining leaders from the menu (`leader::run`): Nekro Malleon (needs the `nekroagent` source code and the card name groups), Z'eu is dropped content, Jace X, Darktalon Treilla, Rin, The Helmsman, Xxekir Grom TE, commanders and Ssruu copies; heroes that open a strategy primary need M6c's `resume_strategy`.
+2. Technology (Production as an ability: `UseOpen::Ability` is a held window the step loop cannot select), relics in use and the Enigmatic Device (facts: research payment, targets over the map), the faction components of KM2 section 3.
+3. The differences of section 3 (space cannon head facts, movement on hyperlane maps, the Saar agent reaction, Mitosis in the status phase, the strategic action closing order), each with its owner.
+4. Merge `core-m6c/m6d-tactical`, `core-g2/g3-abilities` at the join points named in KM2 section 4; rebase on `core-integration-11` when it is finished.
