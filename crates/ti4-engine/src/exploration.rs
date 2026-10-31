@@ -4310,7 +4310,7 @@ mod window_tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("exploration::ion_storm").0 >= 2, "{r:?}");
+        assert!(counts("exploration::explore").0 >= 2, "{r:?}");
         let _ = take_report();
     }
 
@@ -4319,30 +4319,36 @@ mod window_tests {
     fn distant_suns_runs_in_lockstep_with_the_core() {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
-        let hook = EconomyHooks { explore_extra_draw: Some(|_, _, _, _, _| true), ..EconomyHooks::NONE };
+        // A Naaz seat with a mech on the planet draws the second card (the core's hook and the string's agree).
+        let naaz = || {
+            let mut state = crate::fixtures::seated_game(&[("a", "naaz"), ("b", "hacan")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.exploration_decks.clear();
+            let (system, planet) = crate::fixtures::a_placed_planet();
+            state.system_mut(&system).set_control(planet.clone(), me());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "mech", &me(), 1);
+            (state, planet)
+        };
         dual(|| {
             for (answer, goods) in [("majent", 3), ("minent", 1)] {
-                let (mut state, planet) = table(0, 0);
+                let (mut state, planet) = naaz();
                 state.exploration_decks.insert(
                     "CULTURAL".to_owned(),
                     vec!["minent".to_owned(), "majent".to_owned(), "ent".to_owned()],
                 );
-                with_test_hooks(hook, || {
-                    with_ctx(&[answer], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)))
-                });
+                with_ctx(&[answer], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
                 assert_eq!(state.player(&me()).unwrap().trade_goods, goods);
                 assert_eq!(state.exploration_decks["CULTURAL"], ["ent"]);
             }
             // A lone card: nothing to choose.
-            let (mut state, planet) = table(0, 0);
+            let (mut state, planet) = naaz();
             state.exploration_decks.insert("CULTURAL".to_owned(), vec!["minent".to_owned()]);
-            with_test_hooks(hook, || {
-                with_ctx(&[], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)))
-            });
+            with_ctx(&[], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("exploration::distant_suns").0 >= 3, "{r:?}");
+        assert!(counts("exploration::explore").0 >= 3, "{r:?}");
         let _ = take_report();
     }
 
@@ -4383,9 +4389,8 @@ mod window_tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        for card in ["abandoned_warehouses", "merchant_station", "functioning_base", "local_fabricators", "mercenary_outfit"] {
-            assert!(counts(&format!("exploration::ask:{card}")).0 >= 1, "{card}: {r:?}");
-        }
+        // (The whole exploration is one window now: each reward question is compared inside it.)
+        assert!(counts("exploration::explore").0 >= 7 && counts("exploration::explore").1 == 0, "{r:?}");
         let _ = take_report();
     }
 
@@ -4462,7 +4467,7 @@ mod window_tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        let c = counts("exploration::pay_with_mech_or_infantry");
+        let c = counts("exploration::explore");
         assert!(c.0 >= 4 && c.1 == 0, "{r:?}");
         let _ = take_report();
     }
@@ -4576,7 +4581,7 @@ mod window_tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        for label in ["exploration::ask:exploration", "exploration::ion_storm", "exploration::ask:functioning_base"] {
+        for label in ["exploration::ask:exploration", "exploration::explore"] {
             assert!(counts(label).0 >= 1 && counts(label).1 == 0, "{label}: {r:?}");
         }
         let _ = take_report();
@@ -4600,7 +4605,7 @@ mod window_tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("exploration::ion_storm").1 >= 1, "{r:?}");
+        assert!(counts("exploration::explore").1 >= 1, "{r:?}");
         assert!(counts("exploration::ask:exploration").1 >= 1, "{r:?}");
         let _ = take_report();
     }
