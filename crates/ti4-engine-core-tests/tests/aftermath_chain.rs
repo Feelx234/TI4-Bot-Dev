@@ -464,3 +464,26 @@ fn the_window_of_an_occurrence_lists_every_seat_in_initiative_order_with_the_cap
     let ti4_engine_core::state::Window::EventScoring(any) = event_scoring_window(&core, 5, false) else { panic!() };
     assert!(!any.one_per_player);
 }
+
+#[test]
+fn the_question_shows_the_points_and_a_second_secret_of_the_same_event_waits_for_the_cap() {
+    covers!("driver::windows::scoring::CoreOffers");
+    for (capped, again) in [(true, false), (false, true)] {
+        let (mut core, k) = scoring_table();
+        let env = env(&k, 1, &[]);
+        // Seat 0 (or 1) also holds Demonstrate Your Power, whose feat was recorded for the same occurrence.
+        for seat in 0..2 {
+            core.players_mut().edit(seat).cards.secrets.push(SecretObjective::DemonstrateYourPower);
+            core.players_mut().edit(seat).misc.event_feats.push((Feat::HeldThreeShipsAfterASpaceCombat, 5));
+            core.players_mut().edit(seat).econ.victory_points = 3;
+        }
+        open_event_scoring(&mut core, 5, capped);
+        let asking = ask::<EventScoring>(&core, &env).expect("open").expect("asks");
+        assert_eq!(asking.choice.ask, Ask::Objectives(ti4_engine_core::choice::objectives::Ask::Score { vp: 3 }), "the question shows the points held");
+        assert_eq!(asking.choice.opts.len(), 3, "two secrets and the decline");
+        let who = asking.choice.actor;
+        advance_event_scoring(&mut core, &env, Some(Pick::Opt(asking.choice.opts.as_slice()[0]))).expect("legal");
+        let next = ask::<EventScoring>(&core, &env).expect("open").expect("someone is asked");
+        assert_eq!(next.choice.actor == who, again, "capped {capped}: the seat that scored is asked again only without the one-per-player cap");
+    }
+}
