@@ -18,7 +18,6 @@ pub const fn gap_text(gap: TacticalGap) -> &'static str {
         TacticalGap::ExplorationAtTheEnd => "the Crown of Emphidia or Dark Energy Tap explores at the end of the action (no native planet exploration window yet)",
         TacticalGap::WarfareSecondary => "Thunder's Edge Warfare's follower window waits for the end of the free tactical action",
         TacticalGap::LeaderStrategy => "a hero's strategy primary waits for the end of the free tactical action",
-        TacticalGap::SsruuLends => "an agent that listens to the end of the action would be offered (T'ro, Field Marshal Mercer, or a Yssaril copy by Ssruu): not a rule of the core table yet",
         TacticalGap::NoGalaxy => "the map slice holds no galaxy",
     }
 }

@@ -36,6 +36,10 @@ pub enum Ask {
     SoAta { target: Seat },
     /// I48S copied through Ssruu: which of the activating player's infantry in the active system becomes a mech (asked to that player).
     L1z1xCopy,
+    /// Field Marshal Mercer (the Nomad agent), the `n`th of two ground forces the activating player removes.
+    MercerTake { n: u8 },
+    /// Mercer: on which planet of the active system the removed `unit` is placed.
+    MercerPlace { unit: crate::generated::Unit },
 }
 
 /// One answer.
@@ -47,6 +51,8 @@ pub enum Opt {
     Planet(Planet),
     /// What So Ata looks at.
     Look(Look),
+    /// A ground force Mercer removes: where it stands (`planet` `None`: the space area of `system`), what it is and whether it is damaged.
+    Take { system: crate::generated::System, planet: Option<Planet>, unit: crate::generated::Unit, damaged: bool },
 }
 
 /// The machine identifier of the question.
@@ -60,6 +66,10 @@ pub enum Subtype {
     SoAta,
     /// `leader_l1z1xagent_copy_planet`.
     L1z1xCopy,
+    /// `mercer_take`.
+    MercerTake,
+    /// `mercer_place`.
+    MercerPlace,
 }
 
 impl Ask {
@@ -68,7 +78,7 @@ impl Ask {
     #[must_use]
     pub const fn carries_trigger(&self) -> bool {
         match self {
-            Self::Awaken { .. } | Self::Ouranos | Self::SoAta { .. } | Self::L1z1xCopy => false,
+            Self::Awaken { .. } | Self::Ouranos | Self::SoAta { .. } | Self::L1z1xCopy | Self::MercerTake { .. } | Self::MercerPlace { .. } => false,
         }
     }
 }

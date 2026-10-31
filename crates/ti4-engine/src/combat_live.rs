@@ -655,6 +655,59 @@ mod tests {
         assert!(failures.is_empty(), "{failures:#?}");
     }
 
+    /// Field Marshal Mercer (the Nomad agent) at the end of a tactical action: the actor removes up to two of its ground forces and puts them on a
+    /// planet it controls in the active system. The questions go to the ACTIVE player, whoever holds the card.
+    #[test]
+    fn mercer_moves_ground_forces_at_the_end_of_the_action_in_lockstep() {
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let hub = crate::fixtures::hub_with_centre(system.as_str());
+        let (origin, target) = (SystemId::new(hub.outer[0].clone()), SystemId::new(hub.centre.clone()));
+        let content = ContentStore::embedded();
+        let (far, far_planet) = hub
+            .outer
+            .iter()
+            .filter(|s| **s != origin.as_str())
+            .find_map(|s| ti4_content::galaxy::all_systems(content, POK).get(s.as_str()).and_then(|r| r.planets().first().map(|p| (SystemId::new(s.clone()), ti4_model::id::PlanetId::new(*p)))))
+            .expect("a far system with a planet");
+        let mut failures = Vec::new();
+        for (lobby, agent) in [(vec![("a", "sol"), ("b", "nomad")], ti4_model::state::LeaderStatus::Readied), (vec![("a", "nomad"), ("b", "hacan")], ti4_model::state::LeaderStatus::Readied), (vec![("a", "sol"), ("b", "nomad")], ti4_model::state::LeaderStatus::Exhausted)] {
+            for ground in [1_usize, 2, 3] {
+                let mut state = table(&lobby);
+                let holder = PlayerId::new(if lobby[0].1 == "nomad" { "a" } else { "b" });
+                state.player_mut(&holder).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentmercer"), agent);
+                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                crate::fixtures::put_on_planet(&mut state, &target, &planet, "infantry", &a(), 1);
+                state.system_mut(&target).planet_control.insert(planet.clone(), a());
+                // The ground forces to take: one on the planet of the active system itself, the others on a planet of another system.
+                crate::fixtures::put_on_planet(&mut state, &far, &far_planet, "infantry", &a(), ground);
+                for d in lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]) {
+                    failures.push(format!("{lobby:?} {agent:?} ground {ground}: {d}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// Mercer with two planets to land on: the removed unit's destination is asked of the active player (the first question of each unit).
+    #[test]
+    fn mercer_asks_where_each_ground_force_lands_when_there_are_two_planets_in_lockstep() {
+        let content = ContentStore::embedded();
+        let all = ti4_content::galaxy::all_systems(content, POK);
+        let (centre, record) = all.iter().find(|(_, s)| !s.is_anomaly() && !s.is_hyperlane() && s.planets().len() >= 2).expect("a system with two planets");
+        let planets: Vec<_> = record.planets().iter().map(|p| ti4_model::id::PlanetId::new(*p)).collect();
+        let hub = crate::fixtures::hub_with_centre(centre);
+        let (origin, target) = (SystemId::new(hub.outer[0].clone()), SystemId::new(hub.centre.clone()));
+        let mut state = table(&[("a", "sol"), ("b", "nomad")]);
+        state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nomadagentmercer"), ti4_model::state::LeaderStatus::Readied);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        for planet in &planets[..2] {
+            state.system_mut(&target).planet_control.insert(planet.clone(), a());
+        }
+        crate::fixtures::put_on_planet(&mut state, &target, &planets[0], "infantry", &a(), 2);
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
     /// Van Hauge (the Yin flagship): when it is destroyed every ship of the system goes with it, staged and announced at the fixed drain points of the
     /// string (after the round ended, in the end announcement). Several seeds, the flagship on either side.
     #[test]

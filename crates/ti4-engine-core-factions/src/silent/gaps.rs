@@ -109,7 +109,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Leader, event: EventKind::TurnPassed, relation: Relation::After, holds: |c| copies(c, Faction::TheNaazRokhaAlliance) }, // yssarilagent: naazagent
     Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::After, holds: |c| copies(c, Faction::TheWinnu) }, // yssarilagent: winnuagent
     // -- the activation abilities lane M6c lists as gaps (its audit); delete the row when the lane ports the rule
-    Gap { kind: AbilityKind::Leader, event: EventKind::TacticalActionEnded, relation: Relation::After, holds: |c| faction(c, Faction::TheNomad) }, // nomadagentmercer
 ];
 
 /// The condition of every row: the seat could use the ability, and the core cannot say whether it is eligible now.

@@ -19,26 +19,12 @@ use crate::state::{CoreState, EDeck, EventKind, Key, LeaderStatus, Payload, Plai
 
 use crate::driver::tactical_tail as tail;
 
-/// A Yssaril seat with a readied Ssruu while another seat holds an agent the string's `borrowable_agents` would list: the agents that listen
-/// to the end of the action are T'ro (Sardakk) and Field Marshal Mercer (Nomad), readied or exhausted.
+/// A Yssaril seat with a readied Ssruu while another seat holds T'ro, readied or exhausted (the string's `borrowable_agents` listing
+/// `sardakkagent`). Field Marshal Mercer is not copied: the string registers no Ssruu copy of him (`nomad_agents`), and it announces the end of
+/// the action to a readied Mercer only.
 fn ssruu_lends(core: &CoreState) -> bool {
     let ssruu = core.players().iter().any(|p| p.faction == Faction::TheYssarilTribes && p.leaders.status.get(&Leader::Ssruu) == Some(&LeaderStatus::Readied));
-    ssruu && core.players().iter().any(|p| [Leader::Tro, Leader::FieldMarshalMercer].iter().any(|agent| matches!(p.leaders.status.get(agent), Some(LeaderStatus::Readied | LeaderStatus::Exhausted))))
-}
-
-/// Whether Field Marshal Mercer (a readied agent of a Nomad seat, or a copy a Yssaril Ssruu makes) would be offered at the end of the action: it is
-/// not a rule of the core table yet, so an offer would be missing silently. Mercer moves "up to two ground forces" of the actor to a planet it
-/// controls in the active system (`nomad_agents::mercer_window`). (T'ro is a rule of the table since lane M6c: `cd_registry::sardakk::timing`.)
-fn mercer_listens(core: &CoreState, actor: Seat, system: System) -> bool {
-    let holds = |statuses: &[LeaderStatus]| core.players().iter().any(|p| p.leaders.status.get(&Leader::FieldMarshalMercer).is_some_and(|s| statuses.contains(s)));
-    let ssruu = core.players().iter().any(|p| p.faction == Faction::TheYssarilTribes && p.leaders.status.get(&Leader::Ssruu) == Some(&LeaderStatus::Readied));
-    if !(holds(&[LeaderStatus::Readied]) || (ssruu && holds(&[LeaderStatus::Readied, LeaderStatus::Exhausted]))) {
-        return false;
-    }
-    let lands = board::planets_of(core, system).any(|p| board::controls(core, actor, p));
-    let ground_force = |u: &crate::state::Piece| u.owner() == actor && matches!(u.kind().data().base_type, crate::generated::UnitBaseType::Infantry | crate::generated::UnitBaseType::Mech);
-    let has_ground_forces = core.board().systems().any(|(sys, cell)| cell.units.as_slice().iter().any(ground_force) || board::planets_of(core, sys).any(|p| board::planet_units(core, p).iter().any(ground_force)));
-    lands && has_ground_forces
+    ssruu && core.players().iter().any(|p| matches!(p.leaders.status.get(&Leader::Tro), Some(LeaderStatus::Readied | LeaderStatus::Exhausted)))
 }
 
 /// The Crown of Emphidia and Dark Energy Tap (`close_tactical`): the Crown's holder may explore a planet it controls (the deck is the planet's
@@ -98,11 +84,6 @@ pub(super) fn run(a: &mut TacticalAction, sx: &mut Sx<'_>) -> Next {
         return Next::Done;
     }
     let lends = ssruu_lends(sx.state);
-    if let (Some(player), Some(system)) = (active, system)
-        && mercer_listens(sx.state, player, system)
-    {
-        return TacticalAction::bail(sx, TacticalGap::SsruuLends);
-    }
     if tail::tro_window(sx.state, lends)
         && let (Some(player), Some(system)) = (active, system)
     {

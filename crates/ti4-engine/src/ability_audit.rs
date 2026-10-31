@@ -142,7 +142,6 @@ mod tests {
         ("leader:*:naazagent:TURN_PASSED:after", Status::Gap(19)),
         ("leader:*:naazcommander:PLANET_CONTROL_GAINED:after", Status::Gap(20)),
         ("leader:*:nekrocommander:TECHNOLOGY_GAINED:after", Status::Gap(21)),
-        ("leader:*:nomadagentmercer:TACTICAL_ACTION_ENDED:after", Status::Gap(53)),
         ("leader:*:obsidianagent:SHIP_DESTROYED:when", Status::Dropped("a dropped faction")),
         ("leader:*:ralnelcommander:RETREAT_DECLARED:when", Status::Dropped("a dropped faction")),
         ("leader:*:ralnelhero:PLAYER_PASSED:after", Status::Dropped("a dropped faction")),

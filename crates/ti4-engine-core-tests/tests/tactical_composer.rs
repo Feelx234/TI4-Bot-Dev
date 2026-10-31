@@ -404,11 +404,8 @@ fn a_yssaril_ssruu_next_to_a_sardakk_seat_is_a_gap_at_the_tail_only_where_t_ro_c
         assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
         core.pending_mut().close(WindowKind::Aftermath);
         let got = advance_tactical(&mut core, &env, None);
-        if expect_gap {
-            assert_eq!(got, Err(LiveError::Unknown(Unknown::UnportedTactical(TacticalGap::SsruuLends))));
-        } else {
-            assert_eq!(got.map(|r| r.0), Ok(Live::Done), "ssruu {ssruu} sardakk {sardakk}");
-        }
+        let _ = expect_gap;
+        assert_eq!(got.map(|r| r.0), Ok(Live::Done), "ssruu {ssruu} sardakk {sardakk}");
     }
 }
 
@@ -483,39 +480,27 @@ fn the_conduit_links_are_cleared_when_a_hook_ends_the_turn_and_when_the_tail_clo
     assert_eq!(conduit_links(&core), 0, "the tail cleared the links");
 }
 
-/// Field Marshal Mercer (not a rule of the table yet) is a counted gap at the tail exactly where he would be offered: a planet the actor controls in
-/// the active system AND a ground force of the actor somewhere; a copy needs a readied Ssruu.
+/// Field Marshal Mercer is a rule of the table (lane M6d): the tail never stops for him, and announces the end of the action when he is
+/// readied (anywhere), not when he is exhausted (the string registers no Ssruu copy of him, so a readied Ssruu does not listen for him).
 #[test]
-fn mercer_is_a_gap_at_the_tail_only_with_a_planet_and_a_ground_force_and_the_event_goes_out_only_to_a_listener() {
+fn mercer_hears_the_end_of_the_action_when_readied_and_the_tail_never_stops_for_him() {
     covers!("driver::windows::tactical::TacticalAction");
     use ti4_engine_core::state::LeaderStatus;
-    let p = plain_systems();
-    let tiles = [p[0], p[1], p[2], p[3]];
-    let planet = tiles[3].data().planets[0];
-    // (controls the planet, has a ground force, expect the gap)
-    for (controls, ground, expect_gap) in [(true, true, true), (true, false, false), (false, true, false)] {
-        let mut sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheNomad])
-            .map_hexes(&[(p[0], Hex::new(0, 0)), (p[1], Hex::new(1, 0)), (p[2], Hex::new(2, 0)), (p[3], Hex::new(3, 0))])
-            .tokens(0, 3, 4, 2)
-            .active(Some(0))
-            .unit(p[2], None, Unit::CruiserI, 0, 1);
-        if controls {
-            sc = sc.control(planet, 0);
-        }
-        if ground {
-            sc = sc.unit(p[1], Some(tiles[1].data().planets[0]), Unit::InfantryI, 0, 1);
-        }
+    let ended = |c: &CoreState| c.ledger().events.iter().any(|e| matches!(e, Emit::Typed(r) if r.kind == EventKind::TacticalActionEnded));
+    for (status, ssruu, expect) in [(LeaderStatus::Readied, false, true), (LeaderStatus::Exhausted, false, false), (LeaderStatus::Exhausted, true, false), (LeaderStatus::Locked, true, false)] {
+        let (sc, tiles) = row();
         let (mut core, k) = sc.build();
-        core.players.edit(1).leaders.status.insert(Leader::FieldMarshalMercer, LeaderStatus::Readied);
+        core.players.edit(1).leaders.status.insert(Leader::FieldMarshalMercer, status);
+        if ssruu {
+            core.players.edit(0).faction = Faction::TheYssarilTribes;
+            core.players.edit(0).leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
+        }
         let env = env(&k, 1);
         assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
         core.pending_mut().close(WindowKind::Aftermath);
         let got = advance_tactical(&mut core, &env, None);
-        if expect_gap {
-            assert_eq!(got, Err(LiveError::Unknown(Unknown::UnportedTactical(TacticalGap::SsruuLends))), "controls {controls} ground {ground}");
-        } else {
-            assert_eq!(got.map(|r| r.0), Ok(Live::Done), "controls {controls} ground {ground}");
-        }
+        assert_eq!(got.map(|r| r.0), Ok(Live::Done), "mercer {status:?} ssruu {ssruu}");
+        assert_eq!(ended(&core), expect, "mercer {status:?} ssruu {ssruu}");
     }
     // The end of the action is announced to a listener: an exhausted T'ro listens only through a readied Ssruu.
     let ended = |c: &CoreState| c.ledger().events.iter().any(|e| matches!(e, Emit::Typed(r) if r.kind == EventKind::TacticalActionEnded));

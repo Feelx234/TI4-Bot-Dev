@@ -151,8 +151,6 @@ pub enum TacticalGap {
     /// Thunder's Edge Warfare's follower window, or a hero's strategy primary, waits for the end of the free tactical action.
     WarfareSecondary,
     LeaderStrategy,
-    /// A Yssaril seat with a readied Ssruu could copy an agent that listens to the end of the action.
-    SsruuLends,
     /// The map slice holds no galaxy.
     NoGalaxy,
 }
@@ -334,6 +332,8 @@ pub struct ActivationCodes {
     pub titans_flagship: crate::state::Code,
     /// The leader alias `yssarilcommander`, the source of So Ata's question.
     pub yssaril_commander: crate::state::Code,
+    /// The leader alias `nomadagentmercer`, the source of Mercer's questions.
+    pub mercer: crate::state::Code,
 }
 
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind
