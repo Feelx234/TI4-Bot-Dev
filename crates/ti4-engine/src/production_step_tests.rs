@@ -108,15 +108,8 @@ enum Mode {
     Tactical,
     /// A use at the home system outside a tactical action (`production::resolve_timed`).
     Home,
-}
-
-impl Mode {
-    fn open(self) -> fn(ti4_engine_core::ids::Seat, ti4_engine_core::generated::System) -> UseOpen {
-        match self {
-            Self::Tactical => tactical,
-            Self::Home => home_use,
-        }
-    }
+    /// Units an ability produces in the system (`production::produce_by_ability`: the Arborec and Muaat leaders), two at most.
+    Ability,
 }
 
 /// The string run of a use at the home system: `production::resolve_timed` against a table that answers by the policy.
@@ -129,6 +122,31 @@ fn string_home(mut state: GameState, system: &SystemId, policy: &Policy) -> Run 
     let mut sequence = crate::event::EventSequence::new();
     let timing = Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None });
     crate::production::resolve_timed(&mut state, content, POK, None, &mut table, timing, &a(), system).expect("the string run is legal");
+    let events = resolver.applied_events().iter().map(|e| (e.event_type.clone(), e.payload.clone())).collect();
+    let asked = asked.borrow().clone();
+    Run { asked, events, state }
+}
+
+/// The string run of an ability's production: `production::produce_by_ability` (two units), the table answering by the policy.
+fn string_ability(mut state: GameState, system: &SystemId, policy: &Policy) -> Run {
+    let content = ContentStore::embedded();
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let shared = Rc::new(RefCell::new(policy.clone()));
+    let mut table = Table::with_default(Box::new(Recorder { asked: asked.clone(), policy: shared }));
+    let (mut dice, mut rng) = (Dice::new(), GameRng::new(state.rng_seed));
+    let mut resolver = crate::fixtures::armed_resolver(&state);
+    let mut sequence = crate::event::EventSequence::new();
+    {
+        let mut ctx = Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+        };
+        crate::production::produce_by_ability(&mut state, &mut ctx, None, &a(), system, Some(2)).expect("the string run is legal");
+    }
     let events = resolver.applied_events().iter().map(|e| (e.event_type.clone(), e.payload.clone())).collect();
     let asked = asked.borrow().clone();
     Run { asked, events, state }
@@ -174,7 +192,7 @@ const FP: Footprint = Footprint::new(
 );
 
 /// The native run: `Arm::Production` through `live_step`, answered like the string. `Err`: the arm stopped (the bail), with the questions seen.
-fn live_run(mut gs: GameState, system: &SystemId, policy: &Policy, open: fn(ti4_engine_core::ids::Seat, ti4_engine_core::generated::System) -> UseOpen) -> Result<Run, (Stop, Vec<Choice>)> {
+fn live_run(mut gs: GameState, system: &SystemId, policy: &Policy, mode: Mode) -> Result<Run, (Stop, Vec<Choice>)> {
     let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
     let rng_before = GameRng::new(gs.rng_seed).positions();
     let seeds: Rc<dyn ti4_engine_core::state::SeedSource> = Rc::new(TextSeeds::of(&cx));
@@ -191,7 +209,18 @@ fn live_run(mut gs: GameState, system: &SystemId, policy: &Policy, open: fn(ti4_
         let mut env: Env<'_> = crate::live::env::env_with_plays(r_ref, core, kernel, seeds.clone(), POK);
         // (The live Env names the faction units of the FULL scope; this game is a POK game.)
         env.table.facts.roster = crate::technology_core::roster_for(ContentStore::embedded(), POK);
-        open_production(core, open(seat, sys));
+        let open = match mode {
+            Mode::Tactical => tactical(seat, sys),
+            Mode::Home => home_use(seat, sys),
+            Mode::Ability => {
+                // The facts of the use as the adapter hands them: the system's own, with the limit the ability allows.
+                let roster = env.table.facts.roster.expect("a roster");
+                let mut facts = ti4_engine_core::rules::production::home::home_facts(core, kernel, roster, seat, sys, false).expect("facts").produce;
+                facts.limit = 2;
+                UseOpen::Ability { facts }
+            }
+        };
+        open_production(core, open);
         let live = Cx::new(r_ref, &env);
         struct Answers {
             policy: Rc<RefCell<Policy>>,
@@ -252,6 +281,13 @@ fn game(faction: &str, seed: u64) -> (GameState, SystemId) {
     (state, system)
 }
 
+fn without_previews(mut v: Value) -> Value {
+    if let Some(o) = v.as_object_mut() {
+        o.remove("previews");
+    }
+    v
+}
+
 fn show(c: &[Choice]) -> Vec<(String, Vec<String>)> {
     c.iter().map(|q| (q.prompt.clone(), q.options.iter().map(|o| o.id.clone()).collect())).collect()
 }
@@ -259,8 +295,12 @@ fn show(c: &[Choice]) -> Vec<(String, Vec<String>)> {
 /// Run both and report every difference of the questions, the events and the position (empty: lockstep).
 fn lockstep(label: &str, state: &GameState, system: &SystemId, policy: &Policy, mode: Mode) -> Vec<String> {
     let _guard = crate::dual::tests::serial();
-    let string = if mode == Mode::Home { string_home(state.clone(), system, policy) } else { string_run(state.clone(), system, policy) };
-    let live = match live_run(state.clone(), system, policy, mode.open()) {
+    let string = match mode {
+        Mode::Home => string_home(state.clone(), system, policy),
+        Mode::Ability => string_ability(state.clone(), system, policy),
+        Mode::Tactical => string_run(state.clone(), system, policy),
+    };
+    let live = match live_run(state.clone(), system, policy, mode) {
         Ok(run) => run,
         Err((stop, seen)) => return vec![format!("{label}: the native run stopped: {stop:?}\nnative {:?}\nstring {:?}", show(&seen), show(&string.asked))],
     };
@@ -278,7 +318,8 @@ fn lockstep(label: &str, state: &GameState, system: &SystemId, policy: &Policy, 
             ("prompt", serde_json::json!(s.prompt), serde_json::json!(n.prompt)),
             ("options", serde_json::json!(s.options), serde_json::json!(n.options)),
             ("details", serde_json::json!(s.details), serde_json::json!(n.details)),
-            ("context", serde_json::json!(s.context), serde_json::json!(n.context)),
+            // (The `previews` of a played card's effect are lane A2's display facts of the play slot, not the production step's.)
+            ("context", without_previews(serde_json::json!(s.context)), without_previews(serde_json::json!(n.context))),
         ] {
             if sv != nv {
                 out.push(format!("{label}: question {i} {what}: string {sv} native {nv}"));
@@ -326,6 +367,7 @@ fn the_production_step_of_every_faction_runs_native_in_lockstep_with_the_string(
         let (state, system) = game(faction, 10 + i as u64);
         failures.extend(lockstep(faction, &state, &system, &Policy::new(2), Mode::Tactical));
         failures.extend(lockstep(&format!("{faction} (home)"), &state, &system, &Policy::new(2), Mode::Home));
+        failures.extend(lockstep(&format!("{faction} (ability)"), &state, &system, &Policy::new(2), Mode::Ability));
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
@@ -395,4 +437,19 @@ fn a_system_that_produces_nothing_runs_native_with_nothing_asked() {
     state.system_mut(&system).units.clear();
     let diffs = lockstep("no capacity", &state, &system, &Policy::new(1), Mode::Tactical);
     assert!(diffs.is_empty(), "{diffs:#?}");
+}
+
+#[test]
+fn war_machine_played_into_the_use_adds_production_in_lockstep() {
+    use crate::generated::IdStr;
+    for card in [ti4_engine_core::generated::ActionCard::WarMachine1] {
+        let (mut state, system) = game("sol", 9);
+        state.player_mut(&a()).unwrap().action_cards.push(ti4_model::id::ActionCardId::new(IdStr::as_str(card)));
+        for (label, prefer) in [("played", vec![IdStr::as_str(card), "ability"]), ("declined", vec!["decline"])] {
+            let mut policy = Policy::new(3);
+            policy.prefer = prefer;
+            let diffs = lockstep(&format!("war machine {label}"), &state, &system, &policy, Mode::Tactical);
+            assert!(diffs.is_empty(), "{diffs:#?}");
+        }
+    }
 }

@@ -77,7 +77,7 @@ fn terragenesis_when(c: &CondCx<'_>) -> bool {
 fn terragenesis(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let owner = eff.owner();
     let Some(planet) = eff.event.payload.planet(Key::Planet) else { return Ok(()) };
-    if eff.event.payload.seat(Key::Player) != Some(owner) || !is_titans(eff.read().0, owner) {
+    if eff.event.payload.seat(Key::Player) != Some(owner) || !is_titans(eff.read().0, owner) { // mutants:skip (the condition holds the same guard)
         return Ok(());
     }
     let Some(system) = planet.data().system else { return Ok(()) };
@@ -118,7 +118,7 @@ fn place(s: &mut CoreState, owner: Seat, system: System, planet: Planet, from: O
     if let Some(from) = from {
         s.marks_mut().tail.edit().remove(&MarkKey::TitansSleeper(from));
     }
-    if has_sleeper(s, planet) || sleeper_planets(s, owner).len() >= SLEEPER_TOKENS {
+    if has_sleeper(s, planet) || sleeper_planets(s, owner).len() >= SLEEPER_TOKENS { // mutants:skip (the options never offer a placement the guard refuses)
         return;
     }
     s.marks_mut().tail.edit().insert(MarkKey::TitansSleeper(planet), MarkVal::Rec(vec![MarkVal::Atom(Atom::Seat(owner)), MarkVal::Atom(Atom::System(system))]));

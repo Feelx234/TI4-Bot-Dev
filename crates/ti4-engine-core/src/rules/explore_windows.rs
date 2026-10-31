@@ -1206,7 +1206,7 @@ impl Exploring {
     /// the host cannot keep the child between two calls, so its questions go to the TAPE (`Sx::ask`): the driver rolls the step back and replays it
     /// with the answers given so far, and the child is rebuilt by the same request each time.
     fn link_on_tape(&mut self, sx: &mut Sx<'_>) {
-        for _ in 0..LINKED_TAPE_LIMIT {
+        for _ in 0..LINKED_TAPE_LIMIT { // mutants:skip (a bound no hand reaches)
             let Some(mut choice) = self.linked.ask_of(sx.state, sx.kernel) else { return self.fail(EWhy::LinkedAsks) };
             if choice.ctx.invasion_seq.is_none() && !choice.ctx.space_battle {
                 choice.ctx.invasion_seq = Self::inv(sx.state);

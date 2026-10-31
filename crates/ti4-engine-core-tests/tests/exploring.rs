@@ -538,6 +538,7 @@ fn a_hosted_exploration_runs_a_child_that_does_not_ask_at_once_and_puts_one_that
             // The discard is a question of the step (nested, in the journal); the draw is rolled back with the step until it is answered.
             let Status::Asking(discard) = status else { panic!("a hand over the limit discards") };
             assert!(!discard.opts.as_slice().is_empty());
+            assert_eq!(discard.ctx.invasion_seq, None, "outside an invasion");
             let held = resumed.nested_journal().expect("the suspension");
             let mut again = Driver::new(Exploring::hosted(resumed.window.run().clone()), ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), explore_table_with_links(), 1);
             again.restore_nested(&held);
@@ -784,4 +785,31 @@ fn the_last_survivors_a_table_without_unit_forms_a_one_good_conversion_and_a_gai
         rig.pick_opt(ex(EOpt::Gain));
         assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, 1, "{card:?}");
     }
+}
+
+/// The question of a linked child that asks inside a hosted exploration names the invasion the position is in, like every other question of the window.
+#[test]
+fn a_discard_put_to_the_tape_names_the_open_invasion() {
+    covers!("rules::explore_windows::Exploring");
+    use ti4_engine_core::containers::Cow;
+    use ti4_engine_core::state::{ActiveInvasion, Code};
+    let spot = planet_with(&[PlanetTrait::Industrial]);
+    let s = setup(spot, &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
+    let s = Setup { scenario: s.scenario.goods(0, 2), ..s };
+    let (system, planet) = (s.system, s.planet);
+    let (mut state, kernel) = s.scenario.build();
+    stack(&mut state, ExploreType::Industrial, &[Explore::FunctioningBase1]);
+    state.decks_mut().action.set(vec![ActionCard::Spy, ActionCard::Rout]);
+    for card in ActionCard::ALL.iter().copied().skip(10).take(7) {
+        state.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(card);
+    }
+    state.transient_mut().invasion.active = Some(Cow::new(ActiveInvasion { system, invader: Seat(0), seq: 5, phase: Code(1), planet: Some(planet), defender: None, ground_round: 0, last_step: None }));
+    let table = explore_table_with_links();
+    let mk = |run| Driver::new(Exploring::hosted(run), ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table.clone(), 1);
+    let mut driver = mk(ti4_engine_core::state::ExploreRun::new(Seat(0), ti4_engine_core::state::ETarget::Planet(planet), EDeck::Fixed(ExploreType::Industrial), false));
+    let Status::Asking(_) = driver.run(&mut state, &kernel).unwrap() else { panic!("the base asks") };
+    let mut resumed = mk(driver.window.run().clone());
+    assert!(resumed.restore_stage(&state, &kernel));
+    let Status::Asking(discard) = resumed.resume(&mut state, &kernel, Pick::Opt(ex(EOpt::SpendTradeGood))).unwrap() else { panic!("a discard") };
+    assert_eq!(discard.ctx.invasion_seq, Some(5));
 }

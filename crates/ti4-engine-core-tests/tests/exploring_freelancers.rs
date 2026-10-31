@@ -65,6 +65,8 @@ fn freelancers_asks_which_unit_and_the_card_closes_when_the_unit_stands_or_is_de
         }
         assert!(matches!(status, Status::Done), "decline {decline}");
         assert!(driver.window.explored() && driver.window.unsupported().is_none(), "decline {decline}");
+        let how = driver.window.run().how;
+        assert_eq!(how, if decline { ti4_engine_core::state::EHow::Unresolved } else { ti4_engine_core::state::EHow::Resolved }, "the card resolved when a unit stands (decline {decline})");
         assert!(!state.meta().influence_pays_for_units.contains(Seat(0)), "the permission goes with the unit (decline {decline})");
     }
 }

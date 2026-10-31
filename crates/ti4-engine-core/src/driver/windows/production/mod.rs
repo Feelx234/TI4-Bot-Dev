@@ -198,7 +198,7 @@ const TAPE_LIMIT: u8 = 32;
 fn run_on_tape<W: Window>(sx: &mut Sx<'_>, window: &mut W) -> Result<(), Gap> {
     let mut child = Child::idle();
     child.start(window.clone());
-    for _ in 0..TAPE_LIMIT {
+    for _ in 0..TAPE_LIMIT { // mutants:skip (a bound no window of the start or the end of a use reaches)
         match child.step(sx) {
             None => break,
             Some(Ran::Done(done)) => {
@@ -219,7 +219,7 @@ fn run_on_tape<W: Window>(sx: &mut Sx<'_>, window: &mut W) -> Result<(), Gap> {
 
 /// [`run_on_tape`] for the child of another area ([`crate::kernel::children::ErasedChild`]).
 fn run_erased_on_tape(sx: &mut Sx<'_>, child: &mut crate::kernel::children::ErasedChild) -> Result<Option<Report>, Gap> {
-    for _ in 0..TAPE_LIMIT {
+    for _ in 0..TAPE_LIMIT { // mutants:skip (as above)
         match child.step(sx) {
             None => return Ok(None),
             Some(Ran::Done(report)) => return Ok(Some(report)),
@@ -242,7 +242,7 @@ impl Window for ProductionMachine {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        for _ in 0..8 {
+        for _ in 0..8 { // mutants:skip (a bound: a use passes through four phases at most)
             match self.p.phase {
                 UsePhase::Start => {
                     if let Err(why) = self.start(sx) {

@@ -64,6 +64,7 @@ fn a_token_on_the_board_gives_a_choice_between_placing_a_new_one_and_moving_it()
     let use_it = rig.opts().iter().position(|o| *o != Opt::Decline).expect("the ability");
     rig.pick(use_it);
     assert!(matches!(rig.asked().ask, Ask::Reaction(RAsk::Terragenesis { planet }) if planet == p[0]), "{}", rig.transcript());
+    assert!(!rig.asked().ctx.optional && !rig.asked().ctx.space_battle, "a plain question of the faction ability");
     assert_eq!(rig.opts(), vec![Opt::Reaction(ROpt::Sleeper { from: None }), Opt::Reaction(ROpt::Sleeper { from: Some(p[3]) }), Opt::Decline].into_iter().filter(|o| *o != Opt::Decline).collect::<Vec<_>>());
     rig.pick_where(|o| matches!(o, Opt::Reaction(ROpt::Sleeper { from: Some(_) })));
     assert!(rig.is_done());

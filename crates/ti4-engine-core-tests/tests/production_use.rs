@@ -500,3 +500,63 @@ fn a_home_use_with_the_hero_taken_makes_every_unit_free() {
     assert_eq!(goods(&core), 6, "the carrier cost nothing");
     assert_eq!(core.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::HarrughGefhara), Some(&LeaderStatus::Purged));
 }
+
+#[test]
+fn a_home_use_offers_the_hero_only_to_a_unlocked_hero_with_capacity_and_ends_with_its_swap_cleared() {
+    covers!("driver::windows::production::ProductionMachine");
+    // A locked hero is not offered and the counter stays; an unlocked one goes up by exactly one.
+    for (status, up) in [(LeaderStatus::Locked, 0), (LeaderStatus::Unlocked, 1)] {
+        let (mut core, k) = arena(6);
+        let env = mkenv(&k, 1);
+        core.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::HarrughGefhara, status);
+        let seq = core.meta().production_seq;
+        open_production(&mut core, UseOpen::Home { who: Seat(0), system: sys() });
+        let (live, _) = advance_production(&mut core, &env, None).expect("runs");
+        let Live::Asks(a) = live else { panic!("asks") };
+        assert_eq!(matches!(a.choice.ask, Ask::Production(PAsk::Hero(_))), up == 1, "{status:?}");
+        let answered = if up == 1 { Pick::Opt(Opt::Production(POpt::HeroUse)) } else { Pick::Opt(Opt::Production(POpt::Stop)) };
+        advance_production(&mut core, &env, Some(answered)).expect("legal");
+        assert_eq!(core.meta().production_seq, seq + up, "{status:?}");
+    }
+    // No capacity: the hero is not offered, the use ends at once, and a planet-value swap does not outlast the use.
+    let (mut core, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[sys()]).control(planet(), 0).goods(0, 6).build();
+    let env = mkenv(&k, 1);
+    core.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::HarrughGefhara, LeaderStatus::Unlocked);
+    core.transient_mut().production.value_swapped_planet = Some(planet());
+    let seq = core.meta().production_seq;
+    open_production(&mut core, UseOpen::Home { who: Seat(0), system: sys() });
+    let (live, _) = advance_production(&mut core, &env, None).expect("runs");
+    assert_eq!(live, Live::Done);
+    assert_eq!(core.meta().production_seq, seq);
+    assert_eq!(core.transient().production.value_swapped_planet, None, "a home use clears the swap when it closes");
+    // A tactical use of such a system asked nothing and ran no effect: the swap stays.
+    let (mut core, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[sys()]).control(planet(), 0).build();
+    let env = mkenv(&k, 1);
+    core.transient_mut().production.value_swapped_planet = Some(planet());
+    open_production(&mut core, tactical());
+    advance_production(&mut core, &env, None).expect("runs");
+    assert_eq!(core.transient().production.value_swapped_planet, Some(planet()));
+}
+
+#[test]
+fn the_machine_reports_what_the_use_made_so_far() {
+    covers!("driver::windows::production::ProductionMachine");
+    let (mut core, k) = arena(6);
+    let env = mkenv(&k, 1);
+    open_production(&mut core, tactical());
+    let (live, _) = advance_production(&mut core, &env, None).expect("runs");
+    let Live::Asks(first) = live else { panic!() };
+    assert!(ProductionMachine::from_pending(&core, &k).unwrap().made().as_slice().is_empty());
+    let build = Pick::Opt(first.choice.opts.iter().copied().find(|o| matches!(o, Opt::Production(POpt::Build { unit: Unit::DestroyerI, .. }))).unwrap());
+    let (live, _) = advance_production(&mut core, &env, Some(build)).expect("legal");
+    let mut live = live;
+    while let Live::Asks(a) = &live {
+        if matches!(a.choice.ask, Ask::Production(PAsk::Choose(_))) {
+            break;
+        }
+        let pick = pick_where(&a.choice, &|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))).unwrap_or(Pick::Opt(a.choice.opts.as_slice()[0]));
+        live = advance_production(&mut core, &env, Some(pick)).expect("legal").0;
+    }
+    let made = ProductionMachine::from_pending(&core, &k).unwrap().made();
+    assert_eq!(made.as_slice().iter().map(|(u, _)| *u).collect::<Vec<_>>(), [Unit::DestroyerI]);
+}
