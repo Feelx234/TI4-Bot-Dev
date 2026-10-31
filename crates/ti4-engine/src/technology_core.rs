@@ -482,3 +482,31 @@ pub fn unit_swaps(
     }
     Some(swaps)
 }
+
+#[cfg(all(test, feature = "typed-core"))]
+mod roster_tests {
+    use ti4_content::ContentStore;
+    use ti4_engine_core::generated::{Faction, UnitBaseType};
+    use ti4_model::content_types::{DEFAULT, FULL, POK};
+
+    /// The two builders of the faction units agree: the string content's (`roster_for`, the oracle of the placements) and the faction crate's
+    /// (`cd_registry::yin::timing::roster`, which the windows of that crate place by: Self-Assembly Routines' mech). Found by the Naaz seat
+    /// at the Warfare secondary of Hesh and Prit: the crate's builder took the first unit of the enum (the Absol space form of the Eidolon)
+    /// over the mech.
+    #[test]
+    fn the_faction_crate_roster_names_the_unit_the_content_names() {
+        for sources in [DEFAULT, POK, FULL] {
+            let content = ContentStore::embedded();
+            let oracle = super::roster_for(content, sources.clone()).expect("the embedded content has a roster");
+            let crate_roster = ti4_engine_core_factions::cd_registry::yin::timing::roster(super::scope(sources));
+            for faction in Faction::ALL {
+                for base in UnitBaseType::ALL {
+                    // The content names the plain unit for a base type the faction has no version of; the crate's roster leaves it to `generic_unit`.
+                    if let Some(own) = crate_roster.get(faction, base) {
+                        assert_eq!(Some(own), oracle.get(faction, base), "{faction:?} {base:?} in {sources:?}");
+                    }
+                }
+            }
+        }
+    }
+}

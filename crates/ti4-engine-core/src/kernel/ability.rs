@@ -147,6 +147,8 @@ pub struct Codes {
     pub empyrean_mech: crate::state::Code,
     /// The technology alias `so`, the source of Salvage Operations' question.
     pub salvage: crate::state::Code,
+    /// The faction ability `indoctrination`, the source of the Yin's question.
+    pub indoctrination: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
     /// The subtype `assign_casualty` of a casualty question and the cause `action_card:reflective_shielding` of a loss to the hits a

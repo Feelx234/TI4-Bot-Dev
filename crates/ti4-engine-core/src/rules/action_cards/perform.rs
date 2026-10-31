@@ -39,6 +39,12 @@ fn facts_of(env: Env) -> PerformFacts {
         roster: env.facts.roster,
         scope: env.scope,
         mahact_held: env.mahact_held,
+        // The action cards that perform an ability leave the home production and the Imperial primary to the string.
+        home: fx_perform::Home::Unsupported,
+        imperial: None,
+        // (The Thunder's Edge primaries of Overrule are the string's.)
+        free: None,
+        te_uses: None,
     }
 }
 

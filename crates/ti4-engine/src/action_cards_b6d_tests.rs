@@ -1597,11 +1597,11 @@ fn bail_the_trade_abilities_at_a_table_where_a_replenishment_causes_events() {
     }
 }
 
-/// Bail: a Politics draw that a faction hook changes (Yssaril's Scheming and Crafty are the drawer's own) is the string's, for both
-/// abilities. A draw that ends over the hand limit is carried since W6 (the child draw window asks the discard), and a Yssaril
-/// beside the drawer changes nothing.
+/// A Politics draw that a faction hook changes (Yssaril's Scheming and Crafty are the drawer's own) is the core's since W14, for both
+/// abilities: the child draw window adds the card, asks the discard (`OwnHand { Scheming }`) and lifts the limit. A draw that ends over the hand
+/// limit is carried since W6 (the child draw window asks the discard), and a Yssaril beside the drawer changes nothing.
 #[test]
-fn bail_politics_when_a_hook_changes_the_draw() {
+fn politics_follows_the_hooks_that_change_the_draw() {
     let _serial = crate::dual::tests::serial();
     let politics = strategy_position(&["pok3politics"], &[], &[], &[]);
     let mut scheming = politics.clone();
@@ -1609,7 +1609,7 @@ fn bail_politics_when_a_hook_changes_the_draw() {
     let mut beside = politics.clone();
     beside.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
     for alias in ["strategize4", "overrule"] {
-        assert_eq!(bails_picking(alias, &scheming, "pok3politics", 0), (0, 1), "{alias} with Scheming");
+        assert_eq!(bails_picking(alias, &scheming, "pok3politics", 0), (1, 0), "{alias} with Scheming");
         assert_eq!(bails_picking(alias, &politics, "pok3politics", 6), (1, 0), "{alias} with a full hand: the discard is asked in the core");
         assert_eq!(bails_picking(alias, &beside, "pok3politics", 0), (1, 0), "{alias} beside a Yssaril");
     }
@@ -1645,7 +1645,7 @@ fn bail_technology_at_a_table_the_research_window_does_not_carry() {
 }
 
 /// Bail: Leadership and Construction at a table whose payments or placements the production rules do not follow (a Yssaril seat:
-/// borrowed agents), Leadership and Warfare with a command token in a Mahact pool, are the string's.
+/// borrowed agents), (Leadership and Warfare with a command token in a Mahact pool are the core's since package W13.)
 #[test]
 fn bail_leadership_construction_and_warfare_where_the_production_rules_do_not_follow() {
     let _serial = crate::dual::tests::serial();
@@ -1665,7 +1665,8 @@ fn bail_leadership_construction_and_warfare_where_the_production_rules_do_not_fo
     let mut mahact = warfare.clone();
     mahact.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
     for (alias, pick) in [("strategize3", "pok1leadership"), ("overrule", "pok1leadership"), ("overrule", "pok6warfare")] {
-        assert_eq!(bails_picking(alias, &mahact, pick, 0), (0, 1), "{alias} performing {pick} with a token in a Mahact pool");
+        // Package W13: the core reads the pool from the marks (`fx::tokens_held_by_mahact`): the performed ability is carried.
+        assert_eq!(bails_picking(alias, &mahact, pick, 0), (1, 0), "{alias} performing {pick} with a token in a Mahact pool is carried");
         assert_eq!(bails_picking(alias, &warfare, pick, 0), (1, 0), "{alias} performing {pick} without one is carried");
     }
 }

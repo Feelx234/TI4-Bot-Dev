@@ -118,10 +118,10 @@ pub enum Reason {
     MalleonDiscard,
     /// The C4R discard (`ERROR_ERROR`).
     C4rDiscard,
-    /// Yssaril's Scheming: the discard that follows the extra draw.
-    SchemingDiscard,
     /// Shown to `viewer` (`show_action_card`).
     Show { viewer: Seat },
+    /// Yssaril's Scheming: "Then, choose and discard 1 action card from your hand."
+    Scheming,
 }
 
 /// What the area asks. Parameters only; the option list is derived by `opts(state, ask)`.
@@ -221,7 +221,7 @@ impl Reason {
             Self::DeepgloomStallTactics => Subtype::DeepgloomStallTacticsDiscard,
             Self::MalleonDiscard => Subtype::MalleonDiscard,
             Self::C4rDiscard => Subtype::C4rDiscard,
-            Self::SchemingDiscard => Subtype::SchemingDiscard,
+            Self::Scheming => Subtype::SchemingDiscard,
             Self::Show { .. } => Subtype::ShowActionCard,
         }
     }

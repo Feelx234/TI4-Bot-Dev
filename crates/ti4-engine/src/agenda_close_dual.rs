@@ -41,7 +41,8 @@ const CLOSE: Footprint = Footprint::new(
         Slice::Ledger,
         Slice::Pending,
     ],
-    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Agenda, Slice::Transient, Slice::Ledger, Slice::Pending],
+    // (Marks: the discard Scheming asks of a Yssaril voter after its draw is staged as a mark, package W14.)
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Ledger, Slice::Pending],
 );
 
 /// The core half of `Game::close_vote`.

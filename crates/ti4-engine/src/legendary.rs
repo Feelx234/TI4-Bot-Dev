@@ -2245,7 +2245,7 @@ mod lockstep {
     }
 
     #[test]
-    fn a_card_drawn_through_a_faction_hook_stays_the_strings() {
+    fn a_card_drawn_through_a_faction_hook_is_the_cores_since_w14() {
         let ((), compared, bailed, differences) = dual("legendary::end_turn", || {
             let mut state = crate::fixtures::seated_game(&[("a", "yssaril"), ("b", "letnev")], POK);
             state.promissory_notes.clear();
@@ -2254,7 +2254,7 @@ mod lockstep {
             let _ = end_turn(&mut state, content(), POK, None, &mut table, &me());
         });
         assert!(differences.iter().all(|d| d.starts_with("(bail)")), "{differences:?}");
-        assert_eq!((compared, bailed), (0, 1), "Yssaril's Scheming changes the draw");
+        assert_eq!((compared, bailed), (1, 0), "Yssaril's Scheming changes the draw: the core's draw window follows it");
     }
 
     #[test]

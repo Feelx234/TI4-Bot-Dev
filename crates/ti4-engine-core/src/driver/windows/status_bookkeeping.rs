@@ -106,7 +106,7 @@ impl Window for SchemingDiscard {
                 Some(_) => self.stage = SStage::Asking,
             }
         }
-        if self.stage == SStage::Asking { Next::Continue(Ask::Cards(CAsk::OwnHand { reason: Reason::SchemingDiscard })) } else { Next::Done }
+        if self.stage == SStage::Asking { Next::Continue(Ask::Cards(CAsk::OwnHand { reason: Reason::Scheming })) } else { Next::Done }
     }
 
     fn ask_of(&self, core: &CoreState, _: &Kernel) -> Option<Choice> {
@@ -116,7 +116,7 @@ impl Window for SchemingDiscard {
         let cards = self.cards(core)?;
         Some(Choice {
             actor: self.who,
-            ask: Ask::Cards(CAsk::OwnHand { reason: Reason::SchemingDiscard }),
+            ask: Ask::Cards(CAsk::OwnHand { reason: Reason::Scheming }),
             ctx: Ctx {
                 origin: Origin::FactionAbility(Content::Ability(Ability::Scheming)),
                 subtype: Subtype::Cards(CSub::SchemingDiscard),

@@ -241,6 +241,23 @@ pub fn gain_victory_points(s: &mut CoreState, who: Seat, delta: i32, reason: Led
     total
 }
 
+/// `laws::steal_throne_card`: the elected owner of a throne card (the Crown of Emphidia) loses its point (no floor at zero: the string takes it
+/// away as it holds it) and the taker gains one; the card is elected onto the taker. `false` when nobody holds it or the taker already does.
+pub fn steal_throne_card(s: &mut CoreState, law: crate::generated::Agenda, taker: Seat) -> bool {
+    use crate::keys::Outcome;
+    let Some(Outcome::Seat(owner)) = s.agenda().laws.get(&law).copied() else { return false };
+    if owner == taker {
+        return false;
+    }
+    if let Some(p) = s.players_mut().by_seat_mut(owner) {
+        p.econ.victory_points = p.econ.victory_points.saturating_sub(1);
+    }
+    s.ledger_mut().vp.push(VpRec { player: owner, delta: -1, reason: LedgerReason::Agenda(law) });
+    adjust_victory_points(s, taker, 1, LedgerReason::Agenda(law));
+    s.agenda_mut().laws.insert(law, Outcome::Seat(taker));
+    true
+}
+
 /// `objectives::reveal_stage` (61.13, 61.14a): the first facedown public objective of this stage turns faceup,
 /// wherever it is in the deck. Shared with the agenda effects (Incentive Program); areas do not import each other.
 pub fn reveal_stage(s: &mut CoreState, stage: u8) -> Option<crate::generated::PublicObjective> {

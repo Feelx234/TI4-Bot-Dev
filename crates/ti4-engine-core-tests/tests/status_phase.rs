@@ -316,7 +316,7 @@ fn scheming_draws_one_more_and_asks_which_card_to_discard_and_a_clone_continues_
     let before = s.players().by_seat(Seat(1)).unwrap().cards.hand.len();
     let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
     let Live::Asks(q) = live else { panic!("Yssaril draws two cards and discards one: a question") };
-    assert_eq!(q.choice.ask, Ask::Cards(ti4_engine_core::choice::cards::Ask::OwnHand { reason: ti4_engine_core::choice::cards::Reason::SchemingDiscard }));
+    assert_eq!(q.choice.ask, Ask::Cards(ti4_engine_core::choice::cards::Ask::OwnHand { reason: ti4_engine_core::choice::cards::Reason::Scheming }));
     assert_eq!(q.choice.actor, Seat(1));
     assert!(!q.choice.can_decline(), "the discard is mandatory");
     assert!(is_open::<TurnFlowWin>(&s) && s.pending().nested.is_some(), "the close is suspended on its question");

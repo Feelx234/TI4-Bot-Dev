@@ -166,3 +166,11 @@ Not re-counted (no census before the end-of-D1 run). Gates of the sections above
 ## Package W11 (lane 11): what the lines above no longer say
 
 Not re-counted (no census before the end-of-D1 run). Gates of the sections above that are now core halves: every `a neutral side` gate (`dual::reason::NEUTRAL`: the barrage, roll, flow, round-opening, retreat, announce-end, Assault Cannon and ground windows, `Assault Cannon at a neutral side` and `a side that is not a seated player` of `opening_why`, `neutral units in the system` and `a neutral side` of the space cannon offense and the end of the fight in `cannon_dual`), and the nested bails `unported ability reaction:*:SUSTAIN_DAMAGE_USED:when (card reflective)`, `reaction:*:SHIP_DESTROYED:after (card courageous)` and `reaction:*:UNITS_COMMITTED:after (card ghost_squad)`. The bails that stay for the cards played inside a window, with the reason, are in `docs/W_L11_RESUME.md`.
+## Package W13 (lane 13): what the lines above no longer say
+
+Not re-counted (no census before the end-of-D1 run). Now core halves: the Thunder's Edge Warfare and Construction primaries inside the Winnu hero (and the Construction
+primary played by its holder, with the use of PRODUCTION as a child window), the Mahact-pool gates of the Leadership / Warfare abilities performed by a hero or an
+action card and of the Empyrean command token, the Imperial primary's point past the victory target, the Prophecy of Ixth in a home production, and for the Yin hero
+X-89, Dacxive Animators, the Letnev Dunlain Reaper (read in each round), the hits a faction adds to a roll, the Minister of Exploration and the Crown of Emphidia on the
+control gained, the Thundarian and Indoctrination (nested activity, followed on the core table). The Naaz / Winnu / Empyrean / Mahact / Yin / TE Construction windows follow
+nested reaction windows (`outside_following`). See `docs/W_L13_RESUME.md` for what stays.

@@ -107,6 +107,17 @@ impl ProductionWindow {
         }
     }
 
+    /// A use of PRODUCTION outside a tactical action (the Warfare secondary; the string `ProductionWindow::new`): the same fields as
+    /// [`Self::ability`] but the units come from the PRODUCTION of a unit, so Berekar Berekon is offered from the rules version that
+    /// has him (`agent_rules`) and the ground forces go only on planets that hold a producer. No announcement of timing.
+    #[must_use]
+    pub fn use_of(facts: &ProduceFacts, agent_rules: bool) -> Self {
+        let mut window = Self::ability(facts);
+        window.ability = false;
+        window.agent_rules = agent_rules;
+        window
+    }
+
     /// What the use made, in order, with the planet each unit stands on (`None`: the space area; a ship placed away from the producing
     /// system or on the Crimson card has no planet of this system either).
     #[must_use]
