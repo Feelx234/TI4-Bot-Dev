@@ -49,6 +49,21 @@ pub struct IBombard {
     /// The reroll windows after the rolls were opened (the hits were recomputed from the possibly rerolled dice).
     pub announced: bool,
     pub cursor: Option<IBombardCursor>,
+    /// The invader's Jol-Nar commander has been asked about the dice (the walk began; it is `walk` while it is open).
+    pub walked: bool,
+    /// The commander's walk over the dice, while its questions are open.
+    pub walk: Option<IWalk>,
+}
+
+/// Where the Jol-Nar commander's walk over the staged bombardment dice stands (`rules::combat::commander_walk::Walk`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct IWalk {
+    /// Dice answered so far.
+    pub at: u16,
+    /// The dice picked to be drawn again, (entry, die).
+    pub picks: Vec<(u8, u16)>,
+    /// The label of each staged entry in the question renderer's table (the host's; empty: the staged entry's own code).
+    pub shown: Vec<crate::state::Code>,
 }
 
 /// A bill the invader is paying: the custodians' six influence, or a Dunlain Reaper's two resources.

@@ -383,7 +383,7 @@ fn disable_marks_the_activation_only_when_an_opponent_has_a_pds_in_the_active_sy
 // ---- when a card can be reacted with ----------------------------------------------------------------------
 
 fn can(s: &CoreState, who: u8, card: ActionCard, system: ti4_engine_core::generated::System, actor: Option<u8>) -> Option<bool> {
-    ac::reaction_can_matter(s, ALL_SOURCES, Seat(who), card, Window { system, actor: actor.map(Seat) })
+    ac::reaction_can_matter(s, ALL_SOURCES, Seat(who), card, Window { system, actor: actor.map(Seat), planet: None })
 }
 
 #[test]

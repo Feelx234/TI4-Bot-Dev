@@ -49,7 +49,7 @@ pub fn open_at_commit(core: &mut CoreState, invader: Seat, system: System, notes
         scoring: Vec::new(),
         ground_occurrence: None,
         notes,
-        bombard: IBombard { plan: Vec::new(), index: 0, occurrence, announced: true, cursor: None },
+        bombard: IBombard { plan: Vec::new(), index: 0, occurrence, announced: true, cursor: None, walked: true, walk: None },
         extra_commits: Vec::new(),
         temp_commits: Vec::new(),
         combat_only: false,

@@ -367,3 +367,87 @@ fn the_public_boundary_follows_the_stage_the_question_is_asked_in() {
     }
     panic!("the invasion does not end");
 }
+
+/// W16: the invader's Jol-Nar commander is asked about each die of the bombardment by the composer (it was a counted bail,
+/// `Unported::JolNarCommanderReroll`). The walk is held in the payload between the questions: a copy taken at every question asks the same
+/// one and ends in the same position, whatever it answers.
+#[test]
+fn the_commander_of_the_invader_is_asked_about_each_die_of_the_bombardment_and_the_walk_survives_a_clone() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    covers!("kernel::commander_walk::Walk");
+    use ti4_engine_core::choice::combat::{Ask as CAsk, RerollSource};
+    let (p1, _) = planets();
+    let mut walked = 0;
+    for seed in 0..12_u64 {
+        let (mut core, k) = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 3).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1).build();
+        carry(&mut core, 3);
+        core.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::AgnlanOln, ti4_engine_core::state::LeaderStatus::Unlocked);
+        let env = env(&k, seed);
+        open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+        let mut answer: Option<Pick> = None;
+        let mut asks = Vec::new();
+        for _ in 0..200 {
+            match advance_invasion(&mut core, &env, answer.take()).expect("legal") {
+                (Live::Asks(a), _) => {
+                    let is_walk = matches!(a.choice.ask, Ask::Combat(CAsk::RerollDie { source: RerollSource::Commander, .. }));
+                    // Reroll every other die, keep the rest; the other questions take their first option.
+                    let pick = Pick::Opt(a.choice.opts.as_slice()[if is_walk { usize::from(asks.len() % 2 == 1) } else { 0 }]);
+                    let mut copy = core.clone();
+                    let again = ask_invasion(&copy, &env).expect("asks").expect("a question");
+                    assert_eq!(again.choice, a.choice, "seed {seed}: the copy asks the same question");
+                    let mut rest_a = core.clone();
+                    let (qa, ea) = play_from(&mut rest_a, &env, pick);
+                    let (qb, eb) = play_from(&mut copy, &env, pick);
+                    assert_eq!((qa.len(), ea.is_ok()), (qb.len(), eb.is_ok()));
+                    assert_eq!(rest_a, copy, "seed {seed}: after question {}", asks.len());
+                    asks.push(a.choice.clone());
+                    answer = Some(pick);
+                }
+                (Live::Done, _) => {
+                    core.pending_mut().close(WindowKind::EventScoring);
+                    if core.pending().window(WindowKind::Invasion).is_none() {
+                        break;
+                    }
+                }
+            }
+        }
+        let walk: Vec<&Choice> = asks.iter().filter(|c| matches!(c.ask, Ask::Combat(CAsk::RerollDie { .. }))).collect();
+        assert_eq!(walk.len(), 3, "seed {seed}: one question for each die of the three dreadnoughts (BOMBARDMENT 5, one die each)");
+        assert!(walk.iter().all(|c| c.actor == Seat(0)), "the invader is asked");
+        // With no renderer table the label is the staged entry's own code: the state's text of the unit type.
+        assert!(walk.iter().all(|c| matches!(c.ask, Ask::Combat(CAsk::RerollDie { unit, .. }) if unit == codes().units[Unit::DreadnoughtI as usize])), "seed {seed}: the labels");
+        // The walk comes first: before the planet's hits are rolled into a fight and before any commitment.
+        assert!(matches!(asks[0].ask, Ask::Combat(CAsk::RerollDie { .. })));
+        assert!(core.transient().combat.reroll_staging.is_empty() && core.transient().combat.last_reroll_player.is_none(), "the staging is spent");
+        walked += walk.len();
+    }
+    assert_eq!(walked, 36);
+}
+
+/// W16: the same bombardment without the commander asks nothing (a walk needs the ability, not only dice), and with it the questions are
+/// labelled by the renderer's text of the unit type when the table holds one.
+#[test]
+fn a_bombardment_without_the_commander_is_not_walked_and_the_labels_are_the_renderers() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    use ti4_engine_core::choice::combat::{Ask as CAsk, RerollSource};
+    let (p1, _) = planets();
+    for seed in 0..6_u64 {
+        let (mut core, k) = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 3).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1).build();
+        carry(&mut core, 3);
+        let env = env(&k, seed);
+        open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+        let (asked, end) = play(&mut core, &env, &mut first);
+        assert_eq!(end, Ok(()));
+        assert!(asked.iter().all(|c| !matches!(c.ask, Ask::Combat(CAsk::RerollDie { .. }))), "seed {seed}: no commander, no walk");
+    }
+    // With the commander and a table that holds the renderer's texts, the label is that text.
+    let (mut core, k) = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 2).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1).build();
+    carry(&mut core, 3);
+    core.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::AgnlanOln, ti4_engine_core::state::LeaderStatus::Unlocked);
+    let mut env = env(&k, 1);
+    env.table.codes.invasion.shown_units[Unit::DreadnoughtI as usize] = Code(777);
+    open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+    let (asked, _) = play(&mut core, &env, &mut first);
+    let labels: Vec<Code> = asked.iter().filter_map(|c| if let Ask::Combat(CAsk::RerollDie { source: RerollSource::Commander, unit, .. }) = c.ask { Some(unit) } else { None }).collect();
+    assert_eq!(labels, vec![Code(777), Code(777)]);
+}

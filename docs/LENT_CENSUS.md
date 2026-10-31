@@ -189,3 +189,7 @@ See `docs/X_EXPLORE_RESUME.md`.
 ## Package W11 (lane 11): what the lines above no longer say
 
 Not re-counted (no census before the end-of-D1 run). Gates of the sections above that are now core halves: every `a neutral side` gate (`dual::reason::NEUTRAL`: the barrage, roll, flow, round-opening, retreat, announce-end, Assault Cannon and ground windows, `Assault Cannon at a neutral side` and `a side that is not a seated player` of `opening_why`, `neutral units in the system` and `a neutral side` of the space cannon offense and the end of the fight in `cannon_dual`), and the nested bails `unported ability reaction:*:SUSTAIN_DAMAGE_USED:when (card reflective)`, `reaction:*:SHIP_DESTROYED:after (card courageous)` and `reaction:*:UNITS_COMMITTED:after (card ghost_squad)`. The bails that stay for the cards played inside a window, with the reason, are in `docs/W_L11_RESUME.md`.
+
+## Package W16 (lane 16): what the lines above no longer say
+
+Not re-counted (no census). Gates and bails of the sections above that are now core halves: `combat::space_cannon_offense` and `aftermath::head` "a reroll question (Jol-Nar commander, Heart of Ixth)" for the Jol-Nar commander (the Heart of Ixth stays a gate), `invasion::bombard_rerolls` "the Jol-Nar commander (a reroll question per die)", the composed machine's "a position it does not carry (... Devotion ...)" for a hit the producer assigns, and `Unknown::BriberyGoods` / `Unknown::HarnessOrInfiltrate` of the reaction slot (windows where a seat held Bribery, Harness Energy or Infiltrate).

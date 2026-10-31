@@ -229,7 +229,6 @@ pub fn play_facts(core: &CoreState, kernel: &Kernel, texts: &Texts) -> Option<Pl
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;

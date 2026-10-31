@@ -141,7 +141,7 @@ fn head_facts(skip: bool) -> Facts {
         player: Seat(0),
         system: sys(),
         limits: limits(9),
-        cannon: CannonFacts { active: Seat(0), system: sys(), announce: false, staging: false, reaching: vec![], mapped: false, kind: Code(1), cause: Code(2), casualty: Code(3), commander: Code(4) },
+        cannon: CannonFacts { active: Seat(0), system: sys(), announce: false, staging: false, reaching: vec![], mapped: false, kind: Code(1), cause: Code(2), casualty: Code(3), commander: Code(4), jolnar: vec![], unit_texts: vec![], planet_texts: vec![] },
         notes: Default::default(),
         skip_to_commit: skip,
         pre_roll: Code(77),

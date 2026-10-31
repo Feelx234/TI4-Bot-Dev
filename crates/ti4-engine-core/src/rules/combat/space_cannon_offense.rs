@@ -1,18 +1,19 @@
 //! The space cannon offense of the aftermath prelude (LRR 77.1; the string `combat::space_cannon_offense` and the loop of
 //! `AftermathWindow::new` that follows it), as one [`Window`]: the guns of [`unit_guns`] and [`attachment_guns`] roll their
 //! [`cannon_plan`] from the dice stream (`Sx::die`, recorded in `ledger.dice`), each gunner that scored hits gets its reroll
-//! window (the `UNIT_ABILITY_ROLLED` event; nothing to ask unless a Jol-Nar commander or the Heart of Ixth is in play, which the
-//! adapter excludes), then per gunner `SPACE_CANNON_HITS`, Graviton Laser System binding the loss to non-fighters, and the hits
+//! window (the `UNIT_ABILITY_ROLLED` event; the gunner's Jol-Nar commander is asked about each die first, see [`Facts::jolnar`]; a Heart
+//! of Ixth is excluded by the adapter), then per gunner `SPACE_CANNON_HITS`, Graviton Laser System binding the loss to non-fighters, and the hits
 //! absorbed by the victim ([`Absorb`]: cancellations, SUSTAIN DAMAGE, casualties). Last, the active seat having lost its last
 //! non-fighter ship to the guns of the others scores `SpaceCannonTookTheLastNonFighters` for them, and the occurrence is handed
 //! to the caller (the string `pending_event_scoring`).
 //!
 //! The order of gunners is the seat order: the string iterates a map keyed by the player id, so the adapter excludes the tables
-//! whose seats are not in id order. Not covered (the adapter returns `None`, the string result stands): a Jol-Nar commander or a
-//! Heart of Ixth holder (reroll questions), a Scramble Frequency or other reaction that changes the dice, neutral seats,
+//! whose seats are not in id order. Not covered (the adapter returns `None`, the string result stands): a Heart of Ixth holder (reroll
+//! questions), a Scramble Frequency or other reaction that changes the dice, neutral seats,
 //! irreproducible dice, a Last Bastion, Crimson, Ral Nel or Firmament seat.
 
 use super::cannon_guns::{attachment_guns, opponent_with_ships, unit_guns};
+use crate::kernel::commander_walk::Walk;
 use super::{cannon_plan, ships_of, Rd};
 use crate::choice::{Choice, Pick};
 use crate::generated::{Planet, System, Technology, Unit};
@@ -37,6 +38,8 @@ pub enum Stage {
     Hitting,
     /// The victim of the gunner at `at` absorbs the hits (the child window; its questions are ours).
     Absorbing,
+    /// The reroll window of each gunner with hits: its Jol-Nar commander's walk, then the event.
+    Rerolling,
     /// The feat, then the end.
     Scoring,
     Done,
@@ -63,11 +66,20 @@ pub struct Facts {
     pub cause: Code,
     pub casualty: Code,
     pub commander: Code,
+    /// The seats whose Jol-Nar commander is in play: such a gunner is asked about each die of its roll before the event (W16).
+    pub jolnar: Vec<Seat>,
+    /// The text of each unit form that may fire: the state code the staged entry carries and the code of the question renderer's table (the
+    /// label of the commander's questions). A form without one is staged under `kind`.
+    pub unit_texts: Vec<(Unit, Code, Code)>,
+    /// The same for an attachment's cannon (`planet cannon {planet}`), by the planet that carries it.
+    pub planet_texts: Vec<(Planet, Code, Code)>,
 }
 
-/// One staged roll of a gunner: the hit number and the faces.
+/// One staged roll of a gunner: the unit behind it (or the planet whose attachment fired), the hit number and the faces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
+    unit: Option<Unit>,
+    planet: Option<Planet>,
     hits_on: u32,
     faces: Vec<u32>,
 }
@@ -101,12 +113,16 @@ pub struct SpaceCannonOffense {
     /// The loss of the gunner at `at` is bound to non-fighter ships (Graviton Laser System).
     bound: bool,
     absorb: Child<Absorb>,
+    /// The gunner whose reroll window is open (index into `gunners`), the commander's walk over its dice and the ledger length when it began.
+    rerolling: usize,
+    walk: Option<Walk>,
+    mark: usize,
 }
 
 impl SpaceCannonOffense {
     #[must_use]
     pub fn new(f: Facts) -> Self {
-        Self { f, drawn: Vec::new(), redraws: Vec::new(), sets: Vec::new(), scoring: None, stage: Stage::Rolling, gunners: Vec::new(), at: 0, before: 0, bound: false, absorb: Child::idle() } // mutants:skip: `at`, `before` and `bound` are set before they are read
+        Self { f, drawn: Vec::new(), redraws: Vec::new(), sets: Vec::new(), scoring: None, stage: Stage::Rolling, gunners: Vec::new(), at: 0, before: 0, bound: false, absorb: Child::idle(), rerolling: 0, walk: None, mark: 0 } // mutants:skip: `at`, `before` and `bound` are set before they are read
     }
 
     /// The gunner whose hits are being absorbed and whether their loss is bound to non-fighters (the facts of the casualty
@@ -139,13 +155,13 @@ impl SpaceCannonOffense {
         let attachments = attachment_guns(rd, system, active);
         let mut hits: Vec<(Seat, u32)> = Vec::new();
         let mut sets: Vec<(Seat, Vec<Entry>)> = Vec::new();
-        let mut note = |owner: Seat, on: u32, faces: &[u32]| {
+        let mut note = |owner: Seat, unit: Option<Unit>, planet: Option<Planet>, on: u32, faces: &[u32]| {
             let got = u32::try_from(faces.iter().filter(|f| **f >= on).count()).unwrap_or(u32::MAX);
             match hits.iter_mut().find(|(s, _)| *s == owner) {
                 Some((_, n)) => *n += got,
                 None => hits.push((owner, got)),
             }
-            let entry = Entry { hits_on: on, faces: faces.to_vec() };
+            let entry = Entry { unit, planet, hits_on: on, faces: faces.to_vec() };
             match sets.iter_mut().find(|(s, _)| *s == owner) {
                 Some((_, list)) => list.push(entry),
                 None => sets.push((owner, vec![entry])),
@@ -156,13 +172,13 @@ impl SpaceCannonOffense {
             let on = u32::try_from(roll.hits_on).unwrap_or(u32::MAX);
             let faces: Vec<u32> = (0..roll.dice).map(|_| sx.die(RngDomain::Dice, DIE_SIDES)).collect();
             Self::record(sx, roll.owner, Some(roll.unit), None, system, on, &faces);
-            note(roll.owner, on, &faces);
+            note(roll.owner, Some(roll.unit), None, on, &faces);
             drawn.push((on, faces));
         }
         for (owner, planet, on, count) in attachments {
             let faces: Vec<u32> = (0..count).map(|_| sx.die(RngDomain::Dice, DIE_SIDES)).collect();
             Self::record(sx, owner, None, Some(planet), system, on, &faces);
-            note(owner, on, &faces);
+            note(owner, None, Some(planet), on, &faces);
             drawn.push((on, faces));
         }
         self.drawn = drawn;
@@ -197,11 +213,11 @@ impl SpaceCannonOffense {
         let rolls: Vec<RerollEntry> = entries
             .iter()
             .map(|e| RerollEntry {
-                unit: self.f.kind,
+                unit: self.staged_code(e),
                 planet: None,
                 hits_on: Some(u8::try_from(e.hits_on).unwrap_or(u8::MAX)),
                 faces: e.faces.iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect(),
-                rerolled: 0,
+                rerolled: 0, // mutants:skip: display only
                 deltas: crate::containers::SortedMap::default(),
                 unit_types: crate::containers::SortedMap::default(),
             })
@@ -230,7 +246,7 @@ impl SpaceCannonOffense {
                 .iter()
                 .skip(mark)
                 .filter(|r| r.purpose == RollPurpose::Reroll)
-                .map(|r| (u32::from(r.hits_on.unwrap_or(0)), r.faces.iter().map(|f| u32::from(*f)).collect()))
+                .map(|r| (u32::from(r.hits_on.unwrap_or(0)), r.faces.iter().map(|f| u32::from(*f)).collect())) // mutants:skip: a redraw row always has its number
                 .collect();
             for redraw in redraws {
                 self.drawn.push(redraw);
@@ -239,24 +255,89 @@ impl SpaceCannonOffense {
         }
     }
 
-    /// The reroll window of each gunner with hits (`open_reroll_windows`): the gunner's dice are staged, the event other seats react to
-    /// goes out (nothing to ask here), and a card played in its windows may draw the dice again. Last, the hits of every gunner are read
-    /// from the faces that remain (the string takes them from the staged sets), a gunner left with none keeps its place.
-    fn reroll_windows(&mut self, sx: &mut Sx<'_>) {
-        for (gunner, hits) in self.gunners.clone() {
-            sx.state.transient_mut().combat.last_reroll_player = Some(gunner);
-            if self.f.announce {
-                self.mirror(sx, gunner);
-                let payload = Payload::new()
-                    .with(Key::Kind, Val::Code(self.f.kind))
-                    .with(Key::Player, Val::Seat(gunner))
-                    .with(Key::System, Val::System(self.f.system))
-                    .with(Key::Hits, Val::Int(i64::from(hits)));
-                let mark = if sx.state.loaded.has(Slice::Ledger) { sx.state.ledger().dice.len() } else { 0 };
-                let _ = sx.emit(fx::event(EventKind::UnitAbilityRolled, payload));
-                self.read_back(sx, gunner, mark);
+    /// The unit text a staged entry carries (the string stages `type_id` of the gun, `planet cannon {planet}` of an attachment); `kind`
+    /// where the adapter handed no text for the form.
+    fn staged_code(&self, e: &Entry) -> Code {
+        match (e.unit, e.planet) {
+            (Some(u), _) => self.f.unit_texts.iter().find(|(k, _, _)| *k == u).map_or(self.f.kind, |(_, c, _)| *c),
+            (None, Some(p)) => self.f.planet_texts.iter().find(|(k, _, _)| *k == p).map_or(self.f.kind, |(_, c, _)| *c),
+            (None, None) => self.f.kind,
+        }
+    }
+
+    /// The label of an entry's questions in the question renderer's table.
+    fn shown_code(&self, e: &Entry) -> Code {
+        match (e.unit, e.planet) {
+            (Some(u), _) => self.f.unit_texts.iter().find(|(k, _, _)| *k == u).map_or(self.f.kind, |(_, _, c)| *c),
+            (None, Some(p)) => self.f.planet_texts.iter().find(|(k, _, _)| *k == p).map_or(self.f.kind, |(_, _, c)| *c),
+            (None, None) => self.f.kind,
+        }
+    }
+
+    fn hits_of(&self, gunner: Seat) -> u32 {
+        self.sets.iter().find(|(s, _)| *s == gunner).map_or(0, |(_, entries)| entries.iter().map(Entry::hits).sum()) // mutants:skip: a gunner of the list has a set
+    }
+
+    fn ledger_len(sx: &Sx<'_>) -> usize {
+        if sx.state.loaded.has(Slice::Ledger) { sx.state.ledger().dice.len() } else { 0 } // mutants:skip: a window lent no ledger reads no rows
+    }
+
+    /// The event of a gunner's roll (`open_reroll_windows`' `UNIT_ABILITY_ROLLED`, nothing to ask here): the gunner's dice are staged and
+    /// a card played in its windows may draw them again (Scramble Frequency); the faces that remain are read back.
+    fn announce_roll(&mut self, sx: &mut Sx<'_>, gunner: Seat) {
+        if !self.f.announce {
+            return;
+        }
+        self.mirror(sx, gunner);
+        let payload = Payload::new()
+            .with(Key::Kind, Val::Code(self.f.kind))
+            .with(Key::Player, Val::Seat(gunner))
+            .with(Key::System, Val::System(self.f.system))
+            .with(Key::Hits, Val::Int(i64::from(self.hits_of(gunner))));
+        let mark = Self::ledger_len(sx);
+        let _ = sx.emit(fx::event(EventKind::UnitAbilityRolled, payload));
+        self.read_back(sx, gunner, mark);
+        sx.state.transient_mut().combat.reroll_staging.edit().retain(|(s, _)| *s != gunner);
+    }
+
+    /// The reroll window of each gunner with hits (`open_reroll_windows`), one at a time: the gunner's Jol-Nar commander is asked about
+    /// each die and the picked dice are drawn again, then the event goes out. Returns the commander's question while one is open. Last,
+    /// the hits of every gunner are read from the faces that remain (the string takes them from the staged sets), a gunner left with
+    /// none keeps its place.
+    fn reroll_windows(&mut self, sx: &mut Sx<'_>) -> Option<Next> {
+        loop {
+            if let Some(walk) = self.walk.as_mut() {
+                if !walk.done() {
+                    return Some(match walk.ask(sx.state) {
+                        Some(choice) => Next::Continue(choice.ask),
+                        None => Next::Done,
+                    });
+                }
+                walk.redraw(sx);
+                self.walk = None;
+                let (gunner, _) = self.gunners[self.rerolling];
+                self.read_back(sx, gunner, self.mark);
                 sx.state.transient_mut().combat.reroll_staging.edit().retain(|(s, _)| *s != gunner);
+                self.announce_roll(sx, gunner);
+                self.rerolling += 1;
+                continue;
             }
+            let Some(&(gunner, _)) = self.gunners.get(self.rerolling) else { break };
+            sx.state.transient_mut().combat.last_reroll_player = Some(gunner);
+            if self.f.jolnar.contains(&gunner) {
+                self.mirror(sx, gunner);
+                let shown: Vec<Code> = self.sets.iter().find(|(s, _)| *s == gunner).map(|(_, entries)| entries.iter().map(|e| self.shown_code(e)).collect()).unwrap_or_default();
+                self.mark = Self::ledger_len(sx);
+                self.walk = Walk::start(sx.state, gunner, &shown);
+                if self.walk.is_none() {
+                    sx.state.transient_mut().combat.reroll_staging.edit().retain(|(s, _)| *s != gunner); // mutants:skip: a gunner of the list rolled a die, so the walk exists
+                }
+                if self.walk.is_some() {
+                    continue;
+                }
+            }
+            self.announce_roll(sx, gunner);
+            self.rerolling += 1;
         }
         sx.state.transient_mut().combat.last_reroll_player = None;
         for (gunner, hits) in &mut self.gunners {
@@ -264,6 +345,7 @@ impl SpaceCannonOffense {
                 *hits = entries.iter().map(Entry::hits).sum();
             }
         }
+        None
     }
 
     /// `use_graviton`: the gunner exhausts the card when the loss can be bound to non-fighters and it changes something (the string
@@ -344,7 +426,13 @@ impl Window for SpaceCannonOffense {
             match self.stage {
                 Stage::Rolling => {
                     self.roll(sx);
-                    self.reroll_windows(sx);
+                    self.rerolling = 0;
+                    self.stage = Stage::Rerolling;
+                }
+                Stage::Rerolling => {
+                    if let Some(next) = self.reroll_windows(sx) {
+                        return next;
+                    }
                     // Turn Their Fleets to Dust names this step: the count is taken across the absorption.
                     self.before = Self::non_fighters(sx.state, sx.kernel, self.f.active, self.f.system);
                     self.at = 0;
@@ -377,10 +465,18 @@ impl Window for SpaceCannonOffense {
     }
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
-        if self.stage == Stage::Absorbing { self.absorb.ask_of(s, k) } else { None }
+        match self.stage {
+            Stage::Absorbing => self.absorb.ask_of(s, k),
+            Stage::Rerolling => self.walk.as_ref()?.ask(s),
+            _ => None,
+        }
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        if self.stage == Stage::Absorbing { self.absorb.answer(sx, pick) } else { Err(Illegal) }
+        match self.stage {
+            Stage::Absorbing => self.absorb.answer(sx, pick),
+            Stage::Rerolling => self.walk.as_mut().ok_or(Illegal)?.answer(sx.state, pick),
+            _ => Err(Illegal),
+        }
     }
 }

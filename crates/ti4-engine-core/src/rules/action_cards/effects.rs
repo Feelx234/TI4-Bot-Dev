@@ -1426,27 +1426,10 @@ impl Play {
             }
             Fx::Infiltrate => {
                 let Some((_, planet, _, _)) = core.transient().combat.last_control_gained else { return };
-                let scope = self.env.scope;
                 let who = self.who;
-                let mut used = [0_i64; 2];
-                let mut swaps: SmallList<(Piece, crate::generated::Unit), 8> = SmallList::new();
-                for piece in core.board().planet(planet).units.as_slice() {
-                    if piece.owner() == who {
-                        continue;
-                    }
-                    let (slot, plain, own) = match scope.unit(piece.kind()).map(|d| d.base_type) {
-                        Some(UnitBaseType::Pds) => (0, crate::generated::Unit::PDSI, self.env.facts.pds),
-                        Some(UnitBaseType::Spacedock) => (1, crate::generated::Unit::SpaceDockI, self.env.facts.spacedock),
-                        _ => continue,
-                    };
-                    // "From your reinforcements": the box still holds that kind, counting the swaps already planned.
-                    let left = crate::query::fleet::remaining(core, scope, who, plain, 0);
-                    if left <= 0 || left - used[slot] <= 0 {
-                        continue;
-                    }
-                    used[slot] += 1;
-                    swaps.push((*piece, own.unit.unwrap_or(plain)));
-                }
+                // (The judge `super::infiltrate_swaps` is the one source of the swaps; the effect has no kernel, and the form bar of a
+                // faction rule never touches the plain PDS and space dock.)
+                let swaps = super::infiltrate_swaps(core, self.env.scope, who, planet, (self.env.facts.pds.unit, self.env.facts.spacedock.unit), &|_| false);
                 for (old, new) in swaps.as_slice() {
                     let list = &mut core.board_mut().planet_mut(planet).units;
                     if let Some(at) = list.as_slice().iter().position(|p| p == old) {

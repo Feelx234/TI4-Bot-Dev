@@ -29,6 +29,7 @@ pub fn fill_codes(table: &mut AbilityTable, r: &Render, state_code: &mut dyn FnM
     }
     for unit in ti4_engine_core::generated::Unit::ALL {
         c.units[unit as usize] = state_code(IdStr::as_str(unit));
+        c.shown_units[unit as usize] = r.code(IdStr::as_str(unit));
     }
 }
 
@@ -56,7 +57,6 @@ pub const fn unported_text(why: ti4_engine_core::kernel::ability::Unported) -> &
             }
         }
         U::BombardmentDiceMismatch => "the bombardment dice do not match the plan",
-        U::JolNarCommanderReroll => "the Jol-Nar commander's reroll of the bombardment dice",
         U::X89 => "X-89 Bacterial Weapon in a ground round",
         U::Thundarian => "The Thundarian watching the roll step",
         U::Dacxive => "Dacxive Animators in a ground combat",
@@ -412,6 +412,40 @@ mod tests {
         }
         assert!(with_cannon > 5);
         let _ = take_report();
+    }
+
+    /// Package W16: the invader's Jol-Nar commander is asked about each die of the bombardment by the native invasion (it was the counted bail
+    /// `Unported::JolNarCommanderReroll`): the questions, their options and context, the dice drawn again and the position after the fight
+    /// agree with the string window's, for a decider that rerolls some dice and keeps the others, under several seeds and defender factions.
+    #[test]
+    fn the_jolnar_commander_rerolls_the_dice_of_a_bombardment_natively() {
+        let _guard = crate::dual::tests::serial();
+        let mut asked = 0;
+        for (seed, defender) in (1..=8_u64).zip(["letnev", "hacan", "sol", "mentak", "sardakk", "naalu", "xxcha", "arborec"]) {
+            let (mut state, system, planet) = game(&[("a", "jolnar"), ("b", defender)], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            state.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            crate::fixtures::put(&mut state, &system, "dreadnought", &a, 2);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 5);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 3);
+            let pick = |n: u64| -> Box<dyn FnMut(&Choice) -> usize> {
+                let mut count = n;
+                Box::new(move |c| {
+                    if c.context.as_ref().is_some_and(|x| x.subtype == "jolnar_commander_reroll") {
+                        count += 1;
+                        // Reroll every other die (the reroll option comes first, then the decline).
+                        return usize::from(count % 2 == 0);
+                    }
+                    0
+                })
+            };
+            asked += check(defender, &state, seed, &system, false, pick(seed));
+            let (string_asked, _) = (string_run(state.clone(), seed, &system, "a", false, pick(seed)).asked, ());
+            let walk = string_asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == "jolnar_commander_reroll")).count();
+            assert!(walk >= 2, "seed {seed}: one question for each die of the bombardment: {walk}");
+        }
+        assert!(asked > 16);
     }
 
     /// The custodians offer on Mecatol Rex: declined, paid (the payment asks which planets), and the hero's opening at the commit step.
