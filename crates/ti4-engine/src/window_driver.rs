@@ -90,6 +90,15 @@ pub(crate) fn driver_for<W: Window>(window: W, resolver: Resolver, table: Abilit
     Driver::new(window, resolver, table, next_id)
 }
 
+/// The driver of a window the core RUNS (package KF6): a live window is never replayed against a recording, so it is always the driver of
+/// the state (`Driver::from_state`: the spent keys and the trace counter of `Pending::resolver`), armed with the registry and the table
+/// of the game's live `Env` (`live::env::env_for`) and seeded from the game's streams. The adapters' `driver_for` stays the constructor of
+/// the replay path; a site is CONVERTED when its adapter's live opener builds its driver here (or runs through `live::advance`, which does).
+#[must_use]
+pub fn driver_live<W: Window>(window: W, core: &CoreState, env: &ti4_engine_core::driver::live::Env<'_>) -> Driver<W> {
+    Driver::from_state(window, core, env.registry.clone(), env.table.clone()).with_seeds(env.seeds.clone())
+}
+
 /// With the flag on, give a driver that follows no nested activity the resolver of the flip: the core table, the registry of
 /// every seat, the spent keys and the trace counter of the state. Does nothing with the flag off.
 pub(crate) fn arm<W: Window>(driver: &mut Driver<W>, r: &Render, gs: &GameState, core: &CoreState) {
@@ -165,6 +174,23 @@ mod tests {
         // every slice but the map (which needs the string galaxy); the pending slice is written
         let reads: Vec<Slice> = Slice::ALL.iter().copied().filter(|s| *s != Slice::Map).collect();
         with_core(&mut gs, &mut cx, Sources::default(), Footprint::new(&reads, &[Slice::Pending]), |core, _| body(&r, &at, core)).expect("lendable")
+    }
+
+    #[test]
+    fn a_live_driver_continues_the_trace_ids_of_the_state_and_is_seeded() {
+        on_a_position(|_, _, core| {
+            core.pending_mut().resolver.next_id = 41;
+            let kernel = Kernel::plain();
+            let env = ti4_engine_core::driver::live::Env {
+                kernel: &kernel,
+                registry: ti4_engine_core::containers::Cow::new(ti4_engine_core::kernel::Registry::default()),
+                table: AbilityTable::default(),
+                seeds: std::rc::Rc::new(ti4_engine_core::driver::NoSeeds),
+            };
+            let d = driver_live(Idle, core, &env);
+            assert_eq!(d.next_id, 41, "the counter is the state's");
+            assert!(d.is_seeded(), "a live driver always draws from the game's streams");
+        });
     }
 
     #[test]

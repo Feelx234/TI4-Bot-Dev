@@ -63,15 +63,34 @@ labels, `DecisionContext`, display `details` (pools, reinforcements, Letnev's hi
 `finished` exactly when the string `is_complete`. Failure paths restore the position (`a_failed_live_step_restores_the_position_it_started_from`). The journal
 round trip, the illegal-answer rollback and the clone-mid-window check are core tests (`driver::live::tests`, `rules::token_gain::tests`).
 
-## 4. Open in lane A (in this order)
+## 4. Also in the branch (beyond the interface commit)
 
-1. **Env from the core alone** (`live/env.rs`): today the registry/table of a live driver is built by the caller; the existing builder
-   (`reactions_core::Follow::armed` + `arm`) reads the string `GameState` (play facts, faction names) and `Render` codes. Needed before M4/M5 (combat reactions) run
-   without a string position; windows without nested abilities (trade, tokens, scoring) do not need it.
-2. **Nested-question rendering from the core**: `dual_window::complete_nested` takes the string `GameState` (`about_battle(gs)`, `ACTIVE_DETAIL`); the core-only version
-   reads `transient.combat.active_space_combat`/`transient.invasion.active`. Until then `live::Cx.complete` does not complete nested questions.
-3. KF3 `KernelEnv`s for `leaders::Env`, `strategy::Env`, `abilities::Env`; KF4 `Pending::failed_component_actions`; KF5 `NativeSubject` (bridge) + `playthrough` bin; KF6.
+* **KF3** `driver/kernel_env.rs`: ONE `KernelEnv{core, kernel}` implements `leaders::Env`, `strategy::Env` and `abilities::Env` from the hook table and the core
+  queries. Agreement with the string views is `ti4-engine-core-bridge/src/check_kernel_env.rs` (+ `tests/kernel_env.rs`): every method, every seat, every leader/technology/
+  card kind, over the template openings and the `check_leaders` variants. Departures (agreed scope): `has_specialty_research_planet` = false (Jol-Nar breakthrough, TE),
+  `other_action_resolves(XxekirGromTe)` = false, no Keleres agent term.
+* **`live/kernel.rs`**: `kernel_for(sources)` is the hook table with EVERY faction module (`register_all`). `core_adapter::kernel_for` is the movement table only; the live
+  loop must use this one.
+* **`live/env.rs`**: `env_for(&Render, &CoreState, kernel, seeds) -> Env` builds the registry/table from the core position (no string `GameState`), sharing
+  `reactions_core::{table, set_table_codes, id_text}` with the replay path. Missing: the `plays` facts (see its header).
+* **KF4**: `Pending::failed_component_actions` (+ `note_failed_component`, cleared by `turn_flow::end_turn_scratch`). It is not in any codec: the stack is not serialized.
+* **KF6**: `window_driver::driver_live`; the 99 `driver_for` sites stay (replay path); a site is converted when its live opener goes through `live::advance`.
+* **Nested rendering from the core**: `dual_window::NestedPos` (+ `of_core`), `DecisionContext::{about_battle_in, about_invasion_in}`; `live::render_asking` completes nested questions.
+* **`playthrough` bin** (`ti4-engine-core-bridge/src/bin/playthrough.rs`): whole games per lobby faction (seat a), 4/6 players, `card_set te`, `starting_tech`, all areas
+  `Dual` by default, `TI4_BAIL_IS_FAILURE` on; prints per-game lines, bails by cause (the `zero_bail.py` shape), unmapped, lent, live coverage; exit 1 unless ZERO BAIL.
 
-## 5. Checks run (cheap) and not run
+## 5. Open in lane A (in this order)
 
-See the final report of the lane (commit message of the last commit). Not run: any heavy gate (golden/wide dual, benches, soak, mutation ratchet, census, workspace clippy).
+1. **`plays` facts for `Env`** (action cards played inside a live window): `reactions_core::play_facts` reads the string position. Until then such a play stops the step
+   with `LiveError::Unknown(PlayFacts)` (a counted bail).
+2. **NativeSubject** (oracle, bridge): NOT built. Plan: a `Subject` that holds a legacy `Game` as the lender (bridge only) and, for each step whose `step_arm` is in
+   `NativeArms` and has a live function, runs the arm on a `CoreState` materialized from the pre-step `Game::fork()` with `Scripted` answers taken from the legacy step's
+   decisions, then compares questions, plain events, `GameState` slices and the closing position with the legacy post-step position (`oracle::<arm>` labels), counting
+   `product::note_lent` for every step it leaves to the legacy. The window payload of the pre-step position comes from `d1_pending::observe` (`tokens_of`, ...).
+   It needs a small `Game` API (`fork`, observed windows) and a write-back path; that is why it is lane A's next item and NOT done.
+3. Final KF2 validation named in the doc: `drive_live` against the replay `drive` over the existing `dual_window!` corpus (the Core backend of ONE area run through
+   `live::advance`); needs the `plays` facts for the areas with card plays, so start with `strategy::secondary` after lane E ports its follower facts.
+
+## 6. Checks run (cheap) and not run
+
+See the final report of the lane. Not run: any heavy gate (golden/wide dual, benches, soak, mutation ratchet, census, workspace clippy).

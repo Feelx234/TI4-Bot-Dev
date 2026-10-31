@@ -750,7 +750,7 @@ pub fn drive_windowed<W: Window>(
                 if let Some(facts) = driver.nested_facts() {
                     // The question was put in a state the driver has since rolled back: its display facts read that one.
                     let at = driver.nested_state().unwrap_or(core);
-                    complete_nested(r, &choice, facts, gs, at, &mut rendered);
+                    complete_nested(r, &choice, facts, &NestedPos::of_gs(gs), at, &mut rendered);
                     // The previews of a reaction window ("what each single-card slot would do now") are display facts
                     // the string builds from its position (`reaction_preview`); the core renders none, so they are the
                     // recorded question's own (the same convention as the option previews, B1g-10).
@@ -896,11 +896,11 @@ pub(crate) fn nested_fp(base: Footprint, script: &Recording) -> Footprint {
 /// The display facts of a question asked inside an emission (a reaction window's pick, an ability's question):
 /// the trigger of its window, the `active` detail of a pick, the battle or invasion the position is in. What
 /// the string builds from the event in hand and `TimingContext::ask_seeing`.
-fn complete_nested(
+pub(crate) fn complete_nested(
     r: &Render,
     choice: &CoreChoice,
     facts: &ti4_engine_core::kernel::NestedFacts,
-    gs: &GameState,
+    pos: &NestedPos,
     core: &ti4_engine_core::state::CoreState,
     rendered: &mut Choice,
 ) {
@@ -926,7 +926,7 @@ fn complete_nested(
         } else {
             ctx
         };
-        rendered.context = Some(nested_position(choice, ctx, gs));
+        rendered.context = Some(nested_position(choice, ctx, pos));
     }
     crate::render::leaders::complete_round_agent(r, choice, rendered);
     if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(ti4_engine_core::choice::reaction::Ask::Legionnaire { .. })) {
@@ -941,9 +941,49 @@ fn complete_nested(
     if is_window_pick(choice) {
         slot_options(r, choice, facts, rendered);
     }
-    if is_window_pick(choice) && gs.phase == ti4_model::state::Phase::Action {
-        if let Some(active) = &gs.active {
-            rendered.details.insert(crate::timing::ACTIVE_DETAIL.to_owned(), active.to_string().into());
+    if is_window_pick(choice) && pos.action_phase {
+        if let Some(active) = &pos.active {
+            rendered.details.insert(crate::timing::ACTIVE_DETAIL.to_owned(), active.clone().into());
+        }
+    }
+}
+
+/// The few facts of the position a nested question's display reads (the string `GameState`'s `phase`, `active`, `active_space_combat` and
+/// `active_invasion`; the core position's `meta` and `transient`): the replay path takes them from the string, the live path from the core.
+#[derive(Debug, Clone, Default)]
+pub struct NestedPos {
+    /// The action phase is on (a reaction window's pick then names the active seat).
+    pub action_phase: bool,
+    /// The active seat's player id.
+    pub active: Option<String>,
+    /// The system of the space combat in progress.
+    pub combat_system: Option<ti4_model::id::SystemId>,
+    /// The system and sequence number of the invasion in progress.
+    pub invasion: Option<(ti4_model::id::SystemId, u64)>,
+}
+
+impl NestedPos {
+    /// From the string position.
+    #[must_use]
+    pub fn of_gs(gs: &GameState) -> Self {
+        Self {
+            action_phase: gs.phase == ti4_model::state::Phase::Action,
+            active: gs.active.as_ref().map(ToString::to_string),
+            combat_system: gs.active_space_combat.as_ref().map(|(system, _, _)| system.clone()),
+            invasion: gs.active_invasion.as_ref().map(|a| (a.system.clone(), a.seq)),
+        }
+    }
+
+    /// From the core position (the live path): `r` names the seats.
+    #[must_use]
+    pub fn of_core(r: &Render, core: &ti4_engine_core::state::CoreState) -> Self {
+        use crate::generated::IdStr;
+        let system = |s: ti4_engine_core::generated::System| ti4_model::id::SystemId::new(s.as_str());
+        Self {
+            action_phase: core.meta().phase == ti4_engine_core::state::Phase::Action,
+            active: core.meta().active.map(|a| r.seat_text(a).to_owned()),
+            combat_system: core.transient().combat.active_space_combat.map(|(s, _, _)| system(s)),
+            invasion: core.transient().invasion.active.as_ref().map(|a| (system(a.system), a.seq)),
         }
     }
 }
@@ -962,11 +1002,11 @@ fn with_trigger_of(choice: &CoreChoice) -> bool {
 /// The battle and invasion a nested question is asked in. The string puts a payment an ability asks (`pay_seeing`, the
 /// table's own `ask_seeing`) in the position of an invasion only, never of a battle; the other nested questions
 /// (`TimingContext::ask_seeing`) name both.
-fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionContext, gs: &GameState) -> crate::decision_context::DecisionContext {
+fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionContext, pos: &NestedPos) -> crate::decision_context::DecisionContext {
     if matches!(choice.ask, ti4_engine_core::choice::Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
-        ctx.about_invasion(gs)
+        ctx.about_invasion_in(pos.invasion.clone())
     } else {
-        ctx.about_battle(gs).about_invasion(gs)
+        ctx.about_battle_in(pos.combat_system.clone()).about_invasion_in(pos.invasion.clone())
     }
 }
 
