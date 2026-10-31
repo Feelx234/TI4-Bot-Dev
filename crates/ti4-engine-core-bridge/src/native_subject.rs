@@ -48,8 +48,6 @@ use ti4_engine::core_sync::{materialize, Codec, Ctx, Sources};
 use ti4_engine::live::{self, arms, Scripted};
 use ti4_engine::render::Render;
 use ti4_engine_core::driver::live::{live_arm, open, LiveError};
-use ti4_engine_core::kernel::ability::Unknown;
-use ti4_engine_core::kernel::turn_codes::TurnGap;
 use ti4_engine_core::driver::session::{bit, live_ask_arm, step_arm, Arm, AskArm, Facts};
 use ti4_engine_core::driver::step::NativeArms;
 use ti4_engine_core::rules::token_gain::TokenGain;
@@ -433,11 +431,7 @@ impl NativeSubject {
         let mut legacy_state = self.inner.state_json();
         let legacy_staged = strip_staged(&mut legacy_state);
         let native_staged: Vec<String> = shadow.core.pending().staged.iter().map(|e| ti4_engine::kernel_sync::text::event_text(&shadow.render, e.kind)).collect();
-        // The strategic action's arms stage `STRATEGY_TOKEN_SPENT` / `UNITS_PRODUCED` for the next step's reconcile as the string does (lane E; the
-        // engine lockstep `strategic_live_tests` compares the staged names equal), but the legacy state of this oracle holds no staged mark after
-        // such a step (open finding of integration 11, `docs/INTEGRATION11.md`): for these arms the staged events are not a leaf of the shadow.
-        let staged_comparable = !matches!(name, "secondary" | "leader_followers" | "finished");
-        if staged_comparable && (!native_staged.is_empty() || !legacy_staged.is_empty()) {
+        if !native_staged.is_empty() || !legacy_staged.is_empty() {
             leaves(Category::Event, "native.staged", &json!(legacy_staged), &json!(native_staged), &mut out);
         }
         match materialize::materialize(&shadow.core, &shadow.cx, &shadow.base) {

@@ -357,7 +357,8 @@ mod tests {
         // The string's first step is the turn prelude (`TURN_BEGAN`), which the native run does not take: every event of the string carries an id one
         // above the native one (`trigger.event_id` of a reaction window), two when it also places frontier tokens first. Exactly that offset is no difference.
         let offset = |d: &crate::dual::JsonDiff| d.path.ends_with("trigger.event_id") && d.left.parse::<i64>().ok().zip(d.right.parse::<i64>().ok()).is_some_and(|(l, r)| (1..=2).contains(&(l - r)));
-        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !offset(d)).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
+        // The same step places the frontier tokens of the empty systems (lane X's exploration decks): the token is the prelude's, not the action's.
+        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("frontier_tokens") && !offset(d)).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
     /// Run both and report every difference of the questions, the events (the native ones must be a prefix of the string's when `prefix`) and the position.

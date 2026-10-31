@@ -4,7 +4,7 @@
 
 use std::rc::Rc;
 
-use ti4_engine_core::choice::objectives::{Offer, Opt as OOpt};
+use ti4_engine_core::choice::objectives::Opt as OOpt;
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, ask, is_open, Env, Live, LiveError, Out};
@@ -15,7 +15,7 @@ use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::turn_codes::TurnGap;
 use ti4_engine_core::kernel::Registry;
-use ti4_engine_core::state::{DriverFlags, Emit, EventKind, LeaderStatus, ObjectiveRef, PlainArg, PlainKind, PlainRec, PlanetFlags, WindowKind};
+use ti4_engine_core::state::{DriverFlags, Emit, EventKind, LeaderStatus, ObjectiveRef, PlainKind, PlainRec, PlanetFlags, WindowKind};
 use ti4_engine_core_tests::prelude::*;
 
 fn env(k: &Kernel) -> Env<'_> {

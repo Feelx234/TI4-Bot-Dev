@@ -890,20 +890,26 @@ mod tests {
         assert_ne!(lobby_spec("sol", 4, 1).factions, lobby_spec("sol", 4, 2).factions, "the seed rotates the table");
     }
 
-    /// The native game plays the setup, the draft, the announcement, the phase flip and the turn prelude on the core alone, and stops with a COUNTED gap at
-    /// the first source of questions no lane has made native (the action menu), with the position as it was before the step.
+    /// The native game plays the setup, the draft, the announcement, the phase flip, the turn prelude, the action menu, a strategic action with its follower
+    /// window, a tactical action with its aftermath, on the core alone, and stops with a COUNTED gap at the first menu option no lane routes yet (a leader's
+    /// component action: `MenuGap::Unrouted(5, key)`), with the position as it was before the step. (Before lanes F and F2b the first gap was the action
+    /// menu itself: `ask.action_menu` as an unsupported question source.)
     #[test]
-    fn a_native_game_plays_the_draft_and_stops_with_a_counted_gap_at_the_action_menu() {
+    fn a_native_game_plays_the_first_turns_and_stops_with_a_counted_gap_at_an_unrouted_menu_option() {
         let mut g = game("sol", 4, 1);
         let played = play_game(&mut g, 2_000, 50);
         let End::Gap(gap) = &played.end else { panic!("a gap is the end of a game today, got {:?}", played.end) };
-        assert_eq!((gap.arm.as_str(), gap.kind), ("ask.action_menu", GapKind::AskSource), "{gap:?}");
-        assert_eq!(gap.island(), Island::Menu);
+        assert_eq!((gap.arm.as_str(), gap.kind), ("ask.action_menu", GapKind::Bail), "{gap:?}");
+        assert!(gap.cause.contains("Menu(Unrouted(5,"), "a leader option of the menu (kind 5) has no body yet: {gap:?}");
+        assert_eq!(gap.island(), Island::TurnFlow);
         let native = &played.matrix.native;
         assert!(native.get("ask.draft").copied().unwrap_or(0) >= 3, "the draft was asked natively: {native:?}");
         assert_eq!(native.get("strategy_announce"), Some(&1), "{native:?}");
         assert_eq!(native.get("phase"), Some(&1), "the strategy phase flipped into the action phase: {native:?}");
-        assert_eq!(native.get("turn_prelude"), Some(&1), "{native:?}");
+        assert!(native.get("turn_prelude").copied().unwrap_or(0) >= 1, "{native:?}");
+        assert!(native.get("ask.action_menu").copied().unwrap_or(0) >= 1, "the action menu was asked natively: {native:?}");
+        assert!(native.get("tactical").copied().unwrap_or(0) >= 1, "a tactical action ran natively: {native:?}");
+        assert!(native.get("aftermath").copied().unwrap_or(0) >= 1, "its aftermath ran natively: {native:?}");
         assert_eq!(played.matrix.total_gaps(), 1, "one game, one gap");
         assert_eq!(played.rounds, 1);
         // The position is the one before the step that gapped: the same gap again, the same position.
@@ -1010,7 +1016,10 @@ mod tests {
         let mut g = game("sol", 4, 1);
         assert!(matches!(play_game(&mut g, 100, 1).end, End::Gap(_)), "round 1 is within a budget of one");
         let mut g = game("sol", 4, 1);
-        let p = play_game(&mut g, 100, 50);
+        assert_eq!(play_game(&mut g, 100, 50).steps, 43, "the first turns play natively up to the first unrouted menu option");
+        // The first eleven steps are the setup, the draft, the announcement, the phase flip and the prelude: every question of them is the draft's.
+        let mut g = game("sol", 4, 1);
+        let p = play_game(&mut g, 11, 50);
         assert_eq!(p.steps, 11);
         assert_eq!(g.decided, p.matrix.native.get("ask.draft").copied().unwrap_or(0) as usize - 1 + p.matrix.native.get("ask.starting_tech").copied().unwrap_or(0) as usize, "the last card of the draft is not asked");
         // The shadow and the survey keep the same budgets.
@@ -1166,8 +1175,9 @@ mod tests {
         turn::open_job(&mut g.core, TurnJob::Phase);
         assert!(g.asks(), "an open job is waiting on its step: the arm is Ask");
         let s = shadow_play(&lobby_spec("sol", 4, 1), 100, 50).unwrap();
-        assert_eq!((s.compared, s.played.steps), (9, 11), "eleven native steps, two of them glued to the next: nine legacy steps");
-        assert!(matches!(shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap().played.end, End::Gap(_)), "round 1 is within a budget of one");
+        // (The shadow stops at its first difference: the exploration of step 24, see `the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_exploration_difference`.)
+        assert_eq!((s.compared, s.played.steps), (21, 24), "twenty-four native steps, some glued to the next: twenty-one legacy steps compared");
+        assert_ne!(shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap().played.end, End::RoundLimit, "round 1 is within a budget of one");
         let survey = survey(&lobby_spec("sol", 4, 1), 400, 50).unwrap();
         assert!(survey.steps_by_arm.keys().all(|(label, _)| !label.contains('>') || label.starts_with("turn_prelude>") || label.starts_with("strategy_announce>")), "{:?}", survey.steps_by_arm);
     }
@@ -1208,13 +1218,18 @@ mod tests {
         assert!(!g.asks(), "the status phase asks nothing of its own");
     }
 
-    /// The native loop and the legacy game agree step by step up to the gap: the same questions, the same plain events, the same position.
+    /// The native loop and the legacy game agree step by step up to the first KNOWN difference: the questions, the plain events, the position. The
+    /// difference, found by this shadow behind a real game (integration 11, `docs/INTEGRATION11.md`): after the commit steps of a ground invasion of
+    /// system 29 the native aftermath puts the reward question of the planet's first-claim exploration ("Local Fabricators", the one option `gain`), and the
+    /// legacy game, replaying the same answers, is already at the next seat's action menu. Lane X (the exploration window) or the invasion's first claim.
+    /// When it is fixed this test fails: the pinned difference goes and the shadow compares the game further.
     #[test]
-    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_gap() {
+    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_exploration_difference() {
         let shadowed = shadow_play(&lobby_spec("sol", 4, 1), 2_000, 50).expect("builds");
-        assert_eq!(shadowed.first_difference, None);
         assert!(shadowed.compared >= 8, "the draft was compared step by step: {}", shadowed.compared);
-        assert!(matches!(shadowed.played.end, End::Gap(_)));
+        let d = shadowed.first_difference.as_ref().expect("the known difference is still there: delete this pin if it is fixed");
+        assert_eq!((d.step, d.arms.as_slice(), d.path.as_str()), (24, &["aftermath".to_owned()][..], "step.error"), "{d:?}");
+        assert!(d.legacy.contains("script wanted \"gain\""), "{d:?}");
     }
 
     #[test]

@@ -4,7 +4,7 @@
 
 use std::rc::Rc;
 
-use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind, Opt as ROpt, Relation};
+use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind, Opt as ROpt};
 use ti4_engine_core::choice::technology::{Ask as TAsk, Opt as TOpt};
 use ti4_engine_core::choice::trade::{Opt as TrOpt, Shape};
 use ti4_engine_core::containers::Cow;
