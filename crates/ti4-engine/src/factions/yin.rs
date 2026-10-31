@@ -3427,7 +3427,8 @@ mod tests {
             assert_eq!(run(&mut state, &galaxy, &[&spot, &spot, &spot], seed), Ok(true), "seed {seed}");
             ran += 1;
         }
-        // With the means to pay, Indoctrination is offered when the combat starts: nested activity, the string's (counted).
+        // With the means to pay, Indoctrination is offered when the combat starts: nested activity the core table follows (a rule of the core
+        // since package W13).
         let (mut state, system, planet, galaxy) = hero_state();
         state.promissory_notes.clear();
         state.promissory_faceup.clear();
@@ -3460,6 +3461,7 @@ mod tests {
         let (compared, bailed) = thread_window_counts("factions::yin::hero");
         assert_eq!(compared + bailed, ran, "{r:?}");
         assert!(compared >= 8, "the window ran: {r:?}");
+        assert_eq!(bailed, 0, "bail-as-failure: every run is the core's: {r:?}");
         let _ = take_report();
     }
 

@@ -1645,7 +1645,7 @@ fn bail_technology_at_a_table_the_research_window_does_not_carry() {
 }
 
 /// Bail: Leadership and Construction at a table whose payments or placements the production rules do not follow (a Yssaril seat:
-/// borrowed agents), Leadership and Warfare with a command token in a Mahact pool, are the string's.
+/// borrowed agents), (Leadership and Warfare with a command token in a Mahact pool are the core's since package W13.)
 #[test]
 fn bail_leadership_construction_and_warfare_where_the_production_rules_do_not_follow() {
     let _serial = crate::dual::tests::serial();
@@ -1665,7 +1665,8 @@ fn bail_leadership_construction_and_warfare_where_the_production_rules_do_not_fo
     let mut mahact = warfare.clone();
     mahact.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
     for (alias, pick) in [("strategize3", "pok1leadership"), ("overrule", "pok1leadership"), ("overrule", "pok6warfare")] {
-        assert_eq!(bails_picking(alias, &mahact, pick, 0), (0, 1), "{alias} performing {pick} with a token in a Mahact pool");
+        // Package W13: the core reads the pool from the marks (`fx::tokens_held_by_mahact`): the performed ability is carried.
+        assert_eq!(bails_picking(alias, &mahact, pick, 0), (1, 0), "{alias} performing {pick} with a token in a Mahact pool is carried");
         assert_eq!(bails_picking(alias, &warfare, pick, 0), (1, 0), "{alias} performing {pick} without one is carried");
     }
 }
