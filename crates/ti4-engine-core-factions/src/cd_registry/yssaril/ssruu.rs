@@ -13,7 +13,7 @@
 //! agent card and a borrower that holds Ssruu; every Sol/Letnev lender and every Yssaril borrower.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
-use ti4_engine_core::generated::{Faction, Leader, UnitBaseType};
+use ti4_engine_core::generated::{Faction, Leader, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec};
 use ti4_engine_core::kernel::resolver::TimingError;
@@ -31,6 +31,10 @@ pub const SOL: Slot = Slot(14003);
 pub const LETNEV: Slot = Slot(14004);
 /// Ssruu copying Trilossa Aun Mirik (`leader:{lender faction}:{lender}:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when`).
 pub const ARGENT: Slot = Slot(14005);
+
+/// Ssruu copying I48S (`leader:ssruu-copy:{borrower}:l1z1xagent:{source}:SYSTEM_ACTIVATED:after`, lane M6d): the string asks the BENEFICIARY, the
+/// activating player, which infantry becomes a mech (the agent itself takes the first).
+pub const L1Z1X: Slot = Slot(50_030);
 
 fn holds_card(s: &CoreState, who: Seat, card: Leader) -> bool {
     s.players().by_seat(who).is_some_and(|p| p.leaders.status.contains_key(&card))
@@ -130,4 +134,82 @@ mod tests {
         assert!(!argent_lends(&s, Seat(0), Seat(1)), "a lender without the Argent agent");
         assert!(yssaril_borrows(&s, Seat(0), Seat(1)) && !yssaril_borrows(&s, Seat(2), Seat(1)));
     }
+}
+
+// -- I48S through Ssruu (lane M6d) ----------------------------------------------------------------------------------------------------
+
+fn l1z1x_lends(s: &CoreState, borrower: Seat, lender: Seat) -> bool {
+    s.players().by_seat(lender).is_some_and(|p| p.faction == Faction::TheL1Z1XMindnet) && lender != borrower && s.players().by_seat(borrower).is_some_and(|p| p.faction == Faction::TheYssarilTribes)
+}
+
+fn l1z1x_when(c: &CondCx<'_>) -> bool {
+    let p = &c.event.payload;
+    let (Some(beneficiary), Some(system)) = (p.seat(ti4_engine_core::state::Key::Player), p.system(ti4_engine_core::state::Key::System)) else { return false };
+    l1z1x_plan_of(c.state, c.kernel, c.def.owner, c.def.pair_source(), beneficiary, system).is_some()
+}
+
+fn l1z1x_copy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    use ti4_engine_core::choice::activation::{Ask as MAsk, Opt as MOpt, Subtype as MSub};
+    use ti4_engine_core::choice::generic::Content;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt, Subtype as RSub};
+    use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
+    let me = eff.owner();
+    let lender = eff.def.pair_source();
+    // The plan is read again on the effect's position (the condition ran on the position of the window).
+    let found = {
+        let (s, k) = eff.read();
+        let p = &eff.event.payload;
+        let (Some(beneficiary), Some(system)) = (p.seat(ti4_engine_core::state::Key::Player), p.system(ti4_engine_core::state::Key::System)) else { return Ok(()) };
+        l1z1x_plan_of(s, k, me, lender, beneficiary, system)
+    };
+    let Some((beneficiary, system, mech, planets)) = found else { return Ok(()) };
+    let planet = if let [only] = planets[..] {
+        only
+    } else {
+        let opts: Opts = planets.iter().map(|p| Opt::Reaction(ROpt::Act(MOpt::Planet(*p)))).collect();
+        let choice = Choice {
+            actor: beneficiary,
+            ask: Ask::Reaction(RAsk::Act(MAsk::L1z1xCopy)),
+            ctx: Ctx {
+                origin: Origin::Content(Content::Leader(Leader::I48S)),
+                subtype: Subtype::Reaction(RSub::Act(MSub::L1z1xCopy)),
+                optional: false,
+                target: None,
+                outstanding: ti4_engine_core::containers::SmallList::new(),
+                space_battle: false,
+                invasion_seq: None,
+            },
+            opts,
+        };
+        let Pick::Opt(Opt::Reaction(ROpt::Act(MOpt::Planet(planet)))) = eff.ask(&choice) else { return Ok(()) };
+        if !planets.contains(&planet) {
+            return Ok(());
+        }
+        planet
+    };
+    let s = eff.state();
+    let units = &mut s.board_mut().planet_mut(planet).units;
+    let Some(at) = units.as_slice().iter().position(|u| u.owner() == beneficiary && u.kind().data().base_type == UnitBaseType::Infantry) else { return Ok(()) };
+    units.as_mut_slice()[at] = ti4_engine_core::state::Piece::new(mech, beneficiary);
+    ti4_engine_core::kernel::fx::stage_naaz_mech_placed(s, beneficiary, system, mech);
+    let (state, kernel) = eff.state_and_kernel();
+    ti4_engine_core::kernel::fx_strategy::exhaust_agent(state, kernel, me, Leader::Ssruu);
+    Ok(())
+}
+
+fn l1z1x_plan_of(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, borrower: Seat, lender: Option<Seat>, beneficiary: Seat, system: ti4_engine_core::generated::System) -> Option<(Seat, ti4_engine_core::generated::System, Unit, Vec<ti4_engine_core::generated::Planet>)> {
+    use ti4_engine_core::query::{board, fleet};
+    if s.meta().active != Some(beneficiary) || s.meta().active_system != Some(system) || !borrowable(s, borrower, lender, Leader::I48S) {
+        return None;
+    }
+    let mech = ti4_engine_core::rules::reactions::l1z1x_agent::faction_mech(s, beneficiary).ok().flatten()?;
+    let mut planets: Vec<_> = board::planets_of(s, system).filter(|planet| board::planet_units(s, *planet).iter().any(|u| u.owner() == beneficiary && u.kind().data().base_type == UnitBaseType::Infantry)).collect();
+    planets.sort_unstable();
+    let sc = crate::common::scope(k);
+    (!planets.is_empty() && !k.hooks.economy.effect_placement_forbidden(s, k, beneficiary, mech) && fleet::remaining_all(s, sc, beneficiary, mech) > 0).then_some((beneficiary, system, mech, planets))
+}
+
+/// The abilities the string registers ahead of every per-seat slot (`reactions::arm`): the L1Z1X copies, before the round agents.
+pub fn register_first(t: &mut AbilityTable) {
+    t.add(Spec::new(L1Z1X, AbilityKind::Leader, EventKind::SystemActivated, Relation::After, l1z1x_copy).applies(Applies::Faction(Faction::TheL1Z1XMindnet)).pair(l1z1x_lends).leading().optional().when(l1z1x_when));
 }

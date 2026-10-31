@@ -18,14 +18,23 @@ pub(super) fn ask(core: &CoreState, k: &Kernel, seat: Seat) -> Option<Vec<System
     if p.econ.tactic_tokens <= 0 {
         return None;
     }
-    let list = transit::activatable(core, k, seat, false)?;
+    let list = transit::activatable(core, k, seat, holds_leave(core, k, seat))?;
     (!list.is_empty()).then_some(list)
+}
+
+/// Mahact's commander lets the seat activate a system that holds its own command token (`promissory::has_commander_ability(.., "mahactcommander")`).
+#[must_use]
+pub fn holds_leave(core: &CoreState, k: &Kernel, seat: Seat) -> bool {
+    crate::query::leaders::has_commander_ability_with(core, seat, crate::generated::Leader::IlNaViroset, || k.hooks.direct.mahact_imperia_grants(core, seat, crate::generated::Leader::IlNaViroset))
 }
 
 /// The activation: the token, the typed placement event, the notes that return, the typed activation event.
 pub(super) fn run(m: &mut Machine, sx: &mut Sx<'_>, system: System) -> Result<(), Illegal> {
     let seat = m.seat;
-    fx_move::activate(sx.state, seat, system, false).map_err(|_| Illegal)?;
+    // The system already held the seat's token: only Mahact's commander gets this far, and the hook chain returns both tokens.
+    m.held_before = sx.state.board().sys(system).cmd.contains(seat);
+    let leave = holds_leave(sx.state, sx.kernel, seat);
+    fx_move::activate(sx.state, seat, system, leave).map_err(|_| Illegal)?;
     let placed = Payload::new().with(Key::Player, Val::Seat(seat)).with(Key::System, Val::System(system)).with(Key::Pool, Val::Code(m.facts.pool));
     let _ = m.emit(sx, fx::event(EventKind::CommandTokenPlaced, placed));
     m.note(sx, Plain::Typed(EventKind::CommandTokenPlaced));

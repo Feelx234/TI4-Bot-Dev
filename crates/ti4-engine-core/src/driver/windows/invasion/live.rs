@@ -30,6 +30,7 @@ pub fn open_invasion(core: &mut CoreState, invader: Seat, system: System, notes:
         extra_commits: Vec::new(),
         temp_commits: Vec::new(),
         combat_only: false,
+        round_copied: false,
     });
     m.to_pending(core);
 }
@@ -52,6 +53,7 @@ pub fn open_at_commit(core: &mut CoreState, invader: Seat, system: System, notes
         extra_commits: Vec::new(),
         temp_commits: Vec::new(),
         combat_only: false,
+        round_copied: false,
     });
     m.to_pending(core);
 }

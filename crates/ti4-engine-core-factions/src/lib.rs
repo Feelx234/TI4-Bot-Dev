@@ -26,6 +26,7 @@
 
 use ti4_engine_core::hooks::HookTable;
 
+pub mod activation;
 pub mod common;
 pub mod cards;
 pub mod magen_defense;

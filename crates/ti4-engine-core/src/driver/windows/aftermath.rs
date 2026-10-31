@@ -283,7 +283,10 @@ impl Window for FightOver {
                         }
                     }
                     sx.state.transient_mut().combat.active_space_combat = None;
-                    self.enforce.start(EnforceAll::new(self.f.pairs.clone()));
+                    // The limits are the ones of NOW: a "when you win" ability announced above can change a fleet pool (the Mahact's Edict puts the
+                    // loser's token into it), which the enforcement judges by.
+                    let pairs = self.f.pairs.iter().map(|(seat, system, _)| (*seat, *system, crate::driver::windows::tactical::limits(sx.state, sx.kernel, *seat, *system))).collect();
+                    self.enforce.start(EnforceAll::new(pairs));
                     self.stage = OverStage::Enforcing;
                 }
                 OverStage::Enforcing => match self.enforce.step(sx) {

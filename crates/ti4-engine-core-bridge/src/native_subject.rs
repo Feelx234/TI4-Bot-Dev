@@ -968,6 +968,32 @@ mod tests {
         assert!(core.pending().window(WindowKind::Tactical).is_none());
     }
 
+    /// `open_arm(Arm::Tactical)` (lane M6c): the tactical window the legacy game observed opens as the native `TacticalAction` on the position, with the
+    /// payload it observed (stage included); a game that observed none, and an arm without an opener, open nothing.
+    #[test]
+    fn the_tactical_arm_opens_the_observed_tactical_window_and_nothing_else() {
+        use ti4_engine_core::driver::live::is_open;
+        use ti4_engine_core::driver::windows::tactical::TacticalAction;
+        use ti4_engine_core::kernel::stage::Held;
+        use ti4_engine_core::state::{NoteHold, TStage, Tactical};
+        let observed = |stage| [Window::Tactical(Tactical { player: ti4_engine_core::Seat(1), stage, notes_at_start: NoteHold::default() })];
+        for stage in [TStage::Activating, TStage::Moving] {
+            let mut core = CoreState::all_loaded();
+            assert!(!open_arm(Arm::Tactical, &[], &mut core), "no tactical window was observed");
+            assert!(!is_open::<TacticalAction>(&core));
+            assert!(open_arm(Arm::Tactical, &observed(stage.clone()), &mut core));
+            assert!(is_open::<TacticalAction>(&core), "{stage:?}: the window is open on the position");
+            let reopened = TacticalAction::from_pending(&core, &ti4_engine_core::kernel::Kernel::plain()).expect("the entry on the stack is the tactical action");
+            assert_eq!((reopened.p.player, reopened.p.stage.clone()), (ti4_engine_core::Seat(1), stage), "the payload is the one observed");
+        }
+        // Other windows do not open the arm; the window of the arm is not the aftermath's (it stays on the stack under it).
+        let mut core = CoreState::all_loaded();
+        let tokens = [Window::Tokens(Box::new(ti4_engine_core::state::Tokens { pending: Default::default(), placed: Default::default(), report: Default::default() }))];
+        assert!(!open_arm(Arm::Tactical, &tokens, &mut core));
+        assert!(!is_open::<TacticalAction>(&core));
+        assert_eq!(window_of(Arm::Tactical), None);
+    }
+
     /// The counters count one per call, and the slices of a position keep the map only when the game has one.
     #[test]
     fn the_counters_count_one_per_call_and_a_game_without_a_map_loads_no_map_slice() {

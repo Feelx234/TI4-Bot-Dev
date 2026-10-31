@@ -14,8 +14,9 @@ use ti4_engine_core::choice::generic::Content;
 use ti4_engine_core::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub};
 use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use ti4_engine_core::containers::SmallList;
-use ti4_engine_core::generated::{Planet, System, Unit};
+use ti4_engine_core::generated::{Faction, Leader, Planet, System, Technology, Unit};
 use ti4_engine_core::ids::Seat;
+use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::kernel::ability::{AbilityTable, AdapterFacts, CondCx, Eff, Slot, Spec, Unknown};
 use ti4_engine_core::kernel::fx_pay::{pay_facts, PayEnv};
 use ti4_engine_core::kernel::resolver::TimingError;
@@ -32,6 +33,11 @@ pub const DYNAMO_SHIP: Slot = Slot(13001);
 pub const DYNAMO_GROUND: Slot = Slot(13002);
 /// The Watcher (`unit:*:empyrean_mech:ACTION_CARD_PLAYED:when`).
 pub const WATCHER: Slot = Slot(13003);
+
+/// Aether Passage (`ability:*:aetherpassage:SYSTEM_ACTIVATED:after`).
+pub const PASSAGE: Slot = Slot(13004);
+/// Aetherstream (`technology:*:as:SYSTEM_ACTIVATED:after`).
+pub const STREAM: Slot = Slot(13005);
 
 const COST: i64 = 2;
 
@@ -218,6 +224,83 @@ pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(WATCHER, AbilityKind::Unit, EventKind::ActionCardPlayed, Relation::When, watcher).when(watcher_when).optional());
 }
 
+// -- Aether Passage and Aetherstream (the activation window, lane M6c) ---------------------------------
+
+/// `has_ship_outside`: `who` has a ship in some system other than `except`.
+fn ship_outside(s: &CoreState, who: Seat, except: System) -> bool {
+    s.board().systems().any(|(system, cell)| system != except && cell.units.as_slice().iter().any(|u| u.owner() == who && u.kind().data().ship))
+}
+
+/// `passage_ready`: the activator is another player, both seats have a ship outside the activated system, and `owner` is the Empyrean.
+fn passage_ready(s: &CoreState, owner: Seat, p: &Payload) -> Option<Seat> {
+    let (player, system) = (p.seat(Key::Player)?, p.system(Key::System)?);
+    (s.players().by_seat(owner).is_some_and(|y| y.faction == Faction::TheEmpyrean) && player != owner && ship_outside(s, owner, system) && ship_outside(s, player, system)).then_some(player)
+}
+
+fn passage_when(c: &CondCx<'_>) -> bool {
+    passage_ready(c.state, c.def.owner, &c.event.payload).is_some()
+}
+
+/// "You may allow that player to move their ships through systems that contain your ships": the permission, stamped with this activation.
+fn passage(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let owner = eff.owner();
+    let p = eff.event.payload.clone();
+    let Some(player) = passage_ready(eff.state(), owner, &p) else { return Ok(()) };
+    let seq = eff.state().meta().activation_seq;
+    eff.state().marks_mut().tail.edit().insert(MarkKey::EmpyreanPassage(), MarkVal::Rec(vec![MarkVal::Atom(Atom::Num(seq)), MarkVal::Atom(Atom::Seat(player)), MarkVal::Atom(Atom::Seat(owner))]));
+    Ok(())
+}
+
+/// `transactions::are_neighbours` for two seats of the position.
+fn are_neighbours(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, a: Seat, b: Seat) -> bool {
+    use ti4_engine_core::query::trade::{self, Cx, Limits};
+    if !s.loaded.has(ti4_engine_core::state::Slice::Map) {
+        return false;
+    }
+    let Some(galaxy) = s.galaxy() else { return false };
+    let adj = galaxy.adjacency();
+    let mecatol = if galaxy.coord_of(System::MecatolRex112).is_some() { System::MecatolRex112 } else { System::MecatolRex18 };
+    let env = ti4_engine_core::rules::trade::KernelEnv { core: s, kernel: k };
+    trade::are_neighbours(&Cx { core: s, adj: &adj, mecatol, limits: Limits { per_action: 2, per_round: 6 }, env: &env }, a, b)
+}
+
+/// `stream_ready`: the owner has the technology, the activator is the owner or a neighbour with a ship outside the system, and the system is
+/// next to an anomaly as the activator sees the map (false without a map, as the string's `context.galaxy` is `None`).
+fn stream_ready(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, owner: Seat, p: &Payload) -> Result<Option<Seat>, ()> {
+    let (Some(player), Some(system)) = (p.seat(Key::Player), p.system(Key::System)) else { return Ok(None) };
+    if !ti4_engine_core::query::reach::technology_text(s, owner, Technology::Aetherstream) || !(player == owner || are_neighbours(s, k, owner, player)) || !ship_outside(s, player, system) {
+        return Ok(None);
+    }
+    let anomaly = ti4_engine_core::query::reach::adjacent_to_anomaly(s, k, player, system).unwrap_or(false);
+    Ok(anomaly.then_some(player))
+}
+
+fn stream_when(c: &CondCx<'_>) -> bool {
+    match stream_ready(c.state, c.kernel, c.def.owner, &c.event.payload) {
+        Ok(found) => found.is_some(),
+        Err(()) => c.unknown(Unknown::MissingFact),
+    }
+}
+
+/// "+1 to the move value of all of that player's ships during this tactical action": the stamp `move_bonus` reads.
+fn stream(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let owner = eff.owner();
+    let found = {
+        let (state, kernel) = eff.read();
+        stream_ready(state, kernel, owner, &eff.event.payload)
+    };
+    let Ok(Some(player)) = found else { return Ok(()) };
+    let seq = eff.state().meta().activation_seq;
+    eff.state().marks_mut().tail.edit().insert(MarkKey::EmpyreanAetherstream(), MarkVal::Rec(vec![MarkVal::Atom(Atom::Num(seq)), MarkVal::Atom(Atom::Seat(player))]));
+    Ok(())
+}
+
+/// The two abilities of the activation window, in the string's order (`activation::register`).
+pub fn register_activation(t: &mut AbilityTable) {
+    t.add(Spec::new(PASSAGE, AbilityKind::Ability, EventKind::SystemActivated, Relation::After, passage).optional().when(passage_when));
+    t.add(Spec::new(STREAM, AbilityKind::Technology, EventKind::SystemActivated, Relation::After, stream).optional().when(stream_when));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,4 +372,86 @@ mod tests {
         assert_eq!(watcher_window(&s, &far, Seat(0), &played(Seat(1))), Ok(None), "out of reach");
         assert_eq!(watcher_window(&s, &AdapterFacts::default(), Seat(0), &played(Seat(1))), Err(()), "the pair was not asked");
     }
+}
+
+// -- Xuange, the Empyrean commander (lane M6d) ----------------------------------------------------------------------------------------
+
+/// Xuange (`leader:*:empyreancommander:SHIP_MOVED:after`; registered for every seat, a commander can be held through an Alliance): "After another
+/// player moves ships into a system that contains 1 of your command tokens: you may return that token to your reinforcements."
+pub const XUANGE: Slot = Slot(50_070);
+
+/// `empyrean_ready`: another player's ships entered a system holding a command token of `owner`, who has the commander's ability.
+fn xuange_ready(c: &CondCx<'_>) -> Option<System> {
+    let p = &c.event.payload;
+    let (mover, system) = (p.seat(Key::Player)?, p.system(Key::System)?);
+    (mover != c.def.owner && ti4_engine_core::query::leaders::has_commander_ability_in(c.state, c.def.owner, Leader::Xuange) && c.state.board().sys(system).cmd.contains(c.def.owner)).then_some(system)
+}
+
+fn xuange_when(c: &CondCx<'_>) -> bool {
+    xuange_ready(c).is_some()
+}
+
+fn xuange(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let me = eff.owner();
+    let p = &eff.event.payload;
+    let (Some(mover), Some(system)) = (p.seat(Key::Player), p.system(Key::System)) else { return Ok(()) };
+    let s = eff.state();
+    if mover != me && ti4_engine_core::query::leaders::has_commander_ability_in(s, me, Leader::Xuange) && s.board().sys(system).cmd.contains(me) {
+        s.board_mut().sys_mut(system).cmd.remove(me);
+    }
+    Ok(())
+}
+
+// -- Acamar, the Empyrean agent (lane M6d) ---------------------------------------------------------------------------------------------
+
+/// Acamar (`leader:*:empyreanagent:MOVEMENT_FINISHED:after`): "after a player moves ships into a system with no planets: you may exhaust this card; that
+/// player gains 1 command token", into the pool they choose.
+pub const ACAMAR: Slot = Slot(50_071);
+
+fn acamar_mover(c: &CondCx<'_>) -> Option<Seat> {
+    let (s, me) = (c.state, c.def.owner);
+    if s.players().by_seat(me)?.leaders.status.get(&Leader::Acamar) != Some(&ti4_engine_core::state::LeaderStatus::Readied) {
+        return None;
+    }
+    let p = &c.event.payload;
+    if !matches!(p.get(Key::ShipsMoved), Some(ti4_engine_core::state::Val::Int(n)) if n > 0) {
+        return None;
+    }
+    let (mover, system) = (p.seat(Key::Player)?, p.system(Key::System)?);
+    (s.players().by_seat(mover).is_some() && system.data().planets.is_empty()).then_some(mover)
+}
+
+fn acamar_when(c: &CondCx<'_>) -> bool {
+    acamar_mover(c).is_some()
+}
+
+/// The agent is exhausted, then the mover answers the pool question (the string restores everything when the answer is refused).
+fn acamar(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    use ti4_engine_core::choice::strategy::{gain_pool_choice, Opt as SOpt};
+    use ti4_engine_core::choice::{Opt, Pick};
+    let me = eff.owner();
+    let p = &eff.event.payload;
+    let (Some(mover), Some(system), true) = (p.seat(Key::Player), p.system(Key::System), matches!(p.get(Key::ShipsMoved), Some(ti4_engine_core::state::Val::Int(n)) if n > 0)) else { return Ok(()) };
+    let s = eff.state();
+    if s.players().by_seat(me).and_then(|pl| pl.leaders.status.get(&Leader::Acamar).copied()) != Some(ti4_engine_core::state::LeaderStatus::Readied) || s.players().by_seat(mover).is_none() || !system.data().planets.is_empty() {
+        return Ok(());
+    }
+    let (state, kernel) = eff.state_and_kernel();
+    if !ti4_engine_core::kernel::fx_strategy::exhaust_agent(state, kernel, me, Leader::Acamar) {
+        return Ok(());
+    }
+    if let Pick::Opt(Opt::Strategy(SOpt::Pool(pool))) = eff.ask(&gain_pool_choice(mover, 1)) {
+        ti4_engine_core::kernel::fx::gain_token(eff.state(), mover, pool, 1);
+    }
+    Ok(())
+}
+
+/// The commander's ability (after the faction modules, as `borrowed_commanders_b` is).
+pub fn register_late(t: &mut AbilityTable) {
+    t.add(Spec::new(XUANGE, AbilityKind::Leader, EventKind::ShipMoved, Relation::After, xuange).optional().when(xuange_when));
+}
+
+/// Acamar (the Empyrean module of the string: before the borrowed commanders).
+pub fn register_agent(t: &mut AbilityTable) {
+    t.add(Spec::new(ACAMAR, AbilityKind::Leader, EventKind::MovementFinished, Relation::After, acamar).optional().when(acamar_when));
 }

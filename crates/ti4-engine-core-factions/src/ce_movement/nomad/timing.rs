@@ -31,6 +31,141 @@ pub const CAVALRY_PLAY: Slot = Slot(10_001);
 /// The Cavalry, returned (`promissory:*:cavalry:SPACE_COMBAT_ENDED:after`).
 pub const CAVALRY_RETURN: Slot = Slot(10_002);
 
+/// Field Marshal Mercer (`leader:*:nomadagentmercer:TACTICAL_ACTION_ENDED:after`, lane M6d): at the end of a player's tactical action the player
+/// removes up to 2 of their ground forces from the board and places them on a planet they control in the active system. Asked of the
+/// ACTIVE player (the beneficiary), registered for every seat as the string does.
+pub const MERCER: Slot = Slot(50_040);
+
+/// Where one ground force stands: a system, and the planet (`None` in the space area).
+type Place = (System, Option<ti4_engine_core::generated::Planet>);
+
+/// `ground_forces`: the actor's ground forces on the board, in board order (a system's space area first, then its planets in id order). A
+/// ground force that is also a structure (the Titans' PDS, Hel-Titan) is movable; a plain structure is not.
+fn ground_forces(s: &CoreState, who: Seat) -> Vec<(Place, Unit, bool)> {
+    use ti4_engine_core::query::{board, fleet};
+    let mut found = Vec::new();
+    for (system, cell) in s.board().systems() {
+        for piece in cell.units.as_slice().iter().filter(|p| p.owner() == who && fleet::is_ground_force(p.kind())) {
+            found.push(((system, None), piece.kind(), piece.sustained()));
+        }
+        let mut planets: Vec<_> = board::planets_of(s, system).collect();
+        planets.sort_unstable();
+        for planet in planets {
+            for piece in board::planet_units(s, planet).iter().filter(|p| p.owner() == who && fleet::is_ground_force(p.kind())) {
+                found.push(((system, Some(planet)), piece.kind(), piece.sustained()));
+            }
+        }
+    }
+    found
+}
+
+/// `landing_planets`: the planets of `system` the actor controls and may place units on, in id order.
+fn landing_planets(s: &CoreState, who: Seat, system: System) -> Vec<ti4_engine_core::generated::Planet> {
+    use ti4_engine_core::query::{board, laws};
+    let blanked = reach::blanked(s);
+    let mut planets: Vec<_> = board::planets_of(s, system).filter(|p| board::controls(s, who, *p) && !laws::planet_is_demilitarized(s, blanked, *p)).collect();
+    planets.sort_unstable();
+    planets
+}
+
+fn mercer_ready(s: &CoreState, owner: Seat) -> bool {
+    s.players().by_seat(owner).is_some_and(|p| p.leaders.status.get(&Leader::FieldMarshalMercer) == Some(&LeaderStatus::Readied))
+}
+
+/// `mercer_window`: the actor and the active system of the end of a tactical action, when Mercer is readied for `owner`, a ground force can
+/// move and a planet can take it.
+fn mercer_window(s: &CoreState, owner: Seat, p: &ti4_engine_core::state::Payload) -> Option<(Seat, System)> {
+    if !mercer_ready(s, owner) {
+        return None;
+    }
+    let (actor, system) = (p.seat(Key::Player)?, p.system(Key::System)?);
+    (!landing_planets(s, actor, system).is_empty() && !ground_forces(s, actor).is_empty()).then_some((actor, system))
+}
+
+fn mercer_when(c: &CondCx<'_>) -> bool {
+    mercer_window(c.state, c.def.owner, &c.event.payload).is_some()
+}
+
+fn mercer_ctx(code: ti4_engine_core::state::Code, subtype: ti4_engine_core::choice::activation::Subtype) -> Ctx {
+    Ctx {
+        origin: Origin::FactionAbility(Content::Other(code)),
+        subtype: Subtype::Reaction(RSub::Act(subtype)),
+        optional: false,
+        target: None,
+        outstanding: SmallList::new(),
+        space_battle: false,
+        invasion_seq: None,
+    }
+}
+
+/// `mercer_plan` and the effect: every question is asked before anything changes; the card is exhausted, then each unit is removed and put on
+/// its planet fresh (undamaged).
+fn mercer(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    use ti4_engine_core::choice::activation::{Ask as MAsk, Opt as MOpt, Subtype as MSub};
+    let me = eff.owner();
+    let found = {
+        let (s, _) = eff.read();
+        mercer_window(s, me, &eff.event.payload)
+    };
+    let Some((actor, system)) = found else { return Ok(()) };
+    let code = eff.codes().activation.mercer;
+    let mut pool = ground_forces(eff.read().0, actor);
+    let landing = landing_planets(eff.read().0, actor, system);
+    let mut taken: Vec<(Place, Unit, bool)> = Vec::new();
+    for n in 1..=2_u8 {
+        let mut opts: Opts = Opts::default();
+        let mut seen: Vec<(Place, Unit, bool)> = Vec::new();
+        for entry in &pool {
+            if !seen.contains(entry) {
+                seen.push(*entry);
+                opts.push(Opt::Reaction(ROpt::Act(MOpt::Take { system: entry.0 .0, planet: entry.0 .1, unit: entry.1, damaged: entry.2 })));
+            }
+        }
+        if seen.is_empty() {
+            break;
+        }
+        opts.push(Opt::Decline);
+        let choice = Choice { actor, ask: Ask::Reaction(RAsk::Act(MAsk::MercerTake { n })), ctx: mercer_ctx(code, MSub::MercerTake), opts };
+        let Pick::Opt(Opt::Reaction(ROpt::Act(MOpt::Take { system: at, planet, unit, damaged }))) = eff.ask(&choice) else { break };
+        let Some(position) = pool.iter().position(|e| e.0 == (at, planet) && e.1 == unit && e.2 == damaged) else { break };
+        taken.push(pool.remove(position));
+    }
+    let mut plan: Vec<(Place, Unit, ti4_engine_core::generated::Planet)> = Vec::new();
+    for (place, unit, damaged) in taken {
+        let target = if let [only] = landing[..] {
+            only
+        } else {
+            let opts: Opts = landing.iter().map(|p| Opt::Reaction(ROpt::Act(MOpt::Planet(*p)))).collect();
+            let choice = Choice { actor, ask: Ask::Reaction(RAsk::Act(MAsk::MercerPlace { unit })), ctx: mercer_ctx(code, MSub::MercerPlace), opts };
+            match eff.ask(&choice) {
+                Pick::Opt(Opt::Reaction(ROpt::Act(MOpt::Planet(p)))) if landing.contains(&p) => p,
+                _ => landing[0],
+            }
+        };
+        let _ = damaged;
+        plan.push((place, unit, target));
+    }
+    if plan.is_empty() {
+        return Ok(());
+    }
+    let (state, kernel) = eff.state_and_kernel();
+    if !fx_strategy::exhaust_agent(state, kernel, me, Leader::FieldMarshalMercer) {
+        return Ok(());
+    }
+    let s = eff.state();
+    for ((at, from), unit, target) in plan {
+        let cell = match from {
+            Some(planet) => &mut s.board_mut().planet_mut(planet).units,
+            None => &mut s.board_mut().sys_mut(at).units,
+        };
+        if let Some(index) = cell.as_slice().iter().position(|p| p.owner() == actor && p.kind() == unit) {
+            cell.remove(index);
+        }
+        fx::place_unit(s, actor, system, Some(target), unit);
+    }
+    Ok(())
+}
+
 /// The non-fighter ship types `who` has in the combat's system, in id order (the order of the enum is the order of the ids).
 fn ship_types(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, who: Seat, system: System) -> Vec<Unit> {
     let rd = Rd::new(s, k).with_blanked(reach::blanked(s));
@@ -323,6 +458,7 @@ fn tcs(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 
 pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(TCS, AbilityKind::Technology, EventKind::AgentExhausted, Relation::After, tcs).when(tcs_condition).optional());
+    t.add(Spec::new(MERCER, AbilityKind::Leader, EventKind::TacticalActionEnded, Relation::After, mercer).when(mercer_when).optional());
     t.add(Spec::new(THUNDARIAN_SPACE, AbilityKind::Leader, EventKind::SpaceCombatRollStepEnded, Relation::After, thundarian).when(thundarian_condition).optional());
     t.add(Spec::new(THUNDARIAN_GROUND, AbilityKind::Leader, EventKind::GroundCombatRollStepEnded, Relation::After, thundarian).when(thundarian_condition).optional());
     t.add(Spec::new(FUTURE_SIGHT, AbilityKind::Ability, EventKind::AgendaResolved, Relation::After, future_sight).when(future_sight_condition));

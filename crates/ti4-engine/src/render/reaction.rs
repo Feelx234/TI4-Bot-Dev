@@ -38,8 +38,12 @@ impl Family for Fam {
             Ask::Assimilate => "gain a technology, or assimilate instead".to_owned(),
             Ask::Salvage => "Salvage Operations: produce 1 ship of a type destroyed in the combat".to_owned(),
             Ask::Indoctrination { planet } => format!("Indoctrination on {}: replace an enemy infantry", planet.as_str()),
+            Ask::AgentShip { copy } => format!("Captain Mendosa{}: raise which of the activating player's ships", if *copy { " (Ssruu)" } else { "" }),
+            Ask::Edict => "Edict: whose command token goes in your fleet pool".to_owned(),
+            Ask::IcarusDrive => "Icarus Drive: remove the mech to place or move a Creuss wormhole token into its system".to_owned(),
             Ask::Terragenesis { planet } => format!("Terragenesis: sleeper token for {}", planet.as_str()),
             Ask::G(g) => super::silent::prompt(r, g),
+            Ask::Act(a) => super::activation::prompt(r, a),
             Ask::Watcher { actor } => format!("Watcher: which mech cancels {}'s action card", r.seat_text(*actor)),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
@@ -60,8 +64,12 @@ impl Family for Fam {
             Subtype::Watcher => "watcher_remove".to_owned(),
             Subtype::Salvage => "salvage_produce".to_owned(),
             Subtype::Indoctrination => "indoctrination_replace".to_owned(),
+            Subtype::IcarusDrive => "icarus_drive".to_owned(),
+            Subtype::AgentShip => "agent_ship".to_owned(),
+            Subtype::Edict => "edict_opponent".to_owned(),
             Subtype::Terragenesis => "terragenesis_token".to_owned(),
             Subtype::G(g) => super::silent::subtype(g),
+            Subtype::Act(a) => super::activation::subtype(a),
         }
     }
 
@@ -104,11 +112,23 @@ impl Family for Fam {
                 let base = <ti4_engine_core::generated::UnitBaseType as IdStr>::as_str(*base);
                 ChoiceOption::labelled(base, "indoctrination", format!("spend {cost} influence to replace 1 infantry of {} with a {base}", r.seat_text(*opponent))).with("cost", i64::from(*cost))
             }
+            (Ask::AgentShip { .. }, Opt::Boost { n, system, unit, own, top }) => {
+                ChoiceOption::labelled(format!("ship|{n}"), "ship", format!("{} in {} (move {own} to {top})", unit.as_str(), system.as_str()))
+            }
+            (Ask::Edict, Opt::Opponent(who)) => {
+                let who = r.seat_text(*who);
+                ChoiceOption::labelled(who, "edict", format!("place {who}'s command token in your fleet pool"))
+            }
+            (Ask::IcarusDrive, Opt::Token(kind, system)) => {
+                let (kind, system) = (kind.as_str(), system.as_str());
+                ChoiceOption::labelled(format!("{kind}|{system}"), "creuss_token", format!("Icarus Drive: the {kind} token into {system}")).with("system", system)
+            }
             (Ask::Terragenesis { planet }, Opt::Sleeper { from: None }) => ChoiceOption::labelled("place", "sleeper", format!("place a sleeper token on {}", planet.as_str())),
             (Ask::Terragenesis { planet }, Opt::Sleeper { from: Some(from) }) => {
                 ChoiceOption::labelled(format!("move|{}", from.as_str()), "sleeper", format!("move the sleeper token on {} to {}", from.as_str(), planet.as_str()))
             }
             (Ask::G(g), Opt::G(o)) => super::silent::option(r, g, o),
+            (Ask::Act(a), Opt::Act(o)) => super::activation::option(r, a, o),
             (Ask::Watcher { .. }, Opt::Site { system, planet }) => {
                 let system = system.as_str();
                 let place = planet.map_or_else(|| "space".to_owned(), |p| p.as_str().to_owned());
@@ -125,12 +145,22 @@ impl Family for Fam {
         if let Ask::Cavalry = a {
             return <ti4_engine_core::generated::Unit as IdStr>::from_id(id).map(Opt::Ship);
         }
-        if let Ask::Salvage | Ask::Indoctrination { .. } = a {
+        if let Ask::Salvage | Ask::Indoctrination { .. } | Ask::AgentShip { .. } = a {
             // The id is the base type: the option is matched against the rendered ones of its question.
             return None;
         }
+        if let Ask::Edict = a {
+            return r.seat(id).map(Opt::Opponent);
+        }
+        if let Ask::IcarusDrive = a {
+            let (kind, system) = id.split_once('|')?;
+            return Some(Opt::Token(<ti4_engine_core::generated::Wormhole as IdStr>::from_id(kind)?, <ti4_engine_core::generated::System as IdStr>::from_id(system)?));
+        }
         if let Ask::G(g) = a {
             return super::silent::parse(r, g, id);
+        }
+        if let Ask::Act(a) = a {
+            return super::activation::parse(r, a, id);
         }
         if let Ask::Terragenesis { .. } = a {
             return match id.strip_prefix("move|") {

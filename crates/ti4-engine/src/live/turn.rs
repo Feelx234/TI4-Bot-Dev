@@ -21,6 +21,9 @@ pub const MINISTER_PROMPT: &str = "Minister of War: discard to retrieve a comman
 /// What the offer says discarding does (`Game::minister_of_war_text`'s `DiscardPresentation`).
 const MINISTER_EFFECT: &str = "Retrieve a command token and take another action";
 
+/// What the Minister of Peace's offer says discarding does (`Game::minister_of_peace`).
+const PEACE_EFFECT: &str = "Ends the active player's turn at once";
+
 /// The interned texts of the turn flow (`reactions_core::set_table_codes`).
 #[must_use]
 pub fn codes(r: &Render) -> TurnCodes {
@@ -65,7 +68,18 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
         // Military Support: the offer card of the placement.
         Ask::Promissory(_) => crate::render::promissory::complete_place_units(choice, rendered),
         // The Minister of War's offer (`laws::offer_discard`): the law as printed and what each answer does.
-        Ask::Agenda(AAsk::DiscardLaw { law: Agenda::MinisterOfWar, .. }) => discard_law(Agenda::MinisterOfWar, MINISTER_EFFECT, rendered),
+        Ask::Agenda(AAsk::DiscardLaw { law: Agenda::MinisterOfWar, .. }) => discard_law(Agenda::MinisterOfWar, MINISTER_EFFECT, Vec::new(), rendered),
+        // The Minister of Peace's offer after an activation (`Game::minister_of_peace`): what the law does, the system and the seat that activated it.
+        Ask::Agenda(AAsk::DiscardLaw { law: Agenda::MinisterOfPeace, .. }) => {
+            let mut facts = Vec::new();
+            if let Some(system) = core.meta().active_system {
+                facts.push(crate::choice::offer_fact_system("Activated system", IdStr::as_str(system)));
+            }
+            if let Some(text) = core.meta().active.and_then(|s| core.owners.id(s)) {
+                facts.push(crate::choice::offer_fact_seat("Activated by", &String::from_utf8_lossy(text)));
+            }
+            discard_law(Agenda::MinisterOfPeace, PEACE_EFFECT, facts, rendered);
+        }
         _ => {}
     }
 }
@@ -106,7 +120,7 @@ fn starting_tech(core: &CoreState, choice: &CoreChoice, number: u8, of: u8, rule
 }
 
 /// `laws::offer_discard_text`'s display facts for `law`.
-pub(super) fn discard_law(law: Agenda, effect: &str, rendered: &mut Choice) {
+pub(super) fn discard_law(law: Agenda, effect: &str, facts: Vec<serde_json::Value>, rendered: &mut Choice) {
     let alias = IdStr::as_str(law);
     let content = ContentStore::embedded();
     let record = content.get(ContentType::Agendas, alias);
@@ -115,7 +129,7 @@ pub(super) fn discard_law(law: Agenda, effect: &str, rendered: &mut Choice) {
     let text = record.as_ref().and_then(|record| text_of(record, "mapText").or_else(|| text_of(record, "text1")));
     rendered.details.extend(crate::choice::offer_details(
         crate::choice::offer_card(&name, "law", None, text.as_deref()),
-        Vec::new(),
+        facts,
         &[("discard", crate::choice::offer_caption(&format!("Discard {name}"), Some(effect))), ("decline", crate::choice::offer_caption(&format!("Keep {name}"), None))],
     ));
 }

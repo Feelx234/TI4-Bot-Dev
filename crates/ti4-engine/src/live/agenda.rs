@@ -106,6 +106,6 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
         // The prompt names the agenda the election is for: the one in play (revealed, not yet voted on).
         let alias = core.agenda().in_play.map_or("", |a| IdStr::as_str(a));
         rendered.prompt = rendered.prompt.replace("{agenda}", alias);
-        super::turn::discard_law(Agenda::CommitteeFormation, COMMITTEE_EFFECT, rendered);
+        super::turn::discard_law(Agenda::CommitteeFormation, COMMITTEE_EFFECT, Vec::new(), rendered);
     }
 }

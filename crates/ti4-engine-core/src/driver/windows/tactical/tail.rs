@@ -6,36 +6,68 @@
 //! agents a Yssaril seat borrows with Ssruu, Thunder's Edge Warfare's follower window and a hero's strategy primary waiting for the end of
 //! the free tactical action. The end of the action itself (`finish_action`) is the turn flow's.
 
-use super::{TacticalAction, TacticalGap};
-use crate::generated::{Faction, Leader};
+use super::TacticalAction;
+use crate::driver::turn::inline::{halted, run as run_window, Flow};
+use crate::generated::{Faction, Leader, System};
+use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::Sx;
 use crate::kernel::Next;
 use crate::query::reach;
-use crate::state::{CoreState, EventKind, Key, LeaderStatus, Payload, PlainKind, PlainRec, Val, WindowKind};
+use crate::rules::explore_windows::{CrownExplore, Exploring};
+use crate::state::{CoreState, EDeck, EventKind, Key, LeaderStatus, Payload, PlainKind, PlainRec, Val, WindowKind};
 
 use crate::driver::tactical_tail as tail;
 
-/// A Yssaril seat with a readied Ssruu while another seat plays the Sardakk (whose agent T'ro it could copy): the string's `borrowable_agents`
-/// would list it, and the core does not know which agents Ssruu can borrow.
+/// A Yssaril seat with a readied Ssruu while another seat holds T'ro, readied or exhausted (the string's `borrowable_agents` listing
+/// `sardakkagent`). Field Marshal Mercer is not copied: the string registers no Ssruu copy of him (`nomad_agents`), and it announces the end of
+/// the action to a readied Mercer only.
 fn ssruu_lends(core: &CoreState) -> bool {
     let ssruu = core.players().iter().any(|p| p.faction == Faction::TheYssarilTribes && p.leaders.status.get(&Leader::Ssruu) == Some(&LeaderStatus::Readied));
-    ssruu && core.players().iter().any(|p| p.faction == Faction::SardakkNorr)
+    ssruu && core.players().iter().any(|p| matches!(p.leaders.status.get(&Leader::Tro), Some(LeaderStatus::Readied | LeaderStatus::Exhausted)))
+}
+
+/// The Crown of Emphidia and Dark Energy Tap (`close_tactical`): the Crown's holder may explore a planet it controls (the deck is the planet's
+/// printed type), then a frontier token in the active system is explored when the seat has Dark Energy Tap and a ship there.
+fn explorations(sx: &mut Sx<'_>, player: Seat, system: System) -> Flow {
+    let scope = reach::scope_of(sx.kernel);
+    if tail::crown_offers(sx.state, player, scope) {
+        let mut crown = CrownExplore::new(player, scope);
+        if run_window(sx, &mut crown) == Flow::Halt {
+            return Flow::Halt;
+        }
+        if let Some(planet) = crown.planet {
+            let Some(deck) = crate::query::explore::traits_of(scope, planet).first().copied() else { return Flow::Done };
+            let mut window = Exploring::planet(player, planet, EDeck::Fixed(deck), true);
+            if run_window(sx, &mut window) == Flow::Halt {
+                return Flow::Halt;
+            }
+        }
+    }
+    if tail::det_fires(sx.state, player, system) {
+        let mut window = Exploring::frontier(player, system, true, true);
+        if run_window(sx, &mut window) == Flow::Halt {
+            return Flow::Halt;
+        }
+        if window.explored() {
+            sx.plain(PlainRec::bare(PlainKind::FrontierExplored));
+        }
+    }
+    Flow::Done
 }
 
 pub(super) fn run(a: &mut TacticalAction, sx: &mut Sx<'_>) -> Next {
     let active = sx.state.meta().active;
     let system = sx.state.meta().active_system;
     if let (Some(player), Some(system)) = (active, system) {
-        let scope = reach::scope_of(sx.kernel);
-        if tail::crown_offers(sx.state, player, scope) || tail::det_fires(sx.state, player, system) {
-            return TacticalAction::bail(sx, TacticalGap::ExplorationAtTheEnd);
+        if explorations(sx, player, system) == Flow::Halt {
+            return Next::Done;
         }
     }
-    let lends = ssruu_lends(sx.state);
-    if lends {
-        return TacticalAction::bail(sx, TacticalGap::SsruuLends);
+    if halted(sx) {
+        return Next::Done;
     }
+    let lends = ssruu_lends(sx.state);
     if tail::tro_window(sx.state, lends)
         && let (Some(player), Some(system)) = (active, system)
     {
@@ -44,6 +76,7 @@ pub(super) fn run(a: &mut TacticalAction, sx: &mut Sx<'_>) -> Next {
         let _ = sx.emit_mirrored(fx::event(EventKind::TacticalActionEnded, payload));
     }
     tail::close_writes(sx.state);
+    crate::kernel::fx_move::clear_conduit_links(sx.state);
     sx.plain(PlainRec::bare(PlainKind::TacticalActionComplete));
     let pending = sx.state.pending();
     match tail::then(pending.window(WindowKind::LeaderStrategy).is_some(), pending.window(WindowKind::StrategySecondaryAfterTactical).is_some()) {
@@ -55,6 +88,8 @@ pub(super) fn run(a: &mut TacticalAction, sx: &mut Sx<'_>) -> Next {
         }
         tail::Then::FinishAction => {
             let _ = a;
+            // `finish_action`: `ACTION_COMPLETED`, then the closing menu or the end of the turn, is the turn flow's job.
+            crate::driver::turn::open_finish(sx.state);
             Next::Done
         }
     }

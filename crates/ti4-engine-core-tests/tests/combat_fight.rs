@@ -59,7 +59,6 @@ fn env() -> Env {
         roll_unported: false,
         munitions_after: [false, false],
         munitions_start: [false, false],
-        show_neutral: false,
         roll_cause: Code(9),
         hacan: Code(10),
         groups: groups(),

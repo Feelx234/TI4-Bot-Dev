@@ -9,6 +9,7 @@ pub(crate) mod movement;
 pub mod observe;
 pub mod offer;
 pub mod query;
+pub mod timing;
 
 /// Every tier, in the order movement, query, observe, offer.
 pub fn register(t: &mut HookTable) {

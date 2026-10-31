@@ -7,10 +7,9 @@
 //! `SUSTAIN_DAMAGE_USED` event is emitted and the loop starts again, `cancel_per_sustain` hits fewer.
 //!
 //! Below `RULES_FACTION_EFFECTS` the Rear Admiral Farran trade good is paid without a question (the string
-//! `pay_sustain_commander`): the window reads the version from the state's meta and goes on to the event.
-//!
-//! The hits a Reflective Shielding reaction stages during the emission are absorbed by the window, as
-//! the string `emit_sustain_used` does right after the event.
+//! `pay_sustain_commander`): the window reads the version from the state's meta and goes on to the event. The hits a
+//! Reflective Shielding reaction stages during the emission are absorbed by the window, as the string `emit_sustain_used`
+//! does right after the event.
 //!
 //! Not covered (the adapter returns `None`, the string result stands): staged planet sustainers
 //! (`supply::staging_enabled`).

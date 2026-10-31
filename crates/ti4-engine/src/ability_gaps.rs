@@ -10,8 +10,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "ability:*:propagation:PROPAGATION_RESEARCH:after",
     "leader:*:mentakagent:PILLAGE_USED:after",
     "leader:*:mentakcommander:SPACE_COMBAT_WON:after",
-    "leader:*:muaathero:MOVEMENT_FINISHED:after",
-    "leader:*:muaathero_moved:SHIP_MOVED:after",
     "leader:*:naaluagent-te:COMMAND_TOKEN_PLACED:after",
     "leader:*:naaluhero:STATUS_PHASE_ENDED:after",
     "leader:*:nekrocommander:TECHNOLOGY_GAINED:after",
@@ -19,7 +17,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:sardakkagent_turn:TURN_BEGAN:after",
     "leader:*:sardakkhero_turn:TURN_BEGAN:after",
     "leader:*:titanscommander:PRODUCTION_USED:when",
-    "leader:*:yssarilcommander_clear:ACTION_COMPLETED:after",
     "promissory:*:iff:TURN_BEGAN:after",
     "promissory:*:ragh:UNITS_COMMITTED:after",
     "promissory:*:scepter:STRATEGY_PHASE_BEGAN:after",
@@ -38,13 +35,7 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "unit:*:nekro_flagship:SPACE_COMBAT_STARTED:after",
     "unit:*:saar_mech:PLANET_CONTROL_GAINED:after",
     "leader:*:a:yssarilagent:mentakagent:PILLAGE_USED:after",
-    "ability:*:awaken:SYSTEM_ACTIVATED:after",
-    "unit:*:titans_flagship:SYSTEM_ACTIVATED:after",
-    "leader:*:arboreccommander:SYSTEM_ACTIVATED:after",
-    "unit:*:arborec_flagship:SYSTEM_ACTIVATED:after",
-    "leader:*:yssarilcommander:SYSTEM_ACTIVATED:after",
     "leader:*:c:l1z1xagent:a:SYSTEM_ACTIVATED:after",
-    "leader:*:nomadagentmercer:TACTICAL_ACTION_ENDED:after",
 ];
 
 /// The row a slot belongs to, if it is a gap's.

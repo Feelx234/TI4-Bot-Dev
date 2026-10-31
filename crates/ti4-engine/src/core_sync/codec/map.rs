@@ -22,7 +22,12 @@ impl SliceCodec for Map {
         let galaxy = src.galaxy.ok_or_else(|| bad(S, "the map slice needs the string galaxy", ""))?;
         // Cached per galaxy value: the conversion and the adjacency are built once, not per lend.
         let map = typed_map(galaxy).ok_or_else(|| bad(S, "galaxy", "the map cannot be expressed"))?;
-        core.map = MapSlice::of(map.galaxy, map.adjacency);
+        let mut typed = map.galaxy;
+        // The string galaxy already carries the edits it replayed: the core map counts them, so a replay applies only what is newer.
+        if typed.edits_applied() != galaxy.edits_applied() {
+            typed.edit().set_edits_applied(galaxy.edits_applied());
+        }
+        core.map = MapSlice::of(typed, map.adjacency);
         Ok(())
     }
 

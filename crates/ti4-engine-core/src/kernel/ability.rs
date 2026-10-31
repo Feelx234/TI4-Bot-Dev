@@ -140,6 +140,9 @@ pub enum TacticalGap {
     ActivationHook,
     /// Nova Seed replaced a tile during `MOVEMENT_FINISHED`: the derived map is replayed by the per-step hooks, not here.
     NovaSeed,
+    /// Nova Seed would destroy another player's ground forces in the space area (cargo), which the string announces with the system in the place of
+    /// the planet: no typed event carries that.
+    NovaSeedCargo,
     /// A hit of the space cannon offense needs a question (sustain damage, a casualty to choose).
     CannonHits,
     /// The Crown of Emphidia or Dark Energy Tap explores at the end of the action: no native planet exploration window.
@@ -147,8 +150,6 @@ pub enum TacticalGap {
     /// Thunder's Edge Warfare's follower window, or a hero's strategy primary, waits for the end of the free tactical action.
     WarfareSecondary,
     LeaderStrategy,
-    /// A Yssaril seat with a readied Ssruu could copy an agent that listens to the end of the action.
-    SsruuLends,
     /// The map slice holds no galaxy.
     NoGalaxy,
 }
@@ -256,6 +257,8 @@ pub struct Codes {
     pub tactical: TacticalCodes,
     /// The texts of the invasion composer (`driver::windows::invasion`).
     pub invasion: InvasionCodes,
+    /// The texts of the questions of the activation-window abilities (lane M6c).
+    pub activation: ActivationCodes,
     /// The texts of the events of an exploration (`rules::explore_windows::Exploring`).
     pub explore: ExploreCodes,
     /// The texts of the events of a use of PRODUCTION (`driver::windows::production`).
@@ -327,6 +330,31 @@ impl Default for ExploreCodes {
     }
 }
 
+/// The texts of the questions of the activation-window abilities (lane M6c), interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ActivationCodes {
+    /// The unit alias `ghost_mech`, the source of Icarus Drive's question.
+    pub ghost_mech: crate::state::Code,
+    /// The leader alias `saaragent`, the source of Captain Mendosa's question.
+    pub saar_agent: crate::state::Code,
+    /// The leader alias `sardakkagent`, the source of T'ro's placement.
+    pub sardakk_agent: crate::state::Code,
+    /// The faction ability `edict`, the source of the Mahact's question.
+    pub edict: crate::state::Code,
+    /// The faction ability `awaken`, the source of the Titans' question (lane M6d).
+    pub awaken: crate::state::Code,
+    /// The unit alias `titans_flagship`, the source of Ouranos' question.
+    pub titans_flagship: crate::state::Code,
+    /// The leader alias `yssarilcommander`, the source of So Ata's question.
+    pub yssaril_commander: crate::state::Code,
+    /// The leader alias `nomadagentmercer`, the source of Mercer's questions.
+    pub mercer: crate::state::Code,
+    /// The cause `breakthrough:nova_seed` of the ships Nova Seed destroys.
+    pub nova_seed_cause: crate::state::Code,
+    /// The leader alias `ghostcommander`, the source of Sai Seravus' question.
+    pub ghost_commander: crate::state::Code,
+}
+
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind
 /// and loss causes of the space cannon offense, the casualty subtype and the Letnev commander's source, the presentation phase of a
 /// battle about to be rolled. Interned by the adapter like the rest of [`Codes`].
@@ -342,6 +370,13 @@ pub struct TacticalCodes {
     pub pre_roll: crate::state::Code,
     /// `faction_technology`: the source of the trade goods E-Res Siphons gains.
     pub faction_technology: crate::state::Code,
+    /// `nullification_field`: the reason of the strategy token the Nullification Field spends.
+    pub nullification_field: crate::state::Code,
+    /// `mahact_mech`: the source of the Starlancer's question.
+    pub starlancer: crate::state::Code,
+    /// The prompt of the Minister of Peace's offer to discard its law, and the law's alias (`minister_peace`).
+    pub peace_prompt: crate::state::Code,
+    pub peace_source: crate::state::Code,
 }
 
 /// The texts the invasion composer puts into the position: the step kinds and causes of its records, the dice groups and the text of every
@@ -527,6 +562,9 @@ pub struct AdapterFacts {
     /// The kernel whose economy hooks a payment inside an ability reads (the production kernel; the combat kernel holds none of
     /// the faction hooks of a payment). Set by the adapter.
     pub pay_kernel: Option<fn() -> &'static Kernel>,
+    /// The production kernel of a source scope (the faction hooks of a production with the units of the sources in play), for a use of PRODUCTION
+    /// an ability runs (lane M6d). Set by the adapter; [`Self::pay_kernel`]'s scope is the full one.
+    pub production_kernel: Option<fn(super::Sources) -> &'static Kernel>,
     /// The faction units of the scope (the form Assimilate places; set by the live `Env`).
     pub roster: Option<&'static crate::query::tech::UnitRoster>,
     adjacent: Vec<(crate::generated::System, crate::generated::System, bool)>,
@@ -599,6 +637,16 @@ impl RerollFacts {
 }
 
 impl AdapterFacts {
+    /// The kernel a use of PRODUCTION an ability runs reads, for the source scope `host` plays: the adapter's production kernel of that scope, else
+    /// the one it lent for payments.
+    #[must_use]
+    pub fn production_kernel_for(&self, host: &Kernel) -> Option<&'static Kernel> {
+        match self.production_kernel {
+            Some(f) => Some(f(host.sources)),
+            None => self.pay_kernel.map(|f| f()),
+        }
+    }
+
     /// The printed-name group of each action card (the index of the first card with its name): [`Self::card_groups`], else the
     /// play facts' table. `None` when the adapter gave neither.
     #[must_use]
@@ -1257,6 +1305,25 @@ impl<'a> Eff<'_, 'a> {
     /// "Cancel that event."
     pub fn cancel(&mut self) {
         self.event.cancelled = true;
+    }
+
+    /// [`Inline::with_sx`] over the kernel the adapter lent for payments ([`Self::pay_kernel`]): how an ability runs a window that reads the
+    /// faction hooks of production (a use of PRODUCTION by an ability). `None`, `f` not run: the adapter lent none. The window's own
+    /// questions are the caller's to put ([`Self::ask`]); its events are announced inside the effect.
+    pub fn with_pay_sx<T>(&mut self, f: impl FnOnce(&mut Sx<'_>) -> T) -> Option<T> {
+        let kernel = self.host.table.facts.production_kernel_for(self.host.kernel)?;
+        let mut emitted = Vec::new();
+        let mut sx = Sx {
+            state: &mut *self.host.state,
+            kernel,
+            resolver: &mut *self.resolver,
+            table: self.host.table,
+            tape: &mut *self.host.tape,
+            next_id: &mut *self.host.next_id,
+            emitted: &mut emitted,
+            seeds: self.host.seeds,
+        };
+        Some(f(&mut sx))
     }
 
     /// The services of this effect as a [`Runner`] (an effect that plays an action card): its questions carry the

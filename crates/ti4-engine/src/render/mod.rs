@@ -40,6 +40,7 @@ pub mod production;
 pub mod promissory;
 pub mod reaction;
 pub mod silent;
+pub mod activation;
 pub mod relic;
 pub mod strategy;
 pub mod tactical;
