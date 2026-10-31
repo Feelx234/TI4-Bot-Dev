@@ -161,4 +161,6 @@ each of which the lend-proof run and the census can accept or refuse on its own.
 * `window_driver::driver_for` / `armed()` (8a): the 99 production `Driver::new` sites of the adapters go through one constructor; flag off changes nothing.
 * The oracle harness `oracle` (D2-6b(a)): the comparison the flip is judged by; its second subject becomes the wrapper `Game`.
 
+Armed smoke (flag on, one game, `dual_run profile-20.json 20 all=dual --game 0`): 0 differences, the same 2 337 bails as with the flag off, 2.5x the dual calls (7.15 M vs 2.87 M: the registry makes the abilities' hooks run in every window). The 20-game armed dual is END-OF-PHASE ONLY.
+
 Not done here: any run of the census, X0, G-flip; the armed dual (END-OF-PHASE ONLY); wrappers (R4) and the lend-proof mode (R5).
