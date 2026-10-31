@@ -177,6 +177,7 @@ fn ask_name(a: ti4_engine_core::driver::session::AskArm) -> &'static str {
         ti4_engine_core::driver::session::AskArm::Draft => "draft",
         ti4_engine_core::driver::session::AskArm::Secondary => "secondary",
         ti4_engine_core::driver::session::AskArm::Closing => "closing",
+        ti4_engine_core::driver::session::AskArm::Trade => "trade",
         ti4_engine_core::driver::session::AskArm::ActionMenu => "action_menu",
         ti4_engine_core::driver::session::AskArm::Nothing => "nothing",
     }
@@ -476,7 +477,7 @@ fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render, cx: &crate::core_sync
                 &Some(crate::dual_window::fields_back(f, r)),
             ),
             // The invasion and the production step have no machine state: the placeholder stands for the string's window.
-            Window::Untyped { kind: WindowKind::Invasion | WindowKind::Production, .. } => true,
+            Window::Invasion(_) | Window::Production(_) => true,
             Window::Untyped { .. } => true,
         };
     }

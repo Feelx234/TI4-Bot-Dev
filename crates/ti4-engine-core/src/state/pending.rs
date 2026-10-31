@@ -2,7 +2,7 @@
 //! D1). Replaces the private window fields of `Game` and `GameState.pending`.
 
 use super::pending_windows::{LeaderFollowers, Tokens, Trade, Voting};
-use super::{Aftermath, CombatFields, Tactical};
+use super::{Aftermath, CombatFields, Invasion, ProductionUse, Tactical};
 use crate::containers::{SeatSet, SmallList};
 use crate::generated::{Agenda, Leader, StrategyCard};
 use crate::ids::Seat;
@@ -33,9 +33,9 @@ pub enum WindowKind {
     AgendaTalks,
     /// The space combat of an aftermath, above its `Aftermath` entry (package D1b2).
     Combat,
-    /// The invasion of an aftermath (no machine state exists: held as `Untyped`, driven by the string).
+    /// The invasion of an aftermath (`Window::Invasion`, a stub payload until lane M3).
     Invasion,
-    /// The production step of an aftermath (no machine state exists: held as `Untyped`, driven by the string).
+    /// One use of PRODUCTION (`Window::Production`, a stub payload until lane M2).
     Production,
 }
 
@@ -118,6 +118,10 @@ pub enum Window {
     Aftermath(Box<Aftermath>),
     /// The space combat of an aftermath: the window fields of the combat machine (package D1b2).
     Combat(Box<CombatFields>),
+    /// The invasion of an aftermath (M0 stub payload: lane M3 types it).
+    Invasion(Box<Invasion>),
+    /// One use of PRODUCTION (M0 stub payload: lane M2 types it).
+    Production(Box<ProductionUse>),
     /// A kind with no typed payload yet.
     Untyped { kind: WindowKind, actor: Option<Seat>, data: [u32; 3] },
 }
@@ -140,6 +144,8 @@ impl Window {
             Self::Tactical(_) => WindowKind::Tactical,
             Self::Aftermath(_) => WindowKind::Aftermath,
             Self::Combat(_) => WindowKind::Combat,
+            Self::Invasion(_) => WindowKind::Invasion,
+            Self::Production(_) => WindowKind::Production,
             Self::Untyped { kind, .. } => *kind,
         }
     }
@@ -177,6 +183,13 @@ impl DriverFlags {
 }
 
 impl Pending {
+    /// Remember that the component action `code` failed this turn (once).
+    pub fn note_failed_component(&mut self, code: super::Code) {
+        if !self.failed_component_actions.as_slice().contains(&code) {
+            self.failed_component_actions.push(code);
+        }
+    }
+
     /// The open window of `kind`.
     #[must_use]
     pub fn window(&self, kind: WindowKind) -> Option<&Window> {
@@ -203,6 +216,25 @@ impl Pending {
     }
 }
 
+/// What the driver was doing when a question from INSIDE an emission (a reaction window, an ability) suspended the step: the
+/// operation to re-run and the answers the tape already holds. The machine payload on the stack is the window as the driver
+/// rolled it back (before `op`), so `from_pending` + `Driver::restore_nested` + the next answer continues exactly where the
+/// uninterrupted run would have gone (package M0, `driver::live`). `None` between steps of a blocking table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Nested {
+    pub op: NestedOp,
+    pub answers: SmallList<crate::choice::Pick, 8>,
+}
+
+/// The operation a window step was running (`Driver`'s own two operations).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NestedOp {
+    /// `Window::step`.
+    Step,
+    /// `Window::answer(pick)` of the window's own question.
+    Answer(crate::choice::Pick),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Pending {
     /// Events staged by effects that had no resolver in reach (`kernel::fx::stage`), announced in order
@@ -222,4 +254,9 @@ pub struct Pending {
     /// What the timing resolver carries from window to window (D2-4b): spent frequency keys, the initiative
     /// order it was made with, the open emissions, the next trace id.
     pub resolver: super::ResolverState,
+    /// `Game.failed_component_actions`: the component actions that failed this turn (their menu ids, interned), which the turn menu
+    /// does not offer again; cleared when the turn ends (`driver::turn_flow::end_turn_scratch`) and in a hypothetical turn.
+    pub failed_component_actions: SmallList<super::Code, 8>,
+    /// The suspended nested question of the live window (see [`Nested`]); written by `driver::live::advance` only.
+    pub nested: Option<Nested>,
 }

@@ -629,6 +629,18 @@ impl Tape {
         self.answers.push(pick);
     }
 
+    /// The answers given so far, in order (what a suspended step stores, `state::Nested`).
+    #[must_use]
+    pub fn answers(&self) -> &[Pick] {
+        &self.answers
+    }
+
+    /// Replace the answers (a driver rebuilt from a suspended step).
+    pub fn set_answers(&mut self, answers: &[Pick]) {
+        self.answers = answers.to_vec();
+        self.rewind();
+    }
+
     /// The question that found the tape dry in the run just made.
     #[must_use]
     pub fn needed(&self) -> Option<&Choice> {

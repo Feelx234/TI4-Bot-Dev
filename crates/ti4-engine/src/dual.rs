@@ -16,7 +16,7 @@
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fmt::{self, Debug, Write as _};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde::Serialize;
@@ -1344,6 +1344,61 @@ pub(crate) fn reasons_counted() -> u64 {
 pub fn note_bail(label: &str, why: &str) {
     REASONS.with(|c| c.set(c.get() + 1));
     with_report(|r| r.windows.entry(format!("{label} [bail: {why}]")).or_default().bailed += 1);
+    bail_difference(label, why);
+}
+
+/// Whether a bail is a failure (package M0/KF5; `TI4_BAIL_IS_FAILURE=1` or [`set_bail_is_failure`]): the zero-bail acceptance. Default
+/// off. A REPORT, not a panic: `dual-all` stays un-strict (a strict run turns a counted bail into a panic and empties the probe).
+static BAIL_IS_FAILURE: AtomicU8 = AtomicU8::new(0);
+
+/// Whether a counted bail, gate or lend is a [`Difference`] (label `bail::<label>`) on top of its count.
+#[must_use]
+pub fn bail_is_failure() -> bool {
+    if let Some(on) = BAIL_HERE.with(Cell::get) {
+        return on;
+    }
+    match BAIL_IS_FAILURE.load(Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => {
+            #[cfg(not(target_arch = "wasm32"))]
+            let on = std::env::var("TI4_BAIL_IS_FAILURE").is_ok_and(|v| !v.is_empty() && v != "0");
+            #[cfg(target_arch = "wasm32")]
+            let on = false;
+            BAIL_IS_FAILURE.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
+thread_local! {
+    static BAIL_HERE: Cell<Option<bool>> = const { Cell::new(None) };
+}
+
+/// Run `body` with the switch on or off for this thread only (the tests); restored afterwards, also on panic.
+pub fn with_bail_is_failure<T>(on: bool, body: impl FnOnce() -> T) -> T {
+    struct Restore(Option<bool>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            BAIL_HERE.with(|o| o.set(self.0));
+        }
+    }
+    let _restore = Restore(BAIL_HERE.with(|o| o.replace(Some(on))));
+    body()
+}
+
+/// Set the process switch (a gate binary's, the `playthrough` bin's).
+pub fn set_bail_is_failure(on: bool) {
+    BAIL_IS_FAILURE.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+}
+
+/// With the switch on, a bail is a difference of the `Value` category under the label `bail::<label> [<why>]` (area `Driver`),
+/// so `dual_run` exits 1 on the first one and the shard report lists them all. (A category of its own would change the report
+/// format `zero_bail.py` and the shard merger read.)
+pub fn bail_difference(label: &str, why: &str) {
+    if bail_is_failure() {
+        tally(Area::Driver, Category::Value, &format!("bail::{label} [{why}]"), vec![(String::new(), "no bail".to_owned(), why.to_owned())]);
+    }
 }
 
 /// Count a position the string runs bare because a gate of the call site excludes it from the window (no window opened, so
@@ -1351,6 +1406,7 @@ pub fn note_bail(label: &str, why: &str) {
 pub fn note_gate(area: Area, label: &str, why: &str) {
     if backend(area) == Backend::Dual {
         with_report(|r| r.windows.entry(format!("{label} [gate: {why}]")).or_default().bailed += 1);
+        bail_difference(label, &format!("gate: {why}"));
     }
 }
 
@@ -1548,6 +1604,24 @@ pub(crate) mod tests {
         set_fail_fast(false);
         *FOCUS.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(std::thread::current().id());
         Serial(guard, before)
+    }
+
+    /// The zero-bail switch: with it off a bail is a count, with it on a bail (and a gate) is also a difference under `bail::<label>`.
+    #[test]
+    fn a_bail_is_a_difference_only_when_the_switch_is_on() {
+        let _serial = serial();
+        let _ = take_report();
+        with_bail_is_failure(false, || note_bail("live::probe", "a reason"));
+        assert!(take_report().differences.is_empty(), "off by default: counted only");
+        with_bail_is_failure(true, || {
+            note_bail("live::probe", "a reason");
+            with_mask(AreaMask::all(Backend::Dual), || note_gate(Area::Driver, "live::gate", "a gate"));
+        });
+        let report = take_report();
+        let labels: Vec<_> = report.differences.iter().map(|d| d.label.as_str()).collect();
+        assert_eq!(labels, ["bail::live::probe [a reason]", "bail::live::gate [gate: a gate]"]);
+        assert!(report.windows.keys().any(|k| k.starts_with("live::probe [bail: a reason]")), "and it is still counted");
+        assert!(report.differences.iter().all(|d| d.area == Area::Driver && d.category == Category::Value));
     }
 
     /// The second gate run of stage 2 failed `vote::typed_render_tests::a_whole_vote_runs_in_lockstep_on_the_core_window`

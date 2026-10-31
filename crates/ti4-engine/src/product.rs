@@ -114,6 +114,36 @@ pub fn lobby_faction(faction: &str) {
     }
 }
 
+// --- the lend counter (package KF5, docs/D2_LF_RESUME.md) ----------------------------------------------------------------------
+
+static LENT: std::sync::Mutex<std::collections::BTreeMap<String, u64>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// A step the core handed to a lender (`Step::Lend`, label `step::<arm>`): the zero-bail acceptance counts them next to the
+/// unmapped positions. The product has no lender; a scaffold (the bridge's `NativeSubject`) calls this for every lend it executes.
+///
+/// # Panics
+/// In strict mode: a lend in a strict run is a defect, not a counted fallback.
+#[track_caller]
+pub fn note_lent(label: &str) {
+    if let Ok(mut m) = LENT.lock() {
+        *m.entry(label.to_owned()).or_default() += 1;
+    }
+    crate::dual::bail_difference(label, "lent to the string engine");
+    assert!(!strict(), "product assertion: the step {label} was lent to the string engine in a strict run");
+}
+
+/// How many times `label` was lent since the last [`take_lent`].
+#[must_use]
+pub fn lent_count(label: &str) -> u64 {
+    LENT.lock().map_or(0, |m| m.get(label).copied().unwrap_or(0))
+}
+
+/// The lend counts by label, cleared.
+#[must_use]
+pub fn take_lent() -> std::collections::BTreeMap<String, u64> {
+    LENT.lock().map(|mut m| std::mem::take(&mut *m)).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

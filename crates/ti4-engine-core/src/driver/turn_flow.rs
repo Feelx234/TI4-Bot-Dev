@@ -197,6 +197,7 @@ pub fn take_retention(core: &mut CoreState) -> bool {
 /// for the negotiation limit, and a Black Market or Expedition marker outlives no turn.
 pub fn end_turn_scratch(core: &mut CoreState) {
     trade::clear_action_negotiations(core);
+    core.pending_mut().failed_component_actions.clear();
     let flags = &mut core.transient_mut().misc.flags;
     flags.clear(TransientFlags::BLACK_MARKET);
     flags.clear(TransientFlags::EXPEDITION_CLAIMED);
@@ -395,6 +396,18 @@ mod tests {
         assert_eq!((s.pending.turn_closing, s.pending.actions_this_turn), (None, 1), "counted, nothing to close");
         assert_eq!(finish_action(&mut s, 2), Finish::Closing);
         assert_eq!((s.pending.turn_closing, s.pending.actions_this_turn), (Some(Seat(0)), 2));
+    }
+
+    #[test]
+    fn a_failed_component_action_is_remembered_once_and_forgotten_when_the_turn_ends() {
+        use crate::state::Code;
+        let mut s = table();
+        s.pending.note_failed_component(Code(7));
+        s.pending.note_failed_component(Code(7));
+        s.pending.note_failed_component(Code(9));
+        assert_eq!(s.pending.failed_component_actions.as_slice(), [Code(7), Code(9)]);
+        end_turn_scratch(&mut s);
+        assert!(s.pending.failed_component_actions.is_empty());
     }
 
     #[test]
