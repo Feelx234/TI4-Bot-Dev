@@ -7,12 +7,22 @@
 
 use ti4_engine_core::choice::agenda::Shown;
 use ti4_engine_core::choice::relic::{Ask, Opt, Subtype};
-use ti4_engine_core::generated::{ActionCard, Planet, Relic, Technology};
+use ti4_engine_core::choice::strategy::Pool;
+use ti4_engine_core::generated::{ActionCard, ExploreType, Planet, Relic, Technology};
 
 use super::{Family, Render};
 use crate::choice::ChoiceOption;
 use crate::preview::{Delta, Preview, Quantity};
 use crate::generated::IdStr;
+
+/// The name of a command pool in Fabrication's ids.
+const fn pool_name(pool: Pool) -> &'static str {
+    match pool {
+        Pool::Tactic => "tactic",
+        Pool::Fleet => "fleet",
+        Pool::Strategic => "strategic",
+    }
+}
 
 /// The renderer of the relic questions.
 pub struct Fam;
@@ -31,6 +41,9 @@ impl Family for Fam {
             Ask::TitanPrototype => "Titan Prototype: which player may build".to_owned(),
             Ask::StellarConverter => "Stellar Converter: destroy which planet".to_owned(),
             Ask::GainTechnology { .. } | Ask::GainTechnologyFrom { .. } => "gain which technology".to_owned(),
+            Ask::FragmentType { count: 1 } => "purge 1 fragment of which type".to_owned(),
+            Ask::FragmentType { count } => format!("purge {count} fragments of which type"),
+            Ask::TokenPool => "Fabrication: which pool gains the token".to_owned(),
         }
     }
 
@@ -44,12 +57,22 @@ impl Family for Fam {
             Subtype::StellarConverterChooseTarget => "stellar_converter_choose_target",
             Subtype::ChooseTechnology(relic) => return format!("{}_choose_technology", relic.as_str()),
             Subtype::ChooseTechnologyFrom(source) => return format!("{}_choose_technology", r.code_text(*source)),
+            Subtype::FragmentType => "fragment_type",
+            Subtype::TokenPool => "token_pool",
         }
         .to_owned()
     }
 
-    fn option(r: &Render, _: &Ask, o: &Opt) -> ChoiceOption {
+    fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match o {
+            Opt::Fragment(kind) => {
+                let (id, count) = (kind.as_str().to_ascii_uppercase(), if let Ask::FragmentType { count } = a { *count } else { 1 });
+                ChoiceOption::labelled(id.clone(), "fragment", format!("purge {count} {id}"))
+            }
+            Opt::Pool(pool) => {
+                let id = pool_name(*pool);
+                ChoiceOption::labelled(id, "pool", format!("gain 1 token in {id}"))
+            }
             Opt::Purge => ChoiceOption::labelled("purge", "relic", "purge the Dominus Orb"),
             Opt::Planet(p, shown) => {
                 let id = p.as_str();
@@ -88,6 +111,8 @@ impl Family for Fam {
             Ask::TitanPrototype => r.seat(id).map(Opt::Builder),
             Ask::StellarConverter => Planet::from_id(id).map(|p| Opt::Destroy(p, Shown::default())),
             Ask::GainTechnology { .. } | Ask::GainTechnologyFrom { .. } => Technology::from_id(id).map(Opt::Tech),
+            Ask::FragmentType { .. } => ExploreType::ALL.iter().copied().find(|k| k.as_str().eq_ignore_ascii_case(id)).map(Opt::Fragment),
+            Ask::TokenPool => [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().find(|pool| pool_name(*pool) == id).map(Opt::Pool),
         }
     }
 }

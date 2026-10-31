@@ -52,6 +52,10 @@ pub enum Ask {
     NekroPlayer,
     /// Nekro Malleon: the chosen player's own answer, a card, a command token or neither.
     NekroPayment,
+    /// Letani Ospha (Arborec agent): which non-fighter ship may be replaced.
+    OsphaShip,
+    /// Letani Ospha: the ship's owner chooses the ship that replaces it (or declines). The ship is named in the prompt.
+    OsphaReplace { owner: crate::ids::Seat, ship: Unit, system: crate::generated::System },
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -93,6 +97,10 @@ pub enum Opt {
     Discard,
     /// Nekro Malleon: spend 1 command token of this pool.
     Token(super::strategy::Pool),
+    /// Letani Ospha: the `n`th ship offered (its owner, form, whether damaged, and the system it stands in).
+    OsphaShip { n: u8, owner: crate::ids::Seat, ship: Unit, damaged: bool, system: crate::generated::System },
+    /// Letani Ospha: replace the ship with one of this base type from the reinforcements.
+    OsphaReplace(crate::generated::UnitBaseType),
     /// Xxekir Grom: this planet gets the unit, with the system the map shows it in (`Shown`, B9: equal always).
     HeroPlanet(crate::generated::Planet, super::agenda::Shown),
 }
@@ -114,4 +122,6 @@ pub enum Subtype {
     GhostSwapSecond,
     NekroPlayer,
     NekroPayment,
+    OsphaShip,
+    OsphaReplace,
 }

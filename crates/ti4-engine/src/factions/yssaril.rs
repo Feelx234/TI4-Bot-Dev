@@ -477,11 +477,29 @@ fn stall_tactics_string(context: &mut TimingContext<'_>, player: &PlayerId) -> b
     true
 }
 
-/// Mageon Implants: exhaust, look at another player's action cards, take 1.
+/// Mageon Implants: exhaust, look at another player's action cards, take 1. The whole action is a window of the core
+/// (`rules::promissory_windows::MageonImplants`): the exhaustion, the card taken (one option per printed card, no question for one),
+/// the staged event and the hand limit.
 fn mageon_implants(context: &mut TimingContext<'_>, player: &PlayerId, target: &PlayerId) -> bool {
     if !mageon_targets(context.state, player).contains(target) {
         return false;
     }
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::yssaril::mageon_implants",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(mageon_implants_string(&mut inner, player, target))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::faction_dual::mageon_implants(s, content, player, target, script)
+    )
+}
+
+/// [`mageon_implants`] on the string engine: the oracle of the dual run.
+fn mageon_implants_string(context: &mut TimingContext<'_>, player: &PlayerId, target: &PlayerId) -> bool {
     crate::technology::exhaust_technology_text(context.state, player, "mi");
     // A decider answering outside the options leaves the card exhausted, as the look happened.
     let _ = crate::action_cards::look_at_hand_and_take(context, player, target, "mi", false);
@@ -1535,6 +1553,48 @@ mod tests {
             "the look ended with the choice"
         );
         assert!(!options(&state, &a()).contains(&id), "exhausted");
+    }
+
+    /// Mageon Implants is a window of the core: the exhaustion, the card taken (a choice among several printed cards, none for one),
+    /// the staged event and, for a seat the faction does not free of the limit, the hand limit question. The core half agrees with the
+    /// string in each case and ran every time.
+    #[test]
+    fn mageon_implants_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |holder: &str, other: &str, mine: &[&str], theirs: &[&str], answers: &[&str]| -> (bool, GameState) {
+            let mut state = game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            give_tech(&mut state, &PlayerId::new(holder), "mi");
+            deal(&mut state, holder, mine);
+            deal(&mut state, other, theirs);
+            let mut table = scripted(answers);
+            let id = format!("{MAGEON_PREFIX}{other}");
+            let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, &mut table, &PlayerId::new(holder), &id));
+            (done, state)
+        };
+        // Among several printed cards (the copy of a name is one option); Crafty has no limit.
+        let (done, state) = run("a", "b", &[], &["sabo1", "bribery", "bribery"], &["bribery"]);
+        assert!(done);
+        assert_eq!(hand(&state, "a"), ["bribery"]);
+        assert_eq!(hand(&state, "b"), ["sabo1", "bribery"]);
+        assert!(hooks_cards::has_staged(&state));
+        // One printed card: no question.
+        let (done, state) = run("a", "b", &["sabo1"], &["bribery"], &[]);
+        assert!(done);
+        assert_eq!(hand(&state, "a"), ["sabo1", "bribery"]);
+        // A holder who is not Yssaril ends over the limit: the hand limit question follows the take.
+        let seven = ["sabo1", "bribery", "coup", "uprising", "reparations", "rally", "salvage"];
+        let (done, state) = run("b", "a", &seven, &["seize"], &["0"]);
+        assert!(done);
+        assert_eq!(hand(&state, "b").len(), 7);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::yssaril::mageon_implants"), (3, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

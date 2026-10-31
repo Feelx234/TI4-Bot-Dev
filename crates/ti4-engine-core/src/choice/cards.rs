@@ -138,6 +138,9 @@ pub enum Ask {
     /// `action_cards::enforce_hand_limit` (rule 2.4): the hand of `held` cards is over its limit, discard one (one option per
     /// printed name, in the order of the names).
     HandLimit { held: u8 },
+    /// `action_cards::take_from_revealed_hand`: the seat has seen the hand of `owner` and takes 1 of those cards (Mageon Implants; one
+    /// option per printed name, in the order of the names; no decline).
+    TakeRevealed { owner: Seat },
     /// The Nekro's Galactic Threat (`action_cards::predicted_outcome`): predict the outcome of the agenda in `frame`.
     PredictThreat { frame: Frame },
 }
@@ -202,6 +205,8 @@ pub enum Subtype {
     PlayReaction { relation: Relation, event: EventKind },
     /// `discard_over_hand_limit`.
     DiscardOverHandLimit,
+    /// `take_revealed_action_card`.
+    TakeRevealedActionCard,
 }
 
 impl Reason {

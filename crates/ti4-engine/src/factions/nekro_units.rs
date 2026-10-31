@@ -1122,7 +1122,37 @@ fn c4r_repair_string(state: &mut GameState, player: &PlayerId) -> bool {
     true
 }
 
+/// "Exhaust this card to place 1 PDS on a planet you control": a window of the core (`PlaceUnits` with `Then::C4rPds`), the planet
+/// question under the structure cap, the PDS and the exhaustion. A faction rule that forbids placing the PDS is the string's.
 fn place_pds(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::nekro::c4r_place_pds",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(place_pds_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let pds = crate::action_cards::placed_unit_id(s, content, sources, player, "pds");
+            let forbidden = pds.as_ref().is_some_and(|id| crate::factions::hooks_economy::effect_placement_forbidden(s, content, sources, player, id));
+            crate::faction_dual::c4r_place_pds(s, player, pds.as_ref(), forbidden, sources, script)
+        }
+    )
+}
+
+/// [`place_pds`] on the string engine: the oracle of the dual run (the PDS, then the exhaustion `perform_component` does after).
+fn place_pds_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let done = place_pds_ask(context, player);
+    if done && let Some(seat) = context.state.player_mut(player) {
+        seat.exhausted_technologies.insert(TechnologyId::new(ERROR_ERROR));
+    }
+    done
+}
+
+fn place_pds_ask(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let spots = pds_planets(context.state, context.content, context.sources, player);
     let chosen = match spots.as_slice() {
         [] => return false,
@@ -2207,6 +2237,56 @@ mod tests {
             before + 1,
             "a refused action changes nothing"
         );
+    }
+
+    /// The PDS is a window of the core: the planet question under the structure cap (no question for one planet), the PDS and the
+    /// exhaustion. The core half agrees with the string for a planet chosen among two, a lone planet left by the cap, and a position
+    /// where the cap leaves none (the action does not resolve), and it ran every time; a card carried by something else is counted.
+    #[test]
+    fn nekro_error_error_pds_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |mecatol_pds: usize, home_pds: usize, answers: &[&str]| -> (bool, GameState) {
+            let mut state = game();
+            with_error_error(&mut state);
+            let home = home(&state);
+            let home_planet = state.controlled_planets(&a()).into_iter().find(|(system, _)| **system == home).map(|(_, planet)| planet.clone()).expect("a home planet");
+            assert_eq!(state.controlled_planets(&a()).len(), 1, "one planet at the start: the second is Mecatol Rex");
+            state.system_mut(&system()).set_control(planet(), a());
+            crate::fixtures::put_on_planet(&mut state, &system(), &planet(), "pds", &a(), mecatol_pds);
+            crate::fixtures::put_on_planet(&mut state, &home, &home_planet, "pds", &a(), home_pds);
+            let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, C4R_PLACE, answers));
+            (done, state)
+        };
+        let on_mecatol = |state: &GameState| state.system_state(&system()).planet_units.get(&planet()).map_or(0, |units| units.iter().filter(|u| u.owner == a() && u.type_id.as_str() == "pds").count());
+        // Two planets under the cap: asked.
+        let (done, state) = run(0, 0, &["18|mr"]);
+        assert!(done && exhausted(&state));
+        assert_eq!(on_mecatol(&state), 1);
+        // Mecatol Rex is at the cap: the home planet is the lone spot, no question (an answer would be left over).
+        let (done, state) = run(2, 0, &[]);
+        assert!(done && exhausted(&state));
+        assert_eq!(on_mecatol(&state), 2);
+        assert_eq!(pds_count(&state), 3);
+        // Both at the cap: the action is not offered, nothing is placed and the card stays ready (the window is not reached).
+        let (done, state) = run(2, 2, &[]);
+        assert!(!done && !exhausted(&state));
+        assert_eq!(pds_count(&state), 4);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::nekro::c4r_place_pds"), (2, 0), "{r:?}");
+        // Not the seat's own card: the core half bows out and says why.
+        let mut carried = game();
+        carried.system_mut(&system()).set_control(planet(), a());
+        let seen = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+            crate::dual::run_dual_window(Area::Factions, "factions::nekro::c4r_place_pds", &mut carried, |_| crate::dual::Run::new(false), |s, script| crate::faction_dual::c4r_place_pds(s, &a(), None, false, DEFAULT, script))
+        });
+        assert!(!seen);
+        let r = report();
+        assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::c4r_place_pds [") && label.contains("Valefar Assimilator")), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

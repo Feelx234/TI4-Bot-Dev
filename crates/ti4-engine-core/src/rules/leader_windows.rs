@@ -1195,6 +1195,191 @@ impl Window for XxchaHeroTe {
     }
 }
 
+// -- Letani Ospha ---------------------------------------------------------------------------------
+
+/// The suspension points of [`LetaniOspha`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OStage {
+    Start,
+    /// Waiting on the owner of the agent: which ship (more than one qualifies).
+    Ship,
+    /// Waiting on the ship's owner: the ship that replaces it, or a decline.
+    Replace,
+    Done,
+}
+
+/// One ship the agent can act on: where it stands, its place in the system's unit list, and the base types its owner could replace it with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OspTarget {
+    system: System,
+    at: usize,
+    piece: crate::state::Piece,
+    replace: SmallList<UnitBaseType, 6>,
+}
+
+/// The base types a ship may be replaced with, in the order of their names (the string keeps a sorted set of names).
+const SHIP_BASES: [UnitBaseType; 6] = [UnitBaseType::Carrier, UnitBaseType::Cruiser, UnitBaseType::Destroyer, UnitBaseType::Dreadnought, UnitBaseType::Flagship, UnitBaseType::Warsun];
+
+/// Letani Ospha (Arborec agent): "ACTION: Exhaust this card and choose a player's non-fighter ship: that player may replace that ship with
+/// one from their reinforcements that costs up to 2 more than the replaced ship." Every non-fighter ship of the board (anyone's, one per
+/// system for identical ones) whose owner has such a replacement is offered to the holder (no question for one); the ship's owner then
+/// chooses the replacement among the base types (in the order of the names) or declines. The card is used whenever a ship qualified; the
+/// replacement stands in the old ship's place, undamaged. `forms` is what the seats place per base type (the string `player_unit`: an upgrade
+/// the seat owns, else its faction's unit, else the plain one), the adapter's; the box and the costs are read here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LetaniOspha {
+    pub who: Seat,
+    forms: Vec<(Seat, Unit)>,
+    stage: OStage,
+    chosen: Option<usize>,
+    pub used: bool,
+}
+
+impl LetaniOspha {
+    #[must_use]
+    pub fn new(who: Seat, forms: Vec<(Seat, Unit)>) -> Self {
+        Self { who, forms, stage: OStage::Start, chosen: None, used: false }
+    }
+
+    fn form(&self, seat: Seat, base: UnitBaseType) -> Option<Unit> {
+        self.forms.iter().find(|(s, u)| *s == seat && u.data().base_type == base).map(|(_, u)| *u)
+    }
+
+    /// Every ship the agent can act on, in system (id text) order and then unit order.
+    fn targets(&self, core: &CoreState, k: &Kernel) -> Vec<OspTarget> {
+        let scope = scope(k);
+        let plain = |u: Unit| scope.unit(u).filter(|d| d.ship && d.base_type != UnitBaseType::Fighter);
+        let mut systems: Vec<System> = core.board().systems().map(|(s, _)| s).collect();
+        systems.sort_unstable();
+        let mut found: Vec<OspTarget> = Vec::new();
+        let mut seen: Vec<(System, crate::state::Piece)> = Vec::new();
+        for system in systems {
+            for (at, piece) in core.board().sys(system).units.as_slice().iter().enumerate() {
+                let Some(current) = plain(piece.kind()) else { continue };
+                if seen.contains(&(system, *piece)) {
+                    continue;
+                }
+                seen.push((system, *piece));
+                let ceiling = u16::from(current.cost_halves.unwrap_or(0)) + 4;
+                let owner = piece.owner();
+                let replace: SmallList<UnitBaseType, 6> = SHIP_BASES
+                    .iter()
+                    .copied()
+                    .filter(|base| *base != current.base_type)
+                    .filter(|base| {
+                        self.form(owner, *base).is_some_and(|form| {
+                            plain(form).is_some_and(|d| u16::from(d.cost_halves.unwrap_or(0)) <= ceiling) && crate::query::fleet::remaining_all(core, scope, owner, form) > 0
+                        })
+                    })
+                    .collect();
+                if !replace.as_slice().is_empty() {
+                    found.push(OspTarget { system, at, piece: *piece, replace });
+                }
+            }
+        }
+        found
+    }
+
+    fn ship_ask() -> Ask {
+        Ask::Leaders(LAsk::OsphaShip)
+    }
+
+    fn replace_ask(t: &OspTarget) -> Ask {
+        Ask::Leaders(LAsk::OsphaReplace { owner: t.piece.owner(), ship: t.piece.kind(), system: t.system })
+    }
+
+    fn choose(&mut self, n: usize) {
+        self.chosen = Some(n);
+        self.stage = OStage::Replace;
+    }
+}
+
+impl Window for LetaniOspha {
+    type Stage = OStage;
+
+    fn stage(&self) -> OStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == OStage::Start {
+            let targets = self.targets(sx.state, sx.kernel);
+            match targets.as_slice() {
+                [] => self.stage = OStage::Done,
+                [_] => self.choose(0),
+                _ => self.stage = OStage::Ship,
+            }
+        }
+        match self.stage {
+            OStage::Ship => Next::Continue(Self::ship_ask()),
+            OStage::Replace => {
+                let targets = self.targets(sx.state, sx.kernel);
+                match self.chosen.and_then(|n| targets.get(n)) {
+                    Some(t) => Next::Continue(Self::replace_ask(t)),
+                    None => Next::Done,
+                }
+            }
+            OStage::Start | OStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        let targets = self.targets(s, k);
+        match self.stage {
+            OStage::Ship => Some(Choice {
+                actor: self.who,
+                ask: Self::ship_ask(),
+                ctx: ctx(Leader::LetaniOspha, LSub::OsphaShip),
+                opts: targets
+                    .iter()
+                    .enumerate()
+                    .map(|(n, t)| Opt::Leaders(LOpt::OsphaShip { n: u8::try_from(n).unwrap_or(u8::MAX), owner: t.piece.owner(), ship: t.piece.kind(), damaged: t.piece.sustained(), system: t.system }))
+                    .collect::<Opts>(),
+            }),
+            OStage::Replace => {
+                let t = self.chosen.and_then(|n| targets.get(n))?;
+                let mut opts: Opts = t.replace.as_slice().iter().map(|base| Opt::Leaders(LOpt::OsphaReplace(*base))).collect();
+                opts.push(Opt::Decline);
+                Some(Choice { actor: t.piece.owner(), ask: Self::replace_ask(t), ctx: ctx(Leader::LetaniOspha, LSub::OsphaReplace), opts })
+            }
+            OStage::Start | OStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let targets = self.targets(sx.state, sx.kernel);
+        match (self.stage, pick) {
+            // The pick must be the option that was offered, not only its number.
+            (OStage::Ship, Pick::Opt(offered @ Opt::Leaders(LOpt::OsphaShip { n, .. })))
+                if self.ask_of(sx.state, sx.kernel).is_some_and(|c| c.opts.as_slice().contains(&offered)) =>
+            {
+                self.choose(usize::from(n));
+                Ok(())
+            }
+            (OStage::Replace, pick) => {
+                let t = self.chosen.and_then(|n| targets.get(n)).cloned().ok_or(Illegal)?;
+                self.used = true;
+                self.stage = OStage::Done;
+                match pick {
+                    Pick::Opt(Opt::Decline) => Ok(()),
+                    Pick::Opt(Opt::Leaders(LOpt::OsphaReplace(base))) if t.replace.as_slice().contains(&base) => {
+                        let owner = t.piece.owner();
+                        let form = self.form(owner, base).ok_or(Illegal)?;
+                        sx.state.board_mut().sys_mut(t.system).units.as_mut_slice()[t.at] = crate::state::Piece::new(form, owner);
+                        Ok(())
+                    }
+                    _ => {
+                        self.used = false;
+                        self.stage = OStage::Replace;
+                        Err(Illegal)
+                    }
+                }
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1694,5 +1879,112 @@ mod tests {
         let mut d = malleon_driver(2);
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
         assert!(!d.window.used);
+    }
+
+    fn ship(base: UnitBaseType) -> Unit {
+        Unit::ALL.iter().copied().find(|u| u.data().base_type == base && u.data().ship && u.data().faction.is_none()).or_else(|| Unit::ALL.iter().copied().find(|u| u.data().base_type == base && u.data().ship)).expect("a ship of the base type")
+    }
+
+    /// What each of the two seats places per ship base type.
+    fn forms() -> Vec<(Seat, Unit)> {
+        [UnitBaseType::Carrier, UnitBaseType::Cruiser, UnitBaseType::Destroyer, UnitBaseType::Dreadnought, UnitBaseType::Flagship, UnitBaseType::Warsun]
+            .into_iter()
+            .flat_map(|base| [(Seat(0), ship(base)), (Seat(1), ship(base))])
+            .collect()
+    }
+
+    fn systems() -> [System; 2] {
+        [System::from_index(20).unwrap(), System::from_index(30).unwrap()]
+    }
+
+    fn ospha_driver() -> Driver<LetaniOspha> {
+        driver(LetaniOspha::new(Seat(0), forms()))
+    }
+
+    fn units_in(s: &CoreState, system: System) -> Vec<(Unit, Seat, bool)> {
+        s.board().sys(system).units.as_slice().iter().map(|p| (p.kind(), p.owner(), p.sustained())).collect()
+    }
+
+    #[test]
+    fn ospha_asks_the_ships_owner_for_a_replacement_up_to_two_dearer_and_replaces_in_place_undamaged() {
+        let (k, cruiser) = (kernel(), ship(UnitBaseType::Cruiser));
+        let [system, _] = systems();
+        let mut s = table(2);
+        s.board_mut().sys_mut(system).units.push(crate::state::Piece::new(ship(UnitBaseType::Destroyer), Seat(1)));
+        s.board_mut().sys_mut(system).units.push(crate::state::Piece::new(cruiser, Seat(1)).with_sustained(true));
+        s.board_mut().sys_mut(system).units.push(crate::state::Piece::new(ship(UnitBaseType::Carrier), Seat(0)));
+        let mut d = ospha_driver();
+        // Three ships of the board: the holder is asked which, in unit order, naming the owner, the form and the damage.
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks which ship") };
+        assert_eq!((q.actor, q.ask), (Seat(0), Ask::Leaders(LAsk::OsphaShip)));
+        assert_eq!(q.opts.len(), 3);
+        assert_eq!(q.opts.as_slice()[1], Opt::Leaders(LOpt::OsphaShip { n: 1, owner: Seat(1), ship: cruiser, damaged: true, system }));
+        // An option that was not offered (right number, wrong ship) and a decline are refused.
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::OsphaShip { n: 1, owner: Seat(0), ship: cruiser, damaged: true, system }))), Err(DriverError::Illegal));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)), Err(DriverError::Illegal));
+        let Status::Asking(r) = d.resume(&mut s, &k, Pick::Opt(q.opts.as_slice()[1])).unwrap() else { panic!("the owner is asked") };
+        assert_eq!((r.actor, r.ask), (Seat(1), Ask::Leaders(LAsk::OsphaReplace { owner: Seat(1), ship: cruiser, system })));
+        // A cruiser (cost 2) becomes a carrier (3), a destroyer (1) or a dreadnought (4), never a war sun or the flagship, nor a cruiser; names in order.
+        let bases = |r: &Choice| r.opts.as_slice().iter().filter_map(|o| if let Opt::Leaders(LOpt::OsphaReplace(b)) = o { Some(*b) } else { None }).collect::<Vec<_>>();
+        assert_eq!(bases(&r), [UnitBaseType::Carrier, UnitBaseType::Destroyer, UnitBaseType::Dreadnought]);
+        assert_eq!(r.opts.as_slice().last(), Some(&Opt::Decline));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::OsphaReplace(UnitBaseType::Warsun)))), Err(DriverError::Illegal));
+        assert!(!d.window.used, "nothing before a legal answer");
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::OsphaReplace(UnitBaseType::Dreadnought)))).unwrap(), Status::Done);
+        assert!(d.window.used);
+        let dread = ship(UnitBaseType::Dreadnought);
+        assert_eq!(units_in(&s, system), [(ship(UnitBaseType::Destroyer), Seat(1), false), (dread, Seat(1), false), (ship(UnitBaseType::Carrier), Seat(0), false)], "in the old ship's place, undamaged");
+    }
+
+    #[test]
+    fn ospha_takes_a_lone_ship_without_the_first_question_counts_identical_ships_once_and_a_decline_still_uses_the_card() {
+        let (k, cruiser) = (kernel(), ship(UnitBaseType::Cruiser));
+        let [system, other] = systems();
+        let mut s = table(2);
+        for _ in 0..2 {
+            s.board_mut().sys_mut(system).units.push(crate::state::Piece::new(cruiser, Seat(1)));
+        }
+        let mut d = ospha_driver();
+        let Status::Asking(r) = d.run(&mut s, &k).unwrap() else { panic!("two identical ships are one ship: straight to the owner") };
+        assert_eq!(r.actor, Seat(1));
+        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+        assert!(d.window.used, "a ship qualified: the card is used");
+        assert_eq!(units_in(&s, system), [(cruiser, Seat(1), false), (cruiser, Seat(1), false)]);
+        // The same ship in two systems are two.
+        s.board_mut().sys_mut(other).units.push(crate::state::Piece::new(cruiser, Seat(1)));
+        let mut d = ospha_driver();
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks which") };
+        assert_eq!(q.ask, Ask::Leaders(LAsk::OsphaShip));
+        assert_eq!(q.opts.len(), 2);
+        // The first identical ship is the one replaced.
+        d.resume(&mut s, &k, Pick::Opt(q.opts.as_slice()[0])).unwrap();
+        d.resume(&mut s, &k, Pick::Opt(Opt::Leaders(LOpt::OsphaReplace(UnitBaseType::Carrier)))).unwrap();
+        assert_eq!(units_in(&s, system), [(ship(UnitBaseType::Carrier), Seat(1), false), (cruiser, Seat(1), false)]);
+        assert_eq!(units_in(&s, other), [(cruiser, Seat(1), false)]);
+    }
+
+    #[test]
+    fn ospha_offers_no_ship_for_a_fighter_and_no_replacement_the_box_cannot_supply() {
+        let k = kernel();
+        let [system, other] = systems();
+        // A fighter only: nothing to choose, the card is not used.
+        let mut s = table(2);
+        s.board_mut().sys_mut(system).units.push(crate::state::Piece::new(ship(UnitBaseType::Fighter), Seat(1)));
+        let mut d = ospha_driver();
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert!(!d.window.used);
+        // The box of seat 1 holds no dreadnought (five stand in another system): its cruiser can become a carrier or a destroyer only.
+        let mut s = table(2);
+        let cruiser = ship(UnitBaseType::Cruiser);
+        s.board_mut().sys_mut(system).units.push(crate::state::Piece::new(cruiser, Seat(1)));
+        for _ in 0..5 {
+            s.board_mut().sys_mut(other).units.push(crate::state::Piece::new(ship(UnitBaseType::Dreadnought), Seat(1)));
+        }
+        let mut d = ospha_driver();
+        let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks which ship") };
+        let at = q.opts.as_slice().iter().position(|o| matches!(o, Opt::Leaders(LOpt::OsphaShip { ship, .. }) if *ship == cruiser)).expect("the cruiser is offered");
+        let Status::Asking(r) = d.resume(&mut s, &k, Pick::Opt(q.opts.as_slice()[at])).unwrap() else { panic!("asks the owner") };
+        let bases: Vec<UnitBaseType> = r.opts.as_slice().iter().filter_map(|o| if let Opt::Leaders(LOpt::OsphaReplace(b)) = o { Some(*b) } else { None }).collect();
+        assert_eq!(bases, [UnitBaseType::Carrier, UnitBaseType::Destroyer]);
     }
 }

@@ -2411,10 +2411,9 @@ fn dispatch_leader(
 #[must_use]
 pub(crate) fn string_only_leader(id: &str) -> Option<&'static str> {
     Some(match id {
-        "arborecagent" => "arborecagent: replaces a non-fighter ship with another (a choice over the ships of the board, then the swap with the box)",
-        "arborechero" => "arborechero: a use of PRODUCTION in every system of the hero (the production window of lane 1, W5)",
-        "muaatagent" => "muaatagent: another seat produces up to two units (the production window of lane 1, W5)",
-        "nekrohero" => "nekrohero: destroys a planet's units and gains a technology (the destroyed ground forces are announced: D1b destruction flush)",
+        "arborechero" => "arborechero: a use of PRODUCTION in every system of the hero, with the hero's limit and the seat's purse across systems (the production window is a window of a use, not a child a leader can start: no Spawn for it, and `produce_by_ability` is a counted bail of W5)",
+        "muaatagent" => "muaatagent: another seat produces up to two units of cost 4 or less at a war sun or its flagship (the production window of lane 1, W5: no child spawn for it, and the chosen seat may be any faction the production windows do not carry)",
+        "nekrohero" => "nekrohero: destroys a planet's units and gains a technology (the planet and technology candidates are string reads: specialties now, the active deck and the faction technologies; the gain is `technology::gain` with its events; the destroyed ground forces are staged: D1b destruction flush)",
         "naazhero" => "naazhero: the secondary of one or two strategy cards as children of the leader window (the strategy windows are children of the card, not of a leader)",
         "winnuhero" => "winnuhero: the primary of a strategy card as the continuation of the leader (`use_leader_strategy_primary`, D1b dispatch)",
         "empyreanhero" => "empyreanhero: explores every frontier token that holds a ship (the exploration composition, D1)",
@@ -2756,30 +2755,34 @@ mod tests {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let content = ContentStore::embedded();
         let ids = [
-            "arborecagent", "arborechero", "muaatagent", "nekrohero", "naazhero", "winnuhero",
+            "arborechero", "muaatagent", "nekrohero", "naazhero", "winnuhero",
             "empyreanhero", "cabalhero", "argenthero", "yinhero", "yssarilhero", "mahacthero",
         ];
         for id in ids {
             assert!(string_only_leader(id).is_some_and(|why| why.starts_with(id)), "{id}");
             assert!(kind_of(content, &LeaderId::new(id)).is_some(), "{id} is a leader of the corpus");
         }
-        for carried in ["saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
+        for carried in ["arborecagent", "saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
             assert_eq!(string_only_leader(carried), None, "{carried} has a port");
         }
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
-        with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
-            let mut state = crate::fixtures::seated_game(&[("a", "yin"), ("b", "sol")], POK);
-            state.promissory_notes.clear();
-            state.promissory_faceup.clear();
-            let hero = holding(&mut state, "yinhero", LeaderStatus::Unlocked);
-            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
-            // No map: the card cannot resolve, which the string answers `false` (the gate is counted before it does).
-            assert!(!crate::fixtures::with_context(&mut state, POK, None, &mut table, |context| use_leader(context, &player(), &hero)));
-        });
+        // Every id of the table reaches the census under its own name when it is used (the gate is counted before the string body runs).
+        for id in ids {
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                let mut state = crate::fixtures::seated_game(&[("a", "yin"), ("b", "sol")], POK);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                let leader = holding(&mut state, id, if id.ends_with("agent") { LeaderStatus::Readied } else { LeaderStatus::Unlocked });
+                let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+                let _ = crate::fixtures::with_context(&mut state, POK, None, &mut table, |context| use_leader(context, &player(), &leader));
+            });
+        }
         let r = report();
-        let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with("leaders::use_leader [gate: yinhero: ")).map(|(_, c)| c.bailed).sum();
-        assert_eq!(gated, 1, "{r:?}");
+        for id in ids {
+            let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with(&format!("leaders::use_leader [gate: {id}: "))).map(|(_, c)| c.bailed).sum();
+            assert_eq!(gated, 1, "{id}: {r:?}");
+        }
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }

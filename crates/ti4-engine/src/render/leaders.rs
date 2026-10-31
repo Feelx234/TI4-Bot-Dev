@@ -9,7 +9,7 @@
 use ti4_engine_core::choice::agenda::Shown;
 use ti4_engine_core::choice::strategy::Pool;
 use ti4_engine_core::choice::leaders::{Ask, HeroUnit, Opt, RoundTarget, Subtype};
-use ti4_engine_core::generated::{Planet, System, Technology, Unit};
+use ti4_engine_core::generated::{Planet, System, Technology, Unit, UnitBaseType};
 
 use super::{Family, Render};
 use crate::choice::ChoiceOption;
@@ -107,8 +107,10 @@ impl Family for Fam {
     type Opt = Opt;
     type Subtype = Subtype;
 
-    fn prompt(_: &Render, a: &Ask) -> String {
+    fn prompt(r: &Render, a: &Ask) -> String {
         match a {
+            Ask::OsphaShip => "Letani Ospha: choose a non-fighter ship".to_owned(),
+            Ask::OsphaReplace { owner, ship, system } => format!("Letani Ospha: replace {}'s {} in {}", r.seat_text(*owner), ship.as_str(), system.as_str()),
             Ask::SustainCommander => "Rear Admiral Farran: gain 1 trade good for the sustained damage".to_owned(),
             Ask::XxchaPlanet => "Leader: ready which planet".to_owned(),
             Ask::XxchaInfantry => "Leader: remove 1 infantry from that planet?".to_owned(),
@@ -141,6 +143,8 @@ impl Family for Fam {
             Subtype::SaarHero => "armageddon_relay".to_owned(),
             Subtype::GhostSwapFirst => "swap_first".to_owned(),
             Subtype::GhostSwapSecond => "swap_second".to_owned(),
+            Subtype::OsphaShip => "ospha_ship".to_owned(),
+            Subtype::OsphaReplace => "ospha_replace".to_owned(),
             Subtype::NekroPlayer => "malleon_player".to_owned(),
             Subtype::NekroPayment => "malleon_payment".to_owned(),
         }
@@ -155,6 +159,15 @@ impl Family for Fam {
             }
             Opt::System(system) if matches!(a, Ask::SaarHero | Ask::GhostSwapFirst | Ask::GhostSwapSecond) => ChoiceOption::labelled(system.as_str(), "system", format!("system {}", system.as_str())),
             Opt::System(system) => ChoiceOption::labelled(system.as_str(), "system", system.as_str()),
+            Opt::OsphaShip { n, owner, ship, damaged, system } => ChoiceOption::labelled(
+                format!("ship|{n}"),
+                "ship",
+                format!("{}'s {}{} in {}", r.seat_text(*owner), ship.as_str(), if *damaged { " (damaged)" } else { "" }, system.as_str()),
+            ),
+            Opt::OsphaReplace(base) => {
+                let base = super::promissory::base_name_of(*base);
+                ChoiceOption::labelled(format!("replace|{base}"), "ship", format!("replace it with a {base} from reinforcements"))
+            }
             Opt::Player(seat) => {
                 let id = r.seat_text(*seat);
                 ChoiceOption::labelled(id, "player", id)
@@ -222,6 +235,15 @@ impl Family for Fam {
                     return Some(Opt::GainCommodities);
                 }
                 r.seat(id).map(Opt::Replenish)
+            }
+            // The number names a place in the list the question offered, not a ship: the id is matched against the options.
+            Ask::OsphaShip => None,
+            Ask::OsphaReplace { .. } => {
+                let name = id.strip_prefix("replace|")?;
+                [UnitBaseType::Carrier, UnitBaseType::Cruiser, UnitBaseType::Destroyer, UnitBaseType::Dreadnought, UnitBaseType::Flagship, UnitBaseType::Warsun]
+                    .into_iter()
+                    .find(|base| super::promissory::base_name_of(*base) == name)
+                    .map(Opt::OsphaReplace)
             }
             Ask::NekroPlayer => r.seat(id).map(Opt::Player),
             Ask::NekroPayment => match id.strip_prefix("token|") {

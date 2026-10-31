@@ -49,15 +49,7 @@ impl<'a> Cx<'a> {
 /// A producing unit and the planet it sits on (`None`: the space area).
 pub type Producers = SmallList<(Piece, Option<Planet>), 12>;
 
-/// `production::structure_limit`.
-#[must_use]
-pub const fn structure_limit(base: UnitBaseType) -> Option<usize> {
-    match base {
-        UnitBaseType::Spacedock => Some(1),
-        UnitBaseType::Pds => Some(2),
-        _ => None,
-    }
-}
+pub use crate::query::laws::structure_limit;
 
 /// `production::price_of_under`: `(cost, units made per purchase)`. `cost_halves` is the printed
 /// cost doubled (`None`: no cost printed, which the string reads as 0); `single` is Regulated
@@ -224,13 +216,7 @@ pub fn structures_on(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseType)
 /// `production::structure_allowed` (79.2).
 #[must_use]
 pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseType) -> bool {
-    if laws::structure_cap_lifted(cx.core(), cx.blanked, base) {
-        return true;
-    }
-    if laws::planet_is_demilitarized(cx.core(), cx.blanked, planet) {
-        return false;
-    }
-    structure_limit(base).is_none_or(|cap| structures_on(cx, who, planet, base) < cap)
+    laws::structure_allowed(cx.core(), cx.blanked, who, planet, base)
 }
 
 pub mod offers;

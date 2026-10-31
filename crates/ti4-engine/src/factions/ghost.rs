@@ -466,17 +466,26 @@ fn perform_component(
         galaxy,
         player,
     );
-    // Asked before the card is exhausted; a refusal changes nothing.
-    if !choose_and_place(
-        context,
-        player,
-        "wg",
-        "Wormhole Generator",
-        &destinations,
-        true,
+    // The whole action is a window of the core (`rules::technology_windows::WormholeGenerator`): the question over the destinations
+    // (the string's read of the map), the token set and the card exhausted. Asked before the card is exhausted; a refusal changes
+    // nothing.
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::ghost::wormhole_generator",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(wormhole_generator_string(&mut inner, player, &destinations))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::technology_dual::wormhole_generator(s, player, &destinations, script)
     )
-    .unwrap_or(false)
-    {
+}
+
+/// [`perform_component`] on the string engine: the oracle of the dual run.
+fn wormhole_generator_string(context: &mut TimingContext<'_>, player: &PlayerId, destinations: &[(&'static str, SystemId)]) -> bool {
+    if !choose_and_place(context, player, "wg", "Wormhole Generator", destinations, true).unwrap_or(false) {
         return false;
     }
     crate::technology::exhaust_technology_text(context.state, player, "wg");
@@ -1748,6 +1757,39 @@ mod tests {
         assert!(moved);
         assert_eq!(state.wormhole_tokens.get("ALPHA"), Some(&sys("20")));
         assert_eq!(state.wormhole_tokens.len(), 1);
+    }
+
+    /// The Wormhole Generator is a window of the core: the question over the destinations the string read off the map, the token set
+    /// (a token already on the map moves) and the card exhausted. The core half agrees with the string for a placement, a move, a
+    /// decline and a position with no legal system, and it ran every time.
+    #[test]
+    fn the_wormhole_generator_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let galaxy = galaxy();
+        let run = |state: &mut GameState, answers: &[&str]| -> bool {
+            with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+                with_context(state, DEFAULT, Some(&galaxy), &mut scripted(answers), |ctx| perform_component(ctx, &a(), &generator_option()))
+            })
+        };
+        let mut state = ghost_with_generator();
+        assert!(run(&mut state, &["ALPHA|19"]));
+        assert_eq!(state.wormhole_tokens.get("ALPHA"), Some(&sys("19")));
+        state.player_mut(&a()).unwrap().exhausted_technologies.clear();
+        assert!(run(&mut state, &["BETA|20"]));
+        state.player_mut(&a()).unwrap().exhausted_technologies.clear();
+        assert!(run(&mut state, &["ALPHA|20"]), "a token on the map moves");
+        assert_eq!(state.wormhole_tokens.get("ALPHA"), Some(&sys("20")));
+        state.player_mut(&a()).unwrap().exhausted_technologies.clear();
+        let before = state.clone();
+        assert!(!run(&mut state, &["decline"]));
+        assert_eq!(state, before);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::ghost::wormhole_generator"), (4, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

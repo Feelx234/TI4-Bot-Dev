@@ -22,7 +22,7 @@ mod real {
     use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, NekroMalleon, RinHero, XxchaAgent};
+    use ti4_engine_core::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, LetaniOspha, NekroMalleon, RinHero, XxchaAgent};
     use ti4_model::content_types::SourceSet;
 
     use crate::core_adapter::typed;
@@ -419,6 +419,33 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(events), questions: driven.rendered })
     }
 
+    /// What Letani Ospha reads (the ships, the box, the unit costs) and writes (the replaced ship).
+    const OSPHA: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Marks, Slice::Pending], &[Slice::Board]);
+
+    /// The core half of Arborec's Letani Ospha (`factions::arborec::agent_use`). `forms` is the unit type each seat places per ship base type
+    /// (the string `player_unit`); a form the typed tables do not know bails. `None` as for [`xxcha_agent`].
+    pub fn arborec_agent(gs: &mut GameState, player: &PlayerId, forms: &[(PlayerId, ti4_model::id::UnitTypeId)], sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let forms: Vec<(Seat, ti4_engine_core::generated::Unit)> = forms
+            .iter()
+            .map(|(owner, unit)| Some((r.seat(owner.as_str())?, typed::<ti4_engine_core::generated::Unit>(unit.as_str())?)))
+            .collect::<Option<_>>()
+            .why("a unit form the typed tables do not know")?;
+        let kernel = kernel(sources)?;
+        let before = gs.clone();
+        let mut driver = Driver::new(LetaniOspha::new(seat, forms), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), OSPHA, |core, _| crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
+            .why(crate::dual::reason::NOT_LENDABLE)?
+            .why(crate::dual::reason::DRIVER_REFUSED)?;
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     const PLAYERS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
     /// The core half of `leaders::jolnar_hero` (Rin). `None` where `apply_unit_upgrades` would change the
@@ -580,6 +607,15 @@ mod stub {
         _: Option<&ti4_content::galaxy::Galaxy>,
         _: &[&str],
         _: &[&str],
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn arborec_agent(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: &[(PlayerId, ti4_model::id::UnitTypeId)],
         _: ti4_model::content_types::SourceSet,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {

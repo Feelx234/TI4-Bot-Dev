@@ -650,29 +650,19 @@ fn production_biomes_string(
 #[must_use]
 pub(crate) fn string_only_component(id: &str) -> Option<&'static str> {
     let faction = id.strip_prefix("faction|")?;
-    if id == "faction|nekro|c4r|repair" || id == "faction|nekro|c4r|draw" || id == "faction|yssaril|stall_tactics" || id.starts_with("faction|titans|terraform|") {
+    if id == "faction|nekro|c4r|repair" || id == "faction|nekro|c4r|draw" || id == "faction|orbital_drop" || id.starts_with("faction|mahact|vaults|") || id == "faction|ghost|wg" || id == "faction|nekro|c4r|pds" || id == "faction|yssaril|stall_tactics" || id.starts_with("faction|naaz|fabrication_") || id == "faction|naaz|bmf" || id.starts_with("faction|yssaril|mi|") || id.starts_with("faction|titans|terraform|") {
         return None; // bodies of the core (`rules::faction_component::{c4r_repair, terraform}`, `promissory_windows::StallTactics`)
     }
     Some(match faction.split('|').next()? {
-        "orbital_drop" => "faction|orbital_drop: two questions, the payment of the mech and the units placed on a planet (the payment child and the placement window), then the dispatch of perform_component (D1b)",
-        "muaat" => "faction|muaat: units placed or produced in a chosen system (the placement window and the production window of lane 1) and the dispatch of perform_component (D1b)",
-        "ghost" => "faction|ghost: the Wormhole Generator's destinations over the map and the dispatch of perform_component (D1b)",
+        "muaat" => "faction|muaat: Star Forge and The Nucleus place fighters or a destroyer where the fleet supply and the capacity allow (`fleet::standing` with the fleet-limit hooks: only the production window carries them), Ember Colossus asks per mech over the seat's adjacency, The Inferno places a cruiser at the flagship by the flagship text, Fires of the Gashlai grants the war sun technology and re-forms the units; the dispatch of perform_component is D1b",
         "saar" => "faction|saar: Deorbit Barrage's targets over the map, the hits and the dispatch of perform_component (D1b)",
         "titans" => "faction|titans: Terraform's planets and attachments, and the dispatch of perform_component (D1b)",
-        "naaz" => "faction|naaz: the relic or token fabrication and the Mech factory's placement, and the dispatch of perform_component (D1b)",
-        "yssaril" => "faction|yssaril: Mageon Implants' look at another seat's hand and take (the reveal rules are strings), and the dispatch of perform_component (D1b)",
         "arborec" => "faction|arborec: Psychospore's placement of ground forces from the reinforcements (the placement window), and the dispatch of perform_component (D1b)",
-        "nekro" => "faction|nekro: C4R's PDS placement, repair and draw, and the dispatch of perform_component (D1b)",
-        "mahact" => "faction|mahact: the Imperia and the command token of a seat in the fleet pool, and the dispatch of perform_component (D1b)",
         _ => return None,
     })
 }
 
 /// Perform a faction component action. Returns `false` for an option that is not one.
-#[allow(
-    clippy::too_many_lines,
-    reason = "Orbital Drop and its optional deploy are one atomic faction action"
-)]
 pub fn perform_component(
     context: &mut crate::timing::TimingContext<'_>,
     player: &PlayerId,
@@ -696,6 +686,39 @@ pub fn perform_component(
     if !has(context.state, context.content, player, "orbital_drop") {
         return false;
     }
+    orbital_drop(context, player)
+}
+
+/// Orbital Drop: "ACTION: Spend 1 token from your strategy pool to place 2 infantry from your reinforcements on any planet you control.
+/// Then, you may spend 3 resources to place 1 mech on that planet." The whole action is a window of the core
+/// (`rules::faction_component::OrbitalDrop`): the planet, the token, the infantry, the optional mech and its payment (a child window).
+fn orbital_drop(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
+    let crate::timing::TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "faction_abilities::orbital_drop",
+        state,
+        |s: &mut GameState| {
+            let mut inner = crate::timing::TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(orbital_drop_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let infantry = crate::action_cards::placed_unit_id(s, content, sources, player, "infantry")
+                .filter(|id| !crate::factions::hooks_economy::effect_placement_forbidden(s, content, sources, player, id));
+            let mech = ti4_content::units::faction_unit(content, "sol", "mech", sources).map_or_else(|| "sol_mech".to_owned(), |kind| kind.id().to_owned());
+            let can_pay = crate::production::available(s, content, sources, player, crate::production::Spend::Resources) >= 3;
+            crate::faction_dual::orbital_drop(s, player, infantry.as_ref(), &mech, can_pay, sources, script)
+        }
+    )
+}
+
+/// [`orbital_drop`] on the string engine: the oracle of the dual run.
+#[allow(
+    clippy::too_many_lines,
+    reason = "Orbital Drop and its optional deploy are one atomic faction action"
+)]
+fn orbital_drop_string(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
     let spots: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = context
         .state
         .controlled_planets(player)
@@ -1951,27 +1974,32 @@ mod tests {
     #[test]
     fn the_component_actions_that_stay_in_the_string_are_counted() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
-        for id in ["faction|production_biomes", "faction|trade_convoys", "faction|winnu|lgf", "faction|titans|terraform|elysium", "faction|nekro|c4r|repair", "faction|nekro|c4r|draw", "faction|yssaril|stall_tactics", "faction|cabal|vortex", "somethingelse"] {
+        for id in ["faction|production_biomes", "faction|trade_convoys", "faction|winnu|lgf", "faction|orbital_drop", "faction|mahact|vaults|ds", "faction|ghost|wg", "faction|naaz|fabrication_relic", "faction|naaz|fabrication_token", "faction|naaz|bmf", "faction|titans|terraform|elysium", "faction|nekro|c4r|repair", "faction|nekro|c4r|draw", "faction|nekro|c4r|pds", "faction|yssaril|stall_tactics", "faction|yssaril|mi|b", "faction|cabal|vortex", "somethingelse"] {
             assert_eq!(string_only_component(id), None, "{id}");
         }
         for id in [
-            "faction|orbital_drop", "faction|muaat|star_forge", "faction|ghost|wg", "faction|saar|deorbit_barrage",
-            "faction|naaz|bmf", "faction|yssaril|mi|b", "faction|arborec|psychospore",
-            "faction|nekro|c4r|pds", "faction|mahact|x",
+            "faction|muaat|star_forge", "faction|saar|deorbit_barrage",
+            "faction|arborec|psychospore",
         ] {
             assert!(string_only_component(id).is_some_and(|why| why.starts_with(id.split('|').take(2).collect::<Vec<_>>().join("|").as_str())), "{id}");
         }
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
-        with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
-            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
-            let option = crate::choice::ChoiceOption::labelled("faction|ghost|wg", ACTION_KIND, "Wormhole Generator");
-            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
-            let _ = with_table_context(&mut state, None, &mut table, |context| perform_component(context, &PlayerId::new("a"), &option));
-        });
+        let remaining = ["faction|muaat|star_forge", "faction|saar|deorbit_barrage", "faction|arborec|psychospore"];
+        for id in remaining {
+            with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+                let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+                let option = crate::choice::ChoiceOption::labelled(id, ACTION_KIND, id);
+                let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+                let _ = with_table_context(&mut state, None, &mut table, |context| perform_component(context, &PlayerId::new("a"), &option));
+            });
+        }
         let r = report();
-        let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with("faction_abilities::perform_component [gate: faction|ghost: ")).map(|(_, c)| c.bailed).sum();
-        assert_eq!(gated, 1, "{r:?}");
+        for id in remaining {
+            let family = id.split('|').take(2).collect::<Vec<_>>().join("|");
+            let gated: u64 = r.windows.iter().filter(|(label, _)| label.starts_with(&format!("faction_abilities::perform_component [gate: {family}: "))).map(|(_, c)| c.bailed).sum();
+            assert_eq!(gated, 1, "{id}: {r:?}");
+        }
         let _ = take_report();
     }
 
@@ -2037,6 +2065,69 @@ mod tests {
             .gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -held);
 
         assert!(component_actions(&state, content, &player).is_empty());
+    }
+
+    /// Orbital Drop is a window of the core: the planet (asked with several), the token, the infantry, and the optional mech with its
+    /// payment as a child window. The core half agrees with the string for a lone planet with the mech declined, the mech paid for,
+    /// two planets, and a seat with no token (the planet is asked, then nothing happens), and it ran every time.
+    #[test]
+    fn orbital_drop_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let Some(sol) = faction_with("orbital_drop") else {
+            return;
+        };
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let content = ContentStore::embedded();
+        // Planets that pay for the mech: placed, worth at least 3 resources, in different systems.
+        let rich: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = ti4_content::galaxy::all_planets(content, POK)
+            .iter()
+            .filter(|(id, planet)| planet.system_id().is_some() && !planet.is_placed_during_play() && planet.resources() >= 3 && !id.contains('.'))
+            .map(|(id, planet)| (ti4_model::id::SystemId::new(planet.system_id().unwrap_or("18")), ti4_model::id::PlanetId::new(*id)))
+            .take(2)
+            .collect();
+        assert_eq!(rich.len(), 2);
+        let run = |planets: &[(ti4_model::id::SystemId, ti4_model::id::PlanetId)], tokens: i32, answers: &[&str]| -> (bool, GameState, PlayerId) {
+            let (mut state, player) = seated(&sol);
+            state.player_mut(&PlayerId::new("b")).unwrap().faction = FactionId::new("hacan");
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            for (system, planet) in planets {
+                state.system_mut(system).set_control(planet.clone(), player.clone());
+            }
+            let held = state.player(&player).unwrap().tokens(ti4_model::state::TokenPool::Strategic);
+            state.player_mut(&player).unwrap().gain_token_uncapped(ti4_model::state::TokenPool::Strategic, tokens - held);
+            let option = crate::choice::ChoiceOption::labelled("faction|orbital_drop", ACTION_KIND, "Orbital Drop");
+            let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(answers.iter().map(|a| (*a).to_owned()))));
+            let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+                with_table_context(&mut state, None, &mut table, |context| perform_component(context, &player, &option))
+            });
+            (done, state, player)
+        };
+        let on = |state: &GameState, at: &(ti4_model::id::SystemId, ti4_model::id::PlanetId), kind: &str| {
+            state.system_state(&at.0).on_planet(&at.1).iter().filter(|u| u.type_id.as_str().ends_with(kind)).count()
+        };
+        // One planet, the mech declined.
+        let (done, state, _) = run(&rich[..1], 2, &["decline"]);
+        assert!(done);
+        assert_eq!((on(&state, &rich[0], "infantry"), on(&state, &rich[0], "mech")), (2, 0));
+        // One planet, the mech paid for: the payment is a child window; any planet pays.
+        let (done, state, _) = run(&rich[..1], 2, &["deploy|sol_mech|1"]);
+        assert!(done);
+        assert_eq!(on(&state, &rich[0], "mech"), 1);
+        // Two planets: asked which; the second gets the units.
+        let (done, state, _) = run(&rich, 1, &[rich[1].1.as_str(), "decline"]);
+        assert!(done);
+        assert_eq!((on(&state, &rich[0], "infantry"), on(&state, &rich[1], "infantry")), (0, 2));
+        // No token: the planet is asked and nothing happens.
+        let (done, state, _) = run(&rich, 0, &[rich[0].1.as_str()]);
+        assert!(!done);
+        assert_eq!(on(&state, &rich[0], "infantry"), 0);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("faction_abilities::orbital_drop"), (4, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

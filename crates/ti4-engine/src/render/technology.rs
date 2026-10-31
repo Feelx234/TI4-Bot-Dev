@@ -6,7 +6,7 @@
 
 use ti4_engine_core::choice::strategy::Pool;
 use ti4_engine_core::choice::technology::{Ask, Opt, Subtype};
-use ti4_engine_core::generated::{Planet, Technology};
+use ti4_engine_core::generated::{Planet, System, Technology};
 
 use super::{Family, Render, Wording};
 use crate::choice::{ChoiceOption, DECLINE_KIND};
@@ -42,6 +42,7 @@ impl Family for Fam {
             Ask::SelfAssembly => "Self-Assembly Routines: exhaust to place 1 mech from your reinforcements on a planet you control in this system",
             Ask::ProductionBiomes => "Production Biomes: who gains 2 trade goods",
             Ask::Vortex => "Vortex: which unit type do you take",
+            Ask::WormholeGenerator => "Wormhole Generator: place or move a Creuss wormhole token",
             Ask::Aida { upgrades } => return format!("AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}"),
         }
         .to_owned()
@@ -57,12 +58,17 @@ impl Family for Fam {
             Subtype::AidaExhaustForProductionDiscount => "exhaust_for_production_discount",
             Subtype::ProductionBiomesChoosePlayer => "production_biomes_choose_player",
             Subtype::VortexTarget => "vortex_target",
+            Subtype::CreussToken => "creuss_token",
         }
         .to_owned()
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match (a, o) {
+            (_, Opt::Token(kind, system)) => {
+                let (kind, system) = (kind.as_str(), system.as_str());
+                ChoiceOption::labelled(format!("{kind}|{system}"), "creuss_token", format!("Wormhole Generator: the {kind} token into {system}")).with("system", system)
+            }
             (_, Opt::Capture(owner, unit)) => {
                 let (owner, unit) = (r.seat_text(*owner), unit.as_str());
                 ChoiceOption::labelled(format!("{owner}|{unit}"), "vortex", format!("take a {unit} from {owner}'s reinforcements"))
@@ -117,6 +123,10 @@ impl Family for Fam {
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
             Ask::ProductionBiomes => r.seat(id).map(Opt::Player),
+            Ask::WormholeGenerator => {
+                let (kind, system) = id.split_once('|')?;
+                Some(Opt::Token(ti4_engine_core::generated::Wormhole::from_id(kind)?, System::from_id(system)?))
+            }
             Ask::Vortex => {
                 let (owner, unit) = id.split_once('|')?;
                 Some(Opt::Capture(r.seat(owner)?, ti4_engine_core::generated::Unit::from_id(unit)?))

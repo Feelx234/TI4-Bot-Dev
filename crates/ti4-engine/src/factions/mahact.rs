@@ -725,18 +725,23 @@ fn perform_component(
     if !vault_technologies(context.state, player).contains(&tech) {
         return false;
     }
-    context
-        .state
-        .faction_marks
-        .insert(vault_key(player), "1".to_owned());
-    crate::technology::purge(
-        context.state,
-        context.content,
-        context.sources,
-        player,
-        &tech,
-    );
-    crate::relics::gain(context.state, player);
+    // The whole action is a body of the core (`rules::faction_component::vaults_of_the_heir`): the mark, the purge and the relic.
+    let TimingContext { state, content, sources, table: _, dice: _, rng: _, event_sequence: _, galaxy: _ } = context;
+    let (content, sources) = (*content, *sources);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::mahact::vaults_of_the_heir",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(vaults_string(s, content, sources, player, &tech)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::faction_dual::vaults_of_the_heir(s, player, tech.as_str(), sources, script)
+    )
+}
+
+/// [`perform_component`]'s Vaults of the Heir on the string engine: the oracle of the dual run.
+fn vaults_string(state: &mut GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, tech: &TechnologyId) -> bool {
+    state.faction_marks.insert(vault_key(player), "1".to_owned());
+    crate::technology::purge(state, content, sources, player, tech);
+    crate::relics::gain(state, player);
     true
 }
 
@@ -1487,5 +1492,40 @@ mod tests {
         plain.relic_deck = vec![ti4_model::id::RelicId::new("stuff")];
         assert!(component_actions(&plain, content(), &a()).is_empty());
         assert!(component_actions(&plain, content(), &b()).is_empty());
+    }
+
+    /// Vaults of the Heir is a body of the core: the exhausted mark, the technology purged and the top relic gained (the Shard scores
+    /// at once). The core half agrees with the string and ran every time.
+    #[test]
+    fn the_vaults_run_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |tech: &str, relics: &[&str]| -> (bool, GameState) {
+            let mut state = game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.player_mut(&a()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new(BREAKTHROUGH));
+            state.relic_deck = relics.iter().map(|r| ti4_model::id::RelicId::new(*r)).collect();
+            let option = component_actions(&state, content(), &a()).into_iter().find(|o| o.id.ends_with(&format!("|{tech}"))).expect("offered");
+            let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+                crate::fixtures::with_context(&mut state, DEFAULT, None, &mut scripted(&[]), |ctx| perform_component(ctx, &a(), &option))
+            });
+            (done, state)
+        };
+        let held: Vec<String> = game().player(&a()).unwrap().technologies.iter().map(|t| t.as_str().to_owned()).collect();
+        let second = held.iter().find(|t| *t != "pi").cloned().expect("a second technology");
+        let (done, state) = run("pi", &[crate::relics::SHARD]);
+        assert!(done);
+        assert_eq!(state.player(&a()).unwrap().victory_points, 1);
+        assert!(!state.player(&a()).unwrap().technologies.contains(&TechnologyId::new("pi")));
+        let (done, state) = run(&second, &[crate::relics::SHARD, crate::relics::SHARD]);
+        assert!(done);
+        assert_eq!(state.player(&a()).unwrap().relics.len(), 1);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::mahact::vaults_of_the_heir"), (2, 0), "{r:?}");
+        let _ = take_report();
     }
 }
