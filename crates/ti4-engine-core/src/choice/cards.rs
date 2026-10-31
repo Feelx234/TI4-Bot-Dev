@@ -118,6 +118,8 @@ pub enum Reason {
     MalleonDiscard,
     /// The C4R discard (`ERROR_ERROR`).
     C4rDiscard,
+    /// Yssaril's Scheming: the discard that follows the extra draw.
+    SchemingDiscard,
     /// Shown to `viewer` (`show_action_card`).
     Show { viewer: Seat },
 }
@@ -196,6 +198,7 @@ pub enum Subtype {
     DeepgloomStallTacticsDiscard,
     MalleonDiscard,
     C4rDiscard,
+    SchemingDiscard,
     ShowActionCard,
     /// `<card alias>_pick_<kind>`, or `<card alias>_elect` for `What::Elect`.
     Pick { card: ActionCard, what: What },
@@ -218,6 +221,7 @@ impl Reason {
             Self::DeepgloomStallTactics => Subtype::DeepgloomStallTacticsDiscard,
             Self::MalleonDiscard => Subtype::MalleonDiscard,
             Self::C4rDiscard => Subtype::C4rDiscard,
+            Self::SchemingDiscard => Subtype::SchemingDiscard,
             Self::Show { .. } => Subtype::ShowActionCard,
         }
     }

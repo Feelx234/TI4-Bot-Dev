@@ -72,6 +72,7 @@ impl Family for Fam {
             Ask::GainPool { .. } => "gain a command token into which pool".to_owned(),
             Ask::WarfareRecall => "recall a command token".to_owned(),
             Ask::WarfareRedistribute { .. } => "Warfare: redistribute your command tokens".to_owned(),
+            Ask::StatusRedistribute { .. } => "redistribute your command tokens".to_owned(),
             Ask::DiplomacySystem => "choose a system for Diplomacy".to_owned(),
             Ask::ReadyPlanet => "ready which planet".to_owned(),
             Ask::PoliticsSpeaker => "who becomes speaker".to_owned(),
@@ -96,6 +97,7 @@ impl Family for Fam {
             Subtype::GainCommandToken => "gain_command_token",
             Subtype::WarfareRecallToken => "warfare_recall_token",
             Subtype::WarfareRedistributeTokens => "warfare_redistribute_tokens",
+            Subtype::StatusRedistributeTokens => "status_redistribute_tokens",
             Subtype::DiplomacyChooseSystem => "diplomacy_choose_system",
             Subtype::ReadyPlanet => "ready_planet",
             Subtype::PoliticsChooseSpeaker => "politics_choose_speaker",
@@ -202,7 +204,7 @@ impl Family for Fam {
             },
             Ask::ReadyPlanet => Planet::from_id(id).map(|p| Opt::Ready(p, Shown::default())),
             Ask::PoliticsSpeaker => seat_named(r, id).map(Opt::Speaker),
-            Ask::WarfareRedistribute { .. } | Ask::TeWarfareRedistribute { .. } => {
+            Ask::WarfareRedistribute { .. } | Ask::TeWarfareRedistribute { .. } | Ask::StatusRedistribute { .. } => {
                 let mut parts = id.split('|');
                 let mut next = || parts.next()?.parse::<u8>().ok();
                 let (tactic, fleet, strategic) = (next()?, next()?, next()?);

@@ -237,9 +237,11 @@ pub type AskFn = fn(&CoreState, &Env<'_>) -> Result<Option<Asking>, LiveError>;
 /// arm HERE, one line in each of the two matches (the only edit this file takes from the lanes), and removes its `Lent::Arm` use.
 #[must_use]
 pub fn live_arm(arm: Arm) -> Option<LiveFn> {
-    use crate::rules::token_gain::TokenGain;
     match arm {
-        Arm::Tokens => Some(advance::<TokenGain>),
+        Arm::Tokens => Some(super::windows::status::advance_tokens),
+        Arm::Status => Some(super::windows::status::advance_status),
+        Arm::Scoring => Some(super::windows::status::advance_scoring),
+        Arm::EventScoring => Some(super::windows::status::advance_event_scoring),
         Arm::TurnPrelude => Some(super::turn::advance_prelude),
         Arm::StrategyAnnounce => Some(super::turn::advance_announce),
         Arm::Phase => Some(super::turn::advance_phase),
@@ -251,10 +253,11 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
 /// The ask counterpart of [`live_arm`] (the two entries of an arm go together).
 #[must_use]
 pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
-    use crate::rules::token_gain::TokenGain;
     match arm {
-        Arm::Tokens => Some(ask::<TokenGain>),
-        Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase => Some(super::turn::ask_job),
+        Arm::Tokens => Some(super::windows::status::ask_tokens),
+        Arm::Scoring => Some(super::windows::status::ask_scoring),
+        Arm::EventScoring => Some(super::windows::status::ask_event_scoring),
+        Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase | Arm::Status => Some(super::turn::ask_job),
         Arm::Ask => Some(super::turn::ask::ask_ask),
         _ => None,
     }

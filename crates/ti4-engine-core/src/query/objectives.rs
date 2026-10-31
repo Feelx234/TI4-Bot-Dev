@@ -1396,8 +1396,33 @@ pub fn secret_progress(pos: &Pos<'_>, obj: SecretObjective) -> Result<Option<Pro
     Ok(Some(Progress { family, have, threshold }))
 }
 
-/// `secrets::feat_for` is event data and stays with the string engine; this is the printed timing
-/// of a secret (`secrets::timing`): when it may be scored.
+/// The rules version from which a secret made public keeps its printed timing (`ti4_model::state::RULES_LEAKED_EVENT_SECRET`).
+pub const RULES_LEAKED_EVENT_SECRET: u32 = 24;
+
+/// `secrets::feat_for`: the feat that satisfies an event secret (recorded for the occurrence of its window).
+#[must_use]
+pub const fn feat_of(obj: SecretObjective) -> Option<crate::state::Feat> {
+    use crate::state::Feat as F;
+    use SecretObjective as S;
+    Some(match obj {
+        S::DestroyTheirGreatestShip => F::DestroyedACapitalShip,
+        S::MakeAnExampleOfTheirWorld => F::BombardedOutTheLastGroundForces,
+        S::TurnTheirFleetsToDust => F::SpaceCannonTookTheLastNonFighters,
+        S::FightWithPrecision => F::BarrageTookTheLastFighters,
+        S::SparkARebellion => F::WonAgainstThePointsLeader,
+        S::UnveilFlagship => F::WonBesideASurvivingFlagship,
+        S::BetrayAFriend => F::WonAgainstANoteHolder,
+        S::BraveTheVoid => F::WonInAnAnomaly,
+        S::DarkenTheSkies => F::WonInARivalHome,
+        S::DemonstrateYourPower => F::HeldThreeShipsAfterASpaceCombat,
+        S::DriveTheDebate => F::ElectedByAnAgenda,
+        S::ProveEndurance => F::LastToPass,
+        S::BecomeAMartyr => F::LostAHomePlanet,
+        _ => return None,
+    })
+}
+
+/// The printed timing of a secret (`secrets::timing`): when it may be scored.
 #[must_use]
 pub fn secret_points(obj: SecretObjective) -> u8 {
     obj.data().points

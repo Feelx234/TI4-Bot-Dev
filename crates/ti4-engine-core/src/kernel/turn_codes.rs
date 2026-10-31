@@ -60,4 +60,12 @@ pub enum TurnGap {
     ReplayDiverged,
     /// A commander of a faction whose unlock condition no hook states yet (`commander_unlocked`) could unlock.
     CommanderUnlock,
+    /// Plots Within Plots left a plot card to place (the Firmament, a dropped faction).
+    PlotCard,
+    /// A ship stands in an Entropic Scar (Thunder's Edge: the faction technologies of the status phase).
+    EntropicScar,
+    /// A promissory note's faction is played by two seats, so the note has no one owner to go home to.
+    NoteOwner,
+    /// A secret objective the core cannot judge (Strengthen Bonds, Produce en Masse).
+    ScoringSecret,
 }

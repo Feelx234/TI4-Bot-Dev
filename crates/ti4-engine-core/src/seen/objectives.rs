@@ -13,7 +13,7 @@ use std::rc::Rc;
 use super::Seen;
 use crate::bits::SysSet;
 use crate::containers::SmallList;
-use crate::generated::{FactionTag, PublicObjective, System};
+use crate::generated::{FactionTag, ObjectivePhase, PublicObjective, SecretObjective, System};
 use crate::ids::Seat;
 use crate::query::objectives::{self as q, CostFamily, Family, Imagined, Pos, SeatFacts, Terms};
 use crate::query::{board, economy};
@@ -191,52 +191,109 @@ impl Seen<'_> {
         out
     }
 
-    /// How many revealed public objectives the seat could score right now (`Observed::scoreable_public`): none while a
-    /// home planet is lost (61.16, unless the faction scores without its home), a bought objective when it can be
+    /// The revealed objectives the seat could score right now in the status window, in reveal order (`objectives::scoreable_on`):
+    /// none while a home planet is lost (61.16, unless the faction scores without its home), a bought objective when it can be
     /// afforded, a position objective when its requirement is met, a leaked secret by its position requirement.
     /// `None`: a secret the core cannot answer.
     #[must_use]
-    pub fn scoreable_public(&self, seat: Seat) -> Option<usize> {
+    pub fn scoreable_publics(&self, seat: Seat) -> Option<SmallList<ObjectiveRef, 24>> {
+        let mut out = SmallList::new();
         let core = self.st();
-        let Some(player) = core.players().by_seat(seat) else { return Some(0) };
+        let Some(player) = core.players().by_seat(seat) else { return Some(out) };
         let scores_without_home = self.kernel().hooks.strategy.scores_without_home(core, seat);
         let home_held = player.home_planets.as_slice().iter().all(|p| board::controls(core, seat, *p));
         if !(scores_without_home || home_held) {
-            return Some(0);
+            return Some(out);
         }
         let scored = self.scored_by(seat);
         let facts = self.facts(seat);
         let pos = Pos::new(core, &facts, self.has_map(), Imagined::NONE);
         let edge = self.edge();
-        let mut n = 0;
         for r in core.objectives().revealed.iter() {
-            match r {
+            let met = match r {
                 ObjectiveRef::Public(obj) => {
                     if scored.public.contains(*obj) {
                         continue;
                     }
-                    let met = if q::cost_of(*obj).is_none() {
+                    if q::cost_of(*obj).is_none() {
                         q::counting_progress(&pos, &edge, *obj)
                             .or_else(|| q::remaining_position_progress(&pos, *obj))
                             .is_some_and(|p| p.satisfied())
                     } else {
                         q::bought_progress(&pos, *obj).is_some_and(|c| c.satisfied())
-                    };
-                    n += usize::from(met);
+                    }
                 }
                 ObjectiveRef::Secret(obj) => {
                     if scored.secret.contains(*obj) {
                         continue;
                     }
                     match q::secret_progress(&pos, *obj) {
-                        Ok(Some(p)) => n += usize::from(p.satisfied()),
-                        Ok(None) => {}
+                        Ok(Some(p)) => p.satisfied(),
+                        Ok(None) => false,
                         Err(q::Unsupported) => return None,
                     }
                 }
+            };
+            if met {
+                out.push(*r);
             }
         }
-        Some(n)
+        Some(out)
+    }
+
+    /// How many revealed public objectives the seat could score right now (`Observed::scoreable_public`), see
+    /// [`Self::scoreable_publics`]. `None`: a secret the core cannot answer.
+    #[must_use]
+    pub fn scoreable_public(&self, seat: Seat) -> Option<usize> {
+        self.scoreable_publics(seat).map(|l| l.len())
+    }
+
+    /// The secrets in the seat's hand it could score in a window of `phase` (`secrets::scoreable_on` for the status window,
+    /// `secrets::scoreable_event` otherwise, before the window's caps): a position secret by its requirement, an event secret
+    /// by a feat recorded for `occurrence` or by its requirement, and, from the rules version that lets a leaked event secret
+    /// keep its printed timing, a revealed secret of that phase whose feat was recorded. `None`: a secret the core cannot answer.
+    #[must_use]
+    pub fn scoreable_secrets(&self, seat: Seat, phase: ObjectivePhase, occurrence: Option<u64>) -> Option<SmallList<SecretObjective, 8>> {
+        let core = self.st();
+        let mut out: SmallList<SecretObjective, 8> = SmallList::new();
+        let Some(player) = core.players().by_seat(seat) else { return Some(out) };
+        let scored = self.scored_by(seat);
+        let facts = self.facts(seat);
+        let pos = Pos::new(core, &facts, self.has_map(), Imagined::NONE);
+        let feat_seen = |obj: SecretObjective| {
+            q::feat_of(obj).is_some_and(|feat| occurrence.is_some_and(|n| player.misc.event_feats.as_slice().contains(&(feat, n))))
+        };
+        for obj in player.cards.secrets.iter() {
+            if obj.data().phase != phase || scored.secret.contains(*obj) {
+                continue;
+            }
+            let met = if phase == ObjectivePhase::Status {
+                match q::secret_progress(&pos, *obj) {
+                    Ok(Some(p)) => p.satisfied(),
+                    Ok(None) => false,
+                    Err(q::Unsupported) => return None,
+                }
+            } else {
+                feat_seen(*obj)
+                    || match q::secret_progress(&pos, *obj) {
+                        Ok(Some(p)) => p.satisfied(),
+                        Ok(None) => false,
+                        Err(q::Unsupported) => return None,
+                    }
+            };
+            if met {
+                out.push(*obj);
+            }
+        }
+        if phase != ObjectivePhase::Status && core.meta().rules_version >= q::RULES_LEAKED_EVENT_SECRET {
+            for r in core.objectives().revealed.iter() {
+                let ObjectiveRef::Secret(obj) = r else { continue };
+                if obj.data().phase == phase && !scored.secret.contains(*obj) && !out.as_slice().contains(obj) && feat_seen(*obj) {
+                    out.push(*obj);
+                }
+            }
+        }
+        Some(out)
     }
 
     /// The value of a planet to spend (re-exported helper of the economy for the progress tests).

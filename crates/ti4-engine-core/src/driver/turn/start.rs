@@ -50,25 +50,35 @@ fn technologies(sx: &mut Sx<'_>, active: Seat) -> Flow {
     run(sx, &mut TurnStart::new(active, sx.table.codes.turn.psychoarchaeology))
 }
 
+/// The leaders `leaders::check_unlocks` would unlock for `seat` now, or `None` after noting the gap when a locked commander of a faction whose
+/// condition no hook states yet could unlock (`COMMANDER_HOOK_MISSING`). `mapless`: the check of `objectives::award_tail`, which has no map
+/// (Naalu's commander asks about the Mecatol area; the status phase checks again with one).
+pub(crate) fn unlockable(sx: &Sx<'_>, seat: Seat, mapless: bool) -> Option<leaders::Leaders> {
+    let env = KernelEnv::new(sx.state, sx.kernel);
+    let lcx = leaders::Cx { core: sx.state, env: &env, scope: reach::scope_of(sx.kernel), blanked: reach::blanked(sx.state) };
+    let locked_without_a_hook = sx.state.players().by_seat(seat).is_some_and(|p| {
+        p.leaders.status.iter().any(|(leader, status)| {
+            *status == LeaderStatus::Locked
+                && leader.data().kind == LeaderType::Commander
+                && COMMANDER_HOOK_MISSING.contains(&leader.data().faction)
+                && leaders::commander_unlocked(&lcx, seat, *leader).is_none()
+        })
+    });
+    if locked_without_a_hook {
+        gap(sx, TurnGap::CommanderUnlock);
+        return None;
+    }
+    let mut list = leaders::unlockable(&lcx, seat);
+    if mapless {
+        // Naalu's commander (Maban): no map, no Mecatol area, so it stays locked.
+        list.retain(|l| *l != crate::generated::Leader::Maban);
+    }
+    Some(list)
+}
+
 /// `Game::refresh_commander_unlocks`.
 fn commanders(sx: &mut Sx<'_>, active: Seat) {
-    let unlocking = {
-        let env = KernelEnv::new(sx.state, sx.kernel);
-        let lcx = leaders::Cx { core: sx.state, env: &env, scope: reach::scope_of(sx.kernel), blanked: reach::blanked(sx.state) };
-        let locked_without_a_hook = sx.state.players().by_seat(active).is_some_and(|p| {
-            p.leaders.status.iter().any(|(leader, status)| {
-                *status == LeaderStatus::Locked
-                    && leader.data().kind == LeaderType::Commander
-                    && COMMANDER_HOOK_MISSING.contains(&leader.data().faction)
-                    && leaders::commander_unlocked(&lcx, active, *leader).is_none()
-            })
-        });
-        if locked_without_a_hook {
-            gap(sx, TurnGap::CommanderUnlock);
-            return;
-        }
-        leaders::unlockable(&lcx, active)
-    };
+    let Some(unlocking) = unlockable(sx, active, false) else { return };
     leaders::unlock(sx.state, active, unlocking.as_slice());
     for leader in unlocking.as_slice() {
         sx.plain(PlainRec::one(PlainKind::LeaderUnlocked, PlainArg::Leader(*leader)));
