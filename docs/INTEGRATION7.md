@@ -1,7 +1,7 @@
 # core-integration-7: merge record (2026-10-30)
 
 Branch `core-integration-7`, cut from `core-integration-6` @ `c519216e`. Round 1 (sections 1 to 5): the lent-bodies lanes `core-w`, `core-w-l2`, `core-w-l4`.
-Round 2 (section 6): `core-w-l1`, `core-w-l3`, `core-d4a2`, `core-d4a3`. Round 3 (section 7): `core-w-l5`, and the barrage-scoring bug of the combat machine. `core-w-l6` is merged in round 4 (section 8). Cheap checks only: heavy work is deferred to the
+Round 2 (section 6): `core-w-l1`, `core-w-l3`, `core-d4a2`, `core-d4a3`. Round 3 (section 7): `core-w-l5`, and the barrage-scoring bug of the combat machine. `core-w-l6` is merged in round 4 (section 8), `core-w-l7` in round 5 (section 9), `core-w-l8` in round 6 (section 10: the dual finding, the remaining gates, the end-of-D1 dry run). Cheap checks only: heavy work is deferred to the
 end of D1. Not pushed. The live branch was not touched.
 
 ## 1. Merges
@@ -204,3 +204,54 @@ Checks (cheap), runner chain `y7` at `fedbbd57`:
 | `check_layers.py core`, `lint_core.sh` | 435 files, 0 violations; 437 files, 0 hits |
 
 Not run: heavy work. Not pushed. `core-w-l8` (heroes) is not merged.
+
+## 10. Round 6: `core-w-l8` (the heroes)
+
+### 10.1 Merge
+
+`core-w-l8` @ `e8d934fb` (10 commits on `core-w-l7`): the six hero windows (`rules::hero_windows`: Nekro Flayesh, Yssaril Kyver, Cabal It Feeds on Carrion, Naaz Hesh and Prit, Winnu Mathis Mathinus, Argent Flock Migration) with their adapters (`hero_dual.rs`), `kernel::fx_perform` (the body of `rules::action_cards::perform` lifted to the kernel), `Spawn::Seeing` / `SeeingLimits` / `Report::Removed`, `capture_from_board` moved to `kernel::fx` (re-exported from `rules::production::supply`), `docs/W_L8_RESUME.md`. **No conflicts** (the brief's predicted ones in `leaders.rs`, `rules/action_cards/perform.rs`, `kernel/children.rs` merged automatically). The two registry rows `use_leader_strategy_primary` to `hero_primary_string` are l8's own and already match.
+
+### 10.2 What the full dual found (lane 8 had not run it)
+
+The first full `TI4_AREAS=all=dual` engine lib run on the result failed **4 Cabal hero tests** (`factions::cabal::tests::{a_ship_that_keeps_enough_capacity_keeps_its_cargo, a_captured_carrier_takes_the_fighters_and_ground_forces_that_no_longer_fit, the_hero_captures_on_a_one_to_three_and_not_on_a_four_or_more_then_is_purged}`, `faction_effects_tests::d5::cabalhero_2_...`): `DUAL DIFFERENCE factions::cabal::hero` (questions string 1 or 4, core 0; a ship captured on one side only). Cause: these tests roll **test faces** (`Dice::from_faces`); the core window draws its dice from the state's stream, so the two sides rolled different dice. Every other dual call site that rolls checks `product::reproducible(..)` (XF-7) and bails; `carrion_dual` did not. Fix (`factions/cabal.rs`): compute `reproducible` before the window; without it the core half returns no window with the counted bail `irreproducible dice (test faces or a stream restore)`. Regression test `a_hero_rolled_with_test_faces_has_no_core_window_and_the_dual_run_stays_silent` (mask `LeadersAbilities=dual`, test faces: zero differences, window counts `(0, 1)`); on the old code the core window ran and the same position differs. The lane-8 lockstep tests use real seeds and were never affected. Also cleared: a `vec!` warning in `tests/hero_windows.rs` and the `type_complexity` warning in `tests/leader_production.rs:80` (lane 7's test code).
+
+### 10.2b Checks (cheap), runner chain `a8` at `5127eaca` (the first chain `z7` at the merge found the Cabal tests and the `vec!` warning)
+
+| Check | Result |
+|---|---|
+| `cargo check --workspace --all-targets` | ok |
+| `cargo clippy` of core, factions, engine, bridge, core-tests, rule-bot-typed (`--message-format short`) | ok; no warning in the core crates, the core-tests, the typed bot or in `dual`, `core_sync`, `render`, `combat` |
+| `cargo test -p ti4-engine --lib` | 4860 passed, 0 failed |
+| same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` (full lib) | 4860 passed, 0 failed (4855 + 4 failed before the fix) |
+| core + factions + rule-bot-typed + bridge `--lib` | 623 passed |
+| `decision_delivery_inventory`, `content_ids_resolve` | 4 + 4 passed |
+| `ti4-engine-core-tests` with the D4 flags | 1172 passed, 0 failed |
+| `check_layers.py core`, `lint_core.sh` | 437 files, 0 violations; 439 files, 0 hits |
+
+Not run: heavy work (`end_of_d1.sh` itself, only its `--dry-run`).
+
+### 10.3 Remaining string-lent gates (what the string still does inside a dual or core run)
+
+Counted, each under its own id or label, each with a test. Sources: `docs/W_L1_RESUME.md` ... `docs/W_L8_RESUME.md`, `ENGINE_KNOWN_ISSUES.md` (`W2-bail-02`, `W12-*`, `W14-*`).
+
+* **Action leaders** (`leaders::use_leader [gate: <id>: ...]`, `leaders::string_only_leader`): `empyreanhero` (no window that explores a frontier token; the exploration runs under a whole-state rollback), `yinhero` (each chosen planet goes through the eventful ground combat in the timing resolver, then `finish_control_gain`), `mahacthero` (the fleet's move and the `Enforce` child exist, but the fight is `combat::resolve_resolving`; the core `Machine` is not a window that runs a whole combat as a child). Dropped by decision, not ported: Last Bastion, Crimson Rebellion, Keleres, Deepwrought, Firmament, Obsidian, Ral Nel.
+* **Warfare and Imperial inside the Naaz and Winnu heroes** (`fx_perform::begin` returns `Began::Unsupported`): the Warfare secondary (home production: `production::resolve_timed` adds the Hacan hero offer, the Keleres agent window and the use counters around the window), the Imperial primary (scoreable objectives, award tail, winner), the Thunder's Edge Construction and Warfare primaries; also a Politics draw a hook changes, a research a faction waiver opens, a Leadership payment the production kernel does not follow, a table where a replenishment causes events (Cabal, Firmament siphon, Trade Agreement), a Mahact-held command token. Tests `the_warfare_secondary_is_not_carried_and_makes_the_window_unsupported`, `the_imperial_primary_is_not_carried_and_no_cards_means_no_question`.
+* **Thunder's Edge pieces**: Saar Deorbit Barrage and Arborec Psychospore (breakthrough component actions: undecided, nothing ported, documented bails as ordered), the Heart of Ixth in the combat opening, the staged Yin breakthrough event in `objectives::award_tail`, the Thunder's Edge Construction / Warfare primaries above.
+* **Combat openings pinned by lane 1** (`W2-bail-02`, all rare in the golden census, test `the_start_hits_and_the_barrage_tail_stay_string_with_their_reasons`): the Jol-Nar commander's reroll question in the barrage, Waylay played in the barrage, the Heart of Ixth, Assault Cannon against a neutral side, Munitions Reserves paid at the opening below rules version 8, diplomacy, hits cancelled by a card in the window, destructions staged for an announcement (the Courageous and Reflective Shielding child flows), a roll that ends the fight inside the roll step, a Last Bastion retreat, X-89 Bacterial Weapon (`roll_tail_unported`), the Hacan flagship / Munitions Reserves with goods only a Keleres agent could turn into spendable ones (`roll_why`).
+* **Counted bails inside the new hero windows**: Nekro, a galvanized ground force on the devoured planet; Yssaril, blank laws or a faction-changed hand limit; Cabal, test faces (above); Naaz and Winnu as the Warfare/Imperial row.
+* **Component actions still gated** (`faction_abilities::perform_component [gate: ...]`): the Thunder's Edge ones above; the Inferno and Fires of the Gashlai placement under fleet supply and capacity where the string asks which units go (a single unit standing over the supply or the capacity bails); a Nekro or Valefar copy of a card; a Naaz mech staged in a use; Hacan's breakthrough, the Prophecy of Ixth, the Last Bastion / Crimson Rebellion, Keleres / Deepwrought seats.
+
+### 10.4 `tools/engine_core/end_of_d1.sh --dry-run`
+
+Run on this tree (prints, takes no lock, touches nothing): 20 steps, in this order: `layers`, `lint`, `build`, `clippy`, `tests`, `dual-all`, `dual-drv`, `dual-wide`, `board-t`, `board-g`, `sync`, `alpha`, `bench-off`, `bench-resolver`, `bench-state`, `bench-resolver+state`, `census`, `soak`, `d4gate`, `ratchet`. The commands, flags, argument orders (`dual_run CONFIG GAMES AREAS --shard`, `board_equivalence golden CONFIG GAMES STRIDE`, `core_sync_gate CONFIG GAMES STRIDE --strict`, `alpha_roundtrip DIR --strict`, `golden check --mask`, `verify_benches.sh BIN WORKERS`, `soak.sh run` env, `mutation_ratchet.sh` env), the binaries (all six bridge bins and `selfplay` exist and are built by the `build` step), `/root/heavy2.sh` (re-exec holds the lock slot through `exec`, the child steps inherit it), `rsync`, `/var/lib/ti4-public`, `profile-20.json`, `mutation_floor.json`, `marks_census.py`, `d4/coverage.py` and the append-mode of the bail probe (`TI4_BAIL_PROBE` shared by the three shards) were checked against the sources and match. `check_layers.py core`, `lint_core.sh` and `git diff core-integration-6 -- web/ docs/RULES_VERSION.md crates/ti4-model/src/state.rs` (the `lint` step's immutable-surface check) are clean on this tree, and `cargo tree -p ti4-engine-core-tests -e normal,dev` shows 0 engine crates (`d4gate` step 3).
+
+Things that look wrong or weak (none changed; for the person who runs it):
+
+1. `d4gate` runs `d4_gate.sh 3 4 5`, and **step 5 is a silent SKIP**: it calls `tools/engine_core/golden_check.sh`, which does not exist ("SKIP (not built yet)" counts as ok). The golden replays are covered by the `census` step (`golden check --mask all=core` and `all=string`), so nothing is missing, but the title of the step promises more than it runs. Step 4 (`coverage.py --check`) reads the covers file from `$CARGO_TARGET_DIR/d4-covers.txt`, which only exists after the `tests` step ran the D4 crate with the same target dir (it does, in order); it was not run here (it needs that file).
+2. The `clippy` step's filter (`crates/ti4-engine/src/(dual|core_sync/|render/)`) does not include `combat.rs`, `hero_dual.rs`, `leaders_core.rs` and the other engine files, and the cargo exit status is ignored: a warning in those files, or a build error in a crate outside the list, passes this step (the `tests` step would still catch the error). Suggested pattern: `crates/ti4-engine/src/` with an allow list of the old warnings (22 in the lib today), or compare against a stored baseline.
+3. `lint` compares against `BASE_REF=core-integration-6`, a local branch: on another clone or after a branch deletion the step fails with an unknown revision (set `BASE_REF`).
+4. `tests` runs `cargo test -p ... ` with a second package set next to the lockstep ones (see the comment in `.cargo/config.toml`): it builds the engine twice, which is slow but correct. `cargo test -p ti4-wasm --features ts` runs the TS wire test; it exports to a string (`export_to_string`), so it does not dirty the checkout.
+5. `census` needs `bail-probe.tsv` from `dual-all`; `--only census` alone fails at `test -s` by design, and `--from census` after a skipped `dual-all` too.
+6. The step `dual-all` sets `TI4_BAIL_PROBE` for three shards that append to one file: fine (append mode), but the lines of the three shards interleave, so `bail_table` must not rely on line order (it merges by label).
+
+Nothing was run: no step, no lock, no target dir.
