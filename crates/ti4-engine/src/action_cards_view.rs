@@ -948,7 +948,7 @@ pub(crate) fn carried_of(
 }
 
 /// The breakthrough of each seat's faction, by seat (`breakthroughs::for_faction`).
-fn own_breakthroughs(state: &GameState, r: &crate::render::Render) -> [Option<ti4_engine_core::generated::Breakthrough>; 16] {
+pub(crate) fn own_breakthroughs(state: &GameState, r: &crate::render::Render) -> [Option<ti4_engine_core::generated::Breakthrough>; 16] {
     let content = ti4_content::ContentStore::embedded();
     let mut out = [None; 16];
     for p in &state.players {

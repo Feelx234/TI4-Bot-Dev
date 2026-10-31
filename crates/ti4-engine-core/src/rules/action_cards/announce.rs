@@ -261,6 +261,21 @@ fn env_of(rt: &impl Runner, who: Seat) -> Option<Env> {
             tech_order: f.tech_order,
             roster: f.roster,
             reveal: seat.reveal.unwrap_or_default(),
+            neutral: f.shared.neutral,
+            agent_offered: seat.more.agent_offered,
+            destroyer: Placed { unit: seat.more.destroyer.0, on_card: seat.more.destroyer.1 },
+            dreadnought: Placed { unit: seat.more.dreadnought.0, on_card: seat.more.dreadnought.1 },
+            mech: Placed { unit: seat.more.mech.0, on_card: seat.more.mech.1 },
+            pds: Placed { unit: seat.more.pds.0, on_card: seat.more.pds.1 },
+            spacedock: Placed { unit: seat.more.spacedock.0, on_card: seat.more.spacedock.1 },
+            holder_deepwrought: seat.more.holder_deepwrought,
+            replenish_events: f.shared.replenish_events,
+            fracture_in_play: f.shared.fracture_in_play,
+            own_breakthrough: f.shared.own_breakthrough,
+            unit_order: f.shared.unit_order,
+            courageous_subtype: f.shared.courageous_subtype,
+            courageous_cause: f.shared.courageous_cause,
+            hits: f.shared.hits,
             ..super::Facts::default()
         },
     };
@@ -376,6 +391,7 @@ mod tests {
             roster: None,
             rules_version: u32::MAX,
             tech_order: |a, b| a.cmp(&b),
+            shared: crate::kernel::ability::SharedPlay::default(),
         });
         t
     }
@@ -567,6 +583,7 @@ mod tests {
             fighter_on_card: 0,
             reveal: None,
             reveal_payable: false,
+            more: crate::kernel::ability::SeatPlayMore::default(),
         });
         table.facts.plays.as_mut().unwrap().has_effect = vec![true; ActionCard::ALL.len()];
         register(&mut table);

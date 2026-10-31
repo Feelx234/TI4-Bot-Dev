@@ -11300,6 +11300,25 @@ mod tests {
         (asks, state, system, planet, other)
     }
 
+    /// W11: Ghost Squad ("after another player commits ground forces to a planet you control: move any number of your ground forces ...") is
+    /// played from the standing slot of the commitment's window by the core: the holder's moves are its questions, the facts are handed in
+    /// by the host. Fails on the pre-W11 bail "unported ability reaction:*:UNITS_COMMITTED:after (card ghost_squad)".
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn ghost_squad_is_played_in_the_commit_window_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let _ = crate::dual::take_report();
+        let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+        let (_, state, system, planet, other) = crate::dual::with_mask(mask, || ghost_run(true));
+        let report = crate::dual::report();
+        let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+        assert!(report.differences.is_empty(), "{shown}");
+        assert!(report.windows.keys().all(|k| !k.contains("ghost_squad") && !k.contains("(card ")), "{:?}", report.windows);
+        assert!(report.windows.get("invasion::commit_one").is_some_and(|w| w.compared > 0 && w.bailed == 0), "{:?}", report.windows);
+        assert!(!state.system_state(&system).on_planet(&other).is_empty(), "the forces moved");
+        let _ = (planet, crate::dual::take_report());
+    }
+
     #[test]
     // The offer used to come twice: after moving the infantry from one planet to the other, the
     // reverse move was offered again, and this test asserted that sequence with a decider that

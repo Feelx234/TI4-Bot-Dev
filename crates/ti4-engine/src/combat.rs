@@ -11037,17 +11037,20 @@ mod tests {
         }
     }
 
-    /// Courageous to the End stays the string's: its casualty question for the opponent has the holder as producer, which the
-    /// core question does not carry. The window that meets the card bails, named (Reveal Prototype's bail is the unit test of
-    /// `cost_is_payable`, `None` for it, and `bail_a_played_card_the_core_does_not_play_is_named`).
+    /// W11: Courageous To The End ("after 1 of your ships is destroyed during a space combat: roll 2 dice ... your opponent must choose and
+    /// destroy 1 of their ships") is played from the standing slot of the window of the loss: the facts of the play (the texts of its
+    /// question and of the destructions it stages) are handed in by the host, the dice are drawn from the lent stream, the opponent's casualty
+    /// question carries the holder as producer, and the destructions are announced after the discard. Fails on the pre-W11 bail
+    /// "unported ability reaction:*:SHIP_DESTROYED:after (card courageous)".
     #[test]
-    fn bail_courageous_to_the_end_is_counted() {
-        let mut named = 0;
+    fn courageous_to_the_end_is_played_from_the_slot_in_the_core_window_in_lockstep() {
+        let mut played = 0;
         for seed in 1..=10_u64 {
-            let (_, _, bails) = declared_cards_fight(seed, &["courageous"], true);
-            named += bails.iter().filter(|k| k.contains("(card courageous)")).count();
+            let (p, _, bails) = declared_cards_fight(seed, &["courageous"], true);
+            assert!(bails.iter().all(|k| !k.contains("(card courageous)") && !k.contains("nested (dice rolled by an ability")), "{bails:?}");
+            played += p;
         }
-        assert!(named > 0, "a Courageous to the End was played and named");
+        assert!(played > 0, "a Courageous to the End was played");
     }
 
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of

@@ -133,8 +133,8 @@ impl Window for AbsorbGround {
                     self.destroy(sx.state, only);
                 }
                 // Nobody decides for a neutral side: the hit goes to the unit lowest on the reference card (rule 7).
-                _ if crate::rules::combat::is_neutral(sx.state, self.player) => {
-                    let doomed = crate::rules::combat::neutral_pick(&present).unwrap_or(present[0]);
+                _ if !crate::query::seats::is_player(sx.state, self.player) => {
+                    let doomed = crate::query::neutral::neutral_pick(&present).unwrap_or(present[0]);
                     self.destroy(sx.state, doomed);
                 }
                 _ => self.stage = Stage::Asking,

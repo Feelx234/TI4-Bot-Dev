@@ -333,6 +333,7 @@ mod tests {
             roster: None,
             rules_version: u32::MAX,
             tech_order: |x, y| x.cmp(&y),
+            shared: crate::kernel::ability::SharedPlay::default(),
         });
         let k = Kernel::plain();
         let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));

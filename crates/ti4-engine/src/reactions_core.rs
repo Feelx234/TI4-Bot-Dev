@@ -433,6 +433,7 @@ fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::So
             reveal_payable: researches
                 && gs.player(&player).is_some_and(|p| p.action_cards.iter().any(|c| c.as_str() == "reveal_prototype"))
                 && crate::action_cards::cost_is_payable_text(gs, content, sources.clone(), &player, &ti4_model::id::ActionCardId::new("reveal_prototype")),
+            more: seat_more(gs, &player, sources)?,
         });
     }
     Some(PlayFacts {
@@ -448,6 +449,45 @@ fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::So
         roster: crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), sources.clone()),
         rules_version: gs.rules_version,
         tech_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
+        shared: ti4_engine_core::kernel::ability::SharedPlay {
+            neutral: r.seat(crate::neutral_units::NEUTRAL),
+            replenish_events: crate::leaders_core::replenish_causes_events(gs),
+            fracture_in_play: gs.fracture_in_play,
+            own_breakthrough: crate::action_cards_view::own_breakthroughs(gs, r),
+            unit_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
+            courageous_subtype: r.code("courageous_to_the_end_assign_casualty"),
+            courageous_cause: r.code("action_card:courageous"),
+            hits: ti4_engine_core::kernel::children::HitTexts {
+                staging: crate::supply::staging_enabled(gs),
+                commander: r.code("letnevcommander"),
+                casualty: r.code("assign_casualty"),
+                effect_hit: r.code("effect_hit"),
+            },
+        },
+    })
+}
+
+/// What the cards played from inside a window read of a seat besides its infantry and cruiser: the forms it places (the string's
+/// `action_cards::place_units`, as the play window of the card builds them), the Keleres agent, a Deepwrought seat.
+fn seat_more(gs: &GameState, player: &ti4_model::id::PlayerId, sources: &ti4_model::content_types::SourceSet) -> Option<ti4_engine_core::kernel::ability::SeatPlayMore> {
+    let one = |p: ti4_engine_core::rules::action_cards::Placed| (p.unit, p.on_card);
+    let content = ti4_content::ContentStore::embedded();
+    let faction = gs.player(player)?.faction.as_str();
+    Some(ti4_engine_core::kernel::ability::SeatPlayMore {
+        destroyer: one(crate::action_cards_view::placed(gs, player, sources, "destroyer")?),
+        dreadnought: (
+            Some(ti4_engine_core::generated::Unit::DreadnoughtI),
+            crate::factions::crimson_cards::held_on_card(gs, content, sources.clone(), player, "dreadnought"),
+        ),
+        // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).
+        mech: (
+            (faction != "naaz").then(|| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("mech")).flatten(),
+            crate::factions::crimson_cards::held_on_card(gs, content, sources.clone(), player, "mech"),
+        ),
+        pds: one(crate::action_cards_view::placed(gs, player, sources, "pds")?),
+        spacedock: one(crate::action_cards_view::placed(gs, player, sources, "spacedock")?),
+        agent_offered: gs.player(player).is_some_and(|p| p.commodities > 0) && crate::factions::keleres::agent_could_grant(gs, player),
+        holder_deepwrought: faction == "deepwrought",
     })
 }
 

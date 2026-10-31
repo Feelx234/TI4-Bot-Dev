@@ -755,6 +755,22 @@ pub fn drive_windowed<W: Window>(
                     if let (Some(ctx), Some(recorded)) = (rendered.context.as_mut(), script.questions.get(out.questions.len() - 1)) {
                         ctx.previews = recorded.choice.context.as_ref().map(|c| c.previews.clone()).unwrap_or_default();
                     }
+                } else if driver.nested_state().is_some() && courageous_casualty(&choice) {
+                    // The casualty the opponent of a Courageous To The End chooses: a destruction the holder produces.
+                    if let (Some(context), Some((_, attacker, defender))) = (rendered.context.take(), gs.active_space_combat.as_ref()) {
+                        let holder = if r.seat_text(choice.actor) == attacker.as_str() { defender } else { attacker };
+                        rendered.context = Some(
+                            context
+                                .with_hit(crate::decision_context::HitDetail {
+                                    cause: crate::decision_context::HitCause::CourageousToTheEnd,
+                                    destroy: true,
+                                    restriction: crate::decision_context::HitRestriction::Any,
+                                    producer: Some(holder.clone()),
+                                })
+                                .about_battle(gs)
+                                .about_invasion(gs),
+                        );
+                    }
                 } else if driver.nested_state().is_some() && matches!(choice.ask, ti4_engine_core::choice::Ask::Cards(_)) {
                     // A question a played card's effect asks (Reparations: the planet to exhaust, the planet to ready) belongs to no event, so
                     // it comes with no facts; the string still puts it through `Table::ask_seeing`, which names the invasion the position is in.
@@ -780,6 +796,12 @@ pub fn drive_windowed<W: Window>(
             }
         }
     }
+}
+
+/// The casualty question of a Courageous To The End played inside a window.
+fn courageous_casualty(choice: &CoreChoice) -> bool {
+    matches!(choice.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::AssignHit))
+        && matches!(choice.ctx.origin, ti4_engine_core::choice::Origin::ActionCard(ti4_engine_core::generated::ActionCard::CourageousToTheEnd))
 }
 
 /// Bail (under the label of the window being run) when the nested activity of the string run cannot be followed.
