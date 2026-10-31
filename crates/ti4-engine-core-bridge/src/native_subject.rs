@@ -110,6 +110,10 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
         // The scoring windows of the status phase and of the secrets timed on an action or an agenda (lane C): the payload the legacy game holds.
         Arm::Scoring => open_observed(windows, core, WindowKind::Scoring),
         Arm::EventScoring => open_observed(windows, core, WindowKind::EventScoring),
+        // The strategic action (lane E): the follower window, the Winnu hero's follower selection (with the hero resolving) and the end of a game.
+        Arm::Secondary => open_observed(windows, core, WindowKind::StrategySecondary),
+        Arm::LeaderFollowers => open_observed(windows, core, WindowKind::LeaderStrategy) && open_observed(windows, core, WindowKind::LeaderFollowers),
+        Arm::Finished => true,
         // The jobs of the turn flow open themselves (`driver::turn`): they need no window of the legacy game. `Status` opens the scoring window.
         Arm::TurnPrelude | Arm::Phase | Arm::StrategyAnnounce | Arm::Ask | Arm::Status => true,
         _ => false,
@@ -131,13 +135,13 @@ fn open_observed(windows: &[Window], core: &mut CoreState, kind: WindowKind) -> 
 /// (the questions, the events and the position), not on the prefix. `Phase` is the whole of `step_phase`; the prelude and the
 /// announcement go on into the question of the same legacy step (the action menu, the draft), which the arm does not own.
 const fn close_is_native(arm: Arm) -> bool {
-    matches!(arm, Arm::Phase | Arm::Status | Arm::Tokens | Arm::Scoring | Arm::EventScoring)
+    matches!(arm, Arm::Phase | Arm::Status | Arm::Tokens | Arm::Scoring | Arm::EventScoring | Arm::Secondary | Arm::LeaderFollowers | Arm::Finished)
 }
 
 /// The arms whose native step also runs the close when it applies the LAST answer, where the legacy game closes in its NEXT step (a step
 /// that finds nothing to ask): the legacy answer step is compared on the prefix, the legacy close step on everything.
 const fn closes_one_step_early(arm: Arm) -> bool {
-    matches!(arm, Arm::Scoring | Arm::EventScoring)
+    matches!(arm, Arm::Scoring | Arm::EventScoring | Arm::Secondary)
 }
 
 /// The slices a position loads: all, and the map only when the game has a string galaxy (as `Game::churn_state`).
@@ -151,6 +155,8 @@ const fn window_of(arm: Arm) -> Option<WindowKind> {
         Arm::Tokens => Some(WindowKind::Tokens),
         Arm::Scoring => Some(WindowKind::Scoring),
         Arm::EventScoring => Some(WindowKind::EventScoring),
+        Arm::Secondary => Some(WindowKind::StrategySecondary),
+        Arm::LeaderFollowers => Some(WindowKind::LeaderFollowers),
         _ => None,
     }
 }

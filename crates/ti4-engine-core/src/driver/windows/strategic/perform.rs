@@ -137,9 +137,27 @@ pub fn resolved(sx: &mut Sx<'_>, who: Seat, kind: StrategyCardKind) -> Flow {
         let mut cx = sx.cx();
         kernel.hooks.general.strategy_resolved(&mut cx, who, Some(kind));
     }
-    if kind == StrategyCardKind::Diplomacy && sx.state.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheXxchaKingdom) {
+    if kind == StrategyCardKind::Diplomacy && sx.state.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheXxchaKingdom) && annexable_exists(sx.state, who) {
         gap(sx, TurnGap::PeaceAccords);
         return Flow::Halt;
     }
     Flow::Done
+}
+
+/// Whether Xxcha's Peace Accords (`faction_abilities::annexable`) has a planet to offer: an uncontrolled planet with no units on it, in or next
+/// to a system with a planet the seat controls ("in or next to" needs the map; Mecatol Rex is never annexed). A Space Station is counted
+/// (the gap is conservative there).
+fn annexable_exists(core: &crate::state::CoreState, who: Seat) -> bool {
+    use crate::query::board;
+    let Some(galaxy) = core.galaxy() else { return false };
+    let mine: Vec<System> = board::controlled_planets(core, who).as_slice().iter().map(|(system, _)| *system).collect();
+    let mut reachable = mine.clone();
+    for system in &mine {
+        reachable.extend(galaxy.adjacent(*system).iter().map(crate::ids::system_at));
+    }
+    reachable.iter().any(|system| {
+        board::planets_of(core, *system).any(|planet| {
+            planet != crate::generated::Planet::MecatolRex && board::control(core, planet).is_none() && board::planet_units(core, planet).is_empty()
+        })
+    })
 }

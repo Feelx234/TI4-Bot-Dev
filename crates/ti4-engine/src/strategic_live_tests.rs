@@ -57,6 +57,17 @@ fn string_secondary(state: &GameState, card: &str, ids: &[&str]) -> (Run, Vec<St
 
 /// The native follower window of `a`'s `card` on a copy of `state`, with the answers the string was given.
 fn native_secondary(state: &GameState, card: &str, ids: &[String]) -> Run {
+    native_arms(state, ids, &|core, render| {
+        // The window `begin_strategic_action` opens: the followers clockwise from the primary player, the player excluded.
+        let primary = render.seat("a").expect("seat a");
+        let followers: Vec<_> = state.clockwise_from(&pid("a")).iter().skip(1).map(|p| render.seat(p.as_str()).expect("a seated follower")).collect();
+        let typed_card = <ti4_engine_core::generated::StrategyCard as crate::generated::IdStr>::from_id(card).expect("a card of the tables");
+        core.pending_mut().open(ti4_engine_core::state::Window::StrategySecondary(secondary_of(primary, typed_card, &followers, true)));
+    })
+}
+
+/// The native arms of the strategic action on a copy of `state`, after `setup` opened the window, with the answers the string was given.
+fn native_arms(state: &GameState, ids: &[String], setup: &dyn Fn(&mut ti4_engine_core::state::CoreState, &Render)) -> Run {
     let mut cx = Ctx::of(state).expect("a table the codecs carry");
     let render = Render::new(cx.owners.ids().to_vec());
     let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
@@ -67,22 +78,19 @@ fn native_secondary(state: &GameState, card: &str, ids: &[String]) -> Run {
     let kernel = live::kernel::kernel_for(sources);
     let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
     let lcx = live::Cx::new(&render, &env);
-    // The window `begin_strategic_action` opens: the followers clockwise from the primary player, the player excluded.
-    let primary = render.seat("a").expect("seat a");
-    let followers: Vec<_> = state.clockwise_from(&pid("a")).iter().skip(1).map(|p| render.seat(p.as_str()).expect("a seated follower")).collect();
-    let typed_card = <ti4_engine_core::generated::StrategyCard as crate::generated::IdStr>::from_id(card).expect("a card of the tables");
-    core.pending_mut().open(ti4_engine_core::state::Window::StrategySecondary(secondary_of(primary, typed_card, &followers, true)));
+    setup(&mut core, &render);
     let mut asker = Scripted::new(ids.iter().cloned());
     for _ in 0..80 {
+        // (The string's loop ends with the step that completes the action: the reconcile of the next step is not part of it.)
+        let arm = step_arm(&Facts::of_core(&core, false), false);
+        if !matches!(arm, Arm::Secondary | Arm::LeaderFollowers) {
+            break;
+        }
         loop {
             let step = live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native reconcile stopped: {e:?}"));
             if step.finished {
                 break;
             }
-        }
-        let arm = step_arm(&Facts::of_core(&core, false), false);
-        if arm != Arm::Secondary {
-            break;
         }
         live::live_step(&mut core, arm, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native {arm:?} stopped: {e:?}"));
     }
@@ -120,5 +128,183 @@ fn a_trade_secondary_followed_by_everyone_runs_like_the_string() {
     assert!(has(&string, "STRATEGY_SECONDARY_FOLLOWED") && has(&string, "STRATEGY_SECONDARY_DECLINED"), "{:?}", string.events);
 }
 
+/// A table where every follower holds tokens and can do something with `card`, played by `a`.
+fn table_for(card: &str) -> GameState {
+    let mut state = action_table(&FOUR, card);
+    for p in ["b", "c", "d"] {
+        let seat = state.player_mut(&pid(p)).unwrap();
+        seat.strategic_tokens = 2;
+        seat.commodities = 0;
+    }
+    based(state)
+}
+
+macro_rules! secondary_case {
+    ($name:ident, $card:expr, [$($id:expr),*]) => {
+        #[test]
+        fn $name() {
+            let (string, native) = both(&table_for($card), $card, &[$($id),*]);
+            assert_same(&string, &native);
+            assert!(has(&string, "STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
+        }
+    };
+}
+
+secondary_case!(a_leadership_secondary_runs_like_the_string, "pok1leadership", ["yes"]);
+secondary_case!(a_diplomacy_secondary_runs_like_the_string, "pok2diplomacy", ["yes"]);
+secondary_case!(a_politics_secondary_runs_like_the_string, "pok3politics", ["yes"]);
+secondary_case!(a_construction_secondary_runs_like_the_string, "pok4construction", ["yes"]);
+secondary_case!(a_warfare_secondary_runs_like_the_string, "pok6warfare", ["yes"]);
+secondary_case!(a_technology_secondary_runs_like_the_string, "pok7technology", ["yes"]);
+secondary_case!(an_imperial_secondary_runs_like_the_string, "pok8imperial", ["yes"]);
+
+#[test]
+fn nobody_who_can_follow_ends_the_action_without_a_question_like_the_string() {
+    let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "yssaril"), ("c", "arborec"), ("d", "letnev")], DEFAULT);
+    state.phase = Phase::Action;
+    state.active = Some(pid("a"));
+    state.player_mut(&pid("a")).unwrap().strategy_cards.push(card_id("pok5trade"));
+    for p in ["b", "c", "d"] {
+        state.player_mut(&pid(p)).unwrap().strategic_tokens = 0;
+    }
+    let (string, native) = both(&based(state), "pok5trade", &[]);
+    assert_same(&string, &native);
+    assert!(string.questions.is_empty());
+    assert!(has(&string, "STRATEGIC_ACTION_COMPLETE"));
+}
+
+// -- a hero's strategy: the Winnu hero's follower selection ----------------------------------------------------------------------------
+
+/// The string's Winnu hero resolving `card`: the follower selection, then the follower window, until the action completes.
+fn string_hero(state: &GameState, card: &str, ids: &[&str]) -> (Run, Vec<String>) {
+    string_run_first(state, ids, |g| {
+        g.leader_strategy = Some((pid("a"), ti4_model::id::LeaderId::new("winnuhero"), card_id(card)));
+        g.select_leader_strategy_followers().expect("the selection opens");
+        for _ in 0..80 {
+            let _ = g.step();
+            if g.events.iter().any(|e| e == "STRATEGIC_ACTION_COMPLETE") || g.state.finished {
+                break;
+            }
+        }
+    })
+}
+
+fn native_hero(state: &GameState, card: &str, ids: &[String]) -> Run {
+    native_arms(state, ids, &|core, render| {
+        let typed_card = <ti4_engine_core::generated::StrategyCard as crate::generated::IdStr>::from_id(card).expect("a card of the tables");
+        core.pending_mut().open(ti4_engine_core::state::Window::LeaderStrategy { player: render.seat("a").unwrap(), leader: ti4_engine_core::generated::Leader::MathisMathinus, card: typed_card });
+        ti4_engine_core::driver::windows::strategic::select_leader_strategy_followers(core);
+    })
+}
+
+#[test]
+fn the_winnu_hero_asks_who_may_follow_then_the_followers_decide_like_the_string() {
+    let seats = [("a", "winnu"), ("b", "hacan"), ("c", "arborec"), ("d", "letnev")];
+    let mut state = crate::fixtures::seated_dealt(&seats, DEFAULT);
+    state.phase = Phase::Action;
+    state.active = Some(pid("a"));
+    for p in ["b", "c", "d"] {
+        state.player_mut(&pid(p)).unwrap().strategic_tokens = 2;
+    }
+    let state = based(state);
+    let (string, taken) = string_hero(&state, "pok5trade", &["yes|b", "no|c", "yes|d", "yes", "no"]);
+    let native = native_hero(&state, "pok5trade", &taken);
+    assert_same(&string, &native);
+    assert!(has(&string, "COMPONENT_ACTION_RESOLVED") && has(&string, "STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
+}
+
+// -- the primary: the strategic action chosen from the menu -----------------------------------------------------------------------------
+
+/// The string's step in which `a` answers the action menu with its strategic action of `card` (the menu is the first question, answered
+/// `strategic`), and what the step leaves open.
+fn string_primary(state: &GameState, ids: &[&str]) -> (Run, Vec<String>, bool) {
+    let mut open = false;
+    let mut all = vec!["strategic"];
+    all.extend_from_slice(ids);
+    let (run, taken) = string_run_first(state, &all, |g| {
+        g.prepared_turn_seq = Some(g.state.turn_seq);
+        let _ = g.step();
+        open = g.secondary.is_some() || g.secondary_after_tactical.is_some();
+    });
+    (run, taken, open)
+}
+
+/// The native job on a copy of `state` with the answers the string was given after the menu's.
+fn native_primary(state: &GameState, card: &str, ids: &[String]) -> (Run, bool) {
+    let mut cx = Ctx::of(state).expect("a table the codecs carry");
+    let render = Render::new(cx.owners.ids().to_vec());
+    let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
+    let positions = game.rng_positions();
+    let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+    let mut core = Codec::load(&mut cx, state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
+    let sources = DEFAULT;
+    let kernel = live::kernel::kernel_for(sources);
+    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
+    let lcx = live::Cx::new(&render, &env);
+    let typed_card = <ti4_engine_core::generated::StrategyCard as crate::generated::IdStr>::from_id(card).expect("a card of the tables");
+    let mut asker = Scripted::new(ids.iter().cloned());
+    loop {
+        let step = live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native reconcile stopped: {e:?}"));
+        if step.finished {
+            break;
+        }
+    }
+    ti4_engine_core::driver::turn::open_job(&mut core, ti4_engine_core::state::TurnJob::Strategic(typed_card));
+    loop {
+        let step = live::live_step(&mut core, Arm::Ask, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native job stopped: {e:?}"));
+        if step.finished {
+            break;
+        }
+    }
+    let open = core.pending().window(WindowKind::StrategySecondary).is_some() || core.pending().window(WindowKind::StrategySecondaryAfterTactical).is_some();
+    let questions = asker.seen.clone();
+    assert_eq!(asker.left(), 0, "every answer the string was given was taken");
+    let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
+    let after = materialize::materialize(&core, &cx, state).expect("materializes");
+    let rng = materialize::rng_positions(&core).expect("the streams have names");
+    let staged = core.pending().staged.iter().map(|e| crate::kernel_sync::text::event_text(&render, e.kind)).collect();
+    let (state, _) = without_staged(serde_json::to_value(&after).expect("serializes"));
+    (Run { questions, events, state, rng, staged }, open)
+}
+
+fn primary_both(state: &GameState, card: &str, ids: &[&str]) -> (Run, Run) {
+    let (mut string, taken, string_open) = string_primary(state, ids);
+    // The menu is the string's first question, and its answer the first answer: the native job starts after them.
+    assert_eq!(string.questions.first().and_then(|q| q.context.as_ref()).map(|c| c.subtype.as_str()), Some("action_menu"));
+    string.questions.remove(0);
+    let (native, native_open) = native_primary(state, card, &taken[1..]);
+    assert_eq!(string_open, native_open, "the follower window is open on both sides");
+    (string, native)
+}
+
+macro_rules! primary_case {
+    ($name:ident, $card:expr, [$($id:expr),*]) => {
+        #[test]
+        fn $name() {
+            let (string, native) = primary_both(&table_for($card), $card, &[$($id),*]);
+            assert_same(&string, &native);
+            assert!(has(&string, "STRATEGIC_ACTION_BEGAN"), "{:?}", string.events);
+        }
+    };
+}
+
+primary_case!(a_trade_primary_runs_like_the_string, "pok5trade", []);
+primary_case!(a_politics_primary_runs_like_the_string, "pok3politics", []);
+primary_case!(a_leadership_primary_runs_like_the_string, "pok1leadership", []);
+primary_case!(a_diplomacy_primary_runs_like_the_string, "pok2diplomacy", []);
+primary_case!(a_warfare_primary_runs_like_the_string, "pok6warfare", []);
+primary_case!(a_technology_primary_runs_like_the_string, "pok7technology", []);
+primary_case!(a_construction_primary_runs_like_the_string, "pok4construction", []);
+primary_case!(an_imperial_primary_runs_like_the_string, "pok8imperial", []);
+
 #[allow(dead_code)]
 fn unused(_: PlayerId) {}
+
+#[test]
+fn debug_eligibility() {
+    for card in ["pok1leadership", "pok2diplomacy"] {
+        let state = table_for(card);
+        let (string, _) = string_secondary(&state, card, &["yes"]);
+        eprintln!("{card}: string asked {:?}", string.questions.iter().map(|q| (q.player.to_string(), q.prompt.clone())).collect::<Vec<_>>());
+    }
+}

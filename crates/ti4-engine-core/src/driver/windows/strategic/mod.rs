@@ -117,7 +117,7 @@ impl SecondaryWin {
     fn follow(&self, sx: &mut Sx<'_>, who: Seat) -> Flow {
         let card = self.w.card;
         let kind = card.data().kind;
-        let substitutes = sx.kernel.hooks.general.substitutes_primary(sx.state, sx.kernel, who, Some(kind));
+        let substitutes = crate::rules::strategy::Env::substitutes_primary(&crate::driver::kernel_env::KernelEnv::new(sx.state, sx.kernel), who, Some(kind));
         let mut free = None;
         if perform::run(sx, who, card, substitutes, &mut free) == Flow::Halt {
             return Flow::Halt;
@@ -367,4 +367,21 @@ pub fn ask_leader_followers(core: &CoreState, env: &Env<'_>) -> Result<Option<As
 pub fn close_finished(core: &mut CoreState) {
     complete_leader_strategy(core);
     core.pending_mut().close(WindowKind::StrategySecondary);
+}
+
+/// `Arm::Finished`: the held windows of an action are closed (`close_finished`); nothing is asked.
+///
+/// # Errors
+/// Never.
+pub fn advance_finished(core: &mut CoreState, _: &Env<'_>, _: Option<Pick>) -> Result<(Live, Out), LiveError> {
+    close_finished(core);
+    Ok((Live::Done, Out::default()))
+}
+
+/// The question of `Arm::Finished`: none.
+///
+/// # Errors
+/// Never.
+pub fn ask_finished(_: &CoreState, _: &Env<'_>) -> Result<Option<Asking>, LiveError> {
+    Ok(None)
 }
