@@ -824,4 +824,32 @@ mod tests {
             assert_eq!(marks.get("private:a:winnu:gained").is_some(), faction == "winnu", "{faction}: {marks}");
         }
     }
+
+    /// A hub whose centre is ordinary and whose ring holds the beta wormhole systems 25 (first) and 64 (across the centre), both with planets: a ship of 25
+    /// reaches 64 by one hop.
+    fn beta_hub() -> (crate::fixtures::Hub, SystemId, SystemId) {
+        let plain = crate::fixtures::plain_systems(8);
+        let ids: Vec<String> = [plain[0].as_str(), "25", plain[1].as_str(), plain[2].as_str(), "64", plain[3].as_str(), plain[4].as_str()].iter().map(|s| (*s).to_owned()).collect();
+        (crate::fixtures::hub_from(&ids), SystemId::new("25"), SystemId::new("64"))
+    }
+
+    /// Sai Seravus (the Ghosts' commander): the carrier that went through the wormhole is joined by a fighter from the reinforcements once the movement
+    /// step is over, if the commander says so; the whole action is compared (the events, the questions, the position).
+    #[test]
+    fn sai_seravus_places_fighters_for_ships_that_moved_through_wormholes_in_lockstep() {
+        let (hub, origin, target) = beta_hub();
+        for pick in ["fighters|1", "decline"] {
+            let mut state = table(&[("a", "ghost"), ("b", "hacan")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("ghostcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            // The agent (Emissary Taivra) would be offered at the activation of a wormhole system: it is lane M6c's.
+            state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("ghostagent"), ti4_model::state::LeaderStatus::Exhausted);
+            let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_moving", pick];
+            // The `routes` of a move question (the alternatives to a wormhole route) are lane M6c's.
+            let diffs: Vec<String> = lockstep_buying(state.clone(), &hub.galaxy, &script, 0).into_iter().filter(|d| !d.contains("detailsroutes")).collect();
+            assert!(diffs.is_empty(), "{pick}: {diffs:#?}");
+            let fighters = |s: &Side| s.state["board"][target.as_str()]["units"].as_array().map_or(0, |u| u.iter().filter(|x| x["type_id"] == "fighter").count());
+            assert_eq!(fighters(&string_run(&state, &hub.galaxy, &script, 0)), usize::from(pick != "decline"), "{pick}");
+        }
+    }
 }

@@ -17,6 +17,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
         Ask::Pillage => "Pillage: take 1 trade good or commodity".to_owned(),
         Ask::Reclaimer => "Reclaimer: place a structure".to_owned(),
         Ask::TradePolicy => "Hegemonic Trade Policy: swap which planet's values".to_owned(),
+        Ask::CommanderFighters => "Sai Seravus: how many fighters do you place from reinforcements".to_owned(),
     }
 }
 
@@ -28,6 +29,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Pillage => "pillage_take",
         Subtype::Reclaimer => "reclaimer",
         Subtype::TradePolicy => "htp_planet",
+        Subtype::CommanderFighters => "commander_fighters",
     }
     .to_owned()
 }
@@ -58,6 +60,9 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
                 .with("planet", planet.as_str())
         }
         (Ask::TradePolicy, Opt::Swap { system, planet }) => ChoiceOption::labelled(planet.as_str(), "planet", format!("swap the values of {}", planet.as_str())).with("system", system.as_str()),
+        (Ask::CommanderFighters, Opt::Fighters { count, system }) => {
+            ChoiceOption::labelled(format!("fighters|{count}"), "fighter", format!("place {count} fighter(s) in {}", system.as_str())).with("count", i64::from(*count))
+        }
         _ => panic!("option {o:?} in the question {a:?}"),
     }
 }
@@ -85,6 +90,8 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
             };
             Some(ROpt::G(Opt::Reclaimer { pds, system: <System as IdStr>::from_id(system)?, planet: <Planet as IdStr>::from_id(planet)? }))
         }
+        // The system is not in the option id: the option is matched against the rendered ones of its question.
+        Ask::CommanderFighters => None,
         // The system is an attribute of the rendered option: the option is matched against the rendered ones of its question.
         Ask::TradePolicy => None,
         Ask::Mitosis => {

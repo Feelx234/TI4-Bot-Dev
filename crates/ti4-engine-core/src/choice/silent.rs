@@ -27,6 +27,8 @@ pub enum Ask {
     Reclaimer,
     /// Hegemonic Trade Policy (Winnu): swap the values of which planet.
     TradePolicy,
+    /// Sai Seravus (the Ghosts' commander): how many fighters go with the ships that moved through wormholes.
+    CommanderFighters,
 }
 
 /// One answer.
@@ -43,6 +45,8 @@ pub enum Opt {
     Reclaimer { pds: bool, system: System, planet: Planet },
     /// The planet of `system` whose resource and influence values Hegemonic Trade Policy swaps.
     Swap { system: System, planet: Planet },
+    /// `count` fighters placed in the space area of `system`.
+    Fighters { count: u8, system: System },
 }
 
 /// The machine identifier of the question.
@@ -58,6 +62,8 @@ pub enum Subtype {
     Reclaimer,
     /// `htp_planet`.
     TradePolicy,
+    /// `commander_fighters`.
+    CommanderFighters,
 }
 
 impl Ask {

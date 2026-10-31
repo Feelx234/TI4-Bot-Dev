@@ -17,8 +17,8 @@ use ti4_engine_core::state::{EventKind, LeaderStatus};
 pub const FIRST_SLOT: u16 = 41_000;
 
 /// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
-pub const SUFFI_AN: usize = 8;
-pub const SUFFI_AN_COPY: usize = 45;
+pub const SUFFI_AN: usize = 6;
+pub const SUFFI_AN_COPY: usize = 41;
 
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
@@ -84,12 +84,8 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Leader, event: EventKind::CommoditiesReplenished, relation: Relation::After, holds: |c| leader(c, Faction::TheVuilraithCabal, LeaderType::Agent) }, // cabalagent
     Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| leader(c, Faction::TheEmpyrean, LeaderType::Agent) }, // empyreanagent
     Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| leader(c, Faction::TheEmpyrean, LeaderType::Commander) }, // empyreancommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| leader(c, Faction::TheGhostsOfCreuss, LeaderType::Commander) }, // ghostcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| leader(c, Faction::TheGhostsOfCreuss, LeaderType::Commander) }, // ghostcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::PillageUsed, relation: Relation::After, holds: |c| leader(c, Faction::TheMentakCoalition, LeaderType::Agent) }, // mentakagent
     Gap { kind: AbilityKind::Leader, event: EventKind::SpaceCombatWon, relation: Relation::After, holds: |c| leader(c, Faction::TheMentakCoalition, LeaderType::Commander) }, // mentakcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::StrategyTokenSpent, relation: Relation::After, holds: |c| leader(c, Faction::TheEmbersOfMuaat, LeaderType::Commander) }, // muaatcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::UnitsProduced, relation: Relation::After, holds: |c| leader(c, Faction::TheEmbersOfMuaat, LeaderType::Commander) }, // muaatcommander_unlock
     Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: downstream }, // muaathero
     Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: downstream }, // muaathero_moved
     Gap { kind: AbilityKind::Leader, event: EventKind::CommandTokenPlaced, relation: Relation::After, holds: |c| leader(c, Faction::TheNaaluCollective, LeaderType::Agent) }, // naaluagent-te

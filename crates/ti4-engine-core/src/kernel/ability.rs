@@ -276,6 +276,8 @@ pub struct Codes {
 pub struct G2Codes {
     /// The unit `winnu_mech` (Reclaimer).
     pub winnu_mech: crate::state::Code,
+    /// The `source` `muaat` of the trade good Magmus gains.
+    pub muaat: crate::state::Code,
 }
 
 /// The texts of the questions and gains of the formerly silent abilities (lane G), interned by the adapter like the rest of [`Codes`].
