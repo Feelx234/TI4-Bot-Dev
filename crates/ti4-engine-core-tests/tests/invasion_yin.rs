@@ -360,3 +360,27 @@ fn the_control_gained_pays_the_minister_of_exploration_and_moves_the_crown_of_em
     take(&mut rig, system, planet);
     assert_eq!(rig.state.agenda().laws.get(&Agenda::TheCrownOfEmphidia), Some(&Outcome::Seat(Seat(1))));
 }
+
+/// Dacxive Animators places the infantry for the side that won, whichever side that is: the defender holding it gets it when it wins.
+#[test]
+fn dacxive_animators_places_the_infantry_for_a_winning_defender() {
+    covers!("rules::invasion::fight::CommittedFight");
+    let (_, planet) = first_planet();
+    let mut checked = 0;
+    for seed in 0..12 {
+        let (sc, system, p) = arena(1, 6);
+        let mut f = facts(system, p);
+        f.dacxive = vec![(Seat(1), Unit::InfantryI)];
+        let mut with = Rig::new(sc, CommittedFight::new(f)).seeded(seed);
+        run_out(&mut with);
+        let (sc, system, p) = arena(1, 6);
+        let mut without = Rig::new(sc, CommittedFight::new(facts(system, p))).seeded(seed);
+        run_out(&mut without);
+        if left(&without, planet, 1) > 0 {
+            assert_eq!(left(&with, planet, 1), left(&without, planet, 1) + 1, "seed {seed}: the winning defender gets its infantry");
+            assert_eq!(left(&with, planet, 0), 0, "seed {seed}: and the invader got none");
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+}

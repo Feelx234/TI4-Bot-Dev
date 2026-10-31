@@ -1502,3 +1502,23 @@ fn the_te_construction_primary_chooses_a_structure_without_a_report_and_without_
     rig.pick(0);
     assert!(rig.is_done() && rig.driver.window.unsupported);
 }
+
+#[test]
+fn a_use_of_production_that_needs_the_factions_link_declines_the_run_of_the_te_construction() {
+    covers!("rules::hero_windows::WinnuHero");
+    let system = plain()[0];
+    let (mut rig, system, _) = winnu_te(StrategyCard::ConstructionThundersEdge, te_construction_facts(system, true));
+    rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::SelfAssemblyRoutines);
+    rig.run();
+    rig.pick(0);
+    rig.pick_opt(Opt::Strategy(SOpt::Produce(system)));
+    rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Build { unit: Unit::DestroyerI, .. })));
+    while !rig.is_done() {
+        if matches!(rig.asked().ask, Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::TradeGood { .. })));
+        } else {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Stop)));
+        }
+    }
+    assert!(rig.driver.window.unsupported, "Self-Assembly Routines is owned and the table has no link to its window: the string plays the card");
+}

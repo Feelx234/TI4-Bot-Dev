@@ -275,3 +275,18 @@ fn the_prophecy_of_ixth_is_discarded_by_a_use_that_made_fewer_than_two_fighters(
     stop(&mut rig);
     assert!(rig.state.agenda().laws.contains_key(&Agenda::ProphecyOfIxth));
 }
+
+/// A use that made exactly one fighter (the limit leaves room for one) discards the Prophecy of Ixth: one is fewer than two.
+#[test]
+fn a_single_fighter_discards_the_prophecy_of_ixth() {
+    covers!("rules::production::home::HomeProduction");
+    use ti4_engine_core::generated::Agenda;
+    use ti4_engine_core::keys::Outcome;
+    let (mut rig, _, _) = home(6, &[Unit::FighterI], 1);
+    rig.state.agenda_mut().laws.insert(Agenda::ProphecyOfIxth, Outcome::Seat(Seat(0)));
+    rig.run();
+    build(&mut rig, Unit::FighterI);
+    assert!(rig.is_done());
+    assert_eq!(rig.driver.window.made().as_slice().iter().filter(|(u, _)| *u == Unit::FighterI).count(), 1, "{}", rig.transcript());
+    assert!(!rig.state.agenda().laws.contains_key(&Agenda::ProphecyOfIxth));
+}
