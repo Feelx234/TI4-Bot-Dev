@@ -98,6 +98,9 @@ pub fn exploration(core: &CoreState, k: &Kernel, who: Seat) -> Vec<Opt> {
 /// (`kernel::trade_env::open_partners_live`: Guild Ships, Trade Convoys, the Arbiters, the limits of 94.1).
 #[must_use]
 pub fn transactions(core: &CoreState, k: &Kernel, who: Seat) -> Vec<Opt> {
+    if !core.loaded.has(Slice::Map) {
+        return Vec::new();
+    }
     crate::kernel::trade_env::open_partners_live(core, k, who)
         .as_slice()
         .iter()

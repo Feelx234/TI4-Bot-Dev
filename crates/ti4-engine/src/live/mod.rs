@@ -19,6 +19,7 @@ pub mod coverage;
 pub mod details;
 pub mod env;
 pub mod kernel;
+pub mod menu;
 pub mod plays;
 pub mod trade;
 pub mod turn;

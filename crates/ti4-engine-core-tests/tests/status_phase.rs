@@ -195,16 +195,14 @@ fn the_third_scored_objective_unlocks_the_hero() {
 }
 
 #[test]
-fn a_locked_commander_without_a_hook_stops_the_bookkeeping_with_a_counted_gap() {
+fn a_locked_commander_of_a_faction_with_a_hook_is_judged_by_its_hook_not_stopped() {
     let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).phase(Phase::Status).active(None).build();
     s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
     let commander = Leader::ALL.iter().copied().find(|l| l.data().faction == FactionTag::Arborec && l.data().kind == LeaderType::Commander).unwrap();
     s.players_mut().edit(0).leaders.status.insert(commander, LeaderStatus::Locked);
     let e = env(&k);
     advance_status(&mut s, &e, None).unwrap();
-    let held = s.clone();
-    assert_eq!(advance_scoring(&mut s, &e, None), gap(TurnGap::CommanderUnlock));
-    assert_eq!(s, held, "the window is as it was");
+    assert_ne!(advance_scoring(&mut s, &e, None), gap(TurnGap::CommanderUnlock), "the Arborec's commander condition is a hook (12 ground forces on planets), not a gap");
 }
 
 // -- KS4, KS5: the tokens and the close ----------------------------------------------------------------------------------------

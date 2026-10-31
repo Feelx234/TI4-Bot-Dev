@@ -4,6 +4,7 @@
 
 use crate::choice::strategy::Opt as SOpt;
 use crate::choice::technology::Opt as TOpt;
+use crate::choice::turn::Opt as TurnOpt;
 use crate::choice::{Opt, Pick};
 use crate::driver::live::{advance, ask, is_open, Asking, Env, Live, LiveError, Out};
 use crate::driver::session::{live_ask_arm, AskArm, Facts};
@@ -36,14 +37,16 @@ pub fn ask_ask(core: &CoreState, env: &Env<'_>) -> Result<Option<Asking>, LiveEr
         AskArm::Draft => Ok(super::draft::question(core).map(asking)),
         AskArm::StartingTech => Ok(super::starting::question(core, env.kernel, env.table.codes.turn.starting_technology).map(asking)),
         AskArm::Closing => closing_question(core, env).map(|q| Some(asking(q))),
+        AskArm::ActionMenu => action_menu_question(core, env).map(|q| Some(asking(q))),
         _ => Err(not_native(core)),
     }
 }
 
-/// The closing menu of the seat in it (`Game::closing_options`), where the core assembles it.
+/// The closing menu of the seat in it (`Game::closing_options`).
 fn closing_question(core: &CoreState, env: &Env<'_>) -> Result<crate::choice::Choice, LiveError> {
     let seat = core.pending().turn_closing.ok_or(LiveError::NotOpen)?;
-    let options = super::closing::options(core, env.kernel, seat).map_err(|why| LiveError::Unknown(Unknown::TurnGap(why)))?;
+    let roster = roster_of(core, env).ok_or(LiveError::Unknown(Unknown::TurnGap(TurnGap::NoRoster)))?;
+    let options = super::closing::options(core, env.kernel, roster, seat).map_err(|why| LiveError::Unknown(Unknown::TurnGap(why)))?;
     let second = crate::driver::menu::second_action(core, seat, core.pending().actions_this_turn);
     Ok(crate::driver::menu::closing_choice(seat, options, second))
 }
@@ -86,15 +89,42 @@ pub fn advance_ask(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) ->
         AskArm::Closing => {
             let question = closing_question(core, env)?;
             let Some(pick) = answer else { return Ok((Live::Asks(Box::new(asking(question))), Out::default())) };
-            // "End your turn" ends it; anything else the menu offers takes an action (Fleet Logistics' second one) or is a free option:
-            // the menu's sources are not native, so the question offers nothing else yet.
-            if !question.opts.iter().any(|o| *o == pick_opt(pick)) {
+            // "End your turn" ends it; anything else the menu offers takes an action (Fleet Logistics' second one) or is a free option.
+            let chosen = pick_opt(pick);
+            if !question.opts.iter().any(|o| *o == chosen) {
                 return Err(LiveError::Illegal);
             }
-            super::advance_job(TurnJob::End, core, env, None)
+            run_chosen(core, env, chosen)
+        }
+        AskArm::ActionMenu => {
+            let question = action_menu_question(core, env)?;
+            let Some(pick) = answer else { return Ok((Live::Asks(Box::new(asking(question))), Out::default())) };
+            let chosen = pick_opt(pick);
+            if !question.opts.iter().any(|o| *o == chosen) {
+                return Err(LiveError::Illegal);
+            }
+            run_chosen(core, env, chosen)
         }
         _ => Err(not_native(core)),
     }
+}
+
+/// The action menu of the active seat (`Game::turn_options`).
+fn action_menu_question(core: &CoreState, env: &Env<'_>) -> Result<crate::choice::Choice, LiveError> {
+    let seat = core.meta().active.ok_or(LiveError::NotOpen)?;
+    let roster = roster_of(core, env).ok_or(LiveError::Unknown(Unknown::TurnGap(TurnGap::NoRoster)))?;
+    super::action_menu::question(core, env.kernel, roster, seat).map_err(|why| LiveError::Unknown(Unknown::TurnGap(TurnGap::Menu(why))))
+}
+
+/// Run the option a seat chose from the action menu or the closing menu: "end your turn" is the end job, every other option is
+/// `TurnJob::Action`.
+fn run_chosen(core: &mut CoreState, env: &Env<'_>, chosen: Opt) -> Result<(Live, Out), LiveError> {
+    let job = match chosen {
+        Opt::Turn(TurnOpt::EndTurn) => TurnJob::End,
+        Opt::Turn(option) => TurnJob::Action(option.key().ok_or(LiveError::Illegal)?),
+        _ => return Err(LiveError::Illegal),
+    };
+    super::advance_job(job, core, env, None)
 }
 
 fn pick_opt(pick: Pick) -> Opt {

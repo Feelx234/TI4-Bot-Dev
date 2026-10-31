@@ -114,13 +114,13 @@ fn native_run(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&str]) -
 }
 
 /// The native steps in order (`reconcile` first when asked, as a step does), one asker for all of them.
-fn native_steps(state: &GameState, steps: &[(Arm, Option<TurnJob>)], reconcile: bool, ids: &[&str]) -> Run {
+pub(super) fn native_steps(state: &GameState, steps: &[(Arm, Option<TurnJob>)], reconcile: bool, ids: &[&str]) -> Run {
     let marked: Vec<(bool, Arm, Option<TurnJob>)> = steps.iter().enumerate().map(|(i, (arm, job))| (reconcile && i == 0, *arm, *job)).collect();
     native_marked(state, &marked, ids)
 }
 
 /// Like [`native_steps`], each step saying whether the reconcile hooks run before it (a string step starts with them).
-fn native_marked(state: &GameState, steps: &[(bool, Arm, Option<TurnJob>)], ids: &[&str]) -> Run {
+pub(super) fn native_marked(state: &GameState, steps: &[(bool, Arm, Option<TurnJob>)], ids: &[&str]) -> Run {
     let steps: Vec<(bool, Option<Arm>, Option<TurnJob>)> = steps.iter().map(|(r, a, j)| (*r, Some(*a), *j)).collect();
     native_marked_arms(state, &steps, ids)
 }
@@ -195,14 +195,14 @@ pub(super) fn based(state: GameState) -> GameState {
 }
 
 /// A table of `seats` in the action phase, seat `a` active, its turn prepared.
-fn action_table(seats: &[(&str, &str)]) -> GameState {
+pub(super) fn action_table(seats: &[(&str, &str)]) -> GameState {
     let mut state = crate::fixtures::seated_dealt(seats, DEFAULT);
     state.phase = ti4_model::state::Phase::Action;
     state.active = Some(pid(seats[0].0));
     based(state)
 }
 
-const THREE: [(&str, &str); 3] = [("a", "sol"), ("b", "hacan"), ("c", "arborec")];
+pub(super) const THREE: [(&str, &str); 3] = [("a", "sol"), ("b", "hacan"), ("c", "arborec")];
 
 #[test]
 fn the_end_of_a_plain_turn_passes_on_like_the_string() {
@@ -549,17 +549,6 @@ fn native_stop_with(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&s
     let held = core.clone();
     let stop = live::live_step(&mut core, arm, &lcx, &mut Scripted::new(ids.iter().copied())).expect_err("the job stops");
     (stop, core == held)
-}
-
-#[test]
-fn fleet_logistics_offers_a_second_action_which_the_core_does_not_assemble_yet() {
-    use ti4_engine_core::kernel::ability::Unknown;
-    use ti4_engine_core::kernel::turn_codes::TurnGap;
-    let mut state = action_table(&THREE);
-    state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("fl"));
-    let (stop, untouched) = native_stop(&state, Arm::Ask, TurnJob::Finish);
-    assert_eq!(stop, crate::live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources))));
-    assert!(untouched, "the gap leaves the position as it was, ACTION_COMPLETED included");
 }
 
 // -- the reconcile hooks and the rest of the end of a turn ---------------------------------------------------------------------

@@ -18,6 +18,7 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
         _ => {}
     }
     super::turn::complete(core, choice, rendered);
+    super::menu::complete(core, choice, rendered);
     super::agenda::complete(core, choice, rendered);
 }
 

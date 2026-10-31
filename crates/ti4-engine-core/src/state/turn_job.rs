@@ -32,4 +32,7 @@ pub enum TurnJob {
     AgendaOpen,
     /// An agenda's scoring window closed with agendas held behind it (`step_event_scoring`'s close, lane D): the next reveal and vote.
     AgendaNext,
+    /// The option of the action menu (or of the closing menu) a seat chose, run as one step (`Game::apply_choice`'s `Phase::Action` arm,
+    /// lane F): the payload is `choice::turn::Opt::key`.
+    Action(u32),
 }

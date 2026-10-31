@@ -46,6 +46,10 @@ mod cannon_prelude_tests;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "turn_live_tests.rs"]
 mod turn_live_tests;
+// The lockstep of the action menu and its pass (lane F) against the string's `turn_options` and `apply_choice`.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "action_menu_live_tests.rs"]
+mod action_menu_live_tests;
 // The lockstep of the native status phase (lane C) against the string steps it replaces.
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "status_live_tests.rs"]

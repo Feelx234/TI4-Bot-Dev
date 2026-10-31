@@ -599,7 +599,7 @@ mod tests {
             assert!(other.is_empty(), "{group:?}: {:#?}", other.iter().take(5).collect::<Vec<_>>());
             assert!(ran.keys().any(|k| k.starts_with("turn_prelude")), "{group:?}: the prelude ran in shadow: {ran:?}");
         }
-        assert!(gaps > 0, "the commanders without a hook are still counted, not skipped");
+        assert_eq!(gaps, 0, "every commander has its hook now: no counted gap");
     }
 
     /// Round one with every lobby faction in turn (six tables of four), the status phase's arms in shadow and a counted bail a failure: no
