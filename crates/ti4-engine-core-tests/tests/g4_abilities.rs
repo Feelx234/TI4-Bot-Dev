@@ -14,6 +14,7 @@ fn table() -> AbilityTable {
     ti4_engine_core_factions::silent::register_before_movement(&mut t);
     ti4_engine_core_factions::silent::g3::register_after_ca_combat(&mut t);
     ti4_engine_core_factions::silent::register_abilities(&mut t);
+    ti4_engine_core_factions::silent::g4::magen_hit::register_abilities(&mut t);
     t
 }
 
@@ -308,5 +309,110 @@ mod stymie {
         let mut arborec = Rig::from_parts(state, kernel, EmitEvent::new(moved(0, systems[0]))).with_abilities(table());
         arborec.run();
         assert!(arborec.is_done(), "{}", arborec.transcript());
+    }
+}
+
+// -- Magen Defense Grid's hit -------------------------------------------------------------------------------------------------
+
+mod magen_hit {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent4::{Ask as UAsk, Opt as UOpt};
+    use ti4_engine_core::generated::{Planet, System, Technology, Unit};
+    use ti4_engine_core::query::board;
+
+    fn started(system: System, planet: Planet, attacker: u8, defender: u8) -> ti4_engine_core::state::EventRec {
+        fx::event(
+            EventKind::GroundCombatStarted,
+            Payload::new().with(Key::System, Val::System(system)).with(Key::Planet, Val::Planet(planet)).with(Key::Attacker, Val::Seat(Seat(attacker))).with(Key::Defender, Val::Seat(Seat(defender))),
+        )
+    }
+
+    fn two_planet_system() -> (System, Vec<Planet>) {
+        let system = ti4_engine_core_tests::scenario::plain_systems().into_iter().find(|s| !s.data().planets.is_empty()).expect("a plain system with a planet");
+        (system, system.data().planets.to_vec())
+    }
+
+    /// Seat 0 (Hacan) holds the Magen Defense Grid and a PDS on the planet; seat 1 (Saar) has `forces` there. Seat 0 defends (`defends`) or invades.
+    fn rig(forces: &[(Unit, usize)], structure: bool, holds: bool, event_seats: (u8, u8)) -> (Rig<EmitEvent>, Planet, System) {
+        let (system, planets) = two_planet_system();
+        let mut scenario = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheClanOfSaar]).control(planets[0], 0);
+        if structure {
+            scenario = scenario.unit(system, Some(planets[0]), Unit::PDSI, 0, 1);
+        }
+        for (unit, n) in forces {
+            scenario = scenario.unit(system, Some(planets[0]), *unit, 1, *n);
+        }
+        let (mut state, kernel) = scenario.build();
+        if holds {
+            state.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::MagenDefenseGridOmegaOmega);
+        }
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(started(system, planets[0], event_seats.0, event_seats.1))).with_abilities(table());
+        r.run();
+        (r, planets[0], system)
+    }
+
+    fn units(r: &Rig<EmitEvent>, planet: Planet, seat: u8) -> Vec<(Unit, bool)> {
+        board::planet_units(&r.state, planet).iter().filter(|p| p.owner() == Seat(seat)).map(|p| (p.kind(), p.sustained())).collect()
+    }
+
+    #[test]
+    fn the_owner_assigns_the_hit_when_several_kinds_stand_there_and_the_unit_without_sustain_dies() {
+        covers!("silent::g4::magen_hit::MD_HIT");
+        let (mut r, planet, _) = rig(&[(Unit::InfantryI, 2), (Unit::ScavengerZeta, 1)], true, true, (1, 0));
+        assert_eq!((r.asked().actor, r.asked().ask), (Seat(0), Ask::Reaction(RAsk::G(GAsk::U(UAsk::MagenHit)))), "{}", r.transcript());
+        assert_eq!(r.opts().len(), 2, "identical units are one option: {}", r.transcript());
+        let infantry = r.opts().iter().position(|o| matches!(o, Opt::Reaction(ROpt::G(GOpt::U(UOpt::Target { unit: Unit::InfantryI, sturdy: false, damaged: false, .. }))))).expect("the infantry option");
+        r.pick(infantry);
+        assert!(r.is_done(), "an infantry has no SUSTAIN DAMAGE, so its owner is not asked: {}", r.transcript());
+        assert_eq!(units(&r, planet, 1), vec![(Unit::InfantryI, false), (Unit::ScavengerZeta, false)]);
+        assert_eq!(units(&r, planet, 0), vec![(Unit::PDSI, false)], "the holder's structure stands");
+    }
+
+    #[test]
+    fn the_victim_decides_on_sustain_damage_for_a_mech_and_a_damaged_mech_is_destroyed_by_the_hit() {
+        covers!("silent::g4::magen_hit::MD_HIT");
+        // A lone mech: no question for the owner; its owner may sustain.
+        let (mut r, planet, system) = rig(&[(Unit::ScavengerZeta, 1)], true, true, (1, 0));
+        assert_eq!(r.asked().actor, Seat(1), "the victim answers: {}", r.transcript());
+        assert!(matches!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::U(UAsk::GroundSustain { unit: Unit::ScavengerZeta, system: s, planet: p, .. }))) if s == system && p == planet), "{}", r.transcript());
+        assert_eq!(r.opts(), vec![Opt::Reaction(ROpt::G(GOpt::U(UOpt::Sustain))), Opt::Decline]);
+        r.pick(0);
+        assert!(r.is_done());
+        assert_eq!(units(&r, planet, 1), vec![(Unit::ScavengerZeta, true)], "damaged, not destroyed");
+        // Declined: destroyed.
+        let (mut declined, planet, _) = rig(&[(Unit::ScavengerZeta, 1)], true, true, (1, 0));
+        declined.pick(1);
+        assert_eq!(units(&declined, planet, 1), vec![]);
+        // A mech that is damaged already cannot sustain: no question, destroyed.
+        let (system, planets) = two_planet_system();
+        let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheClanOfSaar]).control(planets[0], 0).unit(system, Some(planets[0]), Unit::PDSI, 0, 1).unit(system, Some(planets[0]), Unit::ScavengerZeta, 1, 1).build();
+        state.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::MagenDefenseGridOmegaOmega);
+        let at = state.board().planet(planets[0]).units.iter().position(|p| p.owner() == Seat(1)).unwrap();
+        let hurt = state.board().planet(planets[0]).units.as_slice()[at].with_sustained(true);
+        state.board_mut().planet_mut(planets[0]).units.as_mut_slice()[at] = hurt;
+        let mut worn = Rig::from_parts(state, kernel, EmitEvent::new(started(system, planets[0], 1, 0))).with_abilities(table());
+        worn.run();
+        assert!(worn.is_done(), "{}", worn.transcript());
+        assert_eq!(units(&worn, planets[0], 1), vec![]);
+    }
+
+    #[test]
+    fn the_hit_needs_the_technology_a_structure_on_the_planet_and_a_side_of_the_combat() {
+        covers!("silent::g4::magen_hit::MD_HIT");
+        for (label, structure, holds, seats) in [("no technology", true, false, (1, 0)), ("no structure", false, true, (1, 0)), ("not a side", true, true, (1, 1))] {
+            let (r, planet, _) = rig(&[(Unit::InfantryI, 2)], structure, holds, seats);
+            if label == "not a side" {
+                // The holder is neither the attacker nor the defender of the combat.
+                assert_eq!(units(&r, planet, 1).len(), 2, "{label}");
+            }
+            assert!(r.is_done(), "{label}: {}", r.transcript());
+            assert_eq!(units(&r, planet, 1).len(), 2, "{label}: nothing is hit");
+        }
+        // The holder fights too: a lone infantry is hit with no question at all.
+        let (r, planet, _) = rig(&[(Unit::InfantryI, 1)], true, true, (0, 1));
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!(units(&r, planet, 1), vec![]);
     }
 }

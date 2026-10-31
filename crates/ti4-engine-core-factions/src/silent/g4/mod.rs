@@ -2,6 +2,7 @@
 //! hit, Yin Spinner, the Naalu TE mech). Slots `44_000..` are this module's; the ids are named in `reactions_core::NAMED`. One file per ability; each registers where the string
 //! registers it (`register_abilities`, after the rest of `silent`'s).
 
+pub mod magen_hit;
 pub mod propagation;
 pub mod spynet;
 pub mod stymie;
@@ -13,6 +14,10 @@ use ti4_engine_core::kernel::ability::AbilityTable;
 pub mod code {
     /// The source `titanscommander` of the trade good the Titans commander gains.
     pub const TITANS_COMMANDER: usize = 0;
+    /// The cause `md` of a ground force Magen Defense Grid's hit damages or destroys.
+    pub const MD_CAUSE: usize = 1;
+    /// The rule `87` (SUSTAIN DAMAGE) that sources the offer to sustain a hit an effect assigned.
+    pub const SUSTAIN_RULE: usize = 2;
 }
 
 /// The rules of this module.

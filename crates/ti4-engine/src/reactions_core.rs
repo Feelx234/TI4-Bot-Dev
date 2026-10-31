@@ -33,7 +33,7 @@ struct Named {
 const G3_CODE_TEXTS: [&str; 16] = ["nekro_flagship", "technology:exo2", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused"];
 
 /// The texts the rules of `silent::g4` name (`silent::g4::code`, the same places); unused places hold a placeholder.
-const G4_CODE_TEXTS: [&str; 16] = ["titanscommander", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused"];
+const G4_CODE_TEXTS: [&str; 16] = ["titanscommander", "md", "87", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused"];
 
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
@@ -142,6 +142,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::g4::propagation::PROPAGATION, kind: "ability", card: "propagation" },
     Named { slot: ti4_engine_core_factions::silent::g4::spynet::SPY_NET, kind: "promissory", card: "spynet" },
     Named { slot: ti4_engine_core_factions::silent::g4::stymie::STYMIE, kind: "promissory", card: "stymie" },
+    Named { slot: ti4_engine_core_factions::silent::g4::magen_hit::MD_HIT, kind: "technology", card: "md_hit" },
     Named { slot: ti4_engine_core_factions::silent::g4::titans_commander::TUNGSTANTUS, kind: "leader", card: "titanscommander" },
 ];
 
@@ -251,6 +252,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core::rules::action_cards::reaction_slot::register(&mut t);
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::magen_defense::register_abilities(&mut t);
+            ti4_engine_core_factions::silent::g4::magen_hit::register_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
             ti4_engine_core_factions::silent::register_before_movement(&mut t);
             ti4_engine_core_factions::ce_movement::register_abilities(&mut t);

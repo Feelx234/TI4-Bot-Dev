@@ -23,7 +23,7 @@ pub const ACTIVATION: Slot = Slot(16_001);
 const RULES_TECH_EFFECTS: u32 = 15;
 
 /// The planets of `system` on which `who` has structures, one entry per structure, planets in id order.
-fn structure_planets(s: &CoreState, who: Seat, system: System) -> Vec<Planet> {
+pub(crate) fn structure_planets(s: &CoreState, who: Seat, system: System) -> Vec<Planet> {
     let mut found = Vec::new();
     for planet in board::planets_of(s, system) {
         for piece in s.board().planet(planet).units.as_slice() {
@@ -35,7 +35,7 @@ fn structure_planets(s: &CoreState, who: Seat, system: System) -> Vec<Planet> {
     found
 }
 
-fn active(s: &CoreState, who: Seat) -> bool {
+pub(crate) fn active(s: &CoreState, who: Seat) -> bool {
     s.meta().rules_at_least(RULES_TECH_EFFECTS) && s.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(Technology::MagenDefenseGridOmegaOmega))
 }
 
