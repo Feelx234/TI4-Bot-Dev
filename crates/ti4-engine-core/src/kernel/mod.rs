@@ -23,6 +23,7 @@ pub mod fx;
 pub mod fx_agenda;
 pub mod fx_explore;
 pub mod fx_ground;
+pub mod fx_map;
 pub mod fx_move;
 pub mod fx_perform;
 pub mod fx_pay;

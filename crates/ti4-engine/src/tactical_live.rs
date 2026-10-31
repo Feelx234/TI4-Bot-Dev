@@ -14,6 +14,7 @@ pub const fn gap_text(gap: TacticalGap) -> &'static str {
         TacticalGap::NoProgress => "the tactical action made no progress (a stage that neither asks nor moves on)",
         TacticalGap::ActivationHook => "a hook of the activation that the native chain does not carry",
         TacticalGap::NovaSeed => "Nova Seed replaced a tile while the movement step closed",
+        TacticalGap::NovaSeedCargo => "Nova Seed would destroy another player's ground forces carried in the space area (the string announces them with the system in the place of a planet)",
         TacticalGap::CannonHits => "a hit of the space cannon offense that needs a question",
         TacticalGap::ExplorationAtTheEnd => "the Crown of Emphidia or Dark Energy Tap explores at the end of the action (no native planet exploration window yet)",
         TacticalGap::WarfareSecondary => "Thunder's Edge Warfare's follower window waits for the end of the free tactical action",
@@ -314,6 +315,8 @@ mod tests {
         let render = Render::new(cx.owners.ids().to_vec());
         let sources = POK;
         let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(galaxy), rng: Some(rng) }, SliceSet::ALL).expect("the position loads");
+        // The renderer's code table continues the position's, as the native loop does (`native_play`), so the two mean the same texts.
+        let render = render.with_codes(core.texts.codes.clone());
         let seat = render.seat("a").expect("seat a");
         open_tactical(&mut core, seat);
         let kernel = crate::live::kernel::kernel_for(sources);
@@ -328,7 +331,12 @@ mod tests {
                 break;
             }
             match live_step(&mut core, Arm::Tactical, &live, &mut asker) {
-                Ok(step) if step.finished => break,
+                Ok(step) if step.finished => {
+                    if std::env::var_os("M6B_DEBUG").is_some() {
+                        eprintln!("the arm finished: {:?}", core.pending().window(ti4_engine_core::state::WindowKind::Tactical));
+                    }
+                    break;
+                }
                 Ok(_) => {
                     if std::env::var_os("M6B_DEBUG").is_some() {
                         eprintln!("after a step: marks {:?} relics {:?} activation {}", core.players().by_seat(seat).map(|p| p.round_marks.clone()), core.players().by_seat(seat).map(|p| p.cards.relics.clone()), core.meta().activation_seq);
@@ -343,9 +351,18 @@ mod tests {
         }
         let asked = seen.borrow().clone();
         let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
+        // A destruction a rule staged names its cause by the renderer's code: the position takes the renderer's table back, as a lend does.
+        if !core.transient().combat.pending_destructions.is_empty() {
+            core.texts.codes = render.codes_snapshot();
+        }
         let after = materialize::materialize(&core, &cx, state).expect("materializes");
         let rng = format!("{:?}", crate::core_sync::codec::rng::positions(&cx, core.rng()).expect("every stream has a text"));
         Side { asked, events, state: serde_json::to_value(&after).expect("serialises"), bail, rng }
+    }
+
+    /// What the string's `finish_action` writes when a script runs the whole action out (the turn flow's, not run here): the next seat's turn.
+    fn is_turn_flow(path: &str) -> bool {
+        ["action_turn", "active", "turn_seq", "feat_occurrence_seq"].iter().any(|field| path == *field || path.ends_with(&format!("/{field}")) || path.ends_with(&format!(".{field}")) || path == format!("state{field}"))
     }
 
     fn leaves(label: &str, left: &Value, right: &Value) -> Vec<String> {
@@ -369,7 +386,7 @@ mod tests {
             }
         }
         let (left, right) = (&without_seen(left), &without_seen(right));
-        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("frontier_tokens") && !d.path.contains("trigger.event_id")).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
+        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("frontier_tokens") && !d.path.contains("trigger.event_id") && !is_turn_flow(&d.path)).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
     /// Run both and report every difference of the questions, the events (the native ones must be a prefix of the string's when `prefix`) and the position.
@@ -385,7 +402,8 @@ mod tests {
             return out;
         }
         if s.asked.len() != n.asked.len() {
-            out.push(format!("questions: string {} native {}", s.asked.len(), n.asked.len()));
+            let prompts = |side: &Side| side.asked.iter().map(|c| c.prompt.clone()).collect::<Vec<_>>();
+            out.push(format!("questions: string {} native {}; string {:?} native {:?}", s.asked.len(), n.asked.len(), prompts(&s), prompts(&n)));
         }
         for (i, (l, r)) in s.asked.iter().zip(&n.asked).enumerate() {
             for (what, lv, rv) in [

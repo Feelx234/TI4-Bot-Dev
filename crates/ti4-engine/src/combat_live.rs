@@ -338,6 +338,8 @@ mod tests {
         let render = Render::new(cx.owners.ids().to_vec());
         let sources = POK;
         let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(galaxy), rng: Some(rng) }, SliceSet::ALL).expect("the position loads");
+        // The renderer's code table continues the position's, as the native loop does (`native_play`), so the two mean the same texts.
+        let render = render.with_codes(core.texts.codes.clone());
         let seat = render.seat("a").expect("seat a");
         open_tactical(&mut core, seat);
         let kernel = crate::live::kernel::kernel_for(sources);
@@ -391,6 +393,10 @@ mod tests {
             }
         }
         let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
+        // A destruction a rule staged names its cause by the renderer's code: the position takes the renderer's table back, as a lend does.
+        if !core.transient().combat.pending_destructions.is_empty() {
+            core.texts.codes = render.codes_snapshot();
+        }
         let materialized = materialize::materialize(&core, &cx, state).expect("materializes");
         let after_events = after;
         Side { asked, events, after: after_events, state: serde_json::to_value(&materialized).expect("serialises"), bail }
@@ -706,6 +712,42 @@ mod tests {
         crate::fixtures::put_on_planet(&mut state, &target, &planets[0], "infantry", &a(), 2);
         let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]);
         assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    /// Nova Seed (the Muaat hero Adjudicator Ba'al): after a war sun moved into a non-home system, the other players' units there are destroyed
+    /// and the tile is replaced by the supernova; the old system's contents move, its planet cards are purged and the hero is purged.
+    #[test]
+    fn nova_seed_replaces_the_tile_in_lockstep() {
+        let pok = POK;
+        let nova_blocked = |id: &str| crate::seating::is_mecatol(id) || ti4_content::galaxy::is_home_system(ContentStore::embedded(), id, pok);
+        let ids: Vec<String> = crate::fixtures::plain_systems(80).into_iter().filter(|id| !nova_blocked(id)).take(7).collect();
+        let hub = crate::fixtures::hub_from(&ids);
+        let (centre, origin) = (ti4_model::id::SystemId::new(hub.centre.clone()), ti4_model::id::SystemId::new(hub.outer[0].clone()));
+        let hero = "leader:muaat:muaathero:MOVEMENT_FINISHED:after";
+        let planets: Vec<_> = ti4_content::galaxy::all_systems(ContentStore::embedded(), pok).get(centre.as_str()).map(|s| s.planets().into_iter().map(|p| ti4_model::id::PlanetId::new(p)).collect()).unwrap_or_default();
+        for (rich, answer) in [(false, hero), (true, hero), (true, "decline")] {
+            let mut state = table(&[("a", "muaat"), ("b", "sol")]);
+            state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("muaathero"), ti4_model::state::LeaderStatus::Unlocked);
+            crate::fixtures::put(&mut state, &origin, "muaat_warsun", &a(), 1);
+            crate::fixtures::put(&mut state, &centre, "cruiser", &b(), 2);
+            state.system_mut(&centre).place_token(b());
+            if rich {
+                if let Some(planet) = planets.first() {
+                    state.system_mut(&centre).set_control(planet.clone(), b());
+                    crate::fixtures::put_on_planet(&mut state, &centre, planet, "infantry", &b(), 2);
+                    crate::fixtures::put_on_planet(&mut state, &centre, planet, "pds", &b(), 1);
+                    state.exhausted_planets.insert(planet.clone());
+                    state.laws.insert("demilitarized_zone".into(), planet.to_string());
+                }
+                state.frontier_tokens.insert(centre.clone());
+            }
+            let mv = format!("move|{origin}|0");
+            let script = [TACTICAL_ACTION_ID, centre.as_str(), mv.as_str(), "done_moving", answer];
+            // (Not the rule's: the string's next turn places a frontier token on the empty supernova, and the harness' code tables hold the aftermath's
+            // presentation words apart from the renderer's.)
+            let diffs: Vec<String> = lockstep(state, &hub.galaxy, &script).into_iter().filter(|d| !d.contains("combat_presentation.phase") && !d.contains("frontier_tokens")).collect();
+            assert!(diffs.is_empty(), "nova seed rich {rich} {answer}: {diffs:#?}");
+        }
     }
 
     /// Van Hauge (the Yin flagship): when it is destroyed every ship of the system goes with it, staged and announced at the fixed drain points of the

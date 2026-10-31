@@ -45,6 +45,8 @@ pub struct CoreGalaxy {
     pub nexus_wormholes_off: bool,
     /// Adjacency an ability grants for the current activation, both directions listed.
     pub extra_links: Vec<(SystemIx, SysSet)>,
+    /// How many recorded map edits (`MarkKey::MapEdit`) this board carries (`Galaxy::edits_applied`).
+    edits_applied: usize,
 }
 
 
@@ -103,6 +105,7 @@ impl CoreGalaxy {
             wormhole_star_links: false,
             nexus_wormholes_off: false,
             extra_links: Vec::new(),
+            edits_applied: 0,
         }
     }
 
@@ -120,6 +123,60 @@ impl CoreGalaxy {
         }
         self.coord[system.index()] = Some(hex);
         self.join(system);
+        Ok(())
+    }
+
+    /// How many map edits the board carries (`Galaxy::edits_applied`).
+    #[must_use]
+    pub const fn edits_applied(&self) -> usize {
+        self.edits_applied
+    }
+
+    /// Say how many recorded edits the board already carries (the adapter copies the string galaxy's count).
+    pub fn set_edits_applied(&mut self, edits: usize) {
+        self.edits_applied = edits;
+    }
+
+    /// Swap the positions of two systems on the grid (`Galaxy::swap_systems`, the Ghosts hero): each keeps its wormholes and lanes, the hexes
+    /// exchange their tiles.
+    ///
+    /// # Errors
+    /// The same system twice, or a system that is not on the grid.
+    pub fn swap_systems(&mut self, a: SystemIx, b: SystemIx) -> Result<(), PlaceError> {
+        if a == b {
+            return Err(PlaceError::Duplicate(a));
+        }
+        let hex_a = self.coord[a.index()].ok_or(PlaceError::OffGrid(a))?;
+        let hex_b = self.coord[b.index()].ok_or(PlaceError::OffGrid(b))?;
+        self.grid.set(hex_a, Some(b));
+        self.grid.set(hex_b, Some(a));
+        self.coord[a.index()] = Some(hex_b);
+        self.coord[b.index()] = Some(hex_a);
+        self.edits_applied += 1;
+        self.refresh_lane_links();
+        Ok(())
+    }
+
+    /// Put another tile on the hex a system occupies (`Galaxy::replace_system`, the Muaat hero): the old tile leaves the board with its
+    /// wormholes, the new one joins with its printed ones. What the old tile held is the caller's to move.
+    ///
+    /// # Errors
+    /// `old` is not on the grid, or `new` is already in play.
+    pub fn replace_system(&mut self, old: SystemIx, new: SystemIx) -> Result<(), PlaceError> {
+        let hex = self.coord[old.index()].ok_or(PlaceError::OffGrid(old))?;
+        if self.coord[new.index()].is_some() || self.in_play.contains(new.index()) {
+            return Err(PlaceError::Duplicate(new));
+        }
+        self.coord[old.index()] = None;
+        self.in_play.remove(old.index());
+        self.wormholes[old.index()] = 0;
+        self.token_wormholes[old.index()] = 0;
+        self.hyperlanes.remove(old.index());
+        self.grid.set(hex, Some(new));
+        self.coord[new.index()] = Some(hex);
+        self.join(new);
+        self.edits_applied += 1;
+        self.refresh_lane_links();
         Ok(())
     }
 

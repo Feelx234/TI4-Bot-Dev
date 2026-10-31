@@ -177,9 +177,9 @@ pub fn run_reconcile(sx: &mut Sx<'_>) -> Flow {
     }
     nexus_latch(sx.state);
     crate::rules::legendary::settle_styx(sx.state);
-    if sx.state.marks().tail.iter().any(|(k, _)| matches!(k, MarkKey::MapEdit(_))) {
-        // A tile a faction effect replaced or swapped (Nova Seed, Riftwalker Meian) is replayed onto the map every step: the core's map has
-        // no edit to replay yet.
+    if sx.state.marks().tail.iter().any(|(k, _)| matches!(k, MarkKey::MapEdit(_))) && !crate::kernel::fx_map::replay_map_edits(sx.state) {
+        // A tile a faction effect replaced or swapped (Nova Seed, Riftwalker Meian) is replayed onto the map every step; an edit that no longer fits
+        // the map is the counted gap.
         gap(sx, TurnGap::MapEdits);
         return Flow::Halt;
     }

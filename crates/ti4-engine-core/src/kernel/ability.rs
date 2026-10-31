@@ -144,6 +144,9 @@ pub enum TacticalGap {
     ActivationHook,
     /// Nova Seed replaced a tile during `MOVEMENT_FINISHED`: the derived map is replayed by the per-step hooks, not here.
     NovaSeed,
+    /// Nova Seed would destroy another player's ground forces in the space area (cargo), which the string announces with the system in the place of
+    /// the planet: no typed event carries that.
+    NovaSeedCargo,
     /// A hit of the space cannon offense needs a question (sustain damage, a casualty to choose).
     CannonHits,
     /// The Crown of Emphidia or Dark Energy Tap explores at the end of the action: no native planet exploration window.
@@ -334,6 +337,8 @@ pub struct ActivationCodes {
     pub yssaril_commander: crate::state::Code,
     /// The leader alias `nomadagentmercer`, the source of Mercer's questions.
     pub mercer: crate::state::Code,
+    /// The cause `breakthrough:nova_seed` of the ships Nova Seed destroys.
+    pub nova_seed_cause: crate::state::Code,
 }
 
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind

@@ -18,7 +18,7 @@ pub const FIRST_SLOT: u16 = 41_000;
 
 /// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
 pub const SUFFI_AN: usize = 11;
-pub const SUFFI_AN_COPY: usize = 50;
+pub const SUFFI_AN_COPY: usize = 48;
 
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
@@ -65,8 +65,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Leader, event: EventKind::SpaceCombatWon, relation: Relation::After, holds: |c| faction(c, Faction::TheMentakCoalition) }, // mentakcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::StrategyTokenSpent, relation: Relation::After, holds: |c| faction(c, Faction::TheEmbersOfMuaat) }, // muaatcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::UnitsProduced, relation: Relation::After, holds: |c| faction(c, Faction::TheEmbersOfMuaat) }, // muaatcommander_unlock
-    Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| faction(c, Faction::TheEmbersOfMuaat) }, // muaathero
-    Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| faction(c, Faction::TheEmbersOfMuaat) }, // muaathero_moved
     Gap { kind: AbilityKind::Leader, event: EventKind::CommandTokenPlaced, relation: Relation::After, holds: |c| faction(c, Faction::TheNaaluCollective) }, // naaluagent-te
     Gap { kind: AbilityKind::Leader, event: EventKind::StatusPhaseEnded, relation: Relation::After, holds: |c| faction(c, Faction::TheNaaluCollective) }, // naaluhero
     Gap { kind: AbilityKind::Leader, event: EventKind::TurnPassed, relation: Relation::After, holds: |c| faction(c, Faction::TheNaazRokhaAlliance) }, // naazagent
