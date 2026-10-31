@@ -250,6 +250,10 @@ mod tests {
                 return Some("done_producing".to_owned());
             }
         }
+        // (A carrier with nothing to carry is asked for its cargo at some tables and not at others: the default sails empty.)
+        if c.prompt.starts_with("load ") && has("done_loading") {
+            return Some("done_loading".to_owned());
+        }
         if c.prompt.starts_with("pay ") && has("trade_good") {
             return Some("trade_good".to_owned());
         }
@@ -689,7 +693,7 @@ mod tests {
             for builds in [0, 1] {
                 let mut state = dock_table(faction, other, &target, &dock);
                 crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
-                let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_loading", "done_moving"];
+                let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0)];
                 if let Some(d) = lockstep_buying(state, &hub.galaxy, &script, builds).into_iter().next() {
                     failures.push(format!("{faction} buying {builds}: {d}"));
                 }
