@@ -413,6 +413,9 @@ impl NativeGame {
             Ok(out) => out,
             Err(stop) => return stop_to_step(&arm_label, stop),
         };
+        if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
+            eprintln!("step {arm_label}: asked {:?}", out.asked.iter().map(|c| (c.player.to_string(), c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>());
+        }
         if out.finished
             && let Some(part) = lent_close(arm)
         {
