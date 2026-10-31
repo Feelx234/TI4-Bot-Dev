@@ -393,10 +393,7 @@ mod tests {
             }
         }
         let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
-        // A destruction a rule staged names its cause by the renderer's code: the position takes the renderer's table back, as a lend does.
-        if !core.transient().combat.pending_destructions.is_empty() {
-            core.texts.codes = render.codes_snapshot();
-        }
+        crate::tactical_live::tests::adopt_staged_texts(&mut core, &render);
         let materialized = materialize::materialize(&core, &cx, state).expect("materializes");
         let after_events = after;
         Side { asked, events, after: after_events, state: serde_json::to_value(&materialized).expect("serialises"), bail }

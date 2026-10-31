@@ -197,7 +197,7 @@ fn move_details(core: &CoreState, k: &Kernel, seat: ti4_engine_core::Seat, choic
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::rc::Rc;
@@ -315,8 +315,6 @@ mod tests {
         let render = Render::new(cx.owners.ids().to_vec());
         let sources = POK;
         let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(galaxy), rng: Some(rng) }, SliceSet::ALL).expect("the position loads");
-        // The renderer's code table continues the position's, as the native loop does (`native_play`), so the two mean the same texts.
-        let render = render.with_codes(core.texts.codes.clone());
         let seat = render.seat("a").expect("seat a");
         open_tactical(&mut core, seat);
         let kernel = crate::live::kernel::kernel_for(sources);
@@ -352,12 +350,27 @@ mod tests {
         let asked = seen.borrow().clone();
         let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
         // A destruction a rule staged names its cause by the renderer's code: the position takes the renderer's table back, as a lend does.
-        if !core.transient().combat.pending_destructions.is_empty() {
-            core.texts.codes = render.codes_snapshot();
-        }
+        adopt_staged_texts(&mut core, &render);
         let after = materialize::materialize(&core, &cx, state).expect("materializes");
         let rng = format!("{:?}", crate::core_sync::codec::rng::positions(&cx, core.rng()).expect("every stream has a text"));
         Side { asked, events, state: serde_json::to_value(&after).expect("serialises"), bail, rng }
+    }
+
+    /// A destruction a rule staged names its cause by the renderer's code (the table's `Codes`); the harness' renderer keeps its own table, so the
+    /// cause is carried over as text into the position's table.
+    pub(crate) fn adopt_staged_texts(core: &mut ti4_engine_core::state::CoreState, render: &Render) {
+        let staged: Vec<_> = core.transient().combat.pending_destructions.as_slice().to_vec();
+        if staged.is_empty() {
+            return;
+        }
+        let shown = render.codes_snapshot();
+        let mut carried = Vec::new();
+        for d in staged {
+            let text = shown.get(u32::from(d.reason.0)).map(<[u8]>::to_vec).unwrap_or_default();
+            let code = core.texts.codes.intern(&text, ti4_engine_core::state::CODE_CAPACITY).expect("room for the text");
+            carried.push(ti4_engine_core::state::PendingDestruction { reason: ti4_engine_core::state::Code(u16::try_from(code).expect("a code fits")), ..d });
+        }
+        core.transient_mut().combat.pending_destructions = carried.into_iter().collect();
     }
 
     /// What the string's `finish_action` writes when a script runs the whole action out (the turn flow's, not run here): the next seat's turn.
