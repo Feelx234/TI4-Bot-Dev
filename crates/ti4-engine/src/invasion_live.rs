@@ -83,7 +83,7 @@ mod tests {
     }
 
     /// The string run: the aftermath's opening (`active_invasion`, `INVASION_BEGAN`), the window, every question answered by `pick`.
-    fn string_run(mut state: GameState, seed: u64, system: &SystemId, invader: &str, pick: Box<dyn FnMut(&Choice) -> usize>) -> Run {
+    fn string_run(mut state: GameState, seed: u64, system: &SystemId, invader: &str, hero: bool, pick: Box<dyn FnMut(&Choice) -> usize>) -> Run {
         let asked = Rc::new(RefCell::new(Vec::new()));
         let answers = Rc::new(RefCell::new(Vec::new()));
         let mut table = Table::with_default(Box::new(Recorder { asked: asked.clone(), answers: answers.clone(), pick }));
@@ -94,16 +94,34 @@ mod tests {
         let mut resolver = armed_resolver(&state, order);
         let mut sequence = crate::event::EventSequence::new();
         let invader = PlayerId::new(invader);
-        state.active_invasion = Some(ti4_model::state::ActiveInvasion {
-            system: system.clone(),
-            invader: invader.clone(),
-            seq: u64::from(state.activation_seq),
-            phase: "bombardment".to_owned(),
-            planet: None,
-            defender: None,
-            ground_round: 0,
-            last_step: None,
-        });
+        let notes = crate::combat::note_holdings(&state);
+        let mut window = if hero {
+            InvasionWindow::at_commit_step(&mut state, &invader, system)
+        } else {
+            state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+                system: system.clone(),
+                invader: invader.clone(),
+                seq: u64::from(state.activation_seq),
+                phase: "bombardment".to_owned(),
+                planet: None,
+                defender: None,
+                ground_round: 0,
+                last_step: None,
+            });
+            let mut payload = std::collections::BTreeMap::new();
+            payload.insert("player".to_owned(), serde_json::Value::String(invader.to_string()));
+            payload.insert("system".to_owned(), serde_json::Value::String(system.to_string()));
+            let mut ctx = crate::choice::Resolving {
+                content,
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+            };
+            let _ = ctx.emit(&mut state, "INVASION_BEGAN", payload);
+            InvasionWindow::new_with_notes(&mut state, content, POK, ctx.dice, ctx.rng, &invader, system, notes)
+        };
         let mut ctx = crate::choice::Resolving {
             content,
             sources: POK,
@@ -112,13 +130,6 @@ mod tests {
             table: &mut table,
             timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
         };
-        let mut payload = std::collections::BTreeMap::new();
-        payload.insert("player".to_owned(), serde_json::Value::String(invader.to_string()));
-        payload.insert("system".to_owned(), serde_json::Value::String(system.to_string()));
-        let _ = ctx.emit(&mut state, "INVASION_BEGAN", payload);
-        let notes = crate::combat::note_holdings(&state);
-        let (dice_ref, rng_ref) = (&mut *ctx.dice, &mut *ctx.rng);
-        let mut window = InvasionWindow::new_with_notes(&mut state, content, POK, dice_ref, rng_ref, &invader, system, notes);
         let mut guard = 0;
         while !window.is_done() {
             window.drive(&mut state, &mut ctx).expect("the string run is legal");
@@ -127,7 +138,9 @@ mod tests {
             guard += 1;
             assert!(guard < 400, "the string invasion does not end");
         }
-        eprintln!("STRING DICE {:?}", ctx.dice.history().iter().map(|r| (r.reason.clone(), r.hits_on, r.faces.clone())).collect::<Vec<_>>());
+        if std::env::var_os("M3_DEBUG").is_some() {
+            eprintln!("STRING DICE {:?}", ctx.dice.history().iter().map(|r| (r.reason.clone(), r.hits_on, r.faces.clone())).collect::<Vec<_>>());
+        }
         state.active_invasion = None;
         drop(ctx);
         let (asked, answers) = (asked.borrow().clone(), answers.borrow().clone());
@@ -172,7 +185,6 @@ mod tests {
                 open_invasion(core, seat, sys, NoteHold::new());
             }
             let live = Cx::new(r_ref, &env);
-            let _ = &native_dice;
             let mut asker = Scripted::new(answers.iter().cloned());
             loop {
                 steps += 1;
@@ -186,20 +198,23 @@ mod tests {
                         // The event scoring window of a pause: nobody has anything to score here, so it closes at once.
                         core.pending_mut().close(WindowKind::EventScoring);
                         if !is_open::<InvasionMachine>(core) {
+                            native_dice = core.ledger().dice.iter().map(|d| (d.hits_on, d.faces.iter().copied().collect())).collect();
                             break;
                         }
                     }
                     Err(stop) => {
+                        native_dice = core.ledger().dice.iter().map(|d| (d.hits_on, d.faces.iter().copied().collect())).collect();
                         seen_all = asker.seen.clone();
                         outcome = Err(stop);
                         break;
                     }
                 }
             }
-            native_dice = core.ledger().dice.iter().map(|d| (d.hits_on, d.faces.iter().copied().collect())).collect();
         })
         .expect("lendable");
-        eprintln!("NATIVE DICE {:?}", native_dice);
+        if std::env::var_os("M3_DEBUG").is_some() {
+            eprintln!("NATIVE DICE {native_dice:?}");
+        }
         match outcome {
             Ok(()) => Ok((asked, gs, steps)),
             Err(stop) => Err((stop, if seen_all.is_empty() { asked } else { seen_all })),
@@ -225,41 +240,89 @@ mod tests {
         (state, system, planet)
     }
 
+    /// Pick the first option whose id starts with one of `prefer` (in the order given), else the first option.
+    fn prefer(prefer: &'static [&'static str]) -> Box<dyn FnMut(&Choice) -> usize> {
+        Box::new(move |c| prefer.iter().find_map(|p| c.options.iter().position(|o| o.id.starts_with(p))).unwrap_or(0))
+    }
+
+    /// Run `state` both ways and compare the questions, the position of the planets, the points and the control.
+    fn check(label: &str, state: &GameState, seed: u64, system: &SystemId, hero: bool, pick: Box<dyn FnMut(&Choice) -> usize>) -> usize {
+        let string = string_run(state.clone(), seed, system, "a", hero, pick);
+        let mut padded = string.answers.clone();
+        padded.extend(std::iter::repeat_n("fight".to_owned(), 6));
+        let (asked, gs, _) = match live_run(state.clone(), seed, system, "a", &padded, hero) {
+            Ok(r) => r,
+            Err((stop, seen)) => panic!(
+                "{label}: the native run stopped: {stop:?}\nnative {:?}\nstring {:?}",
+                seen.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>(),
+                string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>()
+            ),
+        };
+        if std::env::var_os("M3_DEBUG").is_some() {
+            eprintln!("QUESTIONS {label}: {:?}", string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>());
+        }
+        assert_same_questions(&asked, &string.asked);
+        for id in state.players.iter().map(|p| &p.id) {
+            let (l, s) = (gs.player(id).unwrap(), string.state.player(id).unwrap());
+            assert_eq!((l.victory_points, l.trade_goods), (s.victory_points, s.trade_goods), "{label} {id}");
+        }
+        assert_eq!(gs.system_state(system).planet_units, string.state.system_state(system).planet_units, "{label}: the units on the planets");
+        assert_eq!(gs.system_state(system).units, string.state.system_state(system).units, "{label}: the units in space");
+        assert_eq!(gs.system_state(system).planet_control, string.state.system_state(system).planet_control, "{label}: the control");
+        assert_eq!(gs.exhausted_planets, string.state.exhausted_planets, "{label}: the exhausted planets");
+        asked.len()
+    }
+
     /// A conquest of a planet another player holds (no first claim, no exploration): the questions, the answers and the position agree with the
     /// string window's, for several factions of the invader and several seeds.
     #[test]
     fn a_conquest_runs_natively_with_the_questions_and_the_position_of_the_string_window() {
         let _guard = crate::dual::tests::serial();
-        let mut compared = 0;
         for (seed, invader) in (1..=6_u64).zip(["hacan", "sardakk", "mentak", "letnev", "sol", "naalu"]) {
             let (mut state, system, planet) = game(&[("a", invader), ("b", "jolnar")], seed);
-            let a = PlayerId::new("a");
-            let b = PlayerId::new("b");
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
             crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
             crate::fixtures::put(&mut state, &system, "infantry", &a, 6);
             state.system_mut(&system).set_control(planet.clone(), b.clone());
             crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 2);
-            let string = string_run(state.clone(), seed, &system, "a", Box::new(|_| 0));
-            let mut padded = string.answers.clone();
-            padded.extend(std::iter::repeat_n("fight".to_owned(), 6));
-            let (asked, gs, _) = match live_run(state.clone(), seed, &system, "a", &padded, false) {
-                Ok(r) => r,
-                Err((stop, seen)) => panic!(
-                    "{invader} seed {seed}: the native run stopped: {stop:?}\nnative {:?}\nstring {:?}",
-                    seen.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>(),
-                    string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>()
-                ),
-            };
-            eprintln!("{invader} native units {:?}\nstring units {:?}", gs.system_state(&system).planet_units, string.state.system_state(&system).planet_units);
-            assert_same_questions(&asked, &string.asked);
-            for (id, label) in [(&a, "a"), (&b, "b")] {
-                let (l, s) = (gs.player(id).unwrap(), string.state.player(id).unwrap());
-                assert_eq!((l.victory_points, l.trade_goods), (s.victory_points, s.trade_goods), "{invader} {label}");
-            }
-            assert_eq!(gs.system_state(&system).planet_units, string.state.system_state(&system).planet_units, "{invader} seed {seed}: the units on the planets");
-            assert_eq!(gs.system_state(&system).planet_control, string.state.system_state(&system).planet_control, "{invader} seed {seed}: the control");
-            compared += 1;
+            check(invader, &state, seed, &system, false, prefer(&[]));
         }
-        assert_eq!(compared, 6);
+    }
+
+    /// Bombardment (dreadnoughts), the space cannon defense of a PDS and a long fight, against several defender factions.
+    #[test]
+    fn bombardment_and_the_space_cannon_defense_run_natively() {
+        let _guard = crate::dual::tests::serial();
+        let mut asked = 0;
+        for (seed, defender) in (1..=6_u64).zip(["letnev", "hacan", "sol", "jolnar", "mentak", "sardakk"]) {
+            let (mut state, system, planet) = game(&[("a", "naalu"), ("b", defender)], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "dreadnought", &a, 2);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 5);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 3);
+            if seed % 2 == 0 {
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &b, 1);
+            }
+            asked += check(defender, &state, seed, &system, false, prefer(&[]));
+        }
+        assert!(asked > 6);
+    }
+
+    /// The custodians offer on Mecatol Rex: declined, paid (the payment asks which planets), and the hero's opening at the commit step.
+    #[test]
+    fn the_custodians_offer_runs_natively_declined_and_paid() {
+        let _guard = crate::dual::tests::serial();
+        let mecatol = SystemId::new(crate::seating::MECATOL);
+        for (seed, (faction, choice)) in [("sol", &["no"][..]), ("sol", &["yes", "exhaust|"][..]), ("winnu", &["yes"][..])].into_iter().enumerate() {
+            let mut state = crate::fixtures::seated_dealt(&[("a", faction), ("b", "letnev")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed as u64 + 1;
+            state.board.entry(mecatol.clone()).or_default();
+            crate::fixtures::put(&mut state, &mecatol, "infantry", &PlayerId::new("a"), 2);
+            state.player_mut(&PlayerId::new("a")).unwrap().trade_goods = 4;
+            check(faction, &state, seed as u64 + 1, &mecatol, true, prefer(choice));
+        }
     }
 }

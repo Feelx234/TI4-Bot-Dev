@@ -537,6 +537,12 @@ impl InvasionMachine {
         Ok(())
     }
 
+    /// Whether a first claim of `planet` explores anything: a printed trait, or an attachment that gives one (`traits_now`).
+    fn explorable(&self, s: &CoreState, k: &Kernel, planet: Planet) -> bool {
+        let scope = crate::tables::Scope(u32::from(k.sources.0));
+        !crate::query::explore::traits_of(scope, planet).is_empty() || qboard::attachments(s, planet).iter().any(|a| !a.data().traits.is_empty())
+    }
+
     /// `finish_control_gain`: Assimilate, `PLANET_CONTROL_GAINED`, the destruction of the rival structures, then what follows a capture.
     pub(super) fn finish_control_gain(&mut self, sx: &mut Sx<'_>, planet: Planet, previous: Option<Seat>) -> Result<(), Bail> {
         let (invader, system) = (self.p.invader, self.p.system);
@@ -550,8 +556,8 @@ impl InvasionMachine {
         if w.unsupported {
             return Err("an Assimilate seat whose unit forms the core cannot name");
         }
-        // 35.1: a planet nobody controlled is explored.
-        if previous.is_none() {
+        // 35.1: a planet nobody controlled is explored (when it has a trait to explore into).
+        if previous.is_none() && self.explorable(sx.state, sx.kernel, planet) {
             return Err("the exploration of a first claim (no native exploration window yet)");
         }
         Ok(())
