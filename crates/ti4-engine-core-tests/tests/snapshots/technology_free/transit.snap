@@ -1,0 +1,13 @@
+Q0 seat 0 Technology(TransitDiodes { left: 4 })
+  >0: Technology(Transit { from_system: Tempesta, from: Some(Tempesta), unit: InfantryI, to_system: Olergodt, to: Olergodt })
+   1: Decline
+Q1 seat 0 Technology(TransitDiodes { left: 3 })
+  >0: Technology(Transit { from_system: Tempesta, from: Some(Tempesta), unit: InfantryI, to_system: Olergodt, to: Olergodt })
+   1: Decline
+done
+--- delta ---
+player0.tech.exhausted: {} -> -
+player0.tech.exhausted.[0]: - -> TransitDiodes
+sys[Olergodt]: units [] tokens {} flags 0 -> units [] tokens {} flags 1
+planet[Olergodt]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [2xInfantryI/s0] attach [] coexist {} placed_in None flags 4
+planet[Tempesta]: control Some(0) units [2xInfantryI/s0] attach [] coexist {} placed_in None flags 4 -> control Some(0) units [] attach [] coexist {} placed_in None flags 4

@@ -1,0 +1,11 @@
+Q0 seat 0 Technology(WormholeGenerator)
+  >0: Technology(Token(Alpha, Olergodt))
+   1: Technology(Token(Beta, Olergodt))
+   2: Technology(Token(Alpha, Andeara))
+   3: Decline
+done
+--- delta ---
+player0.tech.exhausted: {} -> -
+player0.tech.exhausted.[0]: - -> WormholeGenerator
+explore.wormhole_tokens: {} -> -
+explore.wormhole_tokens.Alpha: - -> Olergodt

@@ -1,0 +1,35 @@
+Q0 seat 0 Technology(Psychoarchaeology)
+  >0: Technology(Planet(Tempesta, Shown { votes: 0, system: Some(Tempesta) }))
+   1: Technology(Planet(Olergodt, Shown { votes: 0, system: Some(Olergodt) }))
+   2: Decline
+Q1 seat 0 Technology(Psychoarchaeology)
+  >0: Technology(Planet(Olergodt, Shown { votes: 0, system: Some(Olergodt) }))
+   1: Decline
+done
+--- delta ---
+player0.econ.trade_goods: 2 -> 4
+planet[Olergodt]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [] attach [] coexist {} placed_in None flags 1
+planet[Tempesta]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [] attach [] coexist {} placed_in None flags 1
+pending.staged: [] -> -
+pending.staged.[0].cancelled: - -> false
+pending.staged.[0].id: - -> 0
+pending.staged.[0].kind: - -> TradeGoodsGained
+pending.staged.[0].payload.items.[0].[0]: - -> Player
+pending.staged.[0].payload.items.[0].[1].[0].[0]: - -> 0
+pending.staged.[0].payload.items.[1].[0]: - -> Amount
+pending.staged.[0].payload.items.[1].[1].[0]: - -> 1
+pending.staged.[0].payload.items.[2].[0]: - -> Source
+pending.staged.[0].payload.items.[2].[1].[0].[0]: - -> 41
+pending.staged.[0].payload.lists: - -> []
+pending.staged.[0].payload.units: - -> []
+pending.staged.[1].cancelled: - -> false
+pending.staged.[1].id: - -> 0
+pending.staged.[1].kind: - -> TradeGoodsGained
+pending.staged.[1].payload.items.[0].[0]: - -> Player
+pending.staged.[1].payload.items.[0].[1].[0].[0]: - -> 0
+pending.staged.[1].payload.items.[1].[0]: - -> Amount
+pending.staged.[1].payload.items.[1].[1].[0]: - -> 1
+pending.staged.[1].payload.items.[2].[0]: - -> Source
+pending.staged.[1].payload.items.[2].[1].[0].[0]: - -> 41
+pending.staged.[1].payload.lists: - -> []
+pending.staged.[1].payload.units: - -> []
