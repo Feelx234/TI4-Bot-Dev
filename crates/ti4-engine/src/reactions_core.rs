@@ -94,6 +94,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::EDICT_GROUND, kind: "ability", card: "edict" },
     Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::COMMANDER, kind: "leader", card: "arboreccommander" },
     Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::FLAGSHIP, kind: "unit", card: "arborec_flagship" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yssaril::timing::SO_ATA, kind: "leader", card: "yssarilcommander" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yssaril::timing::SO_ATA_CLEAR, kind: "leader", card: "yssarilcommander_clear" },
     Named { slot: ti4_engine_core_factions::cd_registry::titans::timing::AWAKEN, kind: "ability", card: "awaken" },
     Named { slot: ti4_engine_core_factions::cd_registry::titans::timing::OURANOS, kind: "unit", card: "titans_flagship" },
     Named { slot: ti4_engine_core_factions::silent::gift::GIFT, kind: "promissory", card: "gift" },
@@ -598,7 +600,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             peace_prompt: r.code(crate::tactical_live::PEACE_PROMPT),
             peace_source: r.code("minister_peace"),
         };
-        table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent"), sardakk_agent: r.code("sardakkagent"), edict: r.code("edict"), awaken: r.code("awaken"), titans_flagship: r.code("titans_flagship") };
+        table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent"), sardakk_agent: r.code("sardakkagent"), edict: r.code("edict"), awaken: r.code("awaken"), titans_flagship: r.code("titans_flagship"), yssaril_commander: r.code("yssarilcommander") };
         table.codes.turn = crate::live::turn::codes(r);
         table.codes.silent = ti4_engine_core::kernel::ability::SilentCodes {
             lw2: r.code("lw2"),

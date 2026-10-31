@@ -34,7 +34,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:solcommander:GROUND_COMBAT_STARTED:after",
     "leader:*:titanscommander:PRODUCTION_USED:when",
     "leader:*:winnuagent:PRODUCTION_USED:after",
-    "leader:*:yssarilcommander_clear:ACTION_COMPLETED:after",
     "promissory:*:ambuscade:UNIT_ABILITY_ROLLED:when",
     "promissory:*:iff:TURN_BEGAN:after",
     "promissory:*:ragh:UNITS_COMMITTED:after",
@@ -60,7 +59,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:a:yssarilagent:mentakagent:PILLAGE_USED:after",
     "leader:*:a:yssarilagent:naazagent:TURN_PASSED:after",
     "leader:*:a:yssarilagent:winnuagent:PRODUCTION_USED:after",
-    "leader:*:yssarilcommander:SYSTEM_ACTIVATED:after",
     "leader:*:c:l1z1xagent:a:SYSTEM_ACTIVATED:after",
     "leader:*:nomadagentmercer:TACTICAL_ACTION_ENDED:after",
 ];

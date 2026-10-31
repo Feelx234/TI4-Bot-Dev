@@ -332,6 +332,8 @@ pub struct ActivationCodes {
     pub awaken: crate::state::Code,
     /// The unit alias `titans_flagship`, the source of Ouranos' question.
     pub titans_flagship: crate::state::Code,
+    /// The leader alias `yssarilcommander`, the source of So Ata's question.
+    pub yssaril_commander: crate::state::Code,
 }
 
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind

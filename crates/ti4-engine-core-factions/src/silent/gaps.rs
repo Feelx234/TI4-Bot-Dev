@@ -18,7 +18,7 @@ pub const FIRST_SLOT: u16 = 41_000;
 
 /// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
 pub const SUFFI_AN: usize = 11;
-pub const SUFFI_AN_COPY: usize = 51;
+pub const SUFFI_AN_COPY: usize = 50;
 
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
@@ -78,7 +78,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Leader, event: EventKind::GroundCombatStarted, relation: Relation::After, holds: |c| faction(c, Faction::TheFederationOfSol) }, // solcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::When, holds: |c| faction(c, Faction::TheTitansOfUl) }, // titanscommander
     Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::After, holds: |c| faction(c, Faction::TheWinnu) }, // winnuagent
-    Gap { kind: AbilityKind::Leader, event: EventKind::ActionCompleted, relation: Relation::After, holds: |c| faction(c, Faction::TheYssarilTribes) }, // yssarilcommander_clear
     // -- promissory notes (held by any seat)
     Gap { kind: AbilityKind::Promissory, event: EventKind::UnitAbilityRolled, relation: Relation::When, holds: |c| note(c, PromissoryNote::StrikeWingAmbuscade) }, // ambuscade
     Gap { kind: AbilityKind::Promissory, event: EventKind::TurnBegan, relation: Relation::After, holds: |c| note(c, PromissoryNote::CreussIff) }, // iff
@@ -110,7 +109,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Leader, event: EventKind::TurnPassed, relation: Relation::After, holds: |c| copies(c, Faction::TheNaazRokhaAlliance) }, // yssarilagent: naazagent
     Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::After, holds: |c| copies(c, Faction::TheWinnu) }, // yssarilagent: winnuagent
     // -- the activation abilities lane M6c lists as gaps (its audit); delete the row when the lane ports the rule
-    Gap { kind: AbilityKind::Leader, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| faction(c, Faction::TheYssarilTribes) }, // yssarilcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| copies(c, Faction::TheL1Z1XMindnet) }, // yssarilagent: l1z1xagent
     Gap { kind: AbilityKind::Leader, event: EventKind::TacticalActionEnded, relation: Relation::After, holds: |c| faction(c, Faction::TheNomad) }, // nomadagentmercer
 ];

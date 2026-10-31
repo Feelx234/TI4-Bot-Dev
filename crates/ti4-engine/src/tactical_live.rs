@@ -1008,4 +1008,42 @@ mod tests {
             assert!(diffs.is_empty(), "commander {script:?}: {diffs:#?}");
         }
     }
+
+    /// So Ata (the Yssaril commander): what to look at on the activating player, and the reveal mark; the end of the action clears it.
+    #[test]
+    fn so_ata_looks_at_the_activating_players_cards_in_lockstep() {
+        let (hub, origin, target) = hub();
+        let b = PlayerId::new("b");
+        let base = |hand: &[&str], secrets: &[&str], notes: bool| {
+            let mut state = table(&[("a", "sol"), ("b", "yssaril")]);
+            if !notes {
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+            }
+            state.player_mut(&a()).unwrap().action_cards = hand.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
+            state.player_mut(&a()).unwrap().secret_objectives = secrets.iter().map(|c| ti4_model::id::SecretObjectiveId::new(*c)).collect();
+            state.player_mut(&b).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yssarilcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            crate::fixtures::put(&mut state, &target, "carrier", &b, 1);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            state
+        };
+        let (commander, mv) = ("leader:yssaril:yssarilcommander:SYSTEM_ACTIVATED:after", id(&origin, 0));
+        // Only one kind to look at (no question), then the three kinds (a question), then a decline.
+        for (hand, secrets, notes, answers) in [
+            (vec!["abs", "bribery"], vec![], false, vec![commander]),
+            (vec![], vec!["dtgs"], false, vec![commander]),
+            (vec![], vec![], true, vec![commander]),
+            (vec!["abs", "bribery"], vec!["dtgs"], true, vec![commander, "action_cards"]),
+            (vec!["abs"], vec!["dtgs"], true, vec![commander, "promissory_notes"]),
+            (vec!["abs"], vec!["dtgs"], true, vec![commander, "secret_objectives"]),
+            (vec!["abs"], vec!["dtgs"], true, vec!["decline"]),
+        ] {
+            let state = base(&hand, &secrets, notes);
+            let mut script = vec![TACTICAL_ACTION_ID, target.as_str()];
+            script.extend(answers.iter().copied());
+            script.push(mv.as_str());
+            let diffs = lockstep(state, &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "so ata {script:?}: {diffs:#?}");
+        }
+    }
 }
