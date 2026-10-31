@@ -87,6 +87,30 @@ pub enum Unknown {
     UnportedTactical(TacticalGap),
     /// A position the native invasion does not run yet (a documented bail of `driver::windows::invasion`, named by its reason).
     Unported(Unported),
+    /// A position the native aftermath chain or its space combat does not run (a documented bail of `driver::windows::{chain, combat}`).
+    UnportedAftermath(AftermathGap),
+}
+
+/// The positions the native aftermath chain and its space combat do not run, each a counted bail of the live path. The words are the adapter's
+/// (`combat_live::gap_text`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AftermathGap {
+    /// A stage that neither asks nor moves on.
+    NoProgress,
+    /// The production step after the fight or the invasion (the production island is not native).
+    ProductionStep,
+    /// A contact pause (`Aftermath::Negotiating`): structured diplomacy is dropped.
+    Negotiating,
+    /// A space combat whose environment cannot be built from the position (no galaxy, an unseated side).
+    NoCombatEnv,
+    /// The machine reached a position it does not carry (see `Machine::bailed`).
+    CombatUnported,
+    /// A roll that ended the fight inside the roll step and left the machine in a position it does not carry.
+    RollEndsFight,
+    /// A neutral side (Thunder's Edge neutral units).
+    NeutralSide,
+    /// A scoring window that asks for something the core does not offer (a plot, a priced objective).
+    EventScoring,
 }
 
 /// The positions the native tactical action (`driver::windows::tactical`) does not run, each a counted bail of the live path. The words are
@@ -357,6 +381,48 @@ pub struct AdapterFacts {
     /// The printed name of each action card as the index of the first card with the same name, for the windows that offer one
     /// option per name outside a card play (the hand limit, package W6). Empty: the adapter did not say, the window declines.
     pub card_groups: Vec<u8>,
+    /// The texts of the space combat the live loop runs (`driver::windows::combat`): unit and roll-group names, causes and phases. The
+    /// core holds no text; the adapter interns them for the unit types in the fight at every call (`ti4-engine/src/combat_live.rs`).
+    pub combat: CombatTexts,
+}
+
+/// The texts the live space combat needs from outside: the string's `settle_run` interned them per settle, the live adapter does per call.
+/// `state` codes are texts of the position (`CoreState::texts`: unit names in a roll's record, the presentation phases), `shown` codes the
+/// renderer's (labels, the payloads of events).
+#[derive(Debug, Clone, Default)]
+pub struct CombatTexts {
+    /// The presentation phases `pre_roll`, `barrage`, `resolving_hits`, `retreating`, `complete` (state).
+    pub phases: [crate::state::Code; 5],
+    /// The state text of every unit type that can be named in the fight (the types present and the other form of a dual-form unit).
+    pub unit_codes: Vec<(crate::generated::Unit, crate::state::Code)>,
+    /// The renderer's text of the same types.
+    pub shown_codes: Vec<(crate::generated::Unit, crate::state::Code)>,
+    /// Every roll group: the sorted unit types, the state text (the ids joined with `+`) and the shown text.
+    pub groups: Vec<(Vec<crate::generated::Unit>, crate::state::Code, crate::state::Code)>,
+    /// The state texts `extra barrage` and `retreat_capacity`; the shown `extra barrage`.
+    pub barrage_extra: crate::state::Code,
+    pub retreat_cause: crate::state::Code,
+    pub barrage_extra_shown: crate::state::Code,
+    /// Shown texts: the cause and kind of the barrage, of a roll, the Hacan flagship, a retreat's loss and the pool it returns to, Raid
+    /// Formation, Assault Cannon (its subtype and cause), Ambush, Impulse Core, Devotion, the casualty question, the Letnev commander.
+    pub barrage_cause: crate::state::Code,
+    pub barrage_kind: crate::state::Code,
+    pub roll_cause: crate::state::Code,
+    pub hacan: crate::state::Code,
+    pub retreat_event: crate::state::Code,
+    pub retreat_pool: crate::state::Code,
+    pub raid: crate::state::Code,
+    pub ac_subtype: crate::state::Code,
+    pub ac_cause: crate::state::Code,
+    pub ambush: crate::state::Code,
+    pub cause_core: crate::state::Code,
+    pub cause_devotion: crate::state::Code,
+    pub casualty: crate::state::Code,
+    pub commander: crate::state::Code,
+    /// The payload keys `losers`, `retreated` and the reasons `retreat`, `draw`, `destruction`, `round_limit` of the end announcement.
+    pub end: [crate::state::Code; 6],
+    /// The state text of the payload key `opponents` and the shown text of the presentation phase `pre_roll` are the tactical codes'.
+    pub opponents: crate::state::Code,
 }
 
 /// What the cards that reroll staged dice (Fire Team) need of the adapter: the state text of the ground kind, and for each

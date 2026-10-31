@@ -233,6 +233,18 @@ pub struct FightOver {
 }
 
 impl FightOver {
+    /// A fight over whose announcement was made and whose enforcement is under way (the live path rebuilds a held window at its question):
+    /// the enforcement resumes from the position.
+    #[must_use]
+    pub fn enforcing(f: OverFacts, holds: bool, core: &CoreState, k: &Kernel) -> Self {
+        let mut over = Self::new(f);
+        over.holds = holds;
+        over.stage = OverStage::Enforcing;
+        let all = EnforceAll::new(over.f.pairs.clone()).resumed(core, k);
+        over.enforce.start(all);
+        over
+    }
+
     #[must_use]
     pub fn new(f: OverFacts) -> Self {
         Self { f, stage: OverStage::Announcing, enforce: Child::idle(), holds: false } // mutants:skip: `holds` is set by the first step

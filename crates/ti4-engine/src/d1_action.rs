@@ -10,7 +10,7 @@
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{System, Unit as CUnit};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::state::{AStage, Aftermath, Before, NoteHold, PauseLimit, Piece, TStage, Tactical, Window};
+use ti4_engine_core::state::{AFight, AStage, Aftermath, Before, NoteHold, PauseLimit, Piece, TStage, Tactical, Window};
 
 use super::super::{Aftermath as AStr, AftermathWindow, Game, TacticalStage, TacticalWindow};
 use crate::combat::NoteHoldings;
@@ -189,17 +189,14 @@ pub(super) fn aftermath_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
         capitals.push((seat, u16::try_from(n).map_err(|_| "a capital count above 65535")?));
     }
     let notes = notes_of(&w.notes_at_tactical_start, r)?;
-    Ok(Some(Window::Aftermath(Box::new(Aftermath {
-        player: seat(r, &w.player)?,
-        system: system(&w.system)?,
-        stage,
-        before_combat: Before { sides, capitals, notes: notes.clone() },
-        feats_noted: w.feats_noted,
-        event_scoring: w.pending_event_scoring.map(|(o, l)| {
-            (o.0, if l == EventScoreLimit::OnePerPlayer { PauseLimit::OnePerPlayer } else { PauseLimit::AnyPerPlayer })
-        }),
-        notes_at_start: notes,
-    }))))
+    let mut a = Aftermath::new(seat(r, &w.player)?, system(&w.system)?, stage, Before { sides, capitals, notes: notes.clone() }, notes);
+    a.feats_noted = w.feats_noted;
+    a.event_scoring = w.pending_event_scoring.map(|(o, l)| {
+        (o.0, if l == EventScoreLimit::OnePerPlayer { PauseLimit::OnePerPlayer } else { PauseLimit::AnyPerPlayer })
+    });
+    // The string holds the combat inside its window: the observed copy stands at the stage the string is in.
+    a.fight = if stage == AStage::Fighting { AFight::Fighting } else { AFight::Over };
+    Ok(Some(Window::Aftermath(Box::new(a))))
 }
 
 pub(super) fn aftermath_back(a: &Aftermath, r: &Render) -> AKey {

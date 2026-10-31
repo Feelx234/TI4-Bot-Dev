@@ -38,7 +38,7 @@ use crate::kernel::stage::{Held, Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::rules::tactical::fleet::Enforce;
 use crate::rules::tactical::{Facts as LeafFacts, Machine, Step};
-use crate::state::{AStage, Aftermath, CoreState, Code, NoteHold, PauseLimit, TStage, THead, THeadStep, Tactical, Window as OpenWindow, WindowKind};
+use crate::state::{AFight, AStage, Aftermath, CoreState, Code, NoteHold, PauseLimit, TStage, THead, THeadStep, Tactical, Window as OpenWindow, WindowKind};
 
 use super::aftermath::Head;
 
@@ -126,16 +126,19 @@ impl TacticalAction {
     /// The head is over: the aftermath opens above this entry (`finish_tactical_inner`'s second half, up to the chain).
     fn open_aftermath(&mut self, sx: &mut Sx<'_>, head: &Head, skip_to_commit: bool) {
         let system = sx.state.meta().active_system.unwrap_or(head.f.system);
-        let aftermath = Aftermath {
-            player: self.p.player,
+        let mut aftermath = Aftermath::new(
+            self.p.player,
             system,
             // `at_commit_step` hands the invasion its commit step with the feats already noted.
-            stage: if skip_to_commit { AStage::Invading } else { AStage::Fighting },
-            before_combat: head.before.clone().unwrap_or_default(),
-            feats_noted: skip_to_commit,
-            event_scoring: head.scoring.map(|o| (o, PauseLimit::AnyPerPlayer)),
-            notes_at_start: self.p.notes_at_start.clone(),
-        };
+            if skip_to_commit { AStage::Invading } else { AStage::Fighting },
+            head.before.clone().unwrap_or_default(),
+            self.p.notes_at_start.clone(),
+        );
+        aftermath.feats_noted = skip_to_commit;
+        aftermath.event_scoring = head.scoring.map(|o| (o, PauseLimit::AnyPerPlayer));
+        if skip_to_commit {
+            aftermath.fight = AFight::Over;
+        }
         sx.state.pending_mut().open(OpenWindow::Aftermath(Box::new(aftermath)));
         self.p.stage = TStage::Aftermath;
         self.parked = true;

@@ -37,6 +37,21 @@ impl EnforceAll {
     }
 }
 
+impl EnforceAll {
+    /// The enforcement as the position calls for it now: the pairs already within their limits are passed over (a held window is rebuilt this
+    /// way; `Enforce` settles from the position, the units removed so far need no memory).
+    #[must_use]
+    pub fn resumed(mut self, core: &CoreState, k: &Kernel) -> Self {
+        while let Some((seat, system, limits)) = self.pairs.get(self.at).copied() {
+            if Enforce::new(seat, system, limits).resumed(core, k).stage() != crate::rules::tactical::fleet::EStage::Done {
+                break;
+            }
+            self.at += 1;
+        }
+        self
+    }
+}
+
 impl Window for EnforceAll {
     type Stage = Stage;
 

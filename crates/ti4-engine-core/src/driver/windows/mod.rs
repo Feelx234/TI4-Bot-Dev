@@ -5,7 +5,11 @@
 pub use crate::rules::combat::sustain_commander;
 
 pub mod aftermath;
+pub mod chain;
+pub mod combat;
 pub mod enforce_all;
+pub mod live_common;
 pub mod invasion;
 pub mod minister;
+pub mod scoring;
 pub mod tactical;

@@ -204,6 +204,10 @@ pub struct Machine {
     sustaining: Option<Sustaining>,
     /// The last unit that sustained: where it stood and how it stands now.
     pub last_sustain: Option<(crate::choice::combat::SustainSite, Piece)>,
+    /// LIVE (`driver::windows::combat`): the machine is rebuilt from `(fields, position)` at every call, so a question of a child window
+    /// (a reroll, Raid Formation, an Ambush hit, the Letnev commander's payment) cannot wait inside the object: it goes to the table through
+    /// the tape and the driver replays the step with the answer. The only questions the machine stops at are its pending decisions.
+    pub live: bool,
 }
 
 impl Machine {
@@ -228,7 +232,24 @@ impl Machine {
             answered: false,
             sustaining: None,
             last_sustain: None,
+            live: false,
         }
+    }
+
+    /// The machine of the live loop (see [`Self::live`]).
+    #[must_use]
+    pub fn live(mut self) -> Self {
+        self.live = true;
+        self
+    }
+
+    /// LIVE: put a child window's question to the table through the tape. `None` while the tape is dry (the question is reported and the
+    /// step replayed with the answer: the caller returns at once).
+    fn ask_tape(sx: &mut Sx<'_>, choice: &Choice) -> Option<Pick> {
+        let event = crate::state::EventRec { id: 0, kind: EventKind::ActionCardPlayed, payload: Payload::new(), cancelled: false };
+        let facts = crate::kernel::NestedFacts { event, relation: crate::choice::reaction::Relation::When, chain: Vec::new(), offered: Vec::new() };
+        let pick = sx.tape.pick_with(sx.state, choice, Some(facts));
+        if sx.tape.needed().is_some() { None } else { Some(pick) }
     }
 
     /// A machine that puts the decision the settle stopped at (`fields.step`) and applies the answer to it,
@@ -766,6 +787,12 @@ impl Machine {
             if let Some(ac) = &mut self.ac_w {
                 match ac.step(sx) {
                     Next::Continue(ask) => {
+                        if self.live {
+                            let choice = ac.ask_of(sx.state, sx.kernel)?;
+                            let Some(pick) = Self::ask_tape(sx, &choice) else { return Some(Next::Done) };
+                            ac.answer(sx, pick).ok()?;
+                            continue;
+                        }
                         self.stage = Stage::Producing;
                         return Some(Next::Continue(ask));
                     }
@@ -780,6 +807,12 @@ impl Machine {
             if let Some(barrage) = &mut self.barrage_w {
                 match barrage.step(sx) {
                     Next::Continue(ask) => {
+                        if self.live {
+                            let choice = barrage.ask_of(sx.state, sx.kernel)?;
+                            let Some(pick) = Self::ask_tape(sx, &choice) else { return Some(Next::Done) };
+                            barrage.answer(sx, pick).ok()?;
+                            continue;
+                        }
                         self.stage = Stage::Barraging;
                         return Some(Next::Continue(ask));
                     }
@@ -798,6 +831,12 @@ impl Machine {
             if let Some((produce, _, _)) = &mut self.produce {
                 match produce.step(sx) {
                     Next::Continue(ask) => {
+                        if self.live {
+                            let choice = produce.ask_of(sx.state, sx.kernel)?;
+                            let Some(pick) = Self::ask_tape(sx, &choice) else { return Some(Next::Done) };
+                            produce.answer(sx, pick).ok()?;
+                            continue;
+                        }
                         self.stage = Stage::Producing;
                         return Some(Next::Continue(ask));
                     }
@@ -811,6 +850,12 @@ impl Machine {
             if let Some(roll) = &mut self.roll {
                 match roll.step(sx) {
                     Next::Continue(ask) => {
+                        if self.live {
+                            let choice = roll.ask_of(sx.state, sx.kernel)?;
+                            let Some(pick) = Self::ask_tape(sx, &choice) else { return Some(Next::Done) };
+                            roll.answer(sx, pick).ok()?;
+                            continue;
+                        }
                         self.stage = Stage::Rolling;
                         return Some(Next::Continue(ask));
                     }
@@ -913,6 +958,9 @@ impl Window for Machine {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.live {
+            return self.step_live(sx);
+        }
         if self.stage == Stage::Done {
             return Next::Done;
         }
@@ -937,6 +985,9 @@ impl Window for Machine {
     }
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.live {
+            return self.pending_choice(s, k);
+        }
         if self.awaiting {
             if let Some(sus) = &self.sustaining {
                 return sus.commander.as_ref().and_then(|c| c.ask_of(s, k));
@@ -956,6 +1007,9 @@ impl Window for Machine {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.live {
+            return self.answer_live(sx, pick);
+        }
         if self.awaiting {
             if let Some(sus) = self.sustaining.as_mut() {
                 return sus.commander.as_mut().ok_or(Illegal)?.answer(sx, pick);
@@ -982,6 +1036,56 @@ impl Window for Machine {
 }
 
 impl Machine {
+    /// LIVE: the settle from `fields.step` to the next decision, the end of the fight or the pause for the barrage's scoring window. A
+    /// position the machine does not carry stops it with [`Stop::Bailed`]; a child's question the tape could not answer returns at once
+    /// (the driver replays the step).
+    fn step_live(&mut self, sx: &mut Sx<'_>) -> Next {
+        self.stop = None;
+        match self.run(sx) {
+            Some(_) => {}
+            None => {
+                if self.stop.is_none() {
+                    self.stop = Some(Stop::Bailed(Bail::Unported));
+                }
+                return Next::Done;
+            }
+        }
+        if self.stop == Some(Stop::Pending) {
+            return match self.pending_choice(sx.state, sx.kernel) {
+                Some(choice) => Next::Continue(choice.ask),
+                None => {
+                    self.stop = Some(Stop::Bailed(Bail::Unported));
+                    Next::Done
+                }
+            };
+        }
+        Next::Done
+    }
+
+    /// LIVE: the answer to the decision the settle stopped at, with the Letnev commander's payment of a sustain asked through the tape. The
+    /// settle that follows is the next `step`.
+    fn answer_live(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        self.answer_pending(sx, pick)?;
+        if let Some(mut sus) = self.sustaining.take() {
+            if let Some(commander) = sus.commander.as_mut() {
+                while let Next::Continue(_) = commander.step(sx) {
+                    let choice = commander.ask_of(sx.state, sx.kernel).ok_or(Illegal)?;
+                    let Some(p) = Self::ask_tape(sx, &choice) else { return Ok(()) };
+                    commander.answer(sx, p)?;
+                }
+            }
+            let _ = emit_used(sx, &sus.offer, sus.unit);
+            let cancels = Self::cancels(sx.state, Self::rd(sx.state, sx.kernel), sus.offer.player);
+            let mut queue = sus.queue;
+            if let Some(front) = queue.first_mut() {
+                front.hits = front.hits.saturating_sub(u32::try_from(cancels).unwrap_or(u32::MAX));
+            }
+            self.fields.step = Step::Queue { assigning: false, round: sus.round, queue };
+        }
+        self.answered = false;
+        Ok(())
+    }
+
     #[must_use]
     pub fn bailed(&self) -> Option<Bail> {
         match self.stop {
