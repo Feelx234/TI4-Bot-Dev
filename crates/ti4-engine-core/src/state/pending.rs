@@ -37,6 +37,8 @@ pub enum WindowKind {
     Invasion,
     /// One use of PRODUCTION (`Window::Production`, a stub payload until lane M2).
     Production,
+    /// A job of the turn flow suspended on a question (`Window::TurnFlow`, lane B).
+    TurnFlow,
 }
 
 /// How a follower of a strategic action's secondary stands (`strategy::SecondaryResolution`).
@@ -122,6 +124,8 @@ pub enum Window {
     Invasion(Box<Invasion>),
     /// One use of PRODUCTION (M0 stub payload: lane M2 types it).
     Production(Box<ProductionUse>),
+    /// A job of the turn flow (lane B): the prelude, the end of an action or a turn, a phase change.
+    TurnFlow(super::TurnJob),
     /// A kind with no typed payload yet.
     Untyped { kind: WindowKind, actor: Option<Seat>, data: [u32; 3] },
 }
@@ -146,6 +150,7 @@ impl Window {
             Self::Combat(_) => WindowKind::Combat,
             Self::Invasion(_) => WindowKind::Invasion,
             Self::Production(_) => WindowKind::Production,
+            Self::TurnFlow(_) => WindowKind::TurnFlow,
             Self::Untyped { kind, .. } => *kind,
         }
     }

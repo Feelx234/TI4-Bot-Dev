@@ -80,6 +80,8 @@ pub enum Unknown {
     DataSkimmer,
     /// The play of a card needs what the adapter did not compute (`AdapterFacts::plays`).
     PlayFacts,
+    /// The live turn flow cannot follow the string here yet (lane B, `driver::turn`).
+    TurnGap(super::turn_codes::TurnGap),
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -154,6 +156,8 @@ pub struct Codes {
     /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
     /// `trade_agreement`, `artuno` (Artuno the Betrayer does not copy them).
     pub not_from_supply: [crate::state::Code; 5],
+    /// The texts of the turn flow (lane B).
+    pub turn: super::turn_codes::TurnCodes,
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of
