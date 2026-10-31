@@ -34,7 +34,7 @@ use crate::query::trade::{self as q, Illegal as Why};
 use crate::query::trade_deals::{self as deals_q, DealFacts};
 use crate::state::{CoreState, EventKind, Key, PlainKind, PlainRec, Trade, TransientFlags, Val, Window as OpenWindow, WindowKind};
 
-use super::trade::{dark_pact_gains, exchange, record_resolved, KernelEnv};
+use super::trade::{dark_pact_gains, exchange, record_resolved};
 
 pub use crate::query::trade_deals::deals;
 
@@ -369,35 +369,21 @@ impl TradeWindow {
 /// no map).
 #[must_use]
 pub fn live_facts(core: &CoreState, k: &Kernel, t: &Trade) -> Option<DealFacts> {
-    let adj = core.map().adjacency()?;
-    let env = KernelEnv { core, kernel: k };
-    let cx = q::Cx {
-        core,
-        adj,
-        mecatol: crate::query::objectives::mecatol_in_galaxy(core),
-        limits: q::Limits { per_action: MAX_NEGOTIATIONS_PER_ACTION, per_round: MAX_NEGOTIATIONS_PER_ROUND },
-        env: &env,
-    };
     let (p, r) = (t.proposer, t.partner);
-    let mut facts = DealFacts {
+    let mut facts = super::trade::with_cx(core, k, |cx| DealFacts {
         note_order: deals_q::note_order,
         card_order: deals_q::card_order,
         unlocked: deals_q::commander_unlocked_mask(core),
         pair: (p, r),
-        may: [q::may_transact(&cx, p, r), q::may_transact(&cx, r, p)],
-        arbiters: [env_arbiters(&env, p), env_arbiters(&env, r)],
+        may: [q::may_transact(cx, p, r), q::may_transact(cx, r, p)],
+        arbiters: [cx.env.trades_action_cards(p), cx.env.trades_action_cards(r)],
         planet_values: deals_q::planet_values(),
         free: [None, None],
-    };
+    })?;
     for (slot, spec) in t.free.iter().enumerate() {
         facts.free[slot] = spec.map(|s| deals_q::free_deal(core, &facts, p, r, &s));
     }
     Some(facts)
-}
-
-fn env_arbiters(env: &KernelEnv<'_>, seat: Seat) -> bool {
-    use q::Env as _;
-    env.trades_action_cards(seat)
 }
 
 /// `ti4_model::state::MAX_NEGOTIATIONS_PER_ACTION`: the negotiations a seat may open per action (the engine's test pins the two together).

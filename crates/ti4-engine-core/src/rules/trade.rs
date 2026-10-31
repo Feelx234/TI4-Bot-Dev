@@ -163,15 +163,10 @@ pub fn exchange(core: &mut CoreState, offer: &Offer) -> Option<()> {
     Some(())
 }
 
-/// Lie in Wait: the first two neighbours of `seat` (by the map) who resolved a transaction this round (`transactions::
-/// neighbours_who_transacted`); none when no transaction was resolved or the position has no map.
-#[must_use]
-pub fn lie_in_wait_traders(core: &CoreState, kernel: &Kernel, seat: Seat) -> [Option<Seat>; 2] {
-    let mut out = [None; 2];
-    if core.trade().this_round.is_empty() {
-        return out;
-    }
-    let Some(adj) = core.map().adjacency() else { return out };
+/// Run `f` with the trade queries' [`Cx`](crate::query::trade::Cx) of this position: the map's adjacency, the Mecatol Rex system, the
+/// negotiation limits and the hooks of the kernel. `None`: the position has no map (the string answers with no galaxy then).
+pub fn with_cx<T>(core: &CoreState, kernel: &Kernel, f: impl FnOnce(&crate::query::trade::Cx<'_>) -> T) -> Option<T> {
+    let adj = core.map().adjacency()?;
     let env = KernelEnv { core, kernel };
     let cx = crate::query::trade::Cx {
         core,
@@ -180,7 +175,26 @@ pub fn lie_in_wait_traders(core: &CoreState, kernel: &Kernel, seat: Seat) -> [Op
         limits: crate::query::trade::Limits { per_action: super::trade_window::MAX_NEGOTIATIONS_PER_ACTION, per_round: super::trade_window::MAX_NEGOTIATIONS_PER_ROUND },
         env: &env,
     };
-    for (slot, who) in out.iter_mut().zip(crate::query::trade::neighbours_who_transacted(&cx, seat).as_slice()) {
+    Some(f(&cx))
+}
+
+/// The seats `seat` may open a transaction with now (`transactions::open_partners`, the menu source of the action menu), in seating order;
+/// none without a map.
+#[must_use]
+pub fn open_partners(core: &CoreState, kernel: &Kernel, seat: Seat) -> crate::query::trade::SeatList {
+    with_cx(core, kernel, |cx| crate::query::trade::open_partners(cx, seat)).unwrap_or_default()
+}
+
+/// Lie in Wait: the first two neighbours of `seat` (by the map) who resolved a transaction this round (`transactions::
+/// neighbours_who_transacted`); none when no transaction was resolved or the position has no map.
+#[must_use]
+pub fn lie_in_wait_traders(core: &CoreState, kernel: &Kernel, seat: Seat) -> [Option<Seat>; 2] {
+    let mut out = [None; 2];
+    if core.trade().this_round.is_empty() {
+        return out;
+    }
+    let seats = with_cx(core, kernel, |cx| crate::query::trade::neighbours_who_transacted(cx, seat)).unwrap_or_default();
+    for (slot, who) in out.iter_mut().zip(seats.as_slice()) {
         *slot = Some(*who);
     }
     out

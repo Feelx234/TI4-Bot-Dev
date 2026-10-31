@@ -458,3 +458,41 @@ fn black_market_dealings_played_at_the_opening_widens_the_first_question_like_th
     assert!(string.questions.iter().any(|q| q.options.iter().any(|o| o.id == "frCULTURAL:1")), "the marked table is offered the fragments");
     assert!(has(&string, "TRANSACTION_RESOLVED"));
 }
+
+/// The menu source of the action menu: the seats that may be asked to a transaction now, from the core's position alone, are the string's
+/// `open_partners` over strangers, the pair limit, the negotiation limits, Guild Ships and Trade Convoys.
+#[test]
+fn the_partners_the_menu_offers_are_the_strings_over_strangers_limits_and_reach() {
+    let content = ContentStore::embedded();
+    let seats = [("a", "hacan"), ("b", "sol"), ("c", "arborec"), ("d", "yin")];
+    let positions: Vec<(&str, Box<dyn Fn(&mut GameState)>)> = vec![
+        ("plain", Box::new(|_| {})),
+        ("pair spent", Box::new(|s| s.record_transaction(&pid("a"), &pid("b")))),
+        ("two negotiations this action", Box::new(|s| {
+            s.note_negotiation(&pid("a"));
+            s.note_negotiation(&pid("a"));
+        })),
+        ("six negotiations this round", Box::new(|s| {
+            for _ in 0..6 {
+                s.note_negotiation(&pid("a"));
+            }
+            s.negotiations_this_action.clear();
+        })),
+    ];
+    for far in [&[][..], &["c", "d"][..], &["b", "c", "d"][..]] {
+        for (label, edit) in &positions {
+            for proposer in ["a", "b", "c"] {
+                let mut t = table(&seats, far);
+                edit(&mut t.state);
+                let mut cx = Ctx::of(&t.state).expect("owners");
+                let game = super::Game::with_table(t.state.clone(), content, Table::with_default(Box::new(crate::choice::FirstOption)));
+                let core = Codec::load(&mut cx, &t.state, Sources { galaxy: Some(&t.hub.galaxy), rng: Some(&game.rng_positions()) }, SliceSet::ALL).expect("loads");
+                let kernel = live::kernel::kernel_for(DEFAULT);
+                let who = cx.owners.seat(proposer).expect("seated");
+                let native: Vec<PlayerId> = ti4_engine_core::rules::trade::open_partners(&core, kernel, who).as_slice().iter().map(|s| pid(cx.owners.id(*s).expect("id"))).collect();
+                let string = crate::transactions::open_partners_text(&t.state, content, &t.hub.galaxy, &pid(proposer));
+                assert_eq!(native, string, "{label}, far {far:?}, proposer {proposer}");
+            }
+        }
+    }
+}
