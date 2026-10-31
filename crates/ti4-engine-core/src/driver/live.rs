@@ -433,6 +433,7 @@ mod tests {
                 roster: None,
                 rules_version: core.meta().rules_version,
                 tech_order: |a, b| a.cmp(&b),
+                shared: crate::kernel::ability::SharedPlay::default(),
             })
         })));
         env.table = table;
