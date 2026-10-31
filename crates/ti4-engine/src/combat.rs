@@ -9911,6 +9911,54 @@ mod tests {
         let _ = take_report();
     }
 
+    /// W12: a Nomad that holds Temporal Command Suite hears every agent exhausted; the core sites of the agents announce the exhaustion by a
+    /// staged `AGENT_EXHAUSTED` as `leaders::exhaust` does (they bailed "Nomad Temporal Command Suite (agent exhaustion)" before): Tellurian
+    /// (Titans), Brother Milor (Yin) and The Thundarian (the Nomad's own agent, replaying the roll step). The window is compared, the staged
+    /// event of the string and the core agree, and the Nomad's card answers at the next flush (string).
+    #[test]
+    fn an_agent_exhausted_at_a_table_with_temporal_command_suite_is_announced_by_the_core_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut announced = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for (seed, (who, agent, holder)) in (1..=6_u64).zip([("titans", "titansagent", "a"), ("titans", "titansagent", "a"), ("hacan", "yinagent", "b"), ("hacan", "yinagent", "b"), ("hacan", "nomadagentthundarian", "c"), ("hacan", "nomadagentthundarian", "c")]) {
+                let mut state = crate::fixtures::seated_game(&[("a", who), ("b", if holder == "b" { "yin" } else { "hacan" }), ("c", "nomad")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("c")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("tcs"));
+                state.player_mut(&PlayerId::new(holder)).unwrap().leaders.insert(ti4_model::id::LeaderId::new(agent), ti4_model::state::LeaderStatus::Readied);
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 3);
+                put(&mut state, &system, "cruiser", &defender(), 3);
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                let exhausted = state.player(&PlayerId::new(holder)).unwrap().leaders.get(ti4_model::id::text(&agent)) == Some(&ti4_model::state::LeaderStatus::Exhausted);
+                if exhausted {
+                    assert!(crate::supply::staged_event_types(&state).contains(&"AGENT_EXHAUSTED".to_owned()), "seed {seed} {agent}: the exhaustion is announced");
+                    announced += 1;
+                }
+            }
+        });
+        let r = report();
+        assert!(announced > 0, "some agent was used");
+        assert!(r.windows.keys().all(|k| !k.contains("Temporal Command Suite")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     /// Brother Milor, ship branch: after a ship is destroyed in a space combat the readied agent lets its owner place
     /// 2 fighters in the system (the destroyed ship's owner's form).
     #[test]

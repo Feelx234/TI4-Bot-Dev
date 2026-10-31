@@ -3443,7 +3443,7 @@ mod tests {
     fn bail_the_thunders_edge_primaries_are_the_strings() {
         let everything = carried(|c| {
             c.payments = true;
-            c.structures = Some(crate::rules::production::strategy_cards::StructureFacts { pds: None, dock: None, source: crate::state::Code(0) });
+            c.structures = Some(crate::rules::production::strategy_cards::StructureFacts { pds: None, dock: None, source: crate::state::Code(0), alt: None });
         });
         for printing in [StrategyCard::WarfareThundersEdge, StrategyCard::ConstructionThundersEdge] {
             let (unsupported, _, asked) = performs(ActionCard::Overrule, printing, everything, &Kernel::plain());

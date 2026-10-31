@@ -1383,8 +1383,8 @@ pub struct SustainArgs<'a> {
 }
 
 /// The core half of `combat::offer_sustain`. `None` for what the core window does not express: staged
-/// planet sustainers, games below `RULES_FACTION_EFFECTS`, a commander held another way than as an
-/// unlocked leader, or a position the codecs refuse.
+/// planet sustainers, a commander held another way than as an unlocked leader, or a position the codecs refuse.
+/// (A game below `RULES_FACTION_EFFECTS` is the window's own: the holder's trade good is paid without a question.)
 #[must_use]
 pub fn sustain_offer(
     gs: &mut GameState,
@@ -1393,10 +1393,6 @@ pub fn sustain_offer(
     script: &Recording,
 ) -> Option<CoreWindow<usize>> {
     use ti4_engine_core::rules::combat::sustain_offer::{Offer, SustainOffer};
-    if gs.rules_version < ti4_model::state::RULES_FACTION_EFFECTS {
-        crate::dual::note_bail_here("a game below the faction effects");
-        return None;
-    }
     let unlocked = gs
         .player(a.player)
         .is_some_and(|p| p.leaders.get(ti4_model::id::text("letnevcommander")) == Some(&ti4_model::state::LeaderStatus::Unlocked));

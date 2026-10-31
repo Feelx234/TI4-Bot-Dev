@@ -8,7 +8,7 @@ use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::scenario::{planets_with_influence, systems_of};
 
 fn facts() -> StructureFacts {
-    StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::SpaceDockI, false)), source: Code(3) }
+    StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::SpaceDockI, false)), source: Code(3), alt: None }
 }
 
 /// Seat 0 controls two planets (in two systems); seat 1 is a bystander.
