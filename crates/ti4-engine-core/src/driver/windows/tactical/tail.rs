@@ -51,6 +51,8 @@ pub(super) fn run(a: &mut TacticalAction, sx: &mut Sx<'_>) -> Next {
         tail::Then::Secondary => TacticalAction::bail(sx, TacticalGap::WarfareSecondary),
         tail::Then::FinishAction => {
             let _ = a;
+            // `finish_action`: `ACTION_COMPLETED`, then the closing menu or the end of the turn, is the turn flow's job.
+            crate::driver::turn::open_finish(sx.state);
             Next::Done
         }
     }
