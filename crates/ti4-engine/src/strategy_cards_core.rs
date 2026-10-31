@@ -78,9 +78,8 @@ mod real {
         complete: Complete<'_>,
     ) -> Option<(W, Driven)> {
         let before = gs.clone();
-        let kernel = Kernel::plain();
         let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), linked(), 1);
-        let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_with(&mut driver, core, &kernel, r, &before, script, complete))
+        let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_with(&mut driver, core, kernel, r, &before, script, complete))
             .why(crate::dual::reason::NOT_LENDABLE)?
             .why(crate::dual::reason::DRIVER_REFUSED)?;
         Some((driver.window, driven))

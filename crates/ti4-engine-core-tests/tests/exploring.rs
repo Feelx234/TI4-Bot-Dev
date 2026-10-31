@@ -538,3 +538,21 @@ fn a_hosted_exploration_runs_a_child_that_does_not_ask_at_once_and_names_one_tha
         assert_eq!(held, hand + 1, "the card is drawn before the discard question (hand of {hand})");
     }
 }
+
+/// Every question asked while an invasion is open names it, the pool question of a command token included (the string `ask_seeing`).
+#[test]
+fn a_question_asked_inside_an_invasion_carries_its_sequence_number() {
+    covers!("rules::explore_windows::Exploring");
+    use ti4_engine_core::containers::Cow;
+    use ti4_engine_core::state::{ActiveInvasion, Code};
+    let spot = planet_with(&[PlanetTrait::Hazardous]);
+    let (mut rig, system, planet) = quick(spot, ExploreType::Hazardous, &[Explore::EntropicField]);
+    rig.state.transient_mut().invasion.active = Some(Cow::new(ActiveInvasion { system, invader: Seat(0), seq: 7, phase: Code(1), planet: Some(planet), defender: None, ground_round: 0, last_step: None }));
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { .. })));
+    assert_eq!(rig.asked().ctx.invasion_seq, Some(7), "{}", rig.transcript());
+    // Outside an invasion the question carries none.
+    let (mut plain, _, _) = quick(spot, ExploreType::Hazardous, &[Explore::EntropicField]);
+    plain.run();
+    assert_eq!(plain.asked().ctx.invasion_seq, None);
+}

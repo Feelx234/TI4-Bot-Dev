@@ -1326,7 +1326,7 @@ impl Window for Exploring {
     }
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
-        match self.run.stage {
+        let mut choice = match self.run.stage {
             EStage::Deck => self.deck_child(s).ask_of(s, k),
             EStage::Suns => self.suns_child(s)?.ask_of(s, k),
             EStage::Pooling => Some(crate::choice::strategy::gain_pool_choice(self.run.who, self.run.pool_left)),
@@ -1335,7 +1335,12 @@ impl Window for Exploring {
             EStage::Ion => self.ion_child(s)?.ask_of(s, k),
             EStage::Linked(_) => self.linked.ask_of(s, k),
             _ => None,
+        }?;
+        // Every question asked while an invasion is open names it (the string `Table::ask_seeing`), the children of other areas included.
+        if choice.ctx.invasion_seq.is_none() && !choice.ctx.space_battle {
+            choice.ctx.invasion_seq = Self::inv(s);
         }
+        Some(choice)
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
