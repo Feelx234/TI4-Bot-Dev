@@ -60,6 +60,9 @@ pub enum Ask {
     Wrath,
     /// Munitions Reserves after the roll: pay 2 trade goods to reroll missed dice.
     MunitionsRoll,
+    /// Munitions Reserves at the start of a round (below `RULES_MUNITIONS_AFTER_ROLL`): pay 2 trade goods to reroll this round's misses;
+    /// `have` is the trade goods the payer holds (the question's display facts).
+    MunitionsStart { have: u16 },
     /// Supercharge (Naaz): "at the start of a combat round, you may exhaust this card to apply +1 to the results of all of your
     /// units' combat rolls during this combat round".
     Supercharge,
@@ -86,6 +89,8 @@ pub enum RerollSource {
     Munitions,
     /// Fire Team ("reroll any number of your dice" after your ground forces roll).
     FireTeam,
+    /// The Jol-Nar commander (Ta Zern's "after you roll dice for a unit ability: you may reroll any of those dice").
+    Commander,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -114,6 +119,8 @@ pub enum Opt {
     Kenara { count: u8 },
     /// Munitions Reserves: `choose` the dice one by one, or reroll all `misses` missed dice.
     Munitions { choose: bool, misses: u8 },
+    /// Pay for Munitions Reserves at the start of the round.
+    MunitionsStart,
     /// Exhaust Supercharge.
     UseSupercharge,
     /// Ambush: roll for one ship of type `a`, and for one of type `b` (the same type twice is two ships).

@@ -1823,16 +1823,12 @@ impl Play {
                     kills += usize::from(face >= PLAGUE_KILLS_ON);
                 }
                 let reason = DestroyReason::ActionCard(ActionCardCause::Plague);
-                if fx_ground::destroy_on_planet(core, scope, system, planet, UnitBaseType::Infantry, Some(kills), reason).is_err() {
-                    self.unsupported = true;
-                }
+                fx_ground::destroy_on_planet(core, scope, system, planet, UnitBaseType::Infantry, Some(kills), reason);
             }
             (Fx::Unstable, Opt::Spot(system, planet)) => {
                 fx::exhaust_planet(core, planet);
                 let reason = DestroyReason::ActionCard(ActionCardCause::UnstablePlanet);
-                if fx_ground::destroy_on_planet(core, self.env.scope, system, planet, UnitBaseType::Infantry, Some(3), reason).is_err() {
-                    self.unsupported = true;
-                }
+                fx_ground::destroy_on_planet(core, self.env.scope, system, planet, UnitBaseType::Infantry, Some(3), reason);
             }
             (Fx::PirateContract, Opt::System(system)) => {
                 if let Some(neutral) = self.env.facts.neutral {

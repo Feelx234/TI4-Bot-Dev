@@ -53,6 +53,8 @@ pub struct FightFacts {
     pub step_kind: Code,
     /// The invader holds the Harrow ability.
     pub harrow: bool,
+    /// The seats that hold X-89 Bacterial Weapon (their ground combat hits are doubled).
+    pub x89: Vec<Seat>,
     /// The notes held at the start of the tactical action (holder, issuer), for the feat of winning against a note holder.
     pub notes: Vec<(Seat, Seat)>,
 }
@@ -175,7 +177,7 @@ impl CommittedFight {
 
     fn roll_facts(&self, defender: Seat) -> RollFacts {
         let f = &self.f;
-        RollFacts { attacker: f.invader, defender, system: f.system, planet: f.planet, kind: f.kind, names: f.names.clone(), unit_codes: f.unit_codes.clone() }
+        RollFacts { attacker: f.invader, defender, system: f.system, planet: f.planet, kind: f.kind, names: f.names.clone(), unit_codes: f.unit_codes.clone(), x89: [f.x89.contains(&f.invader), f.x89.contains(&defender)] }
     }
 
     /// The report the hits window fills (`end_ground_round`): the units before the dice and the dice as the board shows them.
@@ -285,7 +287,7 @@ impl Window for CommittedFight {
                         self.rolled = rolled.hits;
                         let Some(defender) = self.defender else { return Next::Done };
                         let f = &self.f;
-                        let facts = TailFacts { invader: f.invader, defender, system: f.system, planet: f.planet, rolled: self.rolled, bump: !f.copied, announce: f.announce };
+                        let facts = TailFacts { invader: f.invader, defender, system: f.system, planet: f.planet, rolled: self.rolled, bump: !f.copied, announce: f.announce, x89: [f.x89.contains(&f.invader), f.x89.contains(&defender)] };
                         self.tail.start(GroundRollTail::new(facts));
                         self.stage = FStage::Tail;
                     }

@@ -275,3 +275,31 @@ fn without_the_timing_machinery_nothing_is_announced() {
     assert!(rig.is_done() && rig.driver.emitted.is_empty());
     assert_eq!(delta(rig.start_state(), &rig.state), "");
 }
+
+#[test]
+fn hits_a_card_cancelled_earlier_in_the_round_are_spent_first_without_the_timing_machinery_too() {
+    covers!("rules::combat::flow::Flow");
+    for announce in [true, false] {
+        let (mut state, kernel) = arena().build();
+        state.meta_mut().combat_round_seq = 3;
+        state.players_mut().by_seat_mut(Seat(1)).unwrap().card_timers.cancel_hits_round = Some((3, 2));
+        let queue = vec![pend(1, 3), pend(0, 1)];
+        for assigning in [false, true] {
+            let step = Step::Queue { assigning, round: 1, queue: queue.clone() };
+            let mut rig = Rig::from_parts(state.clone(), kernel.clone(), Flow::new(Facts { announce, ..facts() }, step));
+            rig.run();
+            let out = rig.driver.window.out.clone().unwrap();
+            assert_eq!(out.next, Step::Queue { assigning, round: 1, queue: vec![pend(1, 1), pend(0, 1)] }, "announce {announce} assigning {assigning}: two of the three hits go, the stage stays");
+            assert!(!out.returned && !out.offered_now, "the announcement of the hits waits for the next transition");
+            assert!(rig.driver.emitted.is_empty(), "nothing is announced before the pool is spent");
+            assert_eq!(rig.state.players().by_seat(Seat(1)).unwrap().card_timers.cancel_hits_round, Some((3, 0)));
+        }
+        // More cancelled than hits: the queue head empties and the rest of the pool stays.
+        state.players_mut().by_seat_mut(Seat(1)).unwrap().card_timers.cancel_hits_round = Some((3, 5));
+        let step = Step::Queue { assigning: false, round: 1, queue: vec![pend(1, 2)] };
+        let mut rig = Rig::from_parts(state, kernel, Flow::new(Facts { announce, ..facts() }, step));
+        rig.run();
+        assert_eq!(rig.driver.window.out.clone().unwrap().next, Step::Queue { assigning: false, round: 1, queue: vec![pend(1, 0)] });
+        assert_eq!(rig.state.players().by_seat(Seat(1)).unwrap().card_timers.cancel_hits_round, Some((3, 3)));
+    }
+}

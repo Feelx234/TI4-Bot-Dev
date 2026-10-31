@@ -65,7 +65,7 @@ fn a_single_planet_is_devoured_unasked_when_one_technology_matches() {
     let mut rig = hero(sc, vec![target(a, 3, &[Technology::GravityDrive])]);
     rig.run();
     assert!(rig.is_done(), "{}", rig.transcript());
-    assert!(rig.driver.window.used && !rig.driver.window.unsupported);
+    assert!(rig.driver.window.used);
     assert_eq!(units_on(&rig, a.1, 1), 0, "every other seat's unit on the planet is gone, the structure too");
     assert_eq!(units_on(&rig, a.1, 0), 1, "the seat's own unit stays");
     assert_eq!(units_on(&rig, b.1, 1), 1, "the other planet is untouched");
@@ -152,7 +152,7 @@ fn an_answer_outside_the_offer_is_refused() {
 }
 
 #[test]
-fn a_galvanized_ground_force_that_falls_makes_the_window_unsupported() {
+fn a_galvanized_ground_force_that_falls_is_staged_with_the_galvanized_field() {
     covers!("rules::hero_windows::NekroHero");
     let (sc, [a, _]) = scenario();
     let mut rig = hero(sc, vec![target(a, 3, &[Technology::GravityDrive])]);
@@ -162,7 +162,20 @@ fn a_galvanized_ground_force_that_falls_makes_the_window_unsupported() {
         }
     }
     rig.run();
-    assert!(rig.driver.window.unsupported, "the staged row cannot hold the galvanize tail");
+    let rows: Vec<&ti4_engine_core::keys::MarkVal> = rig
+        .state
+        .marks()
+        .tail
+        .iter()
+        .filter(|(k, _)| matches!(k, ti4_engine_core::keys::MarkKey::PrivateStagedGround(_)))
+        .map(|(_, v)| v)
+        .collect();
+    assert!(!rows.is_empty(), "the fallen ground forces are staged");
+    for row in rows {
+        let ti4_engine_core::keys::MarkVal::Rec(fields) = row else { panic!("a record: {row:?}") };
+        assert_eq!(fields.len(), 8, "seven fields and the galvanized tail: {fields:?}");
+        assert_eq!(fields[7], ti4_engine_core::keys::MarkVal::Atom(ti4_engine_core::keys::Atom::Word(ti4_engine_core::keys::Word::Galvanized)));
+    }
 }
 
 // -- Kyver, Blade and Key ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ fn facts(system: System, planet: Planet) -> FightFacts {
         harrow_cause: Code(6),
         step_kind: Code(7),
         harrow: false,
+        x89: vec![],
         notes: vec![],
     }
 }

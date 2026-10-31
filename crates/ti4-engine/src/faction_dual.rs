@@ -404,7 +404,7 @@ mod real {
     /// What Fabrication and Black Market Forgery read (the fragments, the box of command tokens, the notes) and write (the fragments,
     /// the relic, the token, the note going home).
     const FABRICATION: Footprint = Footprint::new(
-        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Ledger, Slice::Pending],
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Ledger, Slice::Marks, Slice::Pending],
         &[Slice::Meta, Slice::Players, Slice::Decks, Slice::Cards, Slice::Ledger],
     );
 
@@ -418,7 +418,6 @@ mod real {
         use ti4_engine_core::rules::relic_windows::{FabMode, Fabrication};
         if let Some(why) = crate::dual_window::outside_why(gs, script)
             .or_else(|| gs.deck_reserve.is_some().then_some("deck reserve (a turn redo replays the draws)"))
-            .or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)"))
         {
             crate::dual::note_bail_here(why);
             return None;
