@@ -540,6 +540,14 @@ mod tests {
             let other = if faction == "letnev" { "sol" } else { "letnev" };
             for (mine, theirs) in [(faction, other), (other, faction)] {
                 let mut state = table(&[("a", mine), ("b", theirs)]);
+                // The Mahact starts with Predictive Intelligence and Bio-Stims, the free windows of the END OF THE TURN (lane B's `TurnEnd`): the
+                // string asks them after the action (seven token moves and the ready, the script being spent), the combat does not. They were the
+                // "8 more questions after the action" of docs/M6B_RESUME.md; the position of this sweep leaves them out.
+                for seat in [a(), b()] {
+                    for tech in ["pi", "bs"] {
+                        state.player_mut(&seat).unwrap().technologies.remove(&ti4_model::TechnologyId::new(tech));
+                    }
+                }
                 crate::fixtures::put(&mut state, &target, "dreadnought", &a(), 2);
                 crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
                 crate::fixtures::put(&mut state, &target, "fighter", &a(), 2);
@@ -550,19 +558,18 @@ mod tests {
                     eprintln!("== {mine} v {theirs}");
                 }
                 // (Every difference after the first follows from it: the questions shift.)
-                if let Some(d) = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]).into_iter().next() {
+                let all = std::env::var_os("M6C_ALL").is_some();
+                for d in lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]).into_iter().take(if all { 12 } else { 1 }) {
                     failures.push(format!("{mine} v {theirs}: {d}"));
                 }
             }
         }
-        // Residuals of the neighbours' lanes, not of this island (docs/M5_RESUME.md): the Saar agent is a string-registered SYSTEM_ACTIVATED
-        // ability the core registry lacks (M6, open item 2), and the Empyrean commander's unlock is a hook slot nobody fills yet (A2/F2:
-        // `commander_unlocked`).
-        failures.retain(|f| !(f.starts_with("saar v") || f.starts_with("letnev v saar")) && !f.contains("leaders.empyreancommander"));
-        // Mahact at the table (docs/M6B_RESUME.md, "Not done"): the activation hooks are native now and no seat bails, but two differences of the
-        // position remain open: the string asks more questions after the action than the native run answers (`mahact v letnev`), and the
-        // fleet limit the removal question shows for a seat whose token sits in the Mahact pool (`letnev v mahact`, string 4, core 3).
-        failures.retain(|f| !(f.starts_with("mahact v") || f.starts_with("letnev v mahact")));
+        // Residual of a neighbour's lane, not of this island (docs/M5_RESUME.md): the Empyrean commander's unlock is a hook slot nobody fills yet
+        // (A2/F2: `commander_unlocked`). (The Saar agent was the other one: it is a core rule of the activation window since lane M6c.)
+        failures.retain(|f| !f.contains("leaders.empyreancommander"));
+        // (Mahact at the table: both residual differences of docs/M6B_RESUME.md are closed. The extra questions were its end-of-turn technologies,
+        // above; the fleet limit of 4 against 3 was Edict, "when you win a combat, take your opponent's token into your fleet pool", which the
+        // core table lacked: it is `cc_ground::mahact::timing::edict` now.)
         assert!(failures.is_empty(), "{failures:#?}");
     }
 

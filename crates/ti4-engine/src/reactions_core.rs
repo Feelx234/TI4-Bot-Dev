@@ -88,6 +88,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cc_ground::ghost::timing::TAIVRA, kind: "leader", card: "ghostagent" },
     Named { slot: ti4_engine_core_factions::cc_ground::ghost::timing::ICARUS, kind: "unit", card: "ghost_mech" },
     Named { slot: ti4_engine_core_factions::ce_movement::saar::timing::MENDOSA, kind: "leader", card: "saaragent" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::EDICT_SPACE, kind: "ability", card: "edict" },
+    Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::EDICT_GROUND, kind: "ability", card: "edict" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
     Named { slot: cabal::DEVOUR_GROUND, kind: "ability", card: "devour" },
     Named { slot: cabal::TERROR_SHIPS, kind: "unit", card: "cabal_flagship" },
@@ -121,6 +123,7 @@ const PAIRS: &[(Slot, &str, PairStyle)] = &[
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::LETNEV, "letnevagent", PairStyle::B),
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::ARGENT, "argentagent", PairStyle::A),
     (ti4_engine_core_factions::ce_movement::saar::timing::MENDOSA_COPY, "saaragent", PairStyle::C),
+    (ti4_engine_core_factions::cc_ground::ghost::timing::TAIVRA_COPY, "ghostagent", PairStyle::A),
 ];
 
 fn is_reaction_slot(slot: Slot) -> bool {
@@ -565,7 +568,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             peace_prompt: r.code(crate::tactical_live::PEACE_PROMPT),
             peace_source: r.code("minister_peace"),
         };
-        table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent") };
+        table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent"), edict: r.code("edict") };
         table.codes.turn = crate::live::turn::codes(r);
 }
 
@@ -826,7 +829,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")], [("a", "ghost"), ("b", "sol")], [("a", "saar"), ("b", "sol")], [("a", "sol"), ("b", "saar")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")], [("a", "ghost"), ("b", "sol")], [("a", "saar"), ("b", "sol")], [("a", "sol"), ("b", "saar")], [("a", "mahact"), ("b", "sol")], [("a", "sol"), ("b", "mahact")], [("a", "ghost"), ("b", "yssaril")], [("a", "yssaril"), ("b", "ghost")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
@@ -903,10 +906,17 @@ mod tests {
         let mut missing = std::collections::BTreeSet::new();
         for faction in lobby {
             let other = if faction == "sol" { "hacan" } else { "sol" };
-            let gs = crate::fixtures::seated_game(&[("a", faction), ("b", other)], ti4_model::content_types::POK);
-            let resolver = crate::fixtures::armed_resolver(&gs);
-            for a in resolver.kernel_view().abilities.iter().filter(|a| a.event == "SYSTEM_ACTIVATED" && slot_of(&a.id).is_none()) {
-                missing.insert(anonymous(&a.id));
+            // A third seat of Yssaril (Ssruu) arms the copies of the agents that are string abilities of their own.
+            for third in [None, Some("yssaril")] {
+                let mut seats = vec![("a", faction), ("b", other)];
+                if let Some(third) = third.filter(|t| *t != faction && *t != other) {
+                    seats.push(("c", third));
+                }
+                let gs = crate::fixtures::seated_game(&seats, ti4_model::content_types::POK);
+                let resolver = crate::fixtures::armed_resolver(&gs);
+                for a in resolver.kernel_view().abilities.iter().filter(|a| a.event == "SYSTEM_ACTIVATED" && slot_of(&a.id).is_none()) {
+                    missing.insert(anonymous(&a.id));
+                }
             }
         }
         let accounted: Vec<String> = ACTIVATION_ACCOUNTED.iter().map(|(id, _)| (*id).to_owned()).collect();

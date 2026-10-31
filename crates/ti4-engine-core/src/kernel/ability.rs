@@ -275,6 +275,8 @@ pub struct ActivationCodes {
     pub ghost_mech: crate::state::Code,
     /// The leader alias `saaragent`, the source of Captain Mendosa's question.
     pub saar_agent: crate::state::Code,
+    /// The faction ability `edict`, the source of the Mahact's question.
+    pub edict: crate::state::Code,
 }
 
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind

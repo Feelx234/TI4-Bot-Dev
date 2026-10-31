@@ -88,6 +88,8 @@ pub enum Ask {
     /// Captain Mendosa (Saar agent; `copy`: Ssruu copying it), after an activation: which of the activator's slower ships takes the move value
     /// of the fastest ship on the board.
     AgentShip { copy: bool },
+    /// Edict (Mahact), "when you win a combat": whose command token goes into the fleet pool when several opponents qualify.
+    Edict,
 }
 
 /// What a Nekro takes of an opponent's technology through an ability.
@@ -129,6 +131,8 @@ pub enum Opt {
     Token(crate::generated::Wormhole, crate::generated::System),
     /// A ship that Captain Mendosa raises from move `own` to move `top`, the `n`th of the question (`ship|{n}`).
     Boost { n: u8, system: crate::generated::System, unit: crate::generated::Unit, own: u8, top: u8 },
+    /// An opponent whose token Edict takes (the option id is the seat's text).
+    Opponent(Seat),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -154,4 +158,6 @@ pub enum Subtype {
     IcarusDrive,
     /// `agent_ship`.
     AgentShip,
+    /// `edict_opponent`.
+    Edict,
 }

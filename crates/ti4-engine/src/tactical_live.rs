@@ -785,6 +785,16 @@ mod tests {
             let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, centre.as_str(), answer, &mv], false);
             assert!(diffs.is_empty(), "taivra {answer}: {diffs:#?}");
         }
+        // Ssruu (the Yssaril `b`) copying the Ghosts agent of `c`.
+        {
+            let mut state = table(&[("a", "sol"), ("b", "yssaril"), ("c", "ghost")]);
+            crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+            let mv = id(&ring, 0);
+            for script in [vec![TACTICAL_ACTION_ID, centre.as_str(), "leader:ghost:c:yssarilagent:ghostagent:SYSTEM_ACTIVATED:after", "decline", "decline", &mv], vec![TACTICAL_ACTION_ID, centre.as_str(), "decline", "decline", &mv]] {
+                let diffs = lockstep(state.clone(), &hub.galaxy, &script, false);
+                assert!(diffs.is_empty(), "ssruu taivra {script:?}: {diffs:#?}");
+            }
+        }
         // Icarus Drive: the mech in the ring system (off the activated one) places a token there and leaves the board.
         for answer in [vec!["unit:ghost:ghost_mech:SYSTEM_ACTIVATED:after".to_owned(), format!("ALPHA|{}", hub.outer[0])], vec!["unit:ghost:ghost_mech:SYSTEM_ACTIVATED:after".to_owned(), format!("BETA|{}", hub.outer[0])], vec!["decline".to_owned()]] {
             for on_planet in [false, true] {

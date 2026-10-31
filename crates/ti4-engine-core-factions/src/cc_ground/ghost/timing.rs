@@ -5,9 +5,9 @@
 //! action." The adjacency is `ghost::movement::linked_systems`, keyed on the mark this writes.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
-use ti4_engine_core::generated::{Leader, System, Unit, Wormhole};
+use ti4_engine_core::generated::{Faction, Leader, System, Unit, Wormhole};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
+use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec};
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::kernel::Kernel;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
@@ -165,8 +165,45 @@ fn icarus_drive(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
-/// The abilities of the activation window (`activation::register`): the mech, then the agent (the string's order).
+/// Ssruu copying Emissary Taivra (`leader:{lender faction}:{lender}:yssarilagent:ghostagent:SYSTEM_ACTIVATED:after`).
+pub const TAIVRA_COPY: Slot = Slot(22003);
+
+/// The string's static roster: a lender that holds the agent card and a borrower that holds Ssruu.
+fn lends(s: &CoreState, borrower: Seat, lender: Seat) -> bool {
+    let holds = |who: Seat, card: Leader| s.players().by_seat(who).is_some_and(|p| p.leaders.status.contains_key(&card));
+    holds(lender, AGENT) && holds(borrower, Leader::Ssruu)
+}
+
+fn copy_when(c: &CondCx<'_>) -> bool {
+    crate::cd_registry::yssaril::ssruu::borrowable(c.state, c.def.owner, c.def.pair_source(), AGENT)
+        && c.event.payload.system(Key::System).is_some_and(|system| match target_usable(c.state, c.kernel, system) {
+            Some(usable) => usable,
+            None => c.unknown(ti4_engine_core::kernel::ability::Unknown::MissingFact),
+        })
+}
+
+/// The same link, with Ssruu exhausted for it.
+fn taivra_copy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let (me, lender) = (eff.owner(), eff.def.pair_source());
+    let Some(system) = eff.event.payload.system(Key::System) else { return Ok(()) };
+    let usable = {
+        let (state, kernel) = eff.read();
+        crate::cd_registry::yssaril::ssruu::borrowable(state, me, lender, AGENT) && target_usable(state, kernel, system) == Some(true)
+    };
+    if !usable {
+        return Ok(());
+    }
+    let (state, kernel) = eff.state_and_kernel();
+    if ti4_engine_core::kernel::fx_strategy::exhaust_agent(state, kernel, me, Leader::Ssruu) {
+        let seq = eff.state().meta().activation_seq;
+        eff.state().marks_mut().tail.edit().insert(MarkKey::GhostAgentLink(), MarkVal::Rec(vec![MarkVal::Atom(Atom::Num(seq)), MarkVal::Atom(Atom::System(system))]));
+    }
+    Ok(())
+}
+
+/// The abilities of the activation window (`activation::register`): the mech, then the agent and its Ssruu copy (the string's order).
 pub fn register_activation(t: &mut AbilityTable) {
     t.add(Spec::new(ICARUS, AbilityKind::Unit, EventKind::SystemActivated, Relation::After, icarus_drive).optional().when(mech_when));
     t.add(Spec::new(TAIVRA, AbilityKind::Leader, EventKind::SystemActivated, Relation::After, taivra).optional().when(when));
+    t.add(Spec::new(TAIVRA_COPY, AbilityKind::Leader, EventKind::SystemActivated, Relation::After, taivra_copy).applies(Applies::Faction(Faction::TheGhostsOfCreuss)).pair(lends).optional().when(copy_when));
 }
