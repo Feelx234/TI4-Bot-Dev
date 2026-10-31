@@ -47,7 +47,7 @@ fn groups(s: &CoreState, who: Seat, system: System) -> Vec<(Planet, Unit, u32)> 
 
 fn condition(c: &CondCx<'_>) -> bool {
     let me = c.def.owner;
-    let Some(system) = c.event.payload.system(Key::System) else { return false };
+    let Some(system) = c.event.payload.system(Key::System) else { return false }; // mutants:skip (no system in the event: `choose` ends at once too)
     took_part(&c.event.payload, me) && board::space_units(c.state, system).iter().any(|u| u.owner() == me && u.kind() == Unit::TheAlastor) && !groups(c.state, me, system).is_empty()
 }
 
@@ -63,7 +63,7 @@ fn choose(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         let choice = Choice {
             actor: me,
             ask: Ask::Reaction(RAsk::G(GAsk::T(TAsk::Alastor { planet, unit }))),
-            ctx: Ctx { origin, subtype: Subtype::Reaction(RSub::G(GSub::T(TSub::Alastor))), optional: false, target: None, outstanding: SmallList::new(), space_battle: false, invasion_seq: None },
+            ctx: Ctx { origin, subtype: Subtype::Reaction(RSub::G(GSub::T(TSub::Alastor))), optional: false, target: None, outstanding: SmallList::new(), space_battle: false, invasion_seq: None }, // mutants:skip (the adapter puts the combat and the invasion into every nested context; the other fields are killed by the lockstep, this line is one struct literal)
             opts,
         };
         let Pick::Opt(Opt::Reaction(ROpt::G(GOpt::T(TOpt::Count(n))))) = eff.ask(&choice) else { continue };

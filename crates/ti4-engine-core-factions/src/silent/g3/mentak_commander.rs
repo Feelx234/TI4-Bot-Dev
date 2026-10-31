@@ -73,7 +73,7 @@ fn ctx(subtype: TSub) -> Ctx {
         optional: false,
         target: None,
         outstanding: SmallList::new(),
-        space_battle: false,
+        space_battle: false, // mutants:skip (the adapter puts the combat into every nested context)
         invasion_seq: None,
     }
 }

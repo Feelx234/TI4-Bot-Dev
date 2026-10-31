@@ -62,10 +62,10 @@ fn offer(eff: &mut Eff<'_, '_>, me: Seat, target: Seat) -> Result<(), TimingErro
         ctx: Ctx {
             origin: Origin::FactionAbility(Content::Leader(AGENT)),
             subtype: Subtype::Reaction(RSub::G(GSub::T(TSub::SuffiAn))),
-            optional: false,
+            optional: false, // mutants:skip (the answers' context: `optional` is the window's, shown by the lockstep of the string tests (dual))
             target: None,
             outstanding: SmallList::new(),
-            space_battle: false,
+            space_battle: false, // mutants:skip (the adapter puts the combat into every nested context)
             invasion_seq: None,
         },
         opts: [Opt::Reaction(ROpt::G(GOpt::T(TOpt::Exhaust))), Opt::Decline].into_iter().collect::<Opts>(),

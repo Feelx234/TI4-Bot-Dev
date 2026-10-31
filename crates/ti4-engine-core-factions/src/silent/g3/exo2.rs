@@ -66,7 +66,7 @@ fn ask(eff: &mut Eff<'_, '_>, ask: TAsk, subtype: TSub, opts: Opts) -> Pick {
             optional: false,
             target: None,
             outstanding: SmallList::new(),
-            space_battle: false,
+            space_battle: false, // mutants:skip (the adapter puts the combat into every nested context)
             invasion_seq: None,
         },
         opts,
@@ -151,7 +151,7 @@ fn destroy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
                 remaining.remove(at);
                 true
             }
-            None => false,
+            None => false, // mutants:skip (a batch that is not on the board is skipped (the choices were made from the board a moment ago))
         });
         if !all_there {
             if index == 0 { // mutants:skip (the choices were made from the board a moment ago: the first batch is always there)

@@ -1,4 +1,4 @@
-//! sardakk: the clean-up of T'ro's activation mark (`factions::sardakk::tactical_unmark`, `leader:*:sardakkagent_turn:TURN_BEGAN:after` and
+//! sardakk: the clean-ups of the marks the Sardakk's cards leave (T'ro's activation, Sh'val's skip). T'ro: the clean-up of T'ro's activation mark (`factions::sardakk::tactical_unmark`, `leader:*:sardakkagent_turn:TURN_BEGAN:after` and
 //! `leader:*:sardakkagent_strategic:STRATEGIC_ACTION_BEGAN:after`). The mark (`MarkKey::SardakkAgentTactical(player)` = the system the player activated) is written by
 //! the tactical chain (`driver::windows::tactical::hooks`); a turn that begins, or a strategic action, is no end of a tactical action, so the activation of that player
 //! is forgotten. Mandatory, registered for every seat; the condition names a seat that holds the agent card (in any state) and a mark of the event's player.
@@ -16,6 +16,8 @@ use crate::common::mark;
 pub const TURN: Slot = Slot(42_005);
 /// `leader:*:sardakkagent_strategic:STRATEGIC_ACTION_BEGAN:after`.
 pub const STRATEGIC: Slot = Slot(42_006);
+/// Sh'val's skip that never reached its commitment (`leader:*:sardakkhero_turn:TURN_BEGAN:after`).
+pub const HERO_TURN: Slot = Slot(42_016);
 
 fn condition(c: &CondCx<'_>) -> bool {
     c.state.players().by_seat(c.def.owner).is_some_and(|p| p.leaders.status.contains_key(&Leader::Tro))
@@ -29,7 +31,18 @@ fn forget(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+/// `hero_unmark_turn`: "a skip that never reached its commitment must not leak into a later turn": the mark of the skip (`sardakk:hero:skip`) stands. Mandatory, every seat.
+fn hero_condition(c: &CondCx<'_>) -> bool {
+    mark(c.state, MarkKey::SardakkHeroSkip()).is_some()
+}
+
+fn hero_forget(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    eff.state().marks_mut().tail.edit().remove(&MarkKey::SardakkHeroSkip());
+    Ok(())
+}
+
 pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(TURN, AbilityKind::Leader, EventKind::TurnBegan, Relation::After, forget).when(condition));
     t.add(Spec::new(STRATEGIC, AbilityKind::Leader, EventKind::StrategicActionBegan, Relation::After, forget).when(condition));
+    t.add(Spec::new(HERO_TURN, AbilityKind::Leader, EventKind::TurnBegan, Relation::After, hero_forget).when(hero_condition));
 }

@@ -964,3 +964,111 @@ mod edges {
         assert_eq!(ok.driver.unknown(), None);
     }
 }
+
+// -- Bioplasmosis, the Oracle and Sh'val's skip --------------------------------------------------------------------------------------
+
+mod status {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent3::{Ask as TAsk, Opt as TOpt};
+    use ti4_engine_core::generated::{Leader, PromissoryNote, Technology};
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::{LeaderStatus, NoteKey};
+
+    fn status_phase_ended() -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::StatusPhaseEnded, Payload::new())
+    }
+
+    #[test]
+    fn bioplasmosis_moves_one_infantry_per_question_until_the_owner_stops() {
+        covers!("silent::g3::bio::BIO");
+        let (system, planets) = two_planet_system();
+        let scenario = || Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).tech(0, Technology::Bioplasmosis).control(planets[0], 0).control(planets[1], 0).unit(system, Some(planets[0]), Unit::InfantryI, 0, 3);
+        let mut r = rig(scenario(), |_| {}, status_phase_ended());
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the technology");
+        r.pick(use_it);
+        // Only the planet with infantry can give: one move to the other planet, or stop.
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::Bio { so_far: 0 }))), "{}", r.transcript());
+        assert_eq!(r.opts(), vec![Opt::Reaction(ROpt::G(GOpt::T(TOpt::Shift { index: 0, from: (system, planets[0]), to: (system, planets[1]) }))), Opt::Decline]);
+        r.pick(0);
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::Bio { so_far: 1 }))));
+        // Nothing has moved yet.
+        assert_eq!(units_of(&r, planets[0], 0, UnitBaseType::Infantry), 3);
+        r.pick(0);
+        r.decline();
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!((units_of(&r, planets[0], 0, UnitBaseType::Infantry), units_of(&r, planets[1], 0, UnitBaseType::Infantry)), (1, 2));
+        // Declined at the window: nothing moves.
+        let mut declined = rig(scenario(), |_| {}, status_phase_ended());
+        declined.decline();
+        assert_eq!(units_of(&declined, planets[0], 0, UnitBaseType::Infantry), 3);
+    }
+
+    #[test]
+    fn bioplasmosis_needs_the_technology_infantry_and_another_planet_in_reach() {
+        covers!("silent::g3::bio::BIO");
+        let (system, planets) = two_planet_system();
+        let base = || Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).control(planets[0], 0).control(planets[1], 0).unit(system, Some(planets[0]), Unit::InfantryI, 0, 2);
+        assert!(rig(base(), |_| {}, status_phase_ended()).is_done(), "no technology");
+        // Only one controlled planet: nowhere to go.
+        let lone = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).tech(0, Technology::Bioplasmosis).control(planets[0], 0).unit(system, Some(planets[0]), Unit::InfantryI, 0, 2);
+        assert!(rig(lone, |_| {}, status_phase_ended()).is_done(), "one planet");
+        // A planet in a system out of reach (no map, a different system): not a destination.
+        let other = ti4_engine_core_tests::scenario::plain_systems().into_iter().find(|s| *s != system).expect("another plain system");
+        let far = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).tech(0, Technology::Bioplasmosis).control(planets[0], 0).control(other.data().planets[0], 0).unit(system, Some(planets[0]), Unit::InfantryI, 0, 2);
+        assert!(rig(far, |_| {}, status_phase_ended()).is_done(), "not the same or an adjacent system");
+        // The infantry that is not the owner's does not count.
+        let theirs = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).tech(0, Technology::Bioplasmosis).control(planets[0], 0).control(planets[1], 0).unit(system, Some(planets[0]), Unit::InfantryI, 1, 2);
+        assert!(rig(theirs, |_| {}, status_phase_ended()).is_done(), "only the owner's infantry");
+    }
+
+    fn note(n: PromissoryNote, faction: Faction) -> NoteKey {
+        NoteKey { note: n, faction }
+    }
+
+    fn oracle_edit(s: &mut CoreState) {
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::TheOracle, LeaderStatus::Unlocked);
+        s.cards_mut().promissory.edit().insert(note(PromissoryNote::Ceasefire, Faction::TheFederationOfSol), Seat(1));
+        s.cards_mut().promissory.edit().insert(note(PromissoryNote::Ceasefire, Faction::TheArborec), Seat(1));
+        s.cards_mut().promissory.edit().insert(note(PromissoryNote::Ceasefire, Faction::TheEmiratesOfHacan), Seat(2));
+    }
+
+    #[test]
+    fn the_oracle_takes_a_note_from_every_other_player_and_is_purged() {
+        covers!("silent::g3::oracle::ORACLE");
+        let factions = [Faction::TheNaaluCollective, Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol];
+        // Seats 1 and 2 hold notes (own notes are held at the start of a game; the scenario deals none).
+        let mut r = rig(Scenario::new(&factions), oracle_edit, status_phase_ended());
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the hero");
+        r.pick(use_it);
+        // Seat 1 holds two notes: it chooses. Seat 2 holds one: it gives it without a question.
+        assert_eq!((r.asked().actor, r.asked().ask), (Seat(1), Ask::Reaction(RAsk::G(GAsk::T(TAsk::OracleGive)))), "{}", r.transcript());
+        assert_eq!(r.opts().len(), 2);
+        r.pick(1);
+        assert!(r.is_done(), "{}", r.transcript());
+        let given = |r: &Rig<EmitEvent>, key: NoteKey| r.state.cards().promissory.get(&key).copied();
+        assert_eq!(given(&r, note(PromissoryNote::Ceasefire, Faction::TheEmiratesOfHacan)), Some(Seat(0)), "the lone note of seat 2");
+        let first = r.state.cards().promissory.iter().filter(|(k, h)| **h == Seat(0) && k.faction != Faction::TheEmiratesOfHacan).count();
+        assert_eq!(first, 1, "one of the two of seat 1");
+        assert_eq!(r.state.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::TheOracle), Some(&LeaderStatus::Purged));
+        // Locked, or nobody has a note: not offered.
+        assert!(rig(Scenario::new(&factions), |s| { oracle_edit(s); s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::TheOracle, LeaderStatus::Locked); }, status_phase_ended()).is_done());
+        assert!(rig(Scenario::new(&factions), |s| { s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::TheOracle, LeaderStatus::Unlocked); }, status_phase_ended()).is_done());
+    }
+
+    #[test]
+    fn a_skip_that_never_reached_its_commitment_is_forgotten_when_a_turn_begins() {
+        covers!("silent::g3::tro_marks::HERO_TURN");
+        let (system, _) = two_planet_system();
+        let skip = |s: &mut CoreState| {
+            s.marks_mut().tail.edit().insert(MarkKey::SardakkHeroSkip(), MarkVal::Rec(vec![MarkVal::Atom(Atom::Seat(Seat(0))), MarkVal::Atom(Atom::System(system))]));
+        };
+        let turn = || fx::event(EventKind::TurnBegan, Payload::new().with(Key::Player, Val::Seat(Seat(1))));
+        let r = rig(Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan]), skip, turn());
+        assert!(r.is_done() && r.state.marks().tail.get(&MarkKey::SardakkHeroSkip()).is_none());
+        // Whatever seats are at the table: the mark goes (the string registers it for every seat).
+        let r = rig(Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]), skip, turn());
+        assert!(r.state.marks().tail.get(&MarkKey::SardakkHeroSkip()).is_none());
+    }
+}

@@ -13,6 +13,8 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
     let _ = r;
     match a {
         Ask::Ragh { planet } => format!("Ragh's Call: where do the Saar ground forces on {} go", planet.as_str()),
+        Ask::Bio { so_far } => format!("Bioplasmosis: move an infantry ({so_far} so far)"),
+        Ask::OracleGive => "The Oracle: which promissory note do you give".to_owned(),
         Ask::SulaOpponent => "S'ula Mentarion: choose an opponent".to_owned(),
         Ask::SulaGive { to } => format!("Give {} 1 promissory note from your hand", r.seat_text(*to)),
         Ask::SuffiAn { target } => format!("Suffi An: exhaust to draw 1 action card each with {}", r.seat_text(*target)),
@@ -26,6 +28,8 @@ pub(super) fn subtype(s: &Subtype) -> String {
     match s {
         Subtype::Ragh => "ragh_destination",
         Subtype::Alastor => "alastor_participants",
+        Subtype::Bio => "bioplasmosis_move",
+        Subtype::OracleGive => "give_note",
         Subtype::SulaOpponent => "commander_opponent",
         Subtype::SulaGive => "commander_give_note",
         Subtype::SuffiAn => "suffi_an",
@@ -38,6 +42,13 @@ pub(super) fn subtype(s: &Subtype) -> String {
 pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
     let _ = r;
     match (a, o) {
+        (Ask::Bio { .. }, Opt::Shift { index, from, to }) => {
+            ChoiceOption::labelled(format!("move|{index}"), "bioplasmosis", format!("move 1 infantry from {} in {} to {} in {}", from.1.as_str(), from.0.as_str(), to.1.as_str(), to.0.as_str()))
+        }
+        (Ask::OracleGive, Opt::Note(key)) => {
+            let note = super::cards::note_text(*key);
+            ChoiceOption::labelled(format!("note|{note}"), "promissory_note", format!("give {note} to the Naalu player"))
+        }
         (Ask::SulaOpponent, Opt::Seat(who)) => {
             let who = r.seat_text(*who);
             ChoiceOption::labelled(who, "commander", format!("force {who} to give you a promissory note"))
@@ -71,6 +82,8 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
     match a {
         // The ships of the exotrireme questions are matched against the rendered options (the id is an index into the question's list).
         Ask::ExoSelf | Ask::ExoVictim { .. } => None,
+        // The answers of these are matched against the rendered options (the id is an index, or the note's text).
+        Ask::Bio { .. } | Ask::OracleGive => None,
         Ask::SulaOpponent => Some(ROpt::G(GOpt::T(Opt::Seat(r.seat(id)?)))),
         // The notes of the hand are matched against the rendered options (the id is the note's text).
         Ask::SulaGive { .. } => None,

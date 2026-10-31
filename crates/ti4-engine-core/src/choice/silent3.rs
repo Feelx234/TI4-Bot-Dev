@@ -22,6 +22,10 @@ pub enum Ask {
     SulaOpponent,
     /// S'ula Mentarion: the opponent says which promissory note of the hand goes to `to`.
     SulaGive { to: Seat },
+    /// Bioplasmosis (Arborec): move an infantry between planets, `so_far` moves planned.
+    Bio { so_far: u8 },
+    /// The Oracle (Naalu hero): the player says which promissory note of the hand goes to the Naalu.
+    OracleGive,
 }
 
 /// One answer.
@@ -42,6 +46,8 @@ pub enum Opt {
     Note(NoteKey),
     /// The seat's own Support for the Throne (`support:{faction}`).
     Support(Faction),
+    /// One infantry moved from `from` to `to` (the option id is `move|{index}`, the index in the list the question was built from).
+    Shift { index: u8, from: (System, Planet), to: (System, Planet) },
 }
 
 /// The machine identifier of the question.
@@ -61,6 +67,10 @@ pub enum Subtype {
     SulaOpponent,
     /// `commander_give_note`.
     SulaGive,
+    /// `bioplasmosis_move`.
+    Bio,
+    /// `give_note`.
+    OracleGive,
 }
 
 impl Ask {
@@ -70,7 +80,7 @@ impl Ask {
     pub const fn carries_trigger(&self) -> bool {
         match self {
             Self::Ragh { .. } => false,
-            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } | Self::SuffiAn { .. } | Self::SulaOpponent | Self::SulaGive { .. } => false,
+            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } | Self::SuffiAn { .. } | Self::SulaOpponent | Self::SulaGive { .. } | Self::Bio { .. } | Self::OracleGive => false,
         }
     }
 }

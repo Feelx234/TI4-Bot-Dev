@@ -98,10 +98,8 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Leader, event: EventKind::UnitsProduced, relation: Relation::After, holds: |c| leader(c, Faction::TheEmbersOfMuaat, LeaderType::Commander) }, // muaatcommander_unlock
     Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: downstream }, // muaathero
     Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: downstream }, // muaathero_moved
-    Gap { kind: AbilityKind::Leader, event: EventKind::StatusPhaseEnded, relation: Relation::After, holds: |c| leader(c, Faction::TheNaaluCollective, LeaderType::Hero) }, // naaluhero
     Gap { kind: AbilityKind::Leader, event: EventKind::TurnPassed, relation: Relation::After, holds: |c| leader(c, Faction::TheNaazRokhaAlliance, LeaderType::Agent) }, // naazagent
     Gap { kind: AbilityKind::Leader, event: EventKind::PlanetControlGained, relation: Relation::After, holds: |c| leader(c, Faction::TheNaazRokhaAlliance, LeaderType::Commander) }, // naazcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::TurnBegan, relation: Relation::After, holds: downstream }, // sardakkhero_turn
     Gap { kind: AbilityKind::Leader, event: EventKind::GroundCombatStarted, relation: Relation::After, holds: |c| leader(c, Faction::TheFederationOfSol, LeaderType::Commander) }, // solcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::When, holds: |c| leader(c, Faction::TheTitansOfUl, LeaderType::Commander) }, // titanscommander
     Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::After, holds: |c| leader(c, Faction::TheWinnu, LeaderType::Agent) }, // winnuagent
@@ -114,7 +112,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Promissory, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| note(c, PromissoryNote::Stymie) }, // stymie
     // -- technologies
     Gap { kind: AbilityKind::Technology, event: EventKind::ActionCompleted, relation: Relation::After, holds: downstream }, // asn_clear
-    Gap { kind: AbilityKind::Technology, event: EventKind::StatusPhaseEnded, relation: Relation::After, holds: |c| tech(c, Technology::Bioplasmosis) }, // bio
     Gap { kind: AbilityKind::Technology, event: EventKind::ProductionUsed, relation: Relation::After, holds: |c| tech(c, Technology::HegemonicTradePolicy) }, // htp
     Gap { kind: AbilityKind::Technology, event: EventKind::GroundCombatStarted, relation: Relation::After, holds: |c| tech(c, Technology::MagenDefenseGridOmegaOmega) }, // md_hit
     Gap { kind: AbilityKind::Technology, event: EventKind::UnitAbilityRolled, relation: Relation::After, holds: |c| tech(c, Technology::StrikeWingAlphaII) }, // swa2
