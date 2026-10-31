@@ -216,6 +216,47 @@ mod tests {
         Scope(u32::MAX)
     }
 
+    /// The card that carries a technology's text (`technology::exhaust_technology_text`): the technology itself, else the Valefar
+    /// Assimilator of a Nekro whose token sits on it while another seat owns it (X before Y); the carrier is the card exhausted.
+    #[test]
+    fn the_text_of_a_technology_is_carried_by_the_card_or_by_the_assimilator_with_its_token() {
+        let mut s = game();
+        let nekro = Seat(0);
+        s.players_mut().by_seat_mut(nekro).unwrap().faction = Faction::TheNekroVirus;
+        let tech = Technology::Vortex;
+        // Nobody has it: no carrier.
+        assert_eq!(text_carrier(&s, nekro, tech), None);
+        assert!(!exhaust_technology_text(&mut s, nekro, tech));
+        // The assimilator stands for it, but no other seat owns it any more: the token is not live.
+        {
+            let p = s.players_mut().by_seat_mut(nekro).unwrap();
+            p.tech.owned.insert(Technology::ValefarAssimilatorX);
+            p.tech.assimilated.insert(Technology::ValefarAssimilatorX, tech);
+        }
+        assert_eq!(text_carrier(&s, nekro, tech), None);
+        // Another seat owns it: the assimilator carries it and is the card exhausted.
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().tech.owned.insert(tech);
+        assert_eq!(text_carrier(&s, nekro, tech), Some(Technology::ValefarAssimilatorX));
+        assert!(exhaust_technology_text(&mut s, nekro, tech));
+        let p = s.players().by_seat(nekro).unwrap();
+        assert!(p.tech.exhausted.contains(Technology::ValefarAssimilatorX) && !p.tech.exhausted.contains(tech));
+        // X is preferred to Y, and the own card to both.
+        {
+            let p = s.players_mut().by_seat_mut(nekro).unwrap();
+            p.tech.owned.insert(Technology::ValefarAssimilatorY);
+            p.tech.assimilated.insert(Technology::ValefarAssimilatorY, tech);
+        }
+        assert_eq!(text_carrier(&s, nekro, tech), Some(Technology::ValefarAssimilatorX));
+        s.players_mut().by_seat_mut(nekro).unwrap().tech.owned.insert(tech);
+        assert_eq!(text_carrier(&s, nekro, tech), Some(tech));
+        // Only a Nekro carries a text on an assimilator.
+        let other = Seat(2);
+        let p = s.players_mut().by_seat_mut(other).unwrap();
+        p.tech.owned.insert(Technology::ValefarAssimilatorX);
+        p.tech.assimilated.insert(Technology::ValefarAssimilatorX, tech);
+        assert_eq!(text_carrier(&s, other, tech), None);
+    }
+
     /// Regression (mutation `revolution taxes fighters`): the fighters come first in the list and cost as little as the
     /// destroyer, but the tax takes a ship that is no fighter.
     #[test]

@@ -1190,12 +1190,14 @@ fn umbat(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
             crate::dual::Run::new(umbat_string(&mut inner, player))
         },
         |s: &mut GameState, script: &crate::dual_window::Recording| {
-            // A copy through Ssruu is atomic in the string (a failed copy restores the log): the string decides.
+            // A copy through Ssruu is atomic in the string (a failed copy restores the state and the log): a copy whose decision failed
+            // (a question the script holds no answer for) is the string's; one that went through is the native use, Ssruu's
+            // exhaustion being the caller's (`use_leader_text`).
             let copied = crate::factions::hooks_cards::borrowable_agents(s, content, player)
                 .iter()
                 .any(|(_, source)| source.as_str() == AGENT);
-            if copied {
-                crate::dual::note_bail_here("Umbat copied through Ssruu, Clever Genome (an atomic use)");
+            if copied && script.questions.iter().any(|q| q.answer.is_none()) {
+                crate::dual::note_bail_here("Umbat copied through Ssruu, Clever Genome, with a decision that failed (an atomic use)");
                 return None;
             }
             crate::leaders_core::muaat_agent(s, content, player, sources, script)
@@ -3194,6 +3196,41 @@ mod tests {
                 "Ssruu carries the text, so Ssruu exhausts"
             );
         }
+    }
+
+    /// Package W10: a copy of Umbat through Ssruu whose decisions all went through is the core window too (the string pays for the chosen
+    /// player's production and Ssruu exhausts after it); a copy whose decision failed (an answer that is not offered) stays the string's.
+    #[test]
+    fn a_copied_umbat_runs_in_lockstep_with_the_core_unless_a_decision_failed() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut state = borrow_game();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            borrow_umbat(&mut state, &mut scripted(&["a", "build|cruiser|1", "done_producing"]), &b())
+        });
+        assert!(done);
+        assert_eq!(leader_status(&state, &b(), "yssarilagent"), Some(LeaderStatus::Exhausted));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::muaat::agent"), (1, 0), "{r:?}");
+        // A decision that fails keeps Ssruu ready and the position: the string decides, counted.
+        let mut state = borrow_game();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let home = home_of(&state, &a());
+        let ship = state.system_state(&home).units.iter().find(|unit| unit.owner == a() && unit.type_id.as_str().contains("warsun")).unwrap().clone();
+        state.system_mut(&SystemId::new("19")).units.push(ship);
+        let before = state.clone();
+        let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || borrow_umbat(&mut state, &mut scripted(&["a", "invalid-system"]), &b()));
+        assert!(!done);
+        assert_eq!(state, before);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
     }
 
     #[test]

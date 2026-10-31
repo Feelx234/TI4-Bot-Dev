@@ -490,6 +490,25 @@ fn a_barrage_whose_side_does_not_hold_the_commander_asks_nothing() {
     }
 }
 
+#[test]
+fn only_the_side_that_holds_the_commander_is_asked_when_both_sides_barrage() {
+    covers!("rules::combat::barrage::BarrageStep");
+    for commander in [[true, false], [false, true], [true, true], [false, false]] {
+        for seed in 0..6u64 {
+            let sc = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerII, 0, 1).unit(sys(), None, Unit::FighterI, 0, 2).unit(sys(), None, Unit::DestroyerII, 1, 1).unit(sys(), None, Unit::FighterI, 1, 2);
+            let mut rig = Rig::new(sc, BarrageStep::new(jolnar_facts(commander))).seeded(seed);
+            rig.run();
+            let mut askers = Vec::new();
+            while !rig.is_done() {
+                askers.push(rig.asked().actor.0);
+                rig.decline();
+            }
+            let want: Vec<u8> = (0..2u8).filter(|s| commander[usize::from(*s)]).flat_map(|s| [s, s, s]).collect();
+            assert_eq!(askers, want, "seed {seed} {commander:?}: three dice per holder, attacker's side first");
+        }
+    }
+}
+
 fn waylay_arena(seed: u64, waylay: bool) -> Rig<BarrageStep> {
     let sc = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerII, 0, 1).unit(sys(), None, Unit::FighterI, 1, 1).unit(sys(), None, Unit::DreadnoughtI, 1, 1).unit(sys(), None, Unit::CruiserI, 1, 1);
     let (mut state, kernel) = sc.build();
@@ -537,4 +556,33 @@ fn a_waylay_sends_the_hits_to_every_ship_with_sustain_damage_first_and_the_owner
         assert!(rig.driver.emitted.iter().filter(|e| e.kind == EventKind::ShipDestroyed).all(|e| e.payload.flag(Key::DuringSpaceCombat) == Some(true)), "a Waylay's hits are part of the space combat");
     }
     assert!(asked_sustain && asked_casualty, "the seeds cover a sustain offer and a casualty choice");
+}
+
+#[test]
+fn the_hits_window_of_a_waylay_barrage_opens_even_when_the_target_has_no_fighter() {
+    covers!("rules::combat::barrage::BarrageStep");
+    let make = |seed: u64, waylay: bool| {
+        let sc = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerII, 0, 1).unit(sys(), None, Unit::CruiserI, 1, 1);
+        let (mut state, kernel) = sc.build();
+        state.meta_mut().combat_round_seq = 4;
+        if waylay {
+            state.players_mut().by_seat_mut(Seat(0)).unwrap().card_timers.waylay_barrage_round.set(Some(4));
+        }
+        Rig::from_parts(state, kernel, BarrageStep::new(BarrageFacts { hit_texts: ti4_engine_core::kernel::children::HitTexts { staging: true, commander: Code(13), casualty: Code(14), effect_hit: Code(15) }, ..facts(true, true) })).seeded(seed)
+    };
+    let (mut opened, mut plain_opened) = (0, 0);
+    for seed in 0..30u64 {
+        let mut plain = make(seed, false);
+        plain.run();
+        assert!(plain.is_done());
+        plain_opened += plain.driver.emitted.iter().filter(|e| e.kind == EventKind::AntiFighterBarrageHits).count();
+        let mut rig = make(seed, true);
+        rig.run();
+        if hits_of(&rig.driver.window.drawn) > 0 {
+            opened += rig.driver.emitted.iter().filter(|e| e.kind == EventKind::AntiFighterBarrageHits).count();
+            assert_eq!(rig.state.board().sys(sys()).units.iter().filter(|p| p.owner() == Seat(1)).count(), 0, "seed {seed}: a lone cruiser takes the hit (a single casualty needs no question)");
+        }
+    }
+    assert_eq!(plain_opened, 0, "no fighter, no card: nothing to hit, no window");
+    assert!(opened > 0, "the card widens the hits to the cruiser, so the window opens");
 }

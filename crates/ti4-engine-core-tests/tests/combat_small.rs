@@ -492,6 +492,11 @@ fn munitions_reserves_is_asked_at_the_opening_and_paid_below_rules_version_eight
     assert!(declined.is_done());
     let p = declined.state.players().by_seat(Seat(0)).unwrap();
     assert_eq!((p.econ.trade_goods, p.combat_timers.munitions_round.get()), (3, None));
+    // Exactly the 2 trade goods pay.
+    let (exact, kernel) = sc().goods(0, 2).build();
+    let mut rig = Rig::from_parts(exact, kernel, BeginRound::new(facts([true, false])));
+    rig.run();
+    assert!(!rig.is_done(), "two trade goods are enough");
     // Not asked: a side that does not hold the ability, or holds fewer than 2 trade goods.
     let mut none = Rig::new(sc(), BeginRound::new(facts([false, false])));
     none.run();
