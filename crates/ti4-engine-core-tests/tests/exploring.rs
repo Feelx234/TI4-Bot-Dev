@@ -556,3 +556,184 @@ fn a_question_asked_inside_an_invasion_carries_its_sequence_number() {
     plain.run();
     assert_eq!(plain.asked().ctx.invasion_seq, None);
 }
+
+// ---- mutation survivors (package X) -------------------------------------------------------------------------
+
+fn holdings_setup(version: u32, goods: i16, commodities: i16, faction: Faction) -> Setup {
+    let s = setup(planet_with(&[PlanetTrait::Industrial]), &[faction, Faction::TheEmbersOfMuaat]);
+    Setup { scenario: s.scenario.rules(version).goods(0, goods).commodities(0, commodities), ..s }
+}
+
+fn with_roster(mut rig: Rig<Exploring>) -> Rig<Exploring> {
+    let mut table = explore_table();
+    let mut roster = ti4_engine_core::query::tech::UnitRoster::default();
+    roster.set(Faction::TheNaazRokhaAlliance, UnitBaseType::Mech, Some(Unit::Eidolon));
+    table.facts.roster = Some(Box::leak(Box::new(roster)));
+    table.facts.card_groups = (0..ActionCard::COUNT as u8).collect();
+    rig = rig.with_table(table);
+    rig
+}
+
+#[test]
+fn a_table_missing_the_texts_or_the_words_declines_and_the_gates_read_their_own_condition() {
+    covers!("rules::explore_windows::Exploring");
+    use ti4_engine_core::state::EWhy;
+    let spot = planet_with(&[PlanetTrait::Cultural]);
+    for (filled, words) in [(true, false), (false, true)] {
+        let s = setup(spot, &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
+        let (mut state, kernel) = s.scenario.build();
+        stack(&mut state, ExploreType::Cultural, &[Explore::CulturalRelicFragment1]);
+        let mut table = explore_table();
+        table.codes.explore.filled = filled;
+        if !words {
+            table.facts.explore_words = None;
+        }
+        let mut rig = Rig::from_parts(state, kernel, Exploring::planet(Seat(0), spot.1, EDeck::Fixed(ExploreType::Cultural), false)).with_table(table);
+        rig.run();
+        assert_eq!(rig.driver.window.unsupported(), Some(EWhy::NoTexts), "filled {filled} words {words}");
+    }
+    // Terragenesis only matters to a Titans seat that announces an exploration of a planet.
+    let s = setup(spot, &[Faction::TheTitansOfUl, Faction::TheArborec]);
+    let (mut quiet, _, _) = build(s, ExploreType::Cultural, &[Explore::CulturalRelicFragment1], false, EDeck::Fixed(ExploreType::Cultural));
+    quiet.run();
+    assert!(quiet.driver.window.explored() && quiet.driver.window.unsupported().is_none(), "no timing handle: nothing to react to");
+    let sys = plain_systems()[0];
+    let (mut state, kernel) = Scenario::new(&[Faction::TheTitansOfUl, Faction::TheArborec]).map_from(&[sys]).build();
+    stack(&mut state, ExploreType::Frontier, &[Explore::UnknownRelicFragment1]);
+    state.explore_mut().frontier.insert(sys);
+    let mut frontier = Rig::from_parts(state, kernel, Exploring::frontier(Seat(0), sys, true, true)).with_table(explore_table());
+    frontier.run();
+    assert!(frontier.driver.window.explored(), "a frontier token has no planet to name");
+}
+
+#[test]
+fn every_entropic_field_and_ship_gives_its_tokens_and_goods() {
+    covers!("rules::explore_windows::Exploring");
+    for (card, tokens, goods) in [(Explore::MinorEntropicField, 1, 1), (Explore::EntropicField, 1, 2), (Explore::MajorEntropicField, 1, 3), (Explore::KeleresShip1, 2, 0), (Explore::KeleresShip2, 2, 0)] {
+        // Before version 12 the tokens go to the strategy pool unasked.
+        let (mut rig, _, _) = build(holdings_setup(11, 0, 0, Faction::TheArborec), ExploreType::Hazardous, &[card], false, EDeck::Fixed(ExploreType::Hazardous));
+        rig.run();
+        assert!(rig.is_done(), "{card:?}");
+        assert_eq!((goods_of_seat(&rig), rig.state.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens), (goods, 2 + tokens), "{card:?}");
+    }
+    // From version 12 each token is a question: a Keleres ship asks twice, with the number left.
+    let (mut rig, _, _) = build(holdings_setup(LATEST_RULES, 0, 0, Faction::TheArborec), ExploreType::Hazardous, &[Explore::KeleresShip1], false, EDeck::Fixed(ExploreType::Hazardous));
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 2 })));
+    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 })));
+    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Fleet)));
+    assert!(rig.is_done());
+}
+
+fn goods_of_seat(rig: &Rig<Exploring>) -> i16 {
+    rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods
+}
+
+#[test]
+fn the_options_of_a_functioning_base_and_local_fabricators_follow_what_the_seat_holds() {
+    covers!("rules::explore_windows::Exploring");
+    let opts = |card: Explore, goods: i16, commodities: i16, faction: Faction| {
+        let (rig, system, _) = build(holdings_setup(LATEST_RULES, goods, commodities, faction), ExploreType::Industrial, &[card], false, EDeck::Fixed(ExploreType::Industrial));
+        let mut rig = with_roster(rig);
+        if faction == Faction::TheNaazRokhaAlliance {
+            // The Eidolon Maximum on the board bars placing a mech by an effect.
+            rig.state.board_mut().sys_mut(system).units.push(Piece::new(Unit::EidolonMaximum, Seat(0)));
+        }
+        rig.run();
+        assert!(matches!(rig.asked().ask, Ask::Explore(ti4_engine_core::choice::explore::Ask::Reward(_))), "a single option is still asked: {}", rig.transcript());
+        rig.opts()
+    };
+    for card in [Explore::FunctioningBase1, Explore::LocalFabricators1] {
+        assert_eq!(opts(card, 0, 0, Faction::TheArborec), vec![ex(EOpt::Gain)], "{card:?}");
+        assert_eq!(opts(card, 1, 0, Faction::TheArborec), vec![ex(EOpt::Gain), ex(EOpt::SpendTradeGood)], "{card:?}");
+        assert_eq!(opts(card, 0, 1, Faction::TheArborec), vec![ex(EOpt::Gain), ex(EOpt::SpendCommodity)], "{card:?}");
+    }
+    // A seat whose faction bars placing its mech by an effect is not offered the options that place one.
+    assert_eq!(opts(Explore::LocalFabricators1, 2, 2, Faction::TheNaazRokhaAlliance), vec![ex(EOpt::Gain)]);
+    assert_eq!(opts(Explore::FunctioningBase1, 2, 2, Faction::TheNaazRokhaAlliance).len(), 3, "the base places nothing");
+}
+
+#[test]
+fn spending_a_commodity_and_gaining_one_are_exact() {
+    covers!("rules::explore_windows::Exploring");
+    let run = |card: Explore, pick: EOpt| {
+        let (rig, _, planet) = build(holdings_setup(LATEST_RULES, 0, 2, Faction::TheArborec), ExploreType::Industrial, &[card], false, EDeck::Fixed(ExploreType::Industrial));
+        let mut rig = with_roster(rig);
+        rig.state.decks_mut().action.set(vec![ActionCard::Spy, ActionCard::Rout]);
+        rig.run();
+        rig.pick_opt(ex(pick));
+        assert!(rig.is_done(), "{}", rig.transcript());
+        (rig, planet)
+    };
+    let (rig, _) = run(Explore::FunctioningBase1, EOpt::SpendCommodity);
+    let p = rig.state.players().by_seat(Seat(0)).unwrap();
+    assert_eq!((p.econ.commodities, p.cards.hand.len()), (1, 1));
+    let (rig, planet) = run(Explore::LocalFabricators1, EOpt::SpendCommodity);
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, 1);
+    assert_eq!(rig.state.board().planet(planet).units.as_slice().iter().filter(|u| u.kind().data().base_type == UnitBaseType::Mech).count(), 1);
+    for card in [Explore::FunctioningBase1, Explore::LocalFabricators1] {
+        let (rig, _) = run(card, EOpt::Gain);
+        assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, 3, "{card:?}: one commodity");
+    }
+}
+
+#[test]
+fn a_lost_crew_draws_exactly_two_and_a_mercenary_without_unit_forms_is_named() {
+    covers!("rules::explore_windows::Exploring");
+    use ti4_engine_core::state::EWhy;
+    let spot = planet_with(&[PlanetTrait::Hazardous]);
+    let s = setup(spot, &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
+    let (mut state, kernel) = s.scenario.build();
+    stack(&mut state, ExploreType::Hazardous, &[Explore::LostCrew1]);
+    state.decks_mut().action.set(vec![ActionCard::Spy, ActionCard::Rout, ActionCard::Veto, ActionCard::Plague]);
+    let mut table = explore_table();
+    table.facts.card_groups = (0..ActionCard::COUNT as u8).collect();
+    let mut rig = Rig::from_parts(state, kernel, Exploring::planet(Seat(0), spot.1, EDeck::Fixed(ExploreType::Hazardous), false)).with_table(table);
+    rig.run();
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 2);
+    // The window itself, not hosted, asks the discard of a draw over the limit.
+    let s = setup(spot, &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
+    let (mut state, kernel) = s.scenario.build();
+    stack(&mut state, ExploreType::Hazardous, &[Explore::LostCrew1]);
+    state.decks_mut().action.set(vec![ActionCard::Spy, ActionCard::Rout]);
+    for card in ActionCard::ALL.iter().copied().skip(10).take(7) {
+        state.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(card);
+    }
+    let mut table = explore_table();
+    table.facts.card_groups = (0..ActionCard::COUNT as u8).collect();
+    let mut over = Rig::from_parts(state, kernel, Exploring::planet(Seat(0), spot.1, EDeck::Fixed(ExploreType::Hazardous), false)).with_table(table);
+    over.run();
+    assert!(matches!(over.asked().ask, Ask::Cards(_)), "a window held in memory asks the discard: {}", over.transcript());
+    // A Mercenary Outfit needs the unit forms of the scope.
+    let s = setup(spot, &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
+    let (mut state, kernel) = s.scenario.build();
+    stack(&mut state, ExploreType::Hazardous, &[Explore::MercenaryOutfit1]);
+    let mut bare = Rig::from_parts(state, kernel, Exploring::planet(Seat(0), spot.1, EDeck::Fixed(ExploreType::Hazardous), false)).with_table(explore_table());
+    bare.run();
+    bare.pick_opt(ex(EOpt::Place));
+    assert_eq!(bare.driver.window.unsupported(), Some(EWhy::NoLink));
+}
+
+#[test]
+fn a_zero_conversion_announces_nothing_and_a_fuel_source_pays_no_goods() {
+    covers!("rules::explore_windows::Exploring");
+    // Version 18 still offers the conversion to a seat without commodities: the gain is zero and nothing is announced.
+    let (mut rig, _, _) = build(holdings_setup(18, 0, 0, Faction::TheArborec), ExploreType::Industrial, &[Explore::AbandonedWarehouses1], true, EDeck::Fixed(ExploreType::Industrial));
+    rig.run();
+    rig.pick_opt(ex(EOpt::Convert));
+    assert!(rig.is_done());
+    assert!(rig.driver.emitted.iter().all(|e| e.kind != EventKind::TradeGoodsGained));
+    // A Volatile Fuel Source pays a command token and no trade good.
+    let spot = planet_with(&[PlanetTrait::Industrial]);
+    let sc = setup(spot, &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
+    let (mut state, kernel) = sc.scenario.unit(spot.0, Some(spot.1), Unit::InfantryI, 0, 1).build();
+    stack(&mut state, ExploreType::Industrial, &[Explore::VolatileFuelSource1]);
+    let mut fuel = Rig::from_parts(state, kernel, Exploring::planet(Seat(0), spot.1, EDeck::Fixed(ExploreType::Industrial), true)).with_table(explore_table());
+    fuel.run();
+    fuel.pick_opt(ex(EOpt::RemoveInfantry));
+    fuel.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
+    assert!(fuel.is_done());
+    assert_eq!(goods_of_seat(&fuel), 0);
+    assert!(fuel.driver.emitted.iter().all(|e| e.kind != EventKind::TradeGoodsGained));
+}

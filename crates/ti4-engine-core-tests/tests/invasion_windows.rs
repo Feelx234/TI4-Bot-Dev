@@ -970,6 +970,7 @@ fn an_attachment_that_gives_space_cannon_rolls_for_the_planets_controller_after_
         assert_eq!(step.dice.len(), 1, "only the unit's die is a die of the step");
         assert_eq!(rig.state.ledger().dice.len(), 2);
         assert_eq!(rig.state.ledger().dice.iter().filter(|d| d.unit.is_none()).count(), 1, "the attachment's roll names no unit");
+        assert!(rig.state.ledger().dice.iter().all(|d| d.rerolled == 0), "nothing was rerolled");
     }
     assert!(hits_seen > 0);
     // The invader's own planet does not fire at its owner: the attachment rolls for the controller only.

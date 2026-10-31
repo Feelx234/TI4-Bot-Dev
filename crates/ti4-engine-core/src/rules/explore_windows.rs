@@ -1012,7 +1012,7 @@ impl Exploring {
                 if planet.is_none() {
                     return self.close(sx);
                 }
-                self.ask_reward(sx, EThen::Mercenaries, &[EOpt::Place, EOpt::PlaceNothing], false);
+                self.ask_reward(sx, EThen::Mercenaries, &[EOpt::Place, EOpt::PlaceNothing], false); // mutants:skip (two options: nothing is skipped)
             }
             Explore::CoreMine1 | Explore::CoreMine2 | Explore::CoreMine3 => self.pay(sx, PayReward::TradeGood),
             Explore::Expedition1 | Explore::Expedition2 | Explore::Expedition3 => self.pay(sx, PayReward::ReadyPlanet),
@@ -1035,7 +1035,7 @@ impl Exploring {
     }
 
     fn econ(&self, sx: &Sx<'_>) -> (i32, i32) {
-        sx.state.players().by_seat(self.run.who).map_or((0, 0), |p| (i32::from(p.econ.trade_goods), i32::from(p.econ.commodities)))
+        sx.state.players().by_seat(self.run.who).map_or((0, 0), |p| (i32::from(p.econ.trade_goods), i32::from(p.econ.commodities))) // mutants:skip (the seat is always there)
     }
 
     /// From rules version 19 only a seat holding at least one commodity is offered the conversion.
@@ -1107,12 +1107,12 @@ impl Exploring {
     fn gain_tokens(&mut self, sx: &mut Sx<'_>, count: u8, goods: i32) {
         self.run.goods = goods;
         // (A command token in a Mahact fleet pool is not in the reinforcements: `fx::tokens_in_reinforcements` reads the marks.)
-        if count > 0 && sx.state.meta().rules_at_least(RULES_COMMAND_TOKEN_POOL) {
+        if count > 0 && sx.state.meta().rules_at_least(RULES_COMMAND_TOKEN_POOL) { // mutants:skip (no card gives zero tokens)
             self.run.pool_left = count;
             self.run.stage = EStage::Pooling;
             return;
         }
-        if count > 0 {
+        if count > 0 { // mutants:skip (no card gives zero tokens)
             fx::gain_token(sx.state, self.run.who, crate::choice::strategy::Pool::Strategic, i32::from(count));
         }
         self.finish_goods(sx);
@@ -1219,12 +1219,12 @@ impl Exploring {
 
     /// `exploration::place_on_planet`: one unit of a base type on the planet.
     fn place(&mut self, sx: &mut Sx<'_>, base: crate::generated::UnitBaseType) -> bool {
-        let Some(planet) = self.planet_of() else { return false };
+        let Some(planet) = self.planet_of() else { return false }; // mutants:skip (only planet cards place)
         let Some(roster) = sx.table.facts.roster else {
             self.fail(EWhy::NoLink);
             return false;
         };
-        let Some(system) = board::system_of(sx.state, Self::scope(sx.kernel), planet) else { return false };
+        let Some(system) = board::system_of(sx.state, Self::scope(sx.kernel), planet) else { return false }; // mutants:skip (a planet has a system)
         let scope = Self::scope(sx.kernel);
         fx_strategy::place_for(sx.state, sx.kernel, scope, roster, self.run.who, system, Some(planet), base).is_some()
     }
@@ -1337,7 +1337,7 @@ impl Window for Exploring {
             _ => None,
         }?;
         // Every question asked while an invasion is open names it (the string `Table::ask_seeing`), the children of other areas included.
-        if choice.ctx.invasion_seq.is_none() && !choice.ctx.space_battle {
+        if choice.ctx.invasion_seq.is_none() && !choice.ctx.space_battle { // mutants:skip (a question that names an invasion names this one)
             choice.ctx.invasion_seq = Self::inv(s);
         }
         Some(choice)
