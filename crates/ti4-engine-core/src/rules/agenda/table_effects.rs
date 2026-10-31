@@ -59,6 +59,11 @@ pub struct EffectFacts {
     pub drop_unofficial: bool,
     /// `laws::blanked`.
     pub blanked: bool,
+    /// The faction units of the scope (the form a seat places for a base type); `None`: the effects that place units are the string's.
+    pub roster: Option<&'static crate::query::tech::UnitRoster>,
+    /// `"redistribution"` and `"grant_reallocation"`, the sources of those effects' questions.
+    pub redistribution: Code,
+    pub grant: Code,
 }
 
 /// Technologies whose printed name mentions a war sun (`owns_a_war_sun_technology`).
@@ -290,7 +295,7 @@ impl Table {
     }
 }
 
-fn everyone(core: &CoreState) -> SmallList<Seat, 8> {
+pub(super) fn everyone(core: &CoreState) -> SmallList<Seat, 8> {
     SmallList::from_slice(core.seats().seating_order())
 }
 
@@ -301,7 +306,7 @@ fn clockwise_from(core: &CoreState, who: Seat) -> SmallList<Seat, 8> {
     order[start..].iter().chain(&order[..start]).copied().collect()
 }
 
-fn in_scope(scope: Scope, source: crate::generated::Source) -> bool {
+pub(super) fn in_scope(scope: Scope, source: crate::generated::Source) -> bool {
     scope.0 & crate::tables::source_bit(source) != 0
 }
 
@@ -416,7 +421,7 @@ fn stage_destroyed(core: &mut CoreState, system: System, planet: Planet, piece: 
 
 /// `agenda_effects::clear_planet`: remove the units whose base type `doomed` accepts (at most `limit`), stage
 /// every ground force that fell, and return how many were destroyed.
-fn clear_planet(
+pub(super) fn clear_planet(
     core: &mut CoreState,
     f: &EffectFacts,
     planet: Planet,

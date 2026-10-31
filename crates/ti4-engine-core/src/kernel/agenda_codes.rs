@@ -4,7 +4,7 @@
 use crate::state::Code;
 
 /// The interned texts of the agenda phase.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct AgendaCodes {
     /// The `reason` of the staged `STRATEGY_TOKEN_SPENT` events of Quash (`quash`) and Political Favor (`political_favor`).
     pub quash: Code,
@@ -22,6 +22,37 @@ pub struct AgendaCodes {
     pub agenda: Code,
     /// `defense_act`, the content Homeland Defense Act's question cites.
     pub defense_act: Code,
+    /// `redistribution` and `grant_reallocation`: the sources of the questions of those two effects.
+    pub redistribution: Code,
+    pub grant: Code,
+    /// The order of the technologies in the corpus (the order a "gain which technology" question lists them in); the core's own order is
+    /// by id text.
+    pub tech_corpus: fn(crate::generated::Technology, crate::generated::Technology) -> core::cmp::Ordering,
+    /// The cause `agenda:<alias>` of a ground force an agenda's effect destroyed, by the agenda's index in `Agenda::ALL`.
+    pub ground_cause: [Code; GROUND_CAUSES],
+}
+
+/// Room for every agenda (`Agenda::COUNT` is 63).
+pub const GROUND_CAUSES: usize = 64;
+
+impl Default for AgendaCodes {
+    fn default() -> Self {
+        Self {
+            quash: Code(0),
+            favor: Code(0),
+            secret: Code(0),
+            trade_rider: Code(0),
+            keleres_rider: Code(0),
+            committee: Code(0),
+            committee_prompt: Code(0),
+            agenda: Code(0),
+            defense_act: Code(0),
+            redistribution: Code(0),
+            grant: Code(0),
+            tech_corpus: |a, b| a.cmp(&b),
+            ground_cause: [Code(0); GROUND_CAUSES],
+        }
+    }
 }
 
 /// Why the live agenda phase stops (a counted gap, never a silent skip): what the phase needs and the core does not hold yet.

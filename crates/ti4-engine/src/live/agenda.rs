@@ -30,6 +30,10 @@ pub fn codes(r: &Render) -> AgendaCodes {
         committee_prompt: r.code(COMMITTEE_PROMPT),
         agenda: r.code("agenda"),
         defense_act: r.code("defense_act"),
+        tech_corpus: |a, b| corpus_rank(a).cmp(&corpus_rank(b)),
+        redistribution: r.code("redistribution"),
+        grant: r.code("grant_reallocation"),
+        ground_cause: std::array::from_fn(|i| ti4_engine_core::generated::Agenda::ALL.get(i).map_or(Default::default(), |a| r.code(&format!("agenda:{}", IdStr::as_str(*a))))),
     }
 }
 
@@ -61,6 +65,22 @@ fn full_tally(core: &CoreState, rendered: &mut Choice) {
         .map(|o| serde_json::json!([text(*o), v.vote.counts.as_slice().iter().find(|(c, _)| c == o).map_or(0, |(_, n)| *n)]))
         .collect();
     rendered.details.insert("tally".to_owned(), serde_json::Value::Array(entries));
+}
+
+/// Where a technology stands in the corpus (the order of `technologies.json`).
+fn corpus_rank(t: ti4_engine_core::generated::Technology) -> usize {
+    use ti4_engine_core::generated::Technology;
+    static RANKS: std::sync::OnceLock<Vec<usize>> = std::sync::OnceLock::new();
+    let ranks = RANKS.get_or_init(|| {
+        let mut ranks = vec![usize::MAX; Technology::COUNT];
+        for (at, record) in ti4_content::ContentStore::embedded().records(ti4_model::content_types::ContentType::Technologies).iter().enumerate() {
+            if let Some(tech) = record.text("alias").and_then(|alias| <Technology as IdStr>::from_id(alias)) {
+                ranks[tech as usize] = at;
+            }
+        }
+        ranks
+    });
+    ranks[t as usize]
 }
 
 /// The display facts of the questions of the agenda phase.

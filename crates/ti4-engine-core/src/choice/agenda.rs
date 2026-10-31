@@ -118,6 +118,8 @@ pub enum Ask {
     Tiebreak { frame: Frame },
     /// 8.18, an agenda effect that names one player (Seed of an Empire): the speaker picks among the tied.
     NameTied,
+    /// Colonial Redistribution: the controller of the planet names which of the trailing players may settle it.
+    Settler,
     /// Homeland Defense Act, Against: the seat destroys one of its PDS.
     Structure,
     /// `laws::offer_discard`: the owner of `law` may discard it (the caller's `prompt`, interned, is the text).
@@ -153,7 +155,7 @@ impl Ask {
             | Self::Recombine { frame, .. }
             | Self::Tribute { frame, .. }
             | Self::Tiebreak { frame } => Some(frame),
-            Self::NameTied | Self::Structure | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } | Self::Committee { .. } => None,
+            Self::NameTied | Self::Settler | Self::Structure | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } | Self::Committee { .. } => None,
         }
     }
 }
@@ -182,7 +184,7 @@ pub enum Opt {
     TributeVote,
     /// Genetic Recombination: return a fleet token instead.
     TributeToken,
-    /// `NameTied`: this player is the one the agenda names.
+    /// `NameTied` / `Settler`: this player is the one the agenda names.
     Elect(Seat),
     /// `Structure`: the PDS in position `index` of the planet's units (the option id), on this planet.
     Structure { index: u8, planet: Planet, system: System },
@@ -203,6 +205,7 @@ pub enum Subtype {
     RecombinationTribute,
     Tiebreak,
     ElectTiebreak,
+    SettleTrailing,
     DefenseStructure,
     OfferDiscardLaw,
     UseQuash,
@@ -224,6 +227,7 @@ impl Ask {
             Self::Tribute { .. } => Subtype::RecombinationTribute,
             Self::Tiebreak { .. } => Subtype::Tiebreak,
             Self::NameTied => Subtype::ElectTiebreak,
+            Self::Settler => Subtype::SettleTrailing,
             Self::Structure => Subtype::DefenseStructure,
             Self::DiscardLaw { .. } => Subtype::OfferDiscardLaw,
             Self::UseOnAgenda { source: UseSource::Quash, .. } => Subtype::UseQuash,

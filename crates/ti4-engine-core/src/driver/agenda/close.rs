@@ -91,6 +91,9 @@ fn effect_facts(sx: &Sx<'_>, ballot: &[(crate::ids::Seat, Outcome)]) -> EffectFa
         hooked: draw_hooks(sx),
         drop_unofficial: sx.state.meta().rules_at_least(RULES_OFFICIAL_ACTION_DECK),
         blanked: reach::blanked(sx.state),
+        roster: sx.table.facts.plays.as_ref().and_then(|p| p.roster),
+        redistribution: codes.agenda.redistribution,
+        grant: codes.agenda.grant,
     }
 }
 

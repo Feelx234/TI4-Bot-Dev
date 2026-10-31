@@ -34,6 +34,7 @@ use crate::state::{CoreState, ObjectiveRef, SysFlags};
 
 use super::table_effects::{EffectFacts, Table};
 
+mod placements;
 mod questions;
 
 pub use crate::kernel::fx::VICTORY_TARGET;
@@ -73,6 +74,14 @@ pub enum Kind {
     Defense,
     /// Executive Sanctions, Against: each seat with a hand discards the card a die picks.
     Sanctions,
+    /// Swords to Plowshares, Against: every seat places an infantry on each planet it controls.
+    Arm,
+    /// Rearmament Agreement, For: every seat with its home planet places a mech there.
+    Mechs,
+    /// Colonial Redistribution: the planet is wiped, then settled by one of the trailing seats.
+    Settle(Planet),
+    /// Research Grant Reallocation: the elected seat gains a technology of its choice and pays for its prerequisites.
+    Grant(Seat),
     /// Ixthian Artifact, For: a die; a 6 is a windfall that needs a payer (deferred), anything else destroys every ship that
     /// cannot sustain damage.
     Crater,
@@ -119,6 +128,8 @@ pub struct Resolve {
     faces: SmallList<u32, 16>,
     /// Unconventional Measures: the draw of the voter being served.
     draw: ErasedChild,
+    /// Research Grant Reallocation: the technology question.
+    gain: Option<crate::rules::relic_windows::GainTechnology>,
 }
 
 impl Resolve {
@@ -175,7 +186,7 @@ impl Resolve {
             ) => Kind::Nothing,
             _ => return None,
         };
-        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() })
+        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle(), gain: None })
     }
 
     /// [`Resolve::of`], then the table effects: `facts` carries the ballot and everything the table reads.
@@ -188,6 +199,10 @@ impl Resolve {
             (Agenda::SeedOfAnEmpire, Outcome::For) => Some(Kind::Seed(agenda, true)),
             (Agenda::SeedOfAnEmpire, _) => Some(Kind::Seed(agenda, false)),
             (Agenda::HomelandDefenseAct, Outcome::Against) => Some(Kind::Defense),
+            (Agenda::SwordsToPlowshares, Outcome::Against) => Some(Kind::Arm),
+            (Agenda::RearmamentAgreement, Outcome::For) => Some(Kind::Mechs),
+            (Agenda::ColonialRedistribution, Outcome::Planet(planet)) => Some(Kind::Settle(planet)),
+            (Agenda::ResearchGrantReallocation, Outcome::Seat(who)) => Some(Kind::Grant(who)),
             (Agenda::UnconventionalMeasures, Outcome::For) => Some(Kind::Cards),
             (Agenda::ExecutiveSanctions, Outcome::Against) => Some(Kind::Sanctions),
             (Agenda::ExecutiveSanctions, Outcome::For) | (Agenda::IxthianArtifact, Outcome::Against) => Some(Kind::Nothing),
@@ -195,11 +210,11 @@ impl Resolve {
             _ => None,
         };
         if let Some(kind) = special {
-            return Some(Self { kind, stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() });
+            return Some(Self { kind, stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle(), gain: None });
         }
         let (table, deferred) = Table::of(agenda, outcome, facts.has_galaxy)?;
         let done = if deferred { Done::Deferred } else { Done::Resolved };
-        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() })
+        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle(), gain: None })
     }
 
     /// Whether the table effect met a position it does not express (its result is not to be compared).
@@ -211,7 +226,7 @@ impl Resolve {
     /// `laws::repeal` of `law`.
     #[must_use]
     pub const fn repeal(law: Agenda) -> Self {
-        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() }
+        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle(), gain: None }
     }
 
     /// Whether the effect rolls dice (it needs the random streams of the state).
@@ -367,6 +382,10 @@ impl Window for Resolve {
                 self.stage = Stage::Apply;
                 return self.defense(sx);
             }
+            Kind::Arm => return self.arm(sx),
+            Kind::Mechs => return self.mechs(sx),
+            Kind::Settle(planet) => return self.settle(sx, planet),
+            Kind::Grant(who) => return self.grant(sx, who),
             _ => {}
         }
         if self.stage == Stage::Apply {
@@ -427,7 +446,7 @@ impl Window for Resolve {
                         self.unsupported = true;
                     }
                 }
-                Kind::Nothing | Kind::Draw(..) | Kind::Cards | Kind::Seed(..) | Kind::Defense => {}
+                Kind::Nothing | Kind::Draw(..) | Kind::Cards | Kind::Seed(..) | Kind::Defense | Kind::Arm | Kind::Mechs | Kind::Settle(_) | Kind::Grant(_) => {}
                 Kind::Table(table) => {
                     if let Some(facts) = &self.facts {
                         table.apply(sx.state, facts);
@@ -450,6 +469,8 @@ impl Window for Resolve {
         match self.kind {
             Kind::Seed(..) => return self.seed_question(s),
             Kind::Defense => return self.defense_question(s),
+            Kind::Settle(planet) => return self.settle_question(s, planet),
+            Kind::Grant(_) => return self.gain.as_ref().and_then(|g| g.ask_of(s, k)),
             Kind::Cards => return self.draw.ask_of(s, k),
             _ => {}
         }
@@ -467,6 +488,8 @@ impl Window for Resolve {
         match self.kind {
             Kind::Seed(agenda, _) => return self.seed_answer(sx, agenda, pick),
             Kind::Defense => return self.defense_answer(sx, pick),
+            Kind::Settle(planet) => return self.settle_answer(sx, planet, pick),
+            Kind::Grant(_) => return self.gain.as_mut().ok_or(Illegal)?.answer(sx, pick),
             Kind::Cards => return self.draw.answer(sx, pick),
             _ => {}
         }
@@ -529,6 +552,9 @@ mod tests {
             hooked: 0,
             drop_unofficial: false,
             blanked: false,
+            roster: None,
+            redistribution: Code(0),
+            grant: Code(0),
         }
     }
 

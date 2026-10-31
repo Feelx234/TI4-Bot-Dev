@@ -207,3 +207,102 @@ fn every_agenda_is_voted_and_resolved_like_the_string_when_the_table_votes_again
     let failures = sweep(&["against"]);
     assert!(failures.is_empty(), "{} agendas differ:\n{}", failures.len(), failures.join("\n"));
 }
+
+// -- the voting rules of the factions ------------------------------------------------------------------------------------
+
+/// Print the questions and events of the string's run (an exploration aid for writing scenarios).
+#[allow(dead_code)]
+fn show(state: &GameState, ids: &[&str], prefer: Policy) {
+    let (string, _) = string_agenda_preferring(state, ids, prefer);
+    for q in &string.questions {
+        eprintln!("{} | {} | {:?}", q.player, q.prompt, q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>());
+    }
+    eprintln!("{:?}", string.events);
+}
+
+fn voters(run: &Run) -> Vec<String> {
+    run.questions.iter().filter(|q| q.prompt.starts_with("vote for which outcome")).map(|q| q.player.to_string()).collect()
+}
+
+#[test]
+fn nekro_cannot_vote_on_agendas_and_the_others_vote_in_order_like_the_string() {
+    let state = agenda_table(&[("a", "sol"), ("b", "nekro"), ("c", "hacan"), ("d", "arborec")], &["checks"]);
+    let (string, native) = both(&state, &[]);
+    assert_same(&string, &native);
+    assert_eq!(voters(&string), ["c", "d", "a"], "{:?}", voters(&string));
+}
+
+#[test]
+fn argents_zeal_votes_first_like_the_string() {
+    let state = agenda_table(&[("a", "sol"), ("b", "hacan"), ("c", "argent"), ("d", "arborec")], &["checks"]);
+    let (string, native) = both(&state, &[]);
+    assert_same(&string, &native);
+    assert_eq!(voters(&string).first().map(String::as_str), Some("c"), "{:?}", voters(&string));
+}
+
+#[test]
+fn a_silent_table_goes_to_the_speaker_and_an_abstention_is_not_a_vote_like_the_string() {
+    let (string, native) = both_preferring(&agenda_table(&FOUR, &["checks"]), &[], &["decline"]);
+    assert_same(&string, &native);
+    assert!(string.questions.iter().any(|q| q.prompt.starts_with("speaker breaks the tie")), "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_tie_between_two_outcomes_is_broken_by_the_speaker_like_the_string() {
+    // a and b each back a different outcome with one planet.
+    let state = agenda_table(&[("a", "sol"), ("b", "hacan")], &["checks"]);
+    let (string, native) = both(&state, &["decline", "decline"]);
+    assert_same(&string, &native);
+}
+
+#[test]
+fn hacans_commander_lets_its_owner_spend_trade_goods_as_votes_like_the_string() {
+    let mut state = agenda_table(&[("a", "sol"), ("b", "hacan"), ("c", "arborec")], &["checks"]);
+    state.player_mut(&pid("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("hacancommander"), ti4_model::state::LeaderStatus::Unlocked);
+    state.player_mut(&pid("b")).unwrap().trade_goods = 4;
+    let state = based(state);
+    let (string, native) = both(&state, &[]);
+    assert_same(&string, &native);
+    assert!(string.questions.iter().any(|q| q.prompt.contains("trade goods")), "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+}
+
+#[test]
+fn predictive_intelligence_offers_three_more_votes_like_the_string() {
+    let mut state = agenda_table(&FOUR, &["checks"]);
+    state.player_mut(&pid("c")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("pi"));
+    let state = based(state);
+    let (string, native) = both(&state, &[]);
+    assert_same(&string, &native);
+    assert!(string.questions.iter().any(|q| q.options.iter().any(|o| o.id.contains("predictive"))), "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+}
+
+#[test]
+fn genetic_recombination_asks_its_holder_before_each_vote_like_the_string() {
+    let mut state = agenda_table(&[("a", "sol"), ("b", "mahact"), ("c", "arborec")], &["checks"]);
+    state.player_mut(&pid("b")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("gr"));
+    let state = based(state);
+    let (string, native) = both(&state, &[]);
+    assert_same(&string, &native);
+}
+
+#[test]
+fn a_blood_pact_adds_four_votes_when_the_partner_backed_the_same_outcome_like_the_string() {
+    let mut state = agenda_table(&[("a", "sol"), ("b", "empyrean"), ("c", "arborec")], &["checks"]);
+    let note = state.promissory_notes.iter().find(|(n, _)| crate::promissory::alias_of(n) == "blood_pact").map(|(n, _)| n.clone());
+    if let Some(note) = note {
+        state.promissory_notes.insert(note.clone(), pid("a"));
+        state.promissory_faceup.insert(note);
+    }
+    let state = based(state);
+    let (string, native) = both(&state, &[]);
+    assert_same(&string, &native);
+}
+
+#[test]
+fn research_grant_reallocation_gains_the_chosen_technology_and_pays_its_prerequisites_like_the_string() {
+    let state = rich_table("grant_reallocation");
+    let (string, native) = both(&state, &[]);
+    let last = |r: &Run| r.questions.iter().find(|q| q.prompt.starts_with("gain which")).map(|q| (q.prompt.clone(), q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>(), q.context.clone().map(|c| format!("{:?}", c.source)), q.details.clone()));
+    assert_eq!(last(&string), last(&native));
+    assert_same(&string, &native);
+}

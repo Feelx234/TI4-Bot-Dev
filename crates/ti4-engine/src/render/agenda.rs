@@ -88,6 +88,7 @@ impl Family for Fam {
             }
             Ask::Tiebreak { .. } => "speaker breaks the tie".to_owned(),
             Ask::NameTied => "which tied player does the agenda name".to_owned(),
+            Ask::Settler => "which of the trailing players may settle the planet".to_owned(),
             Ask::Structure => "destroy one of your structures".to_owned(),
             Ask::DiscardLaw { prompt, .. } => r.code_text(*prompt),
             Ask::Committee { agenda } => format!("{}: elect which player", agenda.as_str()),
@@ -111,6 +112,7 @@ impl Family for Fam {
             Subtype::RecombinationTribute => "recombination_tribute",
             Subtype::Tiebreak => "vote_tiebreak",
             Subtype::ElectTiebreak => "agenda_elect_tiebreak",
+            Subtype::SettleTrailing => "redistribution_choose_settler",
             Subtype::DefenseStructure => "defense_act_choose_pds",
             Subtype::OfferDiscardLaw => "offer_discard_law",
             Subtype::UseQuash => "quash",
@@ -124,7 +126,7 @@ impl Family for Fam {
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match (a, o) {
             (Ask::Committee { .. }, Opt::Elect(seat)) => ChoiceOption::labelled(r.seat_text(*seat), "player", format!("elect {}", r.seat_text(*seat))),
-            (Ask::NameTied, Opt::Elect(seat)) => ChoiceOption::labelled(r.seat_text(*seat), "elect", r.seat_text(*seat)),
+            (Ask::NameTied | Ask::Settler, Opt::Elect(seat)) => ChoiceOption::labelled(r.seat_text(*seat), "elect", r.seat_text(*seat)),
             (Ask::Structure, Opt::Structure { index, planet, system }) => {
                 ChoiceOption::labelled(index.to_string(), "scuttle", format!("destroy the one on {}", planet.as_str()))
                     .with_planet(planet.as_str(), Some(system.as_str()))
@@ -144,7 +146,7 @@ impl Family for Fam {
 
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
-            Ask::NameTied | Ask::Committee { .. } => r.seat(id).map(Opt::Elect),
+            Ask::NameTied | Ask::Settler | Ask::Committee { .. } => r.seat(id).map(Opt::Elect),
             // The planet and the system are the position's: the pick is matched against the offered options.
             Ask::Structure => None,
             Ask::DiscardLaw { .. } => (id == "discard").then_some(Opt::DiscardLaw),
@@ -271,7 +273,7 @@ impl Fam {
                 "tribute|token" => Some(Opt::TributeToken),
                 _ => None,
             },
-            Ask::NameTied | Ask::Structure | Ask::DiscardLaw { .. } | Ask::UseOnAgenda { .. } | Ask::Committee { .. } => None,
+            Ask::NameTied | Ask::Settler | Ask::Structure | Ask::DiscardLaw { .. } | Ask::UseOnAgenda { .. } | Ask::Committee { .. } => None,
         }
     }
 
