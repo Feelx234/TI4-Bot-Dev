@@ -19,13 +19,10 @@ pub const MENDOSA: Slot = Slot(24001);
 pub const MENDOSA_COPY: Slot = Slot(24002);
 
 const AGENT: Leader = Leader::CaptainMendosa;
-/// `ti4_model::state::RULES_MENDOSA_SHIP`.
-const RULES_MENDOSA_SHIP: u32 = 2;
 
-/// One ship Mendosa may raise: where it is, which of the activator's ships in the space area it is, its type and damage, and the move values.
+/// One ship Mendosa may raise: where it is, its type and damage, and the move values.
 struct Candidate {
     system: System,
-    index: usize,
     unit: Unit,
     damaged: bool,
     own: u8,
@@ -41,20 +38,19 @@ fn highest_move(s: &CoreState, scope: Scope) -> u8 {
     s.board().systems().flat_map(|(_, cell)| cell.units.as_slice().iter()).filter_map(|u| scope.unit(u.kind())).filter(|d| d.ship).map(|d| d.movement.unwrap_or(0)).max().unwrap_or(0)
 }
 
-/// `agent_ships`: the activator's ships slower than the fastest on the board (equal ships are one choice from the modern rules on).
+/// `agent_ships`: the activator's ships slower than the fastest on the board (equal ships are one choice).
 fn candidates(s: &CoreState, scope: Scope, activator: Seat) -> Vec<Candidate> {
     let top = highest_move(s, scope);
-    let modern = s.meta().rules_version >= RULES_MENDOSA_SHIP;
     let mut found: Vec<Candidate> = Vec::new();
     for (system, cell) in s.board().systems() {
         let ships = cell.units.as_slice().iter().filter(|u| u.owner() == activator && scope.unit(u.kind()).is_some_and(|d| d.ship));
-        for (index, unit) in ships.enumerate() {
+        for unit in ships {
             let own = scope.unit(unit.kind()).and_then(|d| d.movement).unwrap_or(0);
             if own < top {
-                if modern && found.iter().any(|f| f.system == system && f.unit == unit.kind() && f.damaged == unit.sustained()) {
+                if found.iter().any(|f| f.system == system && f.unit == unit.kind() && f.damaged == unit.sustained()) {
                     continue;
                 }
-                found.push(Candidate { system, index, unit: unit.kind(), damaged: unit.sustained(), own, top });
+                found.push(Candidate { system, unit: unit.kind(), damaged: unit.sustained(), own, top });
             }
         }
     }
@@ -75,30 +71,27 @@ fn copy_when(c: &CondCx<'_>) -> bool {
     crate::cd_registry::yssaril::ssruu::borrowable(c.state, c.def.owner, c.def.pair_source(), AGENT) && !candidates(c.state, scope(c.kernel), activator).is_empty()
 }
 
-/// `store_boost`: the move value is remembered against this activation, per the rules version.
+/// `store_boost` (the latest rules version only): the boosted ship is remembered by its kind, not its list position, which shifts when another ship
+/// leaves first: `{activation, origin, type, damaged, count of that kind at the origin, bonus}`.
 fn store(s: &mut CoreState, activator: Seat, found: &Candidate) {
     let seq = s.meta().activation_seq;
     let bonus = u32::from(found.top - found.own);
-    let value = if s.meta().rules_version >= RULES_MENDOSA_SHIP {
-        let count = s
-            .board()
-            .sys(found.system)
-            .units
-            .as_slice()
-            .iter()
-            .filter(|u| u.owner() == activator && u.kind() == found.unit && u.sustained() == found.damaged && u.kind().data().ship)
-            .count();
-        MarkVal::Rec(vec![
-            MarkVal::Atom(Atom::Num(seq)),
-            MarkVal::Atom(Atom::System(found.system)),
-            MarkVal::Atom(Atom::Unit(found.unit)),
-            MarkVal::Atom(Atom::Num(u32::from(found.damaged))),
-            MarkVal::Atom(Atom::Num(u32::try_from(count).unwrap_or(u32::MAX))),
-            MarkVal::Atom(Atom::Num(bonus)),
-        ])
-    } else {
-        MarkVal::Rec(vec![MarkVal::Atom(Atom::Num(seq)), MarkVal::Atom(Atom::System(found.system)), MarkVal::Atom(Atom::Num(u32::try_from(found.index).unwrap_or(u32::MAX))), MarkVal::Atom(Atom::Num(bonus))])
-    };
+    let count = s
+        .board()
+        .sys(found.system)
+        .units
+        .as_slice()
+        .iter()
+        .filter(|u| u.owner() == activator && u.kind() == found.unit && u.sustained() == found.damaged && u.kind().data().ship)
+        .count();
+    let value = MarkVal::Rec(vec![
+        MarkVal::Atom(Atom::Num(seq)),
+        MarkVal::Atom(Atom::System(found.system)),
+        MarkVal::Atom(Atom::Unit(found.unit)),
+        MarkVal::Atom(Atom::Num(u32::from(found.damaged))),
+        MarkVal::Atom(Atom::Num(u32::try_from(count).unwrap_or(u32::MAX))),
+        MarkVal::Atom(Atom::Num(bonus)),
+    ]);
     s.marks_mut().tail.edit().insert(MarkKey::SaarAgentBoost(activator), value);
 }
 
