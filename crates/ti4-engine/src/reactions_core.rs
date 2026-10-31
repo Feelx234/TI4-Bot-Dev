@@ -33,7 +33,7 @@ struct Named {
 const G3_CODE_TEXTS: [&str; 16] = ["nekro_flagship", "technology:exo2", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused"];
 
 /// The texts the rules of `silent::g4` name (`silent::g4::code`, the same places); unused places hold a placeholder.
-const G4_CODE_TEXTS: [&str; 16] = ["titanscommander", "md", "87", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused"];
+const G4_CODE_TEXTS: [&str; 16] = ["titanscommander", "md", "87", "yso", "naalu_mech_te", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused"];
 
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
@@ -143,6 +143,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::g4::spynet::SPY_NET, kind: "promissory", card: "spynet" },
     Named { slot: ti4_engine_core_factions::silent::g4::stymie::STYMIE, kind: "promissory", card: "stymie" },
     Named { slot: ti4_engine_core_factions::silent::g4::magen_hit::MD_HIT, kind: "technology", card: "md_hit" },
+    Named { slot: ti4_engine_core_factions::silent::g4::yin_spinner::YIN_SPINNER, kind: "technology", card: "yso" },
+    Named { slot: ti4_engine_core_factions::silent::g4::iconoclast::ICONOCLAST, kind: "unit", card: "naalu_mech_te" },
     Named { slot: ti4_engine_core_factions::silent::g4::titans_commander::TUNGSTANTUS, kind: "leader", card: "titanscommander" },
 ];
 

@@ -416,3 +416,141 @@ mod magen_hit {
         assert_eq!(units(&r, planet, 1), vec![]);
     }
 }
+
+// -- the placement from the reinforcements (Yin Spinner Omega, Iconoclast) ------------------------------------------------------
+
+mod placement {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent4::{Ask as UAsk, Opt as UOpt};
+    use ti4_engine_core::generated::{Planet, System, Technology, Unit, UnitBaseType};
+    use ti4_engine_core::query::board;
+
+    fn event(kind: EventKind, seat: u8) -> ti4_engine_core::state::EventRec {
+        fx::event(kind, Payload::new().with(Key::Player, Val::Seat(Seat(seat))))
+    }
+
+    /// Two systems with planets (`a` first), and their planets.
+    fn systems_with_planets() -> Vec<(System, Planet)> {
+        ti4_engine_core_tests::scenario::plain_systems().into_iter().filter_map(|s| s.data().planets.first().map(|p| (s, *p))).take(3).collect()
+    }
+
+    fn infantry_on(r: &Rig<EmitEvent>, planet: Planet, seat: u8) -> usize {
+        board::planet_units(&r.state, planet).iter().filter(|p| p.owner() == Seat(seat) && p.kind().data().base_type == UnitBaseType::Infantry).count()
+    }
+
+    fn spinner_rig(carrier: Option<UnitCarrier>, controls: usize, producer: u8, tech: bool) -> (Rig<EmitEvent>, Vec<(System, Planet)>) {
+        let spots = systems_with_planets();
+        let mut scenario = Scenario::new(&[Faction::TheYinBrotherhood, Faction::TheEmiratesOfHacan]);
+        for (_, planet) in spots.iter().take(controls) {
+            scenario = scenario.control(*planet, 0);
+        }
+        if let Some((unit, system_at)) = carrier {
+            scenario = scenario.unit(spots[system_at].0, None, unit, 0, 1);
+        }
+        let (mut state, kernel) = scenario.build();
+        if tech {
+            state.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::YinSpinnerOmega);
+        }
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(event(EventKind::UnitsProduced, producer))).with_abilities(table());
+        r.run();
+        (r, spots)
+    }
+
+    type UnitCarrier = (Unit, usize);
+
+    #[test]
+    fn yin_spinner_asks_where_two_infantry_go_among_the_planets_and_the_space_areas_that_take_them() {
+        covers!("silent::g4::yin_spinner::YIN_SPINNER");
+        // Two controlled planets and a carrier in the space of the third system.
+        let (mut r, spots) = spinner_rig(Some((Unit::CarrierI, 2)), 2, 0, true);
+        // The window itself (an optional ability), then the spot.
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the technology");
+        r.pick(use_it);
+        assert_eq!((r.asked().actor, r.asked().ask), (Seat(0), Ask::Reaction(RAsk::G(GAsk::U(UAsk::Place { base: UnitBaseType::Infantry, fit: 2 })))), "{}", r.transcript());
+        let mut want: Vec<(System, Option<Planet>)> = vec![(spots[0].0, Some(spots[0].1)), (spots[1].0, Some(spots[1].1)), (spots[2].0, None)];
+        want.sort_by_key(|(s, _)| *s);
+        assert_eq!(r.opts(), want.iter().map(|(system, planet)| Opt::Reaction(ROpt::G(GOpt::U(UOpt::Spot { system: *system, planet: *planet, fit: 2 })))).collect::<Vec<_>>());
+        let at = want.iter().position(|(_, planet)| planet.is_some()).unwrap();
+        r.pick(at);
+        assert!(r.is_done(), "{}", r.transcript());
+        let planet = want[at].1.unwrap();
+        assert_eq!(infantry_on(&r, planet, 0), 2, "both infantry go to the spot chosen");
+    }
+
+    #[test]
+    fn a_space_area_takes_only_as_many_as_its_ships_carry_and_one_spot_is_no_decision() {
+        covers!("silent::g4::yin_spinner::YIN_SPINNER");
+        // A destroyer carries nothing: the space area is no spot, the only planet takes both infantry unasked.
+        let (mut r, spots) = spinner_rig(Some((Unit::DestroyerI, 2)), 1, 0, true);
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the technology");
+        r.pick(use_it);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!(infantry_on(&r, spots[0].1, 0), 2);
+        // A dreadnought carries one: the space area takes one infantry (fit 1), the planet two.
+        let (mut cruiser, spots) = spinner_rig(Some((Unit::DreadnoughtI, 1)), 1, 0, true);
+        let use_it = cruiser.opts().iter().position(|o| *o != Opt::Decline).expect("the technology");
+        cruiser.pick(use_it);
+        let fits: Vec<u8> = cruiser.opts().iter().filter_map(|o| if let Opt::Reaction(ROpt::G(GOpt::U(UOpt::Spot { fit, .. }))) = o { Some(*fit) } else { None }).collect();
+        let mut sorted = fits.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec![1, 2], "the dreadnought's space takes one, the planet two: {}", cruiser.transcript());
+        let space = cruiser.opts().iter().position(|o| matches!(o, Opt::Reaction(ROpt::G(GOpt::U(UOpt::Spot { planet: None, .. }))))).unwrap();
+        cruiser.pick(space);
+        let in_space = board::space_units(&cruiser.state, spots[1].0).iter().filter(|p| p.owner() == Seat(0) && p.kind().data().base_type == UnitBaseType::Infantry).count();
+        assert_eq!(in_space, 1);
+    }
+
+    #[test]
+    fn yin_spinner_needs_the_technology_the_producer_and_a_spot() {
+        covers!("silent::g4::yin_spinner::YIN_SPINNER");
+        let (no_tech, _) = spinner_rig(None, 1, 0, false);
+        assert!(no_tech.is_done(), "{}", no_tech.transcript());
+        let (other, _) = spinner_rig(None, 1, 1, true);
+        assert!(other.is_done(), "another seat produced: {}", other.transcript());
+        let (nowhere, _) = spinner_rig(None, 0, 0, true);
+        assert!(nowhere.is_done(), "no planet and no ship: {}", nowhere.transcript());
+    }
+
+    fn mechs_on(r: &Rig<EmitEvent>, planet: Planet, seat: u8) -> usize {
+        board::planet_units(&r.state, planet).iter().filter(|p| p.owner() == Seat(seat) && p.kind().data().base_type == UnitBaseType::Mech).count()
+    }
+
+    #[test]
+    fn iconoclast_deploys_a_mech_after_another_players_relic_on_a_planet_the_naalu_pick() {
+        covers!("silent::g4::iconoclast::ICONOCLAST");
+        let spots = systems_with_planets();
+        let scenario = || Scenario::new(&[Faction::TheNaaluCollective, Faction::TheEmiratesOfHacan]).control(spots[0].1, 0).control(spots[1].1, 0);
+        let (state, kernel) = scenario().build();
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(event(EventKind::RelicGained, 1))).with_abilities(table());
+        r.run();
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the mech");
+        r.pick(use_it);
+        assert_eq!((r.asked().actor, r.asked().ask), (Seat(0), Ask::Reaction(RAsk::G(GAsk::U(UAsk::Place { base: UnitBaseType::Mech, fit: 1 })))), "{}", r.transcript());
+        assert_eq!(r.opts().len(), 2, "not optional: no decline beside the two planets");
+        let order: Vec<Option<Planet>> = r.opts().iter().filter_map(|o| if let Opt::Reaction(ROpt::G(GOpt::U(UOpt::Spot { planet, .. }))) = o { Some(*planet) } else { None }).collect();
+        r.pick(1);
+        assert!(r.is_done(), "{}", r.transcript());
+        let chosen = order[1].unwrap();
+        assert_eq!(mechs_on(&r, chosen, 0), 1);
+        // The Naalu's own relic does not trigger it.
+        let (state, kernel) = scenario().build();
+        let mut own = Rig::from_parts(state, kernel, EmitEvent::new(event(EventKind::RelicGained, 0))).with_abilities(table());
+        own.run();
+        assert!(own.is_done(), "{}", own.transcript());
+        // One planet is no decision.
+        let (state, kernel) = Scenario::new(&[Faction::TheNaaluCollective, Faction::TheEmiratesOfHacan]).control(spots[0].1, 0).build();
+        let mut one = Rig::from_parts(state, kernel, EmitEvent::new(event(EventKind::RelicGained, 1))).with_abilities(table());
+        one.run();
+        let use_it = one.opts().iter().position(|o| *o != Opt::Decline).expect("the mech");
+        one.pick(use_it);
+        assert!(one.is_done(), "{}", one.transcript());
+        assert_eq!(mechs_on(&one, spots[0].1, 0), 1);
+        // Another faction holds no Iconoclast.
+        let (state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheNaaluCollective]).control(spots[0].1, 0).build();
+        let mut hacan = Rig::from_parts(state, kernel, EmitEvent::new(event(EventKind::RelicGained, 1))).with_abilities(table());
+        hacan.run();
+        assert!(hacan.is_done(), "{}", hacan.transcript());
+    }
+}

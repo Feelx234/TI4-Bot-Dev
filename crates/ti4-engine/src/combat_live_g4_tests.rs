@@ -76,3 +76,34 @@ fn stymie_places_a_command_token_of_the_mover_after_a_move_into_the_holders_unit
         }
     }
 }
+
+/// Yin Spinner Omega: after the Yin produce units, up to 2 infantry go to a planet they control or the space area of their ships. The whole action is compared with the string's: the window, the
+/// spot question (the home planet, the planet with the dock and the space of the system the carrier moved to), a decline of the window, no unit produced (no window).
+#[test]
+fn yin_spinner_places_infantry_after_the_production_like_the_string() {
+    use ti4_model::id::TechnologyId;
+    let (hub, origin, target, dock, _other) = dock_hub();
+    let window = "technology:yin:yso:UNITS_PRODUCED:after";
+    let space = format!("{}|space", target.as_str());
+    let planet = format!("{}|{}", target.as_str(), dock.as_str());
+    for (label, answers, produce) in [
+        ("use, the first spot", vec![window.to_owned(), "03|darien".to_owned()], true),
+        ("use, the dock planet", vec![window.to_owned(), planet], true),
+        ("use, the space area", vec![window.to_owned(), space], true),
+        ("decline", vec!["decline".to_owned()], true),
+        ("nothing produced", vec![], false),
+    ] {
+        let mut state = dock_table("yin", "hacan", &target, &dock);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::technology::grant(&mut state, &a(), &TechnologyId::new("yso"));
+        let moved = mv(&origin, 0);
+        let mut script: Vec<String> = vec![TACTICAL_ACTION_ID.to_owned(), target.to_string(), moved, "done_moving".to_owned()];
+        script.extend(if produce { vec!["build|destroyer|1".to_owned(), "done_producing".to_owned()] } else { vec!["done_producing".to_owned()] });
+        script.extend(answers);
+        let script: Vec<&str> = script.iter().map(String::as_str).collect();
+        let seen = string_run(&state, &hub.galaxy, &script, 0);
+        assert_eq!(seen.asked.iter().any(|q| q.options.iter().any(|o| o.id == window)), produce, "{label}: the string offers the spinner only after a production");
+        let diffs = lockstep_buying(state, &hub.galaxy, &script, 0);
+        assert!(diffs.is_empty(), "{label}: {diffs:#?}");
+    }
+}

@@ -98,3 +98,61 @@ fn spy_net_over_the_hand_limit_asks_the_discard_like_the_string() {
     assert_same(&string, &native);
     assert!(string.questions.iter().any(|q| q.prompt.starts_with("over the hand limit")), "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
 }
+
+// -- Iconoclast (the Naalu Thunder's Edge mech) ------------------------------------------------------------------------------------
+
+/// A table where seat `a` (Naalu) controls its two home planets, seat `b` has gained a relic the game has not announced yet; `mechs_out` of the Naalu mechs stand elsewhere.
+fn relic_table(gainer: &str, mechs_out: usize) -> GameState {
+    use ti4_content::ContentStore;
+    let state = action_table(&[("a", "naalu"), ("b", "hacan"), ("c", "sol")]);
+    // The first look records the starting set; a relic gained after it is announced.
+    let mut game = crate::game::Game::with_table(state, ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
+    game.prepared_turn_seq = Some(game.state.turn_seq);
+    let _ = game.step();
+    let mut state = game.state.clone();
+    state.player_mut(&pid(gainer)).unwrap().relics.push(ti4_model::id::RelicId::new("dynamiscore"));
+    if mechs_out > 0 {
+        crate::fixtures::put(&mut state, &ti4_model::id::SystemId::new(crate::seating::MECATOL), "naalu_mech_te", &pid("a"), mechs_out);
+    }
+    state
+}
+
+#[test]
+fn another_players_relic_lets_the_naalu_deploy_the_thunders_edge_mech_like_the_string() {
+    const WINDOW: &str = "unit:naalu:naalu_mech_te:RELIC_GAINED:after";
+    let home_planets = |state: &GameState| -> Vec<String> {
+        let home = state.player(&pid("a")).unwrap().home_system.clone().unwrap();
+        state.system_state(&home).planet_control.iter().filter(|(_, owner)| **owner == pid("a")).map(|(planet, _)| format!("{home}|{planet}")).collect()
+    };
+    let probe = relic_table("b", 0);
+    let spots = home_planets(&probe);
+    assert!(spots.len() >= 2, "the Naalu home has several planets: {spots:?}");
+    for (label, gainer, out, answers) in [
+        ("use, the first planet", "b", 0, vec![WINDOW.to_owned(), spots[0].clone()]),
+        ("use, the second planet", "b", 0, vec![WINDOW.to_owned(), spots[1].clone()]),
+        ("decline", "b", 0, vec!["decline".to_owned()]),
+        ("the Naalu gain it themselves", "a", 0, vec![]),
+        ("no mech in the box", "b", 4, vec![WINDOW.to_owned()]),
+    ] {
+        let state = relic_table(gainer, out);
+        let answers: Vec<&str> = answers.iter().map(String::as_str).collect();
+        // The string game plays under the Thunder's Edge sources, as the native kernel does (the printing of the mech the Naalu place).
+        let string = super::turn_live_tests::string_run(&state, &answers, |g| {
+            g.sources = ti4_model::content_types::DEFAULT;
+            g.prepared_turn_seq = Some(g.state.turn_seq);
+            let _ = g.step();
+        });
+        let (_, native) = reconcile_both(&state, &answers);
+        let mut string = string;
+        if string.questions.last().is_some_and(|q| q.context.as_ref().is_some_and(|c| c.subtype == "action_menu")) {
+            string.questions.pop();
+        }
+        assert_same(&string, &native);
+        let offered = string.questions.iter().any(|q| q.options.iter().any(|o| o.id == WINDOW));
+        assert_eq!(offered, gainer == "b", "{label}: the window is offered for another player's relic only");
+        let mechs = |run: &super::turn_live_tests::Run| run.state["board"].as_object().map_or(0, |b| b.values().map(|s| s["planet_units"].as_object().map_or(0, |pu| pu.values().filter_map(|u| u.as_array()).flatten().filter(|u| u["type_id"] == "naalu_mech_te" && u["owner"] == "a").count())).sum::<usize>());
+        let before = mechs(&super::turn_live_tests::string_run(&state, &[], |_| {}));
+        let expected = usize::from(label.starts_with("use"));
+        assert_eq!(mechs(&string) - before, expected, "{label}");
+    }
+}

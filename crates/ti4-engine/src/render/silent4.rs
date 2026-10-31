@@ -18,6 +18,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
     match a {
         Ask::Stymie { mover } => format!("Stymie: where to put {}'s command token", r.seat_text(*mover)),
         Ask::MagenHit => "Magen Defense Grid: assign the hit to one of the opponent's ground forces".to_owned(),
+        Ask::Place { base, fit } => format!("place up to {fit} {}", super::promissory::base_name_of(*base)),
         Ask::GroundSustain { unit, system, planet, staging } => {
             if *staging {
                 format!("sustain the hit on {} on {} (system {})", unit.as_str(), planet_name(*planet), system.as_str())
@@ -33,6 +34,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Stymie => "stymie_system",
         Subtype::MagenHit => "magen_defense_hit",
         Subtype::GroundSustain => "ground_effect_sustain",
+        Subtype::Place => "place_units_from_reinforcements",
     }
     .to_owned()
 }
@@ -68,6 +70,12 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
                 .with("kills", !*sturdy)
                 .with("cost", f64::from(*cost_halves) / 2.0)
         }
+        (Ask::Place { base, .. }, Opt::Spot { system, planet, fit }) => {
+            let place = planet.map_or("space", |p| p.as_str());
+            ChoiceOption::labelled(format!("{}|{place}", system.as_str()), "place_unit", format!("place {fit}x {} on {place} in {}", super::promissory::base_name_of(*base), system.as_str()))
+                .with("system", system.as_str())
+                .with("count", i64::from(*fit))
+        }
         (Ask::GroundSustain { .. }, Opt::Sustain) => ChoiceOption::labelled("sustain", "ground_effect_sustain", "use SUSTAIN DAMAGE"),
         _ => panic!("option {o:?} in the question {a:?}"),
     }
@@ -80,7 +88,35 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
         // The target is matched against the rendered options of its question (the id is an index).
         Ask::MagenHit => None,
         Ask::GroundSustain { .. } => (id == "sustain").then_some(ROpt::G(GOpt::U(Opt::Sustain))),
+        // The fit of a spot is the question's: the answer is matched against the rendered options.
+        Ask::Place { .. } => None,
     }
+}
+
+/// The display facts of the placement question (`Choice::offered`): the card, the unit and how many, and per spot its name and how many go there. Needs the options, so the adapter calls it with the
+/// core question (`live::details::complete`).
+pub fn complete(choice: &ti4_engine_core::choice::Choice, rendered: &mut crate::choice::Choice) {
+    use ti4_engine_core::choice::Opt as COpt;
+    let ti4_engine_core::choice::Ask::Reaction(ti4_engine_core::choice::reaction::Ask::G(ti4_engine_core::choice::silent::Ask::U(Ask::Place { base, fit }))) = choice.ask else { return };
+    let base = super::promissory::base_name_of(base);
+    let mut captions: Vec<(String, serde_json::Value)> = Vec::new();
+    for o in choice.opts.iter() {
+        match o {
+            COpt::Reaction(ROpt::G(GOpt::U(Opt::Spot { system, planet, fit }))) => {
+                let place = planet.map_or_else(|| format!("In the space of system {}", system.as_str()), |p| format!("{} (system {})", planet_name(p), system.as_str()));
+                let id = format!("{}|{}", system.as_str(), planet.map_or("space", |p| p.as_str()));
+                captions.push((id, crate::choice::offer_caption(&place, Some(&format!("Place {fit} {base} here")))));
+            }
+            COpt::Decline => captions.push((crate::choice::DECLINE_ID.to_owned(), crate::choice::offer_caption("Place none", Some("Nothing is placed")))),
+            _ => {}
+        }
+    }
+    let captions: Vec<(&str, serde_json::Value)> = captions.iter().map(|(id, c)| (id.as_str(), c.clone())).collect();
+    rendered.details.extend(crate::choice::offer_details(
+        crate::choice::offer_card("Place units from your reinforcements", "placement", None, Some("Choose where they go.")),
+        vec![crate::choice::offer_fact_unit("Unit", base), crate::choice::offer_fact("Up to", u64::from(fit))],
+        &captions,
+    ));
 }
 
 #[cfg(test)]

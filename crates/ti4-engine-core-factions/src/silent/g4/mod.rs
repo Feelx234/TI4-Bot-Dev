@@ -3,10 +3,13 @@
 //! registers it (`register_abilities`, after the rest of `silent`'s).
 
 pub mod magen_hit;
+pub mod place;
+pub mod iconoclast;
 pub mod propagation;
 pub mod spynet;
 pub mod stymie;
 pub mod titans_commander;
+pub mod yin_spinner;
 
 use ti4_engine_core::kernel::ability::AbilityTable;
 
@@ -18,12 +21,17 @@ pub mod code {
     pub const MD_CAUSE: usize = 1;
     /// The rule `87` (SUSTAIN DAMAGE) that sources the offer to sustain a hit an effect assigned.
     pub const SUSTAIN_RULE: usize = 2;
+    /// The technology `yso` (Yin Spinner) and the unit `naalu_mech_te`: the sources of the placement questions.
+    pub const YIN_SPINNER: usize = 3;
+    pub const ICONOCLAST: usize = 4;
 }
 
 /// The rules of this module.
 pub fn register_abilities(t: &mut AbilityTable) {
     propagation::register_abilities(t);
     titans_commander::register_abilities(t);
+    yin_spinner::register_abilities(t);
+    iconoclast::register_abilities(t);
 }
 
 /// Rules registered after the Winnu's: the Yssaril module of the string comes last.

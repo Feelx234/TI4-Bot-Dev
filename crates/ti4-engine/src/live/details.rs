@@ -20,6 +20,8 @@ pub fn complete(core: &CoreState, k: &ti4_engine_core::kernel::Kernel, choice: &
     if let Ask::Strategy(SAsk::GainPool { left }) = choice.ask {
         pool_details(core, choice, usize::from(left), rendered);
     }
+    // The placement of lane G4's abilities (Yin Spinner, the Naalu mech): the offer card with a caption per spot.
+    crate::render::silent4::complete(choice, rendered);
     super::turn::complete(core, choice, rendered);
 }
 

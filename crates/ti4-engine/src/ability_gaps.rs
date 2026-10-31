@@ -13,8 +13,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:yssarilcommander_clear:ACTION_COMPLETED:after",
     "promissory:*:ambuscade:UNIT_ABILITY_ROLLED:when",
     "technology:*:swa2:UNIT_ABILITY_ROLLED:after",
-    "technology:*:yso:UNITS_PRODUCED:after",
-    "unit:*:naalu_mech_te:RELIC_GAINED:after",
     "ability:*:awaken:SYSTEM_ACTIVATED:after",
     "unit:*:titans_flagship:SYSTEM_ACTIVATED:after",
     "leader:*:arboreccommander:SYSTEM_ACTIVATED:after",

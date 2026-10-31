@@ -1,7 +1,7 @@
 //! Questions of the abilities lane G4 ported (`docs/G4_RESUME.md`), the last loud gap rows. They are variants of `silent` (`silent::Ask::U`, `Opt::U`, `Subtype::U`), so the
 //! lanes that add to `silent` and this one never touch the same lines; the renderer is `render/silent4.rs`.
 
-use crate::generated::{Planet, System, Unit};
+use crate::generated::{Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;
 
 /// What a G4 ability asks.
@@ -14,6 +14,8 @@ pub enum Ask {
     /// The owner of `unit` on `planet` of `system` is offered SUSTAIN DAMAGE for a hit an effect assigned to it (`staging`: the game has a faction module seated, which
     /// words the question with the planet).
     GroundSustain { unit: Unit, system: System, planet: Planet, staging: bool },
+    /// Place up to `fit` units of the base type from the reinforcements (`action_cards::place_units_choosing`): the largest number any spot takes.
+    Place { base: UnitBaseType, fit: u8 },
 }
 
 /// One answer.
@@ -25,6 +27,8 @@ pub enum Opt {
     Target { index: u8, owner: Seat, unit: Unit, damaged: bool, sturdy: bool, cost_halves: u8 },
     /// Use SUSTAIN DAMAGE (the answer `sustain`).
     Sustain,
+    /// A spot for the placement: a planet (`planet`) or the space area of the system, and how many units go there (the option id is `{system}|{planet}` or `{system}|space`).
+    Spot { system: System, planet: Option<Planet>, fit: u8 },
 }
 
 /// The machine identifier of the question.
@@ -36,6 +40,8 @@ pub enum Subtype {
     MagenHit,
     /// `ground_effect_sustain`.
     GroundSustain,
+    /// `place_units_from_reinforcements`.
+    Place,
 }
 
 impl Ask {
