@@ -574,6 +574,10 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
             ti4_engine_core::state::List::Planets(planets) => Value::Array(planets.iter().map(|p| Value::from(p.as_str())).collect()),
             // The string engine writes a route as one comma-joined text.
             ti4_engine_core::state::List::Systems(systems) => Value::from(systems.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",")),
+            // `UNITS_PRODUCED`: the unit and where it was placed (the string's `place` text).
+            ti4_engine_core::state::List::Produced(made) => Value::Array(
+                made.iter().map(|(u, spot)| serde_json::json!({"unit_type": u.as_str(), "place": crate::render::production::spot_text(*spot)})).collect(),
+            ),
             ti4_engine_core::state::List::Units(units) => Value::Array(
                 units
                     .iter()

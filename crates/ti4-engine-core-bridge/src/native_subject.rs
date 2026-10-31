@@ -112,6 +112,10 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
         // The scoring windows of the status phase and of the secrets timed on an action or an agenda (lane C): the payload the legacy game holds.
         Arm::Scoring => open_observed(windows, core, WindowKind::Scoring),
         Arm::EventScoring => open_observed(windows, core, WindowKind::EventScoring),
+        // The strategic action (lane E): the follower window, the Winnu hero's follower selection (with the hero resolving) and the end of a game.
+        Arm::Secondary => open_observed(windows, core, WindowKind::StrategySecondary),
+        Arm::LeaderFollowers => open_observed(windows, core, WindowKind::LeaderStrategy) && open_observed(windows, core, WindowKind::LeaderFollowers),
+        Arm::Finished => true,
         // The jobs of the turn flow open themselves (`driver::turn`): they need no window of the legacy game. `Status` opens the scoring window.
         Arm::TurnPrelude | Arm::Phase | Arm::StrategyAnnounce | Arm::Ask | Arm::Status => true,
         _ => false,
@@ -133,13 +137,13 @@ fn open_observed(windows: &[Window], core: &mut CoreState, kind: WindowKind) -> 
 /// (the questions, the events and the position), not on the prefix. `Phase` is the whole of `step_phase`; the prelude and the
 /// announcement go on into the question of the same legacy step (the action menu, the draft), which the arm does not own.
 const fn close_is_native(arm: Arm) -> bool {
-    matches!(arm, Arm::Phase | Arm::Status | Arm::Tokens | Arm::Scoring | Arm::EventScoring | Arm::Trade)
+    matches!(arm, Arm::Phase | Arm::Status | Arm::Tokens | Arm::Scoring | Arm::EventScoring | Arm::Trade | Arm::Secondary | Arm::LeaderFollowers | Arm::Finished)
 }
 
 /// The arms whose native step also runs the close when it applies the LAST answer, where the legacy game closes in its NEXT step (a step
 /// that finds nothing to ask): the legacy answer step is compared on the prefix, the legacy close step on everything.
 const fn closes_one_step_early(arm: Arm) -> bool {
-    matches!(arm, Arm::Scoring | Arm::EventScoring)
+    matches!(arm, Arm::Scoring | Arm::EventScoring | Arm::Secondary)
 }
 
 /// The slices a position loads: all, and the map only when the game has a string galaxy (as `Game::churn_state`).
@@ -154,6 +158,8 @@ const fn window_of(arm: Arm) -> Option<WindowKind> {
         Arm::Scoring => Some(WindowKind::Scoring),
         Arm::EventScoring => Some(WindowKind::EventScoring),
         Arm::Trade => Some(WindowKind::Trade),
+        Arm::Secondary => Some(WindowKind::StrategySecondary),
+        Arm::LeaderFollowers => Some(WindowKind::LeaderFollowers),
         _ => None,
     }
 }
@@ -678,6 +684,49 @@ mod tests {
         TAMPER.with(|t| t.set(0));
         let hit = played.report.differences.iter().find(|d| d.category == Category::State && d.path.starts_with("native.state") && d.path.contains("trade_goods"));
         assert!(hit.is_some(), "{:#?}", played.report.differences.iter().take(3).collect::<Vec<_>>());
+    }
+
+    /// The gaps the strategic arms count that other lanes close or that are not ported: the closing menu's free options (lane F:
+    /// `MenuSources`), a locked commander no hook states (`CommanderUnlock`), Xxcha's Peace Accords (`PeaceAccords`, the annexation window)
+    /// and an ability the core cannot begin (`StrategyAbility`: Doctor Sucaban's offer in a research, a Mahact waiver heard by a Nomad).
+    fn strategic_allowed(d: &&ti4_engine::dual::Difference) -> bool {
+        ["MenuSources", "CommanderUnlock", "PeaceAccords", "StrategyAbility"].iter().any(|g| d.core_side.contains(g))
+    }
+
+    /// The strategic action's follower arms run in shadow behind a legacy game through round one: every follower step is compared (the
+    /// questions with their display facts, the events, the position when the window ends) and the two agree.
+    #[test]
+    fn the_strategic_action_arms_shadowed_behind_a_legacy_game_through_round_one_agree_with_it() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        TAMPER.with(|t| t.set(0));
+        set_native_arms(NativeArms::of(&[Arm::Secondary, Arm::LeaderFollowers, Arm::Finished]));
+        let _ = (lent_counts(), ran_counts());
+        let played = play();
+        let ran = ran_counts();
+        let other: Vec<_> = played.report.differences.iter().filter(|d| !strategic_allowed(d)).collect();
+        assert!(other.is_empty(), "{:#?}", other.iter().take(5).collect::<Vec<_>>());
+        assert!(ran.keys().any(|k| k.starts_with("secondary")), "the follower window ran in shadow: {ran:?}");
+    }
+
+    /// Round one with every lobby faction in turn (six tables of four), the strategic arms in shadow and a counted bail a failure: no
+    /// difference but the counted gaps other lanes close ([`strategic_allowed`]), and the follower window ran.
+    #[test]
+    fn the_strategic_action_arms_agree_with_the_legacy_game_for_every_lobby_faction() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        TAMPER.with(|t| t.set(0));
+        let (mut gaps, mut ran_secondary) = (0, 0);
+        for group in LOBBY_FACTIONS.chunks(4) {
+            set_native_arms(NativeArms::of(&[Arm::Secondary, Arm::LeaderFollowers, Arm::Finished]));
+            let _ = (lent_counts(), ran_counts());
+            let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
+            let ran = ran_counts();
+            let other: Vec<_> = played.report.differences.iter().filter(|d| !strategic_allowed(d)).collect();
+            gaps += played.report.differences.len() - other.len();
+            assert!(other.is_empty(), "{group:?}: {:#?}", other.iter().take(5).collect::<Vec<_>>());
+            ran_secondary += ran.iter().filter(|(k, _)| k.starts_with("secondary")).map(|(_, n)| *n).sum::<u64>();
+        }
+        assert!(ran_secondary >= 6, "the follower window ran in shadow at every table: {ran_secondary}");
+        eprintln!("strategic gaps counted: {gaps}");
     }
 
     /// The compare finds a perturbed native position (state), and a perturbed pool (the plain events of the step do not change, the

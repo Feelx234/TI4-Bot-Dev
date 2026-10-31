@@ -329,6 +329,7 @@ mod tests {
             next: 0,
             resolved: Default::default(),
             exhausts_card: false,
+            preview: false,
         }));
         let f = Facts::of(&s, true, true, false, true);
         assert_eq!(f.open, bit(WindowKind::LeaderStrategy) | bit(WindowKind::StrategySecondary), "two windows, not their overlap");

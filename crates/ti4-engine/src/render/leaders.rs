@@ -153,6 +153,7 @@ impl Family for Fam {
             Ask::KyverFate { target, card } => format!("Kyver: {} showed {}", r.seat_text(*target), action_card_name(*card)),
             Ask::NaazCard => "Hesh and Prit: perform the secondary of which card".to_owned(),
             Ask::WinnuCard => "Mathis Mathinus: which strategy card".to_owned(),
+            Ask::WinnuFollower { follower } => format!("Mathis Mathinus: may {} follow the secondary", r.seat_text(*follower)),
             Ask::FlockShip => "Flock Migration: choose a ship to move".to_owned(),
             Ask::FlockTo => "Flock Migration: choose the destination".to_owned(),
             Ask::FlockCargo => "Flock Migration: carry a unit aboard (it cannot be landed)".to_owned(),
@@ -185,6 +186,7 @@ impl Family for Fam {
             Subtype::FlayeshTech => "flayesh_technology".to_owned(),
             Subtype::KyverFate => "kyver_take_or_discard".to_owned(),
             Subtype::HeroCard => "hero_card".to_owned(),
+            Subtype::HeroFollower => "hero_follower".to_owned(),
             Subtype::FlockShip => "flock_migration_ship".to_owned(),
             Subtype::FlockTo => "flock_migration_to".to_owned(),
             Subtype::FlockCargo => "flock_migration_cargo".to_owned(),
@@ -237,6 +239,15 @@ impl Family for Fam {
             Opt::KyverDiscard => {
                 let Ask::KyverFate { target, .. } = a else { unreachable!("a Kyver option under another question") };
                 ChoiceOption::labelled("discard", "hero", format!("force {} to discard 3 random action cards", r.seat_text(*target)))
+            }
+            Opt::HeroFollower(yes) => {
+                let Ask::WinnuFollower { follower } = a else { unreachable!("a follower option is asked by Ask::WinnuFollower") };
+                let who = r.seat_text(*follower);
+                if *yes {
+                    ChoiceOption::labelled(format!("yes|{who}"), "follower", format!("let {who} follow"))
+                } else {
+                    ChoiceOption::labelled(format!("no|{who}"), "follower", format!("not {who}"))
+                }
             }
             Opt::HeroCard(card) => ChoiceOption::labelled(
                 card.as_str(),
@@ -354,6 +365,14 @@ impl Family for Fam {
             }
             Ask::FlockTo => System::from_id(id.strip_prefix("to|")?).map(Opt::FlockTo),
             Ask::NaazCard | Ask::WinnuCard => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::HeroCard),
+            Ask::WinnuFollower { follower } => {
+                let who = r.seat_text(*follower);
+                match id.split_once('|') {
+                    Some(("yes", rest)) if rest == who => Some(Opt::HeroFollower(true)),
+                    Some(("no", rest)) if rest == who => Some(Opt::HeroFollower(false)),
+                    _ => None,
+                }
+            }
             Ask::KyverFate { .. } => match id {
                 "take" => Some(Opt::KyverTake),
                 "discard" => Some(Opt::KyverDiscard),
