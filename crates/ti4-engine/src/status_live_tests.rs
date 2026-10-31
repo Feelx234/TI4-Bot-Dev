@@ -231,6 +231,13 @@ fn event_both(state: &GameState, occurrence: u64, timing: crate::secrets::Timing
         if !ti4_engine_core::driver::live::is_open::<ti4_engine_core::driver::windows::scoring::EventScoring>(&core) {
             break;
         }
+        // Every string step starts with the reconcile hooks.
+        loop {
+            let step = live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native reconcile stopped: {e:?}"));
+            if step.finished {
+                break;
+            }
+        }
         live::live_step(&mut core, Arm::EventScoring, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native event window stopped: {e:?}"));
     }
     assert_eq!(asker.left(), 0);
@@ -280,4 +287,14 @@ fn declining_in_an_event_window_ends_the_seats_turn_like_the_string() {
     native.staged = string.staged.clone();
     assert_same(&string, &native);
     assert!(!has(&string, "OBJECTIVE_SCORED:dp"));
+}
+
+#[test]
+fn naalus_zero_initiative_decides_the_order_of_the_whole_phase_like_the_string() {
+    let mut state = status_table(&[("a", "sol"), ("b", "naalu"), ("c", "hacan")]);
+    // The "0" initiative token Naalu holds from the strategy phase: it scores, draws, gains and redistributes first.
+    state.initiative_overrides.insert(pid("b"), 0);
+    let (string, native) = both(&based(state), &[]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.first().map(|q| q.player.as_str().to_owned()), Some("b".to_owned()), "{:?}", string.questions.iter().map(|q| (&q.player, &q.prompt)).collect::<Vec<_>>());
 }
