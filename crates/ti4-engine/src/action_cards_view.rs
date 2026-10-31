@@ -553,7 +553,6 @@ pub fn play_window(
     before_rolls: Option<&crate::rng::RngPositions>,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<crate::action_cards_typed::Rolled>> {
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::Kernel;
     let card = ActionCard::from_id(alias.as_str())?;
     let (mut cx, r) = tables_of(gs, card)?;
@@ -651,7 +650,7 @@ pub fn play_window(
             env.facts.carried = carried_of(core, &before, sources, player, seat, &r);
         }
         let play = rules::effects::Play::of(core, card, seat, env)?;
-        let mut driver = Driver::new(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
+        let mut driver = crate::window_driver::driver_for(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
         if let Some(seeds) = driver_seeds {
             driver = driver.with_seeds(seeds);
         }
@@ -741,7 +740,6 @@ pub fn announce_window(
     before_rolls: Option<&crate::rng::RngPositions>,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<(Option<bool>, crate::action_cards_typed::Rolled)>> {
-    use ti4_engine_core::driver::Driver;
     let card = ActionCard::from_id(alias.as_str()).why("an action card the core tables do not know")?;
     if !rules::announce::plays(card) && crate::action_cards::effect_for(alias).is_some() {
         crate::dual::note_bail_here("a card the announce window does not play (it has no core effect, or the table plays it inside a window)");
@@ -842,7 +840,7 @@ pub fn announce_window(
             crate::dual::note_bail_here("a card the core announce window does not play");
         }
         let announce = announce?;
-        let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
+        let mut driver = crate::window_driver::driver_for(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
         if let Some(seeds) = seeds {
             driver = driver.with_seeds(seeds);
         }

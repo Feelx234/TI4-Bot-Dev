@@ -38,7 +38,6 @@ mod real {
     use ti4_content::ContentStore;
     use ti4_content::galaxy::Galaxy;
     use ti4_engine_core::containers::SmallList;
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::{Agenda, Leader, System};
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
@@ -206,7 +205,7 @@ mod real {
             if view.draft.is_some() != core_draft.is_some() || view.bundle.is_some() != current.is_some() {
                 return Err("a draft or revision the string types cannot hold");
             }
-            let mut driver = Driver::new(window, Resolver::new(&[sp, sr], Some(sp)), AbilityTable::default(), 1);
+            let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[sp, sr], Some(sp)), AbilityTable::default(), 1);
             let trades = core.trade().this_round.len();
             let ran = with_view(view, || drive(&mut driver, core, &kernel, &r, &before, script));
             match ran {

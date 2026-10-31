@@ -73,7 +73,6 @@ mod real {
         sources: ti4_model::content_types::SourceSet,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        use ti4_engine_core::driver::Driver;
         use ti4_engine_core::kernel::stage::AbilityTable;
         use ti4_engine_core::kernel::{Kernel, Resolver};
         use ti4_engine_core::rules::promissory_windows::StallTactics;
@@ -93,7 +92,7 @@ mod real {
         let kernel = Kernel::plain();
         let mut table = AbilityTable::default();
         table.facts.card_groups = crate::reactions_core::card_groups();
-        let mut driver = Driver::new(StallTactics::new(seat, unit, scope, r.code("stall_tactics"), r.code("yssaril_mech")), Resolver::new(&seats, Some(seat)), table, 1);
+        let mut driver = crate::window_driver::driver_for(StallTactics::new(seat, unit, scope, r.code("stall_tactics"), r.code("yssaril_mech")), Resolver::new(&seats, Some(seat)), table, 1);
         let driven = with_core(gs, &mut cx, Sources::default(), STALL, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|c, _, rendered| crate::render::promissory::complete_place_units(c, rendered))
         })
@@ -112,7 +111,6 @@ mod real {
     /// exhausted). `pds` is the form the seat places (`None`: nothing). A seat that carries the text on something else than its own card
     /// (a Valefar Assimilator) and a faction rule that forbids the placement are the string's.
     pub fn c4r_place_pds(gs: &mut GameState, player: &PlayerId, pds: Option<&UnitTypeId>, forbidden: bool, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
-        use ti4_engine_core::driver::Driver;
         use ti4_engine_core::kernel::stage::AbilityTable;
         use ti4_engine_core::kernel::{Kernel, Resolver};
         use ti4_engine_core::rules::promissory_windows::{PlaceUnits, Then};
@@ -138,7 +136,7 @@ mod real {
         let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(PlaceUnits::new(seat, unit, 1, None, false, scope, r.code("nekroc4r"), Then::C4rPds), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(PlaceUnits::new(seat, unit, 1, None, false, scope, r.code("nekroc4r"), Then::C4rPds), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
         let driven = with_core(gs, &mut cx, Sources::default(), C4R_PLACE, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {})
         })
@@ -156,7 +154,6 @@ mod real {
     /// The core half of Sol's Orbital Drop (`faction_abilities::orbital_drop`; the value: the action resolved). `infantry` is the form the
     /// seat places (`None`: nothing, or a faction rule forbids it), `mech` the Sol mech id and `can_pay` whether the seat has 3 resources.
     pub fn orbital_drop(gs: &mut GameState, player: &PlayerId, infantry: Option<&UnitTypeId>, mech: &str, can_pay: bool, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
-        use ti4_engine_core::driver::Driver;
         use ti4_engine_core::kernel::stage::AbilityTable;
         use ti4_engine_core::kernel::Resolver;
         use ti4_engine_core::rules::faction_component::{OrbitalDrop, OrbitalFacts};
@@ -177,7 +174,7 @@ mod real {
         let mut table = AbilityTable::default();
         ti4_engine_core::driver::children::register(&mut table);
         let kernel = crate::production_view::kernel();
-        let mut driver = Driver::new(OrbitalDrop::new(seat, facts), Resolver::new(&[seat], Some(seat)), table, 1);
+        let mut driver = crate::window_driver::driver_for(OrbitalDrop::new(seat, facts), Resolver::new(&[seat], Some(seat)), table, 1);
         let mut staged = Vec::new();
         let driven = with_core(gs, &mut cx, Sources::default(), ORBITAL, |core, _| {
             let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &|_, _, _| {});
@@ -225,7 +222,6 @@ mod real {
     /// (`factions::muaat::perform_component`; the value: the action resolved). A Nekro seat (a flagship carried through a Valefar
     /// Assimilator) is the string's.
     pub fn star_forge(gs: &mut GameState, player: &PlayerId, nucleus: bool, facts: &MuaatFacts, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
-        use ti4_engine_core::driver::Driver;
         use ti4_engine_core::kernel::stage::AbilityTable;
         use ti4_engine_core::kernel::Resolver;
         use ti4_engine_core::rules::muaat_component::{ForgeFacts, Mode, StarForge};
@@ -249,7 +245,7 @@ mod real {
         let before = gs.clone();
         let kernel = crate::production_view::kernel();
         let mode = if nucleus { Mode::Nucleus } else { Mode::StarForge };
-        let mut driver = Driver::new(StarForge::new(seat, mode, forge), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(StarForge::new(seat, mode, forge), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let mut staged = Vec::new();
         let driven = with_core(gs, &mut cx, Sources::default(), FORGE, |core, _| {
             let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {});
@@ -325,7 +321,6 @@ mod real {
     /// The core half of Nekro's ???_ERROR_ERROR_??? draw (`factions::nekro_units::discard_and_draw`; the value: the action resolved). A
     /// draw a faction hook or a law changes, a replayed turn and a seat that carries the text on a Valefar Assimilator are the string's.
     pub fn c4r_draw(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        use ti4_engine_core::driver::Driver;
         use ti4_engine_core::kernel::stage::AbilityTable;
         use ti4_engine_core::kernel::{Kernel, Resolver};
         use ti4_engine_core::rules::promissory_windows::C4rDraw;
@@ -345,7 +340,7 @@ mod real {
         let mut table = AbilityTable::default();
         table.facts.card_groups = crate::reactions_core::card_groups();
         ti4_engine_core::driver::children::register(&mut table);
-        let mut driver = Driver::new(C4rDraw::new(seat, gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK), Resolver::new(&seats, Some(seat)), table, 1);
+        let mut driver = crate::window_driver::driver_for(C4rDraw::new(seat, gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK), Resolver::new(&seats, Some(seat)), table, 1);
         let driven = with_core(gs, &mut cx, Sources::default(), C4R_DRAW, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {})
         })
@@ -361,7 +356,6 @@ mod real {
     /// The core half of Yssaril's Mageon Implants (`factions::yssaril::mageon_implants`; the value: the action resolved). A hand limit a
     /// faction hook changes is not carried (the child window reads the printed rule and the laws): the string's.
     pub fn mageon_implants(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, target: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        use ti4_engine_core::driver::Driver;
         use ti4_engine_core::kernel::stage::AbilityTable;
         use ti4_engine_core::kernel::{Kernel, Resolver};
         use ti4_engine_core::rules::promissory_windows::MageonImplants;
@@ -388,7 +382,7 @@ mod real {
         let mut table = AbilityTable::default();
         table.facts.card_groups = crate::reactions_core::card_groups();
         ti4_engine_core::driver::children::register(&mut table);
-        let mut driver = Driver::new(MageonImplants::new(seat, target, limit == plain), Resolver::new(&seats, Some(seat)), table, 1);
+        let mut driver = crate::window_driver::driver_for(MageonImplants::new(seat, target, limit == plain), Resolver::new(&seats, Some(seat)), table, 1);
         let driven = with_core(gs, &mut cx, Sources::default(), C4R_DRAW, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {})
         })
@@ -412,7 +406,6 @@ mod real {
     /// (`factions::naaz::perform_component`; the value: the action resolved). A turn redo's deck reserve and a command token in a Mahact
     /// fleet pool are the string's.
     pub fn naaz_fabrication(gs: &mut GameState, player: &PlayerId, token: bool, bmf: bool, script: &Recording) -> Option<CoreWindow<bool>> {
-        use ti4_engine_core::driver::Driver;
         use ti4_engine_core::kernel::stage::AbilityTable;
         use ti4_engine_core::kernel::{Kernel, Resolver};
         use ti4_engine_core::rules::relic_windows::{FabMode, Fabrication};
@@ -429,7 +422,7 @@ mod real {
         let before = gs.clone();
         let kernel = Kernel::plain();
         let (mode, source) = if token { (FabMode::Token, "fabrication") } else if bmf { (FabMode::Relic { bmf: true }, "bmf") } else { (FabMode::Relic { bmf: false }, "fabrication") };
-        let mut driver = Driver::new(Fabrication::new(seat, mode, r.code(source)), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(Fabrication::new(seat, mode, r.code(source)), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
         let driven = with_core(gs, &mut cx, Sources::default(), FABRICATION, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {})
         })

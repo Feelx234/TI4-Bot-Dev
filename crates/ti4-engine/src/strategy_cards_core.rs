@@ -60,7 +60,7 @@ mod real {
     ) -> Option<(W, Driven)> {
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), linked(), 1);
+        let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), linked(), 1);
         let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_with(&mut driver, core, &kernel, r, &before, script, complete))
             .why(crate::dual::reason::NOT_LENDABLE)?
             .why(crate::dual::reason::DRIVER_REFUSED)?;
@@ -265,7 +265,7 @@ mod real {
     ) -> Option<(W, Driven)> {
         let before = gs.clone();
         let kernel = crate::production_view::kernel();
-        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let fp = Footprint { reads: crate::production_view::READS, writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Cards, Slice::Marks]) };
         let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_at(&mut driver, core, kernel, r, &before, script, complete))
             .why(crate::dual::reason::NOT_LENDABLE)?
@@ -419,7 +419,7 @@ mod real {
         let kernel = crate::production_view::kernel();
         let mut table = AbilityTable::default();
         ti4_engine_core::driver::children::register(&mut table);
-        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), table, 1);
+        let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), table, 1);
         let mut reads = crate::production_view::READS;
         reads.insert(Slice::Pending);
         let fp = Footprint { reads, writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Cards, Slice::Marks, Slice::Pending]) };
@@ -640,7 +640,7 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(ImperialSecondary::new(seat), Resolver::new(&[seat], Some(seat)), linked(), 1);
+        let mut driver = crate::window_driver::driver_for(ImperialSecondary::new(seat), Resolver::new(&[seat], Some(seat)), linked(), 1);
         let driven = with_core(gs, &mut cx, Sources::default(), SECRET, |core, _| drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
             .why(crate::dual::reason::NOT_LENDABLE)?
             .why(crate::dual::reason::DRIVER_REFUSED)?;
@@ -712,7 +712,7 @@ mod real {
         // The production kernel answers what a trade good pays and which commodities a payment may spend.
         let env = ti4_engine_core::kernel::fx_pay::PayEnv { scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) };
         let window = ImperialPrimary::new(seat, typed.into_iter().collect()).with_price(env);
-        let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), linked(), 1);
+        let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), linked(), 1);
         let kernel = crate::production_view::kernel();
         let fp = Footprint::new(
             &[

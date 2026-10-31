@@ -15,7 +15,6 @@ pub use stub::*;
 mod real {
     use ti4_engine_core::choice::technology::Ask as TAsk;
     use ti4_engine_core::choice::Ask;
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::Technology;
     use ti4_engine_core::kernel::stage::{AbilityTable, Window};
     use ti4_engine_core::kernel::{Kernel, Resolver};
@@ -58,7 +57,7 @@ mod real {
         let letnev = gs.player(player)?.faction.as_str() == "letnev";
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(make(seat, &r), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(make(seat, &r), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let mut staged = Vec::new();
         let driven = with_core(gs, &mut cx, Sources::default(), WINDOW, |core, _| {
             let driven = drive_with(&mut driver, core, &kernel, &r, &before, script, &|c, core, rendered| {
@@ -105,7 +104,7 @@ mod real {
         let has_map = galaxy.is_some();
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(Vortex::new(seat, has_map, neutral, scope), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(Vortex::new(seat, has_map, neutral, scope), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let footprint = if has_map {
             Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Map, Slice::Marks, Slice::Pending], &[Slice::Players])
         } else {
@@ -147,7 +146,7 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(WormholeGenerator::new(seat, destinations), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(WormholeGenerator::new(seat, destinations), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = with_core(gs, &mut cx, Sources::default(), WORMHOLE, |core, _| drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
             .why(crate::dual::reason::NOT_LENDABLE)?
             .why(crate::dual::reason::DRIVER_REFUSED)?;
@@ -234,7 +233,7 @@ mod real {
         let kernel = crate::production_view::kernel();
         let mut table = AbilityTable::default();
         ti4_engine_core::driver::children::register(&mut table);
-        let mut driver = Driver::new(TurnStart::new(seat, r.code("psychoarchaeology")).with_chaos_mapping(facts), Resolver::new(&[seat], Some(seat)), table, 1);
+        let mut driver = crate::window_driver::driver_for(TurnStart::new(seat, r.code("psychoarchaeology")).with_chaos_mapping(facts), Resolver::new(&[seat], Some(seat)), table, 1);
         let footprint = Footprint {
             reads: crate::production_view::READS.union(ti4_engine_core::state::SliceSet::of(&[Slice::Pending])),
             writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Marks, Slice::Pending]),
@@ -268,7 +267,7 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(ProductionUsed::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(ProductionUsed::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = with_core(gs, &mut cx, Sources::default(), WRITES_TRANSIENT, |core, _| drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
             .why(crate::dual::reason::NOT_LENDABLE)?
             .why(crate::dual::reason::DRIVER_REFUSED)?;
@@ -288,7 +287,7 @@ mod real {
         let before = gs.clone();
         let mut kernel = Kernel::plain();
         kernel.sources = ti4_engine_core::kernel::Sources(u8::try_from(crate::core_adapter::scope(sources).0).ok()?);
-        let mut driver = Driver::new(ti4_engine_core_factions::self_assembly::SelfAssembly::new(seat, system), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(ti4_engine_core_factions::self_assembly::SelfAssembly::new(seat, system), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = with_core(gs, &mut cx, Sources::default(), SAR, |core, _| drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
             .why(crate::dual::reason::NOT_LENDABLE)?
             .why(crate::dual::reason::DRIVER_REFUSED)?;
