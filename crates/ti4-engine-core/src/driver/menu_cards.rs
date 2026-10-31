@@ -43,7 +43,7 @@ fn can_research_something(core: &CoreState, k: &Kernel, who: Seat) -> bool {
 /// units with BOMBARDMENT, not a home planet, a legendary planet, Mecatol Rex or a planet already destroyed.
 #[must_use]
 pub fn stellar_targets(core: &CoreState, scope: Scope, who: Seat) -> Vec<(System, Planet)> {
-    let mut reach_systems = std::collections::BTreeSet::new();
+    let mut reach_systems: Vec<System> = Vec::new();
     for (system, cell) in core.board().systems() {
         let bombards = cell.units.as_slice().iter().any(|p| p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.bombardment.is_some()))
             || board::planets_of(core, system)
@@ -52,6 +52,8 @@ pub fn stellar_targets(core: &CoreState, scope: Scope, who: Seat) -> Vec<(System
             reach_systems.extend(next.iter().filter_map(|i| System::ALL.get(i).copied()));
         }
     }
+    reach_systems.sort_unstable();
+    reach_systems.dedup();
     let mut out = Vec::new();
     for system in reach_systems {
         if !crate::query::leader_reads::has_entry(core, system) {
