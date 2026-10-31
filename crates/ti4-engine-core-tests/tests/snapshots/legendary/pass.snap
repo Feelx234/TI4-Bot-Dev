@@ -1,0 +1,12 @@
+Q0 seat 0 Legendary(Offer { when: Pass })
+  >0: Legendary(Use(Faunus))
+   1: Legendary(Use(Industrex))
+   2: Legendary(Use(Garbozia))
+   3: Decline
+Q1 seat 0 Legendary(Maxis)
+  >0: Legendary(Take(Olergodt, Olergodt))
+   1: Decline
+done
+--- delta ---
+player0.cards.legendary_exhausted: {} -> -
+player0.cards.legendary_exhausted.Faunus: - -> ()

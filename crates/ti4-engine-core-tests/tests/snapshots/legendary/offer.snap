@@ -1,0 +1,36 @@
+Q0 seat 0 Legendary(Offer { when: EndOfTurn })
+  >0: Legendary(Use(HopesEnd))
+   1: Legendary(Use(Mallice))
+   2: Decline
+Q1 seat 0 Legendary(ArmsVault)
+  >0: Legendary(Mech)
+   1: Legendary(Card)
+Q2 seat 0 Legendary(PlaceOnPlanet { source: HopesEnd, unit: FactionlessMech })
+  >0: Legendary(OnPlanet(HopesEnd, At(Some(HopesEnd))))
+   1: Legendary(OnPlanet(Mallice, At(Some(MalliceNexus))))
+Q3 seat 0 Legendary(Offer { when: EndOfTurn })
+  >0: Legendary(Use(Mallice))
+   1: Decline
+Q4 seat 0 Legendary(Exterrix { commodities: 0 })
+  >0: Legendary(Goods)
+   1: Legendary(Convert)
+done
+--- delta ---
+player0.cards.legendary_exhausted: {} -> -
+player0.cards.legendary_exhausted.HopesEnd: - -> ()
+player0.cards.legendary_exhausted.Mallice: - -> ()
+player0.econ.trade_goods: 0 -> 2
+sys[HopesEnd]: units [] tokens {} flags 0 -> units [] tokens {} flags 1
+planet[HopesEnd]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [1xFactionlessMech/s0] attach [] coexist {} placed_in None flags 4
+pending.staged: [] -> -
+pending.staged.[0].cancelled: - -> false
+pending.staged.[0].id: - -> 0
+pending.staged.[0].kind: - -> TradeGoodsGained
+pending.staged.[0].payload.items.[0].[0]: - -> Player
+pending.staged.[0].payload.items.[0].[1].[0].[0]: - -> 0
+pending.staged.[0].payload.items.[1].[0]: - -> Amount
+pending.staged.[0].payload.items.[1].[1].[0]: - -> 2
+pending.staged.[0].payload.items.[2].[0]: - -> Source
+pending.staged.[0].payload.items.[2].[1].[0].[0]: - -> 5
+pending.staged.[0].payload.lists: - -> []
+pending.staged.[0].payload.units: - -> []
