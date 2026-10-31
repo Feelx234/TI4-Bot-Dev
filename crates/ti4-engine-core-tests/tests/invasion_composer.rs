@@ -11,7 +11,7 @@ use ti4_engine_core::driver::windows::invasion::{advance_invasion, ask_invasion,
 use ti4_engine_core::kernel::ability::InvasionCodes;
 use ti4_engine_core::kernel::stage::{AbilityTable, Held};
 use ti4_engine_core::kernel::Registry;
-use ti4_engine_core::state::{Code, IStage, NoteHold, WindowKind};
+use ti4_engine_core::state::{Code, IStage, NoteHold, Piece, WindowKind};
 use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::rig::KitSeeds;
 use ti4_engine_core_tests::scenario::plain_systems;
@@ -102,7 +102,16 @@ fn units_on(s: &CoreState, planet: Planet, seat: u8) -> usize {
 /// The invader (seat 0) in the space area with `n` infantry, a defender (seat 1) holding `p1` with `d` infantry.
 fn conquest(n: usize, d: usize) -> (CoreState, Kernel) {
     let (p1, _) = planets();
-    arena().unit(sys(), None, Unit::CarrierI, 0, 1).unit(sys(), None, Unit::InfantryI, 0, n).unit(sys(), Some(p1), Unit::InfantryI, 1, d).control(p1, 1).build()
+    let (mut s, k) = arena().unit(sys(), None, Unit::CarrierI, 0, 1).unit(sys(), Some(p1), Unit::InfantryI, 1, d).control(p1, 1).build();
+    carry(&mut s, n);
+    (s, k)
+}
+
+/// `n` infantry of seat 0 aboard in the space area (the scenario builder places no ground force in space).
+fn carry(s: &mut CoreState, n: usize) {
+    for _ in 0..n {
+        s.board_mut().sys_mut(sys()).units.push(Piece::new(Unit::InfantryI, Seat(0)));
+    }
 }
 
 #[test]
@@ -212,7 +221,8 @@ fn a_first_claim_is_a_counted_bail_until_the_exploration_is_native() {
     covers!("driver::windows::invasion::InvasionMachine");
     let (p1, _) = planets();
     // Nobody holds the planet: the invader takes it for the first time, which explores it.
-    let (mut core, k) = arena().unit(sys(), None, Unit::CarrierI, 0, 1).unit(sys(), None, Unit::InfantryI, 0, 2).build();
+    let (mut core, k) = arena().unit(sys(), None, Unit::CarrierI, 0, 1).build();
+    carry(&mut core, 2);
     let env = env(&k, 1);
     open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
     let before = core.clone();
