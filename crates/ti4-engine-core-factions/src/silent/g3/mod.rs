@@ -7,6 +7,7 @@ pub mod exo2;
 pub mod ragh;
 pub mod tekklar;
 pub mod tro_marks;
+pub mod zeu;
 pub mod zeta;
 
 use ti4_engine_core::kernel::ability::AbilityTable;
@@ -46,6 +47,7 @@ pub fn register_abilities(t: &mut AbilityTable) {
     ragh::register_abilities(t);
     tekklar::register_cleanups(t);
     tro_marks::register_abilities(t);
+    zeu::register_abilities(t);
 }
 
 /// Rules registered between the Nekro and the Winnu modules of the string (`ca_combat` and `cb_economy`'s late rules in the core's order): Sardakk's.

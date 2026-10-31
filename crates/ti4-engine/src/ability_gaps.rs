@@ -23,7 +23,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:muaatcommander_unlock:UNITS_PRODUCED:after",
     "leader:*:muaathero:MOVEMENT_FINISHED:after",
     "leader:*:muaathero_moved:SHIP_MOVED:after",
-    "leader:*:naaluagent-te:COMMAND_TOKEN_PLACED:after",
     "leader:*:naaluhero:STATUS_PHASE_ENDED:after",
     "leader:*:naazagent:TURN_PASSED:after",
     "leader:*:naazcommander:PLANET_CONTROL_GAINED:after",

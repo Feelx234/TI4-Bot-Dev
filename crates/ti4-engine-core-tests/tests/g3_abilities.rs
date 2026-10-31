@@ -472,3 +472,58 @@ mod exo2 {
         assert_eq!(r.opts().len(), 2, "one damaged, one not");
     }
 }
+
+// -- Z'eu ---------------------------------------------------------------------------------------------------------------------
+
+mod zeu {
+    use super::*;
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+
+    fn placed(system: System, seat: u8) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::CommandTokenPlaced, Payload::new().with(Key::Player, Val::Seat(Seat(seat))).with(Key::System, Val::System(system)))
+    }
+
+    fn naalu(system: System, token: Option<u8>, agent: LeaderStatus) -> (Scenario, impl FnOnce(&mut CoreState)) {
+        let mut scenario = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheNaaluCollective]);
+        if let Some(seat) = token {
+            scenario = scenario.command_token(system, seat);
+        }
+        (scenario, move |s: &mut CoreState| {
+            s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::ZeuTe, agent);
+        })
+    }
+
+    fn tokens(r: &Rig<EmitEvent>, system: System) -> Vec<Seat> {
+        (0..2).map(Seat).filter(|s| r.state.board().sys(system).cmd.contains(*s)).collect()
+    }
+
+    #[test]
+    fn the_naalu_exhausts_the_agent_to_remove_the_token_that_was_placed() {
+        covers!("silent::g3::zeu::ZEU");
+        let (system, _) = two_planet_system();
+        let (scenario, edit) = naalu(system, Some(0), LeaderStatus::Readied);
+        let mut r = rig(scenario, edit, placed(system, 0));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the agent");
+        r.pick(use_it);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert!(tokens(&r, system).is_empty(), "the token is gone");
+        assert_eq!(r.state.players().by_seat(Seat(1)).unwrap().leaders.status.get(&Leader::ZeuTe), Some(&LeaderStatus::Exhausted));
+        // Declined: the token stays and the card stays ready.
+        let (scenario, edit) = naalu(system, Some(0), LeaderStatus::Readied);
+        let mut declined = rig(scenario, edit, placed(system, 0));
+        declined.decline();
+        assert_eq!(tokens(&declined, system), vec![Seat(0)]);
+        assert_eq!(declined.state.players().by_seat(Seat(1)).unwrap().leaders.status.get(&Leader::ZeuTe), Some(&LeaderStatus::Readied));
+    }
+
+    #[test]
+    fn it_needs_a_readied_agent_and_the_token_on_the_board() {
+        covers!("silent::g3::zeu::ZEU");
+        let (system, _) = two_planet_system();
+        let (scenario, edit) = naalu(system, Some(0), LeaderStatus::Exhausted);
+        assert!(rig(scenario, edit, placed(system, 0)).is_done(), "an exhausted agent");
+        let (scenario, edit) = naalu(system, None, LeaderStatus::Readied);
+        assert!(rig(scenario, edit, placed(system, 0)).is_done(), "no token in the system");
+    }
+}

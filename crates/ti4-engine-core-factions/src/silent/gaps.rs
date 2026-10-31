@@ -11,14 +11,14 @@ use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::{Faction, LeaderType, PromissoryNote, System, Technology, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{no_effect, AbilityTable, CondCx, Slot, Spec, Unknown};
-use ti4_engine_core::state::{EventKind, LeaderStatus};
+use ti4_engine_core::state::{EventKind, Key, LeaderStatus};
 
 /// The slot of the first row.
 pub const FIRST_SLOT: u16 = 41_000;
 
 /// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
 pub const SUFFI_AN: usize = 11;
-pub const SUFFI_AN_COPY: usize = 41;
+pub const SUFFI_AN_COPY: usize = 40;
 
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
@@ -64,6 +64,15 @@ fn downstream(_: &CondCx<'_>) -> bool {
     false
 }
 
+/// Foresight ("after another player moves ships into a system that contains your ships: spend a strategy token to move them to an adjacent system"): the Naalu holds a
+/// strategy token and another player moved ships. (Where the destinations are and whether the move is legal the core cannot say: the gap stops the step.)
+fn foresight_possible(c: &CondCx<'_>) -> bool {
+    faction(c, Faction::TheNaaluCollective)
+        && c.event.payload.seat(Key::Player).is_some_and(|mover| mover != c.def.owner)
+        && c.event.payload.int(Key::ShipsMoved).is_some_and(|n| n > 0)
+        && c.state.players().by_seat(c.def.owner).is_some_and(|p| p.econ.strategic_tokens > 0)
+}
+
 fn tech(c: &CondCx<'_>, t: Technology) -> bool {
     c.state.players().by_seat(c.def.owner).is_some_and(|p| p.tech.owned.contains(t))
 }
@@ -77,7 +86,7 @@ fn note(c: &CondCx<'_>, n: PromissoryNote) -> bool {
 /// The rows, in the order of the engine's name table (`ability_audit::GAP_NAMES`).
 pub const GAPS: &[Gap] = &[
     // -- abilities
-    Gap { kind: AbilityKind::Ability, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| faction(c, Faction::TheNaaluCollective) }, // foresight
+    Gap { kind: AbilityKind::Ability, event: EventKind::MovementFinished, relation: Relation::After, holds: foresight_possible }, // foresight
     Gap { kind: AbilityKind::Ability, event: EventKind::PropagationResearch, relation: Relation::After, holds: |c| faction(c, Faction::TheNekroVirus) }, // propagation
     Gap { kind: AbilityKind::Ability, event: EventKind::ActionCompleted, relation: Relation::After, holds: downstream }, // reclamation
     Gap { kind: AbilityKind::Ability, event: EventKind::TurnBegan, relation: Relation::After, holds: downstream }, // reclamation_clear
@@ -95,7 +104,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Leader, event: EventKind::UnitsProduced, relation: Relation::After, holds: |c| leader(c, Faction::TheEmbersOfMuaat, LeaderType::Commander) }, // muaatcommander_unlock
     Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: downstream }, // muaathero
     Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: downstream }, // muaathero_moved
-    Gap { kind: AbilityKind::Leader, event: EventKind::CommandTokenPlaced, relation: Relation::After, holds: |c| leader(c, Faction::TheNaaluCollective, LeaderType::Agent) }, // naaluagent-te
     Gap { kind: AbilityKind::Leader, event: EventKind::StatusPhaseEnded, relation: Relation::After, holds: |c| leader(c, Faction::TheNaaluCollective, LeaderType::Hero) }, // naaluhero
     Gap { kind: AbilityKind::Leader, event: EventKind::TurnPassed, relation: Relation::After, holds: |c| leader(c, Faction::TheNaazRokhaAlliance, LeaderType::Agent) }, // naazagent
     Gap { kind: AbilityKind::Leader, event: EventKind::PlanetControlGained, relation: Relation::After, holds: |c| leader(c, Faction::TheNaazRokhaAlliance, LeaderType::Commander) }, // naazcommander

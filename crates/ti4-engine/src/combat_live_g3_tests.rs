@@ -65,3 +65,21 @@ fn exotrireme_ii_destroys_itself_and_up_to_two_ships_after_a_round_like_the_stri
     }
     assert!(windows > 0 && victims_asked > 0 && self_asked > 0, "the scan saw {windows} windows, {self_asked} self questions, {victims_asked} victim questions");
 }
+
+#[test]
+fn zeu_removes_the_activation_token_like_the_string() {
+    // (The Naalu is the active seat: this base's tactical driver offers a window to the active seat alone; the initiative order of the other seats is lane M6b's
+    // `sync_clock`. The agent answers any player's token, its owner's included.)
+    for (seed, answer) in [(1_u64, "leader:naalu:naaluagent-te:COMMAND_TOKEN_PLACED:after"), (2, "decline")] {
+        let (hub, _origin, target) = hub();
+        let mut state = table(&[("a", "naalu"), ("b", "hacan")]);
+        state.rng_seed = seed;
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("naaluagent-te"), ti4_model::state::LeaderStatus::Readied);
+        crate::fixtures::put(&mut state, &target, "cruiser", &a(), 2);
+        let script = [TACTICAL_ACTION_ID, target.as_str(), answer];
+        let seen = string_run(&state, &hub.galaxy, &script, 0);
+        assert!(seen.asked.iter().any(|q| q.prompt == "after COMMAND_TOKEN_PLACED"), "the window is asked: {:?}", seen.asked.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+        let diffs = lockstep(state, &hub.galaxy, &script);
+        assert!(diffs.is_empty(), "{answer}: {diffs:#?}");
+    }
+}
