@@ -76,6 +76,10 @@ pub enum Ask {
     FlockTo,
     /// Flock Migration: a unit carried aboard (it cannot be landed).
     FlockCargo,
+    /// Airo Shir Aur (Mahact hero): which fleet moves to which adjacent system.
+    MahactMove,
+    /// Quantum Dissemination (Yin hero): where the `n`th (from 0) of `stock` infantry is committed.
+    YinCommit { n: u8, stock: u8 },
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -139,6 +143,10 @@ pub enum Opt {
     FlockTo(crate::generated::System),
     /// Flock Migration: carry the `index`th unit offered, of this form.
     FlockCargo { index: u8, unit: Unit },
+    /// Airo Shir Aur: the fleet in the first system moves to the second.
+    MahactMove(crate::generated::System, crate::generated::System),
+    /// Quantum Dissemination: commit infantry to this planet of this system.
+    YinSpot(crate::generated::System, crate::generated::Planet),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -169,4 +177,6 @@ pub enum Subtype {
     FlockShip,
     FlockTo,
     FlockCargo,
+    MahactMove,
+    YinCommit,
 }

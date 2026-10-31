@@ -347,10 +347,6 @@ mod real {
             crate::dual::note_bail_here(why);
             return None;
         }
-        if galaxy.is_some_and(|map| map.edits_applied() != crate::movement::recorded_map_edits(gs).len()) {
-            crate::dual::note_bail_here("map edits recorded that the map has not replayed yet");
-            return None;
-        }
         let set = |ids: &[&str]| -> Option<ti4_engine_core::bits::SysSet> {
             let mut out = ti4_engine_core::bits::SysSet::EMPTY;
             for id in ids {
@@ -395,8 +391,9 @@ mod real {
             return None;
         }
         if gs.player(player).and_then(|p| p.leaders.get(&LeaderId::new("nekroagent"))) != Some(&ti4_model::state::LeaderStatus::Readied) {
-            crate::dual::note_bail_here("Malleon used by a seat that does not hold it readied (a copy through Ssruu)");
-            return None;
+            // The string `malleon` declines at once (`leader_action` needs the card readied in the user's own hand; a copy through
+            // Ssruu does not qualify): no question, no change. That is the window too (package W10; before it a counted bail).
+            return Some(CoreWindow { run: Run::new(false).with_events_vec(Vec::new()), questions: Vec::new() });
         }
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -454,8 +451,7 @@ mod real {
     };
 
     /// Why the core cannot follow a production by an ability for these seats: a seat the production windows do not carry, the end-of-use
-    /// effects the child does not run (Hacan's breakthrough, the Prophecy of Ixth, a swapped planet value) and the dropped Last Bastion and
-    /// Crimson Rebellion (a unit placed away from the producing system has no place text here).
+    /// the dropped Last Bastion and Crimson Rebellion (a unit placed away from the producing system has no place text here).
     fn production_declined(gs: &GameState, producers: &[&PlayerId]) -> Option<&'static str> {
         if gs.players.iter().any(|p| [crate::factions::bastion::MODULE.alias, crate::factions::crimson::MODULE.alias].contains(&p.faction.as_str())) {
             return Some("the Last Bastion or the Crimson Rebellion at the table (units placed away from the producing system)");
@@ -463,16 +459,48 @@ mod real {
         if producers.iter().any(|p| crate::production_view::unported_triggered(gs, p)) {
             return Some("a table whose seats the production windows do not carry (Keleres, Deepwrought)");
         }
-        if producers.iter().any(|p| crate::breakthroughs::holds(gs, p, "hacanbt")) {
-            return Some("Hacan's breakthrough (an end-of-use effect of the production)");
-        }
-        if gs.laws.contains_key("prophecy") {
-            return Some("the Prophecy of Ixth in play (an end-of-use effect of the production)");
-        }
-        if gs.production_value_swapped_planet.is_some() {
-            return Some("a swapped planet value in the use (an end-of-use effect of the production)");
-        }
+        // (Hacan's breakthrough, the Prophecy of Ixth and a swapped planet value are the end-of-use effects the adapter runs after the child,
+        // `finish_uses`, since package W10.)
         None
+    }
+
+    /// Why the core cannot follow a use of PRODUCTION at a home system for these seats: [`production_declined`], except for what the home
+    /// production runs itself (Hacan's breakthrough on three ships).
+    pub(crate) fn home_declined(gs: &GameState, producer: &PlayerId) -> Option<&'static str> {
+        if gs.players.iter().any(|p| [crate::factions::bastion::MODULE.alias, crate::factions::crimson::MODULE.alias].contains(&p.faction.as_str())) {
+            return Some("the Last Bastion or the Crimson Rebellion at the table (units placed away from the producing system)");
+        }
+        if crate::production_view::unported_triggered(gs, producer) {
+            return Some("a table whose seats the production windows do not carry (Keleres, Deepwrought)");
+        }
+        // (The Prophecy of Ixth is discarded by the core window at the end of the use, package W13. A planet value swapped by Hegemonic Trade
+        // Policy is declared in the tactical action's production and ends with it: none lingers into a use outside it.)
+        None
+    }
+
+    /// The facts of the use of PRODUCTION `player` would open in `system` outside a tactical action (`ProductionWindow::new`: the Warfare
+    /// secondary's home production), `Err` with the census reason where the core cannot follow it.
+    pub(crate) fn home_facts(gs: &GameState, content: &ti4_content::ContentStore, sources: SourceSet, seat: Seat, player: &PlayerId, system: &ti4_model::id::SystemId) -> Result<ti4_engine_core::kernel::children::HomeFacts, &'static str> {
+        if let Some(why) = home_declined(gs, player) {
+            return Err(why);
+        }
+        let window = crate::production::ProductionWindow::new(gs, content, sources.clone(), player, system);
+        let core = window.to_core(gs, content, sources, seat, false)?;
+        Ok(ti4_engine_core::kernel::children::HomeFacts {
+            produce: ti4_engine_core::kernel::children::ProduceFacts {
+                who: seat,
+                system: core.system,
+                limit: core.limit,
+                max_unit_cost: core.max_unit_cost,
+                small_exemptions: core.small_exemptions,
+                discount: core.discount_remaining,
+                fleet_limit: core.fleet_limit,
+                armada: core.armada,
+                flagship_free: core.flagship_free,
+                buildable: core.buildable,
+            },
+            agent_rules: core.agent_rules,
+        })
     }
 
     /// The facts of the use `player` would open in `system` with `limit` units, as the string window opens it (`for_ability`).
@@ -500,9 +528,21 @@ mod real {
         })
     }
 
-    /// Stage the announcement the string stages at the end of each use that made something (`UNITS_PRODUCED`, no timing handle).
-    fn announce_uses(gs: &mut GameState, player: &PlayerId, uses: &[(ti4_engine_core::generated::System, ti4_engine_core::kernel::children::Made)]) {
+    /// The effects at the end of each use (`ProductionWindow::finish_use` for a production by an ability, in its order): a planet-value swap
+    /// lapses, Hacan's breakthrough pays a fleet token for three non-fighter ships, the Prophecy of Ixth is discarded unless two fighters
+    /// were made; then the announcement the string stages for a use that made something (`UNITS_PRODUCED`, no timing handle).
+    fn announce_uses(gs: &mut GameState, content: &ti4_content::ContentStore, sources: SourceSet, player: &PlayerId, uses: &[(ti4_engine_core::generated::System, ti4_engine_core::kernel::children::Made)]) {
         for (system, made) in uses {
+            crate::production::end_value_swap(gs);
+            let produced: Vec<(ti4_model::id::UnitTypeId, String)> = made
+                .as_slice()
+                .iter()
+                .map(|(unit, planet)| (ti4_model::id::UnitTypeId::new(unit.as_str()), planet.map_or(crate::production::SPACE, |p| p.as_str()).to_owned()))
+                .collect();
+            crate::breakthroughs::on_production_finished(gs, content, sources, player, &produced);
+            let types = ti4_content::units::catalogue(content, sources);
+            let fighters = produced.iter().filter(|(kind, _)| types.get(kind.as_str()).is_some_and(ti4_content::units::UnitType::is_fighter)).count();
+            crate::laws::prophecy_after_production(gs, player, fighters);
             if made.as_slice().is_empty() {
                 continue;
             }
@@ -560,7 +600,7 @@ mod real {
             return None;
         }
         crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
-        announce_uses(gs, player, &driver.window.made);
+        announce_uses(gs, content, sources, player, &driver.window.made);
         Some(CoreWindow { run: Run::new(driver.window.used()).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
@@ -616,7 +656,7 @@ mod real {
         crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
         if let (Some((system, made)), Some(target)) = (driver.window.made.clone(), driver.window.target) {
             // The use is the chosen player's: the announcement names them.
-            announce_uses(gs, &PlayerId::new(r.seat_text(target)), &[(system, made)]);
+            announce_uses(gs, content, sources, &PlayerId::new(r.seat_text(target)), &[(system, made)]);
         }
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(Vec::new()), questions: driven.rendered })
     }

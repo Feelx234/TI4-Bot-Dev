@@ -1345,15 +1345,22 @@ fn use_leader_strategy_primary(
             let mut inner = TimingContext { state: s, content, sources: sources.clone(), table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
             let done = hero_primary_string(&mut inner, player, cards.clone());
             let value = match &done {
-                Ok((card, ability)) => (Some(card.to_string()), *ability == crate::strategy_cards::Ability::Resolved),
-                Err(_) => (None, false),
+                Ok((card, ability)) => (
+                    Some(card.to_string()),
+                    *ability == crate::strategy_cards::Ability::Resolved,
+                    match ability {
+                        crate::strategy_cards::Ability::FreeTactical(system) => Some(system.to_string()),
+                        _ => None,
+                    },
+                ),
+                Err(_) => (None, false, None),
             };
             result = Some(done);
             crate::dual::Run::new(value)
         },
         |s: &mut GameState, script: &crate::dual_window::Recording| {
             let cards = hero_cards(s);
-            crate::hero_dual::winnu_hero(s, player, &cards, &sources, script)
+            crate::hero_dual::winnu_hero(s, player, &cards, &sources, galaxy, script)
         }
     );
     result.expect("the string side always runs").map(Some)
@@ -2743,6 +2750,7 @@ mod tests {
     fn the_hero_runs_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let mut base = game();
@@ -2760,9 +2768,149 @@ mod tests {
         }
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        let (compared, bailed) = thread_window_counts("factions::winnu::hero");
-        assert_eq!(compared + bailed, cards.len() as u64, "{r:?}");
-        assert!(compared >= 3, "{r:?}");
+        crate::dual::tests::no_bails_in("winnu hero", &r);
+        assert_eq!(thread_window_counts("factions::winnu::hero"), (cards.len() as u64, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// Mathis Mathinus performs the Imperial primary as a child window of the hero (`Spawn::Imperial`): the objective scored (and what the
+    /// score sets off, the string's tail), a point for Mecatol Rex, a secret objective for a seat without it, and the winner; a Keleres
+    /// seat or a point past the target is the string's, counted.
+    #[test]
+    fn the_imperial_primary_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |state: &mut GameState, answers: &[&str]| {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(state, DEFAULT, None, &mut table, |context| use_leader_strategy_primary(context, &a(), &LeaderId::new("winnuhero")))
+            })
+        };
+        let staged = || {
+            let mut state = game();
+            state.phase = ti4_model::state::Phase::Action;
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state
+        };
+        let imperial = hero_cards(&game()).into_iter().find(|card| card.as_str().contains("imperial")).expect("the board has Imperial");
+        let id = imperial.as_str();
+        // An objective the seat can score: scored, then a secret objective (no Mecatol).
+        let mut state = staged();
+        state.revealed_objectives.push(ti4_model::id::ObjectiveId::new("lead"));
+        let _ = run(&mut state, &[id, "lead"]);
+        assert!(state.scored_objectives.get(&a()).is_some_and(|scored| scored.iter().any(|o| o.as_str() == "lead")), "{:?}", state.scored_objectives);
+        // The same declined.
+        let mut state = staged();
+        state.revealed_objectives.push(ti4_model::id::ObjectiveId::new("lead"));
+        let _ = run(&mut state, &[id, "decline"]);
+        // Mecatol Rex: a point instead of the secret.
+        let mut state = staged();
+        state.system_mut(&SystemId::new("18")).set_control(PlanetId::new("mr"), a());
+        let points = state.player(&a()).unwrap().victory_points;
+        let _ = run(&mut state, &[id]);
+        assert_eq!(state.player(&a()).unwrap().victory_points, points + 1);
+        // Nothing to score and no Mecatol: the secret objective.
+        let mut state = staged();
+        let _ = run(&mut state, &[id]);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("winnu hero imperial", &r);
+        assert_eq!(thread_window_counts("factions::winnu::hero"), (4, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The Thunder's Edge Warfare primary is a child window of the hero (`Spawn::TeWarfare`): the redistribution and the system of the free
+    /// tactical action are the core's, and the system reaches the game as the string returns it (`Ability::FreeTactical`); a table without
+    /// a galaxy resolves it with no question.
+    #[test]
+    fn the_te_warfare_primary_runs_in_lockstep_with_the_core_and_carries_the_free_action() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let hub = crate::fixtures::hub_with_centre("18");
+        let system = SystemId::new(hub.galaxy.system_ids().into_iter().next().unwrap());
+        let staged = || {
+            let mut state = game();
+            state.phase = ti4_model::state::Phase::Action;
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.unclaimed_strategy_cards.push(StrategyCardId::new("te6warfare"));
+            state
+        };
+        let run = |state: &mut GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>, answers: &[&str]| {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(state, DEFAULT, galaxy, &mut table, |context| use_leader_strategy_primary(context, &a(), &LeaderId::new("winnuhero")))
+            })
+        };
+        let mut state = staged();
+        let keep = keep_tokens(&state, &a());
+        let result = run(&mut state, Some(&hub.galaxy), &["te6warfare", keep.as_str(), system.as_str()]);
+        assert!(matches!(&result, Ok(Some((card, crate::strategy_cards::Ability::FreeTactical(target)))) if card.as_str() == "te6warfare" && *target == system), "{result:?}");
+        // A different split is applied before the action.
+        let mut state = staged();
+        let seat = state.player(&a()).unwrap();
+        let moved = format!("{}|{}|{}", seat.tactic_tokens - 1, seat.fleet_tokens, seat.strategic_tokens + 1);
+        let _ = run(&mut state, Some(&hub.galaxy), &["te6warfare", moved.as_str(), system.as_str()]);
+        assert_eq!(keep_tokens(&state, &a()), moved);
+        // No galaxy: the string resolves the primary with no question, and so does the core.
+        let mut state = staged();
+        let result = run(&mut state, None, &["te6warfare"]);
+        assert!(matches!(&result, Ok(Some((_, crate::strategy_cards::Ability::Resolved)))), "{result:?}");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("winnu hero TE Warfare", &r);
+        assert_eq!(thread_window_counts("factions::winnu::hero"), (3, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The Thunder's Edge Construction primary is a child window of the hero (`Spawn::ConstructionTe`): the choice of a structure or a use of
+    /// PRODUCTION, the use as the window of the production area (a unit built, paid, announced) and the second structure.
+    #[test]
+    fn the_te_construction_primary_runs_in_lockstep_with_the_core_with_a_structure_and_with_a_production() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let staged = || {
+            let mut state = game();
+            state.phase = ti4_model::state::Phase::Action;
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.unclaimed_strategy_cards.push(StrategyCardId::new("te4construction"));
+            state
+        };
+        let run = |state: &mut GameState, answers: &[&str]| {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(state, DEFAULT, None, &mut table, |context| use_leader_strategy_primary(context, &a(), &LeaderId::new("winnuhero")))
+            })
+        };
+        let mut state = staged();
+        let _ = run(&mut state, &["te4construction", "structure", "decline", "decline"]);
+        // A use of PRODUCTION at the home system: the core's child window builds, pays and announces; the second structure follows.
+        let mut state = staged();
+        let (home, planet) = crate::fixtures::a_placed_planet();
+        state.player_mut(&a()).unwrap().home_system = Some(home.clone());
+        state.player_mut(&a()).unwrap().trade_goods = 10;
+        state.system_mut(&home).set_control(planet.clone(), a());
+        crate::fixtures::put_on_planet(&mut state, &home, &planet, "spacedock", &a(), 1);
+        let units = state.system_state(&home).units.len() + state.system_state(&home).planet_units.values().map(Vec::len).sum::<usize>();
+        let produce = format!("produce|{home}");
+        let _ = run(&mut state, &["te4construction", produce.as_str()]);
+        let after = state.system_state(&home).units.len() + state.system_state(&home).planet_units.values().map(Vec::len).sum::<usize>();
+        assert!(after > units, "the production made units: {units} -> {after}");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("winnu hero TE Construction", &r);
+        assert_eq!(thread_window_counts("factions::winnu::hero"), (2, 0), "{r:?}");
         let _ = take_report();
     }
 

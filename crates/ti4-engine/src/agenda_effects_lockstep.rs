@@ -284,8 +284,9 @@ fn the_draw_and_relic_effects_run_as_core_windows_in_lockstep() {
     assert!(compared >= 4 && bailed == 0, "{compared} compared, {bailed} bailed");
 }
 
-/// A draw that a faction hook changes (Yssaril's Scheming) asks questions of its own: the Unconventional Measures window is
-/// dropped (B9c-2). A draw that leaves the hand over its limit is the core's since W6 (the child draw window asks the discard).
+/// A draw that a faction hook changes (Yssaril's Scheming) asks questions of its own: the Unconventional Measures effect window runs on the
+/// plain kernel, which reads no hook of the faction modules, so it is dropped (B9c-2; the close of the vote, on the full kernel, follows the hooks
+/// since W14). A draw that leaves the hand over its limit is the core's since W6 (the child draw window asks the discard).
 #[test]
 fn a_hooked_unconventional_draw_has_no_window() {
     let mut state = table();
@@ -460,20 +461,28 @@ fn the_action_phase_has_no_window() {
     assert!(core_half(&mut state, "execution", "b", &Ballot::default()).is_none());
 }
 
-/// A galvanized ground force that falls stages a row with one more field than the typed mark holds: the window
-/// is dropped after it ran (B9-bail-05).
+/// A galvanized ground force that falls stages its row with the string's trailing `|g` field (package W10; before it the typed mark
+/// had no such field and the window was dropped after it ran, B9-bail-05): the effect runs as a core window in lockstep, for each
+/// of the effects that clear a planet.
 #[test]
-fn a_galvanized_ground_force_drops_the_window() {
-    let mut state = table();
-    garrison(&mut state, "arcprime", "b", &["infantry"]);
-    let system = system_of("arcprime");
-    let planet = PlanetId::new("arcprime");
-    state.system_mut(&system).planet_units.get_mut(&planet).unwrap().last_mut().unwrap().galvanized = true;
-    assert!(core_half(&mut state, "demilitarized_zone", "arcprime", &Ballot::default()).is_none());
-    // The same planet without it is followed.
-    let mut state = table();
-    garrison(&mut state, "arcprime", "b", &["infantry"]);
-    assert!(core_half(&mut state, "demilitarized_zone", "arcprime", &Ballot::default()).is_some());
+fn a_galvanized_ground_force_that_falls_is_staged_by_the_core_window_in_lockstep() {
+    let (compared, bailed) = counted(|| {
+        for (agenda, outcome) in [("demilitarized_zone", "arcprime"), ("core_mining", "arcprime"), ("disarmament", "arcprime"), ("plowshares", FOR)] {
+            let mut state = table();
+            garrison(&mut state, "arcprime", "b", &["infantry", "infantry"]);
+            let system = system_of("arcprime");
+            let planet = PlanetId::new("arcprime");
+            for unit in state.system_mut(&system).planet_units.get_mut(&planet).unwrap().iter_mut() {
+                unit.galvanized = true;
+            }
+            run(&mut state, agenda, outcome, &Ballot::default());
+            // The string row of a galvanized one ends in `|g`.
+            let rows: Vec<&String> = state.faction_marks.iter().filter(|(k, v)| k.starts_with("private:#staged:ground:") && v.contains("|arcprime|")).map(|(_, v)| v).collect();
+            assert!(!rows.is_empty() && rows.iter().all(|v| v.ends_with("|g")), "{agenda}: {rows:?}");
+        }
+    });
+    assert_eq!(bailed, 0, "{compared} compared");
+    assert!(compared >= 4, "{compared} compared, {bailed} bailed");
 }
 
 /// W17 (XF-7): a seed that is not the state's is an assertion of the product, not a quiet bail.

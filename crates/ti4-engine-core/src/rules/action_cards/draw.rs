@@ -5,14 +5,18 @@
 //! 2.4) and the draw was a documented bail. [`DrawCards`] is that draw with its question; a window of another area runs it as
 //! a child (`Spawn::DrawCards`).
 //!
-//! What stays the string's, by the caller: a draw a faction hook changes (Yssaril's Scheming and Crafty, the Deepgloom
-//! Executable) and a deck reserve (a dropped feature). The Data Skimmer (Ral Nel, never seated) would take a discard.
+//! The draw follows the hooks of the kernel (package W14): a bonus card with the draw (`economy.action_card_draw_bonus`: Yssaril's Scheming, a
+//! test hook), the hand limit the faction hooks override (`economy.action_card_limit`: Yssaril's Crafty), and Scheming's own "Then, choose and
+//! discard 1 action card from your hand", asked as `OwnHand { Scheming }` after the draw and before the limit (one card of a name left in the
+//! hand discards it without a question), the discard staged as the string stages it. What stays the string's, by the caller: the Deepgloom
+//! Executable (a Thunder's Edge breakthrough that lets another seat borrow Scheming) and a deck reserve (a dropped feature). The Data Skimmer
+//! (Ral Nel, never seated) would take a discard.
 
-use crate::choice::cards::{Ask as CAsk, Opt as COpt, Subtype as CSub};
-use crate::choice::generic::Rule;
+use crate::choice::cards::{Ask as CAsk, Opt as COpt, Reason, Subtype as CSub};
+use crate::choice::generic::{Content, Rule};
 use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::ActionCard;
+use crate::generated::{Ability, ActionCard};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{fx, Kernel, Next};
@@ -22,6 +26,8 @@ use crate::state::CoreState;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DStage {
     Start,
+    /// Waiting on Scheming's "choose and discard 1 action card from your hand".
+    Scheming,
     /// Waiting on "over the hand limit: discard one".
     Asking,
     Done,
@@ -65,11 +71,33 @@ impl DrawCards {
         Some(firsts)
     }
 
-    /// The hand size when it is over the limit (Sanctions caps it at three; the faction override is the caller's bail).
-    fn over(&self, core: &CoreState) -> Option<u8> {
+    /// Whether the drawer's Scheming follows a draw with a discard: its faction ability. (The permission a Deepgloom Executable gives another
+    /// seat is a mark the caller's bail keeps out: nobody holds the breakthrough in a game without Thunder's Edge.)
+    fn scheming(core: &CoreState, who: Seat) -> bool {
+        core.players().by_seat(who).is_some_and(|p| p.faction.data().abilities.contains(&Ability::Scheming))
+    }
+
+    /// The hand size when it is over the limit (Sanctions caps it at three, the faction hooks override it last: Yssaril's Crafty has none; the
+    /// blank turn of Keleres' Law's Order, which lifts the cap, is the caller's bail).
+    fn over(&self, core: &CoreState, k: &Kernel) -> Option<u8> {
         let held = core.players().by_seat(self.who)?.cards.hand.len();
-        let limit = super::hand_limit(core, false, |l| l);
+        let limit = super::hand_limit(core, false, |l| k.hooks.economy.action_card_limit(core, k, self.who, l));
         (held > limit).then(|| u8::try_from(held).unwrap_or(u8::MAX))
+    }
+
+    /// Scheming's options: the first copy in hand of each printed name, in hand order (not in the order of the names, as the limit's are).
+    fn scheming_options(&self, core: &CoreState) -> Option<SmallList<ActionCard, 12>> {
+        let hand = core.players().by_seat(self.who)?.cards.hand.as_slice();
+        let mut out: SmallList<ActionCard, 12> = SmallList::new();
+        let mut seen: SmallList<u8, 12> = SmallList::new();
+        for card in hand {
+            let group = *self.groups.get(*card as usize)?;
+            if !seen.as_slice().contains(&group) {
+                seen.push(group);
+                out.push(*card);
+            }
+        }
+        Some(out)
     }
 }
 
@@ -83,10 +111,34 @@ impl Window for DrawCards {
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if self.stage == DStage::Start {
             self.groups = sx.table.facts.card_group_table().map(<[u8]>::to_vec).unwrap_or_default();
-            fx::draw_action_cards(sx.state, self.who, self.count, self.drop_unofficial);
+            // A draw of nothing is only the limit's enforcement; a real draw takes the cards the hooks add.
+            let requested = if self.count > 0 { self.count + sx.kernel.hooks.economy.action_card_draw_bonus(sx.state, sx.kernel, self.who, self.count) } else { 0 };
+            let drawn = fx::draw_action_cards(sx.state, self.who, requested, self.drop_unofficial);
             self.stage = DStage::Done;
+            if requested > 0 && Self::scheming(sx.state, self.who) {
+                if drawn > 0 {
+                    match self.scheming_options(sx.state) {
+                        Some(options) if options.as_slice().len() > 1 => {
+                            self.stage = DStage::Scheming;
+                            return Next::Continue(Ask::Cards(CAsk::OwnHand { reason: Reason::Scheming }));
+                        }
+                        Some(options) => {
+                            if let Some(only) = options.as_slice().first() {
+                                fx::discard_action_card_staged(sx.state, self.who, *only);
+                            }
+                        }
+                        None => {
+                            self.unsupported = true;
+                            return Next::Done;
+                        }
+                    }
+                }
+            }
         }
-        match self.over(sx.state) {
+        if self.stage == DStage::Scheming {
+            return Next::Continue(Ask::Cards(CAsk::OwnHand { reason: Reason::Scheming }));
+        }
+        match self.over(sx.state, sx.kernel) {
             Some(held) if self.options(sx.state).is_some() => {
                 self.stage = DStage::Asking;
                 Next::Continue(Ask::Cards(CAsk::HandLimit { held }))
@@ -103,11 +155,27 @@ impl Window for DrawCards {
         }
     }
 
-    fn ask_of(&self, core: &CoreState, _: &Kernel) -> Option<Choice> {
+    fn ask_of(&self, core: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.stage == DStage::Scheming {
+            return Some(Choice {
+                actor: self.who,
+                ask: Ask::Cards(CAsk::OwnHand { reason: Reason::Scheming }),
+                ctx: Ctx {
+                    origin: Origin::FactionAbility(Content::Ability(Ability::Scheming)),
+                    subtype: Subtype::Cards(Reason::Scheming.subtype()),
+                    optional: false,
+                    target: None,
+                    outstanding: SmallList::new(),
+                    space_battle: false,
+                    invasion_seq: None,
+                },
+                opts: self.scheming_options(core)?.as_slice().iter().map(|card| Opt::Cards(COpt::Card(*card))).collect(),
+            });
+        }
         if self.stage != DStage::Asking {
             return None;
         }
-        let held = self.over(core)?;
+        let held = self.over(core, k)?;
         let opts = self.options(core)?.as_slice().iter().map(|(index, card)| Opt::Cards(COpt::Discard { index: *index, card: *card })).collect();
         Some(Choice {
             actor: self.who,
@@ -126,6 +194,14 @@ impl Window for DrawCards {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if let (DStage::Scheming, Pick::Opt(Opt::Cards(COpt::Card(card)))) = (self.stage, pick) {
+            if !self.scheming_options(sx.state).ok_or(Illegal)?.as_slice().contains(&card) {
+                return Err(Illegal);
+            }
+            fx::discard_action_card_staged(sx.state, self.who, card);
+            self.stage = DStage::Done;
+            return Ok(());
+        }
         let Pick::Opt(Opt::Cards(COpt::Discard { index, card })) = pick else { return Err(Illegal) };
         if self.stage != DStage::Asking {
             return Err(Illegal);

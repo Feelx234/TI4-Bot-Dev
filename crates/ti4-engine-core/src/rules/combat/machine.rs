@@ -13,7 +13,7 @@
 //! The machine stops (the adapter returns `None`, the string result stands) at a position it does not carry:
 //! [`Machine::bailed`] names the reason. They are all string-only on purpose and have a test each
 //! (`combat.rs`, `the_composed_combat_*`): a Naaz or Letnev round opening, diplomacy, Assault Cannon or other
-//! hits at the start of a combat, hits cancelled in a window, a neutral side,
+//! hits at the start of a combat, a neutral side,
 //! Duranium Armor, Devotion, a retreat that moves a flipping unit or a Floating Factory or a Last Bastion
 //! seat's fleet, a roll that ends the fight, destructions waiting for their announcement, reactions.
 //!
@@ -74,16 +74,26 @@ pub struct Env {
     pub barrage_kind: Code,
     pub barrage_extra: Code,
     pub unit_codes: Vec<(Unit, Code)>,
+    /// The same unit types' texts in the question renderer's table, the relic's `extra barrage`, and the sides (attacker, defender) the
+    /// Jol-Nar commander is in play for (it rerolls the barrage's dice).
+    pub shown_codes: Vec<(Unit, Code)>,
+    pub barrage_extra_shown: Code,
+    pub jolnar: [bool; 2],
     /// A roll the core cannot carry (`roll_unported`, dice it cannot reproduce).
     pub roll_unported: bool,
     pub munitions_after: [bool; 2],
+    /// Munitions Reserves is paid at the opening of a round (a holder below `RULES_MUNITIONS_AFTER_ROLL`), per side.
+    pub munitions_start: [bool; 2],
     pub roll_cause: Code,
     pub hacan: Code,
     /// Every roll group's text (the unit types joined with `+` in id order): (types, state text, shown text).
     pub groups: Vec<(Vec<Unit>, Code, Code)>,
     /// The unit types present in the alphabetical order of their ids (the order a roll names its types in).
     pub alpha: Vec<Unit>,
+    /// The cause of a ship a retreat could not hold: the state table's text (what the staged destruction carries) and the renderer's
+    /// (what the `SHIP_DESTROYED` announcement of the loss carries).
     pub retreat_cause: Code,
+    pub retreat_event: Code,
     pub retreat_pool: Code,
     /// A retreat the core does not carry (the Last Bastion, a flagship that raises an event on arrival). The dual-form units, the
     /// Voltron and the Floating Factory are carried by the retreat window since package W3.
@@ -157,7 +167,8 @@ pub enum Stage {
 /// A sustain being answered: the commander's offer runs before the hits are counted.
 #[derive(Debug, Clone)]
 struct Sustaining {
-    commander: SustainCommander,
+    /// Rear Admiral Farran's payment after a sustain (rules version 17 and later; the window did not ask before).
+    commander: Option<SustainCommander>,
     offer: Offer,
     unit: Unit,
     round: u32,
@@ -328,12 +339,9 @@ impl Machine {
                     offered_before = self.fields.offered.contains(&(*round, front.player));
                     sustainers = !sustain_candidates(rd, front.player, env.system, true, false, env.staging).is_empty();
                     let producer_picks = front.producer_assigns && *assigning;
-                    if front.hits > 0 && front_alive > 0 {
-                        let cancel = sx.state.players().by_seat(front.player).and_then(|p| p.card_timers.cancel_hits_round);
-                        let cancelled = cancel.is_some_and(|(r, h)| r == sx.state.meta().combat_round_seq && h > 0);
-                        if cancelled || (super::is_neutral(sx.state, front.player) && !producer_picks) {
-                            return None;
-                        }
+                    // (Hits the round's pool cancels are spent by the flow window itself, before anything else is asked.)
+                    if front.hits > 0 && front_alive > 0 && super::is_neutral(sx.state, front.player) && !producer_picks {
+                        return None;
                     }
                 }
             }
@@ -442,7 +450,7 @@ impl Machine {
         // using one exhausts it (or the Ssruu that copies it), so the answer taken when the machine was built goes stale.
         // The fact stays the upper bound (it is what the string saw), the state says what holds now.
         let listens = e.round_seq_listens && super::begin_round::letnev_round_agent_usable(&*sx.state);
-        let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce, round_seq_listens: listens });
+        let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce, round_seq_listens: listens, munitions_start: e.munitions_start });
         let _ = w.step(sx);
         // A unit that took its ship form joins the fleet the end announcement measures the losses against.
         for (owner, form) in w.flipped {
@@ -470,6 +478,10 @@ impl Machine {
             extra: e.barrage_extra,
             unit_codes: e.unit_codes.clone(),
             raid: Some(e.raid),
+            commander: e.jolnar,
+            shown: e.shown_codes.clone(),
+            extra_shown: e.barrage_extra_shown,
+            hit_texts: crate::kernel::children::HitTexts { staging: e.staging, commander: e.commander, casualty: e.casualty, effect_hit: e.barrage_cause },
         };
         self.barrage_w = Some(BarrageStep::new(facts));
     }
@@ -670,9 +682,15 @@ impl Machine {
         }
     }
 
-    /// The roll finished: its queue is the round's, and a roll that ended the fight is the string's.
-    fn finish_roll(&mut self, sx: &mut Sx<'_>) -> Option<()> {
+    /// The roll finished: its queue is the round's. `Some(true)`: a side's window ended the fight (the step queued nothing; the
+    /// fight concludes with the round count of the roll).
+    fn finish_roll(&mut self, sx: &mut Sx<'_>) -> Option<bool> {
         let w = self.roll.take()?;
+        if w.ended {
+            self.drawn.extend(w.drawn.iter().cloned());
+            self.conclude(sx, self.roll_round);
+            return Some(true);
+        }
         if self.over(sx) {
             return None;
         }
@@ -680,7 +698,7 @@ impl Machine {
         let queue: Vec<Pend> = w.queue.iter().map(|q| Pend { player: q.player, hits: q.hits, producer: q.producer, non_fighters_only: q.non_fighters_only, producer_assigns: false }).collect();
         self.fields.damaged = w.damaged.clone();
         self.fields.step = Step::Queue { assigning: false, round: self.roll_round, queue };
-        Some(())
+        Some(false)
     }
 
     fn retreat_fleet(&mut self, sx: &mut Sx<'_>, round: u32, leaving: &[Seat], destination: System) -> Option<()> {
@@ -694,9 +712,8 @@ impl Machine {
         let facts = RetreatFacts { player, system: e.system, destination, staging: e.staging, cause: e.retreat_cause, pool: e.retreat_pool };
         let mut w = Retreat::new(facts);
         let _ = w.step(sx);
-        if !sx.state.transient().combat.pending_destructions.is_empty() {
-            return None;
-        }
+        // The ships the destination could not hold are lost and announced at once (string `retreat`: `announce_staged_destructions`).
+        self.announce_staged(sx);
         let mut now = there(self, sx);
         for kind in before {
             if let Some(at) = now.iter().position(|k| *k == kind) {
@@ -706,6 +723,18 @@ impl Machine {
         self.fields.fled.push((player, now));
         self.fields.step = Step::Retreating { round, leaving: leaving[1..].to_vec() };
         Some(())
+    }
+
+    /// `announce_staged_destructions`: every destruction an effect staged is announced as `SHIP_DESTROYED`, in staging order, until
+    /// nothing is left (an announcement can stage more).
+    fn announce_staged(&self, sx: &mut Sx<'_>) {
+        while !sx.state.transient().combat.pending_destructions.is_empty() {
+            let staged = std::mem::take(&mut sx.state.transient_mut().combat.pending_destructions).as_slice().to_vec();
+            for d in staged {
+                let cause = if d.reason == self.env.retreat_cause { self.env.retreat_event } else { d.reason };
+                announce_loss(sx, d.system, d.owner, d.unit, cause, d.during_space_combat, self.env.announce);
+            }
+        }
     }
 
     fn end_announce(&mut self, sx: &mut Sx<'_>) {
@@ -787,10 +816,17 @@ impl Machine {
                     }
                     _ => {
                         self.stage = Stage::Running;
-                        self.finish_roll(sx).or_else(|| {
+                        let ended = self.finish_roll(sx).or_else(|| {
                             self.stop = Some(Stop::Bailed(Bail::RollEndsFight));
                             None
                         })?;
+                        if ended {
+                            // A roll that ended the fight: the string concludes it in the roll step and returns, without another turn of
+                            // the loop (no presentation), then announces the end.
+                            self.end_announce(sx);
+                            self.stop = Some(Stop::Over);
+                            return Some(Next::Done);
+                        }
                         continue;
                     }
                 }
@@ -903,7 +939,7 @@ impl Window for Machine {
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         if self.awaiting {
             if let Some(sus) = &self.sustaining {
-                return sus.commander.ask_of(s, k);
+                return sus.commander.as_ref().and_then(|c| c.ask_of(s, k));
             }
             return if self.answered { None } else { self.pending_choice(s, k) };
         }
@@ -922,7 +958,7 @@ impl Window for Machine {
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         if self.awaiting {
             if let Some(sus) = self.sustaining.as_mut() {
-                return sus.commander.answer(sx, pick);
+                return sus.commander.as_mut().ok_or(Illegal)?.answer(sx, pick);
             }
             if self.answered {
                 return Err(Illegal);
@@ -963,6 +999,11 @@ impl Machine {
 // -- the decisions the settle stops at (string `pending_choice` / `resolve`) ----------------------------------
 
 impl Machine {
+    /// The hits one use of SUSTAIN DAMAGE cancels: one, or two with Non-Euclidean Shielding from rules version 17.
+    fn cancels(s: &CoreState, rd: Rd<'_>, player: Seat) -> usize {
+        if s.meta().rules_at_least(super::RULES_FACTION_BUGFIXES) { cancel_per_sustain(rd, player) } else { 1 }
+    }
+
     fn bail(&mut self) {
         self.stop = Some(Stop::Bailed(Bail::Unported));
         self.answered = true;
@@ -970,14 +1011,16 @@ impl Machine {
 
     fn step_awaiting(&mut self, sx: &mut Sx<'_>) -> Next {
         if let Some(sus) = self.sustaining.as_mut() {
-            if let Next::Continue(ask) = sus.commander.step(sx) {
+            if let Some(commander) = sus.commander.as_mut()
+                && let Next::Continue(ask) = commander.step(sx)
+            {
                 self.stage = Stage::Asking;
                 return Next::Continue(ask);
             }
             // The commander has answered (or there is none): the use is announced, the hits it cancels counted.
             let Some(sus) = self.sustaining.take() else { return Next::Done };
             let _ = emit_used(sx, &sus.offer, sus.unit);
-            let cancels = cancel_per_sustain(Self::rd(sx.state, sx.kernel), sus.offer.player);
+            let cancels = Self::cancels(sx.state, Self::rd(sx.state, sx.kernel), sus.offer.player);
             let mut queue = sus.queue;
             if let Some(front) = queue.first_mut() {
                 front.hits = front.hits.saturating_sub(u32::try_from(cancels).unwrap_or(u32::MAX));
@@ -1165,7 +1208,7 @@ impl Machine {
                         match apply_sustain(rd, front.player, env_system, site) {
                             None => {
                                 // No such unit sustains: nothing happens, but the use still cancels its hits.
-                                let cancels = cancel_per_sustain(rd, front.player);
+                                let cancels = Self::cancels(sx.state, rd, front.player);
                                 if let Some(f) = queue.first_mut() {
                                     f.hits = f.hits.saturating_sub(u32::try_from(cancels).unwrap_or(u32::MAX));
                                 }
@@ -1186,7 +1229,8 @@ impl Machine {
                                     staging: self.env.staging,
                                     announce: self.env.announce,
                                 };
-                                self.sustaining = Some(Sustaining { commander: SustainCommander::new(front.player, self.env.commander), offer, unit, round, queue });
+                                let commander = sx.state.meta().rules_at_least(super::RULES_FACTION_BUGFIXES).then(|| SustainCommander::new(front.player, self.env.commander));
+                                self.sustaining = Some(Sustaining { commander, offer, unit, round, queue });
                                 return Ok(());
                             }
                         }

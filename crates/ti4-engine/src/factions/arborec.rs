@@ -2958,6 +2958,7 @@ mod tests {
     fn the_hero_runs_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let leader = LeaderId::new("arborechero");
@@ -3011,28 +3012,38 @@ mod tests {
         assert_eq!(nested, Some(true));
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("arborec hero", &r);
         assert_eq!(thread_window_counts("factions::arborec::hero"), (5, 0), "{r:?}");
         let _ = take_report();
     }
 
-    /// The effects at the end of a use that the child does not run are declined by the adapter, each counted with its reason.
+    /// The effects at the end of a use run after the child (package W10; before it the adapter declined each, counted with its reason): the
+    /// Prophecy of Ixth is discarded by a thin production, and a planet-value swap lapses with the use.
     #[test]
-    fn the_hero_leaves_the_end_of_use_effects_to_the_string() {
+    fn the_hero_runs_the_end_of_use_effects_in_lockstep() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let leader = LeaderId::new("arborechero");
-        let (mut state, _) = flagship_game();
-        set_leader(&mut state, &a(), "arborechero", LeaderStatus::Unlocked);
-        state.promissory_notes.clear();
-        state.promissory_faceup.clear();
-        state.laws.insert("prophecy".to_owned(), "for".to_owned());
-        let (mut table, _) = steered(&[]);
-        with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || with_context(&mut state, &mut table, |ctx| use_leader(ctx, &a(), &leader)));
+        for (owner, discarded) in [("a", true), ("b", false)] {
+            let (mut state, _) = flagship_game();
+            set_leader(&mut state, &a(), "arborechero", LeaderStatus::Unlocked);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.laws.insert("prophecy".to_owned(), owner.to_owned());
+            state.production_value_swapped_planet = Some(PlanetId::new("jord"));
+            state.faction_marks.insert("production:value_swap_seq".to_owned(), state.production_seq.to_string());
+            let (mut table, _) = steered(&[]);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || with_context(&mut state, &mut table, |ctx| use_leader(ctx, &a(), &leader)));
+            assert_eq!(state.laws.contains_key("prophecy"), !discarded, "{owner}: only the owner's use discards the law");
+            assert!(state.production_value_swapped_planet.is_none(), "the swap lapsed with the use");
+        }
         let r = report();
-        assert_eq!(thread_window_counts("factions::arborec::hero"), (0, 1), "{r:?}");
-        assert!(r.windows.keys().any(|k| k.starts_with("factions::arborec::hero [bail: the Prophecy of Ixth")), "{r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("arborec hero end of use", &r);
+        assert_eq!(thread_window_counts("factions::arborec::hero"), (2, 0), "{r:?}");
         let _ = take_report();
     }
 

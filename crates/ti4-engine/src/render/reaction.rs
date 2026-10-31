@@ -37,6 +37,7 @@ impl Family for Fam {
             Ask::Cavalry => "The Cavalry: which non-fighter ship takes the Nomad flagship's abilities".to_owned(),
             Ask::Assimilate => "gain a technology, or assimilate instead".to_owned(),
             Ask::Salvage => "Salvage Operations: produce 1 ship of a type destroyed in the combat".to_owned(),
+            Ask::Indoctrination { planet } => format!("Indoctrination on {}: replace an enemy infantry", planet.as_str()),
             Ask::Watcher { actor } => format!("Watcher: which mech cancels {}'s action card", r.seat_text(*actor)),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
@@ -56,6 +57,7 @@ impl Family for Fam {
             Subtype::Assimilate => "assimilate".to_owned(),
             Subtype::Watcher => "watcher_remove".to_owned(),
             Subtype::Salvage => "salvage_produce".to_owned(),
+            Subtype::Indoctrination => "indoctrination_replace".to_owned(),
         }
     }
 
@@ -94,6 +96,10 @@ impl Family for Fam {
                 let base = <ti4_engine_core::generated::UnitBaseType as IdStr>::as_str(unit.data().base_type);
                 ChoiceOption::labelled(base, "salvage", format!("produce 1 {} for {cost} resources", unit.as_str())).with("cost", i64::from(*cost))
             }
+            (Ask::Indoctrination { .. }, Opt::Indoctrinate { base, cost, opponent }) => {
+                let base = <ti4_engine_core::generated::UnitBaseType as IdStr>::as_str(*base);
+                ChoiceOption::labelled(base, "indoctrination", format!("spend {cost} influence to replace 1 infantry of {} with a {base}", r.seat_text(*opponent))).with("cost", i64::from(*cost))
+            }
             (Ask::Watcher { .. }, Opt::Site { system, planet }) => {
                 let system = system.as_str();
                 let place = planet.map_or_else(|| "space".to_owned(), |p| p.as_str().to_owned());
@@ -110,7 +116,7 @@ impl Family for Fam {
         if let Ask::Cavalry = a {
             return <ti4_engine_core::generated::Unit as IdStr>::from_id(id).map(Opt::Ship);
         }
-        if let Ask::Salvage = a {
+        if let Ask::Salvage | Ask::Indoctrination { .. } = a {
             // The id is the base type: the option is matched against the rendered ones of its question.
             return None;
         }

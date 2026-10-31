@@ -10909,6 +10909,57 @@ mod tests {
         }
     }
 
+    /// Package W10: X-89 Bacterial Weapon doubles the hits of its holder's ground combat rolls in the core windows (the roll pair and the
+    /// tail that re-reads the staged dice): a whole ground fight on `Invasion=dual` with the technology held by the invader, the defender
+    /// or both, with no difference and both windows compared (before: the gates "X-89 Bacterial Weapon").
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn x89_doubles_the_ground_hits_in_the_core_windows_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b) = (invader(), holder());
+        for (holders, seed) in [([true, false], 4_u64), ([false, true], 5), ([true, true], 6), ([true, false], 11)] {
+            let (mut state, system, planet) = arena();
+            for (seat, faction) in state.players.iter_mut().zip(["sol", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &a, 4);
+            on_planet(&mut state, &system, &planet, "infantry", &b, 4);
+            for (who, held) in [(&a, holders[0]), (&b, holders[1])] {
+                if held {
+                    state.player_mut(who).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("x89c4"));
+                }
+            }
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            state.rng_seed = seed;
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+            let _ = crate::dual::with_mask(mask, || {
+                drive_invasion(
+                    &mut state,
+                    &system,
+                    Stage::Fighting { planets: vec![planet.clone()], index: 0, defender: b.clone() },
+                    InvasionReport { committed: vec![planet.clone()], ..InvasionReport::default() },
+                    vec!["fight".to_owned()],
+                    &mut dice,
+                    &mut rng,
+                )
+            });
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+            assert!(report.differences.is_empty(), "{holders:?} seed {seed}: {shown}");
+            for label in ["invasion::roll_ground", "invasion::roll_ground_tail"] {
+                let w = report.windows.get(label).cloned().unwrap_or_default();
+                assert!(w.compared > 0 && w.bailed == 0, "{holders:?} seed {seed}: {label} ran in the core: {:?}", report.windows);
+            }
+            // Bail-as-failure: the whole fight ran natively.
+            assert!(report.windows.iter().all(|(label, w)| w.bailed == 0 || !(label.contains("[bail:") || label.contains("[gate:"))), "{holders:?} seed {seed}: {:?}", report.windows);
+            let _ = crate::dual::take_report();
+        }
+    }
+
     /// Package W1: Naaz's Supercharge and the repair of the Eidolon Maximum at the start of a ground round run in the core window
     /// (`ground_combat_round_started` of the Naaz crate; the question rides on the tape of the step). Both answers, both sides
     /// holding the technology, a damaged Maximum, with the invasion on `Dual`: no difference, the window ran in the core and the
@@ -13517,7 +13568,8 @@ mod core_ground_round_prechecks {
         let args = RollTailArgs { invader: &a, defender: &b, system: &s, planet: &p, rolled: (1, 1), bump: true, announce: true };
         assert_eq!(roll_tail_unported(&state, &args), None);
         state.player_mut(&a).unwrap().technologies.insert(ti4_model::TechnologyId::new("x89c4"));
-        assert_eq!(roll_tail_unported(&state, &args), Some("X-89 Bacterial Weapon"));
+        // (X-89 Bacterial Weapon doubles the hits in the core window since package W10.)
+        assert_eq!(roll_tail_unported(&state, &args), None);
         state.player_mut(&a).unwrap().technologies.clear();
         state.faction_marks.insert(crate::combat::ROLL_REPLAY_MARK.to_owned(), String::new());
         assert_eq!(roll_tail_unported(&state, &args), Some("roll replay mark"));

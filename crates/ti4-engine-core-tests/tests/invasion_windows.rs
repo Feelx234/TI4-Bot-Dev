@@ -446,7 +446,7 @@ fn a_planet_without_guns_rolls_nothing_and_leaves_no_step_and_a_quiet_resolver_a
 
 fn begin(copied: bool, numbered: bool) -> BeginFacts {
     let (p1, _) = planets();
-    BeginFacts { system: sys(), planet: p1, invader: Seat(0), defender: Seat(1), copied, numbered, can_pay: [false, false], dunlain: Code(9) }
+    BeginFacts { system: sys(), planet: p1, invader: Seat(0), defender: Seat(1), copied, numbered, can_pay: [false, false], pay_env: None, dunlain: Code(9) }
 }
 
 #[test]
@@ -482,6 +482,35 @@ fn a_copied_round_agent_numbers_the_round_in_any_version_and_announces_it() {
     let ev = &rig.driver.emitted[0];
     assert_eq!(ev.kind, EventKind::GroundCombatRoundStarted);
     assert_eq!((ev.payload.int(Key::RoundSeq), ev.payload.seat(Key::Attacker), ev.payload.seat(Key::Defender), ev.payload.planet(Key::Planet)), (Some(1), Some(Seat(0)), Some(Seat(1)), Some(p1)));
+}
+
+/// Package W13: a fight of many rounds reads what the Letnev can spend in each round (`Facts::pay_env`): the Reaper is offered while the seat can
+/// pay two resources and is not once it cannot, whatever `can_pay` said at the start.
+#[test]
+fn the_dunlain_reaper_reads_what_the_letnev_can_spend_when_the_fight_gives_the_environment() {
+    covers!("rules::invasion::begin::BeginGroundRound");
+    let (p1, _) = planets();
+    let letnev = |goods: i16| {
+        Scenario::new(&[Faction::TheBaronyOfLetnev, Faction::TheArborec])
+            .kernel(kernel_all())
+            .map_from(&[sys()])
+            .unit(sys(), Some(p1), Unit::InfantryI, 0, 1)
+            .unit(sys(), Some(p1), Unit::InfantryI, 1, 1)
+            .goods(0, goods)
+    };
+    let env = ti4_engine_core::kernel::fx_pay::PayEnv { scope: ti4_engine_core::tables::Scope(u32::from(kernel_all().sources.0)), blanked: false };
+    let asked = |goods: i16, can_pay: bool, env: Option<ti4_engine_core::kernel::fx_pay::PayEnv>| {
+        let (s, k) = letnev(goods).build();
+        let s = with_active(s, p1, 1);
+        let facts = BeginFacts { can_pay: [can_pay, false], pay_env: env, ..begin(false, true) };
+        let mut rig = Rig::from_parts(s, k, BeginGroundRound::new(facts));
+        rig.run();
+        !rig.is_done()
+    };
+    assert!(asked(3, false, Some(env)), "three trade goods pay the Reaper: offered although the static flag says no");
+    assert!(!asked(0, true, Some(env)), "nothing to spend: not offered although the static flag says yes");
+    assert!(asked(0, true, None), "without the environment the static flag stands");
+    assert!(!asked(3, false, None));
 }
 
 // ---- which planet is fought next --------------------------------------------------------------------
@@ -533,7 +562,7 @@ fn a_planet_where_only_the_invader_has_ground_forces_is_passed_over() {
 // ---- the dice of a ground round ----------------------------------------------------------------------
 
 fn roll_facts(planet: Planet) -> RollFacts {
-    RollFacts { attacker: Seat(0), defender: Seat(1), system: sys(), planet, kind: Code(40), names: (0..12).map(|i| Code(50 + i)).collect(), unit_codes: vec![(Unit::InfantryI, Code(70)), (Unit::InfantryII, Code(71)), (Unit::FactionlessMech, Code(72))] }
+    RollFacts { attacker: Seat(0), defender: Seat(1), system: sys(), planet, kind: Code(40), names: (0..12).map(|i| Code(50 + i)).collect(), unit_codes: vec![(Unit::InfantryI, Code(70)), (Unit::InfantryII, Code(71)), (Unit::FactionlessMech, Code(72))], x89: [false, false] }
 }
 
 fn fighting() -> (Scenario, Planet) {
@@ -587,7 +616,7 @@ fn a_pool_the_window_cannot_name_is_flagged_for_the_adapter() {
 }
 
 fn tail_facts(rolled: (u32, u32), bump: bool, planet: Planet) -> TailFacts {
-    TailFacts { invader: Seat(0), defender: Seat(1), system: sys(), planet, rolled, bump, announce: true }
+    TailFacts { invader: Seat(0), defender: Seat(1), system: sys(), planet, rolled, bump, announce: true, x89: [false, false] }
 }
 
 #[test]
@@ -671,6 +700,29 @@ fn a_ground_round_removes_the_hits_of_both_sides_announces_them_after_the_round_
     assert_eq!(step.hits.get(&Seat(0)).copied(), Some(2), "hits the invader produced");
     assert_eq!(step.hits.get(&Seat(1)).copied(), Some(1));
     assert_eq!(step.after.len(), 2);
+}
+
+/// Package W13: the hits a faction adds to its own roll (Valkyrie Particle Weave: one more when the opponent produced any) are the kernel's hook,
+/// read once both sides' dice are final: the invader's two hits and the defender's one become two and one + 1.
+#[test]
+fn the_hits_a_faction_adds_to_its_roll_are_assigned_by_the_opponent_like_any_other() {
+    covers!("rules::invasion::round::GroundRoundHits");
+    fn weave(_: &ti4_engine_core::state::CoreState, _: &ti4_engine_core::kernel::Kernel, roller: Seat, _: System, _: Planet, own: usize, opponent: usize) -> usize {
+        usize::from(roller == Seat(1) && opponent >= 1 && own < 9)
+    }
+    let (sc, p1) = fighting();
+    let (s, mut k) = sc.build();
+    k.hooks.ground.ground_rolls_extra_hits.push(weave);
+    let s = with_active(s, p1, 1);
+    // The defender (seat 1) rolled none of its own: the weave adds one to the invader's two.
+    let mut rig = Rig::from_parts(s.clone(), k.clone(), GroundRoundHits::new(round_facts((2, 0), None)));
+    rig.run();
+    assert_eq!(rig.driver.window.assigned, (2, 1), "the defender's weave hit lands on the invader");
+    assert_eq!(units_on(&rig, p1, 0).len(), 2);
+    // The invader rolled nothing: the defender's hook reads the opponent's hits as zero and adds nothing.
+    let mut quiet = Rig::from_parts(s, k, GroundRoundHits::new(round_facts((0, 1), None)));
+    quiet.run();
+    assert_eq!(quiet.driver.window.assigned, (0, 1));
 }
 
 #[test]
@@ -813,4 +865,47 @@ fn a_planet_with_two_victims_pauses_on_the_target_question_and_the_answer_lands_
     assert_eq!(units_on(&ans, p1, 1).len(), 1);
     assert_eq!(ans.driver.window.kills, 2);
     assert!(ans.state.players().by_seat(Seat(0)).unwrap().misc.event_feats.is_empty(), "a victim is left: no feat");
+}
+
+// ---- X-89 Bacterial Weapon (package W10) ------------------------------------------------------------
+
+#[test]
+fn x89_doubles_the_hits_of_its_holders_ground_roll_and_the_tail_and_leaves_the_staged_dice_raw() {
+    covers!("rules::invasion::roll::GroundRoll");
+    covers!("rules::invasion::tail::GroundRollTail");
+    for x89 in [[false, false], [true, false], [false, true], [true, true]] {
+        for seed in 0..12u64 {
+            let (sc, p1) = fighting();
+            let mut rig = Rig::new(sc, GroundRoll::new(RollFacts { x89, ..roll_facts(p1) })).seeded(seed);
+            rig.run();
+            let w = &rig.driver.window;
+            let raw = (w.drawn[0].1.iter().filter(|f| **f >= 8).count() as u32, w.drawn[1].1.iter().filter(|f| **f >= 7).count() as u32);
+            let want = (raw.0 * if x89[0] { 2 } else { 1 }, raw.1 * if x89[1] { 2 } else { 1 });
+            assert_eq!(w.hits, want, "seed {seed} {x89:?}: the holder's hits are doubled, the other's are not");
+            // The dice a reroll window sees are the raw faces.
+            let staged_faces: usize = rig.state.transient().combat.reroll_staging.iter().map(|(_, set)| set.rolls.iter().map(|r| r.faces.len()).sum::<usize>()).sum();
+            assert_eq!(staged_faces, 5);
+            // The tail recomputes the hits from the staged dice and doubles them again for the holder.
+            let mut tail = Rig::from_parts(rig.state.clone(), rig.kernel.clone(), GroundRollTail::new(TailFacts { x89, ..tail_facts(w.hits, true, p1) }));
+            tail.run();
+            assert_eq!(tail.driver.window.hits, want, "seed {seed} {x89:?}");
+        }
+    }
+}
+
+#[test]
+fn x89_exhausts_each_planet_it_bombards_where_the_planets_turn_begins() {
+    covers!("rules::invasion::bombard::Bombardment");
+    let (p1, _) = planets();
+    let sc = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 2).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1);
+    let (s, k) = sc.build();
+    let plan = bombard_plan(Rd::new(&s, &k), sys(), Seat(0));
+    let mut plain = Rig::from_parts(with_active(s.clone(), p1, 1), k.clone(), Bombardment::new(Seat(0), sys(), 4, true, Code(2), entry_from(&plan, &[1, 1]), 0));
+    plain.run();
+    assert!(!plain.state.board().planet(p1).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED), "without the technology the planet stays ready");
+    let mut window = Bombardment::new(Seat(0), sys(), 4, true, Code(2), entry_from(&plan, &[1, 1]), 0);
+    window.x89 = true;
+    let mut rig = Rig::from_parts(with_active(s, p1, 1), k, window);
+    rig.run();
+    assert!(rig.state.board().planet(p1).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED), "the bombarded planet is exhausted");
 }

@@ -120,6 +120,8 @@ pub enum Reason {
     C4rDiscard,
     /// Shown to `viewer` (`show_action_card`).
     Show { viewer: Seat },
+    /// Yssaril's Scheming: "Then, choose and discard 1 action card from your hand."
+    Scheming,
 }
 
 /// What the area asks. Parameters only; the option list is derived by `opts(state, ask)`.
@@ -196,6 +198,7 @@ pub enum Subtype {
     DeepgloomStallTacticsDiscard,
     MalleonDiscard,
     C4rDiscard,
+    SchemingDiscard,
     ShowActionCard,
     /// `<card alias>_pick_<kind>`, or `<card alias>_elect` for `What::Elect`.
     Pick { card: ActionCard, what: What },
@@ -218,6 +221,7 @@ impl Reason {
             Self::DeepgloomStallTactics => Subtype::DeepgloomStallTacticsDiscard,
             Self::MalleonDiscard => Subtype::MalleonDiscard,
             Self::C4rDiscard => Subtype::C4rDiscard,
+            Self::Scheming => Subtype::SchemingDiscard,
             Self::Show { .. } => Subtype::ShowActionCard,
         }
     }

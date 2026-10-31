@@ -8,7 +8,7 @@
 
 use crate::generated::{Explore, ExploreType, Planet, System, Wormhole};
 use crate::ids::Seat;
-use crate::state::CoreState;
+use crate::state::{CoreState, PlanetFlags};
 
 /// `exploration::draw` on a position without a deck reserve: the top card of one deck. `None` when the
 /// string map has no such key or the deck is empty.
@@ -90,4 +90,21 @@ pub fn open_record(
         gains: Default::default(),
         placed: Default::default(),
     });
+}
+
+/// `planets::place` as Mirage uses it ("place the Mirage planet token in this system, gain the planet card and
+/// ready it"): the planet is put into `system` under the seat's control, readied. `false` when the planet is
+/// already on the board (a card cannot place it twice); a planet that was destroyed keeps no controller.
+pub fn place_planet(core: &mut CoreState, who: Seat, system: System, planet: Planet) -> bool {
+    let cell = core.board_mut().planet_mut(planet);
+    if cell.placed_in.is_some() {
+        return false;
+    }
+    cell.placed_in = Some(system);
+    if !cell.flags.has(PlanetFlags::PURGED) {
+        cell.control = Some(who);
+    }
+    cell.flags.set(PlanetFlags::EXHAUSTED, false);
+    core.board_mut().sys_mut(system).flags.set(crate::state::SysFlags::TOUCHED, true);
+    true
 }

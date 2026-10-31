@@ -54,6 +54,23 @@ pub fn with_disabled_policy<T>(p: Policy, f: impl FnOnce() -> T) -> T {
     core::with_policy(core_policy(p), f)
 }
 
+/// Make `p` the policy of this thread's entries until the guard drops: the form of [`with_disabled_policy`] for a test that holds it for its
+/// whole body (the bail-as-failure tests of the heroes). The typed core's own sites keep their policy: they read the trade slice, which the
+/// footprints of the windows do not lend.
+#[must_use]
+pub struct ThreadGuard(Option<Policy>);
+
+impl Drop for ThreadGuard {
+    fn drop(&mut self) {
+        LOCAL.with(|l| l.set(self.0));
+    }
+}
+
+/// See [`ThreadGuard`].
+pub fn enter_disabled_policy(p: Policy) -> ThreadGuard {
+    ThreadGuard(LOCAL.with(|l| l.replace(Some(p))))
+}
+
 /// The policy of the typed core's own sites that goes with `p`: `Panic` only for [`Policy::Panic`].
 const fn core_policy(p: Policy) -> core::Policy {
     match p {

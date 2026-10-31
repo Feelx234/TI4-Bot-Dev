@@ -1823,16 +1823,12 @@ impl Play {
                     kills += usize::from(face >= PLAGUE_KILLS_ON);
                 }
                 let reason = DestroyReason::ActionCard(ActionCardCause::Plague);
-                if fx_ground::destroy_on_planet(core, scope, system, planet, UnitBaseType::Infantry, Some(kills), reason).is_err() {
-                    self.unsupported = true;
-                }
+                fx_ground::destroy_on_planet(core, scope, system, planet, UnitBaseType::Infantry, Some(kills), reason);
             }
             (Fx::Unstable, Opt::Spot(system, planet)) => {
                 fx::exhaust_planet(core, planet);
                 let reason = DestroyReason::ActionCard(ActionCardCause::UnstablePlanet);
-                if fx_ground::destroy_on_planet(core, self.env.scope, system, planet, UnitBaseType::Infantry, Some(3), reason).is_err() {
-                    self.unsupported = true;
-                }
+                fx_ground::destroy_on_planet(core, self.env.scope, system, planet, UnitBaseType::Infantry, Some(3), reason);
             }
             (Fx::PirateContract, Opt::System(system)) => {
                 if let Some(neutral) = self.env.facts.neutral {
@@ -3530,9 +3526,10 @@ mod tests {
         assert!(matches!(status, Status::Done) && d.window.unsupported(), "the waiver is a question: the string plays it");
     }
 
-    /// Bail: Leadership with a payment the production rules do not follow, or with a command token in a Mahact pool, is the string's.
+    /// Bail: Leadership with a payment the production rules do not follow is the string's (a command token in a Mahact pool is not: the core reads
+    /// the pool from the marks, package W13).
     #[test]
-    fn bail_leadership_declines_without_followed_payments_and_with_a_mahact_token() {
+    fn bail_leadership_declines_without_followed_payments() {
         for card in [ActionCard::Strategize1, ActionCard::Overrule] {
             let (unsupported, _, asked) = performs(card, StrategyCard::Leadership, super::super::Facts::default(), &Kernel::plain());
             assert!(unsupported && !asked, "{card:?}: payments the production rules do not follow");
@@ -3542,13 +3539,13 @@ mod tests {
         }
     }
 
-    /// Bail: the Warfare primary with a command token in a Mahact pool (the reinforcements it previews differ) is the string's.
+    /// Package W13: the Warfare primary with a command token in a Mahact pool is carried (the reinforcements it previews are read from the marks).
     #[test]
-    fn bail_the_warfare_primary_declines_with_a_mahact_token() {
+    fn the_warfare_primary_is_carried_with_a_mahact_token() {
         use crate::driver::{Driver, Status};
         use crate::kernel::Resolver;
         use crate::state::{Player, Players};
-        for (held, bails) in [(0, false), (1, true)] {
+        for (held, bails) in [(0, false), (1, false)] {
             let mut s = CoreState::all_loaded();
             s.players = Players::from_vec(vec![Player::new(Seat(0), crate::generated::Faction::TheArborec), Player::new(Seat(1), crate::generated::Faction::TheEmiratesOfHacan)]);
             s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);

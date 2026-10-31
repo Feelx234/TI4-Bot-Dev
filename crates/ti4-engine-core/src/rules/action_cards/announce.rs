@@ -431,11 +431,23 @@ mod tests {
         assert_eq!(kinds, [EventKind::ActionCardPlayed, EventKind::ActionCardDiscarded]);
     }
 
-    /// Bail: a galvanized ground force that falls cannot be staged (the string row has a `|g` tail the typed row cannot
-    /// hold), so the run is unknown and the adapter keeps the string's.
+    /// A galvanized ground force that falls is staged with the string's trailing `|g` field (the `Word::Galvanized` of the typed
+    /// row), where a plain one has none (package W10; before it the run was unknown and the adapter kept the string's).
     #[test]
-    fn bail_a_galvanized_ground_force_that_falls_makes_the_run_unknown() {
+    fn a_galvanized_ground_force_that_falls_is_staged_with_the_galvanized_field() {
         use crate::generated::{Planet, PlanetTrait};
+        use crate::keys::{Atom, MarkKey, MarkVal, Word};
+        let fields_staged = |s: &CoreState| -> Vec<Vec<MarkVal>> {
+            s.marks()
+                .tail
+                .iter()
+                .filter(|(k, _)| matches!(k, MarkKey::PrivateStagedGround(_)))
+                .map(|(_, v)| match v {
+                    MarkVal::Rec(f) => f.clone(),
+                    other => panic!("a record: {other:?}"),
+                })
+                .collect()
+        };
         let mut s = two_seats();
         let planet = *Planet::ALL.iter().find(|p| p.data().system.is_some() && p.data().traits.contains(&PlanetTrait::Hazardous)).unwrap();
         let system = planet.data().system.unwrap();
@@ -443,14 +455,20 @@ mod tests {
         s.board_mut().planet_mut(planet).units.as_mut_slice()[0] = crate::state::Piece::new(Unit::InfantryI, Seat(1)).with_galvanized(true);
         let a = Announce::of(&s, ActionCard::UnstablePlanet, Seat(0), env(), true, false).unwrap();
         let d = run(a, &mut s, plays_table());
-        assert_eq!(d.unknown(), Some(Unknown::MissingFact));
-        // Without the galvanized token the same fall is staged as a ground-force row.
+        assert_eq!(d.unknown(), None);
+        let rows = fields_staged(&s);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].len(), 8);
+        assert_eq!(rows[0][7], MarkVal::Atom(Atom::Word(Word::Galvanized)));
+        // Without the galvanized token the same fall is staged as a ground-force row of seven fields.
         let mut s = two_seats();
         fx::place_unit(&mut s, Seat(1), system, Some(planet), Unit::InfantryI);
         let a = Announce::of(&s, ActionCard::UnstablePlanet, Seat(0), env(), true, false).unwrap();
         let d = run(a, &mut s, plays_table());
         assert_eq!(d.unknown(), None);
-        assert!(s.marks().tail.iter().any(|(k, _)| matches!(k, crate::keys::MarkKey::PrivateStagedGround(_))));
+        let rows = fields_staged(&s);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].len(), 7);
     }
 
     /// The cards of package B6d read facts only the adapter's play window supplies (forms, roster, map, traders): from inside

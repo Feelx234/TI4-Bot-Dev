@@ -37,11 +37,13 @@ const CLOSE: Footprint = Footprint::new(
         Slice::Objectives,
         Slice::Decks,
         Slice::Agenda,
+        Slice::Marks,
         Slice::Transient,
         Slice::Ledger,
         Slice::Pending,
     ],
-    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Agenda, Slice::Transient, Slice::Ledger, Slice::Pending],
+    // (Marks: the discard Scheming asks of a Yssaril voter after its draw is staged as a mark, package W14.)
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Ledger, Slice::Pending],
 );
 
 /// The core half of `Game::close_vote`.
@@ -86,11 +88,6 @@ pub fn close(
         .collect::<Option<Vec<_>>>()?;
     let counts = window.ballot().counts.iter().map(|(outcome, votes)| Some((parse(outcome)?, *votes))).collect::<Option<Vec<_>>>()?;
     let choices = window.choices().iter().map(|outcome| parse(outcome)).collect::<Option<Vec<_>>>()?;
-    // A command token in a Mahact fleet pool changes the reinforcements the pool questions show.
-    if gs.agenda_predictions.values().any(|p| p.ends_with("|lead_rider")) && gs.players.iter().any(|p| gs.tokens_held_by_mahact(&p.id) > 0) {
-        crate::dual::note_bail(LABEL, "a Mahact fleet token under Leadership Rider");
-        return None;
-    }
     let facts = Facts {
         trade_rider: r.code("trade_rider"),
         keleres_rider: r.code("keleres_rider"),

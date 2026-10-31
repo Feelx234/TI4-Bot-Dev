@@ -91,6 +91,8 @@ pub struct Bombardment {
     pub scoring: Vec<(u64, bool)>,
     /// Stop once the answer is applied (the string `answer_bombardment_target` does not settle).
     pub answer_only: bool,
+    /// X-89 Bacterial Weapon: "exhaust each planet you use BOMBARDMENT against" (the hits of the plan are doubled by the string already).
+    pub x89: bool,
     halt: bool,
     stage: Stage,
 }
@@ -99,7 +101,7 @@ impl Bombardment {
     /// A window in the string's `Stage::Bombarding`.
     #[must_use]
     pub fn new(invader: Seat, system: System, occurrence: u64, announce: bool, cause: Code, plan: Vec<Entry>, index: usize) -> Self {
-        Self { invader, system, occurrence, announce, cause, plan, index, cursor: None, kills: 0, scoring: Vec::new(), answer_only: false, halt: false, stage: Stage::Bombarding }
+        Self { invader, system, occurrence, announce, cause, plan, index, cursor: None, kills: 0, scoring: Vec::new(), answer_only: false, x89: false, halt: false, stage: Stage::Bombarding }
     }
 
     /// A window in the string's `Stage::ChoosingBombardment(cursor)`, about to be answered (`answer_only`) or settled.
@@ -169,6 +171,10 @@ impl Bombardment {
                 return;
             };
             let (planet, held, victims, mut groups) = (entry.planet, entry.held, entry.victims, entry.groups.clone());
+            // X-89: "Exhaust each planet you use BOMBARDMENT against", where the planet's turn begins.
+            if self.x89 {
+                crate::kernel::fx::exhaust_planet(sx.state, planet);
+            }
             if entry.groups.is_empty() {
                 self.complete(sx.state, planet, 0, held, victims);
                 self.index += 1;

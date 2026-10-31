@@ -28,7 +28,7 @@ mod real {
     /// What the window reads (the planets, the box, the laws) and writes (the units, the token, the note).
     const WINDOW: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Cards, Slice::Marks, Slice::Pending],
-        &[Slice::Players, Slice::Board, Slice::Cards, Slice::Pending],
+        &[Slice::Players, Slice::Board, Slice::Cards, Slice::Marks, Slice::Pending],
     );
 
     /// The core half of Military Support (`promissory::turn_started`; the value: the card resolved). `holder` places the infantry

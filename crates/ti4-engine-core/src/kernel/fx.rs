@@ -241,6 +241,23 @@ pub fn gain_victory_points(s: &mut CoreState, who: Seat, delta: i32, reason: Led
     total
 }
 
+/// `laws::steal_throne_card`: the elected owner of a throne card (the Crown of Emphidia) loses its point (no floor at zero: the string takes it
+/// away as it holds it) and the taker gains one; the card is elected onto the taker. `false` when nobody holds it or the taker already does.
+pub fn steal_throne_card(s: &mut CoreState, law: crate::generated::Agenda, taker: Seat) -> bool {
+    use crate::keys::Outcome;
+    let Some(Outcome::Seat(owner)) = s.agenda().laws.get(&law).copied() else { return false };
+    if owner == taker {
+        return false;
+    }
+    if let Some(p) = s.players_mut().by_seat_mut(owner) {
+        p.econ.victory_points = p.econ.victory_points.saturating_sub(1);
+    }
+    s.ledger_mut().vp.push(VpRec { player: owner, delta: -1, reason: LedgerReason::Agenda(law) });
+    adjust_victory_points(s, taker, 1, LedgerReason::Agenda(law));
+    s.agenda_mut().laws.insert(law, Outcome::Seat(taker));
+    true
+}
+
 /// `objectives::reveal_stage` (61.13, 61.14a): the first facedown public objective of this stage turns faceup,
 /// wherever it is in the deck. Shared with the agenda effects (Incentive Program); areas do not import each other.
 pub fn reveal_stage(s: &mut CoreState, stage: u8) -> Option<crate::generated::PublicObjective> {
@@ -405,15 +422,36 @@ pub fn remove_command_token(s: &mut CoreState, who: Seat, system: System) -> boo
     s.board_mut().sys_mut(system).cmd.remove(who)
 }
 
-/// Command tokens in a seat's reinforcements: sixteen less the sheet and the board (`GameState::
-/// tokens_in_reinforcements`; a token in a Mahact fleet pool is the caller's to bail on).
+/// How many of `who`'s command tokens sit in a Mahact fleet pool (`GameState::tokens_held_by_mahact`: the fleet pool marks of every seat).
+/// Zero where the marks are not part of the lend (the window's footprint does not read them).
+#[must_use]
+pub fn tokens_held_by_mahact(s: &CoreState, who: Seat) -> i32 {
+    use crate::keys::{Atom, MarkKey, MarkVal};
+    if !s.loaded.has(crate::state::Slice::Marks) {
+        return 0;
+    }
+    let held: usize = s
+        .marks()
+        .tail
+        .iter()
+        .filter(|(k, _)| matches!(k, MarkKey::MahactFleet(_)))
+        .map(|(_, v)| match v {
+            MarkVal::List(items) => items.iter().filter(|i| matches!(i, MarkVal::Atom(Atom::Seat(owner)) if *owner == who)).count(),
+            _ => 0,
+        })
+        .sum();
+    i32::try_from(held).unwrap_or(i32::MAX)
+}
+
+/// Command tokens in a seat's reinforcements: sixteen less the sheet, the board and the Mahact fleet pools (`GameState::
+/// tokens_in_reinforcements`).
 #[must_use]
 pub fn tokens_in_reinforcements(s: &CoreState, who: Seat) -> i32 {
     let on_sheet = s.players().by_seat(who).map_or(0, |p| {
         i32::from(p.econ.tactic_tokens) + i32::from(p.econ.fleet_tokens) + i32::from(p.econ.strategic_tokens)
     });
     let on_board = s.board().systems().filter(|(_, cell)| cell.cmd.contains(who)).count();
-    (TOKENS_PER_FACTION - on_sheet - i32::try_from(on_board).unwrap_or(i32::MAX)).max(0)
+    (TOKENS_PER_FACTION - on_sheet - i32::try_from(on_board).unwrap_or(i32::MAX) - tokens_held_by_mahact(s, who)).max(0)
 }
 
 /// `GameState::gain_token` for a positive count: at most what is in reinforcements. Returns how many were gained.
