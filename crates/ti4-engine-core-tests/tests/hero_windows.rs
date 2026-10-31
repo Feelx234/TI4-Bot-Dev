@@ -787,3 +787,144 @@ fn each_ship_moves_once_over_the_whole_migration() {
     rig.pick(0);
     assert!(rig.is_done() && rig.driver.window.moved, "{}", rig.transcript());
 }
+
+#[test]
+fn the_cards_a_player_may_show_are_offered_in_the_order_of_the_names_not_of_the_hand() {
+    covers!("rules::hero_windows::KyverHero");
+    // A hand whose order differs from the order of the names.
+    let (first, second) = {
+        let mut found = None;
+        for (i, a) in ActionCard::ALL.iter().enumerate() {
+            for b in &ActionCard::ALL[i + 1..] {
+                if a.name_rank() > b.name_rank() {
+                    found = Some((*a, *b));
+                }
+            }
+            if found.is_some() {
+                break;
+            }
+        }
+        found.expect("two cards out of name order")
+    };
+    let mut rig = kyver([&[], &[first, second], &[]], false);
+    rig.run();
+    assert_eq!(rig.opts(), vec![Opt::Cards(COpt::Card(second)), Opt::Cards(COpt::Card(first))]);
+}
+
+#[test]
+fn the_third_card_is_never_asked_and_a_secondary_that_asks_nothing_does_not_stop_the_next() {
+    covers!("rules::hero_windows::NaazHero");
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+    let mut rig = naaz(&[StrategyCard::Trade, StrategyCard::Imperial, StrategyCard::Leadership], &[relic], (3, 3, 2));
+    rig.state.decks_mut().secret.set(vec![SecretObjective::ALL[0]]);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Trade)));
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Imperial)));
+    assert!(rig.is_done() || !matches!(rig.asked().ask, Ask::Leaders(LAsk::NaazCard)), "two cards at most");
+    while !rig.is_done() {
+        rig.pick(0);
+    }
+    assert!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities > 0, "Trade, which asks nothing");
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().cards.secrets.as_slice().len(), 1, "and then Imperial's secondary drew the secret");
+}
+
+#[test]
+fn a_table_where_a_replenishment_causes_events_leaves_the_trade_secondary_to_the_string() {
+    covers!("rules::hero_windows::NaazHero");
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+    let sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheArborec]).kernel(kernel_all()).tokens(0, 3, 3, 2);
+    let mut facts = perform_facts(Carried::default());
+    facts.replenish_events = true;
+    let mut rig = Rig::new(sc, NaazHero::new(Seat(0), facts, vec![StrategyCard::Trade]));
+    rig.state.decks_mut().relic.set(vec![relic]);
+    rig.run();
+    rig.pick(0);
+    assert!(rig.is_done() && rig.driver.window.unsupported);
+    // A command token in a Mahact pool changes what the Leadership questions preview.
+    let sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheArborec]).kernel(kernel_all()).tokens(0, 3, 3, 2);
+    let mut facts = perform_facts(Carried { payments: true, ..Carried::default() });
+    facts.mahact_held = 1;
+    let mut rig = Rig::new(sc, NaazHero::new(Seat(0), facts, vec![StrategyCard::Leadership]));
+    rig.state.decks_mut().relic.set(vec![relic]);
+    rig.run();
+    rig.pick(0);
+    assert!(rig.is_done() && rig.driver.window.unsupported);
+}
+
+#[test]
+fn the_diplomacy_primary_reports_the_tokens_it_placed() {
+    covers!("rules::hero_windows::WinnuHero");
+    let [(a, pa), _, _] = three();
+    let sc = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec, Faction::TheEmbersOfMuaat]).kernel(kernel_all()).map_from(&[a]).control(pa, 0);
+    let mut rig = Rig::new(sc, WinnuHero::new(Seat(0), perform_facts(Carried::default()), vec![StrategyCard::DiplomacyCodex]));
+    rig.run();
+    rig.pick(0);
+    while !rig.is_done() {
+        rig.pick(0);
+    }
+    assert!(!rig.driver.window.unsupported);
+    assert!(rig.driver.window.tokens.is_some(), "the system and the seats that got a token are kept for the announcement");
+}
+
+// -- more of Flock Migration ---------------------------------------------------------------------------
+
+#[test]
+fn a_ship_standing_in_the_only_destination_is_not_offered_and_a_destination_is_never_the_origin() {
+    covers!("rules::hero_windows::ArgentHero");
+    // One tokened system, with a ship of its own in it, and another system with a ship: only the second ship can move, and not to its own system.
+    let spots = three();
+    let sys: Vec<System> = spots.iter().map(|s| s.0).collect();
+    let sc = Scenario::new(&[Faction::TheArgentFlight, Faction::TheArborec])
+        .kernel(kernel_all())
+        .map_from(&sys)
+        .unit(sys[0], None, Unit::CarrierI, 0, 1)
+        .unit(sys[1], None, Unit::DestroyerI, 0, 1)
+        .command_token(sys[1], 0);
+    let mut rig = Rig::new(sc, ArgentHero::new(Seat(0), facts(&sys, &sys)));
+    rig.run();
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::FlockShip { index: 0, system: sys[0], unit: Unit::CarrierI }), Opt::Decline], "the destroyer already stands in the only destination");
+    rig.pick(0);
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::FlockTo(sys[1])), Opt::Decline]);
+    // With a token on the origin too, the origin is not a destination of its own ship.
+    let sc = Scenario::new(&[Faction::TheArgentFlight, Faction::TheArborec])
+        .kernel(kernel_all())
+        .map_from(&sys)
+        .unit(sys[0], None, Unit::CarrierI, 0, 1)
+        .command_token(sys[0], 0)
+        .command_token(sys[1], 0);
+    let mut rig = Rig::new(sc, ArgentHero::new(Seat(0), facts(&sys, &sys)));
+    rig.run();
+    rig.pick(0);
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::FlockTo(sys[1])), Opt::Decline]);
+}
+
+#[test]
+fn the_hold_is_asked_up_to_the_capacity_plus_eight_units() {
+    covers!("rules::hero_windows::ArgentHero");
+    let (mut rig, spots) = flock(|sc, s| sc.control(s[0].1, 0).unit(s[0].0, Some(s[0].1), Unit::InfantryI, 0, 14), None);
+    rig.run();
+    rig.pick(0);
+    rig.pick(0);
+    for _ in 0..12 {
+        assert!(matches!(rig.asked().ask, Ask::Leaders(LAsk::FlockCargo)));
+        rig.pick(0);
+    }
+    assert!(rig.is_done(), "a carrier holds 4, so 12 units are asked and the 13th is not: {}", rig.transcript());
+    assert_eq!(at_seat(&rig, spots[1].0, 0, Unit::CarrierI), 1);
+}
+
+#[test]
+fn a_destination_off_the_map_is_refused_though_the_seat_could_enter_it() {
+    covers!("rules::hero_windows::ArgentHero");
+    let spots = three();
+    let sys: Vec<System> = spots.iter().map(|s| s.0).collect();
+    let sc = Scenario::new(&[Faction::TheArgentFlight, Faction::TheArborec]).kernel(kernel_all()).map_from(&sys).unit(sys[0], None, Unit::CarrierI, 0, 1).command_token(sys[1], 0);
+    let mut off = facts(&sys, &sys);
+    off.on_map.retain(|s| *s != sys[1]);
+    let mut rig = Rig::new(sc, ArgentHero::new(Seat(0), off));
+    rig.run();
+    rig.pick(0);
+    rig.pick(0);
+    assert!(rig.is_done() && !rig.driver.window.moved);
+    assert_eq!(delta(rig.start_state(), &rig.state), "");
+}
