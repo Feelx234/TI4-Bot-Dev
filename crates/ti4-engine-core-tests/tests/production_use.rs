@@ -473,3 +473,30 @@ fn an_answer_that_is_no_option_is_refused_and_a_window_that_is_not_open_is_named
     assert!(matches!(asked.choice.ask, Ask::Production(PAsk::Choose(_))));
     assert!(core.pending().window(WindowKind::Production).is_some());
 }
+
+/// A use at the home system reads the hero's answer off the offer it ran (`HeroOffer::used`): the window is refreshed and every unit of the use is free.
+/// (Regression: the finished offer was dropped by the tape runner, so a taken hero left the window at full price.)
+#[test]
+fn a_home_use_with_the_hero_taken_makes_every_unit_free() {
+    covers!("driver::windows::production::ProductionMachine");
+    let (mut core, k) = arena(6);
+    let env = mkenv(&k, 1);
+    core.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::HarrughGefhara, LeaderStatus::Unlocked);
+    open_production(&mut core, UseOpen::Home { who: Seat(0), system: sys() });
+    let mut built = false;
+    let mut pol = |c: &Choice| match c.ask {
+        Ask::Production(PAsk::Hero(_)) => pick_where(c, &|o| matches!(o, Opt::Production(POpt::HeroUse))),
+        Ask::Production(PAsk::Choose(_)) if !built => {
+            built = true;
+            pick_where(c, &|o| matches!(o, Opt::Production(POpt::Build { unit: Unit::CarrierI, .. })))
+        }
+        Ask::Production(PAsk::Choose(_)) => pick_where(c, &|o| matches!(o, Opt::Production(POpt::Stop))),
+        Ask::Production(PAsk::Pay(_)) => pick_where(c, &|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))),
+        _ => None,
+    };
+    let played = play(&mut core, &env, &mut pol);
+    assert_eq!(played.end, Ok(()));
+    assert!(!played.asked.iter().any(|c| matches!(c.ask, Ask::Production(PAsk::Pay(_)))), "nothing is paid");
+    assert_eq!(goods(&core), 6, "the carrier cost nothing");
+    assert_eq!(core.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::HarrughGefhara), Some(&LeaderStatus::Purged));
+}

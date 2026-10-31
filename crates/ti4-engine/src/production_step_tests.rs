@@ -101,6 +101,39 @@ fn window(state: &GameState, system: &SystemId) -> AftermathWindow {
     }
 }
 
+/// Which opener a run starts with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    /// The aftermath's production step (`enter_production`).
+    Tactical,
+    /// A use at the home system outside a tactical action (`production::resolve_timed`).
+    Home,
+}
+
+impl Mode {
+    fn open(self) -> fn(ti4_engine_core::ids::Seat, ti4_engine_core::generated::System) -> UseOpen {
+        match self {
+            Self::Tactical => tactical,
+            Self::Home => home_use,
+        }
+    }
+}
+
+/// The string run of a use at the home system: `production::resolve_timed` against a table that answers by the policy.
+fn string_home(mut state: GameState, system: &SystemId, policy: &Policy) -> Run {
+    let content = ContentStore::embedded();
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let shared = Rc::new(RefCell::new(policy.clone()));
+    let mut table = Table::with_default(Box::new(Recorder { asked: asked.clone(), policy: shared }));
+    let mut resolver = crate::fixtures::armed_resolver(&state);
+    let mut sequence = crate::event::EventSequence::new();
+    let timing = Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None });
+    crate::production::resolve_timed(&mut state, content, POK, None, &mut table, timing, &a(), system).expect("the string run is legal");
+    let events = resolver.applied_events().iter().map(|e| (e.event_type.clone(), e.payload.clone())).collect();
+    let asked = asked.borrow().clone();
+    Run { asked, events, state }
+}
+
 /// The string run: `enter_production` (the start effects), then the window question by question (`resolve` ends with `finish_use`).
 fn string_run(mut state: GameState, system: &SystemId, policy: &Policy) -> Run {
     let content = ContentStore::embedded();
@@ -222,14 +255,18 @@ fn show(c: &[Choice]) -> Vec<(String, Vec<String>)> {
 }
 
 /// Run both and report every difference of the questions, the events and the position (empty: lockstep).
-fn lockstep(label: &str, state: &GameState, system: &SystemId, policy: &Policy, open: fn(ti4_engine_core::ids::Seat, ti4_engine_core::generated::System) -> UseOpen) -> Vec<String> {
+fn lockstep(label: &str, state: &GameState, system: &SystemId, policy: &Policy, mode: Mode) -> Vec<String> {
     let _guard = crate::dual::tests::serial();
-    let string = string_run(state.clone(), system, policy);
-    let live = match live_run(state.clone(), system, policy, open) {
+    let string = if mode == Mode::Home { string_home(state.clone(), system, policy) } else { string_run(state.clone(), system, policy) };
+    let live = match live_run(state.clone(), system, policy, mode.open()) {
         Ok(run) => run,
         Err((stop, seen)) => return vec![format!("{label}: the native run stopped: {stop:?}\nnative {:?}\nstring {:?}", show(&seen), show(&string.asked))],
     };
     let mut out = Vec::new();
+    // The native run must have run: the use was announced (a use of a system with a producer) unless nothing produces there.
+    if string.events.iter().any(|(n, _)| n == "PRODUCTION_USED") && mode == Mode::Tactical && !live.events.iter().any(|(n, _)| n == "PRODUCTION_USED") {
+        out.push(format!("{label}: the native run never announced the use"));
+    }
     if live.asked.len() != string.asked.len() {
         out.push(format!("{label}: questions: string {:?} native {:?}", show(&string.asked), show(&live.asked)));
     }
@@ -264,6 +301,96 @@ fn lockstep(label: &str, state: &GameState, system: &SystemId, policy: &Policy, 
 #[test]
 fn a_plain_production_step_runs_native_with_the_questions_and_the_position_of_the_string() {
     let (state, system) = game("sol", 5);
-    let diffs = lockstep("sol", &state, &system, &Policy::new(1), tactical);
+    let diffs = lockstep("sol", &state, &system, &Policy::new(1), Mode::Tactical);
+    assert!(diffs.is_empty(), "{diffs:#?}");
+}
+
+fn faction_ids() -> Vec<&'static str> {
+    use crate::generated::IdStr;
+    // The factions of the agreed product (Keleres, Deepwrought, Firmament, Obsidian, Ral Nel, Crimson and the Last Bastion are dropped).
+    ti4_engine_core::generated::Faction::ALL
+        .iter()
+        .map(|f| IdStr::as_str(*f))
+        .filter(|id| !["keleres", "deepwrought", "firmament", "obsidian", "ralnel", "crimson", "bastion", "neutral"].iter().any(|d| id.contains(d)))
+        .collect()
+}
+
+/// Two purchases at the home system of every faction of the product: the start effects (the use counter, `production_used`, the announcement),
+/// the faction hooks of the window (capacity, discounts, extra destinations), the end effects. A native bail is a failure.
+#[test]
+fn the_production_step_of_every_faction_runs_native_in_lockstep_with_the_string() {
+    let mut failures = Vec::new();
+    for (i, faction) in faction_ids().into_iter().enumerate() {
+        let (state, system) = game(faction, 10 + i as u64);
+        failures.extend(lockstep(faction, &state, &system, &Policy::new(2), Mode::Tactical));
+        failures.extend(lockstep(&format!("{faction} (home)"), &state, &system, &Policy::new(2), Mode::Home));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+fn tech(state: &mut GameState, id: ti4_engine_core::generated::Technology) {
+    use crate::generated::IdStr;
+    state.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(IdStr::as_str(id)));
+}
+
+#[test]
+fn sarween_tools_and_the_ai_development_algorithm_discount_the_use_in_lockstep() {
+    use ti4_engine_core::generated::Technology as T;
+    let (mut state, system) = game("sol", 3);
+    tech(&mut state, T::SarweenTools);
+    let diffs = lockstep("sarween", &state, &system, &Policy::new(2), Mode::Tactical);
+    assert!(diffs.is_empty(), "{diffs:#?}");
+    let (mut state, system) = game("sol", 4);
+    tech(&mut state, T::AIDevelopmentAlgorithm);
+    tech(&mut state, T::CruiserII);
+    for prefer in [vec!["use", "exhaust"], vec!["decline"]] {
+        let mut policy = Policy::new(2);
+        policy.prefer = prefer;
+        let diffs = lockstep("aida", &state, &system, &policy, Mode::Tactical);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+}
+
+#[test]
+fn the_hacan_hero_makes_the_use_free_and_is_purged_in_lockstep() {
+    for mode in [Mode::Tactical, Mode::Home] {
+        for prefer in [vec!["use"], vec!["decline"]] {
+            let (mut state, system) = game("hacan", 5);
+            state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("hacanhero"), ti4_model::state::LeaderStatus::Unlocked);
+            let mut policy = Policy::new(2);
+            policy.prefer = prefer.clone();
+            let diffs = lockstep(&format!("hero {mode:?} {prefer:?}"), &state, &system, &policy, mode);
+            assert!(diffs.is_empty(), "{diffs:#?}");
+        }
+    }
+}
+
+#[test]
+fn the_prophecy_of_ixth_and_self_assembly_routines_end_the_use_in_lockstep() {
+    use ti4_engine_core::generated::Technology as T;
+    for unit in ["destroyer", "fighter"] {
+        let (mut state, system) = game("sol", 6);
+        state.laws.insert("prophecy".to_owned(), "a".to_owned());
+        let mut policy = Policy::new(1);
+        policy.unit = unit;
+        let diffs = lockstep(&format!("prophecy {unit}"), &state, &system, &policy, Mode::Tactical);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+    for prefer in [vec!["self_assembly", "mech"], vec!["decline"]] {
+        let (mut state, system) = game("sol", 7);
+        tech(&mut state, T::SelfAssemblyRoutines);
+        let mut policy = Policy::new(1);
+        policy.prefer = prefer.clone();
+        let diffs = lockstep(&format!("self assembly {prefer:?}"), &state, &system, &policy, Mode::Tactical);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+}
+
+#[test]
+fn a_system_that_produces_nothing_runs_native_with_nothing_asked() {
+    let (mut state, system) = game("sol", 8);
+    state.system_mut(&system).planet_units.clear();
+    state.system_mut(&system).units.clear();
+    let diffs = lockstep("no capacity", &state, &system, &Policy::new(1), Mode::Tactical);
     assert!(diffs.is_empty(), "{diffs:#?}");
 }

@@ -21,7 +21,7 @@ pub fn register(_: &mut HookTable) {}
 
 /// Terragenesis (`ability:*:terragenesis:PLANET_EXPLORED:after`): "After you explore a planet that does not have a sleeper token: You may place or
 /// move 1 sleeper token onto that planet."
-pub const TERRAGENESIS: Slot = Slot(15001);
+pub const TERRAGENESIS: Slot = Slot(17001);
 
 /// The sleeper tokens a Titans seat has (`titans::SLEEPER_TOKENS`).
 const SLEEPER_TOKENS: usize = 5;

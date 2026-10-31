@@ -200,7 +200,12 @@ fn run_on_tape<W: Window>(sx: &mut Sx<'_>, window: &mut W) -> Result<(), Gap> {
     child.start(window.clone());
     for _ in 0..TAPE_LIMIT {
         match child.step(sx) {
-            None | Some(Ran::Done(_)) => break,
+            None => break,
+            Some(Ran::Done(done)) => {
+                // (`Child` hands the finished window back: what it did, `HeroOffer::used`, is read off it.)
+                *window = done;
+                break;
+            }
             Some(Ran::Pass(_)) => return Err(Gap::ChildPassed),
             Some(Ran::Asks(_)) => {
                 let choice = child.ask_of(sx.state, sx.kernel).ok_or(Gap::ChildStuck)?;
@@ -208,9 +213,6 @@ fn run_on_tape<W: Window>(sx: &mut Sx<'_>, window: &mut W) -> Result<(), Gap> {
                 child.answer(sx, pick).map_err(|_| Gap::ChildStuck)?;
             }
         }
-    }
-    if let Some(done) = child.window() {
-        *window = done.clone();
     }
     Ok(())
 }

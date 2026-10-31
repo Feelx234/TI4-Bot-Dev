@@ -46,7 +46,7 @@ fn the_ability_is_offered_after_an_exploration_and_a_lone_option_is_taken_unaske
     let p = planets(8);
     let mut rig = explored(Faction::TheTitansOfUl, p[0], &[]);
     rig.run();
-    assert_eq!(TERRAGENESIS.0, 15001);
+    assert_eq!(TERRAGENESIS.0, 17001);
     assert_eq!(rig.asked().actor, Seat(0), "{}", rig.transcript());
     assert!(matches!(rig.asked().ask, Ask::Reaction(RAsk::Window { .. })), "{}", rig.transcript());
     let use_it = rig.opts().iter().position(|o| *o != Opt::Decline).expect("the ability");
