@@ -328,6 +328,10 @@ pub struct ActivationCodes {
     pub sardakk_agent: crate::state::Code,
     /// The faction ability `edict`, the source of the Mahact's question.
     pub edict: crate::state::Code,
+    /// The faction ability `awaken`, the source of the Titans' question (lane M6d).
+    pub awaken: crate::state::Code,
+    /// The unit alias `titans_flagship`, the source of Ouranos' question.
+    pub titans_flagship: crate::state::Code,
 }
 
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind

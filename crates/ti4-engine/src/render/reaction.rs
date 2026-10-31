@@ -43,6 +43,7 @@ impl Family for Fam {
             Ask::IcarusDrive => "Icarus Drive: remove the mech to place or move a Creuss wormhole token into its system".to_owned(),
             Ask::Terragenesis { planet } => format!("Terragenesis: sleeper token for {}", planet.as_str()),
             Ask::G(g) => super::silent::prompt(r, g),
+            Ask::Act(a) => super::activation::prompt(r, a),
             Ask::Watcher { actor } => format!("Watcher: which mech cancels {}'s action card", r.seat_text(*actor)),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
@@ -68,6 +69,7 @@ impl Family for Fam {
             Subtype::Edict => "edict_opponent".to_owned(),
             Subtype::Terragenesis => "terragenesis_token".to_owned(),
             Subtype::G(g) => super::silent::subtype(g),
+            Subtype::Act(a) => super::activation::subtype(a),
         }
     }
 
@@ -126,6 +128,7 @@ impl Family for Fam {
                 ChoiceOption::labelled(format!("move|{}", from.as_str()), "sleeper", format!("move the sleeper token on {} to {}", from.as_str(), planet.as_str()))
             }
             (Ask::G(g), Opt::G(o)) => super::silent::option(r, g, o),
+            (Ask::Act(a), Opt::Act(o)) => super::activation::option(r, a, o),
             (Ask::Watcher { .. }, Opt::Site { system, planet }) => {
                 let system = system.as_str();
                 let place = planet.map_or_else(|| "space".to_owned(), |p| p.as_str().to_owned());
@@ -155,6 +158,9 @@ impl Family for Fam {
         }
         if let Ask::G(g) = a {
             return super::silent::parse(r, g, id);
+        }
+        if let Ask::Act(a) = a {
+            return super::activation::parse(r, a, id);
         }
         if let Ask::Terragenesis { .. } = a {
             return match id.strip_prefix("move|") {

@@ -60,8 +60,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:a:yssarilagent:mentakagent:PILLAGE_USED:after",
     "leader:*:a:yssarilagent:naazagent:TURN_PASSED:after",
     "leader:*:a:yssarilagent:winnuagent:PRODUCTION_USED:after",
-    "ability:*:awaken:SYSTEM_ACTIVATED:after",
-    "unit:*:titans_flagship:SYSTEM_ACTIVATED:after",
     "leader:*:arboreccommander:SYSTEM_ACTIVATED:after",
     "unit:*:arborec_flagship:SYSTEM_ACTIVATED:after",
     "leader:*:yssarilcommander:SYSTEM_ACTIVATED:after",

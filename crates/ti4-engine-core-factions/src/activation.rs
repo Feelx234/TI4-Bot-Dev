@@ -14,4 +14,5 @@ pub fn register(t: &mut AbilityTable) {
     crate::cc_ground::mentak::timing::register_activation(t);
     crate::cd_registry::naalu::timing::register_activation(t);
     crate::ce_movement::saar::timing::register_activation(t);
+    crate::cd_registry::titans::timing::register_activation(t);
 }

@@ -94,6 +94,8 @@ pub enum Ask {
     Terragenesis { planet: crate::generated::Planet },
     /// A question of a formerly silent ability (lane G).
     G(super::silent::Ask),
+    /// A question of a tactical-island ability (lane M6d).
+    Act(super::activation::Ask),
 }
 
 /// What a Nekro takes of an opponent's technology through an ability.
@@ -141,6 +143,8 @@ pub enum Opt {
     Sleeper { from: Option<crate::generated::Planet> },
     /// An answer of a formerly silent ability (lane G).
     G(super::silent::Opt),
+    /// An answer of a tactical-island ability (lane M6d).
+    Act(super::activation::Opt),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -172,4 +176,6 @@ pub enum Subtype {
     Terragenesis,
     /// A question of a formerly silent ability (lane G).
     G(super::silent::Subtype),
+    /// A question of a tactical-island ability (lane M6d).
+    Act(super::activation::Subtype),
 }

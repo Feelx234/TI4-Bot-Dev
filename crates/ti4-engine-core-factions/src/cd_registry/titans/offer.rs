@@ -26,7 +26,7 @@ pub const TERRAGENESIS: Slot = Slot(17001);
 /// The sleeper tokens a Titans seat has (`titans::SLEEPER_TOKENS`).
 const SLEEPER_TOKENS: usize = 5;
 
-fn is_titans(s: &CoreState, who: Seat) -> bool {
+pub(super) fn is_titans(s: &CoreState, who: Seat) -> bool {
     s.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheTitansOfUl)
 }
 
@@ -39,6 +39,24 @@ fn sleeper_planets(s: &CoreState, owner: Seat) -> Vec<Planet> {
             let MarkKey::TitansSleeper(planet) = *key else { return None };
             match value {
                 MarkVal::Rec(f) if matches!(f.first(), Some(MarkVal::Atom(Atom::Seat(seat))) if *seat == owner) => Some(planet),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// Every sleeper token on the board: the planet, its owner and the system it was put in, in the text order of the mark keys.
+pub(super) fn sleeper_rows(s: &CoreState) -> Vec<(Planet, Seat, System)> {
+    s.marks()
+        .tail
+        .iter()
+        .filter_map(|(key, value)| {
+            let MarkKey::TitansSleeper(planet) = *key else { return None };
+            match value {
+                MarkVal::Rec(f) => match f.as_slice() {
+                    [MarkVal::Atom(Atom::Seat(seat)), MarkVal::Atom(Atom::System(system))] => Some((planet, *seat, *system)),
+                    _ => None,
+                },
                 _ => None,
             }
         })

@@ -353,6 +353,23 @@ mod tests {
         // `trigger.event_id` counts from the string's turn prelude (`TURN_BEGAN`), which the native run of this harness does not take: an offset of the
         // harness, not of the rule (the events themselves are compared by name and order).
         // `private:#seen:*` is the string's own bookkeeping of what each seat has been shown (the per-step reconcile), not a rule.
+        // A `faction_marks` map left with none of its own rows is no map (the string keeps the `#seen:` rows apart from it).
+        fn without_seen(v: &Value) -> Value {
+            match v {
+                Value::Object(map) => Value::Object(
+                    map.iter()
+                        .filter_map(|(k, v)| {
+                            let v = without_seen(v);
+                            (k != "faction_marks" || v.as_object().is_none_or(|o| !o.is_empty())).then(|| (k.clone(), v))
+                        })
+                        .filter(|(k, _)| !k.contains("#seen:"))
+                        .collect(),
+                ),
+                Value::Array(items) => Value::Array(items.iter().map(without_seen).collect()),
+                other => other.clone(),
+            }
+        }
+        let (left, right) = (&without_seen(left), &without_seen(right));
         diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("frontier_tokens") && !d.path.contains("trigger.event_id")).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
@@ -855,6 +872,83 @@ mod tests {
         for script in [vec![TACTICAL_ACTION_ID, target.as_str(), copy, "ship|0", "decline", "decline", &mv], vec![TACTICAL_ACTION_ID, target.as_str(), "decline", "decline", &mv]] {
             let diffs = lockstep(state.clone(), &hub.galaxy, &script, false);
             assert!(diffs.is_empty(), "ssruu {script:?}: {diffs:#?}");
+        }
+    }
+
+    /// A hub whose centre prints at least `planets` planets (the first such plain system), with the planets' ids.
+    fn planet_hub(planets: usize) -> (crate::fixtures::Hub, Vec<ti4_model::id::PlanetId>) {
+        let store = ContentStore::embedded();
+        let all = ti4_content::galaxy::all_systems(store, POK);
+        let (centre, system) = all.iter().find(|(_, s)| !s.is_anomaly() && !s.is_hyperlane() && s.planets().len() >= planets).expect("a system with the planets");
+        let found = system.planets().iter().map(|p| ti4_model::id::PlanetId::new((*p).to_owned())).collect();
+        let mut ids = vec![(*centre).to_owned()];
+        ids.extend(crate::fixtures::plain_systems(12).into_iter().filter(|i| i != centre).take(6));
+        (crate::fixtures::hub_from(&ids), found)
+    }
+
+    /// Awaken (Titans): what each sleeper token in the activated system becomes; Ouranos is then offered over the new PDS.
+    #[test]
+    fn awaken_and_ouranos_ask_in_lockstep() {
+        let (hub, planets) = planet_hub(2);
+        let centre = ti4_model::id::SystemId::new(hub.centre.clone());
+        let ring = ti4_model::id::SystemId::new(hub.outer[1].clone());
+        let (awaken, ouranos) = ("ability:titans:awaken:SYSTEM_ACTIVATED:after", "unit:titans:titans_flagship:SYSTEM_ACTIVATED:after");
+        let sleeper = |state: &mut GameState, planet: &ti4_model::id::PlanetId| {
+            state.faction_marks.insert(format!("titans:sleeper:{planet}"), format!("a|{centre}"));
+        };
+        let mv = id(&ring, 0);
+        let base = || {
+            let mut state = table(&[("a", "titans"), ("b", "sol")]);
+            crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+            state
+        };
+        // One sleeper token: the PDS or the mech and infantry (Hecatoncheires), or neither; then Ouranos over the new PDS.
+        for script in [
+            vec![awaken, "pds", ouranos, mv.as_str()],
+            vec![awaken, "pds", "decline", mv.as_str()],
+            vec![awaken, "mech", mv.as_str()],
+            vec![awaken, "decline", mv.as_str()],
+            vec!["decline", mv.as_str()],
+        ] {
+            let mut state = base();
+            sleeper(&mut state, &planets[0]);
+            let diffs = lockstep(state, &hub.galaxy, &[&[TACTICAL_ACTION_ID, centre.as_str()][..], &script].concat(), false);
+            assert!(diffs.is_empty(), "one token {script:?}: {diffs:#?}");
+        }
+        // Two sleeper tokens: one question each, the second after the first one's plastic is claimed.
+        for script in [
+            vec![awaken, "pds", "pds", "decline", mv.as_str()],
+            vec![awaken, "pds", "mech", "decline", mv.as_str()],
+            vec![awaken, "decline", "pds", "decline", mv.as_str()],
+            vec![awaken, "mech", "decline", mv.as_str()],
+        ] {
+            let mut state = base();
+            sleeper(&mut state, &planets[0]);
+            sleeper(&mut state, &planets[1]);
+            let diffs = lockstep(state, &hub.galaxy, &[&[TACTICAL_ACTION_ID, centre.as_str()][..], &script].concat(), false);
+            assert!(diffs.is_empty(), "two tokens {script:?}: {diffs:#?}");
+        }
+        // Coalescence: the awakened PDS lands beside another player's units.
+        {
+            let mut state = base();
+            sleeper(&mut state, &planets[0]);
+            crate::fixtures::put_on_planet(&mut state, &centre, &planets[0], "infantry", &b(), 1);
+            let script = [TACTICAL_ACTION_ID, centre.as_str(), awaken, "pds", "decline", mv.as_str()];
+            let diffs = lockstep(state, &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "coalescence: {diffs:#?}");
+        }
+        // Ouranos alone: a PDS on one planet (no question), on two planets (which one).
+        for (pds_on, script) in [
+            (1, vec![ouranos, mv.as_str()]),
+            (2, vec![ouranos, planets[1].as_str(), mv.as_str()]),
+            (2, vec![ouranos, planets[0].as_str(), mv.as_str()]),
+        ] {
+            let mut state = base();
+            for planet in &planets[..pds_on] {
+                crate::fixtures::put_on_planet(&mut state, &centre, planet, "pds", &a(), 1);
+            }
+            let diffs = lockstep(state, &hub.galaxy, &[&[TACTICAL_ACTION_ID, centre.as_str()][..], &script].concat(), false);
+            assert!(diffs.is_empty(), "ouranos {pds_on} {script:?}: {diffs:#?}");
         }
     }
 }
