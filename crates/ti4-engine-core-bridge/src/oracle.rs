@@ -683,4 +683,76 @@ mod tests {
         assert!(got.contains(&(Category::Rng, "rng.combat".to_owned())), "{got:?}");
         assert!(got.contains(&(Category::State, "players[0].trade_goods".to_owned())), "{got:?}");
     }
+
+    #[test]
+    fn the_masks_are_the_legacy_and_the_core_ones() {
+        assert_eq!(LegacyMask::mask(), AreaMask::STRING);
+        assert_ne!(CoreMask::mask(), AreaMask::STRING);
+        assert_eq!(CoreMask::mask().backend(Area::Combat), Backend::Core);
+    }
+
+    #[test]
+    fn a_mask_subject_reports_what_the_game_it_wraps_holds() {
+        let mut s = MaskSubject::<LegacyMask>::new(&spec(), Pilot::Bot).expect("builds");
+        assert!(!s.finished());
+        assert!(s.round() >= 1);
+        assert_ne!(s.rules_version(), 0);
+        let (mut asked, mut events, mut rng, mut records) = (false, 0, false, 0);
+        for _ in 0..600 {
+            asked |= s.options().is_some_and(|c| !c.options.is_empty() && !c.prompt.is_empty());
+            let _ = s.step();
+            events += s.events_since().len();
+            records += s.decisions_since().len();
+            rng |= !s.rng_positions().is_empty();
+        }
+        assert!(asked, "a question was offered");
+        assert!(events > 0 && records > 0, "events {events}, decisions {records}");
+        assert!(rng, "the random streams moved in 600 steps");
+        assert!(s.events_since().is_empty(), "drained");
+        // a switched-off feature is named
+        let mut diplomacy = MaskSubject::<LegacyMask>::new(&spec(), Pilot::Bot).expect("builds");
+        diplomacy.game.state.diplomacy.enabled = true;
+        assert_eq!(diplomacy.disabled().as_deref(), Some("Diplomacy"));
+    }
+
+    #[test]
+    fn the_views_carry_the_question_and_the_decisions() {
+        let mut s = MaskSubject::<LegacyMask>::new(&spec(), Pilot::Bot).expect("builds");
+        let mut choice = None;
+        for _ in 0..200 {
+            choice = s.options();
+            if choice.is_some() {
+                break;
+            }
+            let _ = s.step();
+        }
+        let choice = choice.expect("a question within 200 steps");
+        let view = choice_view(Some(&choice));
+        assert_eq!(view["prompt"], json!(choice.prompt));
+        assert_eq!(view["options"].as_array().map(Vec::len), Some(choice.options.len()));
+        assert_eq!(choice_view(None), Value::Null);
+        let _ = s.step();
+        let records = s.decisions_since();
+        assert!(!records.is_empty());
+        let rv = records_view(&records);
+        assert_eq!(rv.as_array().map(Vec::len), Some(records.len()));
+        assert_eq!(rv[0]["chosen"], json!(records[0].chosen));
+        assert_eq!(rv[0]["v1"].as_str().map(str::len), Some(64));
+    }
+
+    #[test]
+    fn the_round_limit_stops_a_scenario_at_the_round_and_the_counters_split_by_category() {
+        let (list, mut tally) = (AllowList::empty(), Tally::default());
+        let played = play_scenario::<MaskSubject<LegacyMask>, Tamper<LegacyMask>>(&spec(), LIMITS, &mut judge(&list, &mut tally)).expect("builds").expect("not skipped");
+        let c = &played.report.areas[&Area::Driver];
+        assert_eq!(c.differing[Category::State as usize], 1, "the one leaf");
+        for other in [Category::Decision, Category::DecisionHash, Category::Value, Category::Event, Category::Rng] {
+            assert_eq!(c.differing[other as usize], 0, "{other:?}");
+            assert_eq!(c.compared[other as usize], 5, "{other:?} compared at each of the five steps");
+        }
+        let one_round = Limits { max_rounds: 1, max_steps: 100_000 };
+        let (list, mut tally) = (AllowList::empty(), Tally::default());
+        let played = play_scenario::<MaskSubject<LegacyMask>, MaskSubject<LegacyMask>>(&spec(), one_round, &mut judge(&list, &mut tally)).expect("builds").expect("not skipped");
+        assert!(played.stopped.as_deref().is_some_and(|s| s.contains("round 2")), "stops as soon as round 2 starts: {:?}", played.stopped);
+    }
 }
