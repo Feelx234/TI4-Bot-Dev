@@ -2,13 +2,12 @@
 //!
 //! | string call | tier | target |
 //! |---|---|---|
-//! | `nomad_agents::agent_readied` (`leaders::ready`, `ready_all`) | O | `direct.nomad_agents_agent_readied`: NOT ported, see below |
+//! | `nomad_agents::agent_readied` (`leaders::ready`, `ready_all`) | O | `rules::leaders::agent_readied`, called by the sites that ready a leader (status phase 81.6, Temporal Command Suite) |
 //!
-//! `agent_readied` removes Artuno's pile mark and gains its trade goods with a staged `TRADE_GOODS_GAINED` whose source
-//! is the text `"artuno"`. In the core the source of that event is a `Code`, an index into a per-game text table the
-//! adapter owns (`docs/ENGINE_CORE_STATE_FIELDS.md`), and a core observer has no way to name it: porting the mark and the
-//! gain without the event would change what the sweep announces. Blocked on X1 closing the gain sources (or a named
-//! `Code` for them); then the port is: take `MarkKey::NomadArtuno(who)`, `fx::gain_trade_goods_staged(.., Code(artuno))`.
+//! `agent_readied` removes Artuno's pile mark and gains its trade goods with a staged `TRADE_GOODS_GAINED` whose source is the text `"artuno"`
+//! (the fifth of `Codes::not_from_supply`). It is a plain function of the core (`rules::leaders::agent_readied`), called by the two sites that ready
+//! a leader: the status phase's 81.6 (`driver::windows::status_finish`) and this module's Temporal Command Suite. The hook slot
+//! `direct.nomad_agents_agent_readied` stays unused (a hook has no way to name the code).
 
 use ti4_engine_core::hooks::HookTable;
 

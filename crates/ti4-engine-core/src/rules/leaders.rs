@@ -244,6 +244,19 @@ pub fn ready_all(core: &mut CoreState, who: Seat) -> Leaders {
     out
 }
 
+/// `nomad_agents::agent_readied`: "When this card readies, gain the trade goods on this card" (Artuno the Betrayer). Called by every site that
+/// readies a leader (`leaders::ready_all` at the end of the status phase, `leaders::ready` for Temporal Command Suite) for the leaders readied;
+/// `source` is the text `artuno` of the gain (the fifth of `Codes::not_from_supply`). The pile is taken off the card and the goods are staged
+/// as `TRADE_GOODS_GAINED`, announced by the next step like the string's `gain_trade_goods_staged`.
+pub fn agent_readied(core: &mut CoreState, who: Seat, leader: Leader, source: crate::state::Code) {
+    use crate::keys::{Atom, MarkKey, MarkVal};
+    if leader != Leader::ArtunoTheBetrayer {
+        return;
+    }
+    let Some(MarkVal::Atom(Atom::Num(pile))) = core.marks_mut().tail.edit().remove(&MarkKey::NomadArtuno(who)) else { return };
+    crate::kernel::fx::gain_trade_goods_staged(core, who, i32::try_from(pile).unwrap_or(i32::MAX), source);
+}
+
 /// `leaders::ready`: ready one exhausted leader; `false` when it was not exhausted.
 pub fn ready(core: &mut CoreState, who: Seat, leader: Leader) -> bool {
     move_status(core, who, leader, |s| s == LeaderStatus::Exhausted, LeaderStatus::Readied)

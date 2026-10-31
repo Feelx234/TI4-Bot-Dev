@@ -268,7 +268,11 @@ fn tcs(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         (owner, leader)
     };
     fx_strategy::exhaust_technology(eff.state(), me, Technology::TemporalCommandSuite);
-    ti4_engine_core::rules::leaders::ready(eff.state(), agent_owner, leader);
+    if ti4_engine_core::rules::leaders::ready(eff.state(), agent_owner, leader) {
+        // (`leaders::ready` calls `nomad_agents::agent_readied`: Artuno pays out the pile when the suite readies it.)
+        let artuno = eff.codes().not_from_supply[4];
+        ti4_engine_core::rules::leaders::agent_readied(eff.state(), agent_owner, leader, artuno);
+    }
     if agent_owner == me {
         return Ok(());
     }
