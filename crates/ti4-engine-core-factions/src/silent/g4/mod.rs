@@ -4,6 +4,7 @@
 
 pub mod magen_hit;
 pub mod place;
+pub mod foresight;
 pub mod iconoclast;
 pub mod propagation;
 pub mod spynet;
@@ -24,6 +25,9 @@ pub mod code {
     /// The technology `yso` (Yin Spinner) and the unit `naalu_mech_te`: the sources of the placement questions.
     pub const YIN_SPINNER: usize = 3;
     pub const ICONOCLAST: usize = 4;
+    /// The reason `naalu` of the strategy token Foresight spends and the pool `strategy` of the token it places.
+    pub const NAALU: usize = 5;
+    pub const STRATEGY: usize = 6;
 }
 
 /// The rules of this module.
@@ -32,6 +36,7 @@ pub fn register_abilities(t: &mut AbilityTable) {
     titans_commander::register_abilities(t);
     yin_spinner::register_abilities(t);
     iconoclast::register_abilities(t);
+    foresight::register_abilities(t);
 }
 
 /// Rules registered after the Winnu's: the Yssaril module of the string comes last.

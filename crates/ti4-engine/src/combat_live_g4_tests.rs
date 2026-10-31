@@ -107,3 +107,56 @@ fn yin_spinner_places_infantry_after_the_production_like_the_string() {
         assert!(diffs.is_empty(), "{label}: {diffs:#?}");
     }
 }
+
+/// Foresight (the Naalu ability): after another player's ships move into the active system that holds the Naalu's ships, the Naalu may spend a strategy token to move them into an adjacent system without
+/// other players' ships. The whole action is compared with the string's: the window, the destination question, the relocation (the fighters aboard go along), the strategy token placed in the new system
+/// and the nested `COMMAND_TOKEN_PLACED`; a decline; the Naalu with no strategy token; a destination that holds the Naalu's token already.
+#[test]
+fn foresight_moves_the_naalu_ships_out_of_the_active_system_like_the_string() {
+    let (hub, origin, target) = hub();
+    let window = "ability:naalu:foresight:MOVEMENT_FINISHED:after";
+    for (label, tokens, answer, blocked) in [
+        ("use, the first destination", 2, Some(0_usize), false),
+        ("use, the second destination", 2, Some(1), false),
+        ("decline", 2, None, false),
+        ("no strategy token", 0, Some(0), false),
+        ("a neighbour holds the Naalu's token", 2, Some(0), true),
+    ] {
+        let mut state = table(&[("a", "hacan"), ("b", "naalu")]);
+        // The string places a frontier token on every planetless system when it is given the map: the native run starts from the position after.
+        for id in std::iter::once(&hub.centre).chain(&hub.outer) {
+            if ti4_content::galaxy::all_systems(ContentStore::embedded(), POK).iter().any(|(sid, sys)| *sid == id.as_str() && sys.planets().is_empty()) {
+                state.frontier_tokens.insert(SystemId::new(id.clone()));
+            }
+        }
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+        crate::fixtures::put(&mut state, &target, "fighter", &b(), 2);
+        state.player_mut(&b()).unwrap().strategic_tokens = tokens;
+        if blocked {
+            // A token of the Naalu in the first neighbour of the active system takes it out of the list.
+            let first = SystemId::new(hub.outer[1].clone());
+            state.system_mut(&first).place_token(b());
+        }
+        let moved = mv(&origin, 0);
+        let probe = string_run(&state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &moved, "done_moving", window], 0);
+        let offered = probe.asked.iter().any(|q| q.options.iter().any(|o| o.id == window));
+        let question = probe.asked.iter().find(|q| q.prompt.starts_with("Foresight:"));
+        assert_eq!(offered, tokens > 0, "{label}: the window needs a strategy token");
+        let mut script: Vec<String> = vec![TACTICAL_ACTION_ID.to_owned(), target.to_string(), moved, "done_moving".to_owned()];
+        match (answer, question) {
+            (Some(n), Some(q)) => {
+                script.push(window.to_owned());
+                script.push(q.options[n.min(q.options.len() - 1)].id.clone());
+                if blocked {
+                    assert!(!q.options.iter().any(|o| o.id == format!("system|{}", hub.outer[1])), "{label}: the neighbour with the Naalu's token is not offered");
+                }
+            }
+            (None, _) => script.push("decline".to_owned()),
+            (Some(_), None) => {}
+        }
+        let script: Vec<&str> = script.iter().map(String::as_str).collect();
+        let diffs = lockstep_buying(state, &hub.galaxy, &script, 0);
+        assert!(diffs.is_empty(), "{label}: {diffs:#?}");
+    }
+}

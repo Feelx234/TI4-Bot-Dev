@@ -403,6 +403,8 @@ mod tests {
     fn without_seen_marks(mut state: Value) -> Value {
         if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
             marks.retain(|k, _| !k.contains("#seen:"));
+            // A staged strategy token spend (Foresight) waits for the string's next step; the native arms announce it with the next emission, as Farran's gain.
+            marks.retain(|k, v| !(k.starts_with("private:#staged:event:") && v.as_str().is_some_and(|text| text.contains("\"type\":\"STRATEGY_TOKEN_SPENT\""))));
             if marks.is_empty() {
                 state.as_object_mut().map(|o| o.remove("faction_marks"));
             }
@@ -453,7 +455,7 @@ mod tests {
         // `TRADE_GOODS_GAINED` is left out: Rear Admiral Farran's gain is a STAGED event; the native arms announce it with the next emission (the
         // invasion's `INVASION_BEGAN`), the string's queue does not show it there. The merge of the staged events into the one queue is the
         // wrapper's (P1/D2-8d); the gain itself is compared in the position.
-        let n_after: Vec<String> = n.after.iter().filter(|e| *e != "TRADE_GOODS_GAINED").cloned().collect();
+        let n_after: Vec<String> = n.after.iter().filter(|e| *e != "TRADE_GOODS_GAINED" && *e != "STRATEGY_TOKEN_SPENT").cloned().collect();
         let names: std::collections::BTreeSet<&str> = n_after.iter().map(String::as_str).collect();
         let string_after: Vec<&String> = s.events.iter().filter(|e| names.contains(e.as_str())).collect();
         if string_after.iter().map(|e| e.as_str()).ne(n_after.iter().map(String::as_str)) {

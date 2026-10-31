@@ -18,6 +18,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
     match a {
         Ask::Stymie { mover } => format!("Stymie: where to put {}'s command token", r.seat_text(*mover)),
         Ask::MagenHit => "Magen Defense Grid: assign the hit to one of the opponent's ground forces".to_owned(),
+        Ask::Foresight { .. } => "Foresight: where do your ships go".to_owned(),
         Ask::Place { base, fit } => format!("place up to {fit} {}", super::promissory::base_name_of(*base)),
         Ask::GroundSustain { unit, system, planet, staging } => {
             if *staging {
@@ -34,6 +35,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Stymie => "stymie_system",
         Subtype::MagenHit => "magen_defense_hit",
         Subtype::GroundSustain => "ground_effect_sustain",
+        Subtype::Foresight => "destination",
         Subtype::Place => "place_units_from_reinforcements",
     }
     .to_owned()
@@ -70,6 +72,7 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
                 .with("kills", !*sturdy)
                 .with("cost", f64::from(*cost_halves) / 2.0)
         }
+        (Ask::Foresight { from }, Opt::Destination(system)) => ChoiceOption::labelled(format!("system|{}", system.as_str()), "system", format!("move your ships from {} to {}", from.as_str(), system.as_str())),
         (Ask::Place { base, .. }, Opt::Spot { system, planet, fit }) => {
             let place = planet.map_or("space", |p| p.as_str());
             ChoiceOption::labelled(format!("{}|{place}", system.as_str()), "place_unit", format!("place {fit}x {} on {place} in {}", super::promissory::base_name_of(*base), system.as_str()))
@@ -88,6 +91,7 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
         // The target is matched against the rendered options of its question (the id is an index).
         Ask::MagenHit => None,
         Ask::GroundSustain { .. } => (id == "sustain").then_some(ROpt::G(GOpt::U(Opt::Sustain))),
+        Ask::Foresight { .. } => Some(ROpt::G(GOpt::U(Opt::Destination(<ti4_engine_core::generated::System as IdStr>::from_id(id.strip_prefix("system|")?)?)))),
         // The fit of a spot is the question's: the answer is matched against the rendered options.
         Ask::Place { .. } => None,
     }

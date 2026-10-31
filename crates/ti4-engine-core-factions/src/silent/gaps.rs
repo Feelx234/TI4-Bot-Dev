@@ -11,7 +11,7 @@ use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::{Faction, LeaderType, PromissoryNote, System, Technology, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{no_effect, AbilityTable, CondCx, Slot, Spec, Unknown};
-use ti4_engine_core::state::{EventKind, Key, LeaderStatus};
+use ti4_engine_core::state::{EventKind, LeaderStatus};
 
 /// The slot of the first row.
 pub const FIRST_SLOT: u16 = 41_000;
@@ -47,26 +47,10 @@ fn leader(c: &CondCx<'_>, f: Faction, kind: LeaderType) -> bool {
         })
 }
 
-/// The seat plays `f` and has a unit of this base type on the board.
-fn unit_in_play(c: &CondCx<'_>, f: Faction, base: UnitBaseType) -> bool {
-    let me = c.def.owner;
-    let owns = |pieces: &[ti4_engine_core::state::Piece]| pieces.iter().any(|p| p.owner() == me && p.kind().data().base_type == base);
-    faction(c, f) && (c.state.board().planets().any(|(_, cell)| owns(cell.units.as_slice())) || System::ALL.iter().any(|sys| owns(c.state.board().sys(*sys).units.as_slice())))
-}
-
 /// A rule that only follows another loud gap (a clear, a return, the end of a hero's turn): the upstream ability stops the step first, so this one is
 /// never reached on its own.
 fn downstream(_: &CondCx<'_>) -> bool {
     false
-}
-
-/// Foresight ("after another player moves ships into a system that contains your ships: spend a strategy token to move them to an adjacent system"): the Naalu holds a
-/// strategy token and another player moved ships. (Where the destinations are and whether the move is legal the core cannot say: the gap stops the step.)
-fn foresight_possible(c: &CondCx<'_>) -> bool {
-    faction(c, Faction::TheNaaluCollective)
-        && c.event.payload.seat(Key::Player).is_some_and(|mover| mover != c.def.owner)
-        && c.event.payload.int(Key::ShipsMoved).is_some_and(|n| n > 0)
-        && c.state.players().by_seat(c.def.owner).is_some_and(|p| p.econ.strategic_tokens > 0)
 }
 
 fn tech(c: &CondCx<'_>, t: Technology) -> bool {
@@ -82,7 +66,6 @@ fn note(c: &CondCx<'_>, n: PromissoryNote) -> bool {
 /// The rows, in the order of the engine's name table (`ability_audit::GAP_NAMES`).
 pub const GAPS: &[Gap] = &[
     // -- abilities
-    Gap { kind: AbilityKind::Ability, event: EventKind::MovementFinished, relation: Relation::After, holds: foresight_possible }, // foresight
     // -- leaders
     Gap { kind: AbilityKind::Leader, event: EventKind::UnitAbilityRolled, relation: Relation::When, holds: |c| leader(c, Faction::TheArgentFlight, LeaderType::Commander) }, // argentcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: downstream }, // muaathero

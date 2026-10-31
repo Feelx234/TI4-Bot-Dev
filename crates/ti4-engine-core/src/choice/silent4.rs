@@ -14,6 +14,8 @@ pub enum Ask {
     /// The owner of `unit` on `planet` of `system` is offered SUSTAIN DAMAGE for a hit an effect assigned to it (`staging`: the game has a faction module seated, which
     /// words the question with the planet).
     GroundSustain { unit: Unit, system: System, planet: Planet, staging: bool },
+    /// Foresight (Naalu): the Naalu says which adjacent system its ships leave the active system `from` for.
+    Foresight { from: System },
     /// Place up to `fit` units of the base type from the reinforcements (`action_cards::place_units_choosing`): the largest number any spot takes.
     Place { base: UnitBaseType, fit: u8 },
 }
@@ -27,6 +29,8 @@ pub enum Opt {
     Target { index: u8, owner: Seat, unit: Unit, damaged: bool, sturdy: bool, cost_halves: u8 },
     /// Use SUSTAIN DAMAGE (the answer `sustain`).
     Sustain,
+    /// A system the Naalu ships go to (the option id is `system|{system}`).
+    Destination(System),
     /// A spot for the placement: a planet (`planet`) or the space area of the system, and how many units go there (the option id is `{system}|{planet}` or `{system}|space`).
     Spot { system: System, planet: Option<Planet>, fit: u8 },
 }
@@ -40,6 +44,8 @@ pub enum Subtype {
     MagenHit,
     /// `ground_effect_sustain`.
     GroundSustain,
+    /// `destination`.
+    Foresight,
     /// `place_units_from_reinforcements`.
     Place,
 }

@@ -554,3 +554,83 @@ mod placement {
         assert!(hacan.is_done(), "{}", hacan.transcript());
     }
 }
+
+// -- Foresight -----------------------------------------------------------------------------------------------------------------
+
+mod foresight {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent4::{Ask as UAsk, Opt as UOpt};
+    use ti4_engine_core::generated::{System, Unit};
+    use ti4_engine_core::query::board;
+
+    fn finished(mover: u8, system: System, ships: i64) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::MovementFinished, Payload::new().with(Key::Player, Val::Seat(Seat(mover))).with(Key::System, Val::System(system)).with(Key::ShipsMoved, Val::Int(ships)))
+    }
+
+    /// Seat 0 (Hacan) moved into `ring[0]`, the centre of a ring of four plain systems, where seat 1 (the Naalu) has a cruiser and two fighters.
+    fn rig_ring(mover: u8, ships: i64, tokens: i16, edit: impl FnOnce(&mut CoreState, &[System])) -> (Rig<EmitEvent>, Vec<System>) {
+        let ring: Vec<System> = ti4_engine_core_tests::scenario::plain_systems()[..4].to_vec();
+        let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheNaaluCollective]).map_from(&ring).unit(ring[0], None, Unit::CruiserI, 1, 1).unit(ring[0], None, Unit::FighterI, 1, 2).build();
+        state.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = tokens;
+        edit(&mut state, &ring);
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(finished(mover, ring[0], ships))).with_abilities(table());
+        r.run();
+        (r, ring)
+    }
+
+    fn destinations(r: &Rig<EmitEvent>) -> Vec<System> {
+        r.opts().iter().filter_map(|o| if let Opt::Reaction(ROpt::G(GOpt::U(UOpt::Destination(s)))) = o { Some(*s) } else { None }).collect()
+    }
+
+    #[test]
+    fn the_naalu_moves_its_ships_and_what_is_aboard_into_an_adjacent_system_and_places_the_token_there() {
+        covers!("silent::g4::foresight::FORESIGHT");
+        let (mut r, ring) = rig_ring(0, 1, 2, |_, _| {});
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the ability");
+        r.pick(use_it);
+        assert_eq!((r.asked().actor, r.asked().ask), (Seat(1), Ask::Reaction(RAsk::G(GAsk::U(UAsk::Foresight { from: ring[0] })))), "{}", r.transcript());
+        let mut want = ring[1..].to_vec();
+        want.sort();
+        assert_eq!(destinations(&r), want, "the three neighbours");
+        r.pick(1);
+        assert!(r.is_done(), "{}", r.transcript());
+        let to = want[1];
+        let kinds = |system: System| board::space_units(&r.state, system).iter().filter(|p| p.owner() == Seat(1)).map(|p| p.kind()).collect::<Vec<_>>();
+        assert_eq!(kinds(to), vec![Unit::CruiserI, Unit::FighterI, Unit::FighterI], "the ship, then what was aboard");
+        assert_eq!(kinds(ring[0]), vec![]);
+        assert!(board::has_token(&r.state, to, Seat(1)), "the strategy token is placed in the new system");
+        assert_eq!(r.state.players().by_seat(Seat(1)).unwrap().econ.strategic_tokens, 1, "and spent from the pool");
+        assert!(ti4_engine_core::kernel::fx::has_staged(&r.state), "the spend waits for the game step");
+    }
+
+    #[test]
+    fn a_destination_with_the_naalu_token_or_another_players_ships_is_not_offered() {
+        covers!("silent::g4::foresight::FORESIGHT");
+        let (mut r, ring) = rig_ring(0, 1, 2, |s, ring| {
+            ti4_engine_core::kernel::fx::place_command_token(s, Seat(1), ring[1]);
+            ti4_engine_core::kernel::fx::place_unit(s, Seat(0), ring[2], None, Unit::CruiserI);
+        });
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the ability");
+        r.pick(use_it);
+        assert_eq!(destinations(&r), vec![ring[3]], "only the neighbour without a token and without foreign ships: {}", r.transcript());
+    }
+
+    #[test]
+    fn foresight_needs_another_players_move_a_strategy_token_and_a_destination() {
+        covers!("silent::g4::foresight::FORESIGHT");
+        let (own, _) = rig_ring(1, 1, 2, |_, _| {});
+        assert!(own.is_done(), "the Naalu's own move: {}", own.transcript());
+        let (nothing_came, _) = rig_ring(0, 0, 2, |_, _| {});
+        assert!(nothing_came.is_done(), "no ship moved in: {}", nothing_came.transcript());
+        let (broke, _) = rig_ring(0, 1, 0, |_, _| {});
+        assert!(broke.is_done(), "no strategy token: {}", broke.transcript());
+        let (boxed_in, _) = rig_ring(0, 1, 2, |s, ring| {
+            for neighbour in &ring[1..] {
+                ti4_engine_core::kernel::fx::place_command_token(s, Seat(1), *neighbour);
+            }
+        });
+        assert!(boxed_in.is_done(), "every neighbour holds the token already: {}", boxed_in.transcript());
+    }
+}
