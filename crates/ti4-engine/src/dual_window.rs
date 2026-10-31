@@ -711,9 +711,7 @@ pub fn drive_windowed<W: Window>(
     loop {
         if let Some(why) = driver.unknown() {
             let why = match why {
-                ti4_engine_core::kernel::ability::Unknown::BriberyGoods => "Bribery's goods (the Keleres agent)",
                 ti4_engine_core::kernel::ability::Unknown::CardCost => "a card cost the core does not judge",
-                ti4_engine_core::kernel::ability::Unknown::HarnessOrInfiltrate => "Harness Energy / Infiltrate",
                 ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
                 ti4_engine_core::kernel::ability::Unknown::ImmediateCardPlay => "an action card played at once",
                 ti4_engine_core::kernel::ability::Unknown::UnportedCard => "an action card the core does not play",

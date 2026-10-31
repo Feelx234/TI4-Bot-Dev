@@ -18,6 +18,8 @@ pub struct ActionCardsCheck {
     pub compared: u64,
     /// Reads the core declined (the documented bails), not mismatches.
     pub bailed: u64,
+    /// The window reads of Harness Energy and Infiltrate compared (the tile catalogue, the rift hook, the box; W16).
+    pub judged: u64,
     pub mismatches: Vec<String>,
 }
 
@@ -27,6 +29,7 @@ impl ActionCardsCheck {
         self.unmapped += o.unmapped;
         self.compared += o.compared;
         self.bailed += o.bailed;
+        self.judged += o.judged;
         for m in &o.mismatches {
             self.miss(m.clone());
         }
@@ -85,16 +88,99 @@ fn reactions(label: &str, gs: &GameState, content: &ContentStore, v: &ActionView
     let players: Vec<&ti4_model::id::PlayerId> = gs.players.iter().map(|p| &p.id).collect();
     for card in cards.iter().filter(|c| WINDOW_CARDS.contains(&c.as_str())) {
         for sys in &systems {
+            // Infiltrate's window names the planet gained: every planet of the system that holds a unit or has a controller, and none.
+            let planets: Vec<Option<String>> = std::iter::once(None)
+                .chain(
+                    gs.system_state(sys)
+                        .planet_units
+                        .keys()
+                        .chain(gs.system_state(sys).planet_control.keys())
+                        .map(|p| p.as_str().to_owned())
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .into_iter()
+                        .map(Some),
+                )
+                .collect();
             for who in &players {
                 for actor in std::iter::once(None).chain(players.iter().map(|p| Some(p.as_str()))) {
-                    let event = crate::event::Event::new(1, "WINDOW", actor.map(|a| ("player".to_owned(), serde_json::json!(a))).into_iter().collect());
-                    let string = crate::action_cards::reaction_window_text(gs, content, who, card, &event, sys);
-                    match v.reaction_can_matter(who, card, sys.as_str(), actor) {
-                        None => out.bailed += 1,
-                        typed => out.eq(label, &format!("reaction_can_matter {card} {sys} actor {actor:?}"), &string, &typed),
+                    for planet in &planets {
+                        let mut fields: std::collections::BTreeMap<String, serde_json::Value> = actor.map(|a| ("player".to_owned(), serde_json::json!(a))).into_iter().collect();
+                        if let Some(p) = planet {
+                            fields.insert("planet".to_owned(), serde_json::json!(p));
+                        }
+                        let event = crate::event::Event::new(1, "WINDOW", fields);
+                        let string = crate::action_cards::reaction_window_text(gs, content, who, card, &event, sys);
+                        match v.reaction_can_matter(who, card, sys.as_str(), actor, planet.as_deref()) {
+                            None => out.bailed += 1,
+                            typed => {
+                                out.judged += u64::from(matches!(card.as_str(), "harness" | "infiltrate"));
+                                out.eq(label, &format!("reaction_can_matter {card} {sys} actor {actor:?} planet {planet:?}"), &string, &typed);
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_engine_core::generated::System;
+    use ti4_model::id::{PlanetId, PlayerId, SystemId};
+
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self, n: u64) -> u64 {
+            self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            (self.0 >> 33) % n
+        }
+    }
+
+    /// Package W16: the judges of the windows of Harness Energy (the tile catalogue and the rifts a Cabal tear makes) and of Infiltrate (the
+    /// swaps of the box, counted as they go, and the rules versions) answer as the string's `reaction_can_matter` does, in every occupied
+    /// system, for every seat and actor, with and without the planet the window names, over many random boards: structures of every seat
+    /// on every planet, anomalies with ships in them, reinforcements run down to zero, a Cabal tear, rules versions 0, 1 and 23. The core
+    /// answered `None` (a counted bail) for both cards before.
+    #[test]
+    fn the_judges_of_harness_energy_and_infiltrate_agree_with_the_strings_over_many_positions() {
+        let content = ContentStore::embedded();
+        let planets: Vec<(SystemId, PlanetId)> = ti4_content::galaxy::all_planets(content, ti4_model::content_types::POK)
+            .iter()
+            .filter(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+            .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+            .collect();
+        let anomalies: Vec<SystemId> = System::ALL.iter().filter(|s| s.data().anomalies.any()).map(|s| SystemId::new(s.as_str())).collect();
+        assert!(planets.len() > 30 && anomalies.len() > 5);
+        let players = ["a", "b", "c"].map(PlayerId::new);
+        let mut out = ActionCardsCheck::default();
+        for seed in 0..40_u64 {
+            let mut rng = Lcg(seed + 1);
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "cabal")], ti4_model::content_types::POK);
+            state.rules_version = [0, 1, 23][rng.next(3) as usize];
+            for _ in 0..14 {
+                let (system, planet) = &planets[rng.next(planets.len() as u64) as usize];
+                let owner = &players[rng.next(3) as usize];
+                state.system_mut(system).set_control(planet.clone(), owner.clone());
+                for _ in 0..rng.next(3) {
+                    let kind = ["pds", "spacedock", "infantry", "pds2", "spacedock2"][rng.next(5) as usize];
+                    crate::fixtures::put_on_planet(&mut state, system, planet, kind, &players[rng.next(3) as usize], 1);
+                }
+            }
+            for _ in 0..4 {
+                let system = &anomalies[rng.next(anomalies.len() as u64) as usize];
+                crate::fixtures::put(&mut state, system, "cruiser", &players[rng.next(3) as usize], 1);
+            }
+            // The reinforcements of a seat run down: six PDS or three space docks of a on the board of one far planet.
+            if seed % 3 == 0 {
+                let (system, planet) = &planets[rng.next(planets.len() as u64) as usize];
+                crate::fixtures::put_on_planet(&mut state, system, planet, "pds", &players[0], 6 - usize::try_from(seed % 2).unwrap());
+                crate::fixtures::put_on_planet(&mut state, system, planet, "spacedock", &players[1], 3);
+            }
+            compare(&format!("seed {seed}"), &state, &mut out);
+        }
+        assert!(out.mismatches.is_empty(), "{:?}", out.mismatches);
+        assert!(out.judged > 3_000, "both judges were compared: {}", out.judged);
     }
 }

@@ -13,6 +13,7 @@ use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
 use crate::query::reach;
+use crate::rules::combat::commander_walk::Walk;
 use crate::rules::invasion::bombard::{Bombardment, Cursor, Entry};
 use crate::rules::invasion::stages::{self, Custodians, FightRound, NextCombat};
 use crate::rules::invasion::{
@@ -21,7 +22,7 @@ use crate::rules::invasion::{
 use crate::rules::invasion::commit::CommitGround;
 use crate::rules::production::pay::PayBill;
 use crate::state::{
-    ActiveInvasion, CoreState, EventKind, IBill, IBombardCursor, ICustodians, IPlanetBombard, IRound, IStage, InvasionDie, InvasionStep, Key, Payload,
+    ActiveInvasion, CoreState, EventKind, IBill, IBombardCursor, ICustodians, IPlanetBombard, IRound, IStage, IWalk, InvasionDie, InvasionStep, Key, Payload,
     Piece, RerollEntry, RerollSet, RollPurpose, RollRec, Val,
 };
 
@@ -95,6 +96,7 @@ impl InvasionMachine {
     fn stage_question(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         let (invader, system) = (self.p.invader, self.p.system);
         match &self.p.stage {
+            IStage::Bombarding if self.p.bombard.walk.is_some() => self.walk_of(s)?.ask(s),
             IStage::Bombarding if self.p.bombard.cursor.is_some() => self.bomb_window(s, true).ask_of(s, k),
             IStage::Custodians(ICustodians::Asking) => Custodians::at_question(invader, system).ask_of(s, k),
             IStage::Custodians(ICustodians::Paying(b)) => PayBill::resume(b.who, spend(b), i64::from(b.cost), i64::from(b.paid)).ask_of(s, k),
@@ -203,6 +205,49 @@ impl InvasionMachine {
         Ok(())
     }
 
+    /// Whether the invader holds the Jol-Nar commander (Aglnlan Oln unlocked): it may reroll any of the dice of a unit ability.
+    fn holds_commander(s: &CoreState, who: Seat) -> bool {
+        s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&crate::generated::Leader::AgnlanOln) == Some(&crate::state::LeaderStatus::Unlocked))
+    }
+
+    /// The commander's walk at the position the payload keeps (`None`: no walk is open or the dice are gone).
+    fn walk_of(&self, s: &CoreState) -> Option<Walk> {
+        let w = self.p.bombard.walk.as_ref()?;
+        Walk::resume(s, self.p.invader, &w.shown, usize::from(w.at), &w.picks)
+    }
+
+    /// The label of each staged entry in the question renderer's table: the entry's unit text is the state's text of its unit type.
+    fn shown(s: &CoreState, invader: Seat, codes: &crate::kernel::ability::InvasionCodes) -> Vec<crate::state::Code> {
+        let Some((_, set)) = s.transient().combat.reroll_staging.iter().find(|(who, _)| *who == invader) else { return Vec::new() };
+        set.rolls
+            .iter()
+            .map(|e| codes.units.iter().position(|c| *c == e.unit).map(|i| codes.shown_units[i]).filter(|c| *c != crate::state::Code(0)).unwrap_or(e.unit))
+            .collect()
+    }
+
+    /// The walk begins when the invader holds the commander and rolled a die (`reroll_window`: `has_dice`). `true`: a question is open.
+    fn begin_walk(&mut self, sx: &mut Sx<'_>) -> bool {
+        if !Self::holds_commander(sx.state, self.p.invader) || Walk::start(sx.state, self.p.invader, &[]).is_none() {
+            return false;
+        }
+        self.p.bombard.walk = Some(IWalk { shown: Self::shown(sx.state, self.p.invader, &sx.table.codes.invasion), ..IWalk::default() });
+        true
+    }
+
+    /// The answer to the commander's question about one die; the last one draws the picked dice again and closes the walk.
+    fn answer_walk(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let mut walk = self.walk_of(sx.state).ok_or(Illegal)?;
+        walk.answer(sx.state, pick)?;
+        if walk.done() {
+            walk.redraw(sx);
+            self.p.bombard.walk = None;
+        } else {
+            let shown = self.p.bombard.walk.take().map(|w| w.shown).unwrap_or_default();
+            self.p.bombard.walk = Some(IWalk { at: u16::try_from(walk.at()).unwrap_or(u16::MAX), picks: walk.picks().to_vec(), shown });
+        }
+        Ok(())
+    }
+
     /// The one-shot windows after the bombardment rolls (`announce_bombard_rerolls`): the reaction windows of `UNIT_ABILITY_ROLLED` (Scramble
     /// Frequency), then every planet's groups are recomputed from the possibly rerolled dice and the staging is spent.
     pub(super) fn announce_rerolls(&mut self, sx: &mut Sx<'_>) -> Result<(), Why> {
@@ -211,10 +256,6 @@ impl InvasionMachine {
         let has = |s: &CoreState| s.transient().combat.reroll_staging.iter().any(|(who, _)| *who == invader);
         if !has(sx.state) {
             return Ok(());
-        }
-        // Aglnlan Oln asks which dice to reroll after a unit-ability roll.
-        if sx.state.players().by_seat(invader).is_some_and(|p| p.leaders.status.get(&crate::generated::Leader::AgnlanOln) == Some(&crate::state::LeaderStatus::Unlocked)) {
-            return Err(Why::JolNarCommanderReroll);
         }
         let (system, hits) = {
             let set = sx.state.transient().combat.reroll_staging.iter().find(|(who, _)| *who == invader).map(|(_, set)| set).ok_or(Why::BombardmentDiceMismatch)?;
@@ -446,6 +487,7 @@ impl InvasionMachine {
 
     pub(super) fn resolve(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         match self.p.stage.clone() {
+            IStage::Bombarding if self.p.bombard.walk.is_some() => self.answer_walk(sx, pick),
             IStage::Bombarding if self.p.bombard.cursor.is_some() => self.answer_bombard(sx, pick),
             IStage::Custodians(ICustodians::Asking) => self.answer_custodians(sx, pick),
             IStage::Custodians(ICustodians::Paying(b)) => {
@@ -470,6 +512,16 @@ impl InvasionMachine {
                 IStage::Begin => self.begin(sx)?,
                 IStage::Bombarding => {
                     if self.p.bombard.cursor.is_none() && !self.p.bombard.announced {
+                        // The invader's Jol-Nar commander is asked about each die before the event goes out.
+                        if !self.p.bombard.walked {
+                            self.p.bombard.walked = true;
+                            if self.begin_walk(sx) {
+                                return Ok(());
+                            }
+                        }
+                        if self.p.bombard.walk.is_some() {
+                            return Ok(());
+                        }
                         self.p.bombard.announced = true;
                         self.announce_rerolls(sx)?;
                     }

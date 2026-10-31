@@ -189,14 +189,9 @@ impl Vote {
         core.players().by_seat(seat).map_or(0, |p| i64::from(p.econ.trade_goods.max(0))) + k.hooks.direct.keleres_spendable_commodities(core, seat)
     }
 
-    /// `supply::potential_goods`: [`Self::goods`] plus what a readied Keleres agent could still grant.
+    /// `supply::potential_goods`.
     fn potential_goods(core: &CoreState, k: &Kernel, seat: Seat) -> i64 {
-        let granted = if k.hooks.direct.keleres_agent_could_grant(core, seat) {
-            core.players().by_seat(seat).map_or(0, |p| i64::from(p.econ.commodities.max(0)))
-        } else {
-            0
-        };
-        Self::goods(core, k, seat) + granted
+        crate::rules::production::supply::potential_goods(core, k, seat)
     }
 
     /// `supply::spend_goods`: commodities first (those the agent made spendable), then trade goods.

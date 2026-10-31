@@ -59,12 +59,8 @@ impl Applies {
 /// Why a condition cannot be answered by the core: a documented bail of the rule it reads (the adapter words it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unknown {
-    /// Bribery's goods (the Keleres agent's commodities).
-    BriberyGoods,
     /// A printed card cost the core does not judge.
     CardCost,
-    /// Harness Energy / Infiltrate: the tile catalogue and the swap rules.
-    HarnessOrInfiltrate,
     /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite): the exhaustion is announced.
     NomadAgentExhaustion,
     /// An action card played into a window at once (the Sabotage window, or a rules version before 3): the string path.
@@ -153,7 +149,6 @@ pub enum Unported {
     /// A first claim explores the planet and no native exploration window exists yet.
     ExplorationOfAFirstClaim,
     BombardmentDiceMismatch,
-    JolNarCommanderReroll,
     ShipFormFlip,
     X89,
     Thundarian,
@@ -281,12 +276,15 @@ pub struct InvasionCodes {
     pub names: [crate::state::Code; 12],
     /// The text of every unit type, by `Unit` index.
     pub units: [crate::state::Code; crate::generated::Unit::COUNT],
+    /// The same texts in the question renderer's table (the label of the Jol-Nar commander's question about a die of the bombardment); all
+    /// zero where the host has no renderer: a question is then labelled by the staged entry's own code.
+    pub shown_units: [crate::state::Code; crate::generated::Unit::COUNT],
 }
 
 impl Default for InvasionCodes {
     fn default() -> Self {
         let z = crate::state::Code(0);
-        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, bombardment_cause: z, space_cannon_cause: z, planets: z, dunlain_reaper: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT] }
+        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, bombardment_cause: z, space_cannon_cause: z, planets: z, dunlain_reaper: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT], shown_units: [z; crate::generated::Unit::COUNT] }
     }
 }
 

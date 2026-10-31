@@ -90,20 +90,30 @@ impl<'a> ActionView<'a> {
         alias: &ActionCardId,
         system: &str,
         actor: Option<&str>,
+        planet: Option<&str>,
     ) -> Option<bool> {
         let seat = self.cx.owners.seat(player.as_str())?;
         let actor = match actor {
             None => None,
             Some(a) => Some(self.cx.owners.seat(a)?),
         };
-        let window = Window { system: System::from_id(system)?, actor };
-        rules::reaction_can_matter(
-            &self.view,
-            crate::core_adapter::scope(ti4_model::content_types::SourceSet::all()),
-            seat,
-            ActionCard::from_id(alias.as_str())?,
-            window,
-        )
+        let window = Window { system: System::from_id(system)?, actor, planet: match planet {
+            None => None,
+            Some(p) => Some(<ti4_engine_core::generated::Planet as IdStr>::from_id(p)?),
+        } };
+        let scope = crate::core_adapter::scope(ti4_model::content_types::SourceSet::all());
+        let card = ActionCard::from_id(alias.as_str())?;
+        // Harness Energy and Infiltrate read the tile catalogue, the reinforcements and two faction answers (the string modules').
+        if matches!(card, ActionCard::HarnessEnergy | ActionCard::Infiltrate) {
+            let rifts: Vec<System> = crate::factions::hooks_movement::extra_gravity_rifts(self.state).iter().filter_map(|s| System::from_id(s)).collect();
+            let content = ti4_content::ContentStore::embedded();
+            let forbidden = |unit: ti4_engine_core::generated::Unit| {
+                crate::factions::hooks_economy::effect_placement_forbidden(self.state, content, ti4_model::content_types::SourceSet::all(), player, &ti4_model::id::UnitTypeId::new(IdStr::as_str(unit)))
+            };
+            let hooks = rules::Hooks { rifts: &rifts, forbidden: &forbidden };
+            return Some(rules::reaction_can_matter_with(&self.view, scope, seat, card, window, &hooks, (None, None)));
+        }
+        rules::reaction_can_matter(&self.view, scope, seat, card, window)
     }
 
     /// The hand positions `action_cards::available_actions` offers; `None` is the documented bail.

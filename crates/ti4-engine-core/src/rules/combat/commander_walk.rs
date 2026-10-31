@@ -49,6 +49,29 @@ impl Walk {
         Some(Self { who, system: set.system, shown: shown.to_vec(), dice, at: 0, picks: Vec::new() })
     }
 
+    /// The walk of `who` over the set staged in `state`, picked up where it stood: `at` dice have been answered and `picks` are the ones
+    /// chosen so far (a window that keeps its position in the state, not in itself, rebuilds the walk at every call). `shown` empty: a
+    /// question is labelled by the staged entry's own code.
+    #[must_use]
+    pub fn resume(state: &CoreState, who: Seat, shown: &[Code], at: usize, picks: &[(u8, u16)]) -> Option<Self> {
+        let mut walk = Self::start(state, who, shown)?;
+        walk.at = at;
+        walk.picks = picks.to_vec();
+        Some(walk)
+    }
+
+    /// How many dice have been answered.
+    #[must_use]
+    pub fn at(&self) -> usize {
+        self.at
+    }
+
+    /// The dice picked so far, (entry, die).
+    #[must_use]
+    pub fn picks(&self) -> &[(u8, u16)] {
+        &self.picks
+    }
+
     fn staged(state: &CoreState, who: Seat) -> Option<&RerollSet> {
         state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == who).map(|(_, set)| set)
     }
