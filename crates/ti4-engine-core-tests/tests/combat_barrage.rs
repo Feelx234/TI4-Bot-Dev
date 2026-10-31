@@ -534,6 +534,7 @@ fn a_waylay_sends_the_hits_to_every_ship_with_sustain_damage_first_and_the_owner
         assert!(lost >= 1 || sustained, "seed {seed}: {hits} hits had an effect");
         let destroyed = rig.driver.emitted.iter().filter(|e| e.kind == EventKind::ShipDestroyed).count();
         assert!(destroyed >= lost, "each loss is announced");
+        assert!(rig.driver.emitted.iter().filter(|e| e.kind == EventKind::ShipDestroyed).all(|e| e.payload.flag(Key::DuringSpaceCombat) == Some(true)), "a Waylay's hits are part of the space combat");
     }
     assert!(asked_sustain && asked_casualty, "the seeds cover a sustain offer and a casualty choice");
 }
