@@ -59,6 +59,14 @@ pub struct Facts {
     pub raid: Option<Code>,
 }
 
+/// Every ship that will roll a barrage die for one of these sides has an interned unit-type text in `codes`. The adapter interns the
+/// types on the board when the settle begins; a type that arrives in the window (a technology gained at the start of the combat
+/// swaps the owner's units to their upgrade) would be named `extra barrage`, the relic's label, in the presentation of the dice.
+#[must_use]
+pub fn every_roller_is_named(rd: Rd<'_>, sides: [Seat; 2], system: System, codes: &[(Unit, Code)]) -> bool {
+    sides.into_iter().all(|side| barrage_plan(rd, side, system).iter().all(|r| r.unit.is_none_or(|u| codes.iter().any(|(k, _)| *k == u))))
+}
+
 #[derive(Debug, Clone)]
 pub struct BarrageStep {
     pub f: Facts,

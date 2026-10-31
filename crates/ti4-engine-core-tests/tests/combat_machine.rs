@@ -408,6 +408,26 @@ fn every_gate_the_string_side_closes_is_a_documented_bail() {
     assert_eq!(fight.settle(Policy::First), Some(Stop::Bailed(Bail::Unported)), "no text for the roll group");
 }
 
+/// Found by the end-of-D1 gate (`dual_run ... driver=dual --game 18`): a technology gained at the start of the combat swaps the owner's
+/// Destroyer I to a Destroyer II; the settle's unit texts were interned for the board as it stood when the settle began, so the
+/// barrage dice of the new type were labelled `extra barrage` (the relic's label) where the string names `destroyer2`.
+#[test]
+fn a_barrage_by_a_unit_type_the_settle_has_no_text_for_is_a_bail_not_an_extra_barrage_label() {
+    covers!("rules::combat::machine::Machine");
+    let sc = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerII, 0, 1).unit(sys(), None, Unit::CruiserI, 1, 2);
+    // The texts of the board the settle began on: no Destroyer II among them.
+    let mut e = env();
+    e.unit_codes.retain(|(u, _)| *u != Unit::DestroyerII);
+    let mut fight = Fight::new(sc(), e, 1);
+    assert_eq!(fight.settle(Policy::First), Some(Stop::Bailed(Bail::Unported)));
+    assert_eq!(fight.count(EventKind::UnitAbilityRolled), 0, "no barrage was played under a wrong label");
+    // With the text the same position is fought (and the dice carry the unit's own label).
+    let mut fight = Fight::new(sc(), env(), 1);
+    assert_eq!(fight.settle(Policy::First), Some(Stop::Over));
+    let dice = &fight.state.transient().combat.presentation.barrage_dice;
+    assert!(!dice.is_empty() && dice.iter().all(|d| d.unit != Code(8)), "{dice:?}");
+}
+
 #[test]
 fn staged_destructions_and_cancellations_and_duranium_armor_and_devotion_are_bails_too() {
     covers!("rules::combat::machine::Machine");
