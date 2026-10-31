@@ -20,6 +20,26 @@ wrapper is a lent body that never ends.
 
 ---
 
+## STATUS AND AGREEMENT (2026-10-31, lane A2, branch `core-d2-f-live2`): read this before the text below
+
+This document (the machine islands) and `D2-islands-composition.md` (the composition islands) are ONE design; M0 here and KF1/KF2 there are the same contract, built by
+lane A and recorded in `docs/D2_LF_RESUME.md` (sections 1-2, the `INTERFACE:` commit `3c31be4d`) and `docs/D2_LF2_RESUME.md`. Differences between the text below and what was built:
+
+| Text below | Built |
+|---|---|
+| 2.1 persisted form (payload on `Pending` + `Pending.nested` journal), decision D-L0 | decided and built as recommended: payload + journal; proven by `driver::live::tests::a_nested_question_survives_a_dropped_driver_and_continues_to_the_same_position` |
+| 2.2 `Held { type Args; type Closed; fn open; fn closed }`, `Live<C>`, `ask -> Option<Choice>` | built smaller: `Held { KIND; from_pending; to_pending; closed(&self,&mut CoreState,&Kernel) {} }`, `Live::{Asks(Box<Asking>), Done}`, `ask -> Result<Option<Asking>, LiveError>`, openers are free functions of the lane (`open(core, &window)`) |
+| 2.2 `Env` "built once per game, never per step" | still true for the registry and the table; the position-dependent PLAY FACTS of a card played inside the window are computed from the core at every driver build by `AdapterFacts::plays_provider` (`live::plays`, `live::env::env_with_plays`): lanes whose windows can see a card play build their `Env` with `env_with_plays` |
+| 2.3 the arm registry | `live_arm(Arm)` / `ask_arm_fn(Arm)` in `driver/live.rs`: one line each per arm |
+| 2.6 the arm-level `dual_window!` lockstep (`live::<arm>`) | NOT built; the oracle's `NativeSubject` (`ti4-engine-core-bridge/src/native_subject.rs`, `oracle --native ARMS`) replaces it: a legacy game runs the arm in shadow per step and compares questions, plain events and positions; a lane adds ONE line to `native_subject::open_arm` (how the observed window opens its core window) |
+| 2.7 item 5 bail-as-failure | built (`TI4_BAIL_IS_FAILURE`, `dual::set_bail_is_failure`) |
+| 2.7 item 6 coverage counters | built (`live::coverage`, printed by `playthrough`) |
+| 5.4 `playthrough` / M7 | built by lane A: `--quick` is the cheap check (a); the per-island table is the work list of each lane; the Z-gate (b) is not started |
+
+How an island lane runs the cheap check: `docs/D2_LF2_RESUME.md` section "Running the playthrough".
+
+---
+
 ## 0. Summary and findings that change the plan
 
 1. **The five machines are not "islands with no machine": the core already has the *leaf* windows and no *composer*.** *Measured:* `rules/invasion/` has
