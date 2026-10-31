@@ -156,7 +156,7 @@ pub fn ask<M: Held>(core: &CoreState, env: &Env<'_>) -> Result<Option<Asking>, L
     Ok(window.ask_of(core, env.kernel).map(|choice| Asking { choice, nested: None, at: None }))
 }
 
-fn asking_of<M: Window>(d: &Driver<M>, choice: Choice) -> Asking {
+pub(crate) fn asking_of<M: Window>(d: &Driver<M>, choice: Choice) -> Asking {
     let at = d.nested_state().cloned().map(Box::new);
     let nested = d.nested_facts().cloned().zip(at.clone());
     Asking { choice, nested, at }

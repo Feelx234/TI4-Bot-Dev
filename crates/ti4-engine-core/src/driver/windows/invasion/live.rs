@@ -144,8 +144,7 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
         Status::Asking(choice) => {
             d.window.to_pending(core);
             core.pending_mut().nested = d.nested_journal();
-            let nested = d.nested_facts().cloned().zip(d.nested_state().cloned().map(Box::new));
-            Ok((Live::Asks(Box::new(Asking { choice, nested })), out))
+            Ok((Live::Asks(Box::new(crate::driver::live::asking_of(&d, choice))), out))
         }
         Status::Done => {
             if let Some((occurrence, combat)) = d.window.pause {

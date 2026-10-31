@@ -114,8 +114,7 @@ fn advance_inner<M: Held>(
         Status::Asking(choice) => {
             d.window.to_pending(core);
             core.pending_mut().nested = d.nested_journal();
-            let nested = d.nested_facts().cloned().zip(d.nested_state().cloned().map(Box::new));
-            Ok((Live::Asks(Box::new(Asking { choice, nested })), out))
+            Ok((Live::Asks(Box::new(crate::driver::live::asking_of(&d, choice))), out))
         }
         Status::Done => match after(&mut d.window, core, &mut out) {
             After::Fail(why) => Err(LiveError::Unknown(why)),
