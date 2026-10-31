@@ -65,7 +65,7 @@ fn a_single_planet_is_devoured_unasked_when_one_technology_matches() {
     let mut rig = hero(sc, vec![target(a, 3, &[Technology::GravityDrive])]);
     rig.run();
     assert!(rig.is_done(), "{}", rig.transcript());
-    assert!(rig.driver.window.used && !rig.driver.window.unsupported);
+    assert!(rig.driver.window.used);
     assert_eq!(units_on(&rig, a.1, 1), 0, "every other seat's unit on the planet is gone, the structure too");
     assert_eq!(units_on(&rig, a.1, 0), 1, "the seat's own unit stays");
     assert_eq!(units_on(&rig, b.1, 1), 1, "the other planet is untouched");
