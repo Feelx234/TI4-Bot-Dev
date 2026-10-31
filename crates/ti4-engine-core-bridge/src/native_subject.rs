@@ -23,6 +23,10 @@
 //! | the window ended exactly when the legacy window ended; the native run did not stop | `native.finished`, `native.stop` | `Value` |
 //! | answers the native arm did not consume | `native.questions.unconsumed` | `Decision` |
 //!
+//! A step that ENDS the window is compared on the prefix of the questions and events only: the legacy step goes on with the close the
+//! core does not own yet (the string's remainder, e.g. steps 81.6-81.8 after the last token), asks more, emits more and moves the very
+//! pools the last token filled. The position at the end of a window is compared when the close is the core's too.
+//!
 //! They reach the harness through [`Subject::take_extra`], so an allow-list entry selects them by `area: "driver"`, label
 //! `oracle::<subtype>` and the path, exactly like the rest of the oracle.
 //!
@@ -98,7 +102,7 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
     match arm {
         Arm::Tokens => match windows.iter().find_map(|w| if let Window::Tokens(t) = w { Some(t.clone()) } else { None }) {
             Some(t) => {
-                open(core, &TokenGain::new(t));
+                open(core, &TokenGain::new(*t));
                 true
             }
             None => false,
@@ -192,11 +196,23 @@ impl NativeSubject {
                 return;
             }
         };
+        // A step that ends the window ALSO runs the close the core does not own yet (the string's remainder of the step: steps 81.6-81.8
+        // after the last token): the legacy step then asked, answered and emitted more than the arm, and changed the position beyond it
+        // (the remainder moves the very pools the last token filled). So a step that ends the window is compared on the prefix of the
+        // questions and the events only; a step that leaves it open must agree on everything, the position included. The position at
+        // the end of a window is compared when the close is the core's too (KS5).
+        let finished = step.finished;
+        if finished {
+            count(&RAN, format!("{name} (window ended; the close is the legacy's)"));
+        }
         // The questions.
         let native: Vec<Value> = step.asked.iter().map(|c| json!({ "player": c.player.as_str(), "prompt": c.prompt, "options": c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>() })).collect();
-        let legacy: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
+        let mut legacy: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
+        if finished && legacy.len() >= native.len() {
+            legacy.truncate(native.len());
+        }
         leaves(Category::Decision, "native.questions", &Value::Array(legacy), &Value::Array(native), &mut out);
-        if asker.left() > 0 {
+        if asker.left() > 0 && !finished {
             leaves(Category::Decision, "native.questions.unconsumed", &json!(0), &json!(asker.left()), &mut out);
         }
         // The plain events.
@@ -204,7 +220,11 @@ impl NativeSubject {
         match pushed {
             Some(lines) => {
                 let texts: Vec<&str> = lines.iter().map(|p| p.text()).collect();
-                leaves(Category::Event, "native.events", &json!(events), &json!(texts), &mut out);
+                let mut legacy_events = events.to_vec();
+                if finished && legacy_events.len() >= texts.len() {
+                    legacy_events.truncate(texts.len());
+                }
+                leaves(Category::Event, "native.events", &json!(legacy_events), &json!(texts), &mut out);
             }
             None => leaves(Category::Event, "native.events", &json!(events), &json!("a line the tables cannot name"), &mut out),
         }
@@ -212,7 +232,10 @@ impl NativeSubject {
         match materialize::materialize(&shadow.core, &shadow.cx, &shadow.base) {
             Ok(after) => {
                 let native_state = serde_json::to_value(&after).unwrap_or(Value::Null);
-                leaves(Category::State, "native.state", &self.inner.state_json(), &native_state, &mut out);
+                let legacy_state = self.inner.state_json();
+                if !finished {
+                    leaves(Category::State, "native.state", &legacy_state, &native_state, &mut out);
+                }
             }
             Err(e) => leaves(Category::State, "native.state", &json!("materializes"), &json!(e.to_string()), &mut out),
         }
@@ -312,7 +335,7 @@ mod tests {
 
     use super::*;
     use crate::allow_list::{AllowList, Tally};
-    use crate::oracle::{play_scenario, CoreMask, Judge, Limits};
+    use crate::oracle::{play_scenario, Judge, Limits};
 
     /// The counters and the native set are process-wide: the tests of this module run one at a time.
     static SERIAL: Mutex<()> = Mutex::new(());
@@ -381,7 +404,7 @@ mod tests {
         let lent = lent_counts();
         assert!(played.report.differences.is_empty(), "{:#?}", played.report.differences);
         assert!(ran.get("tokens").copied().unwrap_or(0) >= 2, "the arm ran in shadow at least on the first and the last token: {ran:?}");
-        assert!(lent.keys().any(|k| k.starts_with("ask: not native")), "the question steps are lent and counted: {lent:?}");
+        assert!(lent.contains_key("tactical: not native") && lent.contains_key("aftermath: not native"), "the other arms are lent and counted: {lent:?}");
         assert!(!lent.keys().any(|k| k.starts_with("tokens:")), "no tokens step was lent: {lent:?}");
     }
 

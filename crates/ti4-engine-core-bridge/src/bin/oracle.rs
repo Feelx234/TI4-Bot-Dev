@@ -8,6 +8,10 @@
 //!                                                                           writes FILE (shard file) and FILE.hits (allow-list hits)
 //! oracle CONFIG GAMES [--core MASK] [--allow FILE] --game I | --seed S      one game (a repro; no stale check)
 //! oracle --merge [--allow FILE] [--rules-version N] FILE...                 merge the shard files of one run (needs FILE.hits)
+//! oracle CONFIG GAMES --native ARMS [...]                                   the NATIVE oracle: a legacy game leads, a second legacy game
+//!                                                                           follows and shadow-runs the named native arms (`tokens`, `all`):
+//!                                                                           questions, events and positions of the live arm against the
+//!                                                                           legacy step (`ti4_engine_core_bridge::native_subject`)
 //! ```
 //! `--core MASK` is the area spec of the leading subject (as `TI4_AREAS`, default `all=core`). `--allow` defaults to
 //! `tools/engine_core/allow_list.json`. The report is the `DualReport` text of `dual_run` plus the allow-list summary and the number
@@ -17,6 +21,7 @@
 use ti4_engine::dual::{AreaMask, Backend};
 use ti4_engine_core_bridge::allow_list::{AllowList, DEFAULT_PATH, Tally};
 use ti4_engine_core_bridge::dual_shard::{self, GameRecord, Shard, ShardFile};
+use ti4_engine_core_bridge::native_subject::{self, NativeSubject};
 use ti4_engine_core_bridge::oracle::{self, CoreMask, Judge, LegacyMask, Limits, MaskSubject};
 use ti4_engine_core_bridge::workload::{golden_game_count, install_bot_tuning, specs};
 
@@ -54,6 +59,10 @@ fn main() {
         merge(&args[1..], &list, rules_version);
     }
     let core = take_flag(&mut args, "--core");
+    let native = take_flag(&mut args, "--native").map(|text| ti4_engine::live::arms::parse(&text).unwrap_or_else(|e| fail(&e)));
+    if let Some(arms) = native {
+        native_subject::set_native_arms(arms);
+    }
     let shard = take_flag(&mut args, "--shard").map(|t| Shard::parse(&t).unwrap_or_else(|e| fail(&e)));
     let out = take_flag(&mut args, "--out");
     let game = take_flag(&mut args, "--game").map(|g| g.parse::<usize>().unwrap_or_else(|_| fail("--game wants a game index")));
@@ -95,8 +104,12 @@ fn main() {
             continue;
         }
         let mut judge = Judge { list: &list, tally: &mut tally, scenario: format!("seed-{}", spec.seed) };
-        let played = oracle::play_scenario::<MaskSubject<LegacyMask>, MaskSubject<CoreMask>>(spec, limits, &mut judge)
-            .unwrap_or_else(|e| fail(&format!("game {index} (seed {}): {e}", spec.seed)));
+        let played = if native.is_some() {
+            oracle::play_scenario::<NativeSubject, MaskSubject<LegacyMask>>(spec, limits, &mut judge)
+        } else {
+            oracle::play_scenario::<MaskSubject<LegacyMask>, MaskSubject<CoreMask>>(spec, limits, &mut judge)
+        }
+        .unwrap_or_else(|e| fail(&format!("game {index} (seed {}): {e}", spec.seed)));
         if let Ok(p) = &played {
             eprintln!("game {index}: {} steps{}", p.steps, p.stopped.as_deref().map(|s| format!(", stopped: {s}")).unwrap_or_default());
         }
@@ -117,6 +130,11 @@ fn main() {
         println!("shard {}/{}: wrote {out}", shard_of.index, shard_of.of);
     }
     // A shard or a repro of one game is a partial run: no stale check, no merge.
+    if native.is_some() {
+        // What the native oracle ran and what it left to the legacy engine: a clean run that ran nothing proves nothing.
+        println!("native arms ran in shadow: {:?}", native_subject::ran_counts());
+        println!("steps left to the legacy engine (lent): {:?}", native_subject::lent_counts());
+    }
     if shard.is_none() && only.is_none() {
         finish_full(&[file], &list, &tally, ti4_model::state::RULES_VERSION);
     }
