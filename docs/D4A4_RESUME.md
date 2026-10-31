@@ -11,7 +11,7 @@ destroyed-mark shapes kept, the space-area ground force and the galvanized one).
 | windows covered | 89 / 124 | 120 / 123 (3 exempt, 0 uncovered) |
 | areas below 80 % stage variants | 22 | 0 |
 | `coverage.py --check` | FAIL | exit 0 |
-| tests of `ti4-engine-core-tests` | 1105 (lane A3) / 1172 at the start of this lane | 1261 pass, 0 fail |
+| tests of `ti4-engine-core-tests` | 1105 (lane A3) / 1172 at the start of this lane | 1265 pass, 0 fail |
 
 (The 124 -> 123: `rules::reactions::Emit` was a test fixture counted as a window, see D4A4-info-02.)
 
@@ -35,6 +35,7 @@ destroyed-mark shapes kept, the space-area ground force and the galvanized one).
 | `windows_misc.rs` | 14 | Fabrication / Black Market Forgery, `TitanBuild`, `PayStep`, Self-Assembly, `ControlGained` (+ Assimilate), Imperial secondary, `Destroy`, `ProduceHits` |
 | `agenda_draws.rs` | 2 | Politics Rider and Unconventional Measures over the hand limit |
 | `action_card_probe_limit.rs` | 2 | Impersonation over the secret limit, Probe on a Merchant Station |
+| `faction_functions.rs` | 4 | `lazax_gate_folding`, `c4r_repair`, `terraform`, `inferno` (functions found untested by the mutation check) |
 | `combat_machine.rs` (+3), `combat_barrage.rs` (+1) | 4 | `Machine` in Rolling / Producing / Barraging, Raid Formation inside `BarrageStep` |
 
 Expectations come from the printed card text (in the file headers); the snapshots under `tests/snapshots/` were blessed once (`BLESS=1`) and read.
@@ -51,3 +52,10 @@ Expectations come from the printed card text (in the file headers); the snapshot
 1. `git log --oneline core-eod1-c..core-d4a4`; run `tools/engine_core/d4/run_core_tests.sh $(git rev-parse HEAD)` (it keeps its own covers file; `rm` it afterwards, it grows by ~100k lines per run).
 2. `python3 tools/engine_core/d4/coverage.py --covers <that covers file> --check` must exit 0.
 3. Still weak: stage variants that are never a suspension point (D4A4-info-01) cannot be traced; mutation survivors of the new files are listed in the final report.
+
+## Mutation check of the new tests (Haiku runner, snapshot f99259a1, test binaries of the new files only; killed / run)
+
+technology_windows.rs 200/230 (87 %); promissory_windows.rs 81/108 (75 %); driver/windows/aftermath.rs 28/34 (82 %); legendary.rs 62/101 (61 %; survivors mostly in `settle_styx`, `purge_salvaged`,
+`ready_leader` and `ctx`); muaat_component.rs 49/111 (44 %) and faction_component.rs 20/79 (25 %) **before** `faction_functions.rs` (their survivors were mostly the function bodies `inferno`, `fires_of_the_gashlai`,
+`lazax_gate_folding`, `c4r_repair`, `terraform`, `vaults_of_the_heir`; the first four except Fires are now tested, **not re-measured**). Still untested: `fires_of_the_gashlai`, `vaults_of_the_heir`, `settle_styx`, `purge_salvaged`,
+`ready_leader`; the `ctx` survivors (`optional`/`space_battle` literals of the question context) are in every window.
