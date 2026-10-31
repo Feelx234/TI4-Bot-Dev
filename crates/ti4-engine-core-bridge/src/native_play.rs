@@ -355,9 +355,9 @@ impl NativeGame {
         }
     }
 
-    /// Whether the `Ask` arm's source is one the core runs (`driver::turn::ask`: an open job, the draft, the starting technology, the closing menu).
+    /// Whether the `Ask` arm's source is one the core runs (`driver::turn::ask`: an open job, the draft, the starting technology, the action menu and the closing menu).
     fn ask_is_native(&self) -> bool {
-        is_open::<TurnFlowWin>(&self.core) || matches!(self.source(), AskArm::Draft | AskArm::StartingTech | AskArm::Closing)
+        is_open::<TurnFlowWin>(&self.core) || matches!(self.source(), AskArm::Draft | AskArm::StartingTech | AskArm::Closing | AskArm::ActionMenu)
     }
 
     /// One step of the loop. The position is what it was before the call unless the result is [`Step::Played`].
