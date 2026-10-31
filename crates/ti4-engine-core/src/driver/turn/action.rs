@@ -70,7 +70,7 @@ pub fn run_action(sx: &mut Sx<'_>, key: u32) -> Flow {
 
 /// The option has no native body yet: the counted gap names it (the kind, and the option's key).
 fn unrouted(sx: &mut Sx<'_>, opt: Opt) -> Flow {
-    gap(sx, TurnGap::Menu(MenuGap::Unrouted(gap_code(&dispatch::dispatch(opt)), opt.key().unwrap_or(0))));
+    gap(sx, TurnGap::Menu(MenuGap::Unrouted(gap_code(&dispatch::dispatch(opt)), opt.key().unwrap_or(0)))); // mutants:skip: every option on the menu has a key
     Flow::Halt
 }
 

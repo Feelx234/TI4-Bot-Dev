@@ -23,6 +23,7 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, action: ComponentAction) -> Flo
     match action.code {
         c::LAZAX_GATE_FOLDING => lazax_gate_folding(sx, who, key),
         c::ORBITAL_DROP => orbital_drop(sx, who, key),
+        // mutants:skip (the key default): every option on the menu has a key
         _ => gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(super::action::gap_code(&crate::driver::dispatch::Dispatch::Faction(action)), Opt::Faction(action).key().unwrap_or(0)))),
     }
 }

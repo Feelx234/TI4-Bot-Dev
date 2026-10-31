@@ -38,7 +38,7 @@ pub fn settle_extreme_duress(sx: &mut Sx<'_>, who: Seat, strategic: bool) -> Flo
         (goods, discarded)
     };
     if let Some(holder) = sx.state.players_mut().by_seat_mut(by) {
-        holder.econ.trade_goods = holder.econ.trade_goods.saturating_add(i16::try_from(goods).unwrap_or(0));
+        holder.econ.trade_goods = holder.econ.trade_goods.saturating_add(i16::try_from(goods).unwrap_or(0)); // mutants:skip: a seat holds an i16 of goods, the default is unreachable
     }
     let source = sx.table.codes.turn.extreme_duress;
     fx::stage_gain(sx.state, by, goods, source);

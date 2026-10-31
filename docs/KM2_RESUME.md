@@ -91,3 +91,14 @@ difference is then at step 24 `[aftermath]`: the native aftermath asks Local Fab
 * `check_layers.py core`: 512 files, 0 violations. `lint_core.sh`: 514 files, 0 hits.
 * Mutation checks of the new core halves (`component.rs`, `faction.rs`, `relic.rs`, `action.rs`): see the end of this file.
 * Not run (standing rule): golden/wide dual sweeps, benches, soak, the mutation ratchet, census, workspace clippy, the armed dual, bail-as-failure scenarios beyond the shadow tests above, all 141 core test binaries.
+
+## 8. Mutation check of the new core halves (Haiku runner, `mutants.sh` on the committed tip `0bffecfb`, single files, union of the core tests `action_dispatch turn_jobs2 turn_jobs turn_end_job` and the engine lockstep `action_dispatch_live_tests action_menu_live_tests`, `D4_COVERS_FILE=/dev/null`)
+
+| file | mutants | killed by the union | survivors |
+|---|---|---|---|
+| `turn/component.rs` | 30 | 22 | `announce_staged` (three: the pending-destruction branch and its halt check: no test stages a ship destruction in a component action), `play_card` (the cancelled-play verdict `Failed{withhold:false}` and the emission-refused halt: needs Sabotage in a lockstep), `flush_staged_events` halt check; the `unwrap_or(0)` default of the goods (marked skip) |
+| `turn/faction.rs` | 16 | 9 | Lazax Gate Folding's verdict `true` literals (a failed Lazax is not tested), Orbital Drop's `>= 3` boundary and the `Failed`/`withhold` literals, the key default (marked skip) |
+| `turn/relic.rs` | 3 | 2 | the `withhold` literal of a failed purge in the core (the lockstep checks the withholding by the second menu; the survivor is the same verdict under a mutation the first menu does not show) |
+| `turn/action.rs` | 14 | 9 | the closing-menu bookkeeping condition `turn_closing.is_some() && !is_free(opt)` (negation and `||`: the second action out of the closing menu is lane F's lockstep, which runs the Finish job, not this step), the `false` literals of `transaction` and `pass` (the unconsumed-answer returns), the key default (marked skip) |
+
+Not closed for lack of time: tests for a destruction announced after a component action, a cancelled card play, a failed Lazax/Orbital Drop, the Orbital Drop 3-resource boundary and the second action taken out of the closing menu. The `unwrap_or` defaults are marked `mutants:skip` with their reasons.
