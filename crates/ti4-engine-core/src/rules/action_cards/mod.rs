@@ -10,7 +10,7 @@ pub mod effects;
 pub mod perform;
 pub mod reaction_slot;
 
-use crate::generated::{ActionCard, System, Unit, UnitBaseType};
+use crate::generated::{ActionCard, Planet, System, Unit, UnitBaseType};
 use crate::query::board;
 use crate::state::Piece;
 use crate::tables::Scope;
@@ -113,6 +113,71 @@ pub struct Window {
     pub system: System,
     /// The event's `player` as a seat: `None` when the event names nobody (or nobody seated).
     pub actor: Option<Seat>,
+    /// The event's `planet` (Infiltrate's `PLANET_CONTROL_GAINED`): `None` when the event names none.
+    pub planet: Option<Planet>,
+}
+
+/// The answers of the faction modules the two cards that read the tile catalogue and the box need beyond the position (the hooks of the
+/// string modules and of the core table, handed in like the other faction answers of this module).
+pub struct Hooks<'a> {
+    /// The systems the modules' pieces turn into gravity rifts (`hooks_movement::extra_gravity_rifts`).
+    pub rifts: &'a [System],
+    /// A faction rule bars this form from being placed by an effect (`hooks_economy::effect_placement_forbidden`).
+    pub forbidden: &'a dyn Fn(Unit) -> bool,
+}
+
+/// `ti4_model::state::RULES_INFILTRATE_FIX`: from this version Infiltrate is offered only while a swap is possible.
+pub const RULES_INFILTRATE_FIX: u32 = 1;
+
+/// Harness Energy's guard: "after you activate an anomaly" (`tile.is_anomaly() || extra_gravity_rifts(state).contains(system)`). The
+/// tile's anomaly flags of `scope` (nebula, supernova, scar, asteroid field, gravity rift) and the rifts the modules' pieces make.
+#[must_use]
+pub fn system_is_anomaly(scope: Scope, system: System, rifts: &[System]) -> bool {
+    scope.system(system).is_some_and(|d| d.anomalies.any()) || rifts.contains(&system)
+}
+
+/// `action_cards::infiltrate_swaps`: the replacements Infiltrate would make on `planet` for `who`, each PDS or space dock that belongs to
+/// somebody else paired with the unit `who` puts in its place (`own`: the PDS form and the space dock form the seat places, the plain
+/// ones where `None`). "From your reinforcements" is the box's supply (31.4): a replacement is possible only while the seat still has that
+/// kind of plastic left, counted as it goes so two docks do not both pass a check made once; a form a faction rule bars from being placed
+/// by an effect is not one either. A structure with no plastic to replace it stays.
+#[must_use]
+pub fn infiltrate_swaps(core: &CoreState, scope: Scope, who: Seat, planet: Planet, own: (Option<Unit>, Option<Unit>), forbidden: &dyn Fn(Unit) -> bool) -> crate::containers::SmallList<(Piece, Unit), 8> {
+    let mut used = [0_i64; 2];
+    let mut swaps = crate::containers::SmallList::new();
+    for piece in board::planet_units(core, planet).iter() {
+        if piece.owner() == who {
+            continue;
+        }
+        let (slot, plain, form) = match scope.unit(piece.kind()).map(|d| d.base_type) {
+            Some(UnitBaseType::Pds) => (0, Unit::PDSI, own.0),
+            Some(UnitBaseType::Spacedock) => (1, Unit::SpaceDockI, own.1),
+            _ => continue,
+        };
+        // `supply::allowed(.., 1) > 0` and `supply::remaining(..) - used > 0` of the plain form of the base type.
+        let left = crate::query::fleet::remaining(core, scope, who, plain, 0);
+        if forbidden(plain) || left - used[slot] <= 0 {
+            continue;
+        }
+        used[slot] += 1;
+        swaps.push((*piece, form.unwrap_or(plain)));
+    }
+    swaps
+}
+
+/// [`reaction_can_matter`] for every card, the two that read the tile catalogue and the box included (`hooks` hands in the faction answers).
+/// `Some(answer)` always; the printed-cost check comes first at the call site.
+#[must_use]
+pub fn reaction_can_matter_with(core: &CoreState, scope: Scope, who: Seat, card: ActionCard, w: Window, hooks: &Hooks<'_>, own: (Option<Unit>, Option<Unit>)) -> bool {
+    match card {
+        ActionCard::HarnessEnergy => system_is_anomaly(scope, w.system, hooks.rifts),
+        // Games below rules version 1 offer Infiltrate after every capture.
+        ActionCard::Infiltrate if core.meta().rules_version >= RULES_INFILTRATE_FIX => match w.planet {
+            None => true,
+            Some(planet) => w.actor == Some(who) && !infiltrate_swaps(core, scope, who, planet, own, hooks.forbidden).is_empty(),
+        },
+        _ => reaction_can_matter(core, scope, who, card, w).unwrap_or(true),
+    }
 }
 
 fn pieces_in(core: &CoreState, system: System) -> impl Iterator<Item = Piece> + '_ {
@@ -154,6 +219,7 @@ pub fn reaction_can_matter(core: &CoreState, scope: Scope, who: Seat, card: Acti
         C::Rally => space.iter().any(|p| p.owner() != who && ship(p.kind())),
         C::Rescue | C::Intercept => !is_actor && has_own_ship,
         C::EmergencyRepairs => pieces_in(core, w.system).any(|p| p.owner() == who && p.sustained()),
+        // The tile catalogue, the rift hook and the box: `reaction_can_matter_with`.
         C::HarnessEnergy | C::Infiltrate => return None,
         _ => true,
     })
@@ -687,7 +753,7 @@ mod tests {
         assert_eq!(cost_is_payable(&core, who, ActionCard::Bribery, 1), Some(true));
         assert_eq!(cost_is_payable(&core, who, ActionCard::Blitz, 0), Some(true));
         let scope = Scope(u32::MAX);
-        let w = Window { system: System::ALL[0], actor: None };
+        let w = Window { system: System::ALL[0], actor: None, planet: None };
         for card in [ActionCard::HarnessEnergy, ActionCard::Infiltrate] {
             assert_eq!(reaction_can_matter(&core, scope, who, card, w), None, "{card:?}");
         }

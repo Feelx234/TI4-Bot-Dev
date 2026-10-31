@@ -3821,4 +3821,60 @@ mod tests {
         assert_eq!(state.player(&a()).unwrap().trade_goods, 3);
         assert_eq!(state.player(&b()).unwrap().trade_goods, 1);
     }
+
+    /// Package W16 (Lie in Wait's window): the neighbours who resolved a transaction this round, as the core answers them from the trade
+    /// state and the map, are the string's over many positions: four to six seats scattered over the hub (the centre, the spokes, the
+    /// same system, two apart, with ships or with none), pairs of transactions drawn at random (a pair that traded twice, a seat that
+    /// traded with several, a pair of strangers), asked of every seat. Run under `trade=dual`, where the typed answer is compared with the
+    /// text one on every call; a call the core handed back to the string, or a difference, fails the test.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_neighbours_who_transacted_are_the_core_judges_answer_over_many_positions() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        struct Lcg(u64);
+        impl Lcg {
+            fn next(&mut self, n: usize) -> usize {
+                self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+                usize::try_from((self.0 >> 33) % n as u64).unwrap()
+            }
+        }
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let hub = plain_hub();
+        let mut systems: Vec<String> = vec![hub.centre.clone()];
+        systems.extend(hub.outer.iter().cloned());
+        let names = ["a", "b", "c", "d", "e", "f"];
+        let (mut answered, mut non_empty) = (0, 0);
+        for seed in 0..60_u64 {
+            let mut rng = Lcg(seed + 7);
+            let count = 4 + rng.next(3);
+            let ids: Vec<PlayerId> = names[..count].iter().map(|n| PlayerId::new(*n)).collect();
+            let seats: Vec<(&str, &str)> = names[..count].iter().copied().zip(["sol", "hacan", "letnev", "xxcha", "yssaril", "naalu"]).collect();
+            let mut state = crate::fixtures::seated_game(&seats, POK);
+            for id in &ids {
+                // Where a seat stands: a ship in a system of the hub, sometimes none (a seat with no presence has no neighbour).
+                if rng.next(5) != 0 {
+                    put(&mut state, &SystemId::new(systems[rng.next(systems.len())].clone()), "cruiser", id, 1 + rng.next(2));
+                }
+            }
+            for _ in 0..rng.next(6) {
+                let (x, y) = (rng.next(count), rng.next(count));
+                state.transactions_this_round.push((ids[x].clone(), ids[y].clone()));
+            }
+            with_mask(AreaMask::STRING.with(Area::TradeDiplomacy, Backend::Dual), || {
+                for id in &ids {
+                    let got = neighbours_who_transacted(&state, &hub.galaxy, id);
+                    assert_eq!(got, neighbours_who_transacted_text(&state, &hub.galaxy, id), "seed {seed} {id}");
+                    answered += 1;
+                    non_empty += usize::from(!got.is_empty());
+                }
+            });
+        }
+        let r = report();
+        let _ = take_report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let counts = r.areas.get(&Area::TradeDiplomacy).cloned().unwrap_or_default();
+        assert!(counts.calls >= answered, "every call went through the typed view: {counts:?}");
+        assert!(non_empty > 40, "the positions have neighbours who traded: {non_empty} of {answered}");
+    }
 }

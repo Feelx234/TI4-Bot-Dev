@@ -20,6 +20,8 @@ pub fn spendable_goods(s: &CoreState, k: &Kernel, who: Seat) -> i64 {
     goods + k.hooks.direct.keleres_spendable_commodities(s, who)
 }
 
+pub use crate::kernel::fx::potential_goods;
+
 /// `supply::spend_goods`: spend `amount` trade goods, commodities an open agent window allows first. All of it or
 /// none: `false`, state untouched, when [`spendable_goods`] falls short.
 pub fn spend_goods(s: &mut CoreState, k: &Kernel, who: Seat, amount: i32) -> bool {

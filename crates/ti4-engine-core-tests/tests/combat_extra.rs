@@ -140,7 +140,7 @@ fn an_attachment_with_space_cannon_fires_for_the_planets_controller_as_if_it_wer
     // The offense rolls the attachment's three dice.
     let (mut s, k) = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 3).control(p1, 1).build();
     s.board_mut().planet_mut(p1).attach.push(Attachment::Geoform);
-    let f = CannonFacts { active: Seat(0), system: sys(), announce: true, staging: false, reaching: vec![], mapped: false, kind: Code(1), cause: Code(2), casualty: Code(3), commander: Code(4) };
+    let f = CannonFacts { active: Seat(0), system: sys(), announce: true, staging: false, reaching: vec![], mapped: false, kind: Code(1), cause: Code(2), casualty: Code(3), commander: Code(4), jolnar: vec![], unit_texts: vec![], planet_texts: vec![] };
     let mut rig = Rig::from_parts(s, k, SpaceCannonOffense::new(f)).seeded(2);
     rig.run();
     assert_eq!(rig.driver.window.drawn.iter().map(|(on, d)| (*on, d.len())).collect::<Vec<_>>(), vec![(5, 3)]);
@@ -149,7 +149,7 @@ fn an_attachment_with_space_cannon_fires_for_the_planets_controller_as_if_it_wer
 // ---- the space cannon offense -------------------------------------------------------------------------
 
 fn cfacts() -> CannonFacts {
-    CannonFacts { active: Seat(0), system: sys(), announce: true, staging: false, reaching: vec![], mapped: false, kind: Code(1), cause: Code(2), casualty: Code(3), commander: Code(4) }
+    CannonFacts { active: Seat(0), system: sys(), announce: true, staging: false, reaching: vec![], mapped: false, kind: Code(1), cause: Code(2), casualty: Code(3), commander: Code(4), jolnar: vec![], unit_texts: vec![], planet_texts: vec![] }
 }
 
 fn graviton_rig(seed: u64, victims: &dyn Fn(Scenario) -> Scenario) -> Rig<SpaceCannonOffense> {

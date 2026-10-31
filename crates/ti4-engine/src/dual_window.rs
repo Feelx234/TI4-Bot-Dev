@@ -715,9 +715,7 @@ pub fn drive_windowed<W: Window>(
     loop {
         if let Some(why) = driver.unknown() {
             let why = match why {
-                ti4_engine_core::kernel::ability::Unknown::BriberyGoods => "Bribery's goods (the Keleres agent)",
                 ti4_engine_core::kernel::ability::Unknown::CardCost => "a card cost the core does not judge",
-                ti4_engine_core::kernel::ability::Unknown::HarnessOrInfiltrate => "Harness Energy / Infiltrate",
                 ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion => "Nomad Temporal Command Suite (agent exhaustion)",
                 ti4_engine_core::kernel::ability::Unknown::ImmediateCardPlay => "an action card played at once",
                 ti4_engine_core::kernel::ability::Unknown::UnportedCard => "an action card the core does not play",
@@ -2650,7 +2648,7 @@ pub fn roll_step(
 /// The display facts of a roll step's questions (`Choice.details`): the staged dice, which one is asked
 /// about, and Munitions Reserves' printed card and cost (the goods held are read from the core state at the question: a composed settle
 /// pays Munitions in one round and asks again in the next).
-fn roll_details(
+pub(crate) fn roll_details(
     content: &ti4_content::ContentStore,
     texts: &[(ti4_engine_core::state::Code, String)],
     c: &CoreChoice,
@@ -3580,7 +3578,7 @@ const BOMBARD_ROLL: Footprint = Footprint::new(
 );
 
 /// Why the position holds something the core window does not carry (`None`: it is carried): test faces or a pending stream restore, a
-/// Heart of Ixth in play (it bends the faces that survive the event) and the invader's Jol-Nar commander (a question per die).
+/// Heart of Ixth in play (it bends the faces that survive the event). The invader's Jol-Nar commander is a core question per die since W16.
 #[must_use]
 pub fn bombard_rolled_why(gs: &GameState, a: &BombardRollArgs<'_>) -> Option<&'static str> {
     if !a.reproducible {
@@ -3589,9 +3587,6 @@ pub fn bombard_rolled_why(gs: &GameState, a: &BombardRollArgs<'_>) -> Option<&'s
     let heart = ti4_model::id::RelicId::new("heartofixth");
     if gs.players.iter().any(|p| crate::relics::holds(gs, &p.id, &heart)) {
         return Some("the Heart of Ixth (Thunder's Edge relic)");
-    }
-    if crate::promissory::has_commander_ability(gs, a.invader, "jolnarcommander") {
-        return Some("the Jol-Nar commander (a reroll question per die)");
     }
     None
 }
@@ -3613,7 +3608,19 @@ pub fn bombard_rolled(
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, sources).why("the invasion environment could not be built from the position")?;
-    let facts = Facts { invader, system, announce: a.announce, kind: r.code("bombardment") };
+    // The Jol-Nar commander's questions label each staged entry by its unit text (the string's `reroll die N of {unit}`), in the question
+    // renderer's table, and show every die (the text of the state's table).
+    let commander = crate::promissory::has_commander_ability(gs, a.invader, "jolnarcommander");
+    let mut shown = Vec::new();
+    let mut names: Vec<(ti4_engine_core::state::Code, String)> = Vec::new();
+    if commander {
+        for roll in gs.reroll_staging.get(a.invader).map(|set| set.rolls.as_slice()).unwrap_or_default() {
+            shown.push(r.code(&roll.unit));
+            let state = cx.texts.intern(Slice::Transient, &roll.unit).why("the text table of the typed state is full")?;
+            names.push((state, roll.unit.clone()));
+        }
+    }
+    let facts = Facts { invader, system, announce: a.announce, kind: r.code("bombardment"), commander, shown };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, Some(invader));
@@ -3622,7 +3629,8 @@ pub fn bombard_rolled(
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let driven = with_core(gs, &mut cx, src, nested_fp(BOMBARD_ROLL, script), |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        let content = ti4_content::ContentStore::embedded();
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| roll_details(content, &names, c, st, rendered));
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
         driven
@@ -4951,7 +4959,7 @@ fn settle_run(
         use ti4_engine_core::rules::combat::machine::Bail;
         crate::dual::note_bail_here(match why {
             Bail::RollEndsFight => "the machine: a roll that ends the fight",
-            Bail::Unported => "the machine: a position it does not carry (cancelled hits, Duranium, staged destructions, Devotion, a retreat the core does not move)",
+            Bail::Unported => "the machine: a position it does not carry (cancelled hits, Duranium, staged destructions, a retreat the core does not move)",
         });
         return None;
     }

@@ -12323,6 +12323,50 @@ mod tests {
 
     fn take_bail_keys() -> Vec<String> {
         BAIL_KEYS.with(|k| std::mem::take(&mut *k.borrow_mut()))
+
+    }
+
+    /// Package W16: a hit Yin's Devotion produces ("destroy one of your cruisers or destroyers after a round: produce one hit") is placed by
+    /// its producer. The composed machine asks the producer (not the owner) which of the victim's ships dies, with the string's casualty
+    /// question (source `78.4`, subtype `assign_casualty`, the system, the hits owed), and the fight runs in lockstep with no bail. The
+    /// victim holds three kinds of ship, so the producer's question has options; a lone candidate is taken without one. Fails on the
+    /// pre-M5 machine, whose `pending_choice` returned nothing for a `producer_assigns` pend and bailed `Bail::Unported`.
+    #[test]
+    fn a_devotion_hit_is_asked_of_its_producer_in_the_composed_machine_in_lockstep() {
+        static ASKED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        fn pick(seed: u64, nth: usize, c: &Choice) -> usize {
+            // The Yin seat holds cruisers and destroyers only: a casualty question of its that offers a dreadnought or a carrier is the
+            // victim's ship, placed by the producer.
+            if c.prompt == "assign a hit" && c.options.iter().any(|o| o.payload.get("unit").and_then(|u| u.as_str()).is_some_and(|u| u == "dreadnought" || u == "carrier")) {
+                ASKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                assert_eq!(c.context.as_ref().map(|x| (x.subtype.as_str(), x.actor.as_str().to_owned())), Some(("assign_casualty", c.player.to_string())));
+            }
+            usize::try_from(seed).unwrap_or(0).wrapping_add(nth) % 3
+        }
+        for (seed, composed, swap) in (0..30_u64).flat_map(|s| [(s, false, s % 2 == 1), (s, true, s % 2 == 1)]) {
+            let order: Vec<&str> = if swap { vec!["hacan", "yin"] } else { vec!["yin", "hacan"] };
+            let (me, other) = if swap { (defender(), attacker()) } else { (attacker(), defender()) };
+            let (_, windows, differences, _) = hub_fight_composed(
+                composed,
+                seed,
+                &order,
+                |s, system| {
+                    put(s, system, "cruiser", &me, 3);
+                    put(s, system, "destroyer", &me, 2);
+                    put(s, system, "dreadnought", &other, 2);
+                    put(s, system, "carrier", &other, 2);
+                    put(s, system, "cruiser", &other, 2);
+                },
+                pick,
+            );
+            assert_eq!(differences, 0, "seed {seed} swap {swap} composed {composed}: {windows:?}");
+            let w = windows.get(if composed { "combat::settle" } else { "combat::answer" }).copied().unwrap_or_default();
+            assert!(!windows.iter().any(|(label, w)| (label.contains("[bail:") || label.contains("[gate:")) && w.bailed > 0 && label.contains("settle")), "seed {seed}: {windows:?}");
+            if composed {
+                assert_eq!(w.bailed, 0, "seed {seed} swap {swap}: the machine carries a producer-assigned hit: {windows:?}");
+            }
+        }
+        assert!(ASKED.load(std::sync::atomic::Ordering::Relaxed) > 0, "a Devotion hit was asked of its producer");
     }
 
     /// W15: a fight with a Cabal seat runs through the composed machine without bailing at the end: the Cabal's participation mark of the

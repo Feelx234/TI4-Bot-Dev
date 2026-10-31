@@ -66,14 +66,15 @@ pub(crate) fn reaction_can_matter(
     alias: &ActionCardId,
     system: &str,
     actor: Option<&str>,
+    planet: Option<&str>,
 ) -> Option<bool> {
     #[cfg(feature = "typed-core")]
     {
-        crate::action_cards_view::ActionView::of(state)?.reaction_can_matter(player, alias, system, actor)
+        crate::action_cards_view::ActionView::of(state)?.reaction_can_matter(player, alias, system, actor, planet)
     }
     #[cfg(not(feature = "typed-core"))]
     {
-        let _ = (state, player, alias, system, actor);
+        let _ = (state, player, alias, system, actor, planet);
         None
     }
 }

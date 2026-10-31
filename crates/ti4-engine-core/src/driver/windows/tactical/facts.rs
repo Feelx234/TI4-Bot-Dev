@@ -138,6 +138,12 @@ pub fn head_facts(core: &CoreState, k: &Kernel, codes: &TacticalCodes, seat: Sea
         cause: codes.space_cannon_cause,
         casualty: codes.casualty,
         commander: codes.commander,
+        // The Jol-Nar commander asks about each die of its holder's roll (the question is the head's, which the tactical window does not
+        // route yet: it is a counted gap there, never a silent skip).
+        jolnar: core.players().iter().filter(|p| crate::query::leaders::has_commander_ability_in(core, p.seat, crate::generated::Leader::AgnlanOln)).map(|p| p.seat).collect(),
+        // The live path carries no renderer: a staged entry's own code is the label of a question.
+        unit_texts: Vec::new(),
+        planet_texts: Vec::new(),
     };
     HeadFacts { player: seat, system, limits: limits(core, k, seat, system), cannon, notes: notes.clone(), skip_to_commit, pre_roll: codes.pre_roll }
 }
