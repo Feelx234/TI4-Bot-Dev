@@ -77,7 +77,8 @@ fn the_hero_opens_a_use_in_each_system_with_a_ground_force_in_system_order() {
     rig.pick_opt(Opt::Production(POpt::Stop));
     assert!(rig.is_done(), "{}", rig.transcript());
     assert!(rig.driver.window.used());
-    let made: Vec<(System, Vec<(Unit, Option<Planet>)>)> = rig.driver.window.made.iter().map(|(s, m)| (*s, m.as_slice().to_vec())).collect();
+    type Made = Vec<(System, Vec<(Unit, Option<Planet>)>)>;
+    let made: Made = rig.driver.window.made.iter().map(|(s, m)| (*s, m.as_slice().to_vec())).collect();
     assert_eq!(made, vec![(a, vec![(Unit::InfantryI, Some(pa)), (Unit::InfantryI, Some(pa))]), (b, vec![(Unit::InfantryI, Some(pb)), (Unit::InfantryI, Some(pb))])], "two infantry for each resource, on the planet");
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 4, "one good for each use");
 }
