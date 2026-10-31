@@ -26,7 +26,7 @@ use crate::render::Render;
 #[must_use]
 pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<dyn SeedSource>) -> Env<'a> {
     let order: Vec<Seat> = (0..core.players().len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
-    let faction = |who: Seat| core.players().by_seat(who).map_or_else(String::new, |p| ti4_engine_core::generated::IdStr::as_str(&p.faction).to_owned());
+    let faction = |who: Seat| core.players().by_seat(who).map_or_else(String::new, |p| crate::generated::IdStr::as_str(p.faction).to_owned());
     let mut table = table();
     set_table_codes(&mut table, r);
     table.facts.staging = false;

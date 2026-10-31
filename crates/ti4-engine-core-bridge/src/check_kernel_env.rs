@@ -5,6 +5,7 @@
 
 use ti4_content::ContentStore;
 use ti4_engine::core_sync::{CoreView, Ctx, Sources};
+use ti4_engine::generated::IdStr;
 use ti4_engine::leaders_view::LeaderView;
 use ti4_engine::strategy_view::StratView;
 use ti4_engine_core::driver::kernel_env::KernelEnv;
@@ -24,6 +25,9 @@ pub struct EnvReport {
     pub answers: usize,
     pub unmapped: usize,
     pub mismatches: Vec<String>,
+    /// Hook slots the live kernel has no function for where the string engine answers (`Some` vs `None`): the faction modules that are
+    /// not ported yet (`commander_unlocked`, `leader_action`: lane F2's work), counted by method, never a silent agreement.
+    pub gaps: std::collections::BTreeMap<String, usize>,
 }
 
 impl EnvReport {
@@ -34,6 +38,24 @@ impl EnvReport {
         self.answers += o.answers;
         self.unmapped += o.unmapped;
         self.mismatches.extend(o.mismatches.iter().cloned());
+        for (k, n) in &o.gaps {
+            *self.gaps.entry(k.clone()).or_default() += n;
+        }
+    }
+
+    /// An answer that may be missing in the core: string `Some(x)` against core `None` is a GAP of that method (counted), `Some` against a
+    /// different `Some` is a mismatch.
+    fn same_hook(&mut self, method: &str, what: &str, string: Option<bool>, core: Option<bool>) {
+        self.answers += 1;
+        match (string, core) {
+            (a, b) if a == b => {}
+            (Some(_), None) => *self.gaps.entry(method.to_owned()).or_default() += 1,
+            (a, b) => {
+                if self.mismatches.len() < 60 {
+                    self.mismatches.push(format!("{what}: string view {a:?} vs KernelEnv {b:?}"));
+                }
+            }
+        }
     }
 
     fn same<T: PartialEq + std::fmt::Debug>(&mut self, what: &str, string: T, core: T) {
@@ -58,21 +80,27 @@ pub fn check_position(p: &Position, report: &mut EnvReport) {
     for (name, g) in crate::check_leaders::variants(&p.state) {
         report.variants += 1;
         let label = format!("{} [{name}]", p.label);
-        let Some(lv) = LeaderView::of(&g, Some(content), p.sources, Some(&p.galaxy), reads()) else {
+        let Some(lv) = LeaderView::of(&g, Some(content), p.sources, Some(&p.galaxy), ti4_engine::leaders_view::READS_ABILITIES) else {
             report.unmapped += 1;
+            report.mismatches.push(format!("{label}: LeaderView refused the position"));
             continue;
         };
         let Some(sv) = StratView::full(&g, content, p.sources) else {
             report.unmapped += 1;
+            report.mismatches.push(format!("{label}: StratView refused the position"));
             continue;
         };
         let Ok(mut cx) = Ctx::of(&g) else {
             report.unmapped += 1;
             continue;
         };
-        let Ok(view) = CoreView::of(&g, &mut cx, Sources { galaxy: Some(&p.galaxy), rng: None }, reads()) else {
-            report.unmapped += 1;
-            continue;
+        let view = match CoreView::of(&g, &mut cx, Sources { galaxy: Some(&p.galaxy), rng: None }, reads()) {
+            Ok(v) => v,
+            Err(e) => {
+                report.unmapped += 1;
+                report.mismatches.push(format!("{label}: CoreView refused the position: {e}"));
+                continue;
+            }
         };
         let env = KernelEnv::new(&view, kernel);
         for (i, player) in g.players.iter().enumerate() {
@@ -110,8 +138,8 @@ pub fn check_position(p: &Position, report: &mut EnvReport) {
             }
             // leaders::Env
             for l in Leader::ALL {
-                report.same(&at(&format!("commander_unlocked {}", l.as_str())), leaders::Env::faction_commander_unlocked(&lv, who, l), leaders::Env::faction_commander_unlocked(&env, who, l));
-                report.same(&at(&format!("leader_action {}", l.as_str())), leaders::Env::leader_action(&lv, who, l), leaders::Env::leader_action(&env, who, l));
+                report.same_hook("commander_unlocked", &at(&format!("commander_unlocked {}", l.as_str())), leaders::Env::faction_commander_unlocked(&lv, who, l), leaders::Env::faction_commander_unlocked(&env, who, l));
+                report.same_hook("leader_action", &at(&format!("leader_action {}", l.as_str())), leaders::Env::leader_action(&lv, who, l), leaders::Env::leader_action(&env, who, l));
                 report.same(&at(&format!("imperia_grants {}", l.as_str())), leaders::Env::imperia_grants(&lv, who, l), leaders::Env::imperia_grants(&env, who, l));
                 if matches!(l, Leader::Zeu | Leader::RinTheMastersLegacy) {
                     report.same(&at(&format!("other_action_resolves {}", l.as_str())), leaders::Env::other_action_resolves(&lv, who, l), leaders::Env::other_action_resolves(&env, who, l));

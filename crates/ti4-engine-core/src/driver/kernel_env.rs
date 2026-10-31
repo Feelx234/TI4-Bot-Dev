@@ -17,7 +17,7 @@ use crate::generated::{Leader, Planet, StrategyCardKind, Technology};
 use crate::ids::Seat;
 use crate::kernel::hooks::CombatCtx;
 use crate::kernel::Kernel;
-use crate::query::economy::{self, Spend};
+use crate::query::economy::Spend;
 use crate::query::{objectives, reach};
 use crate::rules::{abilities, leaders, strategy};
 use crate::state::CoreState;
@@ -41,15 +41,18 @@ impl<'a> KernelEnv<'a> {
         Self { core, kernel }
     }
 
-    fn spendable(&self, who: Seat, spend: Spend) -> i64 {
-        economy::spendable_total(self.core, reach::scope_of(self.kernel), reach::blanked(self.core), who, spend)
+    /// `production::available`: planets (their larger face), the Triad, trade goods at their worth, War Machine for resources.
+    fn available(&self, who: Seat, spend: Spend) -> i64 {
+        let cx = crate::rules::production::Cx::new(self.core, self.kernel, reach::scope_of(self.kernel), reach::blanked(self.core));
+        crate::rules::production::available(&cx, who, spend, &crate::rules::production::Extras::default())
     }
 
-    /// Z'eu: a system that is no player's home and holds none of its command tokens (`GameState::board` is the placed map).
+    /// Z'eu: a system with state (the string `GameState::board` holds the systems anything happened in: `SysFlags::TOUCHED`) that is no
+    /// player's home and holds none of its command tokens; with no such system at all the map is "all still open" and it resolves.
     fn zeu_resolves(&self, who: Seat) -> bool {
-        let Some(g) = self.core.galaxy() else { return true };
         let homes = |s: crate::generated::System| self.core.players().iter().any(|p| p.home_system == Some(s));
-        crate::generated::System::ALL.iter().any(|s| g.coord_of(*s).is_some() && !homes(*s) && !self.core.board().sys(*s).cmd.contains(who))
+        let touched = || self.core.board().systems().filter(|(_, c)| c.flags.has(crate::state::SysFlags::TOUCHED));
+        touched().next().is_none() || touched().any(|(s, c)| !homes(s) && !c.cmd.contains(who))
     }
 
     /// Doctor Sucaban's swap (Jol-Nar hero): a technology of a colour the seat has another of to swap for (`leaders::can_resolve_action`).
@@ -99,7 +102,7 @@ impl strategy::Env for KernelEnv<'_> {
         self.kernel.hooks.general.substitutes_primary(self.core, self.kernel, who, card)
     }
     fn leadership_affordable(&self, who: Seat) -> bool {
-        self.spendable(who, Spend::Influence) >= INFLUENCE_PER_TOKEN
+        self.available(who, Spend::Influence) >= INFLUENCE_PER_TOKEN
     }
     fn can_research(&self, who: Seat) -> bool {
         !crate::rules::production::strategy_cards::Research::researchable_for(self.core, self.kernel, reach::scope_of(self.kernel), who).is_empty()
@@ -108,8 +111,7 @@ impl strategy::Env for KernelEnv<'_> {
         false
     }
     fn technology_secondary_affordable(&self, who: Seat) -> bool {
-        let goods = self.core.players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods));
-        self.spendable(who, Spend::Resources) + goods >= TECHNOLOGY_SECONDARY_COST
+        self.available(who, Spend::Resources) >= TECHNOLOGY_SECONDARY_COST
     }
     fn secret_hand_all_scored(&self, who: Seat) -> bool {
         let limit = objectives::HAND_LIMIT + crate::query::relic::secret_objective_bonus(self.core, who);

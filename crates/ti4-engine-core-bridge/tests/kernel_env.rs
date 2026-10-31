@@ -13,6 +13,8 @@ fn the_kernel_env_agrees_with_the_string_views_on_the_template_openings() {
         check_position(p, &mut report);
     }
     assert!(report.mismatches.is_empty(), "{:#?}", report.mismatches);
+    // The hook slots no faction module fills yet are reported, not hidden (lane F2 ports them; this list shrinks to empty).
+    println!("hook slots with no core function where the string answers: {:?}", report.gaps);
     assert_eq!(report.unmapped, 0);
     assert!(report.answers > 5000, "{} answers", report.answers);
 }
