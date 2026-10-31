@@ -1184,7 +1184,7 @@ pub fn sustain_commander(
         crate::dual::note_bail_here("the Letnev commander's payment held another way than as an unlocked leader");
         return None;
     }
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[&a.attacker, &a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let source = r.code("letnevcommander");
@@ -4785,13 +4785,9 @@ fn settle_run(
 ) -> Option<CoreWindow<SettleOut>> {
     use ti4_engine_core::rules::combat::flow::{Phase, Step};
     use ti4_engine_core::rules::combat::machine::{Machine, Stop};
-    if crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
     // The first round begins the occurrence itself, once the opening has not ended the fight.
     let begin_occurrence = a.begin_occurrence && a.occurrence.is_none();
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables_of_sides(gs, &[&a.attacker, &a.defender]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     waylay_check(gs, script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
