@@ -169,6 +169,23 @@ pub fn te_uses(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, who: Seat
     TeUses::new(source, &uses)
 }
 
+/// Whether the paid research of `who` asks a question the core window does not carry (`strategy_cards::research_asks_more`): Doctor Sucaban (the
+/// Jol-Nar agent readied at the table, or a Yssaril agent that may copy it) with infantry of `who` on the board to trade. Specialist
+/// Compounds (a Thunder's Edge breakthrough) and the Deepwrought commander (a dropped faction) are out of scope.
+#[must_use]
+pub fn research_asks_more(core: &CoreState, who: Seat) -> bool {
+    use crate::state::LeaderStatus;
+    let ready = |leader: Leader| core.players().iter().any(|p| p.leaders.status.get(&leader) == Some(&LeaderStatus::Readied));
+    let sucaban = ready(Leader::DoctorSucaban) || (ready(Leader::Ssruu) && core.players().iter().any(|p| p.faction == Faction::TheUniversitiesOfJolNar));
+    sucaban && infantry_on_board(core, who)
+}
+
+/// `strategy_cards::infantry_sites` is not empty: a unit of the seat whose type is infantry stands in a space area or on a planet.
+fn infantry_on_board(core: &CoreState, who: Seat) -> bool {
+    let infantry = |p: &crate::state::Piece| p.owner() == who && p.kind().data().base_type == UnitBaseType::Infantry;
+    core.board().systems().any(|(_, cell)| cell.units.as_slice().iter().any(infantry)) || core.board().planets().any(|(_, cell)| cell.units.as_slice().iter().any(infantry))
+}
+
 /// The facts [`crate::kernel::fx_perform::begin`] reads, for `who` performing `card` (primary or secondary). Without a unit roster (the play
 /// facts of the sources are missing) the abilities that need one are `Unsupported`.
 #[must_use]
@@ -189,7 +206,7 @@ pub fn facts_at(core: &CoreState, kernel: &Kernel, codes: &TurnCodes, roster: Op
         carried: Carried {
             // (The draw follows the hooks of the faction in the core window: Scheming, Crafty; the Deepgloom Executable is Thunder's Edge.)
             plain_draw: true,
-            research: rules_version >= RULES_TECH_PAYMENT_CHOICE,
+            research: rules_version >= RULES_TECH_PAYMENT_CHOICE && !research_asks_more(core, who),
             payments: true,
             structures: roster.and_then(|roster| structure_facts(core, kernel, roster, who, codes)),
             trade_source: codes.trade_primary,

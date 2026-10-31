@@ -604,10 +604,11 @@ mod tests {
         eprintln!("commander gaps counted: {gaps}");
     }
 
-    /// The gaps the strategic arms count that other lanes close: the closing menu's free options (lane F: `MenuSources`), a locked commander
-    /// no hook states (`CommanderUnlock`) and Xxcha's Peace Accords (`PeaceAccords`, the annexation window is not ported).
+    /// The gaps the strategic arms count that other lanes close or that are not ported: the closing menu's free options (lane F:
+    /// `MenuSources`), a locked commander no hook states (`CommanderUnlock`), Xxcha's Peace Accords (`PeaceAccords`, the annexation window)
+    /// and an ability the core cannot begin (`StrategyAbility`: Doctor Sucaban's offer in a research, a Mahact waiver heard by a Nomad).
     fn strategic_allowed(d: &&ti4_engine::dual::Difference) -> bool {
-        ["MenuSources", "CommanderUnlock", "PeaceAccords"].iter().any(|g| d.core_side.contains(g))
+        ["MenuSources", "CommanderUnlock", "PeaceAccords", "StrategyAbility"].iter().any(|g| d.core_side.contains(g))
     }
 
     /// The strategic action's follower arms run in shadow behind a legacy game through round one: every follower step is compared (the
