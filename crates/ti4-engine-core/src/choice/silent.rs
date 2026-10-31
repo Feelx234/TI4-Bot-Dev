@@ -23,6 +23,8 @@ pub enum Ask {
     Mitosis,
     /// Pillage (Mentak): take 1 trade good or commodity from one of the neighbours the event concerns.
     Pillage,
+    /// A question of lane G3 (`silent3`).
+    T(super::silent3::Ask),
 }
 
 /// One answer.
@@ -35,6 +37,8 @@ pub enum Opt {
     Mitosis { replace: bool, system: System, planet: Option<Planet> },
     /// A trade good (`commodity == false`) or a commodity of `target` taken by Pillage.
     Pillage { commodity: bool, target: Seat },
+    /// An answer of lane G3 (`silent3`).
+    T(super::silent3::Opt),
 }
 
 /// The machine identifier of the question.
@@ -46,6 +50,8 @@ pub enum Subtype {
     Mitosis,
     /// `pillage_take`.
     Pillage,
+    /// A subtype of lane G3 (`silent3`).
+    T(super::silent3::Subtype),
 }
 
 impl Ask {
@@ -53,6 +59,9 @@ impl Ask {
     /// timing context's `ask_seeing` do, the ones it builds by hand do not.
     #[must_use]
     pub const fn carries_trigger(&self) -> bool {
-        matches!(self, Self::Landing(_) | Self::Mitosis | Self::Pillage)
+        match self {
+            Self::Landing(_) | Self::Mitosis | Self::Pillage => true,
+            Self::T(t) => t.carries_trigger(),
+        }
     }
 }

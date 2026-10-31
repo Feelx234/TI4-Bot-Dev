@@ -84,3 +84,86 @@ fn scavenger_zeta_needs_the_gainer_a_saar_seat_and_a_mech_in_the_box() {
     assert!(spent.is_done(), "no mech left to place: {}", spent.transcript());
     assert_eq!(units_of(&spent, planets[0], 0, UnitBaseType::Mech), 0);
 }
+
+// -- Ragh's Call --------------------------------------------------------------------------------------------------------------
+
+mod ragh {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent3::{Ask as TAsk, Opt as TOpt};
+    use ti4_engine_core::generated::PromissoryNote;
+    use ti4_engine_core::state::NoteKey;
+
+    const NOTE: NoteKey = NoteKey { note: PromissoryNote::RaghsCall, faction: Faction::TheClanOfSaar };
+
+    fn committed(system: System, planet: Planet) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::UnitsCommitted, Payload::new().with(Key::Player, Val::Seat(Seat(0))).with(Key::Planet, Val::Planet(planet)).with(Key::System, Val::System(system)))
+    }
+
+    fn holds(seat: u8) -> impl FnOnce(&mut CoreState) {
+        move |s| {
+            s.cards_mut().promissory.edit().insert(NOTE, Seat(seat));
+        }
+    }
+
+    /// Seat 0 (Hacan) holds the Saar's note; the Saar (seat 1) has two ground forces on `planets[0]` and controls `planets[1]`.
+    fn scenario(system: System, planets: &[Planet]) -> Scenario {
+        Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheClanOfSaar])
+            .control(planets[0], 1)
+            .control(planets[1], 1)
+            .unit(system, Some(planets[0]), Unit::InfantryI, 1, 2)
+            .unit(system, Some(planets[0]), Unit::ScavengerZeta, 1, 1)
+            .unit(system, Some(planets[0]), Unit::PDSI, 1, 1)
+    }
+
+    #[test]
+    fn the_saar_picks_where_its_ground_forces_go_and_the_note_goes_home() {
+        covers!("silent::g3::ragh::RAGH");
+        let (system, planets) = two_planet_system();
+        let mut r = rig(scenario(system, &planets), holds(0), committed(system, planets[0]));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        r.pick(use_it);
+        assert_eq!(r.asked().actor, Seat(1), "the Saar chooses: {}", r.transcript());
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::Ragh { planet: planets[0] }))));
+        assert_eq!(r.opts(), vec![Opt::Reaction(ROpt::G(GOpt::T(TOpt::Site { system, planet: planets[1] })))]);
+        r.pick(0);
+        assert!(r.is_done(), "{}", r.transcript());
+        let on = |r: &Rig<EmitEvent>, planet| board::planet_units(&r.state, planet).iter().map(|p| p.kind()).collect::<Vec<_>>();
+        assert_eq!(on(&r, planets[0]), vec![Unit::PDSI], "the structure stays");
+        assert_eq!(on(&r, planets[1]), vec![Unit::InfantryI, Unit::InfantryI, Unit::ScavengerZeta]);
+        assert_eq!(r.state.cards().promissory.get(&NOTE), Some(&Seat(1)), "back with the Saar");
+    }
+
+    #[test]
+    fn declining_keeps_the_note_and_the_forces() {
+        covers!("silent::g3::ragh::RAGH");
+        let (system, planets) = two_planet_system();
+        let mut r = rig(scenario(system, &planets), holds(0), committed(system, planets[0]));
+        r.decline();
+        assert!(r.is_done());
+        assert_eq!(r.state.cards().promissory.get(&NOTE), Some(&Seat(0)));
+        assert_eq!(units_of(&r, planets[0], 1, UnitBaseType::Infantry), 2);
+    }
+
+    #[test]
+    fn the_note_needs_a_holder_who_committed_saar_ground_forces_there_and_another_planet_to_go_to() {
+        covers!("silent::g3::ragh::RAGH");
+        let (system, planets) = two_planet_system();
+        // Another seat's commitment: the holder is not asked.
+        let other = rig(scenario(system, &planets), holds(0), fx::event(EventKind::UnitsCommitted, Payload::new().with(Key::Player, Val::Seat(Seat(1))).with(Key::Planet, Val::Planet(planets[0])).with(Key::System, Val::System(system))));
+        assert!(other.is_done(), "{}", other.transcript());
+        // The note is at home: nobody holds it.
+        let home = rig(scenario(system, &planets), |_| {}, committed(system, planets[0]));
+        assert!(home.is_done(), "{}", home.transcript());
+        // No Saar ground force on the planet committed to.
+        let empty = rig(scenario(system, &planets), holds(0), committed(system, planets[1]));
+        assert!(empty.is_done(), "{}", empty.transcript());
+        // The Saar controls no other planet.
+        let lone = rig(Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheClanOfSaar]).control(planets[0], 1).unit(system, Some(planets[0]), Unit::InfantryI, 1, 2), holds(0), committed(system, planets[0]));
+        assert!(lone.is_done(), "{}", lone.transcript());
+        // The holder is the Saar itself: it never plays its own note.
+        let own = rig(scenario(system, &planets), holds(1), fx::event(EventKind::UnitsCommitted, Payload::new().with(Key::Player, Val::Seat(Seat(1))).with(Key::Planet, Val::Planet(planets[0])).with(Key::System, Val::System(system))));
+        assert!(own.is_done(), "{}", own.transcript());
+    }
+}

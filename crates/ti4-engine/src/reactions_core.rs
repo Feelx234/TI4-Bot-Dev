@@ -99,6 +99,7 @@ const NAMED: &[Named] = &[
     Named { slot: cabal::MARK_GROUND, kind: "ability", card: "devour_mark" },
     Named { slot: cabal::CLEAR_GROUND, kind: "ability", card: "devour_clear" },
     Named { slot: ti4_engine_core_factions::silent::g3::zeta::ZETA, kind: "unit", card: "saar_mech" },
+    Named { slot: ti4_engine_core_factions::silent::g3::ragh::RAGH, kind: "promissory", card: "ragh" },
 ];
 
 /// The last segment of a registered id: the relation, except for Salvage Operations' produce half, which the string

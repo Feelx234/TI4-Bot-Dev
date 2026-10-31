@@ -18,7 +18,7 @@ pub const FIRST_SLOT: u16 = 41_000;
 
 /// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
 pub const SUFFI_AN: usize = 11;
-pub const SUFFI_AN_COPY: usize = 50;
+pub const SUFFI_AN_COPY: usize = 49;
 
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
@@ -110,7 +110,6 @@ pub const GAPS: &[Gap] = &[
     // -- promissory notes (held by any seat)
     Gap { kind: AbilityKind::Promissory, event: EventKind::UnitAbilityRolled, relation: Relation::When, holds: |c| note(c, PromissoryNote::StrikeWingAmbuscade) }, // ambuscade
     Gap { kind: AbilityKind::Promissory, event: EventKind::TurnBegan, relation: Relation::After, holds: |c| note(c, PromissoryNote::CreussIff) }, // iff
-    Gap { kind: AbilityKind::Promissory, event: EventKind::UnitsCommitted, relation: Relation::After, holds: |c| note(c, PromissoryNote::RaghsCall) }, // ragh
     Gap { kind: AbilityKind::Promissory, event: EventKind::StrategyPhaseBegan, relation: Relation::After, holds: |c| note(c, PromissoryNote::ScepterOfDominion) }, // scepter
     Gap { kind: AbilityKind::Promissory, event: EventKind::TurnBegan, relation: Relation::After, holds: |c| note(c, PromissoryNote::SpyNet) }, // spynet
     Gap { kind: AbilityKind::Promissory, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| note(c, PromissoryNote::Stymie) }, // stymie

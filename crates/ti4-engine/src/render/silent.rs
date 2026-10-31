@@ -15,6 +15,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
         Ask::Landing(Landing::Legionnaire) => "Crimson Legionnaire II: where in your home system".to_owned(),
         Ask::Mitosis => "Mitosis: place an infantry or replace one with a mech".to_owned(),
         Ask::Pillage => "Pillage: take 1 trade good or commodity".to_owned(),
+        Ask::T(t) => super::silent3::prompt(r, t),
     }
 }
 
@@ -24,6 +25,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Landing(Landing::Legionnaire) => "legionnaire_return",
         Subtype::Mitosis => "mitosis_place",
         Subtype::Pillage => "pillage_take",
+        Subtype::T(t) => return super::silent3::subtype(t),
     }
     .to_owned()
 }
@@ -47,6 +49,7 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
             let (kind, word) = if *commodity { ("commodity", "commodity") } else { ("trade_good", "trade good") };
             ChoiceOption::labelled(format!("{kind}|{target}"), "pillage", format!("take 1 {word} from {target}"))
         }
+        (Ask::T(a), Opt::T(o)) => super::silent3::option(r, a, o),
         _ => panic!("option {o:?} in the question {a:?}"),
     }
 }
@@ -54,6 +57,7 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
 pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
     use ti4_engine_core::generated::{Planet, System};
     match a {
+        Ask::T(t) => super::silent3::parse(r, t, id),
         Ask::Landing(_) => <Planet as IdStr>::from_id(id).map(|p| ROpt::G(Opt::Planet(p))),
         Ask::Pillage => {
             let (kind, target) = id.split_once('|')?;
