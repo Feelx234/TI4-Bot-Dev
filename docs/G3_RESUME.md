@@ -21,9 +21,10 @@ Slots `42_000..` are this lane's rules (`ti4-engine-core-factions/src/silent/g3/
 | Bioplasmosis | `g3/bio.rs`, `Ask::Bio` | `arborec::bioplasmosis` | the string's Arborec tests under dual (no native emitter of `STATUS_PHASE_ENDED` in this base) |
 | The Oracle (Naalu hero) | `g3/oracle.rs`, `Ask::OracleGive` | `naalu::hero` | the string's Naalu tests under dual (same) |
 | Scepter of Dominion | `g3/scepter.rs`, `Ask::Scepter` | `mahact::scepter` | lockstep: `silent3_live_tests` (the status phase into the next round; 0, 1, 2 systems) |
+| Creuss IFF | `g3/iff.rs` (registered inside `silent::returns`, between the Arborec's and the Mahact's start-of-turn rules), `Ask::Iff` | `ghost::iff` | the string's Ghost tests under dual (the lockstep harnesses lend no map to the turn start); core tests with a map |
 | Null Reference (`nekroc4y`) | -- | `nekro_units::null_reference` | **Dropped** in the audit: no faction claims the technology (operator ruling 2026-10-07 in the string module), no seat can gain it |
 
-19 rows of `silent::gaps::GAPS` are gone (61 -> 42). `SUFFI_AN` / `SUFFI_AN_COPY` are gone from `gaps.rs`; Pillage's take ends in `g3::suffi_an::after_pillage`.
+20 rows of `silent::gaps::GAPS` are gone (61 -> 41). `SUFFI_AN` / `SUFFI_AN_COPY` are gone from `gaps.rs`; Pillage's take ends in `g3::suffi_an::after_pillage`.
 
 `g3::draw::draw` is the core's own `DrawCards` window stepped inside an effect (Scheming's bonus card and discard, the hand limit, all asked on the tape), a loud `AbilityGap` of the rule's slot where the adapter gave no printed-name groups.
 
@@ -36,7 +37,7 @@ Findings fixed on the way (each guarded by a test that fails before the fix):
 
 ## How it is wired
 
-* Slots `42_000..42_017` (`g3/mod.rs` registers them; `NAMED` in `reactions_core.rs` names them; `PAIRS` has `SUFFI_AN_COPY`).
+* Slots `42_000..42_018` (`g3/mod.rs` registers them; `NAMED` in `reactions_core.rs` names them; `PAIRS` has `SUFFI_AN_COPY`).
 * Registry order: `reactions_core_g3_tests.rs` (`the_registry_of_the_g3_rules_equals_the_string_one`, an `include!` of `reactions_core::tests`) compares the native registry with the string's for each of the 24 lobby factions as first and as second seat, and the Mentak / Yssaril pair. Three insertion points: `g3::register_first` (before `silent`'s own: Bioplasmosis, the Arborec module comes first), `g3::register_after_ca_combat` (called from `reactions_core::table()` after `ca_combat::register_abilities`: Tekklar's play, the Alastor, Exotrireme II: the Sardakk and Nekro modules sit before the Winnu's), `g3::register_abilities` (the end of `silent`'s). A new rule goes where the test accepts it.
 * New question types: `choice::silent3::{Ask, Opt, Subtype}` (variants `T(..)` of `silent::{Ask, Opt, Subtype}`: one line each in `silent.rs`, `render/silent.rs`), renderer `render/silent3.rs` (unit tests: parse round trips and the words of the questions no lockstep reaches). `carries_trigger` is false for all of them (the lockstep decided: the adapter puts the combat and the invasion into every nested context).
 * `SilentCodes::g3` (places named in `g3::code`, texts in `reactions_core::G3_CODE_TEXTS`: the core holds no text): the interned texts a rule needs (`nekro_flagship`, `technology:exo2`).
@@ -51,7 +52,6 @@ Findings fixed on the way (each guarded by a test that fails before the fix):
 |---|---|
 | Foresight (Naalu) | the relocation of the fleet (`transit::relocate_ships`: 95.5 checks, fleet overflow, the carried ground forces and fighters, the new token as a nested `COMMAND_TOKEN_PLACED`) has no core twin; the destinations need it (the string filters them on a scratch copy) |
 | Spy Net | the look at a hand and the take (`reveal_hand` marks, `take_from_revealed_hand`, the hand limit after the take) is a window of its own; the core has only the hero's (`KyverHero`) |
-| Creuss IFF | the destinations of a Creuss wormhole token (`tokens::wormhole_generator_destinations`: map order by hex, home systems, other players' ships, the tokens' places) are read by the adapter for the Wormhole Generator; an ability cannot call the adapter. The question and the placement (`fx_explore::place_wormhole_token`) are small |
 | Stymie | the universe of systems (map systems plus board entries, no home system), `can_place_command_token`, the staged `COMMAND_TOKEN_PLACED`; and a holder other than the active seat (no lockstep here) |
 | Magen Defense Grid hit | a ground hit assigned to a chosen unit: the victim's sustain offer (`ground_effect_sustain` with its card captions) and the events with the cause `md` are not in the core (the core's hits step assigns by the rules, `absorb` asks the owner only in a combat) |
 | Yin Spinner, Naalu Iconoclast (TE mech) | `action_cards::place_units_choosing` (spot questions with offer captions, `PlacementLimits`) has no core twin |

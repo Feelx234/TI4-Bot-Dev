@@ -1203,3 +1203,79 @@ mod more_edges {
         assert_eq!(broke.state.cards().promissory.get(&NOTE), Some(&Seat(0)), "the card goes home all the same");
     }
 }
+
+// -- Creuss IFF --------------------------------------------------------------------------------------------------------------------
+
+mod iff {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent3::{Ask as TAsk, Opt as TOpt};
+    use ti4_engine_core::generated::{PromissoryNote, Wormhole};
+    use ti4_engine_core::state::{NoteKey, Phase};
+
+    const NOTE: NoteKey = NoteKey { note: PromissoryNote::CreussIff, faction: Faction::TheGhostsOfCreuss };
+
+    fn turn(seat: u8) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::TurnBegan, Payload::new().with(Key::Player, Val::Seat(Seat(seat))))
+    }
+
+    fn holds(seat: u8) -> impl FnOnce(&mut CoreState) {
+        move |s| {
+            s.cards_mut().promissory.edit().insert(NOTE, Seat(seat));
+        }
+    }
+
+    /// Three plain systems on the map: `a` has a planet of seat 0, `b` holds seat 1's cruiser, `c` is empty.
+    fn scenario() -> (Scenario, System, System, System) {
+        let mut plain = ti4_engine_core_tests::scenario::plain_systems().into_iter();
+        let (a, b, c) = (plain.next().unwrap(), plain.next().unwrap(), plain.next().unwrap());
+        let s = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheGhostsOfCreuss]).phase(Phase::Action).map_from(&[a, b, c]).control(a.data().planets[0], 0).unit(b, None, Unit::CruiserI, 1, 1);
+        (s, a, b, c)
+    }
+
+    #[test]
+    fn the_holder_places_a_token_into_a_system_it_controls_or_an_empty_non_home_one_and_the_note_goes_home() {
+        covers!("silent::g3::iff::IFF");
+        let (scenario, a, b, c) = scenario();
+        let mut r = rig(scenario, holds(0), turn(0));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        r.pick(use_it);
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::Iff))), "{}", r.transcript());
+        // Systems a (controlled) and c (empty, no home): both tokens each; b holds another player's ship.
+        let offered: Vec<(Wormhole, System)> = r.opts().iter().filter_map(|o| if let Opt::Reaction(ROpt::G(GOpt::T(TOpt::Token { kind, system }))) = o { Some((*kind, *system)) } else { None }).collect();
+        assert_eq!(offered.len(), 4, "{offered:?}");
+        assert!(offered.iter().all(|(_, s)| *s == a || *s == c) && !offered.iter().any(|(_, s)| *s == b));
+        assert!(offered.iter().take(2).all(|(k, _)| *k == Wormhole::Alpha) && offered.iter().skip(2).all(|(k, _)| *k == Wormhole::Beta), "alpha first, then beta");
+        r.pick(1);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!(r.state.explore().wormhole_tokens.get(&offered[1].0), Some(&offered[1].1));
+        assert_eq!(r.state.cards().promissory.get(&NOTE), Some(&Seat(1)), "back with the Creuss");
+    }
+
+    #[test]
+    fn a_token_already_in_a_system_is_not_offered_there_and_the_conditions_hold() {
+        covers!("silent::g3::iff::IFF");
+        let (scenario, a, _, c) = scenario();
+        let mut r = rig(scenario, |s| { holds(0)(s); s.explore_mut().wormhole_tokens.insert(Wormhole::Alpha, a); }, turn(0));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        r.pick(use_it);
+        assert_eq!(r.opts().len(), 3, "alpha is in a already");
+        assert!(!r.opts().contains(&Opt::Reaction(ROpt::G(GOpt::T(TOpt::Token { kind: Wormhole::Alpha, system: a })))));
+        assert!(r.opts().contains(&Opt::Reaction(ROpt::G(GOpt::T(TOpt::Token { kind: Wormhole::Alpha, system: c })))));
+        // Another seat's turn, the status phase, no holder, the Creuss itself: nothing.
+        let (scenario, ..) = scenario_with(Phase::Action);
+        assert!(rig(scenario, holds(0), turn(1)).is_done(), "another seat's turn");
+        let (scenario, ..) = scenario_with(Phase::Status);
+        assert!(rig(scenario, holds(0), turn(0)).is_done(), "the action phase only");
+        let (scenario, ..) = scenario_with(Phase::Action);
+        assert!(rig(scenario, |_| {}, turn(0)).is_done(), "not held");
+        let (scenario, ..) = scenario_with(Phase::Action);
+        assert!(rig(scenario, holds(1), turn(1)).is_done(), "the Creuss never plays its own note");
+    }
+
+    fn scenario_with(phase: Phase) -> (Scenario, (), (), ()) {
+        let (s, ..) = scenario();
+        (s.phase(phase), (), (), ())
+    }
+}

@@ -1,7 +1,7 @@
 //! Questions of the abilities lane G3 ported (`docs/G3_RESUME.md`), part 2 of the loud gap rows. They are variants of `silent` (`silent::Ask::T`, `Opt::T`,
 //! `Subtype::T`), so the lanes that add to `silent` and this one never touch the same lines; the renderer is `render/silent3.rs`.
 
-use crate::generated::{Faction, Planet, System, Unit};
+use crate::generated::{Faction, Planet, System, Unit, Wormhole};
 use crate::ids::Seat;
 use crate::state::NoteKey;
 
@@ -28,6 +28,8 @@ pub enum Ask {
     OracleGive,
     /// Scepter of Dominion (Mahact note): the holder chooses a system.
     Scepter,
+    /// Creuss IFF: where a Creuss wormhole token is placed or moved to.
+    Iff,
 }
 
 /// One answer.
@@ -52,6 +54,8 @@ pub enum Opt {
     Shift { index: u8, from: (System, Planet), to: (System, Planet) },
     /// A system the Scepter names, with the factions that would place a token there (the label shows them).
     Scepter { system: System, payers: [Option<Faction>; 5] },
+    /// A Creuss wormhole token into a system (the option id is `{ALPHA|BETA}|{system}`).
+    Token { kind: Wormhole, system: System },
 }
 
 /// The machine identifier of the question.
@@ -77,6 +81,8 @@ pub enum Subtype {
     OracleGive,
     /// `scepter_system`.
     Scepter,
+    /// `creuss_token`.
+    Iff,
 }
 
 impl Ask {
@@ -86,7 +92,7 @@ impl Ask {
     pub const fn carries_trigger(&self) -> bool {
         match self {
             Self::Ragh { .. } => false,
-            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } | Self::SuffiAn { .. } | Self::SulaOpponent | Self::SulaGive { .. } | Self::Bio { .. } | Self::OracleGive | Self::Scepter => false,
+            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } | Self::SuffiAn { .. } | Self::SulaOpponent | Self::SulaGive { .. } | Self::Bio { .. } | Self::OracleGive | Self::Scepter | Self::Iff => false,
         }
     }
 }

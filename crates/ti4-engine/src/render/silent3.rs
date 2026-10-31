@@ -4,10 +4,22 @@
 use ti4_engine_core::choice::reaction::Opt as ROpt;
 use ti4_engine_core::choice::silent::Opt as GOpt;
 use ti4_engine_core::choice::silent3::{Ask, Opt, Subtype};
+use ti4_engine_core::generated::Wormhole;
 
 use super::Render;
 use crate::choice::ChoiceOption;
 use crate::generated::IdStr;
+
+/// The text of a Creuss token (`tokens::CREUSS_TOKENS`).
+fn token_text(kind: Wormhole) -> &'static str {
+    match kind {
+        Wormhole::Alpha => "ALPHA",
+        Wormhole::Beta => "BETA",
+        Wormhole::Delta => "DELTA",
+        Wormhole::Epsilon => "EPSILON",
+        Wormhole::Gamma => "GAMMA",
+    }
+}
 
 pub(super) fn prompt(r: &Render, a: &Ask) -> String {
     let _ = r;
@@ -15,6 +27,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
         Ask::Ragh { planet } => format!("Ragh's Call: where do the Saar ground forces on {} go", planet.as_str()),
         Ask::Bio { so_far } => format!("Bioplasmosis: move an infantry ({so_far} so far)"),
         Ask::Scepter => "Scepter of Dominion: choose a system".to_owned(),
+        Ask::Iff => "Creuss IFF: place or move a Creuss wormhole token".to_owned(),
         Ask::OracleGive => "The Oracle: which promissory note do you give".to_owned(),
         Ask::SulaOpponent => "S'ula Mentarion: choose an opponent".to_owned(),
         Ask::SulaGive { to } => format!("Give {} 1 promissory note from your hand", r.seat_text(*to)),
@@ -32,6 +45,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Bio => "bioplasmosis_move",
         Subtype::OracleGive => "give_note",
         Subtype::Scepter => "scepter_system",
+        Subtype::Iff => "creuss_token",
         Subtype::SulaOpponent => "commander_opponent",
         Subtype::SulaGive => "commander_give_note",
         Subtype::SuffiAn => "suffi_an",
@@ -56,6 +70,10 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
                 format!("{} {} a command token in {system}", names.join(", "), if names.len() == 1 { "places" } else { "place" })
             };
             ChoiceOption::labelled(system, "scepter", label)
+        }
+        (Ask::Iff, Opt::Token { kind, system }) => {
+            let kind = token_text(*kind);
+            ChoiceOption::labelled(format!("{kind}|{}", system.as_str()), "creuss_token", format!("Creuss IFF: the {kind} token into {}", system.as_str())).with("system", system.as_str())
         }
         (Ask::OracleGive, Opt::Note(key)) => {
             let note = super::cards::note_text(*key);
@@ -96,6 +114,11 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
         Ask::ExoSelf | Ask::ExoVictim { .. } => None,
         // The answers of these are matched against the rendered options (the id is an index, or the note's text).
         Ask::Bio { .. } | Ask::OracleGive | Ask::Scepter => None,
+        Ask::Iff => {
+            let (kind, system) = id.split_once('|')?;
+            let kind = [Wormhole::Alpha, Wormhole::Beta].into_iter().find(|k| token_text(*k) == kind)?;
+            Some(ROpt::G(GOpt::T(Opt::Token { kind, system: <ti4_engine_core::generated::System as IdStr>::from_id(system)? })))
+        }
         Ask::SulaOpponent => Some(ROpt::G(GOpt::T(Opt::Seat(r.seat(id)?)))),
         // The notes of the hand are matched against the rendered options (the id is the note's text).
         Ask::SulaGive { .. } => None,

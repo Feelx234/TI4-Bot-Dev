@@ -6,6 +6,7 @@ pub mod alastor;
 pub mod bio;
 pub mod draw;
 pub mod exo2;
+pub mod iff;
 pub mod mentak_commander;
 pub mod nekro_commander;
 pub mod oracle;
