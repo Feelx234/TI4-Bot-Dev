@@ -47,7 +47,18 @@ pub const fn unported_text(why: ti4_engine_core::kernel::ability::Unported) -> &
         U::CrownOfEmphidia => "the Crown of Emphidia changes hands",
         U::IntegratedEconomy => "Integrated Economy (a triggered production nested in the control gain)",
         U::AssimilateRoster => "an Assimilate seat whose unit forms the core cannot name",
-        U::ExplorationOfAFirstClaim => "the exploration of a first claim (no native exploration window yet)",
+        U::Exploration(why) => {
+            use ti4_engine_core::state::EWhy as W;
+            match why {
+                W::NoTexts => "the exploration of a first claim, in a table with no texts for its log row",
+                W::NoLink => "the exploration of a first claim, in a table with no link to a child window or no unit forms",
+                W::LinkedAsks => "the exploration of a first claim, a card whose child window of another area asks a question (the discard of a draw over the hand limit, the secret objective's hand limit)",
+                W::Freelancers => "the exploration of a first claim: Freelancers (a unit produced with influence)",
+                W::Terragenesis => "the exploration of a first claim by the Titans (Terragenesis is not a rule of the core table)",
+                W::Replenish => "the exploration of a first claim: a replenishment the core does not follow (two seats of one faction)",
+                W::Draw => "the exploration of a first claim: a draw the core does not carry",
+            }
+        }
         U::BombardmentDiceMismatch => "the bombardment dice do not match the plan",
         U::JolNarCommanderReroll => "the Jol-Nar commander's reroll of the bombardment dice",
         U::ShipFormFlip => "a ship-form unit flipping on landing (Naaz Eidolon)",

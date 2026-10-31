@@ -702,7 +702,6 @@ pub struct Exploring {
     linked: ErasedChild,
     /// The window is kept by its payload: a child that asks cannot be kept.
     hosted: bool,
-    inv: Option<u64>,
 }
 
 impl Exploring {
@@ -722,20 +721,18 @@ impl Exploring {
 
     #[must_use]
     pub fn new(run: ExploreRun) -> Self {
-        Self { run, linked: ErasedChild::idle(), hosted: false, inv: None }
+        Self { run, linked: ErasedChild::idle(), hosted: false }
     }
 
     /// The exploration as a host that keeps [`ExploreRun`] in a payload runs it: a child of another area that asks is not carried.
     #[must_use]
     pub fn hosted(run: ExploreRun) -> Self {
-        Self { run, linked: ErasedChild::idle(), hosted: true, inv: None }
+        Self { run, linked: ErasedChild::idle(), hosted: true }
     }
 
-    /// Its questions carry the sequence number of the invasion it is asked in.
-    #[must_use]
-    pub fn in_invasion_seq(mut self, seq: Option<u64>) -> Self {
-        self.inv = seq;
-        self
+    /// The sequence number of the invasion the position is in (the string `Table::ask_seeing` puts it on every question asked meanwhile).
+    fn inv(s: &CoreState) -> Option<u64> {
+        if s.loaded.has(crate::state::Slice::Transient) { s.transient().invasion.active.as_ref().map(|a| a.seq) } else { None }
     }
 
     #[must_use]
@@ -784,27 +781,27 @@ impl Exploring {
 
     // -- the children, as they stand at their question ----------------------------------------------------------
 
-    fn deck_child(&self) -> ChooseDeck {
-        ChooseDeck::asking(self.run.who, self.run.traits.as_slice()).in_invasion(self.inv)
+    fn deck_child(&self, s: &CoreState) -> ChooseDeck {
+        ChooseDeck::asking(self.run.who, self.run.traits.as_slice()).in_invasion(Self::inv(s))
     }
 
-    fn suns_child(&self) -> Option<DistantSuns> {
+    fn suns_child(&self, s: &CoreState) -> Option<DistantSuns> {
         let (deck, first, second) = (self.run.deck?, self.run.card?, self.run.second?);
-        Some(DistantSuns::asking(self.run.who, deck, first, second).in_invasion(self.inv))
+        Some(DistantSuns::asking(self.run.who, deck, first, second).in_invasion(Self::inv(s)))
     }
 
-    fn ion_child(&self) -> Option<IonStorm> {
+    fn ion_child(&self, s: &CoreState) -> Option<IonStorm> {
         let planet = self.planet_of()?;
-        Some(IonStorm::asking(self.run.who, planet.data().system?).in_invasion(self.inv))
+        Some(IonStorm::asking(self.run.who, planet.data().system?).in_invasion(Self::inv(s)))
     }
 
-    fn reward_child(&self, then: EThen) -> Option<Reward> {
-        Some(Reward::asking(self.run.who, ExploreRun::step_of(then)?, self.run.options.as_slice()).in_invasion(self.inv))
+    fn reward_child(&self, s: &CoreState, then: EThen) -> Option<Reward> {
+        Some(Reward::asking(self.run.who, ExploreRun::step_of(then)?, self.run.options.as_slice()).in_invasion(Self::inv(s)))
     }
 
-    fn pay_child(&self, then: EThen) -> Option<PayMechOrInfantry> {
+    fn pay_child(&self, s: &CoreState, then: EThen) -> Option<PayMechOrInfantry> {
         let EThen::Paying(reward) = then else { return None };
-        Some(PayMechOrInfantry::asking(self.run.who, self.run.card?, self.planet_of()?, reward).in_invasion(self.inv))
+        Some(PayMechOrInfantry::asking(self.run.who, self.run.card?, self.planet_of()?, reward).in_invasion(Self::inv(s)))
     }
 
     // -- the flow -------------------------------------------------------------------------------------------------
@@ -858,7 +855,7 @@ impl Exploring {
         if let Some(planet) = self.planet_of()
             && sx.kernel.hooks.economy.explore_extra_draw(sx.state, sx.kernel, who, planet)
         {
-            let mut suns = DistantSuns::new(who, deck, card).in_invasion(self.inv);
+            let mut suns = DistantSuns::new(who, deck, card).in_invasion(Self::inv(sx.state));
             match suns.step(sx) {
                 Next::Continue(ask) => {
                     self.run.second = suns.second_card();
@@ -931,7 +928,7 @@ impl Exploring {
                 self.close(sx);
             }
             Explore::IonStorm => {
-                match self.ion_child() {
+                match self.ion_child(sx.state) {
                     Some(mut ion) => match ion.step(sx) {
                         Next::Continue(_) => self.run.stage = EStage::Ion,
                         _ => self.close(sx),
@@ -1058,7 +1055,7 @@ impl Exploring {
     fn ask_reward(&mut self, sx: &mut Sx<'_>, then: EThen, options: &[EOpt], skip_single: bool) {
         self.run.options = SmallList::from_slice(options);
         let Some(step) = ExploreRun::step_of(then) else { return self.fail(EWhy::NoLink) };
-        let mut reward = Reward::new(self.run.who, step, options, skip_single).in_invasion(self.inv);
+        let mut reward = Reward::new(self.run.who, step, options, skip_single).in_invasion(Self::inv(sx.state));
         match reward.step(sx) {
             Next::Continue(_) => self.run.stage = EStage::Rewarding(then),
             _ => {
@@ -1075,7 +1072,7 @@ impl Exploring {
     fn pay(&mut self, sx: &mut Sx<'_>, reward: PayReward) {
         let (Some(planet), Some(card)) = (self.planet_of(), self.run.card) else { return self.close(sx) };
         let then = EThen::Paying(reward);
-        let mut pay = PayMechOrInfantry::new(self.run.who, card, planet, reward).in_invasion(self.inv);
+        let mut pay = PayMechOrInfantry::new(self.run.who, card, planet, reward).in_invasion(Self::inv(sx.state));
         match pay.step(sx) {
             Next::Continue(_) => self.run.stage = EStage::Paying(then),
             _ => self.paid(sx, reward, pay.paid),
@@ -1273,17 +1270,17 @@ impl Window for Exploring {
                 EStage::Start => self.start(sx),
                 EStage::Deck => return Next::Continue(Ask::Explore(EAsk::ChooseDeck)),
                 EStage::Suns => {
-                    let Some(suns) = self.suns_child() else { return self.fail_next(EWhy::Draw) };
+                    let Some(suns) = self.suns_child(sx.state) else { return self.fail_next(EWhy::Draw) };
                     let ask = suns.ask_of(sx.state, sx.kernel).map(|c| c.ask);
                     return ask.map_or_else(|| self.fail_next(EWhy::Draw), Next::Continue);
                 }
                 EStage::Pooling => return Next::Continue(Ask::Strategy(SAsk::GainPool { left: self.run.pool_left })),
                 EStage::Rewarding(then) => {
-                    let Some(child) = self.reward_child(then) else { return self.fail_next(EWhy::NoLink) };
+                    let Some(child) = self.reward_child(sx.state, then) else { return self.fail_next(EWhy::NoLink) };
                     return Next::Continue(Ask::Explore(EAsk::Reward(child.card)));
                 }
                 EStage::Paying(then) => {
-                    let Some(child) = self.pay_child(then) else { return self.fail_next(EWhy::NoLink) };
+                    let Some(child) = self.pay_child(sx.state, then) else { return self.fail_next(EWhy::NoLink) };
                     let ask = child.ask_of(sx.state, sx.kernel).map(|c| c.ask);
                     return ask.map_or_else(|| self.fail_next(EWhy::NoLink), Next::Continue);
                 }
@@ -1320,12 +1317,12 @@ impl Window for Exploring {
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.run.stage {
-            EStage::Deck => self.deck_child().ask_of(s, k),
-            EStage::Suns => self.suns_child()?.ask_of(s, k),
+            EStage::Deck => self.deck_child(s).ask_of(s, k),
+            EStage::Suns => self.suns_child(s)?.ask_of(s, k),
             EStage::Pooling => Some(crate::choice::strategy::gain_pool_choice(self.run.who, self.run.pool_left)),
-            EStage::Rewarding(then) => self.reward_child(then)?.ask_of(s, k),
-            EStage::Paying(then) => self.pay_child(then)?.ask_of(s, k),
-            EStage::Ion => self.ion_child()?.ask_of(s, k),
+            EStage::Rewarding(then) => self.reward_child(s, then)?.ask_of(s, k),
+            EStage::Paying(then) => self.pay_child(s, then)?.ask_of(s, k),
+            EStage::Ion => self.ion_child(s)?.ask_of(s, k),
             EStage::Linked(_) => self.linked.ask_of(s, k),
             _ => None,
         }
@@ -1334,14 +1331,14 @@ impl Window for Exploring {
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         match self.run.stage {
             EStage::Deck => {
-                let mut child = self.deck_child();
+                let mut child = self.deck_child(sx.state);
                 child.answer(sx, pick)?;
                 self.run.deck = child.chosen;
                 self.draw(sx);
                 Ok(())
             }
             EStage::Suns => {
-                let mut child = self.suns_child().ok_or(Illegal)?;
+                let mut child = self.suns_child(sx.state).ok_or(Illegal)?;
                 child.answer(sx, pick)?;
                 self.run.card = Some(child.chosen);
                 self.open(sx);
@@ -1357,21 +1354,21 @@ impl Window for Exploring {
                 Ok(())
             }
             EStage::Rewarding(then) => {
-                let mut child = self.reward_child(then).ok_or(Illegal)?;
+                let mut child = self.reward_child(sx.state, then).ok_or(Illegal)?;
                 child.answer(sx, pick)?;
                 let chosen = child.chosen.ok_or(Illegal)?;
                 self.rewarded(sx, then, chosen);
                 Ok(())
             }
             EStage::Paying(then) => {
-                let mut child = self.pay_child(then).ok_or(Illegal)?;
+                let mut child = self.pay_child(sx.state, then).ok_or(Illegal)?;
                 child.answer(sx, pick)?;
                 let EThen::Paying(reward) = then else { return Err(Illegal) };
                 self.paid(sx, reward, child.paid);
                 Ok(())
             }
             EStage::Ion => {
-                let mut child = self.ion_child().ok_or(Illegal)?;
+                let mut child = self.ion_child(sx.state).ok_or(Illegal)?;
                 let before = sx.state.meta().ion_storm;
                 child.answer(sx, pick)?;
                 // Only a token that differs from the one in play is a new token of the row.

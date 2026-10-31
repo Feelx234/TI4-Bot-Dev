@@ -13,9 +13,10 @@ use crate::generated::{Leader, Planet, Technology, Unit};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
-use crate::kernel::Kernel;
+use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
 use crate::query::{board as qboard, reach};
+use crate::rules::explore_windows::Exploring;
 use crate::rules::invasion::advance::{Advance, Facts as AdvanceFacts, Upcoming};
 use crate::rules::invasion::begin::{deploy_question, reaper_offered, reaper_replace, REAPER_COST};
 use crate::rules::invasion::control::{ControlGained, Facts as ControlFacts};
@@ -26,7 +27,7 @@ use crate::rules::invasion::round::{Facts as RoundFacts, GroundRoundHits};
 use crate::rules::invasion::tail::{Facts as TailFacts, GroundRollTail};
 use crate::rules::invasion::is_ground_force;
 use crate::rules::production::pay::PayBill;
-use crate::state::{CoreState, EventKind, Feat, IBill, IRound, IStage, InvasionDie, InvasionStep, Key, Payload, Piece, Val};
+use crate::state::{CoreState, EDeck, ETarget, EventKind, ExploreRun, Feat, IBill, IRound, IStage, InvasionDie, InvasionStep, Key, Payload, Piece, Val};
 use crate::tables::{Flags, SystemFlags};
 
 type Bail = Why;
@@ -527,11 +528,32 @@ impl InvasionMachine {
                 self.p.stage = IStage::FinalizingControl { planets: planets.to_vec(), index: u8::try_from(index + 1).unwrap_or(u8::MAX), planet, previous };
                 return Ok(());
             }
-            self.finish_control_gain(sx, planet, previous)?;
+            if let Some(run) = self.finish_control_gain(sx, planet, previous)? {
+                // A first claim explores its planet before the chain goes on to the next one.
+                self.p.stage = IStage::Exploring { planets: planets.to_vec(), index: u8::try_from(index + 1).unwrap_or(u8::MAX), planet, run: Box::new(run) };
+                return Ok(());
+            }
             index += 1;
         }
         self.p.stage = IStage::Done;
         Ok(())
+    }
+
+    /// The exploration of a first claim, kept as data in the payload (`IStage::Exploring`): run it to its next question or its end, then the
+    /// chain of control goes on with the next planet. A run the window does not carry is a counted bail of the native path.
+    pub(super) fn explore_first_claim(&mut self, sx: &mut Sx<'_>, planets: Vec<Planet>, index: u8, planet: Planet, run: ExploreRun) -> Result<(), Bail> {
+        let mut exploring = Exploring::hosted(run);
+        if let Next::Continue(_) = exploring.step(sx) {
+            self.p.stage = IStage::Exploring { planets, index, planet, run: Box::new(exploring.into_run()) };
+            return Ok(());
+        }
+        if let Some(why) = exploring.unsupported() {
+            return Err(Why::Exploration(why));
+        }
+        if exploring.explored() {
+            self.p.report.explored.push(planet);
+        }
+        self.advance_control(sx, &planets, usize::from(index))
     }
 
     /// Whether a first claim of `planet` explores anything: a printed trait, or an attachment that gives one (`traits_now`).
@@ -540,8 +562,9 @@ impl InvasionMachine {
         !crate::query::explore::traits_of(scope, planet).is_empty() || qboard::attachments(s, planet).iter().any(|a| !a.data().traits.is_empty())
     }
 
-    /// `finish_control_gain`: Assimilate, `PLANET_CONTROL_GAINED`, the destruction of the rival structures, then what follows a capture.
-    pub(super) fn finish_control_gain(&mut self, sx: &mut Sx<'_>, planet: Planet, previous: Option<Seat>) -> Result<(), Bail> {
+    /// `finish_control_gain`: Assimilate, `PLANET_CONTROL_GAINED`, the destruction of the rival structures, then what follows a capture. `Some(run)`:
+    /// a first claim of a planet with a trait to explore into (35.1): the exploration to run next.
+    pub(super) fn finish_control_gain(&mut self, sx: &mut Sx<'_>, planet: Planet, previous: Option<Seat>) -> Result<Option<ExploreRun>, Bail> {
         let (invader, system) = (self.p.invader, self.p.system);
         if sx.state.players().by_seat(invader).is_some_and(|p| p.tech.owned.contains(Technology::IntegratedEconomy)) {
             return Err(Why::IntegratedEconomy);
@@ -553,11 +576,11 @@ impl InvasionMachine {
         if w.unsupported {
             return Err(Why::AssimilateRoster);
         }
-        // 35.1: a planet nobody controlled is explored (when it has a trait to explore into).
+        // 35.1: a planet nobody controlled is explored (when it has a trait to explore into: the deck is asked among the traits now).
         if previous.is_none() && self.explorable(sx.state, sx.kernel, planet) {
-            return Err(Why::ExplorationOfAFirstClaim);
+            return Ok(Some(ExploreRun::new(invader, ETarget::Planet(planet), EDeck::Choose, true)));
         }
-        Ok(())
+        Ok(None)
     }
 }
 

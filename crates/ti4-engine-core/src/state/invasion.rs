@@ -11,7 +11,7 @@ use crate::containers::SeatSet;
 use crate::generated::{Planet, System};
 use crate::ids::Seat;
 
-use super::{Code, InvasionDie, NoteHold, Piece};
+use super::{Code, ExploreRun, InvasionDie, NoteHold, Piece};
 
 /// A planet some ground force was committed from by a faction's hook (`CommitOrigin`).
 pub type CommitOrigin = (System, Planet);
@@ -93,6 +93,8 @@ pub enum IStage {
     Advancing { planets: Vec<Planet>, index: u8 },
     ChoosingNextCombat { planets: Vec<Planet>, index: u8, planet: Planet, remaining: Vec<Seat> },
     FinalizingControl { planets: Vec<Planet>, index: u8, planet: Planet, previous: Option<Seat> },
+    /// A first claim explores its planet (`rules::explore_windows::Exploring`, kept as data); `index` is the next planet of the control chain.
+    Exploring { planets: Vec<Planet>, index: u8, planet: Planet, run: Box<ExploreRun> },
     Done,
 }
 

@@ -24,7 +24,7 @@ mod real {
     use ti4_engine_core::generated::{Planet, System, Technology};
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::hero_windows::{ArgentHero, CabalHero, Devourable, EmpyreanHero, FrontierFacts, KyverHero, MigrationFacts, NaazHero, NekroHero, Stranded, WinnuHero};
+    use ti4_engine_core::rules::hero_windows::{ArgentHero, CabalHero, Devourable, EmpyreanHero, KyverHero, MigrationFacts, NaazHero, NekroHero, Stranded, WinnuHero};
     use ti4_engine_core::state::Slice;
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::PlayerId;
@@ -609,15 +609,12 @@ mod real {
         let placed: Vec<System> = placed.iter().map(|id| typed::<System>(id.as_str())).collect::<Option<_>>().why("a system the typed tables do not know")?;
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
-        let facts = FrontierFacts {
-            empty: cx.texts.intern(Slice::Explore, "").ok().why("the empty text of an exploration row could not be interned")?,
-            rules_version: gs.rules_version,
-            mahact_held: gs.tokens_held_by_mahact(player),
-            agreement: crate::leaders_core::replenish_window_unported(gs).is_none().then(|| r.code("trade_agreement")),
-            draw_plain: crate::strategy_cards_core::plain_draw(gs, content, player, 2),
-        };
+        // (A replenishment through a siphoning plot, or an action card draw a faction hook changes, is the string's.)
+        if crate::leaders_core::replenish_window_unported(gs).is_some() || !crate::strategy_cards_core::plain_draw(gs, content, player, 2) {
+            crate::dual::note_bail_here("an exploration whose replenishment or draw the core does not follow");
+            return None;
+        }
         let before = gs.clone();
-        let start = gs.exploration_log.len();
         // (The full table: a Lost Crew draws through the hooks of the drawer's faction, Scheming and Crafty.)
         let kernel = crate::production_view::kernel_of(sources);
         let letnev = gs.player(player).why(crate::dual::reason::NO_SEAT)?.faction.as_str() == "letnev";
@@ -627,22 +624,22 @@ mod real {
         };
         let mut staged = Vec::new();
         let mut out = None;
-        let mut driver = crate::window_driver::driver_for(EmpyreanHero::new(seat, placed, order, facts), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
+        // The exploration window of each token needs the event texts, the words of a log row and the links of its children.
+        let mut table = crate::exploring_dual::table(&r, content, sources);
+        ti4_engine_core_factions::self_assembly::register_links(&mut table);
+        let mut driver = crate::window_driver::driver_for(EmpyreanHero::new(seat, placed, order), Resolver::new(&[seat], Some(seat)), table, 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), crate::dual_window::nested_fp(FRONTIER, script), |core, _| {
             let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
             staged = std::mem::take(&mut core.pending_mut().staged);
-            out = Some((driver.window.used, driver.window.unsupported, driver.window.rows().to_vec()));
+            out = Some((driver.window.used, driver.window.unsupported));
             driven
         })
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        let (used, unsupported, rows) = out?;
+        let (used, unsupported) = out?;
         if unsupported {
             crate::dual::note_bail_here("a frontier card the core does not carry (a card of another deck, a changed draw, a replenishment with events it does not hold)");
             return None;
-        }
-        for (at, row) in rows.iter().enumerate() {
-            crate::action_cards_view::close_frontier_row(gs, player, start + at, row).why("a log row the core did not open as the string does")?;
         }
         crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
         Some(CoreWindow { run: Run::new(used).with_events_vec(Vec::new()), questions: driven.rendered })

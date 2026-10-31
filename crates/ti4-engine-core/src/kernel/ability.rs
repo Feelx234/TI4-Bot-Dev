@@ -103,8 +103,8 @@ pub enum Unported {
     CrownOfEmphidia,
     IntegratedEconomy,
     AssimilateRoster,
-    /// A first claim explores the planet and no native exploration window exists yet.
-    ExplorationOfAFirstClaim,
+    /// The exploration of a first claim holds something the native window does not carry (`ExploreRun::why`).
+    Exploration(crate::state::EWhy),
     BombardmentDiceMismatch,
     JolNarCommanderReroll,
     ShipFormFlip,

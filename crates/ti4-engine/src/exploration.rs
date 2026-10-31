@@ -1359,20 +1359,32 @@ pub fn explore_frontier(
     if !has_ship {
         return None;
     }
-    take_frontier_token(state, system);
-    let logged = state.exploration_log.len();
-    let outcome = explore_in(state, ctx, player, FRONTIER, None, Some(system));
-    dual_write(
+    let (content, sources, announce) = (ctx.content, ctx.sources, ctx.timing.is_some());
+    // The whole spend, draw and resolution is one core window (`rules::explore_windows::Exploring`), lockstep on the `Dual` backend.
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::explore_frontier",
         state,
-        "exploration::record_system",
-        |s| {
-            if let Some(record) = s.exploration_log.get_mut(logged) {
-                record.system = Some(system.to_string());
-            }
+        |s: &mut GameState| {
+            take_frontier_token(s, system);
+            let logged = s.exploration_log.len();
+            let outcome = explore_in(s, ctx, player, FRONTIER, None, Some(system));
+            dual_write(
+                s,
+                "exploration::record_system",
+                |s| {
+                    if let Some(record) = s.exploration_log.get_mut(logged) {
+                        record.system = Some(system.to_string());
+                    }
+                },
+                |s| crate::explore_write::set_record_system(s, logged, system),
+            );
+            crate::dual::Run::new(outcome)
         },
-        |s| crate::explore_write::set_record_system(s, logged, system),
-    );
-    outcome
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::exploring_dual::explore_frontier(s, content, sources, player, system, announce, script)
+        }
+    )
 }
 
 /// Explore a planet, resolving one card (35.2).
@@ -1412,7 +1424,20 @@ pub fn explore_with(
     deck: &str,
     planet: Option<&PlanetId>,
 ) -> Option<Explored> {
-    explore_in(state, ctx, player, deck, planet, None)
+    let Some(planet) = planet else {
+        return explore_in(state, ctx, player, deck, None, None);
+    };
+    let (content, sources, announce) = (ctx.content, ctx.sources, ctx.timing.is_some());
+    // One core window (`rules::explore_windows::Exploring`), lockstep on the `Dual` backend. The deck was chosen by the caller.
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::explore",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(explore_in(s, ctx, player, deck, Some(planet), None)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::exploring_dual::explore_planet(s, content, sources, player, deck, planet, announce, script)
+        }
+    )
 }
 
 /// [`explore_with`] that also knows the system a frontier token was explored in ("this system"

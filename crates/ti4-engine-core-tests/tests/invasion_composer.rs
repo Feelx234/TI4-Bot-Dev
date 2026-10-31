@@ -216,22 +216,56 @@ fn the_payload_on_the_stack_is_the_machine_after_every_question() {
     panic!("the invasion does not end");
 }
 
+/// The table of an environment that explores: the texts of the log row and of the events, the links of the children.
+fn exploring_env(k: &Kernel, seed: u64) -> Env<'_> {
+    let mut env = env(k, seed);
+    let kit = ti4_engine_core_tests::windows::explore_table();
+    env.table.codes.explore = kit.codes.explore;
+    env.table.facts.explore_words = kit.facts.explore_words;
+    env
+}
+
+fn stack_deck(core: &mut CoreState, deck: ExploreType, cards: &[Explore]) {
+    core.decks_mut().explore[deck as usize].set(cards.to_vec());
+    core.decks_mut().explore_present |= 1 << deck as u8;
+}
+
+/// A first claim of a planet nobody holds: the control chain, then the exploration of the planet (the deck among its traits now, the card
+/// and the log row), kept as data in the payload between the questions.
 #[test]
-fn a_first_claim_is_a_counted_bail_until_the_exploration_is_native() {
+fn a_first_claim_explores_the_planet_natively() {
     covers!("driver::windows::invasion::InvasionMachine");
     let (p1, _) = planets();
-    // Nobody holds the planet: the invader takes it for the first time, which explores it.
+    let (mut core, k) = arena().unit(sys(), None, Unit::CarrierI, 0, 1).build();
+    carry(&mut core, 2);
+    let deck = ti4_engine_core::query::explore::traits_of(ti4_engine_core::tables::Scope(u32::MAX), p1).as_slice().first().copied().expect("a planet with a trait");
+    stack_deck(&mut core, deck, &[Explore::CulturalRelicFragment1, Explore::HazardousRelicFragment1, Explore::IndustrialRelicFragment1]);
+    let env = exploring_env(&k, 1);
+    open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+    let (_, end) = play(&mut core, &env, &mut first);
+    assert!(end.is_ok(), "{end:?}");
+    assert_eq!(core.board().planet(p1).control, Some(Seat(0)), "the planet is taken");
+    let log: Vec<_> = core.explore().log.iter().collect();
+    assert_eq!(log.len(), 1, "one card is explored");
+    assert_eq!((log[0].planet, log[0].player, log[0].deck), (Some(p1), Seat(0), deck));
+    assert!(!log[0].outcome.0.eq(&0), "the row is closed with the adapter's words");
+    assert!(core.pending().window(WindowKind::Invasion).is_none());
+}
+
+/// A table that gives the exploration no texts for its log row: the arm stops with a counted bail that names the exploration, and the
+/// planet stays unclaimed.
+#[test]
+fn a_first_claim_in_a_table_with_no_texts_is_a_counted_bail() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    let (p1, _) = planets();
     let (mut core, k) = arena().unit(sys(), None, Unit::CarrierI, 0, 1).build();
     carry(&mut core, 2);
     let env = env(&k, 1);
     open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
-    let before = core.clone();
     let (_, end) = play(&mut core, &env, &mut first);
     let Err(LiveError::Unknown(why)) = end else { panic!("a first claim bails: {end:?}") };
-    assert!(format!("{why:?}").contains("ExplorationOfAFirstClaim"), "{why:?}");
-    // The failed step put the position back to where the last question stopped it (it kept the planet unclaimed).
+    assert!(format!("{why:?}").contains("Exploration(NoTexts)"), "{why:?}");
     assert_eq!(core.board().planet(p1).control, None);
-    let _ = before;
 }
 
 #[test]

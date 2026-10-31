@@ -16,6 +16,7 @@
 //! | `Advancing`              | `Advancing`                          | none |
 //! | `ChoosingNextCombat`     | `ChoosingNextCombat`                 | `NextCombat` |
 //! | `FinalizingControl`      | `FinalizingControl`                  | none |
+//! | `Exploring`              | (`control_gain_exploration`)         | the deck, Distant Suns, the card's rewards (`Exploring`) |
 //! | `Done`                   | `Done`                               | none |
 //!
 //! Like the string, the machine runs in CHUNKS (`settle` between two questions): an occurrence queued for an event scoring window pauses it
@@ -97,7 +98,7 @@ impl Window for InvasionMachine {
             IStage::Fighting { .. } => Tag::Fighting,
             IStage::Advancing { .. } => Tag::Advancing,
             IStage::ChoosingNextCombat { .. } => Tag::NextCombat,
-            IStage::FinalizingControl { .. } => Tag::Control,
+            IStage::FinalizingControl { .. } | IStage::Exploring { .. } => Tag::Control,
             IStage::Done => Tag::Done,
         }
     }
