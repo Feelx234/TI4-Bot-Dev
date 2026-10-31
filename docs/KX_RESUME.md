@@ -76,4 +76,30 @@ Also reached from this lane but owned elsewhere: `MenuSources` (the closing menu
 
 ## Checks (cheap), `CARGO_BUILD_JOBS=2`, `CARGO_INCREMENTAL=0`, private target dir `/root/deploytmp/core-e` (deleted at the end)
 
-(see the end of this file)
+* `cargo test -p ti4-engine --lib --profile lockstep`: 5002 passed, 4 ignored; also `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: 5002 passed (whole lib, once at the end, after the last code change).
+* Lockstep against the string (`ti4-engine/src/strategic_live_tests.rs`, 25 scenarios): the follower window of all eight standard cards and the Thunder's Edge Construction (the question as rendered with its display facts, the events, the position, the dice streams,
+  the events left staged); the primary of the same cards through `TurnJob::Strategic`; nobody eligible; the Winnu hero's selection and window; a preview window; the end of the free tactical action; Thunder's Edge Warfare's primary stops at the counted gap;
+  bail-as-failure over a native strategic action of EVERY lobby faction (24) with every standard card and the Thunder's Edge Construction (the Nekro `Propagation`, the closing menu's `MenuSources` and Doctor Sucaban are the only tolerated stops).
+* `ti4-engine-core-tests`: `strategic_arms` 34 tests (clone mid-window, mid-ability with `Pending::nested`, illegal answers, the payload, waivers, the hero, the dispatch, the end of the free action, the findings above); the whole crate: all binaries ok
+  after two fixtures followed the Hacan/Yssaril hooks (`turn_jobs2`, `promissory_windows`) and `combat_fight` got the `show_neutral` field of the l11 merge. `-p ti4-engine-core --lib`: 467 passed. `-p ti4-engine-core-factions`: 126 passed.
+* `-p ti4-engine-core-bridge` (lib + integration): all ok, incl. `native_subject` (14): the strategic arms in shadow behind a legacy game through round one, and with each of the 24 lobby factions in six tables with a counted bail a failure: zero differences except the
+  counted gaps `MenuSources`, `CommanderUnlock`, `PeaceAccords`, `StrategyAbility` (5 occurrences), and the follower window ran at every table.
+* `check_layers.py core`: 470 files, 0 violations. `lint_core.sh`: 472 files, 0 hits.
+* Mutation (`mutants.sh` on a committed snapshot in a scratch worktree, `strategic/` as one target, two test sets, union): `strategic/{mod,facts,perform,begin,after}.rs`: 173 mutants (the skips with reasons excluded), 163 killed (94 %).
+  Core tests alone (`strategic_arms`): after 23/23, begin 15/15, mod 64/65, facts 44/48, perform 18/23; the engine lockstep (`strategic_live`) kills the rest. First run: core alone 108/188. The 10 left: `is_complete` returning `true` (the
+  exhaustion comes one answer early: only visible in the card's flags), the Imperial primary's `finish_if_won` / unlock branch (needs a score that reaches the target: the string lockstep of `imperial_primary_scores...` is the dual's), the `0 -> 1` of a capacity
+  test in `te_uses`, two board/hyperlane filters of the free-action systems, Diplomacy-and-Xxcha `&&`. The refactored functions of `rules/strategy_secondary.rs` (`follow_choice`, `take_answer`, `pay_waiver`, `note_answer`): 48/61 with the core tests; the rest is
+  covered by the dual's `strategy_secondary_dual_tests` (not run here). The debug build of the scratch tree found a real panic (`core.galaxy()` reads the map slice; fixed with a guard and a test).
+* `playthrough_quick.sh --maxsteps 1500` (gate profile, sol, 4 players, seed 1, te card set): island E 121 counted bails BEFORE and AFTER (the bin still plays the string `Game` under `all=dual`; `d1::pending.close/open [bail: StrategySecondary]` 49 + 49, `strategy_cards::technology_primary` 7, ...).
+  They fall only when the wrapper (D2-8) calls `live_reconcile`/`live_step`. The native arms are proven by the lockstep and the shadow oracle above, not by this table. Whole run: 56 causes, 0 unmapped, 0 lent.
+
+## Hand-overs
+
+* **Lane F (menu):** on the answer `Opt::Strategic{card}` call `driver::windows::strategic::begin::begin_strategic(core, env, card)` in the same call (the string does the primary in the step of the answer); the observer `on_strategic_action_chosen` is the wrapper's, fed from its result.
+  `closing::options` (`MenuSources`) is what the end of every action still stops at when a transaction partner, a free leader or a second action exists.
+* **Lane M6 (tactical):** in `begin.rs` replace the `TurnGap::FreeTactical` by `tactical::open_free(core, active, system)`; in the tail, where `Then::LeaderStrategy` / `Then::Secondary` is decided, call `strategic::after::open_after(core)` (the next `Arm::Ask` call runs it).
+* **Integration agent:** `Opt::Waive(shape)` (the dual's) and `Opt::WaiveBy(module, code)` (native) are two forms of one option; `Reason::Scheming` replaced lane C's `SchemingDiscard`; `state::List::Produced` and the `UNITS_PRODUCED` staging of `perform::announce_made` are the same shape as M2's
+  (replace `TurnCodes::{production, units}` by `codes.production.{production, units}` when M2 is in); `live::kernel::static_of` and the position-carrying `render_asking` are copied from integration-10.
+* **Not ported:** Peace Accords (gap), TE Warfare's free action (M6), Doctor Sucaban's offer in a research (gap), Mindsieve (out), `Opt::PrimaryInstead` (Firmament, dropped).
+
+Not run (standing rule): golden/wide dual sweeps, benches, soak, mutation ratchet, census, workspace clippy, the armed dual, the Z-gate.
