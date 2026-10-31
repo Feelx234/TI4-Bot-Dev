@@ -12,6 +12,7 @@ use ti4_engine_core_tests::windows::EmitEvent;
 fn table() -> AbilityTable {
     let mut t = AbilityTable::default();
     ti4_engine_core_factions::silent::register_before_movement(&mut t);
+    ti4_engine_core_factions::silent::g3::register_after_ca_combat(&mut t);
     ti4_engine_core_factions::silent::register_abilities(&mut t);
     t
 }
@@ -165,5 +166,95 @@ mod ragh {
         // The holder is the Saar itself: it never plays its own note.
         let own = rig(scenario(system, &planets), holds(1), fx::event(EventKind::UnitsCommitted, Payload::new().with(Key::Player, Val::Seat(Seat(1))).with(Key::Planet, Val::Planet(planets[0])).with(Key::System, Val::System(system))));
         assert!(own.is_done(), "{}", own.transcript());
+    }
+}
+
+// -- Tekklar Legion -----------------------------------------------------------------------------------------------------------
+
+mod tekklar {
+    use super::*;
+    use ti4_engine_core::generated::PromissoryNote;
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::NoteKey;
+
+    const NOTE: NoteKey = NoteKey { note: PromissoryNote::TekklarLegion, faction: Faction::SardakkNorr };
+
+    fn combat(kind: EventKind, system: System, planet: Planet, attacker: u8, defender: u8) -> ti4_engine_core::state::EventRec {
+        fx::event(kind, Payload::new().with(Key::System, Val::System(system)).with(Key::Planet, Val::Planet(planet)).with(Key::Attacker, Val::Seat(Seat(attacker))).with(Key::Defender, Val::Seat(Seat(defender))))
+    }
+
+    fn holds(seat: u8) -> impl FnOnce(&mut CoreState) {
+        move |s| {
+            s.cards_mut().promissory.edit().insert(NOTE, Seat(seat));
+        }
+    }
+
+    fn mark(r: &Rig<EmitEvent>) -> Option<MarkVal> {
+        r.state.marks().tail.get(&MarkKey::SardakkTekklarCombat()).cloned()
+    }
+
+    fn record(system: System, planet: Planet, holder: u8, norr: Option<u8>) -> MarkVal {
+        MarkVal::Rec(vec![MarkVal::Atom(Atom::System(system)), MarkVal::Atom(Atom::Planet(planet)), MarkVal::Atom(Atom::Seat(Seat(holder))), MarkVal::Atom(norr.map_or(Atom::Absent, |n| Atom::Seat(Seat(n))))])
+    }
+
+    #[test]
+    fn the_holder_plays_it_into_a_combat_it_fights_and_the_mark_names_the_norr_opponent() {
+        covers!("silent::g3::tekklar::TEKKLAR");
+        let (system, planets) = two_planet_system();
+        // Seat 0 (Hacan) holds the note and attacks the N'orr (seat 1).
+        let mut r = rig(Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::SardakkNorr]), holds(0), combat(EventKind::GroundCombatStarted, system, planets[0], 0, 1));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        r.pick(use_it);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!(mark(&r), Some(record(system, planets[0], 0, Some(1))));
+        assert_eq!(r.state.cards().promissory.get(&NOTE), Some(&Seat(1)), "back with the N'orr");
+        // Against a player who is not the N'orr there is no -1 side.
+        let mut other = rig(Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol, Faction::SardakkNorr]), holds(0), combat(EventKind::GroundCombatStarted, system, planets[0], 1, 0));
+        let use_it = other.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        other.pick(use_it);
+        assert_eq!(mark(&other), Some(record(system, planets[0], 0, None)));
+    }
+
+    #[test]
+    fn declining_or_not_fighting_or_holding_the_note_at_home_leaves_no_mark() {
+        covers!("silent::g3::tekklar::TEKKLAR");
+        let (system, planets) = two_planet_system();
+        let seats = [Faction::TheEmiratesOfHacan, Faction::SardakkNorr, Faction::TheFederationOfSol];
+        let mut declined = rig(Scenario::new(&seats), holds(0), combat(EventKind::GroundCombatStarted, system, planets[0], 0, 1));
+        declined.decline();
+        assert!(declined.is_done() && mark(&declined).is_none());
+        assert_eq!(declined.state.cards().promissory.get(&NOTE), Some(&Seat(0)));
+        // Seat 2 holds it but the combat is between seats 0 and 1.
+        let bystander = rig(Scenario::new(&seats), holds(2), combat(EventKind::GroundCombatStarted, system, planets[0], 0, 1));
+        assert!(bystander.is_done() && mark(&bystander).is_none(), "{}", bystander.transcript());
+        // The N'orr never plays its own note.
+        let norr = rig(Scenario::new(&seats), holds(1), combat(EventKind::GroundCombatStarted, system, planets[0], 0, 1));
+        assert!(norr.is_done() && mark(&norr).is_none(), "{}", norr.transcript());
+        // Nobody holds it (it is at home).
+        let home = rig(Scenario::new(&seats), |_| {}, combat(EventKind::GroundCombatStarted, system, planets[0], 0, 1));
+        assert!(home.is_done() && mark(&home).is_none());
+    }
+
+    #[test]
+    fn the_bonus_ends_with_its_combat_and_at_the_latest_with_the_next_turn() {
+        covers!("silent::g3::tekklar::TEKKLAR_END");
+        covers!("silent::g3::tekklar::TEKKLAR_TURN");
+        let (system, planets) = two_planet_system();
+        let seats = || Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan]);
+        let marked = |planet: Planet| move |s: &mut CoreState| {
+            s.marks_mut().tail.edit().insert(MarkKey::SardakkTekklarCombat(), record(system, planet, 1, Some(0)));
+        };
+        // The combat it was played into ends: the mark goes.
+        let ended = rig(seats(), marked(planets[0]), combat(EventKind::GroundCombatEnded, system, planets[0], 1, 0));
+        assert!(ended.is_done() && mark(&ended).is_none());
+        // Another planet's combat ends: the mark stays.
+        let elsewhere = rig(seats(), marked(planets[0]), combat(EventKind::GroundCombatEnded, system, planets[1], 1, 0));
+        assert_eq!(mark(&elsewhere), Some(record(system, planets[0], 1, Some(0))));
+        // A turn begins: whatever is left goes.
+        let turn = rig(seats(), marked(planets[0]), fx::event(EventKind::TurnBegan, Payload::new().with(Key::Player, Val::Seat(Seat(1)))));
+        assert!(turn.is_done() && mark(&turn).is_none());
+        // The clean-ups are the N'orr seat's: a table without one keeps the mark (there is none to keep in a game).
+        let none = rig(Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]), marked(planets[0]), fx::event(EventKind::TurnBegan, Payload::new().with(Key::Player, Val::Seat(Seat(1)))));
+        assert!(mark(&none).is_some());
     }
 }

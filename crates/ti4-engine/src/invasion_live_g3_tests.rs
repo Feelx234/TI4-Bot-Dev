@@ -92,3 +92,30 @@ fn ragh_s_call_moves_the_saar_ground_forces_to_a_planet_the_saar_picks_like_the_
     }
     assert!(asked > 6);
 }
+
+// -- Tekklar Legion ---------------------------------------------------------------------------------------------------------------
+
+/// Seat `a` (Hacan) invades the planet of `b` holding the Sardakk's Tekklar Legion; `b` is the N'orr player, or Jolnar with Sardakk as a third seat.
+fn tekklar_table(seed: u64, norr_defends: bool) -> (GameState, SystemId) {
+    let seats: &[(&str, &str)] = if norr_defends { &[("a", "hacan"), ("b", "sardakk")] } else { &[("a", "hacan"), ("b", "jolnar"), ("c", "sardakk")] };
+    let (mut state, system, planet) = game(seats, seed);
+    let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+    crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+    crate::fixtures::put(&mut state, &system, "infantry", &a, 5);
+    state.system_mut(&system).set_control(planet.clone(), b.clone());
+    crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 4);
+    state.promissory_notes.insert("tekklar:sardakk".to_owned(), a);
+    (state, system)
+}
+
+#[test]
+fn tekklar_legion_shifts_the_rolls_of_the_combat_it_was_played_into_like_the_string() {
+    let _guard = crate::dual::tests::serial();
+    let mut asked = 0;
+    for seed in 1..=8_u64 {
+        let (state, system) = tekklar_table(seed, seed % 2 == 0);
+        let pick = if seed % 4 < 2 { prefer(&["promissory:hacan:tekklar"]) } else { prefer(&["decline"]) };
+        asked += check(&format!("tekklar {seed}"), &state, seed, &system, false, pick);
+    }
+    assert!(asked > 8);
+}

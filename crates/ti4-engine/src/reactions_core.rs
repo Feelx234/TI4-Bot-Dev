@@ -100,6 +100,9 @@ const NAMED: &[Named] = &[
     Named { slot: cabal::CLEAR_GROUND, kind: "ability", card: "devour_clear" },
     Named { slot: ti4_engine_core_factions::silent::g3::zeta::ZETA, kind: "unit", card: "saar_mech" },
     Named { slot: ti4_engine_core_factions::silent::g3::ragh::RAGH, kind: "promissory", card: "ragh" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR, kind: "promissory", card: "tekklar" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_END, kind: "promissory", card: "tekklar_end" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_TURN, kind: "promissory", card: "tekklar_turn" },
 ];
 
 /// The last segment of a registered id: the relation, except for Salvage Operations' produce half, which the string
@@ -213,6 +216,7 @@ pub fn table() -> AbilityTable {
             // Cavalry (SPACE_COMBAT_ENDED).
             ti4_engine_core_factions::cc_ground::register_abilities(&mut t);
             ti4_engine_core_factions::ca_combat::register_abilities(&mut t);
+            ti4_engine_core_factions::silent::g3::register_after_ca_combat(&mut t);
             ti4_engine_core_factions::ce_movement::register_late_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_late_abilities(&mut t);
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);

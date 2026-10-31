@@ -3,6 +3,7 @@
 //! string registers it (`register_abilities`, after the packages, unless a file says otherwise).
 
 pub mod ragh;
+pub mod tekklar;
 pub mod zeta;
 
 use ti4_engine_core::kernel::ability::AbilityTable;
@@ -11,4 +12,10 @@ use ti4_engine_core::kernel::ability::AbilityTable;
 pub fn register_abilities(t: &mut AbilityTable) {
     zeta::register_abilities(t);
     ragh::register_abilities(t);
+    tekklar::register_cleanups(t);
+}
+
+/// Rules registered between the Nekro and the Winnu modules of the string (`ca_combat` and `cb_economy`'s late rules in the core's order): Sardakk's.
+pub fn register_after_ca_combat(t: &mut AbilityTable) {
+    tekklar::register_play(t);
 }

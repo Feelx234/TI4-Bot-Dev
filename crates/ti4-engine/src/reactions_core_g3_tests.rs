@@ -6,7 +6,7 @@
 fn the_registry_of_the_g3_rules_equals_the_string_one() {
     use crate::core_sync::{with_core, Footprint, Sources};
     use ti4_engine_core::state::Slice;
-    for factions in G3_PAIRS.iter().copied() {
+    for factions in g3_pairs() {
         let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
         gs.promissory_notes.clear();
         gs.promissory_faceup.clear();
@@ -73,5 +73,15 @@ fn the_registry_of_the_g3_rules_equals_the_string_one() {
     }
 }
 
-/// The pairs: every owner of a rule of `silent::g3` seated first and second, against a faction that owns none.
-const G3_PAIRS: &[[(&str, &str); 2]] = &[[("a", "saar"), ("b", "hacan")], [("a", "hacan"), ("b", "saar")]];
+/// The pairs: every lobby faction seated first and second against a faction that shares none of its modules (the strings register the faction modules for every seat,
+/// so each owner sees its own faction's rules and every module's rules for notes and technologies in one registry).
+fn g3_pairs() -> Vec<[(&'static str, &'static str); 2]> {
+    const LOBBY: [&str; 24] = ["arborec", "argent", "cabal", "empyrean", "ghost", "hacan", "jolnar", "l1z1x", "letnev", "mahact", "mentak", "muaat", "naalu", "naaz", "nekro", "nomad", "saar", "sardakk", "sol", "titans", "winnu", "xxcha", "yin", "yssaril"];
+    let mut pairs = Vec::new();
+    for faction in LOBBY {
+        let other = if faction == "sol" { "hacan" } else { "sol" };
+        pairs.push([("a", faction), ("b", other)]);
+        pairs.push([("a", other), ("b", faction)]);
+    }
+    pairs
+}
