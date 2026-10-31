@@ -304,6 +304,7 @@ mod tests {
 
     impl crate::live::Asker for Shared {
         fn ask(&mut self, q: &crate::live::Question<'_>) -> Result<String, crate::live::Stop> {
+            if std::env::var("ZZ").is_ok() { eprintln!("  NATIVE Q {} {:?} {:?}", q.rendered.player, q.rendered.prompt, q.rendered.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>()); }
             self.seen.borrow_mut().push(q.rendered.clone());
             self.queue.borrow_mut().pop_front().ok_or(crate::live::Stop::Exhausted)
         }
@@ -353,7 +354,10 @@ mod tests {
         // `trigger.event_id` counts from the string's turn prelude (`TURN_BEGAN`), which the native run of this harness does not take: an offset of the
         // harness, not of the rule (the events themselves are compared by name and order).
         // `private:#seen:*` is the string's own bookkeeping of what each seat has been shown (the per-step reconcile), not a rule.
-        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("frontier_tokens") && !d.path.contains("trigger.event_id")).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
+        // The string's first step is the turn prelude (`TURN_BEGAN`), which the native run does not take: every event of the string carries an id one
+        // above the native one (`trigger.event_id` of a reaction window), two when it also places frontier tokens first. Exactly that offset is no difference.
+        let offset = |d: &crate::dual::JsonDiff| d.path.ends_with("trigger.event_id") && d.left.parse::<i64>().ok().zip(d.right.parse::<i64>().ok()).is_some_and(|(l, r)| (1..=2).contains(&(l - r)));
+        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !offset(d)).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
     /// Run both and report every difference of the questions, the events (the native ones must be a prefix of the string's when `prefix`) and the position.
@@ -362,6 +366,14 @@ mod tests {
         let rng = crate::rng::GameRng::new(state.rng_seed).positions();
         let s = string_run(&state, galaxy, script);
         let n = native_run(&state, galaxy, &rng, script);
+        if std::env::var("ZZ").is_ok() {
+            for (l, c) in [("string", &s), ("native", &n)] {
+                eprintln!("{l}: bail {:?} events {:?}", c.bail, c.events);
+                for q in &c.asked {
+                    eprintln!("  Q {} {:?} {:?}", q.player, q.prompt, q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>());
+                }
+            }
+        }
         let mut out = Vec::new();
         if let Some(why) = &n.bail {
             // Bail as failure: a position the native path does not run is a defect of the island, never a silent lend.
@@ -856,5 +868,99 @@ mod tests {
             let diffs = lockstep(state.clone(), &hub.galaxy, &script, false);
             assert!(diffs.is_empty(), "ssruu {script:?}: {diffs:#?}");
         }
+    }
+    /// The cards played into the windows of an activation (package H): Upgrade ("after you activate a system that contains your ships") and
+    /// Decoy Operation ("after another player activates a system that contains your structures"), in lockstep with the string, bail as failure.
+    #[test]
+    fn upgrade_is_played_after_an_activation_natively_as_the_string_does() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+        state.player_mut(&a()).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("upgrade"));
+        let script = [TACTICAL_ACTION_ID, target.as_str(), "reaction:sol:SYSTEM_ACTIVATED:after"];
+        let diffs = lockstep(state, &hub.galaxy, &script, false);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    /// A hub whose centre is a system with a planet, `a` holding a carrier on the first system of the ring.
+    fn planet_hub() -> (crate::fixtures::Hub, ti4_model::id::SystemId, ti4_model::id::SystemId, ti4_model::id::PlanetId) {
+        // A planet of the base game that no faction calls home, in a system of the ordinary tiles (so the hub can be built around it).
+        let plain = crate::fixtures::plain_systems(80);
+        let planet = ti4_engine_core::generated::Planet::ALL
+            .iter()
+            .find(|p| {
+                p.data().homeworld_of.is_none()
+                    && !p.data().traits.contains(&ti4_engine_core::generated::PlanetTrait::Spacestation)
+                    && p.data().system.is_some_and(|s| plain.iter().any(|id| id == crate::generated::IdStr::as_str(s)))
+            })
+            .copied()
+            .expect("an ordinary planet");
+        let system = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(planet.data().system.expect("a system")));
+        let planet = ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(planet));
+        let hub = crate::fixtures::hub_with_centre(system.as_str());
+        let origin = ti4_model::id::SystemId::new(hub.outer[0].clone());
+        (hub, origin, system, planet)
+    }
+
+    /// Decoy Operation: another seat activates a system that holds the holder's structure; the holder pulls up to two ground forces.
+    #[test]
+    fn decoy_operation_is_played_by_a_seat_whose_structure_is_in_the_activated_system_natively_as_the_string_does() {
+        let (hub, origin, target, planet) = planet_hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        let b = PlayerId::new("b");
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "spacedock", &b, 1);
+        state.system_mut(&target).set_control(planet.clone(), b.clone());
+        // The holder's ground forces elsewhere on the board (on a planet of another system), to pull.
+        let elsewhere = ti4_engine_core::generated::Planet::ALL
+            .iter()
+            .find(|p| p.data().homeworld_of.is_none() && p.data().system.is_some_and(|s| crate::generated::IdStr::as_str(s) != target.as_str()) && !p.data().traits.contains(&ti4_engine_core::generated::PlanetTrait::Spacestation))
+            .copied()
+            .expect("a planet elsewhere");
+        let (far, far_planet) = (ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(elsewhere.data().system.expect("system"))), ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(elsewhere)));
+        crate::fixtures::put_on_planet(&mut state, &far, &far_planet, "infantry", &b, 3);
+        state.system_mut(&far).set_control(far_planet.clone(), b.clone());
+        state.player_mut(&b).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("decoy"));
+        let script = [TACTICAL_ACTION_ID, target.as_str(), "reaction:hacan:SYSTEM_ACTIVATED:after", "38|abyz|0", "38|abyz|1"];
+        let diffs = lockstep(state, &hub.galaxy, &script, false);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    /// Harness Energy: the activator of an anomaly replenishes their commodities (the judge `system_is_anomaly` is the core's).
+    #[test]
+    fn harness_energy_is_played_after_activating_an_anomaly_natively_as_the_string_does() {
+        for kind in ["nebula", "gravity rift", "asteroid field", "supernova"] {
+            let anomaly = crate::fixtures::a_system_where(kind);
+            let hub = crate::fixtures::hub_with_centre(&anomaly);
+            let (origin, target) = (ti4_model::id::SystemId::new(hub.outer[0].clone()), ti4_model::id::SystemId::new(anomaly));
+            let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            state.player_mut(&a()).unwrap().commodities = 0;
+            // (A frontier token the string places at the start of its turn, which the native run never takes, is on the board already.)
+            state.frontier_tokens.insert(target.clone());
+            state.player_mut(&a()).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("harness"));
+            let script = [TACTICAL_ACTION_ID, target.as_str(), "reaction:sol:SYSTEM_ACTIVATED:after"];
+            let diffs = lockstep(state, &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "{kind}: {diffs:#?}");
+        }
+    }
+
+    /// Experimental Battlestation: after the active player moves ships into the active system, a seat with a space dock in or next to it rolls three dice
+    /// (hits on 5) against the active player's ships there.
+    #[test]
+    fn experimental_battlestation_is_played_after_the_active_player_moves_natively_as_the_string_does() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        let b = PlayerId::new("b");
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        let next = ti4_model::id::SystemId::new(hub.outer[2].clone());
+        crate::fixtures::put(&mut state, &next, "spacedock", &b, 1);
+        crate::fixtures::put(&mut state, &next, "spacedock", &a(), 1);
+        state.player_mut(&a()).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("experimental"));
+        let mv = id(&origin, 0);
+        let script = [TACTICAL_ACTION_ID, target.as_str(), &mv, "reaction:sol:SHIP_MOVED:after"];
+        let diffs = lockstep(state, &hub.galaxy, &script, false);
+        assert!(diffs.is_empty(), "{diffs:#?}");
     }
 }

@@ -23,7 +23,7 @@ use crate::tables::Scope;
 /// The six resources of Enigmatic Device (`exploration::ENIGMATIC_DEVICE_COST`, `relics`).
 const DEVICE_COST: i64 = 6;
 
-fn resources(core: &CoreState, k: &Kernel, who: Seat) -> i64 {
+pub(crate) fn resources(core: &CoreState, k: &Kernel, who: Seat) -> i64 {
     let cx = ProdCx::new(core, k, reach::scope_of(k), reach::blanked(core));
     prod::available(&cx, who, Spend::Resources, &Extras::default())
 }

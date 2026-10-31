@@ -50,7 +50,7 @@ use ti4_engine::render::Render;
 use ti4_engine_core::driver::live::{live_arm, open, LiveError};
 use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::kernel::turn_codes::TurnGap;
-use ti4_engine_core::driver::session::{bit, live_ask_arm, step_arm, Arm, AskArm};
+use ti4_engine_core::driver::session::{bit, live_ask_arm, step_arm, Arm, AskArm, Facts};
 use ti4_engine_core::driver::step::NativeArms;
 use ti4_engine_core::rules::token_gain::TokenGain;
 use ti4_engine_core::state::{CoreState, Slice, SliceSet, Window, WindowKind};
@@ -174,14 +174,11 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
         Arm::Secondary => open_observed(windows, core, WindowKind::StrategySecondary),
         Arm::LeaderFollowers => open_observed(windows, core, WindowKind::LeaderStrategy) && open_observed(windows, core, WindowKind::LeaderFollowers),
         Arm::Finished => true,
-        // The tactical action (lane M6/M6b): the payload the legacy window observes (`Activating`, `Moving`, `Loading`) is the native window's own.
-        Arm::Tactical => match windows.iter().find_map(|w| if let Window::Tactical(t) = w { Some(t.clone()) } else { None }) {
-            Some(t) => {
-                ti4_engine_core::kernel::stage::Held::to_pending(&ti4_engine_core::driver::windows::tactical::TacticalAction::new(t), core);
-                true
-            }
-            None => false,
-        },
+        // A tactical action: the payload the legacy game holds (lane M6).
+        Arm::Tactical => open_observed(windows, core, WindowKind::Tactical),
+        // The aftermath of a fight and the sub-windows the legacy game holds above it, in stack order (the invasion of its `Invading` stage, the
+        // PRODUCTION of its `Producing` stage, the scoring window of a feat): all of them are typed windows of the core stack.
+        Arm::Aftermath => open_observed_stack(windows, core, WindowKind::Aftermath, &[WindowKind::Invasion, WindowKind::Production, WindowKind::EventScoring]),
         // The jobs of the turn flow open themselves (`driver::turn`): they need no window of the legacy game. `Status` opens the scoring window.
         Arm::TurnPrelude | Arm::Phase | Arm::StrategyAnnounce | Arm::Ask | Arm::Status => true,
         _ => false,
@@ -197,6 +194,18 @@ fn open_observed(windows: &[Window], core: &mut CoreState, kind: WindowKind) -> 
         }
         None => false,
     }
+}
+
+/// Open the window of `kind` the legacy game holds and, above it, every observed window of the `above` kinds, in the order the legacy game holds
+/// them. `false`: it holds no window of `kind`.
+fn open_observed_stack(windows: &[Window], core: &mut CoreState, kind: WindowKind, above: &[WindowKind]) -> bool {
+    if !open_observed(windows, core, kind) {
+        return false;
+    }
+    for w in windows.iter().filter(|w| above.contains(&w.kind())) {
+        core.pending_mut().open(w.clone());
+    }
+    true
 }
 
 /// Whether the arm's step ends where the legacy step does: its close is the core's too, so the end of the step is compared on everything
@@ -276,7 +285,7 @@ impl NativeSubject {
         }
         // The `Ask` arm is native for the sources of question the turn flow owns (the draft, the starting technology; the closing menu with
         // [`set_shadow_closing`]); the others are lent.
-        if arm == Arm::Ask && !matches!(live_ask_arm(&facts), AskArm::Draft | AskArm::StartingTech) && !(shadow_closing() && live_ask_arm(&facts) == AskArm::Closing) {
+        if arm == Arm::Ask && !matches!(live_ask_arm(&facts), AskArm::Draft | AskArm::StartingTech | AskArm::ActionMenu) && !(shadow_closing() && live_ask_arm(&facts) == AskArm::Closing) {
             lend(arm, "question source not native");
             return None;
         }
@@ -284,7 +293,9 @@ impl NativeSubject {
             lend(arm, "no owners table");
             return None;
         };
-        let render = Render::new(cx.owners.ids().to_vec());
+        // (The options that name a seat by faction -- Politics, Trade -- need the faction texts.)
+        let factions = cx.owners.ids().iter().map(|id| g.state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
+        let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions);
         let windows = match g.observed_windows(&render, &cx) {
             Ok(w) => w,
             Err(why) => {
@@ -331,7 +342,7 @@ impl NativeSubject {
     fn compare(&mut self, mut shadow: Shadow, answers: Vec<String>, records: &[DecisionRecord], events: &[String]) {
         let name = arms::name(shadow.arm);
         // The action menu is the core's, its pass and its transactions too; the body of every other option is a counted gap of the core
-        // (`MenuGap::Action`: the entries of the tactical and strategic lanes, the component actions' performers): the legacy step ran it, the
+        // (`MenuGap::Unrouted`: the component actions' performers): the legacy step ran it, the
         // shadow counts it lent instead of comparing a step it cannot take.
         if matches!(shadow.arm, Arm::Ask | Arm::TurnPrelude) && answers.iter().any(|a| menu_body_is_lent(a)) {
             lend(shadow.arm, "the body of an action-menu option the core does not run yet");
@@ -358,7 +369,18 @@ impl NativeSubject {
                 }
             }
         }
-        let result = live::live_step(&mut shadow.core, shadow.arm, &cx, &mut lone);
+        let mut result = live::live_step(&mut shadow.core, shadow.arm, &cx, &mut lone);
+        // The legacy step of a turn's first look goes on from the prelude into the action menu it asks and the body of the answer it was given
+        // (one `Game::step`): the native Ask arm continues from where the prelude left the position.
+        if shadow.arm == Arm::TurnPrelude && result.is_ok() && !answers_taken.is_empty() {
+            let facts = Facts::of_core(&shadow.core, false);
+            if step_arm(&facts, true) == Arm::Ask && live_ask_arm(&facts) == AskArm::ActionMenu {
+                match live::live_step(&mut shadow.core, Arm::Ask, &cx, &mut lone) {
+                    Ok(second) => result = result.map(|_| second),
+                    Err(stop) => result = Err(stop),
+                }
+            }
+        }
         #[cfg(test)]
         tests::tamper(&mut shadow.core);
         let mut out = Vec::new();
@@ -376,6 +398,9 @@ impl NativeSubject {
             }
             Err(stop) => {
                 count(&RAN, name.to_owned());
+                if std::env::var_os("TI4_NATIVE_TRACE").is_some() {
+                    eprintln!("native stop in arm {name}: {stop:?}, answers {answers_taken:?}");
+                }
                 leaves(Category::Value, "native.stop", &json!("ran"), &json!(format!("{stop:?}")), &mut out);
                 self.report(shadow.arm, out);
                 return;
@@ -393,10 +418,12 @@ impl NativeSubject {
         let native: Vec<Value> = asker.seen.iter().map(|c| json!({ "player": c.player.as_str(), "prompt": c.prompt, "options": c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>() })).collect();
         let legacy: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
         out.extend(compare_questions(ended, early, &legacy, &native, asker.left()));
+        let mut native_texts: Vec<String> = Vec::new();
         let pushed = ti4_engine::render::events::pushed_since(&shadow.render, &shadow.cx, &shadow.core, from);
         match pushed {
             Some(lines) => {
                 let texts: Vec<String> = lines.iter().map(|p| p.text().to_owned()).collect();
+                native_texts.clone_from(&texts);
                 out.extend(compare_events(ended, early, events, &texts));
             }
             None => leaves(Category::Event, "native.events", &json!(events), &json!("a line the tables cannot name"), &mut out),
@@ -426,7 +453,7 @@ impl NativeSubject {
             leaves(Category::Value, "native.finished", &json!(!open_after || early), &json!(step.finished), &mut out);
         }
         if !out.is_empty() && std::env::var_os("TI4_NATIVE_TRACE").is_some() {
-            eprintln!("native difference in arm {name}: answers {answers_taken:?}, legacy events {events:?}");
+            eprintln!("native difference in arm {name}: answers {answers_taken:?}, legacy events {events:?}, native events {native_texts:?}, native questions {:?}", asker.seen.iter().map(|c| c.prompt.clone()).collect::<Vec<_>>());
         }
         self.report(shadow.arm, out);
     }
@@ -438,17 +465,12 @@ impl NativeSubject {
 // step that leaves it open must agree on everything, the position included. The position at the end of a window is compared when the
 // close is the core's too (KS5).
 
-/// Whether an option id of the action menu names a body the core does not run yet (`driver::turn::action::gap_code`): tactical and strategic
-/// actions, the component actions of the leaders, technologies, relics, exploration cards, action cards and factions. The pass and the opening
-/// of a transaction (`component|trade|<faction>`) are the core's.
+/// Whether an option id of the action menu names a body the core does not run yet (`driver::turn::action::unrouted`): the component actions of
+/// the leaders, technologies, relics in use, exploration cards and factions. The pass, the opening of a transaction (`component|trade|<faction>`), the
+/// tactical and strategic actions and the action cards are the core's (lane F2b).
 fn menu_body_is_lent(id: &str) -> bool {
-    id == "tactical"
-        || id == "strategic"
-        || id.starts_with("strategic|")
-        || id.starts_with("faction|")
+    (id.starts_with("faction|") && id != "faction|winnu|lgf")
         || (id.starts_with("component|") && !id.starts_with("component|trade|"))
-        || id.starts_with("action_card|")
-        || id.starts_with("purge|")
         || id.starts_with("relic|")
         || id.starts_with("play_area:")
 }
@@ -713,7 +735,10 @@ mod tests {
         let _ = (lent_counts(), ran_counts());
         let played = play();
         let ran = ran_counts();
-        assert!(played.report.differences.is_empty(), "{:#?}", played.report.differences.iter().take(5).collect::<Vec<_>>());
+        // The one COUNTED gap the menu's strategic route meets in this game: Thunder's Edge Warfare's free tactical action (`TurnGap::StrategyAbility`
+        // here, `FreeTactical` after it: lane M6c's `open_free`). The step stops and keeps the position; nothing else may differ.
+        let other: Vec<_> = played.report.differences.iter().filter(|d| !(d.path == "native.stop" && d.core_side.contains("StrategyAbility"))).collect();
+        assert!(other.is_empty(), "{:#?}", other.iter().take(5).collect::<Vec<_>>());
         for arm in ["turn_prelude", "phase", "strategy_announce", "ask"] {
             assert!(ran.get(arm).copied().unwrap_or(0) + ran.get(&format!("{arm} (window ended; the close is the legacy's)")).copied().unwrap_or(0) >= 1, "{arm} ran in shadow: {ran:?}");
         }
@@ -726,7 +751,11 @@ mod tests {
     ///
     /// * Arborec's Mitosis ("at the start of the status phase, place 1 infantry from your reinforcements on a planet you control", `arborec/offer.rs` lists it as
     ///   "points left"): the string asks where, the core asks nothing and the infantry is missing from the board.
-    const KNOWN_SILENT: [&[&str]; 1] = [&["Mitosis", "arborec_infantry"]];
+    /// * A strategic action whose ability the core cannot begin (`TurnGap::StrategyAbility`: lane E's counted gap -- Thunder's Edge Warfare's free
+    ///   tactical action over a map the facts do not hold, Doctor Sucaban's offer in a research, a placement a faction effect changes): the menu now
+    ///   routes the strategic action natively (lane F2b), so the shadow meets the gap the strategic lane documented. It is a COUNTED gap (the step
+    ///   stops, the position is kept), not a silent difference.
+    const KNOWN_SILENT: [&[&str]; 2] = [&["Mitosis", "arborec_infantry"], &["StrategyAbility"]];
 
     /// Whole games with every lobby faction in turn (six tables of four), the turn-flow arms in shadow and a counted bail a failure: no difference but the
     /// known silent ones (kept going: a difference never makes the follower diverge, the follower is a legacy game), and the arms ran.
@@ -970,6 +999,30 @@ mod tests {
         assert!(!open_arm(Arm::Tactical, &tokens, &mut core));
         assert!(!is_open::<TacticalAction>(&core));
         assert_eq!(window_of(Arm::Tactical), None);
+    }
+
+    /// The openers of the tactical action and the aftermath (lane H): the observed payloads open on the stack, an aftermath with the sub-windows the
+    /// legacy game holds above it, nothing is opened for a window the game does not hold.
+    #[test]
+    fn the_tactical_and_aftermath_arms_open_the_observed_windows_and_their_sub_windows() {
+        use ti4_engine_core::generated::System;
+        use ti4_engine_core::state::{AStage, Aftermath, Before, Invasion, NoteHold, TStage, Tactical};
+        let seat = ti4_engine_core::Seat(0);
+        let system = System::ALL[3];
+        let tactical = Window::Tactical(Tactical { player: seat, stage: TStage::Activating, notes_at_start: NoteHold::default() });
+        let aftermath = Window::Aftermath(Box::new(Aftermath::new(seat, system, AStage::Invading, Before::default(), NoteHold::default())));
+        let invasion = Window::Invasion(Box::new(Invasion::observed(seat, system)));
+        let mut core = CoreState::all_loaded();
+        assert!(!open_arm(Arm::Tactical, &[aftermath.clone()], &mut core), "no tactical window observed");
+        assert!(core.pending().window(WindowKind::Tactical).is_none());
+        assert!(open_arm(Arm::Tactical, &[tactical.clone(), aftermath.clone()], &mut core));
+        assert!(core.pending().window(WindowKind::Tactical).is_some() && core.pending().window(WindowKind::Aftermath).is_none(), "the arm opens its own window only");
+        let mut core = CoreState::all_loaded();
+        assert!(!open_arm(Arm::Aftermath, &[tactical, invasion.clone()], &mut core), "an invasion alone is no aftermath");
+        assert!(core.pending().window(WindowKind::Invasion).is_none());
+        assert!(open_arm(Arm::Aftermath, &[aftermath, invasion], &mut core));
+        assert!(core.pending().window(WindowKind::Aftermath).is_some() && core.pending().window(WindowKind::Invasion).is_some(), "the sub-window sits above the aftermath");
+        assert!(core.pending().window(WindowKind::Tactical).is_none());
     }
 
     /// The counters count one per call, and the slices of a position keep the map only when the game has one.

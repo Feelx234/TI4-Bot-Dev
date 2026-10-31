@@ -206,7 +206,9 @@ fn artuno(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         let Some(amount) = p.int(Key::Amount).and_then(|n| u32::try_from(n).ok()) else { return Ok(()) };
         amount
     };
-    if !ti4_engine_core::rules::leaders::exhaust(eff.state(), me, Leader::ArtunoTheBetrayer) {
+    // (`leaders::exhaust`: Artuno is an agent, so a Nomad holding Temporal Command Suite hears this exhaustion too: a staged `AGENT_EXHAUSTED`.)
+    let (state, kernel) = eff.state_and_kernel();
+    if !fx_strategy::exhaust_ready_agent(state, kernel, me, Leader::ArtunoTheBetrayer) {
         return Ok(());
     }
     add_to_pile(eff.state(), me, amount);
@@ -299,8 +301,7 @@ fn tcs(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         return Ok(());
     }
     let key = MarkKey::NomadTcsNegotiating(me, agent_owner);
-    // mutants:skip (the mark's value is never read, only its presence)
-    eff.state().marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(1)));
+    eff.state().marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(1))); // mutants:skip (the mark's value is never read, only its presence)
     // The window opens with the pair's one transaction spent unless a module exempts it, and runs to its end through the questions of this effect.
     let facts = {
         let (s, k) = eff.read();

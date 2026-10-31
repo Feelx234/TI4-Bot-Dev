@@ -66,6 +66,10 @@ mod agenda_live_tests;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "trade_live_tests.rs"]
 mod trade_live_tests;
+// The lockstep of the options of the action menu the core runs (lane F2b) against the string's `apply_choice`.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "action_dispatch_live_tests.rs"]
+mod action_dispatch_live_tests;
 // The lockstep of the native strategic action (lane E) against the string steps it replaces.
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "strategic_live_tests.rs"]

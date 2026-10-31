@@ -57,7 +57,9 @@ fn closing_question(core: &CoreState, env: &Env<'_>) -> Result<crate::choice::Ch
 /// As [`ask_ask`]; the position is then untouched.
 pub fn advance_ask(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
     if is_open::<TurnFlowWin>(core) {
-        return advance::<TurnFlowWin>(core, env, answer);
+        let before = core.clone();
+        let result = advance::<TurnFlowWin>(core, env, answer);
+        return chain_trade(core, env, result, before);
     }
     match live_ask_arm(&Facts::of_core(core, false)) {
         AskArm::Draft => {
@@ -119,17 +121,37 @@ fn action_menu_question(core: &CoreState, env: &Env<'_>) -> Result<crate::choice
 /// Run the option a seat chose from the action menu or the closing menu: "end your turn" is the end job, every other option is
 /// `TurnJob::Action`.
 fn run_chosen(core: &mut CoreState, env: &Env<'_>, chosen: Opt) -> Result<(Live, Out), LiveError> {
-    // A transaction is a window of its own (the trade island): the pick opens it and runs it to its first question.
-    if let Opt::Turn(TurnOpt::Open { with, .. }) = chosen {
-        let proposer = core.meta().active.ok_or(LiveError::NotOpen)?;
-        return crate::driver::windows::trade::begin(core, env, proposer, with);
-    }
     let job = match chosen {
         Opt::Turn(TurnOpt::EndTurn) => TurnJob::End,
         Opt::Turn(option) => TurnJob::Action(option.key().ok_or(LiveError::Illegal)?),
         _ => return Err(LiveError::Illegal),
     };
-    super::advance_job(job, core, env, None)
+    let before = core.clone();
+    let result = super::advance_job(job, core, env, None);
+    chain_trade(core, env, result, before)
+}
+
+/// A transaction option opens its window inside the job (after Extreme Duress); the window runs to its first question in the same call, as the
+/// string's step does. Any other result stands. `before`: the position the call began with (a refusal leaves it).
+fn chain_trade(core: &mut CoreState, env: &Env<'_>, result: Result<(Live, Out), LiveError>, before: CoreState) -> Result<(Live, Out), LiveError> {
+    let (live, mut out) = result?;
+    if live != Live::Done {
+        return Ok((live, out));
+    }
+    if is_open::<TurnFlowWin>(core) || core.pending().window(crate::state::WindowKind::Trade).is_none() {
+        return Ok((Live::Done, out));
+    }
+    match crate::driver::windows::trade::advance_trade(core, env, None) {
+        Ok((live, more)) => {
+            out.emitted.extend(more.emitted);
+            out.opened.extend(more.opened);
+            Ok((live, out))
+        }
+        Err(e) => {
+            *core = before;
+            Err(e)
+        }
+    }
 }
 
 fn pick_opt(pick: Pick) -> Opt {

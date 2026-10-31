@@ -11,7 +11,6 @@ use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
 use crate::generated::{Faction, Leader};
 use crate::ids::Seat;
-use crate::kernel::ability::Unknown;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::keys::{Atom, MarkKey, MarkVal, Word};
@@ -123,15 +122,8 @@ impl Window for AgentOffer {
         match pick {
             Pick::Opt(Opt::Decline) => {}
             Pick::Opt(Opt::Production(POpt::Use)) => {
-                // `leaders::exhaust`: the agent is exhausted; a Nomad that hears it is told (the core does not tell).
-                let ready = sx.state.players().by_seat(holder).is_some_and(|p| p.leaders.status.get(&Leader::XanderAlexinVictoriIII) == Some(&LeaderStatus::Readied));
-                if ready {
-                    if sx.kernel.hooks.direct.nomad_watches_agent_exhaustion(sx.state) {
-                        sx.tape.unknown.set(Some(Unknown::NomadAgentExhaustion));
-                    }
-                    if let Some(p) = sx.state.players_mut().by_seat_mut(holder) {
-                        p.leaders.status.insert(Leader::XanderAlexinVictoriIII, LeaderStatus::Exhausted);
-                    }
+                // `leaders::exhaust`: the agent is exhausted; a Nomad that hears it is told by a staged `AGENT_EXHAUSTED`.
+                if crate::kernel::fx_strategy::exhaust_ready_agent(sx.state, sx.kernel, holder, Leader::XanderAlexinVictoriIII) {
                     Self::mark(sx.state, self.payer, Atom::Seat(holder));
                     self.opened = true;
                     self.stage = Stage::Done;

@@ -200,7 +200,7 @@ fn genesis(sx: &mut Sx<'_>) -> Flow {
 /// `Live::announce_staged_cards` (`reactions::announce_staged_card_events`): after a typed event, the card moves an effect staged as
 /// `CardsStaged` marks (Scheming's discard) are announced now, oldest first, and the marks go. A discard reaches the pile and
 /// `last_action_discarded` first, as a played card's does; a take names the taker and the seat it came from, never the card.
-fn announce_staged_cards(sx: &mut Sx<'_>) -> Flow {
+pub(crate) fn announce_staged_cards(sx: &mut Sx<'_>) -> Flow {
     use crate::keys::{Atom, MarkKey, MarkVal, Word};
     use crate::state::{Key, Val};
     loop {
@@ -239,6 +239,9 @@ fn emit_and_announce(sx: &mut Sx<'_>, kind: EventKind, payload: Payload) -> Flow
     announce_staged_cards(sx)
 }
 
+/// The index of the text `artuno` in `Codes::not_from_supply`.
+const ARTUNO: usize = 4;
+
 /// The job.
 pub fn run_finish(sx: &mut Sx<'_>) -> Flow {
     // 81.5: the rearrangement of everything already held, in initiative order (before 81.8 destroys it).
@@ -259,7 +262,7 @@ pub fn run_finish(sx: &mut Sx<'_>) -> Flow {
     if halted(sx) {
         return Flow::Halt;
     }
-    resolve_after_token_gain(sx.state, sx.table.codes.not_from_supply[4]);
+    resolve_after_token_gain(sx.state, sx.table.codes.not_from_supply[ARTUNO]);
     sx.plain(PlainRec::bare(PlainKind::CommandTokensGained));
     if genesis(sx) == Flow::Halt {
         return Flow::Halt;

@@ -165,6 +165,7 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let position = render::Position { state: std::rc::Rc::new(at.clone()), kernel: kernel::static_of(cx.env.kernel) };
     let mut rendered = Typed::new_at(cx.render, position, asking.choice.clone(), phase, round).rendered;
     (cx.complete)(at, cx.env.kernel, &asking.choice, &mut rendered);
+    details::infiltrate_preview(cx.render, at, cx.env.kernel, cx.env.table.facts.plays_provider.as_ref(), &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
     if let Some((facts, at)) = &asking.nested {
@@ -220,6 +221,12 @@ pub fn live_reconcile(core: &mut CoreState, cx: &Cx<'_>, asker: &mut dyn Asker) 
 fn run_live(core: &mut CoreState, name: &'static str, advance: LiveFn, ask: AskFn, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
     let before = core.clone();
     let result = live_step_inner(core, advance, ask, cx, asker);
+    // The string stages an event for the next step's announcement only while some seated faction has a module (`supply::stage_event` is a
+    // no-op otherwise: nothing else listens). The core's windows stage unconditionally; at a table without a module the staged events are
+    // dropped with the step, so none of them is ever announced (a `TRADE_GOODS_GAINED` or a `STRATEGY_TOKEN_SPENT` the string never made).
+    if result.is_ok() && !cx.env.table.facts.staging {
+        core.pending_mut().staged.clear();
+    }
     if let Err(stop) = &result {
         *core = before;
         // A position the core does not run is a bail of the live path (the zero-bail acceptance counts it, `TI4_BAIL_IS_FAILURE`).

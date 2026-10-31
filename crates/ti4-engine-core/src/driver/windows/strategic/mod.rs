@@ -166,7 +166,7 @@ impl Window for SecondaryWin {
             crate::driver::turn::inline::gap(sx, crate::kernel::turn_codes::TurnGap::StrategyAbility);
             return Ok(());
         }
-        let resolution = take_answer(sx.state, self.w.primary, sx.table.codes.turn.strategy_secondary, &f, opt)?;
+        let resolution = take_answer(sx.state, sx.kernel, self.w.primary, sx.table.codes.turn.strategy_secondary, &f, opt)?;
         self.w.resolved.push((who, if resolution == Resolution::Followed { SecondaryHow::Followed } else { SecondaryHow::Declined }));
         self.w.next += 1;
         self.exhaust_if_complete(sx.state);

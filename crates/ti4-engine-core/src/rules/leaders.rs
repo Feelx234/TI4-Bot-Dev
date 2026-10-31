@@ -476,6 +476,32 @@ mod tests {
         core
     }
 
+    /// Artuno the Betrayer pays its pile when the card readies (found by the shadow behind a real game: the status phase's finish readies the
+    /// cards natively since lane M1 and the string pays out in `leaders::ready_all`): the pile mark is gone, the goods are staged as
+    /// a `TRADE_GOODS_GAINED` of the source `artuno`, and no other leader pays anything.
+    #[test]
+    fn a_readied_artuno_pays_its_pile_and_no_other_agent_does() {
+        use crate::keys::{Atom, MarkKey, MarkVal};
+        let mut core = core_with(&[(Leader::ArtunoTheBetrayer, LeaderStatus::Exhausted), (Leader::LetaniOspha, LeaderStatus::Exhausted)]);
+        core.marks_mut().tail.edit().insert(MarkKey::NomadArtuno(Seat(0)), MarkVal::Atom(Atom::Num(3)));
+        let source = crate::state::Code(9);
+        let readied = ready_all(&mut core, Seat(0));
+        assert_eq!(readied.len(), 2);
+        for leader in readied.as_slice() {
+            agent_readied(&mut core, Seat(0), *leader, source);
+        }
+        assert!(core.marks().tail.get(&MarkKey::NomadArtuno(Seat(0))).is_none(), "the pile left the card");
+        let staged = &core.pending().staged;
+        assert_eq!(staged.len(), 1, "one gain, Artuno's");
+        assert_eq!(staged[0].kind, crate::state::EventKind::TradeGoodsGained);
+        assert_eq!(staged[0].payload.int(crate::state::Key::Amount), Some(3));
+        assert_eq!(staged[0].payload.code(crate::state::Key::Source), Some(source));
+        assert_eq!(core.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 3);
+        // An empty pile pays nothing.
+        agent_readied(&mut core, Seat(0), Leader::ArtunoTheBetrayer, source);
+        assert_eq!(core.pending().staged.len(), 1);
+    }
+
     #[test]
     fn usable_is_readied_agents_and_unlocked_heroes() {
         let core = core_with(&[

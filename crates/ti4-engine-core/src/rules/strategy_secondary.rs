@@ -236,7 +236,7 @@ impl Window for SecondaryStep {
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         let Some(f) = self.follower().filter(|_| self.stage == Stage::Asking).cloned() else { return Err(Illegal) };
         let Pick::Opt(Opt::Strategy(opt)) = pick else { return Err(Illegal) };
-        let resolution = take_answer(sx.state, self.primary, self.reason, &f, opt)?;
+        let resolution = take_answer(sx.state, sx.kernel, self.primary, self.reason, &f, opt)?;
         self.out.answered = Some((f.who, resolution));
         // The window is complete when the asked follower was the last one.
         let index = self.asked.unwrap_or(0);
@@ -286,7 +286,7 @@ pub fn follow_choice(s: &CoreState, card: StrategyCard, primary: Seat, f: &Follo
 ///
 /// # Errors
 /// The option is not one the follower was offered, or the token cannot be paid.
-pub fn take_answer(core: &mut CoreState, primary: Seat, reason: Code, f: &FollowerFacts, opt: SOpt) -> Result<Resolution, Illegal> {
+pub fn take_answer(core: &mut CoreState, k: &Kernel, primary: Seat, reason: Code, f: &FollowerFacts, opt: SOpt) -> Result<Resolution, Illegal> {
     let resolution = match opt {
         SOpt::Skip => Resolution::Declined,
         SOpt::Follow => {
@@ -311,7 +311,7 @@ pub fn take_answer(core: &mut CoreState, primary: Seat, reason: Code, f: &Follow
         // A token-free way: the module that offered it pays its cost.
         SOpt::Waive(_) | SOpt::WaiveBy(..) if f.costs_token => {
             let waiver = f.waivers.iter().find(|w| w.opt == opt).ok_or(Illegal)?;
-            pay_waiver(core, primary, f, waiver.effect)?;
+            pay_waiver(core, k, primary, f, waiver.effect)?;
             Resolution::Followed
         }
         _ => return Err(Illegal),
@@ -321,7 +321,7 @@ pub fn take_answer(core: &mut CoreState, primary: Seat, reason: Code, f: &Follow
 }
 
 /// `hooks_strategy::secondary_waived` of the module that offered the waiver.
-fn pay_waiver(core: &mut CoreState, primary: Seat, f: &FollowerFacts, effect: WaiverEffect) -> Result<(), Illegal> {
+fn pay_waiver(core: &mut CoreState, k: &Kernel, primary: Seat, f: &FollowerFacts, effect: WaiverEffect) -> Result<(), Illegal> {
     match effect {
         WaiverEffect::Free => {}
         WaiverEffect::GiveBack(note) => {
@@ -335,7 +335,7 @@ fn pay_waiver(core: &mut CoreState, primary: Seat, f: &FollowerFacts, effect: Wa
             }
         }
         WaiverEffect::Agent { leader, system } => {
-            if core.board().sys(system).cmd.contains(primary) && fx_strategy::exhaust_leader(core, f.who, leader) {
+            if core.board().sys(system).cmd.contains(primary) && fx_strategy::exhaust_ready_agent(core, k, f.who, leader) {
                 fx::remove_command_token(core, primary, system);
             }
         }
@@ -616,6 +616,26 @@ mod tests {
         s.board_mut().sys_mut(System::ALL[3]).cmd.insert(Seat(0));
         take_waiver(&mut s, WaiverEffect::Agent { leader: Leader::JaeMirKan, system: System::ALL[3] });
         assert!(s.board().sys(System::ALL[3]).cmd.contains(Seat(0)));
+    }
+
+    /// A Nomad that listens (Temporal Command Suite) is told by the waiver's exhaustion of Jae Mir Kan; the pre-fix core exhausted the card silently (the
+    /// adapter then bailed to the string).
+    #[test]
+    fn jae_mir_kan_tells_a_listening_nomad() {
+        use crate::generated::{Leader, System};
+        let mut s = game([0, 0, 0]);
+        s.board_mut().sys_mut(System::ALL[3]).cmd.insert(Seat(0));
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::JaeMirKan, crate::state::LeaderStatus::Readied);
+        let mut f = fact(1, true, true);
+        f.waivers.push(waiver(WaiverEffect::Agent { leader: Leader::JaeMirKan, system: System::ALL[3] }));
+        let mut k = Kernel::plain();
+        k.hooks.direct.nomad_watches_agent_exhaustion.push(|_| true);
+        let step = SecondaryStep::new(Seat(0), StrategyCard::Trade, true, 1, &[f], REASON);
+        let mut d = Driver::new(step, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), AbilityTable::default(), 1);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
+        let at = c.opts.iter().position(|o| *o == Opt::Strategy(SOpt::Waive(Code(7)))).expect("the waiver is offered");
+        d.resume(&mut s, &k, c.pick(at).unwrap()).unwrap();
+        assert_eq!(s.pending().staged.iter().filter(|e| e.kind == EventKind::AgentExhausted).count(), 1);
     }
 
     #[test]

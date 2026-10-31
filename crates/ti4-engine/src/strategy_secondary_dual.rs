@@ -5,7 +5,7 @@
 //!
 //! The core half answers `None` (the string result stands, counted as a bail under `strategy::secondary`) for a
 //! preview window or one for a card nobody holds (the Winnu hero), a waiver whose payment the core tables do not carry
-//! (an unknown module's, Jae Mir Kan while the Nomad watches an agent exhaust), a card the tables do not know and a
+//! (an unknown module's), a card the tables do not know and a
 //! nested emission. A waiver taken (Acquiescence, Jae Mir Kan, Mindsieve, Enervate) is paid by the core step.
 
 use ti4_content::ContentStore;
@@ -55,7 +55,7 @@ pub fn secondary_step(
             eligible: f.eligible,
             costs_token: f.costs_token,
             primary_instead: f.primary_instead,
-            waivers: f.waivers.iter().map(|w| Waiver { opt: SOpt::Waive(r.shape(w)), effect: waiver_effect(gs, &w.id) }).collect(),
+            waivers: f.waivers.iter().map(|w| Waiver { opt: SOpt::Waive(r.shape(w)), effect: waiver_effect(&w.id) }).collect(),
         });
     }
     // A waiver taken whose payment the tables do not carry: the string pays it.
@@ -71,7 +71,9 @@ pub fn secondary_step(
     }
     let step = SecondaryStep::new(primary, card, window.exhausts_card(), facts.total, &followers, r.code("strategy_secondary"));
     let before = gs.clone();
-    let kernel = Kernel::plain();
+    // (The Nomad's Temporal Command Suite hears the exhaustion of Jae Mir Kan's agent: the step stages `AGENT_EXHAUSTED` where the hook says it listens.)
+    let mut kernel = Kernel::plain();
+    kernel.hooks.direct.nomad_watches_agent_exhaustion.push(ti4_engine_core_factions::ce_movement::nomad::query::watches_agent_exhaustion);
     let mut driver = crate::window_driver::driver_for(step, Resolver::new(&[], None), AbilityTable::default(), 1);
     let recorded = script.questions.first().map(|q| q.choice.details.clone());
     let mut staged = Vec::new();
@@ -114,7 +116,7 @@ pub fn secondary_step(
 
 /// What taking the waiver `option` (`follow|waived|<index>|<waiver id>`) of `follower` on `primary`'s card costs, as the
 /// core step pays it (`hooks_strategy::secondary_waived` of the modules that offer waivers).
-fn waiver_effect(gs: &GameState, option: &str) -> WaiverEffect {
+fn waiver_effect(option: &str) -> WaiverEffect {
     use crate::core_adapter::typed;
     use ti4_engine_core::generated::{Leader, System};
     let Some(id) = option.strip_prefix(WAIVED_SECONDARY_PREFIX).and_then(|rest| rest.split_once('|')).map(|(_, id)| id) else {
@@ -127,10 +129,6 @@ fn waiver_effect(gs: &GameState, option: &str) -> WaiverEffect {
     } else if let Some(note) = id.strip_prefix(crate::factions::naalu::MINDSIEVE_PREFIX) {
         crate::trade_write::note_key(note).map_or(WaiverEffect::Unported, WaiverEffect::HandOver)
     } else if let Some(system) = id.strip_prefix(crate::factions::mahact::AGENT_WAIVER_PREFIX) {
-        // Exhausting an agent is heard by the Nomad's suite (a staged event the core does not make).
-        if crate::factions::nomad::watches_agent_exhaustion(gs) {
-            return WaiverEffect::Unported;
-        }
         match (typed::<Leader>(crate::factions::mahact::AGENT), typed::<System>(system)) {
             (Some(leader), Some(system)) => WaiverEffect::Agent { leader, system },
             _ => WaiverEffect::Unported,

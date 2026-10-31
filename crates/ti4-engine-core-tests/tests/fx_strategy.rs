@@ -2,7 +2,7 @@
 
 use ti4_engine_core::kernel::fx_strategy as fx;
 use ti4_engine_core::query::tech::UnitRoster;
-use ti4_engine_core::state::{LeaderStatus, NoteKey};
+use ti4_engine_core::state::{CoreState, EventKind, LeaderStatus, NoteKey};
 use ti4_engine_core_tests::inv::ALL_SOURCES;
 use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::scenario::{first_planet, plain_systems};
@@ -24,6 +24,35 @@ fn only_a_readied_leader_is_exhausted_and_only_once() {
     assert!(!fx::exhaust_leader(&mut s, Seat(0), Leader::ALL[1]), "locked");
     assert!(!fx::exhaust_leader(&mut s, Seat(0), Leader::ALL[2]), "not held");
     assert!(!fx::exhaust_leader(&mut s, Seat(9), Leader::ALL[0]));
+}
+
+fn nomad_listens() -> ti4_engine_core::kernel::Kernel {
+    let mut k = ti4_engine_core::kernel::Kernel::plain();
+    k.hooks.direct.nomad_watches_agent_exhaustion.push(|_| true);
+    k
+}
+
+#[test]
+fn a_readied_agent_is_exhausted_and_a_listening_nomad_is_told_once() {
+    covers!("kernel::fx_strategy::exhaust_ready_agent");
+    let mut s = table().state();
+    let p = s.players_mut().by_seat_mut(Seat(0)).unwrap();
+    p.leaders.status.insert(Leader::ALL[0], LeaderStatus::Readied);
+    p.leaders.status.insert(Leader::ALL[1], LeaderStatus::Locked);
+    let k = nomad_listens();
+    assert!(fx::exhaust_ready_agent(&mut s, &k, Seat(0), Leader::ALL[0]));
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::ALL[0]), Some(&LeaderStatus::Exhausted));
+    let told = |s: &CoreState| s.pending().staged.iter().filter(|e| e.kind == EventKind::AgentExhausted).count();
+    assert_eq!(told(&s), 1, "the exhaustion is staged for the Nomad");
+    assert!(!fx::exhaust_ready_agent(&mut s, &k, Seat(0), Leader::ALL[0]), "already exhausted");
+    assert!(!fx::exhaust_ready_agent(&mut s, &k, Seat(0), Leader::ALL[1]), "locked");
+    assert!(!fx::exhaust_ready_agent(&mut s, &k, Seat(0), Leader::ALL[2]), "not held");
+    assert_eq!(told(&s), 1, "a refused exhaustion tells nobody");
+    // Nobody listens: the same exhaustion stages nothing.
+    let mut quiet = table().state();
+    quiet.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::ALL[0], LeaderStatus::Readied);
+    assert!(fx::exhaust_ready_agent(&mut quiet, &ti4_engine_core::kernel::Kernel::plain(), Seat(0), Leader::ALL[0]));
+    assert_eq!(told(&quiet), 0);
 }
 
 #[test]

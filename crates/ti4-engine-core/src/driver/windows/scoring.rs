@@ -223,7 +223,7 @@ impl<const EVENT: bool> Window for ScoringWin<EVENT> {
         if let Some(o) = one.scored
             && (revealed_before.contains(&o) || matches!(o, ObjectiveRef::Public(_)))
         {
-            let Some(unlocking) = super::super::turn::start::unlockable(sx, asked.seat, true) else { return Ok(()) };
+            let unlocking = super::super::turn::start::unlockable(sx, asked.seat, true);
             leaders::unlock(sx.state, asked.seat, unlocking.as_slice());
         }
         if let Some(o) = one.scored {

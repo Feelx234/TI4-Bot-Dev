@@ -15,12 +15,15 @@ pub mod action;
 pub mod action_menu;
 pub mod ask;
 pub mod closing;
+pub mod component;
 pub mod draft;
 pub mod end;
+pub mod faction;
 pub mod facts;
 pub mod inline;
 pub mod phase;
 pub mod prelude;
+pub mod relic;
 pub mod start;
 pub mod starting;
 

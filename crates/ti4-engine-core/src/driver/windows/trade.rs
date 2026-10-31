@@ -25,16 +25,23 @@ use crate::state::{CoreState, Trade, Window as OpenWindow};
 /// As [`advance`].
 pub fn begin(core: &mut CoreState, env: &Env<'_>, proposer: Seat, partner: Seat) -> Result<(Live, Out), LiveError> {
     let before = core.clone();
-    note_negotiation(core, proposer);
-    if !env.kernel.hooks.cards.transaction_limit_exempt(core, env.kernel, proposer, partner) {
-        record_transaction(core, proposer, partner);
-    }
-    core.pending_mut().open(OpenWindow::Trade(Trade::opened(proposer, partner)));
+    open(core, env.kernel, proposer, partner);
     let result = advance::<TradeWindow>(core, env, None);
     if result.is_err() {
         *core = before;
     }
     result
+}
+
+/// The writes of the opening without the first run: the negotiation is noted, the pair's transaction is spent unless a module exempts it, and
+/// the window is on the stack (the turn flow's menu job does these inside its step, after Extreme Duress; the caller then runs the window with
+/// [`advance_trade`]`(core, env, None)` in the same call).
+pub fn open(core: &mut CoreState, kernel: &crate::kernel::Kernel, proposer: Seat, partner: Seat) {
+    note_negotiation(core, proposer);
+    if !kernel.hooks.cards.transaction_limit_exempt(core, kernel, proposer, partner) {
+        record_transaction(core, proposer, partner);
+    }
+    core.pending_mut().open(OpenWindow::Trade(Trade::opened(proposer, partner)));
 }
 
 /// `Arm::Trade`: the answer to the window's question (`None`: run a window that asks nothing yet).

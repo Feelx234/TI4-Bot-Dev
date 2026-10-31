@@ -185,3 +185,18 @@ fn a_seat_that_is_not_the_nomad_is_not_offered_the_card_even_holding_it() {
     open(&mut s, &Exhaust { done: false });
     assert_eq!(advance::<Exhaust>(&mut s, &e, None).unwrap().0, Live::Done, "nobody is asked");
 }
+
+#[test]
+fn a_module_that_exempts_the_pair_leaves_the_cards_transaction_unrecorded() {
+    let (mut s, mut k) = position();
+    k.hooks.cards.transaction_limit_exempt.push(|_, _, _, _| true);
+    agent_exhausted(&mut s);
+    let e = env(&k, &s);
+    open(&mut s, &Exhaust { done: false });
+    let q = pick(advance::<Exhaust>(&mut s, &e, None).unwrap().0);
+    let ability = q.opts.iter().find_map(|o| if let Opt::Reaction(ROpt::Ability(a)) = o { Some(*a) } else { None }).unwrap();
+    advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(ability))))).unwrap();
+    advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Transact)))).unwrap();
+    advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    assert!(!ti4_engine_core::query::trade::transacted_with(&s, Seat(0), Seat(1)));
+}

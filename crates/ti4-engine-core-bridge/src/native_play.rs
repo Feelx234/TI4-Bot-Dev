@@ -355,9 +355,9 @@ impl NativeGame {
         }
     }
 
-    /// Whether the `Ask` arm's source is one the core runs (`driver::turn::ask`: an open job, the draft, the starting technology, the closing menu).
+    /// Whether the `Ask` arm's source is one the core runs (`driver::turn::ask`: an open job, the draft, the starting technology, the action menu and the closing menu).
     fn ask_is_native(&self) -> bool {
-        is_open::<TurnFlowWin>(&self.core) || matches!(self.source(), AskArm::Draft | AskArm::StartingTech | AskArm::Closing)
+        is_open::<TurnFlowWin>(&self.core) || matches!(self.source(), AskArm::Draft | AskArm::StartingTech | AskArm::Closing | AskArm::ActionMenu)
     }
 
     /// One step of the loop. The position is what it was before the call unless the result is [`Step::Played`].
@@ -413,6 +413,9 @@ impl NativeGame {
             Ok(out) => out,
             Err(stop) => return stop_to_step(&arm_label, stop),
         };
+        if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
+            eprintln!("step {arm_label}: asked {:?}", out.asked.iter().map(|c| (c.player.to_string(), c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>());
+        }
         if out.finished
             && let Some(part) = lent_close(arm)
         {
@@ -1057,6 +1060,8 @@ mod tests {
         g.core.meta_mut().phase = ti4_engine_core::state::Phase::Action;
         g.core.meta_mut().active = Some(Seat(0));
         g.core.players_mut().edit(0).tech.owned.insert(Technology::FleetLogistics);
+        // A card to act with: the second action is offered ("end your turn" first), as lane F's closing menu assembles it.
+        g.core.players_mut().edit(0).strat.push(ti4_engine_core::generated::StrategyCard::ALL[0]);
         g.core.pending_mut().prepared_turn_seq = Some(turn_seq);
         g.core.pending_mut().turn_closing = Some(Seat(0));
         g.core.pending_mut().actions_this_turn = 1;

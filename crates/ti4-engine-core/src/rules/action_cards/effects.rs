@@ -195,10 +195,11 @@ impl Fx {
     /// beyond the position (the forms the seat places, the neutral owner, the texts of the hit flows) are handed in by the host window
     /// with the other facts of a play ([`crate::kernel::ability::PlayFacts`]: `SeatPlayMore`, `SharedPlay`), so a card is nested when
     /// everything it reads is in them. Not nested: the cards of an Action timing (a component action is never played from a window), the
-    /// cards that read the map (Experimental Battlestation, Exploration Probe: the host would have to lend the galaxy), Lie in Wait (the
-    /// neighbours who traded come from the map), Crash Landing (no host of the ported areas places the units it saves), Harness Energy, Infiltrate, Bribery and Upgrade and Decoy Operation (windows of the
-    /// tactical action, whose hosts are not ported), and Fire Team and Scramble Frequency, which read the dice a roll staged and are played
-    /// by the window that stages them (`core-b12` registers Fire Team for the ground roll's tail).
+    /// cards that read the map (Exploration Probe: the host would have to lend the galaxy), Crash Landing (no host of the ported areas places the
+    /// units it saves), and Fire Team and Scramble Frequency, which read the dice a roll staged and are played by the window that stages them
+    /// (`core-b12` registers Fire Team for the ground roll's tail). Since lane H the hosts of the activation, the movement, the control gain, the
+    /// vote and the transaction are native windows that hand the play facts (`driver::windows::live_common::table_at`), so Upgrade, Decoy Operation,
+    /// Harness Energy, Infiltrate, Bribery, Lie in Wait and Experimental Battlestation are nested.
     #[must_use]
     pub const fn nested(self) -> bool {
         !matches!(
@@ -208,24 +209,17 @@ impl Fx {
                 | Self::Mercenary
                 | Self::Ghost
                 | Self::Jam
-                | Self::Upgrade
                 | Self::Refit
-                | Self::Decoy
-                | Self::Harness
                 | Self::Brilliance
                 | Self::Impersonation
                 | Self::Plagiarize
                 | Self::Focused
                 | Self::Divert
-                | Self::Lie
-                | Self::Bribery
-                | Self::Infiltrate
                 | Self::Crash
                 | Self::Probe
                 | Self::Perform { .. }
                 | Self::Reroll
                 | Self::Scramble
-                | Self::Battlestation
         )
     }
 
@@ -2019,7 +2013,7 @@ impl Play {
                 self.victim = None;
                 // The neighbours who traded: the adapter's fact when it gave one (the string's play window), else read from the position as
                 // it stands NOW (a live window: the deal that opened this window was struck in the very call that plays the card).
-                let traders = if self.env.facts.traders.iter().any(Option::is_some) { self.env.facts.traders } else { crate::kernel::trade_env::lie_in_wait_traders(core, k, self.who) };
+                let traders = if self.env.facts.traders.iter().any(Option::is_some) || !core.loaded.has(crate::state::Slice::Trade) { self.env.facts.traders } else { crate::kernel::trade_env::lie_in_wait_traders(core, k, self.who) };
                 while usize::from(self.step) < traders.len() {
                     let held = traders[usize::from(self.step)]
                         .filter(|v| core.players().by_seat(*v).is_some_and(|p| !p.cards.hand.is_empty()));
@@ -3896,7 +3890,7 @@ mod tests {
     fn a_card_that_needs_a_link_is_not_played_in_a_reaction_window() {
         for card in ActionCard::ALL {
             if let Some(fx) = Fx::of(card) {
-                assert!(!(fx.links() && fx.nested()) || matches!(fx, Fx::Reveal | Fx::Courageous), "{card:?} needs the links and is nested");
+                assert!(!(fx.links() && fx.nested()) || matches!(fx, Fx::Reveal | Fx::Courageous | Fx::Battlestation), "{card:?} needs the links and is nested");
             }
         }
     }

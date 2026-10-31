@@ -36,6 +36,10 @@ pub struct TurnCodes {
     pub place_structure: Code,
     pub te6warfare: Code,
     pub te4construction: Code,
+    /// `extreme_duress`: the source of the trade goods an Extreme Duress hands the holder.
+    pub extreme_duress: Code,
+    /// `orbital_drop`: the source of Orbital Drop's questions and of its token event.
+    pub orbital_drop: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.
@@ -113,8 +117,9 @@ pub enum MenuGap {
     ActionCard,
     /// A faction component action of a module whose listing is not in the core (`ComponentAction::module`).
     Faction(crate::generated::Faction),
-    /// The option chosen has no native body yet (`code` names which: see `driver::action`).
-    Action(u8),
+    /// The option chosen has no native body yet: the kind (`driver::turn::action::gap_code`) and the option's key (`Opt::key`), which names it
+    /// exactly.
+    Unrouted(u8, u32),
     /// An option the live menu never lists was answered.
     Refused,
 }

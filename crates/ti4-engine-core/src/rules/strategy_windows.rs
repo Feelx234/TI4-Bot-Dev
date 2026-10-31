@@ -59,7 +59,7 @@ impl TradePrimary {
 
     const ASK: Ask = Ask::Strategy(SAsk::TradeReplenish);
 
-    fn gain_and_replenish(&self, s: &mut CoreState) {
+    fn gain_and_replenish(&self, s: &mut CoreState, agreement: Code) {
         match self.sources {
             Some((primary, _)) => {
                 fx::gain_trade_goods_staged(s, self.who, TRADE_PRIMARY_GOODS, primary);
@@ -68,17 +68,16 @@ impl TradePrimary {
                 fx::gain_trade_goods(s, self.who, TRADE_PRIMARY_GOODS);
             }
         }
-        self.replenish(s, self.who);
+        self.replenish(s, self.who, agreement);
     }
 
-    fn replenish(&self, s: &mut CoreState, seat: Seat) {
-        match self.sources {
-            Some((_, agreement)) => {
-                fx::replenish_announced(s, seat, agreement);
-            }
-            None => {
-                fx::replenish_commodities(s, seat);
-            }
+    /// A replenish announces what a table listens to (Cabal's `COMMODITIES_REPLENISHED`, a Trade Agreement): through `fx::replenish_announced`
+    /// with the interned text of the agreement's source (`agreement`, the window's own when it has one). Two seats of one faction (the announcement
+    /// is keyed by faction) replenish plainly.
+    fn replenish(&self, s: &mut CoreState, seat: Seat, agreement: Code) {
+        let agreement = self.sources.map_or(agreement, |(_, agreement)| agreement);
+        if fx::replenish_announced(s, seat, agreement).is_none() && self.sources.is_none() {
+            fx::replenish_commodities(s, seat);
         }
     }
 
@@ -97,7 +96,7 @@ impl Window for TradePrimary {
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if self.stage == TStage::Start {
-            self.gain_and_replenish(sx.state);
+            self.gain_and_replenish(sx.state, sx.table.codes.not_from_supply[3]);
             self.remaining = seats::seating_order(sx.state).as_slice().iter().copied().filter(|s| *s != self.who).collect();
             self.stage = TStage::Pick;
         }
@@ -136,7 +135,7 @@ impl Window for TradePrimary {
         match pick {
             Pick::Opt(Opt::Done) => self.stage = TStage::Done,
             Pick::Opt(Opt::Strategy(SOpt::Replenish(seat))) if self.remaining.as_slice().contains(&seat) => {
-                self.replenish(sx.state, seat);
+                self.replenish(sx.state, seat, sx.table.codes.not_from_supply[3]);
                 self.remaining.retain(|s| *s != seat);
             }
             _ => return Err(Illegal),

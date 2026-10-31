@@ -114,7 +114,10 @@ pub fn begin(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, f: F
             if f.replenish_events {
                 return Began::Unsupported;
             }
-            fx::replenish_commodities(sx.state, who);
+            // (A table that listens to a replenish -- Cabal, a Trade Agreement -- is told: `replenish_announced`, the text of the agreement's source is the table's.)
+            if fx::replenish_announced(sx.state, who, sx.table.codes.not_from_supply[3]).is_none() {
+                fx::replenish_commodities(sx.state, who);
+            }
             Began::Done
         }
         (StrategyCardKind::Trade, true) => {

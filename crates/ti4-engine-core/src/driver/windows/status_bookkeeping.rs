@@ -206,7 +206,7 @@ pub fn run_bookkeeping(sx: &mut Sx<'_>) -> Flow {
     // 51.7 again: a commander unlocks on a condition that changes during play, not only when an objective is scored.
     let seats: Vec<Seat> = sx.state.players().iter().map(|p| p.seat).collect();
     for seat in &seats {
-        let Some(unlocking) = start::unlockable(sx, *seat, false) else { return Flow::Halt };
+        let unlocking = start::unlockable(sx, *seat, false);
         leaders::unlock(sx.state, *seat, unlocking.as_slice());
         for leader in unlocking.as_slice() {
             sx.plain(PlainRec::one(PlainKind::LeaderUnlocked, PlainArg::Leader(*leader)));
