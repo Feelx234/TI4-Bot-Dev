@@ -17,6 +17,10 @@ pub enum Ask {
     OrbitalPlanet,
     /// Orbital Drop: the optional mech for 3 resources on the planet (its system, the planet and the mech form the string names).
     OrbitalDeploy { system: System, planet: Planet, mech: Unit },
+    /// Star Forge / The Nucleus (Muaat): "place which units, and where" (a war sun's system, two fighters or one destroyer).
+    StarForge,
+    /// Ember Colossus (Muaat mech): "place 1 infantry with this mech" (the mech's system and planet, `None`: its space area).
+    EmberColossus { system: System, planet: Option<Planet> },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -26,6 +30,10 @@ pub enum Opt {
     Spot(System, Planet),
     /// Orbital Drop: deploy the mech for 3 resources.
     Deploy,
+    /// Star Forge: place the units in this system: two fighters (`fighters`) or one destroyer.
+    Forge { system: System, fighters: bool },
+    /// Ember Colossus: place the infantry with the mech (the one option the question has besides the decline).
+    Ember,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -39,4 +47,8 @@ pub enum Subtype {
     OrbitalPlanet,
     /// `orbital_drop_deploy_mech`.
     OrbitalDeploy,
+    /// `star_forge`.
+    StarForge,
+    /// `ember_colossus`.
+    EmberColossus,
 }

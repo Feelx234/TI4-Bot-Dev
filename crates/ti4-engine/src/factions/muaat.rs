@@ -369,32 +369,135 @@ fn perform_component(
 ) -> bool {
     match option.id.as_str() {
         STAR_FORGE => star_forge(context, player),
-        NUCLEUS => {
-            let planet = PlanetId::new("avernus");
-            if !crate::legendary::available(context.state, player, &planet) {
-                return false;
-            }
-            if !forge(context, player, false) {
-                return false;
-            }
-            context
-                .state
-                .player_mut(player)
-                .expect("holder seated")
-                .exhausted_legendary
-                .insert(planet);
-            true
-        }
+        NUCLEUS => nucleus(context, player),
         INFERNO => inferno(context, player),
         FIRES => fires(context, player),
         _ => false,
     }
 }
 
+/// The forms, the fleet limit and the neighbours of the war suns that the core windows of the Muaat placements are given
+/// (`faction_dual::MuaatFacts`): what the string reads and the core does not hold. Computed on the position the action starts from.
+fn placement_facts(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> crate::faction_dual::MuaatFacts {
+    let form = |base: &str| crate::action_cards::placed_unit_id(state, content, sources, player, base);
+    let fleet_limit = if crate::fleet::is_unlimited(state, player) {
+        crate::fleet::UNLIMITED_FLEET_BILL
+    } else {
+        i64::from(crate::fleet::limit(state, content, player)).max(0)
+    };
+    let adjacency = galaxy.map(|galaxy| {
+        crate::movement::PlayerAdjacency::new(state, content, sources, galaxy, player)
+    });
+    let near = war_sun_systems(state, content, sources, player)
+        .into_iter()
+        .map(|system| {
+            let next_to = adjacency
+                .as_ref()
+                .map(|adjacency| {
+                    adjacency
+                        .neighbours(system.as_str())
+                        .into_iter()
+                        .map(SystemId::new)
+                        .collect()
+                })
+                .unwrap_or_default();
+            (system, next_to)
+        })
+        .collect();
+    crate::faction_dual::MuaatFacts {
+        fighter: form("fighter"),
+        destroyer: form("destroyer"),
+        infantry: form("infantry"),
+        cruiser: form("cruiser"),
+        fleet_limit,
+        near,
+    }
+}
+
+/// Star Forge and The Nucleus, with the Ember Colossus placements that follow, are a window of the core
+/// (`rules::muaat_component::StarForge`); the string body is the oracle of the dual run.
+fn forge_window(context: &mut TimingContext<'_>, player: &PlayerId, nucleus: bool) -> bool {
+    let TimingContext {
+        state,
+        content,
+        sources,
+        table,
+        dice,
+        rng,
+        event_sequence,
+        galaxy,
+    } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        if nucleus {
+            "factions::muaat::nucleus"
+        } else {
+            "factions::muaat::star_forge"
+        },
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext {
+                state: s,
+                content,
+                sources,
+                table: &mut *table,
+                dice: &mut *dice,
+                rng: &mut *rng,
+                event_sequence: &mut *event_sequence,
+                galaxy,
+            };
+            crate::dual::Run::new(if nucleus {
+                nucleus_string(&mut inner, player)
+            } else {
+                star_forge_string(&mut inner, player)
+            })
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let facts = placement_facts(s, content, sources, galaxy, player);
+            crate::faction_dual::star_forge(s, player, nucleus, &facts, sources, script)
+        }
+    )
+}
+
+/// The Nucleus: "exhaust to use Star Forge without a token" (the Avernus card). A window of the core.
+fn nucleus(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    forge_window(context, player, true)
+}
+
+/// [`nucleus`] on the string engine: the oracle of the dual run.
+fn nucleus_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let planet = PlanetId::new("avernus");
+    if !crate::legendary::available(context.state, player, &planet) {
+        return false;
+    }
+    if !forge(context, player, false) {
+        return false;
+    }
+    context
+        .state
+        .player_mut(player)
+        .expect("holder seated")
+        .exhausted_legendary
+        .insert(planet);
+    true
+}
+
 /// Star Forge: "ACTION: Spend 1 token from your strategy pool to place either 2 fighters or 1
 /// destroyer from your reinforcements in a system that contains 1 or more of your war suns."
 /// The system and the choice are made before the token is spent; a refusal changes nothing.
 fn star_forge(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    forge_window(context, player, false)
+}
+
+/// [`star_forge`] on the string engine: the oracle of the dual run.
+fn star_forge_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     if !star_forge_ready(context.state, context.content, context.sources, player) {
         return false;
     }
@@ -542,6 +645,48 @@ fn ember_colossus(context: &mut TimingContext<'_>, player: &PlayerId, forge: &Sy
 /// The Inferno: "ACTION: Spend 1 token from your strategy pool to place 1 cruiser in this
 /// system."
 fn inferno(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let TimingContext {
+        state,
+        content,
+        sources,
+        table,
+        dice,
+        rng,
+        event_sequence,
+        galaxy,
+    } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::muaat::inferno",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext {
+                state: s,
+                content,
+                sources,
+                table: &mut *table,
+                dice: &mut *dice,
+                rng: &mut *rng,
+                event_sequence: &mut *event_sequence,
+                galaxy,
+            };
+            crate::dual::Run::new(inferno_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            // A Nekro seat may carry the flagship text on its own flagship (the Z token): the string decides.
+            if s.player(player).is_some_and(|seat| seat.faction.as_str() == "nekro") {
+                crate::dual::note_bail_here("a Nekro seat (a flagship carrying The Inferno's text through the Z token)");
+                return None;
+            }
+            let facts = placement_facts(s, content, sources, galaxy, player);
+            crate::faction_dual::inferno(s, player, &facts, sources, script)
+        }
+    )
+}
+
+/// [`inferno`] on the string engine: the oracle of the dual run.
+fn inferno_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let Some(system) = inferno_system(context.state, context.content, context.sources, player)
     else {
         return false;
@@ -557,6 +702,44 @@ fn inferno(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
 /// to their reinforcements. Then, gain your war sun unit upgrade technology card. Then, return
 /// this card to the Muaat Player." The holder's own war sun upgrade is the generic War Sun card.
 fn fires(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let TimingContext {
+        state,
+        content,
+        sources,
+        table,
+        dice,
+        rng,
+        event_sequence,
+        galaxy,
+    } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::Factions,
+        "factions::muaat::fires",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext {
+                state: s,
+                content,
+                sources,
+                table: &mut *table,
+                dice: &mut *dice,
+                rng: &mut *rng,
+                event_sequence: &mut *event_sequence,
+                galaxy,
+            };
+            crate::dual::Run::new(fires_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            // The Muaat seat the string finds (the first in seating order); a position with none: the core's own check refuses.
+            let owner = crate::promissory::seat_of(s, "muaat").unwrap_or_else(|| player.clone());
+            crate::faction_dual::fires_of_the_gashlai(s, content, player, &owner, sources, script)
+        }
+    )
+}
+
+/// [`fires`] on the string engine: the oracle of the dual run.
+fn fires_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let Some(owner) = fires_owner(context.state, player) else {
         return false;
     };
@@ -1988,6 +2171,115 @@ mod tests {
         let before = state.clone();
         assert!(!perform_as_b(&mut state));
         assert_eq!(state, before);
+    }
+
+    // -- the core windows ------------------------------------------------------------------------
+
+    /// Star Forge, The Nucleus (with the Ember Colossus placements), The Inferno and Fires of the Gashlai are bodies of the core
+    /// (`rules::muaat_component`). The core half agrees with the string for: two fighters with the mech beside the forge taking an
+    /// infantry, a destroyer with the mech declined, a decline, a seat without a token, a mech in a system next to the forge (a map), the
+    /// Nucleus (twice: the second finds the card spent), The Inferno (with and without a token) and Fires of the Gashlai (with and without
+    /// a token in the Muaat pool); and it ran every time.
+    #[test]
+    fn the_muaat_actions_run_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let dual = |f: &mut dyn FnMut() -> bool| with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || f());
+        // Two fighters, the mech beside the forge accepted.
+        let mut state = muaat_game();
+        let (home, planet) = mech_beside_the_forge(&mut state);
+        let infantry = state.system_state(&home).on_planet_of(&planet, &a()).len();
+        assert!(dual(&mut || perform(&mut state, None, &mut scripted(&[&format!("{home}|fighters"), &format!("{home}|{planet}")]), STAR_FORGE)));
+        assert_eq!(state.system_state(&home).on_planet_of(&planet, &a()).len(), infantry + 1);
+        // A destroyer, the mech declined.
+        let mut state = muaat_game();
+        mech_beside_the_forge(&mut state);
+        assert!(dual(&mut || perform(&mut state, None, &mut scripted(&[&format!("{home}|destroyer"), "decline"]), STAR_FORGE)));
+        // Declined, and no token (nothing is asked).
+        let mut state = muaat_game();
+        assert!(!dual(&mut || perform(&mut state, None, &mut scripted(&["decline"]), STAR_FORGE)));
+        state.player_mut(&a()).unwrap().strategic_tokens = 0;
+        assert!(!dual(&mut || perform(&mut state, None, &mut never(), STAR_FORGE)));
+        // A map: the mech stands in a system next to the forge and is asked, in system order after the forge's own.
+        let ids = crate::fixtures::plain_systems(80)
+            .into_iter()
+            .filter(|id| !nova_blocked(content(), DEFAULT, id) && !ti4_content::galaxy::planets_in(content(), id, DEFAULT).is_empty())
+            .take(7)
+            .collect::<Vec<_>>();
+        let hub = crate::fixtures::hub_from(&ids);
+        let (center, outer) = (SystemId::new(hub.centre.clone()), SystemId::new(hub.outer[0].clone()));
+        let mut state = muaat_game();
+        let home_war_sun = home_of(&state, &a());
+        state.system_mut(&home_war_sun).units.retain(|u| !(u.owner == a() && u.type_id.as_str().starts_with("muaat_warsun")));
+        put(&mut state, &center, "muaat_warsun", &a(), 1);
+        let held = crate::planets::in_system(&state, content(), DEFAULT, &outer).first().cloned().expect("a planet");
+        put_on_planet(&mut state, &outer, &held, "muaat_mech", &a(), 1);
+        assert!(dual(&mut || perform(&mut state, Some(&hub.galaxy), &mut scripted(&[&format!("{center}|fighters"), &format!("{outer}|{held}")]), STAR_FORGE)));
+        assert_eq!(state.system_state(&outer).on_planet_of(&held, &a()).iter().filter(|u| u.type_id.as_str().contains("infantry")).count(), 1);
+        // The Nucleus, twice.
+        let mut state = muaat_game();
+        let home = home_of(&state, &a());
+        crate::planets::place(&mut state, &home, &PlanetId::new("avernus"), &a());
+        state.player_mut(&a()).unwrap().strategic_tokens = 0;
+        assert!(dual(&mut || perform(&mut state, None, &mut scripted(&[&format!("{home}|fighters")]), NUCLEUS)));
+        assert!(!dual(&mut || perform(&mut state, None, &mut never(), NUCLEUS)));
+        // The Inferno.
+        let mut state = muaat_game();
+        put(&mut state, &home, "muaat_flagship", &a(), 1);
+        assert!(dual(&mut || perform(&mut state, None, &mut never(), INFERNO)));
+        state.player_mut(&a()).unwrap().strategic_tokens = 0;
+        assert!(!dual(&mut || perform(&mut state, None, &mut never(), INFERNO)));
+        // Fires of the Gashlai.
+        // (The notes of the factions nobody plays are not in the typed state: only the lent one stays.)
+        let mut state = muaat_game();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        lend_fires(&mut state, &b());
+        assert!(dual(&mut || perform_as_b(&mut state)));
+        assert!(has_technology(&state, &b(), "ws"));
+        let mut state = muaat_game();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        lend_fires(&mut state, &b());
+        state.player_mut(&a()).unwrap().fleet_tokens = 0;
+        assert!(!dual(&mut || perform_as_b(&mut state)));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::muaat::star_forge"), (5, 0), "{r:?}");
+        assert_eq!(thread_window_counts("factions::muaat::nucleus"), (2, 0), "{r:?}");
+        assert_eq!(thread_window_counts("factions::muaat::inferno"), (2, 0), "{r:?}");
+        assert_eq!(thread_window_counts("factions::muaat::fires"), (2, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// A Nekro seat may carry the text of The Inferno on its own flagship (the Z token), and a Nekro holder of Fires of the Gashlai may
+    /// carry the war sun technology on a Valefar Assimilator: the string decides both, counted as bails with their reasons.
+    #[test]
+    fn the_inferno_and_fires_of_a_nekro_seat_stay_with_the_string() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut state = seated_game(&[("a", "nekro"), ("b", "muaat")], DEFAULT);
+        let home = home_of(&state, &a());
+        put(&mut state, &home, "muaat_flagship", &a(), 1);
+        let _ = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, None, &mut never(), INFERNO));
+        let mut state = seated_game(&[("a", "muaat"), ("b", "nekro")], DEFAULT);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        lend_fires(&mut state, &b());
+        let option = action(FIRES, "test");
+        with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+            with_context(&mut state, DEFAULT, None, &mut never(), |ctx| perform_component(ctx, &b(), &option))
+        });
+        let r = report();
+        assert_eq!(thread_window_counts("factions::muaat::inferno"), (0, 1), "{r:?}");
+        assert_eq!(thread_window_counts("factions::muaat::fires"), (0, 1), "{r:?}");
+        assert!(r.windows.keys().any(|k| k.starts_with("factions::muaat::inferno [bail: a Nekro seat")), "{r:?}");
+        assert!(r.windows.keys().any(|k| k.starts_with("factions::muaat::fires [bail: a Nekro holder")), "{r:?}");
+        let _ = take_report();
     }
 
     // -- Magmus Reactor (movement) ---------------------------------------------------------------

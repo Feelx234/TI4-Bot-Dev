@@ -13,6 +13,7 @@ pub use stub::*;
 mod real {
     use ti4_engine_core::generated::{System, Unit};
     use ti4_engine_core::rules::faction_component as rules;
+    use ti4_engine_core::rules::muaat_component as rules_muaat;
     use ti4_engine_core::state::Slice;
     use ti4_model::id::{PlayerId, UnitTypeId};
     use ti4_model::state::GameState;
@@ -191,6 +192,128 @@ mod real {
         }
         crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
         Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
+    /// What Star Forge, The Nucleus and The Inferno read (the war suns, the box, the fleet, the legendary card) and write (the units, the
+    /// token, the exhausted card).
+    const FORGE: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks, Slice::Pending],
+        &[Slice::Players, Slice::Board, Slice::Pending],
+    );
+
+    /// A unit form of the string as the core names it (`None`: the seat places none). A form the typed tables do not know bails.
+    fn form(id: Option<&UnitTypeId>) -> Option<Option<Unit>> {
+        match id {
+            Some(id) => Some(Some(crate::core_adapter::typed::<Unit>(id.as_str()).why("a unit form the typed tables do not know")?)),
+            None => Some(None),
+        }
+    }
+
+    /// The forms and the limit the Muaat placements are made with (`factions::muaat::placement_facts`).
+    #[derive(Debug, Clone)]
+    pub struct MuaatFacts {
+        pub fighter: Option<UnitTypeId>,
+        pub destroyer: Option<UnitTypeId>,
+        pub infantry: Option<UnitTypeId>,
+        pub cruiser: Option<UnitTypeId>,
+        pub fleet_limit: i64,
+        /// For each system of a war sun: the systems next to it for the seat.
+        pub near: Vec<(ti4_model::id::SystemId, Vec<ti4_model::id::SystemId>)>,
+    }
+
+    /// The core half of Muaat's Star Forge (`nucleus`: false) and The Nucleus (`nucleus`: true) with the Ember Colossus placements that follow
+    /// (`factions::muaat::perform_component`; the value: the action resolved). A Nekro seat (a flagship carried through a Valefar
+    /// Assimilator) is the string's.
+    pub fn star_forge(gs: &mut GameState, player: &PlayerId, nucleus: bool, facts: &MuaatFacts, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::driver::Driver;
+        use ti4_engine_core::kernel::stage::AbilityTable;
+        use ti4_engine_core::kernel::Resolver;
+        use ti4_engine_core::rules::muaat_component::{ForgeFacts, Mode, StarForge};
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (fighter, destroyer, infantry) = (form(facts.fighter.as_ref())?, form(facts.destroyer.as_ref())?, form(facts.infantry.as_ref())?);
+        let scope = scope(sources)?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let near: Vec<(System, Vec<System>)> = facts
+            .near
+            .iter()
+            .map(|(system, next_to)| {
+                Some((crate::core_adapter::typed::<System>(system.as_str())?, next_to.iter().map(|s| crate::core_adapter::typed::<System>(s.as_str())).collect::<Option<Vec<_>>>()?))
+            })
+            .collect::<Option<_>>()
+            .why(crate::dual::reason::UNKNOWN_ID)?;
+        let forge = ForgeFacts { scope, fighter, destroyer, infantry, fleet_limit: facts.fleet_limit, near, source: r.code("star_forge"), mech: r.code("muaat_mech") };
+        let before = gs.clone();
+        let kernel = crate::production_view::kernel();
+        let mode = if nucleus { Mode::Nucleus } else { Mode::StarForge };
+        let mut driver = Driver::new(StarForge::new(seat, mode, forge), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut staged = Vec::new();
+        let driven = with_core(gs, &mut cx, Sources::default(), FORGE, |core, _| {
+            let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {});
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        Some(CoreWindow { run: Run::new(driver.window.done).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
+    /// The core half of Muaat's The Inferno (`factions::muaat::inferno`; the value: the cruiser was placed and the token spent).
+    pub fn inferno(gs: &mut GameState, player: &PlayerId, facts: &MuaatFacts, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::rules::muaat_component::InfernoFacts;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let cruiser = form(facts.cruiser.as_ref())?;
+        let scope = scope(sources)?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let inferno = InfernoFacts { scope, cruiser, fleet_limit: facts.fleet_limit, source: r.code("inferno") };
+        let kernel = crate::production_view::kernel();
+        let mut staged = Vec::new();
+        let done = with_core(gs, &mut cx, Sources::default(), FORGE, |core, _| {
+            let done = ti4_engine_core::rules::muaat_component::inferno(core, kernel, seat, &inferno);
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            done
+        })
+        .ok()
+        .why(crate::dual::reason::NOT_LENDABLE)?;
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        Some(CoreWindow { run: Run::new(done).with_events_vec(Vec::new()), questions: Vec::new() })
+    }
+
+    /// What Fires of the Gashlai reads and writes: the note, the seats' technologies and tokens, the units it re-forms.
+    const FIRES: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Cards, Slice::Marks],
+        &[Slice::Players, Slice::Board, Slice::Cards],
+    );
+
+    /// The core half of the Muaat promissory note Fires of the Gashlai (`factions::muaat::fires`; the value: the action resolved). `owner`
+    /// is the Muaat seat the string found. A holder that is a Nekro (a technology carried by a Valefar Assimilator) is the string's.
+    pub fn fires_of_the_gashlai(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, owner: &PlayerId, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if gs.player(player).is_some_and(|p| p.faction.as_str() == "nekro") {
+            crate::dual::note_bail_here("a Nekro holder (the war sun technology may be carried by a Valefar Assimilator)");
+            return None;
+        }
+        let scope = scope(sources)?;
+        let roster = crate::technology_core::roster_for(content, sources).why("a content store whose unit roster the core cannot share")?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let owner = r.seat(owner.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let kernel = crate::production_view::kernel();
+        let done = with_core(gs, &mut cx, Sources::default(), FIRES, |core, _| rules_muaat::fires_of_the_gashlai(core, kernel, scope, roster, seat, owner))
+            .ok()
+            .why(crate::dual::reason::NOT_LENDABLE)?;
+        Some(CoreWindow { run: Run::new(done).with_events_vec(Vec::new()), questions: Vec::new() })
     }
 
     /// What the Nekro draw reads and writes: the hand and the deck, the staged discard mark, the laws that cap the hand.
@@ -424,6 +547,24 @@ mod stub {
         None
     }
     pub fn c4r_draw(_: &mut GameState, _: &ti4_content::ContentStore, _: &PlayerId, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    #[derive(Debug, Clone)]
+    pub struct MuaatFacts {
+        pub fighter: Option<UnitTypeId>,
+        pub destroyer: Option<UnitTypeId>,
+        pub infantry: Option<UnitTypeId>,
+        pub cruiser: Option<UnitTypeId>,
+        pub fleet_limit: i64,
+        pub near: Vec<(ti4_model::id::SystemId, Vec<ti4_model::id::SystemId>)>,
+    }
+    pub fn star_forge(_: &mut GameState, _: &PlayerId, _: bool, _: &MuaatFacts, _: ti4_model::content_types::SourceSet, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn inferno(_: &mut GameState, _: &PlayerId, _: &MuaatFacts, _: ti4_model::content_types::SourceSet, _: &Recording) -> Option<CoreWindow<bool>> {
+        None
+    }
+    pub fn fires_of_the_gashlai(_: &mut GameState, _: &ti4_content::ContentStore, _: &PlayerId, _: &PlayerId, _: ti4_model::content_types::SourceSet, _: &Recording) -> Option<CoreWindow<bool>> {
         None
     }
 }

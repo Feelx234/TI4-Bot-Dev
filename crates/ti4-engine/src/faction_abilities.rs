@@ -654,7 +654,6 @@ pub(crate) fn string_only_component(id: &str) -> Option<&'static str> {
         return None; // bodies of the core (`rules::faction_component::{c4r_repair, terraform}`, `promissory_windows::StallTactics`)
     }
     Some(match faction.split('|').next()? {
-        "muaat" => "faction|muaat: Star Forge and The Nucleus place fighters or a destroyer where the fleet supply and the capacity allow (`fleet::standing` with the fleet-limit hooks: only the production window carries them), Ember Colossus asks per mech over the seat's adjacency, The Inferno places a cruiser at the flagship by the flagship text, Fires of the Gashlai grants the war sun technology and re-forms the units; the dispatch of perform_component is D1b",
         "saar" => "faction|saar: Deorbit Barrage's targets over the map, the hits and the dispatch of perform_component (D1b)",
         "titans" => "faction|titans: Terraform's planets and attachments, and the dispatch of perform_component (D1b)",
         "arborec" => "faction|arborec: Psychospore's placement of ground forces from the reinforcements (the placement window), and the dispatch of perform_component (D1b)",
@@ -1974,18 +1973,18 @@ mod tests {
     #[test]
     fn the_component_actions_that_stay_in_the_string_are_counted() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
-        for id in ["faction|production_biomes", "faction|trade_convoys", "faction|winnu|lgf", "faction|orbital_drop", "faction|mahact|vaults|ds", "faction|ghost|wg", "faction|naaz|fabrication_relic", "faction|naaz|fabrication_token", "faction|naaz|bmf", "faction|titans|terraform|elysium", "faction|nekro|c4r|repair", "faction|nekro|c4r|draw", "faction|nekro|c4r|pds", "faction|yssaril|stall_tactics", "faction|yssaril|mi|b", "faction|cabal|vortex", "somethingelse"] {
+        for id in ["faction|production_biomes", "faction|trade_convoys", "faction|winnu|lgf", "faction|orbital_drop", "faction|mahact|vaults|ds", "faction|ghost|wg", "faction|naaz|fabrication_relic", "faction|naaz|fabrication_token", "faction|naaz|bmf", "faction|titans|terraform|elysium", "faction|nekro|c4r|repair", "faction|nekro|c4r|draw", "faction|nekro|c4r|pds", "faction|yssaril|stall_tactics", "faction|yssaril|mi|b", "faction|cabal|vortex", "faction|muaat|star_forge", "faction|muaat|nucleus", "faction|muaat|inferno", "faction|muaat|fires", "somethingelse"] {
             assert_eq!(string_only_component(id), None, "{id}");
         }
         for id in [
-            "faction|muaat|star_forge", "faction|saar|deorbit_barrage",
+            "faction|saar|deorbit_barrage",
             "faction|arborec|psychospore",
         ] {
             assert!(string_only_component(id).is_some_and(|why| why.starts_with(id.split('|').take(2).collect::<Vec<_>>().join("|").as_str())), "{id}");
         }
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
-        let remaining = ["faction|muaat|star_forge", "faction|saar|deorbit_barrage", "faction|arborec|psychospore"];
+        let remaining = ["faction|saar|deorbit_barrage", "faction|arborec|psychospore"];
         for id in remaining {
             with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
                 let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);

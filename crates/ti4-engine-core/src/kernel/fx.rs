@@ -558,6 +558,60 @@ pub fn gain_control(cx: &mut Cx<'_>, who: Seat, system: System, planet: Planet) 
 /// The window relations in the order a caller walks them (`When`, then `After`).
 pub const RELATIONS: [Relation; 2] = [Relation::When, Relation::After];
 
+/// `action_cards::max_fit` (package W11, lane 7): how many of `wanted` units of `unit` may be put in `system`'s space area (`in_space`) or on one of
+/// its planets without making the fleet pool (37.1) or the space capacity (16.1) worse than it is now: the largest `n <= wanted` for which
+/// [`fleet::standing`] shows no new fleet excess and no new capacity excess. The box is a separate limit ([`place_counted`]). `fleet_limit` is the
+/// limit the string worked out (`fleet::limit`, or `fleet::UNLIMITED_FLEET_BILL`): the pool, the laws and the abilities are the adapter's.
+#[must_use]
+#[allow(clippy::too_many_arguments, reason = "the position, the seat, the place, the unit, how many and the limit")]
+pub fn max_fit(core: &CoreState, k: &crate::kernel::Kernel, scope: crate::tables::Scope, who: Seat, system: System, in_space: bool, unit: Unit, wanted: usize, fleet_limit: i64) -> usize {
+    use crate::query::fleet::{self, Arrival};
+    let half = |u: Unit| k.hooks.combat.fighter_fleet_weight_halves(core, k, who, u);
+    let before = fleet::standing(core, scope, who, system, fleet_limit, None, &half);
+    (1..=wanted)
+        .rev()
+        .find(|n| {
+            let arrival = Arrival { kind: unit, count: i64::try_from(*n).unwrap_or(i64::MAX), in_space };
+            let after = fleet::standing(core, scope, who, system, fleet_limit, Some(arrival), &half);
+            after.fleet_excess() <= before.fleet_excess() && after.capacity_excess <= before.capacity_excess
+        })
+        .unwrap_or(0)
+}
+
+/// Whether the seat's box holds a piece of `unit` it may put on the board by an effect (`supply::allowed(.., 1) > 0`: a faction rule that
+/// forbids the form places none, and an exhausted plastic limit too).
+#[must_use]
+pub fn box_has(core: &CoreState, k: &crate::kernel::Kernel, scope: crate::tables::Scope, who: Seat, unit: Unit) -> bool {
+    !k.hooks.economy.effect_placement_forbidden(core, k, who, unit) && crate::query::fleet::remaining_all(core, scope, who, unit) > 0
+}
+
+/// `action_cards::place_units_counted`: put `count` units of `unit` at one spot, capped by the box, and return how many arrived. The spot
+/// is not validated. A form the seat does not place (`None`) and a form a faction rule forbids place none.
+#[must_use]
+#[allow(clippy::too_many_arguments, reason = "the position, the seat, the spot, the unit and how many")]
+pub fn place_counted(core: &mut CoreState, k: &crate::kernel::Kernel, scope: crate::tables::Scope, who: Seat, system: System, planet: Option<Planet>, unit: Option<Unit>, count: usize) -> usize {
+    let Some(unit) = unit else { return 0 };
+    if k.hooks.economy.effect_placement_forbidden(core, k, who, unit) {
+        return 0;
+    }
+    let room = usize::try_from(crate::query::fleet::remaining_all(core, scope, who, unit)).unwrap_or(0);
+    let count = count.min(room);
+    for _ in 0..count {
+        place_unit(core, who, system, planet, unit);
+    }
+    count
+}
+
+/// `supply::spend_strategy_token_staged`: one token leaves the strategy pool and `STRATEGY_TOKEN_SPENT` waits for the game step (`reason` is
+/// the interned text). Whether the pool held one.
+pub fn spend_strategy_token_staged(s: &mut CoreState, who: Seat, reason: Code) -> bool {
+    if !spend_strategic_token(s, who) {
+        return false;
+    }
+    stage(s, event(EventKind::StrategyTokenSpent, Payload::new().with(Key::Player, Val::Seat(who)).with(Key::Reason, Val::Code(reason))));
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

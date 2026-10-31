@@ -53,6 +53,8 @@ impl Family for Fam {
             Ask::C4rPds => "???_ERROR_ERROR_???: choose a planet you control".to_owned(),
             Ask::OrbitalPlanet => "Orbital Drop: onto which planet".to_owned(),
             Ask::OrbitalDeploy { planet, .. } => format!("Orbital Drop: deploy a mech on {}", planet.as_str()),
+            Ask::StarForge => "Star Forge: place which units, and where".to_owned(),
+            Ask::EmberColossus { .. } => "Ember Colossus: place 1 infantry with this mech".to_owned(),
         }
     }
 
@@ -62,6 +64,8 @@ impl Family for Fam {
             Subtype::C4rPlanet => "c4r_planet",
             Subtype::OrbitalPlanet => "orbital_drop_choose_planet",
             Subtype::OrbitalDeploy => "orbital_drop_deploy_mech",
+            Subtype::StarForge => "star_forge",
+            Subtype::EmberColossus => "ember_colossus",
         }
         .to_owned()
     }
@@ -88,6 +92,15 @@ impl Family for Fam {
                     .with("planet", planet)
                     .with("orbital_drop_deploy", true)
             }
+            (_, Opt::Forge { system, fighters }) => {
+                let (system, kind, what) = (system.as_str(), if *fighters { "fighters" } else { "destroyer" }, if *fighters { "2 fighters" } else { "1 destroyer" });
+                ChoiceOption::labelled(format!("{system}|{kind}"), "star_forge", format!("place {what} in {system}")).with("system", system)
+            }
+            (Ask::EmberColossus { system, planet }, Opt::Ember) => {
+                let (system, place) = (system.as_str(), planet.map_or("space", |p| p.as_str()));
+                ChoiceOption::labelled(format!("{system}|{place}"), PLACE_KIND, format!("place 1 infantry with the mech on {place} in {system}"))
+            }
+            (_, Opt::Ember) => ChoiceOption::labelled("ember", PLACE_KIND, "place 1 infantry with the mech"),
             (_, Opt::Spot(system, planet)) => {
                 ChoiceOption::labelled(format!("{}|{}", system.as_str(), planet.as_str()), "nekro_c4r_planet", format!("place a PDS on {} in {}", planet.as_str(), system.as_str()))
             }
@@ -99,6 +112,18 @@ impl Family for Fam {
         match a {
             // The planet question's id names the planet alone, and the deploy's names the mech: both are matched against the options.
             Ask::OrbitalPlanet | Ask::OrbitalDeploy { .. } => None,
+            Ask::StarForge => {
+                let (system, kind) = id.split_once('|')?;
+                match kind {
+                    "fighters" => Some(Opt::Forge { system: System::from_id(system)?, fighters: true }),
+                    "destroyer" => Some(Opt::Forge { system: System::from_id(system)?, fighters: false }),
+                    _ => None,
+                }
+            }
+            Ask::EmberColossus { system, planet } => {
+                let place = planet.map_or("space", |p| p.as_str());
+                (id == format!("{}|{place}", system.as_str())).then_some(Opt::Ember)
+            }
             Ask::PlaceUnits { .. } | Ask::C4rPds => {
                 let (system, planet) = id.split_once('|')?;
                 Some(Opt::Spot(System::from_id(system)?, Planet::from_id(planet)?))

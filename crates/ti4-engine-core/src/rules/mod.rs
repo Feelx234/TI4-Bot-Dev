@@ -26,6 +26,7 @@ pub mod invasion;
 pub mod leader_windows;
 pub mod leaders;
 pub mod legendary;
+pub mod muaat_component;
 pub mod objective_windows;
 pub mod scoring_book;
 pub mod objectives;
