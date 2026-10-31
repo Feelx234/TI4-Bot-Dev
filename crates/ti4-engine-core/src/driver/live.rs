@@ -415,7 +415,7 @@ mod tests {
         assert_eq!(advance::<Toy>(&mut s, &env, Some(pick(9))), Err(LiveError::Illegal), "an ability the window does not offer");
         assert_eq!(s, held);
         assert!(live_arm(Arm::Tokens).is_some() && ask_arm_fn(Arm::Tokens).is_some());
-        assert!(live_arm(Arm::Voting).is_none() && ask_arm_fn(Arm::Voting).is_none(), "an arm no lane has ported stays lent");
+        assert!(live_arm(Arm::Diplomacy).is_none() && ask_arm_fn(Arm::Diplomacy).is_none(), "an arm no lane has ported stays lent");
     }
 
     /// The play facts of a card played inside the window are those of the position the call starts from (`table_at`): the provider is

@@ -228,12 +228,15 @@ mod tests {
         assert_eq!(step(&mut s, &f, needs(), NativeArms::NONE), Step::Lend(Lent::Arm(Arm::Tokens)), "the empty set is today's behaviour");
         assert_eq!(step(&mut s, &f, needs(), NativeArms::of(&[Arm::Tokens])), Step::Native(Arm::Tokens));
         assert_eq!(step(&mut s, &f, needs(), NativeArms::registered()), Step::Native(Arm::Tokens));
-        assert_eq!(step(&mut s, &f, needs(), NativeArms::of(&[Arm::Voting])), Step::Lend(Lent::Arm(Arm::Tokens)), "another arm's bit does not count");
+        assert_eq!(step(&mut s, &f, needs(), NativeArms::of(&[Arm::Diplomacy])), Step::Lend(Lent::Arm(Arm::Tokens)), "another arm's bit does not count");
         // An arm in the set with no live function yet is still lent: the set can be written before the lane lands.
-        let mut s = open(crate::state::WindowKind::Voting);
+        let mut s = open(crate::state::WindowKind::Diplomacy);
         let f = facts(&s);
-        assert_eq!(step(&mut s, &f, needs(), NativeArms::ALL), Step::Lend(Lent::Arm(Arm::Voting)));
-        assert_eq!(NativeArms::registered(), NativeArms::of(&[Arm::EventScoring, Arm::Scoring, Arm::Tokens, Arm::TurnPrelude, Arm::Status, Arm::StrategyAnnounce, Arm::Ask, Arm::Phase]));
+        assert_eq!(step(&mut s, &f, needs(), NativeArms::ALL), Step::Lend(Lent::Arm(Arm::Diplomacy)));
+        assert_eq!(
+            NativeArms::registered(),
+            NativeArms::of(&[Arm::EventScoring, Arm::Scoring, Arm::Tokens, Arm::Voting, Arm::TurnPrelude, Arm::Status, Arm::Agenda, Arm::StrategyAnnounce, Arm::Ask, Arm::Phase])
+        );
         assert_eq!(NativeArms::ALL.bits().count_ones(), 19);
         assert!(NativeArms::NONE.bits() == 0 && !NativeArms::NONE.has(Arm::Tokens));
     }

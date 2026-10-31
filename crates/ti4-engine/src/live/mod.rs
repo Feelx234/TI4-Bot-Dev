@@ -382,7 +382,7 @@ mod tests {
             assert_eq!(*core, held);
             assert_eq!(live_step(core, Arm::Tokens, &live, &mut Scripted::new(["no_such_pool"])), Err(Stop::Illegal));
             assert_eq!(*core, held);
-            assert_eq!(live_step(core, Arm::Voting, &live, &mut Scripted::new(["x"])), Err(Stop::NoLiveFn(Arm::Voting)));
+            assert_eq!(live_step(core, Arm::Diplomacy, &live, &mut Scripted::new(["x"])), Err(Stop::NoLiveFn(Arm::Diplomacy)));
             assert_eq!(*core, held);
         })
         .unwrap();
