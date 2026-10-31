@@ -73,6 +73,8 @@ pub fn is_neutral(s: &CoreState, seat: Seat) -> bool {
     !crate::query::seats::is_player(s, seat)
 }
 
+pub use crate::query::neutral::{neutral_casualty, neutral_pick, NEUTRAL_LOWEST_FIRST};
+
 /// Players with ships in a system, in seating order (78.1), then the neutral owner when it has ships.
 #[must_use]
 pub fn combatants(rd: Rd<'_>, system: System) -> SmallList<Seat, 8> {

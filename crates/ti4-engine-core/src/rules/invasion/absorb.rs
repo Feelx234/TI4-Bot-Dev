@@ -5,7 +5,7 @@
 //! Shielding extra) before anyone chooses; with no candidate the rest is wasted (15.2a); one candidate is lost
 //! without a question; otherwise the owner is asked "assign a hit on {planet}" (`Asking`).
 //!
-//! Not covered (the adapter returns `None`): neutral owners (the reference card's order is string-only).
+//! A neutral owner's hit goes to the unit lowest on the reference card (rule 7): nobody is asked.
 
 use super::{can_sustain_here, ground_hit_eligible, is_ground_force_here, Rd};
 use crate::choice::generic::Rule;
@@ -131,6 +131,11 @@ impl Window for AbsorbGround {
                 [only] => {
                     let only = *only;
                     self.destroy(sx.state, only);
+                }
+                // Nobody decides for a neutral side: the hit goes to the unit lowest on the reference card (rule 7).
+                _ if !crate::query::seats::is_player(sx.state, self.player) => {
+                    let doomed = crate::query::neutral::neutral_pick(&present).unwrap_or(present[0]);
+                    self.destroy(sx.state, doomed);
                 }
                 _ => self.stage = Stage::Asking,
             }
