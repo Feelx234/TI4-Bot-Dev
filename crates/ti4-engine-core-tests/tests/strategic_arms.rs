@@ -27,6 +27,10 @@ fn kinds(s: &CoreState) -> Vec<PlainKind> {
     s.ledger.events.iter().filter_map(|e| e.plain().map(|p| p.kind)).collect()
 }
 
+fn typed(s: &CoreState) -> Vec<ti4_engine_core::state::EventKind> {
+    s.ledger.events.iter().filter_map(|e| if let ti4_engine_core::state::Emit::Typed(t) = e { Some(t.kind) } else { None }).collect()
+}
+
 fn pick(o: SOpt) -> Pick {
     Pick::Opt(Opt::Strategy(o))
 }
@@ -40,7 +44,7 @@ fn trade_window(tokens: [i16; 3]) -> (CoreState, Kernel) {
         p.econ.strategic_tokens = t;
         p.econ.commodities = 0;
     }
-    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.insert(StrategyCard::Trade);
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Trade);
     s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Trade, &[Seat(1), Seat(2), Seat(3)], true)));
     (s, k)
 }
@@ -86,8 +90,8 @@ fn a_follow_spends_the_token_says_so_and_the_last_answer_ends_the_action() {
     assert!(s.players().by_seat(Seat(0)).unwrap().strat_exhausted.contains(StrategyCard::Trade), "the last follower exhausts the card");
     let k = kinds(&s);
     assert_eq!(k.iter().filter(|p| **p == PlainKind::StrategySecondaryFollowed).count(), 3);
-    let at = k.iter().position(|p| *p == PlainKind::StrategicActionComplete).expect("the action is complete");
-    assert!(k[at + 1..].contains(&PlainKind::ActionCompleted), "the end of the action (`finish_action`) is part of the same call: {k:?}");
+    assert!(k.contains(&PlainKind::StrategicActionComplete), "the action is complete");
+    assert!(typed(&s).contains(&ti4_engine_core::state::EventKind::ActionCompleted), "the end of the action (`finish_action`) is part of the same call");
     assert!(!is_open::<SecondaryWin>(&s));
 }
 
@@ -120,7 +124,7 @@ fn when_nobody_may_follow_the_call_ends_the_window_and_the_action_without_a_ques
         s.players_mut().by_seat_mut(Seat(seat)).unwrap().econ.strategic_tokens = 0;
         s.players_mut().by_seat_mut(Seat(seat)).unwrap().econ.commodities = 0;
     }
-    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.insert(StrategyCard::Warfare);
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Warfare);
     s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Warfare, &[Seat(1), Seat(2), Seat(3)], true)));
     let e = env(&k);
     assert_eq!(ask_secondary(&s, &e).unwrap(), None);
@@ -137,14 +141,13 @@ fn a_preview_window_neither_finishes_the_action_nor_exhausts_the_card() {
     w.preview = true;
     s.pending_mut().open(OpenWindow::StrategySecondary(w));
     let e = env(&k);
-    let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap_or_else(|_| advance_secondary(&mut s, &e, None).unwrap());
-    let _ = live;
     let q = first_asked(&s, &e);
     assert_eq!(q.actor, Seat(2));
-    advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    assert_eq!(live, Live::Done);
     let k = kinds(&s);
     assert!(k.contains(&PlainKind::StrategySecondaryPreviewComplete));
-    assert!(!k.contains(&PlainKind::StrategicActionComplete) && !k.contains(&PlainKind::ActionCompleted));
+    assert!(!k.contains(&PlainKind::StrategicActionComplete) && !typed(&s).contains(&ti4_engine_core::state::EventKind::ActionCompleted));
     assert!(!s.players().by_seat(Seat(0)).unwrap().strat_exhausted.contains(StrategyCard::Trade));
 }
 

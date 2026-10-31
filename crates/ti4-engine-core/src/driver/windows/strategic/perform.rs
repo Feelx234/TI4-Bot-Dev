@@ -26,10 +26,7 @@ use super::facts;
 /// Run the ability of `card` for `who` (the secondary, or the primary when `primary`) to its end, putting its questions to the tape. `free`
 /// is where the system of Thunder's Edge Warfare's free tactical action goes (`Ability::FreeTactical`).
 pub fn run(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, free: &mut Option<System>) -> Flow {
-    let Some(card_facts) = facts::perform_facts(sx, who, card) else {
-        gap(sx, TurnGap::NoRoster);
-        return Flow::Halt;
-    };
+    let card_facts = facts::perform_facts(sx, who, card);
     match fx_perform::begin(sx, who, card, primary, card_facts) {
         Began::Done => Flow::Done,
         Began::Unsupported => {

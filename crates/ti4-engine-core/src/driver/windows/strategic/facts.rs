@@ -165,17 +165,17 @@ pub fn te_uses(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, who: Seat
     TeUses::new(source, &uses)
 }
 
-/// The facts [`crate::kernel::fx_perform::begin`] reads, for `who` performing `card` (primary or secondary). `None`: the table has no unit
-/// roster (the play facts of the sources are missing).
+/// The facts [`crate::kernel::fx_perform::begin`] reads, for `who` performing `card` (primary or secondary). Without a unit roster (the play
+/// facts of the sources are missing) the abilities that need one are `Unsupported`.
 #[must_use]
-pub fn perform_facts(sx: &Sx<'_>, who: Seat, card: StrategyCard) -> Option<Facts> {
-    let roster = sx.table.facts.plays.as_ref()?.roster?;
-    Some(facts_at(sx.state, sx.kernel, &sx.table.codes.turn, roster, who, card))
+pub fn perform_facts(sx: &Sx<'_>, who: Seat, card: StrategyCard) -> Facts {
+    let roster = sx.table.facts.plays.as_ref().and_then(|p| p.roster);
+    facts_at(sx.state, sx.kernel, &sx.table.codes.turn, roster, who, card)
 }
 
 /// [`perform_facts`] on a position, with the roster and the codes in hand.
 #[must_use]
-pub fn facts_at(core: &CoreState, kernel: &Kernel, codes: &TurnCodes, roster: &'static UnitRoster, who: Seat, card: StrategyCard) -> Facts {
+pub fn facts_at(core: &CoreState, kernel: &Kernel, codes: &TurnCodes, roster: Option<&'static UnitRoster>, who: Seat, card: StrategyCard) -> Facts {
     let rules_version = core.meta().rules_version;
     let home = match core.players().by_seat(who).and_then(|p| p.home_system) {
         Some(system) => Home::At(system),
@@ -187,18 +187,18 @@ pub fn facts_at(core: &CoreState, kernel: &Kernel, codes: &TurnCodes, roster: &'
             plain_draw: true,
             research: rules_version >= RULES_TECH_PAYMENT_CHOICE,
             payments: true,
-            structures: structure_facts(core, kernel, roster, who, codes),
+            structures: roster.and_then(|roster| structure_facts(core, kernel, roster, who, codes)),
             trade_source: codes.trade_primary,
         },
         // (Cabal's replenish note and the Trade Agreement are the core's; the siphoning plot is a dropped faction's.)
         replenish_events: false,
         rules_version,
-        roster: Some(roster),
+        roster,
         scope: reach::scope_of(kernel),
         mahact_held: fx::tokens_held_by_mahact(core, who),
         home,
         imperial: (card.data().kind == StrategyCardKind::Imperial).then(|| imperial_facts(core, kernel, who)).flatten(),
         free: (card == StrategyCard::WarfareThundersEdge).then(|| free_systems(core, codes.te6warfare)).flatten(),
-        te_uses: (card == StrategyCard::ConstructionThundersEdge).then(|| te_uses(core, kernel, roster, who, codes.te4construction)).flatten(),
+        te_uses: (card == StrategyCard::ConstructionThundersEdge).then(|| roster.and_then(|roster| te_uses(core, kernel, roster, who, codes.te4construction))).flatten(),
     }
 }

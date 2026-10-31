@@ -34,6 +34,17 @@ pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered
                 }
             }
         }
+        // Diplomacy: "ready which planet" shows where the planets and the cards that spend stand (`ready_planets`).
+        Ask::Strategy(SAsk::ReadyPlanet) => {
+            rendered.details.insert("ready_hints".to_owned(), ready_hints(core, kernel, choice.actor));
+        }
+        // Leadership's purchases after the first (`buy_tokens_with_influence`): the pools and what the next purchase can be.
+        Ask::Strategy(SAsk::LeadershipBuy { more: false, .. }) => {
+            if let Some(purchase) = purchase_details(core, kernel, choice.actor) {
+                super::details::pool_details(core, choice.actor, "buy", Some(0), rendered);
+                rendered.details.insert("purchase".to_owned(), purchase);
+            }
+        }
         // Politics: the seat of each speaker option, the printed agenda (`strategy_cards_core::complete_politics`).
         Ask::Strategy(SAsk::PoliticsSpeaker) => {
             let mut seats = serde_json::Map::new();
