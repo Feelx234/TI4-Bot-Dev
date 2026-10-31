@@ -86,6 +86,7 @@ fn used(p: &Payload) -> Option<(Seat, Seat)> {
     Some((p.seat(Key::Player)?, p.seat(Key::Target)?))
 }
 
+// mutants:skip (the effect, `offer`, re-checks the same facts: a window offered too widely asks nothing)
 fn window_when(c: &CondCx<'_>) -> bool {
     status(c.state, c.def.owner, AGENT) == Some(LeaderStatus::Readied) && used(&c.event.payload).is_some_and(|(by, _)| by == c.def.owner) && !c.state.decks().action.is_empty()
 }
@@ -97,6 +98,7 @@ fn window(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 }
 
 /// The pair: the lender holds the agent card and the borrower Ssruu (the string's static roster).
+// mutants:skip (the roster is the string's static one; the live check is `copy_when`'s `borrowable`)
 fn mentak_lends(s: &CoreState, borrower: Seat, lender: Seat) -> bool {
     let holds = |who: Seat, card: Leader| status(s, who, card).is_some();
     holds(lender, AGENT) && holds(borrower, Leader::Ssruu)

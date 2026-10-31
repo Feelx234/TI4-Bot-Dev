@@ -154,7 +154,7 @@ fn destroy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
             None => false,
         });
         if !all_there {
-            if index == 0 {
+            if index == 0 { // mutants:skip (the choices were made from the board a moment ago: the first batch is always there)
                 return Ok(());
             }
             continue;

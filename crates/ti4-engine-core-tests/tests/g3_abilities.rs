@@ -856,6 +856,33 @@ mod edges {
         assert!(r.state.board().planet(planets[1]).flags.has(PlanetFlags::UNITS_ENTRY), "the destination has a unit entry now");
     }
 
+    #[test]
+    fn ragh_s_call_needs_saar_ground_forces_on_the_planet_and_touches_the_system_it_goes_to() {
+        covers!("silent::g3::ragh::RAGH");
+        let (system, planets) = two_planet_system();
+        let other = ti4_engine_core_tests::scenario::plain_systems().into_iter().find(|s| *s != system).expect("another plain system");
+        let far = other.data().planets[0];
+        let committed = fx::event(EventKind::UnitsCommitted, Payload::new().with(Key::Player, Val::Seat(Seat(0))).with(Key::Planet, Val::Planet(planets[0])).with(Key::System, Val::System(system)));
+        let hold = |s: &mut CoreState| {
+            s.cards_mut().promissory.edit().insert(ti4_engine_core::state::NoteKey { note: ti4_engine_core::generated::PromissoryNote::RaghsCall, faction: Faction::TheClanOfSaar }, Seat(0));
+        };
+        // Only the Sol has a ground force there (the Saar only a structure): nothing to move.
+        let nobody = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheClanOfSaar, Faction::TheFederationOfSol])
+            .control(planets[0], 1)
+            .control(far, 1)
+            .unit(system, Some(planets[0]), Unit::PDSI, 1, 1)
+            .unit(system, Some(planets[0]), Unit::InfantryI, 2, 2);
+        assert!(rig(nobody, hold, committed.clone()).is_done());
+        // The destination is in another system: that system now has an entry on the board.
+        let scenario = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheClanOfSaar]).control(planets[0], 1).control(far, 1).unit(system, Some(planets[0]), Unit::InfantryI, 1, 1);
+        let mut r = rig(scenario, hold, committed);
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        r.pick(use_it);
+        r.pick(0);
+        assert_eq!(units_of(&r, far, 1, UnitBaseType::Infantry), 1);
+        assert!(r.state.board().sys(other).flags.has(ti4_engine_core::state::SysFlags::TOUCHED));
+    }
+
     fn suffi_scenario(system: System, planets: &[Planet]) -> Scenario {
         Scenario::new(&[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan, Faction::TheYssarilTribes]).map_from(&[system]).unit(system, Some(planets[0]), Unit::InfantryI, 0, 1).unit(system, Some(planets[1]), Unit::InfantryI, 1, 1).goods(1, 3)
     }
