@@ -123,6 +123,9 @@ fn link(list: &mut Vec<(SystemIx, SysSet)>, a: SystemIx, b: SystemIx) {
 /// activation window (Aetherstream, the Ghosts agent) use it.
 #[must_use]
 pub fn neighbours_for(core: &CoreState, k: &Kernel, seat: Seat, system: SystemIx) -> Option<SysSet> {
+    if !core.loaded.has(crate::state::Slice::Map) {
+        return None;
+    }
     let galaxy = core.galaxy()?;
     let hooks = &k.hooks.movement;
     let extras = hooks.extra_wormhole_set(core);

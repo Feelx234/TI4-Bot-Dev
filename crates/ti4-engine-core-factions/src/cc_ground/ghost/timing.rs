@@ -51,10 +51,14 @@ pub(crate) fn wormholes_at(s: &CoreState, k: &Kernel, system: System) -> u8 {
     kinds
 }
 
-/// `agent_target_usable`: the system holds a non-delta wormhole and the map has another system with one. `None`: no galaxy.
-pub(crate) fn target_usable(s: &CoreState, k: &Kernel, system: System) -> Option<bool> {
-    let galaxy = s.galaxy()?;
-    Some(wormholes_at(s, k, system) & !delta() != 0 && galaxy.wormhole_systems().iter().any(|other| ti4_engine_core::ids::system_at(other) != system))
+/// The galaxy of the position, when the map slice is loaded (a position lent without its map has none: the string's `context.galaxy` is `None`).
+fn galaxy_of(s: &CoreState) -> Option<&ti4_engine_core::containers::Cow<ti4_engine_core::galaxy::CoreGalaxy>> {
+    if s.loaded.has(ti4_engine_core::state::Slice::Map) { s.galaxy() } else { None }
+}
+
+/// `agent_target_usable`: the system holds a non-delta wormhole and the map has another system with one; false without a map.
+pub(crate) fn target_usable(s: &CoreState, k: &Kernel, system: System) -> bool {
+    galaxy_of(s).is_some_and(|galaxy| wormholes_at(s, k, system) & !delta() != 0 && galaxy.wormhole_systems().iter().any(|other| ti4_engine_core::ids::system_at(other) != system))
 }
 
 fn when(c: &CondCx<'_>) -> bool {
@@ -62,10 +66,7 @@ fn when(c: &CondCx<'_>) -> bool {
         return false;
     }
     let Some(system) = c.event.payload.system(Key::System) else { return false };
-    match target_usable(c.state, c.kernel, system) {
-        Some(usable) => usable,
-        None => c.unknown(ti4_engine_core::kernel::ability::Unknown::MissingFact),
-    }
+    target_usable(c.state, c.kernel, system)
 }
 
 fn taivra(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -73,7 +74,7 @@ fn taivra(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let Some(system) = eff.event.payload.system(Key::System) else { return Ok(()) };
     let usable = {
         let (state, kernel) = eff.read();
-        ready(state, owner) && target_usable(state, kernel, system) == Some(true)
+        ready(state, owner) && target_usable(state, kernel, system)
     };
     if !usable {
         return Ok(());
@@ -98,7 +99,7 @@ const TOKENS: [Wormhole; 2] = [Wormhole::Alpha, Wormhole::Beta];
 /// (systems in board order, tokens alpha then beta). `None`: no galaxy.
 fn mech_destinations(s: &CoreState, owner: Seat) -> Option<Vec<(Wormhole, System)>> {
     use ti4_engine_core::query::board;
-    let galaxy = s.galaxy()?;
+    let galaxy = galaxy_of(s)?;
     let mut found = Vec::new();
     for (system, cell) in s.board().systems() {
         let present = cell.units.as_slice().iter().any(|u| u.owner() == owner && u.kind() == Unit::IcarusDrive)
@@ -176,10 +177,7 @@ fn lends(s: &CoreState, borrower: Seat, lender: Seat) -> bool {
 
 fn copy_when(c: &CondCx<'_>) -> bool {
     crate::cd_registry::yssaril::ssruu::borrowable(c.state, c.def.owner, c.def.pair_source(), AGENT)
-        && c.event.payload.system(Key::System).is_some_and(|system| match target_usable(c.state, c.kernel, system) {
-            Some(usable) => usable,
-            None => c.unknown(ti4_engine_core::kernel::ability::Unknown::MissingFact),
-        })
+        && c.event.payload.system(Key::System).is_some_and(|system| target_usable(c.state, c.kernel, system))
 }
 
 /// The same link, with Ssruu exhausted for it.
@@ -188,7 +186,7 @@ fn taivra_copy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let Some(system) = eff.event.payload.system(Key::System) else { return Ok(()) };
     let usable = {
         let (state, kernel) = eff.read();
-        crate::cd_registry::yssaril::ssruu::borrowable(state, me, lender, AGENT) && target_usable(state, kernel, system) == Some(true)
+        crate::cd_registry::yssaril::ssruu::borrowable(state, me, lender, AGENT) && target_usable(state, kernel, system)
     };
     if !usable {
         return Ok(());

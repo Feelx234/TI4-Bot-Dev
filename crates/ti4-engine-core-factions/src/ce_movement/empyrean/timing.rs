@@ -254,6 +254,9 @@ fn passage(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 /// `transactions::are_neighbours` for two seats of the position.
 fn are_neighbours(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, a: Seat, b: Seat) -> bool {
     use ti4_engine_core::query::trade::{self, Cx, Limits};
+    if !s.loaded.has(ti4_engine_core::state::Slice::Map) {
+        return false;
+    }
     let Some(galaxy) = s.galaxy() else { return false };
     let adj = galaxy.adjacency();
     let mecatol = if galaxy.coord_of(System::MecatolRex112).is_some() { System::MecatolRex112 } else { System::MecatolRex18 };
@@ -262,13 +265,13 @@ fn are_neighbours(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, a: Seat, b
 }
 
 /// `stream_ready`: the owner has the technology, the activator is the owner or a neighbour with a ship outside the system, and the system is
-/// next to an anomaly as the activator sees the map. `Err`: the position holds no galaxy.
+/// next to an anomaly as the activator sees the map (false without a map, as the string's `context.galaxy` is `None`).
 fn stream_ready(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, owner: Seat, p: &Payload) -> Result<Option<Seat>, ()> {
     let (Some(player), Some(system)) = (p.seat(Key::Player), p.system(Key::System)) else { return Ok(None) };
     if !ti4_engine_core::query::reach::technology_text(s, owner, Technology::Aetherstream) || !(player == owner || are_neighbours(s, k, owner, player)) || !ship_outside(s, player, system) {
         return Ok(None);
     }
-    let anomaly = ti4_engine_core::query::reach::adjacent_to_anomaly(s, k, player, system).ok_or(())?;
+    let anomaly = ti4_engine_core::query::reach::adjacent_to_anomaly(s, k, player, system).unwrap_or(false);
     Ok(anomaly.then_some(player))
 }
 
