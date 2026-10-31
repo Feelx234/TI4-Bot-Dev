@@ -86,6 +86,8 @@ fn each_nine_or_ten_of_the_alpha_ii_dice_destroys_one_infantry_of_the_space_area
     let r = swa2_rig(5, 0, &[9, 10, 8, 1, 10], 0);
     assert!(r.is_done(), "mandatory, nothing is asked: {}", r.transcript());
     assert_eq!(infantry_left(&r, Unit::InfantryI), 2);
+    // One result of 9 is one hit.
+    assert_eq!(infantry_left(&swa2_rig(4, 0, &[9], 0), Unit::InfantryI), 3);
     // More hits than infantry: they all go and the rest is lost.
     let all = swa2_rig(2, 0, &[9, 9, 10, 10], 0);
     assert_eq!(infantry_left(&all, Unit::InfantryI), 0);
@@ -97,6 +99,8 @@ fn the_alpha_ii_asks_which_type_when_the_opponent_has_two_and_asks_again_for_eac
     let mut r = swa2_rig(1, 2, &[9, 10, 4], 0);
     let Ask::Reaction(RAsk::G(GAsk::StrikeWing)) = r.asked().ask else { panic!("{}", r.transcript()) };
     assert_eq!(r.asked().actor, Seat(0));
+    let ctx = &r.asked().ctx;
+    assert!(!ctx.optional && !ctx.space_battle && ctx.target.is_none() && ctx.invasion_seq.is_none() && ctx.outstanding.is_empty(), "the string's context is bare");
     assert_eq!(r.opts(), vec![Opt::Reaction(ROpt::G(GOpt::Infantry { unit: Unit::InfantryI, victim: Seat(1) })), Opt::Reaction(ROpt::G(GOpt::Infantry { unit: Unit::InfantryII, victim: Seat(1) }))]);
     r.pick_opt(Opt::Reaction(ROpt::G(GOpt::Infantry { unit: Unit::InfantryII, victim: Seat(1) })));
     // The second hit asks again (both types still stand).
@@ -200,6 +204,8 @@ fn the_commander_asks_which_of_two_rolling_unit_types_takes_the_die_and_skips_th
     let mut r = rig(commander_scenario(), edit, rolled(0));
     use_it(&mut r);
     let Ask::Reaction(RAsk::G(GAsk::ExtraDie(DieSource::Commander))) = r.asked().ask else { panic!("{}", r.transcript()) };
+    let ctx = &r.asked().ctx;
+    assert!(!ctx.optional && !ctx.space_battle && ctx.target.is_none() && ctx.invasion_seq.is_none() && ctx.outstanding.is_empty(), "the string's context is bare");
     assert_eq!(r.opts(), vec![Opt::Reaction(ROpt::G(GOpt::ExtraDie { entry: 1, unit: Unit::DestroyerI })), Opt::Reaction(ROpt::G(GOpt::ExtraDie { entry: 2, unit: Unit::DestroyerII }))]);
     r.pick_opt(Opt::Reaction(ROpt::G(GOpt::ExtraDie { entry: 2, unit: Unit::DestroyerII })));
     assert!(r.is_done());
