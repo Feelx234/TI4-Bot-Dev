@@ -628,7 +628,7 @@ pub enum NStage {
 /// seat has one in its reinforcements), declining ends the choice; then the relic is gained and each chosen secondary is performed in turn
 /// by the ability's own window as a child ([`fx_perform::begin`]). A chosen secondary that costs a token stops the run when the
 /// reinforcements ran out. [`Self::used`]: the relic was gained. `unsupported`: an ability the core does not carry (the Warfare secondary at a
-/// table the production windows do not carry or after a secondary that changes what a production reads, a hook-changed draw, a research a faction waiver opens) or no link to the child: the adapter declines the run.
+/// table the production windows do not carry, a hook-changed draw, a research a faction waiver opens) or no link to the child: the adapter declines the run.
 #[derive(Debug, Clone)]
 pub struct NaazHero {
     pub who: Seat,
@@ -642,12 +642,8 @@ pub struct NaazHero {
     pub unsupported: bool,
     /// What the home production of the Warfare secondary made, in order (the adapter announces it).
     pub home_made: Option<Made>,
-}
-
-/// Whether the secondary of `card` changes what a production reads: Leadership gains command tokens (the fleet pool), Technology may
-/// research a unit upgrade, Construction places a space dock.
-fn changes_production(card: StrategyCard) -> bool {
-    matches!(card.data().kind, StrategyCardKind::Leadership | StrategyCardKind::Technology | StrategyCardKind::Construction)
+    /// How many events were staged when the home production finished: its announcement goes after them, before what the later secondaries stage.
+    pub home_staged: usize,
 }
 
 /// "Every secondary but Leadership's (influence) costs a command token."
@@ -658,7 +654,7 @@ fn costs_token(card: StrategyCard) -> bool {
 impl NaazHero {
     #[must_use]
     pub fn new(who: Seat, facts: PerformFacts, cards: Vec<StrategyCard>) -> Self {
-        Self { who, facts, cards, stage: NStage::Start, chosen: Vec::new(), at: 0, child: ErasedChild::idle(), used: false, unsupported: false, home_made: None }
+        Self { who, facts, cards, stage: NStage::Start, chosen: Vec::new(), at: 0, child: ErasedChild::idle(), used: false, unsupported: false, home_made: None, home_staged: 0 }
     }
 
     fn spare(&self, core: &CoreState) -> bool {
@@ -718,13 +714,6 @@ impl Window for NaazHero {
                         self.stage = NStage::Done;
                         continue;
                     }
-                    // The facts of the home production were read where the card started: a secondary performed before it that changes what the
-                    // production reads (the fleet pool, the units that may be built, the capacity of the home system) makes them stale.
-                    if card.data().kind == StrategyCardKind::Warfare && self.chosen[..self.at].iter().any(|before| changes_production(*before)) {
-                        self.unsupported = true;
-                        self.stage = NStage::Done;
-                        continue;
-                    }
                     match fx_perform::begin(sx, self.who, card, false, self.facts) {
                         Began::Done => self.at += 1,
                         Began::Unsupported => {
@@ -749,6 +738,7 @@ impl Window for NaazHero {
                         self.unsupported |= done.failed;
                         if done.made.is_some() {
                             self.home_made = done.made;
+                            self.home_staged = sx.state.pending().staged.len();
                         }
                         self.at += 1;
                         self.stage = if done.failed { NStage::Done } else { NStage::Next };

@@ -65,6 +65,7 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
         }
         Spawn::ProduceOne { who, system, facts } => Erased::boxed(ProduceOne::new(*who, *system, *facts), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
         Spawn::Home { facts } => Erased::boxed(HomeProduction::new(*facts), |w| if w.unsupported { Report::Left } else { Report::Made(w.made()) }),
+        Spawn::HomeAt { who, system, roster, agent_rules } => Erased::boxed(HomeProduction::at(*who, *system, roster, *agent_rules), |w| if w.unsupported { Report::Left } else { Report::Made(w.made()) }),
         Spawn::Imperial { who, facts } => {
             let scoreable = facts.scoreable.iter().flatten().copied().collect();
             Erased::boxed(ImperialPrimary::new(*who, scoreable).with_price(facts.env), |w| if w.unsupported { Report::Left } else { Report::Scored(w.scored) })

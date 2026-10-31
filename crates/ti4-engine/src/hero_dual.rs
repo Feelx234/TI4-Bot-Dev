@@ -281,7 +281,7 @@ mod real {
             roster: crate::technology_core::roster_for(content, sources.clone()),
             scope: crate::core_adapter::scope(sources.clone()),
             mahact_held: gs.tokens_held_by_mahact(player),
-            home: home_of(gs, content, sources, player, seat),
+            home: home_of(gs, player),
             imperial: crate::strategy_cards_core::imperial_facts(gs, content, sources.clone(), galaxy, player).ok().map(|(facts, _)| facts),
             free: free_systems(gs, galaxy, r, cards),
             te_uses: te_uses(gs, content, sources, player, seat, r, cards),
@@ -343,15 +343,17 @@ mod real {
 
     /// What the Warfare secondary finds at the seat's home system (`strategy_cards::home_production`): nothing without a home system or
     /// capacity, a use of PRODUCTION with the facts the string window opens with, or a table the production windows do not carry.
-    fn home_of(gs: &GameState, content: &ti4_content::ContentStore, sources: &SourceSet, player: &PlayerId, seat: ti4_engine_core::ids::Seat) -> ti4_engine_core::kernel::fx_perform::Home {
+    fn home_of(gs: &GameState, player: &PlayerId) -> ti4_engine_core::kernel::fx_perform::Home {
         use ti4_engine_core::kernel::fx_perform::Home;
         let Some(home) = gs.player(player).and_then(|p| p.home_system.clone()) else { return Home::Nothing };
-        if crate::production::capacity(gs, content, sources.clone(), player, &home) <= 0 {
-            return Home::Nothing;
+        // What the table can follow does not change within the run; the facts do (a secondary performed before the Warfare secondary), so the
+        // core reads them when the use starts.
+        if crate::leaders_core::home_declined(gs, player).is_some() {
+            return Home::Unsupported;
         }
-        match crate::leaders_core::home_facts(gs, content, sources.clone(), seat, player, &home) {
-            Ok(facts) => Home::Use(facts),
-            Err(_) => Home::Unsupported,
+        match typed::<System>(home.as_str()) {
+            Some(system) => Home::At(system),
+            None => Home::Unsupported,
         }
     }
 
@@ -411,32 +413,31 @@ mod real {
             |core, _| {
                 let facts = perform_facts(core, &before, sources, galaxy, player, seat, &r, &list);
                 home_system = match facts.home {
-                    ti4_engine_core::kernel::fx_perform::Home::Use(home) => Some(home.produce.system),
+                    ti4_engine_core::kernel::fx_perform::Home::At(system) => Some(system),
                     _ => None,
                 };
                 let mut driver = Driver::new(NaazHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
                 let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &details);
                 staged = std::mem::take(&mut core.pending_mut().staged);
-                out = Some((driver.window.used, driver.window.unsupported, driver.window.home_made.clone()));
+                out = Some((driver.window.used, driver.window.unsupported, driver.window.home_made.clone(), driver.window.home_staged));
                 driven
             },
         )
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        let (used, unsupported, home_made) = out?;
+        let (used, unsupported, home_made, home_staged) = out?;
         if unsupported {
             crate::dual::note_bail_here("an ability the core does not carry (the Warfare secondary at a table the production windows do not carry or after a secondary that changes what a production reads, a changed draw, a research a waiver opens)");
             return None;
         }
-        let announced = home_made.as_ref().is_some_and(|made| !made.as_slice().is_empty());
-        if announced && !staged.is_empty() {
-            crate::dual::note_bail_here("staged events of the secondaries would interleave with the announcement of the home production");
-            return None;
-        }
-        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        // The announcement of the home production goes where the core finished it: after the events the secondaries before it staged, before the
+        // ones the secondaries after it stage.
+        let at = home_staged.min(staged.len());
+        crate::dual_window::apply_staged(gs, &r, &staged[..at]).why(crate::dual::reason::STAGED_UNAPPLIED)?;
         if let (Some(made), Some(system)) = (home_made, home_system) {
             announce_use(gs, player, system, &made);
         }
+        crate::dual_window::apply_staged(gs, &r, &staged[at..]).why(crate::dual::reason::STAGED_UNAPPLIED)?;
         Some(CoreWindow { run: Run::new(used).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 

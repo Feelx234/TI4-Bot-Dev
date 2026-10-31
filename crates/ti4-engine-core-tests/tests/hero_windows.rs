@@ -1210,16 +1210,17 @@ fn an_answer_outside_the_pool_question_is_refused() {
 
 // -- The Warfare secondary and the Imperial primary as children -------------------------------------------------
 
+use ti4_engine_core::choice::production::Ask as ProdAsk;
 use ti4_engine_core::kernel::children::{HomeFacts, ImperialFacts, ProduceFacts};
 use ti4_engine_core::kernel::fx_pay::PayEnv;
 use ti4_engine_core_tests::scenario::plain_systems as plain;
 
 fn with_home(home: Home) -> PerformFacts {
-    PerformFacts { home, ..perform_facts(Carried { payments: true, structures: None, ..Carried::default() }) }
+    PerformFacts { home, roster: Some(roster()), ..perform_facts(Carried { payments: true, structures: None, ..Carried::default() }) }
 }
 
 /// Seat 0 (a Naaz) holds a space dock on the first planet of the first plain system and `goods` trade goods; the home use is limited to
-/// three units of destroyers and infantry.
+/// capacity of the dock.
 fn naaz_home(cards: &[StrategyCard], goods: i16, home: impl Fn(System) -> Home) -> (Rig<NaazHero>, System) {
     let system = plain()[0];
     let planet = system.data().planets[0];
@@ -1234,22 +1235,12 @@ fn naaz_home(cards: &[StrategyCard], goods: i16, home: impl Fn(System) -> Home) 
     let (mut state, kernel) = sc.build();
     let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
     state.decks_mut().relic.set(vec![relic]);
-    let mut buildable = [None; 9];
-    buildable[0] = Some(Unit::DestroyerI);
-    buildable[1] = Some(Unit::InfantryI);
     let window = NaazHero::new(Seat(0), with_home(home(system)), cards.to_vec());
-    let _ = buildable;
     (Rig::from_parts(state, kernel, window), system)
 }
 
 fn use_at(system: System) -> Home {
-    let mut buildable = [None; 9];
-    buildable[0] = Some(Unit::DestroyerI);
-    buildable[1] = Some(Unit::InfantryI);
-    Home::Use(HomeFacts {
-        produce: ProduceFacts { who: Seat(0), system, limit: 3, max_unit_cost: None, small_exemptions: 0, discount: 0, fleet_limit: 8, armada: 0, flagship_free: false, buildable },
-        agent_rules: true,
-    })
+    Home::At(system)
 }
 
 #[test]
@@ -1287,29 +1278,49 @@ fn a_home_system_with_nothing_to_produce_with_does_nothing_and_a_table_the_core_
     assert!(rig.is_done() && rig.driver.window.unsupported);
 }
 
+/// The roster of the faction units: none printed (the plain forms are built).
+fn roster() -> &'static ti4_engine_core::query::tech::UnitRoster {
+    Box::leak(Box::new(ti4_engine_core::query::tech::UnitRoster::default()))
+}
+
+fn structure_facts() -> ti4_engine_core::kernel::children::StructureFacts {
+    ti4_engine_core::kernel::children::StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::SpaceDockI, false)), source: Code(3) }
+}
+
+fn capacity_of(state: &ti4_engine_core::state::CoreState, kernel: &ti4_engine_core::kernel::Kernel, system: System) -> i64 {
+    let cx = ti4_engine_core::rules::production::Cx::new(state, kernel, Scope(u32::from(kernel.sources.0)), false);
+    ti4_engine_core::rules::production::capacity(&cx, Seat(0), system)
+}
+
 #[test]
-fn the_facts_of_the_home_production_are_stale_after_a_secondary_that_changes_what_a_production_reads() {
+fn the_home_production_reads_the_position_when_it_starts_not_where_the_card_started() {
     covers!("rules::hero_windows::NaazHero");
-    for first in [StrategyCard::Leadership, StrategyCard::Technology, StrategyCard::Construction] {
-        let (mut rig, _) = naaz_home(&[first, StrategyCard::Warfare], 6, use_at);
-        rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 0;
-        rig.run();
-        rig.pick_opt(Opt::Leaders(LOpt::HeroCard(first)));
-        rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
-        // The first secondary may ask; answer by declining until the window ends.
-        let mut guard = 0;
-        while !rig.is_done() && guard < 12 {
-            guard += 1;
-            answer_somehow(&mut rig);
-        }
-        assert!(rig.is_done(), "{first:?}: {}", rig.transcript());
-        assert!(rig.driver.window.unsupported, "{first:?}: the production reads what the first secondary may have changed");
-    }
-    // Warfare first (or after a secondary that changes nothing): carried.
-    let (mut rig, _) = naaz_home(&[StrategyCard::Trade, StrategyCard::Warfare], 6, use_at);
+    // A system with two planets: a dock on the first, the second controlled; the Construction secondary puts a second dock there, so the
+    // production of the home system grows from the first dock's to both.
+    let system = System::ALL.iter().copied().find(|s| plain().contains(s) && s.data().planets.len() >= 2).expect("a plain system with two planets");
+    let (first, second) = (system.data().planets[0], system.data().planets[1]);
+    let sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheArborec])
+        .kernel(kernel_all())
+        .map_from(&[system])
+        .control(first, 0)
+        .control(second, 0)
+        .unit(system, Some(first), Unit::SpaceDockI, 0, 1)
+        .goods(0, 9)
+        .tokens(0, 3, 3, 2)
+        .commodities(0, 0);
+    let (mut state, kernel) = sc.build();
+    state.decks_mut().relic.set(vec![Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap()]);
+    let before = capacity_of(&state, &kernel, system);
+    let facts = PerformFacts { home: Home::At(system), roster: Some(roster()), carried: Carried { payments: true, structures: Some(structure_facts()), ..Carried::default() }, ..perform_facts(Carried::default()) };
+    let mut rig = Rig::from_parts(state, kernel, NaazHero::new(Seat(0), facts, vec![StrategyCard::Construction, StrategyCard::Warfare]));
     rig.run();
-    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Trade)));
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Construction)));
     rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    rig.pick_where(|o| matches!(o, Opt::Strategy(SOpt::Structure { pds: false, planet, .. }) if *planet == second));
+    let after = capacity_of(&rig.state, &rig.kernel, system);
+    assert!(after > before, "the second dock adds its PRODUCTION: {before} then {after}");
+    let Ask::Production(ProdAsk::Choose(choose)) = rig.asked().ask else { panic!("{}", rig.transcript()) };
+    assert_eq!(i64::from(choose.limit), after, "the limit of the home production is the capacity after the Construction secondary, not before it: {}", rig.transcript());
     while !rig.is_done() {
         answer_somehow(&mut rig);
     }

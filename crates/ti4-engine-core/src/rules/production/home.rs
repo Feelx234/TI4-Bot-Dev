@@ -15,16 +15,102 @@
 use super::triggered::HeroOffer;
 use super::window::ProductionWindow;
 use crate::choice::{Choice, Pick};
-use crate::generated::{Agenda, Breakthrough, Leader, Technology, UnitBaseType};
+use super::Cx;
+use crate::generated::{Agenda, Breakthrough, Leader, System, Technology, Unit, UnitBaseType};
 use crate::ids::Seat;
-use crate::kernel::children::{ErasedChild, HomeFacts, Made, Spawn};
+use crate::kernel::children::{ErasedChild, HomeFacts, Made, ProduceFacts, Spawn};
 use crate::kernel::seam::observe::{Obs, Phase};
 use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
 use crate::kernel::{fx, Kernel, Next};
+use crate::query::tech::{self, UnitRoster};
 use crate::state::{CoreState, LeaderStatus};
+use crate::tables::Scope;
 
 /// `ti4_model::state::RULES_SELF_ASSEMBLY`.
 const RULES_SELF_ASSEMBLY: u32 = 13;
+
+/// `production::BUILDABLE`: the base types a seat may produce, in the order of the offer.
+const BUILDABLE: [UnitBaseType; 9] = [
+    UnitBaseType::Fighter,
+    UnitBaseType::Infantry,
+    UnitBaseType::Carrier,
+    UnitBaseType::Cruiser,
+    UnitBaseType::Destroyer,
+    UnitBaseType::Dreadnought,
+    UnitBaseType::Mech,
+    UnitBaseType::Flagship,
+    UnitBaseType::Warsun,
+];
+
+/// The fleet bill of a seat whose fleet supply is unlimited for the round (`fleet::UNLIMITED_FLEET_BILL`).
+const UNLIMITED_FLEET_BILL: i64 = 10_000;
+
+/// `production_view::buildable_for` / `production::buildable_for`: what `who` may produce, in the order of the offer. A unit upgrade owned
+/// replaces the unit it covers, the faction's own unit stands in for a plain one, a mech and a flagship exist only as the faction's own, a war
+/// sun needs the technology (or a faction that prints its own), and the hook table may name another form (Mentak's Corsair). `None`: no such seat.
+#[must_use]
+pub fn buildable_for(core: &CoreState, k: &Kernel, scope: Scope, roster: &UnitRoster, who: Seat) -> Option<[Option<Unit>; 9]> {
+    let p = core.players().by_seat(who)?;
+    let mut out = [None; 9];
+    let mut slots = out.iter_mut();
+    for base in BUILDABLE {
+        let own = tech::faction_unit(roster, p.faction, base);
+        if base == UnitBaseType::Warsun && !p.tech.owned.contains(Technology::WarSun) && own.is_none() {
+            continue;
+        }
+        let chosen = tech::unlocked_upgrade(scope, base, p.faction, &p.tech.owned)
+            .or(own)
+            .or_else(|| if matches!(base, UnitBaseType::Mech | UnitBaseType::Flagship) { None } else { tech::generic_unit(scope, base) });
+        // (The hook is asked for a base type with no form too: the string passes it an empty form. The one rule it carries names a cruiser.)
+        let form = match chosen {
+            Some(unit) => Some(k.hooks.strategy.unit_form_override(core, k, who, base, unit).unwrap_or(unit)),
+            None => None,
+        };
+        if let (Some(form), Some(slot)) = (form, slots.next()) {
+            *slot = Some(form);
+        }
+    }
+    Some(out)
+}
+
+/// The fleet limit one seat judges a production by (`fleet::limit`, or the unlimited bill for the round of Darktalon Treilla's hero): the pool
+/// with the tokens other players hold in it, held by Fleet Regulations, lifted by Armada and the hook table.
+#[must_use]
+pub fn fleet_limit(core: &CoreState, k: &Kernel, blanked: bool, who: Seat) -> i64 {
+    if crate::query::fleet::is_unlimited(core, who) {
+        return UNLIMITED_FLEET_BILL;
+    }
+    let foreign = k.hooks.direct.mahact_foreign_tokens(core, who);
+    let capped = crate::query::laws::fleet_pool_cap(core, blanked, crate::query::fleet::pool_base(core, who, foreign));
+    let lifted = k.hooks.general.fleet_supply(core, k, who, capped + crate::rules::abilities::armada_bonus(core, who));
+    i64::from(lifted).max(0)
+}
+
+/// The facts of the use of PRODUCTION `who` would open in `system` outside a tactical action, read from the position as it stands now
+/// (`ProductionWindow::new` and `to_core`): the capacity, the exemptions of the Cabal commander, the cost reduction of the hooks, the fleet
+/// limit, the units that may be built. `None`: a seat that does not exist or a number beyond 32 bits. A secondary performed before it that
+/// changes what a production reads (Leadership's tokens, a researched unit upgrade, a space dock) is therefore seen.
+#[must_use]
+pub fn home_facts(core: &CoreState, k: &Kernel, roster: &UnitRoster, who: Seat, system: System, agent_rules: bool) -> Option<HomeFacts> {
+    let scope = Scope(u32::from(k.sources.0));
+    let blanked = crate::query::reach::blanked(core);
+    let cx = Cx::new(core, k, scope, blanked);
+    Some(HomeFacts {
+        produce: ProduceFacts {
+            who,
+            system,
+            limit: i32::try_from(super::capacity(&cx, who, system).max(0)).ok()?,
+            max_unit_cost: None,
+            small_exemptions: if crate::query::leaders::has_commander_ability_in(core, who, Leader::ThatWhichMoldsFlesh) { 2 } else { 0 },
+            discount: i32::try_from(k.hooks.economy.production_cost_reduction(core, who, system).max(0)).ok()?,
+            fleet_limit: i32::try_from(fleet_limit(core, k, blanked, who)).ok()?,
+            armada: crate::rules::abilities::armada_bonus(core, who),
+            flagship_free: crate::query::leaders::has_commander_ability_in(core, who, Leader::NavarchFeng),
+            buildable: buildable_for(core, k, scope, roster, who)?,
+        },
+        agent_rules,
+    })
+}
 
 /// The suspension points of [`HomeProduction`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,7 +130,11 @@ pub enum HStage {
 #[derive(Debug, Clone)]
 pub struct HomeProduction {
     pub who: Seat,
-    facts: HomeFacts,
+    system: System,
+    /// The facts the use opens with: given ([`Self::new`]) or read from the position when the use starts ([`Self::at`]).
+    facts: Option<HomeFacts>,
+    /// [`Self::at`]: the roster of the faction units and the rule of Berekar Berekon the facts are read with.
+    live: Option<(&'static UnitRoster, bool)>,
     stage: HStage,
     window: Option<ProductionWindow>,
     hero: Child<HeroOffer>,
@@ -58,7 +148,18 @@ pub struct HomeProduction {
 impl HomeProduction {
     #[must_use]
     pub fn new(facts: HomeFacts) -> Self {
-        Self { who: facts.produce.who, facts, stage: HStage::Start, window: None, hero: Child::idle(), using: Child::idle(), answered: 0, assembly: ErasedChild::idle(), made: Made::new(), unsupported: false }
+        Self { facts: Some(facts), ..Self::blank(facts.produce.who, facts.produce.system) }
+    }
+
+    /// The use of PRODUCTION `who` has in `system`, its facts read from the position when it starts ([`home_facts`]): what an ability performed
+    /// before it changed is seen. A system with no PRODUCTION to use does nothing, and neither opens a window nor announces one.
+    #[must_use]
+    pub fn at(who: Seat, system: System, roster: &'static UnitRoster, agent_rules: bool) -> Self {
+        Self { live: Some((roster, agent_rules)), ..Self::blank(who, system) }
+    }
+
+    fn blank(who: Seat, system: System) -> Self {
+        Self { who, system, facts: None, live: None, stage: HStage::Start, window: None, hero: Child::idle(), using: Child::idle(), answered: 0, assembly: ErasedChild::idle(), made: Made::new(), unsupported: false }
     }
 
     /// What the use made, in order, with the planet each unit stands on.
@@ -73,12 +174,31 @@ impl HomeProduction {
 
     /// The use starts: the offer to the hero, or the production at once.
     fn start(&mut self, sx: &mut Sx<'_>) {
-        if self.facts.agent_rules {
+        if let Some((roster, agent_rules)) = self.live {
+            match home_facts(sx.state, sx.kernel, roster, self.who, self.system, agent_rules) {
+                Some(facts) if facts.produce.limit > 0 => self.facts = Some(facts),
+                // Nothing to produce with: the string does not open a window at all.
+                Some(_) => {
+                    self.stage = HStage::Done;
+                    return;
+                }
+                None => {
+                    self.unsupported = true;
+                    self.stage = HStage::Done;
+                    return;
+                }
+            }
+        }
+        let Some(facts) = self.facts else {
+            self.stage = HStage::Done;
+            return;
+        };
+        if facts.agent_rules {
             // This use reads no discount an earlier tactical action left unspent.
             sx.state.transient_mut().production.discount_remaining = 0;
         }
-        self.window = Some(ProductionWindow::use_of(&self.facts.produce, self.facts.agent_rules));
-        if self.facts.produce.limit > 0 && Self::hero_unlocked(sx.state, self.who) {
+        self.window = Some(ProductionWindow::use_of(&facts.produce, facts.agent_rules));
+        if facts.produce.limit > 0 && Self::hero_unlocked(sx.state, self.who) {
             sx.state.meta_mut().production_seq += 1;
             self.hero.start(HeroOffer::new(self.who));
             self.stage = HStage::Hero;
@@ -97,7 +217,7 @@ impl HomeProduction {
     /// The hero was used: every unit of the use is free, and the discount is read again (`ProductionWindow::refresh`).
     fn hero_used(&mut self, core: &CoreState) {
         if let Some(window) = &mut self.window {
-            window.discount_remaining = core.transient().production.discount_remaining + self.facts.produce.discount;
+            window.discount_remaining = core.transient().production.discount_remaining + self.facts.map_or(0, |facts| facts.produce.discount);
             window.free_this_use = true;
         }
     }
@@ -126,7 +246,7 @@ impl HomeProduction {
         if !owns {
             return self.close(sx);
         }
-        match sx.table.links.start(&Spawn::SelfAssembly { who, system: self.facts.produce.system }) {
+        match sx.table.links.start(&Spawn::SelfAssembly { who, system: self.system }) {
             Some(window) => {
                 self.assembly.start(window);
                 self.stage = HStage::Assembling;
@@ -140,7 +260,7 @@ impl HomeProduction {
 
     /// The window is closed: the observers clear what lasted for the use.
     fn close(&mut self, sx: &mut Sx<'_>) {
-        sx.observe(&Obs::ProductionWindowClosed { who: self.who, system: self.facts.produce.system }, Phase::After);
+        sx.observe(&Obs::ProductionWindowClosed { who: self.who, system: self.system }, Phase::After);
         sx.state.transient_mut().production.value_swapped_planet = None;
         self.stage = HStage::Done;
     }

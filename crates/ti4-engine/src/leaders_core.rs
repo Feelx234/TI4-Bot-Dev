@@ -466,7 +466,7 @@ mod real {
 
     /// Why the core cannot follow a use of PRODUCTION at a home system for these seats: [`production_declined`], except for what the home
     /// production runs itself (Hacan's breakthrough on three ships).
-    fn home_declined(gs: &GameState, producer: &PlayerId) -> Option<&'static str> {
+    pub(crate) fn home_declined(gs: &GameState, producer: &PlayerId) -> Option<&'static str> {
         if gs.players.iter().any(|p| [crate::factions::bastion::MODULE.alias, crate::factions::crimson::MODULE.alias].contains(&p.faction.as_str())) {
             return Some("the Last Bastion or the Crimson Rebellion at the table (units placed away from the producing system)");
         }

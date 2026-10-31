@@ -388,6 +388,9 @@ pub enum Spawn {
     /// secondary): the Hacan hero's offer, the production, the effects at the end of the use, the Self-Assembly Routines offer; reports
     /// [`Report::Made`], or [`Report::Left`] when the run holds something the core does not carry.
     Home { facts: HomeFacts },
+    /// [`Self::Home`] with the facts read from the position when the use starts (`home_facts`): the Warfare secondary performed after an
+    /// ability that changed what a production reads (tokens, a unit upgrade, a space dock). Reports as [`Self::Home`].
+    HomeAt { who: Seat, system: System, roster: &'static UnitRoster, agent_rules: bool },
     /// `strategy_primaries::ImperialPrimary`: score a public objective, then a point for Mecatol Rex or a secret objective; reports
     /// [`Report::Scored`], or [`Report::Left`] when the table has no link to the hand limit window.
     Imperial { who: Seat, facts: ImperialFacts },

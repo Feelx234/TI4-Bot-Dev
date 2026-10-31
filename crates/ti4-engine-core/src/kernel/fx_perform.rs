@@ -17,7 +17,7 @@
 use crate::containers::SmallList;
 use crate::generated::{PublicObjective, StrategyCard, StrategyCardKind, System};
 use crate::ids::Seat;
-use crate::kernel::children::{FreeSystems, HomeFacts, ImperialFacts, Made, Report, Spawn, StructureFacts, TeUses};
+use crate::kernel::children::{FreeSystems, ImperialFacts, Made, Report, Spawn, StructureFacts, TeUses};
 use crate::kernel::fx;
 use crate::kernel::stage::Sx;
 use crate::query::tech::UnitRoster;
@@ -31,6 +31,8 @@ const TECHNOLOGY_SECONDARY_COST: i64 = 4;
 const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
 /// `ti4_model::state::RULES_LETNEV_FLEET_POOL`: from this version the Letnev fleet pool may be emptied.
 const RULES_LETNEV_FLEET_POOL: u32 = 4;
+/// `ti4_model::state::RULES_WINNU_AGENT_PRODUCTION`: from this version Berekar Berekon is offered to a use of PRODUCTION.
+const RULES_WINNU_AGENT_PRODUCTION: u32 = 26;
 /// `ti4_model::state::RULES_BASE_DIPLOMACY`: from this version the base printing of Diplomacy readies a whole system.
 const RULES_BASE_DIPLOMACY: u32 = 35;
 
@@ -55,10 +57,11 @@ pub struct Carried {
 /// What the Warfare secondary finds at the seat's home system (the string `home_production`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Home {
-    /// The seat has no home system or nothing to produce with there: the ability does nothing.
+    /// The seat has no home system: the ability does nothing.
     Nothing,
-    /// A use of PRODUCTION there, with the facts the string window opens with.
-    Use(HomeFacts),
+    /// A use of PRODUCTION in the home system, with the facts read from the position when it starts (`rules::production::home::home_facts`,
+    /// so an ability performed before it that changed them is seen); a system with no PRODUCTION to use does nothing.
+    At(System),
     /// The table is one the production windows do not carry (a Keleres or Deepwrought seat, the dropped factions, a rule of an end-of-use
     /// effect the child does not run): the string performs the ability.
     Unsupported,
@@ -173,7 +176,10 @@ pub fn begin(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, f: F
         }
         (StrategyCardKind::Warfare, false) => match f.home {
             Home::Nothing => Began::Done,
-            Home::Use(facts) => Began::Run(Spawn::Home { facts }),
+            Home::At(system) => match f.roster {
+                Some(roster) => Began::Run(Spawn::HomeAt { who, system, roster, agent_rules: f.rules_version >= RULES_WINNU_AGENT_PRODUCTION }),
+                None => Began::Unsupported,
+            },
             Home::Unsupported => Began::Unsupported,
         },
         (StrategyCardKind::Imperial, true) => match f.imperial {

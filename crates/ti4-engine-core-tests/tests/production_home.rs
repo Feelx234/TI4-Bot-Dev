@@ -4,7 +4,7 @@
 use ti4_engine_core::choice::production::{Ask as PAsk, Opt as POpt};
 use ti4_engine_core::kernel::children::{HomeFacts, ProduceFacts};
 use ti4_engine_core::rules::production::home::HomeProduction;
-use ti4_engine_core::state::LeaderStatus;
+use ti4_engine_core::state::{LeaderStatus, Piece};
 use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::scenario::plain_systems;
 
@@ -289,4 +289,108 @@ fn a_single_fighter_discards_the_prophecy_of_ixth() {
     assert!(rig.is_done());
     assert_eq!(rig.driver.window.made().as_slice().iter().filter(|(u, _)| *u == Unit::FighterI).count(), 1, "{}", rig.transcript());
     assert!(!rig.state.agenda().laws.contains_key(&Agenda::ProphecyOfIxth));
+}
+
+// -- Package W14: the facts are read from the position (the Warfare secondary after a secondary that changed them) ---------------------------
+
+use ti4_engine_core::query::tech::UnitRoster;
+use ti4_engine_core::rules::production::home::{buildable_for, fleet_limit, home_facts};
+use ti4_engine_core::tables::Scope;
+
+fn roster() -> &'static UnitRoster {
+    Box::leak(Box::new(UnitRoster::default()))
+}
+
+/// A Letnev seat with a dock, three fleet tokens and a table of two.
+fn letnev_table() -> (CoreState, ti4_engine_core::kernel::Kernel, System) {
+    let system = plain_systems()[0];
+    let planet = system.data().planets[0];
+    let sc = Scenario::new(&[Faction::TheBaronyOfLetnev, Faction::TheArborec])
+        .kernel(kernel_all())
+        .map_from(&[system])
+        .control(planet, 0)
+        .unit(system, Some(planet), Unit::SpaceDockI, 0, 1)
+        .tokens(0, 3, 3, 2);
+    let (state, kernel) = sc.build();
+    (state, kernel, system)
+}
+
+#[test]
+fn the_facts_of_a_home_use_follow_the_tokens_the_forms_and_the_commanders_of_the_position() {
+    covers!("rules::production::home::home_facts");
+    covers!("rules::production::home::fleet_limit");
+    covers!("rules::production::home::buildable_for");
+    let (mut state, kernel, system) = letnev_table();
+    let scope = Scope(u32::from(kernel.sources.0));
+    let facts = |state: &CoreState| home_facts(state, &kernel, roster(), Seat(0), system, true).expect("a seat").produce;
+    let first = facts(&state);
+    assert_eq!((first.fleet_limit, first.armada), (5, 2), "three tokens and Armada's two");
+    assert_eq!((first.small_exemptions, first.flagship_free, first.discount, first.max_unit_cost), (0, false, 0, None));
+    assert!(first.limit > 0, "the dock produces");
+    assert_eq!(first.buildable[..6], [Some(Unit::FighterI), Some(Unit::InfantryI), Some(Unit::CarrierI), Some(Unit::CruiserI), Some(Unit::DestroyerI), Some(Unit::DreadnoughtI)]);
+    assert!(first.buildable[6..].iter().all(Option::is_none), "no mech, flagship or war sun without a form of the faction or the technology");
+
+    // A token more in the fleet pool, an upgrade researched, a second producer, the commander of Cabal and of Nomad unlocked.
+    let p = state.players_mut().by_seat_mut(Seat(0)).unwrap();
+    p.econ.fleet_tokens += 1;
+    p.tech.owned.insert(Technology::CruiserII);
+    p.leaders.status.insert(Leader::ThatWhichMoldsFlesh, LeaderStatus::Unlocked);
+    p.leaders.status.insert(Leader::NavarchFeng, LeaderStatus::Unlocked);
+    let second = system.data().planets.get(1).copied();
+    let before = first.limit;
+    if let Some(second) = second {
+        state.board_mut().planet_mut(second).control = Some(Seat(0));
+        state.board_mut().sys_mut(system).units.push(Piece::new(Unit::SpaceDockI, Seat(0)));
+    }
+    let later = facts(&state);
+    assert_eq!(later.fleet_limit, 6, "the token gained is seen");
+    assert_eq!(later.buildable[3], Some(Unit::CruiserII), "the upgrade researched replaces the cruiser");
+    assert_eq!((later.small_exemptions, later.flagship_free), (2, true));
+    assert!(second.is_none() || later.limit > before, "a producer more is seen: {before} then {}", later.limit);
+    assert_eq!(buildable_for(&state, &kernel, scope, roster(), Seat(0)), Some(later.buildable));
+    assert!(buildable_for(&state, &kernel, scope, roster(), Seat(7)).is_none());
+
+    // The round of Darktalon Treilla's hero: no limit.
+    let round = state.meta().round;
+    state.players_mut().by_seat_mut(Seat(0)).unwrap().production_timers.fleet_supply_unlimited_until = ti4_engine_core::Opt32::some(round);
+    assert_eq!(fleet_limit(&state, &kernel, false, Seat(0)), 10_000);
+}
+
+#[test]
+fn fleet_regulations_hold_the_pool_at_four_before_armada_lifts_it() {
+    covers!("rules::production::home::fleet_limit");
+    use ti4_engine_core::generated::Agenda;
+    use ti4_engine_core::keys::Outcome;
+    let (mut state, kernel, _) = letnev_table();
+    state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.fleet_tokens = 7;
+    assert_eq!(fleet_limit(&state, &kernel, false, Seat(0)), 9);
+    state.agenda_mut().laws.insert(Agenda::FleetRegulations, Outcome::For);
+    assert_eq!(fleet_limit(&state, &kernel, false, Seat(0)), 6, "the law caps first, the ability lifts afterwards");
+    assert_eq!(fleet_limit(&state, &kernel, true, Seat(0)), 9, "a blanked law caps nothing");
+}
+
+#[test]
+fn a_use_started_in_a_system_with_nothing_to_produce_with_opens_no_window() {
+    covers!("rules::production::home::HomeProduction");
+    let system = plain_systems()[0];
+    let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).kernel(kernel_all()).map_from(&[system]).tokens(0, 3, 3, 2);
+    let mut rig = Rig::new(sc, HomeProduction::at(Seat(0), system, roster(), true));
+    let seq = rig.state.meta().production_seq;
+    rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::HarrughGefhara, LeaderStatus::Unlocked);
+    rig.run();
+    assert!(rig.is_done() && !rig.driver.window.unsupported && rig.driver.window.made().as_slice().is_empty(), "{}", rig.transcript());
+    assert_eq!(rig.state.meta().production_seq, seq, "no use, no number, no offer to the hero");
+}
+
+#[test]
+fn a_use_read_from_the_position_produces_like_a_use_with_given_facts() {
+    covers!("rules::production::home::HomeProduction");
+    let (state, kernel, system) = letnev_table();
+    let mut rig = Rig::from_parts(state, kernel, HomeProduction::at(Seat(0), system, roster(), true));
+    rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 6;
+    rig.run();
+    build(&mut rig, Unit::DestroyerI);
+    stop(&mut rig);
+    assert!(rig.is_done() && !rig.driver.window.unsupported, "{}", rig.transcript());
+    assert_eq!(rig.driver.window.made().as_slice().iter().filter(|(u, _)| *u == Unit::DestroyerI).count(), 1);
 }
