@@ -601,9 +601,10 @@ fn the_free_form_facts_and_prices_come_from_the_position() {
     let commander = Leader::ALL.iter().copied().find(|l| l.data().kind == LeaderType::Commander).expect("a commander");
     let agent = Leader::ALL.iter().copied().find(|l| l.data().kind == LeaderType::Agent).expect("an agent");
     s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(commander, ti4_engine_core::state::LeaderStatus::Unlocked);
-    s.players_mut().by_seat_mut(Seat(2)).unwrap().leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Unlocked);
+    s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Unlocked);
+    s.players_mut().by_seat_mut(Seat(2)).unwrap().leaders.status.insert(commander, ti4_engine_core::state::LeaderStatus::Unlocked);
     s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(commander, ti4_engine_core::state::LeaderStatus::Locked);
-    assert_eq!(commander_unlocked_mask(&s), 0b001, "an unlocked commander of seat 0 only");
+    assert_eq!(commander_unlocked_mask(&s), 0b101, "an unlocked commander of seats 0 and 2 (an unlocked agent and a locked commander of seat 1 do not count)");
     // Resources plus influence, at least one.
     for p in Planet::ALL {
         assert_eq!(planet_value(p), (p.data().resources + p.data().influence).max(1));
@@ -630,4 +631,23 @@ fn a_support_leg_of_a_free_form_deal_is_payable_only_while_the_givers_support_is
     assert_eq!(plain_kinds(&lent), [PlainKind::TransactionRejected]);
     let (live, _) = advance_trade(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
     assert_eq!(question(live).actor, Seat(1));
+}
+
+/// A window of the dual (`open`, `at`) and the inline one differ from the live one: they stage, announce and log nothing of their own.
+#[test]
+fn only_a_live_window_announces_stages_emits_and_logs() {
+    use ti4_engine_core::query::trade_deals::DealFacts;
+    let facts = || DealFacts { note_order: |a, b| a.cmp(&b), card_order: |a, b| a.cmp(&b), unlocked: 0, pair: (Seat(0), Seat(1)), may: [true, true], arbiters: [false, false], planet_values: &[], free: [None, None] };
+    let scenario = || Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheArborec]).goods(0, 2).goods(1, 1);
+    let windows: [Box<dyn Fn() -> TradeWindow>; 2] = [Box::new(move || TradeWindow::open(Seat(0), Seat(1), facts())), Box::new(move || TradeWindow::at(Seat(0), Seat(1), Some(Shape::Goods { give: 1, want: 1 }), 2, facts()))];
+    for make in windows {
+        let mut rig = Rig::new(scenario(), make());
+        rig.run();
+        if rig.opts().contains(&Opt::Decline) {
+            rig.pick_opt(Opt::Trade(TOpt::Deal(Shape::Goods { give: 1, want: 1 })));
+        }
+        rig.pick_opt(Opt::Trade(TOpt::Accept));
+        assert!(rig.state.pending().staged.is_empty(), "the string stages the gains of a dual window");
+        assert!(rig.state.ledger.events.is_empty(), "no typed event, no plain event, no TRANSACTION_OPENED");
+    }
 }

@@ -109,6 +109,7 @@ fn the_nomad_readies_the_agent_and_deals_with_a_stranger_through_the_card() {
     assert_eq!(ability.kind, AbilityKind::Technology);
     let q = pick(advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(ability))))).unwrap().0);
     assert_eq!((q.actor, q.ask), (Seat(0), Ask::Technology(TAsk::TcsTransaction { partner: Seat(1) })));
+    assert!(q.ctx.optional && !q.ctx.space_battle, "the transaction is the holder's \"may\"");
     let status = s.players().by_seat(Seat(1)).unwrap().leaders.status.get(&Leader::BerekarBerekon).copied();
     assert_eq!(status, Some(ti4_engine_core::state::LeaderStatus::Exhausted), "the replay of a suspended step has not applied anything");
     // Transact: the Nomad proposes to a stranger, which only the card allows.
@@ -127,6 +128,7 @@ fn the_nomad_readies_the_agent_and_deals_with_a_stranger_through_the_card() {
     assert!(s.marks().tail.get(&MarkKey::NomadTcsNegotiating(Seat(0), Seat(1))).is_none(), "the reach lasts only while the negotiation does");
     assert_eq!(s.trade().this_round.as_slice(), &[(Seat(0), Seat(1))]);
     assert!(s.ledger.events.iter().filter_map(|e| e.plain()).next().is_none(), "the string logs no plain event for this transaction");
+    assert!(!s.ledger.events.iter().any(|e| matches!(e, ti4_engine_core::state::Emit::Typed(t) if t.kind == EventKind::TransactionOpened)), "no opening is announced for the card's transaction");
 }
 
 #[test]
@@ -167,4 +169,16 @@ fn a_clone_in_the_middle_of_the_transaction_continues_identically() {
         advance::<Exhaust>(state, &e, Some(Pick::Opt(Opt::Trade(TrOpt::Refuse)))).unwrap();
     }
     assert_eq!(s, fork);
+}
+
+#[test]
+fn a_seat_that_is_not_the_nomad_is_not_offered_the_card_even_holding_it() {
+    let (mut s, k) = position();
+    agent_exhausted(&mut s);
+    // Seat 1 (Arborec) holds the technology; the Nomad does not.
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.remove(Technology::TemporalCommandSuite);
+    s.players_mut().by_seat_mut(Seat(1)).unwrap().tech.owned.insert(Technology::TemporalCommandSuite);
+    let e = env(&k, &s);
+    open(&mut s, &Exhaust { done: false });
+    assert_eq!(advance::<Exhaust>(&mut s, &e, None).unwrap().0, Live::Done, "nobody is asked");
 }
