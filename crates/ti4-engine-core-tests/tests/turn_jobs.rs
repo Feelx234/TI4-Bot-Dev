@@ -96,16 +96,21 @@ fn psychoarchaeology_asks_for_a_ready_specialty_planet_and_a_clone_continues_ide
 }
 
 #[test]
-fn a_start_of_turn_the_core_cannot_follow_is_a_counted_gap_and_leaves_the_position_alone() {
+fn a_start_of_turn_the_core_cannot_follow_is_a_counted_gap_and_leaves_the_position_alone_and_a_locked_commander_is_judged() {
     // Chaos Mapping needs the production facts.
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::ChaosMapping).build();
     let held = s.clone();
     assert_eq!(advance_prelude(&mut s, &env(&k), None), gap(TurnGap::ChaosMapping));
     assert_eq!(s, held);
-    // A locked commander of a faction whose unlock condition is a hook (no gap any more: the hook slots are filled).
+    // A locked commander of a faction whose unlock condition a hook states (lane F2) is judged at the start of the turn, not left to the string: it stays
+    // locked here (the Arborec condition is not met) and the prelude goes on.
     let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).build();
-    s.players_mut().edit(0).leaders.status.insert(Leader::ALL.iter().copied().find(|l| l.data().faction == FactionTag::Arborec && l.data().kind == LeaderType::Commander).unwrap(), ti4_engine_core::state::LeaderStatus::Locked);
-    assert_ne!(advance_prelude(&mut s, &env(&k), None), gap(TurnGap::CommanderUnlock));
+    let commander = Leader::ALL.iter().copied().find(|l| l.data().faction == FactionTag::Arborec && l.data().kind == LeaderType::Commander).unwrap();
+    s.players_mut().edit(0).leaders.status.insert(commander, ti4_engine_core::state::LeaderStatus::Locked);
+    let (live, _) = advance_prelude(&mut s, &env(&k), None).expect("the commander is judged, not a gap");
+    assert_eq!(live, Live::Done);
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&commander), Some(&ti4_engine_core::state::LeaderStatus::Locked));
+    assert_eq!(s.pending().prepared_turn_seq, Some(0));
 }
 
 // -- the phases -----------------------------------------------------------------------------------------------------------------
