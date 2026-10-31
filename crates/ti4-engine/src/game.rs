@@ -50,6 +50,10 @@ mod turn_live_tests;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "status_live_tests.rs"]
 mod status_live_tests;
+// The lockstep of the native trade island (lane M1) against the string's `step_trade` and the opening of `apply_choice`.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "trade_live_tests.rs"]
+mod trade_live_tests;
 #[cfg(not(feature = "typed-core"))]
 mod d1_pending {
     pub(super) const fn active() -> bool {

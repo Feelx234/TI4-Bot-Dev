@@ -23,6 +23,7 @@ fn env(k: &Kernel) -> Env<'_> {
     let mut table = AbilityTable::default();
     table.codes.turn.transaction = TRANSACTION;
     table.codes.turn.dark_pact = DARK_PACT;
+    table.facts.staging = true;
     Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
 }
 

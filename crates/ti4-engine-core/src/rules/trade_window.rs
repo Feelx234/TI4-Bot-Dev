@@ -278,11 +278,14 @@ impl TradeWindow {
                         // a table on the string).
                         exchange(sx.state, &offer).ok_or(Illegal)?;
                         if self.live {
-                            // `transactions::resolve`: the gains are staged (announced by the next reconcile), Dark Pact's after them.
-                            let source = sx.table.codes.turn.transaction;
-                            fx::stage_gain(sx.state, offer.partner, offer.given.trade_goods + offer.given.commodities, source);
-                            fx::stage_gain(sx.state, offer.proposer, offer.received.trade_goods + offer.received.commodities, source);
-                            dark_pact_gains(sx.state, &offer, sx.table.codes.turn.dark_pact);
+                            // `transactions::resolve`: the gains are staged (announced by the next reconcile), Dark Pact's after them. The string
+                            // stages only while some seated faction has a module (`supply::staging_enabled`).
+                            let (source, staging) = (sx.table.codes.turn.transaction, sx.table.facts.staging);
+                            if staging {
+                                fx::stage_gain(sx.state, offer.partner, offer.given.trade_goods + offer.given.commodities, source);
+                                fx::stage_gain(sx.state, offer.proposer, offer.received.trade_goods + offer.received.commodities, source);
+                            }
+                            dark_pact_gains(sx.state, &offer, sx.table.codes.turn.dark_pact, staging);
                         }
                         record_resolved(sx.state, self.proposer, self.partner);
                         self.end(Outcome::Resolved)

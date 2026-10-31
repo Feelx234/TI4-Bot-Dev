@@ -165,8 +165,8 @@ pub fn exchange(core: &mut CoreState, offer: &Offer) -> Option<()> {
 
 /// `empyrean_units::dark_pact_gains`, after a transaction resolved: each side that gave the Empyrean exactly its maximum commodity value
 /// while holding a faceup Dark Pact of the Empyrean's gains 1 trade good, and so does the Empyrean. The gains are staged
-/// (`TRADE_GOODS_GAINED`, source `source`), the giver's first.
-pub fn dark_pact_gains(core: &mut CoreState, offer: &Offer, source: crate::state::Code) {
+/// (`TRADE_GOODS_GAINED`, source `source`; only while `staging`, `supply::staging_enabled`), the giver's first.
+pub fn dark_pact_gains(core: &mut CoreState, offer: &Offer, source: crate::state::Code, staging: bool) {
     let sides = [(offer.proposer, offer.partner, &offer.given), (offer.partner, offer.proposer, &offer.received)];
     let mut gains: Vec<(Seat, Seat)> = Vec::new();
     for (giver, receiver, terms) in sides {
@@ -182,8 +182,13 @@ pub fn dark_pact_gains(core: &mut CoreState, offer: &Offer, source: crate::state
         }
     }
     for (giver, receiver) in gains {
-        fx::gain_trade_goods_staged(core, giver, 1, source);
-        fx::gain_trade_goods_staged(core, receiver, 1, source);
+        for who in [giver, receiver] {
+            if staging {
+                fx::gain_trade_goods_staged(core, who, 1, source);
+            } else {
+                fx::gain_trade_goods(core, who, 1);
+            }
+        }
     }
 }
 
