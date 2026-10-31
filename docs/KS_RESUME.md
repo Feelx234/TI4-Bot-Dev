@@ -43,6 +43,15 @@ table are missing).
 * Hand-overs: whoever finishes a rule window that ends an event a secret asks about calls `scoring::open_event` and lets `Arm::EventScoring` serve it; lane D takes `AgendaQueueAfterEventScoring` (remove the gap in `advance_event_scoring`); an EventScoring question asked inside an invasion has no `about_invasion` context yet (M3).
 * `KernelEnv::mecatol_area` answers `None` for a position without the map slice (the string's `galaxy: None`).
 
-## Checks (cheap)
+## Checks (cheap), `CARGO_BUILD_JOBS=2`, `CARGO_INCREMENTAL=0`, private target dir `/root/deploytmp/core-c` (deleted at the end)
 
-See the end of this file.
+* `cargo test -p ti4-engine-core --lib`: 466 passed. `-p ti4-engine-core-factions`, `-p ti4-engine-core-tests` (all binaries, incl. the new `status_phase`: 31 tests), `-p ti4-engine-core-bridge` (lib + integration): all ok.
+* `cargo test -p ti4-engine --lib` (default areas): 4961 passed, 1 failed on the first run (the lane A vertical-slice test of `Arm::Tokens`, which the native close changed: fixed, the lib `live::` tests pass); not rerun whole after the fix.
+* Lockstep against the string (`ti4-engine/src/status_live_tests.rs`, 13 scenarios): plain phase, Scheming draw and discard, hand limit after the draw, empty objective deck, Political Stability, an offered and scored objective, the third objective unlocking a hero, the Neuraloop, Genesis, Naalu's zero initiative, three event-window cases. Questions as rendered (prompt, options, display facts, context), events, position, dice streams and the events left staged are equal.
+* `NativeSubject` shadow behind a legacy game (`native_subject::tests`): the four arms through round one of a lobby table, and every lobby faction in six tables with a counted bail a failure: zero differences except the counted `CommanderUnlock` gap (5 occurrences).
+* Clone mid-window: `status_phase` (scoring, the close suspended on Scheming's question, the redistribution).
+* `tools/engine_core/check_layers.py core`: 460 files, 0 violations. `lint_core.sh`: 462 files, 0 hits.
+* Mutation (`mutants.sh`, Haiku runners on committed snapshots in a scratch worktree, single files; core tests `status_phase` and the engine lockstep as two test sets, union): first runs: core tests alone scoring 12/37, status 9/11, bookkeeping 31/46, finish 24/42, seen offers 7/26; engine lockstep alone 16/37, 9/11, 37/46, 35/42, 11/26. After the survivor tests (core only, snapshot `9c8b386f`): scoring 23/34, bookkeeping 31/46, finish 38/42, seen 21/26. Survivors left: equivalent ones carry `// mutants:skip` with a reason (rebuilt flags, labels, dead defaults, dry-tape returns the driver rolls back); the rest is only visible through the string lockstep or has no cheap position: `scoring.rs` `answer` (`secret` flag of the outcome for a leaked secret, the mapless `unlockable(.., true)` for Maban), `status_bookkeeping.rs` (`unlockable(.., false)` at the bookkeeping), `status_finish.rs` `genesis` (killed by the lockstep), `seen/objectives.rs` (`Ok(None) => false` branches). `query::objectives::feat_of` is a `const fn` (the tool skips it): covered by the event-window tests.
+* `playthrough_quick.sh`: see the report; the bin still plays the string `Game` under `all=dual`, so island C's counted bails fall only when the wrapper (D2-8) calls the native arms.
+
+Not run (standing rule): golden/wide dual sweeps, benches, soak, mutation ratchet, census, workspace clippy, the armed dual, the Z-gate.
