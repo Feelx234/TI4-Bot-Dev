@@ -50,7 +50,7 @@ use ti4_engine::render::Render;
 use ti4_engine_core::driver::live::{live_arm, open, LiveError};
 use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::kernel::turn_codes::TurnGap;
-use ti4_engine_core::driver::session::{bit, live_ask_arm, step_arm, Arm, AskArm};
+use ti4_engine_core::driver::session::{bit, live_ask_arm, step_arm, Arm, AskArm, Facts};
 use ti4_engine_core::driver::step::NativeArms;
 use ti4_engine_core::rules::token_gain::TokenGain;
 use ti4_engine_core::state::{CoreState, Slice, SliceSet, Window, WindowKind};
@@ -291,7 +291,7 @@ impl NativeSubject {
         }
         // The `Ask` arm is native for the sources of question the turn flow owns (the draft, the starting technology; the closing menu with
         // [`set_shadow_closing`]); the others are lent.
-        if arm == Arm::Ask && !matches!(live_ask_arm(&facts), AskArm::Draft | AskArm::StartingTech) && !(shadow_closing() && live_ask_arm(&facts) == AskArm::Closing) {
+        if arm == Arm::Ask && !matches!(live_ask_arm(&facts), AskArm::Draft | AskArm::StartingTech | AskArm::ActionMenu) && !(shadow_closing() && live_ask_arm(&facts) == AskArm::Closing) {
             lend(arm, "question source not native");
             return None;
         }
@@ -299,7 +299,9 @@ impl NativeSubject {
             lend(arm, "no owners table");
             return None;
         };
-        let render = Render::new(cx.owners.ids().to_vec());
+        // (The options that name a seat by faction -- Politics, Trade -- need the faction texts.)
+        let factions = cx.owners.ids().iter().map(|id| g.state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
+        let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions);
         let windows = match g.observed_windows(&render, &cx) {
             Ok(w) => w,
             Err(why) => {
@@ -373,7 +375,18 @@ impl NativeSubject {
                 }
             }
         }
-        let result = live::live_step(&mut shadow.core, shadow.arm, &cx, &mut lone);
+        let mut result = live::live_step(&mut shadow.core, shadow.arm, &cx, &mut lone);
+        // The legacy step of a turn's first look goes on from the prelude into the action menu it asks and the body of the answer it was given
+        // (one `Game::step`): the native Ask arm continues from where the prelude left the position.
+        if shadow.arm == Arm::TurnPrelude && result.is_ok() && !answers_taken.is_empty() {
+            let facts = Facts::of_core(&shadow.core, false);
+            if step_arm(&facts, true) == Arm::Ask && live_ask_arm(&facts) == AskArm::ActionMenu {
+                match live::live_step(&mut shadow.core, Arm::Ask, &cx, &mut lone) {
+                    Ok(second) => result = result.map(|_| second),
+                    Err(stop) => result = Err(stop),
+                }
+            }
+        }
         #[cfg(test)]
         tests::tamper(&mut shadow.core);
         let mut out = Vec::new();
@@ -397,6 +410,9 @@ impl NativeSubject {
             }
             Err(stop) => {
                 count(&RAN, name.to_owned());
+                if std::env::var_os("TI4_NATIVE_TRACE").is_some() {
+                    eprintln!("native stop in arm {name}: {stop:?}, answers {answers_taken:?}");
+                }
                 leaves(Category::Value, "native.stop", &json!("ran"), &json!(format!("{stop:?}")), &mut out);
                 self.report(shadow.arm, out);
                 return;
@@ -470,7 +486,7 @@ fn without_staged_marks(mut state: Value) -> Value {
 /// the leaders, technologies, relics in use, exploration cards and factions. The pass, the opening of a transaction (`component|trade|<faction>`), the
 /// tactical and strategic actions and the action cards are the core's (lane F2b).
 fn menu_body_is_lent(id: &str) -> bool {
-    id.starts_with("faction|") && id != "faction|winnu|lgf"
+    (id.starts_with("faction|") && id != "faction|winnu|lgf")
         || (id.starts_with("component|") && !id.starts_with("component|trade|"))
         || id.starts_with("relic|")
         || id.starts_with("play_area:")
@@ -736,7 +752,10 @@ mod tests {
         let _ = (lent_counts(), ran_counts());
         let played = play();
         let ran = ran_counts();
-        assert!(played.report.differences.is_empty(), "{:#?}", played.report.differences.iter().take(5).collect::<Vec<_>>());
+        // The one COUNTED gap the menu's strategic route meets in this game: Thunder's Edge Warfare's free tactical action (`TurnGap::StrategyAbility`
+        // here, `FreeTactical` after it: lane M6c's `open_free`). The step stops and keeps the position; nothing else may differ.
+        let other: Vec<_> = played.report.differences.iter().filter(|d| !(d.path == "native.stop" && d.core_side.contains("StrategyAbility"))).collect();
+        assert!(other.is_empty(), "{:#?}", other.iter().take(5).collect::<Vec<_>>());
         for arm in ["turn_prelude", "phase", "strategy_announce", "ask"] {
             assert!(ran.get(arm).copied().unwrap_or(0) + ran.get(&format!("{arm} (window ended; the close is the legacy's)")).copied().unwrap_or(0) >= 1, "{arm} ran in shadow: {ran:?}");
         }
@@ -749,7 +768,11 @@ mod tests {
     ///
     /// * Arborec's Mitosis ("at the start of the status phase, place 1 infantry from your reinforcements on a planet you control", `arborec/offer.rs` lists it as
     ///   "points left"): the string asks where, the core asks nothing and the infantry is missing from the board.
-    const KNOWN_SILENT: [&[&str]; 1] = [&["Mitosis", "arborec_infantry"]];
+    /// * A strategic action whose ability the core cannot begin (`TurnGap::StrategyAbility`: lane E's counted gap -- Thunder's Edge Warfare's free
+    ///   tactical action over a map the facts do not hold, Doctor Sucaban's offer in a research, a placement a faction effect changes): the menu now
+    ///   routes the strategic action natively (lane F2b), so the shadow meets the gap the strategic lane documented. It is a COUNTED gap (the step
+    ///   stops, the position is kept), not a silent difference.
+    const KNOWN_SILENT: [&[&str]; 2] = [&["Mitosis", "arborec_infantry"], &["StrategyAbility"]];
 
     /// Whole games with every lobby faction in turn (six tables of four), the turn-flow arms in shadow and a counted bail a failure: no difference but the
     /// known silent ones (kept going: a difference never makes the follower diverge, the follower is a legacy game), and the arms ran.

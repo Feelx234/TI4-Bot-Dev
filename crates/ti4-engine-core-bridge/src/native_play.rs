@@ -1047,7 +1047,7 @@ mod tests {
     }
 
     #[test]
-    fn a_closing_menu_the_core_does_not_assemble_is_a_gap_named_by_its_source_and_the_position_is_kept() {
+    fn a_closing_menu_with_a_second_action_is_assembled_by_the_core_and_played() {
         use ti4_engine_core::generated::Technology;
         let mut g = game("sol", 4, 1);
         g.core.transient_mut().misc.starting_tech_picks.clear();
@@ -1055,14 +1055,14 @@ mod tests {
         g.core.meta_mut().phase = ti4_engine_core::state::Phase::Action;
         g.core.meta_mut().active = Some(Seat(0));
         g.core.players_mut().edit(0).tech.owned.insert(Technology::FleetLogistics);
+        // A card to act with: the second action is offered ("end your turn" first), as lane F's closing menu assembles it.
+        g.core.players_mut().edit(0).strat.push(ti4_engine_core::generated::StrategyCard::ALL[0]);
         g.core.pending_mut().prepared_turn_seq = Some(turn_seq);
         g.core.pending_mut().turn_closing = Some(Seat(0));
         g.core.pending_mut().actions_this_turn = 1;
-        let held = g.core.clone();
-        let Step::Gap(gap) = g.step() else { panic!("a second action is offered, which the core does not assemble") };
-        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("ask.closing", GapKind::Bail, "TurnGap(MenuSources)"), "{gap:?}");
-        assert_eq!(gap.island(), Island::TurnFlow);
-        assert_eq!(g.core, held);
+        assert!(g.asks(), "the closing menu is asked");
+        let step = g.step();
+        assert!(matches!(step, Step::Played(_)), "the core assembles the menu and the bot's answer is played, not a gap: {:?}", matches!(step, Step::Gap(_)));
     }
 
     #[test]

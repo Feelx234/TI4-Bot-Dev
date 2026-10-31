@@ -202,6 +202,11 @@ pub fn perform_facts(sx: &Sx<'_>, who: Seat, card: StrategyCard) -> Facts {
     facts_at(sx.state, sx.kernel, &sx.table.codes.turn, roster, who, card)
 }
 
+/// `leaders_core::replenish_causes_events` on the core: a Cabal is seated, or a seat holds a Trade Agreement note.
+fn replenish_is_announced(core: &CoreState) -> bool {
+    core.players().iter().any(|p| p.faction == Faction::TheVuilraithCabal || crate::query::promissory::holder_of(core, PromissoryNote::TradeAgreement, p.seat).is_some())
+}
+
 /// [`perform_facts`] on a position, with the roster and the codes in hand.
 #[must_use]
 pub fn facts_at(core: &CoreState, kernel: &Kernel, codes: &TurnCodes, roster: Option<&'static UnitRoster>, who: Seat, card: StrategyCard) -> Facts {
@@ -219,8 +224,11 @@ pub fn facts_at(core: &CoreState, kernel: &Kernel, codes: &TurnCodes, roster: Op
             structures: roster.and_then(|roster| structure_facts(core, kernel, roster, who, codes)),
             trade_source: codes.trade_primary,
         },
-        // (Cabal's replenish note and the Trade Agreement are the core's; the siphoning plot is a dropped faction's.)
-        replenish_events: false,
+        // A replenish at a table with a Cabal (its `COMMODITIES_REPLENISHED`) or a Trade Agreement in a hand is announced by the string; the Trade primary
+        // and secondary windows of the strategic action replenish without the announcement (`Spawn::Trade` carries no texts), so those tables are the
+        // counted gap `StrategyAbility` (found by the shadow behind a real game of ghost/argent/cabal/empyrean: lane F2b). The siphoning plot is a
+        // dropped faction's.
+        replenish_events: replenish_is_announced(core),
         rules_version,
         roster,
         scope: reach::scope_of(kernel),
