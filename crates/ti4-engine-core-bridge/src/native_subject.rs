@@ -47,7 +47,9 @@ use ti4_engine::core_sync::codec::rng::TextSeeds;
 use ti4_engine::core_sync::{materialize, Codec, Ctx, Sources};
 use ti4_engine::live::{self, arms, Scripted};
 use ti4_engine::render::Render;
-use ti4_engine_core::driver::live::{live_arm, open};
+use ti4_engine_core::driver::live::{live_arm, open, LiveError};
+use ti4_engine_core::kernel::ability::Unknown;
+use ti4_engine_core::kernel::turn_codes::TurnGap;
 use ti4_engine_core::driver::session::{bit, live_ask_arm, step_arm, Arm, AskArm};
 use ti4_engine_core::driver::step::NativeArms;
 use ti4_engine_core::rules::token_gain::TokenGain;
@@ -62,12 +64,35 @@ use ti4_engine::rng::RngPositions;
 const LEAVES: usize = 8;
 
 static NATIVE: Mutex<NativeArms> = Mutex::new(NativeArms::NONE);
+static GAPS_LENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static LENT: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
 static RAN: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
 
 /// The arms the next `NativeSubject`s run natively (default: none, i.e. every step is lent).
 pub fn set_native_arms(arms: NativeArms) {
     *NATIVE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = arms;
+}
+
+/// Count a live window's refusal of a position (`LiveError::Unknown`, the gap of the native playthrough) as a LENT step, with its cause, instead of a
+/// difference (`oracle --gaps-lent`): the legacy-led survey of the gaps of whole games. Default off: a bail is a failure.
+pub fn set_gaps_are_lent(on: bool) {
+    GAPS_LENT.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Shadow the closing menu too (`oracle --closing`): the `Ask` arm is native for the closing menu of a turn (`driver::turn::ask`), but the menu lists
+/// the free options of sources the core does not assemble completely yet (a trade partner of a seat that reaches past adjacency: M1), so the
+/// comparison is opt-in and reports a difference where the core's menu is shorter than the legacy one. Default off.
+pub fn set_shadow_closing(on: bool) {
+    CLOSING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn shadow_closing() -> bool {
+    CLOSING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn gaps_are_lent() -> bool {
+    GAPS_LENT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 fn native_arms() -> NativeArms {
@@ -114,10 +139,29 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
 }
 
 /// Whether the arm's step ends where the legacy step does: its close is the core's too, so the end of the step is compared on everything
-/// (the questions, the events and the position), not on the prefix. `Phase` is the whole of `step_phase`; the prelude and the
+/// (the questions, the events and the position), not on the prefix. `Phase` is the whole of `step_phase`, and `Ask` (the draft, the starting technology, the closing menu) is the whole of its step; the prelude and the
 /// announcement go on into the question of the same legacy step (the action menu, the draft), which the arm does not own.
 const fn close_is_native(arm: Arm) -> bool {
-    matches!(arm, Arm::Phase)
+    matches!(arm, Arm::Phase | Arm::Ask)
+}
+
+/// The `private:#staged:event:*` marks of a string position (events staged for the next step's announcement).
+fn staged_marks(gs: &ti4_model::state::GameState) -> Vec<&String> {
+    gs.faction_marks.keys().filter(|k| k.starts_with("private:#staged:event:")).collect()
+}
+
+/// What the legacy game keeps outside its `GameState` and the core keeps in `Pending` (the driver flags, the prepared turn, the closing menu, the
+/// actions of the turn): primed from the legacy facts, so the core's own `Facts` and the questions that read them agree with the legacy step's.
+fn prime(core: &mut CoreState, facts: &ti4_engine_core::driver::session::Facts, actions_this_turn: u8) {
+    use ti4_engine_core::state::DriverFlags as F;
+    let (turn_seq, active) = (core.meta().turn_seq, core.meta().active);
+    let p = core.pending_mut();
+    p.driver.set(F::STATUS_RESOLVED, facts.status_resolved);
+    p.driver.set(F::AGENDA_RESOLVED, facts.agenda_resolved);
+    p.driver.set(F::STRATEGY_PHASE_ANNOUNCED, facts.strategy_announced);
+    p.prepared_turn_seq = facts.turn_prepared.then_some(turn_seq);
+    p.turn_closing = if facts.turn_closing { active } else { None };
+    p.actions_this_turn = actions_this_turn;
 }
 
 /// The slices a position loads: all, and the map only when the game has a string galaxy (as `Game::churn_state`).
@@ -163,8 +207,9 @@ impl NativeSubject {
             lend(arm, "not native");
             return None;
         }
-        // The `Ask` arm is native for the sources of question the turn flow owns (the draft, the starting technology); the others are lent.
-        if arm == Arm::Ask && !matches!(live_ask_arm(&facts), AskArm::Draft | AskArm::StartingTech) {
+        // The `Ask` arm is native for the sources of question the turn flow owns (the draft, the starting technology; the closing menu with
+        // [`set_shadow_closing`]); the others are lent.
+        if arm == Arm::Ask && !matches!(live_ask_arm(&facts), AskArm::Draft | AskArm::StartingTech) && !(shadow_closing() && live_ask_arm(&facts) == AskArm::Closing) {
             lend(arm, "question source not native");
             return None;
         }
@@ -187,6 +232,13 @@ impl NativeSubject {
             lend(arm, "the position does not load");
             return None;
         };
+        prime(&mut core, &facts, g.actions_this_turn());
+        if !staged_marks(&g.state).is_empty() {
+            // The string keeps the events its effects staged as `private:#staged:event:*` marks; the core announces them from `Pending::staged`, which a
+            // loaded position does not fill. A step that would announce them is the string's.
+            lend(arm, "staged events (string marks)");
+            return None;
+        }
         if !open_arm(arm, &windows, &mut core) {
             lend(arm, "no opener");
             return None;
@@ -220,16 +272,27 @@ impl NativeSubject {
         let result = live::live_step(&mut shadow.core, shadow.arm, &cx, &mut lone);
         #[cfg(test)]
         tests::tamper(&mut shadow.core);
-        count(&RAN, name.to_owned());
         let mut out = Vec::new();
         let step = match result {
             Ok(step) => step,
+            // The closing menu offers a free option of a source of the action menu the core does not assemble yet (lane F): counted lent, as an
+            // arm without an opener is, not a difference of the line.
+            Err(live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources)))) => {
+                lend(shadow.arm, "closing menu sources");
+                return;
+            }
+            Err(live::Stop::Live(LiveError::Unknown(why))) if gaps_are_lent() => {
+                lend(shadow.arm, &format!("gap {why:?}"));
+                return;
+            }
             Err(stop) => {
+                count(&RAN, name.to_owned());
                 leaves(Category::Value, "native.stop", &json!("ran"), &json!(format!("{stop:?}")), &mut out);
                 self.extra.extend(out);
                 return;
             }
         };
+        count(&RAN, name.to_owned());
         let finished = step.finished;
         // A step whose close is the legacy's is compared on the prefix once the window ended.
         let ended = finished && !close_is_native(shadow.arm);

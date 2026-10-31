@@ -107,10 +107,11 @@ pub fn island_of(key: &str) -> Island {
     RULES.iter().find(|(_, words)| words.iter().any(|w| key.contains(w))).map_or(Island::Other, |(island, _)| *island)
 }
 
-/// Whether a window key of the dual report is a counted bail or gate (the rest of the report is the windows that ran).
+/// Whether a window key of the dual report is a counted bail or gate (the rest of the report is the windows that ran), or a gap of the native
+/// playthrough (`native_play::Gap::key`).
 #[must_use]
 pub fn is_cause(key: &str) -> bool {
-    key.contains("[bail:") || key.contains("[gate:")
+    key.contains("[bail:") || key.contains("[gate:") || key.contains("[gap:")
 }
 
 /// What the bails of one island came to.
@@ -201,6 +202,14 @@ mod tests {
         for (key, island) in cases {
             assert_eq!(island_of(key), island, "{key}");
         }
+    }
+
+    #[test]
+    fn a_gap_of_the_native_playthrough_is_a_cause_like_a_bail() {
+        assert!(is_cause("ask.action_menu [gap: ask source not native: question source action_menu]"));
+        let rows = by_island([("ask.action_menu [gap: ask source not native: x]", 2), ("ask.draft", 9)]);
+        assert_eq!(rows[&Island::Menu].count, 2);
+        assert_eq!(rows.values().map(|r| r.count).sum::<u64>(), 2, "a native step is not a cause");
     }
 
     #[test]

@@ -826,9 +826,15 @@ pub fn survey(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result<Surv
         let facts = legacy.game().step_facts();
         let asks = legacy.options().is_some();
         let arm = step_arm(&facts, asks);
+        let source_native = |source: AskArm| matches!(source, AskArm::Draft | AskArm::StartingTech | AskArm::Closing);
         let (label, native) = if arm == Arm::Ask {
             let source = live_ask_arm(&facts);
-            (format!("ask.{}", ask_name(source)), matches!(source, AskArm::Draft | AskArm::StartingTech | AskArm::Closing))
+            (format!("ask.{}", ask_name(source)), source_native(source))
+        } else if glued(arm) && asks {
+            // The legacy step goes on from the prelude and the announcement into the question of the same step: the native loop needs the source of that
+            // question too (two native steps, one legacy step).
+            let source = live_ask_arm(&facts);
+            (format!("{}>ask.{}", arms::name(arm), ask_name(source)), live_arm(arm).is_some() && source_native(source))
         } else {
             (arms::name(arm).to_owned(), live_arm(arm).is_some())
         };
@@ -872,8 +878,8 @@ mod tests {
             assert_eq!(distinct.len(), players, "never the same faction twice: {:?}", spec.factions);
             assert!(spec.factions.iter().all(|f| LOBBY_FACTIONS.contains(&f.as_str())));
         }
-        assert_eq!(lobby_spec("sol", 4, 1).map, "4pOuterRim");
-        assert_eq!(lobby_spec("sol", 4, 2).map, "4pHyperlanes", "the seed picks the map");
+        assert_eq!(lobby_spec("sol", 4, 1).map, "4pHyperlanes");
+        assert_eq!(lobby_spec("sol", 4, 2).map, "4pOuterRim", "the seed picks the map");
         assert_eq!(lobby_spec("hacan", 3, 1).map, "random");
         assert_ne!(lobby_spec("sol", 4, 1).factions, lobby_spec("sol", 4, 2).factions, "the seed rotates the table");
     }
@@ -977,7 +983,8 @@ mod tests {
         let native = |n: bool| s.steps_by_arm.iter().filter(|((_, native), _)| *native == n).map(|(_, c)| c).sum::<u64>();
         assert_eq!(native(true) + native(false), s.steps as u64, "every step is classified once");
         assert!(s.steps_by_arm.contains_key(&("ask.draft".to_owned(), true)), "{:?}", s.steps_by_arm);
-        assert!(s.steps_by_arm.keys().any(|(arm, native)| arm == "ask.action_menu" && !native), "{:?}", s.steps_by_arm);
+        assert!(s.steps_by_arm.keys().any(|(arm, native)| arm == "turn_prelude>ask.action_menu" && !native), "the prelude and the menu are one legacy step: {:?}", s.steps_by_arm);
+        assert!(s.steps_by_arm.keys().any(|(arm, native)| arm == "strategy_announce>ask.draft" && *native), "{:?}", s.steps_by_arm);
     }
 
     #[test]
