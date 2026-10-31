@@ -655,7 +655,7 @@ mod tests {
         let mut state = table(&[("a", "titans"), ("b", "hacan")]);
         crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
         crate::fixtures::put_on_planet(&mut state, &system, &ti4_model::id::PlanetId::new("tequran"), "infantry", &a(), 1);
-        let diffs = lockstep(state.clone(), &hub.galaxy, &[TACTICAL_ACTION_ID, system.as_str(), "tequran"], true);
+        let diffs = lockstep(state.clone(), &hub.galaxy, &[TACTICAL_ACTION_ID, system.as_str(), "tequran", "decline"], true);
         assert!(diffs.is_empty(), "explore: {diffs:#?}");
         let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, system.as_str(), "decline"], true);
         assert!(diffs.is_empty(), "decline: {diffs:#?}");
