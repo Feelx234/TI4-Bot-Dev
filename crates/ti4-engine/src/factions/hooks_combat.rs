@@ -307,6 +307,28 @@ pub(crate) fn may_sustain(
     may_sustain_by(tables(), state, content, sources, unit)
 }
 
+/// [`may_sustain`] without the modules whose rule the core reads natively in a combat window
+/// (`NATIVE_MAY_SUSTAIN`): the string bridge of the combat kernel asks only for the rest. A bridge asks a
+/// snapshot of the position the window started in, so a rule that reads the board (a flagship that is
+/// destroyed during the window) would see the ships of that moment, not the current ones.
+pub(crate) fn may_sustain_unported(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> bool {
+    let rest = MODULES
+        .iter()
+        .filter(|module| !NATIVE_MAY_SUSTAIN.contains(&module.alias))
+        .map(|module| module.hooks.combat)
+        .chain(test_table());
+    may_sustain_by(rest, state, content, sources, unit)
+}
+
+/// The modules whose `combat.may_sustain` is a native rule of the combat kernel
+/// (`ti4_engine_core_factions`, registered in `core_combat::combat_kernel`).
+const NATIVE_MAY_SUSTAIN: [&str; 1] = ["mentak"];
+
 fn may_sustain_by(
     mut tables: impl Iterator<Item = CombatHooks>,
     state: &GameState,
