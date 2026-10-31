@@ -235,6 +235,9 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
     let mut prepared = cx.env.clone();
     prepared.table.facts.combat = (cx.texts)(core, cx.render);
     let env = &prepared;
+    // One code table for the render and the state: a window that mints a text straight into the state (the exploration's words) must not lose it
+    // to the render's copy, and a code the render handed out must exist in the state.
+    cx.render.sync_codes(&mut core.texts.codes);
     let events_from = core.ledger.events.len();
     let mut step = StepOut { finished: false, asked: Vec::new(), out: Out::default(), events_from };
     let merge = |step: &mut StepOut, out: Out| {
@@ -246,6 +249,7 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
         Some(a) => a,
         None => {
             let (live, out) = advance(core, env, None)?;
+            cx.render.sync_codes(&mut core.texts.codes);
             merge(&mut step, out);
             match live {
                 Live::Done => {
@@ -271,6 +275,7 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
             },
         };
         let (live, out) = advance(core, env, Some(pick))?;
+        cx.render.sync_codes(&mut core.texts.codes);
         merge(&mut step, out);
         match live {
             Live::Done => {

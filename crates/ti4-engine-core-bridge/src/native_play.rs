@@ -739,9 +739,9 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
     let mut first_difference = None;
     // A step the group's extension ran ahead of the loop and that is not a played one (a gap, a defect, the end).
     let mut carry: Option<Step> = None;
-    // The events of a legacy step beyond the native group's (the string's step goes on into the next arm's first run; the native steps split
-    // there): they open the events of the next group.
-    let mut owed: Vec<String> = Vec::new();
+    // The events one side is ahead of the other (the string's step goes on into the next arm's first run where the native steps split, and the
+    // other way round): they open the events of the next group.
+    let mut owed = Owed::default();
     let end = loop {
         if native.steps >= max_steps {
             break End::StepLimit;
@@ -756,6 +756,18 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 let arm = p.arm;
                 group.push(p);
                 if glued(arm) {
+                    continue;
+                }
+                // A native step that asks nothing while the legacy game already stands at a question: the string ran that stretch in an earlier step
+                // (its events were owed to this one); there is no legacy step to compare it with, its events are owed to the next.
+                if group.iter().all(|p| p.asked.is_empty()) && !owed.legacy.is_empty() && legacy.options().is_some() {
+                    let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
+                    let events: Vec<String> = group.iter().flat_map(|p| p.events.iter().cloned()).collect();
+                    if let Some((at, n, l)) = owed.settle_native(events) {
+                        first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l });
+                        break End::Finished;
+                    }
+                    group.clear();
                     continue;
                 }
                 compared += 1;
@@ -798,6 +810,30 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
     };
     let played = Played1 { end, rounds: native.round(), steps: native.steps, scores: native.scores(), fingerprint: native.fingerprint(), matrix };
     Ok(Shadowed { played, compared, first_difference })
+}
+
+/// The events one side has pushed that the other has not, yet (a native step and a legacy step end in different places inside one arm's close).
+#[derive(Debug, Default)]
+struct Owed {
+    /// Pushed by the legacy steps, to be matched by the next native ones.
+    legacy: Vec<String>,
+    /// Pushed by the native steps, to be matched by the next legacy ones.
+    native: Vec<String>,
+}
+
+impl Owed {
+    /// Native events with no legacy step of their own: matched against what the legacy steps pushed ahead. `Some((index, native, legacy))` at the first
+    /// line that differs.
+    fn settle_native(&mut self, events: Vec<String>) -> Option<(usize, String, String)> {
+        let native: Vec<String> = self.native.drain(..).chain(events).collect();
+        let common = native.len().min(self.legacy.len());
+        if let Some(at) = (0..common).find(|i| native[*i] != self.legacy[*i]) {
+            return Some((at, native[at].clone(), self.legacy[at].clone()));
+        }
+        self.legacy.drain(..common);
+        self.native = native[common..].to_vec();
+        None
+    }
 }
 
 /// How many native steps the legacy game is given answers for beyond the group it is stepped with.
@@ -848,11 +884,11 @@ fn run_legacy(legacy: &mut MaskSubject<LegacyMask>, group: &[Played], ahead: &[S
 /// Step the legacy game once with the answers of `group` and compare.
 fn compare_group(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: &ti4_model::state::GameState, group: &[Played]) -> Option<Difference> {
     let run = run_legacy(legacy, group, &[]);
-    compare_run(legacy, native, base, group, &run, &mut Vec::new())
+    compare_run(legacy, native, base, group, &run, &mut Owed::default())
 }
 
 /// Compare the native steps of `group` with the legacy step that ran them.
-fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: &ti4_model::state::GameState, group: &[Played], run: &LegacyRun, owed: &mut Vec<String>) -> Option<Difference> {
+fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: &ti4_model::state::GameState, group: &[Played], run: &LegacyRun, owed: &mut Owed) -> Option<Difference> {
     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
     let diff = |what: &'static str, path: String, n: String, l: String| Difference { step: native.steps, arms: arms.clone(), what, path, native: n, legacy: l };
     let asked: Vec<&Asked> = group.iter().flat_map(|p| p.asked.iter()).collect();
@@ -875,17 +911,18 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     if let Some(d) = crate::native_subject::first_leaf(&Value::Array(l), &Value::Array(n)) {
         return Some(diff("questions", d.path, d.right, d.left));
     }
-    let native_events: Vec<&String> = group.iter().flat_map(|p| p.events.iter()).collect();
-    let all_events: Vec<String> = owed.drain(..).chain(events.iter().cloned()).collect();
-    let legacy_events: Vec<&String> = legacy_prefix(strict, all_events.iter().collect(), native_events.len());
-    if !strict && all_events.len() > native_events.len() {
-        *owed = all_events[native_events.len()..].to_vec();
+    // The events are two streams: what one side pushed beyond the other's end of step is matched by the other's next step. A step that ends an
+    // arm the string's close goes on after (non-strict) may leave either side ahead; a strict step must end level.
+    let native_stream: Vec<String> = owed.native.drain(..).chain(group.iter().flat_map(|p| p.events.iter().cloned())).collect();
+    let legacy_stream: Vec<String> = owed.legacy.drain(..).chain(events.iter().cloned()).collect();
+    let common = native_stream.len().min(legacy_stream.len());
+    let at = (0..common).find(|i| native_stream[*i] != legacy_stream[*i]).or_else(|| (strict && native_stream.len() != legacy_stream.len()).then_some(common));
+    if let Some(at) = at {
+        let show = |v: &[String]| v.get(at).map_or_else(|| format!("<end after {}>", v.len()), Clone::clone);
+        return Some(diff("events", format!("[{at}]"), show(&native_stream), show(&legacy_stream)));
     }
-    if native_events != legacy_events {
-        let at = native_events.iter().zip(&legacy_events).position(|(a, b)| a != b).unwrap_or_else(|| native_events.len().min(legacy_events.len()));
-        let show = |v: &[&String]| v.get(at).map_or_else(|| format!("<end after {}>", v.len()), |s| (*s).clone());
-        return Some(diff("events", format!("[{at}]"), show(&native_events), show(&legacy_events)));
-    }
+    owed.native = native_stream[common..].to_vec();
+    owed.legacy = legacy_stream[common..].to_vec();
     if strict {
         match native.materialized_over(base) {
             Ok(after) => {
@@ -1242,6 +1279,63 @@ mod tests {
         let (mut legacy, native, base, mut group) = setup();
         group.last_mut().unwrap().events.clear();
         assert_eq!(compare_group(&mut legacy, &native, &base, &group).map(|d| d.what), Some("events"), "a whole step must push what the legacy step pushed");
+    }
+
+    /// A step that ends where the string's close goes on may leave either side ahead: the events one side pushed beyond the other's end of step are
+    /// matched by the other's next step (found by `native_play --shadow`: the native secondary arm closes the whole strategic action in the step the
+    /// string takes two for; the string's tactical step runs the aftermath up to its first question where the native steps split there).
+    #[test]
+    fn events_one_side_is_ahead_by_are_owed_to_the_next_group_and_a_strict_step_must_end_level() {
+        let (mut legacy, native, base, mut group) = {
+            let spec = lobby_spec("sol", 4, 1);
+            let mut legacy = MaskSubject::<LegacyMask>::new(&spec, Pilot::Script).unwrap();
+            let mut native = NativeGame::from_game(legacy.game(), spec.seed).unwrap();
+            let base = legacy.game().state.clone();
+            let mut group: Vec<Played> = Vec::new();
+            loop {
+                let Step::Played(played) = native.step() else { panic!("the first steps are played") };
+                let is_glued = glued(played.arm);
+                group.push(played);
+                if !is_glued {
+                    break;
+                }
+            }
+            (legacy, native, base, group)
+        };
+        group.last_mut().unwrap().arm = Arm::Tokens;
+        group.last_mut().unwrap().events.push("INVENTED".to_owned());
+        let run = run_legacy(&mut legacy, &group, &[]);
+        let mut owed = Owed::default();
+        assert_eq!(compare_run(&mut legacy, &native, &base, &group, &run, &mut owed), None, "the native step is ahead: not a difference yet");
+        assert_eq!((owed.native.as_slice(), owed.legacy.len()), (["INVENTED".to_owned()].as_slice(), 0));
+        // The next group's legacy events must open with it.
+        let mut next = Owed { native: vec!["INVENTED".to_owned()], legacy: Vec::new() };
+        let nothing: Vec<Played> = vec![Played { arm: Arm::Tokens, source: None, asked: Vec::new(), events: Vec::new(), finished: false }];
+        let run = LegacyRun { info: run.info, records: Vec::new(), events: vec!["OTHER".to_owned()] };
+        let d = compare_run(&mut legacy, &native, &base, &nothing, &run, &mut next).expect("the string pushed another line than the one owed");
+        assert_eq!((d.what, d.native.as_str(), d.legacy.as_str()), ("events", "INVENTED", "OTHER"));
+    }
+
+    /// A question the string puts INSIDE a step (the reward of an exploration after a first claim) is answered in the legacy step that raises it: the
+    /// shadow gives the legacy game the answers of the next native steps and the group grows by them. Before: "script wanted \"gain\"".
+    #[test]
+    fn a_question_the_string_asks_inside_a_step_is_answered_in_that_legacy_step() {
+        let s = shadow_play(&lobby_spec("sol", 4, 1), 26, 50).unwrap();
+        assert_eq!(s.first_difference, None, "{:?}", s.first_difference);
+        assert!(s.played.steps >= 25, "the first claim of the quick game is played through the Local Fabricators question: {}", s.played.steps);
+    }
+
+    /// The words of an exploration's log row are minted straight into the state's code table; the live loop must not overwrite that table with the
+    /// render's older copy at the end of the step (found by `native_play --shadow`: "native Explore: unknown text code" at the first strict compare after
+    /// the first claim of the quick game).
+    #[test]
+    fn the_words_of_an_exploration_row_survive_the_step_and_the_position_materializes() {
+        let mut g = game("sol", 4, 1);
+        for _ in 0..26 {
+            assert!(matches!(g.step(), Step::Played(_)));
+        }
+        assert!(!g.core.explore().log.is_empty(), "the first claim explored a planet");
+        assert!(g.materialized().is_ok(), "{:?}", g.materialized().err());
     }
 
     #[test]
