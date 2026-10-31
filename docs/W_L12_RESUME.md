@@ -50,7 +50,7 @@ sustain in the machine (< 17), the ground round numbering (< 16), Gravleash (< 1
 * `cargo test -p ti4-engine --lib`: 4884 passed, 0 failed; the same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: 4884 passed, 0 failed.
 * core + factions + bridge `--lib`: 624 passed; `ti4-engine-core-tests`: 1198 passed (new: `forced_combats.rs`, Hecatoncheires in `construction.rs`, the legacy commander in `combat_small.rs`, the Ssruu copy in `leader_production.rs`).
 * `check_layers.py core`: 438 files, 0 violations; `lint_core.sh`: 440 files, 0 hits.
-* Mutation checks (every mutant of the new core halves fails its tests; 20 of 20 killed): `sustain_offer.rs` (the unasked payment, the version read), `leader_production.rs` (the Ssruu carrier, the lender's status), `invasion/forced.rs`
+* Mutation checks (every mutant of the new core halves fails its tests; 16 of 16 killed): `sustain_offer.rs` (the unasked payment, the version read), `leader_production.rs` (the Ssruu carrier, the lender's status), `invasion/forced.rs`
   (the Slumberstate question, the coexistence write, the committed-twice guard, the breakthrough check), `production/strategy_cards.rs` (the Hecatoncheires offer, the mech fit, the infantry, the legacy first plan),
   `leaders_core.rs` (the atomic copy), `muaat_component.rs` (the Z-token flagship, the carried war sun), `kernel/fx_strategy.rs` (the staged `AGENT_EXHAUSTED`). Run with `runmut.py` in the lane's worktree itself (not a scratch worktree: a second
   target directory would not fit the 6 GB budget); one run committed a mutated file by accident (`git add -A` while the batch ran) and the next commit restores it.
