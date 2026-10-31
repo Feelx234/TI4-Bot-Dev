@@ -71,6 +71,7 @@ fn tactical_marked(s: &CoreState, who: Seat) -> bool {
     mark(s, MarkKey::PrivateSeat(who, Word::WinnuTactical)).is_some()
 }
 
+// mutants:skip (read by `clear_when` only)
 fn gained_marked(s: &CoreState, who: Seat) -> bool {
     mark(s, MarkKey::PrivateSeat(who, Word::WinnuGained)).is_some()
 }

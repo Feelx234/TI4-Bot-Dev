@@ -99,7 +99,7 @@ fn stillness(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let source = eff.codes().g2.cabal_agent;
     let (s, k) = eff.state_and_kernel();
     fx_strategy::exhaust_agent(s, k, me, Leader::TheStillnessOfStars);
-    let goods = s.players().by_seat(victim).map_or(0, |p| i32::from(p.econ.commodities));
+    let goods = s.players().by_seat(victim).map_or(0, |p| i32::from(p.econ.commodities)); // mutants:skip (the victim is seated)
     if goods > 0 { // mutants:skip (a conversion of nothing stages nothing)
         if let Some(p) = s.players_mut().by_seat_mut(victim) {
             p.econ.commodities = 0;

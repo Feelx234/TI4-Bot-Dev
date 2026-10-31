@@ -44,7 +44,7 @@ fn eligible(s: &CoreState, event: &ti4_engine_core::state::EventRec, who: Seat) 
         && p.system(Key::System) == s.meta().active_system
         && has_commander(s, who)
         && p.int(Key::Wormholes).is_some_and(|hops| hops > 0)
-        && p.unit(Key::Unit).is_some_and(|unit| unit.data().ship && unit.data().capacity.is_some_and(|c| c > 0))
+        && p.unit(Key::Unit).is_some_and(|unit| unit.data().ship && unit.data().capacity.is_some_and(|c| c > 0)) // mutants:skip (no ship prints a capacity of nothing)
 }
 
 fn moved_when(c: &CondCx<'_>) -> bool {
@@ -71,7 +71,7 @@ fn finished_when(c: &CondCx<'_>) -> bool {
 /// `commander_fighters`: the mark's count, capped by the free capacity of the system and the fighters in the box.
 fn available(s: &CoreState, k: &Kernel, who: Seat, system: ti4_engine_core::generated::System) -> usize {
     if !has_commander(s, who) {
-        return 0;
+        return 0; // mutants:skip (the condition holds the commander)
     }
     // (The capacity of a place does not depend on the fleet limit or on how a fighter weighs: neither is read.)
     let never = |_: ti4_engine_core::generated::Unit| false; // mutants:skip

@@ -620,6 +620,9 @@ fn voidwatch_makes_the_mover_give_a_note_from_the_hand() {
     assert_eq!(lent.opts().len(), 2);
     let faceup = watch_rig(scenario(), |s| { setup(s); s.cards_mut().promissory_faceup.edit().insert(ti4_engine_core::state::NoteKey { note: N::Ceasefire, faction: Faction::TheEmpyrean }, ()); }, moved_in(1, system, 1));
     assert_eq!(faceup.opts().len(), 2);
+    // Without the count of ships that moved the event is no arrival.
+    let uncounted = fx::event(EventKind::MovementFinished, Payload::new().with(Key::Player, Val::Seat(Seat(1))).with(Key::System, Val::System(system)));
+    assert!(watch_rig(scenario(), setup, uncounted).is_done(), "no count of ships");
     // An Alliance counts only while its owner's commander is unlocked.
     let alliance = ti4_engine_core::state::NoteKey { note: N::Alliance, faction: Faction::TheEmpyrean };
     let hidden = watch_rig(scenario(), |s| { setup(s); hold(s, N::Alliance, Faction::TheEmpyrean, 1); }, moved_in(1, system, 1));
@@ -682,6 +685,33 @@ fn garv_and_gunn_are_offered_for_an_explorable_planet_of_the_player_whose_turn_e
     assert!(rig(scenario(), |s| { set_leader(s, 0, Leader::GarvAndGunn, LeaderStatus::Readied); }, seat_event(EventKind::TurnPassed, 1)).is_done(), "no deck");
     assert!(rig(scenario(), |s| { ready(s); for deck in 0..s.decks().explore.len() { s.decks_mut().explore[deck] = ti4_engine_core::containers::Deck::new(Vec::new()); } }, seat_event(EventKind::TurnPassed, 1)).is_done(), "empty decks");
     assert!(rig(scenario(), |s| { ready(s); set_leader(s, 0, Leader::GarvAndGunn, LeaderStatus::Exhausted); }, seat_event(EventKind::TurnPassed, 1)).is_done());
+    // Cards in a deck the position does not list as present are no cards.
+    assert!(rig(scenario(), |s| { ready(s); s.decks_mut().explore_present = 0; }, seat_event(EventKind::TurnPassed, 1)).is_done(), "decks not present");
+}
+
+/// The pairs of Ssruu's copies are registered where the lender holds the agent card AND the borrower holds Ssruu.
+#[test]
+fn ssruus_copies_are_registered_for_the_seats_that_hold_both_cards_only() {
+    covers!("silent::naaz::AGENT_COPY");
+    covers!("silent::winnu::AGENT_COPY");
+    use ti4_engine_core::kernel::resolver::AbilityDef;
+    let seats = [Faction::TheYssarilTribes, Faction::TheNaazRokhaAlliance, Faction::TheWinnu, Faction::TheEmiratesOfHacan];
+    let copies_of = |edit: &dyn Fn(&mut CoreState), slot: ti4_engine_core::kernel::ability::Slot| -> Vec<(Seat, Option<Seat>)> {
+        let mut s = Scenario::new(&seats).state();
+        edit(&mut s);
+        let order = [Seat(0), Seat(1), Seat(2), Seat(3)];
+        let defs: Vec<AbilityDef> = table().registry(&s, &order, &mut |spec, _, _| ti4_engine_core::choice::reaction::AbilityId { kind: spec.kind, key: ti4_engine_core::state::Code(spec.slot.0) });
+        defs.iter().filter(|d| d.slot_bits() == slot.arg()).map(|d| (d.owner, d.pair_source())).collect()
+    };
+    for (slot, agent) in [(ti4_engine_core_factions::silent::naaz::AGENT_COPY, Leader::GarvAndGunn), (ti4_engine_core_factions::silent::winnu::AGENT_COPY, Leader::BerekarBerekon)] {
+        let lender = if agent == Leader::GarvAndGunn { 1 } else { 2 };
+        // Ssruu on seat 0 only: one copy.
+        let both = |s: &mut CoreState| { set_leader(s, 0, Leader::Ssruu, LeaderStatus::Readied); set_leader(s, lender, agent, LeaderStatus::Readied); };
+        assert_eq!(copies_of(&both, slot), vec![(Seat(0), Some(Seat(lender)))], "{agent:?}");
+        // The lender holds no agent card: none. The borrower holds no Ssruu: none.
+        assert_eq!(copies_of(&|s: &mut CoreState| set_leader(s, 0, Leader::Ssruu, LeaderStatus::Readied), slot), Vec::new(), "{agent:?}: no lender");
+        assert_eq!(copies_of(&|s: &mut CoreState| set_leader(s, lender, agent, LeaderStatus::Readied), slot), Vec::new(), "{agent:?}: no borrower");
+    }
 }
 
 #[test]
