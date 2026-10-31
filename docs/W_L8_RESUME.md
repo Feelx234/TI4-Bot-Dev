@@ -56,3 +56,29 @@ Lockstep tests (`dual_window!`, `Area::LeadersAbilities=dual`, zero differences 
 `naaz::tests::the_hero_runs_in_lockstep_with_the_core` (every card of the board), `winnu::tests::the_hero_runs_in_lockstep_with_the_core`, `argent::tests::the_hero_runs_in_lockstep_with_the_core`.
 
 Mutation checks (single file, Haiku runners on a committed snapshot in the scratch worktree `core-w-l8-mut`, scripts `/root/deploytmp/core-w-l8/runmut.py`, `spec1.py`, `spec2.py`):
+Batch 1 (44 mutants of `hero_windows.rs`: Nekro, Kyver, Cabal): 30 killed, 14 survived. Closed by new tests: the system entry of a planet nobody else holds
+(`TOUCHED` is not set), the cause of the staged ground row, the name order of the cards a player may show, the stream of the random discards
+(`YssarilHero`, not `Dice`), the boundary faces of the capture (3 captures, 4 does not), a ship that is not there strands nothing, the capture order of the
+cargo (infantry stands before the fighters in the list). Equivalent mutants: the position of the planet by system as well as planet (a planet has one
+system), the offered-pick guards of the technology and of the shown card (the driver rejects an unoffered pick before `answer` runs), the filter of
+players with an empty hand (the `[]` arm skips them), `break` vs `continue` on an empty hand in the three discards, the owner filter of the cargo list
+(foreign units appear in both the before and the after list).
+Batch 2 (46 mutants of the new Naaz, Winnu, Argent windows and `kernel/fx_perform.rs`): 31 killed, 15 survived (4 repeats of batch 1). Closed by new tests
+(batch 3, 11 of 11 killed): at most two cards, a secondary that asks nothing does not stop the next, the replenish-events and Mahact-held declines, the Diplomacy
+primary's tokens, a ship standing in the only destination, the destination is never the origin, the `capacity + 8` bound of the hold, a destination off the map.
+Still open (low value): the mid-run token check of Naaz's secondaries (no ability of the carried kinds spends a reinforcement token), `done.failed` ending the run
+(a research only a waiver opens, tested at the action card), the `free_cargo` hook of the hold (no hook in the test kernels), the `is_none()` of the secret draw
+(an empty deck and an empty hand ask nothing either way), the cost of the Technology primary (needs a unit roster).
+
+## Not run (by the directive)
+
+`verify_package`/gate, golden or wide dual run, census re-run (the gate tables are by reading), bench, soak, mutation ratchet, workspace clippy, board_equivalence,
+`TI4_AREAS=all=dual` full suite.
+
+## Merge notes
+
+New core file `rules/hero_windows.rs`, `kernel/fx_perform.rs`; new engine file `hero_dual.rs`. Shared types touched: `choice::leaders` (new variants), `render/leaders.rs`,
+`kernel/children.rs` (`Spawn::Seeing`, `SeeingLimits`, `Report::Removed`), `driver/children.rs`, `kernel/fx.rs` (`capture_from_board`), `rules/action_cards/perform.rs`
+(now a shim over `fx_perform`), `strategy_cards_core.rs` (`ready_hints_now`), `action_cards_view.rs` (visibility of `carried_of`, `PLAY`, `PERFORM`, `stage_placed_tokens`),
+`leaders.rs` (`string_only_leader`: empyrean, yin, mahact remain), `decision_delivery_inventory.rs` (two rename-only rows). Likely conflicts with other lanes: `leaders.rs`,
+`rules/action_cards/perform.rs`, `kernel/children.rs`.
