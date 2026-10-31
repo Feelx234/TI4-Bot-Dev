@@ -661,3 +661,35 @@ fn a_shown_neutral_decision_takes_only_the_answer_the_rules_give() {
     assert!(sustains > 0 && casualties > 0, "{sustains} sustains and {casualties} casualties were put");
     assert!(refused > 0, "other options were refused");
 }
+
+/// W11: the hits a Reflective Shielding staged while the use of SUSTAIN DAMAGE was announced are absorbed by the answer to the sustain
+/// (the producer of the cancelled hit chooses its losses), before the machine goes on; the sustain still cancels its hit.
+#[test]
+fn the_hits_a_reflective_shielding_staged_are_absorbed_inside_the_answer_to_the_sustain() {
+    covers!("rules::combat::machine::Machine");
+    use ti4_engine_core::state::CombatPend;
+    let sc = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 2).unit(sys(), None, Unit::DreadnoughtI, 1, 1).unit(sys(), None, Unit::DestroyerI, 1, 1);
+    let (mut state, kernel) = sc.build();
+    state.transient_mut().combat.pending_reflective_hits = Some((sys(), Seat(0), 2));
+    let mut fields = fields(&state);
+    fields.step = Step::Queue { assigning: false, round: 1, queue: vec![CombatPend { player: Seat(1), hits: 3, producer: Seat(0), non_fighters_only: false, producer_assigns: false }] };
+    let mut rig = Rig::from_parts(state, kernel, Machine::awaiting(env(), fields)).seeded(1);
+    rig.run();
+    let sustain = rig.asked().clone();
+    assert_eq!(sustain.actor, Seat(1), "the dreadnought's owner is asked to sustain");
+    assert!(matches!(sustain.ask, Ask::Combat(CAsk::CancelHit { .. })));
+    rig.pick(0);
+    // The two reflected hits land on the producer of the hit (seat 0): two identical cruisers, one option.
+    assert_eq!(rig.asked().actor, Seat(0), "the producer absorbs the reflected hits");
+    assert!(matches!(rig.asked().ask, Ask::Combat(CAsk::AssignHit)));
+    rig.pick(0);
+    assert!(rig.is_done(), "the second reflected hit finds a single ship: no question");
+    let m = rig.driver.window.clone();
+    let left = rig.state.board().sys(sys()).units.iter().filter(|p| p.owner() == Seat(0)).count();
+    assert_eq!(left, 0, "two hits, two cruisers");
+    assert!(rig.state.transient().combat.pending_reflective_hits.is_none());
+    match m.fields.step {
+        Step::Queue { assigning: false, ref queue, .. } => assert_eq!(queue[0].hits, 2, "the sustain cancelled one of the three hits"),
+        other => panic!("{other:?}"),
+    }
+}
