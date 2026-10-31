@@ -74,7 +74,6 @@ fn env() -> Env {
         end_codes: EndCodes { losers: Code(40), retreated: Code(41), reasons: [Code(42), Code(43), Code(44), Code(45)] },
         casualty: Code(13),
         commander: Code(14),
-        show_neutral: false,
         det: [false, false],
         wormhole: false,
         ambush: Code(15),
