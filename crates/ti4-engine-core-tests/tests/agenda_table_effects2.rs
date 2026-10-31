@@ -117,6 +117,35 @@ fn rearmament_against_turns_every_mech_on_a_planet_into_an_infantry_of_its_owner
     assert_eq!(after, vec![(Unit::InfantryI, false, false), (Unit::InfantryI, false, true)]);
 }
 
+/// Rearmament Agreement, For, on a kernel WITHOUT the Naaz module's economy hook (the dual adapter's `Kernel::plain()`): a Naaz seat with its
+/// Eidolon Maximum on the board gets no new mech ("game effects cannot place your mechs"), and every other seat does. The rule is the window's
+/// own (it reads the board), not a hook of the table: with the hook table in the way the answer depended on what else the process had built.
+#[test]
+fn rearmament_for_places_no_mech_for_a_naaz_seat_with_its_maximum_on_the_board_whatever_the_hook_table() {
+    covers!("rules::agenda::effects::Resolve");
+    let base = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheFederationOfSol]).state();
+    let home = |seat: u8| {
+        let p = base.players().by_seat(Seat(seat)).unwrap();
+        let system = p.home_system.or(p.faction.data().home_system).unwrap();
+        (system, system.data().planets[0])
+    };
+    let ((naaz_system, naaz_planet), (sol_system, sol_planet)) = (home(0), home(1));
+    for (maximum, mechs_after) in [(true, 1), (false, 2)] {
+        let mut sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheFederationOfSol]).control(naaz_planet, 0).control(sol_planet, 1);
+        sc = sc.unit(naaz_system, Some(naaz_planet), if maximum { Unit::EidolonMaximum } else { Unit::Eidolon }, 0, 1);
+        let (state, _) = sc.build();
+        let window = Resolve::of_facts(Agenda::RearmamentAgreement, Outcome::For, &facts(&[])).unwrap();
+        for kernel in [kernel_plain(), kernel_all()] {
+            let mut rig = Rig::from_parts(state.clone(), kernel, window.clone());
+            rig.run();
+            let mechs = |seat: u8, planet| units_on(&rig, planet, seat).iter().filter(|u| u.data().base_type == UnitBaseType::Mech).count();
+            let _ = sol_system;
+            assert_eq!(mechs(0, naaz_planet), mechs_after, "naaz seat, maximum on the board: {maximum}");
+            assert_eq!(mechs(1, sol_planet), 1, "the Sol seat gets its mech");
+        }
+    }
+}
+
 #[test]
 fn swords_to_plowshares_for_destroys_half_the_infantry_on_each_planet_rounded_up_and_pays_a_good_each() {
     covers!("rules::agenda::table_effects::Table");

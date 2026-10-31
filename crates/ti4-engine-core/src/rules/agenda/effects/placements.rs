@@ -15,6 +15,13 @@ use crate::state::CoreState;
 
 use super::super::table_effects::{clear_planet, everyone};
 
+/// Whether the seat's Eidolon Maximum stands anywhere: the Naaz's printed Maximum forbids game effects to place its mechs (the module's
+/// `effect_placement_forbidden` hook, read off the board here so that the window does not depend on which hook table it runs on).
+fn maximum_on_board(core: &CoreState, seat: Seat) -> bool {
+    let is = |p: &crate::state::Piece| p.owner() == seat && p.kind() == Unit::EidolonMaximum;
+    core.board().systems().any(|(_, c)| c.units.as_slice().iter().any(is)) || core.board().planets().any(|(_, c)| c.units.as_slice().iter().any(is))
+}
+
 impl Resolve {
     /// `agenda_effects::place_infantry`: the seat's own form, refused when the reinforcements hold none (31.4). `false`: the facts the
     /// placement needs are missing (the effect is the string's).
@@ -63,7 +70,7 @@ impl Resolve {
             let naaz = sx.state.players().by_seat(*seat).is_some_and(|p| p.faction == Faction::TheNaazRokhaAlliance);
             let mech = if naaz { Unit::Eidolon } else { Unit::FactionlessMech };
             let k = sx.kernel;
-            if k.hooks.economy.effect_placement_forbidden(sx.state, k, *seat, mech) || (naaz && crate::query::fleet::remaining_all(sx.state, scope, *seat, mech) <= 0) {
+            if k.hooks.economy.effect_placement_forbidden(sx.state, k, *seat, mech) || (naaz && (maximum_on_board(sx.state, *seat) || crate::query::fleet::remaining_all(sx.state, scope, *seat, mech) <= 0)) {
                 continue;
             }
             fx::place_unit(sx.state, *seat, system, Some(planet), mech);

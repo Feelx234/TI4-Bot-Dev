@@ -17,9 +17,30 @@ use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::{PlainKind, SecondaryHow, Window as OpenWindow, WindowKind};
 use ti4_engine_core_tests::prelude::*;
 
+/// The live loop's table: the play facts hold the unit roster (lane F's closing menu, which the end of every action runs, and the Finish job
+/// of the action need it: without one they stop at the counted gap `NoRoster`).
 fn env(k: &Kernel) -> Env<'_> {
+    use ti4_engine_core::kernel::ability::{PlayFacts, PlaysProvider, SharedPlay};
+    let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
+    table.facts.plays_provider = Some(PlaysProvider(std::sync::Arc::new(move |core, _| {
+        Some(PlayFacts {
+            scope: 0,
+            blanked: false,
+            action_card: ti4_engine_core::state::Code(0),
+            supply_base: ti4_engine_core::state::Code(0),
+            note_order: |a, b| a.cmp(&b),
+            seats: Vec::new(),
+            name_group: Vec::new(),
+            has_effect: Vec::new(),
+            skimmer: false,
+            roster: Some(roster),
+            rules_version: core.meta().rules_version,
+            tech_order: |a, b| a.cmp(&b),
+            shared: SharedPlay::default(),
+        })
+    })));
     Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
 }
 
