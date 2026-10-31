@@ -14,6 +14,7 @@ use ti4_engine_core_tests::windows::EmitEvent;
 
 fn table() -> AbilityTable {
     let mut t = AbilityTable::default();
+    ti4_engine_core_factions::silent::register_before_movement(&mut t);
     ti4_engine_core_factions::silent::register_abilities(&mut t);
     t
 }
