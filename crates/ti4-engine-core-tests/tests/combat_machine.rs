@@ -494,3 +494,29 @@ fn the_ships_a_retreat_cannot_hold_are_announced_at_once_with_the_retreat_cause(
     }
     assert!(stranded_seeds > 0, "the seeds cover a retreat that stranded fighters");
 }
+
+#[test]
+fn a_roll_that_empties_a_fleet_concludes_the_fight_with_the_round_of_the_roll_and_announces_its_end() {
+    covers!("rules::combat::machine::Machine");
+    // Package W10: a Crown of Thalnos reroll that destroys the lone ship of the roller ends the fight inside the roll step (the machine
+    // bailed with `RollEndsFight` before): nothing is queued, the fight is concluded in round 1 and announced once.
+    let (mut ended, mut went_on) = (0, 0);
+    for seed in 0..60u64 {
+        let sc = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 1).unit(sys(), None, Unit::CruiserI, 1, 1);
+        let mut fight = Fight::new(sc(), env(), seed);
+        fight.state.players_mut().by_seat_mut(Seat(0)).unwrap().cards.relics.push(ti4_engine_core::generated::Relic::TheCrownOfThalnos);
+        let stop = fight.settle(Policy::First);
+        assert_eq!(stop, Some(Stop::Over), "seed {seed}: no bail");
+        let (winner, rounds) = fight.fields.outcome.expect("an outcome");
+        assert_eq!(fight.count(EventKind::SpaceCombatEnded), 1);
+        let first_round_over = rounds == 1 && winner == Some(Seat(1)) && fight.ships(0, sys()) == 0;
+        let crown_kill = fight.state.board().sys(sys()).units.iter().all(|p| p.owner() != Seat(0)) && fight.count(EventKind::HitsToAssign) == 0;
+        if crown_kill && first_round_over {
+            ended += 1;
+            assert_eq!(fight.count(EventKind::SpaceCombatRoundEnded), 0, "the round never ended: the fight was over inside the roll step");
+        } else {
+            went_on += 1;
+        }
+    }
+    assert!(ended > 0 && went_on > 0, "the seeds cover both: {ended} ended inside the roll, {went_on} went on");
+}
