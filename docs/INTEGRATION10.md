@@ -44,7 +44,8 @@ Not merged, by order (still being worked): `core-m6b-tactical`, `core-w-l16`, `c
 | B6 | `rules/combat` dual test (merge 3) | `a_yin_seat_that_uses_devotion_keeps_the_composed_machine_on_the_string_and_says_why` (lane 15) pinned the bail on a producer-assigned hit that lane M5 closed; its own doc says "fails the day the machine carries it: then this test becomes a bail-as-failure test and `yin` joins the rotation" | see section 6 | R: the old assertion `!composed_keys.is_empty()` failed in the engine lib run of this branch |
 | B7 | `ti4-engine-core-tests/tests/w15_scramble_hosts.rs` | the stub card of `the_reroll_window_of_a_bombardment_emits_the_event_with_the_staged_hits_and_reads_the_faces_back` counted the PRINTED faces against the event's hits while the test's own last assertion says a 2 with a +3 is a hit: **the test fails on `core-w-l15` itself** (run on a scratch worktree of `ba43ce6a`: left 3, right 2); the code under test (`BombardRolled::staged_hits`) is right | the stub counts the adjusted faces with the same formula | R: it failed on `ba43ce6a` and on the merge; green with the stub fixed. The assertions about the window are untouched |
 | B8 | `ti4-engine/src/turn_live_tests.rs` (merge 4) | `content_ids_resolve` (the lint over the engine sources; it skips only `*_tests/` directories and `fixtures.rs`) scanned lane B's test file: three `.expect("placed")` on lines with `SystemId::new(` are id-shaped literals that match nothing in the corpus. (Lane B never ran that test.) | the message reads `"a placed planet"` | `content_ids_resolve::every_hardcoded_content_id_resolves_in_the_corpus` (existing; R: red on the merge with the three lines, green after) |
-| B9 | clippy gate (`clippy_core.sh`) | none of the lanes M2, M3, M5, M6, B ran clippy: unused imports (`Asking`, `System`, `Faction`, `Ctx`), an unused `who`, `contains` for `iter().any`, two "very complex type" in the core (`PlaysProvider`, `OneLink`) and two in the engine tests, six `mut`/unused parameters | `PlaysFn` and `BuildableFacts` aliases, `LiveRun` and `HullKey` aliases in the tests, `_`-prefixed parameters of `defense_unported` | `clippy_core.sh` (see section 7) |
+| B9 | `ti4-engine/tests/decision_delivery_inventory.rs` (merge 1) | **`core-d2-f-live2` never ran this test**: the live loop (`live/mod.rs`) asks an `Asker` with the rendered question and no view (`live_step_inner`: `asker.ask(..)`, `LoneCard::ask`: `self.0.ask(q)`); two unreviewed `AskViewless` sites, so `every_producer_and_delivery_site_matches_the_reviewed_registry` and `the_remaining_viewless_asks_stay_explicit_migration_work` failed (`cargo test` stops at the first failing binary, so the first two chain runs of this branch had not reached it) | the two sites are in `VIEWLESS_ASKS` (explicit migration work: the `Asker` is the host's seam, the product wrapper of D2-8 delivers with the view of the asking seat); the ratchet counts 1 -> 3 (registry sum and scanned total) | the two tests above (R: red on the merge with `Some(1), None` for each site; green with the sites reviewed; the ratchet was RAISED by exactly the two sites, and a third new viewless ask trips it again) |
+| B10 | clippy gate (`clippy_core.sh`) | none of the lanes M2, M3, M5, M6, B ran clippy: unused imports (`Asking`, `System`, `Faction`, `Ctx`), an unused `who`, `contains` for `iter().any`, two "very complex type" in the core (`PlaysProvider`, `OneLink`) and two in the engine tests, six `mut`/unused parameters | `PlaysFn` and `BuildableFacts` aliases, `LiveRun` and `HullKey` aliases in the tests, `_`-prefixed parameters of `defense_unported` | `clippy_core.sh` (see section 7) |
 | H1 | **the hand-over** | the aftermath's `Producing` stage was the counted gap `AftermathGap::ProductionStep` while the seat had a production capacity | section 4 | section 4 |
 
 No assertion was loosened to make a test pass; the edits of assertions and fixtures are listed in section 6.
@@ -119,11 +120,78 @@ Fixtures kept from integration 9 on the merge of `promissory_windows.rs` (`mageo
 
 ## 7. Checks (cheap), `CARGO_BUILD_JOBS=2`, private target `/root/deploytmp/int10` (profile `lockstep`, no incremental)
 
-RESULTS_TBD
+| Check | Result |
+|---|---|
+| `cargo check --workspace --all-targets` (without ti4-review, replayer, mlp, tensor, advisor), after each merge and at the end | ok |
+| `cargo test -p ti4-engine --lib` | 5019 passed, 4 ignored |
+| same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` (whole lib) | 5019 passed, 4 ignored |
+| `ti4-engine-core --lib`, `-bridge --lib` (kernel_env's lib half, `native_subject`, `islands`), `-factions --lib` (131 with the two Yin tests), `ti4-rule-bot-typed --lib` | 466, 72, 131, 1 passed |
+| bridge `--test kernel_env --test play_facts` | 1 + 2 passed |
+| `decision_delivery_inventory`, `content_ids_resolve` | 4 + 4 passed (after B8, B9) |
+| `ti4-engine-core --test adapter --test state_size` | ok (the `Aftermath.produced` field changes no size budget) |
+| `ti4-engine-core-tests` with the D4 flags of `tools/engine_core/d4/run_core_tests.sh` (lockstep profile, debug assertions and overflow checks on for the three core crates) | 130 test binaries, 1540 passed, 0 failed |
+| `check_layers.py core`, `lint_core.sh` | 480 files, 0 violations; 482 files, 0 hits |
+| `tools/engine_core/clippy_core.sh` | ok (core crates 0 warnings; engine 41 warnings, baseline 41) |
+
+Runs on the way (all fixed above): chain 1 (at the merge plus the hand-over): `content_ids_resolve` (B8), the Yin Devotion test (B6; the dual run showed it was the only failure of 5019),
+two of the new core tests (they read the typed events from the ledger; the arm hands them out in `Out.emitted`), `w15_scramble_hosts` (B7), clippy (B10). Chain 2: B8's first
+fix was wrong (`#![cfg(test)]` does not exempt a file from that lint; the lint skips only `*_tests/` directories and `fixtures.rs`). Chain 3: the delivery inventory (B9), which no earlier
+run had reached.
+
+Mutation checks of the new lines (`chain::producing`, `advance_inner`'s production branch, `Aftermath::produced`) were NOT run (heavy). Equivalence of the hand-over is
+established by the three lockstep tests against the string `Game` (they fail if the native chain asks, announces or leaves the position differently) and the three core tests.
+
+`tools/engine_core/playthrough_quick.sh` was NOT run: `playthrough --quick` runs the string `Game` under `all=dual` and `--native` is still only printed (`docs/KP_RESUME.md`
+and `docs/D2_LF2_RESUME.md`), so no game reaches the native arms of the aftermath family; its table would repeat the dual's counted bails of the lanes and prove nothing about this merge.
+
+Not run (user rule): `end_of_d1.sh` and its steps (golden / wide dual, `board_equivalence`, `core_sync_gate`, `alpha_roundtrip`, benches, soak, mutation ratchet, census, workspace clippy beyond
+`clippy_core.sh`), `decision_replay` and `reaction_corpus` (the other two engine test binaries), mutation batches, `TI4_CORE_STRICT=1`, Playwright. Not pushed.
 
 ## 8. Remaining gates, consolidated
 
-RESULTS_TBD
+Dropped by decision (not open): Last Bastion, Crimson Rebellion, Keleres, Deepwrought, Firmament, Obsidian, Ral Nel (Alarum, Data Skimmer), Proxima Targeting VI, deck reserve and turn redo,
+structured diplomacy. Thunder's Edge: Heart of Ixth, Saar Deorbit Barrage, Arborec Psychospore, the Yin breakthrough and the Ascendant, the Deepgloom Executable, L1Z1X Fealty Uplink, the
+Fracture neutral force and the first claim of a Fracture planet, Coexistence, Slumberstate, the TE auto-factories token. Items 1 to 11 of `docs/INTEGRATION9.md` section 6 stand unless
+named below.
+
+Open, product-reachable, in the order I would do them. "Silent" means the native path differs from the string WITHOUT a counted bail: those come first, because the zero-bail rule cannot see them.
+
+1. **SILENT: abilities the string registers and the core registry lacks** (M6 open item 2; the live `Env` registry is the core table). Found by the lockstep sweeps: the **Saar agent**
+   (`leader:saar:saaragent:SYSTEM_ACTIVATED:after`: the string asks, the core does not) and **Nomad's Mercer** (`...nomadagentmercer:TACTICAL_ACTION_ENDED:after`: the string asks three more
+   questions and exhausts the agent after the production step; the native tail does emit `TACTICAL_ACTION_ENDED`). Audit the rest per faction (`ghost.rs` has about 15, Aether Passage,
+   `technology:as`) with a registry comparison, and make a string-registered ability without a core twin a counted bail of the live path (`Unknown`). Also silent: the Naalu Matriarch's
+   `temporary_ground_force` and the generic may-sustain prohibitions (M3: the live kernel has no provider), and the `previews` of a played card's reaction question (M2, lane A2's display fact).
+   Temporal Command Suite itself and Mercer are the Nomad rows of `INTEGRATION9` section 6 item 4.
+2. **Tactical activation hooks that ask** (M6 open item 1): Spatial Conduit Cylinders, Scanlink Drone Network (needs the exploration window: now native), Nullification Field and Starlancer
+   (end the turn), Minister of Peace, the Dominus Orb (`explore_windows::DominusOrb` exists), Mahact; a **Titans seat** bails `TacticalGap::ActivationHook` at the first activation (seen in the
+   dock sweep). Then: ship routes (`Opt::Move.route`, rules version 29+), a space cannon hit that needs a question (`CannonHits`), the tail's Crown of Emphidia / Dark Energy Tap explorations (the
+   exploration window is native now), Ssruu-borrowed agents (`SsruuLends`), Nova Seed (the per-step map replay).
+3. **Turn flow** (lane B): `CommanderUnlock` (the `commander_unlocked` hook slots of 12 factions) and `leader_action` (17 hero / agent windows) of lane F2 (running), `ChaosMapping` (**unblocked by
+   this merge**: `ProduceOne` is resumable data since M2, `OneLink`), `MenuSources` (the closing menu's free options), `AskArm(n)` for every question source but the draft, the starting technology and
+   the closing menu (the action menu, the secondary, ...: `ask_ask` / `advance_ask`), `ImperialArbiter`, `QuantumDatahub`, `MapEdits`, `Propagation` (Nekro); `RELIC_GAINED` and
+   `BREAKTHROUGH_GAINED` carry the player only.
+4. **Production** (M2): the callers other than the aftermath: the Warfare secondary, Construction and Leadership composers (lane E) still run `Spawn::Home` (duplicating the start and end effects
+   without `UNITS_PRODUCED`), the leader windows (`ArborecHero`, Muaat) keep `Spawn::Produce` with the adapter's `finish_uses`; they can open `UseOpen::Home` / `UseOpen::Ability` as sub-windows.
+   The buildable units and the fleet limit are read when the use starts (a reaction that changes them mid-use is not followed). Exploration Probe still has its own copy of the frontier arms
+   (`Fx::Probe`: plan in `docs/M2_RESUME.md`).
+5. **Invasion** (M3, counted `Unported`): Dacxive Animators, The Thundarian watching, hits added to a roll, X-89 in the round, the Jol-Nar commander's reroll of the bombardment dice
+   (`INTEGRATION9` item 7 for the dual; the live window has no walk for it either), Integrated Economy (dropped, kept as a bail).
+6. **Aftermath and combat** (M5): the Spinner (a placement over planets AND ship spaces after `UNITS_PRODUCED`; the production step is native now, so it is reachable), Duranium Armor repair
+   queues and a retreat the core does not move (`CombatUnported`), `RollEndsFight`; a Devotion hit plus a retreat of the same round is untested (`round_end_produced` is not kept between two calls);
+   the reroll questions (Jol-Nar commander, Munitions Reserves, Hacan flagship, Crowns) are in no live lockstep; `award_tail` for a leaked secret scored as a public objective; the **Yin hero's scoring
+   window** (`INTEGRATION9` item 1) is **unblocked**: `EventScoring` exists as a window the hero can open. Van Hauge is native in the live machine; the dual's composed machine still follows the string
+   for it.
+7. **Action cards played inside another window** (`INTEGRATION9` item 3 and `docs/W_L15_RESUME.md`): Upgrade, Decoy Operation, Harness Energy and Experimental Battlestation have a host now
+   (the native activation and movement steps of M6): flip `Fx::nested` per card where the facts are in `SeatPlayMore` / `SharedPlay`; Infiltrate, Bribery, Lie in Wait and Crash Landing wait for
+   the control, vote and transaction hosts. The bombardment reroll window and the cannon offense are gated for the Jol-Nar commander and the Heart of Ixth.
+8. **Oracle wiring**: `NativeSubject::open_arm` has no line for EventScoring, Tactical and Aftermath (section 5); the observed sub-windows of D1 would have to be typed first for the last two.
+9. **No game plays natively end to end**: `playthrough --native` is only printed; the arms are proven by lockstep tests against the string `Game`, one arm family at a time. The wrapper of D2-8
+   (`live_reconcile`, `live_step`, the `Asker` that delivers with views: the two `VIEWLESS_ASKS` sites of B9) is what makes the zero-bail playthrough possible, and it has not been written.
+
+Heavy gates still to run once a zero-bail playthrough is possible (commands in `docs/INTEGRATION7.md` 10.4 and `tools/engine_core/end_of_d1.sh`): golden and wide dual sweeps, `board_equivalence`,
+`core_sync_gate --strict`, `alpha_roundtrip --strict`, the benches, `census` (and the post-fix numbers of `docs/LENT_CENSUS.md`, which lanes 10 to 15, M2, M3, M5, M6 and B did not re-count), `soak`, the D4
+gate steps, the mutation ratchet (`mutation_floor.json`) and the mutation batches named in the resume notes (M2: `production/mod.rs`; M5: `chain.rs` has about 38 unclassified survivors against the core tests
+alone; B: see `docs/KP_RESUME.md`), workspace clippy, `TI4_CORE_STRICT=1` on the golden games.
 
 ## 9. Tip
 
