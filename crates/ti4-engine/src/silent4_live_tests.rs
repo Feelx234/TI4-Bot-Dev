@@ -280,3 +280,72 @@ fn the_core_hook_secondary_waived_pays_jae_mir_kan_like_the_string() {
         assert_eq!(staged_core.len(), usize::from(watching && token && status == LeaderStatus::Readied), "{label}: the Nomad is told once, when the agent is exhausted");
     }
 }
+
+// -- Riftmeld (the Cabal): the research waiver and its payment ---------------------------------------------------------------------
+
+#[test]
+fn the_core_hooks_research_waiver_offer_and_paid_answer_like_the_string_for_riftmeld() {
+    use crate::core_sync::{materialize, Codec, Ctx, Sources};
+    use ti4_engine_core::state::SliceSet;
+    use ti4_model::id::{TechnologyId, UnitTypeId};
+    let content = ti4_content::ContentStore::embedded();
+    let hub = crate::fixtures::plain_hub();
+    // The captured models (owner, unit) and the technology researched; each case differs in what the Cabal holds.
+    let cases: [(&str, &[(&str, &str)], &str, &str); 7] = [
+        ("a cruiser II, a cruiser held", &[("b", "cruiser")], "cr2", "a"),
+        ("two owners, two forms", &[("b", "cruiser"), ("c", "cruiser"), ("b", "carrier")], "cr2", "a"),
+        ("nothing of that type", &[("b", "carrier")], "cr2", "a"),
+        ("nothing captured", &[], "cr2", "a"),
+        ("a technology that upgrades no unit", &[("b", "cruiser")], "ps", "a"),
+        ("not the Cabal", &[("b", "cruiser")], "cr2", "b"),
+        ("infantry", &[("b", "infantry"), ("c", "infantry")], "gd", "a"),
+    ];
+    let _ = hub.centre.len();
+    for (label, captured, tech, researcher) in cases {
+        let mut state = action_table(&[("a", "cabal"), ("b", "hacan"), ("c", "sol")]);
+        state.player_mut(&pid("a")).unwrap().captured_units = captured.iter().map(|(owner, unit)| (pid(owner), UnitTypeId::new(*unit))).collect();
+        let state = based(state);
+        let tech_id = TechnologyId::new(tech);
+        // The string's offer.
+        let string_offer = crate::factions::hooks_strategy::research_waiver_offers(&state, content, &pid(researcher), &tech_id);
+        // The core's.
+        let mut cx = Ctx::of(&state).expect("a table the codecs carry");
+        let positions = crate::game::Game::with_table(state.clone(), ti4_content::ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption))).rng_positions();
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&positions) }, SliceSet::ALL).expect("the position loads");
+        let kernel = crate::live::kernel::kernel_for(ti4_model::content_types::DEFAULT);
+        let seat = |name: &str| ti4_engine_core::Seat(u8::try_from(["a", "b", "c"].iter().position(|n| *n == name).unwrap()).unwrap());
+        let core_tech = <ti4_engine_core::generated::Technology as crate::generated::IdStr>::from_id(tech).expect("a technology");
+        let offer = kernel.hooks.strategy.research_waiver_offer(&core, kernel, seat(researcher), core_tech);
+        let string_payments: Vec<String> = string_offer.iter().flat_map(|(_, w)| w.payments.iter().map(|p| p.id.clone())).collect();
+        let owner_text = |s: ti4_engine_core::Seat| ["a", "b", "c"][usize::from(s.0)];
+        let mut string_set: Vec<String> = string_payments.clone();
+        string_set.sort();
+        string_set.dedup();
+        let mut core_payments: Vec<String> = offer.iter().flat_map(|w| w.payments.as_slice().iter().map(|p| {
+            let (owner, unit) = (ti4_engine_core::Seat(u8::try_from(p.code >> 8).unwrap()), ti4_engine_core::generated::Unit::from_index(usize::from(p.code & 0xff)).unwrap());
+            format!("captured|{}|{}", owner_text(owner), crate::generated::IdStr::as_str(unit))
+        })).collect();
+        core_payments.sort();
+        assert_eq!(string_offer.is_empty(), offer.is_none(), "{label}: offered alike");
+        assert_eq!(core_payments, string_set, "{label}: the same payments (a model held twice is one payment)");
+        // Paying each payment: the same model leaves the Cabal's sheet.
+        for payment in &string_set {
+            let mut string = state.clone();
+            let paid_string = crate::factions::hooks_strategy::research_waiver_paid(&mut string, content, &pid(researcher), &tech_id, 0, payment);
+            let mut after = core.clone();
+            let code = offer.as_ref().unwrap().payments.as_slice().iter().find(|p| {
+                let (owner, unit) = (ti4_engine_core::Seat(u8::try_from(p.code >> 8).unwrap()), ti4_engine_core::generated::Unit::from_index(usize::from(p.code & 0xff)).unwrap());
+                format!("captured|{}|{}", owner_text(owner), crate::generated::IdStr::as_str(unit)) == *payment
+            }).copied().unwrap();
+            let mut asker = ti4_engine_core::kernel::FirstOption;
+            let paid_core = {
+                let mut hook_cx = ti4_engine_core::kernel::Cx::new(&mut after, kernel, &mut asker);
+                kernel.hooks.strategy.research_waiver_paid(&mut hook_cx, seat(researcher), core_tech, code)
+            };
+            assert_eq!(paid_string, paid_core, "{label}: {payment} paid alike");
+            let native = materialize::materialize(&after, &cx, &state).expect("materializes");
+            let diffs = crate::dual::diff_json(&serde_json::to_value(&string).unwrap(), &serde_json::to_value(&native).unwrap(), 12);
+            assert!(diffs.is_empty(), "{label}: {payment}: {diffs:?}");
+        }
+    }
+}
