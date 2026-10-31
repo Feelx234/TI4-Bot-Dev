@@ -12,3 +12,4 @@ pub mod scoring;
 pub mod status;
 pub mod status_bookkeeping;
 pub mod status_finish;
+pub mod trade;

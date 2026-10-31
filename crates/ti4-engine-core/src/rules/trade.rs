@@ -8,39 +8,11 @@
 use crate::generated::{ExploreType, Faction, Planet, PromissoryNote};
 use crate::ids::Seat;
 use crate::kernel::fx;
-use crate::kernel::Kernel;
 use crate::query::promissory as qn;
-use crate::query::trade::{Env, NoteMove, Offer, Terms};
-use crate::state::{CoreState, LedgerReason, NoteKey, TransientFlags, VpRec};
+use crate::query::trade::{NoteMove, Offer, Terms};
+use crate::state::{CoreState, LedgerReason, NoteKey, VpRec};
 
-/// The hooks of the A5 table answer the two slots that exist there; the rest is neutral.
-pub struct KernelEnv<'a> {
-    pub core: &'a CoreState,
-    pub kernel: &'a Kernel,
-}
-
-impl Env for KernelEnv<'_> {
-    fn has_iihq(&self, _: Seat) -> bool {
-        false
-    }
-    fn wide(&self, who: Seat) -> bool {
-        self.kernel.hooks.general.ignores_neighbours(self.core, self.kernel, who)
-    }
-    fn transaction_reach(&self, _: Seat, _: Seat) -> bool {
-        false
-    }
-    fn exempt_from_limit(&self, _: Seat, _: Seat) -> bool {
-        false
-    }
-    fn trades_action_cards(&self, who: Seat) -> bool {
-        self.kernel.hooks.general.trades_action_cards(self.core, self.kernel, who)
-    }
-    fn black_market(&self) -> bool {
-        self.core.transient().misc.flags.has(TransientFlags::BLACK_MARKET)
-    }
-}
-
-
+pub use crate::kernel::trade_env::{lie_in_wait_traders, open_partners_live, with_cx, KernelEnv};
 
 /// `transactions::take`: remove what a seat gives away (goods, commodities, fragments, the first
 /// matching action card and secret).
@@ -155,6 +127,36 @@ pub fn exchange(core: &mut CoreState, offer: &Offer) -> Option<()> {
     give(core, offer.partner, &offer.given);
     give(core, offer.proposer, &offer.received);
     Some(())
+}
+
+/// `empyrean_units::dark_pact_gains`, after a transaction resolved: each side that gave the Empyrean exactly its maximum commodity value
+/// while holding a faceup Dark Pact of the Empyrean's gains 1 trade good, and so does the Empyrean. The gains are staged
+/// (`TRADE_GOODS_GAINED`, source `source`; only while `staging`, `supply::staging_enabled`), the giver's first.
+pub fn dark_pact_gains(core: &mut CoreState, offer: &Offer, source: crate::state::Code, staging: bool) {
+    let sides = [(offer.proposer, offer.partner, &offer.given), (offer.partner, offer.proposer, &offer.received)];
+    let mut gains: Vec<(Seat, Seat)> = Vec::new();
+    for (giver, receiver, terms) in sides {
+        let (Some(giver_faction), Some(receiver_faction)) = (qn::faction_of(core, giver), qn::faction_of(core, receiver)) else { continue };
+        let key = NoteKey { note: PromissoryNote::DarkPact, faction: receiver_faction };
+        // mutants:skip (the maximum value is never 0 and a seat does not deal with itself: the two tests are guards)
+        if terms.commodities > 0
+            && giver != receiver
+            && core.cards().promissory.get(&key) == Some(&giver)
+            && core.cards().promissory_faceup.contains_key(&key)
+            && terms.commodities == i32::from(giver_faction.data().commodities)
+        {
+            gains.push((giver, receiver));
+        }
+    }
+    for (giver, receiver) in gains {
+        for who in [giver, receiver] {
+            if staging {
+                fx::gain_trade_goods_staged(core, who, 1, source);
+            } else {
+                fx::gain_trade_goods(core, who, 1);
+            }
+        }
+    }
 }
 
 /// `GameState::record_transaction`: LRR 94.1 limits each pair, so both sides remember it.

@@ -280,7 +280,13 @@ pub(super) fn trade_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
     if p.done {
         return Err("a finished transaction window");
     }
+    let mut free = [None, None];
     let deal = match &p.answering {
+        Some((offer, id)) if id.starts_with(crate::transactions::FREE_FORM_PREFIX) => {
+            // A deal the proposer named: its terms are kept in slot 0 of the payload.
+            free[0] = Some(crate::live::trade::spec_of(offer).ok_or("a free-form deal the typed tables do not name")?);
+            Some(ti4_engine_core::choice::trade::Shape::Free(0))
+        }
         Some((_, id)) => {
             // The Support swap names the two factions; its option id does not.
             let faction = |who: &PlayerId| crate::core_adapter::typed::<Faction>(g.state.player(who)?.faction.as_str());
@@ -289,17 +295,26 @@ pub(super) fn trade_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
         }
         None => None,
     };
-    Ok(Some(Window::Trade(Trade { proposer: seat(r, &p.proposer)?, partner: seat(r, &p.partner)?, rounds_left: p.rounds_left, deal })))
+    // A string window exists only after the step that opened it, which announced `TRANSACTION_OPENED`.
+    Ok(Some(Window::Trade(Trade { proposer: seat(r, &p.proposer)?, partner: seat(r, &p.partner)?, rounds_left: p.rounds_left, deal, free, announced: true })))
 }
 
 /// What a typed transaction stands for, as far as the string window can be compared without its terms (those are a function
-/// of the shape and the position): the two chairs, the proposals left and the option id of the deal on the table.
+/// of the shape and the position): the two chairs, the proposals left and the option id of the deal on the table (a free-form deal
+/// is written canonically: `live::trade::text_of`).
 pub(super) fn trade_key(t: &Trade, r: &Render) -> (PlayerId, PlayerId, u8, Option<String>) {
-    (r.player(t.proposer), r.player(t.partner), t.rounds_left, t.deal.map(|s| crate::render::trade::deal_option(s).id))
+    let id = |s: ti4_engine_core::choice::trade::Shape| match s {
+        ti4_engine_core::choice::trade::Shape::Free(i) => t.free.get(usize::from(i)).copied().flatten().map(|f| crate::live::trade::text_of(&f)).unwrap_or_default(),
+        _ => crate::render::trade::deal_option(s).id,
+    };
+    (r.player(t.proposer), r.player(t.partner), t.rounds_left, t.deal.map(id))
 }
 
 /// The same key read off the string window.
 pub(super) fn trade_key_of(g: &Game<'_>) -> Option<(PlayerId, PlayerId, u8, Option<String>)> {
     let p = g.trade.as_ref()?.parts();
-    Some((p.proposer, p.partner, p.rounds_left, p.answering.map(|(_, id)| id)))
+    let id = |(offer, id): (crate::transactions::Offer, String)| {
+        if id.starts_with(crate::transactions::FREE_FORM_PREFIX) { crate::live::trade::spec_of(&offer).map(|f| crate::live::trade::text_of(&f)).unwrap_or(id) } else { id }
+    };
+    Some((p.proposer, p.partner, p.rounds_left, p.answering.map(id)))
 }

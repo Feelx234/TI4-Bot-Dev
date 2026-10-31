@@ -33,8 +33,9 @@ impl Family for Fam {
     type Opt = Opt;
     type Subtype = Subtype;
 
-    fn prompt(_: &Render, a: &Ask) -> String {
+    fn prompt(r: &Render, a: &Ask) -> String {
         match a {
+            Ask::TcsTransaction { partner } => return format!("Temporal Command Suite: perform a transaction with {}", r.player(*partner)),
             Ask::Psychoarchaeology => "Psychoarchaeology: exhaust a specialty for 1 trade good",
             Ask::Restack => "Predictive Intelligence: redistribute command tokens",
             Ask::BioStims => "Bio-Stims",
@@ -65,6 +66,7 @@ impl Family for Fam {
             Subtype::CreussToken => "creuss_token",
             Subtype::ChaosMappingChooseSystem => "chaos_mapping_choose_system",
             Subtype::StartingTechnology => "starting_technology",
+            Subtype::TcsTransaction => "tcs_transaction",
         }
         .to_owned()
     }
@@ -73,6 +75,8 @@ impl Family for Fam {
         match (a, o) {
             // The label is the printed name; the colour, the owners (Keleres) and the count of prerequisites are the caller's display
             // facts (`live::turn::complete`).
+            (Ask::TcsTransaction { partner }, Opt::Transact) => ChoiceOption::labelled("transact", "technology", format!("transact with {}", r.player(*partner))),
+            (_, Opt::Transact) => ChoiceOption::labelled("transact", "technology", "transact"),
             (_, Opt::Tech(tech)) => {
                 let id = tech.as_str();
                 let name = crate::technology::name(ti4_content::ContentStore::embedded(), &ti4_model::id::TechnologyId::new(id));
@@ -140,6 +144,7 @@ impl Family for Fam {
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
             Ask::StartingTech { .. } => Technology::from_id(id).map(Opt::Tech),
+            Ask::TcsTransaction { .. } => (id == "transact").then_some(Opt::Transact),
             Ask::ProductionBiomes => r.seat(id).map(Opt::Player),
             Ask::ChaosMapping => System::from_id(id).map(Opt::System),
             Ask::WormholeGenerator => {

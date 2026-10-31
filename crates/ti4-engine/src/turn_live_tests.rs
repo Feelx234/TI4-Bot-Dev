@@ -47,7 +47,7 @@ impl Decider for Script {
         }) else {
             return Err(IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() });
         };
-        choice.options.iter().find(|o| o.id == id).cloned().ok_or_else(|| panic!("the script answers {id:?}, the question {:?} offers {:?}", choice.prompt, choice.ids()))
+        choice.answer_for(&id).ok_or_else(|| panic!("the script answers {id:?}, the question {:?} offers {:?}", choice.prompt, choice.ids()))
     }
 }
 

@@ -2032,8 +2032,11 @@ impl Play {
             if self.fx == Fx::Lie {
                 // The next trader (of the first two) who holds a card.
                 self.victim = None;
-                while usize::from(self.step) < self.env.facts.traders.len() {
-                    let held = self.env.facts.traders[usize::from(self.step)]
+                // The neighbours who traded: the adapter's fact when it gave one (the string's play window), else read from the position as
+                // it stands NOW (a live window: the deal that opened this window was struck in the very call that plays the card).
+                let traders = if self.env.facts.traders.iter().any(Option::is_some) { self.env.facts.traders } else { crate::kernel::trade_env::lie_in_wait_traders(core, k, self.who) };
+                while usize::from(self.step) < traders.len() {
+                    let held = traders[usize::from(self.step)]
                         .filter(|v| core.players().by_seat(*v).is_some_and(|p| !p.cards.hand.is_empty()));
                     if let Some(v) = held {
                         self.victim = Some(v);

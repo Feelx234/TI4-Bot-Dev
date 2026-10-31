@@ -34,6 +34,9 @@ pub fn codes(r: &Render) -> TurnCodes {
         spec_ops: r.code("spec ops II"),
         strategy_card: r.code("strategy_card"),
         starting_technology: r.code("starting_technology"),
+        transaction: r.code("transaction"),
+        dark_pact: r.code("dark_pact"),
+        tcs: r.code("tcs"),
     }
 }
 

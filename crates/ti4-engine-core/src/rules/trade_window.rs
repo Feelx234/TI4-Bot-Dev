@@ -12,19 +12,29 @@
 //!   (it opens the reaction windows of the table).
 //!
 //! The facts that are not in the typed state come with the window ([`DealFacts`]).
+//!
+//! # Held on the stack (package M1, the live loop)
+//!
+//! [`TradeWindow`] is also a `Held` window (`Window::Trade(state::Trade)`): the live loop rebuilds it from the payload and the position at
+//! every call ([`live_facts`] reads the reach, the Arbiters, the commanders and the free-form deal from the CORE) and runs it to the next
+//! question. A window built that way ([`TradeWindow::is_live`]) does what the string's `Game::step_trade` does around the answer: it
+//! announces `TRANSACTION_OPENED` in its first call, stages the `TRADE_GOODS_GAINED` events of an accepted deal (and Dark Pact's), emits the typed
+//! `TRANSACTION_RESOLVED` (the reaction windows of the table open there) and the plain event of the outcome, and clears the Black Market mark
+//! when the negotiation ended after an answer. The windows of the dual (`At`, `single`) do none of it: the string still does it for them.
 
 use crate::choice::trade::{Ask, Opt, Shape, Subtype};
 use crate::choice::{Choice, Ctx, Opt as COpt, Opts, Origin, Pick, Subtype as CSub, Target};
 use crate::choice::generic::Rule;
 use crate::ids::Seat;
-use crate::kernel::stage::{Illegal, Sx, Window};
+use crate::kernel::fx;
+use crate::kernel::stage::{Held, Illegal, Runner, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::promissory as qn;
 use crate::query::trade::{self as q, Illegal as Why};
 use crate::query::trade_deals::{self as deals_q, DealFacts};
-use crate::state::CoreState;
+use crate::state::{CoreState, EventKind, Key, PlainKind, PlainRec, Trade, TransientFlags, Val, Window as OpenWindow, WindowKind};
 
-use super::trade::{exchange, record_resolved};
+use super::trade::{dark_pact_gains, exchange, record_resolved};
 
 pub use crate::query::trade_deals::deals;
 
@@ -69,13 +79,21 @@ pub struct TradeWindow {
     single: bool,
     /// The outcome of the last answer.
     pub outcome: Option<Outcome>,
+    /// The window is held on the stack by the live loop: it also does what the string does around an answer (see the module docs).
+    live: bool,
+    /// `TRANSACTION_OPENED` was announced.
+    announced: bool,
+    /// The position has no map: the string drops the window without a word.
+    unmapped: bool,
+    /// No plain event follows an answer (the transaction Temporal Command Suite allows is an effect of a card: the string logs nothing).
+    quiet: bool,
 }
 
 impl TradeWindow {
     /// A negotiation just opened: `proposer` is to propose, with two proposals to spend.
     #[must_use]
     pub fn open(proposer: Seat, partner: Seat, facts: DealFacts) -> Self {
-        Self { proposer, partner, stage: TStage::Proposing, deal: None, rounds_left: 2, facts, single: false, outcome: None }
+        Self { proposer, partner, stage: TStage::Proposing, deal: None, rounds_left: 2, facts, single: false, outcome: None, live: false, announced: true, unmapped: false, quiet: false }
     }
 
     /// A negotiation at a position the string engine is in: waiting for a proposal, or for the answer to `deal`.
@@ -90,7 +108,19 @@ impl TradeWindow {
             facts,
             single: false,
             outcome: None,
+            live: false,
+            announced: true,
+            unmapped: false,
+            quiet: false,
         }
+    }
+
+    /// The transaction an effect allows (Temporal Command Suite): `proposer` proposes to `partner` at once, the whole negotiation runs through the
+    /// questions of the effect ([`run_inline`]). It stages the gains and emits the typed `TRANSACTION_RESOLVED` as a live window does, announces
+    /// no opening and logs no plain event.
+    #[must_use]
+    pub fn inline(proposer: Seat, partner: Seat, facts: DealFacts) -> Self {
+        Self { live: true, quiet: true, ..Self::open(proposer, partner, facts) }
     }
 
     /// Stop after the next answer (the adapter's one string step).
@@ -130,6 +160,19 @@ impl Window for TradeWindow {
         if self.single && self.outcome.is_some() {
             return Next::Done;
         }
+        if self.unmapped {
+            // `Game::step_trade` without a galaxy: the window is dropped, nothing is asked or said.
+            self.stage = TStage::Done;
+            return Next::Done;
+        }
+        if self.live && !self.announced {
+            self.announced = true;
+            if self.announce_opened(sx).is_err() {
+                sx.unknown(crate::kernel::ability::Unknown::TurnGap(crate::kernel::turn_codes::TurnGap::EmissionRefused));
+                self.stage = TStage::Done;
+                return Next::Done;
+            }
+        }
         match self.stage {
             TStage::Proposing => {
                 if deals(sx.state, &self.facts, self.proposer, self.partner).is_empty() {
@@ -155,7 +198,7 @@ impl Window for TradeWindow {
     }
 
     fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
-        if self.single && self.outcome.is_some() {
+        if (self.single && self.outcome.is_some()) || self.unmapped || (self.live && !self.announced) {
             return None;
         }
         match self.stage {
@@ -196,6 +239,16 @@ impl Window for TradeWindow {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        self.answer_inner(sx, pick)?;
+        if self.live {
+            self.after_answer(sx);
+        }
+        Ok(())
+    }
+}
+
+impl TradeWindow {
+    fn answer_inner(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         let Pick::Opt(opt) = pick else { return Err(Illegal) };
         match self.stage {
             TStage::Proposing => {
@@ -212,7 +265,13 @@ impl Window for TradeWindow {
                 if let Some(why) = self.why_illegal(sx.state, shape) {
                     return self.end(Outcome::Rejected(why));
                 }
-                self.deal = Some(shape);
+                // The deal on the table is slot 0 of the free deals, whichever slot the proposer named it in.
+                if let Shape::Free(i) = shape {
+                    self.facts.free = [self.facts.free.get(usize::from(i)).copied().flatten(), None];
+                    self.deal = Some(Shape::Free(0));
+                } else {
+                    self.deal = Some(shape);
+                }
                 self.stage = TStage::Answering;
                 self.outcome = Some(Outcome::Offered);
                 Ok(())
@@ -229,6 +288,16 @@ impl Window for TradeWindow {
                         // A Support leg of a faction two seats play: the string decides (the adapter keeps such
                         // a table on the string).
                         exchange(sx.state, &offer).ok_or(Illegal)?;
+                        if self.live {
+                            // `transactions::resolve`: the gains are staged (announced by the next reconcile), Dark Pact's after them. The string
+                            // stages only while some seated faction has a module (`supply::staging_enabled`).
+                            let (source, staging) = (sx.table.codes.turn.transaction, sx.table.facts.staging);
+                            if staging {
+                                fx::stage_gain(sx.state, offer.partner, offer.given.trade_goods + offer.given.commodities, source);
+                                fx::stage_gain(sx.state, offer.proposer, offer.received.trade_goods + offer.received.commodities, source);
+                            }
+                            dark_pact_gains(sx.state, &offer, sx.table.codes.turn.dark_pact, staging);
+                        }
                         record_resolved(sx.state, self.proposer, self.partner);
                         self.end(Outcome::Resolved)
                     }
@@ -241,6 +310,7 @@ impl Window for TradeWindow {
                         // The counter is the same negotiation from the other chair.
                         core::mem::swap(&mut self.proposer, &mut self.partner);
                         self.deal = None;
+                        self.facts.free = [None, None];
                         self.stage = TStage::Proposing;
                         self.outcome = Some(Outcome::Countered);
                         Ok(())
@@ -265,6 +335,146 @@ impl TradeWindow {
     #[must_use]
     pub const fn parties(&self) -> (Seat, Seat) {
         (self.proposer, self.partner)
+    }
+}
+
+impl TradeWindow {
+    /// The window as the live loop holds it: whether it announces and clears around the answers (see the module docs).
+    #[must_use]
+    pub const fn is_live(&self) -> bool {
+        self.live
+    }
+
+    /// `Game::apply_choice`'s `emit_typed("TRANSACTION_OPENED")`: the chairs are named, either of them may hold the card played "when you
+    /// are negotiating a transaction".
+    fn announce_opened(&self, sx: &mut Sx<'_>) -> Result<(), crate::kernel::resolver::TimingError> {
+        let payload = crate::state::Payload::new().with(Key::Player, Val::Seat(self.proposer)).with(Key::Partner, Val::Seat(self.partner));
+        sx.emit_mirrored(fx::event(EventKind::TransactionOpened, payload)).map(|_| ())
+    }
+
+    /// What `Game::step_trade` does after the window's answer: the typed `TRANSACTION_RESOLVED` of a deal struck (the reaction windows of
+    /// the table open there), then the plain event of the outcome.
+    fn after_answer(&mut self, sx: &mut Sx<'_>) {
+        let Some(outcome) = self.outcome else { return };
+        if outcome == Outcome::Resolved {
+            let payload = crate::state::Payload::new().with(Key::Proposer, Val::Seat(self.proposer)).with(Key::Partner, Val::Seat(self.partner));
+            // The transaction an effect allows is mirrored with the event whose window it runs in (the outer emission mirrors the journal once).
+            let rec = fx::event(EventKind::TransactionResolved, payload);
+            if (if self.quiet { sx.emit(rec) } else { sx.emit_mirrored(rec) }).is_err() {
+                sx.unknown(crate::kernel::ability::Unknown::TurnGap(crate::kernel::turn_codes::TurnGap::EmissionRefused));
+                return;
+            }
+        }
+        let kind = match outcome {
+            Outcome::Resolved => PlainKind::Transaction,
+            Outcome::Refused => PlainKind::TransactionRefused,
+            Outcome::Offered => PlainKind::TransactionOffered,
+            Outcome::Countered => PlainKind::Counteroffer,
+            Outcome::Rejected(_) => PlainKind::TransactionRejected,
+            Outcome::NothingOffered => PlainKind::TransactionAbandoned,
+        };
+        if !self.quiet {
+            sx.plain(PlainRec::bare(kind));
+        }
+    }
+}
+
+/// Run a [`TradeWindow::inline`] to its end inside an effect: every question goes to the tape of `rt`, every answer is applied with its services
+/// (the transaction Temporal Command Suite allows: the string's `while !window.is_complete()` loop).
+pub fn run_inline<R: Runner>(rt: &mut R, mut window: TradeWindow) {
+    loop {
+        let choice = {
+            let (state, kernel) = rt.read();
+            window.ask_of(state, kernel)
+        };
+        let Some(choice) = choice else { return };
+        let pick = rt.ask(&choice);
+        if rt.with_sx(|sx| window.answer(sx, pick)).is_err() {
+            return;
+        }
+    }
+}
+
+/// `transactions::may_transact` and the rest of the deal facts of a window from the CORE: the reach by the map, the Arbiters, the unlocked
+/// commanders and the free-form deals of the payload, each with the facts of the position they are read against (`None`: the position has
+/// no map).
+#[must_use]
+pub fn live_facts(core: &CoreState, k: &Kernel, t: &Trade) -> Option<DealFacts> {
+    let (p, r) = (t.proposer, t.partner);
+    let mut facts = super::trade::with_cx(core, k, |cx| DealFacts {
+        note_order: deals_q::note_order,
+        card_order: deals_q::card_order,
+        unlocked: deals_q::commander_unlocked_mask(core),
+        pair: (p, r),
+        may: [q::may_transact(cx, p, r), q::may_transact(cx, r, p)],
+        arbiters: [cx.env.trades_action_cards(p), cx.env.trades_action_cards(r)],
+        planet_values: deals_q::planet_values(),
+        free: [None, None],
+    })?;
+    for (slot, spec) in t.free.iter().enumerate() {
+        facts.free[slot] = spec.map(|s| deals_q::free_deal(core, &facts, p, r, &s));
+    }
+    Some(facts)
+}
+
+pub use crate::query::trade::{MAX_NEGOTIATIONS_PER_ACTION, MAX_NEGOTIATIONS_PER_ROUND};
+
+/// The payload's form of a free-form deal the window holds: the terms without the facts of the position.
+fn spec_of(deal: &deals_q::FreeDeal) -> crate::state::FreeSpec {
+    let terms = |t: &q::Terms| crate::state::FreeTerms {
+        trade_goods: t.trade_goods,
+        commodities: t.commodities,
+        fragments: t.fragments,
+        note: t.note.and_then(|n| n.mv).map(|m| match m {
+            q::NoteMove::Held(key) => crate::state::FreeNote::Held(key),
+            q::NoteMove::Support(owner) => crate::state::FreeNote::Support(owner),
+        }),
+        action_card: t.action_card,
+        secret: t.secret,
+        planet: t.planet.and_then(|p| p.mv),
+    };
+    crate::state::FreeSpec { given: terms(&deal.given), received: terms(&deal.received) }
+}
+
+impl Held for TradeWindow {
+    const KIND: WindowKind = WindowKind::Trade;
+
+    fn from_pending(core: &CoreState, k: &Kernel) -> Option<Self> {
+        let OpenWindow::Trade(t) = core.pending().window(WindowKind::Trade)? else { return None };
+        let facts = live_facts(core, k, t);
+        let mut window = Self::at(t.proposer, t.partner, t.deal, t.rounds_left, facts.unwrap_or_else(|| empty_facts(t)));
+        window.live = true;
+        window.announced = t.announced;
+        window.unmapped = facts.is_none();
+        Some(window)
+    }
+
+    fn to_pending(&self, core: &mut CoreState) {
+        let free = [self.facts.free[0].as_ref().map(spec_of), self.facts.free[1].as_ref().map(spec_of)];
+        core.pending_mut().open(OpenWindow::Trade(Trade { proposer: self.proposer, partner: self.partner, rounds_left: self.rounds_left, deal: self.deal, free, announced: self.announced }));
+    }
+
+    /// The negotiation ended: the Black Market mark it was set for dies with it, unless the window was dropped before any answer
+    /// (`Game::step_trade` clears it after an answer only).
+    fn closed(&self, core: &mut CoreState, _: &Kernel) {
+        if self.outcome.is_some() {
+            core.transient_mut().misc.flags.clear(TransientFlags::BLACK_MARKET);
+        }
+    }
+}
+
+/// The facts of a window on a position without a map: nothing is reachable, nothing is asked ([`TradeWindow::unmapped`]).
+// mutants:skip (a window without a map ends before it reads any of these)
+fn empty_facts(t: &Trade) -> DealFacts {
+    DealFacts {
+        note_order: deals_q::note_order,
+        card_order: deals_q::card_order,
+        unlocked: 0,
+        pair: (t.proposer, t.partner),
+        may: [false, false],
+        arbiters: [false, false],
+        planet_values: deals_q::planet_values(),
+        free: [None, None],
     }
 }
 

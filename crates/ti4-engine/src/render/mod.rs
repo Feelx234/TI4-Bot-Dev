@@ -118,6 +118,11 @@ impl Render {
         u8::try_from(at).unwrap_or(u8::MAX)
     }
 
+    /// Replace the table of free-form deals (the live loop sets the deal the open window holds on the table, index 0).
+    pub fn set_free(&self, entries: Vec<(String, f64)>) {
+        *self.free.borrow_mut() = entries;
+    }
+
     /// The registered index of a free-form id.
     #[must_use]
     pub fn free_index(&self, id: &str) -> Option<u8> {
