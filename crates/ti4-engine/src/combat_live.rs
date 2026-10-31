@@ -383,7 +383,7 @@ mod tests {
                     });
                     break;
                 }
-                Err(e) => panic!("the native step ({arm:?}): {e:?} after {:?}", seen.borrow().iter().map(|c| (c.player.to_string(), c.prompt.clone())).collect::<Vec<_>>()),
+                Err(e) => panic!("the native step ({arm:?}): {e:?} (script {script:?}) after {:?}", seen.borrow().iter().map(|c| (c.player.to_string(), c.prompt.clone())).collect::<Vec<_>>()),
             }
         }
         let asked = seen.borrow().clone();
@@ -769,6 +769,49 @@ mod tests {
             script.extend(answers.iter().copied());
             let diffs = lockstep(state, &hub.galaxy, &script);
             assert!(diffs.is_empty(), "sai seravus ships {ships} {script:?}: {diffs:#?}");
+        }
+    }
+
+    /// Xuange (the Empyrean commander): after another player moves ships into a system holding the holder's command token, the holder may return it.
+    #[test]
+    fn the_empyrean_commander_returns_its_token_when_another_player_moves_in_lockstep() {
+        let (hub, origin, target) = hub();
+        let mv = format!("move|{origin}|0");
+        let ability = "leader:empyrean:empyreancommander:SHIP_MOVED:after";
+        for (lobby, script) in [
+            (vec![("a", "sol"), ("b", "empyrean")], vec![TACTICAL_ACTION_ID, target.as_str(), mv.as_str(), ability]),
+            (vec![("a", "sol"), ("b", "empyrean")], vec![TACTICAL_ACTION_ID, target.as_str(), mv.as_str(), "decline"]),
+        ] {
+            let mut state = table(&lobby);
+            let holder = PlayerId::new(if lobby[0].1 == "empyrean" { "a" } else { "b" });
+            state.player_mut(&holder).unwrap().leaders.insert(ti4_model::id::LeaderId::new("empyreancommander"), ti4_model::state::LeaderStatus::Unlocked);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            state.system_mut(&target).place_token(holder.clone());
+            let diffs = lockstep(state, &hub.galaxy, &script);
+            assert!(diffs.is_empty(), "xuange {lobby:?} {script:?}: {diffs:#?}");
+        }
+    }
+
+    /// Acamar (the Empyrean agent): after a player moves ships into a system with no planets, the Empyrean may exhaust the agent; that player gains a
+    /// command token into the pool they choose.
+    #[test]
+    fn acamar_gives_the_mover_a_command_token_in_lockstep() {
+        let content = ContentStore::embedded();
+        let empty = ti4_content::galaxy::all_systems(content, POK).iter().find(|(id, s)| s.planets().is_empty() && !s.is_anomaly() && !s.is_hyperlane() && !crate::seating::is_mecatol(id)).map(|(id, _)| (*id).to_owned()).expect("a planetless system");
+        let hub = crate::fixtures::hub_with_centre(&empty);
+        let (origin, target) = (SystemId::new(hub.outer[0].clone()), SystemId::new(hub.centre.clone()));
+        let mv = format!("move|{origin}|0");
+        let ability = "leader:empyrean:empyreanagent:MOVEMENT_FINISHED:after";
+        for script in [
+            vec![TACTICAL_ACTION_ID, target.as_str(), mv.as_str(), "done_moving", ability, "tactic_tokens"],
+            vec![TACTICAL_ACTION_ID, target.as_str(), mv.as_str(), "done_moving", ability, "strategic_tokens"],
+            vec![TACTICAL_ACTION_ID, target.as_str(), mv.as_str(), "done_moving", "decline"],
+        ] {
+            let mut state = table(&[("a", "sol"), ("b", "empyrean")]);
+            state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("empyreanagent"), ti4_model::state::LeaderStatus::Readied);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            let diffs = lockstep(state, &hub.galaxy, &script);
+            assert!(diffs.is_empty(), "acamar {script:?}: {diffs:#?}");
         }
     }
 

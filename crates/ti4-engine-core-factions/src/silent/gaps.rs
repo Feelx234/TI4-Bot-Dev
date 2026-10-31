@@ -17,8 +17,8 @@ use ti4_engine_core::state::EventKind;
 pub const FIRST_SLOT: u16 = 41_000;
 
 /// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
-pub const SUFFI_AN: usize = 9;
-pub const SUFFI_AN_COPY: usize = 46;
+pub const SUFFI_AN: usize = 7;
+pub const SUFFI_AN_COPY: usize = 44;
 
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
@@ -57,8 +57,6 @@ pub const GAPS: &[Gap] = &[
     // -- leaders
     Gap { kind: AbilityKind::Leader, event: EventKind::UnitAbilityRolled, relation: Relation::When, holds: |c| faction(c, Faction::TheArgentFlight) }, // argentcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::CommoditiesReplenished, relation: Relation::After, holds: |c| faction(c, Faction::TheVuilraithCabal) }, // cabalagent
-    Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| faction(c, Faction::TheEmpyrean) }, // empyreanagent
-    Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| faction(c, Faction::TheEmpyrean) }, // empyreancommander
     Gap { kind: AbilityKind::Leader, event: EventKind::PillageUsed, relation: Relation::After, holds: |c| faction(c, Faction::TheMentakCoalition) }, // mentakagent
     Gap { kind: AbilityKind::Leader, event: EventKind::SpaceCombatWon, relation: Relation::After, holds: |c| faction(c, Faction::TheMentakCoalition) }, // mentakcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::StrategyTokenSpent, relation: Relation::After, holds: |c| faction(c, Faction::TheEmbersOfMuaat) }, // muaatcommander

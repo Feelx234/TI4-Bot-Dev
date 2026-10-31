@@ -14,7 +14,7 @@ use ti4_engine_core::choice::generic::Content;
 use ti4_engine_core::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub};
 use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use ti4_engine_core::containers::SmallList;
-use ti4_engine_core::generated::{Faction, Planet, System, Technology, Unit};
+use ti4_engine_core::generated::{Faction, Leader, Planet, System, Technology, Unit};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::kernel::ability::{AbilityTable, AdapterFacts, CondCx, Eff, Slot, Spec, Unknown};
@@ -372,4 +372,86 @@ mod tests {
         assert_eq!(watcher_window(&s, &far, Seat(0), &played(Seat(1))), Ok(None), "out of reach");
         assert_eq!(watcher_window(&s, &AdapterFacts::default(), Seat(0), &played(Seat(1))), Err(()), "the pair was not asked");
     }
+}
+
+// -- Xuange, the Empyrean commander (lane M6d) ----------------------------------------------------------------------------------------
+
+/// Xuange (`leader:*:empyreancommander:SHIP_MOVED:after`; registered for every seat, a commander can be held through an Alliance): "After another
+/// player moves ships into a system that contains 1 of your command tokens: you may return that token to your reinforcements."
+pub const XUANGE: Slot = Slot(50_070);
+
+/// `empyrean_ready`: another player's ships entered a system holding a command token of `owner`, who has the commander's ability.
+fn xuange_ready(c: &CondCx<'_>) -> Option<System> {
+    let p = &c.event.payload;
+    let (mover, system) = (p.seat(Key::Player)?, p.system(Key::System)?);
+    (mover != c.def.owner && ti4_engine_core::query::leaders::has_commander_ability_in(c.state, c.def.owner, Leader::Xuange) && c.state.board().sys(system).cmd.contains(c.def.owner)).then_some(system)
+}
+
+fn xuange_when(c: &CondCx<'_>) -> bool {
+    xuange_ready(c).is_some()
+}
+
+fn xuange(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let me = eff.owner();
+    let p = &eff.event.payload;
+    let (Some(mover), Some(system)) = (p.seat(Key::Player), p.system(Key::System)) else { return Ok(()) };
+    let s = eff.state();
+    if mover != me && ti4_engine_core::query::leaders::has_commander_ability_in(s, me, Leader::Xuange) && s.board().sys(system).cmd.contains(me) {
+        s.board_mut().sys_mut(system).cmd.remove(me);
+    }
+    Ok(())
+}
+
+// -- Acamar, the Empyrean agent (lane M6d) ---------------------------------------------------------------------------------------------
+
+/// Acamar (`leader:*:empyreanagent:MOVEMENT_FINISHED:after`): "after a player moves ships into a system with no planets: you may exhaust this card; that
+/// player gains 1 command token", into the pool they choose.
+pub const ACAMAR: Slot = Slot(50_071);
+
+fn acamar_mover(c: &CondCx<'_>) -> Option<Seat> {
+    let (s, me) = (c.state, c.def.owner);
+    if s.players().by_seat(me)?.leaders.status.get(&Leader::Acamar) != Some(&ti4_engine_core::state::LeaderStatus::Readied) {
+        return None;
+    }
+    let p = &c.event.payload;
+    if !matches!(p.get(Key::ShipsMoved), Some(ti4_engine_core::state::Val::Int(n)) if n > 0) {
+        return None;
+    }
+    let (mover, system) = (p.seat(Key::Player)?, p.system(Key::System)?);
+    (s.players().by_seat(mover).is_some() && system.data().planets.is_empty()).then_some(mover)
+}
+
+fn acamar_when(c: &CondCx<'_>) -> bool {
+    acamar_mover(c).is_some()
+}
+
+/// The agent is exhausted, then the mover answers the pool question (the string restores everything when the answer is refused).
+fn acamar(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    use ti4_engine_core::choice::strategy::{gain_pool_choice, Opt as SOpt};
+    use ti4_engine_core::choice::{Opt, Pick};
+    let me = eff.owner();
+    let p = &eff.event.payload;
+    let (Some(mover), Some(system), true) = (p.seat(Key::Player), p.system(Key::System), matches!(p.get(Key::ShipsMoved), Some(ti4_engine_core::state::Val::Int(n)) if n > 0)) else { return Ok(()) };
+    let s = eff.state();
+    if s.players().by_seat(me).and_then(|pl| pl.leaders.status.get(&Leader::Acamar).copied()) != Some(ti4_engine_core::state::LeaderStatus::Readied) || s.players().by_seat(mover).is_none() || !system.data().planets.is_empty() {
+        return Ok(());
+    }
+    let (state, kernel) = eff.state_and_kernel();
+    if !ti4_engine_core::kernel::fx_strategy::exhaust_agent(state, kernel, me, Leader::Acamar) {
+        return Ok(());
+    }
+    if let Pick::Opt(Opt::Strategy(SOpt::Pool(pool))) = eff.ask(&gain_pool_choice(mover, 1)) {
+        ti4_engine_core::kernel::fx::gain_token(eff.state(), mover, pool, 1);
+    }
+    Ok(())
+}
+
+/// The commander's ability (after the faction modules, as `borrowed_commanders_b` is).
+pub fn register_late(t: &mut AbilityTable) {
+    t.add(Spec::new(XUANGE, AbilityKind::Leader, EventKind::ShipMoved, Relation::After, xuange).optional().when(xuange_when));
+}
+
+/// Acamar (the Empyrean module of the string: before the borrowed commanders).
+pub fn register_agent(t: &mut AbilityTable) {
+    t.add(Spec::new(ACAMAR, AbilityKind::Leader, EventKind::MovementFinished, Relation::After, acamar).optional().when(acamar_when));
 }
