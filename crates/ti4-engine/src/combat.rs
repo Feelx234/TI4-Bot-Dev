@@ -10049,6 +10049,24 @@ mod tests {
         assert!(played > 0, "a Reveal Prototype was played");
     }
 
+    /// W11: Reflective Shielding ("when one of your ships uses SUSTAIN DAMAGE during combat: produce 2 hits against your opponent's ships")
+    /// is played from the standing slot in the window of the use, and the hits it staged are absorbed by the window right after the
+    /// event (the opponent's sustain offers and casualty questions inside the answer to the sustain), in the composed machine as in the
+    /// single windows. Fails on the pre-W11 bail "unported ability reaction:*:SUSTAIN_DAMAGE_USED:when (card reflective)".
+    #[test]
+    fn reflective_shielding_hits_are_absorbed_by_the_window_of_the_sustain_in_lockstep() {
+        let mut played = 0;
+        for seed in 1..=8_u64 {
+            let (_, _, bails, plays) = cards_fight_with(seed, ["sol", "hacan"], &[], &["reflective"], false, false, &|state, system| {
+                // The opponent's own ships can sustain, so the hits are offered a sustain too.
+                put(state, system, "dreadnought", &attacker(), 1);
+            });
+            assert!(bails.iter().all(|k| !k.contains("nested") && !k.contains("(card ") && !k.contains("Reflective")), "the card is followed: {bails:?}");
+            played += usize::from(plays.iter().any(|c| c == "reflective"));
+        }
+        assert!(played > 0, "a Reflective Shielding was played");
+    }
+
     /// The promissory notes played at the start of a space combat: Antivirus (placed faceup) and The Cavalry (a ship type
     /// takes the flagship's abilities, the note goes home when the combat ends), both held by the defender.
     #[test]

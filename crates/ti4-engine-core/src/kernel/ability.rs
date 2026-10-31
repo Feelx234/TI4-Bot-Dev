@@ -80,9 +80,6 @@ pub enum Unknown {
     DataSkimmer,
     /// The play of a card needs what the adapter did not compute (`AdapterFacts::plays`).
     PlayFacts,
-    /// Reflective Shielding played inside a window: it stages hits that the string sustain step drains after the
-    /// window closes (the combat area's absorption), which the core windows do not.
-    ReflectiveShielding,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -150,6 +147,10 @@ pub struct Codes {
     pub salvage: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
+    /// The subtype `assign_casualty` of a casualty question and the cause `action_card:reflective_shielding` of a loss to the hits a
+    /// Reflective Shielding stages.
+    pub assign_casualty: crate::state::Code,
+    pub reflective_cause: crate::state::Code,
     /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
     /// `trade_agreement`, `artuno` (Artuno the Betrayer does not copy them).
     pub not_from_supply: [crate::state::Code; 5],

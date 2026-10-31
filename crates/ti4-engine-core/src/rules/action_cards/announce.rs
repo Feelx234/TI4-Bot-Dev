@@ -15,8 +15,6 @@
 //! * destructions staged by the played card (Direct Hit): the announcement of the removals is not ported
 //!   (`Unknown::PendingDestructions`);
 //! * a Data Skimmer that could take the discard (`Unknown::DataSkimmer`);
-//! * Reflective Shielding played inside a window (`Unknown::ReflectiveShielding`: the sustain step that opened the
-//!   window drains the hits it stages; found by the wide golden dual, 12 differences in `combat::answer`);
 //! * a card whose effect the core does not play (`Announce::of` is `None`), or a play inside a window whose
 //!   adapter facts are missing (`Unknown::PlayFacts`).
 
@@ -275,11 +273,6 @@ fn env_of(rt: &impl Runner, who: Seat) -> Option<Env> {
 /// # Errors
 /// What the resolver refuses with.
 pub fn play_inline<R: Runner>(rt: &mut R, who: Seat, card: ActionCard) -> Result<bool, TimingError> {
-    // Its hits are staged for the sustain step that opened the window, which drains them after the emission.
-    if card == ActionCard::ReflectiveShielding {
-        rt.unknown(Unknown::ReflectiveShielding);
-        return Ok(false);
-    }
     let Some(env) = env_of(rt, who) else {
         rt.unknown(Unknown::PlayFacts);
         return Ok(false);
@@ -320,12 +313,12 @@ pub fn plays(card: ActionCard) -> bool {
     Simple::of(card).is_some() || Fx::of(card).is_some()
 }
 
-/// Whether the core plays `card` from a reaction window: [`plays`], or an effect a rules package registered in the table.
-/// Not Reflective Shielding: it stages hits that the sustain window of the string drains after the window closes (the
-/// census names the card; [`play_inline`] answers `Unknown::ReflectiveShielding` if it gets there anyway).
+/// Whether the core plays `card` from a reaction window: [`plays`], or an effect a rules package registered in the table. Reflective
+/// Shielding stages hits that the window of the use of SUSTAIN DAMAGE absorbs right after its event (`SustainOffer`, the combat
+/// machine), as the string sustain step does.
 #[must_use]
 pub fn plays_in(t: &AbilityTable, card: ActionCard) -> bool {
-    card != ActionCard::ReflectiveShielding && (Simple::of(card).is_some() || Fx::of(card).is_some_and(Fx::nested) || t.card_play(card).is_some())
+    Simple::of(card).is_some() || Fx::of(card).is_some_and(Fx::nested) || t.card_play(card).is_some()
 }
 
 #[cfg(test)]
@@ -557,18 +550,31 @@ mod tests {
         }
     }
 
-    /// Bail: Reflective Shielding played inside a window stages hits that the string sustain step drains after the
-    /// window closes; the core windows do not, so the run is unknown (regression of the wide golden dual).
+    /// Reflective Shielding played inside a window stages its hits against the producer of the hit that was cancelled; the window of
+    /// the use of SUSTAIN DAMAGE absorbs them right after its event (`SustainOffer`, the combat machine). The play is not unknown.
     #[test]
-    fn bail_reflective_shielding_played_inside_a_window_is_unknown() {
+    fn reflective_shielding_played_inside_a_window_stages_its_hits_and_is_not_unknown() {
         let mut s = two_seats();
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(ActionCard::ReflectiveShielding);
+        s.transient_mut().combat.last_sustain = Some((System::ALL[0], Seat(0), Unit::DreadnoughtI, Seat(1), true));
         s.transient_mut().misc.declared_card_plays.push((Seat(0), ActionCard::ReflectiveShielding));
         let mut table = plays_table();
+        table.facts.plays.as_mut().unwrap().seats.push(crate::kernel::ability::SeatPlay {
+            who: Seat(0),
+            mahact_held: 0,
+            infantry: (None, 0),
+            cruiser: (None, 0),
+            fighter_on_card: 0,
+            reveal: None,
+            reveal_payable: false,
+        });
+        table.facts.plays.as_mut().unwrap().has_effect = vec![true; ActionCard::ALL.len()];
         register(&mut table);
         let k = Kernel::plain();
         let mut d = Driver::new(Emit, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table, 1);
         assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
-        assert_eq!(d.unknown(), Some(Unknown::ReflectiveShielding));
+        assert_eq!(d.unknown(), None);
+        assert_eq!(s.transient().combat.pending_reflective_hits, Some((System::ALL[0], Seat(1), 2)));
     }
 
     /// Bail: a play from inside a window needs the adapter's facts; without them the run is unknown.

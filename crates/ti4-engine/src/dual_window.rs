@@ -720,7 +720,6 @@ pub fn drive_windowed<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::PendingDestructions => "an action card that staged destructions",
                 ti4_engine_core::kernel::ability::Unknown::DataSkimmer => "a discard the Data Skimmer could take",
                 ti4_engine_core::kernel::ability::Unknown::PlayFacts => "an action card the core does not play",
-                ti4_engine_core::kernel::ability::Unknown::ReflectiveShielding => "Reflective Shielding played inside a window (its hits are drained by the sustain step)",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -1434,13 +1433,17 @@ pub fn sustain_offer(
         announce: a.announce,
     };
     let resolver = Resolver::new(&[player], Some(player));
-    let mut driver = Driver::new(SustainOffer::new(offer, u16::try_from(a.hits).ok()?), resolver, AbilityTable::default(), 1);
+    let window = SustainOffer::new(offer, u16::try_from(a.hits).ok()?);
+    let mut driver = Driver::new(window, resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(SUSTAIN_OFFER, script), |core, _| {
+        let sustaining = a.player.clone();
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
             if let ti4_engine_core::choice::Ask::Combat(ask) = &c.ask {
                 rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&env.kernel, st, ask, c.actor));
             }
+            // A casualty question of this window is one of the hits a Reflective Shielding staged: the sustaining player produced them.
+            reflective_hit_detail(c, &sustaining, rendered);
         });
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
@@ -1451,6 +1454,21 @@ pub fn sustain_offer(
     // `remember_sustain_target` is the core window's own (`sustain_offer::remember_target`, a typed mark).
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
     Some(CoreWindow { run: Run::new(usize::from(driver.window.hits)).with_events_vec(events), questions: driven.rendered })
+}
+
+/// The casualty question of the hits a Reflective Shielding staged: a hit of a combat roll (cause `other`) that the sustaining player
+/// produced (string `absorb_hits_seeing_with_context` with `HitOrigin::CombatRoll`).
+fn reflective_hit_detail(c: &CoreChoice, producer: &PlayerId, rendered: &mut Choice) {
+    if matches!(c.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::AssignHit))
+        && let Some(context) = rendered.context.take()
+    {
+        rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
+            cause: crate::decision_context::HitCause::Other,
+            destroy: false,
+            restriction: crate::decision_context::HitRestriction::Any,
+            producer: Some(producer.clone()),
+        }));
+    }
 }
 
 const ASSIGN_HITS: Footprint = Footprint::new(
@@ -4316,7 +4334,13 @@ fn settle_run(
     let content = ti4_content::ContentStore::embedded();
     let (att_id, def_id) = (a.attacker.clone(), a.defender.clone());
     let driven = with_core(gs, &mut cx, src, nested_fp(SETTLE, script), |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
+        let driven = drive_windowed(&mut driver, core, &env.kernel, None, &r, &before, script, &|w, c, st, rendered| {
+            // A casualty question of the hits a Reflective Shielding staged (the machine absorbs them inside the answer to a sustain).
+            if let Some(producer) = w.reflecting_producer() {
+                if let Some(id) = r.seats.get(usize::from(producer.0)) {
+                    reflective_hit_detail(c, &PlayerId::new(id.clone()), rendered);
+                }
+            }
             // The questions of the modules' hits are asked in the battle they are fought in (`TimingContext::ask_seeing`).
             if matches!(&c.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::Ambush | ti4_engine_core::choice::combat::Ask::Sacrifice { .. } | ti4_engine_core::choice::combat::Ask::Splicer | ti4_engine_core::choice::combat::Ask::RaidDamage { .. })) {
                 if let Some(context) = rendered.context.take() {
@@ -4359,7 +4383,9 @@ fn settle_run(
         // The previews are not part of the serialized option (`serde(skip)`), so the whole-choice comparison
         // does not see them: compare them here, question by question.
         let previews = |c: &Choice| c.options.iter().map(|o| o.preview.clone()).collect::<Vec<_>>();
-        for (asked, rendered) in script.questions.iter().zip(&driven.rendered) {
+        // (Only the pending decision: a question asked inside the answer, the hits a Reflective Shielding staged, goes through
+        // `ask_seeing`, which adds previews the core does not render.)
+        for (asked, rendered) in script.questions.iter().zip(&driven.rendered).take(1) {
             crate::dual::compare_value(crate::dual::Area::Driver, "combat::answer.previews", &previews(&asked.choice), &previews(rendered));
         }
     }

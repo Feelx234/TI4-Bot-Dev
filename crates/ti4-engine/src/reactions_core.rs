@@ -497,6 +497,8 @@ impl Follow {
         self.table.codes.mahact_infantry2 = r.code("mahact_infantry2");
         self.table.codes.retreat_capacity = r.code("retreat_capacity");
         self.table.codes.reinforcements = r.code("reinforcements");
+        self.table.codes.assign_casualty = r.code("assign_casualty");
+        self.table.codes.reflective_cause = r.code("action_card:reflective_shielding");
         self.table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
         self.table.facts.staging = crate::supply::staging_enabled(gs);
         // Reveal Prototype researches: a seat whose research hooks the core table answers differently from the string modules is the string's.

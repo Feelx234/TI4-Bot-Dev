@@ -24,13 +24,14 @@ use super::assault_cannon::{AssaultCannon, Facts as AcFacts};
 use super::barrage::{BarrageStep, Facts as BarrageFacts};
 use super::begin_round::{BeginRound, Facts as BeginFacts};
 use super::end::{finished, winner};
+use super::effect_hits::Absorb;
 use super::end_announce::{Codes as EndCodes, EndAnnounce, Facts as EndFacts};
 use super::flow::{Facts as FlowFacts, Flow, Out, Pend, Phase, Step, MAX_ROUNDS};
 use super::assign::{announce_loss, remove_ship};
 use super::produce::{Facts as ProduceFacts, ProduceHits};
 use super::retreat::{Facts as RetreatFacts, Retreat};
 use super::sustain_commander::SustainCommander;
-use super::sustain_offer::{emit_used, Offer};
+use super::sustain_offer::{emit_used, reflective_hits, Offer};
 use super::roll::{Facts as RollFacts, Name, RollStep};
 use super::{apply_sustain, cancel_per_sustain, hit_targets, ships_of, sustain_candidates, sustain_opts, Rd};
 use crate::choice::combat::{Ask as CAsk, Opt as COpt, Subtype as CSub};
@@ -216,6 +217,8 @@ pub struct Machine {
     sustaining: Option<Sustaining>,
     /// The neutral side's decision being shown (`Env::show_neutral`).
     auto: Option<Choice>,
+    /// The hits a Reflective Shielding played in the window of a use of SUSTAIN DAMAGE staged, being absorbed.
+    reflecting: Option<Box<Absorb>>,
     /// The last unit that sustained: where it stood and how it stands now.
     pub last_sustain: Option<(crate::choice::combat::SustainSite, Piece)>,
 }
@@ -242,6 +245,7 @@ impl Machine {
             answered: false,
             sustaining: None,
             auto: None,
+            reflecting: None,
             last_sustain: None,
         }
     }
@@ -1053,6 +1057,9 @@ impl Window for Machine {
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         if self.awaiting {
+            if let Some(reflecting) = &self.reflecting {
+                return reflecting.ask_of(s, k);
+            }
             if let Some(sus) = &self.sustaining {
                 return sus.commander.as_ref().and_then(|c| c.ask_of(s, k));
             }
@@ -1075,6 +1082,9 @@ impl Window for Machine {
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         if self.awaiting {
+            if let Some(reflecting) = self.reflecting.as_mut() {
+                return reflecting.answer(sx, pick);
+            }
             if let Some(sus) = self.sustaining.as_mut() {
                 return sus.commander.as_mut().ok_or(Illegal)?.answer(sx, pick);
             }
@@ -1122,6 +1132,12 @@ impl Machine {
         }
     }
 
+    /// The producer of the hits a Reflective Shielding staged while the machine absorbs them (the questions it asks belong to it).
+    #[must_use]
+    pub fn reflecting_producer(&self) -> Option<Seat> {
+        self.reflecting.as_ref().map(|a| a.producer())
+    }
+
     #[must_use]
     pub const fn max_rounds() -> u32 {
         MAX_ROUNDS
@@ -1152,6 +1168,7 @@ impl Machine {
             // The commander has answered (or there is none): the use is announced, the hits it cancels counted.
             let Some(sus) = self.sustaining.take() else { return Next::Done };
             let _ = emit_used(sx, &sus.offer, sus.unit);
+            self.reflecting = reflective_hits(sx, &sus.offer);
             let cancels = Self::cancels(sx.state, Self::rd(sx.state, sx.kernel), sus.offer.player);
             let mut queue = sus.queue;
             if let Some(front) = queue.first_mut() {
@@ -1159,6 +1176,13 @@ impl Machine {
             }
             self.fields.step = Step::Queue { assigning: false, round: sus.round, queue };
             self.answered = true;
+        }
+        if let Some(reflecting) = self.reflecting.as_mut() {
+            if let Next::Continue(ask) = reflecting.step(sx) {
+                self.stage = Stage::Asking;
+                return Next::Continue(ask);
+            }
+            self.reflecting = None;
         }
         if self.answered {
             self.stage = Stage::Done;

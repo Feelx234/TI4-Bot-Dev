@@ -201,6 +201,20 @@ impl Absorb {
         Self { offer, assign, hits, stage: AbsorbStage::Spending, sustain: Child::idle(), assigning: Child::idle() }
     }
 
+    /// The seat whose roll or card produced the hits.
+    #[must_use]
+    pub const fn producer(&self) -> Seat {
+        self.offer.producer
+    }
+
+    /// The loss and the sustain are announced (the resolver carries the timing machinery).
+    #[must_use]
+    pub fn announced(mut self) -> Self {
+        self.offer.announce = true;
+        self.assign.announce = true;
+        self
+    }
+
     /// The hits are part of a space combat (a Waylay's barrage): the sustain offer and the loss say so.
     #[must_use]
     pub fn in_space_combat(mut self) -> Self {
