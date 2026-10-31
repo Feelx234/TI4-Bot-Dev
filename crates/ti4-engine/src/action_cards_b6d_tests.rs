@@ -1617,8 +1617,8 @@ fn politics_follows_the_hooks_that_change_the_draw() {
     assert_eq!(bails_picking("strategize4", &politics, "pok3politics", 0), (1, 0));
 }
 
-/// Bail: a research at a table the research window does not carry (a Mentak seat with The Table's Grace: the Corsair's form), below the rules version
-/// that asked the payment, is the string's, for both abilities of Technology.
+/// Bail: a research at a table the research window does not carry (a Mentak seat with The Table's Grace: the Corsair's form) is the
+/// string's, for both abilities of Technology (a game below the rules version that asked the payment is carried since W12).
 #[test]
 fn bail_technology_at_a_table_the_research_window_does_not_carry() {
     let _serial = crate::dual::tests::serial();
@@ -1639,7 +1639,7 @@ fn bail_technology_at_a_table_the_research_window_does_not_carry() {
         assert_eq!(declined, (0, 1), "{alias} where the string modules and the core table disagree on the hooks of a research");
         assert_eq!(bails_picking(alias, &mentak, "pok7technology", 0), (0, 1), "{alias} at a table with a Mentak who holds The Table's Grace");
         assert_eq!(bails_picking(alias, &plain_mentak, "pok7technology", 0), (1, 0), "{alias} at a table with a Mentak without it is carried (W6)");
-        assert_eq!(bails_picking(alias, &old, "pok7technology", 0), (0, 1), "{alias} below the rules version of the payment plan");
+        assert_eq!(bails_picking(alias, &old, "pok7technology", 0), (1, 0), "{alias} below the rules version of the payment plan: the cheapest plan is spent unasked, in the core window too");
         assert_eq!(bails_picking(alias, &research, "pok7technology", 0), (1, 0), "{alias} is carried at a plain table");
     }
 }
@@ -2182,8 +2182,8 @@ fn experimental_battlestation_offers_the_letnev_commander_after_a_sustain_in_the
     let _ = crate::dual::take_report();
 }
 
-/// Bail: Experimental Battlestation in a game below the faction effects (the string's sustain offer is not the core window's
-/// there) and against a seat that pays on a sustain without an unlocked commander (held another way) is the string's.
+/// Bail: Experimental Battlestation against a seat that pays on a sustain without an unlocked commander (held another way) is the
+/// string's; in a game below the faction effects the core window pays the commander unasked and is followed (W12).
 #[test]
 fn bail_experimental_battlestation_where_the_sustain_offer_is_not_the_core_windows() {
     let _serial = crate::dual::tests::serial();
@@ -2203,7 +2203,7 @@ fn bail_experimental_battlestation_where_the_sustain_offer_is_not_the_core_windo
         counted
     };
     assert_eq!(bailed(&plain), (1, 0), "the plain position is carried");
-    assert_eq!(bailed(&old), (0, 1), "below the faction effects");
+    assert_eq!(bailed(&old), (1, 0), "below the faction effects the sustain offer pays unasked, in the core window too");
     assert_eq!(bailed(&held), (0, 1), "a commander held another way");
 }
 

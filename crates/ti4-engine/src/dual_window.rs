@@ -1383,6 +1383,53 @@ pub fn deadly_plot(gs: &mut GameState, holder: &PlayerId, script: &Recording) ->
     Some(CoreWindow { run: Run::new(()), questions: driven.rendered })
 }
 
+/// What the forced combats of a commitment read and write: the board's coexisting sets and the planets' units and control.
+const FORCED: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks, Slice::Transient], &[Slice::Board]);
+
+/// The core half of `InvasionWindow::add_forced_combats` (`rules::invasion::forced`; the value: the planets added to the commitment, in
+/// order). `committed` are the planets the commitment already holds.
+pub fn forced_combats(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    invader: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    committed: &[ti4_model::id::PlanetId],
+    script: &Recording,
+) -> Option<CoreWindow<Vec<String>>> {
+    use ti4_engine_core::rules::invasion::forced::ForcedCombats;
+    // The question is asked inside the invasion by definition: its context names the battle and the invasion (completed below), so only
+    // nested activity and diplomacy promises are left to the string.
+    if script.nested {
+        crate::dual::note_bail_here("nested activity (a card or an ability played inside the window)");
+        return None;
+    }
+    if gs.diplomacy.enabled {
+        crate::dual::note_bail_here("diplomacy on");
+        return None;
+    }
+    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let seat = r.seat(invader.as_str()).why(crate::dual::reason::NO_SEAT)?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+    let committed: Vec<ti4_engine_core::generated::Planet> = committed
+        .iter()
+        .map(|p| <ti4_engine_core::generated::Planet as IdStr>::from_id(p.as_str()))
+        .collect::<Option<_>>()
+        .why(crate::dual::reason::UNKNOWN_ID)?;
+    let env = crate::core_invasion::ground_env(gs, &cx, sources).why("the invasion environment could not be built from the position")?;
+    let before = gs.clone();
+    let mut driver = Driver::new(ForcedCombats::new(seat, sys, committed), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), FORCED, |core, _| {
+        drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, rendered| {
+            // As `Resolving::ask_seeing` asks it: the context knows the battle and the invasion it is asked in.
+            rendered.context = rendered.context.take().map(|c| c.about_battle(&before).about_invasion(&before));
+        })
+    })
+    .why(crate::dual::reason::NOT_LENDABLE)?
+    .why(crate::dual::reason::DRIVER_REFUSED)?;
+    let added = driver.window.added.iter().map(|p| p.as_str().to_owned()).collect();
+    Some(CoreWindow { run: Run::new(added), questions: driven.rendered })
+}
+
 const SUSTAIN_OFFER: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
     &[Slice::Board, Slice::Players, Slice::Transient, Slice::Marks, Slice::Pending],
@@ -1406,8 +1453,8 @@ pub struct SustainArgs<'a> {
 }
 
 /// The core half of `combat::offer_sustain`. `None` for what the core window does not express: staged
-/// planet sustainers, games below `RULES_FACTION_EFFECTS`, a commander held another way than as an
-/// unlocked leader, or a position the codecs refuse.
+/// planet sustainers, a commander held another way than as an unlocked leader, or a position the codecs refuse.
+/// (A game below `RULES_FACTION_EFFECTS` is the window's own: the holder's trade good is paid without a question.)
 #[must_use]
 pub fn sustain_offer(
     gs: &mut GameState,
@@ -1416,10 +1463,6 @@ pub fn sustain_offer(
     script: &Recording,
 ) -> Option<CoreWindow<usize>> {
     use ti4_engine_core::rules::combat::sustain_offer::{Offer, SustainOffer};
-    if gs.rules_version < ti4_model::state::RULES_FACTION_EFFECTS {
-        crate::dual::note_bail_here("a game below the faction effects");
-        return None;
-    }
     let unlocked = gs
         .player(a.player)
         .is_some_and(|p| p.leaders.get(ti4_model::id::text("letnevcommander")) == Some(&ti4_model::state::LeaderStatus::Unlocked));

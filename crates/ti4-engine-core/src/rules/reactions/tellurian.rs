@@ -6,7 +6,7 @@
 use crate::choice::reaction::{AbilityKind, Relation};
 use crate::generated::Leader;
 use crate::ids::Seat;
-use crate::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec, Unknown};
+use crate::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
 use crate::kernel::resolver::TimingError;
 use crate::state::{CoreState, EventKind, Key, LeaderStatus};
 
@@ -27,10 +27,6 @@ fn condition(c: &CondCx<'_>) -> bool {
     if p.seat(Key::Player) != Some(c.def.owner) || !p.int(Key::Hits).is_none_or(|h| h > 0) || !ready(c.state, c.def.owner) {
         return false;
     }
-    // `leaders::exhaust` announces the exhaustion to a watching Nomad; the core does not.
-    if c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.state) {
-        return c.unknown(Unknown::NomadAgentExhaustion);
-    }
     true
 }
 
@@ -40,8 +36,10 @@ fn cancel(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         return Ok(());
     }
     let round = eff.state().meta().combat_round_seq;
+    // `leaders::exhaust`: the status, and the staged announcement a watching Nomad (Temporal Command Suite) is told by.
+    let (state, kernel) = eff.state_and_kernel();
+    crate::kernel::fx_strategy::exhaust_agent(state, kernel, me, AGENT);
     if let Some(p) = eff.state().players_mut().by_seat_mut(me) {
-        p.leaders.status.insert(AGENT, LeaderStatus::Exhausted);
         let running = match p.card_timers.cancel_hits_round {
             Some((held, had)) if held == round => had,
             _ => 0,

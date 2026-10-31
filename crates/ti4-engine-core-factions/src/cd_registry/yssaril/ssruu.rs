@@ -75,7 +75,6 @@ fn round_when(c: &CondCx<'_>, ground: bool) -> bool {
     let agent = if ground { Leader::EvelynDeLouis } else { Leader::ViscountUnlenn };
     borrowable(c.state, c.def.owner, c.def.pair_source(), agent)
         && crate::cc_ground::borrowed::timing::plan_of(c.state, c.kernel, c.event, ground).is_some()
-        && crate::cc_ground::borrowed::timing::nomad_quiet(c)
 }
 
 pub fn register_abilities(t: &mut AbilityTable) {

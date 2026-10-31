@@ -255,6 +255,59 @@ fn umbat_asks_the_chosen_player_for_the_system_when_there_are_two_and_a_decline_
     assert!(rig.driver.window.made.is_none(), "nothing was produced");
 }
 
+/// Seat 0 plays Yssaril and holds Ssruu; seat 1 is the Muaat player and holds Umbat.
+fn ssruu_table() -> (Scenario, [(System, Planet); 2]) {
+    let [(a, pa), (b, pb)] = two();
+    let sc = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheEmbersOfMuaat])
+        .map_from(&[a, b])
+        .control(pa, 0)
+        .control(pb, 1)
+        .unit(a, None, Unit::WarSun, 0, 1)
+        .unit(b, None, Unit::WarSun, 1, 1)
+        .goods(0, 6)
+        .goods(1, 6)
+        .tokens(0, 3, 3, 2)
+        .tokens(1, 3, 3, 2);
+    (sc, [(a, pa), (b, pb)])
+}
+
+fn ssruu_rig(sc: Scenario, facts: Vec<ProduceFacts>, ssruu: LeaderStatus, umbat: Option<LeaderStatus>) -> Rig<Umbat> {
+    let (mut state, kernel) = sc.build();
+    state.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::Ssruu, ssruu);
+    if let Some(umbat) = umbat {
+        state.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::Umbat, umbat);
+    }
+    Rig::from_parts(state, kernel, Umbat::new(Seat(0), facts))
+}
+
+#[test]
+fn a_seat_with_a_readied_ssruu_copies_umbat_of_another_seat_readied_or_exhausted() {
+    covers!("rules::leader_production::Umbat");
+    for lender in [LeaderStatus::Readied, LeaderStatus::Exhausted] {
+        let (sc, [(a, _), (b, pb)]) = ssruu_table();
+        let mut rig = ssruu_rig(sc, both_facts(a, b), LeaderStatus::Readied, Some(lender));
+        rig.run();
+        assert_eq!((rig.asked().actor, rig.asked().ask), (Seat(0), Ask::Leaders(LAsk::UmbatPlayer)), "the copier is asked ({lender:?})");
+        assert!(rig.driver.window.copied);
+        rig.pick_opt(Opt::Leaders(LOpt::Player(Seat(1))));
+        let Ask::Production(PAsk::Choose(ask)) = &rig.asked().ask else { panic!("the production: {:?}", rig.asked().ask) };
+        assert_eq!((rig.asked().actor, ask.system, ask.limit, ask.max_unit_cost), (Seat(1), b, 2, Some(4)), "the chosen player produces for itself");
+        let _ = pb;
+    }
+}
+
+#[test]
+fn a_copy_needs_a_readied_ssruu_and_another_seat_holding_umbat() {
+    covers!("rules::leader_production::Umbat");
+    for (ssruu, umbat) in [(LeaderStatus::Exhausted, Some(LeaderStatus::Readied)), (LeaderStatus::Locked, Some(LeaderStatus::Readied)), (LeaderStatus::Readied, None), (LeaderStatus::Readied, Some(LeaderStatus::Locked))] {
+        let (sc, [(a, _), (b, _)]) = ssruu_table();
+        let mut rig = ssruu_rig(sc, both_facts(a, b), ssruu, umbat);
+        rig.run();
+        assert!(rig.is_done(), "{ssruu:?} {umbat:?}: no question");
+        assert!(!rig.driver.window.used);
+    }
+}
+
 #[test]
 fn umbat_needs_the_agent_readied_and_a_muaat_seat() {
     covers!("rules::leader_production::Umbat");

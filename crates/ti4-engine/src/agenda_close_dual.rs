@@ -178,9 +178,6 @@ fn rider_research(
     if holders.is_empty() {
         return Some((scope, roster));
     }
-    if gs.rules_version < ti4_model::state::RULES_TECH_PAYMENT_CHOICE {
-        return None;
-    }
     let before = gs.clone();
     for who in holders {
         if crate::strategy_cards_core::research_unported(gs, content, sources, who) {

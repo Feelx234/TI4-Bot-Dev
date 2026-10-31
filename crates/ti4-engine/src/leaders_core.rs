@@ -648,6 +648,12 @@ mod real {
             crate::dual::note_bail_here("the table has no link to the production window, or a use has no facts");
             return None;
         }
+        // A copy through Ssruu is atomic (`umbat_string`): a decision that fails part-way (an answer that is no option) leaves the position as
+        // it was and the agent unspent. The recorded decisions stop before the window is over; the position is the one before.
+        if driver.window.copied && !driven.finished {
+            *gs = before;
+            return Some(CoreWindow { run: Run::new(false).with_events_vec(Vec::new()), questions: driven.rendered });
+        }
         let made_any = driver.window.made.as_ref().is_some_and(|(_, made)| !made.as_slice().is_empty());
         if !staged.is_empty() && made_any {
             crate::dual::note_bail_here("staged events of the placements would interleave with the announcement of the use");

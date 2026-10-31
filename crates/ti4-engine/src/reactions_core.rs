@@ -426,7 +426,7 @@ fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::So
         // Reveal Prototype (package W4): carried for a seat whose research the core window carries (the hooks of the string modules and
         // the core are compared in `Follow::arm`, which has the core state).
         let content = ti4_content::ContentStore::embedded();
-        let researches = gs.rules_version >= ti4_model::state::RULES_TECH_PAYMENT_CHOICE && !crate::action_cards_view::technology_unported(gs, sources, &player);
+        let researches = !crate::action_cards_view::technology_unported(gs, sources, &player);
         seats.push(SeatPlay {
             who,
             mahact_held: gs.tokens_held_by_mahact(&player),
