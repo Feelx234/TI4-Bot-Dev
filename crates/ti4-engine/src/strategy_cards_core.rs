@@ -60,10 +60,26 @@ mod real {
         script: &Recording,
         complete: Complete<'_>,
     ) -> Option<(W, Driven)> {
+        drive_window_on(&Kernel::plain(), gs, cx, r, fp, window, seat, script, complete)
+    }
+
+    /// [`drive_window`] on a given kernel: the Politics draw follows the hooks of the drawer's faction (Scheming and Crafty), so it runs on the
+    /// full table.
+    #[allow(clippy::too_many_arguments, reason = "the kernel and the arguments of drive_window")]
+    fn drive_window_on<W: Window>(
+        kernel: &Kernel,
+        gs: &mut GameState,
+        cx: &mut Ctx,
+        r: &Render,
+        fp: Footprint,
+        window: W,
+        seat: Seat,
+        script: &Recording,
+        complete: Complete<'_>,
+    ) -> Option<(W, Driven)> {
         let before = gs.clone();
-        let kernel = Kernel::plain();
         let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), linked(), 1);
-        let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_with(&mut driver, core, &kernel, r, &before, script, complete))
+        let driven = with_core(gs, cx, Sources::default(), fp, |core, _| drive_with(&mut driver, core, kernel, r, &before, script, complete))
             .why(crate::dual::reason::NOT_LENDABLE)?
             .why(crate::dual::reason::DRIVER_REFUSED)?;
         Some((driver.window, driven))
@@ -823,7 +839,7 @@ mod real {
         }
         let (mut cx, r) = named_tables(gs)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
-        let (window, driven) = drive_window(gs, &mut cx, &r, POLITICS, Politics::new(seat, primary, gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK), seat, script, &|c, _, rendered| {
+        let (window, driven) = drive_window_on(crate::production_view::kernel(), gs, &mut cx, &r, POLITICS, Politics::new(seat, primary, gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK), seat, script, &|c, _, rendered| {
             complete_politics(&r, content, c, rendered);
         })?;
         if window.unsupported {

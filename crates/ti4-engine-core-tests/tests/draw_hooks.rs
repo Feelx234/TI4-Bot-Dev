@@ -57,6 +57,8 @@ fn scheming_draws_a_card_more_then_asks_which_card_of_the_hand_goes_and_stages_t
     // The options are the first copy of each printed name in hand order (the hand order, not the order of the names), no decline.
     let offered: Vec<ActionCard> = q.opts.iter().map(|o| match o { Opt::Cards(COpt::Card(c)) => *c, other => panic!("{other:?}") }).collect();
     assert_eq!(offered, hand(&rig));
+    rig.expect_illegal(Pick::Opt(Opt::Cards(COpt::Card(ActionCard::Plague))));
+    rig.expect_illegal(Pick::Opt(Opt::Decline));
     rig.pick_opt(Opt::Cards(COpt::Card(ActionCard::NavSuite)));
     assert!(rig.is_done(), "{}", rig.transcript());
     assert_eq!(hand(&rig).len(), 5);

@@ -1263,6 +1263,35 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Package W14, the dice of the hero: the core draws them from the state's streams (`DiceSeeds`), so a fight rolled with test faces
+    /// (`Dice::from_faces`: only a unit test hands a roll faces), a pending restore of the streams (a turn redo, a dropped feature) or a seed that is
+    /// not the state's has no core window and is a counted bail outside the product; in the product (`TI4_CORE_STRICT`, the gates, the nightly
+    /// sweep, D2) it is the assertion XF-7 (`product::reproducible`), which a real game never trips: its dice are the state's streams.
+    #[test]
+    fn a_hero_fought_with_test_faces_is_a_counted_bail_and_an_assertion_in_the_product() {
+        use crate::dual::{report, take_report, thread_window_counts, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let (mut state, hub, origin, _) = hero_game();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let done = crate::product::with_strict(false, || with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || use_hero(&mut state, &hub, &[], &[10, 10, 10, 10, 10, 10])));
+        assert_eq!(done, Ok(Some(true)));
+        assert_eq!(count(&state, &origin, &a(), "cruiser"), 0);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::mahact::hero"), (0, 1), "no window ran, one bail counted: {r:?}");
+        let _ = take_report();
+    }
+
+    #[test]
+    #[should_panic(expected = "product assertion XF-7")]
+    fn a_hero_fought_with_test_faces_trips_the_product_assertion_in_strict_mode() {
+        let (mut state, hub, _, _) = hero_game();
+        let _ = crate::product::with_strict(true, || use_hero(&mut state, &hub, &[], &[10, 10, 10, 10, 10, 10]));
+    }
+
     #[test]
     fn neither_side_may_retreat_during_the_hero_combat() {
         let (mut state, hub, _, destination) = hero_game();

@@ -1597,11 +1597,11 @@ fn bail_the_trade_abilities_at_a_table_where_a_replenishment_causes_events() {
     }
 }
 
-/// Bail: a Politics draw that a faction hook changes (Yssaril's Scheming and Crafty are the drawer's own) is the string's, for both
-/// abilities. A draw that ends over the hand limit is carried since W6 (the child draw window asks the discard), and a Yssaril
-/// beside the drawer changes nothing.
+/// A Politics draw that a faction hook changes (Yssaril's Scheming and Crafty are the drawer's own) is the core's since W14, for both
+/// abilities: the child draw window adds the card, asks the discard (`OwnHand { Scheming }`) and lifts the limit. A draw that ends over the hand
+/// limit is carried since W6 (the child draw window asks the discard), and a Yssaril beside the drawer changes nothing.
 #[test]
-fn bail_politics_when_a_hook_changes_the_draw() {
+fn politics_follows_the_hooks_that_change_the_draw() {
     let _serial = crate::dual::tests::serial();
     let politics = strategy_position(&["pok3politics"], &[], &[], &[]);
     let mut scheming = politics.clone();
@@ -1609,7 +1609,7 @@ fn bail_politics_when_a_hook_changes_the_draw() {
     let mut beside = politics.clone();
     beside.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
     for alias in ["strategize4", "overrule"] {
-        assert_eq!(bails_picking(alias, &scheming, "pok3politics", 0), (0, 1), "{alias} with Scheming");
+        assert_eq!(bails_picking(alias, &scheming, "pok3politics", 0), (1, 0), "{alias} with Scheming");
         assert_eq!(bails_picking(alias, &politics, "pok3politics", 6), (1, 0), "{alias} with a full hand: the discard is asked in the core");
         assert_eq!(bails_picking(alias, &beside, "pok3politics", 0), (1, 0), "{alias} beside a Yssaril");
     }

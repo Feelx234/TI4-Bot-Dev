@@ -294,6 +294,7 @@ fn a_single_fighter_discards_the_prophecy_of_ixth() {
 // -- Package W14: the facts are read from the position (the Warfare secondary after a secondary that changed them) ---------------------------
 
 use ti4_engine_core::query::tech::UnitRoster;
+use ti4_engine_core::generated::UnitBaseType;
 use ti4_engine_core::rules::production::home::{buildable_for, fleet_limit, home_facts};
 use ti4_engine_core::tables::Scope;
 
@@ -393,4 +394,57 @@ fn a_use_read_from_the_position_produces_like_a_use_with_given_facts() {
     stop(&mut rig);
     assert!(rig.is_done() && !rig.driver.window.unsupported, "{}", rig.transcript());
     assert_eq!(rig.driver.window.made().as_slice().iter().filter(|(u, _)| *u == Unit::DestroyerI).count(), 1);
+}
+
+#[test]
+fn a_seat_that_does_not_sit_has_no_facts_and_a_use_for_it_is_unsupported() {
+    covers!("rules::production::home::HomeProduction");
+    let (state, kernel, system) = letnev_table();
+    assert!(home_facts(&state, &kernel, roster(), Seat(7), system, true).is_none());
+    let mut rig = Rig::from_parts(state, kernel, HomeProduction::at(Seat(7), system, roster(), true));
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.unsupported, "{}", rig.transcript());
+}
+
+#[test]
+fn tokens_other_players_hold_in_a_mahact_pool_count_for_its_fleet_limit() {
+    covers!("rules::production::home::fleet_limit");
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    let system = plain_systems()[0];
+    let sc = Scenario::new(&[Faction::TheMahactGeneSorcerers, Faction::TheArborec]).kernel(kernel_all()).map_from(&[system]).tokens(0, 3, 3, 2);
+    let (mut state, kernel) = sc.build();
+    assert_eq!(fleet_limit(&state, &kernel, false, Seat(0)), 3);
+    state.marks_mut().tail.edit().insert(MarkKey::MahactFleet(Seat(0)), MarkVal::List(vec![MarkVal::Atom(Atom::Seat(Seat(1)))]));
+    assert_eq!(fleet_limit(&state, &kernel, false, Seat(0)), 4, "the foreign token is a token of the pool");
+}
+
+#[test]
+fn a_faction_that_prints_its_own_unit_builds_it_from_the_start_and_a_war_sun_needs_the_technology_or_a_faction_that_prints_one() {
+    covers!("rules::production::home::buildable_for");
+    let (mut state, kernel, _) = letnev_table();
+    let scope = Scope(u32::from(kernel.sources.0));
+    let mut printed = UnitRoster::default();
+    printed.set(Faction::TheBaronyOfLetnev, UnitBaseType::Flagship, Some(Unit::ArcSecundus));
+    printed.set(Faction::TheBaronyOfLetnev, UnitBaseType::Warsun, Some(Unit::WarSun));
+    let printed: &'static UnitRoster = Box::leak(Box::new(printed));
+    let with = buildable_for(&state, &kernel, scope, printed, Seat(0)).unwrap();
+    assert_eq!(with[7], Some(Unit::ArcSecundus), "the faction's flagship, in the flagship's slot");
+    assert_eq!(with[8], Some(Unit::WarSun), "a faction that prints its own war sun builds it with no technology");
+    let without = buildable_for(&state, &kernel, scope, roster(), Seat(0)).unwrap();
+    assert_eq!((without[7], without[8]), (None, None));
+    state.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::WarSun);
+    let owned = buildable_for(&state, &kernel, scope, roster(), Seat(0)).unwrap();
+    assert!(owned.contains(&Some(Unit::WarSun)), "the technology unlocks the war sun");
+}
+
+#[test]
+fn a_use_read_from_the_position_drops_the_unspent_discount_only_from_the_version_that_offers_the_agent() {
+    covers!("rules::production::home::HomeProduction");
+    for (agent_rules, left) in [(true, 0), (false, 5)] {
+        let (state, kernel, system) = letnev_table();
+        let mut rig = Rig::from_parts(state, kernel, HomeProduction::at(Seat(0), system, roster(), agent_rules));
+        rig.state.transient_mut().production.discount_remaining = 5;
+        rig.run();
+        assert_eq!(rig.state.transient().production.discount_remaining, left, "agent rules {agent_rules}");
+    }
 }

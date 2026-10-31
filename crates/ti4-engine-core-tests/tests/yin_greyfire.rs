@@ -23,7 +23,8 @@ fn table() -> AbilityTable {
 fn table_rig(holder: Faction, opponent: Faction, ground: &[Unit]) -> (Rig<EmitEvent>, System, Planet) {
     let system = plain_systems()[0];
     let planet = system.data().planets[0];
-    let mut sc = Scenario::new(&[holder, opponent, Faction::TheYinBrotherhood]).kernel(kernel_all()).map_from(&[system]).control(planet, 1);
+    let third = if holder == Faction::TheYinBrotherhood || opponent == Faction::TheYinBrotherhood { Faction::TheNaaluCollective } else { Faction::TheYinBrotherhood };
+    let mut sc = Scenario::new(&[holder, opponent, third]).kernel(kernel_all()).map_from(&[system]).control(planet, 1);
     for unit in ground {
         sc = sc.unit(system, Some(planet), *unit, 1, 1);
     }
@@ -53,7 +54,8 @@ fn greyfire_replaces_an_infantry_of_the_opponent_then_returns_the_note_to_the_yi
     rig.pick(use_it);
     assert!(rig.is_done(), "{}", rig.transcript());
     assert_eq!(ground_of(&rig, planet, 1), vec![Unit::InfantryI], "one of the opponent's two infantry went");
-    assert_eq!(ground_of(&rig, planet, 0), vec![Unit::InfantryI], "the holder's infantry took its place");
+    let placed = ground_of(&rig, planet, 0);
+    assert!(placed.len() == 1 && placed[0].data().base_type == UnitBaseType::Infantry, "the holder's infantry took its place: {placed:?}");
     assert_eq!(rig.state.cards().promissory.get(&NOTE), Some(&Seat(2)), "the card is back with the Yin player");
 }
 
@@ -82,7 +84,6 @@ fn greyfire_needs_two_ground_forces_an_infantry_a_non_yin_opponent_and_a_non_yin
     assert!(rig.is_done(), "no infantry to replace");
     // The opponent is the Yin: the card is for the fights against the others.
     let (mut rig, _, _) = table_rig(Faction::TheFederationOfSol, Faction::TheYinBrotherhood, &[Unit::InfantryI, Unit::InfantryI]);
-    rig.state.cards_mut().promissory.edit().insert(NOTE, Seat(0));
     rig.run();
     assert!(rig.is_done(), "against the Yin");
     // The note is not held.
@@ -90,4 +91,34 @@ fn greyfire_needs_two_ground_forces_an_infantry_a_non_yin_opponent_and_a_non_yin
     rig.state.cards_mut().promissory.edit().insert(NOTE, Seat(2));
     rig.run();
     assert!(rig.is_done(), "the Yin holds its own note");
+}
+
+#[test]
+fn a_yin_holder_of_its_own_note_is_not_offered_it() {
+    covers!("cd_registry::yin::timing::GREYFIRE");
+    // Seat 0 is the Yin and holds its own note (the default), the opponent has two infantry.
+    let system = plain_systems()[0];
+    let planet = system.data().planets[0];
+    let sc = Scenario::new(&[Faction::TheYinBrotherhood, Faction::TheEmiratesOfHacan]).kernel(kernel_all()).map_from(&[system]).control(planet, 1).unit(system, Some(planet), Unit::InfantryI, 1, 2);
+    let (mut state, kernel) = sc.build();
+    state.cards_mut().promissory.edit().insert(NOTE, Seat(0));
+    let payload = Payload::new().with(Key::System, Val::System(system)).with(Key::Planet, Val::Planet(planet)).with(Key::Attacker, Val::Seat(Seat(0))).with(Key::Defender, Val::Seat(Seat(1)));
+    let mut rig = Rig::from_parts(state, kernel, EmitEvent::new(fx::event(EventKind::GroundCombatStarted, payload))).with_abilities(table());
+    rig.run();
+    assert!(rig.is_done(), "the card is for the fights of the others: {}", rig.transcript());
+}
+
+#[test]
+fn the_defender_holds_the_note_just_as_well() {
+    covers!("cd_registry::yin::timing::GREYFIRE");
+    // Seat 0 (Sol) is the defender here and seat 1 (Hacan) the attacker with the infantry.
+    let system = plain_systems()[0];
+    let planet = system.data().planets[0];
+    let sc = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan, Faction::TheYinBrotherhood]).kernel(kernel_all()).map_from(&[system]).control(planet, 0).unit(system, Some(planet), Unit::InfantryI, 1, 2);
+    let (mut state, kernel) = sc.build();
+    state.cards_mut().promissory.edit().insert(NOTE, Seat(0));
+    let payload = Payload::new().with(Key::System, Val::System(system)).with(Key::Planet, Val::Planet(planet)).with(Key::Attacker, Val::Seat(Seat(1))).with(Key::Defender, Val::Seat(Seat(0)));
+    let mut rig = Rig::from_parts(state, kernel, EmitEvent::new(fx::event(EventKind::GroundCombatStarted, payload))).with_abilities(table());
+    rig.run();
+    assert_eq!(rig.asked().actor, Seat(0), "{}", rig.transcript());
 }

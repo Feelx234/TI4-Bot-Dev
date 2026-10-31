@@ -1329,6 +1329,46 @@ fn the_home_production_reads_the_position_when_it_starts_not_where_the_card_star
     assert!(!rig.driver.window.unsupported, "{}", rig.transcript());
 }
 
+#[test]
+fn the_announcement_of_the_home_production_goes_after_the_events_staged_before_it() {
+    covers!("rules::hero_windows::NaazHero");
+    // An event a secondary before the Warfare secondary staged: the units made are announced after it, so the adapter needs to know where.
+    let (mut rig, _) = naaz_home(&[StrategyCard::Warfare], 6, use_at);
+    ti4_engine_core::kernel::fx::stage(&mut rig.state, ti4_engine_core::kernel::fx::trade_goods_gained(Seat(0), 1, Code(1)));
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Build { unit: Unit::DestroyerI, .. })));
+    while !rig.is_done() {
+        if matches!(rig.asked().ask, Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::TradeGood { .. })));
+        } else {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Stop)));
+        }
+    }
+    assert!(rig.driver.window.home_made.is_some());
+    assert_eq!(rig.driver.window.home_staged, 1, "one event was staged when the home production finished");
+}
+
+#[test]
+fn a_home_use_needs_the_roster_of_the_faction_units_and_the_rules_version_decides_the_agent() {
+    covers!("rules::hero_windows::NaazHero");
+    // No roster: the forms that may be built cannot be read, the string performs the ability.
+    let (mut rig, _) = naaz_home(&[StrategyCard::Warfare], 6, use_at);
+    rig.driver.window = NaazHero::new(Seat(0), PerformFacts { roster: None, ..with_home(Home::At(plain()[0])) }, vec![StrategyCard::Warfare]);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    assert!(rig.is_done() && rig.driver.window.unsupported);
+    // Below the rules version of Berekar Berekon the use leaves the discount an earlier tactical action left unspent in the position.
+    for (version, left) in [(LATEST_RULES, 0), (20, 5)] {
+        let (mut rig, _) = naaz_home(&[StrategyCard::Warfare], 6, use_at);
+        rig.driver.window = NaazHero::new(Seat(0), PerformFacts { rules_version: version, ..with_home(Home::At(plain()[0])) }, vec![StrategyCard::Warfare]);
+        rig.state.transient_mut().production.discount_remaining = 5;
+        rig.run();
+        rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+        assert_eq!(rig.state.transient().production.discount_remaining, left, "rules version {version}");
+    }
+}
+
 /// Decline the question, or take its first option where it cannot be declined.
 fn answer_somehow<W: Window>(rig: &mut Rig<W>) {
     if rig.try_answer(Pick::Opt(Opt::Decline)).is_err() {
