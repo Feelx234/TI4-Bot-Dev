@@ -185,3 +185,22 @@ Break of the combination: the delivery registry named `arborec.rs::agent_use` an
 | `check_layers.py core`, `lint_core.sh` | 432 files, 0 violations; 434 files, 0 hits |
 
 Not run: heavy work. Not pushed.
+
+## 9. Round 5: `core-w-l7` (fast-forward)
+
+`core-w-l7` @ `fedbbd57` was cut from `core-integration-7` @ `3b97d529` (8 commits, 36 files): Muaat component actions as core bodies (`rules::muaat_component`: Star Forge, The Nucleus, The Inferno, Fires of the Gashlai), the Arborec hero and the Muaat agent with the production window as a child (`rules::leader_production`, `Spawn::Produce`), Chaos Mapping's single unit and Freelancers as `rules::production::one::ProduceOne` (`Spawn::ProduceOne`; Chaos Mapping is the third stage of the start-of-turn window), more tests, `docs/W_L7_RESUME.md`. Merged by fast-forward: no conflicts, no merge commit, and no fix was needed (the delivery registry already matched).
+
+Checks (cheap), runner chain `y7` at `fedbbd57`:
+
+| Check | Result |
+|---|---|
+| `cargo check --workspace --all-targets` | ok |
+| `cargo clippy` of core, factions, engine, bridge, core-tests, rule-bot-typed | ok; no warning in the core crates or in `dual`, `dual_window`, `core_sync`, `render`, `combat` |
+| `cargo test -p ti4-engine --lib` | 4851 passed, 0 failed |
+| same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` (full lib) | 4851 passed, 0 failed |
+| core + factions + rule-bot-typed + bridge `--lib` | 623 passed |
+| `decision_delivery_inventory`, `content_ids_resolve` | 4 + 4 passed |
+| `ti4-engine-core-tests` with the D4 flags | 1133 passed, 0 failed |
+| `check_layers.py core`, `lint_core.sh` | 435 files, 0 violations; 437 files, 0 hits |
+
+Not run: heavy work. Not pushed. `core-w-l8` (heroes) is not merged.
