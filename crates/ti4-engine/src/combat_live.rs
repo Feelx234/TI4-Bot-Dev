@@ -759,4 +759,6 @@ mod tests {
         let full = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), ti4_model::content_types::FULL);
         assert_eq!(full.table.facts.roster.expect("a roster").get(Faction::TheNaaluCollective, UnitBaseType::Mech), Unit::from_id("naalu_mech_te"), "a game with Thunder's Edge its reprint");
     }
+
+    include!("combat_live_g3_tests.rs");
 }

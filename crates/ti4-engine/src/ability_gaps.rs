@@ -48,7 +48,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "technology:*:vw:MOVEMENT_FINISHED:after",
     "technology:*:yso:UNITS_PRODUCED:after",
     "unit:*:naalu_mech_te:RELIC_GAINED:after",
-    "unit:*:nekro_flagship:SPACE_COMBAT_STARTED:after",
     "unit:*:winnu_mech:ACTION_COMPLETED:after",
     "leader:*:a:yssarilagent:mentakagent:PILLAGE_USED:after",
     "leader:*:a:yssarilagent:naazagent:TURN_PASSED:after",

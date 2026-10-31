@@ -2,12 +2,40 @@
 //! technologies). Slots `42_000..` are this module's; the ids are named in `reactions_core::NAMED`. One file per ability family; each registers where the
 //! string registers it (`register_abilities`, after the packages, unless a file says otherwise).
 
+pub mod alastor;
 pub mod ragh;
 pub mod tekklar;
 pub mod tro_marks;
 pub mod zeta;
 
 use ti4_engine_core::kernel::ability::AbilityTable;
+
+/// The texts the rules of this module name in the context of their questions (`SilentCodes::g3`, interned by the adapter in this order): index with the
+/// constants of `code`. Unused places hold a placeholder.
+pub const CODE_TEXTS: [&str; 16] = [
+    "nekro_flagship",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+    "g3_unused",
+];
+
+/// The places of `CODE_TEXTS`.
+pub mod code {
+    /// The unit alias `nekro_flagship`: the source of the Alastor's question.
+    pub const NEKRO_FLAGSHIP: usize = 0;
+}
 
 /// The rules of this module, registered after the faction packages.
 pub fn register_abilities(t: &mut AbilityTable) {
@@ -20,4 +48,5 @@ pub fn register_abilities(t: &mut AbilityTable) {
 /// Rules registered between the Nekro and the Winnu modules of the string (`ca_combat` and `cb_economy`'s late rules in the core's order): Sardakk's.
 pub fn register_after_ca_combat(t: &mut AbilityTable) {
     tekklar::register_play(t);
+    alastor::register_abilities(t);
 }

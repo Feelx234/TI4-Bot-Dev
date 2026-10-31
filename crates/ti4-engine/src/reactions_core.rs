@@ -100,6 +100,7 @@ const NAMED: &[Named] = &[
     Named { slot: cabal::CLEAR_GROUND, kind: "ability", card: "devour_clear" },
     Named { slot: ti4_engine_core_factions::silent::g3::zeta::ZETA, kind: "unit", card: "saar_mech" },
     Named { slot: ti4_engine_core_factions::silent::g3::ragh::RAGH, kind: "promissory", card: "ragh" },
+    Named { slot: ti4_engine_core_factions::silent::g3::alastor::ALASTOR, kind: "unit", card: "nekro_flagship" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR, kind: "promissory", card: "tekklar" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_END, kind: "promissory", card: "tekklar_end" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_TURN, kind: "promissory", card: "tekklar_turn" },
@@ -575,7 +576,9 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             scavenge: r.code("scavenge"),
             mitosis: r.code("mitosis"),
             naaz_agent: r.code("naazagent"),
+            ..Default::default()
         };
+        table.codes.silent.g3 = ti4_engine_core_factions::silent::g3::CODE_TEXTS.map(|text| r.code(text));
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {

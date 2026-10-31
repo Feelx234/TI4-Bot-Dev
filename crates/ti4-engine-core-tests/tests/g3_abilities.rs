@@ -303,3 +303,73 @@ mod tro_marks {
         }
     }
 }
+
+// -- The Alastor ---------------------------------------------------------------------------------------------------------------
+
+mod alastor {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent3::{Ask as TAsk, Opt as TOpt};
+    use ti4_engine_core::keys::{Atom, DecimalTextOrd, MarkKey, MarkVal};
+
+    fn started(system: System) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::SpaceCombatStarted, Payload::new().with(Key::System, Val::System(system)).with(Key::Attacker, Val::Seat(Seat(0))).with(Key::Defender, Val::Seat(Seat(1))))
+    }
+
+    fn scenario(system: System, planets: &[Planet]) -> Scenario {
+        Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan])
+            .unit(system, None, Unit::TheAlastor, 0, 1)
+            .unit(system, Some(planets[0]), Unit::InfantryI, 0, 2)
+            .unit(system, Some(planets[0]), Unit::Mordred, 0, 1)
+            .unit(system, Some(planets[1]), Unit::InfantryI, 0, 1)
+    }
+
+    fn marks(r: &Rig<EmitEvent>, system: System, planet: Planet, unit: Unit) -> Option<MarkVal> {
+        r.state.marks().tail.get(&MarkKey::NekroAlastor(DecimalTextOrd(r.state.meta().activation_seq), system, Seat(0), planet, unit)).cloned()
+    }
+
+    #[test]
+    fn the_owner_says_per_planet_and_unit_how_many_ground_forces_fight_as_ships() {
+        covers!("silent::g3::alastor::ALASTOR");
+        let (system, planets) = two_planet_system();
+        let mut r = rig(scenario(system, &planets), |_| {}, started(system));
+        // One question per planet and unit (planet order, then unit order), each with "none".
+        let mut asked = Vec::new();
+        while !r.is_done() {
+            let q = r.asked().ask;
+            asked.push(q);
+            match q {
+                Ask::Reaction(RAsk::G(GAsk::T(TAsk::Alastor { planet, unit }))) if planet == planets[0] && unit == Unit::InfantryI => {
+                    assert_eq!(r.opts(), vec![Opt::Reaction(ROpt::G(GOpt::T(TOpt::Count(1)))), Opt::Reaction(ROpt::G(GOpt::T(TOpt::Count(2)))), Opt::Decline]);
+                    r.pick(1);
+                }
+                Ask::Reaction(RAsk::G(GAsk::T(TAsk::Alastor { planet, unit }))) if unit == Unit::Mordred => {
+                    assert_eq!(planet, planets[0]);
+                    r.decline();
+                }
+                _ => {
+                    r.pick(0);
+                }
+            }
+        }
+        assert_eq!(asked.len(), 3, "infantry and Mordred on the first planet, infantry on the second: {}", r.transcript());
+        assert_eq!(marks(&r, system, planets[0], Unit::InfantryI), Some(MarkVal::Atom(Atom::Num(2))));
+        assert_eq!(marks(&r, system, planets[0], Unit::Mordred), None, "declined");
+        assert_eq!(marks(&r, system, planets[1], Unit::InfantryI), Some(MarkVal::Atom(Atom::Num(1))), "the lone infantry: the first option");
+    }
+
+    #[test]
+    fn it_needs_the_flagship_in_space_a_side_of_the_combat_and_a_ground_force_on_a_planet() {
+        covers!("silent::g3::alastor::ALASTOR");
+        let (system, planets) = two_planet_system();
+        let no_flagship = Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]).unit(system, Some(planets[0]), Unit::InfantryI, 0, 2);
+        assert!(rig(no_flagship, |_| {}, started(system)).is_done());
+        let no_ground = Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]).unit(system, None, Unit::TheAlastor, 0, 1);
+        assert!(rig(no_ground, |_| {}, started(system)).is_done());
+        // Neither side of the combat: the flagship's owner watches.
+        let bystander = fx::event(EventKind::SpaceCombatStarted, Payload::new().with(Key::System, Val::System(system)).with(Key::Attacker, Val::Seat(Seat(1))).with(Key::Defender, Val::Seat(Seat(2))));
+        let three = Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]).unit(system, None, Unit::TheAlastor, 0, 1).unit(system, Some(planets[0]), Unit::InfantryI, 0, 2);
+        assert!(rig(three, |_| {}, bystander).is_done());
+    }
+}
