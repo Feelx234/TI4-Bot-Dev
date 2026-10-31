@@ -1,0 +1,7 @@
+Q0 seat 0 Promissory(PlaceUnits { unit: InfantryI, fit: 2 })
+  >0: Promissory(Spot(Tempesta, Tempesta))
+   1: Promissory(Spot(Olergodt, Olergodt))
+done
+--- delta ---
+sys[Tempesta]: units [] tokens {} flags 0 -> units [] tokens {} flags 1
+planet[Tempesta]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [2xInfantryI/s0] attach [] coexist {} placed_in None flags 4
