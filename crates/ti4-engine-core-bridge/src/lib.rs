@@ -13,3 +13,4 @@ pub mod shadow;
 pub mod seen_parity;
 pub mod check_tech;
 pub mod golden;
+pub mod oracle;

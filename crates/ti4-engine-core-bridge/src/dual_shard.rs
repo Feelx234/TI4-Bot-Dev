@@ -53,6 +53,9 @@ pub struct GameRecord {
     pub dual_hash: String,
     pub string_hash: String,
     pub report: DualReport,
+    /// Why the scenario was not played (the `oracle` skips scenarios of a switched-off feature); `None` for a played game.
+    /// Written only when set, so the files of `dual_run` keep their bytes.
+    pub skipped: Option<String>,
 }
 
 /// A shard file.
@@ -224,7 +227,11 @@ impl ShardFile {
             .records
             .iter()
             .map(|g| {
-                json!({ "index": g.index, "dual_hash": g.dual_hash, "string_hash": g.string_hash, "report": report_to_json(&g.report) })
+                let mut game = json!({ "index": g.index, "dual_hash": g.dual_hash, "string_hash": g.string_hash, "report": report_to_json(&g.report) });
+                if let Some(why) = &g.skipped {
+                    game["skipped"] = json!(why);
+                }
+                game
             })
             .collect();
         json!({
@@ -252,6 +259,7 @@ impl ShardFile {
                 dual_hash: str_of(g, "dual_hash")?.to_owned(),
                 string_hash: str_of(g, "string_hash")?.to_owned(),
                 report: report_from_json(g.get("report").ok_or("missing `report`")?)?,
+                skipped: g.get("skipped").and_then(Value::as_str).map(str::to_owned),
             });
         }
         Ok(Self {
@@ -297,6 +305,8 @@ pub struct Merged {
     pub report: DualReport,
     /// `(game, dual hash, string hash)` of the games whose hashes differ.
     pub hash_changes: Vec<(usize, String, String)>,
+    /// `(game, reason)` of the scenarios that were not played.
+    pub skipped: Vec<(usize, String)>,
 }
 
 impl Merged {
@@ -320,6 +330,13 @@ impl Merged {
             self.areas_on_dual,
             self.hash_changes.is_empty()
         );
+        if !self.skipped.is_empty() {
+            let mut by_reason: BTreeMap<&str, usize> = BTreeMap::new();
+            for (_, why) in &self.skipped {
+                *by_reason.entry(why.as_str()).or_default() += 1;
+            }
+            let _ = writeln!(out, "skipped {} of {} scenarios (not played, not compared): {by_reason:?}", self.skipped.len(), self.games);
+        }
         let _ = write!(out, "{}", self.report);
         out
     }
@@ -368,11 +385,15 @@ pub fn merge(files: &[ShardFile]) -> Result<Merged, String> {
     }
     let mut report = DualReport::default();
     let mut hash_changes = Vec::new();
+    let mut skipped = Vec::new();
     for (index, g) in &by_game {
         report.add(&g.report);
+        if let Some(why) = &g.skipped {
+            skipped.push((*index, why.clone()));
+        }
         if g.dual_hash != g.string_hash {
             hash_changes.push((*index, g.dual_hash.clone(), g.string_hash.clone()));
         }
     }
-    Ok(Merged { games: first.games, areas_on_dual: first.areas_on_dual.clone(), report, hash_changes })
+    Ok(Merged { games: first.games, areas_on_dual: first.areas_on_dual.clone(), report, hash_changes, skipped })
 }
