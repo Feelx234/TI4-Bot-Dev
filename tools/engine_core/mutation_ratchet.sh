@@ -25,6 +25,11 @@ root="${ROOT:-/root/deploytmp/core-d4b}"
 out="${OUT:-$root/results}"
 mode="${MODE:-check}"
 mkdir -p "$out"
+# The D4 kit appends one line per covers! to $D4_COVERS_FILE, else $CARGO_TARGET_DIR/d4-covers.txt (which a caller such as
+# end_of_d1.sh also reads for the coverage check). A mutation run executes the D4 tests once per mutant, so without this the file
+# grew by gigabytes per hour (2 GB in 25 minutes of the end-of-D1 ratchet, torn lines from the parallel jobs included) and
+# drowned the real registry of the `tests` step. The registry of a mutation run is of no use: send it to /dev/null.
+export D4_COVERS_FILE="${D4_COVERS_FILE:-/dev/null}"
 
 if [[ "${LIST:-0}" == 1 ]]; then grep -v '^#' "$mods" | cut -f1; exit 0; fi
 names=("$@")

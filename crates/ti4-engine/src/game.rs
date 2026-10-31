@@ -18092,6 +18092,69 @@ mod tests {
         );
     }
 
+    /// Reparations played in the window of a capture, on the core windows of the invasion: the two questions the card's effect asks (the planet
+    /// of the new controller to exhaust, the planet of the holder to ready) belong to no event, and the string puts them through
+    /// `Table::ask_seeing`, which names the invasion the position is in (`context.invasion_seq`). The core question must carry the same
+    /// sequence number. Fails on the code before the fix, which compared the core question without it (`invasion_seq`: string = N, core = absent;
+    /// found by the sharded wide dual run of the end of D1, game 11).
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn reparations_asks_its_questions_with_the_invasion_in_the_core_window_too() {
+        use crate::dual::{AreaMask, Backend, local_windows, take_report, with_mask};
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let (mut state, galaxy, system, planet) = invasion_fixture();
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        for (p, faction) in ["a", "b"].iter().zip(["sol", "letnev"]) {
+            state.player_mut(&PlayerId::new(*p)).unwrap().faction = ti4_model::id::FactionId::new(faction);
+        }
+        crate::promissory::deal(&mut state, ContentStore::embedded(), ti4_model::content_types::DEFAULT);
+        crate::fixtures::put(&mut state, &system, "destroyer", &a, 1);
+        crate::fixtures::put(&mut state, &system, "dreadnought", &a, 1);
+        crate::fixtures::put(&mut state, &system, "infantry", &a, 1);
+        state.system_mut(&system).set_control(planet.clone(), b.clone());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 1);
+        // Two other planets away from the fight: b's two exhausted ones (the card readies one of them: a question) and a's one besides the
+        // capture (the card exhausts one of the two: a question).
+        let content = ContentStore::embedded();
+        let away: Vec<(ti4_model::id::SystemId, PlanetId)> = ti4_content::galaxy::all_planets(content, POK)
+            .iter()
+            .filter(|(id, planet)| {
+                planet.system_id().is_some_and(|s| s != system.as_str()) && !ti4_content::galaxy::is_space_station(content, id, POK)
+            })
+            .map(|(id, planet)| (ti4_model::id::SystemId::new(planet.system_id().unwrap_or("00")), PlanetId::new(*id)))
+            .take(3)
+            .collect();
+        assert_eq!(away.len(), 3, "the corpus has three planets elsewhere");
+        for ((sys, pl), owner) in away.iter().zip([&b, &b, &a]) {
+            state.system_mut(sys).set_control(pl.clone(), owner.clone());
+        }
+        state.exhaust_planet(away[0].1.clone());
+        state.exhaust_planet(away[1].1.clone());
+        state.player_mut(&b).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("reparations")];
+        let mut reactions = std::collections::BTreeMap::new();
+        reactions.insert(b.clone(), "reaction:generic:PLANET_CONTROL_GAINED:after".to_owned());
+        let table = Table::with_default(Box::new(InvasionDecider { system: system.clone(), commit: planet.clone(), reactions }));
+        let mask = AreaMask::parse("driver=dual,invasion=dual", AreaMask::all(Backend::String)).unwrap();
+        let mut asked = false;
+        with_mask(mask, || {
+            let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+            game.dice = Dice::from_faces([6]);
+            let mut guard = 0;
+            while !game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") && guard < 60 {
+                assert_eq!(game.step().error, None, "log: {:?}", game.events);
+                guard += 1;
+            }
+            asked = game.state.player(&b).unwrap().action_cards.is_empty();
+        });
+        let report = take_report();
+        assert!(asked, "b played Reparations");
+        assert_eq!(report.total_differences(), 0, "{:?}", report.differences.first());
+        let (compared, bailed) = local_windows("invasion::finish_control_gain");
+        assert!(compared > 0 && bailed == 0, "{compared} compared, {bailed} bailed: {:?}", report.windows);
+    }
+
     #[test]
     fn without_reparations_a_capture_exhausts_nothing_of_the_losers() {
         // The control: the same invasion, nobody armed. The capture still exhausts the

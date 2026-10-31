@@ -613,7 +613,9 @@ mod strict_tests {
     fn the_roll_shift_dual_loads_a_view_without_the_map_and_compares_in_strict_mode() {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
-        let gs = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "sol")], ti4_model::content_types::POK);
+        let mut gs = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "sol")], ti4_model::content_types::POK);
+        gs.promissory_notes.clear();
+        gs.promissory_faceup.clear();
         let (content, sources) = (ContentStore::embedded(), ti4_model::content_types::POK);
         with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
             crate::core_sync::unmapped::strict_on_this_thread(|| {
