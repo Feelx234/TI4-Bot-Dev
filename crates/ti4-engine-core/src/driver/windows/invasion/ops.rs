@@ -2,6 +2,7 @@
 //! landings and the public boundary. The ground rounds, the advance and the control gain are `fight.rs`.
 
 use super::InvasionMachine;
+use crate::kernel::ability::Unported as Why;
 use crate::choice::invasion::Opt as IOpt;
 use crate::choice::{Choice, Opt, Pick};
 use crate::containers::{Cow, SeatSet, SortedMap};
@@ -125,7 +126,7 @@ impl InvasionMachine {
 
     /// `AftermathWindow::next_step`'s invasion branch and `InvasionWindow::new_with_notes`: the public boundary, `INVASION_BEGAN`, the rolled
     /// bombardment.
-    pub(super) fn begin(&mut self, sx: &mut Sx<'_>) -> Result<(), &'static str> {
+    pub(super) fn begin(&mut self, sx: &mut Sx<'_>) -> Result<(), Why> {
         let (invader, system) = (self.p.invader, self.p.system);
         let codes = sx.table.codes.invasion;
         let seq = u64::from(sx.state.meta().activation_seq);
@@ -157,7 +158,7 @@ impl InvasionMachine {
         for entry in &planned {
             let mut groups: Vec<u32> = Vec::new();
             for _ in &entry.rolls {
-                let Some(d) = dice.get(at) else { return Err("the bombardment dice do not match the plan") };
+                let Some(d) = dice.get(at) else { return Err(Why::BombardmentDiceMismatch) };
                 at += 1;
                 let hits = u32::try_from(d.faces.iter().filter(|f| **f >= d.hits_on).count()).unwrap_or(u32::MAX) * multiplier;
                 if hits > 0 {
@@ -204,7 +205,7 @@ impl InvasionMachine {
 
     /// The one-shot windows after the bombardment rolls (`announce_bombard_rerolls`): the reaction windows of `UNIT_ABILITY_ROLLED` (Scramble
     /// Frequency), then every planet's groups are recomputed from the possibly rerolled dice and the staging is spent.
-    pub(super) fn announce_rerolls(&mut self, sx: &mut Sx<'_>) -> Result<(), &'static str> {
+    pub(super) fn announce_rerolls(&mut self, sx: &mut Sx<'_>) -> Result<(), Why> {
         let invader = self.p.invader;
         let codes = sx.table.codes.invasion;
         let has = |s: &CoreState| s.transient().combat.reroll_staging.iter().any(|(who, _)| *who == invader);
@@ -213,10 +214,10 @@ impl InvasionMachine {
         }
         // Aglnlan Oln asks which dice to reroll after a unit-ability roll.
         if sx.state.players().by_seat(invader).is_some_and(|p| p.leaders.status.get(&crate::generated::Leader::AgnlanOln) == Some(&crate::state::LeaderStatus::Unlocked)) {
-            return Err("the Jol-Nar commander's reroll of the bombardment dice");
+            return Err(Why::JolNarCommanderReroll);
         }
         let (kind, system, hits) = {
-            let set = sx.state.transient().combat.reroll_staging.iter().find(|(who, _)| *who == invader).map(|(_, set)| set).ok_or("no staged dice")?;
+            let set = sx.state.transient().combat.reroll_staging.iter().find(|(who, _)| *who == invader).map(|(_, set)| set).ok_or(Why::BombardmentDiceMismatch)?;
             (set.kind, set.system, staged_hits(set))
         };
         let payload = Payload::new()
@@ -414,7 +415,7 @@ impl InvasionMachine {
         w.answer(sx, pick)?;
         if w.unsupported {
             return {
-                crate::driver::windows::invasion::InvasionMachine::bail_flag(sx, "a ship-form unit flipping on landing (Naaz Eidolon)");
+                crate::driver::windows::invasion::InvasionMachine::bail_flag(sx, Why::ShipFormFlip);
                 Ok(())
             };
         }
@@ -463,7 +464,7 @@ impl InvasionMachine {
     // -- the settle chunk -----------------------------------------------------------------------------------------------
 
     /// `InvasionWindow::settle`: one chunk. `Err(reason)`: a position the native invasion does not run.
-    pub(super) fn settle(&mut self, sx: &mut Sx<'_>) -> Result<(), &'static str> {
+    pub(super) fn settle(&mut self, sx: &mut Sx<'_>) -> Result<(), Why> {
         loop {
             match self.p.stage.clone() {
                 IStage::Begin => self.begin(sx)?,
@@ -545,7 +546,7 @@ impl InvasionMachine {
 
     // -- the helpers the other files use ---------------------------------------------------------------------------------
 
-    pub(super) fn bail_flag(sx: &mut Sx<'_>, why: &'static str) {
+    pub(super) fn bail_flag(sx: &mut Sx<'_>, why: Why) {
         if sx.tape.unknown.get().is_none() {
             sx.tape.unknown.set(Some(crate::kernel::ability::Unknown::Unported(why)));
         }

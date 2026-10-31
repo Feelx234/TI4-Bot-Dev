@@ -29,6 +29,7 @@ mod live;
 mod ops;
 
 use crate::choice::{Choice, Pick};
+use crate::kernel::ability::Unported as Why;
 use crate::kernel::stage::{Held, Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::state::{CoreState, IStage, Invasion, Window as OpenWindow, WindowKind};
@@ -76,7 +77,7 @@ impl InvasionMachine {
         &self.p.report
     }
 
-    fn bail(sx: &mut Sx<'_>, why: &'static str) -> Next {
+    fn bail(sx: &mut Sx<'_>, why: Why) -> Next {
         if sx.tape.unknown.get().is_none() {
             sx.tape.unknown.set(Some(crate::kernel::ability::Unknown::Unported(why)));
         }
@@ -128,7 +129,7 @@ impl Window for InvasionMachine {
             let after = (self.p.stage.clone(), self.p.bombard.index, self.p.bombard.cursor.is_some(), self.p.report.committed.len());
             idle = if after == before { idle + 1 } else { 0 };
             if idle >= 3 {
-                return Self::bail(sx, "the invasion made no progress (a stage that neither asks nor moves on)");
+                return Self::bail(sx, Why::NoProgress);
             }
         }
     }

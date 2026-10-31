@@ -228,7 +228,7 @@ fn a_first_claim_is_a_counted_bail_until_the_exploration_is_native() {
     let before = core.clone();
     let (_, end) = play(&mut core, &env, &mut first);
     let Err(LiveError::Unknown(why)) = end else { panic!("a first claim bails: {end:?}") };
-    assert!(format!("{why:?}").contains("exploration of a first claim"), "{why:?}");
+    assert!(format!("{why:?}").contains("ExplorationOfAFirstClaim"), "{why:?}");
     // The failed step put the position back to where the last question stopped it (it kept the planet unclaimed).
     assert_eq!(core.board().planet(p1).control, None);
     let _ = before;

@@ -31,6 +31,32 @@ pub fn fill_codes(table: &mut AbilityTable, r: &Render, state_code: &mut dyn FnM
     }
 }
 
+/// The words of a position the native invasion does not run (`Unknown::Unported`).
+#[must_use]
+pub const fn unported_text(why: ti4_engine_core::kernel::ability::Unported) -> &'static str {
+    use ti4_engine_core::kernel::ability::Unported as U;
+    match why {
+        U::NoProgress => "the invasion made no progress (a stage that neither asks nor moves on)",
+        U::EntropicScarDefense => "an entropic scar in the space cannon defense",
+        U::L4Disruptors => "L4 Disruptors in the space cannon defense",
+        U::AttachmentCannon => "an attachment that grants SPACE CANNON in the space cannon defense",
+        U::Slumberstate => "Slumberstate Computing (a Thunder's Edge breakthrough)",
+        U::RollCannotName => "a pool or unit the ground roll cannot name",
+        U::HitsAddedToARoll => "hits added to a ground roll",
+        U::MinisterOfExploration => "the Minister of Exploration's trade good for a planet taken",
+        U::CrownOfEmphidia => "the Crown of Emphidia changes hands",
+        U::IntegratedEconomy => "Integrated Economy (a triggered production nested in the control gain)",
+        U::AssimilateRoster => "an Assimilate seat whose unit forms the core cannot name",
+        U::ExplorationOfAFirstClaim => "the exploration of a first claim (no native exploration window yet)",
+        U::BombardmentDiceMismatch => "the bombardment dice do not match the plan",
+        U::JolNarCommanderReroll => "the Jol-Nar commander's reroll of the bombardment dice",
+        U::ShipFormFlip => "a ship-form unit flipping on landing (Naaz Eidolon)",
+        U::X89 => "X-89 Bacterial Weapon in a ground round",
+        U::Thundarian => "The Thundarian watching the roll step",
+        U::Dacxive => "Dacxive Animators in a ground combat",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -407,7 +433,7 @@ mod tests {
         let string = string_run(state.clone(), 1, &free.0, "a", false, prefer(&[]));
         let out = with_bail_is_failure(true, || live_run(state.clone(), 1, &free.0, "a", &string.answers, false));
         let Err((Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(why)), _)) = out else { panic!("a first claim bails: {:?}", out.map(|_| ())) };
-        assert!(format!("{why:?}").contains("exploration of a first claim"), "{why:?}");
+        assert!(format!("{why:?}").contains("ExplorationOfAFirstClaim"), "{why:?}");
         let r = report();
         assert!(r.differences.iter().any(|d| d.label.contains("bail::live::invasion")), "{:?}", r.differences);
         let _ = take_report();

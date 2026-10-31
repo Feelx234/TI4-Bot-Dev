@@ -84,7 +84,33 @@ pub enum Unknown {
     /// window closes (the combat area's absorption), which the core windows do not.
     ReflectiveShielding,
     /// A position the native invasion does not run yet (a documented bail of `driver::windows::invasion`, named by its reason).
-    Unported(&'static str),
+    Unported(Unported),
+}
+
+/// The positions the native invasion (`driver::windows::invasion`) does not run, each a counted bail of the live path. The words are the adapter's
+/// (`invasion_live::unported_text`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unported {
+    /// The machine made no progress: a stage that neither asks nor moves on.
+    NoProgress,
+    EntropicScarDefense,
+    L4Disruptors,
+    AttachmentCannon,
+    Slumberstate,
+    RollCannotName,
+    HitsAddedToARoll,
+    MinisterOfExploration,
+    CrownOfEmphidia,
+    IntegratedEconomy,
+    AssimilateRoster,
+    /// A first claim explores the planet and no native exploration window exists yet.
+    ExplorationOfAFirstClaim,
+    BombardmentDiceMismatch,
+    JolNarCommanderReroll,
+    ShipFormFlip,
+    X89,
+    Thundarian,
+    Dacxive,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.

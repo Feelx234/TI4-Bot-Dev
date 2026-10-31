@@ -4,6 +4,7 @@
 
 use super::ops::{can_pay, rd, run_bill, Billed, RULES_FACTION_EFFECTS};
 use super::InvasionMachine;
+use crate::kernel::ability::Unported as Why;
 use crate::choice::combat::Opt as COpt;
 use crate::choice::invasion::Opt as IOpt;
 use crate::choice::{Opt, Pick};
@@ -28,7 +29,7 @@ use crate::rules::production::pay::PayBill;
 use crate::state::{CoreState, EventKind, Feat, IBill, IRound, IStage, InvasionDie, InvasionStep, Key, Payload, Piece, Val};
 use crate::tables::{Flags, SystemFlags};
 
-type Bail = &'static str;
+type Bail = Why;
 
 impl InvasionMachine {
     fn event(sx: &mut Sx<'_>, kind: EventKind, payload: Payload) {
@@ -72,13 +73,13 @@ impl InvasionMachine {
         let (invader, system) = (self.p.invader, self.p.system);
         let r = rd(sx.state, sx.kernel);
         if r.scope().system(system).is_some_and(|d| d.has(SystemFlags::SCAR)) {
-            return Err("an entropic scar in the space cannon defense");
+            return Err(Why::EntropicScarDefense);
         }
         if sx.state.players().by_seat(invader).is_some_and(|p| p.tech.owned.contains(Technology::L4Disruptors)) {
-            return Err("L4 Disruptors in the space cannon defense");
+            return Err(Why::L4Disruptors);
         }
         if planets.iter().any(|p| qboard::attachments(sx.state, *p).iter().any(|a| a.data().space_cannon.is_some())) {
-            return Err("an attachment that grants SPACE CANNON in the space cannon defense");
+            return Err(Why::AttachmentCannon);
         }
         let codes = sx.table.codes.invasion;
         let f = DefenseFacts {
@@ -105,7 +106,7 @@ impl InvasionMachine {
         }
         // Slumberstate Computing (the Titans breakthrough of Thunder's Edge) offers to coexist instead: out of the agreed content.
         if sx.state.players().by_seat(invader).is_some_and(|p| p.cards.breakthrough == Some(crate::generated::Breakthrough::SlumberstateComputing)) {
-            Self::bail_flag(sx, "Slumberstate Computing (a Thunder's Edge breakthrough)");
+            Self::bail_flag(sx, Why::Slumberstate);
             return;
         }
         for planet in planets {
@@ -135,16 +136,16 @@ impl InvasionMachine {
         let sides = [self.p.invader, defender];
         let owned = |who: Seat, t: Technology| s.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(t));
         if sides.iter().any(|w| owned(*w, Technology::X89BacterialWeapon)) {
-            return Some("X-89 Bacterial Weapon in a ground round");
+            return Some(Why::X89);
         }
         let status = |p: &crate::state::Player, card: Leader| p.leaders.status.get(&card).copied();
         let thundarian = s.players().iter().any(|p| status(p, Leader::TheThundarian) == Some(crate::state::LeaderStatus::Readied))
             || s.players().iter().any(|b| b.faction == crate::generated::Faction::TheYssarilTribes && status(b, Leader::Ssruu) == Some(crate::state::LeaderStatus::Readied));
         if thundarian && s.players().iter().any(|p| p.faction == crate::generated::Faction::TheNomad) {
-            return Some("The Thundarian watching the roll step");
+            return Some(Why::Thundarian);
         }
         if sides.iter().any(|w| owned(*w, Technology::DacxiveAnimators)) {
-            return Some("Dacxive Animators in a ground combat");
+            return Some(Why::Dacxive);
         }
         let _ = k;
         None
@@ -260,14 +261,14 @@ impl InvasionMachine {
         });
         let _ = roll.step(sx);
         if roll.unsupported {
-            return Err("a pool or unit the ground roll cannot name");
+            return Err(Why::RollCannotName);
         }
         let mut tail = GroundRollTail::new(TailFacts { invader, defender, system, planet, rolled: roll.hits, bump: !copied, announce: true });
         let _ = tail.step(sx);
         // Hits a faction adds to a roll once the dice are final (Valkyrie Particle Weave).
         let extra = |who: Seat, hits: u32, other: u32| sx.kernel.hooks.ground.ground_rolls_extra_hits(sx.state, sx.kernel, who, system, planet, hits as usize, other as usize);
         if extra(invader, tail.hits.0, tail.hits.1) != 0 || extra(defender, tail.hits.1, tail.hits.0) != 0 {
-            return Err("hits added to a ground roll");
+            return Err(Why::HitsAddedToARoll);
         }
         let dice: Vec<InvasionDie> = tail.dice.iter().map(|(side, group, face, target, hit)| InvasionDie { planet, player: *side, group: *group, face: *face, target: *target, hit: *hit }).collect();
         let template = InvasionStep { planet, kind: codes.ground_round, round: 0, before, after: Vec::new(), dice, hits: SortedMap::default(), harrow_hits: 0 };
@@ -491,13 +492,13 @@ impl InvasionMachine {
         }
         let blanked = reach::blanked(sx.state);
         if crate::query::laws::holds_ministry(sx.state, blanked, invader, crate::query::laws::MINISTER_EXPLORATION) {
-            return Err("the Minister of Exploration's trade good for a planet taken");
+            return Err(Why::MinisterOfExploration);
         }
         let crown = crate::generated::Agenda::TheCrownOfEmphidia;
         if let Some(crate::keys::Outcome::Seat(owner)) = crate::query::laws::elected(sx.state, blanked, crown)
             && crate::query::objectives::home_system_of(sx.state, owner) == Some(system)
         {
-            return Err("the Crown of Emphidia changes hands");
+            return Err(Why::CrownOfEmphidia);
         }
         sx.state.board_mut().planet_mut(planet).control = Some(invader);
         sx.state.board_mut().sys_mut(system).flags.set(crate::state::SysFlags::TOUCHED, true);
@@ -547,18 +548,18 @@ impl InvasionMachine {
     pub(super) fn finish_control_gain(&mut self, sx: &mut Sx<'_>, planet: Planet, previous: Option<Seat>) -> Result<(), Bail> {
         let (invader, system) = (self.p.invader, self.p.system);
         if sx.state.players().by_seat(invader).is_some_and(|p| p.tech.owned.contains(Technology::IntegratedEconomy)) {
-            return Err("Integrated Economy (a triggered production nested in the control gain)");
+            return Err(Why::IntegratedEconomy);
         }
         let infiltrate_fix = sx.state.meta().rules_at_least(1);
         let roster = sx.table.facts.plays.as_ref().and_then(|p| p.roster);
         let mut w = ControlGained::new(ControlFacts { invader, system, planet, previous, infiltrate_fix, announce: true }, roster);
         let _ = w.step(sx);
         if w.unsupported {
-            return Err("an Assimilate seat whose unit forms the core cannot name");
+            return Err(Why::AssimilateRoster);
         }
         // 35.1: a planet nobody controlled is explored (when it has a trait to explore into).
         if previous.is_none() && self.explorable(sx.state, sx.kernel, planet) {
-            return Err("the exploration of a first claim (no native exploration window yet)");
+            return Err(Why::ExplorationOfAFirstClaim);
         }
         Ok(())
     }
