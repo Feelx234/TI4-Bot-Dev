@@ -10059,6 +10059,28 @@ mod tests {
         assert!(played > 0, "a Reveal Prototype was played");
     }
 
+    /// Found by the end-of-D1 gate (`dual_run ... driver=dual --game 18`): Reveal Prototype researches Destroyer II at the start of the
+    /// combat and the destroyers on the board become Destroyer II before the barrage; the core settle interned its unit texts for the
+    /// board it began on, so the barrage dice of the new type were labelled `extra barrage` where the string names `destroyer2`. The
+    /// window is a counted bail now (the string stands), not a difference.
+    #[test]
+    fn reveal_prototype_upgrading_a_barrage_ship_at_the_start_of_the_combat_leaves_no_label_difference() {
+        let mut played = 0;
+        for seed in 1..=6_u64 {
+            let (_, _, _, plays) = cards_fight_with(seed, ["hacan", "sol"], &[], &["reveal_prototype"], false, false, &|state, system| {
+                state.system_mut(system).units.retain(|u| u.owner != defender());
+                put(state, system, "destroyer", &defender(), 2);
+                put(state, system, "fighter", &attacker(), 2);
+                // Destroyer II asks for two warfare prerequisites, and Reveal Prototype four resources.
+                let holder = state.player_mut(&defender()).unwrap();
+                holder.trade_goods = 12;
+                holder.technologies.extend(["ps", "aida"].map(ti4_model::id::TechnologyId::new));
+            });
+            played += usize::from(plays.iter().any(|c| c == "reveal_prototype"));
+        }
+        assert!(played > 0, "a Reveal Prototype was played");
+    }
+
     /// The promissory notes played at the start of a space combat: Antivirus (placed faceup) and The Cavalry (a ship type
     /// takes the flagship's abilities, the note goes home when the combat ends), both held by the defender.
     #[test]
