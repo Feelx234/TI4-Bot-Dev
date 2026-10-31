@@ -74,16 +74,26 @@ pub struct Env {
     pub barrage_kind: Code,
     pub barrage_extra: Code,
     pub unit_codes: Vec<(Unit, Code)>,
+    /// The same unit types' texts in the question renderer's table, the relic's `extra barrage`, and the sides (attacker, defender) the
+    /// Jol-Nar commander is in play for (it rerolls the barrage's dice).
+    pub shown_codes: Vec<(Unit, Code)>,
+    pub barrage_extra_shown: Code,
+    pub jolnar: [bool; 2],
     /// A roll the core cannot carry (`roll_unported`, dice it cannot reproduce).
     pub roll_unported: bool,
     pub munitions_after: [bool; 2],
+    /// Munitions Reserves is paid at the opening of a round (a holder below `RULES_MUNITIONS_AFTER_ROLL`), per side.
+    pub munitions_start: [bool; 2],
     pub roll_cause: Code,
     pub hacan: Code,
     /// Every roll group's text (the unit types joined with `+` in id order): (types, state text, shown text).
     pub groups: Vec<(Vec<Unit>, Code, Code)>,
     /// The unit types present in the alphabetical order of their ids (the order a roll names its types in).
     pub alpha: Vec<Unit>,
+    /// The cause of a ship a retreat could not hold: the state table's text (what the staged destruction carries) and the renderer's
+    /// (what the `SHIP_DESTROYED` announcement of the loss carries).
     pub retreat_cause: Code,
+    pub retreat_event: Code,
     pub retreat_pool: Code,
     /// A retreat the core does not carry (the Last Bastion, a flagship that raises an event on arrival). The dual-form units, the
     /// Voltron and the Floating Factory are carried by the retreat window since package W3.
@@ -439,7 +449,7 @@ impl Machine {
         // using one exhausts it (or the Ssruu that copies it), so the answer taken when the machine was built goes stale.
         // The fact stays the upper bound (it is what the string saw), the state says what holds now.
         let listens = e.round_seq_listens && super::begin_round::letnev_round_agent_usable(&*sx.state);
-        let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce, round_seq_listens: listens });
+        let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce, round_seq_listens: listens, munitions_start: e.munitions_start });
         let _ = w.step(sx);
         // A unit that took its ship form joins the fleet the end announcement measures the losses against.
         for (owner, form) in w.flipped {
@@ -467,6 +477,10 @@ impl Machine {
             extra: e.barrage_extra,
             unit_codes: e.unit_codes.clone(),
             raid: Some(e.raid),
+            commander: e.jolnar,
+            shown: e.shown_codes.clone(),
+            extra_shown: e.barrage_extra_shown,
+            hit_texts: crate::kernel::children::HitTexts { staging: e.staging, commander: e.commander, casualty: e.casualty, effect_hit: e.barrage_cause },
         };
         self.barrage_w = Some(BarrageStep::new(facts));
     }
@@ -711,7 +725,8 @@ impl Machine {
         while !sx.state.transient().combat.pending_destructions.is_empty() {
             let staged = std::mem::take(&mut sx.state.transient_mut().combat.pending_destructions).as_slice().to_vec();
             for d in staged {
-                announce_loss(sx, d.system, d.owner, d.unit, d.reason, d.during_space_combat, self.env.announce);
+                let cause = if d.reason == self.env.retreat_cause { self.env.retreat_event } else { d.reason };
+                announce_loss(sx, d.system, d.owner, d.unit, cause, d.during_space_combat, self.env.announce);
             }
         }
     }

@@ -2731,10 +2731,10 @@ mod tests {
         let _ = take_report();
     }
 
-    /// While a recorded map edit has not been replayed onto the map, the window would offer systems at positions the map no longer has: the
-    /// string body keeps it, counted. Fails when the guard is removed (the core half would then run and compare a position it cannot judge).
+    /// While a recorded map edit has not been replayed onto the map the string and the core read the same (lagging) map: the window
+    /// is compared (package W10; before it a guard kept the string body, counted "map edits recorded that the map has not replayed yet").
     #[test]
-    fn riftwalker_meian_stays_in_the_string_while_a_recorded_edit_is_not_replayed() {
+    fn riftwalker_meian_runs_in_lockstep_while_a_recorded_edit_is_not_replayed() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
@@ -2747,8 +2747,21 @@ mod tests {
         });
         assert_eq!(done, Some(false));
         let r = report();
-        assert_eq!(crate::dual::thread_window_counts("factions::ghost::hero_swap"), (0, 1), "{r:?}");
-        assert!(r.windows.keys().any(|label| label.starts_with("factions::ghost::hero_swap [") && label.contains("not replayed")), "{r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::ghost::hero_swap"), (1, 0), "{r:?}");
+        // and a swap on the lagging map: the first edit is recorded and not replayed, the second use reads the same lagging map
+        let mut state = hero_game();
+        put(&mut state, &sys("17"), "cruiser", &a(), 1);
+        let run = |state: &mut GameState, answers: &[&str]| {
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                with_context(state, DEFAULT, Some(&galaxy), &mut scripted(answers), |ctx| use_leader(ctx, &a(), &hero()))
+            })
+        };
+        assert_eq!(run(&mut state, &["19", "39"]), Some(true));
+        assert_eq!(run(&mut state, &["40", "19"]), Some(true));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::ghost::hero_swap"), (3, 0), "{r:?}");
         let _ = take_report();
     }
 

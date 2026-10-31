@@ -75,7 +75,7 @@ impl Family for Fam {
             Ask::HeartIxth => "Heart of Ixth: add or subtract 1 from a die that was just rolled".to_owned(),
             Ask::WarFunding => "War Funding: reroll all of your opponent's dice and your misses".to_owned(),
             Ask::Wrath => "Wrath of Kenara: spend trade goods to add 1 to dice".to_owned(),
-            Ask::MunitionsRoll => "spend 2 trade goods for Munitions Reserves".to_owned(),
+            Ask::MunitionsRoll | Ask::MunitionsStart { .. } => "spend 2 trade goods for Munitions Reserves".to_owned(),
             Ask::Supercharge => "Supercharge: exhaust to apply +1 to each combat roll this round".to_owned(),
             Ask::Ambush => "Ambush: choose up to 2 cruisers or destroyers to roll".to_owned(),
             Ask::Sacrifice { devotion: false } => "Impulse Core: destroy a cruiser or destroyer to produce 1 hit".to_owned(),
@@ -83,6 +83,17 @@ impl Family for Fam {
             Ask::Splicer => "Dimensional Splicer: produce 1 hit against your opponent's ships".to_owned(),
             Ask::DeployMech { planet } => format!("Dunlain Reaper: spend 2 resources to replace an infantry on {}", planet.as_str()),
         }
+    }
+
+    fn details(_r: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
+        let mut map = serde_json::Map::new();
+        // Munitions Reserves at the opening of a round: the printed ability and the cost with the goods held (the string `munitions_offer`).
+        if let Ask::MunitionsStart { have } = a {
+            map.insert("kind".to_owned(), "ability_offer".into());
+            map.insert("ability".to_owned(), crate::faction_abilities::ability_card(ti4_content::ContentStore::embedded(), "munitions"));
+            map.insert("cost".to_owned(), serde_json::json!({ "trade_goods": crate::faction_abilities::MUNITIONS_COST, "have": i64::from(*have) }));
+        }
+        map
     }
 
     fn subtype(_r: &Render, s: &Subtype) -> String {
@@ -96,6 +107,7 @@ impl Family for Fam {
             Subtype::Reroll(RerollSource::Law) => "crown_of_thalnos_law_reroll".to_owned(),
             Subtype::Reroll(RerollSource::Munitions) => "munitions_reroll_die".to_owned(),
             Subtype::Reroll(RerollSource::FireTeam) => "fire_team_reroll".to_owned(),
+            Subtype::Reroll(RerollSource::Commander) => "jolnar_commander_reroll".to_owned(),
             Subtype::HeartIxth => "heart_ixth_die_adjust".to_owned(),
             Subtype::WarFunding => "war_funding".to_owned(),
             Subtype::WrathBump => "wrath_of_kenara_bump".to_owned(),
@@ -171,6 +183,7 @@ impl Family for Fam {
                 return ChoiceOption::labelled("munitions", "ability", format!("reroll all {misses} missed dice"));
             }
             Opt::Munitions { choose: true, .. } => return ChoiceOption::labelled("munitions_choose", "ability", "choose which dice to reroll"),
+            Opt::MunitionsStart => return ChoiceOption::labelled("munitions", "ability", "reroll this round's misses"),
             Opt::Destroy { index, unit, damaged } => {
                 let tag = if *damaged { " (damaged)" } else { "" };
                 return ChoiceOption::labelled(
@@ -266,7 +279,7 @@ impl Family for Fam {
                 Ask::RerollDie { unit, .. } => {
                     w.payload.insert("unit".to_owned(), serde_json::Value::String(_r.code_text(*unit)));
                 }
-                Ask::HeartIxth | Ask::WarFunding | Ask::Wrath | Ask::MunitionsRoll | Ask::Supercharge | Ask::Ambush | Ask::Sacrifice { .. } | Ask::Splicer | Ask::DeployMech { .. } => {}
+                Ask::HeartIxth | Ask::WarFunding | Ask::Wrath | Ask::MunitionsRoll | Ask::MunitionsStart { .. } | Ask::Supercharge | Ask::Ambush | Ask::Sacrifice { .. } | Ask::Splicer | Ask::DeployMech { .. } => {}
                 _ => {
                     w.label = Some("take the hit".to_owned());
                     if let Ask::CancelHit { window: Some(own), .. } = a {

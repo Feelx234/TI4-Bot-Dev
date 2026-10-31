@@ -1874,6 +1874,12 @@ pub fn round_opening_unported(
     round_opening_why(gs, content, a).is_some()
 }
 
+/// Munitions Reserves is paid at the opening of the round: a holder in a game below `RULES_MUNITIONS_AFTER_ROLL`.
+#[must_use]
+pub fn munitions_at_opening(gs: &GameState, content: &ti4_content::ContentStore, id: &PlayerId) -> bool {
+    gs.rules_version < ti4_model::state::RULES_MUNITIONS_AFTER_ROLL && crate::faction_abilities::has(gs, content, id, "munitions")
+}
+
 /// [`round_opening_unported`] with the reason.
 #[must_use]
 pub fn round_opening_why(gs: &GameState, content: &ti4_content::ContentStore, a: &BeginRoundArgs<'_>) -> Option<&'static str> {
@@ -1890,10 +1896,12 @@ pub fn round_opening_why(gs: &GameState, content: &ti4_content::ContentStore, a:
             None => return Some("a side that is not a seated player"),
             Some(_) => {}
         }
-        // Letnev's Munitions Reserves is paid at the opening below `RULES_MUNITIONS_AFTER_ROLL` (a question and a payment); later it is
-        // decided after the roll (`roll_unported`). The self-repairing flagship (Arc Secundus) is carried by the core window (package W2).
-        if gs.rules_version < ti4_model::state::RULES_MUNITIONS_AFTER_ROLL && crate::faction_abilities::has(gs, content, id, "munitions") {
-            return Some("Munitions Reserves paid at the opening (a rules version below 8)");
+        // Letnev's Munitions Reserves is paid at the opening below `RULES_MUNITIONS_AFTER_ROLL` (a question and a payment: the core
+        // window asks it since package W10); later it is decided after the roll (`roll_unported`). Goods a Keleres agent could turn
+        // into spendable ones open a goods window first, which is the string's. The self-repairing flagship (Arc Secundus) is carried
+        // by the core window (package W2).
+        if munitions_at_opening(gs, content, id) && crate::supply::potential_goods(gs, id) > crate::supply::spendable_goods(gs, id) {
+            return Some("goods a Keleres agent could turn into spendable ones for Munitions Reserves paid at the opening");
         }
     }
     None
@@ -1927,7 +1935,7 @@ pub fn begin_round(
     let env = crate::core_combat::window_env(&before, &cx, sources).why(WINDOW_ENV)?;
     let round_seq_listens = crate::factions::borrowed_round_agents::has_round_copy(gs, content, "letnevagent")
         || crate::factions::borrowed_round_agents::has_owner_space_round_agent(gs);
-    let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "pre_roll").why("the text table of the typed state is full")?, announce: a.announce, round_seq_listens };
+    let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "pre_roll").why("the text table of the typed state is full")?, announce: a.announce, round_seq_listens, munitions_start: [a.attacker, a.defender].map(|id| munitions_at_opening(gs, content, id)) };
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let mut driver = Driver::new(BeginRound::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
@@ -2134,22 +2142,23 @@ fn barrage_why_with(gs: &GameState, a: &BarrageArgs<'_>, argent: bool) -> Option
         if argent && p.faction.as_str() == "argent" {
             return Some("an Argent side (the excess hits of the barrage)");
         }
-        if p.waylay_barrage_round.is_some_and(|r| r == gs.combat_round_seq) {
-            return Some("Waylay played in this barrage");
-        }
-        if crate::promissory::has_commander_ability(gs, id, "jolnarcommander") {
-            return Some("the Jol-Nar commander (a reroll question in the barrage)");
-        }
+        // (The Jol-Nar commander's reroll questions are asked by the core window since package W10.)
     }
     None
 }
 
 /// A Waylay is played in the window a barrage opens before each roll (`ANTI_FIGHTER_BARRAGE_STARTED`), so the position
 /// cannot tell: the hits of that roll go to every ship (the target's owner assigns them, sustain first), which the core
-/// barrage step does not carry. A documented bail, counted.
-fn waylay_check(script: &Recording) -> Option<()> {
-    if script.played.iter().any(|card| card == "waylay") {
-        crate::dual::note_bail(LABEL.with(Cell::get), "Waylay played in the barrage (the hits go to every ship)");
+/// barrage step carries since package W10 (an `Absorb` child). The sustain offer's commander payment is the one thing it
+/// reads from the leader's status: a Letnev commander held another way than as an unlocked leader is the string's, counted.
+fn waylay_check(gs: &GameState, script: &Recording) -> Option<()> {
+    if script.played.iter().any(|card| card == "waylay")
+        && gs.players.iter().any(|p| {
+            crate::promissory::has_commander_ability(gs, &p.id, "letnevcommander")
+                && p.leaders.get(ti4_model::id::text("letnevcommander")) != Some(&ti4_model::state::LeaderStatus::Unlocked)
+        })
+    {
+        crate::dual::note_bail(LABEL.with(Cell::get), "Waylay played in the barrage with the Letnev commander held another way than as an unlocked leader");
         return None;
     }
     Some(())
@@ -2181,19 +2190,26 @@ pub fn barrage_step(
     }
     let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
-    waylay_check(script)?;
+    waylay_check(gs, script)?;
     let attacker = r.seat(a.attacker.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let defender = r.seat(a.defender.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources).why(WINDOW_ENV)?;
     let mut unit_codes = Vec::new();
+    let mut shown = Vec::new();
+    let mut texts: Vec<(ti4_engine_core::state::Code, String)> = Vec::new();
     for p in before.system_state(a.system).units.iter().chain(before.system_state(a.system).planet_units.values().flatten()) {
         let unit = <ti4_engine_core::generated::Unit as IdStr>::from_id(p.type_id.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         if !unit_codes.iter().any(|(u, _)| *u == unit) {
-            unit_codes.push((unit, cx.texts.intern(Slice::Transient, p.type_id.as_str()).why("the text table of the typed state is full")?));
+            let code = cx.texts.intern(Slice::Transient, p.type_id.as_str()).why("the text table of the typed state is full")?;
+            unit_codes.push((unit, code));
+            shown.push((unit, r.code(p.type_id.as_str())));
+            texts.push((code, p.type_id.as_str().to_owned()));
         }
     }
+    let extra = cx.texts.intern(Slice::Transient, "extra barrage").why("the text table of the typed state is full")?;
+    texts.push((extra, "extra barrage".to_owned()));
     let facts = Facts {
         attacker,
         defender,
@@ -2205,9 +2221,13 @@ pub fn barrage_step(
         phase: cx.texts.intern(Slice::Transient, "barrage").why("the text table of the typed state is full")?,
         cause: r.code("unit_ability:anti_fighter_barrage"),
         kind: r.code("anti_fighter_barrage"),
-        extra: cx.texts.intern(Slice::Transient, "extra barrage").why("the text table of the typed state is full")?,
+        extra,
         unit_codes,
         raid: Some(r.code("raid_formation_damage")),
+        commander: [a.attacker, a.defender].map(|id| crate::promissory::has_commander_ability(gs, id, "jolnarcommander")),
+        shown,
+        extra_shown: r.code("extra barrage"),
+        hit_texts: ti4_engine_core::kernel::children::HitTexts { staging: a.staging, commander: r.code("letnevcommander"), casualty: r.code("assign_casualty"), effect_hit: r.code("unit_ability:anti_fighter_barrage") },
     };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
@@ -2217,9 +2237,13 @@ pub fn barrage_step(
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let driven = with_core(gs, &mut cx, src, nested_fp(BARRAGE_STEP, script), |core, _| {
         // Raid Formation's question is asked in the battle it is fought in (`TimingContext::ask_seeing`): the position names it.
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, rendered| {
-            if let Some(context) = rendered.context.take() {
-                rendered.context = Some(context.about_battle(&before));
+        let content = ti4_content::ContentStore::embedded();
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| {
+            roll_details(content, &texts, c, st, rendered);
+            if matches!(&c.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::RaidDamage { .. })) {
+                if let Some(context) = rendered.context.take() {
+                    rendered.context = Some(context.about_battle(&before));
+                }
             }
         });
         staged = std::mem::take(&mut core.pending_mut().staged);
@@ -2232,7 +2256,7 @@ pub fn barrage_step(
     let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
     let feat = driver.window.feat.iter().map(|s| Some(PlayerId::new(r.seats.get(usize::from(s.0))?.clone()))).collect::<Option<Vec<_>>>().why(crate::dual::reason::UNKNOWN_ID)?;
-    let value: BarrageOut = (feat, driver.window.drawn.clone(), positions);
+    let value: BarrageOut = (feat, driver.window.first_draws(), positions);
     Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
 }
 
@@ -4071,6 +4095,10 @@ pub struct SettleArgs {
     /// A Letnev round agent listens (`COMBAT_ROUND_STARTED` carries `round_seq`).
     pub round_seq_listens: bool,
     pub barrage_unported: bool,
+    /// Per side (attacker, defender): Munitions Reserves is paid at the opening of a round (a holder below rules version 8).
+    pub munitions_start: [bool; 2],
+    /// Per side (attacker, defender): the Jol-Nar commander is in play (it rerolls the barrage's dice).
+    pub jolnar: [bool; 2],
     pub roll_unported: bool,
     pub retreat_unported: bool,
     /// The first of the four gates that is set, as the census text.
@@ -4198,7 +4226,7 @@ fn settle_run(
     let begin_occurrence = a.begin_occurrence && a.occurrence.is_none();
     let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
-    waylay_check(script)?;
+    waylay_check(gs, script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let (attacker, defender) = (seat(&a.attacker).why(crate::dual::reason::NO_SEAT)?, seat(&a.defender).why(crate::dual::reason::NO_SEAT)?);
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
@@ -4241,6 +4269,7 @@ fn settle_run(
     let nb = |side: usize| -> Option<Vec<(ti4_engine_core::generated::System, bool)>> {
         a.neighbors[side].iter().map(|(s, ok)| Some((<ti4_engine_core::generated::System as IdStr>::from_id(s.as_str()).why(crate::dual::reason::UNKNOWN_ID)?, *ok))).collect()
     };
+    texts.push((cx.texts.intern(Slice::Transient, "extra barrage").why("the text table of the typed state is full")?, "extra barrage".to_owned()));
     let phases = ["pre_roll", "barrage", "resolving_hits", "retreating", "complete"];
     let mut phase_codes = [ti4_engine_core::state::Code::default(); 5];
     for (i, p) in phases.iter().enumerate() {
@@ -4258,12 +4287,22 @@ fn settle_run(
         opening_unported: a.opening_unported,
         round_seq_listens: a.round_seq_listens,
         barrage_unported: a.barrage_unported,
+        jolnar: a.jolnar,
+        shown_codes: {
+            let mut v = Vec::new();
+            for u in &present {
+                v.push((*u, r.code(u.as_str())));
+            }
+            v
+        },
+        barrage_extra_shown: r.code("extra barrage"),
         barrage_cause: r.code("unit_ability:anti_fighter_barrage"),
         barrage_kind: r.code("anti_fighter_barrage"),
         barrage_extra: cx.texts.intern(Slice::Transient, "extra barrage").why("the text table of the typed state is full")?,
         unit_codes,
         roll_unported: a.roll_unported,
         munitions_after: a.munitions_after,
+        munitions_start: a.munitions_start,
         roll_cause: r.code("space_combat"),
         hacan: r.code("hacan_flagship"),
         groups,
@@ -4273,6 +4312,7 @@ fn settle_run(
             v
         },
         retreat_cause: cx.texts.intern(Slice::Transient, "retreat_capacity").why("the text table of the typed state is full")?,
+        retreat_event: r.code("retreat_capacity"),
         retreat_pool: r.code("reinforcements"),
         retreat_unported: a.retreat_unported,
         neighbors: [nb(0)?, nb(1)?],

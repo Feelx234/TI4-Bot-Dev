@@ -1939,17 +1939,19 @@ mod tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert_eq!(crate::dual::thread_window_counts("factions::nekro::malleon"), (6, 0), "{r:?}");
-        // A seat that does not hold the agent readied (a copy through Ssruu) keeps the string body, counted.
+        // A seat that does not hold the agent readied (a copy through Ssruu) is a window that asks nothing and changes nothing: the string
+        // body declines at once (package W10; before it a counted bail "does not hold it readied").
         let mut spent = battle(0);
         spent.promissory_notes.clear();
         spent.promissory_faceup.clear();
         spent.player_mut(&a()).unwrap().leaders.insert(agent(), LeaderStatus::Exhausted);
         let seen = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
-            crate::dual::run_dual_window(Area::LeadersAbilities, "factions::nekro::malleon", &mut spent, |s| crate::dual::Run::new(s.player(&a()).is_some()), |s, script| crate::leaders_core::nekro_agent(s, &a(), DEFAULT, script))
+            crate::dual::run_dual_window(Area::LeadersAbilities, "factions::nekro::malleon", &mut spent, |_| crate::dual::Run::new(false), |s, script| crate::leaders_core::nekro_agent(s, &a(), DEFAULT, script))
         });
         assert!(seen);
         let r = report();
-        assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::malleon [") && label.contains("does not hold it readied")), "{r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.windows.keys().all(|label| !label.contains("does not hold it readied")), "{r:?}");
         let _ = take_report();
     }
 
@@ -2168,10 +2170,10 @@ mod tests {
         let _ = take_report();
     }
 
-    /// A galvanized ground force that falls cannot be written as a staged row (the string row carries a `|g` tail): the adapter keeps the
-    /// string body, counted with its reason.
+    /// A galvanized ground force that falls is staged with the string's trailing `|g` field (package W10; before it the adapter kept the
+    /// string body, counted with its reason): the hero runs as a core window in lockstep.
     #[test]
-    fn a_galvanized_ground_force_on_the_planet_is_the_strings() {
+    fn a_galvanized_ground_force_on_the_planet_is_staged_by_the_core_window_in_lockstep() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
@@ -2192,8 +2194,9 @@ mod tests {
         });
         assert_eq!(used, Some(true));
         let r = report();
-        assert_eq!(thread_window_counts("factions::nekro::flayesh"), (0, 1), "{r:?}");
-        assert!(r.windows.keys().any(|k| k.starts_with("factions::nekro::flayesh [bail: a galvanized ground force")), "{r:?}");
+        assert_eq!(r.total_differences(), 0, "{r:?}");
+        assert_eq!(thread_window_counts("factions::nekro::flayesh"), (1, 0), "{r:?}");
+        assert!(state.faction_marks.iter().any(|(k, v)| k.starts_with("private:#staged:ground:") && v.ends_with("|g")), "{:?}", state.faction_marks);
         let _ = take_report();
     }
 

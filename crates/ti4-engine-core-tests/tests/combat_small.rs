@@ -340,7 +340,7 @@ fn the_commander_window_alone_refuses_every_pick_that_is_not_its_own() {
 // ---- BeginRound ------------------------------------------------------------------------------
 
 fn begin(round: u32, announce: bool, listens: bool) -> BeginFacts {
-    BeginFacts { attacker: Seat(0), defender: Seat(1), system: sys(), round, phase: Code(4), announce, round_seq_listens: listens }
+    BeginFacts { attacker: Seat(0), defender: Seat(1), system: sys(), round, phase: Code(4), announce, round_seq_listens: listens, munitions_start: [false, false] }
 }
 
 fn fleets() -> Scenario {

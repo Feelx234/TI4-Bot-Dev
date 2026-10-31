@@ -89,10 +89,6 @@ mod real {
         })
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        if driver.window.unsupported {
-            crate::dual::note_bail_here("a galvanized ground force fell (the staged row cannot hold it)");
-            return None;
-        }
         crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
         // The string re-forms the units after the gain (`technology::gain`): a position it would change is outside the window.
         let mut formed = gs.clone();

@@ -18,17 +18,11 @@ fn next_ground(core: &CoreState) -> u32 {
         .map_or(0, |n| n + 1)
 }
 
-/// `hooks_ground::stage_ground_force_destroyed` for a piece the caller has removed. `Err` for a galvanized one (the
-/// string row carries a `|g` tail the typed row cannot hold).
-///
-/// # Errors
-/// The piece is galvanized.
-pub fn stage_destroyed(core: &mut CoreState, system: System, planet: Planet, piece: Piece, reason: DestroyReason) -> Result<(), ()> {
-    if piece.galvanized() {
-        return Err(());
-    }
+/// `hooks_ground::stage_ground_force_destroyed` for a piece the caller has removed. A galvanized piece (Last Bastion) carries the
+/// string's trailing `|g` token (`Word::Galvanized`) as one more field of the typed row.
+pub fn stage_destroyed(core: &mut CoreState, system: System, planet: Planet, piece: Piece, reason: DestroyReason) {
     let key = MarkKey::PrivateStagedGround(next_ground(core));
-    let row = MarkVal::Rec(vec![
+    let mut fields = vec![
         MarkVal::Atom(Atom::Word(Word::Destroyed)),
         MarkVal::Atom(Atom::System(system)),
         MarkVal::Atom(Atom::Planet(planet)),
@@ -36,17 +30,15 @@ pub fn stage_destroyed(core: &mut CoreState, system: System, planet: Planet, pie
         MarkVal::Atom(Atom::Unit(piece.kind())),
         MarkVal::Atom(Atom::Word(if piece.sustained() { Word::True } else { Word::False })),
         MarkVal::Atom(Atom::Destroy(reason)),
-    ]);
-    core.marks_mut().tail.edit().insert(key, row);
-    Ok(())
+    ];
+    if piece.galvanized() {
+        fields.push(MarkVal::Atom(Atom::Word(Word::Galvanized)));
+    }
+    core.marks_mut().tail.edit().insert(key, MarkVal::Rec(fields));
 }
 
 /// `action_cards::destroy_on_planet`: remove the first `limit` units of `base` from the planet (anyone's, in list
-/// order), stage every ground force that fell, and return how many were destroyed. `Err` when a fallen piece is
-/// galvanized (the position is not expressed; nothing is compared).
-///
-/// # Errors
-/// A galvanized ground force fell.
+/// order), stage every ground force that fell, and return how many were destroyed.
 pub fn destroy_on_planet(
     core: &mut CoreState,
     scope: Scope,
@@ -55,11 +47,11 @@ pub fn destroy_on_planet(
     base: UnitBaseType,
     limit: Option<usize>,
     reason: DestroyReason,
-) -> Result<usize, ()> {
+) -> usize {
     // `state.system_mut` creates the system's entry.
     core.board_mut().sys_mut(system).flags.set(SysFlags::TOUCHED, true);
     if !core.board().planet(planet).flags.has(PlanetFlags::UNITS_ENTRY) {
-        return Ok(0);
+        return 0;
     }
     let mut destroyed = 0;
     let mut fallen: SmallList<Piece, 40> = SmallList::new();
@@ -78,7 +70,7 @@ pub fn destroy_on_planet(
         !hit
     });
     for piece in fallen.as_slice() {
-        stage_destroyed(core, system, planet, *piece, reason)?;
+        stage_destroyed(core, system, planet, *piece, reason);
     }
-    Ok(destroyed)
+    destroyed
 }

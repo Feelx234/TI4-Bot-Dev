@@ -7023,6 +7023,8 @@ impl CombatWindow {
             round_seq_listens: crate::factions::borrowed_round_agents::has_round_copy(state, content, "letnevagent")
                 || crate::factions::borrowed_round_agents::has_owner_space_round_agent(state),
             barrage_unported,
+            munitions_start: sides.map(|side| crate::dual_window::munitions_at_opening(state, content, side)),
+            jolnar: sides.map(|side| crate::promissory::has_commander_ability(state, side, "jolnarcommander")),
             roll_unported: roll_why.is_some(),
             retreat_unported,
             gate_why: opening_why.or(barrage_why).or(roll_why).or(retreat_why),
@@ -11233,11 +11235,13 @@ mod tests {
         let _ = take_report();
     }
 
-    /// A Waylay played before a side's barrage roll sends its hits to every ship: the core barrage step does not carry it, so the
-    /// window bails (counted) instead of finishing with the fighters' removal; found by the soak (a sustained dreadnought).
+    /// A Waylay played before a side's barrage roll sends its hits to every ship (SUSTAIN DAMAGE first, then the target's owner chooses):
+    /// the core barrage step carries it since package W10 (an `Absorb` child). Before it the window bailed (found by the soak, a
+    /// sustained dreadnought); the regression is that the Waylay barrages are compared now and nothing differs.
     #[test]
-    fn a_waylay_in_the_barrage_is_a_counted_bail_not_a_difference() {
+    fn a_waylay_in_the_barrage_runs_in_the_core_in_lockstep() {
         let mut bailed = 0;
+        let mut compared = 0;
         for seed in 0..10_u64 {
             let (_state, windows, differences, _nested) = hub_fight(
                 seed,
@@ -11251,9 +11255,11 @@ mod tests {
                 |_, _, c| c.options.iter().position(|o| o.id.starts_with("reaction:")).unwrap_or(0),
             );
             assert_eq!(differences, 0, "seed {seed}: {windows:?}");
-            bailed += windows.iter().filter(|(k, v)| k.contains("[bail: Waylay") && v.bailed > 0).count();
+            bailed += windows.iter().filter(|(k, v)| k.contains("Waylay") && v.bailed > 0).count();
+            compared += windows.iter().filter(|(k, _)| k.starts_with("combat::settle")).map(|(_, v)| v.compared).sum::<u64>();
         }
-        assert!(bailed > 0, "a Waylay was played in the barrage and the window bailed");
+        assert_eq!(bailed, 0, "no Waylay barrage bails");
+        assert!(compared > 0, "the barrages were compared with a Waylay played: {compared}");
     }
 
     /// A reaction window the loss of a ship opens inside the hit assignment (Crash Landing, when the last ship falls) is not a hit's
@@ -11498,7 +11504,7 @@ mod tests {
             state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("letnev");
             state.rules_version = 7;
         });
-        assert!(g.opening_unported, "letnev below rules version 8");
+        assert!(!g.opening_unported, "letnev below rules version 8 (Munitions Reserves is asked by the core opening since package W10)");
         let g = settle_gates(&|state, _| state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("naaz"));
         assert!(!g.opening_unported, "naaz");
         assert!(settle_gates(&|state, _| state.diplomacy.enabled = true).opening_unported);
@@ -11674,6 +11680,25 @@ mod tests {
     }
 
     #[test]
+    fn the_ships_a_retreat_cannot_hold_are_announced_by_the_machine_in_lockstep() {
+        // A fleet of destroyers (no capacity) with fighters retreats: the fighters are stranded and lost, staged and announced as
+        // `SHIP_DESTROYED` (cause `retreat_capacity`) at once. The machine announces them since package W10 (before it: a bail).
+        let (asked, compared, bailed) = pending_fights(
+            &|state, system, _| {
+                // (A faction with a module: the loss is staged only then, `supply::staging_enabled`.)
+                state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("argent");
+                state.system_mut(system).units.retain(|u| u.owner != attacker());
+                put(state, system, "destroyer", &attacker(), 2);
+                put(state, system, "fighter", &attacker(), 4);
+            },
+            40,
+        );
+        assert!(asked.iter().any(|c| c.player == attacker() && c.context.as_ref().is_some_and(|x| x.subtype == "retreat_to")), "the fleet was asked where to retreat");
+        assert_eq!(bailed, 0, "the machine carries the stranded ships: {compared} compared");
+        assert!(compared > 0);
+    }
+
+    #[test]
     fn a_hit_the_producer_assigns_is_answered_in_the_string() {
         // Devotion: the producing player, not the owner, picks the victim. The core machine does not ask that.
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
@@ -11744,19 +11769,21 @@ mod tests {
         assert_eq!(barrage(&|_| {}), None);
         // An Argent side (Raid Formation) is a child of the barrage window since package W2, also inside the composed machine.
         assert_eq!(barrage(&|s| s.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("argent")), None);
+        // The Jol-Nar commander's reroll questions are the core window's since package W10 (`the_jolnar_commander_rerolls_the_barrage_in_the_core`).
         assert_eq!(
             barrage(&|s| {
                 s.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("jolnar");
                 s.player_mut(&defender()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
             }),
-            Some("the Jol-Nar commander (a reroll question in the barrage)")
+            None
         );
         assert_eq!(
             barrage(&|s| {
                 s.combat_round_seq = 3;
                 s.player_mut(&attacker()).unwrap().waylay_barrage_round = Some(3);
             }),
-            Some("Waylay played in this barrage")
+            // (A Waylay is carried by the barrage window since package W10: `a_waylay_in_the_barrage_runs_in_the_core_in_lockstep`.)
+            None
         );
     }
 
@@ -11764,7 +11791,6 @@ mod tests {
     fn the_round_opening_of_naaz_letnev_and_diplomacy_games_stays_string() {
         // Munitions, the self-repairing flagship, the Letnev round agent and the attack promises are not in the core window:
         // `begin_round` bails there and counts it (Voltron repair, Supercharge and the Eidolon flip are since package W2).
-        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         fn args<'a>(a: &'a PlayerId, d: &'a PlayerId, system: &'a SystemId) -> crate::dual_window::BeginRoundArgs<'a> {
             crate::dual_window::BeginRoundArgs { attacker: a, defender: d, system, round: 2, announce: false }
         }
@@ -11772,7 +11798,7 @@ mod tests {
         let (a, d, system) = (attacker(), defender(), SystemId::new("18"));
         let plain = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
         assert!(!crate::dual_window::round_opening_unported(&plain, content, &args(&a, &d, &system)));
-        for (faction, version, unported) in [("naaz", plain.rules_version, false), ("letnev", plain.rules_version, false), ("letnev", 7, true), ("sol", 7, false)] {
+        for (faction, version, unported) in [("naaz", plain.rules_version, false), ("letnev", plain.rules_version, false), ("letnev", 7, false), ("sol", 7, false)] {
             let mut state = plain.clone();
             state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new(faction);
             state.rules_version = version;
@@ -11781,24 +11807,37 @@ mod tests {
         let mut state = plain.clone();
         state.diplomacy.enabled = true;
         assert!(crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)), "diplomacy");
-        // and through the call site: the window counts the bail-out and nothing is compared
-        let _guard = crate::dual::tests::serial();
-        let _ = take_report();
+        // Munitions Reserves paid at the opening (below rules version 8) is the core window's since package W10; goods a Keleres agent could
+        // turn into spendable ones open the goods window first, which stays the string's.
         let mut state = plain.clone();
         state.rules_version = 7;
         state.player_mut(&d).unwrap().faction = ti4_model::id::FactionId::new("letnev");
-        put(&mut state, &system, "cruiser", &a, 1);
-        put(&mut state, &system, "cruiser", &d, 1);
-        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
-            let (mut dice, mut rng, mut table) = (Dice::new(), GameRng::new(1), Table::with_default(Box::new(crate::choice::FirstOption)));
-            let mut ctx = Resolving { content, sources: ti4_model::content_types::DEFAULT, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
-            let _ = resolve_resolving(&mut state, &mut ctx, &system, None);
-        });
-        let r = report();
-        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        let counts = r.windows.get("combat::begin_round").cloned().unwrap_or_default();
-        assert!(counts.bailed > 0 && counts.compared == 0, "{counts:?}");
-        let _ = take_report();
+        assert!(!crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)));
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("keleres");
+        // (the window is lent no such goods in a plain game: nothing to turn into spendable ones)
+        assert!(!crate::dual_window::round_opening_unported(&state, content, &args(&a, &d, &system)));
+        // (The call site, with the payment on the tape, is `munitions_reserves_paid_at_the_opening_runs_in_the_core_in_lockstep`.)
+    }
+
+    /// Package W10: Munitions Reserves paid at the opening of a round (a game below `RULES_MUNITIONS_AFTER_ROLL`) is the core window's
+    /// question and payment, in the opening window and in the composed machine; the roll step then rerolls the round's misses. Fails on
+    /// the pre-W10 gate ("Munitions Reserves paid at the opening (a rules version below 8)").
+    #[test]
+    fn munitions_reserves_paid_at_the_opening_runs_in_the_core_in_lockstep() {
+        let asked = roll_step_lockstep(
+            &|state, seed| {
+                state.rules_version = 7;
+                state.player_mut(&attacker()).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+                if seed % 2 == 0 {
+                    state.player_mut(&defender()).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+                }
+            },
+            0,
+        );
+        let (compared, bailed) = SETTLE_COUNTS.with(std::cell::Cell::get);
+        let offers = asked.iter().filter(|c| c.prompt.starts_with("spend 2 trade goods for Munitions Reserves")).count();
+        assert!(offers > 10, "the opening asked for the payment: {offers}");
+        assert_eq!(bailed, 0, "the machine carries the opening: {compared} compared");
     }
 
     /// Package W2: a readied The Thundarian is an ability of the core table: the roll step emits the step-ended event, offers the card to
@@ -11959,6 +11998,32 @@ mod tests {
         let (settle_compared, settle_bailed) = SETTLE_COUNTS.with(std::cell::Cell::get);
         assert_eq!(settle_bailed, 0, "the machine carries a pool of cancelled hits: {settle_compared} compared");
         assert!(settle_compared > 0);
+    }
+
+    /// Package W10: the Jol-Nar commander ("after you roll dice for a unit ability: you may reroll any of those dice") asks about each die of
+    /// the anti-fighter barrage in the core window and in the composed machine; the redrawn dice, the event of the roll with the new hits and
+    /// the hits applied are the string's. Fails on the pre-W10 gate ("the Jol-Nar commander (a reroll question in the barrage)").
+    #[test]
+    fn the_jolnar_commander_rerolls_the_barrage_in_the_core() {
+        let asked = roll_step_lockstep(
+            &|state, seed| {
+                let system = SystemId::new("18");
+                put(state, &system, "destroyer", &attacker(), 2);
+                put(state, &system, "fighter", &defender(), 2);
+                // The commander with the attacker, the defender or both.
+                for (who, bit) in [(attacker(), 1), (defender(), 2)] {
+                    if (seed + 1) & bit != 0 {
+                        state.player_mut(&who).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+                        state.player_mut(&who).unwrap().faction = ti4_model::id::FactionId::new("jolnar");
+                    }
+                }
+            },
+            0,
+        );
+        let (compared, bailed) = SETTLE_COUNTS.with(std::cell::Cell::get);
+        let per_die = asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == "jolnar_commander_reroll")).count();
+        assert!(per_die > 10, "the holder was asked about dice: {per_die}");
+        assert_eq!(bailed, 0, "the machine carries the commander's rerolls: {compared} compared");
     }
 
     #[test]
