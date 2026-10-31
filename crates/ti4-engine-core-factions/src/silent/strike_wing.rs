@@ -135,16 +135,17 @@ fn holds(s: &CoreState, who: Seat, source: DieSource) -> bool {
 }
 
 /// `rolling_units`: the staged entries of this seat's unit-ability roll that can take a die, one per (type, planet), as indices. The relic's
-/// dice (no unit type) and entries without a hit number are skipped.
+/// dice (no unit type) and entries without a hit number are skipped (the string's `unit_types.is_empty()`: here the typed `kind`).
 fn rolling_units(s: &CoreState, who: Seat) -> Vec<u8> {
     let Some(set) = staged(s, who) else { return Vec::new() };
-    let mut seen: Vec<(ti4_engine_core::state::Code, Option<ti4_engine_core::generated::Planet>)> = Vec::new();
+    let mut seen: Vec<(Unit, Option<ti4_engine_core::generated::Planet>)> = Vec::new();
     let mut found = Vec::new();
     for (index, entry) in set.rolls.iter().enumerate() {
-        if entry.unit_types.is_empty() || entry.hits_on.is_none() {
+        let Some(unit) = entry.kind else { continue };
+        if entry.hits_on.is_none() {
             continue;
         }
-        let key = (entry.unit, entry.planet);
+        let key = (unit, entry.planet);
         if !seen.contains(&key) {
             seen.push(key);
             found.push(u8::try_from(index).unwrap_or(u8::MAX));

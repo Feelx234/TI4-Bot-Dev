@@ -1037,4 +1037,38 @@ mod tests {
         assert!(asked > 0, "the string never asked which unit rolls the die");
         assert!(returned > 0, "the note never went home");
     }
+
+    /// The additional die of the Argent commander in the SPACE CANNON OFFENSE (the defender's PDS shoot at the arriving fleet): the window of the
+    /// commander is offered and answered natively as the string does (the staged roll of a PDS names its unit; the die goes to the PDS type that
+    /// rolled). One difference is left that is NOT this ability's: when the guns destroy the only ship the native head writes the combat
+    /// presentation (`complete`) that the string never writes for a fight that did not happen (a lone carrier killed without the commander
+    /// shows it too), it is filtered here by its path.
+    #[test]
+    fn the_additional_die_of_the_argent_commander_runs_in_the_space_cannon_offense_in_lockstep() {
+        let (hub, origin, target, planet) = planet_hub();
+        let (mut offered, mut asked) = (0, 0);
+        for seed in 1..=12_u64 {
+            for two_types in [false, true] {
+                let mut state = table(&[("a", "sol"), ("b", "argent")]);
+                state.rng_seed = seed;
+                state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("argentcommander"), ti4_model::state::LeaderStatus::Unlocked);
+                // (A lone carrier, which has one route: a ship with several routes asks a movement question whose route alternatives the native
+                // path does not produce.)
+                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                state.system_mut(&target).planet_control.insert(planet.clone(), b());
+                crate::fixtures::put_on_planet(&mut state, &target, &planet, "pds", &b(), 2);
+                if two_types {
+                    crate::fixtures::put_on_planet(&mut state, &target, &planet, "pds2", &b(), 1);
+                }
+                let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_moving"];
+                let diffs: Vec<String> = lockstep(state.clone(), &hub.galaxy, &script).into_iter().filter(|d| !d.starts_with("statecombat_presentation")).collect();
+                assert!(diffs.is_empty(), "seed {seed} two types {two_types}: {diffs:#?}");
+                let side = string_run(&state, &hub.galaxy, &script, 0);
+                offered += side.asked.iter().filter(|q| q.options.iter().any(|o| o.id.contains("argentcommander:UNIT_ABILITY_ROLLED"))).count();
+                asked += side.asked.iter().filter(|q| q.prompt.ends_with("choose a unit to roll 1 additional die")).count();
+            }
+        }
+        assert!(offered > 0, "the string never offered the commander in the cannon's window");
+        assert!(asked > 0, "the string never asked which PDS rolls the die");
+    }
 }

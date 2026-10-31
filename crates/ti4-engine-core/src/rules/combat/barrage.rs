@@ -191,8 +191,8 @@ impl BarrageStep {
     /// commander's extra die read to know which unit rolled. The relic's dice name no unit and stage none.
     fn unit_types(&self, unit: Option<Unit>) -> crate::containers::SortedMap<Code, u32, 4> {
         let mut types = crate::containers::SortedMap::default();
-        if let Some(code) = unit.and_then(|u| self.f.unit_codes.iter().find(|(k, _)| *k == u).map(|(_, c)| *c)) {
-            types.insert(code, 1);
+        if unit.is_some() {
+            types.insert(self.unit_code(unit), 1);
         }
         types
     }
@@ -210,7 +210,7 @@ impl BarrageStep {
                 rerolled: e.rerolled,
                 deltas: crate::containers::SortedMap::default(),
                 unit_types: self.unit_types(e.unit),
-                kind: e.unit.filter(|u| self.f.unit_codes.iter().any(|(k, _)| k == u)),
+                kind: e.unit,
             })
             .collect();
         let set = RerollSet { kind: self.f.phase, system: self.f.system, rolls };
