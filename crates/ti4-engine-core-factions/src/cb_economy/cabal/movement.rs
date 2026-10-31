@@ -34,6 +34,16 @@ fn tear_systems(s: &CoreState) -> Systems {
     out
 }
 
+/// A dimensional tear stands in the system (`cabal::owns_tear` for any owner).
+pub(crate) fn has_tear(s: &CoreState, system: System) -> bool {
+    any_piece_in(s, system, |p| is_tear(s, p))
+}
+
+/// Some system holds a dimensional tear (`!cabal::tear_systems(..).is_empty()`).
+pub(crate) fn any_tear(s: &CoreState) -> bool {
+    !tear_systems(s).is_empty()
+}
+
 /// "Your ships do not roll for this gravity rift": the owner of the tear in the system.
 fn tear_exempts_roll(s: &CoreState, mover: Seat, system: System) -> bool {
     any_piece_in(s, system, |p| p.owner() == mover && is_tear(s, p))

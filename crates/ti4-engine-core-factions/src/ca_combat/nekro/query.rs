@@ -10,6 +10,8 @@
 //! | `nekro_units_alastor_decrement`, `_clear` | `nekro_units::alastor_{decrement,clear}` | O | `observe.rs` (they write marks) |
 //! | `timing_abilities`, `commander_unlocked`, leaders, component actions | | W | `offer.rs` |
 
+use ti4_engine_core::kernel::Kernel;
+use ti4_engine_core::query::board;
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{Faction, Planet, System, Technology, Unit};
 use ti4_engine_core::hooks::HookTable;
@@ -17,7 +19,6 @@ use ti4_engine_core::hooks::direct::Seats;
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::keys::{Atom, DecimalTextOrd, MarkKey, MarkVal};
 use ti4_engine_core::kernel::seam::{Delta, Layer, Q, RollKind, RollSite, Source};
-use ti4_engine_core::query::board;
 use ti4_engine_core::state::CoreState;
 
 use crate::common::{is_faction, mark, num};
@@ -28,6 +29,8 @@ const ASSIMILATORS: [Technology; 2] = [Technology::ValefarAssimilatorX, Technolo
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.commander_unlocked.push(commander_unlocked);
+    t.general.leader_action.push(leader_action);
     t.seam.hit_shift.push_add(SOURCE, Layer::Faction, mordred);
     let d = &mut t.direct;
     d.nekro_units_alastor_participants.push(alastor_participants);
@@ -138,3 +141,44 @@ fn mordred(q: Q<'_>, site: &RollSite, _: i64) -> Delta {
     };
     if hit { Delta::Add(MECH_BONUS) } else { Delta::None }
 }
+
+// -- leader hooks (package F2) ----------------------------------------
+
+/// Nekro Acidos, unlock: "Own 3 technologies. A Valefar Assimilator technology counts only if its X or Y token is on a technology."
+pub fn commander_unlocked(s: &CoreState, _: &Kernel, who: Seat, leader: ti4_engine_core::generated::Leader) -> Option<bool> {
+    if leader != ti4_engine_core::generated::Leader::NekroAcidos {
+        return None;
+    }
+    let p = s.players().by_seat(who)?;
+    let assimilators = ASSIMILATORS.iter().filter(|card| p.tech.owned.contains(**card)).count();
+    let counting = p.tech.owned.iter().count() - assimilators + ti4_engine_core::query::reach::assimilators_with_tokens(s, who);
+    Some(counting >= 3)
+}
+
+/// Whether `who` could pay for the agent's offer: they hold an action card or a command token (`nekro_units::can_pay_for_agent`).
+fn can_pay_for_agent(s: &CoreState, who: Seat) -> bool {
+    s.players().by_seat(who).is_some_and(|p| !p.cards.hand.as_slice().is_empty() || p.econ.tactic_tokens > 0 || p.econ.fleet_tokens > 0 || p.econ.strategic_tokens > 0)
+}
+
+/// `!nekro_units::devourable_planets(..).is_empty()`: a planet with a technology specialty in a system that holds the seat's units.
+fn devourable_planet_exists(s: &CoreState, k: &Kernel, who: Seat) -> bool {
+    let scope = crate::common::scope(k);
+    System::ALL.iter().any(|system| {
+        ti4_engine_core::query::leader_reads::has_entry(s, *system)
+            && crate::common::any_piece_in(s, *system, |p| p.owner() == who)
+            && board::planets_of(s, *system).any(|planet| !ti4_engine_core::query::tech::specialties_now(s, scope, planet).as_slice().is_empty())
+    })
+}
+
+/// Nekro Malleon (readied, and somebody could pay) and UNIT.DSGN.FLAYESH (unlocked, and a planet to devour) (`nekro_units::leader_action`).
+pub fn leader_action(s: &CoreState, k: &Kernel, who: Seat, leader: ti4_engine_core::generated::Leader) -> Option<bool> {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let status = ti4_engine_core::query::leaders::status(s, who, leader);
+    match leader {
+        Leader::NekroMalleon => Some(status == Some(LeaderStatus::Readied) && s.players().iter().any(|p| can_pay_for_agent(s, p.seat))),
+        Leader::UNITDSGNFLAYESH => Some(status == Some(LeaderStatus::Unlocked) && devourable_planet_exists(s, k, who)),
+        _ => None,
+    }
+}
+

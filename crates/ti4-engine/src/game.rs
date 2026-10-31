@@ -2940,7 +2940,7 @@ impl<'a> Game<'a> {
         ));
         if dual {
             let exp: Vec<String> = expedition.iter().map(|o| o.id.clone()).collect();
-            crate::menu_dual::check_closing_menu(&self.state, player, second_action, &seen, &exp, &choice);
+            crate::menu_dual::check_closing_menu(&self.state, self.sources, player, second_action, &seen, &exp, &choice);
         }
         choice
     }
@@ -3105,7 +3105,7 @@ impl<'a> Game<'a> {
         ));
         if dual {
             let failed: Vec<String> = self.failed_component_actions.iter().cloned().collect();
-            crate::menu_dual::check_action_menu(&self.state, &parts, self.state.thunders_edge, &failed, &choice);
+            crate::menu_dual::check_action_menu(&self.state, self.sources, &parts, self.state.thunders_edge, &failed, &choice);
         }
         Some(choice)
     }

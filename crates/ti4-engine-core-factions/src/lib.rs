@@ -31,6 +31,9 @@ pub mod cards;
 pub mod magen_defense;
 pub mod self_assembly;
 
+#[cfg(test)]
+mod leader_hook_tests;
+
 pub mod ca_combat;
 pub mod cb_economy;
 pub mod cc_ground;

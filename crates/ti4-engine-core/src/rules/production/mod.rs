@@ -223,6 +223,7 @@ pub mod home;
 pub mod offers;
 pub mod one;
 pub mod pay;
+pub mod probe;
 pub mod strategy_cards;
 pub mod supply;
 pub mod triggered;

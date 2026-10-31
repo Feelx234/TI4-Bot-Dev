@@ -36,6 +36,8 @@ const FLAGSHIP_BONUS: i64 = 2;
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.commander_unlocked.push(commander_unlocked);
+    t.general.leader_action.push(leader_action);
     t.seam.hit_shift.push_add(SOURCE, Layer::Faction, arvicon_rex);
     let d = &mut t.direct;
     d.mahact_fleet_pool_owners.push(fleet_pool_owners);
@@ -139,6 +141,28 @@ pub fn secondary_waivers(
         }
     }
     out
+}
+
+// -- leader hooks (package F2) ----------------------------------------
+
+/// Il Na Viroset, unlock: "Have 2 other factions' command tokens in your fleet pool" (two tokens of different owners).
+pub fn commander_unlocked(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::IlNaViroset).then(|| {
+        let owners: Vec<Seat> = fleet_pool_owners(s, who).iter().copied().filter(|owner| *owner != who).collect();
+        owners.iter().any(|a| owners.iter().any(|b| a != b))
+    })
+}
+
+/// Airo Shir Aur: unlocked, the seat has ships somewhere and another seated player has ships somewhere; the map (adjacency) is checked by
+/// the use (`mahact_units::leader_action`).
+pub fn leader_action(s: &CoreState, k: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::AiroShirAur).then(|| {
+        let scope = crate::common::scope(k);
+        let has_ships = |seat: Seat| ti4_engine_core::query::leader_reads::space_pieces(s, seat).any(|(_, p)| scope.unit(p.kind()).is_some_and(|d| d.ship));
+        player(s, who).is_some_and(|p| p.leaders.status.get(&Leader::AiroShirAur) == Some(&LeaderStatus::Unlocked))
+            && has_ships(who)
+            && s.seats().seating_order().iter().any(|other| *other != who && has_ships(*other))
+    })
 }
 
 #[cfg(test)]
