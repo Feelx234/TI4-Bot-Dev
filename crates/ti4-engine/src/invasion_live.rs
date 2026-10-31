@@ -100,6 +100,8 @@ mod tests {
         asked: Vec<Choice>,
         answers: Vec<String>,
         state: GameState,
+        /// The scoring occurrences the invasion queued, in order: (occurrence, combat).
+        scoring: Vec<(u64, bool)>,
     }
 
     fn armed_resolver(state: &GameState, players: Vec<PlayerId>) -> crate::timing::Resolver {
@@ -157,9 +159,12 @@ mod tests {
             timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
         };
         let mut guard = 0;
+        let mut scoring: Vec<(u64, bool)> = Vec::new();
         while !window.is_done() {
             window.drive(&mut state, &mut ctx).expect("the string run is legal");
-            while window.take_scoring_occurrence().is_some() {}
+            while let Some((o, combat)) = window.take_scoring_occurrence() {
+                scoring.push((o.0, combat));
+            }
             window.settle(&mut state, &mut ctx);
             guard += 1;
             assert!(guard < 400, "the string invasion does not end");
@@ -170,7 +175,7 @@ mod tests {
         state.active_invasion = None;
         drop(ctx);
         let (asked, answers) = (asked.borrow().clone(), answers.borrow().clone());
-        Run { asked, answers, state }
+        Run { asked, answers, state, scoring }
     }
 
     const FP: Footprint = Footprint::new(
@@ -179,7 +184,7 @@ mod tests {
     );
 
     /// The native run of the same invasion: the arm `Arm::Invasion` through `live_step`, answered by `answers` in order.
-    fn live_run(mut gs: GameState, seed: u64, system: &SystemId, invader: &str, answers: &[String], hero: bool) -> Result<(Vec<Choice>, GameState, usize), (Stop, Vec<Choice>)> {
+    fn live_run(mut gs: GameState, seed: u64, system: &SystemId, invader: &str, answers: &[String], hero: bool) -> Result<(Vec<Choice>, GameState, Vec<(u64, bool)>), (Stop, Vec<Choice>)> {
         let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
         let rng_before = GameRng::new(seed).positions();
         let seeds: Rc<dyn ti4_engine_core::state::SeedSource> = Rc::new(TextSeeds::of(&cx));
@@ -198,6 +203,7 @@ mod tests {
         let mut asked = Vec::new();
         let mut native_dice: Vec<(Option<u8>, Vec<u8>)> = Vec::new();
         let mut steps = 0;
+        let mut windows: Vec<(u64, bool)> = Vec::new();
         let mut outcome: Result<(), Stop> = Ok(());
         let mut seen_all: Vec<Choice> = Vec::new();
         let r_ref = &r;
@@ -222,6 +228,11 @@ mod tests {
                     Ok(step) => {
                         asked.extend(step.asked);
                         // The event scoring window of a pause: nobody has anything to score here, so it closes at once.
+                        for w in &step.out.opened {
+                            if let ti4_engine_core::state::Window::EventScoring(sc) = w {
+                                windows.push((sc.occurrence.unwrap_or(0), sc.one_per_player));
+                            }
+                        }
                         core.pending_mut().close(WindowKind::EventScoring);
                         if !is_open::<InvasionMachine>(core) {
                             native_dice = core.ledger().dice.iter().map(|d| (d.hits_on, d.faces.iter().copied().collect())).collect();
@@ -242,7 +253,7 @@ mod tests {
             eprintln!("NATIVE DICE {native_dice:?}");
         }
         match outcome {
-            Ok(()) => Ok((asked, gs, steps)),
+            Ok(()) => Ok((asked, gs, windows)),
             Err(stop) => Err((stop, if seen_all.is_empty() { asked } else { seen_all })),
         }
     }
@@ -276,7 +287,7 @@ mod tests {
         let string = string_run(state.clone(), seed, system, "a", hero, pick);
         let mut padded = string.answers.clone();
         padded.extend(std::iter::repeat_n("fight".to_owned(), 6));
-        let (asked, gs, _) = match live_run(state.clone(), seed, system, "a", &padded, hero) {
+        let (asked, gs, windows) = match live_run(state.clone(), seed, system, "a", &padded, hero) {
             Ok(r) => r,
             Err((stop, seen)) => panic!(
                 "{label}: the native run stopped: {stop:?}\nnative {:?}\nstring {:?}",
@@ -288,9 +299,13 @@ mod tests {
             eprintln!("QUESTIONS {label}: {:?}", string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>());
         }
         assert_same_questions(&asked, &string.asked);
+        assert_eq!(windows, string.scoring, "{label}: the scoring windows the invasion pauses for");
+        assert_eq!(gs.feat_occurrence_seq, string.state.feat_occurrence_seq, "{label}: the feat occurrences");
+        assert!(gs.active_invasion.is_none() && string.state.active_invasion.is_none());
         for id in state.players.iter().map(|p| &p.id) {
             let (l, s) = (gs.player(id).unwrap(), string.state.player(id).unwrap());
             assert_eq!((l.victory_points, l.trade_goods), (s.victory_points, s.trade_goods), "{label} {id}");
+            assert_eq!(l.event_feats, s.event_feats, "{label} {id}: the feats");
         }
         assert_eq!(gs.system_state(system).planet_units, string.state.system_state(system).planet_units, "{label}: the units on the planets");
         assert_eq!(gs.system_state(system).units, string.state.system_state(system).units, "{label}: the units in space");
@@ -304,13 +319,15 @@ mod tests {
     #[test]
     fn a_conquest_runs_natively_with_the_questions_and_the_position_of_the_string_window() {
         let _guard = crate::dual::tests::serial();
-        for (seed, invader) in (1..=6_u64).zip(["hacan", "sardakk", "mentak", "letnev", "sol", "naalu"]) {
+        for (seed, invader) in (1..=18_u64).zip(["hacan", "sardakk", "mentak", "letnev", "sol", "naalu"].into_iter().cycle()) {
             let (mut state, system, planet) = game(&[("a", invader), ("b", "jolnar")], seed);
             let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
             crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
-            crate::fixtures::put(&mut state, &system, "infantry", &a, 6);
+            // The invader wins with six against two; with three against four it loses or both are wiped out in some seeds.
+            let (n, d) = if seed % 3 == 0 { (3, 4) } else { (6, 2) };
+            crate::fixtures::put(&mut state, &system, "infantry", &a, n);
             state.system_mut(&system).set_control(planet.clone(), b.clone());
-            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, d);
             check(invader, &state, seed, &system, false, prefer(&[]));
         }
     }

@@ -116,6 +116,8 @@ impl Window for InvasionMachine {
                 return Next::Done;
             }
             if let Some(choice) = self.ask_of(sx.state, sx.kernel) {
+                // The aftermath updates the public boundary after every settle, an answer's included, before the question is shown.
+                self.publish(sx);
                 return Next::Continue(choice.ask);
             }
             let before = (self.p.stage.clone(), self.p.bombard.index, self.p.bombard.cursor.is_some(), self.p.report.committed.len());

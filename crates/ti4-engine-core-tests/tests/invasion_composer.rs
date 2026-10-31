@@ -246,3 +246,50 @@ fn the_hero_opening_skips_the_bombardment_and_asks_for_the_commitment() {
     assert!(matches!(asked[0].ask, Ask::Invasion(ti4_engine_core::choice::invasion::Ask::CommitGround { .. })), "the first question is the commitment");
     assert!(asked[0].opts.as_slice().iter().any(|o| matches!(o, Opt::Invasion(IOpt::DoneCommitting))));
 }
+
+#[test]
+fn the_public_boundary_follows_the_stage_the_question_is_asked_in() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    use ti4_engine_core::choice::invasion::Ask as IAsk;
+    let (p1, _) = planets();
+    let (mut core, k) = conquest(6, 2);
+    let env = env(&k, 9);
+    let phases = codes().phases;
+    open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+    let mut answer: Option<Pick> = None;
+    let (mut rounds_seen, mut commits_seen) = (0, 0);
+    for _ in 0..200 {
+        match advance_invasion(&mut core, &env, answer.take()).expect("legal") {
+            (Live::Asks(a), _) => {
+                let active = core.transient().invasion.active.clone().expect("an invasion is public while it runs");
+                assert_eq!((active.system, active.invader), (sys(), Seat(0)));
+                match a.choice.ask {
+                    Ask::Invasion(IAsk::CommitGround { .. }) => {
+                        commits_seen += 1;
+                        assert_eq!((active.phase, active.planet, active.defender), (phases[2], None, None), "landing");
+                    }
+                    Ask::Invasion(IAsk::FightRound { planet, .. }) => {
+                        rounds_seen += 1;
+                        assert_eq!((active.phase, active.planet, active.defender), (phases[3], Some(planet), Some(Seat(1))), "ground battle");
+                        assert_eq!(planet, p1);
+                        assert_eq!(active.ground_round, rounds_seen - 1, "the round counter counts the rounds begun on this planet");
+                        if rounds_seen > 1 {
+                            let step = active.last_step.as_ref().expect("the last round is reported");
+                            assert_eq!((step.planet, step.round), (p1, rounds_seen - 1));
+                        }
+                    }
+                    _ => {}
+                }
+                answer = Some(Pick::Opt(a.choice.opts.as_slice()[0]));
+            }
+            (Live::Done, _) => {
+                core.pending_mut().close(WindowKind::EventScoring);
+                if core.pending().window(WindowKind::Invasion).is_none() {
+                    assert!(commits_seen > 0 && rounds_seen > 0);
+                    return;
+                }
+            }
+        }
+    }
+    panic!("the invasion does not end");
+}
