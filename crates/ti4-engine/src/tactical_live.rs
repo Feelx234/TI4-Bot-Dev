@@ -732,4 +732,18 @@ mod tests {
         let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], false);
         assert!(diffs.is_empty(), "no anomaly: {diffs:#?}");
     }
+
+    /// Crucible (Cabal's promissory note): played after the holder's activation, the note goes home and the activation is stamped.
+    #[test]
+    fn crucible_is_played_after_the_activation_in_lockstep() {
+        let (hub, origin, target) = hub();
+        for answer in ["promissory:sol:crucible:SYSTEM_ACTIVATED:after", "decline"] {
+            let mut state = table(&[("a", "sol"), ("b", "cabal")]);
+            state.promissory_notes.insert("crucible:cabal".to_owned(), a());
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            let mv = id(&origin, 0);
+            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], false);
+            assert!(diffs.is_empty(), "crucible {answer}: {diffs:#?}");
+        }
+    }
 }
