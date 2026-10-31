@@ -648,15 +648,20 @@ mod tests {
             "ability:sol:propagation:SPACE_COMBAT_ENDED:after",
             // The Nomad's tail (package W9): Mercer hangs on the end of a tactical action and asks which ground forces move
             // (an option list in the text order of the systems), the Thundarian replays the roll step (lane 1, ported), Temporal Command
-            // Suite readies an agent and may open a transaction window, Thunder's Paradox hangs on TURN_BEGAN.
+            // Suite (ported by package M1) readies an agent and may open a transaction window, Thunder's Paradox hangs on TURN_BEGAN.
             "leader:nomad:nomadagentmercer:TACTICAL_ACTION_ENDED:after",
-            "technology:nomad:tcs:AGENT_EXHAUSTED:after",
             "breakthrough:nomad:nomadbt:TURN_BEGAN:after",
         ] {
             assert_eq!(slot_of(id), None, "{id} is not in the table");
             let why = rec(&[id], &[]).unported(&t).unwrap_or_default();
             assert!(why.starts_with("unported ability "), "{id}: {why:?}");
         }
+    }
+
+    /// Temporal Command Suite is ported (package M1): its registered id is in the table, so the dual follows it.
+    #[test]
+    fn temporal_command_suite_is_in_the_table() {
+        assert_eq!(slot_of("technology:nomad:tcs:AGENT_EXHAUSTED:after"), Some(ti4_engine_core_factions::ce_movement::nomad::timing::TCS));
     }
 
     #[test]
