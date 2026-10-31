@@ -724,3 +724,30 @@ fn scheming_without_the_printed_name_groups_is_a_counted_gap_and_a_public_leak_s
     advance_scoring(&mut s, &e, Some(pick)).unwrap();
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.victory_points, 1);
 }
+
+// -- Artuno the Betrayer pays out when it readies (found by the shadow oracle: integration 11) ------------------------------------------
+
+/// 81.6 readies every leader, and "when this card readies, gain the trade goods on this card" (`nomad_agents::agent_readied`): the pile leaves
+/// the card and the goods are staged as `TRADE_GOODS_GAINED` with the `artuno` source for the next step to announce. The shadow oracle found
+/// the core readying the card without the payout (the string staged the gain: Nomad tables, `native.staged[0]`).
+#[test]
+fn the_status_phase_readies_artunos_card_and_pays_out_its_pile() {
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    let (mut s, k) = Scenario::new(&[Faction::TheNomad, Faction::TheArborec]).phase(Phase::Status).build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::ArtunoTheBetrayer, LeaderStatus::Exhausted);
+    s.players_mut().edit(1).leaders.status.insert(Leader::ArtunoTheBetrayer, LeaderStatus::Exhausted);
+    s.marks_mut().tail.edit().insert(MarkKey::NomadArtuno(Seat(0)), MarkVal::Atom(Atom::Num(3)));
+    let before = s.players().by_seat(Seat(0)).unwrap().econ.trade_goods;
+    let mut e = env(&k);
+    let artuno = ti4_engine_core::state::Code(77);
+    e.table.codes.not_from_supply[4] = artuno;
+    ti4_engine_core::driver::turn::open_job(&mut s, ti4_engine_core::state::TurnJob::StatusFinish);
+    advance::<TurnFlowWin>(&mut s, &e, None).expect("the finish of the status phase runs");
+    let p = s.players().by_seat(Seat(0)).unwrap();
+    assert_eq!(p.leaders.status.get(&Leader::ArtunoTheBetrayer), Some(&LeaderStatus::Readied), "the card readied");
+    assert_eq!(p.econ.trade_goods, before + 3, "the pile is paid");
+    assert!(s.marks().tail.get(&MarkKey::NomadArtuno(Seat(0))).is_none(), "the pile left the card");
+    let staged: Vec<_> = s.pending().staged.iter().filter(|e| e.kind == EventKind::TradeGoodsGained).collect();
+    assert_eq!(staged.len(), 1, "one gain staged: only the Nomad's pile pays");
+    assert_eq!(staged[0].payload.code(ti4_engine_core::state::Key::Source), Some(artuno), "from Artuno, not from the supply");
+}
