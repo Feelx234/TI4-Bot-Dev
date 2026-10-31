@@ -251,7 +251,7 @@ mod tests {
     use crate::kernel::resolver::AbilityDef;
     use crate::kernel::stage::{Illegal, Slot, Spec, Sx};
     use crate::kernel::{fx, Next};
-    use crate::state::{Code, EventKind, Payload, Player, Players, ProductionUse};
+    use crate::state::{Code, EventKind, Payload, Player, Players, ProductionUse, WindowKind};
 
     /// A toy machine held as the (stub) production window: `data[0]` is whether its event was emitted. It emits one event and ends;
     /// the event has two optional abilities, so the emission asks from inside the step.
