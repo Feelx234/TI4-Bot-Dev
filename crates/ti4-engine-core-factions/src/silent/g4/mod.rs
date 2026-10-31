@@ -3,10 +3,18 @@
 //! registers it (`register_abilities`, after the rest of `silent`'s).
 
 pub mod propagation;
+pub mod titans_commander;
 
 use ti4_engine_core::kernel::ability::AbilityTable;
+
+/// The places of the texts the rules of this module name (`SilentCodes::g4`; the adapter interns the texts in this order: `reactions_core::G4_CODE_TEXTS`).
+pub mod code {
+    /// The source `titanscommander` of the trade good the Titans commander gains.
+    pub const TITANS_COMMANDER: usize = 0;
+}
 
 /// The rules of this module.
 pub fn register_abilities(t: &mut AbilityTable) {
     propagation::register_abilities(t);
+    titans_commander::register_abilities(t);
 }

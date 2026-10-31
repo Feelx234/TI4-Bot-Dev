@@ -32,6 +32,9 @@ struct Named {
 /// The texts the rules of `silent::g3` name in their questions (`silent::g3::code`, the same places); unused places hold a placeholder.
 const G3_CODE_TEXTS: [&str; 16] = ["nekro_flagship", "technology:exo2", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused"];
 
+/// The texts the rules of `silent::g4` name (`silent::g4::code`, the same places); unused places hold a placeholder.
+const G4_CODE_TEXTS: [&str; 16] = ["titanscommander", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused"];
+
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cb_economy::argent::timing::AGENT, kind: "leader", card: "argentagent" },
@@ -137,6 +140,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::TURN, kind: "leader", card: "sardakkagent_turn" },
     Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::STRATEGIC, kind: "leader", card: "sardakkagent_strategic" },
     Named { slot: ti4_engine_core_factions::silent::g4::propagation::PROPAGATION, kind: "ability", card: "propagation" },
+    Named { slot: ti4_engine_core_factions::silent::g4::titans_commander::TUNGSTANTUS, kind: "leader", card: "titanscommander" },
 ];
 
 /// The last segment of a registered id: the relation, except for Salvage Operations' produce half, which the string
@@ -614,6 +618,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             ..Default::default()
         };
         table.codes.silent.g3 = G3_CODE_TEXTS.map(|text| r.code(text));
+        table.codes.silent.g4 = G4_CODE_TEXTS.map(|text| r.code(text));
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {

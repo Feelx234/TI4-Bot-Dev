@@ -95,3 +95,49 @@ mod propagation {
         assert_eq!(pending(&hacan, 0), Some(MarkVal::Atom(Atom::Num(1))));
     }
 }
+
+// -- Tungstantus (the Titans commander) ---------------------------------------------------------------------------------------
+
+fn set_leader(s: &mut CoreState, seat: u8, leader: ti4_engine_core::generated::Leader, status: ti4_engine_core::state::LeaderStatus) {
+    s.players_mut().by_seat_mut(Seat(seat)).unwrap().leaders.status.insert(leader, status);
+}
+
+fn goods(r: &Rig<EmitEvent>, seat: u8) -> i16 {
+    r.state.players().by_seat(Seat(seat)).unwrap().econ.trade_goods
+}
+
+mod titans_commander {
+    use super::*;
+    use ti4_engine_core::generated::{Leader, System};
+    use ti4_engine_core::state::LeaderStatus;
+
+    fn produced(seat: u8) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::ProductionUsed, Payload::new().with(Key::Player, Val::Seat(Seat(seat))).with(Key::System, Val::System(System::ALL[0])))
+    }
+
+    #[test]
+    fn the_holder_of_the_commander_may_gain_a_trade_good_when_it_uses_production() {
+        covers!("silent::g4::titans_commander::TUNGSTANTUS");
+        let scenario = || Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]).goods(0, 2);
+        let mut r = rig(scenario(), |s| set_leader(s, 0, Leader::Tungstantus, LeaderStatus::Unlocked), produced(0));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the commander");
+        r.pick(use_it);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!(goods(&r, 0), 3);
+        let mut declined = rig(scenario(), |s| set_leader(s, 0, Leader::Tungstantus, LeaderStatus::Unlocked), produced(0));
+        declined.decline();
+        assert_eq!(goods(&declined, 0), 2);
+    }
+
+    #[test]
+    fn only_an_unlocked_commander_of_the_producing_seat_is_offered() {
+        covers!("silent::g4::titans_commander::TUNGSTANTUS");
+        let scenario = || Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]).goods(0, 2).goods(1, 2);
+        let locked = rig(scenario(), |s| set_leader(s, 0, Leader::Tungstantus, LeaderStatus::Locked), produced(0));
+        assert!(locked.is_done(), "{}", locked.transcript());
+        // Seat 1 uses production while seat 0 holds the commander: the card is about its holder's own production.
+        let other = rig(scenario(), |s| set_leader(s, 0, Leader::Tungstantus, LeaderStatus::Unlocked), produced(1));
+        assert!(other.is_done(), "{}", other.transcript());
+        assert_eq!((goods(&other, 0), goods(&other, 1)), (2, 2));
+    }
+}

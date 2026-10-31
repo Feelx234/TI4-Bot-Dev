@@ -761,6 +761,7 @@ mod tests {
     }
 
     include!("combat_live_g3_tests.rs");
+    include!("combat_live_g4_tests.rs");
     // -- lane G2: the abilities of the PRODUCTION_USED window the Winnu hold ---------------------------------------------------------------
 
     /// Whether the string asked a question with an option whose id contains `needle`.
