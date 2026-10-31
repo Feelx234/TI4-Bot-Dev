@@ -256,3 +256,126 @@ mod stub {
         None
     }
 }
+
+#[cfg(all(test, feature = "typed-core"))]
+mod tests {
+    use ti4_model::content_types::{FULL, POK};
+    use ti4_model::id::PlayerId;
+    use ti4_model::state::GameState;
+
+    use crate::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Resolving, Scripted, Table};
+    use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+    use crate::exploration::explore_with;
+
+    fn me() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    /// Always the last option: the branch the first-option policy does not take.
+    struct LastOption;
+
+    impl Decider for LastOption {
+        fn choose(&mut self, c: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            c.options.last().cloned().ok_or_else(|| IllegalChoice::NoOptions { player: c.player.clone(), prompt: c.prompt.clone() })
+        }
+    }
+
+    /// Seat `a` (`faction`) controls a planet with an infantry and a mech on it, goods and commodities in hand; the decks are empty.
+    fn table(faction: &str) -> (GameState, ti4_model::id::PlanetId) {
+        let mut state = crate::fixtures::seated_game(&[("a", faction), ("b", if faction == "sol" { "jolnar" } else { "sol" })], POK);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.exploration_decks.clear();
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.system_mut(&system).set_control(planet.clone(), me());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &me(), 2);
+        let seat = state.player_mut(&me()).unwrap();
+        seat.trade_goods = 2;
+        seat.commodities = 1;
+        (state, planet)
+    }
+
+    fn ctx_with<T>(last: bool, f: impl FnOnce(&mut Resolving<'_>) -> T) -> T {
+        let fallback: Box<dyn Decider> = if last { Box::new(LastOption) } else { Box::new(crate::choice::FirstOption) };
+        let mut table = Table::with_default(Box::new(Scripted::with_fallback(Vec::<String>::new(), fallback)));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut ctx = Resolving { content: ti4_content::ContentStore::embedded(), sources: FULL, dice: &mut dice, rng: &mut rng, table: &mut table, timing: Some(crate::choice::TimingHandle { resolver: &mut crate::timing::Resolver::new(vec![me(), PlayerId::new("b")], Some(me()), Table::default()), sequence: &mut crate::event::EventSequence::new(), galaxy: None }) };
+        f(&mut ctx)
+    }
+
+    /// Every card of every deck, explored from a planet by a seat of three kinds (a plain one, Naaz with a mech, the Titans) with both policies
+    /// of answering: the string and the core window agree on the questions, the position, the events and the value; the only bails are the
+    /// ones the window names (Freelancers, Terragenesis).
+    #[test]
+    fn every_card_explored_from_a_planet_runs_in_lockstep_and_only_the_named_gaps_bail() {
+        use ti4_engine_core::generated::Explore;
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut bailed_cards = Vec::new();
+        with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), || {
+            for faction in ["hacan", "naaz", "titans"] {
+                for card in Explore::ALL {
+                    let id = crate::generated::IdStr::as_str(card);
+                    for last in [false, true] {
+                        let (mut state, planet) = table(faction);
+                        if faction == "naaz" {
+                            let (system, _) = crate::fixtures::a_placed_planet();
+                            crate::fixtures::put_on_planet(&mut state, &system, &planet, "mech", &me(), 1);
+                        }
+                        state.exploration_decks.insert("CULTURAL".to_owned(), vec![id.to_owned(), "ent".to_owned()]);
+                        state.relic_deck = ["thetriad", "dominusorb"].map(ti4_model::id::RelicId::new).to_vec();
+                        let before = report().windows.get("exploration::explore").map_or(0, |w| w.bailed);
+                        ctx_with(last, |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
+                        let after = report().windows.get("exploration::explore").map_or(0, |w| w.bailed);
+                        if after > before {
+                            bailed_cards.push((faction, id));
+                        }
+                    }
+                }
+            }
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        // Freelancers on every seat and everything the Titans explore are the named gaps; nothing else bails.
+        let unexpected: Vec<_> = bailed_cards.iter().filter(|(faction, id)| *faction != "titans" && !id.starts_with("frln")).collect();
+        assert!(unexpected.is_empty(), "{unexpected:?}: {:?}", r.windows);
+        assert!(r.windows.get("exploration::explore").map_or(0, |w| w.compared) > 300, "{:?}", r.windows);
+        let _ = take_report();
+    }
+
+    /// Every card as a frontier token's draw (no planet): the planet-less arms (a gamma token needs an active system, Mirage names the token's
+    /// system, an attachment is discarded) in lockstep with the string, with and without a timing handle.
+    #[test]
+    fn every_card_explored_from_a_frontier_token_runs_in_lockstep() {
+        use ti4_engine_core::generated::Explore;
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        with_mask(AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual), || {
+            for faction in ["hacan", "naaz"] {
+                for card in Explore::ALL {
+                    let id = crate::generated::IdStr::as_str(card);
+                    for (last, active) in [(false, true), (true, false)] {
+                        let (mut state, planet) = table(faction);
+                        let (system, _) = crate::fixtures::a_placed_planet();
+                        let _ = planet;
+                        crate::fixtures::put(&mut state, &system, "carrier", &me(), 1);
+                        state.frontier_tokens.insert(system.clone());
+                        state.active_system = active.then(|| system.clone());
+                        state.exploration_decks.insert("FRONTIER".to_owned(), vec![id.to_owned(), "ent".to_owned()]);
+                        state.relic_deck = ["thetriad", "dominusorb"].map(ti4_model::id::RelicId::new).to_vec();
+                        let out = ctx_with(last, |ctx| crate::exploration::explore_frontier(&mut state, ctx, &me(), &system));
+                        assert!(out.is_some(), "{id}");
+                    }
+                }
+            }
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let w = r.windows.get("exploration::explore_frontier").copied();
+        assert!(w.is_some_and(|w| w.compared > 150), "{:?}", r.windows);
+        let bailed: Vec<_> = r.windows.iter().filter(|(label, w)| label.starts_with("exploration::explore_frontier [bail") && w.bailed > 0).collect();
+        assert!(bailed.iter().all(|(label, _)| label.contains("Freelancers")), "{bailed:?}");
+        let _ = take_report();
+    }
+}
