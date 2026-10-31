@@ -107,6 +107,8 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
             }
             None => false,
         },
+        // The transaction window (lane M1): the payload the legacy game holds, free-form deal included.
+        Arm::Trade => open_observed(windows, core, WindowKind::Trade),
         // The scoring windows of the status phase and of the secrets timed on an action or an agenda (lane C): the payload the legacy game holds.
         Arm::Scoring => open_observed(windows, core, WindowKind::Scoring),
         Arm::EventScoring => open_observed(windows, core, WindowKind::EventScoring),
@@ -131,7 +133,7 @@ fn open_observed(windows: &[Window], core: &mut CoreState, kind: WindowKind) -> 
 /// (the questions, the events and the position), not on the prefix. `Phase` is the whole of `step_phase`; the prelude and the
 /// announcement go on into the question of the same legacy step (the action menu, the draft), which the arm does not own.
 const fn close_is_native(arm: Arm) -> bool {
-    matches!(arm, Arm::Phase | Arm::Status | Arm::Tokens | Arm::Scoring | Arm::EventScoring)
+    matches!(arm, Arm::Phase | Arm::Status | Arm::Tokens | Arm::Scoring | Arm::EventScoring | Arm::Trade)
 }
 
 /// The arms whose native step also runs the close when it applies the LAST answer, where the legacy game closes in its NEXT step (a step
@@ -151,6 +153,7 @@ const fn window_of(arm: Arm) -> Option<WindowKind> {
         Arm::Tokens => Some(WindowKind::Tokens),
         Arm::Scoring => Some(WindowKind::Scoring),
         Arm::EventScoring => Some(WindowKind::EventScoring),
+        Arm::Trade => Some(WindowKind::Trade),
         _ => None,
     }
 }
@@ -284,10 +287,19 @@ impl NativeSubject {
             }
             None => leaves(Category::Event, "native.events", &json!(events), &json!("a line the tables cannot name"), &mut out),
         }
+        // The events an effect staged are marks of JSON in the legacy state and `Pending::staged` in the core: compared by name, in order, and kept
+        // out of the position (the position carries only what the codec carries).
+        let mut legacy_state = self.inner.state_json();
+        let legacy_staged = strip_staged(&mut legacy_state);
+        let native_staged: Vec<String> = shadow.core.pending().staged.iter().map(|e| ti4_engine::kernel_sync::text::event_text(&shadow.render, e.kind)).collect();
+        if !native_staged.is_empty() || !legacy_staged.is_empty() {
+            leaves(Category::Event, "native.staged", &json!(legacy_staged), &json!(native_staged), &mut out);
+        }
         match materialize::materialize(&shadow.core, &shadow.cx, &shadow.base) {
             Ok(after) => {
-                let native_state = serde_json::to_value(&after).unwrap_or(Value::Null);
-                out.extend(compare_state(ended, &self.inner.state_json(), &native_state));
+                let mut native_state = serde_json::to_value(&after).unwrap_or(Value::Null);
+                strip_staged(&mut native_state);
+                out.extend(compare_state(ended, &legacy_state, &native_state));
             }
             Err(e) => leaves(Category::State, "native.state", &json!("materializes"), &json!(e.to_string()), &mut out),
         }
@@ -307,6 +319,20 @@ impl NativeSubject {
 // the very pools the last token filled). So a step that ends the window is compared on the prefix of the questions and the events only; a
 // step that leaves it open must agree on everything, the position included. The position at the end of a window is compared when the
 // close is the core's too (KS5).
+
+/// Take the `private:#staged:event:*` marks out of a position: the `type` of each, in key order.
+fn strip_staged(state: &mut Value) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
+        let keys: Vec<String> = marks.keys().filter(|k| k.starts_with("private:#staged:event:")).cloned().collect();
+        for key in keys {
+            let text = marks.remove(&key).and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();
+            let event: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            names.push(event.get("type").and_then(Value::as_str).unwrap_or("?").to_owned());
+        }
+    }
+    names
+}
 
 /// The questions of the step: the legacy step's against the arm's (`native.questions...`); the answers the arm did not take are a
 /// difference unless the window ended (the remainder takes them).
@@ -392,6 +418,11 @@ impl Subject for NativeSubject {
 
     fn rng_positions(&self) -> RngPositions {
         self.inner.rng_positions()
+    }
+
+    // mutants:skip (delegation to the legacy subject)
+    fn in_transaction(&self) -> bool {
+        self.inner.in_transaction()
     }
 
     // mutants:skip (delegation to the legacy subject)
@@ -483,10 +514,14 @@ mod tests {
     }
 
     fn play_spec(spec: &GameSpec) -> crate::oracle::Played {
+        play_spec_for(spec, LIMITS)
+    }
+
+    fn play_spec_for(spec: &GameSpec, limits: Limits) -> crate::oracle::Played {
         let list = AllowList::default();
         let mut tally = Tally::new(&list);
         let mut judge = Judge { list: &list, tally: &mut tally, scenario: "native".to_owned() };
-        play_scenario::<NativeSubject, MaskSubject<LegacyMask>>(spec, LIMITS, &mut judge).expect("builds").expect("not skipped")
+        play_scenario::<NativeSubject, MaskSubject<LegacyMask>>(spec, limits, &mut judge).expect("builds").expect("not skipped")
     }
 
     fn arm_tokens() {
@@ -586,6 +621,40 @@ mod tests {
         }
         assert!(ran_status >= 1, "the opening of the status phase ran in shadow");
         eprintln!("commander gaps counted: {gaps}");
+    }
+
+    /// The trade island (lane M1) in shadow behind real games: the transaction windows the rule bot opens in the first rounds of a table of
+    /// each group of lobby factions are run by the core with the same answers and compared step by step (questions as rendered, plain events,
+    /// the events left staged, the position at every step, the close). A counted bail is a failure. The window must be seen to open and
+    /// be answered, or the run proves nothing.
+    #[test]
+    fn the_trade_arm_agrees_with_the_legacy_game_over_real_transactions_for_every_lobby_faction() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        TAMPER.with(|t| t.set(0));
+        let mut steps = 0;
+        for group in LOBBY_FACTIONS.chunks(4) {
+            set_native_arms(NativeArms::of(&[Arm::Trade]));
+            let _ = (lent_counts(), ran_counts());
+            let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec_for(&spec_of(group), Limits { max_rounds: 3, max_steps: 60_000 }));
+            let ran = ran_counts();
+            assert!(played.report.differences.is_empty(), "{group:?}: {:#?}", played.report.differences.iter().take(5).collect::<Vec<_>>());
+            steps += ran.iter().filter(|(k, _)| k.starts_with("trade")).map(|(_, n)| *n).sum::<u64>();
+            eprintln!("{group:?}: trade steps in shadow {:?}", ran.iter().filter(|(k, _)| k.starts_with("trade")).collect::<Vec<_>>());
+        }
+        assert!(steps >= 10, "transactions were seen: {steps} trade steps in shadow");
+    }
+
+    /// The trade arm's compare finds a perturbed native position too: a trade good more at the end of a step is a `State` difference.
+    #[test]
+    fn a_perturbed_native_trade_position_is_reported_as_a_state_difference() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        set_native_arms(NativeArms::of(&[Arm::Trade]));
+        let _ = (lent_counts(), ran_counts());
+        TAMPER.with(|t| t.set(1));
+        let played = play_spec_for(&spec_of(&LOBBY_FACTIONS[..4]), Limits { max_rounds: 3, max_steps: 60_000 });
+        TAMPER.with(|t| t.set(0));
+        let hit = played.report.differences.iter().find(|d| d.category == Category::State && d.path.starts_with("native.state") && d.path.contains("trade_goods"));
+        assert!(hit.is_some(), "{:#?}", played.report.differences.iter().take(3).collect::<Vec<_>>());
     }
 
     /// The compare finds a perturbed native position (state), and a perturbed pool (the plain events of the step do not change, the

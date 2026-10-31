@@ -120,14 +120,6 @@ fn native_side(t: &Table2, start: &GameState, partner: &str, ids: &[String]) -> 
             break;
         }
     }
-    if std::env::var_os("M1_TRACE").is_some() {
-        eprintln!("registry {:?} hand {:?}", env.registry.for_event(ti4_engine_core::state::EventKind::TransactionResolved, ti4_engine_core::choice::reaction::Relation::After).count(), core.players().by_seat(proposer).map(|p| p.cards.hand.len()));
-        let ev = ti4_engine_core::kernel::fx::event(ti4_engine_core::state::EventKind::TransactionResolved, ti4_engine_core::state::Payload::new().with(ti4_engine_core::state::Key::Proposer, ti4_engine_core::state::Val::Seat(proposer)).with(ti4_engine_core::state::Key::Partner, ti4_engine_core::state::Val::Seat(partner)));
-        for seat in 0..3u8 {
-            eprintln!("playable {seat}: {:?} hand {:?}", ti4_engine_core::rules::action_cards::reaction_slot::playable(&core, kernel, &env.table.facts, false, ti4_engine_core::Seat(seat), &ev, ti4_engine_core::choice::reaction::Relation::After), core.players().by_seat(ti4_engine_core::Seat(seat)).map(|p| p.cards.hand.as_slice().to_vec()));
-        }
-        eprintln!("native events {:?}", crate::render::events::events_text(&render, &cx, &core));
-    }
     assert_eq!(asker.left(), 0, "every answer the string was given was taken; the native side was asked {:?}", asker.seen.iter().map(|c| (&c.prompt, c.ids())).collect::<Vec<_>>());
     let questions = asker.seen.clone();
     let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
@@ -154,9 +146,6 @@ pub(super) fn both(t: &Table2, partner: &str, faction: &str, script: &[&str]) ->
     let mut ids = vec![open.as_str()];
     ids.extend_from_slice(script);
     let (string, taken, start) = string_side(t, &ids);
-    if std::env::var_os("M1_TRACE").is_some() {
-        eprintln!("string asked {:?}", string.questions.iter().map(|c| (&c.prompt, c.ids())).collect::<Vec<_>>());
-    }
     // The string took the first option after the script: the native side takes the same.
     let native = native_side(t, &start, partner, &taken);
     (string, native)

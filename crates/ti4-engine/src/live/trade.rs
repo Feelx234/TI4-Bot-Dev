@@ -142,3 +142,130 @@ pub fn pick(core: &mut CoreState, choice: &CoreChoice, id: &str) -> Option<Resul
     t.free[1] = Some(spec);
     Some(Ok(Pick::Opt(COpt::Trade(Opt::Deal(Shape::Free(1))))))
 }
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+    use ti4_content::ContentStore;
+    use ti4_engine_core::generated::PromissoryNote;
+    use ti4_engine_core::state::NoteKey;
+
+    use super::*;
+    use crate::generated::IdStr;
+
+    /// The tables the core pins without text must agree with the string's text: the order of note ids and of cards, the worth of a planet
+    /// card, the limits of the negotiations.
+    #[test]
+    fn the_cores_text_free_tables_agree_with_the_strings_text() {
+        let factions = [Faction::TheEmiratesOfHacan, Faction::TheArborec, Faction::TheYinBrotherhood, Faction::TheUniversitiesOfJolNar];
+        let keys: Vec<NoteKey> = PromissoryNote::ALL.iter().flat_map(|n| factions.iter().map(move |f| NoteKey { note: *n, faction: *f })).collect();
+        for a in &keys {
+            for b in &keys {
+                assert_eq!(
+                    ti4_engine_core::query::trade_deals::note_order(*a, *b),
+                    crate::render::trade::note_id(*a).cmp(&crate::render::trade::note_id(*b)),
+                    "{a:?} against {b:?}"
+                );
+            }
+        }
+        for a in ActionCard::ALL.iter().step_by(7) {
+            for b in ActionCard::ALL.iter().step_by(5) {
+                assert_eq!(ti4_engine_core::query::trade_deals::card_order(*a, *b), a.as_str().cmp(b.as_str()));
+            }
+        }
+        assert_eq!(ti4_engine_core::query::trade_deals::planet_values(), crate::render::trade::planet_values(), "the worth of every planet card");
+        assert_eq!(ti4_engine_core::rules::trade_window::MAX_NEGOTIATIONS_PER_ACTION, ti4_model::state::MAX_NEGOTIATIONS_PER_ACTION);
+        assert_eq!(ti4_engine_core::rules::trade_window::MAX_NEGOTIATIONS_PER_ROUND, ti4_model::state::MAX_NEGOTIATIONS_PER_ROUND);
+    }
+
+    /// One field of a free-form id: a known key with a value that is sometimes valid, sometimes junk.
+    fn field() -> impl Strategy<Value = String> {
+        let side = prop_oneof![Just('g'), Just('r'), Just('q')];
+        let kind = prop_oneof![Just('t'), Just('c'), Just('n'), Just('a'), Just('s'), Just('f'), Just('p'), Just('z')];
+        let count = prop_oneof![(0..6u32).prop_map(|n| n.to_string()), Just("+2".to_owned()), Just(String::new()), Just("12345".to_owned())];
+        let notes: Vec<&'static str> = vec![
+            "cf:hacan", "ps:sol", "ta:hacan", "an:arborec", "convoys:hacan", "ms:sol", "support:hacan", "support:sol", "support:nobody", "bogus:hacan", "cf", "ps:nobody", "dark_pact:empyrean", "ra:jolnar",
+        ];
+        let cards: Vec<&'static str> = ActionCard::ALL.iter().step_by(11).map(|c| c.as_str()).chain(["nosuchcard"]).collect();
+        let secrets: Vec<&'static str> = ti4_engine_core::generated::SecretObjective::ALL.iter().step_by(5).map(|c| c.as_str()).chain(["nosuchsecret"]).collect();
+        let planets: Vec<&'static str> = Planet::ALL.iter().step_by(13).map(|c| c.as_str()).chain(["nosuchplanet"]).collect();
+        (side, kind, count, 0..notes.len(), 0..cards.len(), 0..secrets.len(), 0..planets.len(), 0..planets.len(), 0..5usize).prop_map(move |(side, kind, count, n, c, s, p, q, f)| {
+            let value = match kind {
+                't' | 'c' => count,
+                'n' => notes[n].to_owned(),
+                'a' => cards[c].to_owned(),
+                's' => secrets[s].to_owned(),
+                'f' => ["cultural", "HAZARDOUS,industrial", "frontier", "unknown,frontier", "weird"][f].to_owned(),
+                'p' => format!("{}>{}", planets[p], planets[q]),
+                _ => "1".to_owned(),
+            };
+            format!("{side}{kind}={value};")
+        })
+    }
+
+    fn id() -> impl Strategy<Value = String> {
+        prop::collection::vec(field(), 0..6).prop_map(|fields| format!("x;{}", fields.concat()))
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(4000))]
+
+        /// The typed reading of a free-form id agrees with the string's `offer_from` wherever the typed tables name every term: the price the
+        /// partner's accept option reports is the string's own number to the last bit (the sums are taken in the same order), and the typed
+        /// deal written back as text reads as the same deal.
+        #[test]
+        fn a_free_form_id_is_priced_and_round_trips_like_the_strings_reading(id in id()) {
+            let state = crate::fixtures::seated_dealt(&[("a", "hacan"), ("b", "sol")], ti4_model::content_types::DEFAULT);
+            let content = ContentStore::embedded();
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            let Some(offer) = offer_from_with(&|_| String::new(), &id, &a, &b) else { return Ok(()) };
+            let Some(spec) = spec_of(&offer) else { return Ok(()) };
+            let (net, theirs) = free_nets(&spec);
+            let string_net = offer.received.worth_to_receiver(&state, content) - offer.given.cost_to_giver(&state, content);
+            let string_theirs = offer.given.worth_to_receiver(&state, content) - offer.received.cost_to_giver(&state, content);
+            prop_assert_eq!(net.to_bits(), string_net.to_bits(), "the proposer's net of {}", id);
+            prop_assert_eq!(theirs.to_bits(), string_theirs.to_bits(), "the partner's net of {}", id);
+            // The text written back is a free-form id that reads as the same typed deal.
+            let again = offer_from_with(&|_| String::new(), &text_of(&spec), &a, &b).expect("the text of a typed deal is readable");
+            prop_assert_eq!(spec_of(&again), Some(spec), "{}", id);
+        }
+    }
+
+    /// The generator reaches the assertions of the property often enough: a property that returns early on every case proves nothing.
+    #[test]
+    fn the_generator_produces_many_typed_deals_with_every_kind_of_term() {
+        use proptest::strategy::{Strategy, ValueTree};
+        use proptest::test_runner::{Config, TestRunner};
+        let mut runner = TestRunner::new(Config::default());
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let (mut typed, mut seen) = (0, [false; 7]);
+        for _ in 0..2000 {
+            let text = id().new_tree(&mut runner).expect("a tree").current();
+            let Some(spec) = offer_from_with(&|_| String::new(), &text, &a, &b).and_then(|o| spec_of(&o)) else { continue };
+            typed += 1;
+            for side in [spec.given, spec.received] {
+                seen[0] |= side.trade_goods > 0;
+                seen[1] |= side.commodities > 0;
+                seen[2] |= side.note.is_some();
+                seen[3] |= side.action_card.is_some();
+                seen[4] |= side.secret.is_some();
+                seen[5] |= side.fragments.iter().any(|n| *n > 0);
+                seen[6] |= side.planet.is_some();
+            }
+        }
+        assert!(typed >= 150, "only {typed} of 2000 ids were typed deals");
+        assert!(seen.iter().all(|s| *s), "every kind of term is generated: {seen:?}");
+    }
+
+    #[test]
+    fn a_malformed_free_form_id_is_no_deal_and_a_term_the_tables_do_not_name_is_not_typed() {
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let read = |id: &str| offer_from_with(&|_| String::new(), id, &a, &b);
+        assert!(read("x;bogus").is_none() && read("x;gt=1;gt=2;").is_none() && read("x;gt=+2;").is_none() && read("x;gt=;").is_none());
+        let named = read("x;ga=nosuchcard;rt=1;").expect("the string reads it");
+        assert!(spec_of(&named).is_none(), "an unknown card has no typed form: a counted gap, not a guess");
+        let ok = read("x;gt=2;rn=support:hacan;gf=cultural,unknown;").expect("reads");
+        let spec = spec_of(&ok).expect("typed");
+        assert_eq!((spec.given.trade_goods, spec.received.note, spec.given.fragments), (2, Some(FreeNote::Support(Faction::TheEmiratesOfHacan)), [1, 1, 0, 0]));
+    }
+}
