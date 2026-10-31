@@ -11066,17 +11066,18 @@ mod tests {
         }
     }
 
-    /// The first golden run of the card plays found 12 differences: Reflective Shielding stages hits that the sustain
-    /// window of the string takes up afterwards, a state the core windows do not carry. The card stays the string's: the
-    /// window bails naming it, nothing differs.
+    /// The first golden run of the card plays found 12 differences: Reflective Shielding stages hits that the sustain window of the
+    /// string takes up afterwards. Since package W11 the windows of the use of SUSTAIN DAMAGE take them up too, so the card is no longer
+    /// named as a bail and nothing differs (declared in the plain fight of the tests).
     #[test]
-    fn reflective_shielding_stays_in_the_string_in_lockstep() {
-        let mut bailed = 0;
+    fn reflective_shielding_is_followed_by_the_core_when_it_is_declared_in_the_window() {
+        let mut played = 0;
         for seed in 1..=8_u64 {
-            let (_, _, bails) = declared_cards_fight(seed, &["reflective"], false);
-            bailed += bails.iter().filter(|k| k.contains("(card reflective)")).count();
+            let (p, _, bails) = declared_cards_fight(seed, &["reflective"], false);
+            assert!(bails.iter().all(|k| !k.contains("(card reflective)") && !k.contains("Reflective Shielding")), "{bails:?}");
+            played += p;
         }
-        assert!(bailed > 0, "a Reflective Shielding was played and named");
+        assert!(played > 0, "a Reflective Shielding was played");
     }
 
     /// One space fight in which the defender holds `hand`, every question answered with its first option; the windows

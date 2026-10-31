@@ -8,7 +8,7 @@ use ti4_engine_core::containers::Opt32;
 use ti4_engine_core::rules::combat::flow::{Phase, Step};
 use ti4_engine_core::rules::combat::end_announce::Codes as EndCodes;
 use ti4_engine_core::rules::combat::machine::{Bail, Env, Fields, Machine, Stop};
-use ti4_engine_core::state::{Code, EventKind, Key, LeaderStatus};
+use ti4_engine_core::state::{Code, EventKind, Key, LeaderStatus, Piece};
 use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::rig::Policy;
 use ti4_engine_core_tests::scenario::plain_systems;
@@ -24,10 +24,10 @@ fn there() -> System {
 const KINDS: [Unit; 7] = [Unit::CarrierI, Unit::CruiserI, Unit::DestroyerI, Unit::DestroyerII, Unit::DreadnoughtI, Unit::FighterI, Unit::WarSun];
 
 /// The text tables the string side would hand over: every non-empty set of the unit types used, in id order.
-fn groups() -> Vec<(Vec<Unit>, Code, Code)> {
+fn groups_of(kinds_all: &[Unit]) -> Vec<(Vec<Unit>, Code, Code)> {
     let mut out = Vec::new();
-    for mask in 1u16..(1 << KINDS.len()) {
-        let mut kinds: Vec<Unit> = KINDS.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, u)| *u).collect();
+    for mask in 1u16..(1 << kinds_all.len()) {
+        let mut kinds: Vec<Unit> = kinds_all.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, u)| *u).collect();
         kinds.sort_unstable();
         out.push((kinds, Code(1000 + mask), Code(2000 + mask)));
     }
@@ -35,7 +35,12 @@ fn groups() -> Vec<(Vec<Unit>, Code, Code)> {
 }
 
 fn env() -> Env {
-    let mut alpha = KINDS.to_vec();
+    env_of(&KINDS)
+}
+
+/// The environment of a fight whose units are of these types.
+fn env_of(kinds: &[Unit]) -> Env {
+    let mut alpha = kinds.to_vec();
     alpha.sort_unstable();
     Env {
         attacker: Seat(0),
@@ -52,8 +57,8 @@ fn env() -> Env {
         barrage_cause: Code(6),
         barrage_kind: Code(7),
         barrage_extra: Code(8),
-        unit_codes: KINDS.iter().enumerate().map(|(i, u)| (*u, Code(100 + i as u16))).collect(),
-        shown_codes: KINDS.iter().enumerate().map(|(i, u)| (*u, Code(100 + i as u16))).collect(),
+        unit_codes: kinds.iter().enumerate().map(|(i, u)| (*u, Code(100 + i as u16))).collect(),
+        shown_codes: kinds.iter().enumerate().map(|(i, u)| (*u, Code(100 + i as u16))).collect(),
         barrage_extra_shown: Code(99),
         jolnar: [false, false],
         roll_unported: false,
@@ -61,7 +66,7 @@ fn env() -> Env {
         munitions_start: [false, false],
         roll_cause: Code(9),
         hacan: Code(10),
-        groups: groups(),
+        groups: groups_of(kinds),
         alpha,
         retreat_cause: Code(11),
         retreat_event: Code(11),
@@ -545,4 +550,114 @@ fn the_round_seq_is_stamped_only_while_a_letnev_round_agent_is_still_usable() {
     assert_eq!(fight.settle(Policy::First), Some(Stop::Over));
     assert_eq!(seqs(&fight), rounds(&fight), "a readied owner agent listens in every round");
     assert!(rounds(&fight) >= 1);
+}
+
+// ---- a neutral side (W11) ----------------------------------------------------------------------------------
+
+const NEUTRAL_KINDS: [Unit; 6] = [Unit::CruiserI, Unit::DreadnoughtI, Unit::FighterI, Unit::NeutralDestroyer, Unit::NeutralDreadnought, Unit::NeutralFighter];
+
+/// Seat 0 (six dreadnoughts and three cruisers) against the neutral force, an owner that is no seat (`Seat(2)`): a fighter, a destroyer and two
+/// dreadnoughts, the lowest on the reference card first the fighter.
+fn neutral_fight(show: bool, seed: u64) -> Fight {
+    let sc = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DreadnoughtI, 0, 6).unit(sys(), None, Unit::CruiserI, 0, 3);
+    let (mut state, kernel) = sc.build();
+    for kind in [Unit::NeutralDreadnought, Unit::NeutralDestroyer, Unit::NeutralFighter, Unit::NeutralDreadnought] {
+        state.board_mut().sys_mut(sys()).units.push(Piece::new(kind, Seat(2)));
+    }
+    let mut env = env_of(&NEUTRAL_KINDS);
+    env.defender = Seat(2);
+    env.show_neutral = show;
+    let mut fight = Fight { state, kernel, env, fields: Fields { step: Step::Opening { round: 1 }, phase: Phase::Round, resuming: false, pending_retreats: vec![], offered: vec![], damaged: vec![], fled: vec![], at_start: vec![], scoring: false, outcome: None, end_announced: false }, seed, events: vec![], drawn: 0, questions: vec![], stop: None, settles: 0, pause_at_scoring: false, pauses: 0 };
+    let fleet = |seat: Seat| fight.state.board().sys(sys()).units.iter().filter(|p| p.owner() == seat).map(|p| p.kind()).collect::<Vec<_>>();
+    fight.fields.at_start = vec![(Seat(0), fleet(Seat(0))), (Seat(2), fleet(Seat(2)))];
+    fight
+}
+
+/// The ships the neutral force lost, in order.
+fn neutral_losses(fight: &Fight) -> Vec<Unit> {
+    fight.events.iter().filter(|(k, p)| *k == EventKind::ShipDestroyed && p.seat(Key::Player) == Some(Seat(2))).filter_map(|(_, p)| p.unit(Key::Unit)).collect()
+}
+
+#[test]
+fn the_rules_answer_for_a_neutral_side_nobody_is_asked_and_the_lowest_on_the_card_goes_first() {
+    covers!("rules::combat::machine::Machine");
+    let mut seen = 0;
+    for seed in 1..=6u64 {
+        let mut fight = neutral_fight(false, seed);
+        assert_eq!(fight.settle(Policy::First), Some(Stop::Over), "seed {seed}");
+        assert!(fight.questions.iter().all(|c| c.actor != Seat(2)), "seed {seed}: the neutral side is never asked");
+        let lost = neutral_losses(&fight);
+        // Each loss is the unit lowest on the card among those standing: the fighter, then the destroyer, then the dreadnoughts.
+        let order = [Unit::NeutralFighter, Unit::NeutralDestroyer, Unit::NeutralDreadnought, Unit::NeutralDreadnought];
+        assert_eq!(lost, order[..lost.len()].to_vec(), "seed {seed}: {lost:?}");
+        seen += lost.len();
+        // A dreadnought sustains before it is lost: damage was taken (the sustain is always taken).
+        if lost.contains(&Unit::NeutralDreadnought) {
+            assert!(fight.events.iter().any(|(k, p)| *k == EventKind::SustainDamageUsed && p.seat(Key::Player) == Some(Seat(2))), "seed {seed}: the neutral side sustains");
+        }
+        assert_eq!(fight.state.board().sys(sys()).units.iter().filter(|p| p.owner() == Seat(2)).count() + lost.len(), 4, "seed {seed}: nothing else was lost");
+    }
+    assert!(seen > 10, "ships of the neutral force were lost: {seen}");
+}
+
+#[test]
+fn a_neutral_side_may_not_retreat() {
+    covers!("rules::combat::machine::Machine");
+    let fight = neutral_fight(false, 1);
+    let machine = Machine::new(fight.env.clone(), fight.fields.clone());
+    let k = &fight.kernel;
+    assert!(machine.retreats(&fight.state, k, Seat(2)).is_empty(), "the neutral force never retreats");
+}
+
+/// With the decisions shown (the lockstep with the string engine) the neutral side's sustain and casualty are put as questions of
+/// the neutral seat; the only answer the machine takes is the rules' own: the first sustain option, the lowest unit on the card.
+#[test]
+fn a_shown_neutral_decision_takes_only_the_answer_the_rules_give() {
+    covers!("rules::combat::machine::Machine");
+    use ti4_engine_core::rules::combat::NEUTRAL_LOWEST_FIRST;
+    let mut fight = neutral_fight(true, 2);
+    let (mut sustains, mut casualties, mut refused) = (0, 0, 0);
+    for _ in 0..200 {
+        let mut rig = Rig::from_parts(fight.state.clone(), fight.kernel.clone(), Machine::new(fight.env.clone(), fight.fields.clone())).seeded(fight.seed);
+        rig.run();
+        while let Some(ti4_engine_core::driver::Status::Asking(c)) = rig.status().cloned() {
+            assert_eq!(c.actor, Seat(2), "only the neutral side's decisions are put inside a settle");
+            let expected = match c.ask {
+                Ask::Combat(CAsk::CancelHit { .. }) => {
+                    sustains += 1;
+                    assert!(matches!(c.opts.as_slice()[0], Opt::Combat(COpt::Sustain { .. })));
+                    0
+                }
+                Ask::Combat(CAsk::AssignHit) => {
+                    casualties += 1;
+                    let kind = NEUTRAL_LOWEST_FIRST.iter().find(|k| c.opts.iter().any(|o| matches!(o, Opt::Combat(COpt::Destroy { unit, .. }) if unit == *k))).copied().unwrap();
+                    c.opts.iter().position(|o| matches!(o, Opt::Combat(COpt::Destroy { unit, .. }) if *unit == kind)).unwrap()
+                }
+                other => panic!("{other:?}"),
+            };
+            // Any other option is refused; the question stays.
+            for i in (0..c.opts.len()).filter(|i| *i != expected) {
+                if let Some(p) = c.pick(i) {
+                    if rig.try_answer(p).is_err() {
+                        refused += 1;
+                    } else {
+                        panic!("a pick other than the rules' answer was taken: {i} for {expected}");
+                    }
+                }
+            }
+            rig.try_answer(c.pick(expected).unwrap()).unwrap();
+        }
+        let m = rig.driver.window.clone();
+        fight.state = rig.state.clone();
+        fight.fields = m.fields.clone();
+        fight.collect(&rig);
+        match m.stop {
+            Some(Stop::Pending) => fight.decide(Policy::First),
+            Some(Stop::Scoring) => fight.fields.scoring = false,
+            Some(Stop::Over) => break,
+            other => panic!("{other:?}"),
+        }
+    }
+    assert!(sustains > 0 && casualties > 0, "{sustains} sustains and {casualties} casualties were put");
+    assert!(refused > 0, "other options were refused");
 }

@@ -269,6 +269,15 @@ mod tests {
     }
 
     #[test]
+    fn the_cores_copy_of_the_reference_card_order_is_the_transcribed_one() {
+        // The core keeps the order as a constant (it knows no content records); it must be the records' order, lowest first.
+        let content = ti4_content::ContentStore::embedded();
+        let string_side: Vec<String> = roster(content, ALL_SOURCES).into_iter().map(|id| id.as_str().to_owned()).collect();
+        let core_side: Vec<String> = ti4_engine_core::rules::combat::NEUTRAL_LOWEST_FIRST.iter().map(|u| u.as_str().to_owned()).collect();
+        assert_eq!(core_side, string_side);
+    }
+
+    #[test]
     fn the_transcribed_stats_match_the_printed_card() {
         // Pins the transcription itself. Every number here was read off the reference sheet; if a
         // record is edited, this says so rather than letting a silent change ride.
