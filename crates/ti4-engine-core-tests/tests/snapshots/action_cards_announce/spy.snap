@@ -1,0 +1,17 @@
+Q0 seat 0 Cards(Pick { card: Spy, what: Player })
+  >0: Cards(Seat(Seat(1)))
+   1: Cards(Seat(Seat(2)))
+done
+--- delta ---
+player0.cards.hand: [] -> -
+player0.cards.hand.[0]: - -> Blitz
+player1.cards.hand.[1]: Blitz -> -
+cards.discarded_action.[0]: [] -> -
+cards.discarded_action.[0].[0]: - -> Spy
+transient.combat.last_action_discarded: None -> -
+transient.combat.last_action_discarded.[0].[0].[0]: - -> 0
+transient.combat.last_action_discarded.[0].[1]: - -> Spy
+transient.misc.action_card_plays: [] -> -
+transient.misc.action_card_plays.[0].[0].[0]: - -> 0
+transient.misc.action_card_plays.[0].[1]: - -> Spy
+rng: positions [] -> [(Dice, 1)]
