@@ -2780,6 +2780,7 @@ mod tests {
     fn the_imperial_primary_runs_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let run = |state: &mut GameState, answers: &[&str]| {
@@ -2817,6 +2818,7 @@ mod tests {
         let _ = run(&mut state, &[id]);
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("winnu hero imperial", &r);
         assert_eq!(thread_window_counts("factions::winnu::hero"), (4, 0), "{r:?}");
         let _ = take_report();
     }
@@ -2828,6 +2830,7 @@ mod tests {
     fn the_te_warfare_primary_runs_in_lockstep_with_the_core_and_carries_the_free_action() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let hub = crate::fixtures::hub_with_centre("18");
@@ -2862,6 +2865,7 @@ mod tests {
         assert!(matches!(&result, Ok(Some((_, crate::strategy_cards::Ability::Resolved)))), "{result:?}");
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("winnu hero TE Warfare", &r);
         assert_eq!(thread_window_counts("factions::winnu::hero"), (3, 0), "{r:?}");
         let _ = take_report();
     }
@@ -2872,6 +2876,7 @@ mod tests {
     fn the_te_construction_primary_runs_in_lockstep_with_the_core_with_a_structure_and_with_a_production() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let staged = || {
@@ -2889,15 +2894,22 @@ mod tests {
             })
         };
         let mut state = staged();
-        let home = state.player(&a()).unwrap().home_system.clone().expect("a home system");
-        let planet = state.system_state(&home).planet_units.keys().next().cloned().expect("a home planet");
         let _ = run(&mut state, &["te4construction", "structure", "decline", "decline"]);
+        // A use of PRODUCTION at the home system: the core's child window builds, pays and announces; the second structure follows.
         let mut state = staged();
+        let (home, planet) = crate::fixtures::a_placed_planet();
+        state.player_mut(&a()).unwrap().home_system = Some(home.clone());
+        state.player_mut(&a()).unwrap().trade_goods = 10;
+        state.system_mut(&home).set_control(planet.clone(), a());
+        crate::fixtures::put_on_planet(&mut state, &home, &planet, "spacedock", &a(), 1);
+        let units = state.system_state(&home).units.len() + state.system_state(&home).planet_units.values().map(Vec::len).sum::<usize>();
         let produce = format!("produce|{home}");
-        let _ = run(&mut state, &["te4construction", produce.as_str(), "done", "decline"]);
-        let _ = planet;
+        let _ = run(&mut state, &["te4construction", produce.as_str()]);
+        let after = state.system_state(&home).units.len() + state.system_state(&home).planet_units.values().map(Vec::len).sum::<usize>();
+        assert!(after > units, "the production made units: {units} -> {after}");
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("winnu hero TE Construction", &r);
         assert_eq!(thread_window_counts("factions::winnu::hero"), (2, 0), "{r:?}");
         let _ = take_report();
     }

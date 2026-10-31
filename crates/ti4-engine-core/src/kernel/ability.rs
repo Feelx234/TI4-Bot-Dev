@@ -148,6 +148,8 @@ pub struct Codes {
     pub empyrean_mech: crate::state::Code,
     /// The technology alias `so`, the source of Salvage Operations' question.
     pub salvage: crate::state::Code,
+    /// The faction ability `indoctrination`, the source of the Yin's question.
+    pub indoctrination: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
     /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,

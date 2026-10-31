@@ -239,3 +239,39 @@ fn a_use_without_capacity_makes_no_offer_to_the_hacan_hero() {
     assert_eq!(rig.state.meta().production_seq, seq, "no use, no number");
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::HarrughGefhara), Some(&LeaderStatus::Unlocked));
 }
+
+/// Package W13: the Prophecy of Ixth ("using PRODUCTION discards it unless two or more fighters were produced") is discarded by the window at
+/// the end of a use that made fewer than two fighters, and kept by one that made two.
+#[test]
+fn the_prophecy_of_ixth_is_discarded_by_a_use_that_made_fewer_than_two_fighters() {
+    covers!("rules::production::home::HomeProduction");
+    use ti4_engine_core::generated::Agenda;
+    use ti4_engine_core::keys::Outcome;
+    let prophecy = |rig: &mut Rig<HomeProduction>| {
+        rig.state.agenda_mut().laws.insert(Agenda::ProphecyOfIxth, Outcome::Seat(Seat(0)));
+    };
+    // One fighter and a destroyer: discarded.
+    let (mut rig, _, _) = home(6, &[Unit::FighterI, Unit::DestroyerI], 3);
+    prophecy(&mut rig);
+    rig.run();
+    build(&mut rig, Unit::FighterI);
+    stop(&mut rig);
+    assert!(rig.is_done());
+    assert!(!rig.state.agenda().laws.contains_key(&Agenda::ProphecyOfIxth), "one fighter is not two: the law is discarded");
+    // Two fighters: kept.
+    let (mut rig, _, _) = home(6, &[Unit::FighterI], 3);
+    prophecy(&mut rig);
+    rig.run();
+    build(&mut rig, Unit::FighterI);
+    build(&mut rig, Unit::FighterI);
+    stop(&mut rig);
+    assert!(rig.is_done());
+    assert!(rig.state.agenda().laws.contains_key(&Agenda::ProphecyOfIxth), "two fighters keep it");
+    // Held by another seat: never touched.
+    let (mut rig, _, _) = home(6, &[Unit::DestroyerI], 3);
+    rig.state.agenda_mut().laws.insert(Agenda::ProphecyOfIxth, Outcome::Seat(Seat(1)));
+    rig.run();
+    build(&mut rig, Unit::DestroyerI);
+    stop(&mut rig);
+    assert!(rig.state.agenda().laws.contains_key(&Agenda::ProphecyOfIxth));
+}

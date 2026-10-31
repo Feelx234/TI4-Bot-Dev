@@ -1580,6 +1580,7 @@ mod tests {
     fn the_hero_runs_in_lockstep_with_the_core() {
         use crate::dual::{report, take_report, thread_window_counts};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         // A fragment, an entropic field, a Merchant Station replenished, a Derelict Vessel, an Enigmatic Device and the Mirage.
@@ -1613,6 +1614,7 @@ mod tests {
         assert!(state.wormhole_tokens.is_empty() && state.ion_storm.is_none());
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("empyrean hero", &r);
         assert_eq!(thread_window_counts("factions::empyrean::hero"), (3, 0), "{r:?}");
         let _ = take_report();
     }
@@ -1623,6 +1625,7 @@ mod tests {
     fn a_frontier_deck_that_runs_out_undoes_the_run_after_its_questions_in_lockstep() {
         use crate::dual::{report, take_report, thread_window_counts};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         // Three tokens and two cards: the entropic field asks for its pool, then the third token finds no card.
@@ -1632,6 +1635,7 @@ mod tests {
         assert_eq!(state, before, "the failed run changed nothing");
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("empyrean hero (2)", &r);
         assert_eq!(thread_window_counts("factions::empyrean::hero"), (1, 0), "{r:?}");
         let _ = take_report();
     }
@@ -1641,6 +1645,7 @@ mod tests {
     fn the_planetless_systems_are_placed_and_explored_in_lockstep() {
         use crate::dual::{report, take_report, thread_window_counts};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let mut state = blank(game());
@@ -1657,6 +1662,7 @@ mod tests {
         assert_eq!(state.exploration_log[0].outcome, "fragment");
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("empyrean hero planetless", &r);
         assert_eq!(thread_window_counts("factions::empyrean::hero"), (1, 0), "{r:?}");
         let _ = take_report();
     }

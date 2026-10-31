@@ -274,8 +274,25 @@ fn the_te_construction_places_two_structures_neither_limited_to_a_pds_in_lockste
 /// The production of the card is the window of the production area, a child of the card (it was the string's before package W13).
 #[test]
 fn the_te_construction_production_runs_as_a_child_of_the_card_in_lockstep() {
-    let (counts, _, _) = play(CONSTRUCTION, lodor, &["produce|01", "done", "pds|01|jord"], "te4construction", None);
+    let staged = |s: &mut GameState| {
+        let (home, planet) = crate::fixtures::a_placed_planet();
+        s.player_mut(&a()).unwrap().home_system = Some(home.clone());
+        s.player_mut(&a()).unwrap().trade_goods = 10;
+        s.system_mut(&home).set_control(planet.clone(), a());
+        crate::fixtures::put_on_planet(s, &home, &planet, "spacedock", &a(), 1);
+    };
+    let (home, _) = crate::fixtures::a_placed_planet();
+    let produce = format!("produce|{home}");
+    let (counts, ability, after) = play(CONSTRUCTION, staged, &[produce.as_str()], "te4construction", None);
     assert_eq!(counts, (1, 0), "the production of the card is a window of the production area");
-    let (counts, _, _) = play(CONSTRUCTION, lodor, &["produce|01", "done", "decline"], "te4construction", None);
+    assert!(ability.is_some(), "the string resolved the card");
+    let made = after.system_state(&home).units.len() + after.system_state(&home).planet_units.values().map(Vec::len).sum::<usize>();
+    assert!(made > 1, "the production made units: {made}");
+    // Declining the second structure after a use that made nothing (nothing to pay with).
+    let broke = |s: &mut GameState| {
+        staged(s);
+        s.player_mut(&a()).unwrap().trade_goods = 0;
+    };
+    let (counts, _, _) = play(CONSTRUCTION, broke, &[produce.as_str()], "te4construction", None);
     assert_eq!(counts, (1, 0));
 }

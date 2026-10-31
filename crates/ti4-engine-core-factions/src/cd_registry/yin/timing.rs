@@ -1,7 +1,7 @@
 //! yin: the timing abilities (the reaction windows), docs/ENGINE_REACTIONS.md. Ported: Brother Milor, the Yin agent
 //! ("After a player's unit is destroyed during combat: you may exhaust this card to allow that player to place 2
 //! fighters in the destroyed unit's system if it was a ship, or 2 infantry on its planet if it was a ground
-//! force"), the ship and the ground branch. Not ported: the Ssruu copies, Indoctrination, Greyfire, the Spinner, Van
+//! force"), the ship and the ground branch. Indoctrination is ported too (package W13). Not ported: the Ssruu copies, Greyfire, the Spinner, Van
 //! Hauge, the Ascendant.
 //!
 //! The units are placed without a capacity check beyond the reinforcements ("place 2"; 16.3 removes the excess at the
@@ -11,16 +11,21 @@
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::{Faction, Leader, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec, Unknown};
+use ti4_engine_core::kernel::ability::{AbilityTable, AdapterFacts, CondCx, Eff, Slot, Spec, Unknown};
+use ti4_engine_core::kernel::fx_pay;
+use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::kernel::fx;
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::query::{fleet, tech};
-use ti4_engine_core::state::{CoreState, EventKind, Key, LeaderStatus};
+use ti4_engine_core::state::{CoreState, EventKind, Key, LeaderStatus, Payload};
 use ti4_engine_core::tables::Scope;
 
 /// Brother Milor, ships (`leader:*:yinagent:SHIP_DESTROYED:after`) and ground forces (`...GROUND_FORCE_DESTROYED:after`).
 pub const MILOR_SHIPS: Slot = Slot(7001);
 pub const MILOR_GROUND: Slot = Slot(7002);
+
+/// Indoctrination (`ability:*:indoctrination:GROUND_COMBAT_STARTED:after`).
+pub const INDOCTRINATION: Slot = Slot(7003);
 
 const AGENT: Leader = Leader::BrotherMilor;
 
@@ -154,7 +159,115 @@ pub(crate) fn place_by(eff: &mut Eff<'_, '_>, base: UnitBaseType, on_planet: boo
     Ok(())
 }
 
+// -- Indoctrination -------------------------------------------------------------------------------------
+
+/// Influence Indoctrination costs, and with Moyin's Ashes (the mech instead of the infantry) one more.
+const INDOCTRINATION_COST: i64 = 2;
+const INDOCTRINATION_MECH_COST: i64 = INDOCTRINATION_COST + 1;
+
+/// The replacements Indoctrination can make now, in the string's order (infantry, mech): `(base type, influence cost)`, each with a unit of
+/// the form the Yin places left in the reinforcements and a payment the seat can make. `Err`: a fact is missing (a payment kernel) or the seat holds
+/// ocean cards. Empty unless `owner` is the Yin in the ground combat and the opponent has an infantry on the planet.
+fn indoctrination_forms(s: &CoreState, f: &AdapterFacts, owner: Seat, p: &Payload) -> Result<Vec<(UnitBaseType, i64)>, ()> {
+    use ti4_engine_core::query::{economy::Spend, objectives as q};
+    if s.players().by_seat(owner).is_none_or(|y| y.faction != Faction::TheYinBrotherhood) {
+        return Ok(Vec::new());
+    }
+    let (Some(attacker), Some(defender), Some(planet)) = (p.seat(Key::Attacker), p.seat(Key::Defender), p.planet(Key::Planet)) else { return Ok(Vec::new()) };
+    let opponent = if owner == attacker { defender } else if owner == defender { attacker } else { return Ok(Vec::new()) };
+    let has_infantry = s.board().planet(planet).units.iter().any(|u| u.owner() == opponent && u.kind().data().base_type == UnitBaseType::Infantry);
+    if !has_infantry {
+        return Ok(Vec::new());
+    }
+    let k = f.pay_kernel.ok_or(())?();
+    let scope = Scope(u32::from(k.sources.0));
+    let env = fx_pay::PayEnv { scope, blanked: ti4_engine_core::query::reach::blanked(s) };
+    let facts = fx_pay::pay_facts(s, k, env, owner);
+    if facts.terms.oceans {
+        return Err(());
+    }
+    let mut out = Vec::new();
+    for (base, cost) in [(UnitBaseType::Infantry, INDOCTRINATION_COST), (UnitBaseType::Mech, INDOCTRINATION_MECH_COST)] {
+        if in_reinforcements(s, scope, owner, base).is_some() && q::first_plan(s, &facts, Spend::Influence, cost).is_some() {
+            out.push((base, cost));
+        }
+    }
+    Ok(out)
+}
+
+fn indoctrination_when(c: &CondCx<'_>) -> bool {
+    match indoctrination_forms(c.state, c.facts, c.def.owner, &c.event.payload) {
+        Ok(found) => !found.is_empty(),
+        Err(()) => c.unknown(Unknown::MissingFact),
+    }
+}
+
+fn indoctrination(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt, Subtype as RSub};
+    use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Pick, Subtype};
+    let me = eff.owner();
+    let Ok(forms) = indoctrination_forms(eff.read().0, eff.adapter_facts(), me, &eff.event.payload) else { return Ok(()) };
+    let p = eff.event.payload.clone();
+    let (Some(system), Some(planet), Some(attacker), Some(defender)) = (p.system(Key::System), p.planet(Key::Planet), p.seat(Key::Attacker), p.seat(Key::Defender)) else { return Ok(()) };
+    let opponent = if me == attacker { defender } else { attacker };
+    if forms.is_empty() {
+        return Ok(());
+    }
+    let mut opts: Opts = forms.iter().map(|(base, cost)| Opt::Reaction(ROpt::Indoctrinate { base: *base, cost: i16::try_from(*cost).unwrap_or(i16::MAX), opponent })).collect();
+    opts.push(Opt::Decline);
+    let choice = Choice {
+        actor: me,
+        ask: Ask::Reaction(RAsk::Indoctrination { planet }),
+        ctx: Ctx {
+            origin: ti4_engine_core::choice::Origin::FactionAbility(ti4_engine_core::choice::generic::Content::Other(eff.codes().indoctrination)),
+            subtype: Subtype::Reaction(RSub::Indoctrination),
+            optional: false,
+            target: None,
+            outstanding: ti4_engine_core::containers::SmallList::new(),
+            space_battle: false,
+            invasion_seq: None,
+        },
+        opts,
+    };
+    let Pick::Opt(Opt::Reaction(ROpt::Indoctrinate { base, cost, .. })) = eff.ask(&choice) else { return Ok(()) };
+    let before = eff.state().clone();
+    if !ti4_engine_core::rules::production::pay::pay_in(eff, me, i64::from(cost), ti4_engine_core::query::economy::Spend::Influence)? {
+        *eff.state() = before;
+        return Ok(());
+    }
+    // `action_cards::replace_unit`: the first infantry of the opponent on the planet leaves, a unit of the form the Yin places takes its place.
+    let scope = Scope(u32::from(eff.kernel().sources.0));
+    let (form, forbidden) = {
+        let (state, kernel) = eff.read();
+        let form = placed_form_overridden(state, kernel, scope, me, base);
+        let forbidden = form.is_some_and(|unit| kernel.hooks.economy.effect_placement_forbidden(state, kernel, me, unit));
+        (form, forbidden)
+    };
+    let replaced = match form {
+        Some(unit) if !forbidden && fleet::remaining_all(eff.state(), scope, me, unit) >= 1 => {
+            let cell = eff.state().board_mut().planet_mut(planet);
+            match cell.units.as_slice().iter().position(|u| u.owner() == opponent && u.kind().data().base_type == UnitBaseType::Infantry) {
+                Some(at) => {
+                    cell.units.remove(at);
+                    fx::place_unit(eff.state(), me, system, Some(planet), unit);
+                    true
+                }
+                None => false,
+            }
+        }
+        _ => false,
+    };
+    if replaced {
+        eff.state().marks_mut().tail.edit().insert(MarkKey::YinAbilityUsed(me), MarkVal::Atom(Atom::Num(1)));
+    } else {
+        *eff.state() = before;
+    }
+    Ok(())
+}
+
 pub fn register_abilities(t: &mut AbilityTable) {
+    t.add(Spec::new(INDOCTRINATION, AbilityKind::Ability, EventKind::GroundCombatStarted, Relation::After, indoctrination).when(indoctrination_when));
+
     t.add(Spec::new(MILOR_SHIPS, AbilityKind::Leader, EventKind::ShipDestroyed, Relation::After, |e| place(e, UnitBaseType::Fighter, false)).optional().when(ship_when));
     t.add(Spec::new(MILOR_GROUND, AbilityKind::Leader, EventKind::GroundForceDestroyed, Relation::After, |e| place(e, UnitBaseType::Infantry, true)).optional().when(ground_when));
 }

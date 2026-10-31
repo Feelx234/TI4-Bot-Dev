@@ -41,6 +41,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::WARRIOR_ROLLS, kind: "unit", card: "arborec_infantry2" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_SHIPS, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::INDOCTRINATION, kind: "ability", card: "indoctrination" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_SPACE, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_GROUND, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::magen_defense::ACTIVATION, kind: "technology", card: "md" },
@@ -494,6 +495,7 @@ impl Follow {
         self.table.codes.galactic_threat = r.code("galactic_threat");
         self.table.codes.empyrean_mech = r.code("empyrean_mech");
         self.table.codes.salvage = r.code("so");
+        self.table.codes.indoctrination = r.code("indoctrination");
         self.table.facts.pay_kernel = Some(crate::production_view::kernel);
         self.table.codes.mahact_infantry = r.code("mahact_infantry");
         self.table.codes.mahact_infantry2 = r.code("mahact_infantry2");

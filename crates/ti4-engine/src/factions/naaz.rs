@@ -2809,6 +2809,7 @@ mod tests {
     fn the_warfare_secondary_runs_the_home_production_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let hero = LeaderId::new(HERO);
@@ -2851,6 +2852,7 @@ mod tests {
         assert_eq!(run(&mut state, &[warfare.as_str(), "decline"]), Some(true));
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("naaz hero home production", &r);
         assert_eq!(thread_window_counts("factions::naaz::hero"), (4, 0), "{r:?}");
         let _ = take_report();
     }

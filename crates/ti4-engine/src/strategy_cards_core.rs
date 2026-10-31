@@ -1509,12 +1509,12 @@ mod tests {
         assert_eq!(run(label, &F3, scoreable, &["decline"], primary("pok8imperial")).0, 1);
         // Scoring it is the core's since B8c-3 (`strategy_te_tests` reads the position after).
         assert_eq!(run(label, &F3, scoreable, &["lead"], primary("pok8imperial")), (1, 0));
-        // Past the target and a Keleres seat are the string's too (a full secret hand is the core's since W6).
+        // Past the target stops at it in the core too (package W13); a Keleres seat is the string's (a full secret hand is the core's since W6).
         let tenth = |s: &mut GameState| {
             mecatol(s);
             s.player_mut(&a()).unwrap().victory_points = 10;
         };
-        assert_eq!(run(label, &F3, tenth, &[], primary("pok8imperial")), (0, 1));
+        assert_eq!(run(label, &F3, tenth, &[], primary("pok8imperial")), (1, 0));
         let keleres = [("a", "sol"), ("b", "keleresm")];
         assert_eq!(run(label, &keleres, |_| {}, &[], primary("pok8imperial")), (0, 1));
         assert_eq!(run(label, &F3, full_hand, &["eap"], primary("pok8imperial")), (1, 0));

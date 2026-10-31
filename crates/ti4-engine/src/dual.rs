@@ -1542,6 +1542,23 @@ pub(crate) mod tests {
         }
     }
 
+    /// Bail-as-failure for a scenario the product plays natively: no window of the report bailed (each one ran in lockstep with the core), and
+    /// the switched-off features trip a panic (`Policy::Panic`) for the rest of the test. Hold the guard for the whole test body.
+    pub(crate) fn native() -> crate::core_sync::unsupported::ThreadGuard {
+        crate::core_sync::unsupported::enter_disabled_policy(crate::core_sync::unsupported::Policy::Panic)
+    }
+
+    /// The windows of `r` that bailed, as `label xN`; the assertion of [`no_bails_in`].
+    pub(crate) fn bailed_windows(r: &DualReport) -> Vec<String> {
+        r.windows.iter().filter(|(_, w)| w.bailed > 0).map(|(label, w)| format!("{label} x{}", w.bailed)).collect()
+    }
+
+    /// `what` bailed in no window (see [`native`]).
+    pub(crate) fn no_bails_in(what: &str, r: &DualReport) {
+        let bailed = bailed_windows(r);
+        assert!(bailed.is_empty(), "{what}: windows bailed: {bailed:?}");
+    }
+
     pub(crate) fn serial() -> Serial {
         let guard = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let before = fail_fast();

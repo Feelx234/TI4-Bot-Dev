@@ -1759,6 +1759,7 @@ mod tests {
     fn the_hero_runs_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let content = ContentStore::embedded();
@@ -1797,6 +1798,7 @@ mod tests {
         assert!(!run(false, &target).0, "no dock: nothing to choose");
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("saar hero", &r);
         assert_eq!(crate::dual::thread_window_counts("factions::saar::hero"), (3, 0), "{r:?}");
         let _ = take_report();
     }

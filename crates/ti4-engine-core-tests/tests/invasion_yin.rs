@@ -252,3 +252,111 @@ fn a_spot_that_is_not_offered_is_refused_and_a_hero_that_loses_does_not_take_the
 fn there() -> System {
     ti4_engine_core_tests::scenario::plain_systems()[5]
 }
+
+// -- Package W13: the effects the committed fight and the hero used to leave to the string ---------------------
+
+fn run_out(rig: &mut Rig<CommittedFight>) {
+    rig.run();
+    while !rig.is_done() {
+        rig.pick(0);
+    }
+}
+
+/// Dacxive Animators: after a ground combat the holder won, 1 infantry from the reinforcements stands on the planet; nobody wins a double
+/// wipe-out, and a seat without the technology gets nothing.
+#[test]
+fn dacxive_animators_places_an_infantry_for_the_winner_that_holds_it() {
+    covers!("rules::invasion::fight::CommittedFight");
+    let (_, planet) = first_planet();
+    let mut placed = 0;
+    for seed in 0..10 {
+        let (sc, system, planet2) = arena(3, 1);
+        let mut f = facts(system, planet2);
+        f.dacxive = vec![(Seat(0), Unit::InfantryI), (Seat(1), Unit::InfantryI)];
+        let mut with = Rig::new(sc, CommittedFight::new(f)).seeded(seed);
+        run_out(&mut with);
+        let (sc, system, planet2) = arena(3, 1);
+        let mut without = Rig::new(sc, CommittedFight::new(facts(system, planet2))).seeded(seed);
+        run_out(&mut without);
+        let (a, b) = (left(&with, planet, 0) + left(&with, planet, 1), left(&without, planet, 0) + left(&without, planet, 1));
+        assert!(a == b || a == b + 1, "seed {seed}: at most the one infantry ({a} against {b})");
+        if left(&without, planet, 0) + left(&without, planet, 1) > 0 {
+            assert_eq!(a, b + 1, "seed {seed}: a combat with a winner places the infantry");
+            placed += 1;
+        } else {
+            assert_eq!(a, b, "seed {seed}: a double wipe-out has no winner");
+        }
+    }
+    assert!(placed > 0);
+    // Only the holder: the other seat wins and gets nothing.
+    let (sc, system, planet2) = arena(1, 6);
+    let mut f = facts(system, planet2);
+    f.dacxive = vec![(Seat(0), Unit::InfantryI)];
+    let mut rig = Rig::new(sc, CommittedFight::new(f)).seeded(2);
+    run_out(&mut rig);
+    assert_eq!(left(&rig, planet, 0), 0);
+}
+
+/// X-89 Bacterial Weapon: the hits of the holder's ground combat roll are doubled.
+#[test]
+fn x89_doubles_the_hits_of_the_holder_in_a_committed_fight() {
+    covers!("rules::invasion::fight::CommittedFight");
+    let (_, planet) = first_planet();
+    let mut doubled = 0;
+    for seed in 0..12 {
+        let (sc, system, planet2) = arena(6, 6);
+        let mut f = facts(system, planet2);
+        f.x89 = vec![Seat(0)];
+        let mut with = Rig::new(sc, CommittedFight::new(f)).seeded(seed);
+        run_out(&mut with);
+        let (sc, system, planet2) = arena(6, 6);
+        let mut without = Rig::new(sc, CommittedFight::new(facts(system, planet2))).seeded(seed);
+        run_out(&mut without);
+        if left(&with, planet, 1) != left(&without, planet, 1) || left(&with, planet, 0) != left(&without, planet, 0) {
+            doubled += 1;
+        }
+        assert!(left(&with, planet, 0) == 0 || left(&with, planet, 1) == 0);
+    }
+    assert!(doubled > 0, "the doubled hits change some fight");
+}
+
+/// The Minister of Exploration pays a trade good for each planet the hero takes, and the Crown of Emphidia changes hands when the planet
+/// is in its owner's home system.
+#[test]
+fn the_control_gained_pays_the_minister_of_exploration_and_moves_the_crown_of_emphidia() {
+    covers!("rules::invasion::yin_hero::YinHero");
+    use ti4_engine_core::generated::Agenda;
+    use ti4_engine_core::keys::Outcome;
+    let take = |rig: &mut Rig<YinHero>, system: System, planet: Planet| {
+        rig.run();
+        let spot = Opt::Leaders(ti4_engine_core::choice::leaders::Opt::YinSpot(system, planet));
+        rig.pick_opt(spot);
+        rig.decline();
+        assert!(rig.is_done() && rig.driver.window.used, "{}", rig.transcript());
+    };
+    let (mut rig, system, planet) = yin(0, 0, 2, 3);
+    rig.state.agenda_mut().laws.insert(Agenda::MinisterOfExploration, Outcome::Seat(Seat(0)));
+    let goods = rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods;
+    take(&mut rig, system, planet);
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, goods + 1, "a trade good for the planet taken");
+    // Held by another seat: nothing.
+    let (mut rig, system, planet) = yin(0, 0, 2, 3);
+    rig.state.agenda_mut().laws.insert(Agenda::MinisterOfExploration, Outcome::Seat(Seat(1)));
+    let goods = rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods;
+    take(&mut rig, system, planet);
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, goods);
+    // The Crown of Emphidia: its owner's home system is the one taken.
+    let (mut rig, system, planet) = yin(0, 0, 2, 3);
+    rig.state.players_mut().by_seat_mut(Seat(1)).unwrap().home_system = Some(system);
+    rig.state.agenda_mut().laws.insert(Agenda::TheCrownOfEmphidia, Outcome::Seat(Seat(1)));
+    let (mine, theirs) = (rig.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, rig.state.players().by_seat(Seat(1)).unwrap().econ.victory_points);
+    take(&mut rig, system, planet);
+    assert_eq!(rig.state.agenda().laws.get(&Agenda::TheCrownOfEmphidia), Some(&Outcome::Seat(Seat(0))), "the card changed hands");
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, mine + 1);
+    assert_eq!(rig.state.players().by_seat(Seat(1)).unwrap().econ.victory_points, (theirs - 1).max(0));
+    // Another system: it stays.
+    let (mut rig, system, planet) = yin(0, 0, 2, 3);
+    rig.state.agenda_mut().laws.insert(Agenda::TheCrownOfEmphidia, Outcome::Seat(Seat(1)));
+    take(&mut rig, system, planet);
+    assert_eq!(rig.state.agenda().laws.get(&Agenda::TheCrownOfEmphidia), Some(&Outcome::Seat(Seat(1))));
+}

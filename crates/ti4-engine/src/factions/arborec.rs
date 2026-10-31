@@ -2958,6 +2958,7 @@ mod tests {
     fn the_hero_runs_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let leader = LeaderId::new("arborechero");
@@ -3011,6 +3012,7 @@ mod tests {
         assert_eq!(nested, Some(true));
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("arborec hero", &r);
         assert_eq!(thread_window_counts("factions::arborec::hero"), (5, 0), "{r:?}");
         let _ = take_report();
     }
@@ -3021,6 +3023,7 @@ mod tests {
     fn the_hero_runs_the_end_of_use_effects_in_lockstep() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let leader = LeaderId::new("arborechero");
@@ -3039,6 +3042,7 @@ mod tests {
         }
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("arborec hero end of use", &r);
         assert_eq!(thread_window_counts("factions::arborec::hero"), (2, 0), "{r:?}");
         let _ = take_report();
     }
