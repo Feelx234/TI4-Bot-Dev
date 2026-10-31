@@ -33,6 +33,10 @@ pub enum Ask {
     Voidwatch,
     /// The Stillness of Stars (Cabal): which unit of the opponent's reinforcements is captured.
     Stillness,
+    /// Garv and Gunn (Naaz): which of the ending player's planets is explored.
+    NaazAgent,
+    /// Ssruu's copy of Garv and Gunn (the planets are named by their names).
+    NaazCopy,
 }
 
 /// One answer.
@@ -57,6 +61,8 @@ pub enum Opt {
     Support(crate::generated::Faction),
     /// A model of `victim`'s reinforcements captured.
     Capture { unit: crate::generated::Unit, victim: Seat },
+    /// A planet explored.
+    Explore(Planet),
 }
 
 /// The machine identifier of the question.
@@ -78,6 +84,10 @@ pub enum Subtype {
     Voidwatch,
     /// `stillness_target`.
     Stillness,
+    /// `agent_planet`.
+    NaazAgent,
+    /// `borrowed_agent_planet`.
+    NaazCopy,
 }
 
 impl Ask {
@@ -85,6 +95,6 @@ impl Ask {
     /// timing context's `ask_seeing` do, the ones it builds by hand do not.
     #[must_use]
     pub const fn carries_trigger(&self) -> bool {
-        matches!(self, Self::Landing(_) | Self::Mitosis | Self::Pillage | Self::Reclaimer | Self::Stillness)
+        matches!(self, Self::Landing(_) | Self::Mitosis | Self::Pillage | Self::Reclaimer | Self::Stillness | Self::NaazAgent | Self::NaazCopy)
     }
 }

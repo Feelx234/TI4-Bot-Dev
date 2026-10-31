@@ -926,4 +926,38 @@ mod tests {
             assert!(diffs.is_empty(), "{label}: {diffs:#?}");
         }
     }
+
+    /// Dart and Tai (the Naaz commander): the planet the Naaz take from another player is explored; the whole action is compared with the string's.
+    #[test]
+    fn dart_and_tai_explore_a_planet_taken_from_another_player_in_lockstep() {
+        use ti4_model::id::LeaderId;
+        use ti4_model::state::LeaderStatus;
+        let content = ContentStore::embedded();
+        let probe = table(&[("a", "naaz"), ("b", "sol")]);
+        let (system, planet): (String, ti4_model::id::PlanetId) = ti4_content::galaxy::all_systems(content, POK)
+            .iter()
+            .filter(|(_, sys)| !sys.is_anomaly() && !sys.is_hyperlane())
+            .find_map(|(id, sys)| {
+                let planets: Vec<String> = sys.planets().into_iter().map(str::to_owned).collect();
+                let [only] = planets.as_slice() else { return None };
+                let ok = ti4_content::galaxy::planet(content, only, POK).is_some_and(|p| p.homeworld_of().is_none() && !p.is_legendary() && !p.is_space_station() && !p.is_placed_during_play())
+                    && !crate::planets::traits_now(&probe, content, POK, &ti4_model::id::PlanetId::new(only.clone())).is_empty();
+                ok.then(|| ((*id).to_owned(), ti4_model::id::PlanetId::new(only.clone())))
+            })
+            .expect("a system with one explorable planet");
+        let target = SystemId::new(system);
+        let hub = crate::fixtures::hub_with_centre(target.as_str());
+        let origin = SystemId::new(hub.outer[0].clone());
+        let mut state = table(&[("a", "naaz"), ("b", "sol")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &origin, "infantry", &a(), 3);
+        state.system_mut(&target).planet_control.insert(planet.clone(), b());
+        crate::fixtures::put_on_planet(&mut state, &target, &planet, "infantry", &b(), 1);
+        state.player_mut(&a()).unwrap().leaders.insert(LeaderId::new("naazcommander"), LeaderStatus::Unlocked);
+        let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "load|0", "load|1", "load|2", "done_moving"];
+        let diffs = lockstep_buying(state.clone(), &hub.galaxy, &script, 0);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+        let side = string_run(&state, &hub.galaxy, &script, 0);
+        assert!(side.asked.iter().any(|q| q.options.iter().any(|o| o.id.contains("naazcommander:PLANET_CONTROL_GAINED"))), "the string offers the commander: {:?}", side.asked.iter().map(|q| q.prompt.clone()).collect::<Vec<_>>());
+    }
 }

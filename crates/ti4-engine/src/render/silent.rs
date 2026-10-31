@@ -20,6 +20,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
         Ask::CommanderFighters => "Sai Seravus: how many fighters do you place from reinforcements".to_owned(),
         Ask::Voidwatch => "Voidwatch: which promissory note to give".to_owned(),
         Ask::Stillness => "The Stillness of Stars: which unit do you capture".to_owned(),
+        Ask::NaazAgent | Ask::NaazCopy => "Garv and Gunn: explore which of your planets".to_owned(),
     }
 }
 
@@ -34,6 +35,8 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::CommanderFighters => "commander_fighters",
         Subtype::Voidwatch => "voidwatch_note",
         Subtype::Stillness => "stillness_target",
+        Subtype::NaazAgent => "agent_planet",
+        Subtype::NaazCopy => "borrowed_agent_planet",
     }
     .to_owned()
 }
@@ -76,6 +79,12 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
             ChoiceOption::labelled(format!("note|{note}"), "promissory", format!("give {note} to the Empyrean"))
         }
         (Ask::Stillness, Opt::Capture { unit, victim }) => ChoiceOption::labelled(unit.as_str(), "stillness", format!("capture a {} from {}'s reinforcements", unit.as_str(), r.seat_text(*victim))),
+        (Ask::NaazAgent, Opt::Explore(planet)) => ChoiceOption::labelled(planet.as_str(), "planet", format!("explore {}", planet.as_str())),
+        (Ask::NaazCopy, Opt::Explore(planet)) => {
+            let content = ti4_content::ContentStore::embedded();
+            let name = ti4_content::galaxy::planet(content, planet.as_str(), ti4_model::content_types::FULL).and_then(|record| record.name()).unwrap_or(planet.as_str());
+            ChoiceOption::labelled(planet.as_str(), "planet", format!("explore {name}"))
+        }
         _ => panic!("option {o:?} in the question {a:?}"),
     }
 }
@@ -84,6 +93,7 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
     use ti4_engine_core::generated::{Planet, System};
     match a {
         Ask::Landing(_) => <Planet as IdStr>::from_id(id).map(|p| ROpt::G(Opt::Planet(p))),
+        Ask::NaazAgent | Ask::NaazCopy => <Planet as IdStr>::from_id(id).map(|p| ROpt::G(Opt::Explore(p))),
         Ask::Pillage => {
             let (kind, target) = id.split_once('|')?;
             let commodity = match kind {

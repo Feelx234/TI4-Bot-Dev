@@ -96,6 +96,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::winnu::RECLAIMER, kind: "unit", card: "winnu_mech" },
     Named { slot: ti4_engine_core_factions::silent::winnu::HTP, kind: "technology", card: "htp" },
     Named { slot: ti4_engine_core_factions::silent::winnu::AGENT, kind: "leader", card: "winnuagent" },
+    Named { slot: ti4_engine_core_factions::silent::naaz::AGENT, kind: "leader", card: "naazagent" },
+    Named { slot: ti4_engine_core_factions::silent::naaz::COMMANDER, kind: "leader", card: "naazcommander" },
     Named { slot: ti4_engine_core_factions::silent::sol::CLAIRE_GIBSON, kind: "leader", card: "solcommander" },
     Named { slot: ti4_engine_core_factions::silent::cabal::STILLNESS, kind: "leader", card: "cabalagent" },
     Named { slot: ti4_engine_core_factions::silent::empyrean::ACAMAR, kind: "leader", card: "empyreanagent" },
@@ -136,6 +138,7 @@ const PAIRS: &[(Slot, &str, PairStyle)] = &[
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::LETNEV, "letnevagent", PairStyle::B),
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::ARGENT, "argentagent", PairStyle::A),
     (ti4_engine_core_factions::silent::winnu::AGENT_COPY, "winnuagent", PairStyle::A),
+    (ti4_engine_core_factions::silent::naaz::AGENT_COPY, "naazagent", PairStyle::A),
 ];
 
 fn is_reaction_slot(slot: Slot) -> bool {
@@ -845,7 +848,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "yssaril"), ("b", "winnu")], [("a", "winnu"), ("b", "yssaril")], [("a", "winnu"), ("b", "hacan")], [("a", "hacan"), ("b", "winnu")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "yssaril"), ("b", "winnu")], [("a", "winnu"), ("b", "yssaril")], [("a", "winnu"), ("b", "hacan")], [("a", "hacan"), ("b", "winnu")], [("a", "muaat"), ("b", "hacan")], [("a", "hacan"), ("b", "muaat")], [("a", "naaz"), ("b", "yssaril")], [("a", "yssaril"), ("b", "naaz")], [("a", "ghost"), ("b", "hacan")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
