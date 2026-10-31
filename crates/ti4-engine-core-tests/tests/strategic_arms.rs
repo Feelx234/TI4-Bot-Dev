@@ -151,6 +151,29 @@ fn a_preview_window_neither_finishes_the_action_nor_exhausts_the_card() {
     assert!(!s.players().by_seat(Seat(0)).unwrap().strat_exhausted.contains(StrategyCard::Trade));
 }
 
+// -- a question the follower's ability asks ----------------------------------------------------------------------------------------
+
+#[test]
+fn a_clone_taken_while_the_followers_ability_asks_continues_identically() {
+    // Leadership's secondary: the purchase is the follower's own question; the payment it opens is asked from inside the step.
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).goods(1, 6).goods(2, 0).build();
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Leadership);
+    s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Leadership, &[Seat(1), Seat(2)], true)));
+    let e = env(&k);
+    let q = first_asked(&s, &e);
+    assert_eq!(q.actor, Seat(1), "seat 2 cannot afford a token and is not asked");
+    let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+    let Live::Asks(asking) = live else { panic!("the payment asks") };
+    assert!(s.pending().nested.is_some(), "the step is suspended on a question from inside it");
+    let mut other = s.clone();
+    let choice = asking.choice.clone();
+    let answer = choice.pick(0).expect("an option");
+    let a = advance_secondary(&mut s, &e, Some(answer)).unwrap();
+    let b = advance_secondary(&mut other, &e, Some(answer)).unwrap();
+    assert_eq!(s, other, "the clone continues to the same position");
+    assert_eq!(a.0, b.0);
+}
+
 // -- the Winnu hero's follower selection ------------------------------------------------------------------------------------------
 
 fn hero() -> (CoreState, Kernel) {

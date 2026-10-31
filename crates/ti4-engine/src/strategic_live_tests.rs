@@ -206,7 +206,7 @@ fn nobody_who_can_follow_ends_the_action_without_a_question_like_the_string() {
 #[test]
 fn the_end_of_the_free_tactical_action_redistributes_and_holds_the_follower_window_like_the_string() {
     let state = table_for("te6warfare");
-    let (string, taken) = string_run_first(&state, &["0|3|2"], |g| {
+    let (string, taken) = string_run_first(&state, &["0|3|5"], |g| {
         let window = crate::strategy::begin_strategic_action(
             &mut g.state,
             g.content,
@@ -219,7 +219,7 @@ fn the_end_of_the_free_tactical_action_redistributes_and_holds_the_follower_wind
         g.redistribute_after_te_warfare(&player).expect("the redistribution");
         g.secondary = Some(window);
     });
-    let (native, open) = native_job(&state, &taken, &|core, render| {
+    let (native, open) = native_job_with(&state, &taken, false, &|core, render| {
         let primary = render.seat("a").unwrap();
         let followers: Vec<_> = state.clockwise_from(&pid("a")).iter().skip(1).map(|p| render.seat(p.as_str()).unwrap()).collect();
         core.pending_mut().open(ti4_engine_core::state::Window::StrategySecondaryAfterTactical(secondary_of(primary, ti4_engine_core::generated::StrategyCard::WarfareThundersEdge, &followers, true)));
@@ -320,6 +320,11 @@ fn native_primary(state: &GameState, card: &str, ids: &[String]) -> (Run, bool) 
 /// A job of the turn flow on a copy of `state`: `setup` opens it (and whatever windows it reads), then one `live_step` of `Arm::Ask` per
 /// string step until it ends. Whether a follower window is open after it.
 fn native_job(state: &GameState, ids: &[String], setup: &dyn Fn(&mut ti4_engine_core::state::CoreState, &Render)) -> (Run, bool) {
+    native_job_with(state, ids, true, setup)
+}
+
+/// [`native_job`] with or without the reconcile hooks first (the string body of a test that does not step the game does not run them).
+fn native_job_with(state: &GameState, ids: &[String], reconcile: bool, setup: &dyn Fn(&mut ti4_engine_core::state::CoreState, &Render)) -> (Run, bool) {
     let mut cx = Ctx::of(state).expect("a table the codecs carry");
     let render = named(&cx, state);
     let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
@@ -331,7 +336,7 @@ fn native_job(state: &GameState, ids: &[String], setup: &dyn Fn(&mut ti4_engine_
     let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
     let lcx = live::Cx::new(&render, &env);
     let mut asker = Scripted::new(ids.iter().cloned());
-    loop {
+    while reconcile {
         let step = live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native reconcile stopped: {e:?}"));
         if step.finished {
             break;
@@ -427,7 +432,12 @@ fn native_action(faction: &str, others: [&str; 3], card: &str) -> usize {
     let mut asker = FirstOption;
     let mut steps = 0;
     for _ in 0..60 {
-        while !live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("{faction} {card}: the reconcile stopped: {e:?}")).finished {}
+        // Nekro's Propagation (a technology gained at the table) is the Nekro lane's counted gap (`docs/KP_RESUME.md`).
+        match live::live_reconcile(&mut core, &lcx, &mut asker) {
+            Err(live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::Propagation)))) => break,
+            Err(stop) => panic!("{faction} {card}: the reconcile stopped: {stop:?}"),
+            Ok(_) => {}
+        }
         let arm = step_arm(&Facts::of_core(&core, false), false);
         let in_action = matches!(arm, Arm::Secondary | Arm::LeaderFollowers) || (arm == Arm::Ask && core.pending().window(WindowKind::TurnFlow).is_some());
         if !in_action {

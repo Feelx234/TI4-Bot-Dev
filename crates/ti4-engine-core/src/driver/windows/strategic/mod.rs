@@ -34,7 +34,7 @@ use crate::ids::Seat;
 use crate::kernel::stage::{Held, Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::rules::strategy_flow;
-use crate::rules::strategy_secondary::{follow_choice, take_answer, Resolution};
+use crate::rules::strategy_secondary::{follow_choice, take_answer, Resolution, WaiverEffect};
 use crate::state::{CoreState, LeaderFollowers, PlainKind, PlainRec, Secondary, SecondaryHow, TurnJob, Window as OpenWindow, WindowKind};
 
 /// `Game::complete_leader_strategy`: a hero's strategy that was resolving ends, its follower selection with it, and the hero is purged
@@ -158,6 +158,11 @@ impl Window for SecondaryWin {
         // The question is the follower's: an option it did not offer is refused before anything changes.
         if !follow_choice(sx.state, self.w.card, self.w.primary, &f).opts.iter().any(|o| *o == Opt::Strategy(opt)) {
             return Err(Illegal);
+        }
+        // A waiver whose payment the core does not carry is offered like the string offers it, and stops the step when it is taken.
+        if f.waivers.iter().any(|w| w.opt == opt && w.effect == WaiverEffect::Unported) {
+            crate::driver::turn::inline::gap(sx, crate::kernel::turn_codes::TurnGap::StrategyAbility);
+            return Ok(());
         }
         let resolution = take_answer(sx.state, self.w.primary, sx.table.codes.turn.strategy_secondary, &f, opt)?;
         self.w.resolved.push((who, if resolution == Resolution::Followed { SecondaryHow::Followed } else { SecondaryHow::Declined }));

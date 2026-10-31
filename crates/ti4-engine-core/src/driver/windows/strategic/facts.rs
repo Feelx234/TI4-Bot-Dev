@@ -60,7 +60,11 @@ pub fn waivers_of(core: &CoreState, kernel: &Kernel, primary: Seat, who: Seat, c
         .strategy
         .secondary_waivers(core, kernel, who, primary, Some(card.data().kind))
         .iter()
-        .map(|w| Waiver { opt: SOpt::WaiveBy(w.module, w.code), effect: waiver_effect(*w) })
+        .map(|w| {
+            // Exhausting an agent is heard by the Nomad's suite (a staged event the core does not make): the payment is not carried then.
+            let heard = w.module == Faction::TheMahactGeneSorcerers && core.players().iter().any(|p| p.faction == Faction::TheNomad);
+            Waiver { opt: SOpt::WaiveBy(w.module, w.code), effect: if heard { WaiverEffect::Unported } else { waiver_effect(*w) } }
+        })
         .collect()
 }
 

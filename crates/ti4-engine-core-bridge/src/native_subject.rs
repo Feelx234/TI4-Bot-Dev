@@ -594,6 +594,48 @@ mod tests {
         eprintln!("commander gaps counted: {gaps}");
     }
 
+    /// The gaps the strategic arms count that other lanes close: the closing menu's free options (lane F: `MenuSources`), a locked commander
+    /// no hook states (`CommanderUnlock`) and Xxcha's Peace Accords (`PeaceAccords`, the annexation window is not ported).
+    fn strategic_allowed(d: &&ti4_engine::dual::Difference) -> bool {
+        ["MenuSources", "CommanderUnlock", "PeaceAccords"].iter().any(|g| d.core_side.contains(g))
+    }
+
+    /// The strategic action's follower arms run in shadow behind a legacy game through round one: every follower step is compared (the
+    /// questions with their display facts, the events, the position when the window ends) and the two agree.
+    #[test]
+    fn the_strategic_action_arms_shadowed_behind_a_legacy_game_through_round_one_agree_with_it() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        TAMPER.with(|t| t.set(0));
+        set_native_arms(NativeArms::of(&[Arm::Secondary, Arm::LeaderFollowers, Arm::Finished]));
+        let _ = (lent_counts(), ran_counts());
+        let played = play();
+        let ran = ran_counts();
+        let other: Vec<_> = played.report.differences.iter().filter(|d| !strategic_allowed(d)).collect();
+        assert!(other.is_empty(), "{:#?}", other.iter().take(5).collect::<Vec<_>>());
+        assert!(ran.keys().any(|k| k.starts_with("secondary")), "the follower window ran in shadow: {ran:?}");
+    }
+
+    /// Round one with every lobby faction in turn (six tables of four), the strategic arms in shadow and a counted bail a failure: no
+    /// difference but the counted gaps other lanes close ([`strategic_allowed`]), and the follower window ran.
+    #[test]
+    fn the_strategic_action_arms_agree_with_the_legacy_game_for_every_lobby_faction() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        TAMPER.with(|t| t.set(0));
+        let (mut gaps, mut ran_secondary) = (0, 0);
+        for group in LOBBY_FACTIONS.chunks(4) {
+            set_native_arms(NativeArms::of(&[Arm::Secondary, Arm::LeaderFollowers, Arm::Finished]));
+            let _ = (lent_counts(), ran_counts());
+            let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
+            let ran = ran_counts();
+            let other: Vec<_> = played.report.differences.iter().filter(|d| !strategic_allowed(d)).collect();
+            gaps += played.report.differences.len() - other.len();
+            assert!(other.is_empty(), "{group:?}: {:#?}", other.iter().take(5).collect::<Vec<_>>());
+            ran_secondary += ran.iter().filter(|(k, _)| k.starts_with("secondary")).map(|(_, n)| *n).sum::<u64>();
+        }
+        assert!(ran_secondary >= 6, "the follower window ran in shadow at every table: {ran_secondary}");
+        eprintln!("strategic gaps counted: {gaps}");
+    }
+
     /// The compare finds a perturbed native position (state), and a perturbed pool (the plain events of the step do not change, the
     /// position does): the harness reports it as a `State` difference at the path of the field.
     #[test]
