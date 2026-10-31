@@ -187,13 +187,16 @@ mod tests {
         Run { asked, answers, state, scoring, events }
     }
 
+    /// What the native run of an invasion leaves: the questions, the position, the dice (seed, ok) and the events with their payloads.
+    type LiveRun = (Vec<Choice>, GameState, Vec<(u64, bool)>, Vec<(String, std::collections::BTreeMap<String, serde_json::Value>)>);
+
     const FP: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Strategy, Slice::Trade, Slice::Explore, Slice::Decks, Slice::Objectives],
         &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Objectives, Slice::Decks, Slice::Explore, Slice::Agenda],
     );
 
     /// The native run of the same invasion: the arm `Arm::Invasion` through `live_step`, answered by `answers` in order.
-    fn live_run(mut gs: GameState, seed: u64, system: &SystemId, invader: &str, answers: &[String], hero: bool) -> Result<(Vec<Choice>, GameState, Vec<(u64, bool)>, Vec<(String, std::collections::BTreeMap<String, serde_json::Value>)>), (Stop, Vec<Choice>)> {
+    fn live_run(mut gs: GameState, seed: u64, system: &SystemId, invader: &str, answers: &[String], hero: bool) -> Result<LiveRun, (Stop, Vec<Choice>)> {
         let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
         let rng_before = GameRng::new(seed).positions();
         let seeds: Rc<dyn ti4_engine_core::state::SeedSource> = Rc::new(TextSeeds::of(&cx));

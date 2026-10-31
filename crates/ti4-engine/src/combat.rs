@@ -12284,9 +12284,8 @@ mod tests {
     /// the single windows and the composed machine.
     #[test]
     fn a_neutral_side_fights_in_the_core_for_every_faction_across_from_it() {
-        // (Yin is left out: its Devotion hits are placed by their producer, which the composed machine does not carry, neutral opponent
-        // or not: `a_yin_seat_that_uses_devotion_keeps_the_composed_machine_on_the_string_and_says_why` pins it.)
-        let rotation = ["letnev", "mentak", "argent", "nomad", "jolnar", "sardakk", "l1z1x", "titans", "naaz", "yssaril", "muaat", "empyrean", "saar", "ghost", "arborec", "naalu", "mahact", "cabal", "winnu", "nekro", "xxcha", "sol"];
+        // (Yin joined the rotation when lane M5 taught the composed machine the hits their producer places: Devotion.)
+        let rotation = ["yin", "letnev", "mentak", "argent", "nomad", "jolnar", "sardakk", "l1z1x", "titans", "naaz", "yssaril", "muaat", "empyrean", "saar", "ghost", "arborec", "naalu", "mahact", "cabal", "winnu", "nekro", "xxcha", "sol"];
         let mut failures = Vec::new();
         for (n, faction) in rotation.iter().enumerate() {
             let table = ["sol", "hacan", rotation[(n + 5) % rotation.len()]];
@@ -12304,23 +12303,22 @@ mod tests {
         assert!(failures.is_empty(), "a neutral side across from these factions is not carried by the core: {failures:#?}");
     }
 
-    /// The open item the neutral-side scenarios found: a Yin seat's Devotion hits ("destroy one of your cruisers or destroyers after a round:
-    /// produce one hit") are placed by their producer, and the composed machine does not carry a hit the producer assigns
-    /// (`Machine::pending_choice` returns nothing for a `producer_assigns` pend, the machine bails `Bail::Unported`). The single windows carry
-    /// it. True of every fight a Yin seat takes part in, a neutral opponent or not. Fails the day the machine carries it: then this test
-    /// becomes a bail-as-failure test and `yin` joins the rotation of `a_neutral_side_fights_in_the_core_for_every_faction_across_from_it`.
+    /// The open item the neutral-side scenarios found (lane 15) and lane M5 closed: a Yin seat's Devotion hits ("destroy one of your cruisers or
+    /// destroyers after a round: produce one hit") are placed by their producer, and the composed machine asks the producer which ship dies
+    /// (`Machine::pending_choice` for a `producer_assigns` pend). True of every fight a Yin seat takes part in, a neutral opponent or not.
+    /// This test pinned the bail of the day before the machine carried it ("fails the day the machine carries it: then this test becomes a
+    /// bail-as-failure test"); it is that test now: the single windows AND the composed machine compare and none bails.
     #[test]
-    fn a_yin_seat_that_uses_devotion_keeps_the_composed_machine_on_the_string_and_says_why() {
-        let mut composed_keys = Vec::new();
+    fn a_yin_seat_that_uses_devotion_fights_through_the_composed_machine_in_lockstep() {
         for (setup, what) in [(&(|_: &mut GameState, _: u64| {}) as &dyn Fn(&mut GameState, u64), "a plain fight"), (&neutral_garrison, "a neutral garrison")] {
-            let (_, compared, _) = roll_step_fights_of(["yin", "hacan", "xxcha"], setup, 0, false);
-            assert!(compared > 0, "{what}: the single windows are compared");
-            assert_eq!(take_bail_keys(), Vec::<String>::new(), "{what}: the single windows carry Devotion");
-            let _ = roll_step_fights_of(["yin", "hacan", "xxcha"], setup, 0, true);
-            composed_keys.extend(take_bail_keys());
+            for composed in [false, true] {
+                let (asked, compared, bailed) = roll_step_fights_of(["yin", "hacan", "xxcha"], setup, 0, composed);
+                let keys = take_bail_keys();
+                assert!(compared > 0, "{what} (composed {composed}): the fights are compared");
+                assert!(bailed == 0 && keys.is_empty(), "{what} (composed {composed}): {bailed} bailed: {keys:?}");
+                assert!(asked.iter().all(|c| c.player.as_str() != crate::neutral_units::NEUTRAL), "{what}: the neutral side is never asked");
+            }
         }
-        assert!(!composed_keys.is_empty(), "the composed machine bails on a producer-assigned hit");
-        assert!(composed_keys.iter().all(|k| k.contains("a position it does not carry")), "the only reason is the machine's position: {composed_keys:?}");
     }
 
     fn take_bail_keys() -> Vec<String> {

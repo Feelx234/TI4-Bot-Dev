@@ -7,7 +7,7 @@
 //! played inside the window reads them).
 
 use crate::choice::Pick;
-use crate::driver::live::{Asking, Env, Live, LiveError, Out};
+use crate::driver::live::{Env, Live, LiveError, Out};
 use crate::driver::{Driver, Status};
 use crate::kernel::ability::Unknown;
 use crate::kernel::stage::{AbilityTable, Held, Window};

@@ -244,7 +244,7 @@ mod tests {
     use ti4_model::content_types::POK;
 
     use super::*;
-    use crate::core_sync::{CoreView, Ctx, Sources};
+    use crate::core_sync::{CoreView, Sources};
 
     /// A window that activates a system (seat 0) and ends: the event is where Flank Speed may be played.
     #[derive(Clone)]

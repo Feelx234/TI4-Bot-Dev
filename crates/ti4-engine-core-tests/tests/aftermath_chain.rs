@@ -83,8 +83,6 @@ fn env<'a>(k: &'a Kernel, seed: u64, present: &[Unit]) -> Env<'a> {
     Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(KitSeeds(seed)) }
 }
 
-const SHIPS: [Unit; 3] = [Unit::CarrierI, Unit::DreadnoughtI, Unit::CruiserI];
-
 /// Seat 0 (active) against seat 1 in the two-planet system; the head has written the sides.
 fn arena(mine: usize, theirs: usize) -> (CoreState, Kernel) {
     let (mut s, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
@@ -170,8 +168,8 @@ fn a_clone_in_the_middle_of_the_window_continues_identically() {
                 assert_eq!((again.choice.actor, again.choice.ask, &again.choice.opts), (a.choice.actor, a.choice.ask, &a.choice.opts), "the copy asks the same question");
                 let pick = Pick::Opt(a.choice.opts.as_slice()[0]);
                 let mut rest = core.clone();
-                let mut p = |_: &Choice| 0;
-                let mut run = |c: &mut CoreState| {
+                let p = |_: &Choice| 0;
+                let run = |c: &mut CoreState| {
                     let mut answer = Some(pick);
                     for _ in 0..800 {
                         match advance_aftermath(c, &env, answer.take()).expect("legal") {

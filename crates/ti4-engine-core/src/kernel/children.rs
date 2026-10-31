@@ -421,10 +421,13 @@ pub type ResearchFn = fn(&mut CoreState, &Kernel, Scope, UnitRoster, Seat, Techn
 
 /// What a window that hosts `ProduceOne` in its own payload calls (the state is [`crate::state::OneRun`]; the window object is rebuilt from it at
 /// every call by the production area): the facts the seat produces with, one step, the question, one answer.
+/// The units a seat may produce (nine forms) and the fleet limit they are judged by.
+pub type BuildableFacts = ([Option<Unit>; 9], i32);
+
 #[derive(Clone, Copy)]
 pub struct OneLink {
     /// What the seat may produce and the fleet limit it is judged by (`production::home::{buildable_for, fleet_limit}`).
-    pub facts: fn(&CoreState, &Kernel, &UnitRoster, Seat) -> Option<([Option<Unit>; 9], i32)>,
+    pub facts: fn(&CoreState, &Kernel, &UnitRoster, Seat) -> Option<BuildableFacts>,
     /// Run the unit to its next question or its end (`Next::Done`).
     pub step: fn(crate::state::OneRun, &mut Sx<'_>) -> (crate::state::OneRun, Next),
     /// The question it waits on.

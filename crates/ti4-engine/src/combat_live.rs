@@ -127,7 +127,7 @@ const MAX_TYPES: usize = 10;
 /// types present, with the other form of each dual-form unit) their names and every roll group's. State texts go to the position's table, shown
 /// texts to the render table. A fight with more than ten types names none (the machine then stops at a roll it cannot name).
 pub fn combat_texts(core: &mut CoreState, r: &Render) -> CombatTexts {
-    let mut state_code = |core: &mut CoreState, text: &str| -> Code {
+    let state_code = |core: &mut CoreState, text: &str| -> Code {
         Code(u16::try_from(core.texts.codes.intern(text.as_bytes(), CODE_CAPACITY).expect("room for the text")).expect("a code fits"))
     };
     let mut t = CombatTexts::default();

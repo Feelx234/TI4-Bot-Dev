@@ -627,7 +627,7 @@ impl Window for CrownExplore {
 // -- one exploration ------------------------------------------------------------------------------------------
 
 use crate::choice::strategy::{Ask as SAsk, Opt as SOpt};
-use crate::generated::{Attachment, ExploreResolution, Faction};
+use crate::generated::{Attachment, ExploreResolution};
 use crate::kernel::children::{ErasedChild, Report, Spawn};
 use crate::kernel::stage::Ran;
 use crate::kernel::{fx, fx_explore, fx_strategy};
@@ -819,7 +819,6 @@ impl Exploring {
     // -- the flow -------------------------------------------------------------------------------------------------
 
     fn start(&mut self, sx: &mut Sx<'_>) {
-        let who = self.run.who;
         if !sx.table.codes.explore.filled || sx.table.facts.explore_words.is_none() {
             return self.fail(EWhy::NoTexts);
         }

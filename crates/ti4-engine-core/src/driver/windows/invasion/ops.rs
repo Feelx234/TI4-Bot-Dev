@@ -70,7 +70,7 @@ impl InvasionMachine {
             }
         }
         for c in k.hooks.ground.commit_candidates(s, k, invader, system, &self.p.extra_commits).iter() {
-            let real = c.unit.owner() == invader && is_ground_force(r, c.unit.kind()) && s.board().planet(c.planet).units.iter().any(|u| *u == c.unit);
+            let real = c.unit.owner() == invader && is_ground_force(r, c.unit.kind()) && s.board().planet(c.planet).units.contains(&c.unit);
             if real {
                 troops.push(Troop { piece: c.unit, origin: Some((c.system, c.planet)), temporary: false });
             }

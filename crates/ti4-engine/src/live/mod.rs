@@ -223,7 +223,7 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
     let env = &prepared;
     let events_from = core.ledger.events.len();
     let mut step = StepOut { finished: false, asked: Vec::new(), out: Out::default(), events_from };
-    let mut merge = |step: &mut StepOut, out: Out| {
+    let merge = |step: &mut StepOut, out: Out| {
         step.out.emitted.extend(out.emitted);
         step.out.opened.extend(out.opened);
     };

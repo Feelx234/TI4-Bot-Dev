@@ -5,6 +5,7 @@
 //! Each scenario builds ONE position, runs the string body on a copy with a scripted table that records what it was asked, and the
 //! native job on a second copy with the same answers. The harness fails on any difference in the questions asked, the plain and typed
 //! events pushed, or the position after.
+#![cfg(test)]
 
 use std::cell::RefCell;
 use std::collections::VecDeque;

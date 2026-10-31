@@ -29,7 +29,13 @@ fn scramble_stub(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let roller = s.transient().combat.last_reroll_player.expect("the roller is named while the event goes out");
     let staging = s.transient_mut().combat.reroll_staging.edit();
     let (_, set) = staging.iter_mut().find(|(seat, _)| *seat == roller).expect("the dice of the roller are staged while the event goes out");
-    let staged = set.rolls.iter().map(|e| e.faces.iter().filter(|f| Some(**f) >= e.hits_on).count()).sum::<usize>();
+    // (The hits count the ADJUSTED face: a die with a +3 hits on 5 as a 5 does. The stub counted the printed faces, which contradicted the
+    // assertion of the bombardment test below that the staged 2 with a +3 is a hit: failing on `core-w-l15` itself.)
+    let staged = set
+        .rolls
+        .iter()
+        .map(|e| e.faces.iter().enumerate().filter(|(i, f)| e.hits_on.is_some_and(|on| i64::from(**f) + e.deltas.get(&u8::try_from(*i).unwrap_or(u8::MAX)).map_or(0, |d| i64::from(*d)) >= i64::from(on))).count())
+        .sum::<usize>();
     assert_eq!(shown, i64::try_from(staged).unwrap(), "the payload of the event states the hits of the staged faces");
     let mut redrawn = Vec::new();
     for entry in &mut set.rolls {

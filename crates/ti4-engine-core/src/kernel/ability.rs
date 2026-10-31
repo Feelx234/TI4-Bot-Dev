@@ -466,7 +466,10 @@ pub struct PlayFacts {
 /// Computes the [`PlayFacts`] of a position: a function of the core position and the kernel alone (the live loop has no string state).
 /// The text tables it needs (interned codes, note order) are captured by the host that builds it.
 #[derive(Clone)]
-pub struct PlaysProvider(pub std::sync::Arc<dyn Fn(&crate::state::CoreState, &crate::kernel::Kernel) -> Option<PlayFacts> + Send + Sync>);
+pub struct PlaysProvider(pub std::sync::Arc<PlaysFn>);
+
+/// What a [`PlaysProvider`] calls.
+pub type PlaysFn = dyn Fn(&crate::state::CoreState, &crate::kernel::Kernel) -> Option<PlayFacts> + Send + Sync;
 
 impl core::fmt::Debug for PlaysProvider {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

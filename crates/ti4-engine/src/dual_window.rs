@@ -3486,7 +3486,7 @@ const DEFENSE: Footprint = Footprint::new(
 /// invader, and the Keleres' Custodian's Favour (a dropped faction). (Entropic scars, L4 Disruptors and the SPACE CANNON of an attachment are the
 /// window's since package X.)
 #[must_use]
-pub fn defense_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, a: &DefenseArgs<'_>) -> Option<&'static str> {
+pub fn defense_unported(_gs: &GameState, _content: &ti4_content::ContentStore, _sources: ti4_model::content_types::SourceSet, a: &DefenseArgs<'_>) -> Option<&'static str> {
     if !a.reproducible {
         Some("irreproducible dice (test faces or a stream restore)")
     } else {
