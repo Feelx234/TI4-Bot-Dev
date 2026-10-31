@@ -231,6 +231,12 @@ pub fn nested_so_far() -> bool {
     REC.with(|r| r.borrow().as_ref().is_some_and(|rec| rec.nested))
 }
 
+/// Whether a recording is running: a window inside it is part of the outer window's comparison.
+#[must_use]
+pub fn recording() -> bool {
+    REC.with(|r| r.borrow().is_some())
+}
+
 /// End the recording and take it.
 pub fn finish() -> Recording {
     REC.with(|r| r.borrow_mut().take()).unwrap_or_default()

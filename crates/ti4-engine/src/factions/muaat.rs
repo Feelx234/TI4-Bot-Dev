@@ -1161,6 +1161,50 @@ fn use_leader(
 /// the chosen player, who pays for it — the two are deliberately not the same seat when the text
 /// was borrowed.
 fn umbat(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let TimingContext {
+        state,
+        content,
+        sources,
+        table,
+        dice,
+        rng,
+        event_sequence,
+        galaxy,
+    } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::muaat::agent",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext {
+                state: s,
+                content,
+                sources,
+                table: &mut *table,
+                dice: &mut *dice,
+                rng: &mut *rng,
+                event_sequence: &mut *event_sequence,
+                galaxy,
+            };
+            crate::dual::Run::new(umbat_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            // A copy through Ssruu is atomic in the string (a failed copy restores the log): the string decides.
+            let copied = crate::factions::hooks_cards::borrowable_agents(s, content, player)
+                .iter()
+                .any(|(_, source)| source.as_str() == AGENT);
+            if copied {
+                crate::dual::note_bail_here("Umbat copied through Ssruu, Clever Genome (an atomic use)");
+                return None;
+            }
+            crate::leaders_core::muaat_agent(s, content, player, sources, script)
+        }
+    )
+}
+
+/// [`umbat`] on the string engine: the oracle of the dual run.
+fn umbat_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let copied =
         crate::factions::hooks_cards::borrowable_agents(context.state, context.content, player)
             .iter()
@@ -2251,6 +2295,83 @@ mod tests {
         assert_eq!(thread_window_counts("factions::muaat::nucleus"), (2, 0), "{r:?}");
         assert_eq!(thread_window_counts("factions::muaat::inferno"), (2, 0), "{r:?}");
         assert_eq!(thread_window_counts("factions::muaat::fires"), (2, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// Answers the queue in order, then takes the first option; fails the run on an answer that is not offered.
+    struct Queue(std::collections::VecDeque<String>);
+    impl Decider for Queue {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            match self.0.pop_front() {
+                Some(wanted) => choice.option(&wanted).cloned().ok_or_else(|| IllegalChoice::ScriptDiverged {
+                    player: choice.player.clone(),
+                    wanted,
+                    offered: choice.ids().into_iter().map(str::to_owned).collect(),
+                }),
+                None => Ok(choice.options[0].clone()),
+            }
+        }
+    }
+    fn queued(answers: &[&str]) -> Table {
+        Table::with_default(Box::new(Queue(answers.iter().map(|a| (*a).to_owned()).collect())))
+    }
+
+    /// Umbat is a body of the core (`rules::leader_production::Umbat`: the player, the system, then one production by an ability as its
+    /// child). The core half agrees with the string for: another player chosen, the holder itself with two systems (the system asked, then a
+    /// decline that still spends the agent), a decline of the player, an exhausted agent and a position where nobody can produce; and it
+    /// ran every time.
+    #[test]
+    fn umbat_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let leader = LeaderId::new(AGENT);
+        let fresh = |status: LeaderStatus| {
+            let mut state = muaat_game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            set_status(&mut state, &a(), AGENT, status);
+            state
+        };
+        let run = |state: &mut GameState, answers: &[&str]| -> Option<bool> {
+            let mut table = queued(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || with_context(state, DEFAULT, None, &mut table, |ctx| use_leader(ctx, &a(), &leader)))
+        };
+        // The other player produces in its only system.
+        let mut state = fresh(LeaderStatus::Readied);
+        let b_home = home_of(&state, &b());
+        put(&mut state, &b_home, "warsun", &b(), 1);
+        let before = state.system_state(&b_home).units.len() + state.system_state(&b_home).planet_units.values().map(Vec::len).sum::<usize>();
+        assert_eq!(run(&mut state, &["b"]), Some(true));
+        let after = state.system_state(&b_home).units.len() + state.system_state(&b_home).planet_units.values().map(Vec::len).sum::<usize>();
+        assert!(after > before, "the chosen player produced");
+        // The holder itself, with two systems: asked which; a decline spends the agent and produces nothing.
+        let mut state = fresh(LeaderStatus::Readied);
+        let home = home_of(&state, &a());
+        let far = SystemId::new(crate::fixtures::plain_systems(80).into_iter().find(|id| id != home.as_str() && id != home_of(&state, &b()).as_str()).expect("another system"));
+        put(&mut state, &far, "muaat_warsun", &a(), 1);
+        assert_eq!(run(&mut state, &["a", "decline"]), Some(true));
+        let mut state2 = state.clone();
+        assert_eq!(run(&mut state2, &["a", far.as_str()]), Some(true));
+        // A decline of the player spends nothing.
+        let mut state = fresh(LeaderStatus::Readied);
+        assert_eq!(run(&mut state, &["decline"]), Some(false));
+        // An exhausted agent.
+        let mut state = fresh(LeaderStatus::Exhausted);
+        assert_eq!(run(&mut state, &[]), Some(false));
+        // Nobody can pay for anything: no player is offered.
+        let mut state = fresh(LeaderStatus::Readied);
+        for seat in [a(), b()] {
+            state.player_mut(&seat).unwrap().trade_goods = 0;
+        }
+        for (_, planet) in state.controlled_planets(&a()).into_iter().chain(state.controlled_planets(&b())).map(|(s, p)| (s.clone(), p.clone())).collect::<Vec<_>>() {
+            state.exhausted_planets.insert(planet);
+        }
+        assert_eq!(run(&mut state, &[]), Some(false));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::muaat::agent"), (6, 0), "{r:?}");
         let _ = take_report();
     }
 

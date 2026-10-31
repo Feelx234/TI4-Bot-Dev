@@ -1328,34 +1328,50 @@ fn use_leader(
 ) -> Option<bool> {
     match leader.as_str() {
         "arborecagent" => agent_use(context, player).ok(),
-        "arborechero" => {
-            let systems = hero_systems(context.state, context.content, context.sources, player);
-            if systems.is_empty() {
-                return Some(false);
-            }
-            let mut made = 0;
-            for system in &systems {
-                // An earlier system's purchases may have emptied the box or the purse.
-                if !can_produce(
-                    context.state,
-                    context.content,
-                    context.sources,
-                    player,
-                    system,
-                    HERO_LIMIT,
-                ) {
-                    continue;
-                }
-                match produce(context, None, player, system, HERO_LIMIT) {
-                    Ok(count) => made += count,
-                    // Units already placed and paid for stay: the card is used.
-                    Err(_) => return Some(made > 0),
-                }
-            }
-            Some(made > 0)
-        }
+        "arborechero" => Some(hero_use(context, player)),
         _ => None,
     }
+}
+
+/// Letani Miasmiala: every system of the seat's ground forces is one use of production by an ability, each a child of the hero's window
+/// (`rules::leader_production::ArborecHero`); the string body is the oracle of the dual run.
+fn hero_use(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::arborec::hero",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(hero_use_string(&mut inner, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let systems = ground_force_systems(s, content, sources, player);
+            crate::leaders_core::arborec_hero(s, content, player, &systems, HERO_LIMIT, sources, script)
+        }
+    )
+}
+
+/// [`hero_use`] on the string engine: the oracle of the dual run.
+fn hero_use_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let systems = hero_systems(context.state, context.content, context.sources, player);
+    if systems.is_empty() {
+        return false;
+    }
+    let mut made = 0;
+    for system in &systems {
+        // An earlier system's purchases may have emptied the box or the purse.
+        if !can_produce(context.state, context.content, context.sources, player, system, HERO_LIMIT) {
+            continue;
+        }
+        match produce(context, None, player, system, HERO_LIMIT) {
+            Ok(count) => made += count,
+            // Units already placed and paid for stay: the card is used.
+            Err(_) => return made > 0,
+        }
+    }
+    made > 0
 }
 
 // -- Psychospore ---------------------------------------------------------------------------------
@@ -2933,6 +2949,91 @@ mod tests {
                 .for_each(|units| units.retain(|unit| unit.owner != a()));
         });
         assert_eq!(leader_action(&state, content, &a(), &leader), Some(false));
+    }
+
+    /// Letani Miasmiala is a body of the core (`rules::leader_production::ArborecHero`: one production by an ability for each system with a
+    /// ground force, each a child of the window). The core half agrees with the string for: a cruiser in the home system, a second system
+    /// where a lone infantry stands (two uses), a seat that stops at once, and a hero with no purse; and it ran every time.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let leader = LeaderId::new("arborechero");
+        let run = |state: &mut GameState, answers: &[&str]| -> Option<bool> {
+            let (mut table, _) = steered(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || with_context(state, &mut table, |ctx| use_leader(ctx, &a(), &leader)))
+        };
+        // One system.
+        let (mut state, home) = flagship_game();
+        set_leader(&mut state, &a(), "arborechero", LeaderStatus::Unlocked);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let before = count(&state, &home, &a(), "cruiser");
+        assert_eq!(run(&mut state, &["build|cruiser|1"]), Some(true));
+        assert_eq!(count(&state, &home, &a(), "cruiser"), before + 1);
+        // A second system with a lone infantry: two uses, the second stopped.
+        let (mut state, home) = flagship_game();
+        set_leader(&mut state, &a(), "arborechero", LeaderStatus::Unlocked);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let (other, planet) = crate::fixtures::a_placed_planet();
+        assert_ne!(other, home);
+        state.system_mut(&other).set_control(planet.clone(), a());
+        crate::fixtures::put_on_planet(&mut state, &other, &planet, "infantry", &a(), 1);
+        assert_eq!(run(&mut state, &["build|cruiser|1"]), Some(true));
+        // Stopped at once.
+        let (mut state, _) = flagship_game();
+        set_leader(&mut state, &a(), "arborechero", LeaderStatus::Unlocked);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        assert_eq!(run(&mut state, &[]), Some(false));
+        // No purse and no planet to spend: nothing to ask.
+        let (mut state, _) = flagship_game();
+        set_leader(&mut state, &a(), "arborechero", LeaderStatus::Unlocked);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.player_mut(&a()).unwrap().trade_goods = 0;
+        for planet in state.controlled_planets(&a()).into_iter().map(|(_, p)| p.clone()).collect::<Vec<_>>() {
+            state.exhausted_planets.insert(planet);
+        }
+        assert_eq!(run(&mut state, &[]), Some(false));
+        // The same with the production window itself on the dual run: its steps inside the hero are the hero's comparison, not their own.
+        let (mut state, _) = flagship_game();
+        set_leader(&mut state, &a(), "arborechero", LeaderStatus::Unlocked);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let (mut table, _) = steered(&["build|cruiser|1"]);
+        let nested = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual).with(Area::Production, Backend::Dual), || {
+            with_context(&mut state, &mut table, |ctx| use_leader(ctx, &a(), &leader))
+        });
+        assert_eq!(nested, Some(true));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::arborec::hero"), (5, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The effects at the end of a use that the child does not run are declined by the adapter, each counted with its reason.
+    #[test]
+    fn the_hero_leaves_the_end_of_use_effects_to_the_string() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let leader = LeaderId::new("arborechero");
+        let (mut state, _) = flagship_game();
+        set_leader(&mut state, &a(), "arborechero", LeaderStatus::Unlocked);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.laws.insert("prophecy".to_owned(), "for".to_owned());
+        let (mut table, _) = steered(&[]);
+        with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || with_context(&mut state, &mut table, |ctx| use_leader(ctx, &a(), &leader)));
+        let r = report();
+        assert_eq!(thread_window_counts("factions::arborec::hero"), (0, 1), "{r:?}");
+        assert!(r.windows.keys().any(|k| k.starts_with("factions::arborec::hero [bail: the Prophecy of Ixth")), "{r:?}");
+        let _ = take_report();
     }
 
     // -- Psychospore -----------------------------------------------------------------------------

@@ -2411,8 +2411,6 @@ fn dispatch_leader(
 #[must_use]
 pub(crate) fn string_only_leader(id: &str) -> Option<&'static str> {
     Some(match id {
-        "arborechero" => "arborechero: a use of PRODUCTION in every system of the hero, with the hero's limit and the seat's purse across systems (the production window is a window of a use, not a child a leader can start: no Spawn for it, and `produce_by_ability` is a counted bail of W5)",
-        "muaatagent" => "muaatagent: another seat produces up to two units of cost 4 or less at a war sun or its flagship (the production window of lane 1, W5: no child spawn for it, and the chosen seat may be any faction the production windows do not carry)",
         "nekrohero" => "nekrohero: destroys a planet's units and gains a technology (the planet and technology candidates are string reads: specialties now, the active deck and the faction technologies; the gain is `technology::gain` with its events; the destroyed ground forces are staged: D1b destruction flush)",
         "naazhero" => "naazhero: the secondary of one or two strategy cards as children of the leader window (the strategy windows are children of the card, not of a leader)",
         "winnuhero" => "winnuhero: the primary of a strategy card as the continuation of the leader (`use_leader_strategy_primary`, D1b dispatch)",
@@ -2755,14 +2753,14 @@ mod tests {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let content = ContentStore::embedded();
         let ids = [
-            "arborechero", "muaatagent", "nekrohero", "naazhero", "winnuhero",
+            "nekrohero", "naazhero", "winnuhero",
             "empyreanhero", "cabalhero", "argenthero", "yinhero", "yssarilhero", "mahacthero",
         ];
         for id in ids {
             assert!(string_only_leader(id).is_some_and(|why| why.starts_with(id)), "{id}");
             assert!(kind_of(content, &LeaderId::new(id)).is_some(), "{id} is a leader of the corpus");
         }
-        for carried in ["arborecagent", "saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
+        for carried in ["arborechero", "muaatagent", "arborecagent", "saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
             assert_eq!(string_only_leader(carried), None, "{carried} has a port");
         }
         let _guard = crate::dual::tests::serial();

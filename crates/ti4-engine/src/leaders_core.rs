@@ -446,6 +446,181 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
+    /// What a production by an ability reads (the position the production reads, the pending staged events) and writes (the units, the
+    /// payment, the staged events).
+    const PRODUCE: Footprint = Footprint {
+        reads: crate::production_view::READS.union(ti4_engine_core::state::SliceSet::of(&[Slice::Pending])),
+        writes: ti4_engine_core::state::SliceSet::of(&[Slice::Board, Slice::Players, Slice::Transient, Slice::Marks, Slice::Pending]),
+    };
+
+    /// Why the core cannot follow a production by an ability for these seats: a seat the production windows do not carry, the end-of-use
+    /// effects the child does not run (Hacan's breakthrough, the Prophecy of Ixth, a swapped planet value) and the dropped Last Bastion and
+    /// Crimson Rebellion (a unit placed away from the producing system has no place text here).
+    fn production_declined(gs: &GameState, producers: &[&PlayerId]) -> Option<&'static str> {
+        if gs.players.iter().any(|p| [crate::factions::bastion::MODULE.alias, crate::factions::crimson::MODULE.alias].contains(&p.faction.as_str())) {
+            return Some("the Last Bastion or the Crimson Rebellion at the table (units placed away from the producing system)");
+        }
+        if producers.iter().any(|p| crate::production_view::unported_triggered(gs, p)) {
+            return Some("a table whose seats the production windows do not carry (Keleres, Deepwrought)");
+        }
+        if producers.iter().any(|p| crate::breakthroughs::holds(gs, p, "hacanbt")) {
+            return Some("Hacan's breakthrough (an end-of-use effect of the production)");
+        }
+        if gs.laws.contains_key("prophecy") {
+            return Some("the Prophecy of Ixth in play (an end-of-use effect of the production)");
+        }
+        if gs.production_value_swapped_planet.is_some() {
+            return Some("a swapped planet value in the use (an end-of-use effect of the production)");
+        }
+        None
+    }
+
+    /// The facts of the use `player` would open in `system` with `limit` units, as the string window opens it (`for_ability`).
+    #[allow(clippy::too_many_arguments, reason = "the position, the seat, the system, the limit and the cost ceiling")]
+    fn produce_facts(gs: &GameState, content: &ti4_content::ContentStore, sources: SourceSet, seat: Seat, player: &PlayerId, system: &ti4_model::id::SystemId, limit: i64, cap: Option<i64>) -> Option<ti4_engine_core::kernel::children::ProduceFacts> {
+        let window = crate::production::ProductionWindow::for_ability(gs, content, sources, player, system, Some(limit)).with_max_unit_cost(cap);
+        let core = match window.to_core(gs, content, sources, seat, false) {
+            Ok(core) => core,
+            Err(why) => {
+                crate::dual::note_bail_here(why);
+                return None;
+            }
+        };
+        Some(ti4_engine_core::kernel::children::ProduceFacts {
+            who: seat,
+            system: core.system,
+            limit: core.limit,
+            max_unit_cost: core.max_unit_cost,
+            small_exemptions: core.small_exemptions,
+            discount: core.discount_remaining,
+            fleet_limit: core.fleet_limit,
+            armada: core.armada,
+            flagship_free: core.flagship_free,
+            buildable: core.buildable,
+        })
+    }
+
+    /// Stage the announcement the string stages at the end of each use that made something (`UNITS_PRODUCED`, no timing handle).
+    fn announce_uses(gs: &mut GameState, player: &PlayerId, uses: &[(ti4_engine_core::generated::System, ti4_engine_core::kernel::children::Made)]) {
+        for (system, made) in uses {
+            if made.as_slice().is_empty() {
+                continue;
+            }
+            let units: Vec<serde_json::Value> = made
+                .as_slice()
+                .iter()
+                .map(|(unit, planet)| serde_json::json!({ "unit_type": unit.as_str(), "place": planet.map_or(crate::production::SPACE, |p| p.as_str()) }))
+                .collect();
+            let mut payload = std::collections::BTreeMap::new();
+            payload.insert("player".to_owned(), player.to_string().into());
+            payload.insert("system".to_owned(), system.as_str().into());
+            payload.insert("source".to_owned(), "ability".into());
+            payload.insert("count".to_owned(), made.as_slice().len().into());
+            payload.insert("units".to_owned(), serde_json::Value::Array(units));
+            crate::supply::stage_event(gs, "UNITS_PRODUCED", &payload);
+        }
+    }
+
+    /// The core half of Arborec's Letani Miasmiala (`factions::arborec::use_leader`; the value: some unit was made). `systems` are the
+    /// systems holding a ground force of the seat, `limit` the units per use. The effects at the end of a use the child does not run are
+    /// declined (see [`production_declined`]).
+    pub fn arborec_hero(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, systems: &[ti4_model::id::SystemId], limit: i64, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::rules::leader_production::ArborecHero;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if let Some(why) = production_declined(gs, &[player]) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let facts: Vec<_> = systems.iter().map(|system| produce_facts(gs, content, sources, seat, player, system, limit, None)).collect::<Option<_>>()?;
+        let before = gs.clone();
+        let mut table = AbilityTable::default();
+        ti4_engine_core::driver::children::register(&mut table);
+        let kernel = crate::production_view::kernel();
+        let mut driver = Driver::new(ArborecHero::new(seat, facts), Resolver::new(&seats, Some(seat)), table, 1);
+        let mut staged = Vec::new();
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PRODUCE, |core, _| {
+            let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &|_, _, _| {});
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the production window, or a system has no facts");
+            return None;
+        }
+        if !staged.is_empty() && driver.window.used() {
+            crate::dual::note_bail_here("staged events of the placements would interleave with the announcements of the uses");
+            return None;
+        }
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        announce_uses(gs, player, &driver.window.made);
+        Some(CoreWindow { run: Run::new(driver.window.used()).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
+    /// The core half of Muaat's Umbat (`factions::muaat::umbat`; the value: the agent was spent). `candidates` are the systems holding a war
+    /// sun or the flagship of each seat (the string read; the facts of each use are computed here). A copy through Ssruu is the caller's.
+    pub fn muaat_agent(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::rules::leader_production::Umbat;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let everyone: Vec<&PlayerId> = gs.players.iter().map(|p| &p.id).collect();
+        if let Some(why) = production_declined(gs, &everyone) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let types = ti4_content::units::catalogue(content, sources);
+        let mut facts = Vec::new();
+        for owner in &everyone {
+            let Some(owner_seat) = r.seat(owner.as_str()) else { continue };
+            for (system, board) in &gs.board {
+                let holds = board.units.iter().any(|u| &u.owner == *owner && types.get(u.type_id.as_str()).is_some_and(|k| matches!(k.base_type(), "warsun" | "flagship")));
+                if holds {
+                    facts.push(produce_facts(gs, content, sources, owner_seat, owner, system, 2, Some(4))?);
+                }
+            }
+        }
+        let before = gs.clone();
+        let mut table = AbilityTable::default();
+        ti4_engine_core::driver::children::register(&mut table);
+        let kernel = crate::production_view::kernel();
+        let mut driver = Driver::new(Umbat::new(seat, facts), Resolver::new(&seats, Some(seat)), table, 1);
+        let mut staged = Vec::new();
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PRODUCE, |core, _| {
+            let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &|_, _, _| {});
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the production window, or a use has no facts");
+            return None;
+        }
+        let made_any = driver.window.made.as_ref().is_some_and(|(_, made)| !made.as_slice().is_empty());
+        if !staged.is_empty() && made_any {
+            crate::dual::note_bail_here("staged events of the placements would interleave with the announcement of the use");
+            return None;
+        }
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        if let (Some((system, made)), Some(target)) = (driver.window.made.clone(), driver.window.target) {
+            // The use is the chosen player's: the announcement names them.
+            announce_uses(gs, &PlayerId::new(r.seat_text(target)), &[(system, made)]);
+        }
+        Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     const PLAYERS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
 
     /// The core half of `leaders::jolnar_hero` (Rin). `None` where `apply_unit_upgrades` would change the
@@ -616,6 +791,26 @@ mod stub {
         _: &mut GameState,
         _: &PlayerId,
         _: &[(PlayerId, ti4_model::id::UnitTypeId)],
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn arborec_hero(
+        _: &mut GameState,
+        _: &ti4_content::ContentStore,
+        _: &PlayerId,
+        _: &[ti4_model::id::SystemId],
+        _: i64,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+    pub fn muaat_agent(
+        _: &mut GameState,
+        _: &ti4_content::ContentStore,
+        _: &PlayerId,
         _: ti4_model::content_types::SourceSet,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {

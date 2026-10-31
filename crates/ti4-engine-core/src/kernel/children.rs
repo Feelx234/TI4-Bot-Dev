@@ -13,7 +13,7 @@
 use crate::choice::explore::{Opt as EOpt, Step as EStep};
 use crate::choice::{Choice, Pick};
 use crate::containers::SmallList;
-use crate::generated::{ActionCard, StrategyCard, System, Technology, Unit};
+use crate::generated::{ActionCard, Planet, StrategyCard, System, Technology, Unit};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -37,6 +37,31 @@ pub struct StructureFacts {
     /// The code of the source `place_structure` (the adapter's text table).
     pub source: Code,
 }
+
+/// What a production by an ability (`Spawn::Produce`) needs of the position that the core does not hold: the numbers the string
+/// window opens with (`ProductionWindow::for_ability`) and the facts of the seat its questions read. The adapter computes them on the
+/// position the use starts from; one use is one system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProduceFacts {
+    pub who: Seat,
+    pub system: System,
+    /// The units the ability allows (replaces the system's printed capacity).
+    pub limit: i32,
+    /// The highest printed cost of one unit (Umbat: 4); `None`: no cap.
+    pub max_unit_cost: Option<i32>,
+    /// The units that do not count against the limit (the Cabal commander's two).
+    pub small_exemptions: i32,
+    /// The cost reduction of the faction hooks in this system (`production_cost_reduction`).
+    pub discount: i32,
+    pub fleet_limit: i32,
+    pub armada: i32,
+    /// Nomad's commander: the flagship is free.
+    pub flagship_free: bool,
+    pub buildable: [Option<Unit>; 9],
+}
+
+/// The units a finished production made, in order: the unit and the planet it stands on (`None`: the space area).
+pub type Made = SmallList<(Unit, Option<Planet>), 12>;
 
 /// The interned texts and the flag the hit flows of a card read (`Spawn::Absorb`; the adapter's, like `Codes`): a window carries
 /// no text of its own.
@@ -73,6 +98,8 @@ pub enum Report {
     Destroyed(bool),
     /// A structure was placed (the Titan Prototype).
     Built(bool),
+    /// A production by an ability finished: what it made.
+    Made(Made),
 }
 
 /// A window of another area, run as a child: the object-safe face of [`Window`] plus what the finished window reports.
@@ -225,6 +252,8 @@ pub enum Spawn {
     Destroy { who: Seat, system: System, card: ActionCard, subtype: Code, cause: Code },
     /// `combat::effect_hits::Absorb`: `hits` hits produced by `producer` land on the ships of `who` in `system`.
     Absorb { who: Seat, producer: Seat, system: System, hits: u16, texts: HitTexts },
+    /// `production::window::ProductionWindow` for a production by an ability (`ProductionWindow::for_ability`): reports [`Report::Made`].
+    Produce { facts: ProduceFacts },
 }
 
 /// Starts the child window a [`Spawn`] names; `None` for a request the table does not know.

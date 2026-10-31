@@ -126,6 +126,8 @@ impl Family for Fam {
             Ask::GhostSwapSecond => "Riftwalker Meian: swap it with which system".to_owned(),
             Ask::NekroPlayer => "Nekro Malleon: choose a player".to_owned(),
             Ask::NekroPayment => "Nekro Malleon: discard 1 action card or spend 1 command token to gain 2 trade goods?".to_owned(),
+            Ask::UmbatPlayer => "Umbat: choose a player who may produce up to 2 units costing 4 or less".to_owned(),
+            Ask::UmbatSystem => "Umbat: produce in which system".to_owned(),
         }
     }
 
@@ -147,6 +149,8 @@ impl Family for Fam {
             Subtype::OsphaReplace => "ospha_replace".to_owned(),
             Subtype::NekroPlayer => "malleon_player".to_owned(),
             Subtype::NekroPayment => "malleon_payment".to_owned(),
+            Subtype::UmbatPlayer => "umbat_player".to_owned(),
+            Subtype::UmbatSystem => "umbat_system".to_owned(),
         }
     }
 
@@ -157,7 +161,7 @@ impl Family for Fam {
                 let id = p.as_str();
                 ChoiceOption::labelled(id, "planet", id).with_planet(id, system.system.map(|s| s.as_str()))
             }
-            Opt::System(system) if matches!(a, Ask::SaarHero | Ask::GhostSwapFirst | Ask::GhostSwapSecond) => ChoiceOption::labelled(system.as_str(), "system", format!("system {}", system.as_str())),
+            Opt::System(system) if matches!(a, Ask::SaarHero | Ask::GhostSwapFirst | Ask::GhostSwapSecond | Ask::UmbatSystem) => ChoiceOption::labelled(system.as_str(), "system", format!("system {}", system.as_str())),
             Opt::System(system) => ChoiceOption::labelled(system.as_str(), "system", system.as_str()),
             Opt::OsphaShip { n, owner, ship, damaged, system } => ChoiceOption::labelled(
                 format!("ship|{n}"),
@@ -167,6 +171,10 @@ impl Family for Fam {
             Opt::OsphaReplace(base) => {
                 let base = super::promissory::base_name_of(*base);
                 ChoiceOption::labelled(format!("replace|{base}"), "ship", format!("replace it with a {base} from reinforcements"))
+            }
+            Opt::Player(seat) if matches!(a, Ask::UmbatPlayer) => {
+                let id = r.seat_text(*seat);
+                ChoiceOption::labelled(id, "player", format!("player {id}"))
             }
             Opt::Player(seat) => {
                 let id = r.seat_text(*seat);
@@ -225,7 +233,7 @@ impl Family for Fam {
                 "keep" => Some(Opt::Keep),
                 _ => None,
             },
-            Ask::L1z1xDestination | Ask::SaarHero | Ask::GhostSwapFirst | Ask::GhostSwapSecond => System::from_id(id).map(Opt::System),
+            Ask::L1z1xDestination | Ask::SaarHero | Ask::GhostSwapFirst | Ask::GhostSwapSecond | Ask::UmbatSystem => System::from_id(id).map(Opt::System),
             Ask::JolnarSwap { held } => match id.strip_prefix("keep|") {
                 Some(kept) => (kept == held.as_str()).then_some(Opt::Keep),
                 None => Technology::from_id(id).map(Opt::Trade),
@@ -245,7 +253,7 @@ impl Family for Fam {
                     .find(|base| super::promissory::base_name_of(*base) == name)
                     .map(Opt::OsphaReplace)
             }
-            Ask::NekroPlayer => r.seat(id).map(Opt::Player),
+            Ask::NekroPlayer | Ask::UmbatPlayer => r.seat(id).map(Opt::Player),
             Ask::NekroPayment => match id.strip_prefix("token|") {
                 Some(name) => [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().find(|pool| pool_name(*pool) == name).map(Opt::Token),
                 None => (id == "discard").then_some(Opt::Discard),

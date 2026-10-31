@@ -56,6 +56,10 @@ pub enum Ask {
     OsphaShip,
     /// Letani Ospha: the ship's owner chooses the ship that replaces it (or declines). The ship is named in the prompt.
     OsphaReplace { owner: crate::ids::Seat, ship: Unit, system: crate::generated::System },
+    /// Umbat (Muaat agent): which player may produce up to 2 units costing 4 or less.
+    UmbatPlayer,
+    /// Umbat: the chosen player's system to produce in.
+    UmbatSystem,
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -124,4 +128,6 @@ pub enum Subtype {
     NekroPayment,
     OsphaShip,
     OsphaReplace,
+    UmbatPlayer,
+    UmbatSystem,
 }

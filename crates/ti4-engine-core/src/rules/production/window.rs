@@ -15,6 +15,7 @@ use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Owed, OwedKind, Pick, S
 use crate::containers::SmallList;
 use crate::generated::{Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;
+use crate::kernel::children::{Made, ProduceFacts};
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -74,6 +75,49 @@ fn small(n: i64) -> i32 {
 }
 
 impl ProductionWindow {
+    /// A production by an ability (`ProductionWindow::for_ability` of the string engine): `facts.limit` units, ground forces on any planet of the
+    /// system the seat controls, no Winnu offer, no announcement of timing. The window opens at `Choosing` when it may produce anything.
+    #[must_use]
+    pub fn ability(facts: &ProduceFacts) -> Self {
+        let limit = facts.limit.max(0);
+        Self {
+            who: facts.who,
+            system: facts.system,
+            stage: if limit > 0 { Stage::Choosing } else { Stage::Done },
+            limit,
+            remaining: limit,
+            free_capacity: 0,
+            small_exemptions: facts.small_exemptions,
+            credit: 0,
+            discount_remaining: facts.discount,
+            fleet_limit: facts.fleet_limit,
+            armada: facts.armada,
+            free_this_use: false,
+            flagship_free: facts.flagship_free,
+            only_unit: None,
+            max_unit_cost: facts.max_unit_cost,
+            buildable: facts.buildable,
+            produced: SmallList::new(),
+            purchased: false,
+            placement_timing_done: false,
+            agent_rules: false,
+            agent_spent: false,
+            emit_timing: false,
+            ability: true,
+        }
+    }
+
+    /// What the use made, in order, with the planet each unit stands on (`None`: the space area; a ship placed away from the producing
+    /// system or on the Crimson card has no planet of this system either).
+    #[must_use]
+    pub fn made(&self) -> Made {
+        self.produced
+            .as_slice()
+            .iter()
+            .map(|(unit, spot)| (*unit, if let Spot::Planet(planet) = spot { Some(*planet) } else { None }))
+            .collect()
+    }
+
     fn cx<'a>(&self, s: &'a CoreState, k: &'a Kernel) -> Cx<'a> {
         Cx::new(s, k, Scope(u32::from(k.sources.0)), reach::blanked(s))
     }

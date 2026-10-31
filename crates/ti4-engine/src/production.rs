@@ -3644,7 +3644,8 @@ impl ProductionWindow {
         answer: ChoiceOption,
     ) -> Result<bool, IllegalChoice> {
         #[cfg(feature = "typed-core")]
-        if crate::dual::backend(crate::dual::Area::Production) == crate::dual::Backend::Dual {
+        // A step inside another window (a leader that produces) is part of that window's comparison: its question is recorded by the table.
+        if crate::dual::backend(crate::dual::Area::Production) == crate::dual::Backend::Dual && !crate::dual_window::recording() {
             let (content, sources) = (ctx.content, ctx.sources);
             if let Some(choice) = self.pending_choice(state, content, sources) {
                 let before = self.clone();
