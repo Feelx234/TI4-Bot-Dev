@@ -26,4 +26,4 @@ pub const FACTION: PrefixPairs = &[];
 #[rustfmt::skip]
 pub const LEADER: PrefixPairs = &[(53, 54, 45), (95, 96, 45)];
 #[rustfmt::skip]
-pub const WORD: PrefixPairs = &[(0, 1, 95)];
+pub const WORD: PrefixPairs = &[(0, 1, 95), (10, 11, 114), (10, 12, 114)];

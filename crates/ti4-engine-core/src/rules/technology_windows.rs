@@ -708,7 +708,10 @@ impl TransitDiodes {
         let mut out = Vec::new();
         for (from_system, cell) in s.board().systems() {
             let mut sources: Vec<(Option<Planet>, Unit)> = cell.units.as_slice().iter().filter(|u| u.owner() == self.who).map(|u| (None, u.kind())).collect();
-            for planet in board::planets_of(s, from_system) {
+            // The string lists the planets of a system by the text of their ids (its `planet_units` map), not in the map's order.
+            let mut planets: Vec<Planet> = board::planets_of(s, from_system).collect();
+            planets.sort_unstable();
+            for planet in planets {
                 sources.extend(s.board().planet(planet).units.as_slice().iter().filter(|u| u.owner() == self.who).map(|u| (Some(planet), u.kind())));
             }
             for (from, unit) in sources {

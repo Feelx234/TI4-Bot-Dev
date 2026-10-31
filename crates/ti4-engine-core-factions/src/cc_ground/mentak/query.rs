@@ -36,7 +36,7 @@ fn foreign_ship_in(s: &CoreState, system: ti4_engine_core::generated::System, fl
 
 /// Fourth Moon: "Other player's ships in this system cannot use SUSTAIN DAMAGE." Moll Terminus: "Other player's ground
 /// forces on this planet cannot use SUSTAIN DAMAGE."
-fn may_sustain(q: Q<'_>, unit: &CombatUnit) -> Verdict {
+pub fn may_sustain(q: Q<'_>, unit: &CombatUnit) -> Verdict {
     let forbidden = match unit.ctx {
         CombatCtx::Space => unit.system.is_some_and(|system| foreign_ship_in(q.s, system, Unit::FourthMoon, unit.owner)),
         CombatCtx::Ground => match (unit.system, unit.planet) {

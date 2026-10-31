@@ -756,6 +756,10 @@ pub fn drive_windowed<W: Window>(
                     if let (Some(ctx), Some(recorded)) = (rendered.context.as_mut(), script.questions.get(out.questions.len() - 1)) {
                         ctx.previews = recorded.choice.context.as_ref().map(|c| c.previews.clone()).unwrap_or_default();
                     }
+                } else if driver.nested_state().is_some() && matches!(choice.ask, ti4_engine_core::choice::Ask::Cards(_)) {
+                    // A question a played card's effect asks (Reparations: the planet to exhaust, the planet to ready) belongs to no event, so
+                    // it comes with no facts; the string still puts it through `Table::ask_seeing`, which names the invasion the position is in.
+                    rendered.context = rendered.context.take().map(|ctx| ctx.about_invasion(gs));
                 }
                 out.rendered.push(rendered);
                 let Some(id) = script.questions.get(out.questions.len() - 1).and_then(|q| q.answer.clone()) else {

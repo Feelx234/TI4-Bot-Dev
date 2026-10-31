@@ -264,7 +264,7 @@ fn register_string_bridge(seams: &mut Seams) {
     seams.may_sustain.push(STRINGS, |_, unit: &CombatUnit| {
         let allowed = with_oracle(|o| {
             o.with_unit(*unit, |cu| {
-                crate::factions::hooks_combat::may_sustain(&o.gs, ContentStore::embedded(), o.sources, cu)
+                crate::factions::hooks_combat::may_sustain_unported(&o.gs, ContentStore::embedded(), o.sources, cu)
             })
         })
         .flatten()
@@ -887,6 +887,12 @@ pub fn combat_kernel(sources: SourceSet) -> Option<Kernel> {
     // The Cavalry is played inside a window (the opening of the fight): the lent stats are read from the core state, which holds
     // the choice, not from the snapshot of the position the window started in.
     ti4_engine_core_factions::ce_movement::nomad::query::register_borrowed(&mut kernel.hooks);
+    // Fourth Moon: the ships of the other players cannot sustain while it stands in the system. The rule reads the board of the core
+    // state it is asked in, not the snapshot of the string bridge (a flagship destroyed inside the window stops barring at once).
+    kernel.hooks.seam.may_sustain.push(
+        Source::Faction(ti4_engine_core::generated::Faction::TheMentakCoalition),
+        ti4_engine_core_factions::cc_ground::mentak::query::may_sustain,
+    );
     register_string_bridge(&mut kernel.hooks.seam);
     kernel.sources = CoreSources(u8::try_from(scope.0).ok()?);
     Some(kernel)

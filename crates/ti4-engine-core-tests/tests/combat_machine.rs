@@ -8,7 +8,7 @@ use ti4_engine_core::containers::Opt32;
 use ti4_engine_core::rules::combat::flow::{Phase, Step};
 use ti4_engine_core::rules::combat::end_announce::Codes as EndCodes;
 use ti4_engine_core::rules::combat::machine::{Bail, Env, Fields, Machine, Stop};
-use ti4_engine_core::state::{Code, EventKind, Key};
+use ti4_engine_core::state::{Code, EventKind, Key, LeaderStatus};
 use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::rig::Policy;
 use ti4_engine_core_tests::scenario::plain_systems;
@@ -519,4 +519,28 @@ fn a_roll_that_empties_a_fleet_concludes_the_fight_with_the_round_of_the_roll_an
         }
     }
     assert!(ended > 0 && went_on > 0, "the seeds cover both: {ended} ended inside the roll, {went_on} went on");
+
+/// Found by the end-of-D1 gate run (golden game 3): the string asks at every announcement whether a Letnev round agent is still usable
+/// (the owner's readied one, or Ssruu copying it); using it exhausts it. The machine used to keep the fact it was built with for all
+/// the rounds of its call, so it stamped `round_seq` on rounds the string did not.
+#[test]
+fn the_round_seq_is_stamped_only_while_a_letnev_round_agent_is_still_usable() {
+    let seqs = |fight: &Fight| fight.events.iter().filter(|(k, _)| *k == EventKind::CombatRoundStarted).filter(|(_, p)| p.int(Key::RoundSeq).is_some()).count();
+    let rounds = |fight: &Fight| fight.count(EventKind::CombatRoundStarted);
+    // The fact says "listens" but nobody holds a usable agent any more: no round carries a sequence number.
+    let mut stale = env();
+    stale.round_seq_listens = true;
+    let mut fight = Fight::new(skirmish(), stale, 3);
+    assert_eq!(fight.settle(Policy::First), Some(Stop::Over));
+    assert!(rounds(&fight) >= 1);
+    assert_eq!(seqs(&fight), 0, "no usable agent: no round_seq");
+    // A Letnev seat that holds Viscount Unlenn readied (rules version 17): every round carries it.
+    let mut live = env();
+    live.round_seq_listens = true;
+    let mut fight = Fight::new(arena(Faction::TheBaronyOfLetnev, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 3).unit(sys(), None, Unit::CruiserI, 1, 3), live, 3);
+    fight.state.meta_mut().rules_version = 17;
+    fight.state.players_mut().edit(0).leaders.status.insert(Leader::ViscountUnlenn, LeaderStatus::Readied);
+    assert_eq!(fight.settle(Policy::First), Some(Stop::Over));
+    assert_eq!(seqs(&fight), rounds(&fight), "a readied owner agent listens in every round");
+    assert!(rounds(&fight) >= 1);
 }

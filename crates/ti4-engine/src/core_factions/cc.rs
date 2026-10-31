@@ -621,7 +621,9 @@ mod strict_tests {
     /// map among them, which needs a galaxy they never have; the refusal panicked in a gate binary.
     #[test]
     fn a_call_site_hook_loads_no_map_slice_so_strict_mode_does_not_trip() {
-        let gs = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "sol")], ti4_model::content_types::POK);
+        let mut gs = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "sol")], ti4_model::content_types::POK);
+        gs.promissory_notes.clear();
+        gs.promissory_faceup.clear();
         crate::core_sync::unmapped::strict_on_this_thread(|| {
             assert!(mentak_trade_good_worth(&gs, &PlayerId::new("a"), 1).is_some(), "the typed view exists without the map");
         });
