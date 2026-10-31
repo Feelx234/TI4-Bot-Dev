@@ -531,3 +531,118 @@ fn a_position_without_the_map_slice_names_no_system_for_the_free_action_and_does
     let facts = facts_at(&s, &k, &Default::default(), None, Seat(0), StrategyCard::WarfareThundersEdge);
     assert!(facts.free.is_some_and(|f| f.systems().is_empty()), "no map, no system to name");
 }
+
+// -- more of what the windows write (the mutation run's survivors) ---------------------------------------------------------------------------------
+
+#[test]
+fn the_payload_records_how_each_follower_answered() {
+    use ti4_engine_core::state::SecondaryHow::{Declined, Followed};
+    let (mut s, k) = trade_window([2, 2, 2]);
+    let e = env(&k);
+    let first = first_asked(&s, &e).actor;
+    advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+    let second = first_asked(&s, &e).actor;
+    advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    let Some(OpenWindow::StrategySecondary(w)) = s.pending().window(WindowKind::StrategySecondary) else { panic!("open") };
+    let answered: Vec<_> = w.resolved.as_slice().iter().filter(|(_, how)| *how != SecondaryHow::Ineligible).copied().collect();
+    assert_eq!(answered, [(first, Followed), (second, Declined)]);
+    assert!(!w.exhausts_card.eq(&false), "the primary player's own card");
+}
+
+#[test]
+fn a_hero_without_followers_holds_a_card_nobody_holds() {
+    let (mut s, _) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
+    s.pending_mut().open(OpenWindow::LeaderStrategy { player: Seat(0), leader: Leader::HeshAndPrit, card: StrategyCard::Trade });
+    select_leader_strategy_followers(&mut s);
+    let Some(OpenWindow::StrategySecondary(w)) = s.pending().window(WindowKind::StrategySecondary) else { panic!("open") };
+    assert!(!w.exhausts_card && !w.preview && w.followers.is_empty());
+}
+
+#[test]
+fn a_seat_with_one_command_token_is_still_asked_to_redistribute_after_the_free_action() {
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).tokens(0, 1, 0, 0).build();
+    s.pending_mut().open(OpenWindow::StrategySecondaryAfterTactical(secondary_of(Seat(0), StrategyCard::WarfareThundersEdge, &[Seat(1)], true)));
+    open_after(&mut s);
+    let (live, _) = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut s, &env(&k), None).unwrap();
+    assert!(matches!(live, Live::Asks(_)));
+}
+
+#[test]
+fn a_winnu_primary_player_lets_a_follower_return_acquiescence_instead_of_a_token() {
+    use ti4_engine_core::state::NoteKey;
+    let (mut s, k) = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).build();
+    let note = NoteKey { note: ti4_engine_core::generated::PromissoryNote::Acquiescence, faction: Faction::TheWinnu };
+    s.cards_mut().promissory.edit().insert(note, Seat(1));
+    s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = 0;
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Trade);
+    s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Trade, &[Seat(1)], true)));
+    let e = env(&k);
+    let q = first_asked(&s, &e);
+    assert_eq!(q.opts.as_slice(), [Opt::Strategy(SOpt::Skip), Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))], "no token: the waiver instead of the follow");
+    advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))))).unwrap();
+    assert_eq!(s.cards().promissory.get(&note), Some(&Seat(0)), "the note went home");
+}
+
+// -- Xxcha's Peace Accords and the Ssruu copy of Doctor Sucaban -----------------------------------------------------------------------------
+
+/// Xxcha at seat 1 controls and has exhausted `pa`; `pb` stands in the next system, uncontrolled (and controlled by seat 0 when `taken`).
+fn xxcha_table(taken: bool) -> (CoreState, Kernel) {
+    use ti4_engine_core_tests::scenario::system_of;
+    let planets: Vec<_> = Planet::ALL.iter().copied().filter(|p| p.data().system.is_some() && p.data().traits.is_empty().eq(&false)).collect();
+    let pa = planets[0];
+    let pb = planets.iter().copied().find(|p| system_of(*p) != system_of(pa)).expect("a second system");
+    let mut sc = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheXxchaKingdom])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system_of(pa), system_of(pb)])
+        .control(pa, 1)
+        .exhaust(pa)
+        .tokens(1, 3, 3, 2);
+    if taken {
+        // Every other planet of the two systems is somebody's.
+        for p in Planet::ALL.iter().copied().filter(|p| p.data().system.is_some_and(|sys| sys == system_of(pa) || sys == system_of(pb)) && *p != pa) {
+            sc = sc.control(p, 0);
+        }
+    }
+    let (mut s, k) = sc.build();
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::DiplomacyBase);
+    s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::DiplomacyBase, &[Seat(1)], true)));
+    (s, k)
+}
+
+#[test]
+fn an_xxcha_follower_of_diplomacy_with_a_planet_to_annex_stops_at_a_counted_gap() {
+    let (mut s, k) = xxcha_table(false);
+    let e = env(&k);
+    let q = first_asked(&s, &e);
+    assert_eq!(q.actor, Seat(1));
+    let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+    let Live::Asks(ready) = live else { panic!("the ready question") };
+    let held = s.clone();
+    let r = advance_secondary(&mut s, &e, ready.choice.pick(0));
+    assert_eq!(r, Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::TurnGap(ti4_engine_core::kernel::turn_codes::TurnGap::PeaceAccords))));
+    assert_eq!(s, held);
+}
+
+#[test]
+fn an_xxcha_follower_with_nothing_to_annex_goes_on() {
+    let (mut s, k) = xxcha_table(true);
+    let e = env(&k);
+    let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+    let Live::Asks(ready) = live else { panic!("the ready question") };
+    let r = advance_secondary(&mut s, &e, ready.choice.pick(0));
+    assert!(!matches!(r, Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::TurnGap(ti4_engine_core::kernel::turn_codes::TurnGap::PeaceAccords)))), "{r:?}");
+}
+
+#[test]
+fn a_yssaril_agent_copying_the_jolnar_agent_is_doctor_sucaban_too() {
+    use ti4_engine_core::driver::windows::strategic::facts::research_asks_more;
+    use ti4_engine_core::state::LeaderStatus;
+    let planet = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, _) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheYssarilTribes, Faction::TheUniversitiesOfJolNar]).unit(planet.0, Some(planet.1), Unit::InfantryI, 0, 1).build();
+    s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
+    assert!(research_asks_more(&s, Seat(0)), "Ssruu may copy Doctor Sucaban while a Jol-Nar sits at the table");
+    let (mut s, _) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheYssarilTribes, Faction::TheArborec]).unit(planet.0, Some(planet.1), Unit::InfantryI, 0, 1).build();
+    s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
+    assert!(!research_asks_more(&s, Seat(0)), "no Jol-Nar agent to copy");
+}

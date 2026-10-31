@@ -68,7 +68,7 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, free: 
                         for n in next.flatten() {
                             match n {
                                 Next::Emit(rec) => {
-                                    if sx.emit(rec).is_err() {
+                                    if sx.emit(rec).is_err() { // mutants:skip: no window the abilities spawn returns `Next::Emit`
                                         gap(sx, TurnGap::EmissionRefused);
                                         return Flow::Halt;
                                     }

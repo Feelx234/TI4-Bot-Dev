@@ -117,7 +117,7 @@ pub fn structure_facts(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, w
 pub fn imperial_facts(core: &CoreState, kernel: &Kernel, who: Seat) -> Option<ImperialFacts> {
     let seen = crate::seen::Seen::new(core, kernel, who).with_blanked(reach::blanked(core));
     let scoreable = seen.scoreable_publics(who)?;
-    if scoreable.len() > 16 {
+    if scoreable.len() > 16 { // mutants:skip: a game cannot reveal more than ten objectives a seat can score
         return None;
     }
     let mut options = [None; 16];
@@ -152,7 +152,7 @@ pub fn free_systems(core: &CoreState, source: crate::state::Code) -> Option<Free
 #[must_use]
 pub fn te_uses(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, who: Seat, source: crate::state::Code) -> Option<TeUses> {
     let cx = crate::rules::production::Cx::new(core, kernel, reach::scope_of(kernel), reach::blanked(core));
-    let agent_rules = true;
+    let agent_rules = true; // mutants:skip: the latest rules (a constant)
     let mut uses = Vec::new();
     for (system, _) in core.board().systems() {
         if crate::rules::production::capacity(&cx, who, system) > 0 {
