@@ -538,6 +538,9 @@ pub struct AdapterFacts {
     /// The kernel whose economy hooks a payment inside an ability reads (the production kernel; the combat kernel holds none of
     /// the faction hooks of a payment). Set by the adapter.
     pub pay_kernel: Option<fn() -> &'static Kernel>,
+    /// The production kernel of a source scope (the faction hooks of a production with the units of the sources in play), for a use of PRODUCTION
+    /// an ability runs (lane M6d). Set by the adapter; [`Self::pay_kernel`]'s scope is the full one.
+    pub production_kernel: Option<fn(super::Sources) -> &'static Kernel>,
     /// The faction units of the scope (the form Assimilate places; set by the live `Env`).
     pub roster: Option<&'static crate::query::tech::UnitRoster>,
     adjacent: Vec<(crate::generated::System, crate::generated::System, bool)>,
@@ -610,6 +613,16 @@ impl RerollFacts {
 }
 
 impl AdapterFacts {
+    /// The kernel a use of PRODUCTION an ability runs reads, for the source scope `host` plays: the adapter's production kernel of that scope, else
+    /// the one it lent for payments.
+    #[must_use]
+    pub fn production_kernel_for(&self, host: &Kernel) -> Option<&'static Kernel> {
+        match self.production_kernel {
+            Some(f) => Some(f(host.sources)),
+            None => self.pay_kernel.map(|f| f()),
+        }
+    }
+
     /// The printed-name group of each action card (the index of the first card with its name): [`Self::card_groups`], else the
     /// play facts' table. `None` when the adapter gave neither.
     #[must_use]
@@ -1268,6 +1281,25 @@ impl<'a> Eff<'_, 'a> {
     /// "Cancel that event."
     pub fn cancel(&mut self) {
         self.event.cancelled = true;
+    }
+
+    /// [`Inline::with_sx`] over the kernel the adapter lent for payments ([`Self::pay_kernel`]): how an ability runs a window that reads the
+    /// faction hooks of production (a use of PRODUCTION by an ability). `None`, `f` not run: the adapter lent none. The window's own
+    /// questions are the caller's to put ([`Self::ask`]); its events are announced inside the effect.
+    pub fn with_pay_sx<T>(&mut self, f: impl FnOnce(&mut Sx<'_>) -> T) -> Option<T> {
+        let kernel = self.host.table.facts.production_kernel_for(self.host.kernel)?;
+        let mut emitted = Vec::new();
+        let mut sx = Sx {
+            state: &mut *self.host.state,
+            kernel,
+            resolver: &mut *self.resolver,
+            table: self.host.table,
+            tape: &mut *self.host.tape,
+            next_id: &mut *self.host.next_id,
+            emitted: &mut emitted,
+            seeds: self.host.seeds,
+        };
+        Some(f(&mut sx))
     }
 
     /// The services of this effect as a [`Runner`] (an effect that plays an action card): its questions carry the

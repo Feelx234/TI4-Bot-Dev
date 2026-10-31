@@ -92,6 +92,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::saar::timing::MENDOSA, kind: "leader", card: "saaragent" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::EDICT_SPACE, kind: "ability", card: "edict" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::EDICT_GROUND, kind: "ability", card: "edict" },
+    Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::COMMANDER, kind: "leader", card: "arboreccommander" },
+    Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::FLAGSHIP, kind: "unit", card: "arborec_flagship" },
     Named { slot: ti4_engine_core_factions::cd_registry::titans::timing::AWAKEN, kind: "ability", card: "awaken" },
     Named { slot: ti4_engine_core_factions::cd_registry::titans::timing::OURANOS, kind: "unit", card: "titans_flagship" },
     Named { slot: ti4_engine_core_factions::silent::gift::GIFT, kind: "promissory", card: "gift" },
@@ -574,6 +576,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.indoctrination = r.code("indoctrination");
         table.codes.terragenesis = r.code("terragenesis");
         table.facts.pay_kernel = Some(crate::production_view::kernel);
+        table.facts.production_kernel = Some(crate::production_view::kernel_for_core);
         table.codes.mahact_infantry = r.code("mahact_infantry");
         table.codes.mahact_infantry2 = r.code("mahact_infantry2");
         table.codes.retreat_capacity = r.code("retreat_capacity");

@@ -339,7 +339,7 @@ mod tests {
                     bail = Some(super::gap_text(gap).to_owned());
                     break;
                 }
-                Err(e) => panic!("the native step: {e:?}; asked so far: {:?}; last details {:?}; round marks {:?} activation {}", seen.borrow().iter().map(|c| (c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>(), seen.borrow().last().map(|c| c.details.get("routes").cloned()), core.players().by_seat(seat).map(|p| p.round_marks.clone()), core.meta().activation_seq),
+                Err(e) => panic!("the native step: {e:?} (script {script:?}); asked so far: {:?}; last details {:?}; round marks {:?} activation {}", seen.borrow().iter().map(|c| (c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>(), seen.borrow().last().map(|c| c.details.get("routes").cloned()), core.players().by_seat(seat).map(|p| p.round_marks.clone()), core.meta().activation_seq),
             }
         }
         let asked = seen.borrow().clone();
@@ -949,6 +949,63 @@ mod tests {
             }
             let diffs = lockstep(state, &hub.galaxy, &[&[TACTICAL_ACTION_ID, centre.as_str()][..], &script].concat(), false);
             assert!(diffs.is_empty(), "ouranos {pds_on} {script:?}: {diffs:#?}");
+        }
+    }
+
+    /// Duha Menaimon (the Arborec flagship) and Dirzuga Rophal (the commander): a production by an ability in the activated system.
+    #[test]
+    fn the_arborec_flagship_and_commander_produce_in_lockstep() {
+        let probe = table(&[("a", "arborec"), ("b", "sol")]);
+        let home = probe.player(&a()).and_then(|p| p.home_system.clone()).expect("a home system");
+        let mut ids = vec![home.to_string()];
+        ids.extend(crate::fixtures::plain_systems(12).into_iter().filter(|i| i != home.as_str()).take(6));
+        let hub = crate::fixtures::hub_from(&ids);
+        let ring = ti4_model::id::SystemId::new(hub.outer[1].clone());
+        let mv = id(&ring, 0);
+        let mut state = table(&[("a", "arborec"), ("b", "sol")]);
+        // (No note in any hand: the loud gap of Stymie, an unported SHIP_MOVED ability, would stop the move.)
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        crate::fixtures::put(&mut state, &home, "arborec_flagship", &a(), 1);
+        crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+        let flagship = "unit:arborec:arborec_flagship:SYSTEM_ACTIVATED:after";
+        // Nothing built, ships built (payment and placement questions as the string asks them), a decline.
+        for answers in [
+            vec![flagship, "done_producing"],
+            vec![flagship, "build|fighter|2", "done_producing"],
+            vec![flagship, "build|cruiser|1", "done_producing"],
+            vec![flagship, "build|arborec_infantry|2", "done_producing"],
+            vec![flagship, "build|arborec_mech|1", "done_producing"],
+            vec!["decline"],
+        ] {
+            let mut script = vec![TACTICAL_ACTION_ID, home.as_str()];
+            script.extend(answers.iter().copied());
+            script.push(mv.as_str());
+            let diffs = lockstep(state.clone(), &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "flagship {script:?}: {diffs:#?}");
+        }
+        // The commander (b's, unlocked) produces one unit when another player activates a system holding its space dock.
+        let probe = table(&[("a", "sol"), ("b", "arborec")]);
+        let b_home = probe.player(&PlayerId::new("b")).and_then(|p| p.home_system.clone()).expect("a home system");
+        let mut ids = vec![b_home.to_string()];
+        ids.extend(crate::fixtures::plain_systems(12).into_iter().filter(|i| i != b_home.as_str()).take(6));
+        let hub = crate::fixtures::hub_from(&ids);
+        let ring = ti4_model::id::SystemId::new(hub.outer[1].clone());
+        let mut state = table(&[("a", "sol"), ("b", "arborec")]);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("arboreccommander"), ti4_model::state::LeaderStatus::Unlocked);
+        let planet = ti4_content::galaxy::all_systems(ContentStore::embedded(), POK).get(b_home.as_str()).and_then(|s| s.planets().first().map(|p| (*p).to_owned())).expect("a planet");
+        crate::fixtures::put_on_planet(&mut state, &b_home, &ti4_model::id::PlanetId::new(planet), "spacedock", &PlayerId::new("b"), 1);
+        crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+        let mv = id(&ring, 0);
+        let commander = "leader:arborec:arboreccommander:SYSTEM_ACTIVATED:after";
+        for answers in [vec![commander, "build|cruiser|1"], vec![commander, "done_producing"], vec![commander, "build|arborec_infantry|1"], vec!["decline"]] {
+            let mut script = vec![TACTICAL_ACTION_ID, b_home.as_str()];
+            script.extend(answers.iter().copied());
+            script.push(mv.as_str());
+            let diffs = lockstep(state.clone(), &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "commander {script:?}: {diffs:#?}");
         }
     }
 }
