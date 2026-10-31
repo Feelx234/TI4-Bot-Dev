@@ -180,7 +180,7 @@ Break of the combination: the delivery registry named `arborec.rs::agent_use` an
 | `cargo test -p ti4-engine --lib` | 4842 passed, 0 failed |
 | same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` | 4842 passed, 0 failed |
 | core + factions + rule-bot-typed + bridge `--lib` | 605 passed |
-| `decision_delivery_inventory`, `content_ids_resolve` | W7_INV |
+| `decision_delivery_inventory`, `content_ids_resolve` | 4 + 4 passed (after the rename; the first run at `2bf5b06e` failed on it) |
 | `ti4-engine-core-tests` with the D4 flags | 1105 passed, 0 failed |
 | `check_layers.py core`, `lint_core.sh` | 432 files, 0 violations; 434 files, 0 hits |
 
