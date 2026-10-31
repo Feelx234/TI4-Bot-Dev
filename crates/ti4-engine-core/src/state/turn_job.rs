@@ -8,6 +8,8 @@
 /// A job of the turn flow, open on the `Pending` stack while its step is suspended on a question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TurnJob {
+    /// The reconcile hooks every step starts with (staged events, gains, the nexus latch, Styx, Spec Ops rolls).
+    Reconcile,
     /// The start of a turn: the start-of-turn technologies, the commander unlocks, Military Support, Spec Ops, `TURN_BEGAN`.
     Prelude,
     /// The end of an action: `ACTION_COMPLETED`, then the closing menu or the end of the turn.

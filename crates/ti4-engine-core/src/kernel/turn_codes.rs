@@ -16,6 +16,8 @@ pub struct TurnCodes {
     /// `ms`, the ability name of Military Support's placement question, and `military_support`, the reason of its strategy token.
     pub military_support: Code,
     pub military_support_reason: Code,
+    /// `spec ops II`: the purpose of the survival roll.
+    pub spec_ops: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.
@@ -38,6 +40,10 @@ pub enum TurnGap {
     PromiseBook,
     /// A question source (`AskArm as u8`) no lane has made native yet.
     AskArm(u8),
+    /// Nekro's Propagation is announced (its reaction is the string's).
+    Propagation,
+    /// A tile a faction effect replaced or swapped has to be replayed onto the map.
+    MapEdits,
     /// The resolver refused an emission (a defect of the position, never a rule).
     EmissionRefused,
     /// A replayed answer was refused by the window it was given to (the question changed between the replays).

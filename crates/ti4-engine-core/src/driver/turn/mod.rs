@@ -19,6 +19,7 @@ pub mod inline;
 pub mod phase;
 pub mod prelude;
 pub mod start;
+pub mod starting;
 
 use crate::choice::{Choice, Pick};
 use crate::driver::live::{advance, ask, is_open, open, Asking, Env, Live, LiveError, Out};
@@ -49,6 +50,7 @@ impl Window for TurnFlowWin {
             TurnJob::End => end::run_end(sx),
             TurnJob::Phase => phase::run_phase(sx),
             TurnJob::Announce => phase::run_announce(sx),
+            TurnJob::Reconcile => prelude::run_reconcile(sx),
         };
         Next::Done
     }
@@ -135,6 +137,14 @@ pub fn advance_prelude(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>
 /// As [`advance_job`].
 pub fn advance_phase(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
     advance_job(TurnJob::Phase, core, env, answer)
+}
+
+/// The reconcile hooks every step starts with (`Game::step_flow` before the arm is chosen).
+///
+/// # Errors
+/// As [`advance_job`].
+pub fn advance_reconcile(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
+    advance_job(TurnJob::Reconcile, core, env, answer)
 }
 
 /// `Arm::StrategyAnnounce`.

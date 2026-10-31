@@ -24,7 +24,7 @@ pub mod turn;
 use std::collections::VecDeque;
 
 use ti4_engine_core::choice::Choice as CoreChoice;
-use ti4_engine_core::driver::live::{ask_arm_fn, live_arm, Asking, Env, Live, LiveError, Out};
+use ti4_engine_core::driver::live::{ask_arm_fn, live_arm, Asking, AskFn, Env, Live, LiveError, LiveFn, Out};
 use ti4_engine_core::driver::session::Arm;
 use ti4_engine_core::state::CoreState;
 
@@ -160,25 +160,42 @@ pub fn pick_of(r: &Render, choice: &CoreChoice, id: &str) -> Option<ti4_engine_c
 /// # Errors
 /// [`Stop`]; the position is then exactly what it was.
 pub fn live_step(core: &mut CoreState, arm: Arm, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
+    let (Some(advance), Some(ask)) = (live_arm(arm), ask_arm_fn(arm)) else {
+        let stop = Stop::NoLiveFn(arm);
+        crate::dual::note_bail(&format!("step::{}", arms::name(arm)), "no live function");
+        return Err(stop);
+    };
+    run_live(core, arms::name(arm), advance, ask, cx, asker)
+}
+
+/// The reconcile hooks every step starts with (`Game::step_flow` before the arm is chosen): the events effects staged, the gains no site
+/// announced, the nexus latch, Styx's point, the Spec Ops rolls. Run it before [`live_step`], with the same asker: an emission here can
+/// open a reaction window.
+///
+/// # Errors
+/// As [`live_step`].
+pub fn live_reconcile(core: &mut CoreState, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
+    run_live(core, "reconcile", ti4_engine_core::driver::turn::advance_reconcile, ti4_engine_core::driver::turn::ask_job, cx, asker)
+}
+
+/// [`live_step`] over the two functions of an arm (or of a job that belongs to no arm), `name` for the census.
+fn run_live(core: &mut CoreState, name: &'static str, advance: LiveFn, ask: AskFn, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
     let before = core.clone();
-    let result = live_step_inner(core, arm, cx, asker);
+    let result = live_step_inner(core, advance, ask, cx, asker);
     if let Err(stop) = &result {
         *core = before;
         // A position the core does not run is a bail of the live path (the zero-bail acceptance counts it, `TI4_BAIL_IS_FAILURE`).
-        match stop {
-            Stop::Live(LiveError::Unknown(why)) => crate::dual::note_bail(&format!("live::{}", arms::name(arm)), &format!("{why:?}")),
-            Stop::NoLiveFn(_) => crate::dual::note_bail(&format!("step::{}", arms::name(arm)), "no live function"),
-            _ => {}
+        if let Stop::Live(LiveError::Unknown(why)) = stop {
+            crate::dual::note_bail(&format!("live::{name}"), &format!("{why:?}"));
         }
     }
     if result.is_ok() {
-        coverage::note(arms::name(arm));
+        coverage::note(name);
     }
     result
 }
 
-fn live_step_inner(core: &mut CoreState, arm: Arm, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
-    let (Some(advance), Some(ask)) = (live_arm(arm), ask_arm_fn(arm)) else { return Err(Stop::NoLiveFn(arm)) };
+fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
     let events_from = core.ledger.events.len();
     let mut step = StepOut { finished: false, asked: Vec::new(), out: Out::default(), events_from };
     let mut merge = |step: &mut StepOut, out: Out| {

@@ -31,6 +31,7 @@ pub fn codes(r: &Render) -> TurnCodes {
         minister_source: r.code("minister_war"),
         military_support: r.code("ms"),
         military_support_reason: r.code("military_support"),
+        spec_ops: r.code("spec ops II"),
     }
 }
 
