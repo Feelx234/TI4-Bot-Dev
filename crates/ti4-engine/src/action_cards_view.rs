@@ -276,8 +276,6 @@ fn env_of(state: &GameState, player: &PlayerId, sources: &ti4_model::content_typ
             own_breakthrough: own_breakthroughs(state, r),
             unit_order: |a, b| crate::generated::IdStr::as_str(a).cmp(crate::generated::IdStr::as_str(b)),
             map: false,
-            explore_empty: ti4_engine_core::state::Code(0),
-            action_draw_plain: false,
             carried: rules::perform::Carried::default(),
             reroll: None,
             courageous_subtype: ti4_engine_core::state::Code(0),
@@ -469,21 +467,28 @@ pub fn plays(alias: &ActionCardId) -> bool {
 /// The map slice, lent for the cards that read it.
 const MAP: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Map], &[]);
 
-/// The exploration slice (the frontier tokens, the wormhole tokens and the log), for the card that explores.
-const EXPLORE: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Explore], &[Slice::Explore]);
 
 /// Whether the card is Exploration Probe.
 fn is_probe(card: ActionCard) -> bool {
     rules::effects::Fx::of(card) == Some(rules::effects::Fx::Probe)
 }
 
-/// What Exploration Probe reads that the core does not hold: whether the map is lent, the empty text of the exploration log's row (the
-/// core opens the row; its words are written by [`close_row`]) and whether two action cards would be drawn plainly (a Lost Crew).
-fn probe_facts(gs: &GameState, cx: &mut Ctx, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, facts: &mut rules::Facts) -> Option<()> {
+/// What Exploration Probe reads that the core does not hold: whether the map is lent (the adjacency of its question). The exploration
+/// itself is the exploration window of the explore area (`Spawn::ExploreFrontier`): its texts and links are the table's ([`probe_table`]).
+fn probe_facts(galaxy: Option<&ti4_content::galaxy::Galaxy>, facts: &mut rules::Facts) {
     facts.map = galaxy.is_some();
-    facts.explore_empty = cx.texts.intern(Slice::Explore, "").ok()?;
-    facts.action_draw_plain = crate::strategy_cards_core::plain_draw_within_limit(gs, ti4_content::ContentStore::embedded(), player, 2);
-    Some(())
+}
+
+/// The table of an Exploration Probe's play: the links of every card, and the event texts, the words of a log row and the unit forms the
+/// exploration window of its token needs (`exploring_dual::table`, as the Empyrean hero's exploration has them).
+fn probe_table(r: &crate::render::Render, content: &ti4_content::ContentStore, sources: &ti4_model::content_types::SourceSet) -> ti4_engine_core::kernel::stage::AbilityTable {
+    let mut table = play_table();
+    let exploring = crate::exploring_dual::table(r, content, sources.clone());
+    table.facts.explore_words = exploring.facts.explore_words;
+    table.facts.roster = exploring.facts.roster;
+    table.codes.explore = exploring.codes.explore;
+    ti4_engine_core_factions::self_assembly::register_links(&mut table);
+    table
 }
 
 /// The reward question of a Merchant Station carries the seat's commodity standing (display only, read where the string reads it).
@@ -494,37 +499,6 @@ pub(crate) fn reward_details(c: &ti4_engine_core::choice::Choice, before: &GameS
     }
 }
 
-/// Exploration Probe: the words of the log row the core opened (`explore_in` closes the row of the string with them). `None` when
-/// the row is not the one the core's card opened.
-fn close_row(gs: &mut GameState, player: &PlayerId, row: &rules::effects::ProbeRow) -> Option<()> {
-    use crate::exploration::{Explored, Holdings};
-    use rules::effects::Explored as How;
-    let at = gs.exploration_log.len().checked_sub(1)?;
-    let record = gs.exploration_log.get(at)?;
-    if record.player != *player || record.card != row.card.as_str() || !record.outcome.is_empty() || record.deck != "FRONTIER" {
-        return None;
-    }
-    let card = record.card.clone();
-    let outcome = match row.outcome {
-        How::Fragment(deck) => Explored::Fragment { trait_name: crate::core_sync::conv::explore_key(deck) },
-        How::Resolved => Explored::Resolved { card },
-        How::Unresolved => Explored::Unresolved { card },
-    };
-    let tokens: Vec<String> = gs
-        .wormhole_tokens
-        .iter()
-        .filter(|(kind, system)| kind.eq_ignore_ascii_case("gamma") && Some(system.as_str()) == row.gamma.map(|g| g.as_str()))
-        .map(|(kind, system)| format!("wormhole:{kind}:{system}"))
-        .collect();
-    let kept = gs.player(player).and_then(|seat| seat.exploration_cards.last().cloned());
-    let words = crate::exploration::row_words(&Holdings::from_core(row.before), &Holdings::from_core(row.after), None, &outcome, tokens, kept.as_deref(), None);
-    let record = gs.exploration_log.get_mut(at)?;
-    record.outcome = words.text;
-    record.result = words.result;
-    record.gains = words.gains;
-    record.placed = words.placed;
-    Some(())
-}
 /// Strategize and Overrule: what the performed abilities of the strategy areas read beyond a card's play (the research reads the
 /// trade and exploration slices) and write (the speaker of Politics).
 pub(crate) const PERFORM: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Trade, Slice::Explore], &[Slice::Meta]);
@@ -584,7 +558,12 @@ pub fn play_window(
     };
     let probe = is_probe(card);
     if probe {
-        probe_facts(gs, &mut cx, player, galaxy, &mut env.facts)?;
+        probe_facts(galaxy, &mut env.facts);
+        // (A replenishment through a siphoning plot, or an action card draw a faction hook changes, is the string's.)
+        if crate::leaders_core::replenish_window_unported(gs).is_some() || !crate::strategy_cards_core::plain_draw(gs, ti4_content::ContentStore::embedded(), player, 2) {
+            crate::dual::note_bail("action_cards::play", "an exploration whose replenishment or draw the core does not follow");
+            return None;
+        }
     }
     hit_facts(gs, &r, &mut cx, card, galaxy, false, &mut env.facts)?;
     let lent = lend_rolls(alias, before_rolls, "action_cards::play")?;
@@ -621,7 +600,7 @@ pub fn play_window(
     // A card that reads the map when there is one (Exploration Probe) is lent the galaxy the string had, if any.
     let lends_map = galaxy.is_some() && rules::effects::Fx::of(card).is_some_and(rules::effects::Fx::uses_map);
     let fp = if lends_map { fp.union(MAP) } else { fp };
-    let fp = if probe { fp.union(EXPLORE) } else { fp };
+    let fp = if probe { fp.union(crate::exploring_dual::FP) } else { fp };
     let src = Sources { galaxy: if lends_map { galaxy } else { None }, rng: lent.as_ref().map(|l| &l.before) };
     let mut driver_seeds = None;
     if lent.is_some() {
@@ -641,7 +620,6 @@ pub fn play_window(
             hit_details(c, core, kernel, card, player, rendered);
         }
     };
-    let mut row = None;
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         if lends_map && core.galaxy().is_none() {
             crate::dual::note_bail_here("the map could not be lent to the core");
@@ -656,7 +634,7 @@ pub fn play_window(
             env.facts.carried = carried_of(core, &before, sources, player, seat, &r);
         }
         let play = rules::effects::Play::of(core, card, seat, env)?;
-        let mut driver = crate::window_driver::driver_for(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
+        let mut driver = crate::window_driver::driver_for(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), if probe { probe_table(&r, ti4_content::ContentStore::embedded(), sources) } else { play_table() }, 1);
         if let Some(seeds) = driver_seeds {
             driver = driver.with_seeds(seeds);
         }
@@ -666,7 +644,6 @@ pub fn play_window(
         faces = driver.window.faces().to_vec();
         placed_tokens = driver.window.placed_tokens().map(|(system, seats)| (system, seats.to_vec()));
         unsupported = driver.window.unsupported();
-        row = driver.window.explored();
         if lent.is_some() {
             rng_after = Some(core.rng().clone());
         }
@@ -676,9 +653,6 @@ pub fn play_window(
     .ok()?;
     if unsupported {
         return None;
-    }
-    if let Some(row) = &row {
-        close_row(gs, player, row)?;
     }
     crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
     stage_placed_tokens(gs, &r, placed_tokens);
@@ -774,7 +748,12 @@ pub fn announce_window(
     };
     let probe = is_probe(card);
     if probe {
-        probe_facts(gs, &mut cx, player, galaxy, &mut env.facts).why("the map facts of an Exploration Probe could not be computed")?;
+        probe_facts(galaxy, &mut env.facts);
+        // (A replenishment through a siphoning plot, or an action card draw a faction hook changes, is the string's.)
+        if crate::leaders_core::replenish_window_unported(gs).is_some() || !crate::strategy_cards_core::plain_draw(gs, ti4_content::ContentStore::embedded(), player, 2) {
+            crate::dual::note_bail("action_cards::announce", "an exploration whose replenishment or draw the core does not follow");
+            return None;
+        }
     }
     hit_facts(gs, &r, &mut cx, card, galaxy, true, &mut env.facts).why("the facts of a hit card could not be computed")?;
     let hitting = hits_card(card);
@@ -818,7 +797,7 @@ pub fn announce_window(
         fp = fp.union(MAP);
     }
     if probe {
-        fp = fp.union(EXPLORE);
+        fp = fp.union(crate::exploring_dual::FP);
     }
     let src = Sources { galaxy: if lends_map { galaxy } else { None }, rng: lent.as_ref().map(|l| &l.before) };
     let seeds = match lent {
@@ -826,7 +805,6 @@ pub fn announce_window(
         None => None,
     };
     let rolled = seeds.is_some();
-    let mut row = None;
     let performing = performing_of(&before, sources, player, seat, card, &r);
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         if lends_map && core.galaxy().is_none() {
@@ -846,7 +824,7 @@ pub fn announce_window(
             crate::dual::note_bail_here("a card the core announce window does not play");
         }
         let announce = announce?;
-        let mut driver = crate::window_driver::driver_for(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
+        let mut driver = crate::window_driver::driver_for(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), if probe { probe_table(&r, ti4_content::ContentStore::embedded(), sources) } else { play_table() }, 1);
         if let Some(seeds) = seeds {
             driver = driver.with_seeds(seeds);
         }
@@ -872,7 +850,6 @@ pub fn announce_window(
         };
         let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &battle);
         played = Some(driver.window.played());
-        row = driver.window.explored();
         faces = driver.window.faces();
         placed_tokens = driver.window.placed_tokens();
         if rolled {
@@ -885,9 +862,6 @@ pub fn announce_window(
     .why(crate::dual::reason::NOT_LENDABLE)?
     .why(crate::dual::reason::NOT_LENDABLE)?
     .why(crate::dual::reason::DRIVER_REFUSED)?;
-    if let Some(row) = &row {
-        close_row(gs, player, row).why("the exploration row of the card could not be closed")?;
-    }
     crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
     stage_placed_tokens(gs, &r, placed_tokens);
     let events: Vec<crate::event::Event> = emitted.iter().map(|e| crate::dual_window::event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;

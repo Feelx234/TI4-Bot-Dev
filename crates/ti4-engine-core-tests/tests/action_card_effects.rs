@@ -32,7 +32,7 @@ fn env() -> Env {
         infantry: Placed { unit: Some(Unit::InfantryI), on_card: 0 },
         cruiser: Placed { unit: Some(Unit::CruiserI), on_card: 0 },
         fighter: Placed { unit: Some(Unit::FighterI), on_card: 0 },
-        facts: Facts { neutral: Some(Seat(1)), action_draw_plain: true, rules_version: 35, ..Facts::default() },
+        facts: Facts { neutral: Some(Seat(1)), rules_version: 35, ..Facts::default() },
     }
 }
 

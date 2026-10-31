@@ -121,15 +121,6 @@ impl Announce {
         }
     }
 
-    /// Exploration Probe: the card the frontier deck gave and what the seat held around it (see [`Play::explored`]).
-    #[must_use]
-    pub fn explored(&self) -> Option<super::effects::ProbeRow> {
-        match &self.effect {
-            Effect::Play(play) => play.explored(),
-            _ => None,
-        }
-    }
-
     /// The dice the effect rolled as an ability does, to be kept in the ledger when the play was inside a window (see
     /// [`Play::ability_roll`]).
     #[must_use]

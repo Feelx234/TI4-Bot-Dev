@@ -129,7 +129,18 @@ fn merge_tables(mut armed: AbilityTable, own: AbilityTable) -> AbilityTable {
     armed.after_play = armed.after_play.or(own.after_play);
     armed.bars = armed.bars.or(own.bars);
     armed.card_name = armed.card_name.or(own.card_name);
+    keep_exploration(&mut armed, &own);
     armed
+}
+
+/// What an exploration child of a window needs (the words of a log row, the event texts and the unit forms) is the adapter's, not the core
+/// table's: a window whose table is replaced by the core table (it follows nested activity, or is armed) keeps what it was built with.
+pub(crate) fn keep_exploration(table: &mut AbilityTable, own: &AbilityTable) {
+    if own.facts.explore_words.is_some() {
+        table.facts.explore_words = own.facts.explore_words;
+        table.facts.roster = own.facts.roster;
+        table.codes.explore = own.codes.explore;
+    }
 }
 
 #[cfg(test)]

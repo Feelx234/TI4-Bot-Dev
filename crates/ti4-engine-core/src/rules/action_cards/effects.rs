@@ -24,13 +24,12 @@ use crate::choice::combat::{Ask as CAsk, Opt as COpt, RerollSource, Subtype as C
 use crate::choice::generic::Rule;
 use crate::choice::{Choice, Ctx, Opts, Origin, Pick};
 use crate::containers::SmallList;
-use crate::choice::explore::{Opt as EOpt, Step as EStep};
-use crate::generated::{ActionCard, Agenda, Explore, ExploreResolution, ExploreType, Planet, PlanetTrait, StrategyCard, System, UnitBaseType, Wormhole};
+use crate::generated::{ActionCard, Agenda, Planet, PlanetTrait, StrategyCard, System, UnitBaseType};
 use crate::ids::Seat;
 use crate::keys::{Prediction, PredictionTag, VoteBar};
 use crate::kernel::stage::{Illegal, Ran, Sx, Window};
-use crate::kernel::children::{AreaLinks, ErasedChild, Report, Spawn};
-use crate::kernel::{Kernel, Next, fx, fx_explore, fx_ground, fx_pay, fx_relic};
+use crate::kernel::children::{AreaLinks, ErasedChild, ExploreEnd, Report, Spawn};
+use crate::kernel::{Kernel, Next, fx, fx_ground, fx_pay};
 use crate::keys::{ActionCardCause, DestroyReason};
 use crate::state::{RngDomain, SeedSource};
 use crate::query::{board, economy, seats};
@@ -366,12 +365,9 @@ pub enum Stage {
     Billing,
     /// Returning a secret objective over the hand limit (the child window [`HandLimit`]).
     Limiting,
-    /// Exploration Probe: the token is picked; the frontier deck is explored next.
+    /// Exploration Probe: the token is picked; the frontier token is explored by the exploration window (the child window [`Exploring`]
+    /// of the explore area, `Spawn::ExploreFrontier`).
     Exploring,
-    /// Exploration Probe: the command tokens of the card, each into a pool of the holder's choice.
-    Pooling,
-    /// Exploration Probe: the reward question of a Merchant Station (the child window [`Reward`]).
-    Rewarding,
     /// The strategy card to perform is chosen; its ability begins.
     Chosen,
     /// Performing the ability of the chosen strategy card (the child window [`Performed`]).
@@ -382,29 +378,6 @@ pub enum Stage {
     /// `Absorb` of the combat area).
     Hitting,
     Done,
-}
-
-/// What an Exploration Probe tells the adapter once its card has resolved: the card, how it resolved, what the seat held before
-/// the draw and after the last effect (the words of the exploration log's row are `exploration::Holdings`' and the adapter's), and
-/// the system a gamma token was placed in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProbeRow {
-    pub card: Explore,
-    pub outcome: Explored,
-    pub before: crate::query::explore::Holdings,
-    pub after: crate::query::explore::Holdings,
-    pub gamma: Option<System>,
-}
-
-/// How the card an Exploration Probe drew resolved (the outcome text and the other texts of the exploration log are the adapter's).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Explored {
-    /// A relic fragment of this deck was gained.
-    Fragment(ExploreType),
-    /// The card did what it says.
-    Resolved,
-    /// The card has nothing to act on without a planet (or a system the draw did not name): nothing happened.
-    Unresolved,
 }
 
 /// One played card.
@@ -457,18 +430,8 @@ pub struct Play {
     pay_ask: Option<crate::choice::Ask>,
     /// Exploration Probe: the system whose token was picked (explored once the pick is applied).
     probe: Option<System>,
-    /// Exploration Probe: the card drawn and how it resolved.
-    explored: Option<(Explore, Explored)>,
-    /// Exploration Probe: the trade goods gained once the command tokens are placed.
-    owed_goods: i32,
-    /// Exploration Probe: command tokens still to place.
-    pool_left: u8,
-    /// Exploration Probe: the Merchant Station's reward question (a child window of the exploration area).
-    reward: ErasedChild,
-    /// Exploration Probe: what the seat held before the draw, and once the card has resolved.
-    held: Option<(crate::query::explore::Holdings, Option<crate::query::explore::Holdings>)>,
-    /// Exploration Probe: the system a gamma token was placed in (not where it was already).
-    gamma: Option<System>,
+    /// Exploration Probe: the exploration of the token, while it runs (a child window of the explore area).
+    explore: ErasedChild,
     /// Strategize and Overrule: the strategy card chosen.
     picked: Option<StrategyCard>,
     /// Strategize and Overrule: the ability of the card, while it runs (a child window of a strategy area).
@@ -499,9 +462,7 @@ const RULES_PLAGIARIZE_OWNED: u32 = 28;
 const RULES_ACTION_CARD_COSTS: u32 = 23;
 /// `RULES_INFILTRATE_FIX` (`ti4_model::state`).
 const RULES_INFILTRATE_FIX: u32 = 1;
-/// `RULES_COMMAND_TOKEN_POOL`, `RULES_NO_EMPTY_CONVERT` and `RULES_OFFICIAL_ACTION_DECK` (`ti4_model::state`).
-const RULES_COMMAND_TOKEN_POOL: u32 = 12;
-const RULES_NO_EMPTY_CONVERT: u32 = 19;
+/// `RULES_OFFICIAL_ACTION_DECK` (`ti4_model::state`).
 const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
 
 /// The sides of the die the string `Dice` rolls.
@@ -615,7 +576,7 @@ impl Play {
             }
             _ => None,
         };
-        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: ErasedChild::idle(), hand: ErasedChild::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explored: None, owed_goods: 0, pool_left: 0, reward: ErasedChild::idle(), held: None, gamma: None, picked: None, perform: ErasedChild::idle(), tokens: None, walk: Walk::default(), flow: ErasedChild::idle(), scene: None, owed: 0 })
+        Some(Self { card, fx, who, env, frame, victim: None, stage: Stage::Start, opts: SmallList::new(), placed: 0, used: SmallList::new(), faces: SmallList::new(), unsupported: false, step: 0, taken: None, first_ship: None, offer: None, pay: ErasedChild::idle(), hand: ErasedChild::idle(), chosen: None, landing: None, jam: None, troop: None, pulled: SmallList::new(), received: SmallList::new(), pay_ask: None, probe: None, explore: ErasedChild::idle(), picked: None, perform: ErasedChild::idle(), tokens: None, walk: Walk::default(), flow: ErasedChild::idle(), scene: None, owed: 0 })
     }
 
     fn what(&self) -> Option<What> {
@@ -2072,11 +2033,8 @@ impl Play {
 
     /// The question as the driver names it (Summit asks the strategy area's pool question).
     pub(super) fn any_ask(&self) -> crate::choice::Ask {
-        if let (Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing | Stage::Hitting, Some(ask)) = (self.stage, self.pay_ask) {
+        if let (Stage::Paying | Stage::Limiting | Stage::Exploring | Stage::Performing | Stage::Hitting, Some(ask)) = (self.stage, self.pay_ask) {
             return ask;
-        }
-        if self.stage == Stage::Pooling {
-            return crate::choice::Ask::Strategy(crate::choice::strategy::Ask::GainPool { left: self.pool_left });
         }
         if self.stage == Stage::Rerolling
             && let Some(ask) = self.reroll_ask_value()
@@ -2103,7 +2061,6 @@ impl Play {
     /// first question); `asking` says whether it waits on a pick afterwards.
     pub fn begin(&mut self, sx: &mut Sx<'_>) {
         self.begin_play(sx);
-        self.close_explored(sx.state);
     }
 
     fn begin_play(&mut self, sx: &mut Sx<'_>) {
@@ -2328,83 +2285,37 @@ impl Play {
         self.drive_hand(sx);
     }
 
-    /// Exploration Probe, `exploration_probe` and `explore_with(.., FRONTIER, None)`: the token is spent, the top card of the
-    /// frontier deck is drawn and its log row opened (its texts are the adapter's), then the card resolves as far as its first
-    /// question. Without a planet and without the system of the token, the card acts on the holder alone: a fragment, command
-    /// tokens and trade goods, a relic, a secret objective, action cards, a Merchant Station's choice, the Enigmatic Device
-    /// kept in the play area, a gamma token where the active system is; the ion storm, the Mirage and any card another deck
-    /// holds do nothing or are not carried (`unsupported`).
+    /// Exploration Probe, `exploration_probe` and `explore_with(.., FRONTIER, None)`: the exploration window of the explore area
+    /// (`Spawn::ExploreFrontier`) explores the token as a child of the play: the token is spent, the top card of the frontier deck
+    /// drawn, its log row opened and closed with the adapter's words, the card resolved with no planet and no system of the draw. A
+    /// table with no link to the window, or a card the window does not carry (it says so: `ExploreEnd::Unsupported`), declines the
+    /// play; a deck that has run out loses the token for nothing and logs no card.
     fn maybe_explore(&mut self, sx: &mut Sx<'_>) {
         if self.stage != Stage::Exploring {
             return;
         }
-        self.stage = Stage::Done;
-        let who = self.who;
         let Some(system) = self.probe.take() else { return };
-        let core = &mut *sx.state;
-        // The token goes first: a deck that has run out (or is not dealt) loses the token for nothing.
-        if !fx_explore::take_frontier(core, system) {
-            return;
-        }
-        let Some(card) = fx_explore::draw(core, ExploreType::Frontier) else { return };
-        fx_explore::open_record(core, who, ExploreType::Frontier, card, None, None, self.env.facts.explore_empty);
-        self.held = Some((crate::query::explore::holdings(core, who, None), None));
-        let data = card.data();
-        let (outcome, goods) = match data.resolution {
-            ExploreResolution::Fragment => {
-                fx_explore::gain_fragment(core, who, data.deck);
-                (Explored::Fragment(data.deck), None)
+        let Some(window) = sx.table.links.start(&Spawn::ExploreFrontier { who: self.who, system, named: false }) else { return self.decline() };
+        self.explore.start(window);
+        self.drive_explore(sx);
+    }
+
+    /// Step the exploration of the token until it asks or ends.
+    fn drive_explore(&mut self, sx: &mut Sx<'_>) {
+        self.pay_ask = None;
+        loop {
+            match self.explore.step(sx) {
+                Some(Ran::Asks(ask)) => {
+                    self.pay_ask = Some(ask);
+                    return;
+                }
+                Some(Ran::Pass(_)) => {}
+                Some(Ran::Done(Report::Explored(ExploreEnd::Unsupported))) => return self.decline(),
+                Some(Ran::Done(_)) | None => {
+                    self.stage = Stage::Done;
+                    return;
+                }
             }
-            // A card of another deck (an attachment, a planet's reward) is not in the frontier deck of any game.
-            ExploreResolution::Attach => return self.decline(),
-            ExploreResolution::Instant | ExploreResolution::Token => match card {
-                Explore::MinorEntropicField => (Explored::Resolved, Some((1, 1))),
-                Explore::EntropicField => (Explored::Resolved, Some((1, 2))),
-                Explore::MajorEntropicField => (Explored::Resolved, Some((1, 3))),
-                Explore::KeleresShip1 | Explore::KeleresShip2 => (Explored::Resolved, Some((2, 0))),
-                Explore::DeadWorld => {
-                    fx_relic::relic_gain(core, who);
-                    (Explored::Resolved, None)
-                }
-                Explore::DerelictVessel1 | Explore::DerelictVessel2 => {
-                    self.explored = Some((card, Explored::Resolved));
-                    return self.draw_secret(sx);
-                }
-                Explore::EnigmaticDevice1 | Explore::EnigmaticDevice2 => {
-                    fx_explore::play_area_card(core, who, card);
-                    (Explored::Resolved, None)
-                }
-                Explore::GammaRelay | Explore::GammaWormhole => match core.meta().active_system {
-                    Some(here) => {
-                        if core.explore().wormhole_tokens.get(&Wormhole::Gamma) != Some(&here) {
-                            self.gamma = Some(here);
-                        }
-                        fx_explore::place_wormhole_token(core, Wormhole::Gamma, here);
-                        (Explored::Resolved, None)
-                    }
-                    None => (Explored::Unresolved, None),
-                },
-                // "This system": the draw names no system and no planet, so these cards have nowhere to act.
-                Explore::IonStorm | Explore::Mirage => (Explored::Unresolved, None),
-                Explore::LostCrew1 | Explore::LostCrew2 => {
-                    // A hand over its limit, a draw hook (Scheming) and the unofficial cards are the string's.
-                    if !self.env.facts.action_draw_plain {
-                        return self.decline();
-                    }
-                    fx::draw_action_cards(core, who, 2, self.env.facts.rules_version >= RULES_OFFICIAL_ACTION_DECK);
-                    (Explored::Resolved, None)
-                }
-                Explore::MerchantStation1 | Explore::MerchantStation2 => {
-                    self.explored = Some((card, Explored::Resolved));
-                    return self.merchant_station(sx);
-                }
-                _ => return self.decline(),
-            },
-        };
-        self.explored = Some((card, outcome));
-        if let Some((tokens, goods)) = goods {
-            self.owed_goods = goods;
-            self.gain_tokens(sx, tokens);
         }
     }
 
@@ -2550,77 +2461,6 @@ impl Play {
         self.stage = Stage::Done;
     }
 
-    /// `gain_command_tokens`: from rules version 12 each token goes into a pool of the holder's choice (the question of 52.4),
-    /// before that all go into the strategy pool. Then the trade goods the card owes.
-    fn gain_tokens(&mut self, sx: &mut Sx<'_>, count: u8) {
-        // The reinforcements the pool question previews (and the cap) count the tokens a Mahact fleet holds.
-        if count > 0 && self.env.mahact_held > 0 {
-            return self.decline();
-        }
-        if count > 0 && self.env.facts.rules_version >= RULES_COMMAND_TOKEN_POOL {
-            self.pool_left = count;
-            self.stage = Stage::Pooling;
-            return;
-        }
-        if count > 0 {
-            fx::gain_token(sx.state, self.who, crate::choice::strategy::Pool::Strategic, i32::from(count));
-        }
-        self.finish_goods(sx);
-    }
-
-    /// The trade goods of an entropic field, gained after its command token (no announcement: the string explores with no timing).
-    fn finish_goods(&mut self, sx: &mut Sx<'_>) {
-        fx::gain_trade_goods(sx.state, self.who, self.owed_goods);
-        self.owed_goods = 0;
-        self.stage = Stage::Done;
-    }
-
-    /// Merchant Station: "replenish your commodities, or convert your commodities to trade goods", asked unless only one is offered
-    /// (from rules version 19 a seat without commodities has nothing to convert).
-    fn merchant_station(&mut self, sx: &mut Sx<'_>) {
-        let has_commodities = sx.state.players().by_seat(self.who).is_some_and(|p| p.econ.commodities >= 1);
-        let mut options = vec![EOpt::Replenish];
-        if self.env.facts.rules_version < RULES_NO_EMPTY_CONVERT || has_commodities {
-            options.push(EOpt::Convert);
-        }
-        let request = Spawn::Reward { who: self.who, step: EStep::MerchantStation, options: SmallList::from_slice(&options), skip_single: true };
-        let Some(window) = sx.table.links.start(&request) else { return self.decline() };
-        self.reward.start(window);
-        self.stage = Stage::Rewarding;
-        self.drive_reward(sx);
-    }
-
-    /// Step the Merchant Station's question until it asks or ends; the answer is then carried out.
-    fn drive_reward(&mut self, sx: &mut Sx<'_>) {
-        self.pay_ask = None;
-        loop {
-            match self.reward.step(sx) {
-                Some(Ran::Asks(ask)) => {
-                    self.pay_ask = Some(ask);
-                    return;
-                }
-                Some(Ran::Pass(_)) => {}
-                Some(Ran::Done(report)) => {
-                    self.stage = Stage::Done;
-                    if report == Report::Chose(Some(EOpt::Convert)) {
-                        let moved = fx_explore::spend_commodities(sx.state, self.who, None);
-                        fx::gain_trade_goods(sx.state, self.who, moved);
-                    } else if self.env.facts.replenish_events {
-                        // The Siphon event, Cabal's note and the Trade Agreement hook follow a replenishment: the string's.
-                        self.decline();
-                    } else if let Some(limit) = sx.state.players().by_seat(self.who).map(|p| i32::from(p.faction.data().commodities)) {
-                        fx_explore::gain_commodities(sx.state, self.who, limit);
-                    }
-                    return;
-                }
-                None => {
-                    self.stage = Stage::Done;
-                    return;
-                }
-            }
-        }
-    }
-
     /// Step the hand limit until it asks or ends.
     fn drive_hand(&mut self, sx: &mut Sx<'_>) {
         self.pay_ask = None;
@@ -2699,23 +2539,6 @@ impl Play {
         (self.fx == Fx::Courageous && !self.faces.as_slice().is_empty()).then(|| (self.who, self.faces.as_slice().iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect()))
     }
 
-    /// Exploration Probe: the card the frontier deck gave, how it resolved and what the seat held around it (`None`: no card was
-    /// drawn, or the play has not finished).
-    #[must_use]
-    pub fn explored(&self) -> Option<ProbeRow> {
-        let ((card, outcome), (before, Some(after))) = (self.explored?, self.held?) else { return None };
-        Some(ProbeRow { card, outcome, before, after, gamma: self.gamma })
-    }
-
-    /// Exploration Probe: the seat's holdings once the card has resolved.
-    fn close_explored(&mut self, core: &CoreState) {
-        if self.stage == Stage::Done
-            && let Some((_, after @ None)) = &mut self.held
-        {
-            *after = Some(crate::query::explore::holdings(core, self.who, None));
-        }
-    }
-
     /// Whether the position held something the window does not express (its result is not to be compared).
     #[must_use]
     pub const fn unsupported(&self) -> bool {
@@ -2726,9 +2549,8 @@ impl Play {
     #[must_use]
     pub fn asking(&self) -> bool {
         self.stage == Stage::Asking
-            || self.stage == Stage::Pooling
             || self.stage == Stage::Rerolling
-            || (matches!(self.stage, Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing | Stage::Hitting) && self.pay_ask.is_some())
+            || (matches!(self.stage, Stage::Paying | Stage::Limiting | Stage::Exploring | Stage::Performing | Stage::Hitting) && self.pay_ask.is_some())
     }
 
     /// Apply a pick to the pending question (`Window::answer` without the services).
@@ -2736,9 +2558,7 @@ impl Play {
     /// # Errors
     /// The pick is not an option of the pending question.
     pub fn choose(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        let answered = self.choose_play(sx, pick);
-        self.close_explored(sx.state);
-        answered
+        self.choose_play(sx, pick)
     }
 
     fn choose_play(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
@@ -2752,18 +2572,9 @@ impl Play {
             self.drive_hand(sx);
             return Ok(());
         }
-        if self.stage == Stage::Rewarding {
-            self.reward.answer(sx, pick)?;
-            self.drive_reward(sx);
-            return Ok(());
-        }
-        if self.stage == Stage::Pooling {
-            let Pick::Opt(crate::choice::Opt::Strategy(crate::choice::strategy::Opt::Pool(pool))) = pick else { return Err(Illegal) };
-            fx::gain_token(sx.state, self.who, pool, 1);
-            self.pool_left = self.pool_left.saturating_sub(1);
-            if self.pool_left == 0 {
-                self.finish_goods(sx);
-            }
+        if self.stage == Stage::Exploring {
+            self.explore.answer(sx, pick)?;
+            self.drive_explore(sx);
             return Ok(());
         }
         if self.stage == Stage::Performing {
@@ -2827,9 +2638,9 @@ impl Window for Play {
         self.begin(sx);
         match self.stage {
             Stage::Asking => Next::Continue(self.any_ask()),
-            Stage::Pooling | Stage::Rerolling => Next::Continue(self.any_ask()),
-            Stage::Paying | Stage::Limiting | Stage::Rewarding | Stage::Performing | Stage::Hitting => self.pay_ask.map_or(Next::Done, Next::Continue),
-            Stage::Start | Stage::Billing | Stage::Exploring | Stage::Chosen | Stage::Done => Next::Done,
+            Stage::Rerolling => Next::Continue(self.any_ask()),
+            Stage::Paying | Stage::Limiting | Stage::Exploring | Stage::Performing | Stage::Hitting => self.pay_ask.map_or(Next::Done, Next::Continue),
+            Stage::Start | Stage::Billing | Stage::Chosen | Stage::Done => Next::Done,
         }
     }
 
@@ -2840,11 +2651,8 @@ impl Window for Play {
         if self.stage == Stage::Limiting {
             return self.hand.ask_of(s, k);
         }
-        if self.stage == Stage::Rewarding {
-            return self.reward.ask_of(s, k);
-        }
-        if self.stage == Stage::Pooling {
-            return Some(crate::choice::strategy::gain_pool_choice(self.who, self.pool_left));
+        if self.stage == Stage::Exploring {
+            return self.explore.ask_of(s, k);
         }
         if self.stage == Stage::Performing {
             return self.perform.ask_of(s, k);
@@ -3651,32 +3459,12 @@ mod tests {
         s
     }
 
-    /// Run a probe of seat 0 to its end, taking the first option of every question; the state after it, whether the run was declined,
-    /// and the questions asked.
-    fn run_probe(mut s: CoreState, env: Env) -> (CoreState, bool, usize) {
-        use crate::driver::{Driver, Status};
-        use crate::kernel::Resolver;
-        let play = Play::of(&s, ActionCard::ExplorationProbe, Seat(0), env).expect("a play");
-        let k = Kernel::plain();
-        let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
-        d = d.with_seeds(std::rc::Rc::new(ZeroSeeds));
-        let mut asked = 0;
-        let mut status = d.run(&mut s, &k).unwrap();
-        while let Status::Asking(c) = status {
-            asked += 1;
-            let pick = c.pick(0).unwrap();
-            status = d.resume(&mut s, &k, pick).unwrap();
-        }
-        let unsupported = d.window.unsupported();
-        (s, unsupported, asked)
-    }
-
     fn probe_env() -> Env {
-        Env { facts: super::super::Facts { action_draw_plain: true, ..super::super::Facts::default() }, ..bare_env() }
+        bare_env()
     }
 
     /// The probe asks which frontier token to explore: one option per token in (or, with the map, next to) a system with a ship of
-    /// the holder, in the order of the system ids; a lone option is taken without a question.
+    /// the holder, in the order of the system ids.
     #[test]
     fn exploration_probe_asks_which_frontier_token_to_explore() {
         use crate::choice::{Ask as AnyAsk, Opt as AnyOpt};
@@ -3697,11 +3485,6 @@ mod tests {
         assert_eq!(c.ask, AnyAsk::Cards(Ask::Pick { card: ActionCard::ExplorationProbe, what: What::Probe }));
         let offered: Vec<_> = c.opts.as_slice().iter().map(|o| *o).collect();
         assert_eq!(offered, [AnyOpt::Cards(Opt::System(first)), AnyOpt::Cards(Opt::System(second))]);
-        // One ship system with a token: no question.
-        let mut lone = probe_state(&[E::UnknownRelicFragment1]);
-        lone.explore_mut().frontier.insert(System::ALL[3]);
-        let (after, unsupported, asked) = run_probe(lone, probe_env());
-        assert!(!unsupported && asked == 0 && after.explore().frontier.len() == 1, "the token with no ship near it stays");
     }
 
     /// Bail: Exploration Probe while a replay reserve is installed (the string draws through it).
@@ -3711,73 +3494,6 @@ mod tests {
         assert!(Play::of(&core, ActionCard::ExplorationProbe, Seat(0), probe_env()).is_some());
         core.cards_mut().reserve = Some(crate::containers::Cow::new(Default::default()));
         assert!(Play::of(&core, ActionCard::ExplorationProbe, Seat(0), probe_env()).is_none());
-    }
-
-    /// Bail: a card of another deck in the frontier deck (an attachment, a planet's reward) is not carried: the run is declined.
-    #[test]
-    fn bail_exploration_probe_declines_a_card_of_another_deck() {
-        use crate::generated::Explore as E;
-        for card in [E::DysonSphere, E::AbandonedWarehouses1, E::CulturalRelicFragment1, E::Freelancers1] {
-            let (_, unsupported, _) = run_probe(probe_state(&[card]), probe_env());
-            // A fragment of another deck is gained like the string does; every other card is declined.
-            assert_eq!(unsupported, card != E::CulturalRelicFragment1, "{card:?}");
-        }
-    }
-
-    /// Bail: Lost Crew while the draw is not plain (a full hand, a draw hook): declined; plain, two cards come.
-    #[test]
-    fn bail_exploration_probe_declines_a_lost_crew_whose_draw_is_not_plain() {
-        use crate::generated::Explore as E;
-        let mut s = probe_state(&[E::LostCrew1]);
-        s.decks_mut().action.set(vec![ActionCard::Spy, ActionCard::Rout, ActionCard::Waylay]);
-        let (after, unsupported, _) = run_probe(s.clone(), probe_env());
-        assert!(!unsupported && after.players().by_seat(Seat(0)).unwrap().cards.hand.len() == 2, "two cards come");
-        let (_, unsupported, _) = run_probe(s, Env { facts: super::super::Facts { action_draw_plain: false, ..super::super::Facts::default() }, ..bare_env() });
-        assert!(unsupported, "not plain: the string's");
-    }
-
-    /// Bail: command tokens while a Mahact fleet holds tokens of the holder (the reinforcements differ): declined, at every rules version.
-    #[test]
-    fn bail_exploration_probe_declines_command_tokens_while_a_mahact_fleet_holds_the_holders_tokens() {
-        use crate::generated::Explore as E;
-        for version in [11, 12, u32::MAX] {
-            let facts = super::super::Facts { rules_version: version, ..super::super::Facts::default() };
-            let (_, unsupported, _) = run_probe(probe_state(&[E::EntropicField]), Env { mahact_held: 0, facts, ..bare_env() });
-            assert!(!unsupported, "{version}");
-            let (_, unsupported, _) = run_probe(probe_state(&[E::EntropicField]), Env { mahact_held: 1, facts, ..bare_env() });
-            assert!(unsupported, "{version}");
-            // A card without command tokens does not care.
-            let (_, unsupported, _) = run_probe(probe_state(&[E::UnknownRelicFragment2]), Env { mahact_held: 1, facts, ..bare_env() });
-            assert!(!unsupported, "{version}");
-        }
-    }
-
-    /// Bail: a Merchant Station's replenish while a replenishment causes events the core does not hold: declined; the conversion is carried.
-    #[test]
-    fn bail_exploration_probe_declines_a_replenish_that_causes_events() {
-        use crate::generated::Explore as E;
-        let events = Env { facts: super::super::Facts { replenish_events: true, ..super::super::Facts::default() }, ..bare_env() };
-        let mut s = probe_state(&[E::MerchantStation1]);
-        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.commodities = 1;
-        // The first option is the replenish.
-        let (_, unsupported, asked) = run_probe(s.clone(), events);
-        assert!(unsupported && asked == 1);
-        let (after, unsupported, _) = run_probe(s, bare_env());
-        assert!(!unsupported);
-        assert_eq!(after.players().by_seat(Seat(0)).unwrap().econ.commodities, 3, "an Arborec holds three");
-    }
-
-    /// The ion storm, the Mirage and the Gamma Relay without an active system have nowhere to act: the card is drawn and logged, nothing else.
-    #[test]
-    fn exploration_probe_draws_a_card_that_has_nowhere_to_act() {
-        use crate::generated::Explore as E;
-        for card in [E::IonStorm, E::Mirage, E::GammaRelay] {
-            let before = probe_state(&[card]);
-            let (after, unsupported, asked) = run_probe(before.clone(), probe_env());
-            assert!(!unsupported && asked == 0, "{card:?}");
-            assert!(after.explore().frontier.is_empty(), "the token is spent");
-            assert!(after.explore().wormhole_tokens.is_empty() && after.meta().ion_storm.is_none(), "{card:?}: nothing placed");
-        }
     }
 
     /// The documented bails of the action-card area (docs/B6_CARDS.md): the cards whose string effect runs alone, each with the
@@ -3845,7 +3561,7 @@ mod tests {
     ];
 
     fn linked_env() -> Env {
-        Env { facts: super::super::Facts { neutral: Some(Seat(1)), action_draw_plain: true, ..super::super::Facts::default() }, ..bare_env() }
+        Env { facts: super::super::Facts { neutral: Some(Seat(1)), ..super::super::Facts::default() }, ..bare_env() }
     }
 
     /// A play window built on a table without the links (an adapter that forgot `driver::children::register`) declines the run

@@ -687,7 +687,8 @@ pub fn drive_windowed<W: Window>(
         Ok(Some(mut fol)) => {
             fol.arm(r, gs, core);
             driver.resolver = fol.resolver;
-            driver.table = fol.table;
+            let own = std::mem::replace(&mut driver.table, fol.table);
+            crate::window_driver::keep_exploration(&mut driver.table, &own);
             if let Some(id) = script.first_event_id {
                 driver.next_id = id;
             }

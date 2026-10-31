@@ -716,11 +716,13 @@ impl Exploring {
         Self::new(ExploreRun::new(who, ETarget::Planet(planet), deck, announce))
     }
 
-    /// A frontier token explored; `take_token`: the token is spent first (the caller has not spent it).
+    /// A frontier token explored; `take_token`: the token is spent first (the caller has not spent it); `named`: the exploration names the
+    /// system of the token (the log row, a Mirage), as the string's `explore_frontier` does and Exploration Probe's draw does not.
     #[must_use]
-    pub fn frontier(who: Seat, system: System, announce: bool, take_token: bool) -> Self {
+    pub fn frontier(who: Seat, system: System, announce: bool, take_token: bool, named: bool) -> Self {
         let mut run = ExploreRun::new(who, ETarget::Frontier(system), EDeck::Fixed(ExploreType::Frontier), announce);
         run.take_token = take_token;
+        run.named = named;
         Self::new(run)
     }
 
@@ -883,7 +885,7 @@ impl Exploring {
         let Some(empty) = fx_explore::empty_text(sx.state) else { return self.fail(EWhy::NoTexts) };
         let (planet, system) = match self.run.target {
             ETarget::Planet(p) => (Some(p), None),
-            ETarget::Frontier(s) => (None, Some(s)),
+            ETarget::Frontier(s) => (None, self.run.named.then_some(s)),
         };
         self.run.row = u32::try_from(sx.state.explore().log.len()).ok();
         fx_explore::open_record(sx.state, who, deck, card, planet, system, empty);
@@ -955,7 +957,7 @@ impl Exploring {
                 let system = match planet {
                     Some(here) => here.data().system,
                     None => match self.run.target {
-                        ETarget::Frontier(system) if sx.state.meta().rules_at_least(RULES_MIRAGE_FRONTIER) => Some(system),
+                        ETarget::Frontier(system) if self.run.named && sx.state.meta().rules_at_least(RULES_MIRAGE_FRONTIER) => Some(system),
                         _ => None,
                     },
                 };

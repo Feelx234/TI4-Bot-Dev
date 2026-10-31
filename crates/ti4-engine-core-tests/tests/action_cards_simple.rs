@@ -25,7 +25,7 @@ fn env() -> Env {
         infantry: Placed { unit: Some(Unit::InfantryI), on_card: 0 },
         cruiser: Placed { unit: Some(Unit::CruiserI), on_card: 0 },
         fighter: Placed { unit: Some(Unit::FighterI), on_card: 0 },
-        facts: Facts { neutral: Some(Seat(1)), action_draw_plain: true, rules_version: 35, ..Facts::default() },
+        facts: Facts { neutral: Some(Seat(1)), rules_version: 35, ..Facts::default() },
     }
 }
 
@@ -633,7 +633,7 @@ fn scuttle_and_war_effort_need_a_ship_of_ours_and_unstable_planet_one_of_a_sourc
 fn the_default_facts_of_a_play_are_empty_and_the_latest_rules() {
     let f = Facts::default();
     assert_eq!(f.neutral, None);
-    assert!(!f.agent_offered && !f.holder_deepwrought && !f.replenish_events && !f.fracture_in_play && !f.map && !f.action_draw_plain);
+    assert!(!f.agent_offered && !f.holder_deepwrought && !f.replenish_events && !f.fracture_in_play && !f.map);
     assert_eq!(f.rules_version, u32::MAX);
     assert_eq!((f.destroyer, f.dreadnought, f.mech, f.pds, f.spacedock), (Placed::NONE, Placed::NONE, Placed::NONE, Placed::NONE, Placed::NONE));
     assert!(f.roster.is_none() && f.reroll.is_none() && f.reveal.iter().next().is_none());
@@ -642,7 +642,6 @@ fn the_default_facts_of_a_play_are_empty_and_the_latest_rules() {
     assert!(!f.carried.plain_draw && !f.carried.research && !f.carried.payments && f.carried.structures.is_none());
     assert!(!f.hits.staging);
     assert_eq!(f.courageous_subtype, ti4_engine_core::state::Code(0));
-    assert_eq!(f.explore_empty, ti4_engine_core::state::Code(0));
     assert_eq!((f.tech_order)(T::AntimassDeflectors, T::GravityDrive), core::cmp::Ordering::Less);
     assert_eq!((f.unit_order)(Unit::InfantryI, Unit::CruiserI), Unit::InfantryI.cmp(&Unit::CruiserI));
 }

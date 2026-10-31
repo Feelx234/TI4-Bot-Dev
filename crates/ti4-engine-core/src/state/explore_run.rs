@@ -148,6 +148,9 @@ pub struct ExploreRun {
     pub options: SmallList<EOpt, 3>,
     /// The token was taken from the frontier before the draw (the exploration of a token spends it).
     pub take_token: bool,
+    /// A frontier exploration names the system of the token: the log row records it and a Mirage drawn there is placed in it. Exploration
+    /// Probe's string draws the card with no system (`explore_with(.., FRONTIER, None)`): its row has none and a Mirage has nowhere to act.
+    pub named: bool,
     /// The deck ran out: nothing was explored.
     pub empty: bool,
     pub why: Option<EWhy>,
@@ -179,6 +182,7 @@ impl ExploreRun {
             second: None,
             options: SmallList::new(),
             take_token: false,
+            named: true,
             empty: false,
             why: None,
             finished: false,

@@ -39,13 +39,17 @@ fn env() -> Env {
         infantry: placed(Unit::InfantryI),
         cruiser: placed(Unit::CruiserI),
         fighter: placed(Unit::FighterI),
-        facts: Facts { neutral: Some(Seat(8)), action_draw_plain: true, rules_version: 35, roster: Some(Box::leak(Box::new(UnitRoster::default()))), ..Facts::default() },
+        facts: Facts { neutral: Some(Seat(8)), rules_version: 35, roster: Some(Box::leak(Box::new(UnitRoster::default()))), ..Facts::default() },
     }
 }
 
 fn rig(card: ActionCard, st: CoreState) -> Rig<Play> {
     let play = Play::of(&st, card, Seat(0), env()).unwrap_or_else(|| panic!("{card:?} has a play"));
-    Rig::from_parts(st, kernel_all(), play).with_table(linked()).seeded(1)
+    // (The exploration of the probe's token needs the event texts and the words of a log row.)
+    let mut table = ti4_engine_core_tests::windows::explore_table();
+    ti4_engine_core::driver::children::register(&mut table);
+    let _ = linked;
+    Rig::from_parts(st, kernel_all(), play).with_table(table).seeded(1)
 }
 
 #[test]
@@ -95,7 +99,7 @@ fn the_probe_finding_a_merchant_station_asks_replenish_or_convert() {
     assert_eq!(r.asked().actor, Seat(0));
     assert_eq!(r.opts().len(), 2, "replenish or convert: {:?}", r.opts());
     r.assert_options_sound();
-    assert!(r.stages.iter().any(|s| s == "Rewarding"), "{:?}", r.stages);
+    assert!(r.stages.iter().any(|s| s == "Exploring"), "{:?}", r.stages);
     r.pick_where(|o| matches!(o, Opt::Explore(EOpt::Convert)));
     assert!(r.is_done());
     assert_eq!(r.state.players().by_seat(Seat(0)).unwrap().econ.commodities, 0, "all commodities converted");
