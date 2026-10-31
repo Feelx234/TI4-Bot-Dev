@@ -126,7 +126,7 @@ mod real {
         let mut lent = Lent::default();
         // The strategic action and the leaders are listed by the core from the position; the other sources are the string's ids.
         let native = crate::menu_sources_view::native(state, &mut cx, sources, seat);
-        if native.is_none() {
+        if native.is_none() && crate::core_sync::unsupported::find(state).is_none() {
             note_bail(MENU, "the position is not one the core lists the menu sources of");
         }
         let typed_parts: Vec<(Source, Vec<TOpt>)> = parts

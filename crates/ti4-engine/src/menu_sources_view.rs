@@ -34,6 +34,10 @@ fn reads() -> SliceSet {
 /// The sources of `seat`'s action menu, read by the core. `None`: the position is not one the core can hold (the string's lists stand).
 #[must_use]
 pub fn native(gs: &GameState, cx: &mut Ctx, sources: SourceSet, seat: Seat) -> Option<Native> {
+    // A table with a switched-off faction (Ral Nel, Crimson ...) offers agents the core has no hook for: the string's lists stand.
+    if crate::core_sync::unsupported::find(gs).is_some() {
+        return None;
+    }
     let view = CoreView::of(gs, cx, Sources { galaxy: None, rng: None }, reads()).ok()?;
     let kernel = crate::live::kernel::kernel_for(sources);
     let roster = ti4_engine_core_factions::cd_registry::yin::timing::roster(ti4_engine_core::query::reach::scope_of(kernel));

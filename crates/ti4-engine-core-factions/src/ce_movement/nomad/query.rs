@@ -229,6 +229,7 @@ mod tests {
         let mut t = HookTable::new();
         register(&mut t);
         assert_eq!((t.seam.grants_sustain.len(), t.seam.borrowed_stats.len()), (1, 1));
-        assert_eq!(t.registered(), 5, "three seam providers and two direct slots, the legacy slot of cards.transaction_reach");
+        assert_eq!(t.registered(), 7, "three seam providers and two direct slots, the legacy slot of cards.transaction_reach, the two leader hooks");
+        assert_eq!((t.general.commander_unlocked.len(), t.general.leader_action.len()), (1, 1));
     }
 }

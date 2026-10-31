@@ -185,9 +185,11 @@ mod tests {
     }
 
     #[test]
-    fn registering_fills_the_five_economy_slots() {
+    fn registering_fills_the_five_economy_slots_and_the_two_leader_hooks() {
         let mut t = HookTable::new();
         register(&mut t);
-        assert_eq!(t.registered(), 5);
+        assert_eq!(t.registered(), 7);
+        assert_eq!(t.general.commander_unlocked.len(), 1);
+        assert_eq!(t.general.leader_action.len(), 1);
     }
 }

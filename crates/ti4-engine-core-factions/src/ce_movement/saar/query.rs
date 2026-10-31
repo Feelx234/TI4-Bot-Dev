@@ -125,6 +125,7 @@ mod tests {
         let mut t = HookTable::new();
         register(&mut t);
         assert_eq!(t.seam.production_destinations.len(), 1);
-        assert_eq!(t.registered(), 2);
+        assert_eq!(t.registered(), 4, "the gather, the legacy slot and the two leader hooks");
+        assert_eq!((t.general.commander_unlocked.len(), t.general.leader_action.len()), (1, 1));
     }
 }
