@@ -310,3 +310,45 @@ fn minister_of_peace(sx: &mut Sx<'_>, active: Seat, system: System) -> Result<bo
     }
     Ok(window.taken())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generated::Faction;
+    use crate::state::{Player, Players};
+
+    fn three_seats() -> crate::state::CoreState {
+        let mut s = crate::state::CoreState::all_loaded();
+        s.players = Players::from_vec((0..3).map(|i| Player::new(Seat(i), Faction::ALL[usize::from(i)])).collect());
+        s
+    }
+
+    fn pool(s: &mut crate::state::CoreState, mahact: u8, owners: &[u8]) {
+        let items = owners.iter().map(|o| MarkVal::Atom(Atom::Seat(Seat(*o)))).collect();
+        s.marks_mut().tail.edit().insert(MarkKey::MahactFleet(Seat(mahact)), MarkVal::List(items));
+    }
+
+    #[test]
+    fn a_token_leaves_the_fleet_pool_one_at_a_time_and_an_empty_pool_has_no_mark() {
+        let mut s = three_seats();
+        pool(&mut s, 0, &[2, 1, 2]);
+        assert_eq!(pool_owners(&s, Seat(0)), vec![Seat(2), Seat(1), Seat(2)]);
+        assert!(remove_pool_token(&mut s, Seat(0), Seat(2)));
+        assert_eq!(pool_owners(&s, Seat(0)), vec![Seat(1), Seat(2)], "one token of seat 2 left, the rest sorted");
+        assert!(!remove_pool_token(&mut s, Seat(0), Seat(0)), "the pool holds none of its own");
+        assert!(remove_pool_token(&mut s, Seat(0), Seat(1)));
+        assert!(remove_pool_token(&mut s, Seat(0), Seat(2)));
+        assert!(!s.marks().tail.contains_key(&MarkKey::MahactFleet(Seat(0))), "the last token takes the mark with it");
+        assert!(!remove_pool_token(&mut s, Seat(0), Seat(1)));
+    }
+
+    #[test]
+    fn a_technology_text_is_ready_while_its_card_is_not_exhausted() {
+        let mut s = three_seats();
+        assert!(!ready(&s, Seat(0), Technology::NullificationField), "not owned");
+        s.players.edit(0).tech.owned.insert(Technology::NullificationField);
+        assert!(ready(&s, Seat(0), Technology::NullificationField));
+        s.players.edit(0).tech.exhausted.insert(Technology::NullificationField);
+        assert!(!ready(&s, Seat(0), Technology::NullificationField), "exhausted");
+    }
+}

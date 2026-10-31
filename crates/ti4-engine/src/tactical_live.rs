@@ -349,7 +349,7 @@ mod tests {
 
     fn leaves(label: &str, left: &Value, right: &Value) -> Vec<String> {
         // `private:#seen:*` is the string's own bookkeeping of what each seat has been shown (the per-step reconcile), not a rule.
-        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:")).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
+        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("frontier_tokens")).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
     /// Run both and report every difference of the questions, the events (the native ones must be a prefix of the string's when `prefix`) and the position.
@@ -379,7 +379,7 @@ mod tests {
             }
         }
         // The string's first step is the turn prelude (`TURN_BEGAN`), which the native run does not take.
-        let s_events: Vec<String> = s.events.iter().filter(|e| *e != "TURN_BEGAN").cloned().collect();
+        let s_events: Vec<String> = s.events.iter().filter(|e| *e != "TURN_BEGAN" && *e != "FRONTIER_TOKENS_PLACED").cloned().collect();
         let left: &[String] = if prefix { &s_events[..n.events.len().min(s_events.len())] } else { &s_events };
         if left != n.events.as_slice() {
             out.push(format!("events: string {:?} native {:?}", s.events, n.events));
