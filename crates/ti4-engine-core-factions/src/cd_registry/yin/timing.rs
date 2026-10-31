@@ -1,15 +1,16 @@
 //! yin: the timing abilities (the reaction windows), docs/ENGINE_REACTIONS.md. Ported: Brother Milor, the Yin agent
 //! ("After a player's unit is destroyed during combat: you may exhaust this card to allow that player to place 2
 //! fighters in the destroyed unit's system if it was a ship, or 2 infantry on its planet if it was a ground
-//! force"), the ship and the ground branch. Indoctrination is ported too (package W13). Not ported: the Ssruu copies, Greyfire, the Spinner, Van
-//! Hauge, the Ascendant.
+//! force"), the ship and the ground branch. Indoctrination is ported too (package W13), and Greyfire Mutagen (package W14). Not ported: the Spinner,
+//! Van Hauge, and the Ascendant (a Thunder's Edge breakthrough). The Ssruu copies of the agent are the pair rules of `yssaril::ssruu`; Ssruu copies
+//! no ability of the faction, so there is no Ssruu copy of Indoctrination.
 //!
 //! The units are placed without a capacity check beyond the reinforcements ("place 2"; 16.3 removes the excess at the
 //! end of the turn): as many as the reinforcements hold, of the form the player places (its upgrade, its faction's
 //! unit, the plain one).
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
-use ti4_engine_core::generated::{Faction, Leader, Unit, UnitBaseType};
+use ti4_engine_core::generated::{Faction, Leader, Planet, PromissoryNote, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{AbilityTable, AdapterFacts, CondCx, Eff, Slot, Spec, Unknown};
 use ti4_engine_core::kernel::fx_pay;
@@ -17,7 +18,7 @@ use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::kernel::fx;
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::query::{fleet, tech};
-use ti4_engine_core::state::{CoreState, EventKind, Key, LeaderStatus, Payload};
+use ti4_engine_core::state::{CoreState, EventKind, Key, LeaderStatus, NoteKey, Payload};
 use ti4_engine_core::tables::Scope;
 
 /// Brother Milor, ships (`leader:*:yinagent:SHIP_DESTROYED:after`) and ground forces (`...GROUND_FORCE_DESTROYED:after`).
@@ -26,6 +27,9 @@ pub const MILOR_GROUND: Slot = Slot(7002);
 
 /// Indoctrination (`ability:*:indoctrination:GROUND_COMBAT_STARTED:after`).
 pub const INDOCTRINATION: Slot = Slot(7003);
+
+/// Greyfire Mutagen (`promissory:*:greyfire:GROUND_COMBAT_STARTED:after`).
+pub const GREYFIRE: Slot = Slot(7004);
 
 const AGENT: Leader = Leader::BrotherMilor;
 
@@ -265,8 +269,62 @@ fn indoctrination(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+// -- Greyfire Mutagen ------------------------------------------------------------------------------------
+
+/// The Greyfire Mutagen note of the Yin Brotherhood.
+const GREYFIRE_NOTE: NoteKey = NoteKey { note: PromissoryNote::GreyfireMutagen, faction: Faction::TheYinBrotherhood };
+
+/// `greyfire_ready`: "At the start of a ground combat against 2 or more ground forces that are not controlled by the Yin player": `holder` holds
+/// the note, is no Yin and fights an opponent (no Yin either) with two ground forces and an infantry on the planet, and has an infantry left in
+/// its reinforcements. The opponent and the planet come from the event.
+fn greyfire_target(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, holder: Seat, p: &Payload) -> Option<(Seat, Planet)> {
+    let (attacker, defender, planet) = (p.seat(Key::Attacker)?, p.seat(Key::Defender)?, p.planet(Key::Planet)?);
+    let opponent = if holder == attacker { defender } else if holder == defender { attacker } else { return None };
+    let is_yin = |who: Seat| s.players().by_seat(who).is_some_and(|y| y.faction == Faction::TheYinBrotherhood);
+    if s.cards().promissory.get(&GREYFIRE_NOTE) != Some(&holder) || is_yin(holder) || is_yin(opponent) {
+        return None;
+    }
+    let units = &s.board().planet(planet).units;
+    let ground = units.iter().filter(|u| u.owner() == opponent && fleet::is_ground_force(u.kind())).count();
+    let infantry = units.iter().filter(|u| u.owner() == opponent && u.kind().data().base_type == UnitBaseType::Infantry).count();
+    (ground >= 2 && infantry > 0 && in_reinforcements(s, scope(k), holder, UnitBaseType::Infantry).is_some()).then_some((opponent, planet))
+}
+
+fn greyfire_when(c: &CondCx<'_>) -> bool {
+    greyfire_target(c.state, c.kernel, c.def.owner, &c.event.payload).is_some()
+}
+
+/// "Replace 1 of your opponent's infantry with 1 infantry from your reinforcements. Then, return this card to the Yin player." The replacement is
+/// `action_cards::replace_unit` (the opponent's first infantry on the planet goes, a unit of the form the holder places takes its place; a placement
+/// a faction effect forbids or an empty box replaces nothing, and the card stays).
+fn greyfire(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let me = eff.owner();
+    let p = eff.event.payload.clone();
+    // (The abilities before this one in the window may have changed the planet: the string asks `greyfire_ready` again.)
+    let ready = {
+        let (state, kernel) = eff.read();
+        greyfire_target(state, kernel, me, &p)
+    };
+    let (Some((opponent, _)), Some(system)) = (ready, p.system(Key::System)) else { return Ok(()) };
+    let Some(planet) = p.planet(Key::Planet) else { return Ok(()) };
+    let scope = Scope(u32::from(eff.kernel().sources.0));
+    let (form, forbidden) = {
+        let (state, kernel) = eff.read();
+        let form = placed_form_overridden(state, kernel, scope, me, UnitBaseType::Infantry);
+        (form, form.is_some_and(|unit| kernel.hooks.economy.effect_placement_forbidden(state, kernel, me, unit)))
+    };
+    let Some(unit) = form.filter(|unit| !forbidden && fleet::remaining_all(eff.state(), scope, me, *unit) >= 1) else { return Ok(()) };
+    let cell = eff.state().board_mut().planet_mut(planet);
+    let Some(at) = cell.units.as_slice().iter().position(|u| u.owner() == opponent && u.kind().data().base_type == UnitBaseType::Infantry) else { return Ok(()) };
+    cell.units.remove(at);
+    fx::place_unit(eff.state(), me, system, Some(planet), unit);
+    fx::give_back_note(eff.state(), GREYFIRE_NOTE);
+    Ok(())
+}
+
 pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(INDOCTRINATION, AbilityKind::Ability, EventKind::GroundCombatStarted, Relation::After, indoctrination).when(indoctrination_when));
+    t.add(Spec::new(GREYFIRE, AbilityKind::Promissory, EventKind::GroundCombatStarted, Relation::After, greyfire).optional().when(greyfire_when));
 
     t.add(Spec::new(MILOR_SHIPS, AbilityKind::Leader, EventKind::ShipDestroyed, Relation::After, |e| place(e, UnitBaseType::Fighter, false)).optional().when(ship_when));
     t.add(Spec::new(MILOR_GROUND, AbilityKind::Leader, EventKind::GroundForceDestroyed, Relation::After, |e| place(e, UnitBaseType::Infantry, true)).optional().when(ground_when));

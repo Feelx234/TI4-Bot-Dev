@@ -10743,6 +10743,49 @@ mod tests {
         assert!(used > 0, "and used");
     }
 
+    /// Package W14: a Supercharge carried by a Valefar Assimilator (a Nekro seat whose token sits on the technology another seat owns) is
+    /// offered at the start of the round and exhausted through the carrier by the core hook, in the opening window and in the composed machine;
+    /// the string gate ("Supercharge carried by a Valefar Assimilator") is gone. Fails on the pre-W14 gate (the window bailed).
+    #[test]
+    fn a_supercharge_carried_by_a_valefar_assimilator_is_offered_and_used_in_the_core_in_lockstep() {
+        let (mut compared, mut used) = (0, 0);
+        static ASKED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        for (seed, composed) in (0..8_u64).flat_map(|s| [(s, false), (s, true)]) {
+            let (state, windows, differences, _) = hub_fight_composed(
+                composed,
+                seed,
+                &["nekro", "naaz"],
+                |s, system| {
+                    put(s, system, "cruiser", &attacker(), 2);
+                    put(s, system, "cruiser", &defender(), 2);
+                    put(s, system, "destroyer", &defender(), 1);
+                    s.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("vax"));
+                    s.player_mut(&attacker()).unwrap().assimilated_technologies.insert("vax".to_owned(), ti4_model::id::TechnologyId::new("sc"));
+                    s.player_mut(&defender()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("sc"));
+                },
+                |seed, _, c| {
+                    if c.prompt.starts_with("Supercharge") && c.player == attacker() {
+                        ASKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        usize::from(seed % 2 == 1)
+                    } else {
+                        0
+                    }
+                },
+            );
+            assert_eq!(differences, 0, "seed {seed} composed {composed}: {windows:?}");
+            let counts = windows.get(if composed { "combat::settle" } else { "combat::begin_round" }).copied().unwrap_or_default();
+            assert_eq!(counts.bailed, 0, "seed {seed} composed {composed}: {windows:?}");
+            compared += counts.compared;
+            let seat = state.player(&attacker()).unwrap();
+            // The card that is exhausted is the assimilator, never the technology (the Nekro does not own it).
+            assert!(!seat.exhausted_technologies.contains(ti4_model::id::text(&"sc")), "seed {seed}");
+            used += usize::from(seat.exhausted_technologies.contains(ti4_model::id::text(&"vax")));
+        }
+        assert!(compared > 0, "the opening ran in the core: {compared}");
+        assert!(ASKED.load(std::sync::atomic::Ordering::Relaxed) > 0, "Supercharge was offered to the carrier");
+        assert!(used > 0, "and used");
+    }
+
     /// Package W2: a Letnev side opens its space rounds in the core (round opening and composed machine): Arc Secundus repairs itself at
     /// the start of each round, after the faction hooks of its owner. Fails on the pre-W2 gate ("a Letnev side": the window bailed and the
     /// composed settle ran bare).

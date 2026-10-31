@@ -1903,11 +1903,9 @@ pub fn round_opening_why(gs: &GameState, content: &ti4_content::ContentStore, a:
         return Some("diplomacy (attack promises)");
     }
     // A Naaz side (the Eidolon flip, the repair of the Maximum, Supercharge) is carried by the core window since package W2; a
-    // Supercharge a Valefar Assimilator carries is the text of another card, which the hook does not read.
+    // Supercharge a Valefar Assimilator carries is offered and exhausted through the carrier since package W14
+    // (`fx_strategy::text_carrier`).
     for id in [a.attacker, a.defender] {
-        if crate::factions::nekro::assimilated_card(gs, id, "sc").is_some() {
-            return Some("Supercharge carried by a Valefar Assimilator");
-        }
         match gs.player(id).map(|p| p.faction.as_str()) {
             None => return Some("a side that is not a seated player"),
             Some(_) => {}
@@ -3685,8 +3683,7 @@ pub struct BeginGroundArgs<'a> {
     pub sources: ti4_model::content_types::SourceSet,
 }
 
-/// Why the start of the round holds something the core window does not carry: a Supercharge carried by a Valefar
-/// Assimilator, Proxima Targeting VI, a Letnev side with infantry on the planet (the Dunlain Reaper),
+/// Why the start of the round holds something the core window does not carry: Proxima Targeting VI, a Letnev side with infantry on the planet (the Dunlain Reaper),
 /// a neutral side.
 #[must_use]
 pub fn begin_ground_unported(gs: &GameState, a: &BeginGroundArgs<'_>) -> Option<&'static str> {
@@ -3696,10 +3693,7 @@ pub fn begin_ground_unported(gs: &GameState, a: &BeginGroundArgs<'_>) -> Option<
     }
     let faction = |id: &PlayerId| gs.player(id).map_or("", |p| p.faction.as_str());
     // Naaz's Supercharge and the Eidolon Maximum's repair are the core hook since package W1; a Supercharge a Valefar Assimilator
-    // carries is the text of another card, which the core hook does not read.
-    if sides.into_iter().any(|id| crate::factions::nekro::assimilated_card(gs, id, "sc").is_some()) {
-        return Some("Supercharge carried by a Valefar Assimilator");
-    }
+    // carries is offered through the carrier since package W14.
     if crate::factions::bastion_units::watches_ground_round(gs, &sides) {
         return Some("Proxima Targeting VI");
     }

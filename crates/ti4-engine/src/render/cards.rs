@@ -31,6 +31,7 @@ impl Family for Fam {
                 }
                 Reason::MalleonDiscard => "Nekro Malleon: discard 1 action card".to_owned(),
                 Reason::C4rDiscard => "???_ERROR_ERROR_???: discard 1 action card".to_owned(),
+                Reason::Scheming => "Scheming: choose and discard 1 action card from your hand".to_owned(),
                 Reason::Show { viewer } => format!("show {} 1 action card from your hand", r.seat_text(*viewer)),
             },
             Ask::HandLimit { held } => format!("over the hand limit — discard one of {held}"),
@@ -56,6 +57,7 @@ impl Family for Fam {
             Subtype::DeepgloomStallTacticsDiscard => "deepgloom_stall_tactics_discard",
             Subtype::MalleonDiscard => "malleon_discard",
             Subtype::C4rDiscard => "c4r_discard",
+            Subtype::SchemingDiscard => "scheming_discard",
             Subtype::ShowActionCard => "show_action_card",
             Subtype::DiscardOverHandLimit => "discard_over_hand_limit",
             Subtype::TakeRevealedActionCard => "take_revealed_action_card",
@@ -463,6 +465,9 @@ mod tests {
         let ask = Ask::OwnHand { reason: Reason::DeepgloomStallTactics };
         assert_eq!(Fam::prompt(&r, &ask), "Stall Tactics (allowed by Deepgloom Executable): discard 1 action card");
         assert_eq!(Fam::subtype(&r, &Subtype::C4rDiscard), "c4r_discard");
+        let scheming = Ask::OwnHand { reason: Reason::Scheming };
+        assert_eq!(Fam::prompt(&r, &scheming), "Scheming: choose and discard 1 action card from your hand");
+        assert_eq!(Fam::subtype(&r, &Subtype::SchemingDiscard), "scheming_discard");
         let opt = Fam::option(&r, &ask, &Opt::Card(ActionCard::Bribery));
         assert_eq!((opt.id.as_str(), opt.kind.as_str(), opt.label.as_str()), ("bribery", "own_hand_card", "Bribery"));
         assert_eq!(Fam::parse(&r, &ask, "bribery"), Some(Opt::Card(ActionCard::Bribery)));

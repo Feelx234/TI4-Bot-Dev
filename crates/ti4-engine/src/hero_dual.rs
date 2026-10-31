@@ -619,7 +619,8 @@ mod real {
         };
         let before = gs.clone();
         let start = gs.exploration_log.len();
-        let kernel = crate::core_adapter::kernel_for(sources);
+        // (The full table: a Lost Crew draws through the hooks of the drawer's faction, Scheming and Crafty.)
+        let kernel = crate::production_view::kernel_of(sources);
         let letnev = gs.player(player).why(crate::dual::reason::NO_SEAT)?.faction.as_str() == "letnev";
         let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
             crate::action_cards_view::reward_details(c, &before, player, rendered);

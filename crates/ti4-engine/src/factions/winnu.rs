@@ -2750,6 +2750,7 @@ mod tests {
     fn the_hero_runs_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let mut base = game();
@@ -2767,9 +2768,8 @@ mod tests {
         }
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        let (compared, bailed) = thread_window_counts("factions::winnu::hero");
-        assert_eq!(compared + bailed, cards.len() as u64, "{r:?}");
-        assert!(compared >= 3, "{r:?}");
+        crate::dual::tests::no_bails_in("winnu hero", &r);
+        assert_eq!(thread_window_counts("factions::winnu::hero"), (cards.len() as u64, 0), "{r:?}");
         let _ = take_report();
     }
 

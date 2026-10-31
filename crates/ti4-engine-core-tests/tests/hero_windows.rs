@@ -194,7 +194,9 @@ fn groups() -> AbilityTable {
 }
 
 fn kyver(hands: [&[ActionCard]; 3], limited: bool) -> Rig<KyverHero> {
+    // (The hand limit is the hook table's: a seat that is limited at this table is one whose faction hooks do not lift it, so the plain table.)
     let sc = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheArborec, Faction::TheEmbersOfMuaat])
+        .kernel(if limited { kernel_plain() } else { kernel_all() })
         .hand(0, hands[0])
         .hand(1, hands[1])
         .hand(2, hands[2]);

@@ -2770,6 +2770,7 @@ mod tests {
     fn the_hero_runs_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
         let _ = take_report();
         crate::dual::reset_thread_windows();
         let hero = LeaderId::new(HERO);
@@ -2792,13 +2793,13 @@ mod tests {
         state.promissory_faceup.clear();
         assert_eq!(run(&mut state, &[cards[0].as_str(), cards[1].as_str()]), Some(true));
         let mut state = game();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
         assert_eq!(run(&mut state, &["decline"]), Some(true));
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        let (compared, bailed) = thread_window_counts("factions::naaz::hero");
-        assert_eq!(compared + bailed, cards.len() as u64 + 2, "{r:?}");
-        assert!(compared >= 2, "{r:?}");
-        assert!(bailed <= 1, "{r:?}");
+        crate::dual::tests::no_bails_in("naaz hero", &r);
+        assert_eq!(thread_window_counts("factions::naaz::hero"), (cards.len() as u64 + 2, 0), "{r:?}");
         let _ = take_report();
     }
 

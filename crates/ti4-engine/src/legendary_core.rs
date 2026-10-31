@@ -32,7 +32,7 @@ mod real {
     /// The slices the abilities read (the placement ban and the reinforcements, the hand limit of a draw, the decks) and write.
     const LEGENDARY: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending],
-        &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Transient, Slice::Pending],
+        &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Marks, Slice::Transient, Slice::Pending],
     );
 
     /// Styx's victory point: the slices `rules::legendary::settle_styx` reads and writes (the holder is in the meta, the points in the

@@ -16,7 +16,7 @@ use super::triggered::HeroOffer;
 use super::window::ProductionWindow;
 use crate::choice::{Choice, Pick};
 use super::Cx;
-use crate::generated::{Agenda, Breakthrough, Leader, System, Technology, Unit, UnitBaseType};
+use crate::generated::{Ability, Agenda, Breakthrough, Leader, System, Technology, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::children::{ErasedChild, HomeFacts, Made, ProduceFacts, Spawn};
 use crate::kernel::seam::observe::{Obs, Phase};
@@ -73,6 +73,11 @@ pub fn buildable_for(core: &CoreState, k: &Kernel, scope: Scope, roster: &UnitRo
     Some(out)
 }
 
+/// `faction_abilities::armada_bonus`: Letnev's Armada lifts the fleet limit by two.
+fn armada(core: &CoreState, who: Seat) -> i32 {
+    if core.players().by_seat(who).is_some_and(|p| p.faction.data().abilities.contains(&Ability::Armada)) { 2 } else { 0 }
+}
+
 /// The fleet limit one seat judges a production by (`fleet::limit`, or the unlimited bill for the round of Darktalon Treilla's hero): the pool
 /// with the tokens other players hold in it, held by Fleet Regulations, lifted by Armada and the hook table.
 #[must_use]
@@ -82,7 +87,7 @@ pub fn fleet_limit(core: &CoreState, k: &Kernel, blanked: bool, who: Seat) -> i6
     }
     let foreign = k.hooks.direct.mahact_foreign_tokens(core, who);
     let capped = crate::query::laws::fleet_pool_cap(core, blanked, crate::query::fleet::pool_base(core, who, foreign));
-    let lifted = k.hooks.general.fleet_supply(core, k, who, capped + crate::rules::abilities::armada_bonus(core, who));
+    let lifted = k.hooks.general.fleet_supply(core, k, who, capped + armada(core, who));
     i64::from(lifted).max(0)
 }
 
@@ -104,7 +109,7 @@ pub fn home_facts(core: &CoreState, k: &Kernel, roster: &UnitRoster, who: Seat, 
             small_exemptions: if crate::query::leaders::has_commander_ability_in(core, who, Leader::ThatWhichMoldsFlesh) { 2 } else { 0 },
             discount: i32::try_from(k.hooks.economy.production_cost_reduction(core, who, system).max(0)).ok()?,
             fleet_limit: i32::try_from(fleet_limit(core, k, blanked, who)).ok()?,
-            armada: crate::rules::abilities::armada_bonus(core, who),
+            armada: armada(core, who),
             flagship_free: crate::query::leaders::has_commander_ability_in(core, who, Leader::NavarchFeng),
             buildable: buildable_for(core, k, scope, roster, who)?,
         },
