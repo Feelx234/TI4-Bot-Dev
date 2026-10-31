@@ -73,6 +73,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::THUNDARIAN_SPACE, kind: "leader", card: "nomadagentthundarian" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::THUNDARIAN_GROUND, kind: "leader", card: "nomadagentthundarian" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::VAN_HAUGE, kind: "unit", card: "yin_flagship" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::SOL_AGENT, kind: "leader", card: "solagent" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
@@ -469,6 +470,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.ground_combat = r.code("ground_combat");
         table.codes.harrow = r.code("harrow");
         table.codes.self_assembly = r.code("self_assembly_routines");
+        table.codes.van_hauge = r.code("unit_ability:yin_flagship");
         table.codes.action_card = r.code("action_card");
         table.codes.supply_base = r.code("forward_supply_base");
         table.codes.mentak = r.code("mentak");

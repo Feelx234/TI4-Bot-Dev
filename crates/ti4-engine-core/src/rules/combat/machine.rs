@@ -389,7 +389,9 @@ impl Machine {
     /// One transition of the flow (announcing, retreating, the hit queue), applied to the fields. `true`: the
     /// loop stops (a decision is pending or the fight is over).
     fn transition(&mut self, sx: &mut Sx<'_>) -> Option<bool> {
-        if !sx.state.transient().combat.pending_destructions.is_empty() {
+        // (The string leaves the destructions an effect staged pending across the windows of a round and announces them at its four fixed
+        // points: the live machine drains at the same ones, so it goes on with them pending.)
+        if !self.live && !sx.state.transient().combat.pending_destructions.is_empty() {
             return None;
         }
         if self.lone_casualty(sx) {

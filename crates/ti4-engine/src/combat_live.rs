@@ -481,4 +481,29 @@ mod tests {
         failures.retain(|f| !(f.starts_with("saar v") || f.starts_with("letnev v saar")) && !f.contains("leaders.empyreancommander"));
         assert!(failures.is_empty(), "{failures:#?}");
     }
+
+    /// Van Hauge (the Yin flagship): when it is destroyed every ship of the system goes with it, staged and announced at the fixed drain points of the
+    /// string (after the round ended, in the end announcement). Several seeds, the flagship on either side.
+    #[test]
+    fn van_hauge_takes_every_ship_with_it_and_the_announcements_follow_the_string() {
+        let (hub, _origin, target) = hub();
+        let mut seen_chain = 0;
+        for seed in 1..=12_u64 {
+            for yin_is_attacker in [true, false] {
+                let (mine, theirs) = if yin_is_attacker { ("yin", "hacan") } else { ("hacan", "yin") };
+                let mut state = table(&[("a", mine), ("b", theirs)]);
+                state.rng_seed = seed;
+                let yin = if yin_is_attacker { a() } else { b() };
+                let other = if yin_is_attacker { b() } else { a() };
+                crate::fixtures::put(&mut state, &target, "yin_flagship", &yin, 1);
+                crate::fixtures::put(&mut state, &target, "cruiser", &yin, 1);
+                crate::fixtures::put(&mut state, &target, "dreadnought", &other, 3);
+                crate::fixtures::put(&mut state, &target, "cruiser", &other, 2);
+                let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]);
+                assert!(diffs.is_empty(), "seed {seed} yin attacker {yin_is_attacker}: {diffs:#?}");
+                seen_chain += 1;
+            }
+        }
+        assert_eq!(seen_chain, 24);
+    }
 }

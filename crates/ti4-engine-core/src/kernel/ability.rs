@@ -200,6 +200,8 @@ pub struct Codes {
     pub harrow: crate::state::Code,
     /// The `source` of the trade good Self-Assembly Routines gains.
     pub self_assembly: crate::state::Code,
+    /// `unit_ability:yin_flagship`: the cause of the ships Van Hauge destroys.
+    pub van_hauge: crate::state::Code,
     /// The `source` `action_card` and `forward_supply_base` of the trade goods a card gains (`Env`).
     pub action_card: crate::state::Code,
     pub supply_base: crate::state::Code,
