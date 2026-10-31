@@ -542,7 +542,7 @@ mod tests {
         let t = registered();
         // (A card both nested and registered would be played by the area's effect: `Announce::of` takes the registration only for a card
         // the area does not play nested. The cards of this test are the ones the two lines both touched.)
-        for card in [ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation] {
+        for card in [ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation, ActionCard::Upgrade, ActionCard::Infiltrate] {
             assert!(!(t.card_play(card).is_some() && Fx::of(card).is_some_and(Fx::nested)), "{card:?} has two owners inside a window");
         }
         for card in [ActionCard::FireTeam, ActionCard::ScrambleFrequency] {
@@ -551,7 +551,7 @@ mod tests {
         }
         assert!(plays_in(&AbilityTable::default(), ActionCard::CourageousToTheEnd) && t.card_play(ActionCard::CourageousToTheEnd).is_none(), "the area plays Courageous To The End");
         assert!(t.card_play(ActionCard::ExperimentalBattlestation).is_none());
-        assert!(!plays_in(&t, ActionCard::ExperimentalBattlestation), "its play window is the action-card area's");
+        assert!(plays_in(&t, ActionCard::ExperimentalBattlestation), "lane H: the area plays it nested, the hosts hand its facts");
         let env = Env {
             mahact_held: 0,
             scope: ti4_engine_core::tables::Scope(u32::MAX),

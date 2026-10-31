@@ -509,17 +509,21 @@ mod tests {
 
     /// The cards of package B6d read facts only the adapter's play window supplies (forms, roster, map, traders): from inside
     /// another window they are the string's, and the census says so (found by the first run of the slot test of Reveal
-    /// Prototype, which played with default facts). Experimental Battlestation is among them (Courageous To The End since package W15 is not): they run
+    /// Prototype, which played with default facts). Courageous To The End since package W15 is not among them, nor are the seven cards of lane H: they run
     /// hit flows of the combat area as child windows through the links the play window's table carries, and the texts of their
     /// questions and events are the play window's facts (their reaction windows are the combat area's, B12).
     #[test]
     fn the_b6d_cards_are_not_played_from_inside_another_window() {
         let t = AbilityTable::default();
-        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule, ActionCard::ExperimentalBattlestation] {
+        for card in [ActionCard::CrashLanding, ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule] {
             assert!(plays(card), "{card:?} has a window of its own");
             assert!(!plays_in(&t, card), "{card:?}");
         }
         assert!(plays_in(&t, ActionCard::Rally) && plays_in(&t, ActionCard::Intercept));
+        // Lane H: the hosts of the activation, the movement, the control gain, the vote and the transaction hand the play facts.
+        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::ExperimentalBattlestation] {
+            assert!(plays_in(&t, card), "{card:?}");
+        }
         // W4: Reveal Prototype is played from a reaction slot (the adapter carries its facts; a table without the links declines the run).
         assert!(plays_in(&t, ActionCard::RevealPrototype));
         // W11: Ghost Squad and Reflective Shielding are played from a window (the facts are handed in by the host; the hits of the

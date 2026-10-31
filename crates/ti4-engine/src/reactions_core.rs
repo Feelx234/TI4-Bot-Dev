@@ -698,8 +698,8 @@ mod tests {
         played.played = vec!["scramble".to_owned(), "fire_team".to_owned()];
         assert_eq!(played.unported(&t), None, "a Scramble Frequency and a Fire Team are played by the registered plays of the core");
         // Another card the core does not play stays named.
-        played.played = vec!["upgrade".to_owned()];
-        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card upgrade)"), "a card the core does not play");
+        played.played = vec!["crashlanding".to_owned()];
+        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card crashlanding)"), "a card the core does not play");
     }
 
     #[test]
@@ -709,8 +709,10 @@ mod tests {
         let mut r = rec(&[slot], &[slot]);
         r.played = vec!["mb1".to_owned()];
         assert_eq!(r.unported(&t), None, "a Morale Boost is a stamp the core plays");
-        r.played = vec!["mb1".to_owned(), "upgrade".to_owned()];
-        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card upgrade)"));
+        r.played = vec!["mb1".to_owned(), "crashlanding".to_owned()];
+        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card crashlanding)"));
+        r.played = vec!["upgrade".to_owned(), "decoy".to_owned(), "harness".to_owned(), "infiltrate".to_owned(), "bribery".to_owned(), "lieinwait".to_owned(), "experimental".to_owned()];
+        assert_eq!(r.unported(&t), None, "lane H: the hosts of these seven cards hand the play facts");
         r.played = vec!["reveal_prototype".to_owned()];
         assert_eq!(r.unported(&t), None, "W4: Reveal Prototype is played by the core");
         r.played = vec!["reflective".to_owned(), "ghost_squad".to_owned(), "courageous".to_owned()];
@@ -727,7 +729,7 @@ mod tests {
         let mut r = rec(&[slot], &[slot]);
         r.played = vec!["sabo1".to_owned()];
         assert_eq!(r.unported(&table()), None, "a Sabotage is played at once by the core");
-        r.played = vec!["upgrade".to_owned()];
+        r.played = vec!["crashlanding".to_owned()];
         assert_eq!(r.unported(&table()).as_deref(), Some("unported ability reaction:*:ACTION_CARD_PLAYED:when (a card played at once)"));
     }
 

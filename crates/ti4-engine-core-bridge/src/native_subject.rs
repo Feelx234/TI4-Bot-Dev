@@ -174,6 +174,11 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
         Arm::Secondary => open_observed(windows, core, WindowKind::StrategySecondary),
         Arm::LeaderFollowers => open_observed(windows, core, WindowKind::LeaderStrategy) && open_observed(windows, core, WindowKind::LeaderFollowers),
         Arm::Finished => true,
+        // A tactical action: the payload the legacy game holds (lane M6).
+        Arm::Tactical => open_observed(windows, core, WindowKind::Tactical),
+        // The aftermath of a fight and the sub-windows the legacy game holds above it, in stack order (the invasion of its `Invading` stage, the
+        // PRODUCTION of its `Producing` stage, the scoring window of a feat): all of them are typed windows of the core stack.
+        Arm::Aftermath => open_observed_stack(windows, core, WindowKind::Aftermath, &[WindowKind::Invasion, WindowKind::Production, WindowKind::EventScoring]),
         // The jobs of the turn flow open themselves (`driver::turn`): they need no window of the legacy game. `Status` opens the scoring window.
         Arm::TurnPrelude | Arm::Phase | Arm::StrategyAnnounce | Arm::Ask | Arm::Status => true,
         _ => false,
@@ -189,6 +194,18 @@ fn open_observed(windows: &[Window], core: &mut CoreState, kind: WindowKind) -> 
         }
         None => false,
     }
+}
+
+/// Open the window of `kind` the legacy game holds and, above it, every observed window of the `above` kinds, in the order the legacy game holds
+/// them. `false`: it holds no window of `kind`.
+fn open_observed_stack(windows: &[Window], core: &mut CoreState, kind: WindowKind, above: &[WindowKind]) -> bool {
+    if !open_observed(windows, core, kind) {
+        return false;
+    }
+    for w in windows.iter().filter(|w| above.contains(&w.kind())) {
+        core.pending_mut().open(w.clone());
+    }
+    true
 }
 
 /// Whether the arm's step ends where the legacy step does: its close is the core's too, so the end of the step is compared on everything
@@ -953,6 +970,30 @@ mod tests {
         assert!(is_open::<TokenGain>(&core), "the window is open on the position");
         assert_eq!(window_of(Arm::Tokens), Some(WindowKind::Tokens));
         assert_eq!(window_of(Arm::Voting), None);
+    }
+
+    /// The openers of the tactical action and the aftermath (lane H): the observed payloads open on the stack, an aftermath with the sub-windows the
+    /// legacy game holds above it, nothing is opened for a window the game does not hold.
+    #[test]
+    fn the_tactical_and_aftermath_arms_open_the_observed_windows_and_their_sub_windows() {
+        use ti4_engine_core::generated::System;
+        use ti4_engine_core::state::{AStage, Aftermath, Before, Invasion, NoteHold, TStage, Tactical};
+        let seat = ti4_engine_core::Seat(0);
+        let system = System::ALL[3];
+        let tactical = Window::Tactical(Tactical { player: seat, stage: TStage::Activating, notes_at_start: NoteHold::default() });
+        let aftermath = Window::Aftermath(Box::new(Aftermath::new(seat, system, AStage::Invading, Before::default(), NoteHold::default())));
+        let invasion = Window::Invasion(Box::new(Invasion::observed(seat, system)));
+        let mut core = CoreState::all_loaded();
+        assert!(!open_arm(Arm::Tactical, &[aftermath.clone()], &mut core), "no tactical window observed");
+        assert!(core.pending().window(WindowKind::Tactical).is_none());
+        assert!(open_arm(Arm::Tactical, &[tactical.clone(), aftermath.clone()], &mut core));
+        assert!(core.pending().window(WindowKind::Tactical).is_some() && core.pending().window(WindowKind::Aftermath).is_none(), "the arm opens its own window only");
+        let mut core = CoreState::all_loaded();
+        assert!(!open_arm(Arm::Aftermath, &[tactical, invasion.clone()], &mut core), "an invasion alone is no aftermath");
+        assert!(core.pending().window(WindowKind::Invasion).is_none());
+        assert!(open_arm(Arm::Aftermath, &[aftermath, invasion], &mut core));
+        assert!(core.pending().window(WindowKind::Aftermath).is_some() && core.pending().window(WindowKind::Invasion).is_some(), "the sub-window sits above the aftermath");
+        assert!(core.pending().window(WindowKind::Tactical).is_none());
     }
 
     /// The counters count one per call, and the slices of a position keep the map only when the game has one.
