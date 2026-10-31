@@ -54,4 +54,10 @@ Only the latest RULES_VERSION is supported: Captain Mendosa's legacy list-positi
 
 ## Checks
 
-See the report; logs of the final run were `/root/deploytmp/core-m6c-final-*.log` (deleted with the target dir).
+Private `CARGO_TARGET_DIR=/root/deploytmp/core-m6c` (kept under 2.3 GB, deleted at the end), `CARGO_BUILD_JOBS=2`, no incremental.
+
+* `cargo test -p ti4-engine --lib`: 5015 passed, 4 ignored (255 s). `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: 5015 passed (581 s). (The first whole run found one failure of mine, a condition reading the galaxy of a position lent without its map: `live::plays::tests::a_card_played_inside_a_live_window_...`, fixed.)
+* `-p ti4-engine-core --lib` 469, `-p ti4-engine-core-factions --lib` 129, `-p ti4-engine-core-bridge --lib` (73, incl. native_subject) and `--test kernel_env`, `-p ti4-engine-core-tests --test tactical_composer --test aftermath_chain --test invasion_composer --test exploring --test tactical`: all green. `islands` is a lib module of the bridge (inside the 73).
+* `check_layers.py core`: 482 files, 0 violations; `lint_core.sh`: 484 files, 0 hits.
+* Not run (standing rule: no zero-bail playthrough exists): golden/wide dual sweeps, benches, soak, the mutation ratchet, census, workspace clippy, `playthrough_quick.sh`, the full D4 crate (`ti4-engine-core-tests` as a whole: disk).
+
