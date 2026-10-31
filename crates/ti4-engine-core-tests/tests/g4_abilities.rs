@@ -141,3 +141,83 @@ mod titans_commander {
         assert_eq!((goods(&other, 0), goods(&other, 1)), (2, 2));
     }
 }
+
+// -- Spy Net -------------------------------------------------------------------------------------------------------------------
+
+mod spy_net {
+    use super::*;
+    use ti4_engine_core::choice::cards::{Ask as CAsk, Opt as COpt};
+    use ti4_engine_core::generated::{ActionCard, PromissoryNote};
+    use ti4_engine_core::state::NoteKey;
+
+    const NOTE: NoteKey = NoteKey { note: PromissoryNote::SpyNet, faction: Faction::TheYssarilTribes };
+
+    fn turn(seat: u8) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::TurnBegan, Payload::new().with(Key::Player, Val::Seat(Seat(seat))))
+    }
+
+    /// Seat 0 (Hacan) holds the note, seat 1 is the Yssaril with `hand`; the printed names of the cards are `groups` (the same number: the same card).
+    fn rig_with(hand: &[ActionCard], groups: &[(ActionCard, u8)], mine: &[ActionCard]) -> Rig<EmitEvent> {
+        let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheYssarilTribes]).hand(1, hand).hand(0, mine).build();
+        state.cards_mut().promissory.edit().insert(NOTE, Seat(0));
+        let mut t = table();
+        t.facts.card_groups = (0..ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
+        for (card, group) in groups {
+            t.facts.card_groups[*card as usize] = *group;
+        }
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(turn(0))).with_abilities(t);
+        r.run();
+        r
+    }
+
+    fn hand(r: &Rig<EmitEvent>, seat: u8) -> Vec<ActionCard> {
+        r.state.players().by_seat(Seat(seat)).unwrap().cards.hand.as_slice().to_vec()
+    }
+
+    #[test]
+    fn the_holder_chooses_one_card_of_the_yssaril_hand_and_the_note_goes_home() {
+        covers!("silent::g4::spynet::SPY_NET");
+        let mut r = rig_with(&[ActionCard::Bribery, ActionCard::Blitz, ActionCard::Bunker], &[], &[]);
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        r.pick(use_it);
+        assert_eq!((r.asked().actor, r.asked().ask), (Seat(0), Ask::Cards(CAsk::TakeRevealed { owner: Seat(1) })), "{}", r.transcript());
+        // One option per printed card, in the order of the names.
+        assert_eq!(r.opts(), vec![Opt::Cards(COpt::Card(ActionCard::Blitz)), Opt::Cards(COpt::Card(ActionCard::Bribery)), Opt::Cards(COpt::Card(ActionCard::Bunker))]);
+        r.pick(1);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!((hand(&r, 0), hand(&r, 1)), (vec![ActionCard::Bribery], vec![ActionCard::Blitz, ActionCard::Bunker]));
+        assert_eq!(r.state.cards().promissory.get(&NOTE), Some(&Seat(1)), "back with the Yssaril");
+        assert!(r.state.marks().tail.iter().any(|(k, _)| matches!(k, ti4_engine_core::keys::MarkKey::CardsStaged(_))), "the take waits for the game step");
+    }
+
+    #[test]
+    fn two_copies_are_one_option_and_one_card_is_taken_unasked() {
+        covers!("silent::g4::spynet::SPY_NET");
+        // Two copies of one printed card: a single option, so no question.
+        let mut twins = rig_with(&[ActionCard::Bribery, ActionCard::Blitz], &[(ActionCard::Blitz, ActionCard::Bribery as u8)], &[]);
+        let use_it = twins.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        twins.pick(use_it);
+        assert!(twins.is_done(), "{}", twins.transcript());
+        assert_eq!((hand(&twins, 0).len(), hand(&twins, 1).len()), (1, 1));
+        // Declining leaves the cards where they are and the note with the holder.
+        let mut declined = rig_with(&[ActionCard::Bribery, ActionCard::Blitz], &[], &[]);
+        declined.decline();
+        assert!(declined.is_done());
+        assert_eq!((hand(&declined, 0).len(), hand(&declined, 1).len()), (0, 2));
+        assert_eq!(declined.state.cards().promissory.get(&NOTE), Some(&Seat(0)));
+    }
+
+    #[test]
+    fn the_note_needs_its_holder_on_his_turn_and_a_hand_to_look_at() {
+        covers!("silent::g4::spynet::SPY_NET");
+        // The Yssaril's hand is empty: nothing is offered.
+        let empty = rig_with(&[], &[], &[]);
+        assert!(empty.is_done(), "{}", empty.transcript());
+        // Another seat's turn begins: the holder is not asked.
+        let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheYssarilTribes]).hand(1, &[ActionCard::Bribery]).build();
+        state.cards_mut().promissory.edit().insert(NOTE, Seat(0));
+        let mut other = Rig::from_parts(state, kernel, EmitEvent::new(turn(1))).with_abilities(table());
+        other.run();
+        assert!(other.is_done(), "{}", other.transcript());
+    }
+}

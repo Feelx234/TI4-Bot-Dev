@@ -140,6 +140,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::TURN, kind: "leader", card: "sardakkagent_turn" },
     Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::STRATEGIC, kind: "leader", card: "sardakkagent_strategic" },
     Named { slot: ti4_engine_core_factions::silent::g4::propagation::PROPAGATION, kind: "ability", card: "propagation" },
+    Named { slot: ti4_engine_core_factions::silent::g4::spynet::SPY_NET, kind: "promissory", card: "spynet" },
     Named { slot: ti4_engine_core_factions::silent::g4::titans_commander::TUNGSTANTUS, kind: "leader", card: "titanscommander" },
 ];
 

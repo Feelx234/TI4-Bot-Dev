@@ -3,6 +3,7 @@
 //! registers it (`register_abilities`, after the rest of `silent`'s).
 
 pub mod propagation;
+pub mod spynet;
 pub mod titans_commander;
 
 use ti4_engine_core::kernel::ability::AbilityTable;
@@ -17,4 +18,9 @@ pub mod code {
 pub fn register_abilities(t: &mut AbilityTable) {
     propagation::register_abilities(t);
     titans_commander::register_abilities(t);
+}
+
+/// Rules registered after the Winnu's: the Yssaril module of the string comes last.
+pub fn register_last(t: &mut AbilityTable) {
+    spynet::register_abilities(t);
 }

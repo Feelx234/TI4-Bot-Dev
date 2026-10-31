@@ -212,7 +212,7 @@ impl PlaceUnits {
 
 /// The first copy of each printed card in `seat`'s hand, in the order of the names (`action_cards::first_of_each`): `groups` says which
 /// card ids are the same printed card. Empty when the seat is unknown or a card has no group.
-fn distinct_cards(core: &CoreState, seat: Seat, groups: &[u8]) -> Vec<crate::generated::ActionCard> {
+pub fn distinct_cards(core: &CoreState, seat: Seat, groups: &[u8]) -> Vec<crate::generated::ActionCard> {
     let Some(p) = core.players().by_seat(seat) else { return Vec::new() };
     let mut seen: Vec<u8> = Vec::new();
     let mut firsts: Vec<crate::generated::ActionCard> = Vec::new();

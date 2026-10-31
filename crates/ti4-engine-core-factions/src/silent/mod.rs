@@ -39,6 +39,7 @@ pub fn register_abilities(t: &mut AbilityTable) {
     winnu::register_abilities(t);
     sol::register_last(t);
     empyrean::register_last(t);
+    g4::register_last(t);
 }
 
 /// Pillage, before the movement package: the Nomad's Artuno shares `TRADE_GOODS_GAINED` with it and the Mentak module comes first in the string.

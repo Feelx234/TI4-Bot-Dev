@@ -3,7 +3,22 @@
 
 use ti4_model::state::GameState;
 
-use super::turn_live_tests::{action_table, assert_same, based, pid, reconcile_both};
+use super::turn_live_tests::{action_table, assert_same, based, pid, reconcile_both, Run};
+
+/// The turn prelude of the string against the native prelude. A card move an ability stages (`ACTION_CARD_TAKEN`) is announced by the string's step before it stops at the action menu;
+/// the native side leaves the staged `cards:staged:*` row in the position for the host's next step (the rows are `hooks_cards::StagedCardEvent`s, announced by
+/// `reactions::announce_staged_card_events`): the rows are taken out of the native position and counted against the announced events of the string.
+fn prelude_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
+    let (mut string, mut native) = super::turn_live_tests::prelude_both(state, ids);
+    let rows: Vec<String> = native.state["faction_marks"].as_object_mut().map(|marks| {
+        let keys: Vec<String> = marks.keys().filter(|k| k.starts_with("cards:staged:")).cloned().collect();
+        keys.iter().filter_map(|k| marks.remove(k)).filter_map(|v| v.as_str().map(str::to_owned)).collect()
+    }).unwrap_or_default();
+    let announced = string.events.iter().filter(|e| *e == "ACTION_CARD_TAKEN").count();
+    assert_eq!(rows.iter().filter(|r| r.starts_with("taken|")).count(), announced, "{rows:?}: each card taken is staged by the native side and announced by the string");
+    string.events.retain(|e| e != "ACTION_CARD_TAKEN");
+    (string, native)
+}
 
 // -- Propagation (Nekro) ----------------------------------------------------------------------------------------------------------
 
@@ -38,7 +53,48 @@ fn a_replaced_research_gives_three_command_tokens_into_the_pools_of_the_nekro_li
     assert!(string.events.iter().all(|e| e != "PROPAGATION_RESEARCH"));
 }
 
-#[allow(dead_code)]
-fn _unused(_: &GameState) {
-    let _ = pid("a");
+// -- Spy Net (Yssaril) ------------------------------------------------------------------------------------------------------------
+
+/// A table where seat `a` (Hacan) holds the Yssaril's Spy Net, seat `b` is the Yssaril holding `hand`, and `a` holds `own` action cards.
+fn spy_table(hand: &[&str], own: &[&str]) -> GameState {
+    use ti4_model::id::ActionCardId;
+    let mut state = action_table(&[("a", "hacan"), ("b", "yssaril"), ("c", "sol")]);
+    state.promissory_notes.insert("spynet:yssaril".to_owned(), pid("a"));
+    state.player_mut(&pid("b")).unwrap().action_cards = hand.iter().map(|c| ActionCardId::new(*c)).collect();
+    state.player_mut(&pid("a")).unwrap().action_cards = own.iter().map(|c| ActionCardId::new(*c)).collect();
+    based(state)
+}
+
+#[test]
+fn the_holder_of_spy_net_takes_a_card_of_the_yssaril_hand_at_the_start_of_the_turn_like_the_string() {
+    const WINDOW: &str = "promissory:hacan:spynet:TURN_BEGAN:after";
+    // Several printed cards (a question), one (taken unasked), a duplicate pair (one option), a decline of the window.
+    for (hand, answers) in [
+        (vec!["sabo1", "insub", "reverse_engineer"], vec![WINDOW, "insub"]),
+        (vec!["sabo1", "insub", "reverse_engineer"], vec![WINDOW, "sabo1"]),
+        (vec!["sabo1"], vec![WINDOW]),
+        (vec!["sabo1", "sabo2"], vec![WINDOW]),
+        (vec!["sabo1", "insub"], vec!["decline"]),
+    ] {
+        let state = spy_table(&hand, &[]);
+        let (string, native) = prelude_both(&state, &answers);
+        assert_same(&string, &native);
+        let taken = answers.first() == Some(&WINDOW);
+        let hand_of = |run: &super::turn_live_tests::Run, seat: usize| run.state["players"][seat]["action_cards"].as_array().map_or(0, Vec::len);
+        assert_eq!(hand_of(&string, 0), usize::from(taken), "{hand:?} {answers:?}: one card is taken only by a use");
+        assert_eq!(string.state["promissory_notes"].get("spynet:yssaril").is_none_or(|holder| holder != "a"), taken, "{hand:?} {answers:?}: the note goes home only after a use");
+    }
+    // Nothing to look at: the window is not offered.
+    let (string, native) = prelude_both(&spy_table(&[], &[]), &[]);
+    assert_same(&string, &native);
+}
+
+#[test]
+fn spy_net_over_the_hand_limit_asks_the_discard_like_the_string() {
+    const WINDOW: &str = "promissory:hacan:spynet:TURN_BEGAN:after";
+    let full = ["coup", "dh1", "industrial_initiative", "investments", "reverse_engineer", "sabo1", "sabo2"];
+    let state = spy_table(&["insub", "sabo1"], &full);
+    let (string, native) = prelude_both(&state, &[WINDOW, "insub", "0"]);
+    assert_same(&string, &native);
+    assert!(string.questions.iter().any(|q| q.prompt.starts_with("over the hand limit")), "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
 }
