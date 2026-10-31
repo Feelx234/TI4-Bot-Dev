@@ -4282,6 +4282,198 @@ pub fn mahact_hero(
     Some(CoreWindow { run, questions: driven.rendered })
 }
 
+/// Why the position holds something the core ground fight does not carry (the gates of the adapter of Quantum Dissemination): The
+/// Thundarian watching the step, X-89 Bacterial Weapon, Proxima Targeting VI, Alarum, hits a faction adds to a roll, Dacxive Animators, a neutral
+/// side or a coexisting planet where the planets are fought, a Letnev rival (the Dunlain Reaper), and the effects of gaining control the
+/// window does not carry (a Minister of Exploration, the Crown of Emphidia, L1Z1X's Fealty Uplink).
+#[must_use]
+pub fn yin_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, player: &PlayerId, spots: &[(ti4_model::id::SystemId, ti4_model::id::PlanetId)]) -> Option<&'static str> {
+    let everyone: Vec<&PlayerId> = gs.players.iter().map(|p| &p.id).collect();
+    if crate::factions::nomad_agents::watches_roll_step(gs) {
+        return Some("The Thundarian watches the Roll Dice step");
+    }
+    if everyone.iter().any(|id| gs.player(id).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"x89c4")))) {
+        return Some("X-89 Bacterial Weapon");
+    }
+    if everyone.iter().any(|id| gs.player(id).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"dxa")))) {
+        return Some("Dacxive Animators");
+    }
+    if crate::factions::bastion_units::watches_ground_round(gs, &everyone) {
+        return Some("Proxima Targeting VI");
+    }
+    if gs.players.iter().any(|p| p.faction.as_str() == "letnev") {
+        return Some("a Letnev seat (the Dunlain Reaper)");
+    }
+    if gs.laws.contains_key("minister_exploration") {
+        return Some("the Minister of Exploration in play (a trade good for each planet taken)");
+    }
+    if crate::laws::owner_home_system(gs, content, "crown_of_emphidia").is_some() {
+        return Some("the Crown of Emphidia in play (it changes hands with a home system)");
+    }
+    if crate::breakthroughs::holds(gs, player, "l1z1xbt") {
+        return Some("L1Z1X's Fealty Uplink (infantry for the planet taken)");
+    }
+    for (system, planet) in spots {
+        if crate::factions::ralnel::alarum_on(gs, system, planet) {
+            return Some("Alarum");
+        }
+        if !crate::coexistence::coexisters(gs, system, planet).is_empty() {
+            return Some("a coexisting planet");
+        }
+        let owners = gs.system_state(system).on_planet(planet).iter().map(|u| u.owner.clone()).collect::<std::collections::BTreeSet<_>>();
+        if owners.iter().any(crate::neutral_units::is_neutral) {
+            return Some(crate::dual::reason::NEUTRAL);
+        }
+        if everyone.iter().any(|id| crate::factions::hooks_ground::ground_rolls_extra_hits(gs, content, sources.clone(), id, system, planet, 1, 1) != 0) {
+            return Some("hits added to a roll");
+        }
+    }
+    None
+}
+
+/// The core half of Quantum Dissemination (`factions::yin::use_leader_timed`; the value: the card resolved, `None` when the string refused an
+/// answer): the commitments, the landing, every planet fought to its end as a child of `rules::invasion::yin_hero::YinHero` and the control.
+/// The planets chosen are the ones the recording shows (the answers up to the first decline). `None` for the positions of [`yin_unported`] and for
+/// a recording in which the string opened a scoring window after a won combat (that window is the string's).
+#[must_use]
+#[allow(clippy::too_many_arguments, reason = "the position, the sources, the seat, its spots and stock, the streams and the recording")]
+pub fn yin_hero(
+    gs: &mut GameState,
+    content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    player: &PlayerId,
+    spots: &[(ti4_model::id::SystemId, ti4_model::id::PlanetId)],
+    stock: usize,
+    rng_before: &crate::rng::RngPositions,
+    reproducible: bool,
+    script: &Recording,
+) -> Option<CoreWindow<Option<bool>>> {
+    use ti4_engine_core::rules::invasion::fight::FightFacts;
+    use ti4_engine_core::rules::invasion::roll::NAMED;
+    use ti4_engine_core::rules::invasion::yin_hero::{YinFacts, YinHero};
+    if let Some(why) = outside_why(gs, script) {
+        crate::dual::note_bail_here(why);
+        return None;
+    }
+    if !reproducible {
+        crate::dual::note_bail_here("irreproducible dice (test faces or a stream restore)");
+        return None;
+    }
+    if script.questions.iter().any(|q| q.choice.prompt == "score an objective") {
+        crate::dual::note_bail_here("a scoring window after a won ground combat (the string's)");
+        return None;
+    }
+    if let Some(why) = yin_unported(gs, content, sources.clone(), player, spots) {
+        crate::dual::note_bail_here(why);
+        return None;
+    }
+    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+    let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+    let system_of = |id: &ti4_model::id::SystemId| <ti4_engine_core::generated::System as IdStr>::from_id(id.as_str());
+    let planet_of = |id: &ti4_model::id::PlanetId| <ti4_engine_core::generated::Planet as IdStr>::from_id(id.as_str());
+    let core_spots: Vec<(ti4_engine_core::generated::System, ti4_engine_core::generated::Planet)> =
+        spots.iter().map(|(system, planet)| Some((system_of(system)?, planet_of(planet)?))).collect::<Option<_>>().why(crate::dual::reason::UNKNOWN_ID)?;
+    let infantry_id = crate::action_cards::placed_unit_id(gs, content, sources.clone(), player, "infantry").why("the infantry form of the seat is unknown")?;
+    let infantry = <ti4_engine_core::generated::Unit as IdStr>::from_id(infantry_id.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+    // The planets the string chose, read from the recording: the answers up to the first decline.
+    let mut chosen: Vec<(ti4_model::id::SystemId, ti4_model::id::PlanetId)> = Vec::new();
+    for asked in script.questions.iter().filter(|q| q.choice.prompt.starts_with("Quantum Dissemination: commit infantry")) {
+        let Some(id) = asked.answer.as_deref() else { break };
+        match spots.iter().find(|(system, planet)| format!("{system}|{planet}") == id) {
+            Some(spot) => chosen.push(spot.clone()),
+            None => break,
+        }
+    }
+    // The position the fights start from: the infantry has landed.
+    let mut sim = gs.clone();
+    for (system, planet) in &chosen {
+        sim.system_mut(system).planet_units.entry(planet.clone()).or_default().push(ti4_model::units::Unit::new(infantry_id.clone(), player.clone()));
+    }
+    let mut types: Vec<ti4_engine_core::generated::Unit> = Vec::new();
+    for (system, planet) in &chosen {
+        for unit in sim.system_state(system).on_planet(planet) {
+            let kind = <ti4_engine_core::generated::Unit as IdStr>::from_id(unit.type_id.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+            if !types.contains(&kind) {
+                types.push(kind);
+            }
+        }
+    }
+    types.sort_unstable();
+    let mut unit_codes = Vec::new();
+    for unit in &types {
+        unit_codes.push((*unit, cx.texts.intern(Slice::Transient, unit.as_str()).why("the text table of the typed state is full")?));
+    }
+    let mut names = Vec::new();
+    for n in 1..=NAMED {
+        names.push(cx.texts.intern(Slice::Transient, &format!("combat value {n}")).why("the text table of the typed state is full")?);
+    }
+    let mut order: Vec<&PlayerId> = gs.players.iter().map(|p| &p.id).collect();
+    order.sort();
+    let order: Vec<ti4_engine_core::ids::Seat> = order.into_iter().map(|id| r.seat(id.as_str())).collect::<Option<_>>().why(crate::dual::reason::NO_SEAT)?;
+    let notes = crate::combat::note_holdings(gs);
+    let mut note_pairs = Vec::new();
+    for (holder, issuers) in &notes {
+        for issuer in issuers {
+            note_pairs.push((r.seat(holder.as_str())?, r.seat(issuer.as_str())?));
+        }
+    }
+    let copied = crate::factions::borrowed_round_agents::has_round_copy(gs, content, "solagent") || crate::factions::borrowed_round_agents::has_owner_round_agent(gs);
+    let fight = FightFacts {
+        invader: seat,
+        system: core_spots.first()?.0,
+        planet: core_spots.first()?.1,
+        order,
+        announce: true,
+        copied,
+        numbered: gs.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS,
+        can_pay: [false, false],
+        dunlain: r.code("dunlain_reaper"),
+        kind: cx.texts.intern(Slice::Transient, "ground").why("the text table of the typed state is full")?,
+        names,
+        unit_codes,
+        cause: r.code("ground_combat"),
+        harrow_cause: r.code("harrow"),
+        step_kind: cx.texts.intern(Slice::Transient, "ground_round").why("the text table of the typed state is full")?,
+        harrow: crate::faction_abilities::has(gs, content, player, "harrow"),
+        notes: note_pairs,
+    };
+    let facts = YinFacts { spots: core_spots, stock: u8::try_from(stock).ok()?, infantry, fight };
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&sim, &cx, sources.clone()).why("the invasion environment could not be built from the position")?;
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let mut table = AbilityTable::default();
+    ti4_engine_core::driver::children::register(&mut table);
+    let resolver = Resolver::new(&seats, Some(seat));
+    let mut driver = Driver::new(YinHero::new(seat, facts), resolver, table, 1).with_seeds(seeds);
+    let mut staged = Vec::new();
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let driven = with_core(gs, &mut cx, src, nested_fp(YIN, script), |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
+        driven
+    })
+    .why(crate::dual::reason::NOT_LENDABLE)?
+    .why(crate::dual::reason::DRIVER_REFUSED)?;
+    if driver.window.unsupported {
+        crate::dual::note_bail_here("a pool or unit the ground roll cannot name, or no link to the payment window");
+        return None;
+    }
+    apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+    let mut run = Run::new(Some(driver.window.used)).with_events_vec(events);
+    run.rng = Some(positions);
+    Some(CoreWindow { run, questions: driven.rendered })
+}
+
+const YIN: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+
 #[cfg(test)]
 mod twin_form_tests {
     use ti4_engine_core::generated::Unit;
