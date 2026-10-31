@@ -46,6 +46,10 @@ mod cannon_prelude_tests;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "production_step_tests.rs"]
 mod production_step_tests;
+// The lockstep of the native turn-flow jobs (lane B) against the string bodies they replace; a child of `game` to call the private ones.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "turn_live_tests.rs"]
+mod turn_live_tests;
 #[cfg(not(feature = "typed-core"))]
 mod d1_pending {
     pub(super) const fn active() -> bool {

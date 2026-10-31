@@ -729,6 +729,7 @@ pub fn drive_windowed<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::UnportedAftermath(why) => crate::combat_live::gap_text(why),
                 ti4_engine_core::kernel::ability::Unknown::Unported(why) => crate::invasion_live::unported_text(why),
                 ti4_engine_core::kernel::ability::Unknown::UnportedProduction(why) => crate::production_live::gap_text(why),
+                ti4_engine_core::kernel::ability::Unknown::TurnGap(_) => "a place the live turn flow does not follow",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);

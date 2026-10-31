@@ -88,6 +88,8 @@ pub enum Unknown {
     Unported(Unported),
     /// A position the native production step does not run (a documented bail of `driver::windows::production`, named by its reason).
     UnportedProduction(ProductionGap),
+    /// The live turn flow cannot follow the string here yet (lane B, `driver::turn`).
+    TurnGap(super::turn_codes::TurnGap),
 }
 
 /// The positions the native production step (`driver::windows::production`) does not run, each a counted bail of the live path. The words are
@@ -260,6 +262,8 @@ pub struct Codes {
     pub explore: ExploreCodes,
     /// The texts of the events of a use of PRODUCTION (`driver::windows::production`).
     pub production: ProductionCodes,
+    /// The texts of the turn flow (lane B).
+    pub turn: super::turn_codes::TurnCodes,
 }
 
 /// The `source` texts of `UNITS_PRODUCED`: `ability` for the units an ability produces, `production` for the PRODUCTION of a unit (the adapter's

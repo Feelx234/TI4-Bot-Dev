@@ -62,6 +62,8 @@ pub enum Ask {
     /// "research a technology": the bill in resources (the payload `cost`), the technologies the seat owns
     /// (the preview), and whether the holder may decline.
     ResearchTechnology { cost: u8, owned: u8, decline: bool },
+    /// 26: "choose a strategy card" at the draft of the strategy phase.
+    Draft,
     /// 82: a follower's question on the secondary of `card`, played by `primary` (every kind; Leadership's is the
     /// purchase question itself). `costs_token`: the follow takes a strategy token.
     Follow { card: StrategyCard, primary: Seat, costs_token: bool },
@@ -102,6 +104,8 @@ pub enum Opt {
     Produce(System),
     /// Research this technology.
     Research(Technology),
+    /// The draft takes this card off the mat.
+    Card(StrategyCard),
     /// A follower does not use the secondary (`no`).
     Skip,
     /// A follower uses the secondary (`yes`): spends the strategy token when the question says so.
@@ -134,6 +138,8 @@ pub enum Subtype {
     FollowSecondary,
     ConstructionChooseAbility,
     WarfareFreeTactical,
+    /// `draft_strategy_card`.
+    Draft,
 }
 
 /// The context of a strategy card question.

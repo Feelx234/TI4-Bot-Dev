@@ -70,6 +70,9 @@ pub struct Asking {
     /// A question asked from inside an emission: the event of its window and the position it was asked in (the driver rolled
     /// the step back; the display facts read this state).
     pub nested: Option<(NestedFacts, Box<CoreState>)>,
+    /// The position the question was put in, when it is a question asked from inside a step (the driver rolled the step back; the display
+    /// facts of the question read this state). `None` for a stage question of the window.
+    pub at: Option<Box<CoreState>>,
 }
 
 /// The result of running a held window to its next stop.
@@ -150,12 +153,13 @@ pub fn ask<M: Held>(core: &CoreState, env: &Env<'_>) -> Result<Option<Asking>, L
             Status::Done => Ok(None),
         };
     }
-    Ok(window.ask_of(core, env.kernel).map(|choice| Asking { choice, nested: None }))
+    Ok(window.ask_of(core, env.kernel).map(|choice| Asking { choice, nested: None, at: None }))
 }
 
 fn asking_of<M: Window>(d: &Driver<M>, choice: Choice) -> Asking {
-    let nested = d.nested_facts().cloned().zip(d.nested_state().cloned().map(Box::new));
-    Asking { choice, nested }
+    let at = d.nested_state().cloned().map(Box::new);
+    let nested = d.nested_facts().cloned().zip(at.clone());
+    Asking { choice, nested, at }
 }
 
 /// Run the open window of kind `M::KIND` to its next question or its end. With `answer`, apply it first: to the pending nested
@@ -241,6 +245,10 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
         Arm::Production => Some(crate::driver::windows::production::advance_production),
         Arm::EventScoring => Some(crate::driver::windows::scoring::advance_event_scoring),
         Arm::Aftermath => Some(crate::driver::windows::chain::advance_aftermath),
+        Arm::TurnPrelude => Some(super::turn::advance_prelude),
+        Arm::StrategyAnnounce => Some(super::turn::advance_announce),
+        Arm::Phase => Some(super::turn::advance_phase),
+        Arm::Ask => Some(super::turn::ask::advance_ask),
         _ => None,
     }
 }
@@ -256,6 +264,8 @@ pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
         Arm::Production => Some(crate::driver::windows::production::ask_production),
         Arm::EventScoring => Some(crate::driver::windows::scoring::ask_event_scoring),
         Arm::Aftermath => Some(crate::driver::windows::chain::ask_aftermath),
+        Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase => Some(super::turn::ask_job),
+        Arm::Ask => Some(super::turn::ask::ask_ask),
         _ => None,
     }
 }
