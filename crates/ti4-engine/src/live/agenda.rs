@@ -33,8 +33,41 @@ pub fn codes(r: &Render) -> AgendaCodes {
     }
 }
 
+/// The whole ledger of a vote with more outcomes than `Tally` holds (`details.tally`): every outcome offered, in order, with its votes.
+fn full_tally(core: &CoreState, rendered: &mut Choice) {
+    use ti4_engine_core::choice::agenda::Tally;
+    use ti4_engine_core::keys::Outcome;
+    let Some(ti4_engine_core::state::Window::Voting(v)) = core.pending().window(ti4_engine_core::state::WindowKind::Voting) else { return };
+    if v.vote.choices.len() <= Tally::MAX {
+        return;
+    }
+    let text = |o: Outcome| -> String {
+        match o {
+            Outcome::Empty => String::new(),
+            Outcome::For => "for".to_owned(),
+            Outcome::Against => "against".to_owned(),
+            Outcome::Seat(s) => core.owners.id(s).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default(),
+            Outcome::Planet(p) => IdStr::as_str(p).to_owned(),
+            Outcome::StrategyCard(c) => IdStr::as_str(c).to_owned(),
+            Outcome::Law(a) => IdStr::as_str(a).to_owned(),
+            Outcome::Secret(s) => IdStr::as_str(s).to_owned(),
+        }
+    };
+    let entries: Vec<serde_json::Value> = v
+        .vote
+        .choices
+        .as_slice()
+        .iter()
+        .map(|o| serde_json::json!([text(*o), v.vote.counts.as_slice().iter().find(|(c, _)| c == o).map_or(0, |(_, n)| *n)]))
+        .collect();
+    rendered.details.insert("tally".to_owned(), serde_json::Value::Array(entries));
+}
+
 /// The display facts of the questions of the agenda phase.
 pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
+    if let Ask::Agenda(AAsk::Planets { .. }) = choice.ask {
+        full_tally(core, rendered);
+    }
     if let Ask::Agenda(AAsk::DiscardLaw { law: Agenda::CommitteeFormation, .. }) = choice.ask {
         // The prompt names the agenda the election is for: the one in play (revealed, not yet voted on).
         let alias = core.agenda().in_play.map_or("", |a| IdStr::as_str(a));

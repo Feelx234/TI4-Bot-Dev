@@ -446,7 +446,7 @@ pub fn vote_question(
 }
 
 /// 8.11, `Stage::Planets`: which planet to exhaust for `outcome`. `None` when nothing is left to exhaust, or
-/// when the vote has more outcomes than the ledger holds (the core does not express it). `must_cast`:
+/// `must_cast`:
 /// Genetic Recombination makes the first planet not optional. `spender`: this voter may also exhaust for
 /// resources; `table_spends`: some seat does (Executive Order), which labels every voter's planets with the
 /// face they are exhausted for.
@@ -468,10 +468,12 @@ pub fn planets_question(
     if offers.is_empty() {
         return None;
     }
+    // The ledger holds [`Tally::MAX`] outcomes: a longer vote (an election among many planets) shows the first ones, and the live path's
+    // display facts (`live::agenda`) rebuild the whole list from the vote on the stack. The dual does not follow such a vote.
     let mut tally = Tally::empty();
     for o in choices {
         if !tally.push(*o, votes32(count(counts, *o))) {
-            return None;
+            break;
         }
     }
     let mut opts = Opts::default();

@@ -164,7 +164,8 @@ impl<const EVENT: bool> ScoringWin<EVENT> {
     fn one(&self, asked: &Asked, k: &Kernel, core: &CoreState) -> ScoreOne {
         let offers: Vec<Offer> = asked.offers.iter().copied().collect();
         let env = PayEnv { scope: reach::scope_of(k), blanked: reach::blanked(core) };
-        ScoreOne::new(asked.seat, !EVENT, &offers, self.occurrence).with_price(env)
+        // Only a window with the one-per-player cap records the occurrence a seat used (`ScoringWindow::score`); an agenda's window does not.
+        ScoreOne::new(asked.seat, !EVENT, &offers, self.occurrence.filter(|_| self.one_per_player)).with_price(env)
     }
 }
 
