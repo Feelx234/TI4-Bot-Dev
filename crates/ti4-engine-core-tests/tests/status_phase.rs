@@ -407,3 +407,258 @@ fn the_command_tokens_on_the_board_come_back_at_81_4() {
     let Some(ti4_engine_core::state::Window::Tokens(t)) = s.pending().window(WindowKind::Tokens) else { panic!("tokens") };
     assert_eq!(t.report.returned_command_tokens.as_slice(), [(system, Seat(0)), (system, Seat(1))]);
 }
+
+// -- the redistribution, the event window's caps, the offers (survivors of the mutation runs) --------------------------------------
+
+use ti4_engine_core::driver::windows::scoring::{open_event, CoreOffers, EventScoring, StatusScoring};
+use ti4_engine_core::rules::scoring_book::Offers;
+use ti4_engine_core::kernel::stage::Held;
+use ti4_engine_core::state::{Feat, ScoringTiming, Tokens};
+
+/// A closing token window with nothing left to place: the next call runs the finish job to its first question.
+fn finish_of(factions: &[Faction], rules: u32, tokens: (i16, i16, i16)) -> (CoreState, Kernel) {
+    let mut sc = Scenario::new(factions).phase(Phase::Status).active(None).rules(rules).tokens(0, tokens.0, tokens.1, tokens.2);
+    if tokens == (0, 0, 0) {
+        sc = sc.tokens(1, 0, 0, 0);
+    }
+    let (mut s, k) = sc.build();
+    ti4_engine_core::rules::token_gain::TokenGain::new(Tokens { pending: Default::default(), placed: Default::default(), report: Default::default() }).to_pending(&mut s);
+    (s, k)
+}
+
+fn ask_redistribution(s: &mut CoreState, k: &Kernel) -> Option<(u8, u8)> {
+    match advance_tokens(s, &env(k), None).unwrap().0 {
+        Live::Asks(q) => match q.choice.ask {
+            Ask::Strategy(SAsk::StatusRedistribute { total, floor }) => {
+                assert_eq!(q.choice.actor, Seat(0));
+                assert!(!q.choice.opts.is_empty());
+                assert!(!q.choice.ctx.optional && !q.choice.ctx.space_battle && q.choice.ctx.invasion_seq.is_none() && q.choice.ctx.target.is_none(), "a plain mandatory question");
+                Some((total, floor))
+            }
+            other => panic!("{other:?}"),
+        },
+        Live::Done => None,
+    }
+}
+
+#[test]
+fn the_redistribution_asks_the_whole_sheet_with_the_floor_of_the_faction_and_the_version() {
+    let (mut s, k) = finish_of(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan], 40, (3, 3, 2));
+    assert_eq!(ask_redistribution(&mut s, &k), Some((8, 2)), "two in the fleet pool at least");
+    let (mut s, k) = finish_of(&[Faction::TheBaronyOfLetnev, Faction::TheEmiratesOfHacan], 40, (3, 3, 2));
+    assert_eq!(ask_redistribution(&mut s, &k), Some((8, 0)), "Letnev may empty its fleet pool from rules version 4");
+    let (mut s, k) = finish_of(&[Faction::TheBaronyOfLetnev, Faction::TheEmiratesOfHacan], 3, (3, 3, 2));
+    assert_eq!(ask_redistribution(&mut s, &k), Some((8, 2)), "before the version the usual floor");
+    let (mut s, k) = finish_of(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan], 40, (0, 0, 0));
+    assert_eq!(advance_tokens(&mut s, &env(&k), None).map(|r| r.0.clone()).unwrap_or(Live::Done), Live::Done, "an empty sheet asks nothing (the other seat has the default tokens)");
+}
+
+#[test]
+fn an_event_window_opens_with_its_occurrence_and_caps() {
+    let (mut s, _) = Scenario::lobby(3).phase(Phase::Action).build();
+    open_event(&mut s, ScoringTiming::Action, 7, true);
+    let Some(ti4_engine_core::state::Window::EventScoring(w)) = s.pending().window(WindowKind::EventScoring) else { panic!("open") };
+    assert_eq!((w.timing, w.occurrence, w.one_per_player, w.pending.len()), (ScoringTiming::Action, Some(7), true, 3));
+    let (mut s, _) = Scenario::lobby(3).phase(Phase::Status).build();
+    ti4_engine_core::driver::live::open(&mut s, &StatusScoring::status(&[Seat(0), Seat(1)]));
+    let Some(ti4_engine_core::state::Window::Scoring(w)) = s.pending().window(WindowKind::Scoring) else { panic!("open") };
+    assert_eq!((w.timing, w.occurrence, w.one_per_player, w.pending.len()), (ScoringTiming::Status, None, false, 2));
+    let _ = EventScoring::event(&[Seat(0)], ScoringTiming::Agenda, 1, false);
+}
+
+fn pe_table(version: u32) -> (CoreState, Kernel) {
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Action).rules(version).build();
+    s.players_mut().edit(0).cards.secrets = [SecretObjective::ProveEndurance].into_iter().collect();
+    s.players_mut().edit(0).misc.event_feats.push((Feat::LastToPass, 3));
+    (s, k)
+}
+
+#[test]
+fn a_secret_is_offered_in_the_window_of_the_occurrence_its_feat_was_recorded_for_and_only_once_per_player() {
+    let pe = Pick::Opt(Opt::Objectives(OOpt::Score(ObjectiveRef::Secret(SecretObjective::ProveEndurance))));
+    let (mut s, k) = pe_table(40);
+    open_event(&mut s, ScoringTiming::Action, 3, true);
+    let e = env(&k);
+    let q = ask::<EventScoring>(&s, &e).unwrap().expect("the feat of occurrence 3").choice;
+    assert_eq!(q.actor, Seat(0));
+    // Another occurrence: the feat does not count.
+    let (mut other, k2) = pe_table(40);
+    open_event(&mut other, ScoringTiming::Action, 4, true);
+    assert!(ask::<EventScoring>(&other, &env(&k2)).unwrap().is_none());
+    // The seat used its one score of this occurrence.
+    let (mut used, k3) = pe_table(40);
+    ti4_engine_core::kernel::fx::record_occurrence_score(&mut used, Seat(0), 3);
+    open_event(&mut used, ScoringTiming::Action, 3, true);
+    assert!(ask::<EventScoring>(&used, &env(&k3)).unwrap().is_none(), "capped by the occurrence");
+    let (mut any, k4) = pe_table(40);
+    ti4_engine_core::kernel::fx::record_occurrence_score(&mut any, Seat(0), 3);
+    open_event(&mut any, ScoringTiming::Action, 3, false);
+    assert!(ask::<EventScoring>(&any, &env(&k4)).unwrap().is_some(), "not capped when any number may score");
+    // Scoring it: the secret leaves the hand, the occurrence is recorded, and the window closes (nobody else has a feat).
+    let (live, _) = advance_scoring_event(&mut s, &e, pe);
+    assert_eq!(live, Live::Done);
+    assert!(s.players().by_seat(Seat(0)).unwrap().cards.secrets.is_empty());
+    assert!(s.objectives().scored_feats.iter().any(|f| *f == (Seat(0), 3)));
+    // A wrong-timed secret is not offered in a window of another phase.
+    let (mut agenda, k5) = pe_table(40);
+    open_event(&mut agenda, ScoringTiming::Agenda, 3, true);
+    assert!(ask::<EventScoring>(&agenda, &env(&k5)).unwrap().is_none());
+}
+
+fn advance_scoring_event(s: &mut CoreState, e: &Env<'_>, pick: Pick) -> (Live, Out) {
+    ti4_engine_core::driver::windows::status::advance_event_scoring(s, e, Some(pick)).unwrap()
+}
+
+#[test]
+fn a_leaked_event_secret_keeps_its_timing_from_the_rules_version_that_says_so() {
+    for (version, offered) in [(40, true), (23, false)] {
+        let (mut s, k) = Scenario::lobby(2).phase(Phase::Action).rules(version).build();
+        s.objectives_mut().revealed.push(ObjectiveRef::Secret(SecretObjective::ProveEndurance));
+        s.players_mut().edit(1).misc.event_feats.push((Feat::LastToPass, 3));
+        open_event(&mut s, ScoringTiming::Action, 3, true);
+        let asked = ask::<EventScoring>(&s, &env(&k)).unwrap();
+        assert_eq!(asked.is_some(), offered, "rules version {version}");
+        if offered {
+            assert_eq!(asked.unwrap().choice.actor, Seat(1));
+        }
+    }
+}
+
+#[test]
+fn a_status_secret_is_offered_by_its_position_not_by_a_feat_and_not_twice() {
+    let planet = Planet::ALL.iter().copied().find(|p| p.data().legendary && p.data().system.is_some()).expect("a legendary planet");
+    let build = |held: bool| {
+        let sc = Scenario::lobby(2).phase(Phase::Status).active(None);
+        let (mut s, k) = if held { sc.control(planet, 0).build() } else { sc.build() };
+        s.players_mut().edit(0).cards.secrets = [SecretObjective::SeizeAnIcon, SecretObjective::ProveEndurance].into_iter().collect();
+        (s, k)
+    };
+    let (mut s, k) = build(true);
+    ti4_engine_core::driver::live::open(&mut s, &StatusScoring::status(&[Seat(0), Seat(1)]));
+    let q = ask::<StatusScoring>(&s, &env(&k)).unwrap().expect("Seize an Icon").choice;
+    let offered: Vec<_> = q.opts.iter().filter(|o| matches!(o, Opt::Objectives(OOpt::Score(_)))).collect();
+    assert_eq!(offered, [&Opt::Objectives(OOpt::Score(ObjectiveRef::Secret(SecretObjective::SeizeAnIcon)))], "the action secret is not a status offer");
+    let (mut s2, k2) = build(false);
+    ti4_engine_core::driver::live::open(&mut s2, &StatusScoring::status(&[Seat(0), Seat(1)]));
+    assert!(ask::<StatusScoring>(&s2, &env(&k2)).unwrap().is_none(), "the position does not satisfy it");
+    // Already scored: not offered again.
+    let (mut s3, k3) = build(true);
+    ti4_engine_core::kernel::fx::record_score(&mut s3, Seat(0), ObjectiveRef::Secret(SecretObjective::SeizeAnIcon));
+    ti4_engine_core::driver::live::open(&mut s3, &StatusScoring::status(&[Seat(0), Seat(1)]));
+    assert!(ask::<StatusScoring>(&s3, &env(&k3)).unwrap().is_none());
+    let mut offers = CoreOffers::new(&s, &k, ScoringTiming::Status, None);
+    assert!(!offers.scored_at_occurrence(Seat(0)) && offers.plots(Seat(0)).is_empty());
+    assert_eq!(offers.secrets(Seat(0)).as_slice(), [SecretObjective::SeizeAnIcon]);
+    assert!(!offers.unsupported);
+    // Strengthen Bonds cannot be judged by the core: the window stops with a counted gap.
+    let (mut s4, k4) = build(true);
+    s4.players_mut().edit(0).cards.secrets = [SecretObjective::StrengthenBonds].into_iter().collect();
+    ti4_engine_core::driver::live::open(&mut s4, &StatusScoring::status(&[Seat(0)]));
+    let held = s4.clone();
+    assert_eq!(advance_scoring(&mut s4, &env(&k4), None), gap(TurnGap::ScoringSecret));
+    assert_eq!(s4, held);
+}
+
+#[test]
+fn an_event_window_that_leaves_the_agenda_queue_behind_is_a_counted_gap() {
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Agenda).build();
+    open_event(&mut s, ScoringTiming::Agenda, 1, true);
+    s.pending_mut().open(ti4_engine_core::state::Window::AgendaQueueAfterEventScoring([Agenda::ALL[0]].into_iter().collect()));
+    let held = s.clone();
+    assert_eq!(ti4_engine_core::driver::windows::status::advance_event_scoring(&mut s, &env(&k), None), gap(TurnGap::AgendaQueue));
+    assert_eq!(s, held);
+    let (mut plain, k) = Scenario::lobby(2).phase(Phase::Agenda).build();
+    open_event(&mut plain, ScoringTiming::Agenda, 1, true);
+    assert_eq!(ti4_engine_core::driver::windows::status::advance_event_scoring(&mut plain, &env(&k), None).unwrap().0, Live::Done);
+}
+
+#[test]
+fn a_hand_exactly_at_the_limit_after_the_draw_asks_nothing_and_one_distinct_card_is_discarded_without_a_question() {
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).build();
+    s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
+    s.decks_mut().action.set(ActionCard::ALL.iter().copied().skip(20).take(30).collect());
+    s.players_mut().edit(0).cards.hand = ActionCard::ALL.iter().copied().take(6).collect();
+    let e = env(&k);
+    advance_status(&mut s, &e, None).unwrap();
+    assert_eq!(advance_scoring(&mut s, &e, None).unwrap().0, Live::Done, "seven cards are within the limit");
+    // Scheming over a hand whose cards all share one printed name: nothing to choose.
+    let (mut y, k) = yssaril_table();
+    let mut e = env(&k);
+    e.table.facts.card_groups = vec![0; ActionCard::COUNT];
+    advance_status(&mut y, &e, None).unwrap();
+    assert_eq!(advance_scoring(&mut y, &e, None).unwrap().0, Live::Done);
+    assert_eq!(y.players().by_seat(Seat(1)).unwrap().cards.hand.len(), 3, "2 held + 2 drawn - 1 discarded");
+    assert!(y.marks().tail.iter().any(|(k, _)| matches!(k, ti4_engine_core::keys::MarkKey::CardsStaged(_))), "the discard waits for the announcement");
+}
+
+#[test]
+fn a_fresh_window_with_something_to_score_runs_to_its_question() {
+    let (mut s, k) = marvel();
+    let e = env(&k);
+    advance_status(&mut s, &e, None).unwrap();
+    let held = s.clone();
+    let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
+    let Live::Asks(q) = live else { panic!("seat 0 is asked") };
+    assert_eq!(q.choice.ask, Ask::Objectives(ti4_engine_core::choice::objectives::Ask::Score { vp: 0 }));
+    assert_eq!(q.choice, ask_scoring(&held, &e).unwrap().unwrap().choice, "the stage question and the question the step puts are one");
+    // The seat holds points: the question shows them.
+    let mut rich = held.clone();
+    rich.players_mut().edit(0).econ.victory_points = 4;
+    let Live::Asks(q) = advance_scoring(&mut rich, &e, None).unwrap().0 else { panic!("asked") };
+    assert_eq!(q.choice.ask, Ask::Objectives(ti4_engine_core::choice::objectives::Ask::Score { vp: 4 }));
+    assert_eq!(q.choice, ask_scoring(&rich, &e).unwrap().unwrap().choice);
+}
+
+#[test]
+fn the_close_readies_the_technologies_of_every_seat_and_repairs_the_units_on_planets() {
+    let planet = Planet::ALL.iter().copied().find(|p| p.data().system.is_some()).unwrap();
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).unit(planet.data().system.unwrap(), Some(planet), Unit::InfantryI, 0, 1).build();
+    s.board_mut().planet_mut(planet).units.as_mut_slice().iter_mut().for_each(|u| *u = u.with_sustained(true));
+    for seat in 0..2 {
+        s.players_mut().edit(seat).tech.exhausted = [Technology::NeuralMotivator].into_iter().collect();
+    }
+    ti4_engine_core::rules::token_gain::TokenGain::new(Tokens { pending: Default::default(), placed: Default::default(), report: Default::default() }).to_pending(&mut s);
+    let e = env(&k);
+    let mut live = advance_tokens(&mut s, &e, None);
+    while let Ok((Live::Asks(q), _)) = &live {
+        let pick = q.choice.pick(0).unwrap();
+        live = advance_tokens(&mut s, &e, Some(pick));
+    }
+    assert_eq!(live.unwrap().0, Live::Done);
+    assert!(s.players().iter().all(|p| p.tech.exhausted.is_empty()), "every seat's technologies ready");
+    assert!(s.board().planet(planet).units.as_slice().iter().all(|u| !u.sustained()), "81.7 on planets too");
+}
+
+#[test]
+fn a_position_secret_of_an_event_window_is_offered_without_a_feat_and_a_leaked_status_secret_by_its_position() {
+    // Dictate Policy (agenda timing): three laws in play satisfy it by position.
+    let build = |laws: usize| {
+        let (mut s, k) = Scenario::lobby(2).phase(Phase::Agenda).build();
+        s.players_mut().edit(0).cards.secrets = [SecretObjective::DictatePolicy].into_iter().collect();
+        for law in Agenda::ALL.iter().take(laws) {
+            s.agenda_mut().laws.insert(*law, ti4_engine_core::keys::Outcome::For);
+        }
+        open_event(&mut s, ScoringTiming::Agenda, 1, true);
+        (s, k)
+    };
+    let (s, k) = build(3);
+    assert!(ask::<EventScoring>(&s, &env(&k)).unwrap().is_some());
+    let (s, k) = build(2);
+    assert!(ask::<EventScoring>(&s, &env(&k)).unwrap().is_none());
+    // A status secret made public is scored by the position of its holder, and only while not scored.
+    let planet = Planet::ALL.iter().copied().find(|p| p.data().legendary && p.data().system.is_some()).unwrap();
+    let mk = |scored: bool| {
+        let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).control(planet, 0).build();
+        s.objectives_mut().revealed.push(ObjectiveRef::Secret(SecretObjective::SeizeAnIcon));
+        if scored {
+            ti4_engine_core::kernel::fx::record_score(&mut s, Seat(0), ObjectiveRef::Secret(SecretObjective::SeizeAnIcon));
+        }
+        ti4_engine_core::driver::live::open(&mut s, &StatusScoring::status(&[Seat(0), Seat(1)]));
+        (s, k)
+    };
+    let (s, k) = mk(false);
+    let q = ask::<StatusScoring>(&s, &env(&k)).unwrap().expect("offered").choice;
+    assert_eq!(q.actor, Seat(0));
+    let (s, k) = mk(true);
+    assert!(ask::<StatusScoring>(&s, &env(&k)).unwrap().is_none());
+}

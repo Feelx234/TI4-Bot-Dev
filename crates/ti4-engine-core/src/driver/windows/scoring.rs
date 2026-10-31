@@ -53,7 +53,7 @@ pub struct CoreOffers<'a> {
 impl<'a> CoreOffers<'a> {
     #[must_use]
     pub fn new(core: &'a CoreState, kernel: &'a Kernel, timing: ScoringTiming, occurrence: Option<u64>) -> Self {
-        let seen = Seen::new(core, kernel, Seat(0)).with_blanked(reach::blanked(core));
+        let seen = Seen::new(core, kernel, Seat(0)).with_blanked(reach::blanked(core)); // mutants:skip: the bound seat is not read by the public accessors used here
         Self { core, seen, timing, occurrence, unsupported: false }
     }
 }
@@ -110,12 +110,14 @@ impl<const EVENT: bool> ScoringWin<EVENT> {
     /// A fresh status window over `order` (initiative order, first first): `Game::step_status`.
     #[must_use]
     pub fn status(order: &[Seat]) -> StatusScoring {
+        // mutants:skip: the flags of the new book are rebuilt from the payload (`of_payload`) before the window is ever run
         ScoringWin { book: ScoringBook::new(order, true, false, false), timing: ScoringTiming::Status, occurrence: None, one_per_player: false }
     }
 
     /// A fresh event window over `order` for one occurrence (`ScoringWindow::for_occurrence`).
     #[must_use]
     pub fn event(order: &[Seat], timing: ScoringTiming, occurrence: u64, one_per_player: bool) -> EventScoring {
+        // mutants:skip: the flags of the new book are rebuilt from the payload (`of_payload`) before the window is ever run
         ScoringWin { book: ScoringBook::new(order, false, one_per_player, true), timing, occurrence: Some(occurrence), one_per_player }
     }
 
@@ -168,6 +170,7 @@ impl<const EVENT: bool> ScoringWin<EVENT> {
 impl<const EVENT: bool> Window for ScoringWin<EVENT> {
     type Stage = usize;
 
+    // mutants:skip: the stage is a label for the trace; the driver rebuilds the window from the payload and never branches on it
     fn stage(&self) -> usize {
         self.book.pending().len()
     }
