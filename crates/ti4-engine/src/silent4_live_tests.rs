@@ -156,3 +156,127 @@ fn another_players_relic_lets_the_naalu_deploy_the_thunders_edge_mech_like_the_s
         assert_eq!(mechs(&string) - before, expected, "{label}");
     }
 }
+
+// -- M'aban (the Naalu commander): the standing permission to look at the promissory notes of the neighbours ---------------------------
+
+#[test]
+fn the_core_hook_may_view_hand_answers_like_the_strings_for_the_maban_permission() {
+    use crate::core_sync::{Codec, Ctx, Sources};
+    use crate::factions::hooks_cards::RevealKind as SKind;
+    use ti4_engine_core::kernel::hooks::RevealKind as CKind;
+    use ti4_engine_core::state::SliceSet;
+    use ti4_model::state::LeaderStatus;
+    let content = ti4_content::ContentStore::embedded();
+    // A hub whose centre holds the Naalu's units and whose first ring system holds the Hacan's: neighbours; the Sol has no unit on the board and is not.
+    let hub = crate::fixtures::plain_hub();
+    let (centre, near) = (ti4_model::id::SystemId::new(hub.centre.clone()), ti4_model::id::SystemId::new(hub.outer[0].clone()));
+    for (label, status, neighbours) in [("unlocked, neighbours", Some(LeaderStatus::Unlocked), true), ("locked", Some(LeaderStatus::Locked), true), ("unlocked, no neighbour units", Some(LeaderStatus::Unlocked), false), ("no commander", None, true)] {
+        let mut state = action_table(&[("a", "naalu"), ("b", "hacan"), ("c", "sol")]);
+        for system in state.board.values_mut() {
+            system.units.clear();
+            system.planet_units.clear();
+        }
+        crate::fixtures::put(&mut state, &centre, "cruiser", &pid("a"), 1);
+        if neighbours {
+            crate::fixtures::put(&mut state, &near, "cruiser", &pid("b"), 1);
+        }
+        match status {
+            Some(status) => {
+                state.player_mut(&pid("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("naalucommander"), status);
+            }
+            None => {
+                state.player_mut(&pid("a")).unwrap().leaders.remove(&ti4_model::id::LeaderId::new("naalucommander"));
+            }
+        }
+        let state = based(state);
+        let mut cx = Ctx::of(&state).expect("a table the codecs carry");
+        let positions = crate::game::Game::with_table(state.clone(), ti4_content::ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption))).rng_positions();
+        let core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&positions) }, SliceSet::ALL).expect("the position loads");
+        let kernel = crate::live::kernel::kernel_for(ti4_model::content_types::DEFAULT);
+        for (viewer, owner) in [("a", "b"), ("a", "c"), ("b", "a"), ("a", "a")] {
+            for (skind, ckind) in [(SKind::PromissoryNotes, CKind::PromissoryNotes), (SKind::ActionCards, CKind::ActionCards), (SKind::SecretObjectives, CKind::SecretObjectives)] {
+                let string = crate::factions::hooks_cards::may_view_hand(&state, content, ti4_model::content_types::DEFAULT, Some(&hub.galaxy), &pid(viewer), &pid(owner), skind);
+                let seat = |name: &str| ti4_engine_core::Seat(u8::try_from(["a", "b", "c"].iter().position(|n| *n == name).unwrap()).unwrap());
+                let native = kernel.hooks.cards.may_view_hand(&core, kernel, seat(viewer), seat(owner), ckind);
+                assert_eq!(string, native, "{label}: {viewer} looks at {owner}'s {skind:?}");
+                if label == "unlocked, neighbours" && viewer == "a" && owner == "b" && skind == SKind::PromissoryNotes {
+                    assert!(string, "the permission is given in the case that is meant to give it");
+                }
+            }
+        }
+    }
+}
+
+// -- Jae Mir Kan (the Mahact agent): the waiver the follower takes in place of a strategy token -------------------------------------
+
+#[test]
+fn the_core_hook_secondary_waived_pays_jae_mir_kan_like_the_string() {
+    use crate::core_sync::{materialize, Codec, Ctx, Sources};
+    use ti4_engine_core::state::SliceSet;
+    use ti4_model::id::{LeaderId, SystemId, TechnologyId};
+    use ti4_model::state::LeaderStatus;
+    let content = ti4_content::ContentStore::embedded();
+    let hub = crate::fixtures::plain_hub();
+    let system = SystemId::new(hub.outer[1].clone());
+    let agent = LeaderId::new(crate::factions::mahact::AGENT);
+    for (label, watching, status, token) in [
+        ("ready", false, LeaderStatus::Readied, true),
+        ("ready, the Nomad watches", true, LeaderStatus::Readied, true),
+        ("exhausted already", false, LeaderStatus::Exhausted, true),
+        ("no token there", false, LeaderStatus::Readied, false),
+    ] {
+        let mut state = action_table(&[("a", "sol"), ("b", "mahact"), ("c", "nomad")]);
+        state.player_mut(&pid("b")).unwrap().leaders.insert(agent.clone(), LeaderStatus::Readied);
+        if token {
+            state.system_mut(&system).command_tokens.insert(pid("a"));
+        }
+        if watching {
+            state.player_mut(&pid("c")).unwrap().technologies.insert(TechnologyId::new("tcs"));
+        }
+        let state = based(state);
+        // The waiver is offered while the agent is ready; the follower takes it after it was exhausted by something else only in the exhausted case.
+        let offered = crate::factions::hooks_strategy::secondary_waivers(&state, content, &pid("b"), &pid("a"), None);
+        let mut state = state;
+        if status == LeaderStatus::Exhausted {
+            state.player_mut(&pid("b")).unwrap().leaders.insert(agent.clone(), LeaderStatus::Exhausted);
+        }
+        let (index, waiver) = offered.iter().find(|(_, w)| w.id == format!("{}{}", crate::factions::mahact::AGENT_WAIVER_PREFIX, system)).map_or((0, String::new()), |(i, w)| (*i, w.id.clone()));
+        if !token {
+            assert!(waiver.is_empty(), "{label}: no token, no waiver offered");
+        }
+        let waiver = if waiver.is_empty() { format!("{}{}", crate::factions::mahact::AGENT_WAIVER_PREFIX, system) } else { waiver };
+        // The string pays.
+        let mut string = state.clone();
+        crate::factions::hooks_strategy::secondary_waived(&mut string, content, &pid("b"), &pid("a"), index, &waiver);
+        // The core hook pays.
+        let mut cx = Ctx::of(&state).expect("a table the codecs carry");
+        let positions = crate::game::Game::with_table(state.clone(), ti4_content::ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption))).rng_positions();
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&positions) }, SliceSet::ALL).expect("the position loads");
+        let kernel = crate::live::kernel::kernel_for(ti4_model::content_types::DEFAULT);
+        let mut asker = ti4_engine_core::kernel::FirstOption;
+        let seat = |name: &str| ti4_engine_core::Seat(u8::try_from(["a", "b", "c"].iter().position(|n| *n == name).unwrap()).unwrap());
+        let system_index = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(system.as_str()).unwrap().index();
+        {
+            let mut hook_cx = ti4_engine_core::kernel::Cx::new(&mut core, kernel, &mut asker);
+            kernel.hooks.strategy.secondary_waived(&mut hook_cx, seat("b"), seat("a"), ti4_engine_core::hooks::Waiver { module: ti4_engine_core::generated::Faction::TheMahactGeneSorcerers, code: u16::try_from(system_index).unwrap() });
+        }
+        let native = materialize::materialize(&core, &cx, &state).expect("materializes");
+        let staged_core: Vec<String> = core.pending().staged.iter().map(|e| format!("{:?}", e.kind)).collect();
+        let mut string_json = serde_json::to_value(&string).unwrap();
+        let mut staged_string = Vec::new();
+        if let Some(marks) = string_json.get_mut("faction_marks").and_then(serde_json::Value::as_object_mut) {
+            let keys: Vec<String> = marks.keys().filter(|k| k.starts_with("private:#staged:event:")).cloned().collect();
+            for key in keys {
+                let text = marks.remove(&key).and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();
+                staged_string.push(serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|e| e["type"].as_str().map(str::to_owned)).unwrap_or_default());
+            }
+        }
+        let native_json = serde_json::to_value(&native).unwrap();
+        let diffs = crate::dual::diff_json(&string_json, &native_json, 12);
+        assert!(diffs.is_empty(), "{label}: {diffs:?}");
+        assert_eq!(staged_string.iter().map(|s| s.replace('_', "").to_lowercase()).collect::<Vec<_>>(), staged_core.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>(), "{label}: the Nomad's event is staged alike");
+        let remains = string.system_state(&system).command_tokens.contains(&pid("a"));
+        assert_eq!(remains, token && status != LeaderStatus::Readied, "{label}: the token leaves only when the agent could be exhausted");
+        assert_eq!(staged_core.len(), usize::from(watching && token && status == LeaderStatus::Readied), "{label}: the Nomad is told once, when the agent is exhausted");
+    }
+}
