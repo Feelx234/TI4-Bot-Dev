@@ -5222,14 +5222,7 @@ impl InvasionWindow {
         //
         // `choose_deck` rather than `trait_of`: a planet with two printed traits (several
         // Thunder's Edge worlds do) is the invader's choice of deck, not a fixed pick of
-        // whichever trait happens to sort first.
-        if previous.is_none() {
-            crate::dual::note_gate(
-                crate::dual::Area::Invasion,
-                "invasion::control_gain_exploration",
-                "the exploration of a first claim is the string's (its steps are dual writes of the exploration area; the reveal and its rewards are W13)",
-            );
-        }
+        // whichever trait happens to sort first. The exploration itself is one core window (`exploration::explore_with`, lockstep on `Dual`).
         if previous.is_none()
             && let Some(deck) = crate::exploration::choose_deck(ctx, state, &self.invader, planet)
             && let Some(outcome) =
