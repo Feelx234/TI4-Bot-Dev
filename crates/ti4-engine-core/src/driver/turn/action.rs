@@ -4,6 +4,7 @@
 //! action), then the body of the option. Pass is the core's end to end. The component actions run through [`component`]; one whose body
 //! the core does not run yet stops the step with the counted gap [`MenuGap::Action`] (the code names which), leaving the position as it was.
 
+use super::component;
 use super::inline::{emit_typed, gap, player_payload, Flow};
 use crate::choice::turn::Opt;
 use crate::driver::dispatch::{self, Dispatch};
@@ -50,11 +51,34 @@ pub fn run_action(sx: &mut Sx<'_>, key: u32) -> Flow {
     let d = dispatch::dispatch(opt);
     match d {
         Dispatch::Pass => pass(sx, active),
+        Dispatch::Tactical => tactical(sx, active),
+        Dispatch::Strategic(card) => crate::driver::windows::strategic::begin::run_begin(sx, card),
+        Dispatch::Transaction(with) => transaction(sx, active, with),
         _ => {
             gap(sx, TurnGap::Menu(MenuGap::Action(gap_code(&d))));
             Flow::Halt
         }
     }
+}
+
+/// A tactical action begins (`Game::apply_choice`: `settle_extreme_duress`, the window, `TACTICAL_ACTION_BEGAN`); the activation question is the next
+/// step's (the tactical arm).
+fn tactical(sx: &mut Sx<'_>, active: Seat) -> Flow {
+    if component::settle_extreme_duress(sx, active, false) == Flow::Halt {
+        return Flow::Halt;
+    }
+    crate::driver::windows::tactical::open_tactical(sx.state, active);
+    Flow::Done
+}
+
+/// A transaction opens with `with`: Extreme Duress settles, then the negotiation is noted, the pair's transaction is spent and the window stands on
+/// the stack (the caller runs it to its first question in the same call: `ask::run_chosen`).
+fn transaction(sx: &mut Sx<'_>, active: Seat, with: Seat) -> Flow {
+    if component::settle_extreme_duress(sx, active, false) == Flow::Halt {
+        return Flow::Halt;
+    }
+    crate::driver::windows::trade::open(sx.state, sx.kernel, active, with);
+    Flow::Done
 }
 
 /// The pass: `passed`, the legendary planets' pass abilities, Prove Endurance, `PLAYER_PASSED` and the end of the turn.

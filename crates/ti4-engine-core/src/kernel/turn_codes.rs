@@ -39,6 +39,8 @@ pub struct TurnCodes {
     /// `production` (the source of `UNITS_PRODUCED`) and `units` (the key of its list).
     pub production: Code,
     pub units: Code,
+    /// `extreme_duress`: the source of the trade goods an Extreme Duress hands the holder.
+    pub extreme_duress: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.

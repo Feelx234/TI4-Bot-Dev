@@ -15,6 +15,7 @@ pub mod action;
 pub mod action_menu;
 pub mod ask;
 pub mod closing;
+pub mod component;
 pub mod draft;
 pub mod end;
 pub mod facts;

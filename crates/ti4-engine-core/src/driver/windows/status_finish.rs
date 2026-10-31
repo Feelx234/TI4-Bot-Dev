@@ -197,7 +197,7 @@ fn genesis(sx: &mut Sx<'_>) -> Flow {
 /// `Live::announce_staged_cards` (`reactions::announce_staged_card_events`): after a typed event, the card moves an effect staged as
 /// `CardsStaged` marks (Scheming's discard) are announced now, oldest first, and the marks go. A discard reaches the pile and
 /// `last_action_discarded` first, as a played card's does; a take names the taker and the seat it came from, never the card.
-fn announce_staged_cards(sx: &mut Sx<'_>) -> Flow {
+pub(crate) fn announce_staged_cards(sx: &mut Sx<'_>) -> Flow {
     use crate::keys::{Atom, MarkKey, MarkVal, Word};
     use crate::state::{Key, Val};
     loop {
