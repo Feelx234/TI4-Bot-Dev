@@ -31,6 +31,7 @@ pub fn complete(core: &CoreState, k: &ti4_engine_core::kernel::Kernel, choice: &
     use ti4_engine_core::choice::combat::Ask as CAsk;
     let ti4_engine_core::choice::Ask::Combat(ask) = &choice.ask else { return };
     match ask {
+        CAsk::RerollDie { .. } | CAsk::MunitionsRoll => roll_details(core, choice, rendered),
         CAsk::CancelHit { .. } => {
             rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(k, core, ask, choice.actor));
         }
@@ -38,6 +39,83 @@ pub fn complete(core: &CoreState, k: &ti4_engine_core::kernel::Kernel, choice: &
             if let Some(ctx) = rendered.context.as_mut() {
                 ctx.subtype = "assign_casualty".to_owned();
             }
+        }
+        _ => {}
+    }
+}
+
+/// The questions of the combat the string asks in the battle they are fought in (`TimingContext::ask_seeing`: Ambush, Sacrifice, Splicer, Raid
+/// Formation); every other question a combat child asks inside an emission names no battle. The nested rendering puts the battle on all of them.
+pub fn after_nested(choice: &ti4_engine_core::choice::Choice, rendered: &mut crate::choice::Choice) {
+    use ti4_engine_core::choice::combat::Ask as CAsk;
+    // (Rear Admiral Farran's payment after a sustain is the leaders' question, asked in the same step.)
+    let in_combat = match &choice.ask {
+        ti4_engine_core::choice::Ask::Combat(ask) => !matches!(ask, CAsk::Ambush | CAsk::Sacrifice { .. } | CAsk::Splicer | CAsk::RaidDamage { .. }),
+        ti4_engine_core::choice::Ask::Leaders(ti4_engine_core::choice::leaders::Ask::SustainCommander) => true,
+        _ => false,
+    };
+    if !in_combat {
+        return;
+    }
+    if let Some(ctx) = rendered.context.as_mut() {
+        ctx.space_battle = false;
+        ctx.target = None;
+    }
+}
+
+/// The display facts of a roll step's questions (`dual_window::roll_details`): the staged dice, which one is asked about, and Munitions
+/// Reserves' printed card and cost.
+fn roll_details(core: &CoreState, c: &ti4_engine_core::choice::Choice, rendered: &mut crate::choice::Choice) {
+    use ti4_engine_core::choice::combat::Ask as CAsk;
+    let ti4_engine_core::choice::Ask::Combat(ask) = &c.ask else { return };
+    let set = core.transient().combat.reroll_staging.iter().find(|(s, _)| *s == c.actor).map(|(_, set)| set);
+    let text = |code: Code| core.texts.codes.get(u32::from(code.0)).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default();
+    let dice: Vec<serde_json::Value> = set
+        .map(|set| {
+            set.rolls
+                .iter()
+                .enumerate()
+                .flat_map(|(unit, entry)| {
+                    let name = text(entry.unit);
+                    entry.faces.iter().enumerate().map(move |(die, face)| {
+                        let bonus = u8::try_from(die).ok().and_then(|d| entry.deltas.get(&d).copied()).unwrap_or(0);
+                        serde_json::json!({
+                            "unit": name,
+                            "unit_index": unit,
+                            "die": die,
+                            "face": face,
+                            "bonus": bonus,
+                            "hits_on": entry.hits_on,
+                            "rerolled": die < 64 && entry.rerolled & (1 << die) != 0,
+                        })
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    match ask {
+        CAsk::RerollDie { die, .. } => {
+            let entry = c.opts.iter().find_map(|o| match o {
+                ti4_engine_core::choice::Opt::Combat(ti4_engine_core::choice::combat::Opt::RerollDie { entry, .. }) => Some(usize::from(*entry)),
+                _ => None,
+            });
+            let current = set.zip(entry).map_or(0, |(set, e)| set.rolls[..e].iter().map(|r| r.faces.len()).sum::<usize>() + usize::from(*die));
+            rendered.details.insert("dice".to_owned(), serde_json::Value::Array(dice));
+            rendered.details.insert("current".to_owned(), current.into());
+        }
+        CAsk::MunitionsRoll => {
+            let misses = dice
+                .iter()
+                .filter(|d| {
+                    let on = d["hits_on"].as_i64();
+                    on.is_some_and(|on| d["face"].as_i64().unwrap_or(0) + d["bonus"].as_i64().unwrap_or(0) < on)
+                })
+                .count();
+            rendered.details.insert("kind".to_owned(), "ability_offer".into());
+            rendered.details.insert("ability".to_owned(), crate::faction_abilities::ability_card(ti4_content::ContentStore::embedded(), "munitions"));
+            rendered.details.insert("cost".to_owned(), serde_json::json!({ "trade_goods": crate::faction_abilities::MUNITIONS_COST, "have": core.players().by_seat(c.actor).map_or(0, |p| i64::from(p.econ.trade_goods.max(0))) }));
+            rendered.details.insert("dice".to_owned(), serde_json::Value::Array(dice));
+            rendered.details.insert("misses".to_owned(), misses.into());
         }
         _ => {}
     }
@@ -326,10 +404,14 @@ mod tests {
         }
         // The events of the aftermath's arms against the string's, restricted to the names the native arms announced (the tactical arm's own
         // events are compared in `tactical_live`).
-        let names: std::collections::BTreeSet<&str> = n.after.iter().map(String::as_str).collect();
+        // `TRADE_GOODS_GAINED` is left out: Rear Admiral Farran's gain is a STAGED event; the native arms announce it with the next emission (the
+        // invasion's `INVASION_BEGAN`), the string's queue does not show it there. The merge of the staged events into the one queue is the
+        // wrapper's (P1/D2-8d); the gain itself is compared in the position.
+        let n_after: Vec<String> = n.after.iter().filter(|e| *e != "TRADE_GOODS_GAINED").cloned().collect();
+        let names: std::collections::BTreeSet<&str> = n_after.iter().map(String::as_str).collect();
         let string_after: Vec<&String> = s.events.iter().filter(|e| names.contains(e.as_str())).collect();
-        if string_after.iter().map(|e| e.as_str()).ne(n.after.iter().map(String::as_str)) {
-            out.push(format!("events: string {string_after:?} native {:?}", n.after));
+        if string_after.iter().map(|e| e.as_str()).ne(n_after.iter().map(String::as_str)) {
+            out.push(format!("events: string {string_after:?} native {n_after:?}"));
         }
         out.extend(leaves("state", &s.state, &n.state));
         if std::env::var_os("M5_DEBUG").is_some() {
@@ -505,5 +587,24 @@ mod tests {
             }
         }
         assert_eq!(seen_chain, 24);
+    }
+
+    /// The Letnev commander (Rear Admiral Farran) pays after a sustain: a child question of the sustain's answer, asked through the tape, and
+    /// the Letnev agent's round window beside it.
+    #[test]
+    fn the_letnev_commander_and_agent_react_in_the_fight_in_lockstep() {
+        let (hub, _origin, target) = hub();
+        for seed in 1..=4_u64 {
+            let mut state = table(&[("a", "sol"), ("b", "letnev")]);
+            state.rng_seed = seed;
+            state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("letnevcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            state.player_mut(&b()).unwrap().trade_goods = 3;
+            crate::fixtures::put(&mut state, &target, "dreadnought", &a(), 2);
+            crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+            crate::fixtures::put(&mut state, &target, "dreadnought", &b(), 2);
+            crate::fixtures::put(&mut state, &target, "carrier", &b(), 1);
+            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]);
+            assert!(diffs.is_empty(), "seed {seed}: {diffs:#?}");
+        }
     }
 }

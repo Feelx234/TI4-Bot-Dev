@@ -63,14 +63,26 @@ The native invasion bumps `combat_round_seq` once more than the string over a gr
 
 ## Tests (cheap)
 
-* `ti4-engine` `combat_live::tests` (9): lockstep of a real tactical action through `Arm::Tactical` / `Arm::Aftermath` / `Arm::EventScoring` against the string `Game` (questions: player, prompt, options, details, context; typed + plain events of the aftermath's arms in order; the whole position):
+* `ti4-engine` `combat_live::tests` (9; the Letnev commander/agent case is the ninth): lockstep of a real tactical action through `Arm::Tactical` / `Arm::Aftermath` / `Arm::EventScoring` against the string `Game` (questions: player, prompt, options, details, context; typed + plain events of the aftermath's arms in order; the whole position):
   a multi-round fight with sustains and casualties, a retreat, an undefended system -> invasion, a won fight -> invasion, a destroyed capital ship -> scoring window -> `OBJECTIVE_SCORED`, Mentak Ambush (a child question through the tape), a space fight of every faction on both sides (24 factions x 2), Van Hauge x 24 (12 seeds, either side).
   `M5_DEBUG=1` prints both question lists and the events; `M5_ONLY=<faction>` narrows the sweep.
-* `ti4-engine-core-tests` `aftermath_chain` (8): a whole aftermath in the core, a clone mid-window continues identically, payload identity after every question, an undefended system to the invasion, the Sardakk skip to the commit step, the production gap, the contact gap, a feat -> scoring window -> `OBJECTIVE_SCORED` (the aftermath waits under the window).
+* `ti4-engine-core-tests` `aftermath_chain` (15; the last seven are the event scoring window on its own: order, decline, score, the one-per-player cap, leaked secrets by rules version, game end, points shown): a whole aftermath in the core, a clone mid-window continues identically, payload identity after every question, an undefended system to the invasion, the Sardakk skip to the commit step, the production gap, the contact gap, a feat -> scoring window -> `OBJECTIVE_SCORED` (the aftermath waits under the window).
+
+## Mutation checks (single file, `tools/engine_core/mutants.sh` on a committed snapshot in a scratch worktree, 2 jobs)
+
+Two test sets per file: the core tests (`--test aftermath_chain`) and the engine lockstep (`--lib combat_live`). Core tests alone, before the last scoring tests: scoring.rs 54 mutants 13 killed, chain.rs 95/55, combat/mod.rs 21/12, live_common.rs 7/3.
+Engine lockstep alone: scoring.rs 16/54, chain.rs 57/95, combat/mod.rs 16/21, live_common.rs 5/7. With the seven added scoring tests the core tests kill 27/54 of scoring.rs. Survivors that are equivalent or unobservable by design:
+`publics`/`plots` bodies (both empty), the capacity 8 of the offer lists (a hand holds 3), `EventScoring::stage`, `one_public_before` (leaked secret scored as public), the idle guard of `chain::step` (3 laps), `is_open`/`merge`/`flush_open` guards the lockstep reaches only through
+the order of plain events. NOT all survivors were classified: chain.rs still has about 38 survivors against the core tests alone (the engine lockstep kills 20 more of them); a full union run and the classification is the first thing to redo.
+A first run of the mutation batch used the filter word `aftermath_chain` (a test NAME substring, matching nothing): invalid, discarded.
+
+## Slip
+
+The cargo builds before the last third of the lane ran without `CARGO_TARGET_DIR`/`CARGO_BUILD_JOBS` exported in their shell (each Bash call is a new shell): the worktree's `target/` grew to 8.8 GB and used the default job count. It was moved to `/root/deploytmp/core-m5/target`, `incremental/` deleted (3.7 GB); every later call exports `CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/root/deploytmp/core-m5/target CARGO_INCREMENTAL=0`.
 
 ## Checks run (cheap) and results
 
-See the final report of the lane (numbers below were taken on the last commit): `cargo test -p ti4-engine --lib` (4933+ passed), `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine --lib`, `cargo test -p ti4-engine-core --lib` (466), `-p ti4-engine-core-tests`, `-p ti4-engine-core-factions`,
+See the final report of the lane (numbers below were taken on the last commit): `cargo test -p ti4-engine --lib` (4933+ passed), `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine --lib` (one failure on the first run, the native-registry equality of `reactions_core`: Van Hauge is registered for every seat in the string; fixed), `cargo test -p ti4-engine-core --lib` (466), `-p ti4-engine-core-tests`, `-p ti4-engine-core-factions`,
 `tools/engine_core/check_layers.py core` (0 violations), `tools/engine_core/lint_core.sh` (0 hits). Private target `/root/deploytmp/core-m5/target` (`CARGO_INCREMENTAL=0`, `CARGO_BUILD_JOBS=2`).
 
 Not run: any heavy gate (golden/wide dual, benches, soak, mutation ratchet, census, workspace clippy), `playthrough` (the production step keeps a whole game from being native).

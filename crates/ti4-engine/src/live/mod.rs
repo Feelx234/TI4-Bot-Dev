@@ -137,11 +137,14 @@ pub struct StepOut {
 pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let (phase, round) = (core.meta().phase, core.meta().round);
     let mut rendered = Typed::new(cx.render, asking.choice.clone(), phase, round).rendered;
-    (cx.complete)(core, cx.env.kernel, &asking.choice, &mut rendered);
+    // A question asked inside an emission reads the position it was put in (the driver rolled the step back).
+    let at = asking.nested.as_ref().map_or(core, |(_, at)| &**at);
+    (cx.complete)(at, cx.env.kernel, &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
     if let Some((facts, at)) = &asking.nested {
         crate::dual_window::complete_nested(cx.render, &asking.choice, facts, &crate::dual_window::NestedPos::of_core(cx.render, at), at, &mut rendered);
+        crate::combat_live::after_nested(&asking.choice, &mut rendered);
     }
     rendered
 }

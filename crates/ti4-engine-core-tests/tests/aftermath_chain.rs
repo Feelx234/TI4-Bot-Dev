@@ -348,3 +348,142 @@ fn a_feat_of_the_fight_opens_the_scoring_window_and_the_aftermath_waits_for_it()
     assert!(core.players().by_seat(Seat(0)).is_some_and(|p| p.misc.event_feats.iter().any(|(f, _)| *f == Feat::DestroyedACapitalShip)));
     assert_eq!(core.players().by_seat(Seat(0)).map(|p| p.econ.victory_points), Some(1));
 }
+
+// -- the event scoring window on its own ----------------------------------------------------------------
+
+use ti4_engine_core::driver::windows::scoring::{event_scoring_window, feat_of, open_event_scoring};
+use ti4_engine_core::state::ObjectiveRef;
+
+const DTGS: SecretObjective = SecretObjective::DestroyTheirGreatestShip;
+
+/// Two seats, both holding Destroy Their Greatest Ship with its feat recorded for occurrence 5.
+fn scoring_table() -> (CoreState, Kernel) {
+    let (mut s, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).build();
+    for seat in 0..2 {
+        s.players_mut().edit(seat).cards.secrets.push(DTGS);
+        s.players_mut().edit(seat).misc.event_feats.push((Feat::DestroyedACapitalShip, 5));
+    }
+    (s, k)
+}
+
+fn offers(core: &CoreState, env: &Env<'_>) -> Option<(Seat, Vec<Opt>)> {
+    ask::<EventScoring>(core, env).expect("open").map(|a| (a.choice.actor, a.choice.opts.as_slice().to_vec()))
+}
+
+#[test]
+fn the_window_asks_the_seats_in_initiative_order_and_a_decline_ends_a_seats_turn() {
+    covers!("driver::windows::scoring::EventScoring");
+    let (mut core, k) = scoring_table();
+    let env = env(&k, 1, &[]);
+    open_event_scoring(&mut core, 5, true);
+    let (first, opts) = offers(&core, &env).expect("someone has something to score");
+    assert_eq!(opts.len(), 2, "the secret and the decline");
+    let (live, _) = advance_event_scoring(&mut core, &env, Some(Pick::Opt(Opt::Decline))).expect("legal");
+    let (second, _) = offers(&core, &env).expect("the other seat is next");
+    assert_ne!(first, second, "a decline ends the whole turn of the first seat");
+    assert!(matches!(live, Live::Asks(_)));
+    let (live, _) = advance_event_scoring(&mut core, &env, Some(Pick::Opt(Opt::Decline))).expect("legal");
+    assert!(matches!(live, Live::Done), "nobody is left");
+    assert!(core.pending().window(WindowKind::EventScoring).is_none());
+    assert!(plain_kinds(&core).is_empty(), "two declines announce nothing");
+}
+
+#[test]
+fn a_score_is_announced_pays_the_point_and_uses_the_seats_one_score_of_the_occurrence() {
+    covers!("driver::windows::scoring::EventScoring");
+    let (mut core, k) = scoring_table();
+    let env = env(&k, 1, &[]);
+    open_event_scoring(&mut core, 5, true);
+    let (who, opts) = offers(&core, &env).expect("asks");
+    let before = core.players().by_seat(who).map(|p| p.econ.victory_points).unwrap();
+    advance_event_scoring(&mut core, &env, Some(Pick::Opt(opts[0]))).expect("legal");
+    assert_eq!(plain_kinds(&core), [PlainKind::ObjectiveScored]);
+    assert_eq!(core.players().by_seat(who).map(|p| p.econ.victory_points), Some(before + 1));
+    assert!(core.objectives().scored_feats.iter().any(|(s, o)| *s == who && *o == 5), "the one score of the occurrence is spent");
+    assert!(!core.players().by_seat(who).unwrap().cards.secrets.contains(&DTGS), "the secret left the hand");
+    // The same seat is not asked again (one per player and event); the other seat is.
+    let (next, _) = offers(&core, &env).expect("the other seat");
+    assert_ne!(next, who);
+}
+
+#[test]
+fn a_secret_already_scored_or_of_another_phase_or_without_its_feat_is_not_offered() {
+    covers!("driver::windows::scoring::CoreOffers");
+    let (mut core, k) = scoring_table();
+    let env = env(&k, 1, &[]);
+    ti4_engine_core::kernel::fx::record_score(&mut core, Seat(0), ObjectiveRef::Secret(DTGS));
+    core.players_mut().edit(1).misc.event_feats.clear();
+    // seat 0 scored it already, seat 1 has no feat: nothing is on offer.
+    open_event_scoring(&mut core, 5, true);
+    assert_eq!(offers(&core, &env), None);
+    // A feat of another occurrence does not count.
+    core.players_mut().edit(1).misc.event_feats.push((Feat::DestroyedACapitalShip, 6));
+    assert_eq!(offers(&core, &env), None);
+    // A status-timed secret is never an event secret.
+    core.players_mut().edit(1).misc.event_feats.push((Feat::DestroyedACapitalShip, 5));
+    core.players_mut().edit(1).cards.secrets.clear();
+    core.players_mut().edit(1).cards.secrets.push(SecretObjective::EstablishAPerimeter);
+    assert_eq!(offers(&core, &env), None);
+    assert_eq!(feat_of(SecretObjective::EstablishAPerimeter), None);
+}
+
+#[test]
+fn a_secret_made_public_is_offered_to_a_holder_of_the_feat_from_its_rules_version_only() {
+    covers!("driver::windows::scoring::CoreOffers");
+    for (version, offered) in [(23_u32, false), (24, true)] {
+        let (mut core, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).rules(version).build();
+        core.players_mut().edit(1).misc.event_feats.push((Feat::DestroyedACapitalShip, 5));
+        core.objectives_mut().revealed.push(ObjectiveRef::Secret(DTGS));
+        let env = env(&k, 1, &[]);
+        open_event_scoring(&mut core, 5, false);
+        assert_eq!(offers(&core, &env).map(|(who, _)| who), offered.then_some(Seat(1)), "rules version {version}");
+    }
+}
+
+#[test]
+fn a_score_that_ends_the_game_announces_it_and_closes_the_window_at_once() {
+    covers!("driver::windows::scoring::EventScoring");
+    let (mut core, k) = scoring_table();
+    let env = env(&k, 1, &[]);
+    open_event_scoring(&mut core, 5, true);
+    let (who, opts) = offers(&core, &env).expect("asks");
+    core.players_mut().edit(usize::from(who.0)).econ.victory_points = 9;
+    let (live, _) = advance_event_scoring(&mut core, &env, Some(Pick::Opt(opts[0]))).expect("legal");
+    assert!(matches!(live, Live::Done));
+    assert_eq!(plain_kinds(&core), [PlainKind::ObjectiveScored, PlainKind::GameFinished]);
+    assert!(core.meta().finished);
+    assert!(core.pending().window(WindowKind::EventScoring).is_none(), "the window is dropped before GAME_FINISHED");
+}
+
+#[test]
+fn the_window_of_an_occurrence_lists_every_seat_in_initiative_order_with_the_cap_of_a_combat() {
+    covers!("driver::windows::scoring::EventScoring");
+    let (core, _k) = scoring_table();
+    let ti4_engine_core::state::Window::EventScoring(w) = event_scoring_window(&core, 5, true) else { panic!("an event scoring window") };
+    assert_eq!((w.pending.len(), w.occurrence, w.one_per_player), (2, Some(5), true));
+    let ti4_engine_core::state::Window::EventScoring(any) = event_scoring_window(&core, 5, false) else { panic!() };
+    assert!(!any.one_per_player);
+}
+
+#[test]
+fn the_question_shows_the_points_and_a_second_secret_of_the_same_event_waits_for_the_cap() {
+    covers!("driver::windows::scoring::CoreOffers");
+    for (capped, again) in [(true, false), (false, true)] {
+        let (mut core, k) = scoring_table();
+        let env = env(&k, 1, &[]);
+        // Seat 0 (or 1) also holds Demonstrate Your Power, whose feat was recorded for the same occurrence.
+        for seat in 0..2 {
+            core.players_mut().edit(seat).cards.secrets.push(SecretObjective::DemonstrateYourPower);
+            core.players_mut().edit(seat).misc.event_feats.push((Feat::HeldThreeShipsAfterASpaceCombat, 5));
+            core.players_mut().edit(seat).econ.victory_points = 3;
+        }
+        open_event_scoring(&mut core, 5, capped);
+        let asking = ask::<EventScoring>(&core, &env).expect("open").expect("asks");
+        assert_eq!(asking.choice.ask, Ask::Objectives(ti4_engine_core::choice::objectives::Ask::Score { vp: 3 }), "the question shows the points held");
+        assert_eq!(asking.choice.opts.len(), 3, "two secrets and the decline");
+        let who = asking.choice.actor;
+        advance_event_scoring(&mut core, &env, Some(Pick::Opt(asking.choice.opts.as_slice()[0]))).expect("legal");
+        let next = ask::<EventScoring>(&core, &env).expect("open").expect("someone is asked");
+        assert_eq!(next.choice.actor == who, again, "capped {capped}: the seat that scored is asked again only without the one-per-player cap");
+    }
+}
