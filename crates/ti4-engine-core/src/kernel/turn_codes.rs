@@ -30,6 +30,9 @@ pub struct TurnCodes {
     pub place_structure: Code,
     pub te6warfare: Code,
     pub te4construction: Code,
+    /// `production` (the source of `UNITS_PRODUCED`) and `units` (the key of its list).
+    pub production: Code,
+    pub units: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.

@@ -16,7 +16,7 @@ use ti4_model::content_types::DEFAULT;
 use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::{GameState, Phase};
 
-use super::turn_live_tests::{assert_same, based, pid, string_run_first, without_staged, Run};
+use super::turn_live_tests::{assert_same as assert_same_plain, based, pid, shape, string_run_first, without_staged, Run};
 use crate::core_sync::codec::rng::TextSeeds;
 use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
@@ -27,6 +27,17 @@ fn named(cx: &Ctx, state: &GameState) -> Render {
     let r = Render::new(cx.owners.ids().to_vec());
     let factions = r.seats.iter().map(|id| state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
     r.with_factions(factions)
+}
+
+/// [`assert_same_plain`] that names the first question that differs and how.
+fn assert_same(string: &Run, native: &Run) {
+    for (i, (a, b)) in string.questions.iter().zip(&native.questions).enumerate() {
+        let (a, b) = (shape(a), shape(b));
+        let diffs = crate::dual::diff_json(&a, &b, 8);
+        assert!(diffs.is_empty(), "question {i} ({}) differs: {diffs:?}", string.questions[i].prompt);
+    }
+    assert_eq!(string.questions.len(), native.questions.len(), "the number of questions: {:?} against {:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>(), native.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+    assert_same_plain(string, native);
 }
 
 /// The text of a strategy card's id for the table's card set.

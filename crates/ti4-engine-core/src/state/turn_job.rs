@@ -28,6 +28,9 @@ pub enum TurnJob {
     StatusBookkeeping,
     /// The seat chose the strategic action of this card (`Game::apply_choice`, lane E): `STRATEGIC_ACTION_BEGAN`, the primary ability, the follower window.
     Strategic(crate::generated::StrategyCard),
+    /// The free tactical action of a strategy card's primary ended (`close_tactical`, lane E): the tokens are redistributed once more, then the hero's
+    /// followers are selected or the follower window held for the end of the action opens.
+    AfterTactical,
     /// The token gain closed (`Game::finish_status_phase`, lane C): 81.5 redistribution to 81.8 and the phase's end.
     StatusFinish,
 }

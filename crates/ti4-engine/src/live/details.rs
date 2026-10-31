@@ -16,6 +16,10 @@ pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered
         Ask::Strategy(SAsk::GainPool { left }) => pool_details(core, choice.actor, "gain", Some(usize::from(left)), rendered),
         // 81.5: the whole sheet is rearranged (`tokens::with_pool_details(.., "redistribute", None)`).
         Ask::Strategy(SAsk::StatusRedistribute { .. }) => pool_details(core, choice.actor, "redistribute", None, rendered),
+        // Warfare's redistributions: the whole sheet is rearranged.
+        Ask::Strategy(SAsk::WarfareRedistribute { .. } | SAsk::TeWarfareRedistribute { .. } | SAsk::TeWarfareRedistributeAfter { .. }) => {
+            pool_details(core, choice.actor, "redistribute", None, rendered);
+        }
         _ => {}
     }
     super::turn::complete(core, choice, rendered);

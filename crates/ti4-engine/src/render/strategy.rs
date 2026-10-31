@@ -110,6 +110,7 @@ impl Family for Fam {
             Ask::ImperialScore => "score a public objective with Imperial".to_owned(),
             Ask::ConstructionAbility => "Construction: a structure or a production".to_owned(),
             Ask::TeWarfareRedistribute { .. } => "Warfare: redistribute your command tokens before the tactical action".to_owned(),
+            Ask::TeWarfareRedistributeAfter { .. } => "Warfare: redistribute your command tokens after the tactical action".to_owned(),
             Ask::TeWarfareTactical => "Warfare: a tactical action without a command token".to_owned(),
             Ask::ResearchTechnology { .. } => "research a technology".to_owned(),
             Ask::Follow { card, .. } => follow_words(*card).0.to_owned(),
@@ -231,7 +232,7 @@ impl Family for Fam {
             },
             Ask::ReadyPlanet => Planet::from_id(id).map(|p| Opt::Ready(p, Shown::default())),
             Ask::PoliticsSpeaker => seat_named(r, id).map(Opt::Speaker),
-            Ask::WarfareRedistribute { .. } | Ask::TeWarfareRedistribute { .. } | Ask::StatusRedistribute { .. } => {
+            Ask::WarfareRedistribute { .. } | Ask::TeWarfareRedistribute { .. } | Ask::TeWarfareRedistributeAfter { .. } | Ask::StatusRedistribute { .. } => {
                 let mut parts = id.split('|');
                 let mut next = || parts.next()?.parse::<u8>().ok();
                 let (tactic, fleet, strategic) = (next()?, next()?, next()?);

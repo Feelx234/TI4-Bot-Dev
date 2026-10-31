@@ -57,6 +57,8 @@ pub enum Ask {
     /// Thunder's Edge Warfare: the final split of the `total` command tokens before the free tactical action, at least
     /// `floor` in the fleet pool.
     TeWarfareRedistribute { total: u8, floor: u8 },
+    /// Thunder's Edge Warfare: the same split after the free tactical action has ended.
+    TeWarfareRedistributeAfter { total: u8, floor: u8 },
     /// Thunder's Edge Warfare: the system of the tactical action without a command token.
     TeWarfareTactical,
     /// "research a technology": the bill in resources (the payload `cost`), the technologies the seat owns

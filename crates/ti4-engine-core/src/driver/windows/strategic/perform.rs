@@ -113,11 +113,31 @@ fn announce(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, done:
     if primary && card.data().kind == StrategyCardKind::Imperial {
         fx::finish_if_won(sx.state);
     }
-    if done.made.as_ref().is_some_and(|made| !made.as_slice().is_empty()) {
-        gap(sx, TurnGap::ProductionAnnounce);
-        return Flow::Halt;
+    if let (Some(made), Some(system)) = (done.made.as_ref().filter(|made| !made.as_slice().is_empty()), done.made_in.or_else(|| home_of(sx, who))) {
+        announce_made(sx, who, system, made);
     }
     Flow::Done
+}
+
+/// The system a seat's Warfare secondary produced in: its home system.
+fn home_of(sx: &Sx<'_>, who: Seat) -> Option<System> {
+    sx.state.players().by_seat(who).and_then(|p| p.home_system)
+}
+
+/// The announcement the string stages at the end of a use of PRODUCTION that made something (`UNITS_PRODUCED`, no timing handle: staged for the
+/// next step's reconcile).
+fn announce_made(sx: &mut Sx<'_>, who: Seat, system: System, made: &crate::kernel::children::Made) {
+    use crate::choice::production::Spot;
+    use crate::state::List;
+    let codes = sx.table.codes.turn;
+    let spots = made.as_slice().iter().map(|(unit, planet)| (*unit, planet.map_or(Spot::Space, Spot::Planet))).collect();
+    let mut payload = Payload::new()
+        .with(Key::Player, Val::Seat(who))
+        .with(Key::System, Val::System(system))
+        .with(Key::Source, Val::Code(codes.production))
+        .with(Key::Count, Val::Int(i64::try_from(made.as_slice().len()).unwrap_or(i64::MAX)));
+    payload.set_list(Key::Other(codes.units), List::Produced(spots));
+    fx::stage(sx.state, fx::event(EventKind::UnitsProduced, payload));
 }
 
 /// `stage_command_token_placed(.., Reinforcements)` for each seat that got a token of the Diplomacy primary, in seating order.

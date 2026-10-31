@@ -39,6 +39,8 @@ pub fn codes(r: &Render) -> TurnCodes {
         place_structure: r.code("place_structure"),
         te6warfare: r.code("te6warfare"),
         te4construction: r.code("te4construction"),
+        production: r.code("production"),
+        units: r.code("units"),
     }
 }
 

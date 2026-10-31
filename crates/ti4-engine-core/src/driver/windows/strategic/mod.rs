@@ -17,6 +17,7 @@
 //!
 //! L5: it composes the windows of the strategy areas through the table's links, never imports one.
 
+pub mod after;
 pub mod begin;
 pub mod facts;
 pub mod perform;

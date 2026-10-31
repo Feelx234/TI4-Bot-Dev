@@ -34,8 +34,40 @@ pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered
                 }
             }
         }
+        // Politics: the seat of each speaker option, the printed agenda (`strategy_cards_core::complete_politics`).
+        Ask::Strategy(SAsk::PoliticsSpeaker) => {
+            let mut seats = serde_json::Map::new();
+            for (option, opt) in rendered.options.iter().zip(choice.opts.iter()) {
+                if let ti4_engine_core::choice::Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Speaker(seat)) = opt {
+                    seats.insert(option.id.clone(), Value::from(seat_text(core, *seat)));
+                }
+            }
+            rendered.details.insert("seats".to_owned(), Value::Object(seats));
+        }
+        Ask::Strategy(SAsk::PoliticsAgenda { agenda }) => {
+            rendered.details.insert("agenda".to_owned(), crate::strategy_cards::agenda_details(ContentStore::embedded(), IdStr::as_str(agenda)));
+        }
+        // Trade's primary: the seat of each option and its commodities (`strategy_core::complete_trade`).
+        Ask::Strategy(SAsk::TradeReplenish) => {
+            let mut seats = serde_json::Map::new();
+            let mut commodities = serde_json::Map::new();
+            for (option, opt) in rendered.options.iter().zip(choice.opts.iter()) {
+                if let ti4_engine_core::choice::Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Replenish(seat)) = opt {
+                    seats.insert(option.id.clone(), Value::from(seat_text(core, *seat)));
+                    let (have, max) = core.players().by_seat(*seat).map_or((0, 0), |p| (p.econ.commodities, p.faction.data().commodities));
+                    commodities.insert(option.id.clone(), json!({ "have": have, "max": max }));
+                }
+            }
+            rendered.details.insert("seats".to_owned(), Value::Object(seats));
+            rendered.details.insert("commodities".to_owned(), Value::Object(commodities));
+        }
         _ => {}
     }
+}
+
+/// The text of a seat (the player's id) in a position.
+fn seat_text(core: &CoreState, seat: Seat) -> String {
+    core.owners.id(seat).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default()
 }
 
 /// `strategy::secondary_choice`: the follower's secondary question with the facts a client needs to present it.
