@@ -205,9 +205,9 @@ impl InvasionMachine {
         Ok(())
     }
 
-    /// Whether the invader holds the Jol-Nar commander (Aglnlan Oln unlocked): it may reroll any of the dice of a unit ability.
+    /// Whether the invader holds the Jol-Nar commander (Agnlan Oln unlocked, or its ability borrowed: an Alliance, Imperia, a mark): it may reroll any of the dice of a unit ability.
     fn holds_commander(s: &CoreState, who: Seat) -> bool {
-        s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&crate::generated::Leader::AgnlanOln) == Some(&crate::state::LeaderStatus::Unlocked))
+        crate::query::leaders::has_commander_ability_in(s, who, crate::generated::Leader::AgnlanOln)
     }
 
     /// The commander's walk at the position the payload keeps (`None`: no walk is open or the dice are gone).

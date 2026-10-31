@@ -54,7 +54,7 @@ from the position; `a_version_zero_game_runs_natively_like_the_string_window` co
   diff. Lane 9's `FrontierExplore` (`hero_windows.rs` on core-w-l13, ~400 lines) is the frontier-deck (no planet) version of exactly this and should be generalised
   (planet: Option, Attach arm) rather than rewritten; it is not on this branch because l9/l13 do not merge cleanly yet.
 * Space cannon defense: entropic scar, L4 Disruptors, attachment cannons. Round: Dacxive Animators, The Thundarian watching, hits added to a roll.
-  Bombardment: the Jol-Nar commander's reroll question.
+  Bombardment: the Jol-Nar commander's reroll question (ported by W16: `ops.rs` `begin_walk`/`answer_walk` over `kernel::commander_walk::Walk`, the walk held in `IBombard::walk`; `Unported::JolNarCommanderReroll` is deleted).
 * Control: the Minister of Exploration (trade good staged for the capture), the Crown of Emphidia changing hands (needs `fx::steal_throne_card`, l13).
   Integrated Economy (dropped by the coordinator: kept as a bail so it is never silently skipped).
 * Landing a ship-form unit that flips (Naaz Eidolon). Slumberstate Computing (TE).
