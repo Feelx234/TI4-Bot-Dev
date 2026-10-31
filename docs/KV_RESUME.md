@@ -70,7 +70,7 @@ Core halves: `ti4-engine-core-tests/tests/agenda_flow.rs` (rebuild from payload,
 ## Checks (cheap), `CARGO_BUILD_JOBS=2`, private target dir `/root/deploytmp/core-d`
 
 * `cargo test -p ti4-engine-core --lib`: 466 passed. `-p ti4-engine-core-tests` (the agenda_*, status_phase, turn_* binaries, incl. the new `agenda_flow` 4 and `agenda_riders` 2): all ok.
-* `cargo test -p ti4-engine --lib` (default areas, whole lib, at the end): 4977 passed, 6 ignored (the run before the last test edits: 4976 + the sweeps after skipping the Crisis gap).
+* `cargo test -p ti4-engine --lib` (default areas, whole lib, at the end of the lane): 4984 passed, 0 failed, 7 ignored (2 exploration aids).
 * `cargo test -p ti4-engine-core-bridge --lib`: 74 passed.
 * `tools/engine_core/check_layers.py core`: 469 files, 0 violations. `lint_core.sh`: 471 files, 0 hits.
 * `playthrough_quick.sh --maxsteps 1500` (gate profile, sol, 4 players, seed 1, `te`, `starting_tech`): **island D: 113 counted bails** in 4 causes (`d1::step [bail: voting]` 93, `d1::pending.open/close [bail: Voting]` 8 + 8, and the agenda
