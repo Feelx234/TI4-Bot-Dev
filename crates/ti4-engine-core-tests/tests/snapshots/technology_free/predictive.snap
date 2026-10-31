@@ -1,0 +1,22 @@
+Q0 seat 0 Technology(Restack)
+  >0: Technology(Move { from: Tactic, to: Fleet })
+   1: Technology(Move { from: Tactic, to: Strategic })
+   2: Technology(Move { from: Fleet, to: Tactic })
+   3: Technology(Move { from: Fleet, to: Strategic })
+   4: Done
+Q1 seat 0 Technology(Restack)
+  >0: Technology(Move { from: Tactic, to: Fleet })
+   1: Technology(Move { from: Tactic, to: Strategic })
+   2: Technology(Move { from: Fleet, to: Tactic })
+   3: Technology(Move { from: Fleet, to: Strategic })
+   4: Done
+Q2 seat 0 Technology(Restack)
+  >0: Technology(Move { from: Fleet, to: Tactic })
+   1: Technology(Move { from: Fleet, to: Strategic })
+   2: Done
+done
+--- delta ---
+player0.econ.fleet_tokens: 1 -> 2
+player0.econ.tactic_tokens: 2 -> 1
+player0.tech.exhausted: {} -> -
+player0.tech.exhausted.[0]: - -> PredictiveIntelligence

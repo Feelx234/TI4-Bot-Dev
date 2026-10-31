@@ -1,0 +1,25 @@
+Q0 seat 0 Promissory(StarForge)
+  >0: Promissory(Forge { system: Tempesta, fighters: true })
+   1: Promissory(Forge { system: Tempesta, fighters: false })
+   2: Promissory(Forge { system: Andeara, fighters: true })
+   3: Promissory(Forge { system: Andeara, fighters: false })
+   4: Decline
+Q1 seat 0 Promissory(EmberColossus { system: Olergodt, planet: Some(Olergodt) })
+  >0: Promissory(Ember)
+   1: Decline
+done
+--- delta ---
+player0.econ.strategic_tokens: 2 -> 1
+sys[Tempesta]: units [1xWarSun/s0] tokens {} flags 0 -> units [2xFighterI/s0, 1xWarSun/s0] tokens {} flags 1
+sys[Olergodt]: units [] tokens {} flags 0 -> units [] tokens {} flags 1
+planet[Olergodt]: control Some(0) units [1xEmberColossus/s0] attach [] coexist {} placed_in None flags 4 -> control Some(0) units [1xEmberColossus/s0, 1xInfantryI/s0] attach [] coexist {} placed_in None flags 4
+pending.staged: [] -> -
+pending.staged.[0].cancelled: - -> false
+pending.staged.[0].id: - -> 0
+pending.staged.[0].kind: - -> StrategyTokenSpent
+pending.staged.[0].payload.items.[0].[0]: - -> Player
+pending.staged.[0].payload.items.[0].[1].[0].[0]: - -> 0
+pending.staged.[0].payload.items.[1].[0]: - -> Reason
+pending.staged.[0].payload.items.[1].[1].[0].[0]: - -> 32
+pending.staged.[0].payload.lists: - -> []
+pending.staged.[0].payload.units: - -> []

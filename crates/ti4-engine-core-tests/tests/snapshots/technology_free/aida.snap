@@ -1,0 +1,8 @@
+Q0 seat 0 Technology(Aida { upgrades: 2 })
+  >0: Technology(Exhaust)
+   1: Decline
+done
+--- delta ---
+player0.tech.exhausted: {} -> -
+player0.tech.exhausted.[0]: - -> AIDevelopmentAlgorithm
+transient.production.discount_remaining: 99 -> 3

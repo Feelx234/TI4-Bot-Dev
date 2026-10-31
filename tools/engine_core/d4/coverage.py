@@ -24,7 +24,7 @@ What it reports (docs/ENGINE_CORE_COVERAGE.md)
   3 the bail registry: every `*-bail-NN` row of docs/ENGINE_KNOWN_ISSUES.md against the tests of the workspace (a row that names
     no test is "documented, untested"; a named test that does not exist; a `bail_*` test that no row names is "undocumented");
   4 the worklist ordered by risk = lines of the window x (1 + bail share of its area) for what is not covered.
---check fails (exit 1) on: a window neither covered nor exempt, an area below --stage-min percent of stage variants visited, a silent
+--check fails (exit 1) on: a window neither covered nor exempt (the stage variants of an exempt window do not count toward its area), an area below --stage-min percent of stage variants visited, a silent
 window without a KNOWN_ISSUES id in the exempt file. --check --quick prints only the covers part (verify_package.sh) and exits 0.
 """
 import argparse
@@ -144,7 +144,7 @@ def inventory(root):
         texts[path] = (text, mod_path(rel, base), base)
     all_text = {p: t for p, (t, _, _) in texts.items()}
     for path, (text, mp, base) in texts.items():
-        test_blocks = [(t.start(), balanced(text, t.end() - 1)) for t in re.finditer(r"#\[cfg\(test\)\]\s*(?:pub\s+)?mod\s+\w+\s*\{", text)]
+        test_blocks = [(t.start(), balanced(text, t.end() - 1)) for t in re.finditer(r"#\[cfg\(test\)\]\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{", text)]
         for m in WINDOW_RX.finditer(text):
             if any(a <= m.start() < b for a, b in test_blocks):
                 continue  # a window of a test module is a fixture, not part of the core
@@ -455,7 +455,8 @@ def analyse(root, soak, dual_reports, covers_files, exempt_file, bail_share):
             a["exempt"] += 1
         else:
             a["uncovered_lines"] += w["lines"]
-        if w["stages"]:
+        # An exempt window is not expected to run, so its stage variants are not part of the area's share (a covered window's are).
+        if w["stages"] and (k in covered or k not in exempt):
             a["stages"] += len(w["stages"])
             a["visited"] += len(set(w["stages"]) & visited.get(k, set()))
     work = []

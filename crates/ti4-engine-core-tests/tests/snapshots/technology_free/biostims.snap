@@ -1,0 +1,9 @@
+Q0 seat 0 Technology(BioStims)
+  >0: Technology(Planet(Tempesta, Shown { votes: 0, system: Some(Tempesta) }))
+   1: Technology(ReadyTechnology(SarweenTools))
+   2: Decline
+done
+--- delta ---
+player0.tech.exhausted.[0]: SarweenTools -> BioStims
+player0.tech.exhausted.[1]: - -> SarweenTools
+planet[Tempesta]: control Some(0) units [] attach [] coexist {} placed_in None flags 1 -> control Some(0) units [] attach [] coexist {} placed_in None flags 0

@@ -1,0 +1,11 @@
+Q0 seat 0 Relic(FragmentType { count: 1 })
+  >0: Relic(Fragment(Cultural))
+   1: Relic(Fragment(Industrial))
+Q1 seat 0 Relic(TokenPool)
+  >0: Relic(Pool(Tactic))
+   1: Relic(Pool(Fleet))
+   2: Relic(Pool(Strategic))
+done
+--- delta ---
+player0.cards.fragments.counts.[0]: 1 -> 0
+player0.econ.tactic_tokens: 2 -> 3
