@@ -702,7 +702,7 @@ mod real {
 
     /// The facts of Imperial's primary on a position (`Err`: why the core cannot follow it, the census reason): the scoreable objectives
     /// are the string's (`objectives::scoreable_on`), the payment environment is the production kernel's. Also whether the seat controls
-    /// Mecatol Rex. Declined: a deck reserve, a Keleres seat (Custodian's Favour asks), a point that would pass the target, an objective
+    /// Mecatol Rex. Declined: a deck reserve, a Keleres seat (Custodian's Favour asks), an objective
     /// that is no public objective of the tables or whose points the tables read otherwise, a bought objective at a table whose payment the
     /// production kernel does not follow, and more than sixteen objectives.
     pub(crate) fn imperial_facts(
@@ -725,24 +725,19 @@ mod real {
             .map(|o| crate::core_adapter::typed::<PublicObjective>(o.as_str()))
             .collect::<Option<_>>()
             .ok_or("a scoreable objective the tables do not know")?;
-        let mut most = 0;
         let mut priced = false;
         for (alias, objective) in scoreable.iter().zip(&typed) {
             let points = i32::from(ti4_engine_core::query::objectives::points_of(*objective));
             if crate::objectives::points_for(content, alias) != Some(points) {
                 return Err("an objective whose points the tables read otherwise");
             }
-            most = most.max(points);
             priced |= ti4_engine_core::query::objectives::cost_of(*objective).is_some();
         }
         if priced && price_is_string(gs, player) {
             return Err("a bought objective at a table whose payment the production kernel does not follow (ocean cards)");
         }
         let controls = gs.controlled_planets(player).into_iter().any(|(system, _)| crate::seating::is_mecatol(system.as_str()));
-        let held = gs.player(player).ok_or(crate::dual::reason::NO_SEAT)?.victory_points;
-        if held + most + i32::from(controls) > crate::objectives::VICTORY_TARGET {
-            return Err("a point that would pass the victory target");
-        }
+        // (A point past the victory target stops at it: `fx::adjust_victory_points` clamps as the string does, package W13.)
         if typed.len() > 16 {
             return Err("more than sixteen scoreable objectives");
         }

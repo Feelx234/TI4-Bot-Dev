@@ -550,7 +550,7 @@ impl ImperialPrimary {
     fn finish(&mut self, sx: &mut Sx<'_>) {
         self.stage = IStage::Done;
         if Self::controls_mecatol(sx.state, self.who) {
-            fx::gain_victory_points(sx.state, self.who, 1, crate::state::LedgerReason::ImperialPrimary);
+            fx::adjust_victory_points(sx.state, self.who, 1, crate::state::LedgerReason::ImperialPrimary);
         } else if fx::draw_secret(sx.state, self.who).is_some() {
             match sx.table.links.start(&Spawn::HandLimit { who: self.who }) {
                 Some(window) => {

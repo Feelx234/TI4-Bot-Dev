@@ -501,7 +501,7 @@ use ti4_engine_core::rules::hero_windows::{NaazHero, WinnuHero};
 use ti4_engine_core::tables::Scope;
 
 fn perform_facts(carried: Carried) -> PerformFacts {
-    PerformFacts { carried, replenish_events: false, rules_version: LATEST_RULES, roster: None, scope: Scope(u32::from(kernel_all().sources.0)), mahact_held: 0, home: Home::Unsupported, imperial: None }
+    PerformFacts { carried, replenish_events: false, rules_version: LATEST_RULES, roster: None, scope: Scope(u32::from(kernel_all().sources.0)), mahact_held: 0, home: Home::Unsupported, imperial: None, free: None, te_uses: None }
 }
 
 fn naaz(cards: &[StrategyCard], relics: &[Relic], tokens: (i16, i16, i16)) -> Rig<NaazHero> {
@@ -853,7 +853,14 @@ fn a_table_where_a_replenishment_causes_events_leaves_the_trade_secondary_to_the
     rig.run();
     rig.pick(0);
     assert!(rig.is_done() && rig.driver.window.unsupported);
-    // A command token in a Mahact pool changes what the Leadership questions preview.
+}
+
+/// A command token in a Mahact fleet pool is not in the reinforcements, which the core reads from the marks (`fx::tokens_held_by_mahact`):
+/// the Leadership secondary is the core's at such a table since package W13 (it was the string's before).
+#[test]
+fn a_command_token_in_a_mahact_pool_does_not_make_the_leadership_secondary_the_strings() {
+    covers!("rules::hero_windows::NaazHero");
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
     let sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheArborec]).kernel(kernel_all()).tokens(0, 3, 3, 2);
     let mut facts = perform_facts(Carried { payments: true, ..Carried::default() });
     facts.mahact_held = 1;
@@ -861,7 +868,7 @@ fn a_table_where_a_replenishment_causes_events_leaves_the_trade_secondary_to_the
     rig.state.decks_mut().relic.set(vec![relic]);
     rig.run();
     rig.pick(0);
-    assert!(rig.is_done() && rig.driver.window.unsupported);
+    assert!(!rig.driver.window.unsupported, "{}", rig.transcript());
 }
 
 #[test]
@@ -1169,16 +1176,17 @@ fn a_secret_over_the_limit_asks_which_to_return() {
 #[test]
 fn what_the_core_does_not_carry_declines_the_run() {
     covers!("rules::hero_windows::EmpyreanHero");
-    // A card of another deck, a Lost Crew whose draw is not plain, command tokens while a Mahact fleet holds the seat's, an unlinked child.
+    // A card of another deck, a Lost Crew whose draw is not plain, an unlinked child.
     let (mut rig, _) = empyrean(&[Explore::DysonSphere], 1, frontier_facts());
     rig.run();
     assert!(rig.is_done() && rig.driver.window.unsupported && !rig.driver.window.used);
     let (mut rig, _) = empyrean(&[Explore::LostCrew1], 1, FrontierFacts { draw_plain: false, ..frontier_facts() });
     rig.run();
     assert!(rig.is_done() && rig.driver.window.unsupported);
+    // (Command tokens while a Mahact fleet holds the seat's are the core's since package W13: the reinforcements read the marks.)
     let (mut rig, _) = empyrean(&[Explore::MinorEntropicField], 1, FrontierFacts { mahact_held: 1, ..frontier_facts() });
     rig.run();
-    assert!(rig.is_done() && rig.driver.window.unsupported);
+    assert!(!rig.driver.window.unsupported, "{}", rig.transcript());
     let (mut rig, _) = empyrean(&[Explore::UnknownRelicFragment1], 1, FrontierFacts { mahact_held: 1, ..frontier_facts() });
     rig.run();
     assert!(rig.is_done() && !rig.driver.window.unsupported, "a card without command tokens does not care");
@@ -1380,4 +1388,117 @@ fn a_token_under_a_ground_force_alone_is_not_explored() {
     let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), systems.clone(), frontier_facts()));
     rig.run();
     assert!(rig.is_done() && rig.driver.window.rows().is_empty() && rig.state.explore().frontier.contains(systems[0]));
+}
+
+// -- The Thunder's Edge primaries as children of Mathis Mathinus (package W13) ---------------------------------------
+
+use ti4_engine_core::kernel::children::{FreeSystems, TeUses};
+
+fn winnu_te(card: StrategyCard, facts: PerformFacts) -> (Rig<WinnuHero>, System, Planet) {
+    let system = plain()[0];
+    let planet = system.data().planets[0];
+    let sc = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec])
+        .kernel(kernel_all())
+        .map_from(&[system, plain()[1]])
+        .control(planet, 0)
+        .unit(system, Some(planet), Unit::SpaceDockI, 0, 1)
+        .goods(0, 6)
+        .tokens(0, 3, 3, 2);
+    (Rig::new(sc, WinnuHero::new(Seat(0), facts, vec![card])), system, planet)
+}
+
+#[test]
+fn the_te_warfare_primary_redistributes_then_names_the_system_of_the_free_tactical_action() {
+    covers!("rules::hero_windows::WinnuHero");
+    let systems = [plain()[0], plain()[1]];
+    let free = FreeSystems::new(Code(9), &systems).unwrap();
+    let facts = PerformFacts { free: Some(free), ..perform_facts(Carried::default()) };
+    let (mut rig, _, _) = winnu_te(StrategyCard::WarfareThundersEdge, facts);
+    rig.run();
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareRedistribute { .. })), "{}", rig.transcript());
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareTactical)), "{}", rig.transcript());
+    rig.pick_opt(Opt::Strategy(SOpt::System(systems[1])));
+    assert!(rig.is_done() && !rig.driver.window.unsupported, "{}", rig.transcript());
+    assert_eq!(rig.driver.window.free, Some(systems[1]), "the game plays the free action in the system chosen");
+}
+
+#[test]
+fn the_te_warfare_primary_without_systems_resolves_and_without_facts_is_the_strings() {
+    covers!("rules::hero_windows::WinnuHero");
+    let none = FreeSystems::new(Code(9), &[]).unwrap();
+    let (mut rig, _, _) = winnu_te(StrategyCard::WarfareThundersEdge, PerformFacts { free: Some(none), ..perform_facts(Carried::default()) });
+    rig.run();
+    rig.pick(0);
+    assert!(rig.is_done() && !rig.driver.window.unsupported && rig.driver.window.free.is_none(), "{}", rig.transcript());
+    let (mut rig, _, _) = winnu_te(StrategyCard::WarfareThundersEdge, perform_facts(Carried::default()));
+    rig.run();
+    rig.pick(0);
+    assert!(rig.is_done() && rig.driver.window.unsupported, "a table whose systems the adapter could not give");
+}
+
+#[test]
+fn too_many_systems_for_the_facts_are_refused() {
+    covers!("rules::hero_windows::WinnuHero");
+    let many = vec![plain()[0]; ti4_engine_core::kernel::children::FREE_SYSTEMS + 1];
+    assert!(FreeSystems::new(Code(9), &many).is_none());
+    assert_eq!(FreeSystems::new(Code(9), &many[..3]).unwrap().systems().len(), 3);
+}
+
+fn te_construction_facts(system: System, structures: bool) -> PerformFacts {
+    let mut buildable = [None; 9];
+    buildable[0] = Some(Unit::DestroyerI);
+    let uses = [HomeFacts {
+        produce: ProduceFacts { who: Seat(0), system, limit: 3, max_unit_cost: None, small_exemptions: 0, discount: 0, fleet_limit: 8, armada: 0, flagship_free: false, buildable },
+        agent_rules: true,
+    }];
+    let place = Some((Unit::PDSI, false));
+    let dock = Some((Unit::SpaceDockI, false));
+    let structures = structures.then_some(ti4_engine_core::kernel::children::StructureFacts { pds: place, dock, source: Code(5) });
+    PerformFacts { te_uses: TeUses::new(Code(8), &uses), ..perform_facts(Carried { structures, ..Carried::default() }) }
+}
+
+#[test]
+fn the_te_construction_primary_runs_the_use_of_production_as_a_child_then_the_second_structure() {
+    covers!("rules::hero_windows::WinnuHero");
+    let system = plain()[0];
+    let (mut rig, system, _) = winnu_te(StrategyCard::ConstructionThundersEdge, te_construction_facts(system, true));
+    rig.run();
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(ti4_engine_core::choice::strategy::Ask::ConstructionAbility)), "{}", rig.transcript());
+    rig.pick_opt(Opt::Strategy(SOpt::Produce(system)));
+    assert!(matches!(rig.asked().ask, Ask::Production(_)), "{}", rig.transcript());
+    rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Build { unit: Unit::DestroyerI, .. })));
+    while matches!(rig.asked().ask, Ask::Production(_)) {
+        if matches!(rig.asked().ask, Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::TradeGood { .. })));
+        } else {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Stop)));
+        }
+    }
+    assert!(matches!(rig.asked().ask, Ask::Strategy(ti4_engine_core::choice::strategy::Ask::PlaceStructure { step: 2, .. })), "the second structure follows the use: {}", rig.transcript());
+    rig.pick_opt(Opt::Decline);
+    assert!(rig.is_done() && !rig.driver.window.unsupported, "{}", rig.transcript());
+    let (made_in, made) = rig.driver.window.produced.clone().expect("the use is reported");
+    assert_eq!(made_in, system);
+    assert_eq!(made.as_slice().len(), 1);
+    assert_eq!(made.as_slice()[0].0, Unit::DestroyerI);
+}
+
+#[test]
+fn the_te_construction_primary_chooses_a_structure_without_a_report_and_without_facts_is_the_strings() {
+    covers!("rules::hero_windows::WinnuHero");
+    let system = plain()[0];
+    let (mut rig, _, _) = winnu_te(StrategyCard::ConstructionThundersEdge, te_construction_facts(system, true));
+    rig.run();
+    rig.pick(0);
+    rig.pick_opt(Opt::Strategy(SOpt::Build));
+    rig.pick_opt(Opt::Decline);
+    rig.pick_opt(Opt::Decline);
+    assert!(rig.is_done() && rig.driver.window.produced.is_none() && !rig.driver.window.unsupported, "{}", rig.transcript());
+    let (mut rig, _, _) = winnu_te(StrategyCard::ConstructionThundersEdge, PerformFacts { te_uses: None, ..te_construction_facts(system, true) });
+    rig.run();
+    rig.pick(0);
+    assert!(rig.is_done() && rig.driver.window.unsupported);
 }

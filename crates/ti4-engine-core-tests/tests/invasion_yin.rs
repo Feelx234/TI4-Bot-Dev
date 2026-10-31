@@ -18,6 +18,7 @@ fn facts(system: System, planet: Planet) -> FightFacts {
         copied: false,
         numbered: true,
         can_pay: [false, false],
+        pay_env: None,
         dunlain: Code(1),
         kind: Code(2),
         names: (0..NAMED).map(|i| Code(10 + i as u16)).collect(),
@@ -27,6 +28,7 @@ fn facts(system: System, planet: Planet) -> FightFacts {
         step_kind: Code(7),
         harrow: false,
         x89: vec![],
+        dacxive: vec![],
         notes: vec![],
     }
 }
@@ -114,7 +116,7 @@ fn nothing_is_fought_without_a_rival_or_without_the_invader() {
 
 fn yin(mine_there: usize, theirs: usize, stock: u8, seed: u64) -> (Rig<YinHero>, System, Planet) {
     let (sc, system, planet) = arena(mine_there, theirs);
-    let facts = YinFacts { spots: vec![(system, planet)], stock, infantry: Unit::InfantryI, fight: facts(system, planet) };
+    let facts = YinFacts { spots: vec![(system, planet)], stock, infantry: Unit::InfantryI, fight: facts(system, planet), minister: Code(20) };
     (Rig::new(sc, YinHero::new(Seat(0), facts)).seeded(seed), system, planet)
 }
 
@@ -159,7 +161,7 @@ fn no_infantry_or_no_spot_means_the_card_is_not_used() {
     rig.run();
     assert!(rig.is_done() && !rig.driver.window.used);
     let (sc, system, planet) = arena(0, 0);
-    let facts = YinFacts { spots: vec![], stock: 3, infantry: Unit::InfantryI, fight: facts(system, planet) };
+    let facts = YinFacts { spots: vec![], stock: 3, infantry: Unit::InfantryI, fight: facts(system, planet), minister: Code(20) };
     let mut rig = Rig::new(sc, YinHero::new(Seat(0), facts));
     rig.run();
     assert!(rig.is_done() && !rig.driver.window.used);

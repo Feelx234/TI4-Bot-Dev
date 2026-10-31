@@ -446,7 +446,7 @@ fn a_planet_without_guns_rolls_nothing_and_leaves_no_step_and_a_quiet_resolver_a
 
 fn begin(copied: bool, numbered: bool) -> BeginFacts {
     let (p1, _) = planets();
-    BeginFacts { system: sys(), planet: p1, invader: Seat(0), defender: Seat(1), copied, numbered, can_pay: [false, false], dunlain: Code(9) }
+    BeginFacts { system: sys(), planet: p1, invader: Seat(0), defender: Seat(1), copied, numbered, can_pay: [false, false], pay_env: None, dunlain: Code(9) }
 }
 
 #[test]

@@ -473,12 +473,8 @@ mod real {
         if crate::production_view::unported_triggered(gs, producer) {
             return Some("a table whose seats the production windows do not carry (Keleres, Deepwrought)");
         }
-        if gs.laws.contains_key("prophecy") {
-            return Some("the Prophecy of Ixth in play (an end-of-use effect of the production)");
-        }
-        if gs.production_value_swapped_planet.is_some() {
-            return Some("a swapped planet value in the use (the payment reads it)");
-        }
+        // (The Prophecy of Ixth is discarded by the core window at the end of the use, package W13. A planet value swapped by Hegemonic Trade
+        // Policy is declared in the tactical action's production and ends with it: none lingers into a use outside it.)
         None
     }
 

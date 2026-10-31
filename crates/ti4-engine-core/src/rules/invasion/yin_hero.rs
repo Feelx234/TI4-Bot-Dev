@@ -6,7 +6,7 @@
 //! the stock the infantry the reinforcements hold, at most three), then every infantry lands (the box caps it), each planet chosen is fought to
 //! the end with a child ([`super::fight::CommittedFight`], in the order the planets were first chosen, until the game is won) and the planets the
 //! seat still holds ground forces on change hands: the control is set, the planet taken exhausted. The effects of gaining control that the
-//! window does not carry (a Minister of Exploration, the Crown of Emphidia, L1Z1X's Fealty Uplink) are declined by the adapter.
+//! window carries are the Minister of Exploration and the Crown of Emphidia (package W13); L1Z1X's Fealty Uplink is a Thunder's Edge breakthrough.
 
 use super::fight::{CommittedFight, FightFacts};
 use super::{is_ground_force, Rd};
@@ -33,6 +33,8 @@ pub struct YinFacts {
     pub infantry: Unit,
     /// The facts of a combat on one planet; the system and the planet are the window's own.
     pub fight: FightFacts,
+    /// The interned source `minister_exploration` of the trade good the Minister of Exploration pays for a planet taken.
+    pub minister: crate::state::Code,
 }
 
 /// The suspension points of [`YinHero`].
@@ -122,6 +124,18 @@ impl YinHero {
             sx.state.board_mut().planet_mut(planet).control = Some(self.who);
             sx.state.board_mut().sys_mut(system).flags.set(SysFlags::TOUCHED, true);
             fx::exhaust_planet(sx.state, planet);
+            // Everything that reads "when you gain control of a planet": the Minister of Exploration pays a trade good, and the Crown of
+            // Emphidia changes hands when a planet of its owner's home system is taken.
+            let blanked = reach::blanked(sx.state);
+            if crate::query::laws::holds_ministry(sx.state, blanked, self.who, crate::query::laws::MINISTER_EXPLORATION) {
+                fx::gain_trade_goods_staged(sx.state, self.who, 1, self.facts.minister);
+            }
+            let crown = crate::generated::Agenda::TheCrownOfEmphidia;
+            if let Some(crate::keys::Outcome::Seat(owner)) = crate::query::laws::elected(sx.state, blanked, crown)
+                && crate::query::objectives::home_system_of(sx.state, owner) == Some(system)
+            {
+                fx::steal_throne_card(sx.state, crown, self.who);
+            }
         }
         self.stage = YStage::Done;
     }

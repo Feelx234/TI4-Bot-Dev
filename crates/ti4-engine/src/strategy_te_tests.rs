@@ -127,13 +127,21 @@ fn imperial_with_the_mecatol_point_and_a_scored_objective_reaches_both() {
 
 #[test]
 fn bail_imperial_scoring_where_the_price_or_the_target_is_the_strings() {
-    // Past the target with the point of the objective: the string clamps.
+    // Past the target with the point of the objective: both sides clamp at the target (the core since package W13).
     let near = |s: &mut GameState| {
         scoreable(s, "lead");
         s.player_mut(&a()).unwrap().victory_points = 10;
     };
-    let (counts, _, _) = play(IMPERIAL, near, &["lead"], "pok8imperial", None);
-    assert_eq!(counts, (0, 1));
+    let (counts, _, after) = play(IMPERIAL, near, &["lead"], "pok8imperial", None);
+    assert_eq!(counts, (1, 0));
+    assert_eq!(after.player(&a()).unwrap().victory_points, 10, "stopped at the target");
+    let near_mecatol = |s: &mut GameState| {
+        s.system_mut(&SystemId::new("18")).set_control(PlanetId::new("mr"), a());
+        s.player_mut(&a()).unwrap().victory_points = 10;
+    };
+    let (counts, _, after) = play(IMPERIAL, near_mecatol, &[], "pok8imperial", None);
+    assert_eq!(counts, (1, 0));
+    assert_eq!(after.player(&a()).unwrap().victory_points, 10, "Mecatol's point stopped at the target");
     // A Last Bastion at the table: the production kernel does not follow its economy.
     let goods = |s: &mut GameState| {
         scoreable(s, "trade_routes");
@@ -263,10 +271,11 @@ fn the_te_construction_places_two_structures_neither_limited_to_a_pds_in_lockste
     assert_eq!(counts, (1, 0));
 }
 
+/// The production of the card is the window of the production area, a child of the card (it was the string's before package W13).
 #[test]
-fn bail_the_te_construction_production_keeps_the_nested_window_with_the_string() {
-    let galaxy = galaxy();
-    let _ = galaxy;
+fn the_te_construction_production_runs_as_a_child_of_the_card_in_lockstep() {
     let (counts, _, _) = play(CONSTRUCTION, lodor, &["produce|01", "done", "pds|01|jord"], "te4construction", None);
-    assert_eq!(counts, (0, 1), "the production of the card is a whole window: the string's");
+    assert_eq!(counts, (1, 0), "the production of the card is a window of the production area");
+    let (counts, _, _) = play(CONSTRUCTION, lodor, &["produce|01", "done", "decline"], "te4construction", None);
+    assert_eq!(counts, (1, 0));
 }

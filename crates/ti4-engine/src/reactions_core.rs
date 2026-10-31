@@ -202,6 +202,8 @@ pub fn table() -> AbilityTable {
             // The links to the areas whose windows an action card runs as children: a play window that follows nested
             // activity runs on this table (`follow`), not on `action_cards_view::play_table`.
             ti4_engine_core::driver::children::register(&mut t);
+            // The offer of Self-Assembly Routines at the end of a use of PRODUCTION a hero or a card runs (a window of the faction crate).
+            ti4_engine_core_factions::self_assembly::register_links(&mut t);
             t.facts.card_groups = card_groups();
             t
         })

@@ -1068,6 +1068,18 @@ pub(crate) fn outside_why(gs: &GameState, script: &Recording) -> Option<&'static
     }
 }
 
+/// [`outside_why`] for a window that follows the nested activity of the string run (the reaction windows around its events: the core
+/// replays them on the core table, `drive_windowed`): everything but `script.nested`, which the caller judges with [`nested_check`] (package W13).
+pub(crate) fn outside_following(gs: &GameState, _script: &Recording) -> Option<&'static str> {
+    if gs.active_space_combat.is_some() || gs.active_invasion.is_some() {
+        Some("a question asked inside a battle or an invasion")
+    } else if gs.diplomacy.enabled {
+        Some("diplomacy on")
+    } else {
+        None
+    }
+}
+
 /// Whether the window is battle-bound (nested activity, a space combat or an invasion), without the diplomacy clause (the structured negotiation window is the diplomacy feature itself).
 pub(crate) fn outside_battle(gs: &GameState, script: &Recording) -> bool {
     script.nested || gs.active_space_combat.is_some() || gs.active_invasion.is_some()
@@ -3466,6 +3478,23 @@ pub fn ground_roll_unported(gs: &GameState, a: &GroundRollArgs<'_>) -> Option<&'
     }
 }
 
+/// The seats that hold Dacxive Animators with the infantry each would place (the first buildable unit of the infantry base type, as
+/// `faction_techs::dacxive_animators` finds it); a seat with none is left out, as the string places nothing for it.
+fn dacxive_holders(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, r: &Render) -> Option<Vec<(ti4_engine_core::ids::Seat, ti4_engine_core::generated::Unit)>> {
+    let mut out = Vec::new();
+    for p in gs.players.iter().filter(|p| p.technologies.contains(ti4_model::id::text(&"dxa"))) {
+        let types = ti4_content::units::catalogue(content, sources.clone());
+        let found = crate::production::buildable_for(gs, content, sources.clone(), &p.id)
+            .into_iter()
+            .find(|kind| types.get(kind.as_str()).is_some_and(|record| record.base_type() == "infantry"));
+        if let Some(kind) = found {
+            let unit = <ti4_engine_core::generated::Unit as IdStr>::from_id(&kind).why(crate::dual::reason::UNKNOWN_ID)?;
+            out.push((r.seat(p.id.as_str()).why(crate::dual::reason::NO_SEAT)?, unit));
+        }
+    }
+    Some(out)
+}
+
 /// X-89 Bacterial Weapon (the codex printing in play) is held by this player.
 fn holds_x89(gs: &GameState, id: &PlayerId) -> bool {
     gs.player(id).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"x89c4")))
@@ -3574,10 +3603,8 @@ pub fn round_hits_unported(gs: &GameState, content: &ti4_content::ContentStore, 
     if crate::factions::ralnel::alarum_on(gs, a.system, a.planet) {
         return Some("Alarum");
     }
-    let extra = |who: &PlayerId, hits: usize, other: usize| crate::factions::hooks_ground::ground_rolls_extra_hits(gs, content, sources, who, a.system, a.planet, hits, other);
-    if extra(a.invader, a.rolled.0, a.rolled.1) != 0 || extra(a.defender, a.rolled.1, a.rolled.0) != 0 {
-        return Some("hits added to a roll");
-    }
+    // (The hits a faction adds to its own roll are the kernel's hook since package W13: `GroundRoundHits`.)
+    let _ = (content, sources);
     None
 }
 
@@ -3706,7 +3733,7 @@ pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Record
     let can_pay = [a.invader, a.defender].map(|id| {
         gs.player(id).is_some_and(|p| p.faction.as_str() == "letnev") && crate::production::available(gs, content, a.sources, id, crate::production::Spend::Resources) >= 2
     });
-    let facts = Facts { system, planet, invader, defender, copied: a.copied_round, numbered, can_pay, dunlain: r.code("dunlain_reaper") };
+    let facts = Facts { system, planet, invader, defender, copied: a.copied_round, numbered, can_pay, pay_env: None, dunlain: r.code("dunlain_reaper") };
     // The Reaper's payment is a child window of the production area: the table carries the links to it.
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
@@ -4200,10 +4227,11 @@ pub fn mahact_hero(
 ) -> Option<CoreWindow<Option<bool>>> {
     use ti4_engine_core::rules::combat::mahact_hero::{MahactHero, Prepared};
     use ti4_engine_core::rules::combat::machine::Bail;
-    if let Some(why) = outside_why(gs, script) {
+    if let Some(why) = outside_following(gs, script) {
         crate::dual::note_bail_here(why);
         return None;
     }
+    nested_check(script)?;
     if !reproducible {
         crate::dual::note_bail_here("irreproducible dice (test faces or a stream restore)");
         return None;
@@ -4318,25 +4346,14 @@ pub fn mahact_hero(
 #[must_use]
 pub fn yin_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, player: &PlayerId, spots: &[(ti4_model::id::SystemId, ti4_model::id::PlanetId)]) -> Option<&'static str> {
     let everyone: Vec<&PlayerId> = gs.players.iter().map(|p| &p.id).collect();
-    if crate::factions::nomad_agents::watches_roll_step(gs) {
-        return Some("The Thundarian watches the Roll Dice step");
-    }
+    // (The Thundarian watching the Roll Dice step is a rule of the core table, followed as nested activity, package W13.)
     // (X-89 Bacterial Weapon doubles the hits in the core fight since package W10: `FightFacts::x89`.)
-    if everyone.iter().any(|id| gs.player(id).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"dxa")))) {
-        return Some("Dacxive Animators");
-    }
+    // (Dacxive Animators places its infantry in the core fight since package W13: `FightFacts::dacxive`.)
     if crate::factions::bastion_units::watches_ground_round(gs, &everyone) {
         return Some("Proxima Targeting VI");
     }
-    if gs.players.iter().any(|p| p.faction.as_str() == "letnev") {
-        return Some("a Letnev seat (the Dunlain Reaper)");
-    }
-    if gs.laws.contains_key("minister_exploration") {
-        return Some("the Minister of Exploration in play (a trade good for each planet taken)");
-    }
-    if crate::laws::owner_home_system(gs, content, "crown_of_emphidia").is_some() {
-        return Some("the Crown of Emphidia in play (it changes hands with a home system)");
-    }
+    // (A Letnev seat's Dunlain Reaper reads what the seat can spend in each round: `FightFacts::pay_env`, package W13.)
+    // (The Minister of Exploration and the Crown of Emphidia are the core window's since package W13.)
     if crate::breakthroughs::holds(gs, player, "l1z1xbt") {
         return Some("L1Z1X's Fealty Uplink (infantry for the planet taken)");
     }
@@ -4350,9 +4367,6 @@ pub fn yin_unported(gs: &GameState, content: &ti4_content::ContentStore, sources
         let owners = gs.system_state(system).on_planet(planet).iter().map(|u| u.owner.clone()).collect::<std::collections::BTreeSet<_>>();
         if owners.iter().any(crate::neutral_units::is_neutral) {
             return Some(crate::dual::reason::NEUTRAL);
-        }
-        if everyone.iter().any(|id| crate::factions::hooks_ground::ground_rolls_extra_hits(gs, content, sources.clone(), id, system, planet, 1, 1) != 0) {
-            return Some("hits added to a roll");
         }
     }
     None
@@ -4378,10 +4392,11 @@ pub fn yin_hero(
     use ti4_engine_core::rules::invasion::fight::FightFacts;
     use ti4_engine_core::rules::invasion::roll::NAMED;
     use ti4_engine_core::rules::invasion::yin_hero::{YinFacts, YinHero};
-    if let Some(why) = outside_why(gs, script) {
+    if let Some(why) = outside_following(gs, script) {
         crate::dual::note_bail_here(why);
         return None;
     }
+    nested_check(script)?;
     if !reproducible {
         crate::dual::note_bail_here("irreproducible dice (test faces or a stream restore)");
         return None;
@@ -4455,6 +4470,7 @@ pub fn yin_hero(
         copied,
         numbered: gs.rules_version >= ti4_model::state::RULES_FACTION_EFFECTS,
         can_pay: [false, false],
+        pay_env: Some(ti4_engine_core::kernel::fx_pay::PayEnv { scope: crate::core_adapter::scope(sources.clone()), blanked: crate::laws::blanked(gs) }),
         dunlain: r.code("dunlain_reaper"),
         kind: cx.texts.intern(Slice::Transient, "ground").why("the text table of the typed state is full")?,
         names,
@@ -4464,9 +4480,10 @@ pub fn yin_hero(
         step_kind: cx.texts.intern(Slice::Transient, "ground_round").why("the text table of the typed state is full")?,
         harrow: crate::faction_abilities::has(gs, content, player, "harrow"),
         x89: gs.players.iter().filter(|p| holds_x89(gs, &p.id)).map(|p| r.seat(p.id.as_str())).collect::<Option<_>>().why(crate::dual::reason::NO_SEAT)?,
+        dacxive: dacxive_holders(gs, content, sources.clone(), &r)?,
         notes: note_pairs,
     };
-    let facts = YinFacts { spots: core_spots, stock: u8::try_from(stock).ok()?, infantry, fight };
+    let facts = YinFacts { spots: core_spots, stock: u8::try_from(stock).ok()?, infantry, fight, minister: r.code("minister_exploration") };
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&sim, &cx, sources.clone()).why("the invasion environment could not be built from the position")?;
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));

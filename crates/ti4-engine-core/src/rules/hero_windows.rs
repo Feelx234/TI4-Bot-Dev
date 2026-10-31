@@ -1274,8 +1274,7 @@ struct Open {
 /// `order` lists every system that can hold a token in the text order of the system names (the core never sees the text: the adapter sorts).
 /// A frontier deck that runs out is a failed exploration: the whole run is undone (the string restores the state, the dice and the stream
 /// at the hero level) after the questions already asked, and the card is not used. [`Self::used`]: the card resolved.
-/// [`Self::unsupported`]: a card of another deck, a table whose replenishment or draw the core does not follow, a command token in a Mahact
-/// fleet pool, or no link to a child: the adapter declines the run. [`Self::rows`] are the log rows to close, in order.
+/// [`Self::unsupported`]: a card of another deck, a table whose replenishment or draw the core does not follow, or no link to a child: the adapter declines the run. [`Self::rows`] are the log rows to close, in order.
 #[derive(Debug, Clone)]
 pub struct EmpyreanHero {
     pub who: Seat,
@@ -1434,9 +1433,7 @@ impl EmpyreanHero {
         if let Some(open) = &mut self.open {
             open.goods = goods;
         }
-        if count > 0 && self.facts.mahact_held > 0 {
-            return self.decline();
-        }
+        // (A command token in a Mahact fleet pool is not in the reinforcements: `fx::tokens_in_reinforcements` reads the marks, package W13.)
         if count > 0 && self.facts.rules_version >= RULES_COMMAND_TOKEN_POOL {
             self.pool_left = count;
             self.stage = EStage::Pooling;

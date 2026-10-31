@@ -375,10 +375,11 @@ mod real {
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
         use ti4_engine_core::generated::StrategyCard;
-        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+        if let Some(why) = crate::dual_window::outside_following(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }
+        crate::dual_window::nested_check(script)?;
         let list: Vec<StrategyCard> = cards.iter().map(|card| typed::<StrategyCard>(card.as_str())).collect::<Option<_>>().why("a strategy card the typed tables do not know")?;
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -406,7 +407,7 @@ mod real {
             gs,
             &mut cx,
             Sources::default(),
-            crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM).union(Footprint::new(&[Slice::Objectives], &[Slice::Objectives])),
+            crate::dual_window::nested_fp(crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM).union(Footprint::new(&[Slice::Objectives], &[Slice::Objectives])), script),
             |core, _| {
                 let facts = perform_facts(core, &before, sources, galaxy, player, seat, &r, &list);
                 home_system = match facts.home {
@@ -450,10 +451,11 @@ mod real {
         script: &Recording,
     ) -> Option<CoreWindow<(Option<String>, bool, Option<String>)>> {
         use ti4_engine_core::generated::StrategyCard;
-        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+        if let Some(why) = crate::dual_window::outside_following(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }
+        crate::dual_window::nested_check(script)?;
         let list: Vec<StrategyCard> = cards.iter().map(|card| typed::<StrategyCard>(card.as_str())).collect::<Option<_>>().why("a strategy card the typed tables do not know")?;
         // The primaries name their options by faction: two seats of one faction would clash.
         let (mut cx, r) = crate::strategy_core::named_tables(gs)?;
@@ -481,7 +483,7 @@ mod real {
             gs,
             &mut cx,
             Sources::default(),
-            crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM).union(Footprint::new(&[Slice::Objectives], &[Slice::Objectives])),
+            crate::dual_window::nested_fp(crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM).union(Footprint::new(&[Slice::Objectives], &[Slice::Objectives])), script),
             |core, _| {
                 let facts = perform_facts(core, &before, sources, galaxy, player, seat, &r, &list);
                 let mut driver = Driver::new(WinnuHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
@@ -538,10 +540,11 @@ mod real {
     ) -> Option<CoreWindow<bool>> {
         use ti4_engine_core::generated::StrategyCard;
         use ti4_engine_core::rules::production::strategy_cards::Construction;
-        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+        if let Some(why) = crate::dual_window::outside_following(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }
+        crate::dual_window::nested_check(script)?;
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let facts = crate::strategy_cards_core::structure_facts(gs, content, sources.clone(), player, &r)?;
@@ -552,7 +555,7 @@ mod real {
         let kernel = crate::production_view::kernel_of(sources.clone());
         let mut staged = Vec::new();
         let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), performing_table(), 1);
-        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), TE_CONSTRUCTION, |core, _| {
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), crate::dual_window::nested_fp(TE_CONSTRUCTION, script), |core, _| {
             let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &|_, _, _| {});
             staged = std::mem::take(&mut core.pending_mut().staged);
             driven
@@ -594,10 +597,11 @@ mod real {
         sources: SourceSet,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+        if let Some(why) = crate::dual_window::outside_following(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }
+        crate::dual_window::nested_check(script)?;
         // Every system that can hold a token, in the text order of its name (the string's set).
         let mut named: std::collections::BTreeSet<&str> = placed.iter().map(ti4_model::id::SystemId::as_str).collect();
         named.extend(gs.frontier_tokens.iter().map(ti4_model::id::SystemId::as_str));
@@ -623,7 +627,7 @@ mod real {
         let mut staged = Vec::new();
         let mut out = None;
         let mut driver = Driver::new(EmpyreanHero::new(seat, placed, order, facts), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
-        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), FRONTIER, |core, _| {
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), crate::dual_window::nested_fp(FRONTIER, script), |core, _| {
             let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
             staged = std::mem::take(&mut core.pending_mut().staged);
             out = Some((driver.window.used, driver.window.unsupported, driver.window.rows().to_vec()));
@@ -633,7 +637,7 @@ mod real {
         .why(crate::dual::reason::DRIVER_REFUSED)?;
         let (used, unsupported, rows) = out?;
         if unsupported {
-            crate::dual::note_bail_here("a frontier card the core does not carry (a card of another deck, a changed draw, a command token in a Mahact fleet pool, a replenishment with events it does not hold)");
+            crate::dual::note_bail_here("a frontier card the core does not carry (a card of another deck, a changed draw, a replenishment with events it does not hold)");
             return None;
         }
         for (at, row) in rows.iter().enumerate() {

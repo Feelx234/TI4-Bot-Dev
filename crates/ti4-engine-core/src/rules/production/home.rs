@@ -8,13 +8,14 @@
 //! The effects at the end of a use run once, after the answer that closed it (a use that asked nothing has none, as in the string): the planet
 //! value a swap lasted for is back, Hacan's Auto-Factories pays a command token for three ships that are no fighters, the units made are
 //! reported (the announcement `UNITS_PRODUCED` is the adapter's), and Self-Assembly Routines offers a mech (a window of the faction crate, the
-//! table's extra link). The Keleres agent's window and Agency Supply Network belong to a seat the production windows do not carry; the
-//! Prophecy of Ixth and a swapped planet value are declined by the adapter.
+//! table's extra link). The Keleres agent's window and Agency Supply Network belong to a seat the production windows do not carry. The
+//! Prophecy of Ixth is discarded at the end of a use that made fewer than two fighters (package W13); a planet value swapped by Hegemonic Trade
+//! Policy is declared in the tactical action's production and ends with it, so none lingers into a use outside it.
 
 use super::triggered::HeroOffer;
 use super::window::ProductionWindow;
 use crate::choice::{Choice, Pick};
-use crate::generated::{Breakthrough, Leader, Technology, UnitBaseType};
+use crate::generated::{Agenda, Breakthrough, Leader, Technology, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::children::{ErasedChild, HomeFacts, Made, Spawn};
 use crate::kernel::seam::observe::{Obs, Phase};
@@ -111,6 +112,12 @@ impl HomeProduction {
         let ships = finished.produced.as_slice().iter().filter(|(unit, _)| unit.data().ship && unit.data().base_type != UnitBaseType::Fighter).count();
         if ships >= 3 && sx.state.players().by_seat(who).is_some_and(|p| p.cards.breakthrough == Some(Breakthrough::AutoFactories)) {
             fx::gain_token(sx.state, who, crate::choice::strategy::Pool::Fleet, 1);
+        }
+        // The Prophecy of Ixth: using PRODUCTION discards the law unless two or more fighters were produced (read over the whole use).
+        let fighters = finished.produced.as_slice().iter().filter(|(unit, _)| unit.data().base_type == UnitBaseType::Fighter).count();
+        let blanked = crate::query::reach::blanked(sx.state);
+        if fighters < 2 && crate::query::laws::holds_ministry(sx.state, blanked, who, Agenda::ProphecyOfIxth) {
+            sx.state.agenda_mut().laws.remove(&Agenda::ProphecyOfIxth);
         }
         if self.made.as_slice().is_empty() || !sx.state.meta().rules_at_least(RULES_SELF_ASSEMBLY) {
             return self.close(sx);

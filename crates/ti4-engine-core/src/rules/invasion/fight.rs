@@ -10,7 +10,7 @@
 //! asked one.
 //!
 //! Not carried, and declined by the adapter before the window opens: The Thundarian (a step-ended event and its replays), X-89 Bacterial Weapon, Alarum,
-//! Proxima Targeting VI, hits a faction adds to a roll, Dacxive Animators, a neutral side, a coexisting planet.
+//! Proxima Targeting VI, a neutral side, a coexisting planet.
 
 use super::begin::{BeginGroundRound, Facts as BeginFacts};
 use super::harrow::Facts as HarrowFacts;
@@ -19,7 +19,7 @@ use super::round::{Facts as RoundFacts, GroundRoundHits};
 use super::tail::{Facts as TailFacts, GroundRollTail};
 use super::{is_ground_force, Rd};
 use crate::choice::{Choice, Pick};
-use crate::generated::{Planet, System};
+use crate::generated::{Planet, System, Unit};
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
@@ -42,6 +42,8 @@ pub struct FightFacts {
     pub numbered: bool,
     /// Per participant (invader, rival): 2 resources can be spent, for the Dunlain Reaper.
     pub can_pay: [bool; 2],
+    /// What each seat can spend is read in the round (the payment environment); `None`: `can_pay` stands for every round.
+    pub pay_env: Option<crate::kernel::fx_pay::PayEnv>,
     pub dunlain: Code,
     /// The interned texts of the dice: the staging kind `ground`, `combat value N` and the unit types that may roll.
     pub kind: Code,
@@ -55,6 +57,9 @@ pub struct FightFacts {
     pub harrow: bool,
     /// The seats that hold X-89 Bacterial Weapon (their ground combat hits are doubled).
     pub x89: Vec<Seat>,
+    /// The seats that hold Dacxive Animators with the infantry they place ("after you win a ground combat, place 1 infantry from your
+    /// reinforcements on that planet"): the unit the seat's buildable infantry is.
+    pub dacxive: Vec<(Seat, Unit)>,
     /// The notes held at the start of the tactical action (holder, issuer), for the feat of winning against a note holder.
     pub notes: Vec<(Seat, Seat)>,
 }
@@ -169,7 +174,7 @@ impl CommittedFight {
     fn start_round(&mut self, sx: &mut Sx<'_>) {
         let Some(defender) = self.defender else { return };
         let f = &self.f;
-        let facts = BeginFacts { system: f.system, planet: f.planet, invader: f.invader, defender, copied: f.copied, numbered: f.numbered, can_pay: f.can_pay, dunlain: f.dunlain };
+        let facts = BeginFacts { system: f.system, planet: f.planet, invader: f.invader, defender, copied: f.copied, numbered: f.numbered, can_pay: f.can_pay, pay_env: f.pay_env, dunlain: f.dunlain };
         self.begin.start(BeginGroundRound::new(facts));
         self.stage = FStage::Begin;
         let _ = sx;
@@ -200,6 +205,15 @@ impl CommittedFight {
             return self.start_round(sx);
         }
         let (winner, loser) = if invader_survives { (invader, defender) } else { (defender, invader) };
+        // Dacxive Animators: only a side with forces left has won (both wiped out is nobody's win).
+        if owners.contains(&winner)
+            && let Some((_, infantry)) = self.f.dacxive.iter().find(|(seat, _)| *seat == winner)
+        {
+            let scope = crate::tables::Scope(u32::from(sx.kernel.sources.0));
+            if crate::query::fleet::remaining_all(sx.state, scope, winner, *infantry) >= 1 {
+                fx::place_unit(sx.state, winner, self.f.system, Some(self.f.planet), *infantry);
+            }
+        }
         let control_changed = winner == invader && owners.contains(&winner) && sx.state.board().planet(self.f.planet).control != Some(invader);
         let noted = self.win_feats(sx, winner, loser);
         if noted {

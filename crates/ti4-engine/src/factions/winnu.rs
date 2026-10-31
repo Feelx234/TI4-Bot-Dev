@@ -2821,6 +2821,87 @@ mod tests {
         let _ = take_report();
     }
 
+    /// The Thunder's Edge Warfare primary is a child window of the hero (`Spawn::TeWarfare`): the redistribution and the system of the free
+    /// tactical action are the core's, and the system reaches the game as the string returns it (`Ability::FreeTactical`); a table without
+    /// a galaxy resolves it with no question.
+    #[test]
+    fn the_te_warfare_primary_runs_in_lockstep_with_the_core_and_carries_the_free_action() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let hub = crate::fixtures::hub_with_centre("18");
+        let system = SystemId::new(hub.galaxy.system_ids().into_iter().next().unwrap());
+        let staged = || {
+            let mut state = game();
+            state.phase = ti4_model::state::Phase::Action;
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.unclaimed_strategy_cards.push(StrategyCardId::new("te6warfare"));
+            state
+        };
+        let run = |state: &mut GameState, galaxy: Option<&ti4_content::galaxy::Galaxy>, answers: &[&str]| {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(state, DEFAULT, galaxy, &mut table, |context| use_leader_strategy_primary(context, &a(), &LeaderId::new("winnuhero")))
+            })
+        };
+        let mut state = staged();
+        let keep = keep_tokens(&state, &a());
+        let result = run(&mut state, Some(&hub.galaxy), &["te6warfare", keep.as_str(), system.as_str()]);
+        assert!(matches!(&result, Ok(Some((card, crate::strategy_cards::Ability::FreeTactical(target)))) if card.as_str() == "te6warfare" && *target == system), "{result:?}");
+        // A different split is applied before the action.
+        let mut state = staged();
+        let seat = state.player(&a()).unwrap();
+        let moved = format!("{}|{}|{}", seat.tactic_tokens - 1, seat.fleet_tokens, seat.strategic_tokens + 1);
+        let _ = run(&mut state, Some(&hub.galaxy), &["te6warfare", moved.as_str(), system.as_str()]);
+        assert_eq!(keep_tokens(&state, &a()), moved);
+        // No galaxy: the string resolves the primary with no question, and so does the core.
+        let mut state = staged();
+        let result = run(&mut state, None, &["te6warfare"]);
+        assert!(matches!(&result, Ok(Some((_, crate::strategy_cards::Ability::Resolved)))), "{result:?}");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::winnu::hero"), (3, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The Thunder's Edge Construction primary is a child window of the hero (`Spawn::ConstructionTe`): the choice of a structure or a use of
+    /// PRODUCTION, the use as the window of the production area (a unit built, paid, announced) and the second structure.
+    #[test]
+    fn the_te_construction_primary_runs_in_lockstep_with_the_core_with_a_structure_and_with_a_production() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let staged = || {
+            let mut state = game();
+            state.phase = ti4_model::state::Phase::Action;
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.unclaimed_strategy_cards.push(StrategyCardId::new("te4construction"));
+            state
+        };
+        let run = |state: &mut GameState, answers: &[&str]| {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(state, DEFAULT, None, &mut table, |context| use_leader_strategy_primary(context, &a(), &LeaderId::new("winnuhero")))
+            })
+        };
+        let mut state = staged();
+        let home = state.player(&a()).unwrap().home_system.clone().expect("a home system");
+        let planet = state.system_state(&home).planet_units.keys().next().cloned().expect("a home planet");
+        let _ = run(&mut state, &["te4construction", "structure", "decline", "decline"]);
+        let mut state = staged();
+        let produce = format!("produce|{home}");
+        let _ = run(&mut state, &["te4construction", produce.as_str(), "done", "decline"]);
+        let _ = planet;
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::winnu::hero"), (2, 0), "{r:?}");
+        let _ = take_report();
+    }
+
     #[test]
     fn hero_primary_offers_warfare_and_returns_the_free_tactical_result() {
         let content = ContentStore::embedded();
