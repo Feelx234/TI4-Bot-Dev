@@ -63,7 +63,14 @@ Also reached from this lane but owned elsewhere: `MenuSources` (the closing menu
 
 * Departures by decision: no Firmament Enervate (`primary_instead` is false), no Keleres agent term, Mindsieve (a Naalu Thunder's Edge breakthrough) is refused.
 * FINDING: the Xxcha's Peace Accords are string-only (`faction_abilities::strategy_resolved`); the core had no window for them.
-* FINDING: `KernelEnv::{secondary_is_free, substitutes_primary}` did not read the printed abilities Masters of Trade and Brilliant (the string's `StratView` did): the lockstep found it.
+* FINDING (found by the lockstep): `KernelEnv::{secondary_is_free, substitutes_primary}` did not read the printed abilities Masters of Trade and Brilliant (the string's `StratView` did). Fixed with `rules::abilities`.
+* FINDING (found by the shadow behind a real game, a REAL DEFECT of lane B's closing menu): `rules::trade::KernelEnv::{wide, trades_action_cards}` read the hook table only, not Hacan's printed Guild Ships and Arbiters:
+  after a strategic action the string offers `component|trade|hacan` (TURN_CLOSING) and the core ended the turn (TURN_PASSED). Fixed (printed abilities read like `rules::abilities` does), regression test
+  `hacans_printed_abilities_are_read_by_the_strategy_and_trade_envs`. Two core-tests fixtures of lane B (`turn_jobs2`) assumed the wrong behaviour and use one seat now.
+* FINDING (shadow): the string asks "Doctor Sucaban: exhaust to let a trade infantry for research" whenever the Jol-Nar agent is readied at the table and the researcher has infantry on the board; the core `Research` window
+  does not ask it. `facts::research_asks_more` makes the ability `Unsupported` (counted gap `StrategyAbility`) instead of researching without the offer.
+* FINDING (merge): after the l14 merge `set_table_codes` had lost `table.codes.indoctrination` (the Yin hero lockstep failed); restored.
+* Latest rules version only (coordinator decision): no version gate in `strategic/`; the string's gates (`RULES_TECH_PAYMENT_CHOICE`, `RULES_FACTION_BUGFIXES`, `RULES_WINNU_AGENT_PRODUCTION`, `RULES_LETNEV_FLEET_POOL`) are taken at their current value.
 * The observer `on_strategic_action_chosen` (`game.rs`) is the wrapper's: call it with the result of `begin_strategic`.
 * The wrapper's `Render` must carry the faction texts (`Render::with_factions`): Politics' and Trade's options name seats by faction.
 
