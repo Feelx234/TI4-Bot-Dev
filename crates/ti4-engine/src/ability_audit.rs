@@ -109,7 +109,6 @@ mod tests {
         ("leader:*:bastionagent:SHIP_DESTROYED:when", Status::Dropped("a dropped faction")),
         ("leader:*:bastionhero:GROUND_FORCE_DESTROYED:when", Status::Dropped("a dropped faction")),
         ("leader:*:bastionhero:SHIP_DESTROYED:when", Status::Dropped("a dropped faction")),
-        ("leader:*:c:l1z1xagent:a:SYSTEM_ACTIVATED:after", Status::Gap(29)),
         ("leader:*:crimsoncommander:GROUND_COMBAT_ENDED:after", Status::Dropped("a dropped faction")),
         ("leader:*:crimsoncommander:SPACE_COMBAT_ENDED:after", Status::Dropped("a dropped faction")),
         ("leader:*:crimsonhero:SPACE_COMBAT_STARTED:after", Status::Dropped("a dropped faction")),

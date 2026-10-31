@@ -35,7 +35,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "unit:*:nekro_flagship:SPACE_COMBAT_STARTED:after",
     "unit:*:saar_mech:PLANET_CONTROL_GAINED:after",
     "leader:*:a:yssarilagent:mentakagent:PILLAGE_USED:after",
-    "leader:*:c:l1z1xagent:a:SYSTEM_ACTIVATED:after",
 ];
 
 /// The row a slot belongs to, if it is a gap's.

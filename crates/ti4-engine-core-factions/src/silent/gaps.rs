@@ -113,7 +113,6 @@ pub const GAPS: &[Gap] = &[
     // -- the copies Ssruu makes of an agent of a seated faction
     Gap { kind: AbilityKind::Leader, event: EventKind::PillageUsed, relation: Relation::After, holds: |c| copies(c, Faction::TheMentakCoalition) }, // yssarilagent: mentakagent
     // -- the activation abilities lane M6c lists as gaps (its audit); delete the row when the lane ports the rule
-    Gap { kind: AbilityKind::Leader, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| copies(c, Faction::TheL1Z1XMindnet) }, // yssarilagent: l1z1xagent
 ];
 
 /// The condition of every row: the seat could use the ability, and the core cannot say whether it is eligible now.
