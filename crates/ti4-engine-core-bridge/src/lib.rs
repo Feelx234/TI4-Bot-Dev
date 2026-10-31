@@ -7,6 +7,7 @@ pub mod check;
 pub mod dual_shard;
 pub mod alpha;
 pub mod roundtrip;
+pub mod check_hooks;
 pub mod check_kernel_env;
 pub mod check_leaders;
 pub mod check_play_facts;

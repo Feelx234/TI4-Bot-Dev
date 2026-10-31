@@ -28,6 +28,9 @@ pub struct EnvReport {
     /// Hook slots the live kernel has no function for where the string engine answers (`Some` vs `None`): the faction modules that are
     /// not ported yet (`commander_unlocked`, `leader_action`: lane F2's work), counted by method, never a silent agreement.
     pub gaps: std::collections::BTreeMap<String, usize>,
+    /// What the string side answered per hook method and leader (`[false, true]` counts), over the answers compared: a hook whose string
+    /// answer was never `true` (or never `false`) was not compared on that side.
+    pub outcomes: std::collections::BTreeMap<String, [usize; 2]>,
 }
 
 impl EnvReport {
@@ -41,12 +44,20 @@ impl EnvReport {
         for (k, n) in &o.gaps {
             *self.gaps.entry(k.clone()).or_default() += n;
         }
+        for (k, n) in &o.outcomes {
+            let mine = self.outcomes.entry(k.clone()).or_default();
+            mine[0] += n[0];
+            mine[1] += n[1];
+        }
     }
 
     /// An answer that may be missing in the core: string `Some(x)` against core `None` is a GAP of that method (counted), `Some` against a
     /// different `Some` is a mismatch.
     fn same_hook(&mut self, method: &str, what: &str, string: Option<bool>, core: Option<bool>) {
         self.answers += 1;
+        if let Some(answer) = string {
+            self.outcomes.entry(method.to_owned()).or_default()[usize::from(answer)] += 1;
+        }
         match (string, core) {
             (a, b) if a == b => {}
             (Some(_), None) => *self.gaps.entry(method.to_owned()).or_default() += 1,
@@ -74,10 +85,15 @@ fn reads() -> SliceSet {
 
 /// Compare every `Env` answer on one position and its variants.
 pub fn check_position(p: &Position, report: &mut EnvReport) {
+    check_variants(p, crate::check_leaders::variants(&p.state), report);
+}
+
+/// Compare every `Env` answer on the given variants of one position.
+pub fn check_variants(p: &Position, variants: Vec<(&'static str, ti4_model::state::GameState)>, report: &mut EnvReport) {
     let content = ContentStore::embedded();
     report.positions += 1;
     let kernel = ti4_engine::live::kernel::kernel_for(p.sources);
-    for (name, g) in crate::check_leaders::variants(&p.state) {
+    for (name, g) in variants {
         report.variants += 1;
         let label = format!("{} [{name}]", p.label);
         let Some(lv) = LeaderView::of(&g, Some(content), p.sources, Some(&p.galaxy), ti4_engine::leaders_view::READS_ABILITIES) else {
@@ -120,11 +136,11 @@ pub fn check_position(p: &Position, report: &mut EnvReport) {
                 report.same(&at(&format!("waived {}", t.as_str())), abilities::Env::waived_hook(&lv, who, t), abilities::Env::waived_hook(&env, who, t));
             }
             for card in std::iter::once(None).chain(StrategyCardKind::ALL.iter().map(|k| Some(*k))) {
-                report.same(&at("substitutes_primary_hook"), abilities::Env::substitutes_primary_hook(&lv, who, card), abilities::Env::substitutes_primary_hook(&env, who, card));
-                report.same(&at("secondary_is_free_hook"), abilities::Env::secondary_is_free_hook(&lv, who, card), abilities::Env::secondary_is_free_hook(&env, who, card));
+                report.same(&at(&format!("substitutes_primary_hook {card:?}")), abilities::Env::substitutes_primary_hook(&lv, who, card), abilities::Env::substitutes_primary_hook(&env, who, card));
+                report.same(&at(&format!("secondary_is_free_hook {card:?}")), abilities::Env::secondary_is_free_hook(&lv, who, card), abilities::Env::secondary_is_free_hook(&env, who, card));
                 // strategy::Env
-                report.same(&at("secondary_is_free"), strategy::Env::secondary_is_free(&sv, who, card), strategy::Env::secondary_is_free(&env, who, card));
-                report.same(&at("substitutes_primary"), strategy::Env::substitutes_primary(&sv, who, card), strategy::Env::substitutes_primary(&env, who, card));
+                report.same(&at(&format!("secondary_is_free {card:?}")), strategy::Env::secondary_is_free(&sv, who, card), strategy::Env::secondary_is_free(&env, who, card));
+                report.same(&at(&format!("substitutes_primary {card:?}")), strategy::Env::substitutes_primary(&sv, who, card), strategy::Env::substitutes_primary(&env, who, card));
             }
             report.same(&at("leadership_affordable"), strategy::Env::leadership_affordable(&sv, who), strategy::Env::leadership_affordable(&env, who));
             report.same(&at("can_research"), strategy::Env::can_research(&sv, who), strategy::Env::can_research(&env, who));
