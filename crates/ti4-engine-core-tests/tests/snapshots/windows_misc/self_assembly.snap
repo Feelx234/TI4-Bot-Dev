@@ -1,0 +1,9 @@
+Q0 seat 0 Technology(SelfAssembly)
+  >0: Technology(Planet(Olergodt, Shown { votes: 0, system: None }))
+   1: Decline
+done
+--- delta ---
+player0.tech.exhausted: {} -> -
+player0.tech.exhausted.[0]: - -> SelfAssemblyRoutines
+sys[Olergodt]: units [] tokens {} flags 0 -> units [] tokens {} flags 1
+planet[Olergodt]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [1xLetaniBehemoth/s0] attach [] coexist {} placed_in None flags 4

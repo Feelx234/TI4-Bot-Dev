@@ -1,0 +1,10 @@
+Q0 seat 0 Combat(Ambush)
+  >0: Combat(Ambush { a: CruiserI, b: None })
+   1: Combat(Ambush { a: CruiserI, b: Some(CruiserI) })
+   2: Combat(Ambush { a: CruiserI, b: Some(DestroyerI) })
+   3: Combat(Ambush { a: DestroyerI, b: None })
+   4: Decline
+done
+--- delta ---
+rng: positions [] -> [(Dice, 1)]
+ledger.dice: 0 -> 1

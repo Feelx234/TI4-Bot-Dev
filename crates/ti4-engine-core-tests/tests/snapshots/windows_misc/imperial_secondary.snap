@@ -1,0 +1,11 @@
+Q0 seat 0 Objectives(ReturnSecret { held: 4 })
+  >0: Objectives(Return(AdaptNewStrategies))
+   1: Objectives(Return(BetrayAFriend))
+   2: Objectives(Return(BecomeAMartyr))
+   3: Objectives(Return(DefySpaceAndTime))
+done
+--- delta ---
+player0.cards.secrets.[0]: AdaptNewStrategies -> BetrayAFriend
+player0.cards.secrets.[1]: BetrayAFriend -> BecomeAMartyr
+player0.cards.secrets.[2]: BecomeAMartyr -> DefySpaceAndTime
+decks: changed
