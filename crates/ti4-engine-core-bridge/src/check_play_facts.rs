@@ -189,6 +189,19 @@ fn compare(label: &str, string: &PlayFacts, core: &PlayFacts, report: &mut PlayR
     report.same(&format!("{label} skimmer"), string.skimmer, core.skimmer);
     report.same(&format!("{label} rules_version"), string.rules_version, core.rules_version);
     report.same(&format!("{label} roster"), string.roster.map(std::ptr::from_ref), core.roster.map(std::ptr::from_ref));
+    // The table-wide facts (`SharedPlay`). A replenishment that causes events the core does not hold, and the Fracture, are decisions
+    // (the core holds Cabal's note and the Trade Agreement since W10; the Fracture is Thunder's Edge), counted as gaps.
+    let (a, b) = (&string.shared, &core.shared);
+    report.same(&format!("{label} neutral"), a.neutral, b.neutral);
+    report.same(&format!("{label} own_breakthrough"), a.own_breakthrough, b.own_breakthrough);
+    report.same(&format!("{label} courageous"), (a.courageous_subtype, a.courageous_cause), (b.courageous_subtype, b.courageous_cause));
+    report.same(&format!("{label} hits"), a.hits, b.hits);
+    for (what, string_side, core_side) in [("replenish_events", a.replenish_events, b.replenish_events), ("fracture_in_play", a.fracture_in_play, b.fracture_in_play)] {
+        match (string_side, core_side) {
+            (true, false) => *report.gaps.entry(format!("{what} (the core holds it, or it is out of scope)")).or_default() += 1,
+            (x, y) => report.same(&format!("{label} {what}"), x, y),
+        }
+    }
     report.same(&format!("{label} seats"), string.seats.len(), core.seats.len());
     for (s, c) in string.seats.iter().zip(&core.seats) {
         report.seats += 1;
@@ -198,6 +211,7 @@ fn compare(label: &str, string: &PlayFacts, core: &PlayFacts, report: &mut PlayR
         report.same(&at("infantry"), s.infantry, c.infantry);
         report.same(&at("cruiser"), s.cruiser, c.cruiser);
         report.same(&at("fighter_on_card"), s.fighter_on_card, c.fighter_on_card);
+        report.same(&at("more"), format!("{:?}", s.more), format!("{:?}", c.more));
         match (&s.reveal, &c.reveal) {
             (None, Some(_)) => *report.gaps.entry("reveal (the string declines at this table)".to_owned()).or_default() += 1,
             (a, b) => report.same(&at("reveal"), a, b),

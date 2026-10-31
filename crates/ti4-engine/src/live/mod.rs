@@ -19,11 +19,12 @@ pub mod details;
 pub mod env;
 pub mod kernel;
 pub mod plays;
+pub mod turn;
 
 use std::collections::VecDeque;
 
 use ti4_engine_core::choice::Choice as CoreChoice;
-use ti4_engine_core::driver::live::{ask_arm_fn, live_arm, Asking, Env, Live, LiveError, Out};
+use ti4_engine_core::driver::live::{ask_arm_fn, live_arm, Asking, AskFn, Env, Live, LiveError, LiveFn, Out};
 use ti4_engine_core::driver::session::Arm;
 use ti4_engine_core::kernel::Kernel;
 use ti4_engine_core::state::CoreState;
@@ -70,6 +71,20 @@ pub trait Asker {
     /// # Errors
     /// [`Stop::Exhausted`] / [`Stop::Blocked`] when there is no answer to give.
     fn ask(&mut self, q: &Question<'_>) -> Result<String, Stop>;
+}
+
+/// The table's rule for the draft (`Game::step_flow`: `table.auto_resolve(&choice, "only one strategy card left")`, never journaled): the
+/// last card is not a choice, the picker takes it and is told so. Wrap the asker of a live loop in it so that question is not put (and, in a
+/// recording, not counted as a decision).
+pub struct LoneCard<'a>(pub &'a mut dyn Asker);
+
+impl Asker for LoneCard<'_> {
+    fn ask(&mut self, q: &Question<'_>) -> Result<String, Stop> {
+        if q.asking.choice.ask == ti4_engine_core::choice::Ask::Strategy(ti4_engine_core::choice::strategy::Ask::Draft) && q.rendered.options.len() == 1 {
+            return Ok(q.rendered.options[0].id.clone());
+        }
+        self.0.ask(q)
+    }
 }
 
 /// A fixed list of option ids (a recorded game, a test); asking past its end is [`Stop::Exhausted`].
@@ -137,8 +152,9 @@ pub struct StepOut {
 pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let (phase, round) = (core.meta().phase, core.meta().round);
     let mut rendered = Typed::new(cx.render, asking.choice.clone(), phase, round).rendered;
-    // A question asked inside an emission reads the position it was put in (the driver rolled the step back).
-    let at = asking.nested.as_ref().map_or(core, |(_, at)| &**at);
+    // The display facts read the position the question was put in: a question asked from inside an emission or from inside a step (a job
+    // of the turn flow) was put in a position the driver has rolled back since.
+    let at = asking.nested.as_ref().map(|(_, at)| &**at).or(asking.at.as_deref()).unwrap_or(core);
     (cx.complete)(at, cx.env.kernel, &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
@@ -163,25 +179,42 @@ pub fn pick_of(r: &Render, choice: &CoreChoice, id: &str) -> Option<ti4_engine_c
 /// # Errors
 /// [`Stop`]; the position is then exactly what it was.
 pub fn live_step(core: &mut CoreState, arm: Arm, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
+    let (Some(advance), Some(ask)) = (live_arm(arm), ask_arm_fn(arm)) else {
+        let stop = Stop::NoLiveFn(arm);
+        crate::dual::note_bail(&format!("step::{}", arms::name(arm)), "no live function");
+        return Err(stop);
+    };
+    run_live(core, arms::name(arm), advance, ask, cx, asker)
+}
+
+/// The reconcile hooks every step starts with (`Game::step_flow` before the arm is chosen): the events effects staged, the gains no site
+/// announced, the nexus latch, Styx's point, the Spec Ops rolls. Run it before [`live_step`], with the same asker: an emission here can
+/// open a reaction window.
+///
+/// # Errors
+/// As [`live_step`].
+pub fn live_reconcile(core: &mut CoreState, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
+    run_live(core, "reconcile", ti4_engine_core::driver::turn::advance_reconcile, ti4_engine_core::driver::turn::ask_job, cx, asker)
+}
+
+/// [`live_step`] over the two functions of an arm (or of a job that belongs to no arm), `name` for the census.
+fn run_live(core: &mut CoreState, name: &'static str, advance: LiveFn, ask: AskFn, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
     let before = core.clone();
-    let result = live_step_inner(core, arm, cx, asker);
+    let result = live_step_inner(core, advance, ask, cx, asker);
     if let Err(stop) = &result {
         *core = before;
         // A position the core does not run is a bail of the live path (the zero-bail acceptance counts it, `TI4_BAIL_IS_FAILURE`).
-        match stop {
-            Stop::Live(LiveError::Unknown(why)) => crate::dual::note_bail(&format!("live::{}", arms::name(arm)), &format!("{why:?}")),
-            Stop::NoLiveFn(_) => crate::dual::note_bail(&format!("step::{}", arms::name(arm)), "no live function"),
-            _ => {}
+        if let Stop::Live(LiveError::Unknown(why)) = stop {
+            crate::dual::note_bail(&format!("live::{name}"), &format!("{why:?}"));
         }
     }
     if result.is_ok() {
-        coverage::note(arms::name(arm));
+        coverage::note(name);
     }
     result
 }
 
-fn live_step_inner(core: &mut CoreState, arm: Arm, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
-    let (Some(advance), Some(ask)) = (live_arm(arm), ask_arm_fn(arm)) else { return Err(Stop::NoLiveFn(arm)) };
+fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
     // The environment of this call: the game's, with the texts of the space combat at the position.
     let mut prepared = cx.env.clone();
     prepared.table.facts.combat = (cx.texts)(core, cx.render);
@@ -219,9 +252,10 @@ fn live_step_inner(core: &mut CoreState, arm: Arm, cx: &Cx<'_>, asker: &mut dyn 
                 step.finished = true;
                 return Ok(step);
             }
-            // A question from inside the answer belongs to this step (the string asks it synchronously); a stage question of
-            // the arm is the next step's.
-            Live::Asks(next) if next.nested.is_some() => asking = *next,
+            // A question from inside the answer belongs to this step (the string asks it synchronously: the reaction windows of an
+            // emission, the free windows a job of the turn flow composes; the step is suspended in `Pending::nested`); a stage question
+            // of the arm is the next step's.
+            Live::Asks(next) if next.nested.is_some() || core.pending().nested.is_some() => asking = *next,
             Live::Asks(_) => return Ok(step),
         }
     }

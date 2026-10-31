@@ -6,8 +6,8 @@
 //! hit". `Removing` is the loss itself: Bastion's ship-lost note, the Maximum or an Alastor ground force
 //! leaving its planet, the unit leaving the space area, and (with staging) the `SHIP_DESTROYED` event.
 //!
-//! Not covered (the adapter returns `None`): neutral players (the roster order of the reference card is
-//! string-only) and producer-assigned hits.
+//! A neutral player's hit goes to the unit lowest on the reference card (nobody is asked). Not covered (the adapter returns
+//! `None`): producer-assigned hits.
 
 use super::{hit_targets, planets_of_sorted, ships_of, casualty_opts, Rd};
 use crate::choice::combat::{Ask as CAsk, Opt as COpt, Subtype as CSub};
@@ -166,6 +166,11 @@ impl Window for AssignHits {
                         [only] => {
                             let only = *only;
                             self.lose(sx, only);
+                        }
+                        // Nobody decides for a neutral side: the hit goes to the unit lowest on the reference card (rule 7).
+                        _ if super::is_neutral(sx.state, self.a.player) => {
+                            let doomed = super::neutral_pick(&alive).unwrap_or(alive[0]);
+                            self.lose(sx, doomed);
                         }
                         _ => self.stage = Stage::Asking,
                     }

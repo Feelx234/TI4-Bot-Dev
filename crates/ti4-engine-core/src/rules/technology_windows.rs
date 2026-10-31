@@ -579,7 +579,7 @@ impl Window for TurnEnd {
                             p.tech.exhausted.remove(tech);
                         }
                     }
-                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) | TOpt::Token(..) | TOpt::System(_) => return Err(Illegal),
+                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) | TOpt::Token(..) | TOpt::System(_) | TOpt::Tech(_) => return Err(Illegal),
                 }
                 fx_exhaust(sx.state, self.who, Technology::BioStims);
                 self.stage = EStage::Done;

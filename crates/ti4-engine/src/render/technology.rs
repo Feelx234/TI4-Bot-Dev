@@ -45,6 +45,9 @@ impl Family for Fam {
             Ask::WormholeGenerator => "Wormhole Generator: place or move a Creuss wormhole token",
             Ask::ChaosMapping => "Chaos Mapping",
             Ask::Aida { upgrades } => return format!("AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}"),
+            Ask::StartingTech { number, of, .. } => {
+                return if *of > 1 { format!("choose a starting technology ({number} of {of})") } else { "choose a starting technology".to_owned() };
+            }
         }
         .to_owned()
     }
@@ -61,12 +64,20 @@ impl Family for Fam {
             Subtype::VortexTarget => "vortex_target",
             Subtype::CreussToken => "creuss_token",
             Subtype::ChaosMappingChooseSystem => "chaos_mapping_choose_system",
+            Subtype::StartingTechnology => "starting_technology",
         }
         .to_owned()
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match (a, o) {
+            // The label is the printed name; the colour, the owners (Keleres) and the count of prerequisites are the caller's display
+            // facts (`live::turn::complete`).
+            (_, Opt::Tech(tech)) => {
+                let id = tech.as_str();
+                let name = crate::technology::name(ti4_content::ContentStore::embedded(), &ti4_model::id::TechnologyId::new(id));
+                ChoiceOption::labelled(id, crate::starting_tech::KIND, name)
+            }
             (_, Opt::System(system)) => {
                 let system = system.as_str();
                 ChoiceOption::labelled(system, "production", format!("produce one unit in {system}")).with("system", system).with("technology", "cm")
@@ -128,6 +139,7 @@ impl Family for Fam {
 
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
+            Ask::StartingTech { .. } => Technology::from_id(id).map(Opt::Tech),
             Ask::ProductionBiomes => r.seat(id).map(Opt::Player),
             Ask::ChaosMapping => System::from_id(id).map(Opt::System),
             Ask::WormholeGenerator => {

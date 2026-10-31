@@ -191,12 +191,14 @@ impl Fx {
         matches!(self, Self::Spy | Self::Plague | Self::Brilliance | Self::Reroll | Self::Scramble | Self::Courageous | Self::Battlestation)
     }
 
-    /// Whether the effect can be played from inside another area's window (a reaction slot, a card declared there): its facts
-    /// (the forms the seat places, the research roster, the map, the traders) come from the adapter's play window, not from the
-    /// facts the reactions table carries, so the cards of package B6d that read them are played by the string there (the census
-    /// names them, as before). Fire Team and Scramble Frequency read the staged dice of a roll, which the reactions table does not
-    /// lend to a card either (the texts of the dice and the stream they are drawn from: [`super::RerollFacts`]); the window that
-    /// opens the reaction on the roll plays them there (`core-b12` registers Fire Team for the ground roll's tail).
+    /// Whether the effect can be played from inside another area's window (a reaction slot, a card declared there). The facts it reads
+    /// beyond the position (the forms the seat places, the neutral owner, the texts of the hit flows) are handed in by the host window
+    /// with the other facts of a play ([`crate::kernel::ability::PlayFacts`]: `SeatPlayMore`, `SharedPlay`), so a card is nested when
+    /// everything it reads is in them. Not nested: the cards of an Action timing (a component action is never played from a window), the
+    /// cards that read the map (Experimental Battlestation, Exploration Probe: the host would have to lend the galaxy), Lie in Wait (the
+    /// neighbours who traded come from the map), Courageous To The End (its dice are not recorded as the ledger rows of an ability and its casualty question lacks the display context of the string's, see docs/W_L11_RESUME.md), Crash Landing (no host of the ported areas places the units it saves), Harness Energy, Infiltrate, Bribery and Upgrade and Decoy Operation (windows of the
+    /// tactical action, whose hosts are not ported), and Fire Team and Scramble Frequency, which read the dice a roll staged and are played
+    /// by the window that stages them (`core-b12` registers Fire Team for the ground roll's tail).
     #[must_use]
     pub const fn nested(self) -> bool {
         !matches!(
@@ -209,7 +211,6 @@ impl Fx {
                 | Self::Upgrade
                 | Self::Refit
                 | Self::Decoy
-                | Self::Squad
                 | Self::Harness
                 | Self::Brilliance
                 | Self::Impersonation
@@ -220,11 +221,11 @@ impl Fx {
                 | Self::Bribery
                 | Self::Infiltrate
                 | Self::Crash
+                | Self::Courageous
                 | Self::Probe
                 | Self::Perform { .. }
                 | Self::Reroll
                 | Self::Scramble
-                | Self::Courageous
                 | Self::Battlestation
         )
     }
@@ -2168,14 +2169,11 @@ impl Play {
         }
         let scope = self.env.scope;
         let ship = |seat: Seat| board::space_units(core, system).iter().any(|p| p.owner() == seat && scope.unit(p.kind()).is_some_and(|d| d.ship));
-        let Some(opponent) = seats::seating_order(core).as_slice().iter().copied().find(|s| *s != self.who && ship(*s)) else {
-            // Only a neutral owner's ship is left to fight (the string names it the opponent, after the seated ones; nobody chooses its
-            // loss): the string's, declined before anything is rolled.
-            if board::space_units(core, system).iter().any(|p| !seats::is_player(core, p.owner()) && scope.unit(p.kind()).is_some_and(|d| d.ship)) {
-                self.unsupported = true;
-            }
-            return;
-        };
+        // A neutral owner's ship is "your opponent" after the seated ones (the string's `combatants`); nobody chooses its loss: the hit flow
+        // gives it to the unit lowest on the reference card.
+        let seated = seats::seating_order(core).as_slice().iter().copied().find(|s| *s != self.who && ship(*s));
+        let neutral = || board::space_units(core, system).iter().find(|p| !seats::is_player(core, p.owner()) && scope.unit(p.kind()).is_some_and(|d| d.ship)).map(|p| p.owner());
+        let Some(opponent) = seated.or_else(neutral) else { return };
         let Some(value) = scope.unit(unit).and_then(|d| d.combat).map(|roll| u32::from(roll.hits_on)).filter(|v| *v > 0) else { return };
         for _ in 0..COURAGEOUS_DICE {
             let face = sx.die(RngDomain::Dice, DIE_SIDES);
@@ -4112,18 +4110,16 @@ mod tests {
         assert!(Play::of(&naaz, ActionCard::ExperimentalBattlestation, Seat(0), hits_env()).is_some());
     }
 
-    /// Bail: a neutral owner's ship is "your opponent" after the seated ones (nobody chooses its loss: the roster order of its
-    /// reference card): the string plays the card, declined before any die is rolled. A seated opponent comes first.
+    /// A neutral owner's ship is "your opponent" after the seated ones (nobody chooses its loss: the hit flow gives it to the unit lowest
+    /// on the reference card). A seated opponent comes first.
     #[test]
-    fn bail_courageous_to_the_end_declines_when_only_a_neutral_ship_is_left() {
+    fn courageous_to_the_end_against_a_neutral_ship_rolls_and_a_seated_opponent_comes_first() {
         use crate::generated::Unit as U;
         let neutral = |s: &mut CoreState, system: System| s.board_mut().sys_mut(system).units.push(Piece::new(U::NeutralDestroyer, Seat(9)));
         let (mut s, system) = fight(&[(U::CruiserI, 0)], Some((Seat(0), U::DreadnoughtI)));
         neutral(&mut s, system);
-        let before = s.clone();
         let run = played_hits(s, ActionCard::CourageousToTheEnd, 3, 0);
-        assert!(run.unsupported && run.faces.is_empty(), "declined before the dice");
-        assert!(run.after == before, "and nothing changed");
+        assert!(!run.unsupported && run.faces.len() == 2, "the neutral ship is the opponent: its dice are rolled");
         let (mut s, system) = fight(&[(U::CruiserI, 0), (U::CruiserI, 1)], Some((Seat(0), U::DreadnoughtI)));
         neutral(&mut s, system);
         let run = played_hits(s, ActionCard::CourageousToTheEnd, 3, 0);

@@ -621,6 +621,11 @@ fn a_draw_scores_only_the_feats_that_do_not_ask_for_a_winner_and_a_fight_of_no_r
 const OVER: &str = "aftermath::fight_over";
 
 fn over_run(seed: u64, winner: Option<PlayerId>, rounds: u32, setup: impl Fn(&mut GameState, &SystemId)) -> (GameState, (bool, bool), Vec<String>, crate::dual::DualReport) {
+    over_run_against(seed, winner, rounds, (b(), "cruiser"), setup)
+}
+
+/// [`over_run`] with the losing side's owner and ship type named.
+fn over_run_against(seed: u64, winner: Option<PlayerId>, rounds: u32, loser: (PlayerId, &str), setup: impl Fn(&mut GameState, &SystemId)) -> (GameState, (bool, bool), Vec<String>, crate::dual::DualReport) {
     let _guard = crate::dual::tests::serial();
     let _ = take_report();
     let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
@@ -631,11 +636,11 @@ fn over_run(seed: u64, winner: Option<PlayerId>, rounds: u32, setup: impl Fn(&mu
     state.active = Some(a());
     state.active_system = Some(system.clone());
     crate::fixtures::put(&mut state, &system, "cruiser", &a(), 2);
-    crate::fixtures::put(&mut state, &system, "cruiser", &b(), 2);
+    crate::fixtures::put(&mut state, &system, loser.1, &loser.0, 2);
     let content = ContentStore::embedded();
     let before = crate::combat::before_combat(&state, content, ti4_model::content_types::DEFAULT, &system);
-    state.system_mut(&system).units.retain(|u| u.owner != b());
-    state.active_space_combat = Some((system.clone(), a(), b()));
+    state.system_mut(&system).units.retain(|u| u.owner != loser.0);
+    state.active_space_combat = Some((system.clone(), a(), loser.0.clone()));
     setup(&mut state, &system);
     let outcome = crate::combat::CombatOutcome { winner, rounds };
     let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
@@ -671,6 +676,37 @@ fn the_end_of_a_won_fight_runs_in_the_core_with_the_win_the_scratch_and_the_enfo
     assert!(state.active_space_combat.is_none() && state.last_combat_sides.as_ref().is_some_and(|(_, sides)| sides == &vec![b()]));
     assert_eq!(log, ["SPACE_COMBAT_RESOLVED"]);
     assert!(state.system_state(&crate::fixtures::a_placed_planet().0).units.len() < 9, "the stranded fighters went");
+}
+
+/// Package W11: the end of a fight won against the neutral force (its last ship fell) runs in the core, with the neutral owner in the
+/// table although the board holds none of its units any more. Fails on the pre-W11 gate ("a neutral side").
+#[test]
+fn the_end_of_a_fight_won_against_the_neutral_force_runs_in_the_core() {
+    let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
+    let (state, (holds, contacts), log, r) = over_run_against(1, Some(a()), 2, (neutral.clone(), "neutral_cruiser"), |_, _| {});
+    assert_eq!((holds, contacts), (true, false), "a still has ships there");
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(OVER).map_or(0, |w| w.compared) >= 1, "the core window ran: {:?}", r.windows);
+    assert!(r.windows.values().all(|w| w.bailed == 0), "no bail: {:?}", r.windows);
+    assert!(state.last_combat_sides.as_ref().is_some_and(|(_, sides)| sides == &vec![neutral]), "{:?}", state.last_combat_sides);
+    assert_eq!(log, ["SPACE_COMBAT_RESOLVED"]);
+}
+
+/// Package W11: the guns of the aftermath prelude fire with the neutral force (Pirate Fleet) in the system: its ships are other units on
+/// the board, not gunners. Fails on the pre-W11 gate ("neutral units in the system").
+#[test]
+fn the_space_cannon_offense_runs_in_the_core_with_the_neutral_force_in_the_system() {
+    let (ran, r) = lockstep(0..10, &[("a", "sol"), ("b", "hacan")], |s, system, planet| {
+        pds_at_b(s, system, planet);
+        let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
+        crate::fixtures::put(s, system, "neutral_cruiser", &neutral, 1);
+        crate::fixtures::put(s, system, "neutral_fighter", &neutral, 2);
+        crate::fixtures::put_on_planet(s, system, planet, "neutral_infantry", &neutral, 1);
+    });
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(compared(&r) >= 8, "the core window ran: {:?}", r.windows);
+    assert!(r.windows.values().all(|w| w.bailed == 0), "no bail: {:?}", r.windows);
+    assert!(ran.iter().all(|x| x.dice > 0), "the guns rolled");
 }
 
 #[test]

@@ -186,3 +186,7 @@ Crown of Emphidia on the control gain, a ship-form unit flipping on landing, and
 (`dual_window::defense_unported` keeps only irreproducible dice and a neutral invader). What stays (counted bails, label `exploration::explore [bail: ..]`): Freelancers, Titans' Terragenesis,
 a replenishment of two seats of one faction, a draw a faction hook changes; in the native first claim also a card whose child window of another area asks a question inside the exploration (`LinkedAsks`).
 See `docs/X_EXPLORE_RESUME.md`.
+
+## Package W11 (lane 11): what the lines above no longer say
+
+Not re-counted (no census before the end-of-D1 run). Gates of the sections above that are now core halves: every `a neutral side` gate (`dual::reason::NEUTRAL`: the barrage, roll, flow, round-opening, retreat, announce-end, Assault Cannon and ground windows, `Assault Cannon at a neutral side` and `a side that is not a seated player` of `opening_why`, `neutral units in the system` and `a neutral side` of the space cannon offense and the end of the fight in `cannon_dual`), and the nested bails `unported ability reaction:*:SUSTAIN_DAMAGE_USED:when (card reflective)`, `reaction:*:SHIP_DESTROYED:after (card courageous)` and `reaction:*:UNITS_COMMITTED:after (card ghost_squad)`. The bails that stay for the cards played inside a window, with the reason, are in `docs/W_L11_RESUME.md`.

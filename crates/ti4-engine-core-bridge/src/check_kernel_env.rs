@@ -138,8 +138,8 @@ pub fn check_position(p: &Position, report: &mut EnvReport) {
             }
             // leaders::Env
             for l in Leader::ALL {
-                report.same_hook("commander_unlocked", &at(&format!("commander_unlocked {}", l.as_str())), leaders::Env::faction_commander_unlocked(&lv, who, l), leaders::Env::faction_commander_unlocked(&env, who, l));
-                report.same_hook("leader_action", &at(&format!("leader_action {}", l.as_str())), leaders::Env::leader_action(&lv, who, l), leaders::Env::leader_action(&env, who, l));
+                report.same_hook(&format!("commander_unlocked {}", l.as_str()), &at(&format!("commander_unlocked {}", l.as_str())), leaders::Env::faction_commander_unlocked(&lv, who, l), leaders::Env::faction_commander_unlocked(&env, who, l));
+                report.same_hook(&format!("leader_action {}", l.as_str()), &at(&format!("leader_action {}", l.as_str())), leaders::Env::leader_action(&lv, who, l), leaders::Env::leader_action(&env, who, l));
                 report.same(&at(&format!("imperia_grants {}", l.as_str())), leaders::Env::imperia_grants(&lv, who, l), leaders::Env::imperia_grants(&env, who, l));
                 if matches!(l, Leader::Zeu | Leader::RinTheMastersLegacy) {
                     report.same(&at(&format!("other_action_resolves {}", l.as_str())), leaders::Env::other_action_resolves(&lv, who, l), leaders::Env::other_action_resolves(&env, who, l));

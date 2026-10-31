@@ -77,18 +77,20 @@ impl Island {
 }
 
 /// The words of each island, in the order the rules are tried (the first island with a word in the key wins).
-const RULES: [(Island, &[&str]); 11] = [
+const RULES: [(Island, &[&str]); 12] = [
     (Island::Trade, &["trade", "transaction"]),
     (Island::Production, &["production", "produce", "purchase"]),
     (Island::Invasion, &["invasion", "bombard", "landing", "ground_combat", "control_gain", "custodians"]),
     (Island::Combat, &["combat", "cannon", "barrage", "retreat", "sustain", "casualt"]),
     (Island::Aftermath, &["aftermath"]),
+    // The follower window of the strategic action is the strategic lane's even when it follows a tactical action.
+    (Island::Strategic, &["secondary", "leader_followers"]),
     (Island::Tactical, &["tactical", "activation", "movement"]),
     // The turn flow before the strategic action: `strategy_announce` is the phase's, not the card's.
     (Island::TurnFlow, &["turn_prelude", "turn::", "prelude", "phase", "closing", "draft", "starting_tech", "strategy_announce", "end_turn", "hooks"]),
     (Island::Status, &["status", "token", "scoring", "objective"]),
     (Island::Agenda, &["agenda", "voting", "vote", "diplomacy"]),
-    (Island::Strategic, &["secondary", "leader_followers", "strategy", "primary"]),
+    (Island::Strategic, &["strategy", "primary"]),
     (Island::Menu, &["action_menu", "leader", "hero", "agent", "commander", "explor", "relic", "action_card", "component", "promissory"]),
 ];
 
@@ -173,6 +175,8 @@ mod tests {
             ("d1::step [bail: status]", Island::Status),
             ("d1::step [bail: strategy_announce]", Island::TurnFlow),
             ("d1::step [bail: secondary]", Island::Strategic),
+            ("d1::pending.close [bail: StrategySecondaryAfterTactical]", Island::Strategic),
+            ("strategy_cards::technology_primary [bail: a seat whose own effects]", Island::Strategic),
             ("d1::step [bail: agenda]", Island::Agenda),
             ("d1::step [bail: ask.action_menu]", Island::Menu),
             ("d1::step [bail: something new]", Island::Other),

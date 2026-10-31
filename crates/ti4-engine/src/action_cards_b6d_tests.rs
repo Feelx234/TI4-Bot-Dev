@@ -2207,10 +2207,11 @@ fn bail_experimental_battlestation_where_the_sustain_offer_is_not_the_core_windo
     assert_eq!(bailed(&held), (0, 1), "a commander held another way");
 }
 
-/// Bail: Courageous To The End against a neutral ship (nobody chooses its loss; the string names it the opponent after the seated
-/// ones) and at a table with a Naaz or Nekro seat (the units that fight from a planet) is the string's, counted.
+/// Courageous To The End against a neutral ship (nobody chooses its loss: the unit lowest on the reference card goes; the string names
+/// the neutral side the opponent after the seated ones) is the core's since package W11, in lockstep. At a table with a Naaz or Nekro
+/// seat (the units that fight from a planet) it is the string's, counted.
 #[test]
-fn bail_courageous_to_the_end_with_a_neutral_opponent_or_a_naaz_seat_is_counted() {
+fn courageous_to_the_end_against_a_neutral_opponent_is_the_cores_and_a_naaz_seat_is_counted() {
     let _serial = crate::dual::tests::serial();
     let (plain, system) = courageous_position("dreadnought");
     // Only the holder and a neutral cruiser fight in the system.
@@ -2228,7 +2229,7 @@ fn bail_courageous_to_the_end_with_a_neutral_opponent_or_a_naaz_seat_is_counted(
         counted
     };
     assert_eq!(bailed(&plain), (1, 0), "the plain position is carried");
-    assert_eq!(bailed(&neutral), (0, 1), "a neutral opponent");
+    assert_eq!(bailed(&neutral), (1, 0), "a neutral opponent is carried");
     assert_eq!(bailed(&naaz), (0, 1), "a Naaz seat at the table");
     // The seated opponent comes first: a neutral ship beside it changes nothing.
     let mut beside = plain.clone();

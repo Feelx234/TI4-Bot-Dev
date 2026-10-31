@@ -25,6 +25,7 @@ pub mod economy;
 pub mod fleet;
 pub mod explore;
 pub mod laws;
+pub mod neutral;
 pub mod leaders;
 pub mod objectives;
 pub mod reach;

@@ -312,8 +312,11 @@ fn main() {
     for (arm, n) in ti4_engine::live::coverage::take() {
         println!("{n:9}  {arm}");
     }
-    println!("---- differences ----");
-    for d in &report.differences {
+    // Under TI4_BAIL_IS_FAILURE every counted bail is ALSO a difference (`bail::<label>`): those are the tables above. What is listed here
+    // are the differences that are not bails (a real disagreement of the two sides).
+    let (bail_diffs, others): (Vec<_>, Vec<_>) = report.differences.iter().partition(|d| d.label.starts_with("bail::"));
+    println!("---- differences other than bails ({} bail differences are the tables above) ----", bail_diffs.len());
+    for d in others {
         println!("{d}");
     }
     let bad = bailing > 0 || unfinished > 0 || !report.unmapped.is_empty() || !lent.is_empty() || report.total_differences() > 0;

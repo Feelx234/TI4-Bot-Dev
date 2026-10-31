@@ -15,6 +15,28 @@ the implementation agent does first. **END-OF-PHASE ONLY** = a heavy run (`/root
 
 ---
 
+## STATUS AND AGREEMENT (2026-10-31, lane A2, branch `core-d2-f-live2`): read this before the text below
+
+This document and `D2-islands-machines.md` were written in parallel and are now ONE design; `docs/D2_LF_RESUME.md` (sections 1-2) and
+`docs/D2_LF2_RESUME.md` are the record of what was BUILT. Where the text below differs from what was built, the built thing wins:
+
+| Text below | Built (lane A / A2) |
+|---|---|
+| KF1 `NativeArms`, `Facts::of_core`, `Step::Native` | done as written (`driver/step.rs`, `session.rs`); `Step::Native(Arm)` only for an arm in the set AND with a live function |
+| KF2 `drive_live<W>(driver, core, k, r, asker)` with `Stop::Unmapped` | built as `ti4_engine::live::live_step(core, arm, &Cx, &mut dyn Asker) -> Result<StepOut, Stop>` over the core's `driver::live::{advance, ask, open}`; the persisted form is the machines document's (typed payload on `Pending` + `Pending.nested` journal, rebuilt by `Held::from_pending` at every call; no `LiveSlot`, no wrapper-held driver). `Stop::Live(LiveError::Unknown(..))` is the counted bail |
+| KF2 "facts from the position" (`*Facts` structs) | one door per family: `live::plays::play_facts` (action-card plays) is computed from the CORE per call through `AdapterFacts::plays_provider`; the others are the lanes' (`facts_of(core, k, ..)` next to the window) |
+| KF3 `KernelEnv`s in `rules/{leaders,strategy,abilities}_env.rs` | one `driver/kernel_env.rs::KernelEnv` implementing all three; agrees with the string views except the hook slots `commander_unlocked` (12 in-scope leaders) and `leader_action` (17 in-scope leaders) that no core faction module registers yet (lane F2, list in `docs/D2_LF2_RESUME.md`) |
+| KF4 `Pending.failed_component_actions` | done; cleared by `turn_flow::forget_failed_components` |
+| KF5 `NativeSubject{core, live, lender}` that EXECUTES `Lend` through the scaffold and counts it | built differently, on purpose: the legacy `Game` steps for real (it is the follower of the oracle) and the native arm is run in SHADOW on a `CoreState` materialized from it before each step, with the answers of the legacy step; the questions, plain events, positions and the end of the window are compared (`oracle::<subtype>`, paths `native.*`), every step not run natively is counted lent (`product::note_lent("oracle::<arm>")`). Nothing diverges, so there is no cascade; a lane wires its arm with ONE line in `native_subject::open_arm`. A step that ends the window is compared on the prefix of questions/events (the string remainder is the close until KS5 ports it). Bridge only, behind the engine feature `native-subject` (no production crate enables it); `oracle CONFIG GAMES --native ARMS` |
+| KF5 `playthrough` bin | built (`ti4-engine-core-bridge/src/bin/playthrough.rs`): te card set, `starting_tech`, all areas `Dual`, bail = failure, per-cause and PER-ISLAND tables (`islands.rs`), live coverage, `--quick` for the one-game check (section 5.4 (a) of the machines document), `tools/engine_core/playthrough_quick.sh` (gate profile) |
+| KF6 `driver_live` | done (`window_driver::driver_live`); the 99 `driver_for` sites are converted lane by lane |
+| G-zero | NOT started: it waits for 8 consecutive green quick seeds (machines document 5.4 (b)) |
+
+The lanes of section 10 start from the `INTERFACE:` commit of `core-d2-f-live` and merge `core-d2-f-live2` (A2) next; `core-w-l11` (cards played inside another
+window) is merged into A2 and its `SeatPlayMore`/`SharedPlay` facts are filled from the core in `live/plays.rs`.
+
+---
+
 ## 0. Summary and findings that change the plan
 
 The goal (user rule 2026-10-31): an ENTIRE game plays in the new engine without any bail on the agreed content (everything except Thunder's Edge and Last Bastion, Crimson,

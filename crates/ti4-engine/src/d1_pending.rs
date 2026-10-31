@@ -490,7 +490,7 @@ fn roundtrip(g: &Game<'_>, windows: &[Window], r: &Render, cx: &crate::core_sync
                 &Some(crate::dual_window::fields_back(f, r)),
             ),
             // The invasion and the production step have no machine state: the placeholder stands for the string's window.
-            Window::Invasion(_) | Window::Production(_) => true,
+            Window::Invasion(_) | Window::Production(_) | Window::TurnFlow(_) => true,
             Window::Untyped { .. } => true,
         };
     }
