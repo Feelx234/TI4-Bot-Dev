@@ -1054,20 +1054,20 @@ mod tests {
         assert_ne!(lobby_spec("sol", 4, 1).factions, lobby_spec("sol", 4, 2).factions, "the seed rotates the table");
     }
 
-    /// The native game plays the setup, the draft, the announcement, the phase flip and the turn prelude on the core alone, and stops with a COUNTED gap at
-    /// the first source of questions no lane has made native (the action menu), with the position as it was before the step.
+    /// The native game plays the setup, the draft, the announcement, the phase flip, the turn prelude, the action menu and the first round of actions (an Orbital
+    /// Drop, tactical actions, a first claim with its exploration, strategic actions, Ggrocuto Rinn) on the core alone, and stops with a COUNTED gap at the first
+    /// body no lane has made native (Thunder's Edge Warfare's free tactical action: `TurnGap::StrategyAbility`), with the position as it was before the step.
     #[test]
     fn a_native_game_plays_the_draft_and_stops_with_a_counted_gap_at_the_action_menu() {
         let mut g = game("sol", 4, 1);
         let played = play_game(&mut g, 2_000, 50);
         let End::Gap(gap) = &played.end else { panic!("a gap is the end of a game today, got {:?}", played.end) };
-        assert_eq!((gap.arm.as_str(), gap.kind), ("ask.action_menu", GapKind::AskSource), "{gap:?}");
-        assert_eq!(gap.island(), Island::Menu);
+        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("ask.action_menu", GapKind::Bail, "TurnGap(StrategyAbility)"), "{gap:?}");
         let native = &played.matrix.native;
         assert!(native.get("ask.draft").copied().unwrap_or(0) >= 3, "the draft was asked natively: {native:?}");
         assert_eq!(native.get("strategy_announce"), Some(&1), "{native:?}");
         assert_eq!(native.get("phase"), Some(&1), "the strategy phase flipped into the action phase: {native:?}");
-        assert_eq!(native.get("turn_prelude"), Some(&1), "{native:?}");
+        assert!(native.get("turn_prelude").copied().unwrap_or(0) >= 1, "{native:?}");
         assert_eq!(played.matrix.total_gaps(), 1, "one game, one gap");
         assert_eq!(played.rounds, 1);
         // The position is the one before the step that gapped: the same gap again, the same position.
@@ -1175,8 +1175,8 @@ mod tests {
         assert!(matches!(play_game(&mut g, 100, 1).end, End::Gap(_)), "round 1 is within a budget of one");
         let mut g = game("sol", 4, 1);
         let p = play_game(&mut g, 100, 50);
-        assert_eq!(p.steps, 11);
-        assert_eq!(g.decided, p.matrix.native.get("ask.draft").copied().unwrap_or(0) as usize - 1 + p.matrix.native.get("ask.starting_tech").copied().unwrap_or(0) as usize, "the last card of the draft is not asked");
+        assert_eq!(p.steps, 54);
+        assert!(g.decided >= p.matrix.native.get("ask.draft").copied().unwrap_or(0) as usize - 1 + p.matrix.native.get("ask.starting_tech").copied().unwrap_or(0) as usize, "the last card of the draft is not asked; the menu and the actions add their answers");
         // The shadow and the survey keep the same budgets.
         let s = shadow_play(&lobby_spec("sol", 4, 1), 3, 50).unwrap();
         assert_eq!((s.played.end, s.played.steps), (End::StepLimit, 3));
@@ -1383,7 +1383,7 @@ mod tests {
         turn::open_job(&mut g.core, TurnJob::Phase);
         assert!(g.asks(), "an open job is waiting on its step: the arm is Ask");
         let s = shadow_play(&lobby_spec("sol", 4, 1), 100, 50).unwrap();
-        assert_eq!((s.compared, s.played.steps), (9, 11), "eleven native steps, two of them glued to the next: nine legacy steps");
+        assert_eq!((s.compared, s.played.steps), (36, 54), "fifty-four native steps; the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
         assert!(matches!(shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap().played.end, End::Gap(_)), "round 1 is within a budget of one");
         let survey = survey(&lobby_spec("sol", 4, 1), 400, 50).unwrap();
         assert!(survey.steps_by_arm.keys().all(|(label, _)| !label.contains('>') || label.starts_with("turn_prelude>") || label.starts_with("strategy_announce>")), "{:?}", survey.steps_by_arm);

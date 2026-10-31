@@ -112,7 +112,7 @@ fn a_strategic_action_chosen_from_the_menu_stops_nowhere_and_opens_the_follower_
 #[test]
 fn an_option_no_window_runs_yet_is_a_gap_that_names_it_and_leaves_the_position() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
-    s.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::CarthOfGoldenSands, ti4_engine_core::state::LeaderStatus::Readied);
+    s.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::DarktalonTreilla, ti4_engine_core::state::LeaderStatus::Unlocked);
     let e = env_r(&k);
     let held = s.clone();
     let result = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(_))));
@@ -221,4 +221,32 @@ fn ggrocuto_rinn_chosen_from_the_menu_readies_the_planet_exhausts_the_agent_and_
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::GgrocutoRinn), Some(&LeaderStatus::Exhausted), "the agent exhausts");
     let kinds = plain(&s);
     assert!(kinds.contains(&PlainKind::ComponentActionResolved), "{kinds:?}");
+}
+
+/// Lane F2c: Carth of Golden Sands is printed "during the action phase": a free use. It gains the commodities, exhausts the agent, says
+/// `LEADER_ABILITY_RESOLVED` and leaves the turn open (no end of the action, no Extreme Duress).
+#[test]
+fn carth_chosen_from_the_menu_is_a_free_use_that_gains_commodities_and_leaves_the_turn_open() {
+    use ti4_engine_core::choice::leaders::Opt as LOpt;
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol, Faction::TheArborec])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system])
+        .control(planet, 0)
+        .commodities(0, 0)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::CarthOfGoldenSands, LeaderStatus::Readied);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::CarthOfGoldenSands)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "the branch (gain or replenish another) is asked");
+    pick(&mut s, &e, |o| matches!(o, Opt::Leaders(LOpt::GainCommodities))).unwrap();
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.commodities, 2);
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::CarthOfGoldenSands), Some(&LeaderStatus::Exhausted));
+    let kinds = plain(&s);
+    assert!(kinds.contains(&PlainKind::LeaderAbilityResolved), "{kinds:?}");
+    assert!(!kinds.contains(&PlainKind::ComponentActionResolved) && typed(&s, EventKind::ActionCompleted) == 0, "a free use is not the action: {kinds:?}");
 }

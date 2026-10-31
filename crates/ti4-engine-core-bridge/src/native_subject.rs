@@ -487,7 +487,7 @@ pub(crate) fn without_staged_marks(mut state: Value) -> Value {
 /// tactical and strategic actions and the action cards are the core's (lane F2b).
 fn menu_body_is_lent(id: &str) -> bool {
     (id.starts_with("faction|") && id != "faction|winnu|lgf")
-        || (id.starts_with("component|") && !id.starts_with("component|trade|") && id != "component|leader|xxchaagent")
+        || (id.starts_with("component|") && !id.starts_with("component|trade|") && id != "component|leader|xxchaagent" && id != "component|leader|hacanagent")
         || id.starts_with("relic|")
         || id.starts_with("play_area:")
 }
