@@ -529,12 +529,7 @@ fn a_retained_turn_skips_the_closing_menu_like_the_string() {
     assert!(string.events.iter().any(|e| e == "TURN_RETAINED"), "{:?}", string.events);
 }
 
-/// What the native job says where the core does not assemble the menu: the gap, and the position untouched.
-fn native_stop(state: &GameState, arm: Arm, job: TurnJob) -> (crate::live::Stop, bool) {
-    native_stop_with(state, arm, Some(job), &[])
-}
-
-/// [`native_stop`] with scripted answers and the job optional.
+/// What the native job says where the core stops: the gap (the stop), and whether the position is untouched; scripted answers, the job optional.
 fn native_stop_with(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&str]) -> (crate::live::Stop, bool) {
     let mut cx = Ctx::of(state).expect("a table the codecs carry");
     let render = Render::new(cx.owners.ids().to_vec());

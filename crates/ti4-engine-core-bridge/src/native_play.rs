@@ -1097,7 +1097,7 @@ mod tests {
         assert!(!g.asks(), "nobody in turn: the phase moves on");
         g.core.meta_mut().active = Some(Seat(0));
         assert!(g.asks());
-        let mut g = game("sol", 4, 1);
+        let g = game("sol", 4, 1);
         let picks = !g.core.transient().misc.starting_tech_picks.is_empty();
         assert_eq!(live_ask_arm(&Facts::of_core(&g.core, false)) == AskArm::StartingTech, picks);
         if picks {
@@ -1110,7 +1110,7 @@ mod tests {
     fn the_shadow_compare_finds_each_kind_of_difference_and_compares_a_prefix_where_the_close_is_the_strings() {
         let setup = || {
             let spec = lobby_spec("sol", 4, 1);
-            let mut legacy = MaskSubject::<LegacyMask>::new(&spec, Pilot::Script).unwrap();
+            let legacy = MaskSubject::<LegacyMask>::new(&spec, Pilot::Script).unwrap();
             let mut native = NativeGame::from_game(legacy.game(), spec.seed).unwrap();
             let base = legacy.game().state.clone();
             let mut group: Vec<Played> = Vec::new();

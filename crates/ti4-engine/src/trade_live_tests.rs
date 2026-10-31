@@ -465,7 +465,8 @@ fn black_market_dealings_played_at_the_opening_widens_the_first_question_like_th
 fn the_partners_the_menu_offers_are_the_strings_over_strangers_limits_and_reach() {
     let content = ContentStore::embedded();
     let seats = [("a", "hacan"), ("b", "sol"), ("c", "arborec"), ("d", "yin")];
-    let positions: Vec<(&str, Box<dyn Fn(&mut GameState)>)> = vec![
+    type Position = (&'static str, Box<dyn Fn(&mut GameState)>);
+    let positions: Vec<Position> = vec![
         ("plain", Box::new(|_| {})),
         ("pair spent", Box::new(|s| s.record_transaction(&pid("a"), &pid("b")))),
         ("two negotiations this action", Box::new(|s| {

@@ -283,7 +283,9 @@ fn a_fight_of_no_rounds_or_a_draw_remembers_nobody_and_a_lost_fight_gives_no_inv
 #[test]
 fn the_end_of_a_fight_then_enforces_every_listed_fleet() {
     covers!("driver::windows::aftermath::FightOver");
-    let sc = || table().unit(sys(), None, Unit::CruiserI, 0, 3);
+    // The enforcement judges by the limits of the position as it stands when the announcements are over (lane M6c: a "when you win" ability, the
+    // Mahact's Edict, can change a fleet pool), not by the limits of the facts: the position holds a fleet pool of two.
+    let sc = || table().tokens(0, 3, 2, 2).unit(sys(), None, Unit::CruiserI, 0, 3);
     let mut f = over_facts(Some(Seat(0)), 1, false);
     f.pairs = vec![(Seat(0), sys(), limits(2))];
     let mut rig = Rig::new(sc(), FightOver::new(f.clone()));

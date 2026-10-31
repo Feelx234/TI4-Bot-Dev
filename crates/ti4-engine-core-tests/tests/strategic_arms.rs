@@ -667,3 +667,20 @@ fn a_yssaril_agent_copying_the_jolnar_agent_is_doctor_sucaban_too() {
     s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
     assert!(!research_asks_more(&s, Seat(0)), "no Jol-Nar agent to copy");
 }
+
+// -- Titans' Hecatoncheires in the construction facts (found by combining lane E with lane W12: integration 11) --------------------------------
+
+/// "When you would place a PDS on a planet, you may place 1 mech and 1 infantry on that planet instead" (Titans' Hecatoncheires): the facts of the
+/// Construction ability carry the two forms for a Titans seat and nothing for any other. The native facts of lane E predated lane W12's
+/// `StructureFacts::alt` and would have placed a PDS without the offer the string makes.
+#[test]
+fn the_construction_facts_carry_titans_hecatoncheires_and_no_other_seats() {
+    use ti4_engine_core::driver::windows::strategic::facts::structure_facts;
+    use ti4_engine_core::kernel::turn_codes::TurnCodes;
+    let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
+    let (s, k) = Scenario::new(&[Faction::TheTitansOfUl, Faction::TheFederationOfSol]).build();
+    let titans = structure_facts(&s, &k, roster, Seat(0), &TurnCodes::default()).expect("facts");
+    assert_eq!(titans.alt.map(|(mech, infantry)| (mech.data().base_type, infantry.data().base_type)), Some((UnitBaseType::Mech, UnitBaseType::Infantry)));
+    let sol = structure_facts(&s, &k, roster, Seat(1), &TurnCodes::default()).expect("facts");
+    assert_eq!(sol.alt, None, "only the Titans have the alternative");
+}

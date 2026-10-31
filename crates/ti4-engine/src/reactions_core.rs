@@ -949,6 +949,7 @@ mod tests {
 
     /// What becomes of a string `SYSTEM_ACTIVATED` ability the core table has no slot for.
     #[derive(Clone, Copy)]
+    #[allow(dead_code, reason = "the text of each variant is the documentation of its row; only the variant is read")]
     enum Status {
         /// The native hook chain performs it (`driver::windows::tactical::hooks`), by the named function.
         Carried(&'static str),

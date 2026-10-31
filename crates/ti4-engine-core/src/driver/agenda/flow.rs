@@ -26,6 +26,7 @@ pub const AGENDAS_PER_PHASE: usize = 2;
 
 /// Where the loop of the phase stopped.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant, reason = "the window of an agenda is held by value on the step's stack; boxing it would only move the bytes")]
 pub enum Opened {
     /// The step is doomed (a question found the tape dry, or a gap was noted).
     Halt,

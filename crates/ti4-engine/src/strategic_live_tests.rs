@@ -337,7 +337,10 @@ fn native_job_with(state: &GameState, ids: &[String], reconcile: bool, setup: &d
     let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
     let lcx = live::Cx::new(&render, &env);
     let mut asker = Scripted::new(ids.iter().cloned());
-    while reconcile {
+    loop {
+        if !reconcile {
+            break;
+        }
         let step = live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native reconcile stopped: {e:?}"));
         if step.finished {
             break;

@@ -496,7 +496,7 @@ fn a_secret_is_offered_in_the_window_of_the_occurrence_its_feat_was_recorded_for
     let (live, _) = advance_scoring_event(&mut s, &e, pe);
     assert_eq!(live, Live::Done);
     assert!(s.players().by_seat(Seat(0)).unwrap().cards.secrets.is_empty());
-    assert!(s.objectives().scored_feats.iter().any(|f| *f == (Seat(0), 3)));
+    assert!(s.objectives().scored_feats.contains(&(Seat(0), 3)));
     // A wrong-timed secret is not offered in a window of another phase.
     let (mut agenda, k5) = pe_table(40);
     open_event(&mut agenda, ScoringTiming::Agenda, 3, true);
