@@ -83,6 +83,8 @@ pub enum Unknown {
     /// Reflective Shielding played inside a window: it stages hits that the string sustain step drains after the
     /// window closes (the combat area's absorption), which the core windows do not.
     ReflectiveShielding,
+    /// A position the native invasion does not run yet (a documented bail of `driver::windows::invasion`, named by its reason).
+    Unported(&'static str),
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -153,6 +155,46 @@ pub struct Codes {
     /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
     /// `trade_agreement`, `artuno` (Artuno the Betrayer does not copy them).
     pub not_from_supply: [crate::state::Code; 5],
+    /// The texts of the invasion composer (`driver::windows::invasion`).
+    pub invasion: InvasionCodes,
+}
+
+/// The texts the invasion composer puts into the position: the step kinds and causes of its records, the dice groups and the text of every
+/// unit type (a roll names the unit types behind it). Interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy)]
+pub struct InvasionCodes {
+    /// The reroll kind of the ground dice (`ground`) and of the bombardment's (`bombardment`), and the step kinds `ground_round`,
+    /// `bombardment`, `space_cannon_defense`.
+    pub ground: crate::state::Code,
+    pub bombardment: crate::state::Code,
+    pub ground_round: crate::state::Code,
+    pub space_cannon_defense: crate::state::Code,
+    /// The payload key `planets` of `GROUND_COMMITMENT_FINISHED`.
+    pub planets: crate::state::Code,
+    /// The source `dunlain_reaper` of the Reaper's question.
+    pub dunlain_reaper: crate::state::Code,
+    /// The phases of the public boundary `ActiveInvasion.phase`: bombardment, custodians, landing, ground_battle, planet_result,
+    /// next_defender, control, complete.
+    pub phases: [crate::state::Code; 8],
+    /// `combat value N` for N in 1..=12 (index N - 1).
+    pub names: [crate::state::Code; 12],
+    /// The text of every unit type, by `Unit` index.
+    pub units: [crate::state::Code; crate::generated::Unit::COUNT],
+}
+
+impl Default for InvasionCodes {
+    fn default() -> Self {
+        let z = crate::state::Code(0);
+        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, planets: z, dunlain_reaper: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT] }
+    }
+}
+
+impl InvasionCodes {
+    /// The text of `unit`.
+    #[must_use]
+    pub fn unit(&self, unit: crate::generated::Unit) -> crate::state::Code {
+        self.units[unit as usize]
+    }
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of

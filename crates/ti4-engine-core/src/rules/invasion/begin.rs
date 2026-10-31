@@ -57,7 +57,7 @@ pub struct Facts {
 }
 
 /// The cost of the Reaper's deploy, in resources.
-const REAPER_COST: i64 = 2;
+pub const REAPER_COST: i64 = 2;
 
 #[derive(Debug, Clone)]
 pub struct BeginGroundRound {
@@ -80,22 +80,52 @@ impl BeginGroundRound {
     /// Whether the Reaper is offered to participant `at`: a Letnev seat with an infantry in this combat, a mech in the reinforcements
     /// that no effect forbids placing, and 2 resources to spend.
     fn offered(&self, s: &CoreState, k: &Kernel) -> bool {
-        let who = self.seat();
-        let scope = crate::tables::Scope(u32::from(k.sources.0));
-        s.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheBaronyOfLetnev)
-            && s.board().planet(self.f.planet).units.iter().any(|u| u.owner() == who && u.kind().data().base_type == UnitBaseType::Infantry)
-            && !k.hooks.economy.effect_placement_forbidden(s, k, who, Unit::DunlainReaper)
-            && crate::query::fleet::remaining_all(s, scope, who, Unit::DunlainReaper) > 0
-            && self.f.can_pay[self.at]
+        reaper_offered(s, k, self.f.planet, self.seat(), self.f.can_pay[self.at])
     }
 
     /// "Replace 1 of your infantry in that combat with 1 mech": the first infantry of the seat on the planet takes the mech's place.
     fn replace(&self, s: &mut CoreState) {
-        let who = self.seat();
-        let cell = s.board_mut().planet_mut(self.f.planet);
-        if let Some(at) = cell.units.as_slice().iter().position(|u| u.owner() == who && u.kind().data().base_type == UnitBaseType::Infantry) {
-            cell.units.as_mut_slice()[at] = Piece::new(Unit::DunlainReaper, who);
-        }
+        reaper_replace(s, self.f.planet, self.seat());
+    }
+}
+
+/// Whether the Dunlain Reaper is offered to `who` on `planet`: a Letnev seat with an infantry in this combat, a mech in the
+/// reinforcements that no effect forbids placing, and 2 resources to spend (`can_pay`).
+#[must_use]
+pub fn reaper_offered(s: &CoreState, k: &Kernel, planet: Planet, who: Seat, can_pay: bool) -> bool {
+    let scope = crate::tables::Scope(u32::from(k.sources.0));
+    s.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheBaronyOfLetnev)
+        && s.board().planet(planet).units.iter().any(|u| u.owner() == who && u.kind().data().base_type == UnitBaseType::Infantry)
+        && !k.hooks.economy.effect_placement_forbidden(s, k, who, Unit::DunlainReaper)
+        && crate::query::fleet::remaining_all(s, scope, who, Unit::DunlainReaper) > 0
+        && can_pay
+}
+
+/// "Replace 1 of your infantry in that combat with 1 mech": the first infantry of `who` on `planet` takes the mech's place.
+pub fn reaper_replace(s: &mut CoreState, planet: Planet, who: Seat) {
+    let cell = s.board_mut().planet_mut(planet);
+    if let Some(at) = cell.units.as_slice().iter().position(|u| u.owner() == who && u.kind().data().base_type == UnitBaseType::Infantry) {
+        cell.units.as_mut_slice()[at] = Piece::new(Unit::DunlainReaper, who);
+    }
+}
+
+/// The question "deploy a mech" of the Dunlain Reaper to `who` (`dunlain`: the interned source text).
+#[must_use]
+pub fn deploy_question(s: &CoreState, system: System, planet: Planet, who: Seat, dunlain: Code) -> Choice {
+    let invasion_seq = s.transient().invasion.active.as_ref().map(|a| a.seq);
+    Choice {
+        actor: who,
+        ask: Ask::Combat(CAsk::DeployMech { planet }),
+        ctx: Ctx {
+            origin: Origin::Content(Content::Other(dunlain)),
+            subtype: Subtype::Combat(CSub::DeployMech),
+            optional: false,
+            target: Some(Target::Planet { system, planet }),
+            outstanding: SmallList::new(),
+            space_battle: false,
+            invasion_seq,
+        },
+        opts: Opts([Opt::Combat(COpt::DeployMech), Opt::Decline].into_iter().collect()),
     }
 }
 
@@ -141,25 +171,7 @@ impl Window for BeginGroundRound {
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.stage {
-            Stage::Asking => {
-                let system = self.f.system;
-                let invasion_seq = s.transient().invasion.active.as_ref().map(|a| a.seq);
-                let _ = k;
-                Some(Choice {
-                    actor: self.seat(),
-                    ask: Ask::Combat(CAsk::DeployMech { planet: self.f.planet }),
-                    ctx: Ctx {
-                        origin: Origin::Content(Content::Other(self.f.dunlain)),
-                        subtype: Subtype::Combat(CSub::DeployMech),
-                        optional: false,
-                        target: Some(Target::Planet { system, planet: self.f.planet }),
-                        outstanding: SmallList::new(),
-                        space_battle: false,
-                        invasion_seq,
-                    },
-                    opts: Opts([Opt::Combat(COpt::DeployMech), Opt::Decline].into_iter().collect()),
-                })
-            }
+            Stage::Asking => Some(deploy_question(s, self.f.system, self.f.planet, self.seat(), self.f.dunlain)),
             Stage::Paying => self.pay.ask_of(s, k),
             _ => None,
         }

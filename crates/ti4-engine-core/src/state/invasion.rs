@@ -8,21 +8,21 @@
 //! `extra_commits`, `temporary_space_commits`, `combat_only` are the same; `strict_timing_error` is a `LiveError`, `galaxy` is the map.
 
 use crate::containers::SeatSet;
-use crate::generated::{Planet, System, Unit};
+use crate::generated::{Planet, System};
 use crate::ids::Seat;
 
-use super::{InvasionStep, NoteHold};
+use super::{Code, InvasionDie, NoteHold, Piece};
 
 /// A planet some ground force was committed from by a faction's hook (`CommitOrigin`).
 pub type CommitOrigin = (System, Planet);
 
-/// One planet of the rolled bombardment (`BombardPlan`): its step record, the hit groups of the bombarding units, how many ground forces
-/// stood there and whose they are.
+/// One planet of the rolled bombardment (`BombardPlan`): the units standing there before the dice, the dice as the board shows them, the
+/// hit groups of the bombarding units, how many ground forces stood there and whose they are.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IPlanetBombard {
     pub planet: Planet,
-    /// The `last_step` template, `after` still empty.
-    pub template: InvasionStep,
+    pub before: Vec<Piece>,
+    pub dice: Vec<InvasionDie>,
     pub groups: Vec<u32>,
     pub held: u16,
     pub victims: SeatSet,
@@ -78,12 +78,14 @@ pub enum IRound {
     /// "Fight a round on {planet}" is asked of the invader.
     Asking,
     /// The start of the round asks the Dunlain Reaper of participant `at` (0 the invader, 1 the defender); `bill` is its payment.
-    Reaper { at: u8, bill: Option<IBill>, asked: bool },
+    Reaper { at: u8, bill: Option<IBill>, asked: bool, source: Code },
 }
 
 /// Where an open invasion has reached (the string `Stage`; the bombardment pause is `IBombard::cursor`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IStage {
+    /// Just opened: `INVASION_BEGAN` is announced, the bombardment is rolled.
+    Begin,
     Bombarding,
     Custodians(ICustodians),
     Committing,
@@ -122,7 +124,7 @@ pub struct Invasion {
     /// Planets this invasion committed ground forces from through a faction's hook.
     pub extra_commits: Vec<CommitOrigin>,
     /// Units committed as ground forces for the moment (Matriarch's fighters), by landing planet.
-    pub temp_commits: Vec<(Planet, Vec<Unit>)>,
+    pub temp_commits: Vec<(Planet, Vec<Piece>)>,
     /// Already committed hero combats leave invasion/control continuations to their caller.
     pub combat_only: bool,
 }
