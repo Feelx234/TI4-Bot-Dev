@@ -1124,12 +1124,20 @@ impl Exploring {
         self.close(sx);
     }
 
-    /// Start a window of another area as a child.
+    /// Start a window of another area as a child. A host that keeps the exploration in a payload cannot keep the child between two calls, so it
+    /// runs at once: a child that finishes without a question is carried, one that asks is not.
     fn link(&mut self, sx: &mut Sx<'_>, request: &Spawn, then: EThen) {
         match sx.table.links.start(request) {
             Some(window) => {
                 self.linked.start(window);
                 self.run.stage = EStage::Linked(then);
+                if self.hosted {
+                    match self.linked.step(sx) {
+                        Some(Ran::Done(Report::Left)) | None => self.fail(EWhy::NoLink),
+                        Some(Ran::Done(_)) => self.close(sx),
+                        Some(Ran::Asks(_) | Ran::Pass(_)) => self.fail(EWhy::LinkedAsks),
+                    }
+                }
             }
             None => self.fail(EWhy::NoLink),
         }
@@ -1308,7 +1316,8 @@ impl Window for Exploring {
                             self.close(sx);
                         }
                     }
-                    None => self.close(sx),
+                    // (A child the exploration lost between two calls cannot be resumed: a host runs it at once, `link`.)
+                    None => self.fail(EWhy::NoLink),
                 },
                 EStage::Done => return Next::Done,
             }

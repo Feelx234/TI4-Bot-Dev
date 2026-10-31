@@ -502,3 +502,39 @@ fn a_run_stored_after_every_question_resumes_to_the_same_end() {
     assert!(rig.is_done() && matches!(status, Status::Done));
     assert_eq!(delta(&rig.state, &state2), "", "the resumed run ends where the kept one does");
 }
+
+/// A host that keeps the run in a payload rebuilds the window at every call: a child of another area started by an answer runs at once (it
+/// would be lost otherwise: the card was closed without its draw), and one that asks is a named bail.
+#[test]
+fn a_hosted_exploration_runs_a_child_that_does_not_ask_at_once_and_names_one_that_does() {
+    covers!("rules::explore_windows::Exploring");
+    use ti4_engine_core::state::EWhy;
+    let spot = planet_with(&[PlanetTrait::Industrial]);
+    let make = |hand: usize| {
+        let s = setup(spot, &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
+        let s = Setup { scenario: s.scenario.goods(0, 2), ..s };
+        let (mut state, kernel) = s.scenario.build();
+        stack(&mut state, ExploreType::Industrial, &[Explore::FunctioningBase1]);
+        state.decks_mut().action.set(vec![ActionCard::Spy, ActionCard::Rout]);
+        for card in ActionCard::ALL.iter().copied().skip(10).take(hand) {
+            state.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(card);
+        }
+        let mut table = explore_table();
+        table.facts.card_groups = (0..ActionCard::COUNT as u8).collect();
+        ti4_engine_core::driver::children::register(&mut table);
+        (state, kernel, table)
+    };
+    for (hand, want_why) in [(0, None), (7, Some(EWhy::LinkedAsks))] {
+        let (mut state, kernel, table) = make(hand);
+        let mut driver = Driver::new(Exploring::hosted(ti4_engine_core::state::ExploreRun::new(Seat(0), ti4_engine_core::state::ETarget::Planet(spot.1), EDeck::Fixed(ExploreType::Industrial), false)), ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table.clone(), 1);
+        let Status::Asking(_) = driver.run(&mut state, &kernel).unwrap() else { panic!("the base asks") };
+        // The host stores the run, drops the window and resumes it at the answer.
+        let run = driver.window.run().clone();
+        let mut resumed = Driver::new(Exploring::hosted(run), ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table, 1);
+        assert!(resumed.restore_stage(&state, &kernel));
+        let _ = resumed.resume(&mut state, &kernel, Pick::Opt(ex(EOpt::SpendTradeGood)));
+        assert_eq!(resumed.window.unsupported(), want_why, "hand of {hand}");
+        let held = state.players().by_seat(Seat(0)).unwrap().cards.hand.len();
+        assert_eq!(held, hand + 1, "the card is drawn before the discard question (hand of {hand})");
+    }
+}
