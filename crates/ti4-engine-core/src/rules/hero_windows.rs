@@ -11,7 +11,7 @@ use crate::containers::SmallList;
 use crate::generated::{Leader, Planet, System, Technology};
 use crate::ids::Seat;
 use crate::keys::DestroyReason;
-use crate::kernel::fx;
+use crate::kernel::{fx, fx_move};
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::fleet;
@@ -594,5 +594,563 @@ impl Window for CabalHero {
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         if self.stage == CStage::Enforcing { self.child.answer(sx, pick) } else { Err(Illegal) }
+    }
+}
+
+// -- Hesh and Prit, Mathis Mathinus -----------------------------------------------------------------------
+
+use crate::generated::{StrategyCard, StrategyCardKind};
+use crate::kernel::fx_perform::{self, Facts as PerformFacts, Began};
+use crate::query::economy;
+
+/// Which child a performed ability ended in: the staged announcements the adapter makes afterwards.
+fn perform_step(child: &mut ErasedChild, sx: &mut Sx<'_>, trade_source: Code) -> Option<Result<fx_perform::Finished, Next>> {
+    use crate::kernel::stage::Ran;
+    match child.step(sx)? {
+        Ran::Asks(ask) => Some(Err(Next::Continue(ask))),
+        Ran::Pass(next) => Some(Err(next)),
+        Ran::Done(report) => Some(Ok(fx_perform::finish(report, sx.state, trade_source))),
+    }
+}
+
+/// The suspension points of [`NaazHero`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NStage {
+    Start,
+    /// Waiting on the strategy card (up to two; declining ends the choice).
+    Card,
+    /// The next chosen card's secondary begins.
+    Next,
+    Performing,
+    Done,
+}
+
+/// Hesh and Prit (Naaz hero): "ACTION: Gain 1 relic and perform the secondary ability of up to 2 strategy cards. You do not need to spend
+/// command tokens for these abilities. Then, purge this card." With a relic in the deck, the seat chooses up to two cards among `cards`
+/// (the cards that are readied, or unchosen, in the order of the adapter; a card whose secondary costs a token is offered only while the
+/// seat has one in its reinforcements), declining ends the choice; then the relic is gained and each chosen secondary is performed in turn
+/// by the ability's own window as a child ([`fx_perform::begin`]). A chosen secondary that costs a token stops the run when the
+/// reinforcements ran out. [`Self::used`]: the relic was gained. `unsupported`: an ability the core does not carry (the Warfare secondary,
+/// a hook-changed draw, a research a faction waiver opens) or no link to the child: the adapter declines the run.
+#[derive(Debug, Clone)]
+pub struct NaazHero {
+    pub who: Seat,
+    facts: PerformFacts,
+    cards: Vec<StrategyCard>,
+    stage: NStage,
+    chosen: Vec<StrategyCard>,
+    at: usize,
+    child: ErasedChild,
+    pub used: bool,
+    pub unsupported: bool,
+}
+
+/// "Every secondary but Leadership's (influence) costs a command token."
+fn costs_token(card: StrategyCard) -> bool {
+    card.data().kind != StrategyCardKind::Leadership
+}
+
+impl NaazHero {
+    #[must_use]
+    pub fn new(who: Seat, facts: PerformFacts, cards: Vec<StrategyCard>) -> Self {
+        Self { who, facts, cards, stage: NStage::Start, chosen: Vec::new(), at: 0, child: ErasedChild::idle(), used: false, unsupported: false }
+    }
+
+    fn spare(&self, core: &CoreState) -> bool {
+        economy::tokens_in_reinforcements(core, self.who, self.facts.mahact_held) > 0
+    }
+
+    /// The cards that can still be chosen: not chosen yet, and affordable.
+    fn candidates(&self, core: &CoreState) -> Vec<StrategyCard> {
+        let spare = self.spare(core);
+        self.cards.iter().copied().filter(|card| !self.chosen.contains(card)).filter(|card| spare || !costs_token(*card)).collect()
+    }
+
+    fn choose_next(&mut self, sx: &mut Sx<'_>) {
+        if self.chosen.len() < 2 && !self.candidates(sx.state).is_empty() {
+            self.stage = NStage::Card;
+        } else {
+            self.gain(sx);
+        }
+    }
+
+    /// Every choice is made: the relic, then the secondaries.
+    fn gain(&mut self, sx: &mut Sx<'_>) {
+        if crate::kernel::fx_relic::relic_gain(sx.state, self.who).is_none() {
+            self.stage = NStage::Done;
+            return;
+        }
+        self.used = true;
+        self.stage = NStage::Next;
+    }
+}
+
+impl Window for NaazHero {
+    type Stage = NStage;
+
+    fn stage(&self) -> NStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        loop {
+            match self.stage {
+                NStage::Start => {
+                    if sx.state.decks().relic.is_empty() {
+                        self.stage = NStage::Done;
+                    } else {
+                        self.choose_next(sx);
+                    }
+                }
+                NStage::Card => return Next::Continue(Ask::Leaders(LAsk::NaazCard)),
+                NStage::Next => {
+                    let Some(card) = self.chosen.get(self.at).copied() else {
+                        self.stage = NStage::Done;
+                        continue;
+                    };
+                    // A secondary that costs a token ends the run when the reinforcements have none.
+                    if costs_token(card) && !self.spare(sx.state) {
+                        self.stage = NStage::Done;
+                        continue;
+                    }
+                    match fx_perform::begin(sx, self.who, card, false, self.facts) {
+                        Began::Done => self.at += 1,
+                        Began::Unsupported => {
+                            self.unsupported = true;
+                            self.stage = NStage::Done;
+                        }
+                        Began::Run(request) => match sx.table.links.start(&request) {
+                            Some(window) => {
+                                self.child.start(window);
+                                self.stage = NStage::Performing;
+                            }
+                            None => {
+                                self.unsupported = true;
+                                self.stage = NStage::Done;
+                            }
+                        },
+                    }
+                }
+                NStage::Performing => match perform_step(&mut self.child, sx, self.facts.carried.trade_source) {
+                    Some(Err(next)) => return next,
+                    Some(Ok(done)) => {
+                        self.unsupported |= done.failed;
+                        self.at += 1;
+                        self.stage = if done.failed { NStage::Done } else { NStage::Next };
+                    }
+                    None => {
+                        self.at += 1;
+                        self.stage = NStage::Next;
+                    }
+                },
+                NStage::Done => return Next::Done,
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        match self.stage {
+            NStage::Card => Some(Choice {
+                actor: self.who,
+                ask: Ask::Leaders(LAsk::NaazCard),
+                ctx: ctx(Leader::HeshAndPrit, LSub::HeroCard),
+                opts: self.candidates(s).into_iter().map(|card| Opt::Leaders(LOpt::HeroCard(card))).chain(std::iter::once(Opt::Decline)).collect::<Opts>(),
+            }),
+            NStage::Performing => self.child.ask_of(s, k),
+            _ => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (NStage::Performing, pick) => self.child.answer(sx, pick),
+            (NStage::Card, Pick::Opt(Opt::Decline)) => {
+                self.gain(sx);
+                Ok(())
+            }
+            (NStage::Card, Pick::Opt(Opt::Leaders(LOpt::HeroCard(card)))) => {
+                if !self.candidates(sx.state).contains(&card) {
+                    return Err(Illegal);
+                }
+                self.chosen.push(card);
+                self.choose_next(sx);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
+/// The suspension points of [`WinnuHero`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WStage {
+    Start,
+    Card,
+    Performing,
+    Done,
+}
+
+/// Mathis Mathinus (Winnu hero): "ACTION: Choose 1 strategy card on the board; perform its primary ability, then each other player may
+/// follow its secondary." The seat chooses one of `cards` (a question even for one) and the primary of the card is performed by the
+/// ability's own window as a child ([`fx_perform::begin`]); who may follow is the game's (`Game::select_leader_strategy_followers`).
+/// [`Self::chosen`]: the card. `unsupported`: a primary the core does not carry (the Imperial primary, the Thunder's Edge Construction and
+/// Warfare primaries, a hook-changed draw, a research a faction waiver opens) or no link to the child.
+/// [`Self::tokens`]: the system the Diplomacy primary placed tokens in and the seats that got one, announced by the adapter.
+#[derive(Debug, Clone)]
+pub struct WinnuHero {
+    pub who: Seat,
+    facts: PerformFacts,
+    cards: Vec<StrategyCard>,
+    stage: WStage,
+    pub chosen: Option<StrategyCard>,
+    child: ErasedChild,
+    pub tokens: Option<(System, SmallList<Seat, 8>)>,
+    pub unsupported: bool,
+}
+
+impl WinnuHero {
+    #[must_use]
+    pub fn new(who: Seat, facts: PerformFacts, cards: Vec<StrategyCard>) -> Self {
+        Self { who, facts, cards, stage: WStage::Start, chosen: None, child: ErasedChild::idle(), tokens: None, unsupported: false }
+    }
+}
+
+impl Window for WinnuHero {
+    type Stage = WStage;
+
+    fn stage(&self) -> WStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        loop {
+            match self.stage {
+                WStage::Start => self.stage = if self.cards.is_empty() { WStage::Done } else { WStage::Card },
+                WStage::Card => return Next::Continue(Ask::Leaders(LAsk::WinnuCard)),
+                WStage::Performing => match perform_step(&mut self.child, sx, self.facts.carried.trade_source) {
+                    Some(Err(next)) => return next,
+                    Some(Ok(done)) => {
+                        self.unsupported |= done.failed;
+                        self.tokens = done.tokens;
+                        self.stage = WStage::Done;
+                    }
+                    None => self.stage = WStage::Done,
+                },
+                WStage::Done => return Next::Done,
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        match self.stage {
+            WStage::Card => Some(Choice {
+                actor: self.who,
+                ask: Ask::Leaders(LAsk::WinnuCard),
+                ctx: ctx(Leader::MathisMathinus, LSub::HeroCard),
+                opts: self.cards.iter().map(|card| Opt::Leaders(LOpt::HeroCard(*card))).collect::<Opts>(),
+            }),
+            WStage::Performing => self.child.ask_of(s, k),
+            _ => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (WStage::Performing, pick) => self.child.answer(sx, pick),
+            (WStage::Card, Pick::Opt(Opt::Leaders(LOpt::HeroCard(card)))) => {
+                if !self.cards.contains(&card) {
+                    return Err(Illegal);
+                }
+                self.chosen = Some(card);
+                match fx_perform::begin(sx, self.who, card, true, self.facts) {
+                    Began::Done => self.stage = WStage::Done,
+                    Began::Unsupported => {
+                        self.unsupported = true;
+                        self.stage = WStage::Done;
+                    }
+                    Began::Run(request) => match sx.table.links.start(&request) {
+                        Some(window) => {
+                            self.child.start(window);
+                            self.stage = WStage::Performing;
+                        }
+                        None => {
+                            self.unsupported = true;
+                            self.stage = WStage::Done;
+                        }
+                    },
+                }
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
+// -- Flock Migration ------------------------------------------------------------------------------------
+
+use crate::query::transit::{self, Cand};
+use crate::query::board as qboard;
+
+/// What the Argent hero reads of the string position: the order of its board (the string keeps systems under their id text) and the two
+/// map rules a relocation checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationFacts {
+    /// Every system of the string board, in the order of its id text.
+    pub order: Vec<System>,
+    /// The systems on the map (a coordinate or a wormhole): a relocation needs both ends on it.
+    pub on_map: Vec<System>,
+    /// The systems the seat's movement rules let it enter (laws, technologies, faction effects).
+    pub enterable: Vec<System>,
+}
+
+/// The suspension points of [`ArgentHero`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AStage {
+    Start,
+    /// Waiting on the ship that moves next.
+    Ship,
+    /// Waiting on its destination.
+    To,
+    /// Waiting on a unit carried aboard.
+    Cargo,
+    Done,
+}
+
+/// Mirik Aun Sissiri (Argent hero): "ACTION: Move any number of your ships from any systems to any number of other systems that contain 1 of
+/// your command tokens and no other players' ships. Then, purge this card." One ship at a time, each moved once: the seat chooses a ship
+/// (one per distinct stack of a system that still has a copy that has not arrived there), then a destination, then the units carried aboard
+/// until the ship is full or the seat stops (the hold is `capacity + 8` units long). Declining any question ends the migration. The
+/// relocation checks the ends (on the map, enterable), the cargo (present, within the capacity); a refused cargo is dropped, a refused
+/// relocation ends the card. [`Self::moved`]: some ship moved.
+#[derive(Debug, Clone)]
+pub struct ArgentHero {
+    pub who: Seat,
+    facts: MigrationFacts,
+    stage: AStage,
+    ships: Vec<(System, Piece)>,
+    destinations: Vec<System>,
+    from: Option<(System, Piece)>,
+    targets: Vec<System>,
+    to: Option<System>,
+    offered: Vec<Cand>,
+    cargo: Vec<Cand>,
+    /// The ships that moved already, by where they arrived.
+    arrived: Vec<(System, Piece)>,
+    pub moved: bool,
+}
+
+impl ArgentHero {
+    #[must_use]
+    pub fn new(who: Seat, facts: MigrationFacts) -> Self {
+        Self { who, facts, stage: AStage::Start, ships: Vec::new(), destinations: Vec::new(), from: None, targets: Vec::new(), to: None, offered: Vec::new(), cargo: Vec::new(), arrived: Vec::new(), moved: false }
+    }
+
+    fn is_ship(piece: Piece) -> bool {
+        piece.kind().data().ship
+    }
+
+    /// The systems that hold the seat's command token and no other player's ship, in the string's order.
+    fn destinations_of(&self, core: &CoreState) -> Vec<System> {
+        self.facts
+            .order
+            .iter()
+            .copied()
+            .filter(|system| qboard::has_token(core, *system, self.who))
+            .filter(|system| !qboard::space_units(core, *system).iter().any(|p| p.owner() != self.who && Self::is_ship(*p)))
+            .collect()
+    }
+
+    /// Each distinct ship (system, form, damage) that can still move somewhere, in the string's order.
+    fn ships_of(&self, core: &CoreState, destinations: &[System]) -> Vec<(System, Piece)> {
+        let mut found: Vec<(System, Piece)> = Vec::new();
+        for system in &self.facts.order {
+            for piece in qboard::space_units(core, *system).iter().filter(|p| p.owner() == self.who && Self::is_ship(**p)) {
+                if !found.iter().any(|(at, seen)| at == system && seen == piece) {
+                    found.push((*system, *piece));
+                }
+            }
+        }
+        found
+            .into_iter()
+            .filter(|(from, _)| destinations.iter().any(|to| to != from))
+            .filter(|(from, piece)| {
+                let here = qboard::space_units(core, *from).iter().filter(|p| **p == *piece).count();
+                let came = self.arrived.iter().filter(|(at, other)| at == from && other == piece).count();
+                here > came
+            })
+            .collect()
+    }
+
+    /// Choose the next ship, or end.
+    fn next_ship(&mut self, sx: &mut Sx<'_>) {
+        self.destinations = self.destinations_of(sx.state);
+        self.ships = self.ships_of(sx.state, &self.destinations);
+        self.stage = if self.ships.is_empty() { AStage::Done } else { AStage::Ship };
+    }
+
+    fn capacity(&self) -> i64 {
+        self.from.map_or(0, |(_, ship)| crate::query::fleet::capacity(ship.kind()))
+    }
+
+    /// The destination is chosen: the hold is asked, or the ship moves.
+    fn to_chosen(&mut self, sx: &mut Sx<'_>, to: System) {
+        self.to = Some(to);
+        let Some((from, _)) = self.from else { return };
+        self.offered = transit::loadable(sx.state, sx.kernel, self.who, from, false);
+        self.cargo.clear();
+        self.ask_cargo_or_move(sx);
+    }
+
+    fn ask_cargo_or_move(&mut self, sx: &mut Sx<'_>) {
+        let room = self.capacity() + 8;
+        if !self.offered.is_empty() && i64::try_from(self.cargo.len()).unwrap_or(i64::MAX) < room {
+            self.stage = AStage::Cargo;
+        } else {
+            self.relocate(sx);
+        }
+    }
+
+    /// The relocation with the cargo; when it is refused, the one without; when that is refused, the card ends.
+    fn relocate(&mut self, sx: &mut Sx<'_>) {
+        let (Some((from, ship)), Some(to)) = (self.from, self.to) else {
+            self.stage = AStage::Done;
+            return;
+        };
+        let ends = self.facts.on_map.contains(&from) && self.facts.on_map.contains(&to) && self.facts.enterable.contains(&to);
+        let carried = if ends && self.cargo_fits(sx.state, sx.kernel, from, ship) { std::mem::take(&mut self.cargo) } else { Vec::new() };
+        if !ends {
+            self.stage = AStage::Done;
+            return;
+        }
+        fx_move::move_ship(sx.state, from, to, ship);
+        for cand in &carried {
+            fx_move::take_aboard(sx.state, cand.system, to, cand.piece, cand.source);
+        }
+        self.arrived.push((to, ship));
+        self.moved = true;
+        self.next_ship(sx);
+    }
+
+    /// `transit::relocate_ships_with_cargo`'s checks of the cargo: every unit is still there (copies counted, after the ship is lifted) and the
+    /// units that take a slot fit the ship.
+    fn cargo_fits(&self, core: &CoreState, k: &Kernel, from: System, ship: Piece) -> bool {
+        if self.cargo.is_empty() {
+            return true;
+        }
+        let mut standing: Vec<Piece> = qboard::space_units(core, from).to_vec();
+        if let Some(at) = standing.iter().position(|p| *p == ship) {
+            standing.remove(at);
+        } else {
+            return false;
+        }
+        let mut planets: Vec<(Planet, Vec<Piece>)> = Vec::new();
+        let mut paying = 0_i64;
+        for cand in &self.cargo {
+            let pool: Option<&mut Vec<Piece>> = match cand.source {
+                None => Some(&mut standing),
+                Some(planet) => {
+                    if !planets.iter().any(|(p, _)| *p == planet) {
+                        planets.push((planet, qboard::planet_units(core, planet).to_vec()));
+                    }
+                    planets.iter_mut().find(|(p, _)| *p == planet).map(|(_, units)| units)
+                }
+            };
+            let found = pool.and_then(|units| units.iter().position(|p| *p == cand.piece).map(|at| units.remove(at)));
+            if found.is_none() {
+                return false;
+            }
+            if !k.hooks.movement.free_cargo(core, k, cand.piece) {
+                paying += 1;
+            }
+        }
+        paying <= crate::query::fleet::capacity(ship.kind())
+    }
+}
+
+impl Window for ArgentHero {
+    type Stage = AStage;
+
+    fn stage(&self) -> AStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.stage == AStage::Start {
+            self.next_ship(sx);
+        }
+        match self.stage {
+            AStage::Ship => Next::Continue(Ask::Leaders(LAsk::FlockShip)),
+            AStage::To => Next::Continue(Ask::Leaders(LAsk::FlockTo)),
+            AStage::Cargo => Next::Continue(Ask::Leaders(LAsk::FlockCargo)),
+            AStage::Start | AStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+        let c = |ask: LAsk, subtype: LSub, opts: Opts| Some(Choice { actor: self.who, ask: Ask::Leaders(ask), ctx: ctx(Leader::MirikAunSissiri, subtype), opts });
+        match self.stage {
+            AStage::Ship => c(
+                LAsk::FlockShip,
+                LSub::FlockShip,
+                self.ships
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (system, piece))| Opt::Leaders(LOpt::FlockShip { index: u8::try_from(index).unwrap_or(u8::MAX), system: *system, unit: piece.kind() }))
+                    .chain(std::iter::once(Opt::Decline))
+                    .collect(),
+            ),
+            AStage::To => c(LAsk::FlockTo, LSub::FlockTo, self.targets.iter().map(|to| Opt::Leaders(LOpt::FlockTo(*to))).chain(std::iter::once(Opt::Decline)).collect()),
+            AStage::Cargo => c(
+                LAsk::FlockCargo,
+                LSub::FlockCargo,
+                self.offered
+                    .iter()
+                    .enumerate()
+                    .map(|(index, cand)| Opt::Leaders(LOpt::FlockCargo { index: u8::try_from(index).unwrap_or(u8::MAX), unit: cand.piece.kind() }))
+                    .chain(std::iter::once(Opt::Decline))
+                    .collect(),
+            ),
+            AStage::Start | AStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        let Pick::Opt(chosen) = pick else { return Err(Illegal) };
+        match (self.stage, chosen) {
+            // Declining any question ends the migration.
+            (AStage::Ship | AStage::To, Opt::Decline) => {
+                self.stage = AStage::Done;
+                Ok(())
+            }
+            (AStage::Ship, Opt::Leaders(LOpt::FlockShip { index, .. })) => {
+                let (system, piece) = *self.ships.get(usize::from(index)).ok_or(Illegal)?;
+                self.from = Some((system, piece));
+                self.targets = self.destinations.iter().copied().filter(|to| *to != system).collect();
+                self.stage = AStage::To;
+                Ok(())
+            }
+            (AStage::To, Opt::Leaders(LOpt::FlockTo(to))) => {
+                if !self.targets.contains(&to) {
+                    return Err(Illegal);
+                }
+                self.to_chosen(sx, to);
+                Ok(())
+            }
+            (AStage::Cargo, Opt::Decline) => {
+                self.relocate(sx);
+                Ok(())
+            }
+            (AStage::Cargo, Opt::Leaders(LOpt::FlockCargo { index, .. })) => {
+                let at = usize::from(index);
+                if at >= self.offered.len() {
+                    return Err(Illegal);
+                }
+                let cand = self.offered.remove(at);
+                self.cargo.push(cand);
+                self.ask_cargo_or_move(sx);
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
     }
 }

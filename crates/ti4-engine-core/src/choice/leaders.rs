@@ -66,6 +66,16 @@ pub enum Ask {
     FlayeshTech,
     /// Kyver, Blade and Key (Yssaril hero): what happens to the player who showed `card`.
     KyverFate { target: crate::ids::Seat, card: crate::generated::ActionCard },
+    /// Hesh and Prit (Naaz hero): the strategy card whose secondary is performed (up to two).
+    NaazCard,
+    /// Mathis Mathinus (Winnu hero): the strategy card whose primary is performed.
+    WinnuCard,
+    /// Mirik Aun Sissiri (Argent hero), Flock Migration: the ship that moves next.
+    FlockShip,
+    /// Flock Migration: where the ship goes.
+    FlockTo,
+    /// Flock Migration: a unit carried aboard (it cannot be landed).
+    FlockCargo,
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -121,6 +131,14 @@ pub enum Opt {
     KyverTake,
     /// Kyver: the player discards 3 random action cards.
     KyverDiscard,
+    /// A strategy card of the hero's choice.
+    HeroCard(crate::generated::StrategyCard),
+    /// Flock Migration: the `index`th ship offered, of this form, standing in this system.
+    FlockShip { index: u8, system: crate::generated::System, unit: Unit },
+    /// Flock Migration: move the ship to this system.
+    FlockTo(crate::generated::System),
+    /// Flock Migration: carry the `index`th unit offered, of this form.
+    FlockCargo { index: u8, unit: Unit },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -147,4 +165,8 @@ pub enum Subtype {
     FlayeshPlanet,
     FlayeshTech,
     KyverFate,
+    HeroCard,
+    FlockShip,
+    FlockTo,
+    FlockCargo,
 }

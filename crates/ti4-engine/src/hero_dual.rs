@@ -25,7 +25,7 @@ mod real {
     use ti4_engine_core::generated::{Planet, System, Technology};
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::hero_windows::{CabalHero, Devourable, KyverHero, NekroHero, Stranded};
+    use ti4_engine_core::rules::hero_windows::{ArgentHero, CabalHero, Devourable, KyverHero, MigrationFacts, NaazHero, NekroHero, Stranded, WinnuHero};
     use ti4_engine_core::state::Slice;
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::PlayerId;
@@ -244,6 +244,212 @@ mod real {
         run.rng = Some(positions);
         Some(CoreWindow { run, questions: driven.rendered })
     }
+
+    /// The facts of the ability a hero performs for a strategy card (`kernel::fx_perform`), on the lent position.
+    fn perform_facts(
+        core: &ti4_engine_core::state::CoreState,
+        gs: &GameState,
+        sources: &SourceSet,
+        player: &PlayerId,
+        seat: ti4_engine_core::ids::Seat,
+        r: &crate::render::Render,
+    ) -> ti4_engine_core::kernel::fx_perform::Facts {
+        ti4_engine_core::kernel::fx_perform::Facts {
+            carried: crate::action_cards_view::carried_of(core, gs, sources, player, seat, r),
+            replenish_events: crate::leaders_core::replenish_causes_events(gs),
+            rules_version: gs.rules_version,
+            roster: crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), sources.clone()),
+            scope: crate::core_adapter::scope(sources.clone()),
+            mahact_held: gs.tokens_held_by_mahact(player),
+        }
+    }
+
+    /// The ability table of a hero that performs a strategy card: the links to the abilities' windows and the card groups of a draw.
+    fn performing_table() -> AbilityTable {
+        let mut table = AbilityTable::default();
+        ti4_engine_core::driver::children::register(&mut table);
+        table.facts.card_groups = crate::reactions_core::card_groups();
+        table
+    }
+
+    /// The core half of Naaz's Hesh and Prit (`factions::naaz::use_leader`; the value: the card resolved). `cards` are the strategy cards the
+    /// string offers, in its order (the relic deck is read on the position).
+    pub fn naaz_hero(
+        gs: &mut GameState,
+        player: &PlayerId,
+        cards: &[ti4_model::id::StrategyCardId],
+        sources: &SourceSet,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::generated::StrategyCard;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let list: Vec<StrategyCard> = cards.iter().map(|card| typed::<StrategyCard>(card.as_str())).collect::<Option<_>>().why("a strategy card the typed tables do not know")?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let before = gs.clone();
+        let kernel = crate::production_view::kernel();
+        let performing = crate::strategy_cards_core::Performing {
+            before: &before,
+            content: ti4_content::ContentStore::embedded(),
+            sources: sources.clone(),
+            player,
+            seat,
+            primary: false,
+            r: &r,
+            free: std::cell::Cell::new(0),
+        };
+        let letnev = gs.player(player).why(crate::dual::reason::NO_SEAT)?.faction.as_str() == "letnev";
+        let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
+            crate::strategy_cards_core::complete_tokens(c, core, rendered, letnev);
+            performing.complete(c, core, rendered);
+        };
+        let mut staged = Vec::new();
+        let mut out = None;
+        let driven = crate::core_sync::with_core(
+            gs,
+            &mut cx,
+            Sources::default(),
+            crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM),
+            |core, _| {
+                let facts = perform_facts(core, &before, sources, player, seat, &r);
+                let mut driver = Driver::new(NaazHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
+                let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
+                staged = std::mem::take(&mut core.pending_mut().staged);
+                out = Some((driver.window.used, driver.window.unsupported));
+                driven
+            },
+        )
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let (used, unsupported) = out?;
+        if unsupported {
+            crate::dual::note_bail_here("an ability the core does not carry (the Warfare secondary, a changed draw, a research a waiver opens)");
+            return None;
+        }
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        Some(CoreWindow { run: Run::new(used).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
+    /// The core half of Winnu's Mathis Mathinus (`factions::winnu::use_leader_strategy_primary`; the value: the card chosen and whether its
+    /// primary resolved plainly). `cards` are the strategy cards the string offers, in its order.
+    pub fn winnu_hero(
+        gs: &mut GameState,
+        player: &PlayerId,
+        cards: &[ti4_model::id::StrategyCardId],
+        sources: &SourceSet,
+        script: &Recording,
+    ) -> Option<CoreWindow<(Option<String>, bool)>> {
+        use ti4_engine_core::generated::StrategyCard;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let list: Vec<StrategyCard> = cards.iter().map(|card| typed::<StrategyCard>(card.as_str())).collect::<Option<_>>().why("a strategy card the typed tables do not know")?;
+        // The primaries name their options by faction: two seats of one faction would clash.
+        let (mut cx, r) = crate::strategy_core::named_tables(gs)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let before = gs.clone();
+        let kernel = crate::production_view::kernel();
+        let performing = crate::strategy_cards_core::Performing {
+            before: &before,
+            content: ti4_content::ContentStore::embedded(),
+            sources: sources.clone(),
+            player,
+            seat,
+            primary: true,
+            r: &r,
+            free: std::cell::Cell::new(0),
+        };
+        let letnev = gs.player(player).why(crate::dual::reason::NO_SEAT)?.faction.as_str() == "letnev";
+        let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
+            crate::strategy_cards_core::complete_tokens(c, core, rendered, letnev);
+            performing.complete(c, core, rendered);
+        };
+        let mut staged = Vec::new();
+        let mut out = None;
+        let driven = crate::core_sync::with_core(
+            gs,
+            &mut cx,
+            Sources::default(),
+            crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM),
+            |core, _| {
+                let facts = perform_facts(core, &before, sources, player, seat, &r);
+                let mut driver = Driver::new(WinnuHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
+                let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
+                staged = std::mem::take(&mut core.pending_mut().staged);
+                out = Some((driver.window.chosen, driver.window.tokens.clone(), driver.window.unsupported));
+                driven
+            },
+        )
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let (chosen, tokens, unsupported) = out?;
+        if unsupported {
+            crate::dual::note_bail_here("an ability the core does not carry (the Imperial primary, a Thunder's Edge primary, a changed draw, a research a waiver opens)");
+            return None;
+        }
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        crate::action_cards_view::stage_placed_tokens(gs, &r, tokens.map(|(system, seats)| (system, seats.as_slice().to_vec())));
+        let card = chosen.map(|card| crate::generated::IdStr::as_str(card).to_owned());
+        Some(CoreWindow { run: Run::new((card, true)).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
+    /// What Flock Migration reads (the ships, the tokens, the cargo) and writes (the ships and the cargo that move).
+    const FLOCK: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Board]);
+
+    /// The core half of Argent's Flock Migration (`factions::argent::use_leader`; the value: some ship moved). The map rules the relocation
+    /// checks (a system on the map, a destination the seat's movement rules let it enter) are read on the position the card starts from.
+    pub fn argent_hero(
+        gs: &mut GameState,
+        content: &ti4_content::ContentStore,
+        player: &PlayerId,
+        galaxy: &ti4_content::galaxy::Galaxy,
+        sources: SourceSet,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let mut order = Vec::new();
+        let mut on_map = Vec::new();
+        let mut enterable = Vec::new();
+        let holds_token = gs.systems_with_token(player);
+        for id in gs.board.keys() {
+            let system = typed::<System>(id.as_str()).why("a system the typed tables do not know")?;
+            order.push(system);
+            if galaxy.coord_of(id.as_str()).is_some() || galaxy.wormhole_systems().contains(&id.as_str()) {
+                on_map.push(system);
+            }
+            if holds_token.contains(id) {
+                let mut rules = crate::movement::MovementRules::with_laws(
+                    galaxy,
+                    content,
+                    sources,
+                    id.as_str(),
+                    crate::movement::Board::for_player(gs, content, sources, player),
+                    Some(gs),
+                );
+                crate::action_cards::apply_movement_effects(&mut rules, gs, player);
+                if rules.can_enter(id.as_str()) {
+                    enterable.push(system);
+                }
+            }
+        }
+        let before = gs.clone();
+        let kernel = crate::core_adapter::kernel_for(sources);
+        let mut driver = Driver::new(ArgentHero::new(seat, MigrationFacts { order, on_map, enterable }), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), FLOCK, |core, _| crate::dual_window::drive(&mut driver, core, kernel, &r, &before, script))
+            .why(crate::dual::reason::NOT_LENDABLE)?
+            .why(crate::dual::reason::DRIVER_REFUSED)?;
+        Some(CoreWindow { run: Run::new(driver.window.moved).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
 }
 
 #[cfg(not(feature = "typed-core"))]
@@ -278,6 +484,37 @@ mod stub {
         _: &PlayerId,
         _: &[(ti4_model::id::SystemId, ti4_model::units::Unit)],
         _: &crate::rng::RngPositions,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+
+    pub fn naaz_hero(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: &[ti4_model::id::StrategyCardId],
+        _: &ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+
+    pub fn winnu_hero(
+        _: &mut GameState,
+        _: &PlayerId,
+        _: &[ti4_model::id::StrategyCardId],
+        _: &ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<(Option<String>, bool)>> {
+        None
+    }
+
+    pub fn argent_hero(
+        _: &mut GameState,
+        _: &ti4_content::ContentStore,
+        _: &PlayerId,
+        _: &ti4_content::galaxy::Galaxy,
         _: ti4_model::content_types::SourceSet,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {

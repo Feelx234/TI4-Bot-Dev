@@ -149,10 +149,21 @@ mod real {
     /// `strategy_cards::ready_hints` as the question sees the position: the planets readied so far are not
     /// exhausted any more.
     fn ready_hints_now(before: &GameState, core: &CoreState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Value {
+        // The planets of the performer as the core holds them now: readied so far, and exhausted by a payment an earlier ability of the
+        // same window made (Hesh and Prit performs two secondaries).
         let mut now = before.clone();
-        now.exhausted_planets.retain(|p| {
-            ti4_engine_core::generated::Planet::from_id(p.as_str()).is_none_or(|planet| ti4_engine_core::query::board::exhausted(core, planet))
-        });
+        let controlled: Vec<ti4_model::id::PlanetId> = before.controlled_planets(player).into_iter().map(|(_, p)| p.clone()).collect();
+        for id in controlled {
+            match ti4_engine_core::generated::Planet::from_id(id.as_str()).map(|p| ti4_engine_core::query::board::exhausted(core, p)) {
+                Some(true) => {
+                    now.exhausted_planets.insert(id);
+                }
+                Some(false) => {
+                    now.exhausted_planets.remove(&id);
+                }
+                None => {}
+            }
+        }
         crate::strategy_cards::ready_hints(&now, content, sources, player)
     }
 

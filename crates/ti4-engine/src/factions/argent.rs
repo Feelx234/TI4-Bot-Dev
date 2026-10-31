@@ -584,14 +584,24 @@ fn use_leader(
     let Some(galaxy) = context.galaxy else {
         return Some(false);
     };
-    Some(migrate(
-        context,
-        player,
-        galaxy,
-        None,
-        true,
-        "flock_migration",
-    ))
+    Some(migration_dual(context, player, galaxy))
+}
+
+/// Flock Migration as a window of the core (`rules::hero_windows::ArgentHero`): the ship, the destination and the cargo of each move, and
+/// the relocation; the string body ([`migrate`]) is the oracle of the dual run.
+fn migration_dual(context: &mut TimingContext<'_>, player: &PlayerId, galaxy: &ti4_content::galaxy::Galaxy) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy: map } = context;
+    let (content, sources, map) = (*content, *sources, *map);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::argent::hero",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy: map };
+            crate::dual::Run::new(migrate(&mut inner, player, galaxy, None, true, "flock_migration"))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::hero_dual::argent_hero(s, content, player, galaxy, sources, script)
+    )
 }
 
 /// The move shared by the hero and the breakthrough: ships, one at a time, to systems that hold
@@ -2484,6 +2494,46 @@ mod tests {
             "the cargo came along, in space"
         );
         assert_eq!(count(&state, &held, &a(), "carrier"), 0);
+    }
+
+    /// Flock Migration is a body of the core (`rules::hero_windows::ArgentHero`): the ship, the destination and the cargo of each move, the
+    /// relocation. The core half agrees with the string for a ship with its cargo, a ship without, each ship once over two moves, a cargo
+    /// that does not fit the ship (dropped by the relocation), a decline at each question, and it ran each time.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |state: &mut GameState, galaxy: &ti4_content::galaxy::Galaxy, answers: &[&str]| {
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || fly(state, galaxy, answers))
+        };
+        // A ship with its cargo.
+        let (mut state, galaxy, [_, safe, _]) = hero_board();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        assert_eq!(run(&mut state, &galaxy, &["ship|0", &format!("to|{safe}"), "cargo|0", "decline", "decline"]), Some(true));
+        // A ship without cargo; the migration goes on and the ship is not offered again.
+        let (mut state, galaxy, [_, safe, _]) = hero_board();
+        assert_eq!(run(&mut state, &galaxy, &["ship|0", &format!("to|{safe}"), "decline", "ship|0"]), Some(true));
+        // A decline at the first question changes nothing.
+        let (mut state, galaxy, _) = hero_board();
+        assert_eq!(run(&mut state, &galaxy, &["decline"]), Some(false));
+        // A decline at the destination.
+        let (mut state, galaxy, _) = hero_board();
+        assert_eq!(run(&mut state, &galaxy, &["ship|0", "decline"]), Some(false));
+        // More units aboard than the carrier holds: the relocation drops the cargo and moves the ship alone.
+        let (mut state, galaxy, [from, safe, _]) = hero_board();
+        put(&mut state, &from, "infantry", &a(), 5);
+        let mut answers: Vec<String> = vec!["ship|0".to_owned(), format!("to|{safe}")];
+        answers.extend((0..6).map(|_| "cargo|0".to_owned()));
+        answers.push("decline".to_owned());
+        let refs: Vec<&str> = answers.iter().map(String::as_str).collect();
+        assert_eq!(run(&mut state, &galaxy, &refs), Some(true));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::argent::hero"), (5, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

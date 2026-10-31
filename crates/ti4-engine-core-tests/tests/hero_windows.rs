@@ -2,7 +2,8 @@
 
 use ti4_engine_core::choice::leaders::{Ask as LAsk, Opt as LOpt};
 use ti4_engine_core::generated::Planet;
-use ti4_engine_core::keys::MarkKey;
+use ti4_engine_core::keys::{DestroyReason, MarkKey};
+use ti4_engine_core::state::SysFlags;
 use ti4_engine_core::rules::hero_windows::{Devourable, NekroHero};
 use ti4_engine_core::state::Code;
 use ti4_engine_core_tests::prelude::*;
@@ -69,6 +70,16 @@ fn a_single_planet_is_devoured_unasked_when_one_technology_matches() {
     assert_eq!(units_on(&rig, a.1, 0), 1, "the seat's own unit stays");
     assert_eq!(units_on(&rig, b.1, 1), 1, "the other planet is untouched");
     assert_eq!(staged_rows(&rig), 2, "the two infantry are staged as destroyed, the structure is not");
+    let row = MarkVal::Rec(vec![
+        MarkVal::Atom(Atom::Word(Word::Destroyed)),
+        MarkVal::Atom(Atom::System(a.0)),
+        MarkVal::Atom(Atom::Planet(a.1)),
+        MarkVal::Atom(Atom::Seat(Seat(1))),
+        MarkVal::Atom(Atom::Unit(Unit::InfantryI)),
+        MarkVal::Atom(Atom::Word(Word::False)),
+        MarkVal::Atom(Atom::Destroy(DestroyReason::LeaderBare(Leader::UNITDSGNFLAYESH))),
+    ]);
+    assert!(rig.state.marks().tail.iter().any(|(k, v)| matches!(k, MarkKey::PrivateStagedGround(0)) && *v == row), "the cause is the hero: {:?}", rig.state.marks().tail.iter().collect::<Vec<_>>());
     let p = rig.state.players().by_seat(Seat(0)).unwrap();
     assert_eq!(p.econ.trade_goods, 1 + 3);
     assert!(p.tech.owned.contains(Technology::GravityDrive));
@@ -105,7 +116,9 @@ fn a_planet_nobody_else_holds_still_gives_the_goods_and_a_planet_without_a_techn
     let (sc, [a, _]) = scenario();
     let mut rig = hero(sc, vec![target(a, 4, &[])]);
     rig.state.board_mut().planet_mut(a.1).units.retain(|p| p.owner() == Seat(0));
+    rig.state.board_mut().sys_mut(a.0).flags.set(SysFlags::TOUCHED, false);
     rig.run();
+    assert!(!rig.state.board().sys(a.0).flags.has(SysFlags::TOUCHED), "nothing fell: the system entry is not created (`system_mut` is not called)");
     assert!(rig.is_done() && rig.driver.window.used);
     assert_eq!(staged_rows(&rig), 0);
     let p = rig.state.players().by_seat(Seat(0)).unwrap();
@@ -190,6 +203,9 @@ fn each_player_shows_a_card_in_seat_order_then_the_holder_decides_for_each_and_n
     assert_eq!((q.actor, q.ask), (Seat(1), Ask::Cards(CAsk::OwnHand { reason: Reason::Show { viewer: Seat(0) } })));
     assert_eq!(q.ctx.origin, Origin::FactionAbility(ti4_engine_core::choice::generic::Content::Leader(Leader::KyverBladeAndKey)));
     rig.assert_options_sound();
+    let mut by_name = vec![C[0], C[1]];
+    by_name.sort_by_key(|card| card.name_rank());
+    assert_eq!(rig.opts(), by_name.iter().map(|card| Opt::Cards(COpt::Card(*card))).collect::<Vec<_>>(), "one option per printed card, in the order of the names");
     rig.pick_opt(Opt::Cards(COpt::Card(C[1])));
     let q = rig.asked().clone();
     assert_eq!((q.actor, q.ask), (Seat(2), Ask::Cards(CAsk::OwnHand { reason: Reason::Show { viewer: Seat(0) } })));
@@ -211,6 +227,9 @@ fn each_player_shows_a_card_in_seat_order_then_the_holder_decides_for_each_and_n
     assert!(rig.state.marks().tail.iter().any(|(_, v)| *v == taken), "the take is staged");
     let discards = rig.state.marks().tail.iter().filter(|(_, v)| matches!(v, MarkVal::Rec(r) if r.first() == Some(&MarkVal::Atom(Atom::Word(Word::Discarded))))).count();
     assert_eq!(discards, 3, "each random discard is staged");
+    let drawn: Vec<ti4_engine_core::state::RngDomain> = rig.state.rng().positions().map(|(d, _)| d).collect();
+    assert!(drawn.contains(&ti4_engine_core::state::RngDomain::YssarilHero), "the random discards draw from the hero's own stream: {drawn:?}");
+    assert!(!drawn.contains(&ti4_engine_core::state::RngDomain::Dice), "and shift no other stream");
 }
 
 #[test]
@@ -332,16 +351,23 @@ fn each_ship_rolls_one_die_and_a_one_to_three_captures_it_from_the_board() {
     let ships: Vec<Piece> = vec![Piece::new(Unit::CruiserI, Seat(1)); 2];
     let targets: Vec<(System, Piece)> = ships.iter().map(|p| (system, *p)).collect();
     let (mut hit, mut miss) = (false, false);
+    let mut faces_seen = std::collections::BTreeSet::new();
     for seed in 0..60 {
+        // The two dice the window draws from the dice stream, read off a copy of the start position's streams.
+        let mut probe = carrion(sc.clone(), true, Vec::new(), Vec::new()).state.rng().clone();
+        let faces: Vec<u32> = (0..2).map(|_| probe.die(ti4_engine_core::state::RngDomain::Dice, &ti4_engine_core_tests::rig::KitSeeds(seed), 10)).collect();
+        faces_seen.extend(faces.iter().copied());
         let rig = play(&sc, true, &targets, &[], seed);
         assert!(rig.driver.window.used);
         let taken = captured(&rig).len();
+        assert_eq!(taken, faces.iter().filter(|face| **face <= 3).count(), "a 1 to 3 captures, a 4 or more does not: {faces:?}");
         assert_eq!(at(&rig, system, 1, Unit::CruiserI) + taken, 2, "a ship is on the board or in the holder's sheet");
         assert!(captured(&rig).iter().all(|c| *c == (Seat(1), Unit::CruiserI)));
         hit |= taken > 0;
         miss |= taken < 2;
     }
     assert!(hit && miss, "both outcomes are reached on some seed");
+    assert!(faces_seen.contains(&3) && faces_seen.contains(&4), "the boundary faces were drawn: {faces_seen:?}");
     // The same seed gives the same outcome.
     assert_eq!(captured(&play(&sc, true, &targets, &[], 9)), captured(&play(&sc, true, &targets, &[], 9)));
 }
@@ -360,8 +386,14 @@ fn an_unplayable_card_rolls_nothing_and_changes_nothing() {
 fn the_cargo_a_captured_carrier_strands_is_removed_by_the_owner_and_captured_in_unit_order() {
     covers!("rules::hero_windows::CabalHero");
     let (sc, system) = hub();
-    let sc = sc.unit(system, None, Unit::CarrierI, 1, 1).unit(system, None, Unit::FighterI, 1, 2);
-    let infantry = [(system, Piece::new(Unit::InfantryI, Seat(1))); 2];
+    let sc = sc.unit(system, None, Unit::CarrierI, 1, 1);
+    // The infantry stands before the fighters in the list: the captures follow the order of the unit ids, not the list.
+    let infantry = [
+        (system, Piece::new(Unit::InfantryI, Seat(1))),
+        (system, Piece::new(Unit::InfantryI, Seat(1))),
+        (system, Piece::new(Unit::FighterI, Seat(1))),
+        (system, Piece::new(Unit::FighterI, Seat(1))),
+    ];
     let target = (system, Piece::new(Unit::CarrierI, Seat(1)));
     let stranded = [Stranded { owner: Seat(1), system, limits: limits() }];
     let mut found = false;
@@ -447,4 +479,311 @@ fn owners_and_systems_are_enforced_in_the_order_the_adapter_gives() {
         }
     }
     panic!("no seed captures both carriers");
+}
+
+// -- Hesh and Prit, Mathis Mathinus ------------------------------------------------------------------
+
+use ti4_engine_core::kernel::fx_perform::{Carried, Facts as PerformFacts};
+use ti4_engine_core::rules::hero_windows::{NaazHero, WinnuHero};
+use ti4_engine_core::tables::Scope;
+
+fn perform_facts(carried: Carried) -> PerformFacts {
+    PerformFacts { carried, replenish_events: false, rules_version: LATEST_RULES, roster: None, scope: Scope(u32::from(kernel_all().sources.0)), mahact_held: 0 }
+}
+
+fn naaz(cards: &[StrategyCard], relics: &[Relic], tokens: (i16, i16, i16)) -> Rig<NaazHero> {
+    let sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheArborec]).kernel(kernel_all()).tokens(0, tokens.0, tokens.1, tokens.2).commodities(0, 0);
+    let mut rig = Rig::new(sc, NaazHero::new(Seat(0), perform_facts(Carried { payments: true, ..Carried::default() }), cards.to_vec()));
+    rig.state.decks_mut().relic.set(relics.to_vec());
+    rig
+}
+
+fn relics_of(rig: &Rig<NaazHero>) -> Vec<Relic> {
+    rig.state.players().by_seat(Seat(0)).unwrap().cards.relics.as_slice().to_vec()
+}
+
+#[test]
+fn without_a_relic_in_the_deck_nothing_is_asked_and_the_card_is_not_used() {
+    covers!("rules::hero_windows::NaazHero");
+    let mut rig = naaz(&[StrategyCard::Trade], &[], (3, 3, 2));
+    rig.run();
+    assert!(rig.is_done() && !rig.driver.window.used && !rig.driver.window.unsupported);
+    assert_eq!(delta(rig.start_state(), &rig.state), "");
+}
+
+#[test]
+fn up_to_two_cards_are_chosen_the_relic_is_gained_and_each_secondary_is_performed_in_the_order_chosen() {
+    covers!("rules::hero_windows::NaazHero");
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+    let mut rig = naaz(&[StrategyCard::Leadership, StrategyCard::Trade, StrategyCard::Imperial, StrategyCard::Warfare], &[relic], (3, 3, 2));
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Leaders(LAsk::NaazCard)));
+    assert_eq!(
+        rig.opts(),
+        vec![
+            Opt::Leaders(LOpt::HeroCard(StrategyCard::Leadership)),
+            Opt::Leaders(LOpt::HeroCard(StrategyCard::Trade)),
+            Opt::Leaders(LOpt::HeroCard(StrategyCard::Imperial)),
+            Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)),
+            Opt::Decline
+        ]
+    );
+    let at_first = rig.state.clone();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Trade)));
+    assert_eq!(rig.opts().len(), 4, "the card chosen is not offered again");
+    assert_eq!(delta(&at_first, &rig.state), "", "nothing changes before the last choice");
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Imperial)));
+    // The relic, the replenishment of Trade's secondary and the secret of Imperial's secondary.
+    while !rig.is_done() {
+        rig.pick(0);
+    }
+    assert!(rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
+    assert_eq!(relics_of(&rig), vec![relic]);
+    let p = rig.state.players().by_seat(Seat(0)).unwrap();
+    assert!(p.econ.commodities > 0, "the Trade secondary replenished");
+}
+
+#[test]
+fn declining_ends_the_choice_and_the_relic_is_still_gained() {
+    covers!("rules::hero_windows::NaazHero");
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+    let mut rig = naaz(&[StrategyCard::Trade, StrategyCard::Leadership], &[relic], (3, 3, 2));
+    rig.run();
+    rig.decline();
+    assert!(rig.is_done() && rig.driver.window.used);
+    assert_eq!(relics_of(&rig), vec![relic]);
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, 0, "no secondary performed");
+}
+
+#[test]
+fn a_card_that_costs_a_token_is_offered_only_while_the_reinforcements_hold_one() {
+    covers!("rules::hero_windows::NaazHero");
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+    // 16 tokens on the sheet: none in the reinforcements.
+    let mut rig = naaz(&[StrategyCard::Trade, StrategyCard::Leadership], &[relic], (8, 4, 4));
+    rig.run();
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::HeroCard(StrategyCard::Leadership)), Opt::Decline], "Leadership's secondary costs influence, not a token");
+    // Nothing else to offer: the choice ends and the relic is gained unasked.
+    let mut none = naaz(&[StrategyCard::Trade, StrategyCard::Imperial], &[relic], (8, 4, 4));
+    none.run();
+    assert!(none.is_done() && none.driver.window.used);
+}
+
+#[test]
+fn the_warfare_secondary_is_not_carried_and_makes_the_window_unsupported() {
+    covers!("rules::hero_windows::NaazHero");
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+    let mut rig = naaz(&[StrategyCard::Warfare], &[relic], (3, 3, 2));
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    assert!(rig.is_done() && rig.driver.window.unsupported, "the string performs the home production");
+}
+
+#[test]
+fn naaz_refuses_a_card_that_was_not_offered() {
+    covers!("rules::hero_windows::NaazHero");
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+    let mut rig = naaz(&[StrategyCard::Trade], &[relic], (3, 3, 2));
+    rig.run();
+    rig.expect_illegal(Pick::Opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Politics))));
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Trade)));
+    // One candidate left: nothing remains to choose, the window went on to its secondaries.
+    assert!(rig.is_done());
+}
+
+fn winnu(cards: &[StrategyCard]) -> Rig<WinnuHero> {
+    let sc = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec, Faction::TheEmbersOfMuaat]).kernel(kernel_all()).commodities(0, 0).commodities(1, 0);
+    Rig::new(sc, WinnuHero::new(Seat(0), perform_facts(Carried { payments: true, ..Carried::default() }), cards.to_vec()))
+}
+
+#[test]
+fn the_card_is_asked_even_for_one_and_its_primary_is_performed_by_the_ability_window() {
+    covers!("rules::hero_windows::WinnuHero");
+    let mut rig = winnu(&[StrategyCard::Trade, StrategyCard::Imperial]);
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Leaders(LAsk::WinnuCard)));
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::HeroCard(StrategyCard::Trade)), Opt::Leaders(LOpt::HeroCard(StrategyCard::Imperial))], "no decline");
+    rig.assert_options_sound();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Trade)));
+    while !rig.is_done() {
+        rig.pick(0);
+    }
+    assert_eq!(rig.driver.window.chosen, Some(StrategyCard::Trade));
+    assert!(!rig.driver.window.unsupported);
+    assert!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities > 0, "the Trade primary replenished the performer");
+    assert!(!rig.state.pending().staged.is_empty(), "and announced the three trade goods");
+}
+
+#[test]
+fn the_imperial_primary_is_not_carried_and_no_cards_means_no_question() {
+    covers!("rules::hero_windows::WinnuHero");
+    let mut rig = winnu(&[StrategyCard::Imperial]);
+    rig.run();
+    rig.pick(0);
+    assert!(rig.is_done() && rig.driver.window.unsupported && rig.driver.window.chosen == Some(StrategyCard::Imperial));
+    let mut none = winnu(&[]);
+    none.run();
+    assert!(none.is_done() && none.driver.window.chosen.is_none() && !none.driver.window.unsupported);
+    assert_eq!(delta(none.start_state(), &none.state), "");
+}
+
+#[test]
+fn winnu_refuses_a_card_that_was_not_offered() {
+    covers!("rules::hero_windows::WinnuHero");
+    let mut rig = winnu(&[StrategyCard::Trade]);
+    rig.run();
+    rig.expect_illegal(Pick::Opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Politics))));
+    rig.expect_illegal(Pick::Opt(Opt::Decline));
+}
+
+#[test]
+fn a_ship_that_is_not_there_is_not_captured_and_strands_nothing() {
+    covers!("rules::hero_windows::CabalHero");
+    let (sc, system) = hub();
+    // Fighters without a carrier stand over the capacity already; no ship was captured, so nobody is enforced.
+    let sc = sc.unit(system, None, Unit::FighterI, 1, 3);
+    let target = (system, Piece::new(Unit::CarrierI, Seat(1)));
+    let stranded = [Stranded { owner: Seat(1), system, limits: limits() }];
+    for seed in 0..30 {
+        let mut rig = carrion(sc.clone(), true, vec![target], stranded.to_vec()).seeded(seed);
+        rig.run();
+        assert!(rig.is_done(), "no question for a ship that was never there: {}", rig.transcript());
+        assert!(captured(&rig).is_empty());
+        assert_eq!(at(&rig, system, 1, Unit::FighterI), 3);
+    }
+}
+
+// -- Flock Migration ------------------------------------------------------------------------------------
+
+use ti4_engine_core::rules::hero_windows::{ArgentHero, MigrationFacts};
+
+fn three() -> [(System, Planet); 3] {
+    let mut found: Vec<(System, Planet)> = Vec::new();
+    for s in plain_systems() {
+        if let Some(p) = s.data().planets.first()
+            && s.data().planets.len() == 1
+        {
+            found.push((s, *p));
+        }
+        if found.len() == 3 {
+            break;
+        }
+    }
+    found.sort_unstable();
+    [found[0], found[1], found[2]]
+}
+
+fn facts(sys: &[System], enterable: &[System]) -> MigrationFacts {
+    MigrationFacts { order: sys.to_vec(), on_map: sys.to_vec(), enterable: enterable.to_vec() }
+}
+
+/// Seat 0 (Argent) holds a carrier in the first system, command tokens on the other two.
+fn flock(extra: impl FnOnce(Scenario, &[(System, Planet); 3]) -> Scenario, enterable: Option<Vec<System>>) -> (Rig<ArgentHero>, [(System, Planet); 3]) {
+    let spots = three();
+    let sys: Vec<System> = spots.iter().map(|s| s.0).collect();
+    let sc = Scenario::new(&[Faction::TheArgentFlight, Faction::TheArborec])
+        .kernel(kernel_all())
+        .map_from(&sys)
+        .unit(sys[0], None, Unit::CarrierI, 0, 1)
+        .command_token(sys[1], 0)
+        .command_token(sys[2], 0);
+    let sc = extra(sc, &spots);
+    let enterable = enterable.unwrap_or_else(|| sys.clone());
+    (Rig::new(sc, ArgentHero::new(Seat(0), facts(&sys, &enterable))), spots)
+}
+
+#[test]
+fn a_ship_moves_to_a_tokened_system_free_of_other_ships_and_is_not_offered_again() {
+    covers!("rules::hero_windows::ArgentHero");
+    let (mut rig, spots) = flock(|sc, s| sc.unit(s[2].0, None, Unit::CruiserI, 1, 1), None);
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Leaders(LAsk::FlockShip)));
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::FlockShip { index: 0, system: spots[0].0, unit: Unit::CarrierI }), Opt::Decline]);
+    rig.assert_options_sound();
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Leaders(LAsk::FlockTo)));
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::FlockTo(spots[1].0)), Opt::Decline], "the system with another player's ship is not offered");
+    rig.pick(0);
+    assert!(rig.is_done(), "the carrier that arrived is not offered again: {}", rig.transcript());
+    assert!(rig.driver.window.moved);
+    assert_eq!(at_seat(&rig, spots[0].0, 0, Unit::CarrierI), 0);
+    assert_eq!(at_seat(&rig, spots[1].0, 0, Unit::CarrierI), 1);
+}
+
+fn at_seat<W: Window>(rig: &Rig<W>, system: System, seat: u8, unit: Unit) -> usize {
+    rig.state.board().sys(system).units.as_slice().iter().filter(|p| p.owner() == Seat(seat) && p.kind() == unit).count()
+}
+
+#[test]
+fn units_are_carried_from_the_space_and_the_planets_until_the_seat_stops_and_land_in_space() {
+    covers!("rules::hero_windows::ArgentHero");
+    let (mut rig, spots) = flock(|sc, s| sc.control(s[0].1, 0).unit(s[0].0, Some(s[0].1), Unit::InfantryI, 0, 2), None);
+    rig.run();
+    rig.pick(0);
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Leaders(LAsk::FlockCargo)));
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::FlockCargo { index: 0, unit: Unit::InfantryI }), Opt::Leaders(LOpt::FlockCargo { index: 1, unit: Unit::InfantryI }), Opt::Decline]);
+    rig.assert_options_sound();
+    rig.pick(0);
+    rig.decline();
+    assert!(rig.is_done() && rig.driver.window.moved);
+    assert_eq!(at_seat(&rig, spots[1].0, 0, Unit::InfantryI), 1, "the infantry that was taken is in the space area of the destination");
+    assert_eq!(rig.state.board().planet(spots[0].1).units.as_slice().iter().filter(|p| p.owner() == Seat(0)).count(), 1, "the other stays on its planet");
+}
+
+#[test]
+fn a_cargo_that_does_not_fit_is_dropped_and_the_ship_moves_alone() {
+    covers!("rules::hero_windows::ArgentHero");
+    // A carrier holds four; five ground forces are taken aboard.
+    let (mut rig, spots) = flock(|sc, s| sc.control(s[0].1, 0).unit(s[0].0, Some(s[0].1), Unit::InfantryI, 0, 5), None);
+    rig.run();
+    rig.pick(0);
+    rig.pick(0);
+    for _ in 0..5 {
+        rig.pick(0);
+    }
+    // Nothing is left to offer: the ship moves.
+    assert!(rig.is_done() && rig.driver.window.moved);
+    assert_eq!(at_seat(&rig, spots[1].0, 0, Unit::CarrierI), 1);
+    assert_eq!(at_seat(&rig, spots[1].0, 0, Unit::InfantryI), 0, "the hold was over capacity: no cargo");
+    assert_eq!(rig.state.board().planet(spots[0].1).units.as_slice().len(), 5);
+}
+
+#[test]
+fn declining_any_question_ends_the_migration_and_a_destination_the_seat_cannot_enter_moves_nothing() {
+    covers!("rules::hero_windows::ArgentHero");
+    let (mut a, _) = flock(|sc, _| sc, None);
+    a.run();
+    a.decline();
+    assert!(a.is_done() && !a.driver.window.moved);
+    assert_eq!(delta(a.start_state(), &a.state), "");
+    let (mut b, _) = flock(|sc, _| sc, None);
+    b.run();
+    b.pick(0);
+    b.decline();
+    assert!(b.is_done() && !b.driver.window.moved);
+    // Neither destination can be entered: the relocation is refused and the card ends.
+    let (mut c, _) = flock(|sc, _| sc, Some(Vec::new()));
+    c.run();
+    c.pick(0);
+    c.pick(0);
+    assert!(c.is_done() && !c.driver.window.moved);
+    assert_eq!(delta(c.start_state(), &c.state), "");
+}
+
+#[test]
+fn each_ship_moves_once_over_the_whole_migration() {
+    covers!("rules::hero_windows::ArgentHero");
+    let (mut rig, spots) = flock(|sc, s| sc.unit(s[0].0, None, Unit::DestroyerI, 0, 1), None);
+    rig.run();
+    // Two stacks of the first system: carrier, destroyer. Move the carrier, then the destroyer to the other tokened system.
+    assert_eq!(rig.opts().len(), 3);
+    rig.pick(0);
+    rig.pick(1);
+    let ships: Vec<Opt> = rig.opts();
+    assert!(ships.contains(&Opt::Leaders(LOpt::FlockShip { index: 0, system: spots[0].0, unit: Unit::DestroyerI })), "{ships:?}");
+    assert!(!ships.iter().any(|o| matches!(o, Opt::Leaders(LOpt::FlockShip { unit: Unit::CarrierI, .. }))), "the carrier that arrived is not offered: {ships:?}");
+    rig.pick(0);
+    rig.pick(0);
+    assert!(rig.is_done() && rig.driver.window.moved, "{}", rig.transcript());
 }

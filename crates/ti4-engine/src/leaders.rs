@@ -2411,12 +2411,9 @@ fn dispatch_leader(
 #[must_use]
 pub(crate) fn string_only_leader(id: &str) -> Option<&'static str> {
     Some(match id {
-        "naazhero" => "naazhero: a relic and the secondary of one or two strategy cards chosen at run time. Read in lane 7 and kept: `Spawn` names no child for the secondaries of Warfare (home production) and Imperial as a continuation of a leader, and a failed secondary restores the whole position (a snapshot of the state)",
-        "winnuhero" => "winnuhero: the primary of any strategy card, then the secondary offered to the other players (`use_leader_strategy_primary`, D1b dispatch). Read in lane 7 and kept: the primary of Imperial and the follow-up of every other seat are not children a leader can start",
-        "empyreanhero" => "empyreanhero: explores every frontier token that holds a ship (the exploration composition, D1). Kept in lane 7: each exploration is a loop of `explore_frontier` whose rewards run other areas' bodies, with a rollback of the state, the dice and the stream on a failure",
-        "argenthero" => "argenthero: moves the fleets of the board by the Flock's migration. Kept in lane 7: ships one at a time between command-token systems with their cargo (`migrate`), a movement the core runs only inside the tactical movement windows",
-        "yinhero" => "yinhero: lands infantry and fights the ground combat. Kept in lane 7: the Game path (`use_leader_timed`) runs each chosen planet through the eventful ground-combat window with its timing events (the invasion composition, D1b)",
-        "mahacthero" => "mahacthero: a space combat between two sides chosen on the map. Kept in lane 7: the pair is asked over the map, then the whole space combat runs with no retreat (the tactical composition, D1b)",
+        "empyreanhero" => "empyreanhero: places a frontier token in every system without a planet, then explores each token that holds one of its ships. Kept in lane 8: the core has the primitives of an exploration (draw, fragment, attachment, wormhole token, the reward windows) but no window that explores a frontier token: `exploration::explore_frontier` is `explore_in` (the exploration log row opened and closed with the `Holdings` difference and `row_words`, the card's own arm, the `PLANET_EXPLORED` hooks), run once per token under a whole-state rollback of the state, the dice and the stream",
+        "yinhero" => "yinhero: commits infantry to non-home planets, lands them and fights the ground combat there. Kept in lane 8: the Game path (`use_leader_timed`) fights each chosen planet with `InvasionWindow::fight_committed_planet`, the eventful ground-combat window run inside the game's timing resolver (its rounds, reactions and nested emissions), then `establish_control` runs the string `finish_control_gain` chain; the core has the ground-combat pieces but no window that fights one committed planet to its end as a child",
+        "mahacthero" => "mahacthero: moves a fleet next to another player's ships and fights the space combat there with no retreat. Kept in lane 8: the pair is asked over the map and the fleet moved (the `Enforce` child exists since `Spawn::Seeing`), but the fight is `combat::resolve_resolving` inside the game's timing resolver; the core combat `Machine` settles one decision at a time for the `Game` combat driver (its `Env` is computed by `core_combat::window_env`) and is not a window that runs a whole combat as a child",
         _ => return None,
     })
 }
@@ -2750,14 +2747,13 @@ mod tests {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let content = ContentStore::embedded();
         let ids = [
-            "naazhero", "winnuhero",
-            "empyreanhero", "argenthero", "yinhero", "mahacthero",
+            "empyreanhero", "yinhero", "mahacthero",
         ];
         for id in ids {
             assert!(string_only_leader(id).is_some_and(|why| why.starts_with(id)), "{id}");
             assert!(kind_of(content, &LeaderId::new(id)).is_some(), "{id} is a leader of the corpus");
         }
-        for carried in ["nekrohero", "yssarilhero", "cabalhero", "arborechero", "muaatagent", "arborecagent", "saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
+        for carried in ["nekrohero", "yssarilhero", "cabalhero", "naazhero", "winnuhero", "argenthero", "arborechero", "muaatagent", "arborecagent", "saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
             assert_eq!(string_only_leader(carried), None, "{carried} has a port");
         }
         let _guard = crate::dual::tests::serial();

@@ -151,6 +151,11 @@ impl Family for Fam {
             Ask::FlayeshPlanet => "UNIT.DSGN.FLAYESH: choose a planet with a technology specialty".to_owned(),
             Ask::FlayeshTech => "UNIT.DSGN.FLAYESH: choose a technology that matches the specialty".to_owned(),
             Ask::KyverFate { target, card } => format!("Kyver: {} showed {}", r.seat_text(*target), action_card_name(*card)),
+            Ask::NaazCard => "Hesh and Prit: perform the secondary of which card".to_owned(),
+            Ask::WinnuCard => "Mathis Mathinus: which strategy card".to_owned(),
+            Ask::FlockShip => "Flock Migration: choose a ship to move".to_owned(),
+            Ask::FlockTo => "Flock Migration: choose the destination".to_owned(),
+            Ask::FlockCargo => "Flock Migration: carry a unit aboard (it cannot be landed)".to_owned(),
         }
     }
 
@@ -177,6 +182,10 @@ impl Family for Fam {
             Subtype::FlayeshPlanet => "flayesh_planet".to_owned(),
             Subtype::FlayeshTech => "flayesh_technology".to_owned(),
             Subtype::KyverFate => "kyver_take_or_discard".to_owned(),
+            Subtype::HeroCard => "hero_card".to_owned(),
+            Subtype::FlockShip => "flock_migration_ship".to_owned(),
+            Subtype::FlockTo => "flock_migration_to".to_owned(),
+            Subtype::FlockCargo => "flock_migration_cargo".to_owned(),
         }
     }
 
@@ -225,6 +234,16 @@ impl Family for Fam {
                 let Ask::KyverFate { target, .. } = a else { unreachable!("a Kyver option under another question") };
                 ChoiceOption::labelled("discard", "hero", format!("force {} to discard 3 random action cards", r.seat_text(*target)))
             }
+            Opt::HeroCard(card) => ChoiceOption::labelled(
+                card.as_str(),
+                "strategy_card",
+                crate::draft::strategy_card_label(ti4_content::ContentStore::embedded(), card.as_str()),
+            ),
+            Opt::FlockShip { index, system, unit } => {
+                ChoiceOption::labelled(format!("ship|{index}"), "flock_migration_ship", format!("move {} from {}", unit.as_str(), system.as_str()))
+            }
+            Opt::FlockTo(system) => ChoiceOption::labelled(format!("to|{}", system.as_str()), "flock_migration_to", format!("move it to {}", system.as_str())),
+            Opt::FlockCargo { index, unit } => ChoiceOption::labelled(format!("cargo|{index}"), "flock_migration_cargo", format!("carry {}", unit.as_str())),
             Opt::Remove => ChoiceOption::labelled("remove", INFANTRY_KIND, "remove 1 infantry"),
             Opt::Keep => match a {
                 Ask::JolnarSwap { held } => {
@@ -311,6 +330,10 @@ impl Family for Fam {
                 Some(Opt::Devour(System::from_id(system)?, Planet::from_id(planet)?))
             }
             Ask::FlayeshTech => Technology::from_id(id).map(Opt::Gain),
+            // The numbers name a place in the list the question offered, not a unit: the id is matched against the options.
+            Ask::FlockShip | Ask::FlockCargo => None,
+            Ask::FlockTo => System::from_id(id.strip_prefix("to|")?).map(Opt::FlockTo),
+            Ask::NaazCard | Ask::WinnuCard => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::HeroCard),
             Ask::KyverFate { .. } => match id {
                 "take" => Some(Opt::KyverTake),
                 "discard" => Some(Opt::KyverDiscard),

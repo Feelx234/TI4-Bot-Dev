@@ -521,9 +521,9 @@ fn close_row(gs: &mut GameState, player: &PlayerId, row: &rules::effects::ProbeR
 }
 /// Strategize and Overrule: what the performed abilities of the strategy areas read beyond a card's play (the research reads the
 /// trade and exploration slices) and write (the speaker of Politics).
-const PERFORM: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Trade, Slice::Explore], &[Slice::Meta]);
+pub(crate) const PERFORM: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Trade, Slice::Explore], &[Slice::Meta]);
 
-const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
+pub(crate) const PLAY: crate::core_sync::Footprint = crate::core_sync::Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger, Slice::Objectives],
     &[Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger],
 );
@@ -896,7 +896,7 @@ pub fn announce_window(
 
 /// The announcements of the command tokens the Diplomacy primary placed (Overrule), staged on the string state as
 /// `strategy_cards::diplomacy` stages them (they are not a codec slice).
-fn stage_placed_tokens(gs: &mut GameState, r: &crate::render::Render, placed: Option<(System, Vec<ti4_engine_core::Seat>)>) {
+pub(crate) fn stage_placed_tokens(gs: &mut GameState, r: &crate::render::Render, placed: Option<(System, Vec<ti4_engine_core::Seat>)>) {
     let Some((system, seats)) = placed else { return };
     for seat in seats {
         let system = ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(system));
@@ -927,7 +927,7 @@ fn performing_of<'a>(
 
 /// What the adapter vouches for when Strategize or Overrule performs a strategy card's ability in the core: the guards of the
 /// string windows that read the string position (`strategy_cards_core`).
-fn carried_of(
+pub(crate) fn carried_of(
     core: &ti4_engine_core::state::CoreState,
     gs: &GameState,
     sources: &ti4_model::content_types::SourceSet,
