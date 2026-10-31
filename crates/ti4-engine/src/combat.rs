@@ -5808,8 +5808,11 @@ impl CombatWindow {
         // The notes the announcement leaves (Cabal's marks, a staged event) are the core's when the string run had
         // nested activity: the abilities of the table write them, and the state comparison tells.
         // (Technological Singularity's combat mark, `nekro:ts:`, is one of those: the ability that closes it is in the table.)
-        let own = |marks: &std::collections::BTreeMap<String, String>| marks.iter().filter(|(k, _)| !k.starts_with("nekro:ts:")).map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>();
-        marks_changed.set(own(&state.faction_marks) != own(&marks));
+        // (The Cabal's participation mark of this combat, `cabal:devour:{system}`, is cleared by the core window itself when a side holds it.)
+        let devour = format!("cabal:devour:{}", self.system);
+        let own = |marks: &std::collections::BTreeMap<String, String>| marks.iter().filter(|(k, _)| !k.starts_with("nekro:ts:") && **k != devour).map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>();
+        let devour_cleared_or_kept = state.faction_marks.get(&devour).is_none_or(|now| marks.get(&devour) == Some(now));
+        marks_changed.set(own(&state.faction_marks) != own(&marks) || !devour_cleared_or_kept);
         announce_staged_destructions(state, ctx);
                 crate::dual::Run::new(true)
             },
@@ -12147,15 +12150,59 @@ mod tests {
     /// the single windows and the composed machine.
     #[test]
     fn a_neutral_side_fights_in_the_core_for_every_faction_across_from_it() {
-        let rotation = ["letnev", "mentak", "argent", "nomad", "jolnar", "sardakk", "l1z1x", "titans", "naaz", "yssaril", "muaat", "empyrean", "saar", "creuss", "arborec", "naalu", "mahact", "vuilraith", "yin", "winnu", "ghost", "nekro", "xxcha", "sol"];
+        // (Yin is left out: its Devotion hits are placed by their producer, which the composed machine does not carry, neutral opponent
+        // or not: `a_yin_seat_that_uses_devotion_keeps_the_composed_machine_on_the_string_and_says_why` pins it.)
+        let rotation = ["letnev", "mentak", "argent", "nomad", "jolnar", "sardakk", "l1z1x", "titans", "naaz", "yssaril", "muaat", "empyrean", "saar", "ghost", "arborec", "naalu", "mahact", "cabal", "winnu", "nekro", "xxcha", "sol"];
+        let mut failures = Vec::new();
         for (n, faction) in rotation.iter().enumerate() {
             let table = ["sol", "hacan", rotation[(n + 5) % rotation.len()]];
             for composed in [false, true] {
                 let (asked, compared, bailed) = roll_step_fights_of([faction, table[1], table[2]], &neutral_garrison, 0, composed);
-                assert!(asked.iter().all(|c| c.player.as_str() != crate::neutral_units::NEUTRAL), "{faction}: the neutral side is never asked ({composed})");
-                assert!(compared > 0, "{faction} (composed {composed}): the fights were compared: {compared} compared, {bailed} bailed");
-                assert_eq!(bailed, 0, "{faction} (composed {composed}): the core carries a neutral side");
-                no_bails(&format!("a neutral side across from {faction} (composed {composed})"));
+                let keys = BAIL_KEYS.with(|k| std::mem::take(&mut *k.borrow_mut()));
+                if asked.iter().any(|c| c.player.as_str() == crate::neutral_units::NEUTRAL) {
+                    failures.push(format!("{faction} (composed {composed}): the neutral side was asked"));
+                }
+                if compared == 0 || bailed > 0 || !keys.is_empty() {
+                    failures.push(format!("{faction} (composed {composed}): {compared} compared, {bailed} bailed: {keys:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "a neutral side across from these factions is not carried by the core: {failures:#?}");
+    }
+
+    /// The open item the neutral-side scenarios found: a Yin seat's Devotion hits ("destroy one of your cruisers or destroyers after a round:
+    /// produce one hit") are placed by their producer, and the composed machine does not carry a hit the producer assigns
+    /// (`Machine::pending_choice` returns nothing for a `producer_assigns` pend, the machine bails `Bail::Unported`). The single windows carry
+    /// it. True of every fight a Yin seat takes part in, a neutral opponent or not. Fails the day the machine carries it: then this test
+    /// becomes a bail-as-failure test and `yin` joins the rotation of `a_neutral_side_fights_in_the_core_for_every_faction_across_from_it`.
+    #[test]
+    fn a_yin_seat_that_uses_devotion_keeps_the_composed_machine_on_the_string_and_says_why() {
+        let mut composed_keys = Vec::new();
+        for (setup, what) in [(&(|_: &mut GameState, _: u64| {}) as &dyn Fn(&mut GameState, u64), "a plain fight"), (&neutral_garrison, "a neutral garrison")] {
+            let (_, compared, _) = roll_step_fights_of(["yin", "hacan", "xxcha"], setup, 0, false);
+            assert!(compared > 0, "{what}: the single windows are compared");
+            assert_eq!(take_bail_keys(), Vec::<String>::new(), "{what}: the single windows carry Devotion");
+            let _ = roll_step_fights_of(["yin", "hacan", "xxcha"], setup, 0, true);
+            composed_keys.extend(take_bail_keys());
+        }
+        assert!(!composed_keys.is_empty(), "the composed machine bails on a producer-assigned hit");
+        assert!(composed_keys.iter().all(|k| k.contains("a position it does not carry")), "the only reason is the machine's position: {composed_keys:?}");
+    }
+
+    fn take_bail_keys() -> Vec<String> {
+        BAIL_KEYS.with(|k| std::mem::take(&mut *k.borrow_mut()))
+    }
+
+    /// W15: a fight with a Cabal seat runs through the composed machine without bailing at the end: the Cabal's participation mark of the
+    /// combat (`cabal:devour:{system}`) is cleared by the core's announcement of the end (it was the string's note, a counted bail of every
+    /// fight a Cabal seat took part in, a neutral one or not).
+    #[test]
+    fn a_fight_of_a_cabal_seat_clears_its_participation_mark_in_the_core_announcement() {
+        for composed in [false, true] {
+            for (setup, what) in [(&(|_: &mut GameState, _: u64| {}) as &dyn Fn(&mut GameState, u64), "a plain fight"), (&neutral_garrison, "a neutral garrison")] {
+                let (_, compared, bailed) = roll_step_fights_of(["cabal", "hacan", "xxcha"], setup, 0, composed);
+                assert!(compared > 0 && bailed == 0, "{what} (composed {composed}): {compared} compared, {bailed} bailed");
+                no_bails(&format!("{what} with a Cabal attacker (composed {composed})"));
             }
         }
     }

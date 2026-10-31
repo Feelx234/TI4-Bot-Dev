@@ -15,6 +15,7 @@ use crate::containers::SmallList;
 use crate::generated::{System, Unit};
 use crate::ids::Seat;
 use crate::kernel::fx;
+use crate::keys::{Atom, MarkKey, MarkVal};
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::reach;
@@ -64,6 +65,14 @@ impl EndAnnounce {
     }
 }
 
+/// Remove the participation mark `cabal:devour:{system}` of a space combat when `seat` holds it.
+fn clear_participation(s: &mut CoreState, system: System, seat: Seat) {
+    let key = MarkKey::CabalDevour(system, None);
+    if matches!(s.marks().tail.get(&key), Some(MarkVal::Atom(Atom::Seat(holder))) if *holder == seat) {
+        s.marks_mut().tail.edit().remove(&key);
+    }
+}
+
 impl Window for EndAnnounce {
     type Stage = Stage;
 
@@ -104,6 +113,12 @@ impl Window for EndAnnounce {
             payload.set_list(Key::Other(f.codes.retreated), List::Seats(seats(&r.retreated)));
             payload.set_list(Key::Destroyed, List::Units(r.destroyed.iter().copied().collect()));
             let _ = sx.emit(fx::event(EventKind::SpaceCombatEnded, payload));
+            // The Cabal's participation mark of this combat (written when it began, so that Devour can read it after a whole fleet has gone) is
+            // cleared by its holder's ability right after the event (string `factions::cabal::participation`): the sides' own marks go with
+            // the announcement of the end, for the fights whose abilities the window is not lent.
+            for side in [f.attacker, f.defender] {
+                clear_participation(sx.state, f.system, side);
+            }
         }
         // The ground forces an Alastor brought into the battle are no longer in it (`Obs::ParticipantsCleared`), announced or not.
         {

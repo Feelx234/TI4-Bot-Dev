@@ -600,6 +600,81 @@ mod tests {
         (tape.take_unknown(), tape.needed().cloned())
     }
 
+    /// The staged roll of seat 1 the event `UNIT_ABILITY_ROLLED` is about: two groups of dice (a destroyer's two and a relic's three).
+    fn rolled(roller: Option<Seat>) -> CoreState {
+        use ti4_engine_core::state::{Code, RerollEntry, RerollSet};
+        let (mut s, _) = table(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]);
+        let entry = |unit: u16, on: u8, faces: &[u8]| RerollEntry {
+            unit: Code(unit),
+            planet: None,
+            hits_on: Some(on),
+            faces: faces.iter().copied().collect(),
+            rerolled: 0,
+            deltas: ti4_engine_core::containers::SortedMap::default(),
+            unit_types: ti4_engine_core::containers::SortedMap::default(),
+        };
+        let mut first = entry(1, 9, &[3, 4]);
+        first.deltas.insert(1, 1);
+        let set = RerollSet { kind: Code(9), system: System::ALL[0], rolls: vec![first, entry(2, 8, &[1, 2, 3])] };
+        s.transient_mut().combat.reroll_staging.edit().push((Seat(1), set));
+        s.transient_mut().combat.last_reroll_player = roller;
+        s
+    }
+
+    /// Scramble Frequency: every die of the staged set of the seat that rolled is drawn again, entry by entry, die by die; each draw is
+    /// marked, replaces the face and is a ledger row of purpose `Reroll` holding the faces of the whole group after the draw.
+    #[test]
+    fn scramble_frequency_draws_every_die_of_the_roller_again_and_keeps_each_redraw_in_the_ledger() {
+        use ti4_engine_core::state::{RngDomain, RollPurpose};
+        let mut s = rolled(Some(Seat(1)));
+        let mut stream = s.rng().clone();
+        let faces: Vec<u8> = (0..5).map(|_| u8::try_from(stream.die(RngDomain::Dice, &NoSeeds, 10)).unwrap()).collect();
+        assert_eq!(run(&mut s, &registered(), ActionCard::ScrambleFrequency, Seat(0), false), Ok(None));
+        let set = s.transient().combat.reroll_staging[0].1.clone();
+        assert_eq!(set.rolls[0].faces.to_vec(), faces[0..2].to_vec(), "the faces are the next five draws of the dice stream, in order");
+        assert_eq!(set.rolls[1].faces.to_vec(), faces[2..5].to_vec());
+        assert_eq!((set.rolls[0].rerolled, set.rolls[1].rerolled), (0b11, 0b111), "every die is marked as drawn again");
+        assert!(set.rolls[0].deltas.is_empty(), "the adjustment a die carried dies with it");
+        let rows: Vec<_> = s.ledger().dice.iter().cloned().collect();
+        assert_eq!(rows.len(), 5, "one row per die");
+        assert!(rows.iter().all(|r| r.purpose == RollPurpose::Reroll && r.owner == Some(Seat(1)) && r.scene == Some(System::ALL[0])), "the roller's rerolls in the scene of the roll");
+        assert_eq!((rows[0].rerolled, rows[1].rerolled, rows[2].rerolled, rows[4].rerolled), (1, 2, 1, 4), "the bit of the die drawn again");
+        assert_eq!((rows[0].hits_on, rows[2].hits_on), (Some(9), Some(8)));
+        // The faces of the group after each draw: the second row of the first group shows both new faces, the first row only the first.
+        assert_eq!(rows[0].faces.to_vec(), vec![faces[0], 4]);
+        assert_eq!(rows[1].faces.to_vec(), faces[0..2].to_vec());
+        assert_eq!(rows[2].faces.to_vec(), vec![faces[2], 2, 3]);
+    }
+
+    /// No roller named, or a roller with nothing staged: the card does nothing (the string `scramble` returns).
+    #[test]
+    fn scramble_frequency_without_a_roller_or_staged_dice_draws_nothing() {
+        let mut nobody = rolled(None);
+        let before = nobody.clone();
+        assert_eq!(run(&mut nobody, &registered(), ActionCard::ScrambleFrequency, Seat(0), false), Ok(None));
+        assert_eq!(nobody, before, "no roller: nothing changes");
+        let mut other = rolled(Some(Seat(0)));
+        let before = other.clone();
+        assert_eq!(run(&mut other, &registered(), ActionCard::ScrambleFrequency, Seat(0), false), Ok(None));
+        assert_eq!(other, before, "the roller staged nothing: nothing changes");
+    }
+
+    /// Fire Team keeps its redraw as registered (B12): the draws are made and marked but no ledger row is kept.
+    #[test]
+    fn the_redraw_of_fire_team_keeps_no_ledger_row() {
+        let mut s = rolled(Some(Seat(1)));
+        let kernel = ti4_engine_core::kernel::Kernel::plain();
+        let t = registered();
+        let mut tape = Tape::default();
+        let mut next_id = 1_u64;
+        let mut host = RulesHost { state: &mut s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id, seeds: &NoSeeds };
+        redraw(&mut host, Seat(1), &[(0, 1), (1, 2)], false);
+        assert!(s.ledger().dice.is_empty());
+        let set = &s.transient().combat.reroll_staging[0].1;
+        assert_eq!((set.rolls[0].rerolled, set.rolls[1].rerolled), (0b10, 0b100));
+        assert_eq!(set.rolls[0].faces[0], 3, "the dice not named keep their faces");
+    }
+
     #[test]
     fn skilled_retreat_moves_the_fleet_to_the_only_destination_and_draws_the_combat() {
         let to = System::ALL[1];

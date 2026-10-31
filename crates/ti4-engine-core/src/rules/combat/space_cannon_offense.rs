@@ -65,12 +65,11 @@ pub struct Facts {
     pub commander: Code,
 }
 
-/// One staged roll of a gunner: the hit number, the faces and the dice drawn again (a bit mask).
+/// One staged roll of a gunner: the hit number and the faces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
     hits_on: u32,
     faces: Vec<u32>,
-    rerolled: u64,
 }
 
 impl Entry {
@@ -146,7 +145,7 @@ impl SpaceCannonOffense {
                 Some((_, n)) => *n += got,
                 None => hits.push((owner, got)),
             }
-            let entry = Entry { hits_on: on, faces: faces.to_vec(), rerolled: 0 };
+            let entry = Entry { hits_on: on, faces: faces.to_vec() };
             match sets.iter_mut().find(|(s, _)| *s == owner) {
                 Some((_, list)) => list.push(entry),
                 None => sets.push((owner, vec![entry])),
@@ -167,7 +166,6 @@ impl SpaceCannonOffense {
             drawn.push((on, faces));
         }
         self.drawn = drawn;
-        sets.sort_by_key(|(s, _)| s.0);
         self.sets = sets;
         hits.sort_by_key(|(s, _)| s.0);
         self.gunners = hits.into_iter().filter(|(_, n)| *n > 0).collect();
@@ -203,7 +201,7 @@ impl SpaceCannonOffense {
                 planet: None,
                 hits_on: Some(u8::try_from(e.hits_on).unwrap_or(u8::MAX)),
                 faces: e.faces.iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect(),
-                rerolled: e.rerolled,
+                rerolled: 0,
                 deltas: crate::containers::SortedMap::default(),
                 unit_types: crate::containers::SortedMap::default(),
             })
@@ -222,7 +220,6 @@ impl SpaceCannonOffense {
         if let (Some(set), Some((_, entries))) = (staged, self.sets.iter_mut().find(|(s, _)| *s == gunner)) {
             for (entry, now) in entries.iter_mut().zip(set.rolls.iter()) {
                 entry.faces = now.faces.iter().map(|f| u32::from(*f)).collect();
-                entry.rerolled = now.rerolled;
             }
         }
         if sx.state.loaded.has(Slice::Ledger) {
@@ -232,7 +229,7 @@ impl SpaceCannonOffense {
                 .dice
                 .iter()
                 .skip(mark)
-                .filter(|r| r.purpose == RollPurpose::Reroll && r.owner == Some(gunner))
+                .filter(|r| r.purpose == RollPurpose::Reroll)
                 .map(|r| (u32::from(r.hits_on.unwrap_or(0)), r.faces.iter().map(|f| u32::from(*f)).collect()))
                 .collect();
             for redraw in redraws {

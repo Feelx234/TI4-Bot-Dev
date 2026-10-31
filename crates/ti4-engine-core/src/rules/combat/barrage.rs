@@ -281,12 +281,12 @@ impl BarrageStep {
 
     /// After the event: the staged faces are the side's roll now (a card drew dice again), and the redraws the cards recorded in the
     /// ledger since `mark` are the window's own, recorded in `drawn` as the string's dice history records them.
+    // (The rows after `mark` are the redraws of this event's cards: the roller's, nothing else is recorded between the mark and the read.)
     fn read_back(&mut self, sx: &mut Sx<'_>, side: Seat, mark: usize) {
         let staged = sx.state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == side).map(|(_, set)| set.clone());
         if let Some(set) = staged {
             for (entry, now) in self.entries.iter_mut().zip(set.rolls.iter()) {
                 entry.faces = now.faces.iter().map(|f| u32::from(*f)).collect();
-                entry.rerolled = now.rerolled;
             }
         }
         if sx.state.loaded.has(crate::state::Slice::Ledger) {
@@ -296,7 +296,7 @@ impl BarrageStep {
                 .dice
                 .iter()
                 .skip(mark)
-                .filter(|r| r.purpose == RollPurpose::Reroll && r.owner == Some(side))
+                .filter(|r| r.purpose == RollPurpose::Reroll)
                 .map(|r| (u32::from(r.hits_on.unwrap_or(0)), r.faces.iter().map(|f| u32::from(*f)).collect()))
                 .collect();
             for redraw in redraws {

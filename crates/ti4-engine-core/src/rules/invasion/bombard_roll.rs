@@ -80,11 +80,10 @@ impl Window for BombardRolled {
         }
         self.stage = Stage::Done;
         let f = self.f;
-        // (The string stages the set only when some die was rolled; without one there is no window.)
+        // (The string stages the set, and names the roller, only when some die was rolled; without one there is no window.)
         if !sx.state.transient().combat.reroll_staging.iter().any(|(seat, _)| *seat == f.invader) {
             return Next::Done;
         }
-        sx.state.transient_mut().combat.last_reroll_player = Some(f.invader);
         if f.announce {
             let hits = Self::staged_hits(sx.state, f.invader);
             let payload = Payload::new()

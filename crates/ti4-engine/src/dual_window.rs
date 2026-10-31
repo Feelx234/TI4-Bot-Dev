@@ -2013,7 +2013,7 @@ const WINDOW_ENV: &str = "the combat environment could not be built from the pos
 /// The end announcement also flips the dual-form units of the space area back to their ground form (the board).
 const END_ANNOUNCE: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
-    &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Board],
+    &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Board, Slice::Marks],
 );
 
 /// The opening of a round also flips the dual-form units (the board), repairs the Maximum and exhausts Supercharge (players, marks).

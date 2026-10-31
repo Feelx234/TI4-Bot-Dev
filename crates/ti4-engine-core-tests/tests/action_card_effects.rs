@@ -299,6 +299,7 @@ fn plague_destroys_one_infantry_for_each_die_that_shows_six_or_more() {
         let faces = rig.driver.window.faces().to_vec();
         assert_eq!(faces.len(), 2, "one die for each infantry on the planet");
         assert!(faces.iter().all(|f| (1..=10).contains(f)));
+        assert_eq!(rig.driver.window.ability_roll(), None, "W15: only Courageous To The End's dice are noted as the roll of an ability");
         let killed = faces.iter().filter(|f| **f >= 6).count();
         assert_eq!(units_on(&rig.state, target, 2).len(), 2 - killed, "seed {seed}");
         some |= killed > 0;
