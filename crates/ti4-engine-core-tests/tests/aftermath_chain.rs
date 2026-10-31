@@ -320,15 +320,18 @@ fn a_production_capacity_hands_the_step_to_the_production_use_and_announces_it_r
     let env = env(&k, 3, &[]);
     open_producing(&mut core);
     let mut asked_while_open = Vec::new();
+    let mut emitted = Vec::new();
     let mut answer: Option<Pick> = None;
     for _ in 0..200 {
-        let (live, _) = advance_aftermath(&mut core, &env, answer.take()).expect("the aftermath runs natively");
+        let (live, out) = advance_aftermath(&mut core, &env, answer.take()).expect("the aftermath runs natively");
+        emitted.extend(out.emitted.iter().map(|e| e.kind));
         match live {
             Live::Asks(a) => {
                 // The question belongs to the use above the entry: the chain stays under it.
                 assert!(core.pending().window(WindowKind::Production).is_some() && core.pending().window(WindowKind::Aftermath).is_some());
                 let again = ask_aftermath(&core, &env).expect("asks").expect("a question");
                 assert_eq!(again.choice, a.choice, "the aftermath's own question is the use's");
+                assert!(plain_kinds(&core).is_empty(), "PRODUCTION_RESOLVED is not written while the use asks");
                 let i = stop_producing(&a.choice);
                 answer = Some(Pick::Opt(a.choice.opts.as_slice()[i]));
                 asked_while_open.push(a.choice);
@@ -343,11 +346,9 @@ fn a_production_capacity_hands_the_step_to_the_production_use_and_announces_it_r
     assert!(core.pending().window(WindowKind::Aftermath).is_none() && core.pending().window(WindowKind::Production).is_none(), "both left the stack");
     assert!(matches!(asked_while_open[0].ask, Ask::Production(PAsk::Choose(_))), "the first question is what to build");
     assert_eq!(core.meta().production_seq, 1, "the use has a number");
-    assert_eq!(plain_kinds(&core), [PlainKind::ProductionResolved], "only the production step was run, and announced");
-    let events: Vec<_> = core.ledger().events.iter().collect();
-    let used = events.iter().position(|e| matches!(e, Emit::Typed(t) if t.kind == ti4_engine_core::state::EventKind::ProductionUsed));
-    let resolved = events.iter().position(|e| matches!(e, Emit::Plain(p) if p.kind == PlainKind::ProductionResolved));
-    assert!(used.is_some() && resolved.is_some() && used < resolved, "PRODUCTION_USED, then PRODUCTION_RESOLVED after everything the use emitted");
+    assert_eq!(emitted.first(), Some(&ti4_engine_core::state::EventKind::ProductionUsed), "the use announced itself when it started");
+    assert!(!emitted.contains(&ti4_engine_core::state::EventKind::UnitsProduced) || core.board().sys(sys()).units.as_slice().iter().all(|p| p.kind() != Unit::DestroyerI), "nothing was built");
+    assert_eq!(plain_kinds(&core), [PlainKind::ProductionResolved], "only the production step was run, and announced once, when the use had left the stack");
 }
 
 /// A unit built in the step is made (and announced) before `PRODUCTION_RESOLVED`; a clone in the middle of the use continues identically.
@@ -360,8 +361,10 @@ fn a_unit_built_in_the_aftermath_production_step_is_announced_before_it_is_resol
     let mut built = false;
     let mut answer: Option<Pick> = None;
     let mut cloned_ok = false;
+    let mut emitted = Vec::new();
     for _ in 0..200 {
-        let (live, _) = advance_aftermath(&mut core, &env, answer.take()).expect("legal");
+        let (live, out) = advance_aftermath(&mut core, &env, answer.take()).expect("legal");
+        emitted.extend(out.emitted.iter().map(|e| e.kind));
         match live {
             Live::Asks(a) => {
                 let mut copy = core.clone();
@@ -387,10 +390,8 @@ fn a_unit_built_in_the_aftermath_production_step_is_announced_before_it_is_resol
     assert!(built && cloned_ok);
     let made = core.board().sys(sys()).units.as_slice().iter().filter(|p| p.owner() == Seat(0) && p.kind() == Unit::DestroyerI).count();
     assert_eq!(made, 1, "the destroyer stands in the system");
-    let events: Vec<_> = core.ledger().events.iter().collect();
-    let produced = events.iter().position(|e| matches!(e, Emit::Typed(t) if t.kind == ti4_engine_core::state::EventKind::UnitsProduced));
-    let resolved = events.iter().position(|e| matches!(e, Emit::Plain(p) if p.kind == PlainKind::ProductionResolved));
-    assert!(produced.is_some() && resolved.is_some() && produced < resolved, "UNITS_PRODUCED, then PRODUCTION_RESOLVED");
+    assert_eq!(emitted, [ti4_engine_core::state::EventKind::ProductionUsed, ti4_engine_core::state::EventKind::UnitsProduced], "UNITS_PRODUCED comes with the end of the use");
+    assert_eq!(plain_kinds(&core), [PlainKind::ProductionResolved], "and PRODUCTION_RESOLVED after it, once");
 }
 
 /// A seat with no capacity in the system asks nothing and ends the step at once, with no number and no production events.
