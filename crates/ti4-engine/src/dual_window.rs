@@ -1132,11 +1132,22 @@ pub fn sustain_commander(
 /// hook: the core's draw window asks the discard.
 #[must_use]
 pub fn draw_hooks(gs: &GameState, r: &Render) -> u16 {
+    draw_hooks_with(gs, r, crate::strategy_cards_core::draw_hook)
+}
+
+/// [`draw_hooks`] for a window that runs on the plain kernel (the agenda effects): a faction hook that changes the draw is the string's there
+/// ([`crate::strategy_cards_core::draw_hook_on_plain_kernel`]).
+#[must_use]
+pub fn draw_hooks_on_plain_kernel(gs: &GameState, r: &Render) -> u16 {
+    draw_hooks_with(gs, r, crate::strategy_cards_core::draw_hook_on_plain_kernel)
+}
+
+fn draw_hooks_with(gs: &GameState, r: &Render, hook: fn(&GameState, &ti4_content::ContentStore, &PlayerId, usize) -> Option<&'static str>) -> u16 {
     let content = ti4_content::ContentStore::embedded();
     let mut hooked = 0;
     for (at, id) in r.seats.iter().enumerate().take(16) {
         let player = PlayerId::new(id.as_str());
-        if [1, 2, 3].iter().any(|n| crate::strategy_cards_core::draw_hook(gs, content, &player, *n).is_some()) {
+        if [1, 2, 3].iter().any(|n| hook(gs, content, &player, *n).is_some()) {
             hooked |= 1 << at;
         }
     }
@@ -1237,7 +1248,7 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
         pool: r.code("reinforcements"),
         has_galaxy: a.galaxy.is_some(),
         defense_act: r.code("defense_act"),
-        hooked: draw_hooks(gs, &r),
+        hooked: draw_hooks_on_plain_kernel(gs, &r),
         drop_unofficial: gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK,
         blanked: crate::laws::blanked(gs),
     };

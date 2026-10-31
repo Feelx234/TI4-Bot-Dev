@@ -795,6 +795,25 @@ mod real {
         }
     }
 
+    /// [`draw_hook`] for a core window that runs on the plain kernel (the agenda effects: `dual_window::agenda_effect`), whose draw child reads no
+    /// hook of the faction modules: a hook that changes the draw (Yssaril's Scheming and Crafty, a bonus card, a faction that changes the limit)
+    /// keeps the draw with the string there.
+    pub(crate) fn draw_hook_on_plain_kernel(gs: &GameState, content: &ContentStore, player: &PlayerId, count: usize) -> Option<&'static str> {
+        draw_hook(gs, content, player, count).or_else(|| {
+            if gs.player(player).is_some_and(|p| p.faction.as_str() == "yssaril") {
+                Some("Yssaril's Scheming and Crafty change the draw and the limit")
+            } else if crate::factions::hooks_economy::action_card_draw_bonus(gs, content, player, count) != 0 {
+                Some("a bonus card with the draw")
+            } else if crate::factions::hooks_economy::action_card_limit(gs, content, player, crate::laws::action_card_limit(gs, crate::action_cards::HAND_LIMIT))
+                != crate::laws::action_card_limit(gs, crate::action_cards::HAND_LIMIT)
+            {
+                Some("a faction changes the action card hand limit")
+            } else {
+                None
+            }
+        })
+    }
+
     /// Whether the core's draw window follows `player`'s draw of `count` action cards (the hooks and the hand limit's discard question
     /// included).
     pub(crate) fn plain_draw(gs: &GameState, content: &ContentStore, player: &PlayerId, count: usize) -> bool {
