@@ -54,7 +54,8 @@ pub fn complete(core: &CoreState, k: &Kernel, choice: &CoreChoice, rendered: &mu
                 rendered.details.insert("rift_exits".to_owned(), exits.into());
             }
         }
-        TAsk::Remove { .. } => {}
+        // The string's removal question carries no context (`render::tactical`).
+        TAsk::Remove { .. } => rendered.context = None,
     }
 }
 
@@ -142,6 +143,8 @@ fn move_details(core: &CoreState, k: &Kernel, seat: ti4_engine_core::Seat, choic
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
     use std::rc::Rc;
 
     use serde_json::{json, Value};
@@ -156,10 +159,10 @@ mod tests {
 
     use crate::choice::Choice;
     use crate::core_sync::codec::rng::TextSeeds;
-    use crate::core_sync::{materialize, Codec, Ctx, Slice, Sources};
+    use crate::core_sync::{materialize, Codec, Ctx, Sources};
     use crate::dual::{diff_json, take_report, with_mask, AreaMask};
     use crate::game::{Game, TACTICAL_ACTION_ID};
-    use crate::live::{live_step, Cx, Scripted};
+    use crate::live::{live_step, Cx};
     use crate::render::Render;
 
     fn a() -> PlayerId {
@@ -186,24 +189,60 @@ mod tests {
         state: Value,
     }
 
-    /// The string run: `script[0]` answers the action menu (it opens the window), the rest the window's questions.
+    /// Records every question the string table is asked and answers from the script; a spent script refuses (the step then fails and the
+    /// position is what the string restores).
+    struct Recorder {
+        queue: Rc<RefCell<VecDeque<String>>>,
+        asked: Rc<RefCell<Vec<Choice>>>,
+    }
+
+    impl crate::choice::Decider for Recorder {
+        fn choose(&mut self, c: &Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            self.asked.borrow_mut().push(c.clone());
+            // A spent script takes the first option (the questions after the script are not compared).
+            let Some(id) = self.queue.borrow_mut().pop_front().or_else(|| c.options.first().map(|o| o.id.clone())) else {
+                return Err(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: "<no option>".to_owned(), offered: Vec::new() });
+            };
+            c.options.iter().find(|o| o.id == id).cloned().ok_or(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: id, offered: c.ids().into_iter().map(str::to_owned).collect() })
+        }
+    }
+
+    /// The string run: `script[0]` answers the action menu (it opens the window), the rest the window's questions, all of them (a question asked
+    /// from inside a step included).
     fn string_run(state: &GameState, galaxy: &Galaxy, script: &[&str]) -> Side {
         let _ = take_report();
-        let table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(script.iter().map(|s| (*s).to_owned()))));
+        let queue = Rc::new(RefCell::new(script.iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let table = crate::choice::Table::with_default(Box::new(Recorder { queue: queue.clone(), asked: asked.clone() }));
         let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table).with_galaxy(galaxy.clone());
-        let mut asked = Vec::new();
         with_mask(AreaMask::STRING, || {
-            for (i, _) in script.iter().enumerate() {
-                if i > 0 {
-                    asked.extend(game.legal_options());
+            for _ in 0..script.len() + 4 {
+                let spent = queue.borrow().is_empty();
+                if spent || game.step().error.is_some() {
+                    break;
                 }
-                assert!(game.step().error.is_none(), "the string step {i} refused its answer");
             }
         });
+        // The first question is the action menu's.
+        let asked = asked.borrow().iter().skip(1).filter(|c| !c.options.is_empty()).cloned().collect::<Vec<_>>();
+        let asked = asked.into_iter().take(script.len() - 1).collect();
         Side { asked, events: game.events.clone(), state: serde_json::to_value(&game.state).expect("serialises") }
     }
 
-    /// The native run of the same script: the window opens as the menu's answer does, then one `live_step` per answer.
+    /// Answers from one shared queue: the questions of a step (stage and nested) take what the script has next.
+    struct Shared {
+        queue: Rc<RefCell<VecDeque<String>>>,
+        seen: Rc<RefCell<Vec<Choice>>>,
+    }
+
+    impl crate::live::Asker for Shared {
+        fn ask(&mut self, q: &crate::live::Question<'_>) -> Result<String, crate::live::Stop> {
+            self.seen.borrow_mut().push(q.rendered.clone());
+            self.queue.borrow_mut().pop_front().ok_or(crate::live::Stop::Exhausted)
+        }
+    }
+
+    /// The native run of the same script: the window opens as the menu's answer does, then one `live_step` per question until the script is spent.
     fn native_run(state: &GameState, galaxy: &Galaxy, rng: &crate::rng::RngPositions, script: &[&str]) -> Side {
         let mut cx = Ctx::of(state).expect("owners");
         let render = Render::new(cx.owners.ids().to_vec());
@@ -214,13 +253,20 @@ mod tests {
         let kernel = crate::live::kernel::kernel_for(sources);
         let env = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
         let live = Cx::new(&render, &env);
-        let mut asked = Vec::new();
-        for answer in &script[1..] {
-            let mut asker = Scripted::new([(*answer).to_owned()]);
-            let step = live_step(&mut core, Arm::Tactical, &live, &mut asker).unwrap_or_else(|e| panic!("the native step for {answer}: {e:?}"));
-            asked.extend(asker.seen);
-            let _ = step;
+        let queue = Rc::new(RefCell::new(script[1..].iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let mut asker = Shared { queue: queue.clone(), seen: seen.clone() };
+        for _ in 0..script.len() + 4 {
+            if queue.borrow().is_empty() {
+                break;
+            }
+            match live_step(&mut core, Arm::Tactical, &live, &mut asker) {
+                Ok(step) if step.finished => break,
+                Ok(_) => {}
+                Err(e) => panic!("the native step: {e:?}"),
+            }
         }
+        let asked = seen.borrow().clone();
         let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
         let after = materialize::materialize(&core, &cx, state).expect("materializes");
         Side { asked, events, state: serde_json::to_value(&after).expect("serialises") }
@@ -281,6 +327,54 @@ mod tests {
         crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
         let mv = format!("move|{origin}|0");
         let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], false);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    fn id(origin: &ti4_model::id::SystemId, index: usize) -> String {
+        format!("move|{origin}|{index}")
+    }
+
+    #[test]
+    fn a_carrier_loads_two_infantry_and_sails_in_lockstep() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &origin, "infantry", &a(), 2);
+        let mv = id(&origin, 0);
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "load|1"], false);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    #[test]
+    fn done_loading_closes_the_hold_early_in_lockstep() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &origin, "infantry", &a(), 2);
+        let mv = id(&origin, 0);
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "done_loading"], false);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    #[test]
+    fn finishing_the_movement_step_closes_it_and_hands_over_what_the_string_does_first() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        let mv = id(&origin, 0);
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "done_moving"], true);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    #[test]
+    fn the_enforcement_of_the_head_asks_what_the_string_asks() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "cruiser", &a(), 3);
+        state.player_mut(&a()).unwrap().fleet_tokens = 1;
+        let mv = id(&origin, 0);
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "done_moving", "remove|0", "remove|0"], true);
         assert!(diffs.is_empty(), "{diffs:#?}");
     }
 }
