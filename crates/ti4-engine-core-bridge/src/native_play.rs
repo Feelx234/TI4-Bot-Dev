@@ -411,15 +411,7 @@ impl NativeGame {
         let mut lone = live::LoneCard(&mut bot);
         let out = match live::live_step(&mut self.core, arm, &lcx, &mut lone) {
             Ok(out) => out,
-            Err(stop) => {
-                return match stop_to_step(&arm_label, stop) {
-                    Step::Gap(mut g) if g.kind == GapKind::Bail => {
-                        g.arm = arm_label;
-                        Step::Gap(g)
-                    }
-                    other => other,
-                }
-            }
+            Err(stop) => return stop_to_step(&arm_label, stop),
         };
         if out.finished
             && let Some(part) = lent_close(arm)
@@ -752,6 +744,12 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
     Ok(Shadowed { played, compared, first_difference })
 }
 
+/// What of the legacy step is compared: all of it for a step the core owns whole, the first `native_len` of it where the legacy step goes on with a close the
+/// core does not own (`strict` false).
+fn legacy_prefix<T: Clone>(strict: bool, legacy: Vec<T>, native_len: usize) -> Vec<T> {
+    if !strict && legacy.len() > native_len { legacy[..native_len].to_vec() } else { legacy }
+}
+
 /// Step the legacy game once with the answers of `group` and compare.
 fn compare_group(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: &ti4_model::state::GameState, group: &[Played]) -> Option<Difference> {
     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
@@ -772,12 +770,12 @@ fn compare_group(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base
     // Questions: player, prompt and the option ids, in order. A group that ENDS an arm of the string's close compares the prefix.
     let n: Vec<Value> = asked.iter().map(|a| json!({ "player": a.player, "prompt": a.prompt, "options": a.options })).collect();
     let l: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
-    let l = if !strict && l.len() >= n.len() { l[..n.len()].to_vec() } else { l };
+    let l = legacy_prefix(strict, l, n.len());
     if let Some(d) = crate::native_subject::first_leaf(&Value::Array(l), &Value::Array(n)) {
         return Some(diff("questions", d.path, d.right, d.left));
     }
     let native_events: Vec<&String> = group.iter().flat_map(|p| p.events.iter()).collect();
-    let legacy_events: Vec<&String> = if !strict && events.len() >= native_events.len() { events.iter().take(native_events.len()).collect() } else { events.iter().collect() };
+    let legacy_events: Vec<&String> = legacy_prefix(strict, events.iter().collect(), native_events.len());
     if native_events != legacy_events {
         let at = native_events.iter().zip(&legacy_events).position(|(a, b)| a != b).unwrap_or_else(|| native_events.len().min(legacy_events.len()));
         let show = |v: &[&String]| v.get(at).map_or_else(|| format!("<end after {}>", v.len()), |s| (*s).clone());
@@ -967,7 +965,8 @@ mod tests {
         let lobby = LOBBY_FACTIONS;
         let t = table("sol", 3, 5);
         assert_eq!(t, ["sol".to_owned(), lobby[6].to_owned(), lobby[7].to_owned()], "the next lobby factions after the seed's place");
-        let from_sol = table("sol", 4, lobby.iter().position(|f| *f == "sol").unwrap() as u64 - 1);
+        let before_sol = (lobby.iter().position(|f| *f == "sol").unwrap() + lobby.len() - 1) % lobby.len();
+        let from_sol = table("sol", 4, before_sol as u64);
         assert_eq!(from_sol.len(), 4);
         assert!(!from_sol[1..].contains(&"sol".to_owned()), "seat a's faction is skipped: {from_sol:?}");
     }
@@ -1138,6 +1137,32 @@ mod tests {
         let (mut legacy, native, base, mut group) = setup();
         group.last_mut().unwrap().events.clear();
         assert_eq!(compare_group(&mut legacy, &native, &base, &group).map(|d| d.what), Some("events"), "a whole step must push what the legacy step pushed");
+    }
+
+    #[test]
+    fn only_a_step_the_core_does_not_own_whole_is_compared_on_a_prefix() {
+        assert_eq!(legacy_prefix(true, vec![1, 2, 3], 1), [1, 2, 3], "a whole step: all of it");
+        assert_eq!(legacy_prefix(false, vec![1, 2, 3], 1), [1], "the legacy step went on: the prefix");
+        assert_eq!(legacy_prefix(false, vec![1, 2, 3], 3), [1, 2, 3]);
+        assert_eq!(legacy_prefix(false, vec![1], 3), [1], "the legacy step did less than the arm: a difference to report, nothing to cut");
+    }
+
+    #[test]
+    fn the_round_the_asks_of_a_job_and_the_shadow_count_are_the_positions() {
+        let mut g = game("sol", 4, 1);
+        g.core.meta_mut().round = 3;
+        assert_eq!(g.round(), 3);
+        let mut g = game("sol", 4, 1);
+        g.core.transient_mut().misc.starting_tech_picks.clear();
+        g.core.meta_mut().phase = ti4_engine_core::state::Phase::Status;
+        assert!(!g.asks());
+        turn::open_job(&mut g.core, TurnJob::Phase);
+        assert!(g.asks(), "an open job is waiting on its step: the arm is Ask");
+        let s = shadow_play(&lobby_spec("sol", 4, 1), 100, 50).unwrap();
+        assert_eq!((s.compared, s.played.steps), (9, 11), "eleven native steps, two of them glued to the next: nine legacy steps");
+        assert!(matches!(shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap().played.end, End::Gap(_)), "round 1 is within a budget of one");
+        let survey = survey(&lobby_spec("sol", 4, 1), 400, 50).unwrap();
+        assert!(survey.steps_by_arm.keys().all(|(label, _)| !label.contains('>') || label.starts_with("turn_prelude>") || label.starts_with("strategy_announce>")), "{:?}", survey.steps_by_arm);
     }
 
     #[test]
