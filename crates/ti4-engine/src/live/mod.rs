@@ -19,6 +19,7 @@ pub mod details;
 pub mod env;
 pub mod kernel;
 pub mod plays;
+pub mod turn;
 
 use std::collections::VecDeque;
 
@@ -134,7 +135,9 @@ pub struct StepOut {
 pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let (phase, round) = (core.meta().phase, core.meta().round);
     let mut rendered = Typed::new(cx.render, asking.choice.clone(), phase, round).rendered;
-    (cx.complete)(core, &asking.choice, &mut rendered);
+    // The display facts read the position the question was put in: a question asked from inside a step (an emission, a job of the turn
+    // flow) was put in a position the driver has rolled back since.
+    (cx.complete)(asking.at.as_deref().unwrap_or(core), &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
     if let Some((facts, at)) = &asking.nested {
@@ -209,9 +212,10 @@ fn live_step_inner(core: &mut CoreState, arm: Arm, cx: &Cx<'_>, asker: &mut dyn 
                 step.finished = true;
                 return Ok(step);
             }
-            // A question from inside the answer belongs to this step (the string asks it synchronously); a stage question of
-            // the arm is the next step's.
-            Live::Asks(next) if next.nested.is_some() => asking = *next,
+            // A question from inside the answer belongs to this step (the string asks it synchronously: the reaction windows of an
+            // emission, the free windows a job of the turn flow composes; the step is suspended in `Pending::nested`); a stage question
+            // of the arm is the next step's.
+            Live::Asks(next) if next.nested.is_some() || core.pending().nested.is_some() => asking = *next,
             Live::Asks(_) => return Ok(step),
         }
     }

@@ -14,6 +14,7 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
     if let Ask::Strategy(SAsk::GainPool { left }) = choice.ask {
         pool_details(core, choice, usize::from(left), rendered);
     }
+    super::turn::complete(core, choice, rendered);
 }
 
 /// `tokens::with_pool_details(.., "gain", Some(left))`: the pools as they stand, the tokens in reinforcements, Letnev's Armada.

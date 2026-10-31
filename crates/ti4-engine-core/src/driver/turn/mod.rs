@@ -11,6 +11,7 @@
 //! an action is opened by whichever arm finished the action ([`open_finish`]; the closing menu's "end your turn" opens
 //! [`TurnJob::End`] itself).
 
+pub mod ask;
 pub mod closing;
 pub mod end;
 pub mod facts;
@@ -43,7 +44,7 @@ impl Window for TurnFlowWin {
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         // A halted job (a question waits for its answer, or a gap was noted) writes nothing more; the driver rolls the step back.
         let _: Flow = match self.job {
-            TurnJob::Prelude => start::run(sx),
+            TurnJob::Prelude => start::run_prelude(sx),
             TurnJob::Finish => end::run_finish(sx),
             TurnJob::End => end::run_end(sx),
             TurnJob::Phase => phase::run_phase(sx),

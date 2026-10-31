@@ -32,6 +32,12 @@ pub enum TurnGap {
     LegendaryUnsupported,
     /// The closing menu needs sources of the action menu the core does not hold yet.
     MenuSources,
+    /// `Game::step_phase` ran in the action phase while a seat had not passed (the string reports `MissingActivePlayer`).
+    PhaseNotReady,
+    /// The diplomacy promise book could not settle at the round's end (a feature the creation refuses).
+    PromiseBook,
+    /// A question source (`AskArm as u8`) no lane has made native yet.
+    AskArm(u8),
     /// The resolver refused an emission (a defect of the position, never a rule).
     EmissionRefused,
     /// A replayed answer was refused by the window it was given to (the question changed between the replays).
