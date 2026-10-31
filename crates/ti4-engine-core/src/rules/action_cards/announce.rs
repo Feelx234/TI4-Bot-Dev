@@ -488,13 +488,16 @@ mod tests {
     #[test]
     fn the_b6d_cards_are_not_played_from_inside_another_window() {
         let t = AbilityTable::default();
-        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::GhostSquad, ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation] {
+        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation] {
             assert!(plays(card), "{card:?} has a window of its own");
             assert!(!plays_in(&t, card), "{card:?}");
         }
         assert!(plays_in(&t, ActionCard::Rally) && plays_in(&t, ActionCard::Intercept));
         // W4: Reveal Prototype is played from a reaction slot (the adapter carries its facts; a table without the links declines the run).
         assert!(plays_in(&t, ActionCard::RevealPrototype));
+        // W11: Ghost Squad and Reflective Shielding are played from a window (the facts are handed in by the host; the hits of the
+        // Reflective Shielding are absorbed by the window of the use).
+        assert!(plays_in(&t, ActionCard::GhostSquad) && plays_in(&t, ActionCard::ReflectiveShielding));
     }
 
     /// A card whose window is not played from inside another window (it reads facts only its own window supplies) but that a rules

@@ -654,7 +654,9 @@ mod tests {
         assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card upgrade)"));
         r.played = vec!["reveal_prototype".to_owned()];
         assert_eq!(r.unported(&t), None, "W4: Reveal Prototype is played by the core");
-        for card in ["courageous", "scramble", "reflective"] {
+        r.played = vec!["reflective".to_owned(), "ghost_squad".to_owned()];
+        assert_eq!(r.unported(&t), None, "W11: Reflective Shielding and Ghost Squad are played by the core");
+        for card in ["courageous", "scramble"] {
             r.played = vec![card.to_owned()];
             assert_eq!(r.unported(&t).as_deref(), Some(&*format!("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card {card})")), "{card} stays the string's");
         }
