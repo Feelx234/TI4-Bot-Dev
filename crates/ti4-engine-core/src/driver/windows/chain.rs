@@ -170,6 +170,8 @@ impl AftermathChain {
                         return Some(Next::Done);
                     }
                     Opened::NoFight(winner) => {
+                        // The string's settle presents the finished (empty) fight once.
+                        sx.state.transient_mut().combat.presentation.edit().phase = sx.table.facts.combat.phases[4];
                         self.p.outcome = Some((winner, 0));
                         self.p.fight = AFight::Closed;
                     }
