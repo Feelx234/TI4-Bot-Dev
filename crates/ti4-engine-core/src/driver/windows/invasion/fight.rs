@@ -86,7 +86,7 @@ impl InvasionMachine {
             system,
             planets: planets.to_vec(),
             announce: true,
-            cause: codes.space_cannon_defense,
+            cause: codes.space_cannon_cause,
             kind: codes.space_cannon_defense,
             planets_key: codes.planets,
             unit_codes: Unit::ALL.iter().map(|u| (*u, codes.unit(*u))).collect(),

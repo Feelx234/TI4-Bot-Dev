@@ -226,6 +226,7 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
     use crate::rules::token_gain::TokenGain;
     match arm {
         Arm::Tokens => Some(advance::<TokenGain>),
+        Arm::Invasion => Some(crate::driver::windows::invasion::advance_invasion),
         _ => None,
     }
 }
@@ -236,6 +237,7 @@ pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
     use crate::rules::token_gain::TokenGain;
     match arm {
         Arm::Tokens => Some(ask::<TokenGain>),
+        Arm::Invasion => Some(crate::driver::windows::invasion::ask_invasion),
         _ => None,
     }
 }

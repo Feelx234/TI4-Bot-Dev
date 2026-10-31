@@ -169,6 +169,9 @@ pub struct InvasionCodes {
     pub bombardment: crate::state::Code,
     pub ground_round: crate::state::Code,
     pub space_cannon_defense: crate::state::Code,
+    /// The causes `bombardment` and `space_cannon_defense` of the events of the hits (the adapter's event texts, not the state's).
+    pub bombardment_cause: crate::state::Code,
+    pub space_cannon_cause: crate::state::Code,
     /// The payload key `planets` of `GROUND_COMMITMENT_FINISHED`.
     pub planets: crate::state::Code,
     /// The source `dunlain_reaper` of the Reaper's question.
@@ -185,7 +188,7 @@ pub struct InvasionCodes {
 impl Default for InvasionCodes {
     fn default() -> Self {
         let z = crate::state::Code(0);
-        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, planets: z, dunlain_reaper: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT] }
+        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, bombardment_cause: z, space_cannon_cause: z, planets: z, dunlain_reaper: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT] }
     }
 }
 

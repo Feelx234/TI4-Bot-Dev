@@ -296,7 +296,7 @@ impl InvasionMachine {
     fn bomb_window_with(&self, sx: &Sx<'_>, asking: bool) -> Bombardment {
         let code = sx.table.codes.invasion.bombardment;
         let mut w = self.bomb_window(sx.state, asking);
-        w.cause = code;
+        w.cause = sx.table.codes.invasion.bombardment_cause;
         for e in &mut w.plan {
             e.template.kind = code;
         }
