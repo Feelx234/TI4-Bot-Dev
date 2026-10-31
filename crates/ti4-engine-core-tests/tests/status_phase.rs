@@ -294,3 +294,116 @@ fn asking_an_arm_whose_window_is_not_open_asks_nothing() {
     assert_eq!(ask::<ti4_engine_core::driver::windows::scoring::StatusScoring>(&s, &env(&k)), Err(LiveError::NotOpen));
     let _ = advance::<ti4_engine_core::driver::windows::scoring::StatusScoring>;
 }
+
+// -- Scheming, the hand limit, the staged discard ----------------------------------------------------------------------------
+
+fn yssaril_table() -> (CoreState, Kernel) {
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheYssarilTribes]).phase(Phase::Status).active(None).build();
+    s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
+    s.decks_mut().action.set(ActionCard::ALL.iter().copied().skip(10).take(30).collect());
+    s.players_mut().edit(1).cards.hand = [ActionCard::ALL[1], ActionCard::ALL[2]].into_iter().collect();
+    for seat in 0..2 {
+        s.players_mut().edit(seat).strat = [StrategyCard::Leadership].into_iter().collect();
+    }
+    (s, k)
+}
+
+#[test]
+fn scheming_draws_one_more_and_asks_which_card_to_discard_and_a_clone_continues_identically() {
+    let (mut s, k) = yssaril_table();
+    let e = env(&k);
+    advance_status(&mut s, &e, None).unwrap();
+    let before = s.players().by_seat(Seat(1)).unwrap().cards.hand.len();
+    let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
+    let Live::Asks(q) = live else { panic!("Yssaril draws two cards and discards one: a question") };
+    assert_eq!(q.choice.ask, Ask::Cards(ti4_engine_core::choice::cards::Ask::OwnHand { reason: ti4_engine_core::choice::cards::Reason::SchemingDiscard }));
+    assert_eq!(q.choice.actor, Seat(1));
+    assert!(!q.choice.can_decline(), "the discard is mandatory");
+    assert!(is_open::<TurnFlowWin>(&s) && s.pending().nested.is_some(), "the close is suspended on its question");
+    // Nothing of the half-run job is kept.
+    assert_eq!(s.players().by_seat(Seat(1)).unwrap().cards.hand.len(), before);
+    let mut fork = s.clone();
+    assert_eq!(ask_scoring(&fork, &e).unwrap().unwrap().choice, q.choice, "a replay of the suspension asks the same question");
+    let discard = q.choice.pick(0).unwrap();
+    for st in [&mut s, &mut fork] {
+        let (live, _) = advance_scoring(st, &e, Some(discard)).unwrap();
+        assert_eq!(live, Live::Done);
+    }
+    assert_eq!(s, fork, "a clone mid-window continues identically");
+    assert_eq!(s.players().by_seat(Seat(1)).unwrap().cards.hand.len(), before + 1, "two drawn, one discarded");
+    assert!(is_open::<ti4_engine_core::rules::token_gain::TokenGain>(&s));
+}
+
+#[test]
+fn the_staged_discard_is_announced_after_the_first_typed_event_of_the_close() {
+    let (mut s, k) = yssaril_table();
+    let e = env(&k);
+    advance_status(&mut s, &e, None).unwrap();
+    let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
+    let Live::Asks(q) = live else { panic!("the discard") };
+    advance_scoring(&mut s, &e, Some(q.choice.pick(0).unwrap())).unwrap();
+    let mut live = advance_tokens(&mut s, &e, None);
+    let mut guard = 0;
+    while let Ok((Live::Asks(q), _)) = &live {
+        guard += 1;
+        assert!(guard < 40);
+        let pick = q.choice.pick(0).unwrap();
+        live = advance_tokens(&mut s, &e, Some(pick));
+    }
+    assert_eq!(live.unwrap().0, Live::Done);
+    let order = typed(&s);
+    let would = order.iter().position(|k| *k == EventKind::StrategyCardsWouldReturn).expect("announced");
+    let discarded = order.iter().position(|k| *k == EventKind::ActionCardDiscarded).expect("the staged discard is announced, not kept");
+    assert_eq!(discarded, would + 1, "right after the typed event that follows the draw");
+    assert!(s.marks().tail.iter().all(|(k, _)| !matches!(k, ti4_engine_core::keys::MarkKey::CardsStaged(_))), "the marks are gone");
+    assert_eq!(s.transient().combat.last_action_discarded.map(|(who, _)| who), Some(Seat(1)));
+    assert_eq!(s.cards().discarded_action.len(), 1);
+}
+
+#[test]
+fn a_hand_over_its_limit_after_the_draw_is_asked_to_discard_one() {
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).build();
+    s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
+    s.decks_mut().action.set(ActionCard::ALL.iter().copied().skip(20).take(30).collect());
+    s.players_mut().edit(0).cards.hand = ActionCard::ALL.iter().copied().take(7).collect();
+    let e = env(&k);
+    advance_status(&mut s, &e, None).unwrap();
+    let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
+    let Live::Asks(q) = live else { panic!("eight cards: discard one") };
+    assert!(matches!(q.choice.ask, Ask::Cards(ti4_engine_core::choice::cards::Ask::HandLimit { held: 8 })), "{:?}", q.choice.ask);
+    // Before rules version 17 the status draw is not subject to the hand limit.
+    let (mut old, k) = Scenario::lobby(2).phase(Phase::Status).active(None).rules(16).build();
+    old.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
+    old.decks_mut().action.set(ActionCard::ALL.iter().copied().skip(20).take(30).collect());
+    old.players_mut().edit(0).cards.hand = ActionCard::ALL.iter().copied().take(7).collect();
+    let e = env(&k);
+    advance_status(&mut old, &e, None).unwrap();
+    assert_eq!(advance_scoring(&mut old, &e, None).unwrap().0, Live::Done);
+    assert_eq!(old.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 8);
+}
+
+#[test]
+fn the_neural_motivator_draws_a_second_card() {
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).tech(0, Technology::NeuralMotivator).build();
+    s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
+    s.decks_mut().action.set(ActionCard::ALL.iter().copied().skip(20).take(30).collect());
+    let e = env(&k);
+    advance_status(&mut s, &e, None).unwrap();
+    advance_scoring(&mut s, &e, None).unwrap();
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 2);
+    assert_eq!(s.players().by_seat(Seat(1)).unwrap().cards.hand.len(), 1);
+}
+
+#[test]
+fn the_command_tokens_on_the_board_come_back_at_81_4() {
+    let planet = Planet::ALL.iter().copied().find(|p| p.data().system.is_some()).unwrap();
+    let system = planet.data().system.unwrap();
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).command_token(system, 0).command_token(system, 1).build();
+    s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
+    let e = env(&k);
+    advance_status(&mut s, &e, None).unwrap();
+    advance_scoring(&mut s, &e, None).unwrap();
+    assert!(s.board().sys(system).cmd.is_empty());
+    let Some(ti4_engine_core::state::Window::Tokens(t)) = s.pending().window(WindowKind::Tokens) else { panic!("tokens") };
+    assert_eq!(t.report.returned_command_tokens.as_slice(), [(system, Seat(0)), (system, Seat(1))]);
+}

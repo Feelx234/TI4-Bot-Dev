@@ -66,6 +66,8 @@ pub enum TurnGap {
     EntropicScar,
     /// A promissory note's faction is played by two seats, so the note has no one owner to go home to.
     NoteOwner,
+    /// An event scoring window closed with the agendas of its agenda phase waiting on the stack: the vote is the agenda lane's.
+    AgendaQueue,
     /// A secret objective the core cannot judge (Strengthen Bonds, Produce en Masse).
     ScoringSecret,
 }

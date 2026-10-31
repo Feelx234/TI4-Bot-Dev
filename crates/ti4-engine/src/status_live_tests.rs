@@ -12,7 +12,7 @@ use ti4_content::ContentStore;
 use ti4_engine_core::driver::session::{step_arm, Arm, Facts};
 use ti4_engine_core::state::SliceSet;
 use ti4_model::content_types::DEFAULT;
-use ti4_model::id::{ActionCardId, ObjectiveId, PlayerId, RelicId, StrategyCardId, TechnologyId};
+use ti4_model::id::{ObjectiveId, RelicId, StrategyCardId, TechnologyId};
 use ti4_model::state::{GameState, Phase};
 
 use super::turn_live_tests::{assert_same, based, pid, string_run_first, Run};
@@ -196,5 +196,88 @@ fn the_sol_flagship_places_its_infantry_at_the_end_of_the_phase_like_the_string(
     assert!(string.events.iter().any(|e| e.starts_with("GENESIS_INFANTRY:a:")), "{:?}", string.events);
 }
 
-#[allow(dead_code)]
-fn _unused(_: &PlayerId, _: &ActionCardId) {}
+// -- the window of a secret timed on an event ------------------------------------------------------------------------------
+
+/// The string's window of an event occurrence on a copy of `state`, stepped until it closes; the native window on a second copy.
+fn event_both(state: &GameState, occurrence: u64, timing: crate::secrets::Timing, one_per_player: bool, ids: &[&str]) -> (Run, Run) {
+    let limit = if one_per_player { crate::objectives::EventScoreLimit::OnePerPlayer } else { crate::objectives::EventScoreLimit::AnyPerPlayer };
+    let (string, taken) = string_run_first(state, ids, |g| {
+        g.open_occurrence_event_scoring(timing, ti4_model::FeatOccurrence(occurrence), limit);
+        for _ in 0..50 {
+            if g.event_scoring.is_none() {
+                break;
+            }
+            let _ = g.step();
+        }
+    });
+    let mut cx = Ctx::of(state).expect("a table the codecs carry");
+    let render = Render::new(cx.owners.ids().to_vec());
+    let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
+    let positions = game.rng_positions();
+    let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+    let mut core = Codec::load(&mut cx, state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
+    let kernel = live::kernel::kernel_for(DEFAULT);
+    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+    let lcx = live::Cx::new(&render, &env);
+    let order: Vec<_> = ti4_engine_core::query::seats::initiative_order(&core).iter().copied().collect();
+    let tim = match timing {
+        crate::secrets::Timing::Status => ti4_engine_core::state::ScoringTiming::Status,
+        crate::secrets::Timing::Action => ti4_engine_core::state::ScoringTiming::Action,
+        crate::secrets::Timing::Agenda => ti4_engine_core::state::ScoringTiming::Agenda,
+    };
+    ti4_engine_core::driver::live::open(&mut core, &ti4_engine_core::driver::windows::scoring::EventScoring::event(&order, tim, occurrence, one_per_player));
+    let mut asker = Scripted::new(taken.iter().cloned());
+    for _ in 0..50 {
+        if !ti4_engine_core::driver::live::is_open::<ti4_engine_core::driver::windows::scoring::EventScoring>(&core) {
+            break;
+        }
+        live::live_step(&mut core, Arm::EventScoring, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native event window stopped: {e:?}"));
+    }
+    assert_eq!(asker.left(), 0);
+    let questions = asker.seen.clone();
+    let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
+    let after = materialize::materialize(&core, &cx, state).expect("materializes");
+    let rng = materialize::rng_positions(&core).expect("the streams have names");
+    let (state, _) = super::turn_live_tests::without_staged(serde_json::to_value(&after).expect("serializes"));
+    (string, Run { questions, events, state, rng, staged: Vec::new() })
+}
+
+fn dictate_policy_table() -> GameState {
+    let mut state = status_table(&FOUR);
+    state.phase = Phase::Agenda;
+    state.feat_occurrence_seq = 1;
+    for law in ["minister_war", "minister_peace", "minister_policy"] {
+        state.laws.insert(law.to_owned(), "a".to_owned());
+    }
+    state.player_mut(&pid("b")).unwrap().secret_objectives.push(ti4_model::id::SecretObjectiveId::new("dp"));
+    based(state)
+}
+
+#[test]
+fn an_event_window_asks_the_seat_whose_secret_the_table_satisfies_and_closes_like_the_string() {
+    let state = dictate_policy_table();
+    let (string, mut native) = event_both(&state, 1, crate::secrets::Timing::Agenda, true, &["dp"]);
+    native.staged = string.staged.clone();
+    assert_same(&string, &native);
+    assert!(has(&string, "OBJECTIVE_SCORED:dp"), "{:?}", string.events);
+    assert_eq!(string.questions.len(), 1);
+}
+
+#[test]
+fn an_event_window_nobody_can_score_in_closes_without_a_question_like_the_string() {
+    let mut state = dictate_policy_table();
+    state.laws.clear();
+    let (string, mut native) = event_both(&state, 1, crate::secrets::Timing::Agenda, true, &[]);
+    native.staged = string.staged.clone();
+    assert_same(&string, &native);
+    assert!(string.questions.is_empty());
+}
+
+#[test]
+fn declining_in_an_event_window_ends_the_seats_turn_like_the_string() {
+    let state = dictate_policy_table();
+    let (string, mut native) = event_both(&state, 1, crate::secrets::Timing::Agenda, true, &["decline"]);
+    native.staged = string.staged.clone();
+    assert_same(&string, &native);
+    assert!(!has(&string, "OBJECTIVE_SCORED:dp"));
+}

@@ -265,3 +265,11 @@ impl Held for ScoringWin<true> {
         core.pending_mut().open(OpenWindow::EventScoring(self.payload()));
     }
 }
+
+/// Open the window of a secret timed on an event (`Game::open_occurrence_event_scoring`): the rule windows that end an event a secret asks
+/// about (a pass: Prove Endurance; an agenda's close; a combat or an invasion) call it, and the next live call of `Arm::EventScoring`
+/// serves it. `occurrence` is the feat occurrence the window settles (`Meta::feat_occurrence_seq` after `begin_feat_occurrence`).
+pub fn open_event(core: &mut CoreState, timing: ScoringTiming, occurrence: u64, one_per_player: bool) {
+    let order: Vec<Seat> = crate::query::seats::initiative_order(core).iter().copied().collect();
+    EventScoring::event(&order, timing, occurrence, one_per_player).to_pending(core);
+}
