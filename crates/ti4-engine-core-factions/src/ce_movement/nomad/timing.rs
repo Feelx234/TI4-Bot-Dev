@@ -3,13 +3,14 @@
 //! the flagship's abilities; one type is not a question; the note stays faceup with them), and returned to the Nomad
 //! when the combat ends. Future Sight (package W9): a trade good after an outcome the Nomad voted for or predicted plainly is
 //! resolved. Artuno the Betrayer (package W9): the exhaust and the pile on the card; the payout when the card readies stays with the
-//! string's `leaders::ready` callers (`nomad_agents::agent_readied`). The Thundarian (package W2): "after the Roll Dice step of combat: you may exhaust this card; if you do, return to the start of that step" (the replay mark the roll step reads). Not ported: Mercer, Temporal Command Suite.
+//! string's `leaders::ready` callers (`nomad_agents::agent_readied`). The Thundarian (package W2): "after the Roll Dice step of combat: you may exhaust this card; if you do, return to the start of that step" (the replay mark the roll step reads). Temporal Command Suite (package M1): the Nomad's answer to an exhausted agent, the readying and the transaction as a child of the effect. Not ported: Mercer.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub};
+use ti4_engine_core::choice::technology::{Ask as TAsk, Opt as TOpt, Subtype as TSub};
 use ti4_engine_core::choice::generic::Content;
 use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use ti4_engine_core::containers::SmallList;
-use ti4_engine_core::generated::{Faction, Leader, System, Unit, UnitBaseType};
+use ti4_engine_core::generated::{Faction, Leader, System, Technology, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
 use ti4_engine_core::kernel::{fx, fx_strategy};
@@ -237,7 +238,87 @@ fn thundarian(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+
+/// Temporal Command Suite (`technology:*:tcs:AGENT_EXHAUSTED:after`).
+pub const TCS: Slot = Slot(10_007);
+
+/// The agent of the event, when it is exhausted: `(owner, leader)`.
+fn exhausted_agent(c: &CondCx<'_>) -> Option<(Seat, Leader)> {
+    let p = &c.event.payload;
+    let (owner, leader) = (p.seat(Key::Player)?, p.leader(Key::Leader)?);
+    (c.state.players().by_seat(owner)?.leaders.status.get(&leader) == Some(&LeaderStatus::Exhausted)).then_some((owner, leader))
+}
+
+/// "After any player's agent becomes exhausted": the holder is a Nomad with a readied Temporal Command Suite and the agent is still exhausted.
+fn tcs_condition(c: &CondCx<'_>) -> bool {
+    let me = c.def.owner;
+    let holds = c.state.players().by_seat(me).is_some_and(|p| p.faction == Faction::TheNomad && p.tech.owned.contains(Technology::TemporalCommandSuite) && !p.tech.exhausted.contains(Technology::TemporalCommandSuite));
+    holds && exhausted_agent(c).is_some()
+}
+
+/// "You may exhaust this card to ready that agent; if you ready another player's agent, you may perform a transaction with that player."
+/// The use is the "may" of the window; the transaction is a second optional question that follows the readying, and the negotiation runs as a
+/// child of this effect with the reach it grants (`NomadTcsNegotiating`) while it lasts. The card's costs are paid before the question; a
+/// transaction nobody can open (the pair dealt this turn, no map) leaves only the readied agent.
+fn tcs(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let me = eff.owner();
+    let (agent_owner, leader) = {
+        let p = &eff.event.payload;
+        let (Some(owner), Some(leader)) = (p.seat(Key::Player), p.leader(Key::Leader)) else { return Ok(()) };
+        (owner, leader)
+    };
+    fx_strategy::exhaust_technology(eff.state(), me, Technology::TemporalCommandSuite);
+    ti4_engine_core::rules::leaders::ready(eff.state(), agent_owner, leader);
+    if agent_owner == me {
+        return Ok(());
+    }
+    let (opens, source) = {
+        let (s, k) = eff.read();
+        (ti4_engine_core::kernel::trade_env::with_cx(s, k, |cx| ti4_engine_core::query::trade::may_open_again(cx, me, agent_owner)), eff.codes().turn.tcs)
+    };
+    if opens != Some(true) {
+        return Ok(());
+    }
+    let choice = Choice {
+        actor: me,
+        ask: Ask::Technology(TAsk::TcsTransaction { partner: agent_owner }),
+        ctx: Ctx {
+            origin: Origin::FactionAbility(Content::Other(source)),
+            subtype: Subtype::Technology(TSub::TcsTransaction),
+            optional: true,
+            target: None,
+            outstanding: SmallList::new(),
+            space_battle: false,
+            invasion_seq: None,
+        },
+        opts: [Opt::Technology(TOpt::Transact), Opt::Decline].into_iter().collect::<Opts>(),
+    };
+    if eff.ask(&choice) != Pick::Opt(Opt::Technology(TOpt::Transact)) {
+        return Ok(());
+    }
+    let key = MarkKey::NomadTcsNegotiating(me, agent_owner);
+    eff.state().marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(1)));
+    // The window opens with the pair's one transaction spent unless a module exempts it, and runs to its end through the questions of this effect.
+    let facts = {
+        let (s, k) = eff.read();
+        ti4_engine_core::rules::trade_window::live_facts(s, k, &ti4_engine_core::state::Trade::opened(me, agent_owner))
+    };
+    let exempt = {
+        let (s, k) = eff.read();
+        k.hooks.cards.transaction_limit_exempt(s, k, me, agent_owner)
+    };
+    if !exempt {
+        ti4_engine_core::rules::trade::record_transaction(eff.state(), me, agent_owner);
+    }
+    if let Some(facts) = facts {
+        ti4_engine_core::rules::trade_window::run_inline(&mut eff.inline(), ti4_engine_core::rules::trade_window::TradeWindow::inline(me, agent_owner, facts));
+    }
+    eff.state().marks_mut().tail.edit().remove(&key);
+    Ok(())
+}
+
 pub fn register_abilities(t: &mut AbilityTable) {
+    t.add(Spec::new(TCS, AbilityKind::Technology, EventKind::AgentExhausted, Relation::After, tcs).when(tcs_condition).optional());
     t.add(Spec::new(THUNDARIAN_SPACE, AbilityKind::Leader, EventKind::SpaceCombatRollStepEnded, Relation::After, thundarian).when(thundarian_condition).optional());
     t.add(Spec::new(THUNDARIAN_GROUND, AbilityKind::Leader, EventKind::GroundCombatRollStepEnded, Relation::After, thundarian).when(thundarian_condition).optional());
     t.add(Spec::new(FUTURE_SIGHT, AbilityKind::Ability, EventKind::AgendaResolved, Relation::After, future_sight).when(future_sight_condition));

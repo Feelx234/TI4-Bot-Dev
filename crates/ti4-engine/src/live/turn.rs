@@ -36,6 +36,7 @@ pub fn codes(r: &Render) -> TurnCodes {
         starting_technology: r.code("starting_technology"),
         transaction: r.code("transaction"),
         dark_pact: r.code("dark_pact"),
+        tcs: r.code("tcs"),
     }
 }
 

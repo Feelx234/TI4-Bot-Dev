@@ -26,6 +26,8 @@ pub struct TurnCodes {
     pub transaction: Code,
     /// `dark_pact`: the source of the trade good Dark Pact gains.
     pub dark_pact: Code,
+    /// `tcs`: the source of Temporal Command Suite's question.
+    pub tcs: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.

@@ -85,13 +85,15 @@ pub struct TradeWindow {
     announced: bool,
     /// The position has no map: the string drops the window without a word.
     unmapped: bool,
+    /// No plain event follows an answer (the transaction Temporal Command Suite allows is an effect of a card: the string logs nothing).
+    quiet: bool,
 }
 
 impl TradeWindow {
     /// A negotiation just opened: `proposer` is to propose, with two proposals to spend.
     #[must_use]
     pub fn open(proposer: Seat, partner: Seat, facts: DealFacts) -> Self {
-        Self { proposer, partner, stage: TStage::Proposing, deal: None, rounds_left: 2, facts, single: false, outcome: None, live: false, announced: true, unmapped: false }
+        Self { proposer, partner, stage: TStage::Proposing, deal: None, rounds_left: 2, facts, single: false, outcome: None, live: false, announced: true, unmapped: false, quiet: false }
     }
 
     /// A negotiation at a position the string engine is in: waiting for a proposal, or for the answer to `deal`.
@@ -109,7 +111,16 @@ impl TradeWindow {
             live: false,
             announced: true,
             unmapped: false,
+            quiet: false,
         }
+    }
+
+    /// The transaction an effect allows (Temporal Command Suite): `proposer` proposes to `partner` at once, the whole negotiation runs through the
+    /// questions of the effect ([`run_inline`]). It stages the gains and emits the typed `TRANSACTION_RESOLVED` as a live window does, announces
+    /// no opening and logs no plain event.
+    #[must_use]
+    pub fn inline(proposer: Seat, partner: Seat, facts: DealFacts) -> Self {
+        Self { live: true, quiet: true, ..Self::open(proposer, partner, facts) }
     }
 
     /// Stop after the next answer (the adapter's one string step).
@@ -347,7 +358,9 @@ impl TradeWindow {
         let Some(outcome) = self.outcome else { return };
         if outcome == Outcome::Resolved {
             let payload = crate::state::Payload::new().with(Key::Proposer, Val::Seat(self.proposer)).with(Key::Partner, Val::Seat(self.partner));
-            if sx.emit_mirrored(fx::event(EventKind::TransactionResolved, payload)).is_err() {
+            // The transaction an effect allows is mirrored with the event whose window it runs in (the outer emission mirrors the journal once).
+            let rec = fx::event(EventKind::TransactionResolved, payload);
+            if (if self.quiet { sx.emit(rec) } else { sx.emit_mirrored(rec) }).is_err() {
                 sx.unknown(crate::kernel::ability::Unknown::TurnGap(crate::kernel::turn_codes::TurnGap::EmissionRefused));
                 return;
             }
@@ -360,7 +373,25 @@ impl TradeWindow {
             Outcome::Rejected(_) => PlainKind::TransactionRejected,
             Outcome::NothingOffered => PlainKind::TransactionAbandoned,
         };
-        sx.plain(PlainRec::bare(kind));
+        if !self.quiet {
+            sx.plain(PlainRec::bare(kind));
+        }
+    }
+}
+
+/// Run a [`TradeWindow::inline`] to its end inside an effect: every question goes to the tape of `rt`, every answer is applied with its services
+/// (the transaction Temporal Command Suite allows: the string's `while !window.is_complete()` loop).
+pub fn run_inline<R: Runner>(rt: &mut R, mut window: TradeWindow) {
+    loop {
+        let choice = {
+            let (state, kernel) = rt.read();
+            window.ask_of(state, kernel)
+        };
+        let Some(choice) = choice else { return };
+        let pick = rt.ask(&choice);
+        if rt.with_sx(|sx| window.answer(sx, pick)).is_err() {
+            return;
+        }
     }
 }
 
@@ -433,6 +464,7 @@ impl Held for TradeWindow {
 }
 
 /// The facts of a window on a position without a map: nothing is reachable, nothing is asked ([`TradeWindow::unmapped`]).
+// mutants:skip (a window without a map ends before it reads any of these)
 fn empty_facts(t: &Trade) -> DealFacts {
     DealFacts {
         note_order: deals_q::note_order,

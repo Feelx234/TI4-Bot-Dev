@@ -63,6 +63,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_PLAY, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_RETURN, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::ARTUNO, kind: "leader", card: "nomadagentartuno" },
+    Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::TCS, kind: "technology", card: "tcs" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE, kind: "unit", card: "mahact_infantry" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::LEGIONNAIRE_II, kind: "unit", card: "mahact_infantry2" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_TRADE_GOOD, kind: "technology", card: "so" },

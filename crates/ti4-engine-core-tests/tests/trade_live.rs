@@ -463,3 +463,171 @@ fn a_module_that_exempts_the_pair_from_the_limit_leaves_it_unrecorded() {
     assert!(!ti4_engine_core::query::trade::transacted_with(&s, Seat(0), Seat(1)), "an exempt pair is not recorded");
     assert_eq!(s.trade().negotiations_this_action.get(&Seat(0)), Some(&1), "the negotiation is counted all the same");
 }
+
+#[test]
+fn what_a_window_accepts_unlisted_is_only_a_named_free_form_deal_at_the_proposal() {
+    use ti4_engine_core::query::trade_deals::{DealFacts, FreeDeal};
+    use ti4_engine_core::query::trade::Terms;
+    let facts = |named: bool| DealFacts {
+        note_order: |a, b| a.cmp(&b),
+        card_order: |a, b| a.cmp(&b),
+        unlocked: 0,
+        pair: (Seat(0), Seat(1)),
+        may: [true, true],
+        arbiters: [false, false],
+        planet_values: &[],
+        free: [named.then_some(FreeDeal { given: Terms::default(), received: Terms::default() }), None],
+    };
+    let named = Pick::Opt(Opt::Trade(TOpt::Deal(Shape::Free(0))));
+    assert!(TradeWindow::open(Seat(0), Seat(1), facts(true)).accepts_unlisted(&named));
+    assert!(!TradeWindow::open(Seat(0), Seat(1), facts(false)).accepts_unlisted(&named), "no deal in that slot");
+    assert!(!TradeWindow::open(Seat(0), Seat(1), facts(true)).accepts_unlisted(&Pick::Opt(Opt::Decline)));
+    assert!(!TradeWindow::open(Seat(0), Seat(1), facts(true)).accepts_unlisted(&Pick::Opt(Opt::Trade(TOpt::Deal(Shape::SwapOne)))));
+    assert!(!TradeWindow::at(Seat(0), Seat(1), Some(Shape::SwapOne), 2, facts(true)).accepts_unlisted(&named), "the partner's question takes no named deal");
+}
+
+#[test]
+fn a_window_that_has_not_announced_its_opening_or_has_no_map_asks_nothing() {
+    let (mut s, k) = table();
+    let e = env(&k);
+    s.pending_mut().open(OpenWindow::Trade(Trade::opened(Seat(0), Seat(1))));
+    assert_eq!(ask_trade(&s, &e).unwrap(), None, "the first call announces before it asks");
+    s.pending_mut().open(OpenWindow::Trade(Trade { announced: true, ..Trade::opened(Seat(0), Seat(1)) }));
+    assert!(ask_trade(&s, &e).unwrap().is_some());
+    s.map = ti4_engine_core::state::MapSlice::default();
+    assert_eq!(ask_trade(&s, &e).unwrap(), None, "without a map the string drops the window");
+}
+
+#[test]
+fn the_question_of_a_proposal_is_mandatory_and_not_a_space_battle() {
+    let (mut s, k) = table();
+    let e = env(&k);
+    let q = question(begin(&mut s, &e, Seat(0), Seat(1)).unwrap().0);
+    assert!(!q.ctx.optional && !q.ctx.space_battle && q.ctx.invasion_seq.is_none());
+    let q = question(advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap().0);
+    assert!(!q.ctx.optional && !q.ctx.space_battle);
+}
+
+#[test]
+fn both_gains_of_a_free_form_deal_count_goods_and_commodities_together() {
+    let (mut s, k) = table();
+    let e = env(&k);
+    begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
+    // Seat 1 gives one good and one commodity for one good: seat 0 receives 2, seat 1 receives 1.
+    let spec = free(FreeTerms { trade_goods: 1, ..FreeTerms::default() }, FreeTerms { trade_goods: 1, commodities: 1, ..FreeTerms::default() });
+    let Some(OpenWindow::Trade(t)) = s.pending_mut().window_mut(WindowKind::Trade) else { panic!("held") };
+    t.free[1] = Some(spec);
+    advance_trade(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
+    advance_trade(&mut s, &e, Some(accept())).unwrap();
+    let amounts: Vec<_> = s.pending().staged.iter().map(|r| (r.payload.get(Key::Player), r.payload.get(Key::Amount))).collect();
+    assert_eq!(amounts, [(Some(Val::Seat(Seat(1))), Some(Val::Int(1))), (Some(Val::Seat(Seat(0))), Some(Val::Int(2)))]);
+}
+
+#[test]
+fn dark_pact_needs_the_faceup_note_in_the_givers_hand_and_exactly_the_maximum_value() {
+    let p = plain_systems();
+    let ring = spiral(2);
+    let build = || {
+        let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmpyrean]).map_hexes(&[(p[0], ring[0]), (p[1], ring[1])]).unit(p[0], None, Unit::CruiserI, 0, 1).unit(p[1], None, Unit::CruiserI, 1, 1).build();
+        let max = i16::from(Faction::TheArborec.data().commodities);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.commodities = max + 1;
+        let key = NoteKey { note: PromissoryNote::DarkPact, faction: Faction::TheEmpyrean };
+        s.cards_mut().promissory.edit().insert(key, Seat(0));
+        s.cards_mut().promissory_faceup.edit().insert(key, ());
+        (s, k, max, key)
+    };
+    let run = |s: &mut CoreState, k: &Kernel, give: i32, staging: bool| {
+        let mut e = env(k);
+        e.table.facts.staging = staging;
+        begin(s, &e, Seat(0), Seat(1)).unwrap();
+        let spec = free(FreeTerms { commodities: give, ..FreeTerms::default() }, FreeTerms::default());
+        let Some(OpenWindow::Trade(t)) = s.pending_mut().window_mut(WindowKind::Trade) else { panic!("held") };
+        t.free[1] = Some(spec);
+        advance_trade(s, &e, Some(deal(Shape::Free(1)))).unwrap();
+        advance_trade(s, &e, Some(accept())).unwrap();
+    };
+    let dark = |s: &CoreState| s.pending().staged.iter().filter(|r| r.payload.get(Key::Source) == Some(Val::Code(DARK_PACT))).count();
+    // The exact value, staging off: the goods move all the same (one each), nothing is staged.
+    let (mut s, k, max, _) = build();
+    run(&mut s, &k, i32::from(max), false);
+    assert_eq!((goods(&s, 0), goods(&s, 1)), (1, i16::from(max) + 1));
+    assert!(s.pending().staged.is_empty());
+    // One short, one over, zero: no Dark Pact.
+    for give in [i32::from(max) - 1, i32::from(max) + 1] {
+        let (mut s, k, _, _) = build();
+        run(&mut s, &k, give, true);
+        assert_eq!(dark(&s), 0, "{give}");
+    }
+    // The note not faceup, or held by the other seat: no Dark Pact.
+    let (mut s, k, max, key) = build();
+    s.cards_mut().promissory_faceup.edit().remove(&key);
+    run(&mut s, &k, i32::from(max), true);
+    assert_eq!(dark(&s), 0);
+    let (mut s, k, max, key) = build();
+    s.cards_mut().promissory.edit().insert(key, Seat(1));
+    run(&mut s, &k, i32::from(max), true);
+    assert_eq!(dark(&s), 0);
+}
+
+#[test]
+fn the_reach_the_exemption_the_arbiters_and_the_black_market_come_from_the_hooks_and_the_position() {
+    use ti4_engine_core::kernel::trade_env::KernelEnv;
+    use ti4_engine_core::query::trade::Env;
+    let (mut s, mut k) = table();
+    let env_of = |s: &CoreState, k: &Kernel| {
+        // Arborec (1) has no Arbiters or Guild Ships of its own.
+        (KernelEnv { core: s, kernel: k }.transaction_reach(Seat(1), Seat(2)), KernelEnv { core: s, kernel: k }.exempt_from_limit(Seat(1), Seat(2)), KernelEnv { core: s, kernel: k }.trades_action_cards(Seat(1)), KernelEnv { core: s, kernel: k }.black_market(), KernelEnv { core: s, kernel: k }.trades_action_cards(Seat(0)), KernelEnv { core: s, kernel: k }.wide(Seat(0)), KernelEnv { core: s, kernel: k }.wide(Seat(1)))
+    };
+    assert_eq!(env_of(&s, &k), (false, false, false, false, true, true, false));
+    k.hooks.cards.transaction_reach.push(|_, _, _, _| true);
+    k.hooks.cards.transaction_limit_exempt.push(|_, _, _, _| true);
+    k.hooks.general.trades_action_cards.push(|_, _, _| true);
+    k.hooks.general.ignores_neighbours.push(|_, _, who| who == Seat(1));
+    s.transient_mut().misc.flags.set(TransientFlags::BLACK_MARKET);
+    assert_eq!(env_of(&s, &k), (true, true, true, true, true, true, true));
+    // A faceup Trade Convoys reaches anyone.
+    let (mut s, k) = table();
+    let key = NoteKey { note: PromissoryNote::TradeConvoys, faction: Faction::TheArborec };
+    s.cards_mut().promissory.edit().insert(key, Seat(1));
+    s.cards_mut().promissory_faceup.edit().insert(key, ());
+    assert!(KernelEnv { core: &s, kernel: &k }.wide(Seat(1)));
+}
+
+#[test]
+fn the_free_form_facts_and_prices_come_from_the_position() {
+    use ti4_engine_core::query::trade_deals::{commander_unlocked_mask, free_nets, planet_value, planet_values};
+    let (mut s, _) = table();
+    assert_eq!(commander_unlocked_mask(&s), 0);
+    let commander = Leader::ALL.iter().copied().find(|l| l.data().kind == LeaderType::Commander).expect("a commander");
+    let agent = Leader::ALL.iter().copied().find(|l| l.data().kind == LeaderType::Agent).expect("an agent");
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(commander, ti4_engine_core::state::LeaderStatus::Unlocked);
+    s.players_mut().by_seat_mut(Seat(2)).unwrap().leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Unlocked);
+    s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(commander, ti4_engine_core::state::LeaderStatus::Locked);
+    assert_eq!(commander_unlocked_mask(&s), 0b001, "an unlocked commander of seat 0 only");
+    // Resources plus influence, at least one.
+    for p in Planet::ALL {
+        assert_eq!(planet_value(p), (p.data().resources + p.data().influence).max(1));
+    }
+    assert!(Planet::ALL.iter().any(|p| p.data().resources + p.data().influence == 0) && planet_values().iter().all(|v| *v >= 1));
+    // goods: 1 + 0.2 * 3 commodities cost against 2 + 1 worth.
+    let spec = free(FreeTerms { trade_goods: 1, commodities: 3, ..FreeTerms::default() }, FreeTerms { trade_goods: 2, fragments: [1, 0, 0, 0], ..FreeTerms::default() });
+    let (net, theirs) = free_nets(&spec);
+    assert_eq!(net, (2.0 + 1.0) - (1.0 + 0.2 * 3.0));
+    assert_eq!(theirs, (1.0 + 3.0) - (2.0 + 1.0));
+}
+
+#[test]
+fn a_support_leg_of_a_free_form_deal_is_payable_only_while_the_givers_support_is_not_lent() {
+    let (mut s, k) = table();
+    let e = env(&k);
+    begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
+    let spec = free(FreeTerms { note: Some(FreeNote::Support(Faction::TheEmiratesOfHacan)), ..FreeTerms::default() }, FreeTerms { trade_goods: 1, ..FreeTerms::default() });
+    let Some(OpenWindow::Trade(t)) = s.pending_mut().window_mut(WindowKind::Trade) else { panic!("held") };
+    t.free[1] = Some(spec);
+    let mut lent = s.clone();
+    lent.trade_mut().support_holders.insert(Seat(0), Seat(2));
+    assert_eq!(advance_trade(&mut lent, &e, Some(deal(Shape::Free(1)))).unwrap().0, Live::Done, "a lent Support cannot be given");
+    assert_eq!(plain_kinds(&lent), [PlainKind::TransactionRejected]);
+    let (live, _) = advance_trade(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
+    assert_eq!(question(live).actor, Seat(1));
+}

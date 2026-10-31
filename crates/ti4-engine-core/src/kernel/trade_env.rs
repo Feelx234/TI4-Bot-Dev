@@ -24,6 +24,7 @@ pub struct KernelEnv<'a> {
 
 impl Env for KernelEnv<'_> {
     /// I.I.H.Q. Modernization is a Keleres card: the faction is dropped.
+    // mutants:skip (no seat plays the dropped faction: the answer is false by decision)
     fn has_iihq(&self, _: Seat) -> bool {
         false
     }

@@ -508,7 +508,7 @@ fn an_alliance_is_offered_when_its_owners_commander_is_unlocked_and_never_to_mah
     assert!(string.questions[0].options.iter().all(|o| !o.id.contains("an:sol")), "{:?}", string.questions[0].ids());
     let mut t = table(&SOL_HACAN, &[]);
     t.state.player_mut(&pid("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("solcommander"), ti4_model::state::LeaderStatus::Unlocked);
-    let (string, native) = both(&t, "b", "hacan", &["pnan:sol:3", "accept"]);
+    let (string, native) = both(&t, "b", "hacan", &["pnan:sol:0", "accept"]);
     assert_same(&string, &native);
     assert!(has(&string, "TRANSACTION_RESOLVED"), "{:?}", string.events);
     // Mahact as the partner: the Alliance is not among the deals.
@@ -517,4 +517,70 @@ fn an_alliance_is_offered_when_its_owners_commander_is_unlocked_and_never_to_mah
     let (string, native) = both(&t, "b", "mahact", &["decline"]);
     assert_same(&string, &native);
     assert!(string.questions[0].options.iter().all(|o| !o.id.contains("an:sol")), "{:?}", string.questions[0].ids());
+}
+
+/// Temporal Command Suite: a Nomad (seat `a`, strangers with `b` by the map) hears an agent of `b` become exhausted (the event is staged, the
+/// step's reconcile announces it), readies it and deals with `b` through the questions of the effect, with the reach the card grants.
+#[test]
+fn temporal_command_suite_readies_the_agent_and_runs_the_transaction_like_the_string() {
+    for (script, resolved) in [
+        (&["technology:nomad:tcs:AGENT_EXHAUSTED:after", "transact", "2:1", "accept"][..], true),
+        (&["technology:nomad:tcs:AGENT_EXHAUSTED:after", "transact", "2:1", "refuse"][..], false),
+        (&["technology:nomad:tcs:AGENT_EXHAUSTED:after", "decline"][..], false),
+        (&["decline"][..], false),
+    ] {
+        let mut t = table(&[("a", "nomad"), ("b", "arborec")], &["a", "b"]);
+        t.state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("tcs"));
+        t.state.player_mut(&pid("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("arborecagent"), ti4_model::state::LeaderStatus::Exhausted);
+        let probe = super::Game::with_table(t.state.clone(), ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption))).with_galaxy(t.hub.galaxy.clone());
+        let start = probe.state.clone();
+        let mut staged = start.clone();
+        let payload = std::collections::BTreeMap::from([("player".to_owned(), serde_json::Value::from("b")), ("leader".to_owned(), serde_json::Value::from("arborecagent"))]);
+        assert!(crate::supply::stage_event(&mut staged, "AGENT_EXHAUSTED", &payload), "a module is seated: staging is on");
+        let seq = staged.turn_seq;
+        let mut string = super::turn_live_tests::string_run(&staged, script, |g| {
+            g.galaxy = Some(t.hub.galaxy.clone());
+            g.prepared_turn_seq = Some(seq);
+            let _ = g.step();
+        });
+        // The step goes on into the action menu, which the script does not answer: that question is not the island's.
+        string.questions.retain(|q| q.prompt != "choose an action" && !q.options.iter().any(|o| o.id.starts_with("component|")));
+        // Native: the position without the staged mark, the event staged in the core, and the reconcile that announces it.
+        let mut cx = Ctx::of(&start).expect("owners");
+        let render = Render::new(cx.owners.ids().to_vec());
+        let game = super::Game::with_table(start.clone(), ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption)));
+        let mut core = Codec::load(&mut cx, &start, Sources { galaxy: Some(&t.hub.galaxy), rng: Some(&game.rng_positions()) }, SliceSet::ALL).expect("loads");
+        let leader = <ti4_engine_core::generated::Leader as crate::generated::IdStr>::from_id("arborecagent").expect("a leader");
+        let seat_b = cx.owners.seat("b").expect("seated");
+        ti4_engine_core::kernel::fx::stage(&mut core, ti4_engine_core::kernel::fx::event(ti4_engine_core::state::EventKind::AgentExhausted, ti4_engine_core::state::Payload::new().with(ti4_engine_core::state::Key::Player, ti4_engine_core::state::Val::Seat(seat_b)).with(ti4_engine_core::state::Key::Leader, ti4_engine_core::state::Val::Leader(leader))));
+        let kernel = live::kernel::kernel_for(DEFAULT);
+        let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+        let lcx = live::Cx::new(&render, &env);
+        let mut asker = Scripted::new(script.iter().copied());
+        reconcile(&mut core, &lcx, &mut asker);
+        assert_eq!(asker.left(), 0, "every answer was taken; asked {:?}", asker.seen.iter().map(|c| (&c.prompt, c.ids())).collect::<Vec<_>>());
+        let questions = asker.seen.clone();
+        let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
+        let after = materialize::materialize(&core, &cx, &start).expect("materializes");
+        let rng = materialize::rng_positions(&core).expect("rng");
+        let staged_names = core.pending().staged.iter().map(|e| crate::kernel_sync::text::event_text(&render, e.kind)).collect();
+        let (state, _) = without_staged(serde_json::to_value(&after).expect("serializes"));
+        let native = Run { questions, events, state, rng, staged: staged_names };
+        // The string's reconcile also announces things this scenario does not touch (baselines): compare what the island produced.
+        assert_eq!(string.questions.iter().map(|q| (q.prompt.clone(), q.ids().into_iter().map(str::to_owned).collect::<Vec<_>>())).collect::<Vec<_>>(), native.questions.iter().map(|q| (q.prompt.clone(), q.ids().into_iter().map(str::to_owned).collect::<Vec<_>>())).collect::<Vec<_>>(), "{script:?}");
+        let island: Vec<&String> = string.events.iter().filter(|e| e.contains("TRANSACTION") || e.contains("AGENT_EXHAUSTED")).collect();
+        let theirs: Vec<&String> = native.events.iter().filter(|e| e.contains("TRANSACTION") || e.contains("AGENT_EXHAUSTED")).collect();
+        assert_eq!(island, theirs, "{script:?}\nstring {:?}\nnative {:?}", string.events, native.events);
+        assert_eq!(string.staged, native.staged, "{script:?}");
+        let mut s_state = string.state.clone();
+        let mut n_state = native.state.clone();
+        for v in [&mut s_state, &mut n_state] {
+            if let Some(m) = v.get_mut("faction_marks").and_then(serde_json::Value::as_object_mut) {
+                m.retain(|k, _| !k.starts_with("private:#seen"));
+            }
+        }
+        let diffs = crate::dual::diff_json(&s_state["players"], &n_state["players"], 12);
+        assert!(diffs.is_empty(), "{script:?}: {diffs:?}");
+        assert_eq!(island.iter().any(|e| e.starts_with("TRANSACTION_RESOLVED")), resolved, "{script:?}: {island:?}");
+    }
 }
