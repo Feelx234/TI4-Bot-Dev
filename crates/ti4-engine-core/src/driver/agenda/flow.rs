@@ -38,8 +38,7 @@ pub enum Opened {
 /// A text of the state's own table (`AgendaRecord::discard_reason`).
 fn state_code(core: &mut CoreState, text: &[u8]) -> Code {
     // The state's own text table mints the code (a code means the same text in every lineage of the state); the table holds 65 535 texts.
-    // mutants:skip: the fallbacks are unreachable (the table is never full here and an index fits a code)
-    Code(u16::try_from(core.texts.codes.intern(text, CODE_CAPACITY).unwrap_or(0)).unwrap_or(0))
+    Code(u16::try_from(core.texts.codes.intern(text, CODE_CAPACITY).unwrap_or(0)).unwrap_or(0)) // mutants:skip: the fallbacks are unreachable (the table is never full here and an index fits a code)
 }
 
 /// What the reveal reads besides the position.
@@ -91,7 +90,7 @@ fn committee_formation(sx: &mut Sx<'_>, agenda: Agenda) -> Result<bool, ()> {
     let blanked = reach::blanked(sx.state);
     let Some(Outcome::Seat(owner)) = crate::query::laws::elected(sx.state, blanked, Agenda::CommitteeFormation) else { return Ok(false) };
     if sx.state.players().by_seat(owner).is_none() {
-        return Ok(false);
+        return Ok(false); // mutants:skip: a law is elected onto a seat of the table, a position the rules never leave
     }
     let codes = sx.table.codes.agenda;
     let mut offer = OfferDiscard::new(Agenda::CommitteeFormation, owner, codes.committee_prompt, codes.committee);

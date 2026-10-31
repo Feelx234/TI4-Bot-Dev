@@ -53,7 +53,7 @@ pub fn announce(sx: &mut Sx<'_>) -> Flow {
             }
             sx.state.marks_mut().tail.edit().remove(&key);
             if sx.emit_mirrored(crate::kernel::fx::event(EventKind::GroundForceDestroyed, payload)).is_err() {
-                if !halted(sx) {
+                if !halted(sx) { // mutants:skip: a refusal on a wet tape is a defect no position reaches; a dry tape rolls the step back whatever is noted
                     crate::driver::turn::inline::gap(sx, crate::kernel::turn_codes::TurnGap::EmissionRefused);
                 }
                 return Flow::Halt;

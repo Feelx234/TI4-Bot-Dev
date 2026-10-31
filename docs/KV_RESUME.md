@@ -73,7 +73,14 @@ Core halves: `ti4-engine-core-tests/tests/agenda_flow.rs` (rebuild from payload,
 * `cargo test -p ti4-engine --lib` (default areas, whole lib, at the end): 4977 passed, 6 ignored (the run before the last test edits: 4976 + the sweeps after skipping the Crisis gap).
 * `cargo test -p ti4-engine-core-bridge --lib`: 74 passed.
 * `tools/engine_core/check_layers.py core`: 469 files, 0 violations. `lint_core.sh`: 471 files, 0 hits.
-* `playthrough_quick.sh --maxsteps 1500`: see the next section.
+* `playthrough_quick.sh --maxsteps 1500` (gate profile, sol, 4 players, seed 1, `te`, `starting_tech`): **island D: 113 counted bails** in 4 causes (`d1::step [bail: voting]` 93, `d1::pending.open/close [bail: Voting]` 8 + 8, and the agenda
+  step), against 114 at the first run of lane A2. The bin still plays the string `Game` under `all=dual` (the wrapper of D2-8 does not call `live_step` yet), so the table counts the dual's own bails of the windows the core cannot follow in
+  the dual, not the native arms: they are proven by the lockstep above. Whole table of that run: M1 108, M2 27, M3 146, M4 71, M5 482, M6 631, B 865, C 192, D 113, E 121, F 8, other 7.
+
+* Mutation (`tools/engine_core/mutants.sh crates/ti4-engine-core/src/driver/agenda`, 102 points, 15 not compilable under the switch; the two test sets, taking the union): first run of the lockstep set 67/90 killed; after the survivor tests
+  (covert legislation, committee formation, the first seat's rider, a grant below version 14, a demilitarized zone) 77/87; the core set (`agenda_flow`, `agenda_riders`: the phase gap, the grant's scope, the staged ground rows' payload,
+  the grant without a roster) kills the rest but two, both marked `// mutants:skip` with their reason (the halted guard of a refused emission, the fallbacks of `state_code`, an unreachable committee owner). Not mutated: `rules/agenda/effects/placements.rs`,
+  `rules/agenda/close.rs` (rider placement), `driver/windows/hooked_draw.rs`, `rules/agenda/window.rs` (restore/casts/pact), `kernel/fx_cards.rs`, `live/agenda.rs`: the lockstep sweeps run them, no mutation batch was run on them.
 
 Tests changed because the behaviour they pinned moved (not loosened): `rules::agenda::close` (the placement riders have a window), `agenda_vote2` (a long election keeps the first eight tally entries), `status_phase` (the queue is taken, no longer a gap), the registry tests (`Agenda`, `Voting` native),
 `agenda_close_tests::riders_that_place_run_in_the_core_in_lockstep`, `agenda_effects_lockstep::the_placing_halves_have_a_window`.

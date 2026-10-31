@@ -217,3 +217,16 @@ fn a_grant_offers_the_technologies_of_the_games_sources_and_pays_the_prerequisit
     assert!(p.tech.owned.contains(chosen), "gained, not researched");
     assert_eq!(p.econ.fleet_tokens, (4 - cost).max(0), "one fleet token back to the reinforcements for each prerequisite");
 }
+
+#[test]
+fn a_grant_without_the_unit_roster_gains_the_technology_but_declares_the_unit_upgrades_unsupported() {
+    covers!("driver::agenda::grant::Grant");
+    use ti4_engine_core::choice::relic::Opt as ROpt;
+    use ti4_engine_core::driver::agenda::grant::Grant;
+    use ti4_engine_core::kernel::agenda_codes::AgendaCodes;
+    let mut rig = Rig::new(Scenario::lobby(2), Grant::new(Seat(0), ALL_SOURCES, None, AgendaCodes::default()));
+    rig.run();
+    let first = rig.opts().into_iter().find(|o| matches!(o, Opt::Relic(ROpt::Tech(_)))).expect("a technology to gain");
+    rig.pick_opt(first);
+    assert!(rig.is_done() && rig.driver.window.unsupported, "the caller declines the run: the upgrades of the units on the board need the roster");
+}
