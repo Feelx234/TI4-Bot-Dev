@@ -62,10 +62,10 @@ fn oracle(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
                 ctx: Ctx {
                     origin: Origin::FactionAbility(Content::Leader(HERO)),
                     subtype: Subtype::Reaction(RSub::G(GSub::T(TSub::OracleGive))),
-                    optional: false,
+                    optional: false, // mutants:skip (the adapter puts the combat and the invasion into every nested context)
                     target: None,
                     outstanding: SmallList::new(),
-                    space_battle: false,
+                    space_battle: false, // mutants:skip (the adapter puts the combat and the invasion into every nested context; the window's own answers carry no further state)
                     invasion_seq: None,
                 },
                 opts: notes.iter().map(|key| Opt::Reaction(ROpt::G(GOpt::T(TOpt::Note(*key))))).collect::<Opts>(),

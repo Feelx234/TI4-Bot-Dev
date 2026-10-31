@@ -1142,3 +1142,64 @@ mod scepter {
         assert!(rig(Scenario::new(&FACTIONS).unit(a, None, Unit::CruiserI, 1, 1), |_| {}, begun()).is_done());
     }
 }
+
+mod more_edges {
+    use super::*;
+    use ti4_engine_core::generated::{PromissoryNote, Technology};
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::NoteKey;
+
+    #[test]
+    fn bioplasmosis_moves_the_owners_infantry_only_and_not_more_than_there_are() {
+        covers!("silent::g3::bio::BIO");
+        let (system, planets) = two_planet_system();
+        // Another player's infantry stands first on the planet; the owner has exactly one.
+        let scenario = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan])
+            .tech(0, Technology::Bioplasmosis)
+            .control(planets[0], 0)
+            .control(planets[1], 0)
+            .unit(system, Some(planets[0]), Unit::InfantryI, 1, 1)
+            .unit(system, Some(planets[0]), Unit::InfantryI, 0, 1);
+        let mut r = rig(scenario, |_| {}, fx::event(EventKind::StatusPhaseEnded, Payload::new()));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the technology");
+        r.pick(use_it);
+        r.pick(0);
+        // The only infantry is moved: nothing more is asked.
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!((units_of(&r, planets[0], 0, UnitBaseType::Infantry), units_of(&r, planets[1], 0, UnitBaseType::Infantry)), (0, 1));
+        assert_eq!(units_of(&r, planets[0], 1, UnitBaseType::Infantry), 1, "the other player's infantry stays");
+        assert!(r.state.board().planet(planets[1]).flags.has(ti4_engine_core::state::PlanetFlags::UNITS_ENTRY));
+    }
+
+    const NOTE: NoteKey = NoteKey { note: PromissoryNote::ScepterOfDominion, faction: Faction::TheMahactGeneSorcerers };
+    const FACTIONS: [Faction; 3] = [Faction::TheMahactGeneSorcerers, Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol];
+
+    fn begun() -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::StrategyPhaseBegan, Payload::new())
+    }
+
+    fn pool(holder: u8) -> impl FnOnce(&mut CoreState) {
+        move |s| {
+            s.cards_mut().promissory.edit().insert(NOTE, Seat(holder));
+            s.marks_mut().tail.edit().insert(MarkKey::MahactFleet(Seat(0)), MarkVal::List(vec![MarkVal::Atom(Atom::Seat(Seat(2)))]));
+        }
+    }
+
+    #[test]
+    fn the_scepter_counts_units_on_planets_needs_the_holder_not_the_mahact_and_a_payer_with_a_token_to_place() {
+        covers!("silent::g3::scepter::SCEPTER");
+        let (system, planets) = two_planet_system();
+        // Units on a planet make a system the holder's; another player's units do not.
+        let on_planet = rig(Scenario::new(&FACTIONS).unit(system, Some(planets[0]), Unit::InfantryI, 1, 1), pool(1), begun());
+        assert!(on_planet.state.board().sys(system).cmd.contains(Seat(2)), "a planet counts");
+        let theirs = rig(Scenario::new(&FACTIONS).unit(system, Some(planets[0]), Unit::InfantryI, 2, 1), pool(1), begun());
+        assert!(!theirs.state.board().sys(system).cmd.contains(Seat(2)), "another player's units do not");
+        // The Mahact holding its own note plays nothing.
+        let own = rig(Scenario::new(&FACTIONS).unit(system, Some(planets[0]), Unit::InfantryI, 0, 1), pool(0), begun());
+        assert!(!own.state.board().sys(system).cmd.contains(Seat(2)));
+        // A payer with no token in reinforcements places none (the whole box is on the sheet).
+        let broke = rig(Scenario::new(&FACTIONS).unit(system, Some(planets[0]), Unit::InfantryI, 1, 1).tokens(2, 8, 4, 4), pool(1), begun());
+        assert!(!broke.state.board().sys(system).cmd.contains(Seat(2)), "no token left to place");
+        assert_eq!(broke.state.cards().promissory.get(&NOTE), Some(&Seat(0)), "the card goes home all the same");
+    }
+}

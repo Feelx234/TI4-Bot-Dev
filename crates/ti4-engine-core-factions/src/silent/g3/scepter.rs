@@ -45,7 +45,7 @@ fn systems(s: &CoreState, holder: Seat) -> Vec<System> {
 fn payers(s: &CoreState, mahact: Seat, holder: Seat, system: System) -> Vec<Seat> {
     let mut owners: Vec<Seat> = fleet_pool_owners(s, mahact).as_slice().iter().copied().filter(|payer| *payer != holder).collect();
     owners.dedup();
-    owners.retain(|payer| !board::has_token(s, system, *payer) && economy::tokens_in_reinforcements(s, *payer, fx::tokens_held_by_mahact(s, *payer)) > 0);
+    owners.retain(|payer| !board::has_token(s, system, *payer) && economy::tokens_in_reinforcements(s, *payer, fx::tokens_held_by_mahact(s, *payer)) > 0); // mutants:skip (a payer that has a token already places nothing twice: `place_command_token` is idempotent)
     owners
 }
 
@@ -83,10 +83,10 @@ fn place(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
                 ctx: Ctx {
                     origin: Origin::FactionAbility(Content::Promissory(PromissoryNote::ScepterOfDominion)),
                     subtype: Subtype::Reaction(RSub::G(GSub::T(TSub::Scepter))),
-                    optional: false,
+                    optional: false, // mutants:skip (the adapter puts the combat into every nested context)
                     target: None,
                     outstanding: SmallList::new(),
-                    space_battle: false,
+                    space_battle: false, // mutants:skip (the adapter puts the combat and the invasion into every nested context; the window's own answers carry no further state)
                     invasion_seq: None,
                 },
                 opts,

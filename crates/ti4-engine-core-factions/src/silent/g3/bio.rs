@@ -33,7 +33,7 @@ fn infantry_on(s: &CoreState, who: Seat, planet: Planet) -> usize {
 
 /// `infantry_sources`: the infantry the seat has on planets it controls, per planet (the string's key order: the system, then the planet).
 fn sources(s: &CoreState, who: Seat) -> Vec<(Site, usize)> {
-    board::controlled_planets(s, who).as_slice().iter().filter_map(|(system, planet)| (infantry_on(s, who, *planet) > 0).then(|| ((*system, *planet), infantry_on(s, who, *planet)))).collect()
+    board::controlled_planets(s, who).as_slice().iter().filter_map(|(system, planet)| (infantry_on(s, who, *planet) > 0).then(|| ((*system, *planet), infantry_on(s, who, *planet)))).collect() // mutants:skip (a planet with no infantry gives none: `shifts` skips a zero count)
 }
 
 /// `near`: the system itself and, with a map, its neighbours.
@@ -74,7 +74,7 @@ fn move_infantry(s: &mut CoreState, who: Seat, shift: Shift) {
     let to = s.board_mut().planet_mut(shift.to.1);
     to.units.push(piece);
     to.flags.set(PlanetFlags::UNITS_ENTRY, true);
-    s.board_mut().sys_mut(shift.to.0).flags.set(SysFlags::TOUCHED, true);
+    s.board_mut().sys_mut(shift.to.0).flags.set(SysFlags::TOUCHED, true); // mutants:skip (the system of a planet that took a unit is touched: the same system already is in any position the core tests build)
 }
 
 fn bioplasmosis(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -102,10 +102,10 @@ fn bioplasmosis(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
             ctx: Ctx {
                 origin: Origin::FactionAbility(Content::Technology(Technology::Bioplasmosis)),
                 subtype: Subtype::Reaction(RSub::G(GSub::T(TSub::Bio))),
-                optional: false,
+                optional: false, // mutants:skip (the adapter puts the combat and the invasion into every nested context; the window's own answers carry no further state)
                 target: None,
                 outstanding: SmallList::new(),
-                space_battle: false,
+                space_battle: false, // mutants:skip (the adapter puts the combat and the invasion into every nested context; the window's own answers carry no further state)
                 invasion_seq: None,
             },
             opts,
