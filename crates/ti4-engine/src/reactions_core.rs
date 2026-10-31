@@ -105,6 +105,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::g3::zeu::ZEU, kind: "leader", card: "naaluagent-te" },
     Named { slot: ti4_engine_core_factions::silent::g3::nekro_commander::ACIDOS, kind: "leader", card: "nekrocommander" },
     Named { slot: ti4_engine_core_factions::silent::g3::suffi_an::SUFFI_AN, kind: "leader", card: "mentakagent" },
+    Named { slot: ti4_engine_core_factions::silent::g3::mentak_commander::SULA, kind: "leader", card: "mentakcommander" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR, kind: "promissory", card: "tekklar" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_END, kind: "promissory", card: "tekklar_end" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_TURN, kind: "promissory", card: "tekklar_turn" },

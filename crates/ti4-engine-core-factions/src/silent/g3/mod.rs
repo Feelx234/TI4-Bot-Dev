@@ -5,6 +5,7 @@
 pub mod alastor;
 pub mod draw;
 pub mod exo2;
+pub mod mentak_commander;
 pub mod nekro_commander;
 pub mod ragh;
 pub mod suffi_an;
@@ -53,6 +54,7 @@ pub fn register_abilities(t: &mut AbilityTable) {
     zeu::register_abilities(t);
     nekro_commander::register_abilities(t);
     suffi_an::register_abilities(t);
+    mentak_commander::register_abilities(t);
 }
 
 /// Rules registered between the Nekro and the Winnu modules of the string (`ca_combat` and `cb_economy`'s late rules in the core's order): Sardakk's.

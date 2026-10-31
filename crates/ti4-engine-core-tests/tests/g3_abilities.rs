@@ -663,3 +663,90 @@ mod suffi_an {
         assert_eq!(r.state.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::SuffiAnMentakagent), Some(&LeaderStatus::Readied), "the lender's card is not exhausted");
     }
 }
+
+// -- S'ula Mentarion ------------------------------------------------------------------------------------------------------------
+
+mod sula {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent3::{Ask as TAsk, Opt as TOpt};
+    use ti4_engine_core::generated::{Leader, PromissoryNote};
+    use ti4_engine_core::state::{Code, LeaderStatus, List, NoteKey};
+
+    const FACTIONS: [Faction; 3] = [Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol];
+
+    fn won(system: System, opponents: &[u8]) -> ti4_engine_core::state::EventRec {
+        let seats: ti4_engine_core::containers::SmallList<Seat, 4> = opponents.iter().map(|s| Seat(*s)).collect();
+        fx::event(EventKind::SpaceCombatWon, Payload::new().with(Key::Player, Val::Seat(Seat(0))).with(Key::System, Val::System(system)).with_list(Key::Other(Code(0)), List::Seats(seats)))
+    }
+
+    fn note(note: PromissoryNote, faction: Faction) -> NoteKey {
+        NoteKey { note, faction }
+    }
+
+    fn edit(holds: &'static [(u8, PromissoryNote, Faction)]) -> impl FnOnce(&mut CoreState) {
+        move |s| {
+            s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::SulaMentarion, LeaderStatus::Unlocked);
+            for (holder, n, faction) in holds {
+                s.cards_mut().promissory.edit().insert(note(*n, *faction), Seat(*holder));
+            }
+        }
+    }
+
+    #[test]
+    fn the_opponent_gives_a_note_of_its_hand_and_the_commander_is_asked_which_opponent_only_with_several() {
+        covers!("silent::g3::mentak_commander::SULA");
+        let (system, _) = two_planet_system();
+        // Two opponents with a note each: the commander picks one, the opponent gives.
+        let holds: &'static [(u8, PromissoryNote, Faction)] = &[(1, PromissoryNote::Ceasefire, Faction::TheFederationOfSol), (2, PromissoryNote::Ceasefire, Faction::TheEmiratesOfHacan)];
+        let mut r = rig(Scenario::new(&FACTIONS), edit(holds), won(system, &[1, 2]));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the commander");
+        r.pick(use_it);
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::SulaOpponent))), "{}", r.transcript());
+        assert_eq!(r.opts(), vec![Opt::Reaction(ROpt::G(GOpt::T(TOpt::Seat(Seat(1))))), Opt::Reaction(ROpt::G(GOpt::T(TOpt::Seat(Seat(2)))))]);
+        r.pick(0);
+        assert_eq!((r.asked().actor, r.asked().ask), (Seat(1), Ask::Reaction(RAsk::G(GAsk::T(TAsk::SulaGive { to: Seat(0) })))), "{}", r.transcript());
+        // The hand: the notes held and not faceup, then the opponent's own Support for the Throne.
+        assert!(r.opts().contains(&Opt::Reaction(ROpt::G(GOpt::T(TOpt::Note(note(PromissoryNote::Ceasefire, Faction::TheFederationOfSol)))))));
+        assert_eq!(r.opts().last(), Some(&Opt::Reaction(ROpt::G(GOpt::T(TOpt::Support(Faction::TheEmiratesOfHacan))))));
+        let given = r.opts().iter().position(|o| *o == Opt::Reaction(ROpt::G(GOpt::T(TOpt::Note(note(PromissoryNote::Ceasefire, Faction::TheFederationOfSol)))))).unwrap();
+        r.pick(given);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!(r.state.cards().promissory.get(&note(PromissoryNote::Ceasefire, Faction::TheFederationOfSol)), Some(&Seat(0)), "taken");
+    }
+
+    #[test]
+    fn a_support_for_the_throne_scores_a_point_on_arrival_and_one_opponent_is_not_asked_which() {
+        covers!("silent::g3::mentak_commander::SULA");
+        let (system, _) = two_planet_system();
+        let mut r = rig(Scenario::new(&FACTIONS), edit(&[]), won(system, &[1]));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the commander");
+        r.pick(use_it);
+        // One opponent: straight to the note (the opponent's own Support for the Throne is in its hand).
+        assert_eq!(r.asked().actor, Seat(1), "{}", r.transcript());
+        let support = r.opts().iter().position(|o| matches!(o, Opt::Reaction(ROpt::G(GOpt::T(TOpt::Support(_)))))).expect("its Support for the Throne");
+        let before = r.state.players().by_seat(Seat(0)).unwrap().econ.victory_points;
+        r.pick(support);
+        assert!(r.is_done());
+        assert_eq!(r.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, before + 1);
+        assert_eq!(r.state.trade().support_holders.get(&Seat(1)), Some(&Seat(0)));
+    }
+
+    #[test]
+    fn it_needs_the_unlocked_commander_the_winner_and_an_opponent_with_a_note() {
+        covers!("silent::g3::mentak_commander::SULA");
+        let (system, _) = two_planet_system();
+        // Locked: nobody is asked.
+        assert!(rig(Scenario::new(&FACTIONS), |_| {}, won(system, &[1])).is_done());
+        // The Support is lent already and no note is held: nothing to give.
+        let nothing = |s: &mut CoreState| {
+            edit(&[])(s);
+            s.trade_mut().support_holders.insert(Seat(1), Seat(2));
+        };
+        assert!(rig(Scenario::new(&FACTIONS), nothing, won(system, &[1])).is_done());
+        // Another seat won.
+        let other = fx::event(EventKind::SpaceCombatWon, Payload::new().with(Key::Player, Val::Seat(Seat(1))).with(Key::System, Val::System(system)));
+        assert!(rig(Scenario::new(&FACTIONS), edit(&[]), other).is_done());
+    }
+}

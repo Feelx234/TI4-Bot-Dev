@@ -1,8 +1,9 @@
 //! Questions of the abilities lane G3 ported (`docs/G3_RESUME.md`), part 2 of the loud gap rows. They are variants of `silent` (`silent::Ask::T`, `Opt::T`,
 //! `Subtype::T`), so the lanes that add to `silent` and this one never touch the same lines; the renderer is `render/silent3.rs`.
 
-use crate::generated::{Planet, System, Unit};
+use crate::generated::{Faction, Planet, System, Unit};
 use crate::ids::Seat;
+use crate::state::NoteKey;
 
 /// What a G3 ability asks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -17,6 +18,10 @@ pub enum Ask {
     ExoVictim { round: u8 },
     /// Suffi An (Mentak agent): exhaust to draw 1 action card each with `target`, the player pillaged.
     SuffiAn { target: Seat },
+    /// S'ula Mentarion (Mentak commander): which opponent gives a promissory note.
+    SulaOpponent,
+    /// S'ula Mentarion: the opponent says which promissory note of the hand goes to `to`.
+    SulaGive { to: Seat },
 }
 
 /// One answer.
@@ -31,6 +36,12 @@ pub enum Opt {
     Ship { index: u8, owner: Seat, unit: Unit, damaged: bool, victim: bool },
     /// Exhaust the agent (the answer `exhaust`).
     Exhaust,
+    /// A seat (the option id is the seat's player id).
+    Seat(Seat),
+    /// A promissory note of the hand.
+    Note(NoteKey),
+    /// The seat's own Support for the Throne (`support:{faction}`).
+    Support(Faction),
 }
 
 /// The machine identifier of the question.
@@ -46,6 +57,10 @@ pub enum Subtype {
     ExoVictim,
     /// `suffi_an`.
     SuffiAn,
+    /// `commander_opponent`.
+    SulaOpponent,
+    /// `commander_give_note`.
+    SulaGive,
 }
 
 impl Ask {
@@ -55,7 +70,7 @@ impl Ask {
     pub const fn carries_trigger(&self) -> bool {
         match self {
             Self::Ragh { .. } => false,
-            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } | Self::SuffiAn { .. } => false,
+            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } | Self::SuffiAn { .. } | Self::SulaOpponent | Self::SulaGive { .. } => false,
         }
     }
 }

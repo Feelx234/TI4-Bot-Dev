@@ -83,3 +83,31 @@ fn zeu_removes_the_activation_token_like_the_string() {
         assert!(diffs.is_empty(), "{answer}: {diffs:#?}");
     }
 }
+
+#[test]
+fn the_mentak_commander_takes_a_promissory_note_after_a_won_fight_like_the_string() {
+    let (hub, _origin, target) = hub();
+    let mut taken = 0;
+    for seed in 1..=8_u64 {
+        let mut state = table(&[("a", "mentak"), ("b", "hacan")]);
+        state.rng_seed = seed;
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mentakcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        crate::fixtures::put(&mut state, &target, "dreadnought", &a(), 4);
+        crate::fixtures::put(&mut state, &target, "cruiser", &a(), 2);
+        crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+        // The hand of seat b varies: its own notes, a Mentak note it holds, none at all.
+        match seed % 3 {
+            0 => state.promissory_notes.retain(|_, holder| holder != &b()),
+            1 => {
+                state.promissory_notes.insert("ragh:saar".to_owned(), b());
+            }
+            _ => {}
+        }
+        let script = [TACTICAL_ACTION_ID, target.as_str()];
+        let seen = string_run(&state, &hub.galaxy, &script, 0);
+        taken += seen.asked.iter().filter(|q| q.prompt.starts_with("Give a 1 promissory note")).count();
+        let diffs = lockstep(state, &hub.galaxy, &script);
+        assert!(diffs.is_empty(), "seed {seed}: {diffs:#?}");
+    }
+    assert!(taken > 0, "the commander was used at least once");
+}
