@@ -746,4 +746,22 @@ mod tests {
             assert!(diffs.is_empty(), "crucible {answer}: {diffs:#?}");
         }
     }
+
+    /// Neuroglaive: after another player activates a system with the owner's ships, that player returns a fleet token (mandatory, no question).
+    #[test]
+    fn neuroglaive_takes_a_fleet_token_from_the_activator_in_lockstep() {
+        let (hub, origin, target) = hub();
+        for (ships_there, tokens) in [(true, 3), (false, 3), (true, 0)] {
+            let mut state = table(&[("a", "sol"), ("b", "naalu")]);
+            state.player_mut(&b()).unwrap().technologies.insert(ti4_model::TechnologyId::new("ng"));
+            state.player_mut(&a()).unwrap().fleet_tokens = tokens;
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            if ships_there {
+                crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+            }
+            let mv = id(&origin, 0);
+            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], false);
+            assert!(diffs.is_empty(), "ships {ships_there} tokens {tokens}: {diffs:#?}");
+        }
+    }
 }

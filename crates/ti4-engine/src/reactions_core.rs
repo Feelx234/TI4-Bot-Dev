@@ -84,6 +84,7 @@ const NAMED: &[Named] = &[
     Named { slot: cabal::REANIMATOR, kind: "unit", card: "cabal_mech" },
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::PROMISE, kind: "promissory", card: "pop" },
     Named { slot: cabal::CRUCIBLE, kind: "promissory", card: "crucible" },
+    Named { slot: ti4_engine_core_factions::cd_registry::naalu::timing::NEUROGLAIVE, kind: "technology", card: "ng" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
     Named { slot: cabal::DEVOUR_GROUND, kind: "ability", card: "devour" },
     Named { slot: cabal::TERROR_SHIPS, kind: "unit", card: "cabal_flagship" },
@@ -813,7 +814,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
@@ -934,7 +935,6 @@ mod tests {
         ("leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the T'ro mark of the end of the action)")),
         ("leader:*:yssarilcommander:SYSTEM_ACTIVATED:after", Status::Gap("Yssaril commander So Ata: after another player's activation, look at a hand")),
         ("promissory:*:nanolink:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
-        ("technology:*:ng:SYSTEM_ACTIVATED:after", Status::Gap("Naalu Neuroglaive (technology ng)")),
         ("unit:*:arborec_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Arborec flagship Duha Menaimon: a production in the activated system")),
         ("unit:*:deepwrought_mech:SYSTEM_ACTIVATED:when", Status::Dropped("Deepwrought")),
         ("unit:*:ghost_mech:SYSTEM_ACTIVATED:after", Status::Gap("Ghosts mech Quantum (wormhole token)")),
