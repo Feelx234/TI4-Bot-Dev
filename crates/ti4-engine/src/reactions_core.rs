@@ -732,10 +732,8 @@ mod tests {
             "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
             "promissory:letnev:ambuscade:UNIT_ABILITY_ROLLED:when",
             "ability:sol:propagation:SPACE_COMBAT_ENDED:after",
-            // The Nomad's tail (package W9): Mercer hangs on the end of a tactical action and asks which ground forces move
-            // (an option list in the text order of the systems), the Thundarian replays the roll step (lane 1, ported), Temporal Command
-            // Suite readies an agent and may open a transaction window, Thunder's Paradox hangs on TURN_BEGAN.
-            "leader:nomad:nomadagentmercer:TACTICAL_ACTION_ENDED:after",
+            // The Nomad's tail (package W9): Temporal Command Suite readies an agent and may open a transaction window, Thunder's Paradox
+            // hangs on TURN_BEGAN. (Mercer is a rule of the table since lane M6d.)
             "technology:nomad:tcs:AGENT_EXHAUSTED:after",
             "breakthrough:nomad:nomadbt:TURN_BEGAN:after",
         ] {
