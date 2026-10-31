@@ -427,7 +427,10 @@ fn a_vote_with_the_obligation_to_cast_leaves_the_planet_question_open_until_one_
     let cx2 = ag::Cx { core: &none, scope: ALL_SOURCES, blanked: false, env: &E };
     assert!(ag::planets_question(&cx2, Agenda::ALL[0], Seat(0), Outcome::For, 0, false, false, &choices, &[], false).is_none());
     let nine: Vec<Outcome> = (0..9).map(|i| Outcome::Seat(Seat(i))).collect();
-    assert!(ag::planets_question(&cx, Agenda::ALL[0], Seat(0), Outcome::For, 0, false, false, &nine, &[], false).is_none(), "more outcomes than the tally holds");
+    // A longer vote keeps the first eight in the ledger of the question (the live display facts rebuild the whole list from the vote).
+    let long = ag::planets_question(&cx, Agenda::ALL[0], Seat(0), Outcome::For, 0, false, false, &nine, &[], false).expect("a question");
+    let Ask::Agenda(AAsk::Planets { tally, .. }) = long.ask else { panic!("a planets question") };
+    assert_eq!(tally.as_slice().len(), ti4_engine_core::choice::agenda::Tally::MAX, "more outcomes than the tally holds");
     let eight: Vec<Outcome> = (0..8).map(|i| Outcome::Seat(Seat(i))).collect();
     assert!(ag::planets_question(&cx, Agenda::ALL[0], Seat(0), Outcome::For, 0, false, false, &eight, &[], false).is_some());
 }
