@@ -18,8 +18,28 @@ use ti4_engine_core::state::{PlainKind, SecondaryHow, Window as OpenWindow, Wind
 use ti4_engine_core_tests::prelude::*;
 
 fn env(k: &Kernel) -> Env<'_> {
+    use ti4_engine_core::kernel::ability::{PlayFacts, PlaysProvider, SharedPlay};
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
+    // The end of an action assembles the closing menu (lane F), which reads the unit roster of the play facts.
+    let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
+    table.facts.plays_provider = Some(PlaysProvider(std::sync::Arc::new(move |core, _| {
+        Some(PlayFacts {
+            scope: 0,
+            blanked: false,
+            action_card: ti4_engine_core::state::Code(0),
+            supply_base: ti4_engine_core::state::Code(0),
+            note_order: |a, b| a.cmp(&b),
+            seats: Vec::new(),
+            name_group: Vec::new(),
+            has_effect: Vec::new(),
+            skimmer: false,
+            roster: Some(roster),
+            rules_version: core.meta().rules_version,
+            tech_order: |a, b| a.cmp(&b),
+            shared: SharedPlay::default(),
+        })
+    })));
     Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
 }
 

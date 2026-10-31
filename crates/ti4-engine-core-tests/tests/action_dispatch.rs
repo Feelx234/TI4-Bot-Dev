@@ -115,3 +115,28 @@ fn an_option_no_window_runs_yet_is_a_gap_that_names_it_and_leaves_the_position()
     assert!(matches!(result, Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::Menu(MenuGap::Unrouted(5, _)))))), "{result:?}");
     assert_eq!(s, held, "nothing was written");
 }
+
+/// Found by the shadow behind a real game of ghost/argent/cabal/empyrean (lane F2b): the Trade primary of the strategic action replenished without
+/// telling the table, while the string stages Cabal's `COMMODITIES_REPLENISHED` (and the Trade Agreement's gain). The window now replenishes through
+/// `fx::replenish_announced`.
+#[test]
+fn the_trade_primary_stages_cabals_replenish_event_like_the_string() {
+    use ti4_engine_core::driver::{Driver, Status};
+    use ti4_engine_core::kernel::Resolver;
+    use ti4_engine_core::rules::strategy_windows::TradePrimary;
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheVuilraithCabal]).phase(Phase::Action).active(Some(0)).build();
+    s.players_mut().edit(0).econ.commodities = 0;
+    let mut table = AbilityTable::default();
+    ti4_engine_core::driver::children::register(&mut table);
+    let mut d = Driver::new(TradePrimary::new(Seat(0)), Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table, 1);
+    let status = d.run(&mut s, &k).unwrap();
+    assert!(matches!(status, Status::Asking(_) | Status::Done));
+    assert!(s.pending().staged.iter().any(|e| e.kind == EventKind::CommoditiesReplenished), "{:?}", s.pending().staged.iter().map(|e| e.kind).collect::<Vec<_>>());
+    // Without a Cabal at the table nothing is staged.
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).build();
+    let mut table = AbilityTable::default();
+    ti4_engine_core::driver::children::register(&mut table);
+    let mut d = Driver::new(TradePrimary::new(Seat(0)), Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table, 1);
+    d.run(&mut s, &k).unwrap();
+    assert!(s.pending().staged.is_empty());
+}
