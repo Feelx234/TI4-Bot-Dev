@@ -325,4 +325,91 @@ mod tests {
             check(faction, &state, seed as u64 + 1, &mecatol, true, prefer(choice));
         }
     }
+
+    /// Letnev's Dunlain Reaper at the start of each ground round: the offer, the payment (a child bill resumable from the payload), declined, unaffordable
+    /// and with no mech in the reinforcements; the Letnev seat is the defender or the invader.
+    #[test]
+    fn the_dunlain_reaper_runs_natively_offered_paid_and_declined() {
+        let _guard = crate::dual::tests::serial();
+        let mut paid = 0;
+        for seed in 1..=18_u64 {
+            let invader_letnev = seed % 2 == 0;
+            let seats = if invader_letnev { [("a", "letnev"), ("b", "hacan")] } else { [("a", "hacan"), ("b", "letnev")] };
+            let (mut state, system, planet) = game(&seats, seed);
+            let (l, other) = if invader_letnev { ("a", "b") } else { ("b", "a") };
+            crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+            if !invader_letnev {
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+            }
+            let poor = seed % 9 >= 7 || seed % 9 == 0;
+            state.player_mut(&PlayerId::new(l)).unwrap().trade_goods = if poor { 0 } else { 5 };
+            if poor {
+                for (_, p) in state.controlled_planets(&PlayerId::new(l)).into_iter().map(|(s, p)| (s.clone(), p.clone())).collect::<Vec<_>>() {
+                    state.exhausted_planets.insert(p);
+                }
+            }
+            if seed % 9 == 4 {
+                let home = state.player(&PlayerId::new(other)).unwrap().home_system.clone().unwrap();
+                let at = state.system_state(&home).planet_control.keys().next().cloned().unwrap();
+                crate::fixtures::put_on_planet(&mut state, &home, &at, "letnev_mech", &PlayerId::new(l), 4);
+            }
+            let decline = seed % 3 == 1;
+            let n = check(
+                "reaper",
+                &state,
+                seed,
+                &system,
+                false,
+                Box::new(move |c| if c.prompt.starts_with("Dunlain Reaper") && decline { c.options.len() - 1 } else { 0 }),
+            );
+            paid += usize::from(n > 8);
+        }
+        assert!(paid > 0);
+    }
+
+    /// The capture of a home planet: the winner earns the feats of a rival's home system, the former holder the feat of a lost home planet, and the
+    /// machine stops for the scoring windows in between (the lockstep closes them at once, as the string run ignores the occurrences).
+    #[test]
+    fn the_capture_of_a_home_planet_pauses_for_the_scoring_windows() {
+        let _guard = crate::dual::tests::serial();
+        for (seed, defender) in (1..=4_u64).zip(["hacan", "letnev", "sol", "mentak"]) {
+            let (mut state, _, _) = game(&[("a", "naalu"), ("b", defender)], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            let home = state.player(&b).unwrap().home_system.clone().unwrap();
+            let planet = state.system_state(&home).planet_control.keys().next().cloned().unwrap();
+            crate::fixtures::put(&mut state, &home, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &home, "infantry", &a, 9);
+            check(defender, &state, seed, &home, false, prefer(&[]));
+            let _ = planet;
+        }
+    }
+
+    /// A first claim explores the planet, which the core cannot do yet: the arm stops with a counted bail, and with the acceptance switch on the
+    /// bail is a failure of the run (`bail::live::invasion`).
+    #[test]
+    fn a_first_claim_is_a_bail_and_with_the_switch_on_a_failure() {
+        use crate::dual::{report, take_report, with_bail_is_failure};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let (mut state, system, _planet) = game(&[("a", "hacan"), ("b", "jolnar")], 1);
+        let a = PlayerId::new("a");
+        // A planet nobody holds, with a trait to explore into.
+        let free = ti4_content::galaxy::all_planets(ti4_content::ContentStore::embedded(), POK)
+            .iter()
+            .find(|(id, p)| p.system_id().is_some() && !p.is_placed_during_play() && p.homeworld_of().is_none() && !p.planet_types().is_empty() && **id != "mr")
+            .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), ti4_model::id::PlanetId::new(*id)))
+            .expect("a free planet");
+        let _ = system;
+        crate::fixtures::put(&mut state, &free.0, "carrier", &a, 1);
+        crate::fixtures::put(&mut state, &free.0, "infantry", &a, 2);
+        let string = string_run(state.clone(), 1, &free.0, "a", false, prefer(&[]));
+        let out = with_bail_is_failure(true, || live_run(state.clone(), 1, &free.0, "a", &string.answers, false));
+        let Err((Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(why)), _)) = out else { panic!("a first claim bails: {:?}", out.map(|_| ())) };
+        assert!(format!("{why:?}").contains("exploration of a first claim"), "{why:?}");
+        let r = report();
+        assert!(r.differences.iter().any(|d| d.label.contains("bail::live::invasion")), "{:?}", r.differences);
+        let _ = take_report();
+    }
 }
