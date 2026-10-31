@@ -237,6 +237,7 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
     match arm {
         Arm::Tokens => Some(advance::<TokenGain>),
         Arm::Invasion => Some(crate::driver::windows::invasion::advance_invasion),
+        Arm::Production => Some(crate::driver::windows::production::advance_production),
         _ => None,
     }
 }
@@ -248,6 +249,7 @@ pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
     match arm {
         Arm::Tokens => Some(ask::<TokenGain>),
         Arm::Invasion => Some(crate::driver::windows::invasion::ask_invasion),
+        Arm::Production => Some(crate::driver::windows::production::ask_production),
         _ => None,
     }
 }
@@ -263,9 +265,9 @@ mod tests {
     use crate::kernel::resolver::AbilityDef;
     use crate::kernel::stage::{Illegal, Slot, Spec, Sx};
     use crate::kernel::{fx, Next};
-    use crate::state::{Code, EventKind, Payload, Player, Players, ProductionUse, WindowKind};
+    use crate::state::{Code, EventKind, Payload, Player, Players, ProductionUse, ProductionWindow, UseMode, UsePhase, WindowKind};
 
-    /// A toy machine held as the (stub) production window: `data[0]` is whether its event was emitted. It emits one event and ends;
+    /// A toy machine held as the production window (only its phase is used: `Using` is whether its event was emitted). It emits one event and ends;
     /// the event has two optional abilities, so the emission asks from inside the step.
     #[derive(Clone)]
     struct Toy {
@@ -298,12 +300,14 @@ mod tests {
         const KIND: WindowKind = WindowKind::Production;
         fn from_pending(core: &CoreState, _: &Kernel) -> Option<Self> {
             match core.pending().window(WindowKind::Production)? {
-                OpenWindow::Production(p) => Some(Self { emitted: p.data[0] == 1 }),
+                OpenWindow::Production(p) => Some(Self { emitted: p.phase == UsePhase::Using }),
                 _ => None,
             }
         }
         fn to_pending(&self, core: &mut CoreState) {
-            core.pending_mut().open(OpenWindow::Production(Box::new(ProductionUse { actor: None, data: [u32::from(self.emitted), 0, 0] })));
+            let (who, system) = (Seat(0), crate::generated::System::ALL[0]);
+            let phase = if self.emitted { UsePhase::Using } else { UsePhase::Start };
+            core.pending_mut().open(OpenWindow::Production(Box::new(ProductionUse { who, system, mode: UseMode::Home, phase, window: ProductionWindow::blank(who, system), answered: false })));
         }
     }
 

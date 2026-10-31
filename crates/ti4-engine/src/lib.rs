@@ -142,6 +142,7 @@ pub mod core_combat;
 #[cfg(feature = "typed-core")]
 pub mod core_invasion;
 pub mod invasion_live;
+pub mod production_live;
 /// Area::LeadersAbilities (package B7): the typed leader reads behind the string interface.
 pub mod leaders_core;
 pub mod hero_dual;

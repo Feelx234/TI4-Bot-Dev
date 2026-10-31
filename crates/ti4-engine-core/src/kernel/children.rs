@@ -65,17 +65,8 @@ pub struct ProduceFacts {
 }
 
 /// What `Spawn::ProduceOne` (one unit outside a use of PRODUCTION: Chaos Mapping, Freelancers) needs of the position that the core does not
-/// hold.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OneFacts {
-    /// What the seat may produce at all (`buildable_for`), in option order.
-    pub buildable: [Option<Unit>; 9],
-    /// The fleet limit as the enforcement works it out (`fleet::over_supply`: the unlimited bill, else the limit).
-    pub fleet_limit: i32,
-    /// The interned printed name of the effect and its content alias (`None`: it names itself nowhere).
-    pub name: Option<Code>,
-    pub alias: Option<Code>,
-}
+/// hold. Plain data of the state layer (a hosted run keeps it between two questions).
+pub use crate::state::OneFacts;
 
 /// What `Spawn::Seeing` (the enforcement of the fleet supply and the capacity of one seat in one system, `fleet::enforce_seeing`) needs of the
 /// position that the core does not hold: the fleet limit as the string works it out (pool, laws, abilities), the one the question shows

@@ -580,6 +580,10 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
                     .map(|(s, u)| Some(serde_json::json!({"player": seat(s)?, "unit": u.as_str()})))
                     .collect::<Option<_>>()?,
             ),
+            // `UNITS_PRODUCED`: the unit and where it was placed (the string's `place` text).
+            ti4_engine_core::state::List::Produced(made) => Value::Array(
+                made.iter().map(|(u, spot)| serde_json::json!({"unit_type": u.as_str(), "place": crate::render::production::spot_text(*spot)})).collect(),
+            ),
         };
         payload.insert(key_text(r, *key), v);
     }
@@ -722,6 +726,7 @@ pub fn drive_windowed<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::DataSkimmer => "a discard the Data Skimmer could take",
                 ti4_engine_core::kernel::ability::Unknown::PlayFacts => "an action card the core does not play",
                 ti4_engine_core::kernel::ability::Unknown::Unported(why) => crate::invasion_live::unported_text(why),
+                ti4_engine_core::kernel::ability::Unknown::UnportedProduction(why) => crate::production_live::gap_text(why),
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);

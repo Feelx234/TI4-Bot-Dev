@@ -533,6 +533,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.assign_casualty = r.code("assign_casualty");
         table.codes.reflective_cause = r.code("action_card:reflective_shielding");
         table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
+        crate::production_live::fill_codes(table, r);
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {

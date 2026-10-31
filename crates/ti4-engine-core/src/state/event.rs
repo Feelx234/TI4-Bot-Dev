@@ -224,6 +224,8 @@ pub enum List {
     /// An array of system ids, or the same joined by commas where the string engine writes one text (`SHIP_MOVED`'s
     /// `path`): the key says which.
     Systems(SmallList<System, 8>),
+    /// An array of `{unit_type, place}` objects (`UNITS_PRODUCED`'s `units`): the unit and where it was placed.
+    Produced(SmallList<(Unit, crate::choice::production::Spot), 12>),
 }
 
 macro_rules! typed_get {

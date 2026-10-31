@@ -52,7 +52,7 @@ pub use meta::{Meta, MetaFlags, Phase};
 pub use objectives::{ObjectiveRef, ObjectiveSet, Objectives};
 pub use pending_windows::{LeaderFollowers, StatusReport, Tokens, Trade, Vote, VoteStage, Voting};
 pub use invasion::{CommitOrigin, IBill, IBombard, IBombardCursor, ICustodians, IPlanetBombard, IReport, IRound, IStage, Invasion};
-pub use production::ProductionUse;
+pub use production::{OStage, OneFacts, OneRun, PStage, ProductionUse, ProductionWindow, UseMode, UsePhase};
 pub use pending::{DriverFlags, Nested, NestedOp, Pending, PendingAsk, PendingTag, Scoring, ScoringTiming, Secondary, SecondaryHow, Window, WindowKind};
 pub use piece::Piece;
 #[cfg(test)]

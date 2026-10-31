@@ -82,6 +82,26 @@ pub enum Unknown {
     PlayFacts,
     /// A position the native invasion does not run yet (a documented bail of `driver::windows::invasion`, named by its reason).
     Unported(Unported),
+    /// A position the native production step does not run (a documented bail of `driver::windows::production`, named by its reason).
+    UnportedProduction(ProductionGap),
+}
+
+/// The positions the native production step (`driver::windows::production`) does not run, each a counted bail of the live path. The words are
+/// the adapter's (`production_live::gap_text`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductionGap {
+    /// The table has no faction unit roster (`AdapterFacts::roster`): the buildable units cannot be named.
+    NoRoster,
+    /// The facts of the use cannot be read from the position (a seat that does not exist, a number beyond 32 bits).
+    NoFacts,
+    /// The table has no link to Self-Assembly Routines' window (`Spawn::SelfAssembly`).
+    NoLink,
+    /// A window a start or end effect runs asked the driver for something that is not a question (`Next::Open` / `Emit` / `Chain`).
+    ChildPassed,
+    /// A window a start or end effect runs asks something its own answer does not settle.
+    ChildStuck,
+    /// A stage that neither asks nor moves on.
+    NoProgress,
 }
 
 /// The positions the native invasion (`driver::windows::invasion`) does not run, each a counted bail of the live path. The words are the adapter's
@@ -182,6 +202,18 @@ pub struct Codes {
     pub invasion: InvasionCodes,
     /// The texts of the events of an exploration (`rules::explore_windows::Exploring`).
     pub explore: ExploreCodes,
+    /// The texts of the events of a use of PRODUCTION (`driver::windows::production`).
+    pub production: ProductionCodes,
+}
+
+/// The `source` texts of `UNITS_PRODUCED`: `ability` for the units an ability produces, `production` for the PRODUCTION of a unit (the adapter's
+/// event texts).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProductionCodes {
+    pub ability: crate::state::Code,
+    pub production: crate::state::Code,
+    /// The payload key `units` (the adapter's event text: `Key::Other`).
+    pub units: crate::state::Code,
 }
 
 /// The texts the events of an exploration carry: the source `exploration` of the trade goods it gains, the deck and the card of

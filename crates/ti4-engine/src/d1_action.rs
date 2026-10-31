@@ -268,7 +268,10 @@ pub(super) fn sub_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
             let system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(w.system.as_str()).ok_or("a system the table does not know")?;
             Some(Window::Invasion(Box::new(ti4_engine_core::state::Invasion::observed(seat(r, &w.player)?, system))))
         }
-        AStr::Producing(_) => Some(Window::Production(Box::new(ti4_engine_core::state::ProductionUse { actor: Some(seat(r, &w.player)?), data: [0; 3] }))),
+        AStr::Producing(_) => {
+            let system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(w.system.as_str()).ok_or("a system the table does not know")?;
+            Some(Window::Production(Box::new(ti4_engine_core::state::ProductionUse::observed(seat(r, &w.player)?, system))))
+        }
         AStr::Negotiating { .. } | AStr::Done => None,
     })
 }
