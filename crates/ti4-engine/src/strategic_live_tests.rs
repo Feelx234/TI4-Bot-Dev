@@ -201,6 +201,35 @@ fn nobody_who_can_follow_ends_the_action_without_a_question_like_the_string() {
     assert!(has(&string, "STRATEGIC_ACTION_COMPLETE"));
 }
 
+// -- the end of the free tactical action of Thunder's Edge Warfare ---------------------------------------------------------------------
+
+#[test]
+fn the_end_of_the_free_tactical_action_redistributes_and_holds_the_follower_window_like_the_string() {
+    let state = table_for("te6warfare");
+    let (string, taken) = string_run_first(&state, &["0|3|2"], |g| {
+        let window = crate::strategy::begin_strategic_action(
+            &mut g.state,
+            g.content,
+            &pid("a"),
+            crate::choice::ChoiceOption::labelled(crate::strategy::STRATEGIC_ACTION_ID, crate::strategy::ACTION_KIND, "strategic"),
+        )
+        .expect("the seat holds the card");
+        // `close_tactical`: the tactical action ended with a Warfare window held for its end.
+        let player = pid("a");
+        g.redistribute_after_te_warfare(&player).expect("the redistribution");
+        g.secondary = Some(window);
+    });
+    let (native, open) = native_job(&state, &taken, &|core, render| {
+        let primary = render.seat("a").unwrap();
+        let followers: Vec<_> = state.clockwise_from(&pid("a")).iter().skip(1).map(|p| render.seat(p.as_str()).unwrap()).collect();
+        core.pending_mut().open(ti4_engine_core::state::Window::StrategySecondaryAfterTactical(secondary_of(primary, ti4_engine_core::generated::StrategyCard::WarfareThundersEdge, &followers, true)));
+        ti4_engine_core::driver::windows::strategic::after::open_after(core);
+    });
+    assert!(open);
+    assert_same(&string, &native);
+    assert!(string.questions.iter().any(|q| q.prompt.contains("after the tactical action")), "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+}
+
 // -- a planning fork's one-follower window --------------------------------------------------------------------------------------------
 
 #[test]
@@ -282,6 +311,15 @@ fn string_primary(state: &GameState, ids: &[&str]) -> (Run, Vec<String>, bool) {
 
 /// The native job on a copy of `state` with the answers the string was given after the menu's.
 fn native_primary(state: &GameState, card: &str, ids: &[String]) -> (Run, bool) {
+    native_job(state, ids, &|core, _| {
+        let typed_card = <ti4_engine_core::generated::StrategyCard as crate::generated::IdStr>::from_id(card).expect("a card of the tables");
+        ti4_engine_core::driver::turn::open_job(core, ti4_engine_core::state::TurnJob::Strategic(typed_card));
+    })
+}
+
+/// A job of the turn flow on a copy of `state`: `setup` opens it (and whatever windows it reads), then one `live_step` of `Arm::Ask` per
+/// string step until it ends. Whether a follower window is open after it.
+fn native_job(state: &GameState, ids: &[String], setup: &dyn Fn(&mut ti4_engine_core::state::CoreState, &Render)) -> (Run, bool) {
     let mut cx = Ctx::of(state).expect("a table the codecs carry");
     let render = named(&cx, state);
     let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
@@ -292,7 +330,6 @@ fn native_primary(state: &GameState, card: &str, ids: &[String]) -> (Run, bool) 
     let kernel = live::kernel::kernel_for(sources);
     let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
     let lcx = live::Cx::new(&render, &env);
-    let typed_card = <ti4_engine_core::generated::StrategyCard as crate::generated::IdStr>::from_id(card).expect("a card of the tables");
     let mut asker = Scripted::new(ids.iter().cloned());
     loop {
         let step = live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native reconcile stopped: {e:?}"));
@@ -300,14 +337,14 @@ fn native_primary(state: &GameState, card: &str, ids: &[String]) -> (Run, bool) 
             break;
         }
     }
-    ti4_engine_core::driver::turn::open_job(&mut core, ti4_engine_core::state::TurnJob::Strategic(typed_card));
+    setup(&mut core, &render);
     loop {
         let step = live::live_step(&mut core, Arm::Ask, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native job stopped: {e:?}"));
         if step.finished {
             break;
         }
     }
-    let open = core.pending().window(WindowKind::StrategySecondary).is_some() || core.pending().window(WindowKind::StrategySecondaryAfterTactical).is_some();
+    let open = core.pending().window(WindowKind::StrategySecondary).is_some() || core.pending().window(WindowKind::StrategySecondaryAfterTactical).is_some() || core.pending().window(WindowKind::LeaderFollowers).is_some();
     let questions = asker.seen.clone();
     assert_eq!(asker.left(), 0, "every answer the string was given was taken");
     let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
@@ -347,6 +384,87 @@ primary_case!(a_warfare_primary_runs_like_the_string, "pok6warfare", []);
 primary_case!(a_technology_primary_runs_like_the_string, "pok7technology", []);
 primary_case!(a_construction_primary_runs_like_the_string, "pok4construction", []);
 primary_case!(an_imperial_primary_runs_like_the_string, "pok8imperial", []);
+
+// -- bail as failure: whole strategic actions at tables of every lobby faction, both card sets ------------------------------------------
+
+/// Answers every question with its first option.
+struct FirstOption;
+
+impl live::Asker for FirstOption {
+    fn ask(&mut self, q: &live::Question<'_>) -> Result<String, live::Stop> {
+        q.rendered.options.first().map(|o| o.id.clone()).ok_or(live::Stop::Exhausted)
+    }
+}
+
+/// A native strategic action of `card` at a table of four: `faction` at seat `a`, three others after it. The job, then the follower window
+/// until the action ends. Returns the steps run. Any gap of the live path is a failure, except the closing menu's sources (lane F's).
+fn native_action(faction: &str, others: [&str; 3], card: &str) -> usize {
+    use ti4_engine_core::driver::live::LiveError;
+    use ti4_engine_core::kernel::ability::Unknown;
+    use ti4_engine_core::kernel::turn_codes::TurnGap;
+    let seats = [("a", faction), ("b", others[0]), ("c", others[1]), ("d", others[2])];
+    let mut state = crate::fixtures::seated_dealt(&seats, DEFAULT);
+    state.phase = Phase::Action;
+    state.active = Some(pid("a"));
+    state.player_mut(&pid("a")).unwrap().strategy_cards.push(card_id(card));
+    for p in ["b", "c", "d"] {
+        let seat = state.player_mut(&pid(p)).unwrap();
+        seat.strategic_tokens = 2;
+        seat.trade_goods = 6;
+    }
+    let state = based(state);
+    let mut cx = Ctx::of(&state).expect("a table the codecs carry");
+    let render = named(&cx, &state);
+    let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
+    let positions = game.rng_positions();
+    let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+    let mut core = Codec::load(&mut cx, &state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
+    let kernel = live::kernel::kernel_for(DEFAULT);
+    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+    let lcx = live::Cx::new(&render, &env);
+    let typed_card = <ti4_engine_core::generated::StrategyCard as crate::generated::IdStr>::from_id(card).expect("a card of the tables");
+    ti4_engine_core::driver::turn::open_job(&mut core, ti4_engine_core::state::TurnJob::Strategic(typed_card));
+    let mut asker = FirstOption;
+    let mut steps = 0;
+    for _ in 0..60 {
+        while !live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("{faction} {card}: the reconcile stopped: {e:?}")).finished {}
+        let arm = step_arm(&Facts::of_core(&core, false), false);
+        let in_action = matches!(arm, Arm::Secondary | Arm::LeaderFollowers) || (arm == Arm::Ask && core.pending().window(WindowKind::TurnFlow).is_some());
+        if !in_action {
+            break;
+        }
+        match live::live_step(&mut core, arm, &lcx, &mut asker) {
+            Ok(_) => steps += 1,
+            // The closing menu's free options are the menu lane's: the action itself ended.
+            Err(live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources)))) => break,
+            Err(stop) => panic!("{faction} {card} (with {others:?}): the native {arm:?} stopped: {stop:?}"),
+        }
+    }
+    steps
+}
+
+const OTHERS: [&str; 6] = ["sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x"];
+
+#[test]
+fn a_native_strategic_action_of_every_lobby_faction_and_every_standard_card_bails_nowhere() {
+    let cards = ["pok1leadership", "pok2diplomacy", "pok3politics", "pok4construction", "pok5trade", "pok6warfare", "pok7technology", "pok8imperial"];
+    let mut ran = 0;
+    for (i, faction) in crate::seating::LOBBY_FACTIONS.iter().enumerate() {
+        let others: Vec<&str> = (0..).map(|k| OTHERS[(i + k) % OTHERS.len()]).filter(|o| o != faction).take(3).collect();
+        for card in cards {
+            ran += native_action(faction, [others[0], others[1], others[2]], card);
+        }
+    }
+    assert!(ran > 24 * 8, "the actions ran: {ran} steps");
+}
+
+#[test]
+fn a_native_thunders_edge_construction_of_every_lobby_faction_bails_nowhere() {
+    for (i, faction) in crate::seating::LOBBY_FACTIONS.iter().enumerate() {
+        let others: Vec<&str> = (0..).map(|k| OTHERS[(i + k) % OTHERS.len()]).filter(|o| o != faction).take(3).collect();
+        native_action(faction, [others[0], others[1], others[2]], "te4construction");
+    }
+}
 
 #[allow(dead_code)]
 fn unused(_: PlayerId) {}
