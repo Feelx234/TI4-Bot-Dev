@@ -116,8 +116,6 @@ pub enum ProductionGap {
 pub enum AftermathGap {
     /// A stage that neither asks nor moves on.
     NoProgress,
-    /// The production step after the fight or the invasion (the production island is not native).
-    ProductionStep,
     /// A contact pause (`Aftermath::Negotiating`): structured diplomacy is dropped.
     Negotiating,
     /// A space combat whose environment cannot be built from the position (no galaxy, an unseated side).

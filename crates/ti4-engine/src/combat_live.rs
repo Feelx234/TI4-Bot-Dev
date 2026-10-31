@@ -15,7 +15,6 @@ use crate::render::Render;
 pub const fn gap_text(why: AftermathGap) -> &'static str {
     match why {
         AftermathGap::NoProgress => "the aftermath made no progress (a stage that neither asks nor moves on)",
-        AftermathGap::ProductionStep => "the production step of the aftermath (the production island is not native)",
         AftermathGap::Negotiating => "the contact pause of the aftermath (structured diplomacy is dropped)",
         AftermathGap::NoCombatEnv => "a space combat whose environment cannot be built from the position",
         AftermathGap::CombatUnported => "the space combat machine reached a position it does not carry (cancelled hits, Duranium Armor, Devotion, staged destructions, a retreat the core does not move)",
@@ -235,6 +234,28 @@ mod tests {
         state
     }
 
+    /// The answer after the script ran out, the same on both sides: the first option; but a production question (the step after the invasion,
+    /// lane M2) is answered by the build budget: `build|destroyer|1` while the run may still buy one (paid with trade goods), then
+    /// `done_producing`.
+    fn default_answer(c: &Choice, builds: &std::cell::Cell<u32>) -> Option<String> {
+        let has = |id: &str| c.options.iter().any(|o| o.id == id);
+        if c.prompt.starts_with("produce in") {
+            if builds.get() > 0
+                && let Some(o) = c.options.iter().find(|o| o.id.starts_with("build|destroyer|"))
+            {
+                builds.set(builds.get() - 1);
+                return Some(o.id.clone());
+            }
+            if has("done_producing") {
+                return Some("done_producing".to_owned());
+            }
+        }
+        if c.prompt.starts_with("pay ") && has("trade_good") {
+            return Some("trade_good".to_owned());
+        }
+        c.options.first().map(|o| o.id.clone())
+    }
+
     /// What one side of the lockstep leaves.
     struct Side {
         asked: Vec<Choice>,
@@ -249,12 +270,13 @@ mod tests {
     struct Recorder {
         queue: Rc<RefCell<VecDeque<String>>>,
         asked: Rc<RefCell<Vec<Choice>>>,
+        builds: std::cell::Cell<u32>,
     }
 
     impl crate::choice::Decider for Recorder {
         fn choose(&mut self, c: &Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
             self.asked.borrow_mut().push(c.clone());
-            let Some(id) = self.queue.borrow_mut().pop_front().or_else(|| c.options.first().map(|o| o.id.clone())) else {
+            let Some(id) = self.queue.borrow_mut().pop_front().or_else(|| default_answer(c, &self.builds)) else {
                 return Err(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: "<no option>".to_owned(), offered: Vec::new() });
             };
             c.options.iter().find(|o| o.id == id).cloned().ok_or(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: id, offered: c.ids().into_iter().map(str::to_owned).collect() })
@@ -262,11 +284,11 @@ mod tests {
     }
 
     /// The string run: `script[0]` answers the action menu, the rest the window's questions; steps until the action is over.
-    fn string_run(state: &GameState, galaxy: &Galaxy, script: &[&str]) -> Side {
+    fn string_run(state: &GameState, galaxy: &Galaxy, script: &[&str], builds: u32) -> Side {
         let _ = take_report();
         let queue = Rc::new(RefCell::new(script.iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
         let asked = Rc::new(RefCell::new(Vec::new()));
-        let table = crate::choice::Table::with_default(Box::new(Recorder { queue: queue.clone(), asked: asked.clone() }));
+        let table = crate::choice::Table::with_default(Box::new(Recorder { queue: queue.clone(), asked: asked.clone(), builds: std::cell::Cell::new(builds) }));
         let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table).with_galaxy(galaxy.clone());
         with_mask(AreaMask::STRING, || {
             for i in 0..80 {
@@ -292,6 +314,7 @@ mod tests {
     struct Shared {
         queue: Rc<RefCell<VecDeque<String>>>,
         seen: Rc<RefCell<Vec<Choice>>>,
+        builds: std::cell::Cell<u32>,
     }
 
     impl crate::live::Asker for Shared {
@@ -300,13 +323,13 @@ mod tests {
             if std::env::var_os("M5_DEBUG").is_some() {
                 eprintln!("NQ {} {} nested={} {:?}", q.rendered.player, q.rendered.prompt, q.asking.nested.is_some(), q.rendered.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>());
             }
-            Ok(self.queue.borrow_mut().pop_front().unwrap_or_else(|| q.rendered.options.first().map(|o| o.id.clone()).unwrap_or_default()))
+            Ok(self.queue.borrow_mut().pop_front().unwrap_or_else(|| default_answer(&q.rendered, &self.builds).unwrap_or_default()))
         }
     }
 
     /// The native run: the tactical window opens as the menu's answer does, then one `live_step` per step of the arm the position names, until the
     /// action is over.
-    fn native_run(state: &GameState, galaxy: &Galaxy, rng: &crate::rng::RngPositions, script: &[&str]) -> Side {
+    fn native_run(state: &GameState, galaxy: &Galaxy, rng: &crate::rng::RngPositions, script: &[&str], builds: u32) -> Side {
         let mut cx = Ctx::of(state).expect("owners");
         let render = Render::new(cx.owners.ids().to_vec());
         let sources = POK;
@@ -324,7 +347,7 @@ mod tests {
         let live = Cx::new(&render, &env);
         let queue = Rc::new(RefCell::new(script[1..].iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let mut asker = Shared { queue: queue.clone(), seen: seen.clone() };
+        let mut asker = Shared { queue: queue.clone(), seen: seen.clone(), builds: std::cell::Cell::new(builds) };
         let mut bail = None;
         let mut after = Vec::new();
         for _ in 0..120 {
@@ -379,10 +402,15 @@ mod tests {
 
     /// Run both and report every difference of the questions, the events and the position.
     fn lockstep(state: GameState, galaxy: &Galaxy, script: &[&str]) -> Vec<String> {
+        lockstep_buying(state, galaxy, script, 0)
+    }
+
+    /// [`lockstep`] with a production step that may buy `builds` destroyers after the script ran out.
+    fn lockstep_buying(state: GameState, galaxy: &Galaxy, script: &[&str], builds: u32) -> Vec<String> {
         let _guard = crate::dual::tests::serial();
         let rng = crate::rng::GameRng::new(state.rng_seed).positions();
-        let s = string_run(&state, galaxy, script);
-        let n = native_run(&state, galaxy, &rng, script);
+        let s = string_run(&state, galaxy, script, builds);
+        let n = native_run(&state, galaxy, &rng, script, builds);
         let mut out = Vec::new();
         if let Some(why) = &n.bail {
             out.push(format!("BAIL: {why}"));
@@ -605,6 +633,94 @@ mod tests {
             crate::fixtures::put(&mut state, &target, "carrier", &b(), 1);
             let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]);
             assert!(diffs.is_empty(), "seed {seed}: {diffs:#?}");
+        }
+    }
+
+    /// A system of two ordinary planets as the centre of the hub (the target of the action), with the two planets: seat `a` holds the first one
+    /// and a space dock on it.
+    fn dock_hub() -> (crate::fixtures::Hub, SystemId, SystemId, ti4_model::id::PlanetId, ti4_model::id::PlanetId) {
+        use ti4_engine_core::generated::Planet;
+        let (system, planets): (ti4_engine_core::generated::System, Vec<Planet>) = Planet::ALL
+            .iter()
+            .filter(|p| p.data().homeworld_of.is_none())
+            .filter_map(|p| p.data().system.map(|s| (s, *p)))
+            .fold(std::collections::BTreeMap::<_, Vec<Planet>>::new(), |mut m, (s, p)| {
+                m.entry(s).or_default().push(p);
+                m
+            })
+            .into_iter()
+            .find(|(s, ps)| ps.len() == 2 && !ps.iter().any(|p| p.data().homeworld_of.is_some()) && !s.data().planets.iter().any(|p| p.data().legendary))
+            .expect("a system with two ordinary planets");
+        let target = SystemId::new(crate::generated::IdStr::as_str(system));
+        let hub = crate::fixtures::hub_with_centre(target.as_str());
+        let origin = SystemId::new(hub.outer[0].clone());
+        let id = |p: Planet| ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(p));
+        (hub, origin, target, id(planets[0]), id(planets[1]))
+    }
+
+    /// The position of the production tests: `a` holds the first planet of the target with a space dock on it.
+    fn dock_table(mine: &str, theirs: &str, target: &SystemId, dock: &ti4_model::id::PlanetId) -> GameState {
+        let mut state = table(&[("a", mine), ("b", theirs)]);
+        state.system_mut(target).planet_control.insert(dock.clone(), a());
+        crate::fixtures::put_on_planet(&mut state, target, dock, "spacedock", &a(), 1);
+        state.player_mut(&a()).unwrap().trade_goods = 6;
+        state
+    }
+
+    /// An undefended system the active seat holds with a space dock: no fight, no invasion, and the aftermath goes on to the production step,
+    /// which the native chain hands to `Arm::Production` (lane M5 to lane M2). Several factions; a counted bail is a failure.
+    #[test]
+    fn an_undefended_system_with_a_space_dock_goes_on_to_the_production_step_in_lockstep() {
+        let (hub, origin, target, dock, _other) = dock_hub();
+        let mut failures = Vec::new();
+        for faction in ["sol", "hacan", "arborec", "letnev", "mentak", "yin", "titans", "naalu", "nekro", "muaat"] {
+            let other = if faction == "hacan" { "sol" } else { "hacan" };
+            for builds in [0, 1] {
+                let mut state = dock_table(faction, other, &target, &dock);
+                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_moving"];
+                if let Some(d) = lockstep_buying(state, &hub.galaxy, &script, builds).into_iter().next() {
+                    failures.push(format!("{faction} buying {builds}: {d}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// A won space fight in a system the winner holds a space dock in: the fight, the end of the fight, the invasion step with nothing to take, and
+    /// the production step.
+    #[test]
+    fn a_won_space_fight_over_a_space_dock_goes_on_to_the_production_step_in_lockstep() {
+        let (hub, origin, target, dock, _other) = dock_hub();
+        for seed in 1..=3_u64 {
+            for faction in ["sol", "jolnar", "saar"] {
+                let mut state = dock_table(faction, "hacan", &target, &dock);
+                state.rng_seed = seed;
+                crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 2);
+                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+                let (m0, done) = (mv(&origin, 0), "done_moving");
+                let diffs = lockstep_buying(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &m0, &m0, &m0, done], 1);
+                assert!(diffs.is_empty(), "{faction} seed {seed}: {diffs:#?}");
+            }
+        }
+    }
+
+    /// A won invasion with a space dock in the system: the infantry takes the other planet, the planet with the dock stays the invader's, and the
+    /// production step follows the invasion's end (`INVASION_RESOLVED`, then `PRODUCTION_USED` ... `PRODUCTION_RESOLVED`).
+    #[test]
+    fn a_won_invasion_with_a_space_dock_goes_on_to_the_production_step_in_lockstep() {
+        let (hub, origin, target, dock, other) = dock_hub();
+        for faction in ["sol", "hacan", "yssaril", "nomad", "winnu"] {
+            let rival = if faction == "hacan" { "sol" } else { "hacan" };
+            let mut state = dock_table(faction, rival, &target, &dock);
+            state.system_mut(&target).planet_control.insert(other.clone(), b());
+            crate::fixtures::put_on_planet(&mut state, &target, &other, "infantry", &b(), 1);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &origin, "infantry", &a(), 3);
+            let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "load|0", "load|1", "load|2", "done_moving"];
+            let diffs = lockstep_buying(state, &hub.galaxy, &script, 1);
+            assert!(diffs.is_empty(), "{faction}: {diffs:#?}");
         }
     }
 }
