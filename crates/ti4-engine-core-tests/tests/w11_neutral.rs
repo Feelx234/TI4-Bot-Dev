@@ -136,3 +136,33 @@ fn an_absorption_of_hits_is_announced_and_can_be_a_neutral_producers() {
     // Two cruisers: seat 0 chooses (one option).
     assert_eq!(rig.asked().actor, Seat(0));
 }
+
+/// The reflected hits are announced losses of the producer; they are part of the combat only when the use was; a hit staged against the
+/// sustaining player itself is nobody's to absorb.
+#[test]
+fn the_reflected_hits_are_announced_and_follow_the_combat_flag_of_the_use() {
+    covers!("rules::combat::sustain_offer::SustainOffer");
+    for in_combat in [true, false] {
+        let sc = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 1).unit(sys(), None, Unit::CruiserI, 1, 1);
+        let (mut state, kernel) = sc.build();
+        state.transient_mut().combat.pending_reflective_hits = Some((sys(), Seat(1), 1));
+        let offer = Offer { player: Seat(0), producer: Seat(1), system: sys(), ability: false, in_combat, non_fighters_first: false, source: Code(9), staging: true, announce: true };
+        let mut rig = Rig::from_parts(state, kernel, SustainOffer::new(offer, 1));
+        rig.run();
+        rig.pick(0);
+        assert!(rig.is_done());
+        let lost: Vec<_> = rig.driver.emitted.iter().filter(|e| e.kind == EventKind::ShipDestroyed).collect();
+        assert_eq!(lost.len(), 1, "the reflected hit is an announced loss");
+        assert_eq!(lost[0].payload.seat(Key::Player), Some(Seat(1)));
+        assert_eq!(lost[0].payload.flag(Key::DuringSpaceCombat), Some(in_combat));
+    }
+    let sc = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 1).unit(sys(), None, Unit::CruiserI, 0, 1);
+    let (mut state, kernel) = sc.build();
+    state.transient_mut().combat.pending_reflective_hits = Some((sys(), Seat(0), 2));
+    let offer = Offer { player: Seat(0), producer: Seat(1), system: sys(), ability: false, in_combat: true, non_fighters_first: false, source: Code(9), staging: false, announce: true };
+    let mut rig = Rig::from_parts(state, kernel, SustainOffer::new(offer, 1));
+    rig.run();
+    rig.pick(0);
+    assert!(rig.is_done(), "no one absorbs hits staged against the sustaining player");
+    assert_eq!(rig.state.board().sys(sys()).units.iter().filter(|p| p.owner() == Seat(0)).count(), 2);
+}

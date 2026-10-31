@@ -681,6 +681,7 @@ fn the_hits_a_reflective_shielding_staged_are_absorbed_inside_the_answer_to_the_
     rig.pick(0);
     // The two reflected hits land on the producer of the hit (seat 0): two identical cruisers, one option.
     assert_eq!(rig.asked().actor, Seat(0), "the producer absorbs the reflected hits");
+    assert_eq!(rig.driver.window.reflecting_producer(), Some(Seat(1)), "the machine says whose hits it absorbs (the sustaining seat produced them)");
     assert!(matches!(rig.asked().ask, Ask::Combat(CAsk::AssignHit)));
     rig.pick(0);
     assert!(rig.is_done(), "the second reflected hit finds a single ship: no question");
@@ -692,4 +693,79 @@ fn the_hits_a_reflective_shielding_staged_are_absorbed_inside_the_answer_to_the_
         Step::Queue { assigning: false, ref queue, .. } => assert_eq!(queue[0].hits, 2, "the sustain cancelled one of the three hits"),
         other => panic!("{other:?}"),
     }
+}
+
+/// W11: the machine continues a settle from a queue whose front is the neutral side's: `hits` hits are answered by the rules (one
+/// sustain/loss each), then the round is announced over.
+fn neutral_queue(assigning: bool, hits: u32, producer_assigns: bool) -> (Fight, Machine) {
+    use ti4_engine_core::state::CombatPend;
+    let mut fight = neutral_fight(false, 7);
+    fight.fields.step = Step::Queue { assigning, round: 1, queue: vec![CombatPend { player: Seat(2), hits, producer: Seat(0), non_fighters_only: false, producer_assigns }] };
+    let machine = Machine::new(fight.env.clone(), fight.fields.clone());
+    (fight, machine)
+}
+
+#[test]
+fn each_hit_on_the_neutral_side_is_one_answer_of_the_rules() {
+    covers!("rules::combat::machine::Machine");
+    for (assigning, hits) in [(true, 1u32), (true, 2), (false, 1)] {
+        let (fight, machine) = neutral_queue(assigning, hits, false);
+        let mut rig = Rig::from_parts(fight.state.clone(), fight.kernel.clone(), machine).seeded(3);
+        rig.run();
+        let before_round_end: Vec<_> = rig.driver.emitted.iter().take_while(|e| e.kind != EventKind::SpaceCombatRoundEnded).collect();
+        let lost = before_round_end.iter().filter(|e| e.kind == EventKind::ShipDestroyed && e.payload.seat(Key::Player) == Some(Seat(2))).count();
+        let sustained = before_round_end.iter().filter(|e| e.kind == EventKind::SustainDamageUsed && e.payload.seat(Key::Player) == Some(Seat(2))).count();
+        if assigning {
+            // After a loss the queue goes back to the sustain offer: a dreadnought takes the next hit.
+            assert_eq!(lost + sustained, hits as usize, "assigning {hits}: one answer per hit");
+            assert!(lost >= 1);
+        } else {
+            // The fighter and the destroyer cannot sustain; the first dreadnought can: one hit, one sustain, nothing lost.
+            assert_eq!((lost, sustained), (0, 1), "sustaining {hits}");
+        }
+    }
+}
+
+#[test]
+fn a_hit_the_producer_assigns_is_not_answered_by_the_rules_for_the_neutral_side() {
+    covers!("rules::combat::machine::Machine");
+    let (fight, machine) = neutral_queue(true, 1, true);
+    let mut rig = Rig::from_parts(fight.state.clone(), fight.kernel.clone(), machine).seeded(3);
+    rig.run();
+    let m = rig.driver.window.clone();
+    assert_eq!(m.stop, Some(Stop::Pending), "the producer places the hit (Devotion): the decision is left pending");
+    assert_eq!(rig.state.board().sys(sys()).units.iter().filter(|p| p.owner() == Seat(2)).count(), 4, "nothing was taken");
+}
+
+/// W11: Assault Cannon taking the last ship of a side ends the fight inside the opening of round one: the fight is concluded with the round
+/// it opened (`rounds` = 1), as the string `open_round` does right after the cannon, not with the previous round.
+#[test]
+fn an_assault_cannon_that_takes_the_last_ship_concludes_the_fight_with_round_one() {
+    covers!("rules::combat::machine::Machine");
+    let sc = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).tech(0, Technology::AssaultCannon).unit(sys(), None, Unit::CruiserI, 0, 3).unit(sys(), None, Unit::CruiserI, 1, 1);
+    let mut e = env();
+    e.ac = true;
+    let mut fight = Fight::new(sc, e, 3);
+    assert_eq!(fight.settle(Policy::First), Some(Stop::Over));
+    assert_eq!(fight.fields.outcome, Some((Some(Seat(0)), 1)));
+    assert_eq!(fight.count(EventKind::ShipDestroyed), 1);
+    assert_eq!(fight.drawn, 0, "no die was rolled");
+}
+
+/// W11: a lone ship is lost without a question, unless a card cancelled hits earlier in the round: the flow spends that pool first and the
+/// ship survives.
+#[test]
+fn a_lone_ship_is_not_lost_to_a_hit_a_card_cancelled() {
+    covers!("rules::combat::machine::Machine");
+    use ti4_engine_core::state::CombatPend;
+    let sc = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 1).unit(sys(), None, Unit::CruiserI, 1, 1);
+    let (mut state, kernel) = sc.build();
+    let round = state.meta().combat_round_seq;
+    state.players_mut().by_seat_mut(Seat(1)).unwrap().card_timers.cancel_hits_round = Some((round, 1));
+    let mut f = fields(&state);
+    f.step = Step::Queue { assigning: true, round: 1, queue: vec![CombatPend { player: Seat(1), hits: 1, producer: Seat(0), non_fighters_only: false, producer_assigns: false }] };
+    let mut rig = Rig::from_parts(state, kernel, Machine::new(env(), f)).seeded(1);
+    rig.run();
+    let lost = rig.driver.emitted.iter().take_while(|e| e.kind != EventKind::SpaceCombatRoundEnded).filter(|e| e.kind == EventKind::ShipDestroyed).count();
+    assert_eq!(lost, 0, "the cancelled hit took nothing");
 }
