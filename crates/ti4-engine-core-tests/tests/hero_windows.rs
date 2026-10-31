@@ -151,3 +151,125 @@ fn a_galvanized_ground_force_that_falls_makes_the_window_unsupported() {
     rig.run();
     assert!(rig.driver.window.unsupported, "the staged row cannot hold the galvanize tail");
 }
+
+// -- Kyver, Blade and Key ---------------------------------------------------------------------------
+
+use ti4_engine_core::choice::cards::{Ask as CAsk, Opt as COpt, Reason};
+use ti4_engine_core::choice::Origin;
+use ti4_engine_core::generated::{ActionCard, Leader};
+use ti4_engine_core::keys::{Atom, MarkVal, Word};
+use ti4_engine_core::kernel::stage::AbilityTable;
+use ti4_engine_core::rules::hero_windows::KyverHero;
+
+fn groups() -> AbilityTable {
+    let mut t = AbilityTable::default();
+    t.facts.card_groups = (0..ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
+    t
+}
+
+fn kyver(hands: [&[ActionCard]; 3], limited: bool) -> Rig<KyverHero> {
+    let sc = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheArborec, Faction::TheEmbersOfMuaat])
+        .hand(0, hands[0])
+        .hand(1, hands[1])
+        .hand(2, hands[2]);
+    Rig::new(sc, KyverHero::new(Seat(0), limited)).with_table(groups()).seeded(11)
+}
+
+fn hand(rig: &Rig<KyverHero>, seat: u8) -> Vec<ActionCard> {
+    rig.state.players().by_seat(Seat(seat)).unwrap().cards.hand.as_slice().to_vec()
+}
+
+const C: [ActionCard; 8] = [ActionCard::ALL[3], ActionCard::ALL[7], ActionCard::ALL[9], ActionCard::ALL[11], ActionCard::ALL[13], ActionCard::ALL[15], ActionCard::ALL[17], ActionCard::ALL[19]];
+
+#[test]
+fn each_player_shows_a_card_in_seat_order_then_the_holder_decides_for_each_and_nothing_moves_before_the_last() {
+    covers!("rules::hero_windows::KyverHero");
+    let mut rig = kyver([&[], &[C[0], C[1]], &[C[2], C[3], C[4], C[5]]], false);
+    rig.run();
+    let q = rig.asked().clone();
+    assert_eq!((q.actor, q.ask), (Seat(1), Ask::Cards(CAsk::OwnHand { reason: Reason::Show { viewer: Seat(0) } })));
+    assert_eq!(q.ctx.origin, Origin::FactionAbility(ti4_engine_core::choice::generic::Content::Leader(Leader::KyverBladeAndKey)));
+    rig.assert_options_sound();
+    rig.pick_opt(Opt::Cards(COpt::Card(C[1])));
+    let q = rig.asked().clone();
+    assert_eq!((q.actor, q.ask), (Seat(2), Ask::Cards(CAsk::OwnHand { reason: Reason::Show { viewer: Seat(0) } })));
+    rig.pick_opt(Opt::Cards(COpt::Card(C[4])));
+    let q = rig.asked().clone();
+    assert_eq!(q.actor, Seat(0));
+    assert_eq!(q.ask, Ask::Leaders(LAsk::KyverFate { target: Seat(1), card: C[1] }));
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::KyverTake), Opt::Leaders(LOpt::KyverDiscard), Opt::Decline]);
+    rig.assert_options_sound();
+    rig.pick_opt(Opt::Leaders(LOpt::KyverTake));
+    assert_eq!(rig.asked().ask, Ask::Leaders(LAsk::KyverFate { target: Seat(2), card: C[4] }));
+    assert_eq!(delta(rig.start_state(), &rig.state), "", "the decisions come before any change");
+    rig.pick_opt(Opt::Leaders(LOpt::KyverDiscard));
+    assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
+    assert_eq!(hand(&rig, 0), vec![C[1]], "the shown card was taken");
+    assert_eq!(hand(&rig, 1), vec![C[0]]);
+    assert_eq!(hand(&rig, 2).len(), 1, "three of four cards were discarded at random");
+    let taken = MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Taken)), MarkVal::Atom(Atom::Seat(Seat(0))), MarkVal::Atom(Atom::Seat(Seat(1))), MarkVal::Atom(Atom::Card(C[1]))]);
+    assert!(rig.state.marks().tail.iter().any(|(_, v)| *v == taken), "the take is staged");
+    let discards = rig.state.marks().tail.iter().filter(|(_, v)| matches!(v, MarkVal::Rec(r) if r.first() == Some(&MarkVal::Atom(Atom::Word(Word::Discarded))))).count();
+    assert_eq!(discards, 3, "each random discard is staged");
+}
+
+#[test]
+fn a_single_printed_card_is_shown_unasked_a_decline_changes_nothing_and_a_hand_of_two_loses_both() {
+    covers!("rules::hero_windows::KyverHero");
+    let mut rig = kyver([&[], &[C[0], C[0]], &[C[2], C[3]]], false);
+    rig.run();
+    assert_eq!(rig.asked().actor, Seat(2), "seat 1 holds one printed card twice: shown without a question");
+    rig.pick_opt(Opt::Cards(COpt::Card(C[2])));
+    assert_eq!(rig.asked().ask, Ask::Leaders(LAsk::KyverFate { target: Seat(1), card: C[0] }));
+    rig.pick_opt(Opt::Decline);
+    rig.pick_opt(Opt::Leaders(LOpt::KyverDiscard));
+    assert!(rig.is_done() && rig.driver.window.used);
+    assert_eq!(hand(&rig, 1), vec![C[0], C[0]], "declined");
+    assert!(hand(&rig, 2).is_empty(), "a hand of two loses both and the third draw finds none");
+}
+
+#[test]
+fn nobody_holding_a_card_means_nothing_is_asked_and_the_card_is_not_used() {
+    covers!("rules::hero_windows::KyverHero");
+    let mut rig = kyver([&[C[0]], &[], &[]], false);
+    rig.run();
+    assert!(rig.is_done() && !rig.driver.window.used && !rig.driver.window.unsupported);
+    assert_eq!(delta(rig.start_state(), &rig.state), "");
+}
+
+#[test]
+fn a_table_without_printed_name_groups_makes_the_window_unsupported() {
+    covers!("rules::hero_windows::KyverHero");
+    let sc = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheArborec]).hand(1, &[C[0]]);
+    let mut rig = Rig::new(sc, KyverHero::new(Seat(0), false));
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.unsupported && !rig.driver.window.used);
+}
+
+#[test]
+fn a_taker_over_the_hand_limit_discards_through_the_hand_limit_window_unless_the_faction_lifts_it() {
+    covers!("rules::hero_windows::KyverHero");
+    let full = [C[2], C[3], C[4], C[5], C[6], C[7], ActionCard::ALL[21]];
+    let mut limited = kyver([&full, &[C[0]], &[]], true);
+    limited.run();
+    limited.pick_opt(Opt::Leaders(LOpt::KyverTake));
+    assert!(matches!(limited.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8 })), "{}", limited.transcript());
+    assert_eq!(limited.asked().actor, Seat(0));
+    let mut crafty = kyver([&full, &[C[0]], &[]], false);
+    crafty.run();
+    crafty.pick_opt(Opt::Leaders(LOpt::KyverTake));
+    assert!(crafty.is_done());
+    assert_eq!(hand(&crafty, 0).len(), 8, "no limit for a seat that lifts it");
+}
+
+#[test]
+fn answers_outside_the_offer_are_refused() {
+    covers!("rules::hero_windows::KyverHero");
+    let mut rig = kyver([&[C[7]], &[C[0], C[1]], &[]], false);
+    rig.run();
+    rig.expect_illegal(Pick::Opt(Opt::Cards(COpt::Card(C[7]))));
+    rig.expect_illegal(Pick::Opt(Opt::Decline));
+    rig.pick_opt(Opt::Cards(COpt::Card(C[0])));
+    rig.expect_illegal(Pick::Opt(Opt::Cards(COpt::Card(C[0]))));
+    rig.expect_illegal(Pick::Opt(Opt::Leaders(LOpt::Gain(Technology::GravityDrive))));
+}

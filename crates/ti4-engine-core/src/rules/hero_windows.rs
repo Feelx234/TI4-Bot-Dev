@@ -185,3 +185,260 @@ impl Window for NekroHero {
         }
     }
 }
+
+// -- Kyver, Blade and Key ---------------------------------------------------------------------------
+
+/// What Kyver does to one player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fate {
+    Take,
+    Discard,
+    Neither,
+}
+
+/// The suspension points of [`KyverHero`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KStage {
+    Start,
+    /// Waiting on a player: which card of their hand to show.
+    Show,
+    /// Waiting on the holder: what happens to the player who showed a card.
+    Decide,
+    /// The hand limit of the holder (a child).
+    Limit,
+    Done,
+}
+
+/// Kyver, Blade and Key (Yssaril hero): "ACTION: Each other player shows you 1 action card from their hand. For each player, choose 1 of
+/// those cards and add it to your hand or force that player to discard 3 random action cards. Then, purge this card." The players holding
+/// a card are asked in seat order which card to show (one distinct printed card is shown unasked); then the holder decides for each shown
+/// card, none changing before the last decision: the taken cards go first (each staged as taken), then each discarding player loses three
+/// random cards from the `YssarilHero` stream (a die over the whole hand each time, staged as discarded), then the hand limit of the holder
+/// is the action-card area's window as a child (`limited`: false for a seat whose faction lifts the limit, Yssaril's Crafty).
+/// [`Self::used`]: some card was shown. `unsupported`: the table has no printed-name groups or no link to the hand-limit window.
+#[derive(Debug, Clone)]
+pub struct KyverHero {
+    pub who: Seat,
+    limited: bool,
+    groups: Vec<u8>,
+    stage: KStage,
+    /// The other seats holding an action card, in seat order, and the one being asked.
+    targets: Vec<Seat>,
+    at: usize,
+    /// The cards shown, in the order of the targets.
+    shown: Vec<(Seat, crate::generated::ActionCard)>,
+    decided: Vec<Fate>,
+    hand: crate::kernel::children::ErasedChild,
+    pub used: bool,
+    pub unsupported: bool,
+}
+
+impl KyverHero {
+    #[must_use]
+    pub fn new(who: Seat, limited: bool) -> Self {
+        Self {
+            who,
+            limited,
+            groups: Vec::new(),
+            stage: KStage::Start,
+            targets: Vec::new(),
+            at: 0,
+            shown: Vec::new(),
+            decided: Vec::new(),
+            hand: crate::kernel::children::ErasedChild::idle(),
+            used: false,
+            unsupported: false,
+        }
+    }
+
+    /// The first copy of each printed card in the hand of `seat`, in the order of the names.
+    fn distinct(&self, core: &CoreState, seat: Seat) -> Vec<crate::generated::ActionCard> {
+        let Some(p) = core.players().by_seat(seat) else { return Vec::new() };
+        let mut seen: Vec<u8> = Vec::new();
+        let mut firsts: Vec<crate::generated::ActionCard> = Vec::new();
+        for card in p.cards.hand.as_slice() {
+            let Some(group) = self.groups.get(*card as usize).copied() else { return Vec::new() };
+            if !seen.contains(&group) {
+                seen.push(group);
+                firsts.push(*card);
+            }
+        }
+        firsts.sort_by_key(|card| card.name_rank());
+        firsts
+    }
+
+    /// Ask the next player (or go on to the decisions).
+    fn next_show(&mut self, sx: &mut Sx<'_>) {
+        while let Some(&target) = self.targets.get(self.at) {
+            match self.distinct(sx.state, target).as_slice() {
+                [] => {
+                    self.at += 1;
+                }
+                [only] => {
+                    self.shown.push((target, *only));
+                    self.at += 1;
+                }
+                _ => {
+                    self.stage = KStage::Show;
+                    return;
+                }
+            }
+        }
+        self.used = !self.shown.is_empty();
+        self.stage = if self.shown.is_empty() { KStage::Done } else { KStage::Decide };
+    }
+
+    /// Every decision is made: change the hands.
+    fn apply(&mut self, sx: &mut Sx<'_>) {
+        let decided: Vec<(Seat, crate::generated::ActionCard, Fate)> = self.shown.iter().zip(&self.decided).map(|((s, c), f)| (*s, *c, *f)).collect();
+        for (target, card, fate) in &decided {
+            if *fate == Fate::Take {
+                fx::take_action_card_staged(sx.state, self.who, *target, *card);
+            }
+        }
+        for (target, _, fate) in &decided {
+            if *fate != Fate::Discard {
+                continue;
+            }
+            for _ in 0..3 {
+                let held = sx.state.players().by_seat(*target).map_or(0, |p| p.cards.hand.as_slice().len());
+                if held == 0 {
+                    break;
+                }
+                let sides = u32::try_from(held).unwrap_or(u32::MAX);
+                let index = sx.die(crate::state::RngDomain::YssarilHero, sides) as usize - 1;
+                let picked = sx.state.players().by_seat(*target).and_then(|p| p.cards.hand.as_slice().get(index).copied());
+                if let Some(picked) = picked {
+                    fx::discard_action_card_staged(sx.state, *target, picked);
+                }
+            }
+        }
+        if !self.limited {
+            self.stage = KStage::Done;
+            return;
+        }
+        match sx.table.links.start(&crate::kernel::children::Spawn::DrawCards { who: self.who, count: 0, drop_unofficial: false }) {
+            Some(window) => {
+                self.hand.start(window);
+                self.stage = KStage::Limit;
+            }
+            None => {
+                self.unsupported = true;
+                self.stage = KStage::Done;
+            }
+        }
+    }
+}
+
+impl Window for KyverHero {
+    type Stage = KStage;
+
+    fn stage(&self) -> KStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        use crate::kernel::stage::Ran;
+        if self.stage == KStage::Start {
+            let Some(groups) = sx.table.facts.card_group_table() else {
+                self.unsupported = true;
+                self.stage = KStage::Done;
+                return Next::Done;
+            };
+            self.groups = groups.to_vec();
+            self.targets = sx
+                .state
+                .players()
+                .iter()
+                .filter(|p| p.seat != self.who && !p.cards.hand.as_slice().is_empty())
+                .map(|p| p.seat)
+                .collect();
+            self.next_show(sx);
+        }
+        if self.stage == KStage::Limit {
+            match self.hand.step(sx) {
+                Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                Some(Ran::Pass(next)) => return next,
+                Some(Ran::Done(report)) => {
+                    self.unsupported |= report == crate::kernel::children::Report::Left;
+                    self.stage = KStage::Done;
+                }
+                None => self.stage = KStage::Done,
+            }
+        }
+        match self.stage {
+            KStage::Show => Next::Continue(Ask::Cards(crate::choice::cards::Ask::OwnHand { reason: crate::choice::cards::Reason::Show { viewer: self.who } })),
+            KStage::Decide => {
+                let (target, card) = self.shown[self.decided.len()];
+                Next::Continue(Ask::Leaders(LAsk::KyverFate { target, card }))
+            }
+            KStage::Start | KStage::Limit | KStage::Done => Next::Done,
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        use crate::choice::cards::{Ask as CAsk, Opt as COpt, Reason};
+        match self.stage {
+            KStage::Show => {
+                let target = *self.targets.get(self.at)?;
+                let reason = Reason::Show { viewer: self.who };
+                Some(Choice {
+                    actor: target,
+                    ask: Ask::Cards(CAsk::OwnHand { reason }),
+                    ctx: Ctx {
+                        origin: Origin::FactionAbility(Content::Leader(Leader::KyverBladeAndKey)),
+                        subtype: Subtype::Cards(reason.subtype()),
+                        optional: false,
+                        target: None,
+                        outstanding: SmallList::new(),
+                        space_battle: false,
+                        invasion_seq: None,
+                    },
+                    opts: self.distinct(s, target).into_iter().map(|card| Opt::Cards(COpt::Card(card))).collect::<Opts>(),
+                })
+            }
+            KStage::Decide => {
+                let (target, card) = *self.shown.get(self.decided.len())?;
+                Some(Choice {
+                    actor: self.who,
+                    ask: Ask::Leaders(LAsk::KyverFate { target, card }),
+                    ctx: ctx(Leader::KyverBladeAndKey, LSub::KyverFate),
+                    opts: [Opt::Leaders(LOpt::KyverTake), Opt::Leaders(LOpt::KyverDiscard), Opt::Decline].into_iter().collect::<Opts>(),
+                })
+            }
+            KStage::Limit => self.hand.ask_of(s, k),
+            KStage::Start | KStage::Done => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        use crate::choice::cards::Opt as COpt;
+        match (self.stage, pick) {
+            (KStage::Limit, pick) => self.hand.answer(sx, pick),
+            (KStage::Show, Pick::Opt(Opt::Cards(COpt::Card(card)))) => {
+                let target = *self.targets.get(self.at).ok_or(Illegal)?;
+                if !self.distinct(sx.state, target).contains(&card) {
+                    return Err(Illegal);
+                }
+                self.shown.push((target, card));
+                self.at += 1;
+                self.next_show(sx);
+                Ok(())
+            }
+            (KStage::Decide, Pick::Opt(chosen)) => {
+                let fate = match chosen {
+                    Opt::Leaders(LOpt::KyverTake) => Fate::Take,
+                    Opt::Leaders(LOpt::KyverDiscard) => Fate::Discard,
+                    Opt::Decline => Fate::Neither,
+                    _ => return Err(Illegal),
+                };
+                self.decided.push(fate);
+                if self.decided.len() == self.shown.len() {
+                    self.apply(sx);
+                }
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}

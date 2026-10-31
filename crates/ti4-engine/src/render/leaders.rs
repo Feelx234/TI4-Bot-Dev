@@ -109,6 +109,16 @@ fn technology_name(tech: Technology) -> String {
         .to_owned()
 }
 
+/// The printed name of an action card (`action_cards::name_of`).
+fn action_card_name(card: ti4_engine_core::generated::ActionCard) -> String {
+    let content = ti4_content::ContentStore::embedded();
+    content
+        .get(ti4_model::content_types::ContentType::ActionCards, card.as_str())
+        .and_then(|record| record.text("name"))
+        .unwrap_or_else(|| card.as_str())
+        .to_owned()
+}
+
 /// The renderer of the leader questions.
 pub struct Fam;
 
@@ -140,6 +150,7 @@ impl Family for Fam {
             Ask::UmbatSystem => "Umbat: produce in which system".to_owned(),
             Ask::FlayeshPlanet => "UNIT.DSGN.FLAYESH: choose a planet with a technology specialty".to_owned(),
             Ask::FlayeshTech => "UNIT.DSGN.FLAYESH: choose a technology that matches the specialty".to_owned(),
+            Ask::KyverFate { target, card } => format!("Kyver: {} showed {}", r.seat_text(*target), action_card_name(*card)),
         }
     }
 
@@ -165,6 +176,7 @@ impl Family for Fam {
             Subtype::UmbatSystem => "umbat_system".to_owned(),
             Subtype::FlayeshPlanet => "flayesh_planet".to_owned(),
             Subtype::FlayeshTech => "flayesh_technology".to_owned(),
+            Subtype::KyverFate => "kyver_take_or_discard".to_owned(),
         }
     }
 
@@ -205,6 +217,14 @@ impl Family for Fam {
                 format!("devour {} in {}", planet.as_str(), system.as_str()),
             ),
             Opt::Gain(tech) => ChoiceOption::labelled(tech.as_str(), "nekro_flayesh_technology", technology_name(*tech)),
+            Opt::KyverTake => {
+                let Ask::KyverFate { target, card } = a else { unreachable!("a Kyver option under another question") };
+                ChoiceOption::labelled("take", "hero", format!("take {} from {}", action_card_name(*card), r.seat_text(*target)))
+            }
+            Opt::KyverDiscard => {
+                let Ask::KyverFate { target, .. } = a else { unreachable!("a Kyver option under another question") };
+                ChoiceOption::labelled("discard", "hero", format!("force {} to discard 3 random action cards", r.seat_text(*target)))
+            }
             Opt::Remove => ChoiceOption::labelled("remove", INFANTRY_KIND, "remove 1 infantry"),
             Opt::Keep => match a {
                 Ask::JolnarSwap { held } => {
@@ -291,6 +311,11 @@ impl Family for Fam {
                 Some(Opt::Devour(System::from_id(system)?, Planet::from_id(planet)?))
             }
             Ask::FlayeshTech => Technology::from_id(id).map(Opt::Gain),
+            Ask::KyverFate { .. } => match id {
+                "take" => Some(Opt::KyverTake),
+                "discard" => Some(Opt::KyverDiscard),
+                _ => None,
+            },
         }
     }
 }

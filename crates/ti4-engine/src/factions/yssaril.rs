@@ -1004,16 +1004,40 @@ fn use_leader(
     if leader.as_str() != "yssarilhero" {
         return None;
     }
+    Some(hero_dual(context, player))
+}
+
+/// Kyver as a window of the core (`rules::hero_windows::KyverHero`): the shown cards, the decisions, the takes, the random discards from the
+/// stream `yssarilhero` and the hand limit; the string body ([`hero_string`]) is the oracle of the dual run.
+fn hero_dual(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    let rng_before = rng.positions();
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::yssaril::hero",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            let used = hero_string(&mut inner, player);
+            crate::dual::Run::new(used).with_rng(&*inner.rng)
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| crate::hero_dual::yssaril_hero(s, content, player, &rng_before, script)
+    )
+}
+
+/// [`use_leader`] on the string engine: the oracle of the dual run.
+fn hero_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let targets = hero_targets(context.state, player);
     if targets.is_empty() {
-        return Some(false);
+        return false;
     }
     // Everyone shows a card first, then Yssaril decides for each player. Every decision is made
     // before any hand changes, so a failed ask leaves the game as it was (reveals are cleared).
     let decided = kyver_decisions(context, player, &targets);
     hooks_cards::clear_reveals_from(context.state, "yssarilhero");
     let Ok(decided) = decided else {
-        return Some(false);
+        return false;
     };
     // Applying cannot fail. The takes need their reveal, so they run before it is cleared again.
     for (target, card, outcome) in &decided {
@@ -1058,7 +1082,7 @@ fn use_leader(
         context.table,
         player,
     );
-    Some(!decided.is_empty())
+    !decided.is_empty()
 }
 
 /// What Kyver does to one player.
@@ -1876,6 +1900,81 @@ mod tests {
         assert_eq!(used, Some(true), "she was used even if she did nothing");
         assert_eq!(hand(&state, "b"), ["sabotage"]);
         assert!(hand(&state, "a").is_empty());
+    }
+
+    /// Kyver is a body of the core (`rules::hero_windows::KyverHero`): each player shows a card (one distinct printed card unasked), the
+    /// holder decides for each, the takes come first and the random discards draw from the stream `yssarilhero`. The core half agrees with the
+    /// string for a take and a discard together, a hand smaller than three, a single printed card shown unasked, a decline and a table with no
+    /// card to show; the streams after are compared; and it ran each time.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let hero = LeaderId::new("yssarilhero");
+        let run = |state: &mut GameState, answers: &[&str]| -> Option<bool> {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(state, DEFAULT, None, &mut table, |ctx| use_leader(ctx, &a(), &hero))
+            })
+        };
+        let staged = |cards_b: &[&str], cards_c: &[&str]| {
+            let mut state = three();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            set_leader(&mut state, &a(), "yssarilhero", LeaderStatus::Unlocked);
+            deal(&mut state, "a", &[]);
+            deal(&mut state, "b", cards_b);
+            deal(&mut state, "c", cards_c);
+            state
+        };
+        // A take and a discard.
+        let mut state = staged(&["sabo1", "bribery"], &["fs1", "s_retreat1", "rally", "plague"]);
+        assert_eq!(run(&mut state, &["bribery", "rally", "take", "discard"]), Some(true));
+        assert_eq!(hand(&state, "a"), ["bribery"]);
+        assert_eq!(hand(&state, "c").len(), 1, "3 of 4 discarded");
+        // A hand smaller than three loses all it has; the card shown unasked when both are the same printed card.
+        let mut state = staged(&["dh1", "dh2"], &["sabo1", "bribery"]);
+        assert_eq!(run(&mut state, &["bribery", "discard", "discard"]), Some(true));
+        assert!(hand(&state, "b").is_empty() && hand(&state, "c").is_empty());
+        // A decline for every player: the card is used, nothing moves.
+        let mut state = staged(&["sabo1"], &["rally"]);
+        assert_eq!(run(&mut state, &["decline", "decline"]), Some(true));
+        assert_eq!(hand(&state, "b"), ["sabo1"]);
+        // Nobody holds a card: nothing is asked.
+        let mut state = staged(&[], &[]);
+        assert_eq!(run(&mut state, &[]), Some(false));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::yssaril::hero"), (4, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// A turn with the laws blank (Law's Order) changes the hand limit the child window reads: the adapter keeps the string body, counted.
+    #[test]
+    fn the_hero_leaves_a_turn_with_blank_laws_to_the_string() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let hero = LeaderId::new("yssarilhero");
+        let mut state = three();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        set_leader(&mut state, &a(), "yssarilhero", LeaderStatus::Unlocked);
+        deal(&mut state, "b", &["sabo1"]);
+        state.phase = Phase::Action;
+        crate::laws::blank_for_turn(&mut state);
+        let mut table = scripted(&["decline"]);
+        let used = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |ctx| use_leader(ctx, &a(), &hero))
+        });
+        assert_eq!(used, Some(true));
+        let r = report();
+        assert_eq!(thread_window_counts("factions::yssaril::hero"), (0, 1), "{r:?}");
+        assert!(r.windows.keys().any(|k| k.starts_with("factions::yssaril::hero [bail: a turn in which the laws are blank")), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

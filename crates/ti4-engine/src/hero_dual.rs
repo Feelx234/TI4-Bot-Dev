@@ -25,7 +25,7 @@ mod real {
     use ti4_engine_core::generated::{Planet, System, Technology};
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::hero_windows::{Devourable, NekroHero};
+    use ti4_engine_core::rules::hero_windows::{Devourable, KyverHero, NekroHero};
     use ti4_engine_core::state::Slice;
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::PlayerId;
@@ -103,6 +103,64 @@ mod real {
         }
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(Vec::new()), questions: driven.rendered })
     }
+
+    /// What Kyver reads (the hands, the card groups) and writes (the hands, the staged cards, the stream).
+    const KYVER: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Decks, Slice::Agenda, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Rng],
+        &[Slice::Players, Slice::Decks, Slice::Marks, Slice::Cards, Slice::Rng],
+    );
+
+    /// The core half of Yssaril's Kyver, Blade and Key (`factions::yssaril::use_leader`; the value: some card was shown). `rng_before` is where
+    /// the streams stood before the string rolled; the streams after are compared. A hand limit a faction hook changes is not carried
+    /// (the child window reads the printed rule and the laws): the string's.
+    pub fn yssaril_hero(
+        gs: &mut GameState,
+        content: &ti4_content::ContentStore,
+        player: &PlayerId,
+        rng_before: &crate::rng::RngPositions,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        if crate::laws::blanked(gs) {
+            crate::dual::note_bail_here("a turn in which the laws are blank (Law's Order)");
+            return None;
+        }
+        let plain = crate::laws::action_card_limit(gs, crate::action_cards::HAND_LIMIT);
+        let limit = crate::factions::hooks_economy::action_card_limit(gs, content, player, plain);
+        if limit != plain && limit != usize::MAX {
+            crate::dual::note_bail_here("a faction changes the action card hand limit");
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let before = gs.clone();
+        let kernel = Kernel::plain();
+        let mut table = AbilityTable::default();
+        table.facts.card_groups = crate::reactions_core::card_groups();
+        ti4_engine_core::driver::children::register(&mut table);
+        let seeds = std::rc::Rc::new(crate::core_sync::codec::rng::TextSeeds::of(&cx));
+        let mut driver = Driver::new(KyverHero::new(seat, limit == plain), Resolver::new(&seats, Some(seat)), table, 1).with_seeds(seeds);
+        let mut after = None;
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy: None, rng: Some(rng_before) }, KYVER, |core, _| {
+            let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
+            after = Some(core.rng().clone());
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the hand limit window or no printed-name groups");
+            return None;
+        }
+        let positions = crate::core_sync::codec::rng::positions(&cx, &after?).why("the random streams could not be read back")?;
+        let mut run = Run::new(driver.window.used).with_events_vec(Vec::new());
+        run.rng = Some(positions);
+        Some(CoreWindow { run, questions: driven.rendered })
+    }
 }
 
 #[cfg(not(feature = "typed-core"))]
@@ -116,6 +174,16 @@ mod stub {
         _: &PlayerId,
         _: &[super::FlayeshTarget],
         _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+
+    pub fn yssaril_hero(
+        _: &mut GameState,
+        _: &ti4_content::ContentStore,
+        _: &PlayerId,
+        _: &crate::rng::RngPositions,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {
         None

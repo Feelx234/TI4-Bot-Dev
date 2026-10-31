@@ -64,6 +64,8 @@ pub enum Ask {
     FlayeshPlanet,
     /// UNIT.DSGN.FLAYESH: the technology of the planet's colour that is gained.
     FlayeshTech,
+    /// Kyver, Blade and Key (Yssaril hero): what happens to the player who showed `card`.
+    KyverFate { target: crate::ids::Seat, card: crate::generated::ActionCard },
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -115,6 +117,10 @@ pub enum Opt {
     Devour(crate::generated::System, crate::generated::Planet),
     /// UNIT.DSGN.FLAYESH: gain this technology.
     Gain(crate::generated::Technology),
+    /// Kyver: take the shown card.
+    KyverTake,
+    /// Kyver: the player discards 3 random action cards.
+    KyverDiscard,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -140,4 +146,5 @@ pub enum Subtype {
     UmbatSystem,
     FlayeshPlanet,
     FlayeshTech,
+    KyverFate,
 }
