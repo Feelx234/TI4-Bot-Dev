@@ -119,6 +119,11 @@ fn action_menu_question(core: &CoreState, env: &Env<'_>) -> Result<crate::choice
 /// Run the option a seat chose from the action menu or the closing menu: "end your turn" is the end job, every other option is
 /// `TurnJob::Action`.
 fn run_chosen(core: &mut CoreState, env: &Env<'_>, chosen: Opt) -> Result<(Live, Out), LiveError> {
+    // A transaction is a window of its own (the trade island): the pick opens it and runs it to its first question.
+    if let Opt::Turn(TurnOpt::Open { with, .. }) = chosen {
+        let proposer = core.meta().active.ok_or(LiveError::NotOpen)?;
+        return crate::driver::windows::trade::begin(core, env, proposer, with);
+    }
     let job = match chosen {
         Opt::Turn(TurnOpt::EndTurn) => TurnJob::End,
         Opt::Turn(option) => TurnJob::Action(option.key().ok_or(LiveError::Illegal)?),

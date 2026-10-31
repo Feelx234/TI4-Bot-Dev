@@ -550,3 +550,15 @@ fn predictive_intelligence_is_a_window_of_the_action_phase_only() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::PredictiveIntelligence).tokens(0, 2, 2, 2).build();
     assert!(matches!(advance_job(TurnJob::End, &mut s, &env(&k), None).unwrap().0, Live::Asks(_)));
 }
+
+#[test]
+fn choosing_a_transaction_partner_from_the_menu_opens_the_trade_window_and_spends_the_pair() {
+    let (system, _) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).map_ring(1).unit(system, None, Unit::CruiserI, 0, 1).unit(system, None, Unit::CruiserI, 1, 1).build();
+    let e = env_r(&k);
+    let q = ask_ask(&s, &e).unwrap().unwrap().choice;
+    let open = q.opts.as_slice().iter().copied().find(|o| matches!(o, Opt::Turn(TuOpt::Open { with: Seat(1), .. }))).expect("the neighbour is offered");
+    advance_ask(&mut s, &e, Some(Pick::Opt(open))).unwrap();
+    assert!(s.pending().window(ti4_engine_core::state::WindowKind::Trade).is_some(), "the trade window is open");
+    assert!(ti4_engine_core::query::trade::transacted_with(&s, Seat(0), Seat(1)), "94.1: the pair is spent on opening");
+}
