@@ -11452,17 +11452,22 @@ mod tests {
     }
 
     fn roll_step_fights(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
-        crate::dual_window::with_composed(composed, || roll_step_fights_inner(setup, calls_at_least, composed))
+        roll_step_fights_of(["sol", "hacan", "xxcha"], setup, calls_at_least, composed)
     }
 
-    fn roll_step_fights_inner(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
+    /// [`roll_step_fights`] for a table of these factions (attacker `a`, defender `b`, a third seat `c`).
+    fn roll_step_fights_of(factions: [&str; 3], setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
+        crate::dual_window::with_composed(composed, || roll_step_fights_inner(factions, setup, calls_at_least, composed))
+    }
+
+    fn roll_step_fights_inner(factions: [&str; 3], setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         BAIL_KEYS.with(|k| k.borrow_mut().clear());
         let mut asked = Vec::new();
         for seed in 0..16_u64 {
-            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "xxcha")], ti4_model::content_types::DEFAULT);
+            let mut state = crate::fixtures::seated_game(&[("a", factions[0]), ("b", factions[1]), ("c", factions[2])], ti4_model::content_types::DEFAULT);
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
             state.rng_seed = seed;
@@ -12132,6 +12137,44 @@ mod tests {
             assert!(asked.iter().all(|c| c.player.as_str() != crate::neutral_units::NEUTRAL), "the neutral side is never asked: {composed}");
             assert!(compared > 0 && bailed == 0, "composed {composed}: {compared} compared, {bailed} bailed");
             no_bails(&format!("Assault Cannon against a neutral side (composed {composed})"));
+        }
+    }
+
+    /// Package W15: a neutral force fights in the core windows whoever sits across from it. The seats' factions are the ones with the most
+    /// rules at a fight (Letnev's Munitions and flagship, Mentak's Ambush, Argent's Raid Formation and Zeal, Nomad's Thundarian, Jol-Nar,
+    /// Sardakk, L1Z1X, Titans, Naaz, Yssaril, Muaat, Hacan, Sol, Xxcha, Arborec, Empyrean, Saar, Creuss); every fight of every table is
+    /// compared and none bails (bail-as-failure), the neutral side is never asked. Each faction is the attacker once and the third seat once,
+    /// the single windows and the composed machine.
+    #[test]
+    fn a_neutral_side_fights_in_the_core_for_every_faction_across_from_it() {
+        let rotation = ["letnev", "mentak", "argent", "nomad", "jolnar", "sardakk", "l1z1x", "titans", "naaz", "yssaril", "muaat", "empyrean", "saar", "creuss", "arborec", "naalu", "mahact", "vuilraith", "yin", "winnu", "ghost", "nekro", "xxcha", "sol"];
+        for (n, faction) in rotation.iter().enumerate() {
+            let table = ["sol", "hacan", rotation[(n + 5) % rotation.len()]];
+            for composed in [false, true] {
+                let (asked, compared, bailed) = roll_step_fights_of([faction, table[1], table[2]], &neutral_garrison, 0, composed);
+                assert!(asked.iter().all(|c| c.player.as_str() != crate::neutral_units::NEUTRAL), "{faction}: the neutral side is never asked ({composed})");
+                assert!(compared > 0, "{faction} (composed {composed}): the fights were compared: {compared} compared, {bailed} bailed");
+                assert_eq!(bailed, 0, "{faction} (composed {composed}): the core carries a neutral side");
+                no_bails(&format!("a neutral side across from {faction} (composed {composed})"));
+            }
+        }
+    }
+
+    /// The same with a neutral fleet that sustains (dreadnoughts) and an attacker with Assault Cannon, Non-Euclidean Shielding or
+    /// Letnev's Munitions Reserves: the sustains of the neutral side are taken by the rules, the attacker's own questions are asked.
+    #[test]
+    fn a_neutral_side_with_dreadnoughts_fights_attackers_with_cannons_shields_and_munitions_in_lockstep() {
+        for (faction, tech) in [("sol", "asc"), ("letnev", "nes"), ("letnev", "asc"), ("hacan", "nes"), ("jolnar", "nes")] {
+            let setup = move |state: &mut GameState, seed: u64| {
+                neutral_garrison(state, seed + 2);
+                state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+            };
+            for composed in [false, true] {
+                let (asked, compared, bailed) = roll_step_fights_of([faction, "hacan", "xxcha"], &setup, 0, composed);
+                assert!(asked.iter().all(|c| c.player.as_str() != crate::neutral_units::NEUTRAL), "{faction} {tech}: the neutral side is never asked ({composed})");
+                assert!(compared > 0 && bailed == 0, "{faction} {tech} (composed {composed}): {compared} compared, {bailed} bailed");
+                no_bails(&format!("a sustaining neutral fleet across from {faction} with {tech} (composed {composed})"));
+            }
         }
     }
 
