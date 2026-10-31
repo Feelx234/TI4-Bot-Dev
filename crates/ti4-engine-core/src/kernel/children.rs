@@ -65,17 +65,8 @@ pub struct ProduceFacts {
 }
 
 /// What `Spawn::ProduceOne` (one unit outside a use of PRODUCTION: Chaos Mapping, Freelancers) needs of the position that the core does not
-/// hold.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OneFacts {
-    /// What the seat may produce at all (`buildable_for`), in option order.
-    pub buildable: [Option<Unit>; 9],
-    /// The fleet limit as the enforcement works it out (`fleet::over_supply`: the unlimited bill, else the limit).
-    pub fleet_limit: i32,
-    /// The interned printed name of the effect and its content alias (`None`: it names itself nowhere).
-    pub name: Option<Code>,
-    pub alias: Option<Code>,
-}
+/// hold. Plain data of the state layer (a hosted run keeps it between two questions).
+pub use crate::state::OneFacts;
 
 /// What `Spawn::Seeing` (the enforcement of the fleet supply and the capacity of one seat in one system, `fleet::enforce_seeing`) needs of the
 /// position that the core does not hold: the fleet limit as the string works it out (pool, laws, abilities), the one the question shows
@@ -222,6 +213,19 @@ pub enum Report {
     Free(Option<System>),
     /// The Thunder's Edge Construction primary finished: the use of PRODUCTION it ran, the system and what it made (`None`: a structure was chosen).
     Produced(Option<(System, Made)>),
+    /// An exploration finished: how it ended.
+    Explored(ExploreEnd),
+}
+
+/// How an exploration ended (`Report::Explored`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExploreEnd {
+    /// The card was resolved and its row closed.
+    Explored,
+    /// The deck ran out.
+    Empty,
+    /// The exploration declined its run (a card the core does not carry, no texts, no link to a child).
+    Unsupported,
 }
 
 /// A window of another area, run as a child: the object-safe face of [`Window`] plus what the finished window reports.
@@ -401,6 +405,9 @@ pub enum Spawn {
     Imperial { who: Seat, facts: ImperialFacts },
     /// Self-Assembly Routines' offer at the end of a use of PRODUCTION in `system` (a window of the faction crate: the table's extra link).
     SelfAssembly { who: Seat, system: System },
+    /// `explore_windows::Exploring` of the frontier token in `system`, spent first and announced to nobody (the string explores it with no
+    /// timing handle); reports [`Report::Explored`].
+    ExploreFrontier { who: Seat, system: System },
 }
 
 /// Starts the child window a [`Spawn`] names; `None` for a request the table does not know.
@@ -411,6 +418,26 @@ pub type ResearchableFn = fn(&CoreState, &Kernel, Scope, Seat) -> SmallList<Tech
 
 /// `technology::research` of a technology a card chose, the bill (if any) already paid; whether it was researched.
 pub type ResearchFn = fn(&mut CoreState, &Kernel, Scope, UnitRoster, Seat, Technology) -> bool;
+
+/// What a window that hosts `ProduceOne` in its own payload calls (the state is [`crate::state::OneRun`]; the window object is rebuilt from it at
+/// every call by the production area): the facts the seat produces with, one step, the question, one answer.
+#[derive(Clone, Copy)]
+pub struct OneLink {
+    /// What the seat may produce and the fleet limit it is judged by (`production::home::{buildable_for, fleet_limit}`).
+    pub facts: fn(&CoreState, &Kernel, &UnitRoster, Seat) -> Option<([Option<Unit>; 9], i32)>,
+    /// Run the unit to its next question or its end (`Next::Done`).
+    pub step: fn(crate::state::OneRun, &mut Sx<'_>) -> (crate::state::OneRun, Next),
+    /// The question it waits on.
+    pub ask: fn(&crate::state::OneRun, &CoreState, &Kernel) -> Option<Choice>,
+    /// Apply an answer.
+    pub answer: fn(crate::state::OneRun, &mut Sx<'_>, Pick) -> Result<crate::state::OneRun, Illegal>,
+}
+
+impl std::fmt::Debug for OneLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OneLink")
+    }
+}
 
 /// The calls a window makes into other areas, by function pointer. Filled by `crate::driver::children::register`; empty by
 /// default (a window that needs a link then declines its run).
@@ -424,11 +451,13 @@ pub struct AreaLinks {
     pub research: Option<ResearchFn>,
     /// Start a child window the faction crate owns (Self-Assembly Routines): consulted when [`Self::spawn`] does not know the request.
     pub spawn_extra: Option<SpawnFn>,
+    /// `ProduceOne` kept by its host's payload (Freelancers inside an exploration).
+    pub one: Option<OneLink>,
 }
 
 impl std::fmt::Debug for AreaLinks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AreaLinks").field("spawn", &self.spawn.is_some()).field("researchable", &self.researchable.is_some()).field("research", &self.research.is_some()).field("spawn_extra", &self.spawn_extra.is_some()).finish()
+        f.debug_struct("AreaLinks").field("spawn", &self.spawn.is_some()).field("researchable", &self.researchable.is_some()).field("research", &self.research.is_some()).field("spawn_extra", &self.spawn_extra.is_some()).field("one", &self.one.is_some()).finish()
     }
 }
 

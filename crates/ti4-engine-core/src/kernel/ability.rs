@@ -80,6 +80,48 @@ pub enum Unknown {
     DataSkimmer,
     /// The play of a card needs what the adapter did not compute (`AdapterFacts::plays`).
     PlayFacts,
+    /// A position the native invasion does not run yet (a documented bail of `driver::windows::invasion`, named by its reason).
+    Unported(Unported),
+    /// A position the native production step does not run (a documented bail of `driver::windows::production`, named by its reason).
+    UnportedProduction(ProductionGap),
+}
+
+/// The positions the native production step (`driver::windows::production`) does not run, each a counted bail of the live path. The words are
+/// the adapter's (`production_live::gap_text`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductionGap {
+    /// The table has no faction unit roster (`AdapterFacts::roster`): the buildable units cannot be named.
+    NoRoster,
+    /// The facts of the use cannot be read from the position (a seat that does not exist, a number beyond 32 bits).
+    NoFacts,
+    /// The table has no link to Self-Assembly Routines' window (`Spawn::SelfAssembly`).
+    NoLink,
+    /// A window a start or end effect runs asked the driver for something that is not a question (`Next::Open` / `Emit` / `Chain`).
+    ChildPassed,
+    /// A window a start or end effect runs asks something its own answer does not settle.
+    ChildStuck,
+    /// A stage that neither asks nor moves on.
+    NoProgress,
+}
+
+/// The positions the native invasion (`driver::windows::invasion`) does not run, each a counted bail of the live path. The words are the adapter's
+/// (`invasion_live::unported_text`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unported {
+    /// The machine made no progress: a stage that neither asks nor moves on.
+    NoProgress,
+    Slumberstate,
+    RollCannotName,
+    HitsAddedToARoll,
+    IntegratedEconomy,
+    AssimilateRoster,
+    /// The exploration of a first claim holds something the native window does not carry (`ExploreRun::why`).
+    Exploration(crate::state::EWhy),
+    BombardmentDiceMismatch,
+    JolNarCommanderReroll,
+    X89,
+    Thundarian,
+    Dacxive,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -147,6 +189,8 @@ pub struct Codes {
     pub salvage: crate::state::Code,
     /// The faction ability `indoctrination`, the source of the Yin's question.
     pub indoctrination: crate::state::Code,
+    /// The faction ability `terragenesis`, the source of the Titans' question.
+    pub terragenesis: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
     /// The subtype `assign_casualty` of a casualty question and the cause `action_card:reflective_shielding` of a loss to the hits a
@@ -156,6 +200,88 @@ pub struct Codes {
     /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
     /// `trade_agreement`, `artuno` (Artuno the Betrayer does not copy them).
     pub not_from_supply: [crate::state::Code; 5],
+    /// The texts of the invasion composer (`driver::windows::invasion`).
+    pub invasion: InvasionCodes,
+    /// The texts of the events of an exploration (`rules::explore_windows::Exploring`).
+    pub explore: ExploreCodes,
+    /// The texts of the events of a use of PRODUCTION (`driver::windows::production`).
+    pub production: ProductionCodes,
+}
+
+/// The `source` texts of `UNITS_PRODUCED`: `ability` for the units an ability produces, `production` for the PRODUCTION of a unit (the adapter's
+/// event texts).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProductionCodes {
+    pub ability: crate::state::Code,
+    pub production: crate::state::Code,
+    /// The payload key `units` (the adapter's event text: `Key::Other`).
+    pub units: crate::state::Code,
+}
+
+/// The texts the events of an exploration carry: the source `exploration` of the trade goods it gains, the deck and the card of
+/// `PLANET_EXPLORED` and the `trade_agreement` source of a replenishment (the adapter's event texts, not the state's). Not filled
+/// (`filled` false): the exploration declines its run.
+#[derive(Debug, Clone, Copy)]
+pub struct ExploreCodes {
+    pub filled: bool,
+    pub goods: crate::state::Code,
+    pub trade_agreement: crate::state::Code,
+    /// The text of each deck, by `ExploreType` index.
+    pub decks: [crate::state::Code; crate::generated::ExploreType::COUNT],
+    /// The text of each card, by `Explore` index.
+    pub cards: [crate::state::Code; crate::generated::Explore::COUNT],
+    /// The printed name `Freelancers`, the source of the unit its cards produce.
+    pub freelancers: crate::state::Code,
+}
+
+impl Default for ExploreCodes {
+    fn default() -> Self {
+        let z = crate::state::Code(0);
+        Self { filled: false, goods: z, trade_agreement: z, decks: [z; crate::generated::ExploreType::COUNT], cards: [z; crate::generated::Explore::COUNT], freelancers: z }
+    }
+}
+
+/// The texts the invasion composer puts into the position: the step kinds and causes of its records, the dice groups and the text of every
+/// unit type (a roll names the unit types behind it). Interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy)]
+pub struct InvasionCodes {
+    /// The reroll kind of the ground dice (`ground`) and of the bombardment's (`bombardment`), and the step kinds `ground_round`,
+    /// `bombardment`, `space_cannon_defense`.
+    pub ground: crate::state::Code,
+    pub bombardment: crate::state::Code,
+    pub ground_round: crate::state::Code,
+    pub space_cannon_defense: crate::state::Code,
+    /// The causes `bombardment` and `space_cannon_defense` of the events of the hits (the adapter's event texts, not the state's).
+    pub bombardment_cause: crate::state::Code,
+    pub space_cannon_cause: crate::state::Code,
+    /// The payload key `planets` of `GROUND_COMMITMENT_FINISHED`.
+    pub planets: crate::state::Code,
+    /// The source `dunlain_reaper` of the Reaper's question.
+    pub dunlain_reaper: crate::state::Code,
+    /// The source `minister_exploration` of the trade good the Minister of Exploration pays for a planet taken (an event text).
+    pub minister: crate::state::Code,
+    /// The phases of the public boundary `ActiveInvasion.phase`: bombardment, custodians, landing, ground_battle, planet_result,
+    /// next_defender, control, complete.
+    pub phases: [crate::state::Code; 8],
+    /// `combat value N` for N in 1..=12 (index N - 1).
+    pub names: [crate::state::Code; 12],
+    /// The text of every unit type, by `Unit` index.
+    pub units: [crate::state::Code; crate::generated::Unit::COUNT],
+}
+
+impl Default for InvasionCodes {
+    fn default() -> Self {
+        let z = crate::state::Code(0);
+        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, bombardment_cause: z, space_cannon_cause: z, planets: z, dunlain_reaper: z, minister: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT] }
+    }
+}
+
+impl InvasionCodes {
+    /// The text of `unit`.
+    #[must_use]
+    pub fn unit(&self, unit: crate::generated::Unit) -> crate::state::Code {
+        self.units[unit as usize]
+    }
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of
@@ -292,6 +418,8 @@ pub struct AdapterFacts {
     /// The kernel whose economy hooks a payment inside an ability reads (the production kernel; the combat kernel holds none of
     /// the faction hooks of a payment). Set by the adapter.
     pub pay_kernel: Option<fn() -> &'static Kernel>,
+    /// The faction units of the scope (the form Assimilate places; set by the live `Env`).
+    pub roster: Option<&'static crate::query::tech::UnitRoster>,
     adjacent: Vec<(crate::generated::System, crate::generated::System, bool)>,
     buildable: Vec<(Seat, Vec<crate::generated::Unit>)>,
     /// The texts of the staged rerolls (Fire Team, Scramble Frequency), set by the adapter of a window that stages dice.
@@ -299,6 +427,8 @@ pub struct AdapterFacts {
     /// The printed name of each action card as the index of the first card with the same name, for the windows that offer one
     /// option per name outside a card play (the hand limit, package W6). Empty: the adapter did not say, the window declines.
     pub card_groups: Vec<u8>,
+    /// The words of the log row an exploration closes (`exploration::row_words`), set by the adapter. `None`: the exploration declines.
+    pub explore_words: Option<crate::kernel::fx_explore::WordsFn>,
 }
 
 /// What the cards that reroll staged dice (Fire Team) need of the adapter: the state text of the ground kind, and for each

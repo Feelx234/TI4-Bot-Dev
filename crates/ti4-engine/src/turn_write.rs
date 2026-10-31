@@ -312,9 +312,10 @@ mod real {
 
     use crate::core_sync::{Footprint, Sources};
 
+    // (The end of a turn also forgets the component actions that failed this turn, a field of the pending slice.)
     const TURN: Footprint = Footprint::new(
-        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Strategy, Slice::Trade, Slice::Transient],
-        &[Slice::Meta, Slice::Trade, Slice::Transient],
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Strategy, Slice::Trade, Slice::Transient, Slice::Pending],
+        &[Slice::Meta, Slice::Trade, Slice::Transient, Slice::Pending],
     );
 
     /// The end of an action reads the phase, the active seat, the additional-action flag and the held counters.

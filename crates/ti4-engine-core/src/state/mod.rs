@@ -14,6 +14,7 @@ mod cards;
 mod decks;
 mod event;
 mod explore;
+mod explore_run;
 mod invasion;
 mod ledger;
 mod map;
@@ -43,14 +44,15 @@ pub use cards::{CardRef, CardZones, DeckReserve, DeckSegment, NoteKey, NoteMap, 
 pub use decks::Decks;
 pub use event::{Key, List, Payload, Tally, Val};
 pub use explore::{Expedition, ExploreRec, ExploreState};
+pub use explore_run::{EDeck, EHow, EStage, EThen, ETarget, EWhy, ExploreRun, Holdings};
 pub use ledger::{EventKind, EventRec, Ledger, LedgerReason, RelicRec, RollPurpose, RollRec, VpRec};
 pub use map::MapSlice;
 pub use marks::{Family, MarkKey, MarkMap, MarkVal, Marks};
 pub use meta::{Meta, MetaFlags, Phase};
 pub use objectives::{ObjectiveRef, ObjectiveSet, Objectives};
 pub use pending_windows::{LeaderFollowers, StatusReport, Tokens, Trade, Vote, VoteStage, Voting};
-pub use invasion::Invasion;
-pub use production::ProductionUse;
+pub use invasion::{CommitOrigin, IBill, IBombard, IBombardCursor, ICustodians, IPlanetBombard, IReport, IRound, IStage, Invasion};
+pub use production::{OStage, OneFacts, OneRun, PStage, ProductionUse, ProductionWindow, UseMode, UsePhase};
 pub use pending::{DriverFlags, Nested, NestedOp, Pending, PendingAsk, PendingTag, Scoring, ScoringTiming, Secondary, SecondaryHow, Window, WindowKind};
 pub use piece::Piece;
 #[cfg(test)]

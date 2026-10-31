@@ -42,6 +42,10 @@ mod d1_pending;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "cannon_prelude_tests.rs"]
 mod cannon_prelude_tests;
+// The lockstep of the native production step against `AftermathWindow::enter_production` (lane M2): it calls the private method.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "production_step_tests.rs"]
+mod production_step_tests;
 #[cfg(not(feature = "typed-core"))]
 mod d1_pending {
     pub(super) const fn active() -> bool {

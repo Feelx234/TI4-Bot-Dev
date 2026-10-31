@@ -160,6 +160,8 @@ fn arm_name(a: ti4_engine_core::driver::session::Arm) -> &'static str {
         ti4_engine_core::driver::session::Arm::Voting => "voting",
         ti4_engine_core::driver::session::Arm::Diplomacy => "diplomacy",
         ti4_engine_core::driver::session::Arm::Aftermath => "aftermath",
+        ti4_engine_core::driver::session::Arm::Invasion => "invasion",
+        ti4_engine_core::driver::session::Arm::Production => "production",
         ti4_engine_core::driver::session::Arm::AgendaTalks => "agenda_talks",
         ti4_engine_core::driver::session::Arm::Trade => "trade",
         ti4_engine_core::driver::session::Arm::Tactical => "tactical",

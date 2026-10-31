@@ -43,6 +43,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::INDOCTRINATION, kind: "ability", card: "indoctrination" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::GREYFIRE, kind: "promissory", card: "greyfire" },
+    Named { slot: ti4_engine_core_factions::cd_registry::titans::offer::TERRAGENESIS, kind: "ability", card: "terragenesis" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_SPACE, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_GROUND, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::magen_defense::ACTIVATION, kind: "technology", card: "md" },
@@ -525,6 +526,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.empyrean_mech = r.code("empyrean_mech");
         table.codes.salvage = r.code("so");
         table.codes.indoctrination = r.code("indoctrination");
+        table.codes.terragenesis = r.code("terragenesis");
         table.facts.pay_kernel = Some(crate::production_view::kernel);
         table.codes.mahact_infantry = r.code("mahact_infantry");
         table.codes.mahact_infantry2 = r.code("mahact_infantry2");
@@ -533,6 +535,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.assign_casualty = r.code("assign_casualty");
         table.codes.reflective_cause = r.code("action_card:reflective_shielding");
         table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
+        crate::production_live::fill_codes(table, r);
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {

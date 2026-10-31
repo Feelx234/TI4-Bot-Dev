@@ -279,12 +279,17 @@ mod tests {
         const KIND: WindowKind = WindowKind::Production;
         fn from_pending(core: &CoreState, _: &Kernel) -> Option<Self> {
             match core.pending().window(WindowKind::Production)? {
-                OpenWindow::Production(p) => Some(Self { done: p.data[0] == 1 }),
+                OpenWindow::Production(p) => Some(Self { done: p.phase == ti4_engine_core::state::UsePhase::Using }),
                 _ => None,
             }
         }
         fn to_pending(&self, core: &mut CoreState) {
-            core.pending_mut().open(OpenWindow::Production(Box::new(ProductionUse { actor: None, data: [u32::from(self.done), 0, 0] })));
+            let (who, system) = (ti4_engine_core::ids::Seat(0), ti4_engine_core::generated::System::ALL[0]);
+            let phase = if self.done { ti4_engine_core::state::UsePhase::Using } else { ti4_engine_core::state::UsePhase::Start };
+            core.pending_mut().open(OpenWindow::Production(Box::new(ProductionUse::observed(who, system))));
+            if let Some(OpenWindow::Production(p)) = core.pending_mut().window_mut(WindowKind::Production) {
+                p.phase = phase;
+            }
         }
     }
 

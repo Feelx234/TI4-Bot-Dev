@@ -954,26 +954,21 @@ fn a_destination_off_the_map_is_refused_though_the_seat_could_enter_it() {
 // -- Conservator Procyon ---------------------------------------------------------------------------------------
 
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
-use ti4_engine_core::rules::hero_windows::{EmpyreanHero, FrontierFacts, How};
-
-const EMPTY: Code = Code(3);
-const AGREEMENT: Code = Code(9);
-
-fn frontier_facts() -> FrontierFacts {
-    FrontierFacts { empty: EMPTY, rules_version: LATEST_RULES, mahact_held: 0, agreement: Some(AGREEMENT), draw_plain: true }
-}
+use ti4_engine_core::rules::hero_windows::EmpyreanHero;
+use ti4_engine_core::state::EHow;
+use ti4_engine_core_tests::windows::{explore_table, text_of};
 
 /// Seat 0 (an Empyrean) holds a cruiser and a frontier token in each of `tokens` systems; the frontier deck is `deck`; the window explores
 /// them in the order of the systems returned.
-fn empyrean(deck: &[Explore], tokens: usize, facts: FrontierFacts) -> (Rig<EmpyreanHero>, Vec<System>) {
-    let (state, kernel, systems) = empyrean_parts(deck, tokens, facts);
-    let window = EmpyreanHero::new(Seat(0), Vec::new(), systems.clone(), facts);
-    (Rig::from_parts(state, kernel, window), systems)
+fn empyrean(deck: &[Explore], tokens: usize, version: u32) -> (Rig<EmpyreanHero>, Vec<System>) {
+    let (state, kernel, systems) = empyrean_parts(deck, tokens, version);
+    let window = EmpyreanHero::new(Seat(0), Vec::new(), systems.clone());
+    (Rig::from_parts(state, kernel, window).with_table(explore_table()), systems)
 }
 
-fn empyrean_parts(deck: &[Explore], tokens: usize, facts: FrontierFacts) -> (CoreState, Kernel, Vec<System>) {
+fn empyrean_parts(deck: &[Explore], tokens: usize, version: u32) -> (CoreState, Kernel, Vec<System>) {
     let systems: Vec<System> = plain_systems().into_iter().take(tokens.max(1)).collect();
-    let mut sc = Scenario::new(&[Faction::TheEmpyrean, Faction::TheArborec]).map_from(&systems).rules(facts.rules_version).commodities(0, 0);
+    let mut sc = Scenario::new(&[Faction::TheEmpyrean, Faction::TheArborec]).map_from(&systems).rules(version).commodities(0, 0);
     for system in &systems {
         sc = sc.unit(*system, None, Unit::CruiserI, 0, 1);
     }
@@ -990,10 +985,15 @@ fn goods_of(rig: &Rig<EmpyreanHero>) -> i16 {
     rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods
 }
 
+/// The (how, result) texts of the log rows the run closed.
+fn rows(rig: &Rig<EmpyreanHero>) -> Vec<(String, String)> {
+    rig.state.explore().log.iter().map(|r| (text_of(&rig.state, r.outcome), r.result.map(|c| text_of(&rig.state, c)).unwrap_or_default())).collect()
+}
+
 #[test]
 fn a_fragment_and_an_entropic_field_are_explored_in_order_and_the_pool_is_asked() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let (mut rig, systems) = empyrean(&[Explore::UnknownRelicFragment1, Explore::EntropicField], 2, frontier_facts());
+    let (mut rig, systems) = empyrean(&[Explore::UnknownRelicFragment1, Explore::EntropicField], 2, LATEST_RULES);
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 })), "{}", rig.transcript());
     assert_eq!(rig.opts().len(), 3);
@@ -1010,22 +1010,21 @@ fn a_fragment_and_an_entropic_field_are_explored_in_order_and_the_pool_is_asked(
         vec![(Explore::UnknownRelicFragment1, Some(systems[0]), ExploreType::Frontier, None), (Explore::EntropicField, Some(systems[1]), ExploreType::Frontier, None)],
         "the rows are opened with the token's system, in the order of the systems"
     );
-    assert!(rig.state.explore().log.iter().all(|r| r.outcome == EMPTY), "the words of a row are the adapter's");
-    let rows = rig.driver.window.rows();
-    assert_eq!(rows.len(), 2);
-    assert_eq!((rows[0].how, rows[0].system), (How::Fragment(ExploreType::Frontier), systems[0]));
-    assert_eq!((rows[1].how, rows[1].card), (How::Resolved, Explore::EntropicField));
-    assert_eq!(rows[0].after.trade_goods, rows[0].before.trade_goods, "the fragment gives no goods");
-    assert_eq!((rows[1].before.trade_goods, rows[1].after.trade_goods), (0, 2), "the holdings are read around each card");
+    let words = rows(&rig);
+    assert_eq!(words.len(), 2);
+    assert_eq!(words[0].0, format!("{:?}", EHow::Fragment(ExploreType::Frontier)), "the words of a row are the adapter's");
+    assert!(words[0].1.starts_with("goods 0>0"), "the fragment gives no goods: {}", words[0].1);
+    assert_eq!(words[1].0, "Resolved");
+    assert!(words[1].1.starts_with("goods 0>2"), "the holdings are read around each card: {}", words[1].1);
 }
 
 #[test]
 fn the_tokens_are_explored_in_the_order_the_adapter_gives_and_a_token_without_a_ship_is_left() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let (mut state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1, Explore::UnknownRelicFragment2, Explore::UnknownRelicFragment3], 3, frontier_facts());
+    let (mut state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1, Explore::UnknownRelicFragment2, Explore::UnknownRelicFragment3], 3, LATEST_RULES);
     // The order reversed and the middle system without a ship.
     state.board_mut().sys_mut(systems[1]).units.clear();
-    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), vec![systems[2], systems[1], systems[0]], frontier_facts()));
+    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), vec![systems[2], systems[1], systems[0]])).with_table(explore_table());
     rig.run();
     assert!(rig.is_done() && rig.driver.window.used);
     let log: Vec<_> = rig.state.explore().log.iter().map(|r| (r.card, r.system)).collect();
@@ -1036,9 +1035,9 @@ fn the_tokens_are_explored_in_the_order_the_adapter_gives_and_a_token_without_a_
 #[test]
 fn the_placed_tokens_join_the_ones_on_the_board() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let (mut state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1, Explore::UnknownRelicFragment2], 2, frontier_facts());
+    let (mut state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1, Explore::UnknownRelicFragment2], 2, LATEST_RULES);
     state.explore_mut().frontier.remove(systems[1]);
-    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), vec![systems[1]], vec![systems[0], systems[1]], frontier_facts()));
+    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), vec![systems[1]], vec![systems[0], systems[1]])).with_table(explore_table());
     rig.run();
     assert!(rig.is_done() && rig.driver.window.used);
     assert_eq!(rig.state.explore().log.len(), 2, "the placed token under a ship is explored too");
@@ -1050,13 +1049,13 @@ fn the_placed_tokens_join_the_ones_on_the_board() {
 fn a_merchant_station_replenishes_or_converts() {
     covers!("rules::hero_windows::EmpyreanHero");
     // Nothing to convert: the lone option is taken unasked and the commodities come to the printed value.
-    let (mut rig, _) = empyrean(&[Explore::MerchantStation1], 1, frontier_facts());
+    let (mut rig, _) = empyrean(&[Explore::MerchantStation1], 1, LATEST_RULES);
     rig.run();
     assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
     let limit = i16::from(Faction::TheEmpyrean.data().commodities);
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, limit);
     // Commodities in hand: asked; converted they become trade goods.
-    let (mut rig, _) = empyrean(&[Explore::MerchantStation2], 1, frontier_facts());
+    let (mut rig, _) = empyrean(&[Explore::MerchantStation2], 1, LATEST_RULES);
     rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.commodities = 2;
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Explore(_)), "{}", rig.transcript());
@@ -1064,7 +1063,7 @@ fn a_merchant_station_replenishes_or_converts() {
     assert!(rig.is_done() && rig.driver.window.used);
     assert_eq!((goods_of(&rig), rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities), (2, 0));
     // Replenished with commodities in hand.
-    let (mut rig, _) = empyrean(&[Explore::MerchantStation2], 1, frontier_facts());
+    let (mut rig, _) = empyrean(&[Explore::MerchantStation2], 1, LATEST_RULES);
     rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.commodities = 1;
     rig.run();
     rig.pick_where(|o| matches!(o, Opt::Explore(ti4_engine_core::choice::explore::Opt::Replenish)));
@@ -1074,12 +1073,18 @@ fn a_merchant_station_replenishes_or_converts() {
 #[test]
 fn a_replenish_the_core_does_not_follow_declines_the_run_but_the_conversion_is_carried() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let facts = FrontierFacts { agreement: None, ..frontier_facts() };
-    let (mut rig, _) = empyrean(&[Explore::MerchantStation1], 1, facts);
+    // Two seats of one faction: the Trade Agreement note and the option ids are keyed by faction, so the core does not follow a replenish.
+    let twins = |commodities: i16| {
+        let (state, kernel, systems) = empyrean_parts(&[Explore::MerchantStation1], 1, LATEST_RULES);
+        let mut state = state;
+        state.players_mut().by_seat_mut(Seat(1)).unwrap().faction = Faction::TheEmpyrean;
+        state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.commodities = commodities;
+        Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), systems)).with_table(explore_table())
+    };
+    let mut rig = twins(0);
     rig.run();
     assert!(rig.is_done() && rig.driver.window.unsupported && !rig.driver.window.used, "{}", rig.transcript());
-    let (mut rig, _) = empyrean(&[Explore::MerchantStation1], 1, facts);
-    rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.commodities = 1;
+    let mut rig = twins(1);
     rig.run();
     rig.pick_where(|o| matches!(o, Opt::Explore(ti4_engine_core::choice::explore::Opt::Convert)));
     assert!(rig.is_done() && !rig.driver.window.unsupported);
@@ -1089,16 +1094,16 @@ fn a_replenish_the_core_does_not_follow_declines_the_run_but_the_conversion_is_c
 fn a_deck_that_runs_out_undoes_the_run_after_the_questions_already_asked() {
     covers!("rules::hero_windows::EmpyreanHero");
     // The first token draws an entropic field (a pool question), the second finds the deck empty: everything is undone.
-    let (mut rig, _) = empyrean(&[Explore::EntropicField], 2, frontier_facts());
+    let (mut rig, _) = empyrean(&[Explore::EntropicField], 2, LATEST_RULES);
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { .. })), "the first card's question is asked before the failure");
     rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
     assert!(rig.is_done());
     assert!(!rig.driver.window.used && !rig.driver.window.unsupported);
-    assert!(rig.driver.window.rows().is_empty());
+    assert!(rig.state.explore().log.is_empty() || rig.start_state().explore().log.len() == rig.state.explore().log.len());
     assert_eq!(delta(rig.start_state(), &rig.state), "", "the failed exploration is not a use and changes nothing");
     // No card at all.
-    let (mut rig, _) = empyrean(&[], 1, frontier_facts());
+    let (mut rig, _) = empyrean(&[], 1, LATEST_RULES);
     rig.run();
     assert!(rig.is_done() && !rig.driver.window.used);
     assert_eq!(delta(rig.start_state(), &rig.state), "");
@@ -1107,38 +1112,38 @@ fn a_deck_that_runs_out_undoes_the_run_after_the_questions_already_asked() {
 #[test]
 fn the_gamma_token_needs_an_active_system_and_the_ion_storm_a_planet() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let (mut rig, systems) = empyrean(&[Explore::GammaRelay, Explore::GammaWormhole, Explore::IonStorm], 3, frontier_facts());
+    let (mut rig, systems) = empyrean(&[Explore::GammaRelay, Explore::GammaWormhole, Explore::IonStorm], 3, LATEST_RULES);
     rig.state.meta_mut().active_system = Some(systems[2]);
     rig.run();
     assert!(rig.is_done() && rig.driver.window.used);
     assert_eq!(rig.state.explore().wormhole_tokens.get(&Wormhole::Gamma), Some(&systems[2]));
-    let rows = rig.driver.window.rows();
-    assert_eq!((rows[0].how, rows[0].gamma), (How::Resolved, Some(systems[2])), "the first card places the token");
-    assert_eq!((rows[1].how, rows[1].gamma), (How::Resolved, None), "the second finds it in place");
-    assert_eq!(rows[2].how, How::Unresolved, "the ion storm names its system through a planet");
+    let words = rows(&rig);
+    assert!(words[0].0 == "Resolved" && words[0].1.contains(&format!("gamma Some({:?})", systems[2])), "the first card places the token: {words:?}");
+    assert!(words[1].0 == "Resolved" && words[1].1.contains("gamma None"), "the second finds it in place: {words:?}");
+    assert_eq!(words[2].0, "Unresolved", "the ion storm names its system through a planet");
     assert!(rig.state.meta().ion_storm.is_none());
     // Without an active system the card has nowhere to act.
-    let (mut rig, _) = empyrean(&[Explore::GammaRelay], 1, frontier_facts());
+    let (mut rig, _) = empyrean(&[Explore::GammaRelay], 1, LATEST_RULES);
     rig.state.meta_mut().active_system = None;
     rig.run();
-    assert_eq!(rig.driver.window.rows()[0].how, How::Unresolved);
+    assert_eq!(rows(&rig)[0].0, "Unresolved");
     assert!(rig.state.explore().wormhole_tokens.is_empty());
 }
 
 #[test]
 fn the_mirage_is_placed_in_the_system_of_the_token_from_the_fix_on() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let (mut rig, systems) = empyrean(&[Explore::Mirage], 1, frontier_facts());
+    let (mut rig, systems) = empyrean(&[Explore::Mirage], 1, LATEST_RULES);
     rig.run();
     assert!(rig.is_done() && rig.driver.window.used);
-    assert_eq!(rig.driver.window.rows()[0].how, How::Resolved);
+    assert_eq!(rows(&rig)[0].0, "Resolved");
     let cell = rig.state.board().planet(Planet::Mirage);
     assert_eq!((cell.placed_in, cell.control), (Some(systems[0]), Some(Seat(0))));
     // Before the fix the card named no system.
-    let old = FrontierFacts { rules_version: 26, ..frontier_facts() };
+    let old = 26;
     let (mut rig, _) = empyrean(&[Explore::Mirage], 1, old);
     rig.run();
-    assert_eq!(rig.driver.window.rows()[0].how, How::Unresolved);
+    assert_eq!(rows(&rig)[0].0, "Unresolved");
     assert!(rig.state.board().planet(Planet::Mirage).placed_in.is_none());
 }
 
@@ -1147,7 +1152,7 @@ fn a_relic_a_secret_a_device_and_command_tokens_without_a_pool_are_gained() {
     covers!("rules::hero_windows::EmpyreanHero");
     let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
     let secret = SecretObjective::ALL[0];
-    let (mut rig, _) = empyrean(&[Explore::DeadWorld, Explore::DerelictVessel1, Explore::EnigmaticDevice1, Explore::KeleresShip1], 4, FrontierFacts { rules_version: 11, ..frontier_facts() });
+    let (mut rig, _) = empyrean(&[Explore::DeadWorld, Explore::DerelictVessel1, Explore::EnigmaticDevice1, Explore::KeleresShip1], 4, 11);
     rig.state.decks_mut().relic.set(vec![relic]);
     rig.state.decks_mut().secret.set(vec![secret]);
     let tokens = rig.state.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens;
@@ -1163,7 +1168,7 @@ fn a_relic_a_secret_a_device_and_command_tokens_without_a_pool_are_gained() {
 #[test]
 fn a_secret_over_the_limit_asks_which_to_return() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let (mut rig, _) = empyrean(&[Explore::DerelictVessel1], 1, frontier_facts());
+    let (mut rig, _) = empyrean(&[Explore::DerelictVessel1], 1, LATEST_RULES);
     let held: Vec<SecretObjective> = SecretObjective::ALL.iter().copied().take(3).collect();
     let next = SecretObjective::ALL[3];
     rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().cards.secrets.extend(held);
@@ -1178,22 +1183,18 @@ fn a_secret_over_the_limit_asks_which_to_return() {
 #[test]
 fn what_the_core_does_not_carry_declines_the_run() {
     covers!("rules::hero_windows::EmpyreanHero");
-    // A card of another deck, a Lost Crew whose draw is not plain, an unlinked child.
-    let (mut rig, _) = empyrean(&[Explore::DysonSphere], 1, frontier_facts());
+    // An attachment drawn with no planet to attach to is discarded, as the string does (the row says so), and the card is used.
+    let (mut rig, _) = empyrean(&[Explore::DysonSphere], 1, LATEST_RULES);
     rig.run();
-    assert!(rig.is_done() && rig.driver.window.unsupported && !rig.driver.window.used);
-    let (mut rig, _) = empyrean(&[Explore::LostCrew1], 1, FrontierFacts { draw_plain: false, ..frontier_facts() });
+    assert!(rig.is_done() && !rig.driver.window.unsupported && rig.driver.window.used);
+    assert_eq!(rows(&rig)[0].0, "Discarded");
+    // A table without the texts of the log row declines every card.
+    let (state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1], 1, LATEST_RULES);
+    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), systems));
     rig.run();
-    assert!(rig.is_done() && rig.driver.window.unsupported);
-    // (Command tokens while a Mahact fleet holds the seat's are the core's since package W13: the reinforcements read the marks.)
-    let (mut rig, _) = empyrean(&[Explore::MinorEntropicField], 1, FrontierFacts { mahact_held: 1, ..frontier_facts() });
-    rig.run();
-    assert!(!rig.driver.window.unsupported, "{}", rig.transcript());
-    let (mut rig, _) = empyrean(&[Explore::UnknownRelicFragment1], 1, FrontierFacts { mahact_held: 1, ..frontier_facts() });
-    rig.run();
-    assert!(rig.is_done() && !rig.driver.window.unsupported, "a card without command tokens does not care");
+    assert!(rig.is_done() && rig.driver.window.unsupported && !rig.driver.window.used, "no texts: {}", rig.transcript());
     // The Lost Crew's draw goes through the hand-limit window, which needs the printed names: a table without them declines.
-    let (mut rig, _) = empyrean(&[Explore::LostCrew2], 1, frontier_facts());
+    let (mut rig, _) = empyrean(&[Explore::LostCrew2], 1, LATEST_RULES);
     rig.state.decks_mut().action.set(vec![ActionCard::Spy, ActionCard::Rout]);
     for card in ActionCard::ALL.iter().copied().take(7) {
         rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(card);
@@ -1205,7 +1206,7 @@ fn what_the_core_does_not_carry_declines_the_run() {
 #[test]
 fn an_answer_outside_the_pool_question_is_refused() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let (mut rig, _) = empyrean(&[Explore::MajorEntropicField], 1, frontier_facts());
+    let (mut rig, _) = empyrean(&[Explore::MajorEntropicField], 1, LATEST_RULES);
     rig.run();
     rig.expect_illegal(Pick::Opt(Opt::Decline));
 }
@@ -1415,7 +1416,7 @@ fn the_imperial_primary_is_a_child_that_reports_the_objective_scored() {
 #[test]
 fn the_pool_is_asked_from_version_twelve_and_a_minor_field_gives_one_good() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let (mut rig, _) = empyrean(&[Explore::MinorEntropicField], 1, FrontierFacts { rules_version: 12, ..frontier_facts() });
+    let (mut rig, _) = empyrean(&[Explore::MinorEntropicField], 1, 12);
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { .. })), "version 12 asks");
     rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
@@ -1425,22 +1426,22 @@ fn the_pool_is_asked_from_version_twelve_and_a_minor_field_gives_one_good() {
 #[test]
 fn an_empty_secret_deck_draws_nothing_and_the_card_still_resolves() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let (mut rig, _) = empyrean(&[Explore::DerelictVessel1], 1, frontier_facts());
+    let (mut rig, _) = empyrean(&[Explore::DerelictVessel1], 1, LATEST_RULES);
     rig.state.decks_mut().secret.set(vec![]);
     rig.run();
     assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
-    assert_eq!(rig.driver.window.rows()[0].how, How::Resolved);
+    assert_eq!(rows(&rig)[0].0, "Resolved");
 }
 
 #[test]
 fn a_token_under_a_ground_force_alone_is_not_explored() {
     covers!("rules::hero_windows::EmpyreanHero");
-    let (mut state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1], 1, frontier_facts());
+    let (mut state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1], 1, LATEST_RULES);
     state.board_mut().sys_mut(systems[0]).units.clear();
     state.board_mut().sys_mut(systems[0]).units.push(Piece::new(Unit::InfantryI, Seat(0)));
-    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), systems.clone(), frontier_facts()));
+    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), systems.clone())).with_table(explore_table());
     rig.run();
-    assert!(rig.is_done() && rig.driver.window.rows().is_empty() && rig.state.explore().frontier.contains(systems[0]));
+    assert!(rig.is_done() && rig.state.explore().log.is_empty() && rig.state.explore().frontier.contains(systems[0]));
 }
 
 // -- The Thunder's Edge primaries as children of Mathis Mathinus (package W13) ---------------------------------------

@@ -515,35 +515,6 @@ fn close_row(gs: &mut GameState, player: &PlayerId, row: &rules::effects::ProbeR
     record.placed = words.placed;
     Some(())
 }
-/// Conservator Procyon: the words of the log row the core opened at `at` for a frontier token (`explore_in` closes the row of the string with
-/// them, token by token). `None` when the row is not the one the core's window opened.
-pub(crate) fn close_frontier_row(gs: &mut GameState, player: &PlayerId, at: usize, row: &ti4_engine_core::rules::hero_windows::FrontierRow) -> Option<()> {
-    use crate::exploration::{Explored, Holdings};
-    use ti4_engine_core::rules::hero_windows::How;
-    let record = gs.exploration_log.get(at)?;
-    if record.player != *player || record.card != row.card.as_str() || !record.outcome.is_empty() || record.deck != "FRONTIER" || record.system.as_deref() != Some(row.system.as_str()) {
-        return None;
-    }
-    let card = record.card.clone();
-    let outcome = match row.how {
-        How::Fragment(deck) => Explored::Fragment { trait_name: crate::core_sync::conv::explore_key(deck) },
-        How::Resolved => Explored::Resolved { card: card.clone() },
-        How::Unresolved => Explored::Unresolved { card: card.clone() },
-    };
-    let tokens: Vec<String> = gs
-        .wormhole_tokens
-        .iter()
-        .filter(|(kind, system)| kind.eq_ignore_ascii_case("gamma") && Some(system.as_str()) == row.gamma.map(|g| g.as_str()))
-        .map(|(kind, system)| format!("wormhole:{kind}:{system}"))
-        .collect();
-    let words = crate::exploration::row_words(&Holdings::from_core(row.before), &Holdings::from_core(row.after), None, &outcome, tokens, Some(card.as_str()), None);
-    let record = gs.exploration_log.get_mut(at)?;
-    record.outcome = words.text;
-    record.result = words.result;
-    record.gains = words.gains;
-    record.placed = words.placed;
-    Some(())
-}
 /// Strategize and Overrule: what the performed abilities of the strategy areas read beyond a card's play (the research reads the
 /// trade and exploration slices) and write (the speaker of Politics).
 pub(crate) const PERFORM: crate::core_sync::Footprint = crate::core_sync::Footprint::new(&[Slice::Trade, Slice::Explore], &[Slice::Meta]);

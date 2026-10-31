@@ -264,8 +264,14 @@ pub(super) fn sub_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
         AStr::Fighting(window) => {
             Some(Window::Combat(Box::new(crate::dual_window::fields_of(&window.fields_in(), r).ok_or("a seat or unit the table does not know")?)))
         }
-        AStr::Invading(_) => Some(Window::Invasion(Box::new(ti4_engine_core::state::Invasion { actor: Some(seat(r, &w.player)?), data: [0; 3] }))),
-        AStr::Producing(_) => Some(Window::Production(Box::new(ti4_engine_core::state::ProductionUse { actor: Some(seat(r, &w.player)?), data: [0; 3] }))),
+        AStr::Invading(_) => {
+            let system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(w.system.as_str()).ok_or("a system the table does not know")?;
+            Some(Window::Invasion(Box::new(ti4_engine_core::state::Invasion::observed(seat(r, &w.player)?, system))))
+        }
+        AStr::Producing(_) => {
+            let system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(w.system.as_str()).ok_or("a system the table does not know")?;
+            Some(Window::Production(Box::new(ti4_engine_core::state::ProductionUse::observed(seat(r, &w.player)?, system))))
+        }
         AStr::Negotiating { .. } | AStr::Done => None,
     })
 }

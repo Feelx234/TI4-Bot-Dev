@@ -232,6 +232,21 @@ impl PayBill {
         Self { who, kind, cost, paid: 0, step: Child::idle(), stage: BillStage::Start, outcome: None }
     }
 
+    /// A bill that is being paid with `paid` collected already (a window rebuilt from the position between two questions): the next
+    /// step is started at once, without the check that the whole bill can be met (what is left to spend is less than it was).
+    #[must_use]
+    pub fn resume(who: Seat, kind: Spend, cost: i64, paid: i64) -> Self {
+        let mut bill = Self { who, kind, cost, paid, step: Child::idle(), stage: BillStage::Paying, outcome: None };
+        bill.step.start(bill.next_step());
+        bill
+    }
+
+    /// The worth collected so far.
+    #[must_use]
+    pub const fn paid(&self) -> i64 {
+        self.paid
+    }
+
     fn next_step(&self) -> PayStep {
         PayStep { who: self.who, kind: self.kind, cost: self.cost, used_credit: 0, owed: self.cost, paid: self.paid, took: None, stage: Stage::Paying }
     }

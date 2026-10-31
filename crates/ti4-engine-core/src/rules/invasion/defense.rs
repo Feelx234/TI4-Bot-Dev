@@ -9,8 +9,12 @@
 //! step ([`super::hits`]: window, apply, announce); the `InvasionStep` of the planet is recorded in
 //! `active_invasion.last_step` when any die was rolled.
 //!
-//! Not covered (the adapter returns `None`, the string result stands): entropic scars, L4 Disruptors, attachments
-//! that give a planet SPACE CANNON, a Research Team or Viper EX-23 answer, forced combats, nested activity.
+//! No gun fires in an entropic scar (an ability cannot be used from or against one, rules 2 and 4), and none fires at the units of a
+//! seat that owns L4 Disruptors ("During an invasion, units cannot use SPACE CANNON against your units"). An attachment that gives its
+//! planet SPACE CANNON (Titans' Geoform) rolls for the planet's controller "as if it were a unit", after the guns: Disable, Plasma Scoring
+//! and the other unit modifiers do not apply to those dice, and they are not part of the step's dice (only their hits count).
+//!
+//! Not covered (the adapter returns `None`, the string result stands): a Research Team or Viper EX-23 answer, forced combats, nested activity.
 
 use super::hits::{self as step, Batch};
 use super::Rd;
@@ -148,6 +152,11 @@ impl SpaceCannonDefense {
 
     fn defend(&mut self, sx: &mut Sx<'_>, planet: Planet) {
         let (invader, system) = (self.f.invader, self.f.system);
+        // An entropic scar silences every gun (rule 2: not from a scar; rule 4: not against one), and L4 Disruptors every gun against its owner.
+        let scope = crate::tables::Scope(u32::from(sx.kernel.sources.0));
+        if crate::query::tech::is_scar(scope, system) || sx.state.players().by_seat(invader).is_some_and(|p| p.tech.owned.contains(crate::generated::Technology::L4Disruptors)) {
+            return;
+        }
         let guns: Vec<Piece> = sx
             .state
             .board()
@@ -180,6 +189,26 @@ impl SpaceCannonDefense {
                 dice.push(InvasionDie { planet, player: roll.owner, group: self.code(roll.unit), face: *face, target: on, hit: *face >= on });
             }
             self.drawn.push((on, faces));
+        }
+        // The SPACE CANNON an attachment gives the planet, rolled for its controller (not against itself).
+        if let Some(owner) = sx.state.board().planet(planet).control.filter(|owner| *owner != invader) {
+            let attached: Vec<crate::generated::Roll> = crate::query::board::attachments(sx.state, planet).as_slice().iter().filter_map(|a| a.data().space_cannon).collect();
+            for cannon in attached {
+                let on = u32::from(cannon.hits_on);
+                let faces: Vec<u32> = (0..cannon.dice).map(|_| sx.die(RngDomain::Dice, DIE_SIDES)).collect();
+                sx.state.ledger_mut().dice.push(RollRec {
+                    purpose: RollPurpose::SpaceCannon,
+                    owner: Some(owner),
+                    unit: None,
+                    planet: Some(planet),
+                    scene: Some(system),
+                    hits_on: Some(cannon.hits_on),
+                    faces: faces.iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect(),
+                    rerolled: 0,
+                });
+                total += u32::try_from(faces.iter().filter(|f| **f >= on).count()).unwrap_or(u32::MAX);
+                self.drawn.push((on, faces));
+            }
         }
         let b = Batch { victim: invader, system, planet, cause: self.f.cause, unit_ability: true, announce: self.f.announce };
         let remaining = step::open(sx, &b, total);

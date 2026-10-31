@@ -7,11 +7,12 @@
 //! and [`register`] fills the table. Whoever builds the [`AbilityTable`] of a play window installs it (the adapter's
 //! `action_cards_view`); a play window built without it declines its run (`unsupported`: a counted bail, never a panic).
 
-use crate::kernel::children::{AreaLinks, Erased, ErasedWindow, Report, Spawn};
+use crate::kernel::children::{AreaLinks, Erased, ErasedWindow, OneLink, Report, Spawn};
 use crate::kernel::stage::AbilityTable;
 use crate::rules::action_cards::draw::DrawCards;
 use crate::rules::combat::effect_hits::{Absorb, Destroy};
-use crate::rules::explore_windows::Reward;
+use crate::kernel::children::ExploreEnd;
+use crate::rules::explore_windows::{Exploring, Reward};
 use crate::rules::objective_windows::HandLimit;
 use crate::rules::production::pay::PayBill;
 use crate::rules::production::strategy_cards::{Construction, Leadership, Research, TitanBuild};
@@ -25,13 +26,47 @@ use crate::rules::strategy_windows::{TradePrimary, TRADE_PRIMARY_GOODS};
 /// Install the links of the areas whose windows an action card runs as children.
 pub fn register(t: &mut AbilityTable) {
     // The extra link (a window of the faction crate) is the factions' to fill: it survives a registration of these.
-    t.links = AreaLinks { spawn: Some(spawn), researchable: Some(Research::researchable_for), research: Some(Research::research_chosen), spawn_extra: t.links.spawn_extra };
+    t.links = AreaLinks { spawn: Some(spawn), researchable: Some(Research::researchable_for), research: Some(Research::research_chosen), spawn_extra: t.links.spawn_extra, one: Some(one_link()) };
+}
+
+/// `ProduceOne` rebuilt from its plain state at every call (a host that keeps it in its payload: Freelancers inside an exploration).
+pub fn one_link() -> OneLink {
+    use crate::kernel::stage::Window as _;
+    OneLink {
+        facts: |core, k, roster, who| {
+            let scope = crate::tables::Scope(u32::from(k.sources.0));
+            let blanked = crate::query::reach::blanked(core);
+            let buildable = crate::rules::production::home::buildable_for(core, k, scope, roster, who)?;
+            let limit = i32::try_from(crate::rules::production::home::fleet_limit(core, k, blanked, who)).ok()?;
+            Some((buildable, limit))
+        },
+        step: |run, sx| {
+            let mut window = ProduceOne::resume(run);
+            let next = window.step(sx);
+            (window.run(), next)
+        },
+        ask: |run, s, k| ProduceOne::resume(*run).ask_of(s, k),
+        answer: |run, sx, pick| {
+            let mut window = ProduceOne::resume(run);
+            window.answer(sx, pick)?;
+            Ok(window.run())
+        },
+    }
 }
 
 /// The window a [`Spawn`] names, erased, with the function that reads what it did.
 fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
     Some(match request {
         Spawn::Bill { who, kind, cost } => Erased::boxed(PayBill::new(*who, *kind, *cost), |w| Report::Paid(w.outcome == Some(true))),
+        Spawn::ExploreFrontier { who, system } => Erased::boxed(Exploring::frontier(*who, *system, false, true), |w| {
+            Report::Explored(if w.unsupported().is_some() {
+                ExploreEnd::Unsupported
+            } else if w.empty() {
+                ExploreEnd::Empty
+            } else {
+                ExploreEnd::Explored
+            })
+        }),
         Spawn::HandLimit { who } => Erased::boxed(HandLimit::new(*who), |_| Report::Nothing),
         Spawn::DrawCards { who, count, drop_unofficial } => Erased::boxed(DrawCards::new(*who, *count, *drop_unofficial), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
         Spawn::Reward { who, step, options, skip_single } => Erased::boxed(Reward::new(*who, *step, options.as_slice(), *skip_single), |w| Report::Chose(w.chosen)),

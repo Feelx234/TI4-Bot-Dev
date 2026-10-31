@@ -1359,20 +1359,32 @@ pub fn explore_frontier(
     if !has_ship {
         return None;
     }
-    take_frontier_token(state, system);
-    let logged = state.exploration_log.len();
-    let outcome = explore_in(state, ctx, player, FRONTIER, None, Some(system));
-    dual_write(
+    let (content, sources, announce) = (ctx.content, ctx.sources, ctx.timing.is_some());
+    // The whole spend, draw and resolution is one core window (`rules::explore_windows::Exploring`), lockstep on the `Dual` backend.
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::explore_frontier",
         state,
-        "exploration::record_system",
-        |s| {
-            if let Some(record) = s.exploration_log.get_mut(logged) {
-                record.system = Some(system.to_string());
-            }
+        |s: &mut GameState| {
+            take_frontier_token(s, system);
+            let logged = s.exploration_log.len();
+            let outcome = explore_in(s, ctx, player, FRONTIER, None, Some(system));
+            dual_write(
+                s,
+                "exploration::record_system",
+                |s| {
+                    if let Some(record) = s.exploration_log.get_mut(logged) {
+                        record.system = Some(system.to_string());
+                    }
+                },
+                |s| crate::explore_write::set_record_system(s, logged, system),
+            );
+            crate::dual::Run::new(outcome)
         },
-        |s| crate::explore_write::set_record_system(s, logged, system),
-    );
-    outcome
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::exploring_dual::explore_frontier(s, content, sources, player, system, announce, script)
+        }
+    )
 }
 
 /// Explore a planet, resolving one card (35.2).
@@ -1412,7 +1424,20 @@ pub fn explore_with(
     deck: &str,
     planet: Option<&PlanetId>,
 ) -> Option<Explored> {
-    explore_in(state, ctx, player, deck, planet, None)
+    let Some(planet) = planet else {
+        return explore_in(state, ctx, player, deck, None, None);
+    };
+    let (content, sources, announce) = (ctx.content, ctx.sources, ctx.timing.is_some());
+    // One core window (`rules::explore_windows::Exploring`), lockstep on the `Dual` backend. The deck was chosen by the caller.
+    crate::dual_window!(
+        crate::dual::Area::ExplorationRelics,
+        "exploration::explore",
+        state,
+        |s: &mut GameState| crate::dual::Run::new(explore_in(s, ctx, player, deck, Some(planet), None)),
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            crate::exploring_dual::explore_planet(s, content, sources, player, deck, planet, announce, script)
+        }
+    )
 }
 
 /// [`explore_with`] that also knows the system a frontier token was explored in ("this system"
@@ -4104,7 +4129,6 @@ mod window_tests {
     use super::*;
     use crate::choice::{Resolving, Scripted, Table};
     use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
-    use crate::factions::hooks_economy::{EconomyHooks, with_test_hooks};
     use ti4_model::content_types::POK;
 
     fn me() -> PlayerId {
@@ -4285,7 +4309,7 @@ mod window_tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("exploration::ion_storm").0 >= 2, "{r:?}");
+        assert!(counts("exploration::explore").0 >= 2, "{r:?}");
         let _ = take_report();
     }
 
@@ -4294,30 +4318,36 @@ mod window_tests {
     fn distant_suns_runs_in_lockstep_with_the_core() {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
-        let hook = EconomyHooks { explore_extra_draw: Some(|_, _, _, _, _| true), ..EconomyHooks::NONE };
+        // A Naaz seat with a mech on the planet draws the second card (the core's hook and the string's agree).
+        let naaz = || {
+            let mut state = crate::fixtures::seated_game(&[("a", "naaz"), ("b", "hacan")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.exploration_decks.clear();
+            let (system, planet) = crate::fixtures::a_placed_planet();
+            state.system_mut(&system).set_control(planet.clone(), me());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "mech", &me(), 1);
+            (state, planet)
+        };
         dual(|| {
             for (answer, goods) in [("majent", 3), ("minent", 1)] {
-                let (mut state, planet) = table(0, 0);
+                let (mut state, planet) = naaz();
                 state.exploration_decks.insert(
                     "CULTURAL".to_owned(),
                     vec!["minent".to_owned(), "majent".to_owned(), "ent".to_owned()],
                 );
-                with_test_hooks(hook, || {
-                    with_ctx(&[answer], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)))
-                });
+                with_ctx(&[answer], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
                 assert_eq!(state.player(&me()).unwrap().trade_goods, goods);
                 assert_eq!(state.exploration_decks["CULTURAL"], ["ent"]);
             }
             // A lone card: nothing to choose.
-            let (mut state, planet) = table(0, 0);
+            let (mut state, planet) = naaz();
             state.exploration_decks.insert("CULTURAL".to_owned(), vec!["minent".to_owned()]);
-            with_test_hooks(hook, || {
-                with_ctx(&[], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)))
-            });
+            with_ctx(&[], |ctx| explore_with(&mut state, ctx, &me(), "CULTURAL", Some(&planet)));
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("exploration::distant_suns").0 >= 3, "{r:?}");
+        assert!(counts("exploration::explore").0 >= 3, "{r:?}");
         let _ = take_report();
     }
 
@@ -4358,9 +4388,8 @@ mod window_tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        for card in ["abandoned_warehouses", "merchant_station", "functioning_base", "local_fabricators", "mercenary_outfit"] {
-            assert!(counts(&format!("exploration::ask:{card}")).0 >= 1, "{card}: {r:?}");
-        }
+        // (The whole exploration is one window now: each reward question is compared inside it.)
+        assert!(counts("exploration::explore").0 >= 7 && counts("exploration::explore").1 == 0, "{r:?}");
         let _ = take_report();
     }
 
@@ -4437,7 +4466,7 @@ mod window_tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        let c = counts("exploration::pay_with_mech_or_infantry");
+        let c = counts("exploration::explore");
         assert!(c.0 >= 4 && c.1 == 0, "{r:?}");
         let _ = take_report();
     }
@@ -4551,7 +4580,7 @@ mod window_tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        for label in ["exploration::ask:exploration", "exploration::ion_storm", "exploration::ask:functioning_base"] {
+        for label in ["exploration::ask:exploration", "exploration::explore"] {
             assert!(counts(label).0 >= 1 && counts(label).1 == 0, "{label}: {r:?}");
         }
         let _ = take_report();
@@ -4575,7 +4604,7 @@ mod window_tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        assert!(counts("exploration::ion_storm").1 >= 1, "{r:?}");
+        assert!(counts("exploration::explore").1 >= 1, "{r:?}");
         assert!(counts("exploration::ask:exploration").1 >= 1, "{r:?}");
         let _ = take_report();
     }

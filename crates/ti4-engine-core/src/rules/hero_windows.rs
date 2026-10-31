@@ -1171,60 +1171,8 @@ impl Window for ArgentHero {
 
 // -- Conservator Procyon -------------------------------------------------------------------------------
 
-use crate::choice::explore::{Opt as EOpt, Step as EStep};
-use crate::choice::strategy::{Ask as SAsk, Opt as SOpt};
-use crate::generated::{Explore, ExploreResolution, ExploreType, Wormhole};
-use crate::kernel::fx_explore;
-use crate::query::explore::Holdings;
-
-/// `ti4_model::state::RULES_COMMAND_TOKEN_POOL`: from this version each command token an exploration card gives goes into a pool of the
-/// seat's choice.
-const RULES_COMMAND_TOKEN_POOL: u32 = 12;
-/// `ti4_model::state::RULES_MIRAGE_FRONTIER`: from this version the Mirage drawn from a frontier token is placed in the token's system.
-const RULES_MIRAGE_FRONTIER: u32 = 27;
-/// `ti4_model::state::RULES_NO_EMPTY_CONVERT`: from this version a seat without commodities has nothing to convert.
-const RULES_NO_EMPTY_CONVERT: u32 = 19;
-/// `ti4_model::state::RULES_OFFICIAL_ACTION_DECK`.
-const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
-
-/// What [`EmpyreanHero`] reads of the position that the core does not hold.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FrontierFacts {
-    /// The interned empty text of an exploration log row that is still open.
-    pub empty: Code,
-    /// `GameState::rules_version`.
-    pub rules_version: u32,
-    /// `GameState::tokens_held_by_mahact` of the seat (the reinforcements a pool question previews differ).
-    pub mahact_held: i32,
-    /// The interned `trade_agreement`, the source of the goods a Trade Agreement moves when a Merchant Station replenishes; `None`: this
-    /// table's replenishment is one the core does not follow (a siphoning plot, two seats of one faction).
-    pub agreement: Option<Code>,
-    /// A Lost Crew's two action cards are drawn plainly (no faction hook changes the draw or the hand limit).
-    pub draw_plain: bool,
-}
-
-/// How a frontier card resolved (the words of the log row are the adapter's, from `exploration::row_words`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum How {
-    /// A relic fragment of this deck was gained.
-    Fragment(ExploreType),
-    /// The card did what it says.
-    Resolved,
-    /// The card had nothing to act on (the ion storm without a planet, a gamma token without an active system): nothing happened.
-    Unresolved,
-}
-
-/// One explored token, as the adapter closes its log row: the system, the card, how it resolved, what the seat held before the draw and
-/// after the last effect, and the system a gamma token was newly placed in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FrontierRow {
-    pub system: System,
-    pub card: Explore,
-    pub how: How,
-    pub before: Holdings,
-    pub after: Holdings,
-    pub gamma: Option<System>,
-}
+use crate::kernel::children::ExploreEnd;
+use crate::kernel::stage::Ran;
 
 /// The suspension points of [`EmpyreanHero`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1232,43 +1180,24 @@ pub enum EStage {
     Start,
     /// The next token under a ship is explored.
     Next,
-    /// A command token goes into a pool of the seat's choice.
-    Pooling,
-    /// The Merchant Station's choice (a child).
-    Rewarding,
-    /// The hand limit after a secret objective was drawn (a child).
-    Limiting,
-    /// A Lost Crew's two action cards (a child).
-    Drawing,
+    /// A token is being explored (a child of the explore area, `explore_windows::Exploring`).
+    Exploring,
     Done,
-}
-
-/// The card being resolved.
-#[derive(Debug, Clone, Copy)]
-struct Open {
-    system: System,
-    card: Explore,
-    how: How,
-    before: Holdings,
-    gamma: Option<System>,
-    goods: i32,
 }
 
 /// Conservator Procyon (Empyrean hero): "ACTION: Place 1 frontier token in each system that does not contain any planets and does not already
 /// have a frontier token. Then, explore each frontier token that is in a system that contains 1 or more of your ships. Then, purge this
 /// card." The tokens in `placed` (the planetless systems, the adapter's read of the map) are added, then every token under a ship of the seat
-/// is explored in `order`: the token is spent, the top card of the frontier deck is drawn and its log row opened
-/// (`exploration::explore_frontier`), the card resolves with no planet (a fragment, command tokens and trade goods, a relic, a secret
-/// objective, action cards, a Merchant Station's choice, the Enigmatic Device kept in the play area, a gamma token where the active system
-/// is, the Mirage in the token's system; the ion storm needs a planet and does nothing), and the seat's holdings around it close the row.
+/// is explored in `order` by the exploration window of the explore area (`Spawn::ExploreFrontier`): the token is spent, the top card of the
+/// frontier deck drawn, its log row opened and closed with the adapter's words, the card resolved with no planet.
 /// `order` lists every system that can hold a token in the text order of the system names (the core never sees the text: the adapter sorts).
 /// A frontier deck that runs out is a failed exploration: the whole run is undone (the string restores the state, the dice and the stream
 /// at the hero level) after the questions already asked, and the card is not used. [`Self::used`]: the card resolved.
-/// [`Self::unsupported`]: a card of another deck, a table whose replenishment or draw the core does not follow, or no link to a child: the adapter declines the run. [`Self::rows`] are the log rows to close, in order.
+/// [`Self::unsupported`]: the exploration declined (a card the core does not carry, a table with no texts or no link to a child): the adapter
+/// declines the run.
 #[derive(Debug, Clone)]
 pub struct EmpyreanHero {
     pub who: Seat,
-    facts: FrontierFacts,
     placed: Vec<System>,
     order: Vec<System>,
     stage: EStage,
@@ -1276,9 +1205,6 @@ pub struct EmpyreanHero {
     snapshot: Option<Box<CoreState>>,
     targets: Vec<System>,
     at: usize,
-    open: Option<Open>,
-    rows: Vec<FrontierRow>,
-    pool_left: u8,
     child: ErasedChild,
     pub used: bool,
     pub unsupported: bool,
@@ -1286,14 +1212,8 @@ pub struct EmpyreanHero {
 
 impl EmpyreanHero {
     #[must_use]
-    pub fn new(who: Seat, placed: Vec<System>, order: Vec<System>, facts: FrontierFacts) -> Self {
-        Self { who, facts, placed, order, stage: EStage::Start, snapshot: None, targets: Vec::new(), at: 0, open: None, rows: Vec::new(), pool_left: 0, child: ErasedChild::idle(), used: false, unsupported: false }
-    }
-
-    /// The tokens explored, as log rows to close, in order.
-    #[must_use]
-    pub fn rows(&self) -> &[FrontierRow] {
-        &self.rows
+    pub fn new(who: Seat, placed: Vec<System>, order: Vec<System>) -> Self {
+        Self { who, placed, order, stage: EStage::Start, snapshot: None, targets: Vec::new(), at: 0, child: ErasedChild::idle(), used: false, unsupported: false }
     }
 
     /// The run holds something the window does not carry: the adapter declines it.
@@ -1307,162 +1227,8 @@ impl EmpyreanHero {
         if let Some(before) = self.snapshot.take() {
             *sx.state = *before;
         }
-        self.rows.clear();
-        self.open = None;
         self.used = false;
         self.stage = EStage::Done;
-    }
-
-    /// `exploration::explore_frontier`: the token is spent, the card drawn and its row opened, then the card resolves as far as its first
-    /// question.
-    fn begin_one(&mut self, sx: &mut Sx<'_>, system: System) {
-        let who = self.who;
-        fx_explore::take_frontier(sx.state, system);
-        let Some(card) = fx_explore::draw(sx.state, ExploreType::Frontier) else { return self.fail(sx) };
-        fx_explore::open_record(sx.state, who, ExploreType::Frontier, card, None, Some(system), self.facts.empty);
-        let before = crate::query::explore::holdings(sx.state, who, None);
-        self.open = Some(Open { system, card, how: How::Resolved, before, gamma: None, goods: 0 });
-        let data = card.data();
-        match data.resolution {
-            ExploreResolution::Fragment => {
-                fx_explore::gain_fragment(sx.state, who, data.deck);
-                self.set_how(How::Fragment(data.deck));
-                self.finish_one(sx);
-            }
-            // A card of another deck (an attachment, a planet's reward) is not in the frontier deck of any game.
-            ExploreResolution::Attach => self.decline(),
-            ExploreResolution::Instant | ExploreResolution::Token => self.instant(sx, card, system),
-        }
-    }
-
-    fn set_how(&mut self, how: How) {
-        if let Some(open) = &mut self.open {
-            open.how = how;
-        }
-    }
-
-    /// `exploration::resolve_instant` for a card drawn with no planet.
-    fn instant(&mut self, sx: &mut Sx<'_>, card: Explore, system: System) {
-        let who = self.who;
-        match card {
-            Explore::MinorEntropicField => self.gain_tokens(sx, 1, 1),
-            Explore::EntropicField => self.gain_tokens(sx, 1, 2),
-            Explore::MajorEntropicField => self.gain_tokens(sx, 1, 3),
-            Explore::KeleresShip1 | Explore::KeleresShip2 => self.gain_tokens(sx, 2, 0),
-            Explore::DeadWorld => {
-                crate::kernel::fx_relic::relic_gain(sx.state, who);
-                self.finish_one(sx);
-            }
-            Explore::DerelictVessel1 | Explore::DerelictVessel2 => {
-                if fx::draw_secret(sx.state, who).is_none() {
-                    return self.finish_one(sx);
-                }
-                self.run_child(sx, &Spawn::HandLimit { who }, EStage::Limiting);
-            }
-            Explore::EnigmaticDevice1 | Explore::EnigmaticDevice2 => {
-                fx_explore::play_area_card(sx.state, who, card);
-                self.finish_one(sx);
-            }
-            Explore::GammaRelay | Explore::GammaWormhole => {
-                match sx.state.meta().active_system {
-                    Some(here) => {
-                        let fresh = sx.state.explore().wormhole_tokens.get(&Wormhole::Gamma) != Some(&here);
-                        fx_explore::place_wormhole_token(sx.state, Wormhole::Gamma, here);
-                        if let Some(open) = &mut self.open {
-                            open.gamma = fresh.then_some(here);
-                        }
-                    }
-                    None => self.set_how(How::Unresolved),
-                }
-                self.finish_one(sx);
-            }
-            // "This system" is the token's from the Mirage fix on; the ion storm needs a planet to name its system.
-            Explore::Mirage => {
-                let placed = self.facts.rules_version >= RULES_MIRAGE_FRONTIER && fx_explore::place_planet(sx.state, who, system, crate::generated::Planet::Mirage);
-                if !placed {
-                    self.set_how(How::Unresolved);
-                }
-                self.finish_one(sx);
-            }
-            Explore::IonStorm => {
-                self.set_how(How::Unresolved);
-                self.finish_one(sx);
-            }
-            Explore::LostCrew1 | Explore::LostCrew2 => {
-                if !self.facts.draw_plain {
-                    return self.decline();
-                }
-                let request = Spawn::DrawCards { who, count: 2, drop_unofficial: self.facts.rules_version >= RULES_OFFICIAL_ACTION_DECK };
-                self.run_child(sx, &request, EStage::Drawing);
-            }
-            Explore::MerchantStation1 | Explore::MerchantStation2 => {
-                let has_commodities = sx.state.players().by_seat(who).is_some_and(|p| p.econ.commodities >= 1);
-                let mut options = vec![EOpt::Replenish];
-                if self.facts.rules_version < RULES_NO_EMPTY_CONVERT || has_commodities {
-                    options.push(EOpt::Convert);
-                }
-                let request = Spawn::Reward { who, step: EStep::MerchantStation, options: SmallList::from_slice(&options), skip_single: true };
-                self.run_child(sx, &request, EStage::Rewarding);
-            }
-            _ => self.decline(),
-        }
-    }
-
-    fn run_child(&mut self, sx: &mut Sx<'_>, request: &Spawn, stage: EStage) {
-        match sx.table.links.start(request) {
-            Some(window) => {
-                self.child.start(window);
-                self.stage = stage;
-            }
-            None => self.decline(),
-        }
-    }
-
-    /// `gain_command_tokens`, then the trade goods the card owes (no announcement: the string explores with no timing).
-    fn gain_tokens(&mut self, sx: &mut Sx<'_>, count: u8, goods: i32) {
-        if let Some(open) = &mut self.open {
-            open.goods = goods;
-        }
-        // (A command token in a Mahact fleet pool is not in the reinforcements: `fx::tokens_in_reinforcements` reads the marks, package W13.)
-        if count > 0 && self.facts.rules_version >= RULES_COMMAND_TOKEN_POOL {
-            self.pool_left = count;
-            self.stage = EStage::Pooling;
-            return;
-        }
-        if count > 0 {
-            fx::gain_token(sx.state, self.who, crate::choice::strategy::Pool::Strategic, i32::from(count));
-        }
-        self.finish_goods(sx);
-    }
-
-    fn finish_goods(&mut self, sx: &mut Sx<'_>) {
-        let goods = self.open.map_or(0, |open| open.goods);
-        fx::gain_trade_goods(sx.state, self.who, goods);
-        self.finish_one(sx);
-    }
-
-    /// The card is resolved: the row is complete and the next token follows.
-    fn finish_one(&mut self, sx: &mut Sx<'_>) {
-        if let Some(open) = self.open.take() {
-            let after = crate::query::explore::holdings(sx.state, self.who, None);
-            self.rows.push(FrontierRow { system: open.system, card: open.card, how: open.how, before: open.before, after, gamma: open.gamma });
-        }
-        self.at += 1;
-        self.stage = EStage::Next;
-    }
-
-    /// The Merchant Station's choice was made.
-    fn merchant_station(&mut self, sx: &mut Sx<'_>, report: Report) {
-        let who = self.who;
-        if report == Report::Chose(Some(EOpt::Convert)) {
-            let moved = fx_explore::spend_commodities(sx.state, who, None);
-            fx::gain_trade_goods(sx.state, who, moved);
-        } else {
-            // Replenish: the Cabal note and the Trade Agreement follow, as `fx::replenish_announced` stages them.
-            let Some(agreement) = self.facts.agreement else { return self.decline() };
-            fx::replenish_announced(sx.state, who, agreement);
-        }
-        self.finish_one(sx);
     }
 }
 
@@ -1474,7 +1240,6 @@ impl Window for EmpyreanHero {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        use crate::kernel::stage::Ran;
         loop {
             match self.stage {
                 EStage::Start => {
@@ -1501,23 +1266,24 @@ impl Window for EmpyreanHero {
                         self.stage = EStage::Done;
                         continue;
                     };
-                    self.begin_one(sx, system);
+                    // (The string explores with no timing handle here: nothing is announced.)
+                    match sx.table.links.start(&Spawn::ExploreFrontier { who: self.who, system }) {
+                        Some(window) => {
+                            self.child.start(window);
+                            self.stage = EStage::Exploring;
+                        }
+                        None => self.decline(),
+                    }
                 }
-                EStage::Pooling => return Next::Continue(Ask::Strategy(SAsk::GainPool { left: self.pool_left })),
-                EStage::Rewarding | EStage::Limiting | EStage::Drawing => match self.child.step(sx) {
+                EStage::Exploring => match self.child.step(sx) {
                     Some(Ran::Asks(ask)) => return Next::Continue(ask),
                     Some(Ran::Pass(next)) => return next,
-                    Some(Ran::Done(report)) => match self.stage {
-                        EStage::Rewarding => self.merchant_station(sx, report),
-                        _ => {
-                            if report == Report::Left {
-                                self.decline();
-                            } else {
-                                self.finish_one(sx);
-                            }
-                        }
-                    },
-                    None => self.finish_one(sx),
+                    Some(Ran::Done(Report::Explored(ExploreEnd::Empty))) => self.fail(sx),
+                    Some(Ran::Done(Report::Explored(ExploreEnd::Unsupported))) => self.decline(),
+                    Some(Ran::Done(_)) | None => {
+                        self.at += 1;
+                        self.stage = EStage::Next;
+                    }
                 },
                 EStage::Done => return Next::Done,
             }
@@ -1526,23 +1292,14 @@ impl Window for EmpyreanHero {
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.stage {
-            EStage::Pooling => Some(crate::choice::strategy::gain_pool_choice(self.who, self.pool_left)),
-            EStage::Rewarding | EStage::Limiting | EStage::Drawing => self.child.ask_of(s, k),
+            EStage::Exploring => self.child.ask_of(s, k),
             _ => None,
         }
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        match (self.stage, pick) {
-            (EStage::Rewarding | EStage::Limiting | EStage::Drawing, pick) => self.child.answer(sx, pick),
-            (EStage::Pooling, Pick::Opt(Opt::Strategy(SOpt::Pool(pool)))) => {
-                fx::gain_token(sx.state, self.who, pool, 1);
-                self.pool_left = self.pool_left.saturating_sub(1);
-                if self.pool_left == 0 {
-                    self.finish_goods(sx);
-                }
-                Ok(())
-            }
+        match self.stage {
+            EStage::Exploring => self.child.answer(sx, pick),
             _ => Err(Illegal),
         }
     }

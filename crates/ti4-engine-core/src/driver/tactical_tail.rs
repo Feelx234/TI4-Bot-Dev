@@ -2,9 +2,10 @@
 //! Emphidia explore, does Dark Energy Tap, does anyone listen for the end of the action), what is written (the aftermath
 //! window is gone, the active system is cleared, the legacy pending tag is cleared) and where the turn goes next.
 //!
-//! The explorations themselves (the Crown's, the frontier token's) are the exploration area's and stay lent; the adapter
-//! bails when one fires (`D1b2-bail-03`). The `TACTICAL_ACTION_ENDED` event reaches the reaction table through the string
-//! `emit_typed` (lent; compared by the A5 shim).
+//! The explorations themselves (the Crown's, the frontier token's) are the exploration area's window since package X
+//! (`rules::explore_windows::Exploring`, lockstep behind the string's `exploration::explore_with` / `explore_frontier`, which the
+//! string `close_tactical` calls); this file only decides that one fires. The `TACTICAL_ACTION_ENDED` event reaches the reaction table
+//! through the string `emit_typed` (lent; compared by the A5 shim).
 //!
 //! L5: reads `rules::explore_windows` (the Crown's options) beside the technologies and the leaders.
 
