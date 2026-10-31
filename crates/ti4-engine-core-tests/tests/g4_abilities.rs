@@ -221,3 +221,92 @@ mod spy_net {
         assert!(other.is_done(), "{}", other.transcript());
     }
 }
+
+// -- Stymie --------------------------------------------------------------------------------------------------------------------
+
+mod stymie {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent4::{Ask as UAsk, Opt as UOpt};
+    use ti4_engine_core::generated::{PromissoryNote, System, Unit};
+    use ti4_engine_core::state::NoteKey;
+
+    const NOTE: NoteKey = NoteKey { note: PromissoryNote::Stymie, faction: Faction::TheArborec };
+
+    fn moved(mover: u8, system: System) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::ShipMoved, Payload::new().with(Key::Player, Val::Seat(Seat(mover))).with(Key::System, Val::System(system)))
+    }
+
+    /// Seat 1 (Sol) holds Stymie and a cruiser in `systems[0]` of a ring of `n` plain systems; seat 0 (Hacan) is the mover, seat 2 the Arborec.
+    fn rig_ring(n: usize, mover: u8, holds: bool) -> (Rig<EmitEvent>, Vec<System>) {
+        let systems = ti4_engine_core_tests::scenario::plain_systems();
+        let ring: Vec<System> = systems[..n].to_vec();
+        let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol, Faction::TheArborec]).map_from(&ring).unit(ring[0], None, Unit::CruiserI, 1, 1).build();
+        if holds {
+            state.cards_mut().promissory.edit().insert(NOTE, Seat(1));
+        }
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(moved(mover, ring[0]))).with_abilities(table());
+        r.run();
+        (r, ring)
+    }
+
+    #[test]
+    fn the_holder_picks_a_system_for_the_movers_token_and_the_note_goes_home() {
+        covers!("silent::g4::stymie::STYMIE");
+        let (mut r, ring) = rig_ring(3, 0, true);
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        r.pick(use_it);
+        assert_eq!(r.asked().actor, Seat(1), "{}", r.transcript());
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::U(UAsk::Stymie { mover: Seat(0) }))));
+        // Every non-home system of the map takes the token: the three plain systems, in the order of the ids.
+        let mut want = ring.clone();
+        want.sort();
+        assert_eq!(r.opts(), want.iter().map(|s| Opt::Reaction(ROpt::G(GOpt::U(UOpt::System(*s))))).collect::<Vec<_>>());
+        r.pick(1);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert!(ti4_engine_core::query::board::has_token(&r.state, want[1], Seat(0)), "the mover's token is in the system picked");
+        assert_eq!(ring.iter().filter(|s| ti4_engine_core::query::board::has_token(&r.state, **s, Seat(0))).count(), 1);
+        assert_eq!(r.state.cards().promissory.get(&NOTE), Some(&Seat(2)), "back with the Arborec");
+    }
+
+    #[test]
+    fn a_system_where_the_mover_has_a_token_is_not_offered_and_one_system_needs_no_question() {
+        covers!("silent::g4::stymie::STYMIE");
+        let systems = ti4_engine_core_tests::scenario::plain_systems();
+        let ring: Vec<System> = systems[..2].to_vec();
+        let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol, Faction::TheArborec]).map_from(&ring).unit(ring[0], None, Unit::CruiserI, 1, 1).build();
+        state.cards_mut().promissory.edit().insert(NOTE, Seat(1));
+        fx::place_command_token(&mut state, Seat(0), ring[0]);
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(moved(0, ring[0]))).with_abilities(table());
+        r.run();
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        r.pick(use_it);
+        assert!(r.is_done(), "the only system left takes the token unasked: {}", r.transcript());
+        assert!(ti4_engine_core::query::board::has_token(&r.state, ring[1], Seat(0)));
+    }
+
+    #[test]
+    fn the_note_needs_its_holder_another_players_move_and_a_unit_of_the_holder_there() {
+        covers!("silent::g4::stymie::STYMIE");
+        // The holder moves itself: not offered.
+        let (own, _) = rig_ring(3, 1, true);
+        assert!(own.is_done(), "{}", own.transcript());
+        // Nobody holds the note.
+        let (none, _) = rig_ring(3, 0, false);
+        assert!(none.is_done(), "{}", none.transcript());
+        // The holder has no unit in the system the ships moved into.
+        let systems = ti4_engine_core_tests::scenario::plain_systems();
+        let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol, Faction::TheArborec]).map_from(&systems[..3]).unit(systems[1], None, Unit::CruiserI, 1, 1).build();
+        state.cards_mut().promissory.edit().insert(NOTE, Seat(1));
+        let mut elsewhere = Rig::from_parts(state, kernel, EmitEvent::new(moved(0, systems[0]))).with_abilities(table());
+        elsewhere.run();
+        assert!(elsewhere.is_done(), "{}", elsewhere.transcript());
+        // The Arborec holding its own note has nobody to hold it against.
+        let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheArborec]).map_from(&systems[..3]).unit(systems[0], None, Unit::CruiserI, 1, 1).build();
+        state.cards_mut().promissory.edit().insert(NOTE, Seat(1));
+        let mut arborec = Rig::from_parts(state, kernel, EmitEvent::new(moved(0, systems[0]))).with_abilities(table());
+        arborec.run();
+        assert!(arborec.is_done(), "{}", arborec.transcript());
+    }
+}

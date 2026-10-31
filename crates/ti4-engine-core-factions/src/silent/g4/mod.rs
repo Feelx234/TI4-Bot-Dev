@@ -4,6 +4,7 @@
 
 pub mod propagation;
 pub mod spynet;
+pub mod stymie;
 pub mod titans_commander;
 
 use ti4_engine_core::kernel::ability::AbilityTable;
@@ -23,4 +24,9 @@ pub fn register_abilities(t: &mut AbilityTable) {
 /// Rules registered after the Winnu's: the Yssaril module of the string comes last.
 pub fn register_last(t: &mut AbilityTable) {
     spynet::register_abilities(t);
+}
+
+/// Rules registered with the Arborec's module of the string, ahead of the rest of `silent`'s (Stymie).
+pub fn register_first(t: &mut AbilityTable) {
+    stymie::register_abilities(t);
 }

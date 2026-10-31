@@ -16,6 +16,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
         Ask::Mitosis => "Mitosis: place an infantry or replace one with a mech".to_owned(),
         Ask::Pillage => "Pillage: take 1 trade good or commodity".to_owned(),
         Ask::T(t) => super::silent3::prompt(r, t),
+        Ask::U(u) => super::silent4::prompt(r, u),
         Ask::Reclaimer => "Reclaimer: place a structure".to_owned(),
         Ask::TradePolicy => "Hegemonic Trade Policy: swap which planet's values".to_owned(),
         Ask::CommanderFighters => "Sai Seravus: how many fighters do you place from reinforcements".to_owned(),
@@ -32,6 +33,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Mitosis => "mitosis_place",
         Subtype::Pillage => "pillage_take",
         Subtype::T(t) => return super::silent3::subtype(t),
+        Subtype::U(u) => return super::silent4::subtype(u),
         Subtype::Reclaimer => "reclaimer",
         Subtype::TradePolicy => "htp_planet",
         Subtype::CommanderFighters => "commander_fighters",
@@ -63,6 +65,7 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
             ChoiceOption::labelled(format!("{kind}|{target}"), "pillage", format!("take 1 {word} from {target}"))
         }
         (Ask::T(a), Opt::T(o)) => super::silent3::option(r, a, o),
+        (Ask::U(a), Opt::U(o)) => super::silent4::option(r, a, o),
         (Ask::Reclaimer, Opt::Reclaimer { pds, system, planet }) => {
             let (base, word) = if *pds { ("pds", "PDS") } else { ("spacedock", "space dock") };
             ChoiceOption::labelled(format!("{base}|{}|{}", system.as_str(), planet.as_str()), "unit", format!("Reclaimer: place a {word} on {}", planet.as_str()))
@@ -96,6 +99,7 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
     use ti4_engine_core::generated::{Planet, System};
     match a {
         Ask::T(t) => super::silent3::parse(r, t, id),
+        Ask::U(u) => super::silent4::parse(r, u, id),
         Ask::Landing(_) => <Planet as IdStr>::from_id(id).map(|p| ROpt::G(Opt::Planet(p))),
         Ask::NaazAgent | Ask::NaazCopy => <Planet as IdStr>::from_id(id).map(|p| ROpt::G(Opt::Explore(p))),
         Ask::Pillage => {

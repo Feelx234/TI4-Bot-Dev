@@ -22,6 +22,7 @@ use ti4_engine_core::kernel::ability::AbilityTable;
 /// The rules of this module, registered after the faction packages (only abilities of one window share a bucket).
 pub fn register_abilities(t: &mut AbilityTable) {
     g3::register_first(t);
+    g4::register_first(t);
     gift::register_abilities(t);
     mitosis::register_abilities(t);
     returns::register_abilities(t);

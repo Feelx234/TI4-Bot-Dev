@@ -178,8 +178,11 @@ impl Family for Fam {
         Some(Opt::Ability(ability_id(r, id)))
     }
 
-    fn details(_: &Render, _: &Ask) -> serde_json::Map<String, Value> {
-        serde_json::Map::new()
+    fn details(r: &Render, a: &Ask) -> serde_json::Map<String, Value> {
+        match a {
+            Ask::G(ti4_engine_core::choice::silent::Ask::U(u)) => super::silent4::details(r, u),
+            _ => serde_json::Map::new(),
+        }
     }
 }
 

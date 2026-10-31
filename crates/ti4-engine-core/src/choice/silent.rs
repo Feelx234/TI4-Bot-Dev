@@ -25,6 +25,8 @@ pub enum Ask {
     Pillage,
     /// A question of lane G3 (`silent3`).
     T(super::silent3::Ask),
+    /// A question of lane G4 (`silent4`).
+    U(super::silent4::Ask),
     /// Reclaimer (the Winnu mech): place a structure on a planet the action took.
     Reclaimer,
     /// Hegemonic Trade Policy (Winnu): swap the values of which planet.
@@ -53,6 +55,8 @@ pub enum Opt {
     Pillage { commodity: bool, target: Seat },
     /// An answer of lane G3 (`silent3`).
     T(super::silent3::Opt),
+    /// An answer of lane G4 (`silent4`).
+    U(super::silent4::Opt),
     /// A PDS (`pds`) or a space dock placed by the Reclaimer on `planet` of `system`.
     Reclaimer { pds: bool, system: System, planet: Planet },
     /// The planet of `system` whose resource and influence values Hegemonic Trade Policy swaps.
@@ -80,6 +84,8 @@ pub enum Subtype {
     Pillage,
     /// A subtype of lane G3 (`silent3`).
     T(super::silent3::Subtype),
+    /// A subtype of lane G4 (`silent4`).
+    U(super::silent4::Subtype),
     /// `reclaimer`.
     Reclaimer,
     /// `htp_planet`.
@@ -105,6 +111,7 @@ impl Ask {
             Self::Landing(_) | Self::Mitosis | Self::Pillage => true,
             Self::Reclaimer | Self::TradePolicy | Self::CommanderFighters | Self::Voidwatch | Self::Stillness | Self::NaazAgent | Self::NaazCopy => false,
             Self::T(t) => t.carries_trigger(),
+            Self::U(u) => u.carries_trigger(),
         }
     }
 }
