@@ -66,10 +66,10 @@ Run (all green): `cargo test -p ti4-engine --lib` whole (4896 passed, 4 ignored;
 Mutation checks (scratch worktree `core-w-l15-mut` at `ea28bc90`, target `/root/deploytmp/core-w-l15/mut-target`, runner and specs in
 `/root/deploytmp/core-w-l15/mut/{runmut.py,spec_w15.py,spec_l11.py,spec_fix.py}`, run by a Haiku runner agent): 48 mutants of the new core halves
 (barrage, space cannon offense, `bombard_roll`, `end_announce`, `Play::ability_roll`, `Fx::nested`, `cards::{scramble,redraw}`, the ledger row of
-`play_inline`, `courageous_hit`): 47 killed, 0 survived, 1 compile error (a malformed mutant of mine, rerun fixed in `spec_fix.py`). Lane 11's spec
+`play_inline`, `courageous_hit`): 47 killed, 0 survived, 1 compile error (a malformed mutant of mine; its fixed rerun is killed). Lane 11's spec
 rerun on the post-lane-11 code (its survivor tests, which had not been re-measured): 29 killed, 1 survivor (`front.hits > 0` in
 `Machine::neutral_due`, the equivalent mutant lane 11 already named: the flow never returns with a zero front), 1 compile error (a stale mutant
-whose text no longer fits the moved `query::neutral::neutral_casualty`; rerun fixed in `spec_fix.py`). Equivalent or not covered by design:
+whose text no longer fits the moved `query::neutral::neutral_casualty`; its fixed rerun is killed; the Courageous-not-nested mutant against the lockstep test is killed too). Equivalent or not covered by design:
 the `owner` of the ability-dice ledger row of `play_inline` is not read by the string's comparison (no counterpart), so a mutant of it has no
 test that can see it; the redraw filter `purpose == Reroll` of the hosts' `read_back` is redundant by construction (only the event's cards write rows
 between the mark and the read).
