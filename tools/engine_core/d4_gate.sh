@@ -3,13 +3,15 @@
 #
 #   tools/engine_core/d4_gate.sh [STEP...]        default: every step; STEP is one of 1..6
 #
-# Steps (a step that is not built yet prints SKIP and does not fail):
+# Steps (a step whose tool is MISSING FAILS the gate: a silent SKIP once hid a script that never existed, INTEGRATION7 10.4):
 #   1  cargo test of the core, the factions crate and the D4 test crate (dev-like profile: debug assertions on)
 #   2  layers and hygiene of the core crates (check_layers.py core, lint_core.sh)
 #   3  the default build of the D4 test crate holds no engine at all (cargo tree)
-#   4  coverage report and the covers-gap check (tools/engine_core/d4/coverage.py --check)       SKIP until D4-5
-#   5  frozen golden replays (golden check)                                                        SKIP until D4-4
-#   6  mutation floors (tools/engine_core/mutation_ratchet.sh)                                     SKIP until D4-6
+#   4  coverage report and the covers-gap check (tools/engine_core/d4/coverage.py --check)
+#   5  frozen golden replays: `golden check --smoke --mask all=core` (the 4 smallest games of every set; the full
+#      check on core and on string is the `census` step of end_of_d1.sh). GOLDEN=path of a built `golden` binary,
+#      else `cargo run --profile gate` of it
+#   6  mutation floors (tools/engine_core/mutation_ratchet.sh)
 # Heavy: take /root/.ti4-heavy.lock for the whole run (`flock /root/.ti4-heavy.lock tools/engine_core/d4_gate.sh`).
 set -uo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -35,15 +37,17 @@ for s in "${steps[@]}"; do
     4)
       if [[ -f tools/engine_core/d4/coverage.py ]]; then
         echo "== 4 coverage"; if python3 -I tools/engine_core/d4/coverage.py --check; then echo "step 4: ok"; else echo "step 4: FAILED"; fail=1; fi
-      else echo "== 4 coverage: SKIP (not built yet)"; fi ;;
+      else echo "== 4 coverage: FAILED (tools/engine_core/d4/coverage.py is missing)"; fail=1; fi ;;
     5)
-      if [[ -x tools/engine_core/golden_check.sh ]]; then
-        echo "== 5 golden"; if tools/engine_core/golden_check.sh; then echo "step 5: ok"; else echo "step 5: FAILED"; fail=1; fi
-      else echo "== 5 golden: SKIP (not built yet)"; fi ;;
+      echo "== 5 golden (smoke, core)"
+      if [[ -n "${GOLDEN:-}" && -x "$GOLDEN" ]]; then g=("$GOLDEN")
+      elif [[ -n "${CARGO_TARGET_DIR:-}" && -x "$CARGO_TARGET_DIR/gate/golden" ]]; then g=("$CARGO_TARGET_DIR/gate/golden")
+      else g=(cargo run --offline -q --profile gate -p ti4-engine-core-bridge --bin golden --); fi
+      if "${g[@]}" check --smoke --mask all=core; then echo "step 5: ok"; else echo "step 5: FAILED"; fail=1; fi ;;
     6)
       if [[ -x tools/engine_core/mutation_ratchet.sh ]]; then
         echo "== 6 mutation floors"; if tools/engine_core/mutation_ratchet.sh; then echo "step 6: ok"; else echo "step 6: FAILED"; fail=1; fi
-      else echo "== 6 mutation floors: SKIP (not built yet)"; fi ;;
+      else echo "== 6 mutation floors: FAILED (tools/engine_core/mutation_ratchet.sh is missing)"; fail=1; fi ;;
     *) echo "unknown step $s"; fail=1 ;;
   esac
 done

@@ -1,0 +1,42 @@
+crates/ti4-engine/src/action_cards_b6d_tests.rs	unused variable: `a`: help: if this is intentional, prefix it with an underscore: `_a`
+crates/ti4-engine/src/action_cards_b6d_tests.rs	unused variable: `far`: help: if this is intentional, prefix it with an underscore: `_far`
+crates/ti4-engine/src/action_cards_closing_tests.rs	unused import: `announce`
+crates/ti4-engine/src/action_cards.rs	this call to `clone` can be replaced with `std::slice::from_ref`
+crates/ti4-engine/src/action_cards.rs	unnecessary use of `to_owned`: help: use: `kind.id()`
+crates/ti4-engine/src/action_cards.rs	unused variable: `is_actor`: help: if this is intentional, prefix it with an underscore: `_is_actor`
+crates/ti4-engine/src/action_cards.rs	unused variable: `unit_kind`: help: if this is intentional, prefix it with an underscore: `_unit_kind`
+crates/ti4-engine/src/agenda_close.rs	unnecessary use of `to_owned`: help: use: `outcome`
+crates/ti4-engine/src/agenda_close.rs	unnecessary use of `to_owned`: help: use: `outcome`
+crates/ti4-engine/src/agenda_reveal.rs	unused import: `Resolving as _`
+crates/ti4-engine/src/core_adapter.rs	very complex type used. Consider factoring parts into `type` definitions
+crates/ti4-engine/src/diplomacy_book_tests.rs	unused imports: `diplomacy` and `trade`
+crates/ti4-engine/src/diplomacy_window_dual.rs	unused import: `crate::generated::IdStr`
+crates/ti4-engine/src/diplomacy/window.rs	this lint expectation is unfulfilled
+crates/ti4-engine/src/factions/muaat.rs	unnecessary use of `to_owned`: help: use: `kind.id()`
+crates/ti4-engine/src/factions/saar.rs	called `Iterator::last` on a `DoubleEndedIterator`; this will needlessly iterate the entire iterator
+crates/ti4-engine/src/factions/saar.rs	unnecessary use of `to_owned`
+crates/ti4-engine/src/factions/saar.rs	unnecessary use of `to_owned`
+crates/ti4-engine/src/factions/saar.rs	unnecessary use of `to_owned`
+crates/ti4-engine/src/factions/saar.rs	unnecessary use of `to_owned`: help: use: `unit.id()`
+crates/ti4-engine/src/factions/titans_leaders.rs	unused return value of `ti4_model::GameState::system_state` that must be used
+crates/ti4-engine/src/factions/titans.rs	unnecessary use of `to_owned`: help: use: `kind.id()`
+crates/ti4-engine/src/factions/titans.rs	unnecessary use of `to_owned`: help: use: `kind.id()`
+crates/ti4-engine/src/factions/winnu.rs	unnecessary use of `to_owned`: help: use: `kind.id()`
+crates/ti4-engine/src/factions/yin.rs	unnecessary use of `to_owned`: help: use: `kind.id()`
+crates/ti4-engine/src/fracture.rs	unnecessary use of `to_owned`: help: use: `planet`
+crates/ti4-engine/src/game.rs	method `push_agenda_record` is never used
+crates/ti4-engine/src/game.rs	unnecessary use of `to_owned`: help: use: `leader`
+crates/ti4-engine/src/game.rs	unused import: `is_law`
+crates/ti4-engine/src/game.rs	unused variable: `ask`: help: if this is intentional, prefix it with an underscore: `_ask`
+crates/ti4-engine/src/laws.rs	unnecessary use of `to_owned`: help: use: `name`
+crates/ti4-engine/src/laws.rs	unnecessary use of `to_owned`: help: use: `name`
+crates/ti4-engine/src/legendary.rs	unneeded cloning of iterator items
+crates/ti4-engine/src/objectives_write_tests.rs	type alias `Question` is never used
+crates/ti4-engine/src/objectives_write_tests.rs	unused variable: `content`: help: if this is intentional, prefix it with an underscore: `_content`
+crates/ti4-engine/src/production.rs	unnecessary use of `to_owned`: help: use: `planet_str`
+crates/ti4-engine/src/space_stations.rs	unnecessary use of `to_owned`: help: use: `planet`
+crates/ti4-engine/src/strategy_secondary_dual_tests.rs	variable does not need to be mutable
+crates/ti4-engine/src/technology_effects_tests/g4.rs	function `units_in` is never used
+crates/ti4-engine/src/technology_effects_tests/g4.rs	useless use of `vec!`: help: you can use an array directly: `[("system", serde_json::Value::from(fought.to_string()))]`
+crates/ti4-engine/src/timing.rs	method `registry_ids` is never used
+crates/ti4-engine/src/vote.rs	unused import: `Area`
