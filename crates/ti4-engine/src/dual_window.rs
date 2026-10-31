@@ -3448,6 +3448,84 @@ pub fn space_cannon_defense(
     Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
 }
 
+// --- the reroll window of a bombardment (W15) ---------------------------------------------------------
+
+/// What the string `InvasionWindow::announce_bombard_rerolls` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct BombardRollArgs<'a> {
+    pub invader: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    /// The resolver carries the timing machinery (`ctx.emit` announces).
+    pub announce: bool,
+    /// The dice and streams are the ones the core can reproduce (no test faces, no pending restore).
+    pub reproducible: bool,
+}
+
+/// What the window leaves besides the state: the faces of every staged entry after the event and where the streams stand.
+pub type BombardRollOut = (Vec<Vec<u32>>, crate::rng::RngPositions);
+
+const BOMBARD_ROLL: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+
+/// Why the position holds something the core window does not carry (`None`: it is carried): test faces or a pending stream restore, a
+/// Heart of Ixth in play (it bends the faces that survive the event) and the invader's Jol-Nar commander (a question per die).
+#[must_use]
+pub fn bombard_rolled_why(gs: &GameState, a: &BombardRollArgs<'_>) -> Option<&'static str> {
+    if !a.reproducible {
+        return Some("irreproducible dice (test faces or a stream restore)");
+    }
+    let heart = ti4_model::id::RelicId::new("heartofixth");
+    if gs.players.iter().any(|p| crate::relics::holds(gs, &p.id, &heart)) {
+        return Some("the Heart of Ixth (Thunder's Edge relic)");
+    }
+    if crate::promissory::has_commander_ability(gs, a.invader, "jolnarcommander") {
+        return Some("the Jol-Nar commander (a reroll question per die)");
+    }
+    None
+}
+
+/// The core half of `InvasionWindow::announce_bombard_rerolls`' reroll windows. `None` for the positions of [`bombard_rolled_why`],
+/// nested activity the reaction table does not follow and a position the codecs refuse.
+#[must_use]
+pub fn bombard_rolled(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: &BombardRollArgs<'_>,
+    rng_before: &crate::rng::RngPositions,
+    script: &Recording,
+) -> Option<CoreWindow<BombardRollOut>> {
+    use ti4_engine_core::rules::invasion::bombard_roll::{BombardRolled, Facts};
+    let (mut cx, r) = tables_of_sides(gs, &[a.invader]).why(crate::dual::reason::NO_TABLES)?;
+    nested_check(script)?;
+    let invader = r.seat(a.invader.as_str()).why(crate::dual::reason::NO_SEAT)?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources).why("the invasion environment could not be built from the position")?;
+    let facts = Facts { invader, system, announce: a.announce, kind: r.code("bombardment") };
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
+    let resolver = Resolver::new(&seats, Some(invader));
+    let mut driver = Driver::new(BombardRolled::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut staged = Vec::new();
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let driven = with_core(gs, &mut cx, src, nested_fp(BOMBARD_ROLL, script), |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
+        driven
+    })
+    .why(crate::dual::reason::NOT_LENDABLE)?
+    .why(crate::dual::reason::DRIVER_REFUSED)?;
+    apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+    let value: BombardRollOut = (driver.window.faces.iter().map(|f| f.iter().map(|x| u32::from(*x)).collect()).collect(), positions);
+    Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
+}
+
 // --- the ground round's dice (B2) ----------------------------------------------------------------------
 
 /// What the string `roll_ground_pair` was called with.

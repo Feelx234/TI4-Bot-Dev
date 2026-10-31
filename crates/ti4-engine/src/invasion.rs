@@ -3315,8 +3315,7 @@ impl InvasionWindow {
         if !state.reroll_staging.contains_key(&self.invader) {
             return;
         }
-        crate::combat::open_reroll_windows(state, ctx, &self.invader);
-        if let Some(set) = state.reroll_staging.get(&self.invader).cloned() {
+        if let Some(set) = self.open_bombard_rerolls(state, ctx) {
             let multiplier = x89_multiplier(state, &self.invader);
             for entry in &mut self.bombard_plan {
                 entry.dice = set
@@ -3352,6 +3351,57 @@ impl InvasionWindow {
         }
         state.reroll_staging.remove(&self.invader);
         state.last_reroll_player = None;
+    }
+
+    /// The reroll windows of the bombardment (`combat::open_reroll_windows` for the invader) and the staged set they leave, the staging
+    /// spent. On `invasion=dual` they also run as the core window `rules::invasion::bombard_roll` for the positions
+    /// `dual_window::bombard_rolled_why` does not exclude: the event, a card played in its windows (Scramble Frequency), the faces that
+    /// remain and the stream positions are compared.
+    fn open_bombard_rerolls(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>) -> Option<ti4_model::state::RerollSet> {
+        let invader = self.invader.clone();
+        let spend = |s: &mut GameState, invader: &PlayerId| {
+            let set = s.reroll_staging.get(invader).cloned();
+            s.reroll_staging.remove(invader);
+            s.last_reroll_player = None;
+            set
+        };
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let sources = ctx.sources;
+                let announce = ctx.timing.is_some();
+                let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
+                let system = self.system.clone();
+                let args = crate::dual_window::BombardRollArgs { invader: &invader, system: &system, announce, reproducible };
+                if let Some(why) = crate::dual_window::bombard_rolled_why(state, &args) {
+                    crate::dual::note_gate(crate::dual::Area::Invasion, "invasion::bombard_rerolls", why);
+                    crate::combat::open_reroll_windows(state, ctx, &invader);
+                    return spend(state, &invader);
+                }
+                let rng_before = ctx.rng.positions();
+                let kept = std::cell::RefCell::new(None);
+                let ctx = std::cell::RefCell::new(ctx);
+                crate::dual_window!(
+                    crate::dual::Area::Invasion,
+                    "invasion::bombard_rerolls",
+                    state,
+                    |s: &mut GameState| {
+                        let mut ctx = ctx.borrow_mut();
+                        crate::combat::open_reroll_windows(s, &mut **ctx, &invader);
+                        let set = spend(s, &invader);
+                        let faces: Vec<Vec<u32>> = set.iter().flat_map(|set| set.rolls.iter().map(|roll| roll.faces.clone())).collect();
+                        *kept.borrow_mut() = set;
+                        crate::dual::Run::new((faces, ctx.rng.positions()))
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| {
+                        crate::dual_window::bombard_rolled(s, sources, &args, &rng_before, script)
+                    }
+                );
+                return kept.into_inner();
+            }
+        }
+        crate::combat::open_reroll_windows(state, ctx, &invader);
+        spend(state, &invader)
     }
 
     /// The error [`Self::settle`] could not return (it returns nothing): a question the decider
@@ -11572,6 +11622,81 @@ mod tests {
             assert_eq!(dice.rolled("scramble frequency").len(), if play { 2 } else { 0 }, "play {play}: both dreadnoughts' dice were drawn again");
             let _ = crate::dual::take_report();
         }
+    }
+
+    /// Package W15: the reroll window of a real bombardment runs as the core window `rules::invasion::bombard_roll` (the event
+    /// `UNIT_ABILITY_ROLLED`, a Scramble Frequency played in its windows, the faces that remain, the streams) in lockstep, for the holder who
+    /// plays it and for the one who declines, under several seeds; the Jol-Nar commander is the string's, counted as a gate.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_reroll_window_of_a_bombardment_runs_in_the_core_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        for (seed, play) in [(1_u64, true), (2, true), (3, true), (4, true), (5, true), (6, false), (7, true)] {
+            let mut state = start_game(ContentStore::embedded(), &[a.clone(), b.clone(), c.clone()], POK, None).unwrap();
+            for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan", "sol"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+                .iter()
+                .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+                .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+                .expect("the corpus has a placed planet");
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &b, 4);
+            in_space(&mut state, &system, "dreadnought", &a, 3);
+            state.player_mut(&c).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("scramble")];
+            state.rng_seed = seed;
+            let content = ContentStore::embedded();
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            let slot = format!("reaction:{}:UNIT_ABILITY_ROLLED:after", crate::promissory::faction_name(&state, &c));
+            let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let decider = RecordingScripted { inner: crate::choice::Scripted::new(vec![if play { slot } else { "decline".to_owned() }]), seen: seen.clone() };
+            let mut table = Table::with_default(Box::new(decider));
+            let mut resolver = armed_resolver(&state, vec![a.clone(), b.clone(), c.clone()]);
+            let mut event_sequence = crate::event::EventSequence::new();
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+            crate::dual::with_mask(mask, || {
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &a, &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut event_sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap_or_else(|e| panic!("the script only picks what is offered: {e:?}; {:?}", seen.borrow()));
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+            });
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+            assert!(report.differences.is_empty(), "seed {seed} play {play}: {shown}");
+            let w = report.windows.get("invasion::bombard_rerolls").cloned().unwrap_or_default();
+            assert_eq!((w.compared, w.bailed), (1, 0), "seed {seed} play {play}: {:?}", report.windows);
+            assert_eq!(dice.rolled("scramble frequency").len(), if play { 3 } else { 0 }, "seed {seed} play {play}: the three dreadnoughts' dice were drawn again");
+            let _ = crate::dual::take_report();
+        }
+    }
+
+    /// The Jol-Nar commander keeps the reroll window of a bombardment on the string and says why (the roller is asked per die).
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn a_bombardment_of_the_jolnar_commander_keeps_the_reroll_window_on_the_string_and_says_why() {
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        let (system, _) = crate::fixtures::a_placed_planet();
+        let args = |reproducible: bool| crate::dual_window::BombardRollArgs { invader: &a, system: &system, announce: true, reproducible };
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(true)), Some("the Jol-Nar commander (a reroll question per die)"));
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(false)), Some("irreproducible dice (test faces or a stream restore)"));
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &crate::dual_window::BombardRollArgs { invader: &b, ..args(true) }), None);
     }
 
     #[test]

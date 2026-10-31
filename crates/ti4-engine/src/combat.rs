@@ -11057,6 +11057,29 @@ mod tests {
         assert!(played > 0, "a Courageous to the End was played");
     }
 
+    /// Scramble Frequency played against an anti-fighter barrage (package W15): the window stages the roller's dice before the event
+    /// `UNIT_ABILITY_ROLLED`, the registered play draws every die again, and the window reads the faces back (the hits, the presentation).
+    /// The whole fight is compared (no difference) and no window bails (bail-as-failure); the holder is the other side of the roller.
+    #[test]
+    fn scramble_frequency_played_against_the_barrage_runs_in_the_core_in_lockstep() {
+        let (mut played, mut redrawn) = (0, 0);
+        for seed in 1..=16_u64 {
+            for (attacker_hand, hand) in [(&[][..], &["scramble"][..]), (&["scramble"][..], &[][..])] {
+                let (_, _, bails, plays) = cards_fight_with(seed, ["sol", "hacan"], attacker_hand, hand, false, false, &|s, system| {
+                    for side in [attacker(), defender()] {
+                        put(s, system, "destroyer", &side, 2);
+                        put(s, system, "fighter", &side, 4);
+                    }
+                });
+                assert!(bails.iter().all(|k| !k.contains("(card scramble)")), "seed {seed}: {bails:?}");
+                let scrambled = plays.iter().filter(|c| *c == "scramble").count();
+                played += scrambled;
+                redrawn += usize::from(scrambled > 0);
+            }
+        }
+        assert!(played > 0 && redrawn > 0, "a Scramble Frequency was played");
+    }
+
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
     /// `SUSTAIN_DAMAGE_USED`; the core removes it and announces `SHIP_DESTROYED` after the discard. With a faction module
     /// seated (staging) the exact sustained ship goes; without, the first of the type.
