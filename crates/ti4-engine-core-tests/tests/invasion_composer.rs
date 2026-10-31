@@ -340,6 +340,8 @@ fn the_commander_of_the_invader_is_asked_about_each_die_of_the_bombardment_and_t
         let walk: Vec<&Choice> = asks.iter().filter(|c| matches!(c.ask, Ask::Combat(CAsk::RerollDie { .. }))).collect();
         assert_eq!(walk.len(), 3, "seed {seed}: one question for each die of the three dreadnoughts (BOMBARDMENT 5, one die each)");
         assert!(walk.iter().all(|c| c.actor == Seat(0)), "the invader is asked");
+        // With no renderer table the label is the staged entry's own code: the state's text of the unit type.
+        assert!(walk.iter().all(|c| matches!(c.ask, Ask::Combat(CAsk::RerollDie { unit, .. }) if unit == codes().units[Unit::DreadnoughtI as usize])), "seed {seed}: the labels");
         // The walk comes first: before the planet's hits are rolled into a fight and before any commitment.
         assert!(matches!(asks[0].ask, Ask::Combat(CAsk::RerollDie { .. })));
         assert!(core.transient().combat.reroll_staging.is_empty() && core.transient().combat.last_reroll_player.is_none(), "the staging is spent");
