@@ -368,3 +368,104 @@ fn lie_in_wait_takes_a_card_from_each_neighbour_who_traded_like_the_string() {
     let held = string.state["players"][2]["action_cards"].as_array().map_or(0, Vec::len);
     assert_eq!(held, 2, "the holder took one card from each of the two neighbours: {:?}", string.state["players"][2]["action_cards"]);
 }
+
+/// A Pride of Kenara on a planet `who` controls (and a second planet to move the units to); the planets it controls.
+fn with_kenara(state: &mut GameState, who: &PlayerId) -> Vec<ti4_model::id::PlanetId> {
+    if state.controlled_planets(who).len() < 2 {
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.system_mut(&system).set_control(planet, who.clone());
+    }
+    let (system, planet) = {
+        let owned = state.controlled_planets(who);
+        let (system, planet) = owned.first().map(|(s, p)| ((*s).clone(), (*p).clone())).expect("a seat holds a planet");
+        (system, planet)
+    };
+    state.system_mut(&system).planet_units.entry(planet).or_default().push(ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("hacan_mech"), who.clone()));
+    assert!(!crate::transactions::pride_of_kenara_planets(state, who).is_empty(), "the position gives {who} a Pride of Kenara");
+    state.controlled_planets(who).into_iter().map(|(_, p)| p.clone()).collect()
+}
+
+fn planet_price(planet: &ti4_model::id::PlanetId) -> u8 {
+    crate::transactions::planet_value(ContentStore::embedded(), planet) as u8
+}
+
+/// The planet cards a Pride of Kenara lets change hands: a gift, a sale, a purchase, each moving the units to the planet it names.
+#[test]
+fn a_planet_card_is_given_sold_and_bought_with_its_units_moving_like_the_string() {
+    // The proposer's own card: the gift and the sale.
+    for sale in [false, true] {
+        let mut t = table(&HACAN_SOL, &[]);
+        let planets = with_kenara(&mut t.state, &pid("a"));
+        let price = if sale { planet_price(&planets[0]) } else { 0 };
+        let id = format!("kp{}>{}:{price}", planets[0], planets[1]);
+        let (string, native) = both(&t, "b", "sol", &[id.as_str(), "accept"]);
+        assert_same(&string, &native);
+        assert!(has(&string, "TRANSACTION_RESOLVED"), "{id}: {:?}", string.events);
+    }
+    // The partner's card, bought for its worth.
+    let mut t = table(&SOL_HACAN, &[]);
+    let planets = with_kenara(&mut t.state, &pid("b"));
+    t.state.player_mut(&pid("a")).unwrap().trade_goods = 6;
+    let id = format!("kq{}>{}:{}", planets[0], planets[1], planet_price(&planets[0]));
+    let (string, native) = both(&t, "b", "hacan", &[id.as_str(), "accept"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "TRANSACTION_RESOLVED"), "{id}: {:?}", string.events);
+}
+
+#[test]
+fn a_free_form_planet_card_and_a_card_whose_mech_left_are_handled_like_the_string() {
+    let mut t = table(&HACAN_SOL, &[]);
+    let planets = with_kenara(&mut t.state, &pid("a"));
+    let id = format!("x;gp={}>{};rt=1;", planets[0], planets[1]);
+    let (string, native) = both(&t, "b", "sol", &[id.as_str(), "accept"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "TRANSACTION_RESOLVED"), "{:?}", string.events);
+    // The mech is not on the card: the free-form deal is rejected at the proposal.
+    let mut t = table(&HACAN_SOL, &[]);
+    let planets = with_kenara(&mut t.state, &pid("a"));
+    for sys in t.state.board.values_mut() {
+        for units in sys.planet_units.values_mut() {
+            units.retain(|u| u.type_id.as_str() != "hacan_mech");
+        }
+    }
+    let id = format!("x;gp={}>{};rt=1;", planets[0], planets[1]);
+    let (string, native) = both(&t, "b", "sol", &[id.as_str()]);
+    assert_same(&string, &native);
+    assert!(has(&string, "TRANSACTION_REJECTED"), "{:?}", string.events);
+}
+
+/// Dark Pact: the holder gives the Empyrean exactly its maximum commodity value; both gain a good, staged after the deal's own gains.
+#[test]
+fn dark_pact_pays_both_sides_a_good_like_the_string() {
+    let mut t = table(&[("a", "sol"), ("b", "empyrean")], &[]);
+    let max = ti4_content::factions::get(ContentStore::embedded(), "sol").map(|f| f.commodities()).expect("sol");
+    t.state.player_mut(&pid("a")).unwrap().commodities = max;
+    t.state.promissory_notes.insert("dark_pact:empyrean".to_owned(), pid("a"));
+    t.state.promissory_faceup.insert("dark_pact:empyrean".to_owned());
+    let id = format!("c{max}:0");
+    let (string, native) = both(&t, "b", "empyrean", &[id.as_str(), "accept"]);
+    assert_same(&string, &native);
+    assert_eq!(string.staged, ["TRADE_GOODS_GAINED"; 3], "the deal's gain and the two Dark Pact goods");
+}
+
+/// Black Market Dealings, played into the window the opening opens, marks the negotiation: the first question already offers the secrets.
+#[test]
+fn black_market_dealings_played_at_the_opening_widens_the_first_question_like_the_string() {
+    let mut t = table(&SOL_HACAN, &[]);
+    t.state.player_mut(&pid("a")).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("blackmarketdealing"));
+    t.state.player_mut(&pid("a")).unwrap().relic_fragments.insert("CULTURAL".to_owned(), 1);
+    // The reaction window of the opening (the option is `reaction:...`), then the fragment sale.
+    let (string, native) = {
+        let open = "component|trade|hacan".to_owned();
+        let (probe, taken, start) = {
+            let mut ids = vec![open.as_str(), "reaction:sol:TRANSACTION_OPENED:when"];
+            ids.extend(["frCULTURAL:1", "accept"]);
+            string_side(&t, &ids)
+        };
+        let native = native_side(&t, &start, "b", &taken);
+        (probe, native)
+    };
+    assert_same(&string, &native);
+    assert!(string.questions.iter().any(|q| q.options.iter().any(|o| o.id == "frCULTURAL:1")), "the marked table is offered the fragments");
+    assert!(has(&string, "TRANSACTION_RESOLVED"));
+}
