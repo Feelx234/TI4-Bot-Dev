@@ -1184,7 +1184,7 @@ pub fn sustain_commander(
         crate::dual::note_bail_here("the Letnev commander's payment held another way than as an unlocked leader");
         return None;
     }
-    let (mut cx, r) = tables_of_sides(gs, &[&a.attacker, &a.defender]).why(crate::dual::reason::NO_TABLES)?;
+    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let source = r.code("letnevcommander");
