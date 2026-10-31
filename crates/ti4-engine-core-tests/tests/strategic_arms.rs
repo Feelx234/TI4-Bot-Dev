@@ -151,6 +151,31 @@ fn a_preview_window_neither_finishes_the_action_nor_exhausts_the_card() {
     assert!(!s.players().by_seat(Seat(0)).unwrap().strat_exhausted.contains(StrategyCard::Trade));
 }
 
+// -- the printed abilities the strategic action and the closing menu read ---------------------------------------------------------------
+
+/// Hacan's printed abilities are read by the Envs of the core as the string reads them: Masters of Trade (the Trade secondary costs no token),
+/// Guild Ships (trade with anybody) and Arbiters (trade action cards). Found by the shadow of the follower window behind a real game: the closing
+/// menu of a turn offered Hacan's transactions on the string side and ended the turn on the core side.
+#[test]
+fn hacans_printed_abilities_are_read_by_the_strategy_and_trade_envs() {
+    use ti4_engine_core::driver::kernel_env::KernelEnv;
+    use ti4_engine_core::query::trade::Env as TradeEnv;
+    use ti4_engine_core::rules::strategy::Env as StrategyEnv;
+    let (s, k) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]).build();
+    let env = KernelEnv::new(&s, &k);
+    assert!(StrategyEnv::secondary_is_free(&env, Seat(0), Some(ti4_engine_core::generated::StrategyCardKind::Trade)), "Masters of Trade");
+    assert!(!StrategyEnv::secondary_is_free(&env, Seat(0), Some(ti4_engine_core::generated::StrategyCardKind::Warfare)));
+    assert!(!StrategyEnv::secondary_is_free(&env, Seat(1), Some(ti4_engine_core::generated::StrategyCardKind::Trade)));
+    let trade = ti4_engine_core::rules::trade::KernelEnv { core: &s, kernel: &k };
+    assert!(trade.wide(Seat(0)) && !trade.wide(Seat(1)), "Guild Ships");
+    assert!(trade.trades_action_cards(Seat(0)) && !trade.trades_action_cards(Seat(1)), "Arbiters");
+    // Jol-Nar's Brilliant substitutes the primary of Technology.
+    let (s, k) = Scenario::new(&[Faction::TheUniversitiesOfJolNar, Faction::TheFederationOfSol]).build();
+    let env = KernelEnv::new(&s, &k);
+    assert!(StrategyEnv::substitutes_primary(&env, Seat(0), Some(ti4_engine_core::generated::StrategyCardKind::Technology)));
+    assert!(!StrategyEnv::substitutes_primary(&env, Seat(0), Some(ti4_engine_core::generated::StrategyCardKind::Trade)));
+}
+
 // -- a question the follower's ability asks ----------------------------------------------------------------------------------------
 
 #[test]
@@ -177,7 +202,7 @@ fn a_clone_taken_while_the_followers_ability_asks_continues_identically() {
 // -- the Winnu hero's follower selection ------------------------------------------------------------------------------------------
 
 fn hero() -> (CoreState, Kernel) {
-    let (mut s, k) = Scenario::new(&[Faction::TheWinnu, Faction::TheEmiratesOfHacan, Faction::TheArborec, Faction::TheBaronyOfLetnev]).phase(Phase::Action).active(Some(0)).build();
+    let (mut s, k) = Scenario::new(&[Faction::TheWinnu, Faction::TheXxchaKingdom, Faction::TheArborec, Faction::TheBaronyOfLetnev]).phase(Phase::Action).active(Some(0)).build();
     for seat in 1..4u8 {
         s.players_mut().by_seat_mut(Seat(seat)).unwrap().econ.strategic_tokens = 2;
     }

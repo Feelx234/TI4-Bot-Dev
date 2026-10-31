@@ -185,6 +185,7 @@ secondary_case!(a_construction_secondary_runs_like_the_string, "pok4construction
 secondary_case!(a_warfare_secondary_runs_like_the_string, "pok6warfare", ["yes"]);
 secondary_case!(a_technology_secondary_runs_like_the_string, "pok7technology", ["yes"]);
 secondary_case!(an_imperial_secondary_runs_like_the_string, "pok8imperial", ["yes"]);
+secondary_case!(a_thunders_edge_construction_secondary_runs_like_the_string, "te4construction", ["yes"]);
 
 #[test]
 fn nobody_who_can_follow_ends_the_action_without_a_question_like_the_string() {
@@ -389,6 +390,32 @@ primary_case!(a_warfare_primary_runs_like_the_string, "pok6warfare", []);
 primary_case!(a_technology_primary_runs_like_the_string, "pok7technology", []);
 primary_case!(a_construction_primary_runs_like_the_string, "pok4construction", []);
 primary_case!(an_imperial_primary_runs_like_the_string, "pok8imperial", []);
+primary_case!(a_thunders_edge_construction_primary_runs_like_the_string, "te4construction", []);
+
+/// Thunder's Edge Warfare's primary needs the free tactical action (lane M6's window): the job stops with the counted gap, the position as it was.
+#[test]
+fn a_thunders_edge_warfare_primary_stops_at_the_free_tactical_action_with_a_counted_gap() {
+    use ti4_engine_core::driver::live::LiveError;
+    use ti4_engine_core::kernel::ability::Unknown;
+    use ti4_engine_core::kernel::turn_codes::TurnGap;
+    let state = table_for("te6warfare");
+    let mut cx = Ctx::of(&state).expect("a table the codecs carry");
+    let render = named(&cx, &state);
+    let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
+    let positions = game.rng_positions();
+    let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+    let mut core = Codec::load(&mut cx, &state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
+    let kernel = live::kernel::kernel_for(DEFAULT);
+    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+    let held = core.clone();
+    // Without a map the card names no system: it resolves with the redistribution alone and the follower window opens; with a map the free action stops.
+    let result = ti4_engine_core::driver::windows::strategic::begin::begin_strategic(&mut core, &env, ti4_engine_core::generated::StrategyCard::WarfareThundersEdge);
+    match result {
+        Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::FreeTactical))) => assert_eq!(core, held),
+        Ok(_) => assert!(core.pending().window(WindowKind::StrategySecondary).is_some()),
+        Err(other) => panic!("{other:?}"),
+    }
+}
 
 // -- bail as failure: whole strategic actions at tables of every lobby faction, both card sets ------------------------------------------
 

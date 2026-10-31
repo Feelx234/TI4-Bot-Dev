@@ -24,7 +24,8 @@ impl Env for KernelEnv<'_> {
         false
     }
     fn wide(&self, who: Seat) -> bool {
-        self.kernel.hooks.general.ignores_neighbours(self.core, self.kernel, who)
+        // Hacan's Guild Ships, and the modules' hooks (`faction_abilities::ignores_neighbours`).
+        crate::rules::abilities::has(self.core, who, crate::generated::Ability::GuildShips) || self.kernel.hooks.general.ignores_neighbours(self.core, self.kernel, who)
     }
     fn transaction_reach(&self, _: Seat, _: Seat) -> bool {
         false
@@ -33,7 +34,8 @@ impl Env for KernelEnv<'_> {
         false
     }
     fn trades_action_cards(&self, who: Seat) -> bool {
-        self.kernel.hooks.general.trades_action_cards(self.core, self.kernel, who)
+        // Hacan's Arbiters, and the modules' hooks (`faction_abilities::trades_action_cards`).
+        crate::rules::abilities::has(self.core, who, crate::generated::Ability::Arbiters) || self.kernel.hooks.general.trades_action_cards(self.core, self.kernel, who)
     }
     fn black_market(&self) -> bool {
         self.core.transient().misc.flags.has(TransientFlags::BLACK_MARKET)

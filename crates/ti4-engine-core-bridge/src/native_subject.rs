@@ -293,7 +293,9 @@ impl NativeSubject {
         match materialize::materialize(&shadow.core, &shadow.cx, &shadow.base) {
             Ok(after) => {
                 let native_state = serde_json::to_value(&after).unwrap_or(Value::Null);
-                out.extend(compare_state(ended, &self.inner.state_json(), &native_state));
+                // The events effects staged are `private:#staged:event:*` marks on the legacy side and `Pending::staged` on the core's: the window's
+                // staging is compared as the events the next step announces (the lockstep tests compare their names), not as marks.
+                out.extend(compare_state(ended, &without_staged_marks(self.inner.state_json()), &without_staged_marks(native_state)));
             }
             Err(e) => leaves(Category::State, "native.state", &json!("materializes"), &json!(e.to_string()), &mut out),
         }
@@ -306,6 +308,14 @@ impl NativeSubject {
         }
         self.extra.extend(out);
     }
+}
+
+/// The position without the marks that hold the events effects staged for the next step's announcement.
+fn without_staged_marks(mut state: Value) -> Value {
+    if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
+        marks.retain(|k, _| !k.starts_with("private:#staged:event:"));
+    }
+    state
 }
 
 // A step that ends the window ALSO runs the close the core does not own yet (the string's remainder of the step: steps 81.6-81.8 after the
