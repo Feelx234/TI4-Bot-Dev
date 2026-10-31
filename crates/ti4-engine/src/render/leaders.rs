@@ -99,6 +99,26 @@ const fn pool_name(pool: Pool) -> &'static str {
     }
 }
 
+/// The printed name of a technology (`technology::name`: the corpus record's name, else the alias).
+fn technology_name(tech: Technology) -> String {
+    let content = ti4_content::ContentStore::embedded();
+    content
+        .get(ti4_model::content_types::ContentType::Technologies, tech.as_str())
+        .and_then(|record| record.text("name"))
+        .unwrap_or_else(|| tech.as_str())
+        .to_owned()
+}
+
+/// The printed name of an action card (`action_cards::name_of`).
+fn action_card_name(card: ti4_engine_core::generated::ActionCard) -> String {
+    let content = ti4_content::ContentStore::embedded();
+    content
+        .get(ti4_model::content_types::ContentType::ActionCards, card.as_str())
+        .and_then(|record| record.text("name"))
+        .unwrap_or_else(|| card.as_str())
+        .to_owned()
+}
+
 /// The renderer of the leader questions.
 pub struct Fam;
 
@@ -128,6 +148,14 @@ impl Family for Fam {
             Ask::NekroPayment => "Nekro Malleon: discard 1 action card or spend 1 command token to gain 2 trade goods?".to_owned(),
             Ask::UmbatPlayer => "Umbat: choose a player who may produce up to 2 units costing 4 or less".to_owned(),
             Ask::UmbatSystem => "Umbat: produce in which system".to_owned(),
+            Ask::FlayeshPlanet => "UNIT.DSGN.FLAYESH: choose a planet with a technology specialty".to_owned(),
+            Ask::FlayeshTech => "UNIT.DSGN.FLAYESH: choose a technology that matches the specialty".to_owned(),
+            Ask::KyverFate { target, card } => format!("Kyver: {} showed {}", r.seat_text(*target), action_card_name(*card)),
+            Ask::NaazCard => "Hesh and Prit: perform the secondary of which card".to_owned(),
+            Ask::WinnuCard => "Mathis Mathinus: which strategy card".to_owned(),
+            Ask::FlockShip => "Flock Migration: choose a ship to move".to_owned(),
+            Ask::FlockTo => "Flock Migration: choose the destination".to_owned(),
+            Ask::FlockCargo => "Flock Migration: carry a unit aboard (it cannot be landed)".to_owned(),
         }
     }
 
@@ -151,6 +179,13 @@ impl Family for Fam {
             Subtype::NekroPayment => "malleon_payment".to_owned(),
             Subtype::UmbatPlayer => "umbat_player".to_owned(),
             Subtype::UmbatSystem => "umbat_system".to_owned(),
+            Subtype::FlayeshPlanet => "flayesh_planet".to_owned(),
+            Subtype::FlayeshTech => "flayesh_technology".to_owned(),
+            Subtype::KyverFate => "kyver_take_or_discard".to_owned(),
+            Subtype::HeroCard => "hero_card".to_owned(),
+            Subtype::FlockShip => "flock_migration_ship".to_owned(),
+            Subtype::FlockTo => "flock_migration_to".to_owned(),
+            Subtype::FlockCargo => "flock_migration_cargo".to_owned(),
         }
     }
 
@@ -185,6 +220,30 @@ impl Family for Fam {
                 let name = pool_name(*pool);
                 ChoiceOption::labelled(format!("token|{name}"), "nekro_malleon", format!("spend 1 {name} command token to gain 2 trade goods"))
             }
+            Opt::Devour(system, planet) => ChoiceOption::labelled(
+                format!("{}|{}", system.as_str(), planet.as_str()),
+                "nekro_flayesh_planet",
+                format!("devour {} in {}", planet.as_str(), system.as_str()),
+            ),
+            Opt::Gain(tech) => ChoiceOption::labelled(tech.as_str(), "nekro_flayesh_technology", technology_name(*tech)),
+            Opt::KyverTake => {
+                let Ask::KyverFate { target, card } = a else { unreachable!("a Kyver option under another question") };
+                ChoiceOption::labelled("take", "hero", format!("take {} from {}", action_card_name(*card), r.seat_text(*target)))
+            }
+            Opt::KyverDiscard => {
+                let Ask::KyverFate { target, .. } = a else { unreachable!("a Kyver option under another question") };
+                ChoiceOption::labelled("discard", "hero", format!("force {} to discard 3 random action cards", r.seat_text(*target)))
+            }
+            Opt::HeroCard(card) => ChoiceOption::labelled(
+                card.as_str(),
+                "strategy_card",
+                crate::draft::strategy_card_label(ti4_content::ContentStore::embedded(), card.as_str()),
+            ),
+            Opt::FlockShip { index, system, unit } => {
+                ChoiceOption::labelled(format!("ship|{index}"), "flock_migration_ship", format!("move {} from {}", unit.as_str(), system.as_str()))
+            }
+            Opt::FlockTo(system) => ChoiceOption::labelled(format!("to|{}", system.as_str()), "flock_migration_to", format!("move it to {}", system.as_str())),
+            Opt::FlockCargo { index, unit } => ChoiceOption::labelled(format!("cargo|{index}"), "flock_migration_cargo", format!("carry {}", unit.as_str())),
             Opt::Remove => ChoiceOption::labelled("remove", INFANTRY_KIND, "remove 1 infantry"),
             Opt::Keep => match a {
                 Ask::JolnarSwap { held } => {
@@ -266,6 +325,20 @@ impl Family for Fam {
                 _ => None,
             },
             Ask::XxchaHeroPlanet => Planet::from_id(id.strip_prefix("planet|")?).map(|p| Opt::HeroPlanet(p, Shown::default())),
+            Ask::FlayeshPlanet => {
+                let (system, planet) = id.split_once('|')?;
+                Some(Opt::Devour(System::from_id(system)?, Planet::from_id(planet)?))
+            }
+            Ask::FlayeshTech => Technology::from_id(id).map(Opt::Gain),
+            // The numbers name a place in the list the question offered, not a unit: the id is matched against the options.
+            Ask::FlockShip | Ask::FlockCargo => None,
+            Ask::FlockTo => System::from_id(id.strip_prefix("to|")?).map(Opt::FlockTo),
+            Ask::NaazCard | Ask::WinnuCard => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::HeroCard),
+            Ask::KyverFate { .. } => match id {
+                "take" => Some(Opt::KyverTake),
+                "discard" => Some(Opt::KyverDiscard),
+                _ => None,
+            },
         }
     }
 }

@@ -707,7 +707,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "winnu.rs",
-        function: "use_leader_strategy_primary",
+        function: "hero_primary_string",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1688,7 +1688,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("winnu.rs", "imperator", 1),
     ("winnu.rs", "reclaimer", 1),
     ("winnu.rs", "use_leader", 3),
-    ("winnu.rs", "use_leader_strategy_primary", 1),
+    ("winnu.rs", "hero_primary_string", 1),
     ("game.rs", "step_leader_followers", 1),
     ("sardakk.rs", "exotrireme", 2),
     ("sardakk.rs", "supremacy", 1),

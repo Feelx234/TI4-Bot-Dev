@@ -939,6 +939,34 @@ fn use_leader(
     {
         return Some(false);
     }
+    Some(carrion_dual(context, player))
+}
+
+/// The card as a window of the core (`rules::hero_windows::CabalHero`): the dice, the captures and the enforcement of the capacity the
+/// captured ships strand, a child; the string body ([`carrion_string`]) is the oracle of the dual run.
+fn carrion_dual(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    let rng_before = rng.positions();
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::cabal::hero",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            let done = carrion_string(&mut inner, player);
+            crate::dual::Run::new(done).with_rng(&*inner.rng)
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let targets = carrion_targets(s, content, sources, galaxy, player);
+            crate::hero_dual::cabal_hero(s, content, player, &targets, &rng_before, sources, script)
+        }
+    )
+}
+
+/// [`use_leader`] on the string engine once the card is playable: the whole card is atomic, a refused answer restores the state, the dice and
+/// the random stream.
+fn carrion_string(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let before_state = context.state.clone();
     let before_dice = context.dice.clone();
     let before_rng = context.rng.clone();
@@ -949,9 +977,9 @@ fn use_leader(
         *context.dice = before_dice;
         *context.rng = before_rng;
         context.table.log = before_log;
-        return Some(false);
+        return false;
     }
-    Some(true)
+    true
 }
 
 fn carrion(
@@ -4067,6 +4095,90 @@ mod tests {
         assert!(done);
         assert_eq!(all_captured(&state), vec![row("a", "b", "carrier")]);
         assert_eq!(in_space(&state, &tear, &b(), "fighter").len(), 2);
+    }
+
+    /// The first seed whose first dice of the dice stream are a hit (1 to 3) or a miss as `pattern` says.
+    fn seed_hitting(pattern: &[bool]) -> u64 {
+        (0..10_000u64)
+            .find(|seed| {
+                let mut rng = crate::rng::GameRng::new(*seed);
+                pattern.iter().all(|hit| (rng.die(crate::rng::domain::DICE, 10) <= CARRION_CAPTURES_ON) == *hit)
+            })
+            .expect("a seed with these dice")
+    }
+
+    /// The hero through the leader route with the real dice stream of `seed` (the core half draws the same dice from the lent stream).
+    fn play_seeded(state: &mut GameState, galaxy: &ti4_content::galaxy::Galaxy, seed: u64) -> Option<bool> {
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(seed);
+        state.rng_seed = seed;
+        let mut sequence = crate::event::EventSequence::new();
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+        let mut context = TimingContext {
+            state,
+            content: ContentStore::embedded(),
+            sources: DEFAULT,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: Some(galaxy),
+        };
+        use_leader(&mut context, &a(), &carrion_leader())
+    }
+
+    /// It Feeds on Carrion is a body of the core (`rules::hero_windows::CabalHero`): a die from the dice stream for each ship in the order the
+    /// string lists them, the captures, and the capacity the captured ships strand as an enforcement child. The core half agrees with the string
+    /// for a miss, a captured carrier whose cargo no longer fits (the owner is asked which units go and the rest is captured too), two carriers
+    /// of which one is captured, and ships of two owners in two systems; the streams after are compared; and it ran each time.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |state: &mut GameState, hub: &crate::fixtures::Hub, seed: u64| {
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || play_seeded(state, &hub.galaxy, seed))
+        };
+        let stage = |ships: &[(&SystemId, &str, usize)]| {
+            let (mut state, hub, tear) = tear_hub();
+            unlock_hero(&mut state);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            for (system, kind, n) in ships {
+                let system = if system.as_str() == "tear" { &tear } else { system };
+                crate::fixtures::put(&mut state, system, kind, &b(), *n);
+            }
+            (state, hub, tear)
+        };
+        let tear_marker = SystemId::new("tear");
+        // Every die misses.
+        let (mut state, hub, tear) = stage(&[(&tear_marker, "cruiser", 2)]);
+        assert_eq!(run(&mut state, &hub, seed_hitting(&[false, false])), Some(true));
+        assert!(all_captured(&state).is_empty());
+        // A captured carrier strands its fighters and infantry.
+        let (mut state, hub, tear2) = stage(&[(&tear_marker, "carrier", 1), (&tear_marker, "fighter", 2), (&tear_marker, "infantry", 2)]);
+        assert_eq!(tear, tear2);
+        assert_eq!(run(&mut state, &hub, seed_hitting(&[true])), Some(true));
+        assert_eq!(all_captured(&state).len(), 5, "{:?}", all_captured(&state));
+        // Two carriers, one captured: the other still carries both fighters.
+        let (mut state, hub, _) = stage(&[(&tear_marker, "carrier", 2), (&tear_marker, "fighter", 2)]);
+        assert_eq!(run(&mut state, &hub, seed_hitting(&[true, false])), Some(true));
+        assert_eq!(all_captured(&state), vec![row("a", "b", "carrier")]);
+        // A carrier with more cargo than the survivor can hold: the owner is asked which units go.
+        let (mut state, hub, _) = stage(&[(&tear_marker, "carrier", 2), (&tear_marker, "fighter", 8)]);
+        assert_eq!(run(&mut state, &hub, seed_hitting(&[true, false])), Some(true));
+        assert!(all_captured(&state).len() > 1, "{:?}", all_captured(&state));
+        // An adjacent system's ship is rolled for too.
+        let (mut state, hub, _) = stage(&[(&tear_marker, "cruiser", 1)]);
+        let door = SystemId::new(hub.centre.clone());
+        crate::fixtures::put(&mut state, &door, "destroyer", &b(), 1);
+        assert_eq!(run(&mut state, &hub, seed_hitting(&[true, true])), Some(true));
+        assert_eq!(all_captured(&state).len(), 2);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::cabal::hero"), (5, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

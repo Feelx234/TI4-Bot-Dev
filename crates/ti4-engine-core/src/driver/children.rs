@@ -17,6 +17,7 @@ use crate::rules::production::pay::PayBill;
 use crate::rules::production::strategy_cards::{Construction, Leadership, Research, TitanBuild};
 use crate::rules::production::one::ProduceOne;
 use crate::rules::production::window::ProductionWindow;
+use crate::rules::tactical::fleet::{Enforce, Limits};
 use crate::rules::strategy_primaries::{DMode, Diplomacy, Politics, WarfarePrimary};
 use crate::rules::strategy_windows::{TradePrimary, TRADE_PRIMARY_GOODS};
 
@@ -51,6 +52,10 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
         Spawn::Destroy { who, system, card, subtype, cause } => Erased::boxed(Destroy::new(*who, *system, *card, *subtype, *cause), |w| Report::Destroyed(w.destroyed)),
         Spawn::Absorb { who, producer, system, hits, texts } => Erased::boxed(Absorb::new(*who, *producer, *system, *hits, *texts), |_| Report::Nothing),
         Spawn::Produce { facts } => Erased::boxed(ProductionWindow::ability(facts), |w| Report::Made(w.made())),
+        Spawn::Seeing { who, system, limits } => {
+            let limits = Limits { enforce: limits.enforce, shown: limits.shown, halves: limits.halves };
+            Erased::boxed(Enforce::new(*who, *system, limits), |w| Report::Removed(w.removed))
+        }
         Spawn::ProduceOne { who, system, facts } => Erased::boxed(ProduceOne::new(*who, *system, *facts), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
     })
 }

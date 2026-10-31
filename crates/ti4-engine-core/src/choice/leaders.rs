@@ -60,6 +60,22 @@ pub enum Ask {
     UmbatPlayer,
     /// Umbat: the chosen player's system to produce in.
     UmbatSystem,
+    /// UNIT.DSGN.FLAYESH (Nekro hero): the planet with a technology specialty that is devoured.
+    FlayeshPlanet,
+    /// UNIT.DSGN.FLAYESH: the technology of the planet's colour that is gained.
+    FlayeshTech,
+    /// Kyver, Blade and Key (Yssaril hero): what happens to the player who showed `card`.
+    KyverFate { target: crate::ids::Seat, card: crate::generated::ActionCard },
+    /// Hesh and Prit (Naaz hero): the strategy card whose secondary is performed (up to two).
+    NaazCard,
+    /// Mathis Mathinus (Winnu hero): the strategy card whose primary is performed.
+    WinnuCard,
+    /// Mirik Aun Sissiri (Argent hero), Flock Migration: the ship that moves next.
+    FlockShip,
+    /// Flock Migration: where the ship goes.
+    FlockTo,
+    /// Flock Migration: a unit carried aboard (it cannot be landed).
+    FlockCargo,
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -107,6 +123,22 @@ pub enum Opt {
     OsphaReplace(crate::generated::UnitBaseType),
     /// Xxekir Grom: this planet gets the unit, with the system the map shows it in (`Shown`, B9: equal always).
     HeroPlanet(crate::generated::Planet, super::agenda::Shown),
+    /// UNIT.DSGN.FLAYESH: devour this planet of this system.
+    Devour(crate::generated::System, crate::generated::Planet),
+    /// UNIT.DSGN.FLAYESH: gain this technology.
+    Gain(crate::generated::Technology),
+    /// Kyver: take the shown card.
+    KyverTake,
+    /// Kyver: the player discards 3 random action cards.
+    KyverDiscard,
+    /// A strategy card of the hero's choice.
+    HeroCard(crate::generated::StrategyCard),
+    /// Flock Migration: the `index`th ship offered, of this form, standing in this system.
+    FlockShip { index: u8, system: crate::generated::System, unit: Unit },
+    /// Flock Migration: move the ship to this system.
+    FlockTo(crate::generated::System),
+    /// Flock Migration: carry the `index`th unit offered, of this form.
+    FlockCargo { index: u8, unit: Unit },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -130,4 +162,11 @@ pub enum Subtype {
     OsphaReplace,
     UmbatPlayer,
     UmbatSystem,
+    FlayeshPlanet,
+    FlayeshTech,
+    KyverFate,
+    HeroCard,
+    FlockShip,
+    FlockTo,
+    FlockCargo,
 }

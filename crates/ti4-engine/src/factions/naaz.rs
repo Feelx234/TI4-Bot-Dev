@@ -966,6 +966,34 @@ fn use_leader(
     if context.state.relic_deck.is_empty() {
         return Some(false);
     }
+    Some(hero_dual(context, player))
+}
+
+/// Hesh and Prit as a window of the core (`rules::hero_windows::NaazHero`): the choice of the cards, the relic and each secondary as a child of
+/// the window; the string body ([`hero_string`]) is the oracle of the dual run.
+fn hero_dual(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, sources.clone(), *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::naaz::hero",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources: sources.clone(), table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(hero_string(&mut inner, player).unwrap_or(false))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let cards = hero_cards(s);
+            crate::hero_dual::naaz_hero(s, player, &cards, &sources, script)
+        }
+    )
+}
+
+/// [`use_leader`] on the string engine once the relic deck holds a card: the oracle of the dual run.
+fn hero_string(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+) -> Option<bool> {
     // Every choice before the first mutation: up to 2 cards, each at most once.
     let mut chosen: Vec<StrategyCardId> = Vec::new();
     while chosen.len() < 2 {
@@ -2733,6 +2761,47 @@ mod tests {
             None,
             "another leader is not this module's"
         );
+    }
+
+    /// Hesh and Prit is a body of the core (`rules::hero_windows::NaazHero`): the cards are asked, the relic is gained and each secondary is
+    /// performed by the ability's own window as a child. The core half agrees with the string for every card of the board alone, for two cards,
+    /// and for a decline at once; the Warfare secondary (the home production) is the string's, counted with its reason.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let hero = LeaderId::new(HERO);
+        let run = |state: &mut GameState, answers: &[&str]| -> Option<bool> {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(state, DEFAULT, None, &mut table, |ctx| use_leader(ctx, &a(), &hero))
+            })
+        };
+        let cards = hero_cards(&game());
+        assert!(cards.len() >= 4, "{cards:?}");
+        let mut warfare = 0;
+        for card in &cards {
+            let mut state = game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            assert_eq!(run(&mut state, &[card.as_str(), "decline"]), Some(true), "{card}");
+            warfare += usize::from(card.as_str().contains("warfare"));
+        }
+        let mut state = game();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        assert_eq!(run(&mut state, &[cards[0].as_str(), cards[1].as_str()]), Some(true));
+        let mut state = game();
+        assert_eq!(run(&mut state, &["decline"]), Some(true));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let (compared, bailed) = thread_window_counts("factions::naaz::hero");
+        assert_eq!(compared + bailed, cards.len() as u64 + 2, "{r:?}");
+        assert!(compared >= 2, "{r:?}");
+        assert!(bailed >= warfare as u64, "{r:?}");
+        let _ = take_report();
     }
 
     fn use_leader_other(state: &mut GameState) -> Option<bool> {

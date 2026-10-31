@@ -1332,6 +1332,39 @@ fn use_leader_strategy_primary(
     if cards.is_empty() {
         return Ok(None);
     }
+    // The choice of the card and its primary are one window of the core (`rules::hero_windows::WinnuHero`); the string body
+    // ([`hero_primary_string`]) is the oracle of the dual run.
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, sources.clone(), *galaxy);
+    let mut result = None;
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::winnu::hero",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources: sources.clone(), table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            let done = hero_primary_string(&mut inner, player, cards.clone());
+            let value = match &done {
+                Ok((card, ability)) => (Some(card.to_string()), *ability == crate::strategy_cards::Ability::Resolved),
+                Err(_) => (None, false),
+            };
+            result = Some(done);
+            crate::dual::Run::new(value)
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let cards = hero_cards(s);
+            crate::hero_dual::winnu_hero(s, player, &cards, &sources, script)
+        }
+    );
+    result.expect("the string side always runs").map(Some)
+}
+
+/// [`use_leader_strategy_primary`] on the string engine once the hero has cards to choose from: the oracle of the dual run.
+fn hero_primary_string(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    cards: Vec<StrategyCardId>,
+) -> Result<(StrategyCardId, crate::strategy_cards::Ability), TimingError> {
     let options = cards
         .iter()
         .map(|card| {
@@ -1365,7 +1398,7 @@ fn use_leader_strategy_primary(
         card.as_str(),
     )
     .map_err(TimingError::IllegalChoice)?;
-    Ok(Some((card, ability)))
+    Ok((card, ability))
 }
 
 /// Choices offered after Mathis's primary completes, driven one answer per Game step.
@@ -2701,6 +2734,36 @@ mod tests {
             "{}|{}|{}",
             seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens
         )
+    }
+
+    /// Mathis Mathinus is a body of the core (`rules::hero_windows::WinnuHero`): the card is asked and its primary is performed by the
+    /// ability's own window as a child. The core half agrees with the string for every card of the board; the Imperial primary and the
+    /// Thunder's Edge primaries are the string's, counted with their reason.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut base = game();
+        base.phase = ti4_model::state::Phase::Action;
+        base.promissory_notes.clear();
+        base.promissory_faceup.clear();
+        let cards = hero_cards(&base);
+        assert!(cards.len() >= 4, "{cards:?}");
+        for card in &cards {
+            let mut state = base.clone();
+            let mut table = scripted(&[card.as_str()]);
+            let _ = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |context| use_leader_strategy_primary(context, &a(), &LeaderId::new("winnuhero")))
+            });
+        }
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let (compared, bailed) = thread_window_counts("factions::winnu::hero");
+        assert_eq!(compared + bailed, cards.len() as u64, "{r:?}");
+        assert!(compared >= 3, "{r:?}");
+        let _ = take_report();
     }
 
     #[test]
