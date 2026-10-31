@@ -48,3 +48,20 @@ Not run: golden / wide dual, census, bench, soak, ratchet, workspace clippy.
 Batch scripts as in lane 8 (`/root/deploytmp/core-w-l8/runmut.py`, single-file mutants on a committed snapshot in a scratch worktree).
 Files to mutate: `rules/hero_windows.rs` (EmpyreanHero), `rules/production/home.rs`, `rules/combat/fight.rs`, `rules/combat/mahact_hero.rs`,
 `rules/invasion/fight.rs`, `rules/invasion/yin_hero.rs`. Status: see the final report.
+
+## Results (end of the run)
+* `cargo test -p ti4-engine --lib` with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: 4880 passed, 0 failed (before the Mahact/Yin windows were added the plain run had 3 failures that were fixed upstream and arrived with the merge of core-integration-8).
+* core + factions + core-tests: 110 test binaries ok. New files: `tests/combat_fight.rs`, `tests/invasion_yin.rs`, `tests/production_home.rs`; additions to `tests/hero_windows.rs`.
+* Mutation checks (61 mutants of the new core halves, two batches): 37 killed in batch 1, 24 survivors; 18 closed by new tests (batch 2: 11 killed of 17 re-run, the rest equivalent): remaining survivors are equivalent or covered by the lockstep tests only:
+  settles counter, outcome gating after a bail, `at_start` sort (the board is already in unit order), `prepared.find` vs `first` (identical preparations), the `Winner` key for a double wipe-out (not hit by the seeds), `spots.contains` (the driver rejects an unoffered pick first), `value_swapped_planet` clear (also cleared by `close`), `answered > 0` (no effect for an empty use).
+* Not run: golden / wide dual, census, bench, soak, ratchet, workspace clippy, board_equivalence.
+
+## Open (coordinator decisions of 2026-10-31, not done in this lane)
+* The Thunder's Edge strategy cards read natively: TE Construction / TE Warfare primaries as children of the Naaz and Winnu heroes
+  (`fx_perform::begin` still returns `Began::Unsupported` for them: `(Construction, primary)` with `ConstructionThundersEdge`, `(Warfare, true)`
+  with `WarfareThundersEdge`). The TE Warfare window exists (`strategy_primaries::TeWarfare`, `strategy_cards_core::warfare_te`); it needs a
+  `Spawn::TeWarfare` and the free tactical action it returns (`Ability::FreeTactical`) carried to the game.
+* "No bail at all": the bails listed above that are not TE / dropped content: the Mahact-held command token pool, a Yssaril draw hook, the stale facts
+  of a Warfare secondary after a Leadership / Technology / Construction secondary, the Prophecy of Ixth / swapped planet value in a home production, the
+  Yin gates (Thundarian, X-89, Dacxive, Proxima, hits added to a roll, Letnev Reaper, neutral side, coexistence, control-gain effects) and above all
+  the nested reaction windows (Indoctrination, agents, action cards inside a fight), which need the core reaction table to be lent to the harness.
