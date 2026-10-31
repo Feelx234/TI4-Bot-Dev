@@ -21,7 +21,7 @@ fn facts(system: System, planet: Planet) -> FightFacts {
         dunlain: Code(1),
         kind: Code(2),
         names: (0..NAMED).map(|i| Code(10 + i as u16)).collect(),
-        unit_codes: vec![(Unit::InfantryI, Code(3)), (Unit::MechI, Code(4))],
+        unit_codes: vec![(Unit::InfantryI, Code(3)), (Unit::Eidolon, Code(4))],
         cause: Code(5),
         harrow_cause: Code(6),
         step_kind: Code(7),
