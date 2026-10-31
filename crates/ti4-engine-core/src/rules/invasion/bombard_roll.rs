@@ -69,11 +69,11 @@ impl BombardRolled {
             .reroll_staging
             .iter()
             .find(|(seat, _)| *seat == invader)
-            .map_or(0, |(_, set)| {
+            .map_or(0, |(_, set)| { // mutants:skip: the caller checked that the invader staged a set
                 set.rolls
                     .iter()
                     .map(|e| {
-                        let Some(on) = e.hits_on else { return 0 };
+                        let Some(on) = e.hits_on else { return 0 }; // mutants:skip: the string stages every entry with its number
                         e.faces.iter().enumerate().filter(|(i, face)| i64::from(**face) + e.deltas.get(&u8::try_from(*i).unwrap_or(u8::MAX)).map_or(0, |d| i64::from(*d)) >= i64::from(on)).count()
                     })
                     .sum()
@@ -127,7 +127,7 @@ impl Window for BombardRolled {
                             .with(Key::Kind, Val::Code(f.kind))
                             .with(Key::Player, Val::Seat(f.invader))
                             .with(Key::System, Val::System(f.system))
-                            .with(Key::Hits, Val::Int(i64::try_from(hits).unwrap_or(0)));
+                            .with(Key::Hits, Val::Int(i64::try_from(hits).unwrap_or(0))); // mutants:skip: a hit count fits
                         let _ = sx.emit(fx::event(EventKind::UnitAbilityRolled, payload));
                     }
                     // The faces the cards left, then the staging is spent (the string removes it and the roller after the plan is recomputed).

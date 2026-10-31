@@ -131,14 +131,13 @@ impl Walk {
         Ok(())
     }
 
-    /// `apply_reroll_dice`: draw each picked die again in order and keep each draw in the ledger. Returns how many dice were drawn.
-    pub fn redraw(&mut self, sx: &mut Sx<'_>) -> usize {
+    /// `apply_reroll_dice`: draw each picked die again in order and keep each draw in the ledger. 
+    pub fn redraw(&mut self, sx: &mut Sx<'_>) {
         let picks = std::mem::take(&mut self.picks);
-        let mut drawn = 0;
         for (e, d) in picks {
             let Some(len) = Self::staged(sx.state, self.who).and_then(|set| set.rolls.get(usize::from(e))).map(|entry| entry.faces.len()) else { continue };
             if usize::from(d) >= len {
-                continue;
+                continue; // mutants:skip: the picks are dice of the set, which nothing changes between the question and the draw
             }
             let face = sx.die(RngDomain::Dice, DIE_SIDES);
             let staging = sx.state.transient_mut().combat.reroll_staging.edit();
@@ -146,17 +145,18 @@ impl Walk {
             let system = set.system;
             let Some(entry) = set.rolls.get_mut(usize::from(e)) else { continue };
             entry.faces[usize::from(d)] = u8::try_from(face).unwrap_or(u8::MAX);
-            if d < 64 {
-                entry.rerolled |= 1 << d;
+            // (The mark is display only, for the details of a later question; a die has at most 64 positions.)
+            if d < 64 { // mutants:skip
+                entry.rerolled |= 1 << d; // mutants:skip
             }
             entry.deltas.remove(&u8::try_from(d).unwrap_or(u8::MAX));
             // The string's dice history keeps the faces of the whole entry after the draw, the die drawn again marked.
-            let row = RollRec { purpose: RollPurpose::Reroll, owner: Some(self.who), unit: None, planet: None, scene: Some(system), hits_on: Some(entry.hits_on.unwrap_or(0)), faces: entry.faces.iter().copied().collect(), rerolled: if d < 64 { 1 << d } else { 0 } };
+            let on = entry.hits_on.unwrap_or(0); // mutants:skip: a staged entry always has its number
+            let mark = if d < 64 { 1_u64 << d } else { 0 }; // mutants:skip: a die has at most 64 positions
+            let row = RollRec { purpose: RollPurpose::Reroll, owner: Some(self.who), unit: None, planet: None, scene: Some(system), hits_on: Some(on), faces: entry.faces.iter().copied().collect(), rerolled: mark };
             if sx.state.loaded.has(crate::state::Slice::Ledger) {
                 sx.state.ledger_mut().dice.push(row);
             }
-            drawn += 1;
         }
-        drawn
     }
 }

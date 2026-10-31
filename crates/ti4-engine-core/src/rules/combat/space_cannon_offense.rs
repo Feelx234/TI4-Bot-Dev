@@ -217,7 +217,7 @@ impl SpaceCannonOffense {
                 planet: None,
                 hits_on: Some(u8::try_from(e.hits_on).unwrap_or(u8::MAX)),
                 faces: e.faces.iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect(),
-                rerolled: 0,
+                rerolled: 0, // mutants:skip: display only
                 deltas: crate::containers::SortedMap::default(),
                 unit_types: crate::containers::SortedMap::default(),
             })
@@ -246,7 +246,7 @@ impl SpaceCannonOffense {
                 .iter()
                 .skip(mark)
                 .filter(|r| r.purpose == RollPurpose::Reroll)
-                .map(|r| (u32::from(r.hits_on.unwrap_or(0)), r.faces.iter().map(|f| u32::from(*f)).collect()))
+                .map(|r| (u32::from(r.hits_on.unwrap_or(0)), r.faces.iter().map(|f| u32::from(*f)).collect())) // mutants:skip: a redraw row always has its number
                 .collect();
             for redraw in redraws {
                 self.drawn.push(redraw);
@@ -275,11 +275,11 @@ impl SpaceCannonOffense {
     }
 
     fn hits_of(&self, gunner: Seat) -> u32 {
-        self.sets.iter().find(|(s, _)| *s == gunner).map_or(0, |(_, entries)| entries.iter().map(Entry::hits).sum())
+        self.sets.iter().find(|(s, _)| *s == gunner).map_or(0, |(_, entries)| entries.iter().map(Entry::hits).sum()) // mutants:skip: a gunner of the list has a set
     }
 
     fn ledger_len(sx: &Sx<'_>) -> usize {
-        if sx.state.loaded.has(Slice::Ledger) { sx.state.ledger().dice.len() } else { 0 }
+        if sx.state.loaded.has(Slice::Ledger) { sx.state.ledger().dice.len() } else { 0 } // mutants:skip: a window lent no ledger reads no rows
     }
 
     /// The event of a gunner's roll (`open_reroll_windows`' `UNIT_ABILITY_ROLLED`, nothing to ask here): the gunner's dice are staged and

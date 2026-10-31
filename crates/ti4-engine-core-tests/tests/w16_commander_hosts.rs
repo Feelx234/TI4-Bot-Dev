@@ -64,6 +64,7 @@ fn the_invader_with_the_commander_is_asked_about_each_die_of_the_bombardment_and
             assert_eq!(asked.ctx.origin, Origin::Content(Content::Leader(ti4_engine_core::generated::Leader::AgnlanOln)));
             assert_eq!(asked.ctx.subtype, Subtype::Combat(CSub::Reroll(RerollSource::Commander)));
             assert_eq!(asked.ctx.target, Some(Target::System(sys())));
+            assert!(!asked.ctx.optional && !asked.ctx.space_battle && asked.ctx.invasion_seq.is_none(), "an ordinary question about the system");
             assert_eq!(rig.opts().len(), 2, "reroll the die or decline");
             let Opt::Combat(COpt::RerollDie { unit, entry, die, face, hits_on }) = rig.opts()[0] else { panic!("the first option rerolls") };
             assert_eq!((unit, entry, die, hits_on), (Code(21 + u16::from(e)), e, d, Some(5)));
@@ -222,6 +223,7 @@ fn the_gunner_with_the_commander_is_asked_about_each_die_before_the_event_and_th
             assert_eq!(asked.actor, Seat(1), "the gunner is asked");
             assert_eq!(asked.ask, Ask::Combat(CAsk::RerollDie { source: RerollSource::Commander, unit: Code(41), die: 0 }), "the label is the unit's shown text");
             assert_eq!(asked.ctx.subtype, Subtype::Combat(CSub::Reroll(RerollSource::Commander)));
+            assert!(!asked.ctx.optional && !asked.ctx.space_battle && asked.ctx.invasion_seq.is_none());
             let staged = rig.state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == Seat(1)).map(|(_, set)| set.clone()).expect("the dice are staged while the question is open");
             assert_eq!(staged.rolls.len(), 3);
             assert!(staged.rolls.iter().all(|r| r.unit == Code(31)), "the staged entries carry the unit's text");
@@ -287,6 +289,12 @@ fn only_the_gunners_that_hold_the_commander_are_asked_and_each_walks_its_own_dic
                 rig.decline();
             }
             assert!(askers.iter().all(|s| jolnar.contains(s)), "{jolnar:?} seed {seed}: {askers:?}");
+            // Every holder whose roll scored a hit walks all its dice (two PDS, one die each): none is skipped.
+            let rows: Vec<_> = rig.state.ledger().dice.iter().filter(|r| r.purpose == RollPurpose::SpaceCannon).cloned().collect();
+            for holder in &jolnar {
+                let scored = rows.iter().filter(|r| r.owner == Some(*holder)).any(|r| r.faces.iter().any(|f| Some(*f) >= r.hits_on));
+                assert_eq!(askers.iter().filter(|s| *s == holder).count(), if scored { 2 } else { 0 }, "{jolnar:?} seed {seed}: {holder:?}");
+            }
             // The questions of one gunner come together, the lower seat first (the window of each gunner opens in seat order).
             let mut sorted = askers.clone();
             sorted.sort();
@@ -295,4 +303,26 @@ fn only_the_gunners_that_hold_the_commander_are_asked_and_each_walks_its_own_dic
         }
         assert_eq!(gunners_seen > 0, !jolnar.is_empty(), "{jolnar:?}: asked at all only with a holder");
     }
+}
+
+#[test]
+fn a_walk_without_the_resolvers_announcements_leaves_no_staged_dice_behind() {
+    covers!("rules::combat::space_cannon_offense::SpaceCannonOffense");
+    let mut walked = 0;
+    for seed in 0..40u64 {
+        let facts = CannonFacts { announce: false, ..cannon_facts(vec![Seat(1)]) };
+        let mut rig = Rig::new(guns(&[(1, 3)]), SpaceCannonOffense::new(facts)).seeded(seed);
+        rig.run();
+        while !rig.is_done() {
+            if matches!(rig.asked().ask, Ask::Combat(CAsk::RerollDie { .. })) {
+                walked += 1;
+                rig.pick(0);
+            } else {
+                rig.pick(0);
+            }
+        }
+        assert!(rig.state.transient().combat.reroll_staging.is_empty() && rig.state.transient().combat.last_reroll_player.is_none(), "seed {seed}");
+        assert!(rig.driver.emitted.iter().all(|e| e.kind != EventKind::UnitAbilityRolled), "nothing is announced");
+    }
+    assert!(walked > 10);
 }

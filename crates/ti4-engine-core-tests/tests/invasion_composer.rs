@@ -305,7 +305,7 @@ fn the_commander_of_the_invader_is_asked_about_each_die_of_the_bombardment_and_t
     let (p1, _) = planets();
     let mut walked = 0;
     for seed in 0..12_u64 {
-        let (mut core, k) = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 2).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1).build();
+        let (mut core, k) = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 3).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1).build();
         carry(&mut core, 3);
         core.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::AgnlanOln, ti4_engine_core::state::LeaderStatus::Unlocked);
         let env = env(&k, seed);
@@ -338,12 +338,12 @@ fn the_commander_of_the_invader_is_asked_about_each_die_of_the_bombardment_and_t
             }
         }
         let walk: Vec<&Choice> = asks.iter().filter(|c| matches!(c.ask, Ask::Combat(CAsk::RerollDie { .. }))).collect();
-        assert_eq!(walk.len(), 2, "seed {seed}: one question for each die of the two dreadnoughts (BOMBARDMENT 5, one die each)");
+        assert_eq!(walk.len(), 3, "seed {seed}: one question for each die of the three dreadnoughts (BOMBARDMENT 5, one die each)");
         assert!(walk.iter().all(|c| c.actor == Seat(0)), "the invader is asked");
         // The walk comes first: before the planet's hits are rolled into a fight and before any commitment.
         assert!(matches!(asks[0].ask, Ask::Combat(CAsk::RerollDie { .. })));
         assert!(core.transient().combat.reroll_staging.is_empty() && core.transient().combat.last_reroll_player.is_none(), "the staging is spent");
         walked += walk.len();
     }
-    assert_eq!(walked, 24);
+    assert_eq!(walked, 36);
 }
