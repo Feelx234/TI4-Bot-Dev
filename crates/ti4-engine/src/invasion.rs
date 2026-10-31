@@ -11723,18 +11723,90 @@ mod tests {
         }
     }
 
-    /// The Jol-Nar commander keeps the reroll window of a bombardment on the string and says why (the roller is asked per die).
+    /// Package W16: the reroll window of a bombardment of the Jol-Nar commander runs as the core window (the invader is asked about each die
+    /// before the event, the picked dice are drawn again, the event shows the hits that remain) in lockstep: the questions (prompt, options,
+    /// details with every die and the one asked, context), the event, the faces and the streams, with and without a Scramble Frequency played
+    /// afterwards. Fails on the pre-W16 gate "the Jol-Nar commander (a reroll question per die)": the window did not run (`compared == 0`).
     #[cfg(feature = "typed-core")]
     #[test]
-    fn a_bombardment_of_the_jolnar_commander_keeps_the_reroll_window_on_the_string_and_says_why() {
+    fn the_jolnar_commander_rerolls_the_dice_of_a_bombardment_in_the_core_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        let (mut asked_total, mut rerolled_total) = (0, 0);
+        for (seed, scramble) in (1..=14_u64).map(|s| (s, s % 3 == 0)) {
+            let mut state = start_game(ContentStore::embedded(), &[a.clone(), b.clone(), c.clone()], POK, None).unwrap();
+            for (seat, faction) in state.players.iter_mut().zip(["jolnar", "hacan", "sol"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            state.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+                .iter()
+                .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+                .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+                .expect("the corpus has a placed planet");
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &b, 4);
+            in_space(&mut state, &system, "dreadnought", &a, 3);
+            if scramble {
+                state.player_mut(&c).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("scramble")];
+            }
+            state.rng_seed = seed;
+            let content = ContentStore::embedded();
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::SeededRandom::new(seed)));
+            let mut table = Table::with_default(Box::new(decider));
+            let mut resolver = armed_resolver(&state, vec![a.clone(), b.clone(), c.clone()]);
+            let mut event_sequence = crate::event::EventSequence::new();
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+            crate::dual::with_mask(mask, || {
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &a, &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut event_sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap_or_else(|e| panic!("the decider picks what is offered: {e:?}"));
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+            });
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+            assert!(report.differences.is_empty(), "seed {seed} scramble {scramble}: {shown}");
+            let w = report.windows.get("invasion::bombard_rerolls").cloned().unwrap_or_default();
+            assert_eq!((w.compared, w.bailed), (1, 0), "seed {seed}: the window ran in the core and did not bail: {:?}", report.windows);
+            let walk = seen.borrow().iter().filter(|q| q.context.as_ref().is_some_and(|x| x.subtype == "jolnar_commander_reroll")).count();
+            assert_eq!(walk, 3, "seed {seed}: one question for each of the three dreadnoughts' dice");
+            asked_total += walk;
+            rerolled_total += dice.rolled("jolnar commander").len();
+            let _ = crate::dual::take_report();
+        }
+        assert!(asked_total >= 40 && rerolled_total > 5, "the seeds cover the walk: {asked_total} asked, {rerolled_total} drawn again");
+    }
+
+    /// The Heart of Ixth and irreproducible dice keep the reroll window of a bombardment on the string and say why.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn a_bombardment_of_a_heart_of_ixth_or_irreproducible_dice_keeps_the_reroll_window_on_the_string_and_says_why() {
         let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
         let mut state = crate::fixtures::game(&["a", "b"]);
-        state.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
         let (system, _) = crate::fixtures::a_placed_planet();
         let args = |reproducible: bool| crate::dual_window::BombardRollArgs { invader: &a, system: &system, announce: true, reproducible };
-        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(true)), Some("the Jol-Nar commander (a reroll question per die)"));
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(true)), None);
+        // (The Jol-Nar commander is the core window's since W16: `the_jolnar_commander_rerolls_the_dice_of_a_bombardment_in_the_core_in_lockstep`.)
+        state.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(true)), None);
         assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(false)), Some("irreproducible dice (test faces or a stream restore)"));
         assert_eq!(crate::dual_window::bombard_rolled_why(&state, &crate::dual_window::BombardRollArgs { invader: &b, ..args(true) }), None);
+        state.player_mut(&b).unwrap().relics.push(ti4_model::id::RelicId::new("heartofixth"));
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(true)), Some("the Heart of Ixth (Thunder's Edge relic)"));
     }
 
     #[test]
