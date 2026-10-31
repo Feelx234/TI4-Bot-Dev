@@ -104,6 +104,77 @@ fn a_seat_with_no_planet_is_asked_nothing_and_an_illegal_structure_is_refused() 
     let _ = planets;
 }
 
+fn titans_facts() -> StructureFacts {
+    StructureFacts { alt: Some((Unit::Hecatoncheires, Unit::InfantryI)), ..facts() }
+}
+
+fn pds_alternative_ask(planet: Planet) -> Ask {
+    Ask::Strategy(SAsk::PdsAlternative { system: ti4_engine_core_tests::scenario::system_of(planet), planet })
+}
+
+#[test]
+fn a_pds_spot_asks_for_hecatoncheires_and_the_alternative_places_a_mech_and_an_infantry() {
+    covers!("rules::production::strategy_cards::Construction");
+    let (sc, planets) = table();
+    let mut rig = Rig::new(sc, Construction::new(Seat(0), false, titans_facts()));
+    rig.run();
+    // A dock is no PDS: nothing is asked.
+    rig.pick_opt(structure(true, planets[0]));
+    assert_eq!(rig.asked().ask, pds_alternative_ask(planets[0]), "the PDS spot asks which");
+    assert_eq!(rig.opts(), vec![Opt::Strategy(SOpt::PlacePds), Opt::Strategy(SOpt::Alternative)]);
+    rig.pick_opt(Opt::Strategy(SOpt::Alternative));
+    assert!(rig.is_done());
+    assert_eq!(units_on(&rig, planets[0], Unit::Hecatoncheires), 1);
+    assert_eq!(units_on(&rig, planets[0], Unit::InfantryI), 1);
+    assert_eq!(units_on(&rig, planets[0], Unit::PDSI), 0, "instead of the PDS");
+    assert!(rig.driver.window.placed, "a structure counts as placed (the Titan Prototype reads it)");
+}
+
+#[test]
+fn keeping_the_pds_places_it_and_a_primary_goes_on_to_its_second_structure() {
+    covers!("rules::production::strategy_cards::Construction");
+    let (sc, planets) = table();
+    let mut rig = Rig::new(sc, Construction::new(Seat(0), true, titans_facts()));
+    rig.run();
+    rig.pick_opt(structure(true, planets[0]));
+    rig.pick_opt(Opt::Strategy(SOpt::PlacePds));
+    assert_eq!(units_on(&rig, planets[0], Unit::PDSI), 1);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::PlaceStructure { step: 2, only_pds: true })), "{:?}", rig.asked().ask);
+    rig.pick_opt(structure(true, planets[1]));
+    assert_eq!(rig.asked().ask, pds_alternative_ask(planets[1]), "the second PDS is asked again");
+    rig.pick_opt(Opt::Strategy(SOpt::Alternative));
+    assert!(rig.is_done());
+    assert_eq!(units_on(&rig, planets[1], Unit::Hecatoncheires), 1);
+}
+
+#[test]
+fn a_dock_and_a_seat_without_the_alternative_ask_nothing_and_an_empty_reinforcement_hides_it() {
+    covers!("rules::production::strategy_cards::Construction");
+    let (sc, planets) = table();
+    let mut dock = Rig::new(sc.clone(), Construction::new(Seat(0), false, titans_facts()));
+    dock.run();
+    dock.pick_opt(structure(false, planets[0]));
+    assert!(dock.is_done(), "a space dock is not a PDS");
+    let mut plain = Rig::new(sc.clone(), Construction::new(Seat(0), false, facts()));
+    plain.run();
+    plain.pick_opt(structure(true, planets[0]));
+    assert!(plain.is_done(), "no alternative in the facts");
+    // The four mechs stand on the board: the mech does not fit, the PDS goes at once.
+    let full = sc.unit(ti4_engine_core_tests::scenario::system_of(planets[1]), Some(planets[1]), Unit::Hecatoncheires, 0, 4);
+    let mut rig = Rig::new(full, Construction::new(Seat(0), false, titans_facts()));
+    rig.run();
+    rig.pick_opt(structure(true, planets[0]));
+    assert!(rig.is_done());
+    assert_eq!(units_on(&rig, planets[0], Unit::PDSI), 1);
+    // A pick that is not offered is refused.
+    let (sc, planets) = table();
+    let mut rig = Rig::new(sc, Construction::new(Seat(0), false, titans_facts()));
+    rig.run();
+    rig.pick_opt(structure(true, planets[0]));
+    rig.expect_illegal(Pick::Opt(Opt::Decline));
+    rig.expect_illegal(Pick::Opt(structure(true, planets[1])));
+}
+
 #[test]
 fn construction_survives_every_answer_policy() {
     covers!("rules::production::strategy_cards::Construction");

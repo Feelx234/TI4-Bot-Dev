@@ -2703,7 +2703,7 @@ pub fn ground_force_owners_for_test(
 
 /// Display only: a breakthrough as an offer-card header: its name and the first sentence of its
 /// printed text (the ability that is being offered).
-fn breakthrough_card(content: &ContentStore, card: &str) -> serde_json::Value {
+pub(crate) fn breakthrough_card(content: &ContentStore, card: &str) -> serde_json::Value {
     let record = content.get(ti4_model::content_types::ContentType::Breakthroughs, card);
     let field = |key: &str| record.as_ref().and_then(|record| record.text(key));
     let first_sentence = field("text").map(|text| match text.find(". ") {
@@ -3421,7 +3421,7 @@ impl InvasionWindow {
                         .landing_options(state, ctx.content, ctx.sources)
                         .is_empty() =>
                 {
-                    if let Err(error) = self.add_forced_combats(state, ctx) {
+                    if let Err(error) = self.add_forced_combats_windowed(state, ctx) {
                         self.strict_timing_error =
                             Some(crate::timing::TimingError::IllegalChoice(error));
                         return;
@@ -3609,7 +3609,7 @@ impl InvasionWindow {
         // Research Team: "When ground forces are committed", before anything else follows.
         self.offer_research_team(state, ctx, &planets)?;
         self.announce_and_defend_windowed(state, ctx, &planets);
-        self.add_forced_combats(state, ctx)?;
+        self.add_forced_combats_windowed(state, ctx)?;
         let planets = self.report.committed.clone();
         if planets.is_empty() {
             self.stage = Stage::Done;
@@ -3620,19 +3620,56 @@ impl InvasionWindow {
     }
 
     /// What the tail of a commitment hands to the string bare: the coexistence offers of Research Team and Viper EX-23 on a committed
-    /// planet, and the planets a faction rule forces the invader to fight on.
+    /// planet (Deepwrought and Firmament: dropped by decision). The combats a faction rule forces (Titans' Coalescence, with
+    /// Slumberstate Computing's question) are the core window `rules::invasion::forced` since W12.
     fn commit_tail_unported(&self, state: &GameState, ctx: &Resolving<'_>, planets: &[PlanetId]) -> Option<&'static str> {
-        let (content, sources) = (ctx.content, ctx.sources);
-        if planets.iter().any(|planet| {
-            crate::factions::deepwrought::research_team_open(state, content, &self.invader, &self.system, planet)
-                || crate::factions::firmament::viper_open(state, &self.invader, &self.system, planet)
-        }) {
-            Some("the Research Team / Viper EX-23 offer of a committed planet (Deepwrought, Firmament: not seatable)")
-        } else if !crate::factions::hooks_ground::forced_combat_planets(state, content, sources, &self.invader, &self.system).is_empty() {
-            Some("a combat a faction rule forces (Titans' Coalescence)")
-        } else {
-            None
+        let content = ctx.content;
+        planets
+            .iter()
+            .any(|planet| {
+                crate::factions::deepwrought::research_team_open(state, content, &self.invader, &self.system, planet)
+                    || crate::factions::firmament::viper_open(state, &self.invader, &self.system, planet)
+            })
+            .then_some("the Research Team / Viper EX-23 offer of a committed planet (Deepwrought, Firmament: dropped by decision)")
+    }
+
+    /// [`Self::add_forced_combats`] as a core window on `driver=dual` (`rules::invasion::forced`): the planets a faction rule forces the
+    /// invader to fight on, with Slumberstate Computing's coexist question. The compared value is the planets added to the commitment.
+    fn add_forced_combats_windowed(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>) -> Result<(), IllegalChoice> {
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let sources = ctx.sources;
+                let committed = self.report.committed.clone();
+                let (invader, system) = (self.invader.clone(), self.system.clone());
+                let outcome = std::cell::RefCell::new(Ok(()));
+                let failed = std::cell::Cell::new(false);
+                let cell = std::cell::RefCell::new(&mut *self);
+                let ctx = std::cell::RefCell::new(ctx);
+                crate::dual_window!(
+                    crate::dual::Area::Invasion,
+                    "invasion::forced_combats",
+                    state,
+                    |s: &mut GameState| {
+                        let mut ctx = ctx.borrow_mut();
+                        let mut me = cell.borrow_mut();
+                        let result = me.add_forced_combats(s, &mut **ctx);
+                        failed.set(result.is_err());
+                        let added: Vec<String> = me.report.committed.iter().skip(committed.len()).map(ToString::to_string).collect();
+                        *outcome.borrow_mut() = result;
+                        crate::dual::Run::new(added)
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| {
+                        if failed.get() {
+                            return None;
+                        }
+                        crate::dual_window::forced_combats(s, sources, &invader, &system, &committed, script)
+                    }
+                );
+                return outcome.into_inner();
+            }
         }
+        self.add_forced_combats(state, ctx)
     }
 
     /// The commitment announcement and the space cannon defense of every committed planet, which on

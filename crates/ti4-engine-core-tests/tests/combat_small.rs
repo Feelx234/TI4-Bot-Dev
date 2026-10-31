@@ -304,6 +304,35 @@ fn the_unlocked_commander_offers_a_trade_good_after_the_sustain() {
 }
 
 #[test]
+fn below_the_faction_effects_the_commander_is_paid_without_a_question() {
+    covers!("rules::combat::sustain_commander::SustainCommander");
+    covers!("rules::combat::sustain_offer::SustainOffer");
+    for (version, asks) in [(15, false), (16, true)] {
+        let mut rig = farran(Some(LeaderStatus::Unlocked));
+        rig.state.meta_mut().rules_version = version;
+        rig.run();
+        rig.pick(0);
+        assert_eq!(!rig.is_done(), asks, "version {version}: the offer is asked from 16 on");
+        if asks {
+            rig.pick(0);
+        }
+        assert!(rig.is_done());
+        assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 1, "version {version}");
+        assert!(rig.driver.emitted.iter().any(|e| e.kind == EventKind::SustainDamageUsed), "the use is announced");
+        assert!(!rig.state.pending().staged.is_empty(), "the gain is staged for the announcement");
+    }
+    // An absent or locked commander pays nothing in an old game either.
+    for status in [Some(LeaderStatus::Locked), None] {
+        let mut rig = farran(status);
+        rig.state.meta_mut().rules_version = 15;
+        rig.run();
+        rig.pick(0);
+        assert!(rig.is_done());
+        assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 0);
+    }
+}
+
+#[test]
 fn declining_the_commander_gains_nothing_and_a_locked_or_absent_commander_asks_nothing() {
     covers!("rules::combat::sustain_commander::SustainCommander");
     let mut rig = farran(Some(LeaderStatus::Unlocked));
