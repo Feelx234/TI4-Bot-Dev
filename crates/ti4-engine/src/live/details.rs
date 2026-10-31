@@ -2,10 +2,11 @@
 //! string builds them from its position (`tokens::with_pool_details`, ...). Display only: invisible to the rules and to every
 //! hash, so the oracle's choice comparison (`details` included) is what guards them.
 
+use ti4_engine_core::choice::reaction::{Ask as RAsk, Relation};
 use ti4_engine_core::choice::strategy::Ask as SAsk;
 use ti4_engine_core::choice::{Ask, Choice as CoreChoice};
 use ti4_engine_core::kernel::fx;
-use ti4_engine_core::state::CoreState;
+use ti4_engine_core::state::{CoreState, EventKind};
 
 use crate::choice::Choice;
 
@@ -17,6 +18,7 @@ pub fn complete(core: &CoreState, k: &ti4_engine_core::kernel::Kernel, choice: &
         Ask::Strategy(SAsk::GainPool { left }) => pool_details(core, choice, "gain", Some(usize::from(left)), rendered),
         // 81.5: the whole sheet is rearranged (`tokens::with_pool_details(.., "redistribute", None)`).
         Ask::Strategy(SAsk::StatusRedistribute { .. }) => pool_details(core, choice, "redistribute", None, rendered),
+        Ask::Reaction(RAsk::Window { event: EventKind::SystemActivated, relation: Relation::After }) => harness_preview(core, k, choice, rendered),
         _ => {}
     }
     super::turn::complete(core, choice, rendered);
@@ -47,4 +49,36 @@ fn pool_details(core: &CoreState, choice: &CoreChoice, mode: &str, to_place: Opt
         }
         _ => {}
     }
+}
+
+/// `reaction_preview::preview_for`'s "Harness Energy": the window around a system's activation offers the card to the activator of an anomaly, and
+/// says how many commodities it would replenish (display only; the offer itself is the core's `reaction_slot`).
+fn harness_preview(core: &CoreState, k: &ti4_engine_core::kernel::Kernel, choice: &CoreChoice, rendered: &mut Choice) {
+    use ti4_engine_core::generated::ActionCard;
+    let Some(player) = core.players().by_seat(choice.actor) else { return };
+    let (Some(system), true) = (core.meta().active_system, core.meta().active == Some(choice.actor)) else { return };
+    if !player.cards.hand.as_slice().contains(&ActionCard::HarnessEnergy) {
+        return;
+    }
+    let rifts = k.hooks.movement.gravity_rifts(core);
+    if !ti4_engine_core::rules::action_cards::system_is_anomaly(ti4_engine_core::query::reach::scope_of(k), system, rifts.as_slice()) {
+        return;
+    }
+    let Some(option) = rendered.options.iter().find(|o| o.id.starts_with("reaction:")).map(|o| o.id.clone()) else { return };
+    let limit = ti4_engine_core::rules::strategy::commodity_limit(player.faction);
+    let held = i32::try_from(player.econ.commodities).unwrap_or(i32::MAX);
+    let Some(context) = rendered.context.as_mut() else { return };
+    context.previews.push(crate::decision_context::EffectPreview {
+        option,
+        card: "harness".to_owned(),
+        effect: "replenish_commodities".to_owned(),
+        seats: Vec::new(),
+        system: Some(ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(system))),
+        planets: Vec::new(),
+        units: Vec::new(),
+        amount: Some(i64::from((limit - held).max(0))),
+        of: Some(i64::from(limit)),
+        refs: Vec::new(),
+        fizzles: None,
+    });
 }
