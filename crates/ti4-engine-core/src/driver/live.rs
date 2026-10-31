@@ -237,6 +237,7 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
     match arm {
         Arm::Tokens => Some(advance::<TokenGain>),
         Arm::Tactical => Some(crate::driver::windows::tactical::advance_tactical),
+        Arm::Invasion => Some(crate::driver::windows::invasion::advance_invasion),
         _ => None,
     }
 }
@@ -248,6 +249,7 @@ pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
     match arm {
         Arm::Tokens => Some(ask::<TokenGain>),
         Arm::Tactical => Some(crate::driver::windows::tactical::ask_tactical),
+        Arm::Invasion => Some(crate::driver::windows::invasion::ask_invasion),
         _ => None,
     }
 }

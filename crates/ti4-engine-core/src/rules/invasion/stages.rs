@@ -73,6 +73,12 @@ impl Custodians {
         Self { invader, system, affordable, removed: false, owes: None, stage: Stage::Checking }
     }
 
+    /// The offer as it stands when it is on the table (a machine rebuilt from its payload between two questions).
+    #[must_use]
+    pub const fn at_question(invader: Seat, system: System) -> Self {
+        Self { invader, system, affordable: true, removed: false, owes: None, stage: Stage::Asking }
+    }
+
     fn cost(&self, s: &CoreState, k: &Kernel) -> u8 {
         u8::try_from(custodians_cost(rd(s, k), self.invader)).unwrap_or(u8::MAX)
     }
