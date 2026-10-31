@@ -338,10 +338,8 @@ impl Vote {
 
     /// `mahact::recombination_holder`: another seat with a ready Genetic Recombination.
     fn holder(core: &CoreState, voter: Seat) -> Option<Seat> {
-        core.players()
-            .iter()
-            .find(|p| p.seat != voter && p.tech.owned.contains(Technology::GeneticRecombination) && !p.tech.exhausted.contains(Technology::GeneticRecombination))
-            .map(|p| p.seat)
+        // The Mahact's own card, or the Nekro's Valefar Assimilator carrying its text.
+        core.players().iter().find(|p| p.seat != voter && crate::query::reach::technology_text_ready(core, p.seat, Technology::GeneticRecombination)).map(|p| p.seat)
     }
 
     fn can_pay(core: &CoreState, voter: Seat) -> bool {
@@ -567,9 +565,7 @@ impl Window for Vote {
             (Stage::Recombine(index), TopOpt::Agenda(Opt::Demand(outcome))) => {
                 let voter = self.voter(index).ok_or(Illegal)?;
                 let holder = Self::holder(sx.state, voter).ok_or(Illegal)?;
-                if let Some(p) = sx.state.players_mut().by_seat_mut(holder) {
-                    p.tech.exhausted.insert(Technology::GeneticRecombination);
-                }
+                crate::query::reach::exhaust_technology_text(sx.state, holder, Technology::GeneticRecombination);
                 let can_vote = !self.offers(sx.state, sx.kernel, voter).is_empty();
                 let can_pay = Self::can_pay(sx.state, voter);
                 self.stage = Stage::Outcome(index);

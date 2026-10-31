@@ -179,10 +179,17 @@ fn rich_table(alias: &str) -> GameState {
     based(state)
 }
 
+/// The agendas whose effect is a counted gap of the live path (`docs/KV_RESUME.md`): Galactic Crisis Pact performs the secondary of a
+/// strategy card, which is the strategic-action lane's (KX).
+const GAPS: [&str; 1] = ["crisis"];
+
 fn sweep(prefer: Policy) -> Vec<String> {
     let mut failures = Vec::new();
     for agenda in ti4_engine_core::generated::Agenda::ALL {
         let alias = crate::generated::IdStr::as_str(agenda);
+        if GAPS.contains(&alias) {
+            continue;
+        }
         let state = rich_table(alias);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let (string, native) = both_preferring(&state, &[], prefer);
@@ -363,4 +370,43 @@ fn explore_politics_rider_yssaril() {
     eprintln!("string {:?}\nnative {:?}", cut(&string), cut(&native));
     eprintln!("string q {:?}", string.questions.iter().filter(|q| q.player.as_str() == "b" && !q.prompt.starts_with("exhaust") && !q.prompt.starts_with("vote")).map(|q| q.prompt.clone()).collect::<Vec<_>>());
     eprintln!("native q {:?}", native.questions.iter().filter(|q| q.player.as_str() == "b" && !q.prompt.starts_with("exhaust") && !q.prompt.starts_with("vote")).map(|q| q.prompt.clone()).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_valefar_assimilator_carrying_genetic_recombination_asks_the_nekro_before_each_vote_like_the_string() {
+    let mut state = agenda_table(&[("a", "nekro"), ("b", "mahact"), ("c", "sol")], &["checks"]);
+    // The Mahact's own card is spent: only the Nekro's Valefar Assimilator carrying its text can be used.
+    let (a, b) = (pid("a"), pid("b"));
+    state.player_mut(&b).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("gr"));
+    state.player_mut(&b).unwrap().exhausted_technologies.insert(ti4_model::id::TechnologyId::new("gr"));
+    state.player_mut(&a).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("vax"));
+    state.player_mut(&a).unwrap().assimilated_technologies.insert("vax".into(), ti4_model::id::TechnologyId::new("gr"));
+    let state = based(state);
+    let (string, native) = both(&state, &[]);
+    assert_same(&string, &native);
+    assert!(string.questions.iter().any(|q| q.prompt.starts_with("Genetic Recombination")), "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+}
+
+#[test]
+fn galactic_crisis_pact_is_a_counted_gap_of_the_live_path_not_a_silent_skip() {
+    let state = rich_table("crisis");
+    let (_, taken) = string_agenda(&state, &[]);
+    let mut cx = Ctx::of(&state).expect("a table the codecs carry");
+    let render = Render::new(cx.owners.ids().to_vec());
+    let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
+    let positions = game.rng_positions();
+    let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+    let mut core = Codec::load(&mut cx, &state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
+    let kernel = live::kernel::kernel_for(DEFAULT);
+    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+    let lcx = live::Cx::new(&render, &env);
+    let mut asker = Scripted::new(taken.iter().cloned());
+    let stop = loop {
+        let arm = step_arm(&Facts::of_core(&core, false), false);
+        match live::live_step(&mut core, arm, &lcx, &mut asker) {
+            Ok(_) => continue,
+            Err(stop) => break stop,
+        }
+    };
+    assert_eq!(stop, live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::AgendaGap(ti4_engine_core::kernel::agenda_codes::AgendaGap::NoEffect(15)))));
 }

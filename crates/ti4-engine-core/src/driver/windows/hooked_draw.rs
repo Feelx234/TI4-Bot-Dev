@@ -74,7 +74,8 @@ impl Window for HookedDraw {
         if self.stage == HStage::Start {
             let k = sx.kernel;
             let bonus = if self.count > 0 { k.hooks.economy.action_card_draw_bonus(sx.state, k, self.who, self.count) } else { 0 };
-            let blanked = reach::blanked(sx.state);
+            // The marks are part of the lend of some windows only (the dual's footprint of a follower window has none).
+            let blanked = sx.state.loaded.has(crate::state::Slice::Marks) && reach::blanked(sx.state);
             let yssaril = sx.state.players().by_seat(self.who).is_some_and(|p| p.faction == Faction::TheYssarilTribes);
             let limit_hooked = hand_limit(sx.state, blanked, |l| k.hooks.economy.action_card_limit(sx.state, k, self.who, l)) != hand_limit(sx.state, blanked, |l| l);
             if bonus == 0 && !yssaril && !limit_hooked && !blanked {
@@ -113,7 +114,7 @@ impl Window for HookedDraw {
                 }
                 HStage::Limit => {
                     let k = sx.kernel;
-                    let blanked = reach::blanked(sx.state);
+                    let blanked = sx.state.loaded.has(crate::state::Slice::Marks) && reach::blanked(sx.state);
                     let limit = hand_limit(sx.state, blanked, |l| k.hooks.economy.action_card_limit(sx.state, k, self.who, l));
                     let held = sx.state.players().by_seat(self.who).map_or(0, |p| p.cards.hand.len());
                     if self.limit.is_none() {

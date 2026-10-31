@@ -62,6 +62,37 @@ pub fn technology_text(core: &CoreState, seat: Seat, tech: Technology) -> bool {
         || ASSIMILATORS.iter().any(|card| live_token(core, seat, *card) == Some(tech))
 }
 
+/// `technology::technology_text_ready`: the text of `tech` is usable by `seat` now: the technology owned and ready, or the Valefar
+/// Assimilator carrying it ready (the exhaustion is the carrier's, not the owner's).
+#[must_use]
+pub fn technology_text_ready(core: &CoreState, seat: Seat, tech: Technology) -> bool {
+    let Some(p) = core.players().by_seat(seat) else { return false };
+    if p.tech.owned.contains(tech) {
+        return !p.tech.exhausted.contains(tech);
+    }
+    ASSIMILATORS.iter().copied().find(|card| live_token(core, seat, *card) == Some(tech)).is_some_and(|card| !p.tech.exhausted.contains(card))
+}
+
+/// `technology::exhaust_technology_text`: exhaust the card that carries the text of `tech` for `seat` (the technology itself, or the
+/// Valefar Assimilator carrying it); `false`, changing nothing, when the seat has neither.
+pub fn exhaust_technology_text(core: &mut CoreState, seat: Seat, tech: Technology) -> bool {
+    let carrier = match core.players().by_seat(seat) {
+        Some(p) if p.tech.owned.contains(tech) => tech,
+        Some(_) => match ASSIMILATORS.iter().copied().find(|card| live_token(core, seat, *card) == Some(tech)) {
+            Some(card) => card,
+            None => return false,
+        },
+        None => return false,
+    };
+    match core.players_mut().by_seat_mut(seat) {
+        Some(p) => {
+            p.tech.exhausted.insert(carrier);
+            true
+        }
+        None => false,
+    }
+}
+
 /// The scope of the kernel as the tables' mask.
 #[must_use]
 pub fn scope_of(k: &Kernel) -> Scope {

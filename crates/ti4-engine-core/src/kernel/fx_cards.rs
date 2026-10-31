@@ -12,6 +12,10 @@ use crate::state::{EventKind, Key, Payload, Val};
 /// # Errors
 /// What the resolver refuses with.
 pub fn announce_staged_cards(sx: &mut Sx<'_>) -> Result<(), TimingError> {
+    // The marks are part of the lend of some windows only (the dual's footprint of the reveal has none): nothing can be staged there.
+    if !sx.state.loaded.has(crate::state::Slice::Marks) {
+        return Ok(());
+    }
     loop {
         let first = sx.state.marks().tail.iter().find_map(|(k, v)| if let MarkKey::CardsStaged(n) = k { Some((*n, v.clone())) } else { None });
         let Some((n, row)) = first else { return Ok(()) };
