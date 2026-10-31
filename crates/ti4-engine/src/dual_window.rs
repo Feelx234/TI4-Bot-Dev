@@ -725,6 +725,8 @@ pub fn drive_windowed<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::PendingDestructions => "an action card that staged destructions",
                 ti4_engine_core::kernel::ability::Unknown::DataSkimmer => "a discard the Data Skimmer could take",
                 ti4_engine_core::kernel::ability::Unknown::PlayFacts => "an action card the core does not play",
+                ti4_engine_core::kernel::ability::Unknown::UnportedTactical(_) => "a tactical position the native action does not run",
+                ti4_engine_core::kernel::ability::Unknown::UnportedAftermath(why) => crate::combat_live::gap_text(why),
                 ti4_engine_core::kernel::ability::Unknown::Unported(why) => crate::invasion_live::unported_text(why),
                 ti4_engine_core::kernel::ability::Unknown::UnportedProduction(why) => crate::production_live::gap_text(why),
             };

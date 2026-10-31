@@ -112,6 +112,18 @@ pub fn remove_ship(sx: &mut Sx<'_>, system: System, owner: Seat, piece: Piece) {
     }
 }
 
+/// `announce_staged_destructions`: every destruction an effect staged is announced as `SHIP_DESTROYED`, in staging order, until nothing is left
+/// (an announcement can stage more). `retreat` is the (state, announced) pair of causes a retreat's lost ships are staged and announced under.
+pub fn drain_staged(sx: &mut Sx<'_>, emit: bool, retreat: (Code, Code)) {
+    while !sx.state.transient().combat.pending_destructions.is_empty() {
+        let staged = std::mem::take(&mut sx.state.transient_mut().combat.pending_destructions).as_slice().to_vec();
+        for d in staged {
+            let cause = if d.reason == retreat.0 { retreat.1 } else { d.reason };
+            announce_loss(sx, d.system, d.owner, d.unit, cause, d.during_space_combat, emit);
+        }
+    }
+}
+
 /// `try_announce_ship_destroyed_type`: record the loss and (with a timing resolver) emit `SHIP_DESTROYED`.
 pub fn announce_loss(sx: &mut Sx<'_>, system: System, owner: Seat, unit: Unit, cause: Code, during_space_combat: bool, emit: bool) {
     sx.state.transient_mut().combat.last_ship_destroyed = Some((system, owner, unit));

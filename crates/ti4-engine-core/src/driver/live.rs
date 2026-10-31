@@ -236,8 +236,11 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
     use crate::rules::token_gain::TokenGain;
     match arm {
         Arm::Tokens => Some(advance::<TokenGain>),
+        Arm::Tactical => Some(crate::driver::windows::tactical::advance_tactical),
         Arm::Invasion => Some(crate::driver::windows::invasion::advance_invasion),
         Arm::Production => Some(crate::driver::windows::production::advance_production),
+        Arm::EventScoring => Some(crate::driver::windows::scoring::advance_event_scoring),
+        Arm::Aftermath => Some(crate::driver::windows::chain::advance_aftermath),
         _ => None,
     }
 }
@@ -248,8 +251,11 @@ pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
     use crate::rules::token_gain::TokenGain;
     match arm {
         Arm::Tokens => Some(ask::<TokenGain>),
+        Arm::Tactical => Some(crate::driver::windows::tactical::ask_tactical),
         Arm::Invasion => Some(crate::driver::windows::invasion::ask_invasion),
         Arm::Production => Some(crate::driver::windows::production::ask_production),
+        Arm::EventScoring => Some(crate::driver::windows::scoring::ask_event_scoring),
+        Arm::Aftermath => Some(crate::driver::windows::chain::ask_aftermath),
         _ => None,
     }
 }

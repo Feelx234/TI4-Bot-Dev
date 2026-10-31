@@ -37,7 +37,7 @@ mod texts;
 mod trade;
 mod transient;
 
-pub use aftermath::{AStage, Aftermath, Before, CombatFields, CombatPend, CombatStep, HitPhase, NoteHold, PauseLimit};
+pub use aftermath::{AFight, AStage, Aftermath, Before, CombatFields, CombatPend, CombatStep, HitPhase, NoteHold, PauseLimit};
 pub use agenda::{AgendaCastRec, AgendaRec, AgendaState, Outcome, Prediction};
 pub use board::{Board, PlanetCell, PlanetFlags, SysCell, SysFlags, UnitList};
 pub use cards::{CardRef, CardZones, DeckReserve, DeckSegment, NoteKey, NoteMap, RESERVE_IDLE, RESERVE_LIVE, RESERVE_OPEN, ReserveDeck, ReservedDraw};
@@ -67,7 +67,7 @@ pub use resolver::{ResolverState, UsedScope};
 pub use rng::{Rng, RngDomain, SeedSource};
 pub use seats::{MAX_PLAYERS, Seats};
 pub use strategy::StrategyState;
-pub use tactical::{TStage, Tactical};
+pub use tactical::{THead, THeadStep, TStage, Tactical};
 pub use texts::{BLOB_CAPACITY, CODE_CAPACITY, DIPLOMACY_RULES_V1, OwnerTable, Texts};
 pub use trade::*;
 pub use transient::*;

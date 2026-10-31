@@ -76,6 +76,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::THUNDARIAN_SPACE, kind: "leader", card: "nomadagentthundarian" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::THUNDARIAN_GROUND, kind: "leader", card: "nomadagentthundarian" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::VAN_HAUGE, kind: "unit", card: "yin_flagship" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::SOL_AGENT, kind: "leader", card: "solagent" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
@@ -514,6 +515,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.ground_combat = r.code("ground_combat");
         table.codes.harrow = r.code("harrow");
         table.codes.self_assembly = r.code("self_assembly_routines");
+        table.codes.van_hauge = r.code("unit_ability:yin_flagship");
         table.codes.action_card = r.code("action_card");
         table.codes.supply_base = r.code("forward_supply_base");
         table.codes.mentak = r.code("mentak");
@@ -536,6 +538,15 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.reflective_cause = r.code("action_card:reflective_shielding");
         table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
         crate::production_live::fill_codes(table, r);
+        table.codes.tactical = ti4_engine_core::kernel::ability::TacticalCodes {
+            tactic: r.code("tactic"),
+            space_cannon: r.code("space_cannon"),
+            space_cannon_cause: r.code("unit_ability:space_cannon"),
+            casualty: r.code("assign_casualty"),
+            commander: r.code("letnevcommander"),
+            pre_roll: r.code("pre_roll"),
+            faction_technology: r.code("faction_technology"),
+        };
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {

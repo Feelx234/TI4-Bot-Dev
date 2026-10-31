@@ -141,6 +141,7 @@ pub mod core_combat;
 /// Area::Invasion (package B2): the typed invasion rules behind a string interface.
 #[cfg(feature = "typed-core")]
 pub mod core_invasion;
+pub mod combat_live;
 pub mod invasion_live;
 pub mod production_live;
 /// Area::LeadersAbilities (package B7): the typed leader reads behind the string interface.
@@ -245,6 +246,7 @@ mod diplomacy_book_tests;
 mod diplomacy_window_tests;
 pub mod trade_core;
 pub mod tactical_dual;
+pub mod tactical_live;
 #[cfg(all(test, feature = "typed-core"))]
 mod tactical_dual_tests;
 pub mod trade_window_dual;

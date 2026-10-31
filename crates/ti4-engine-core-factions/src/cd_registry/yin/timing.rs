@@ -1,8 +1,8 @@
 //! yin: the timing abilities (the reaction windows), docs/ENGINE_REACTIONS.md. Ported: Brother Milor, the Yin agent
 //! ("After a player's unit is destroyed during combat: you may exhaust this card to allow that player to place 2
 //! fighters in the destroyed unit's system if it was a ship, or 2 infantry on its planet if it was a ground
-//! force"), the ship and the ground branch. Indoctrination is ported too (package W13), and Greyfire Mutagen (package W14). Not ported: the Spinner,
-//! Van Hauge, and the Ascendant (a Thunder's Edge breakthrough). The Ssruu copies of the agent are the pair rules of `yssaril::ssruu`; Ssruu copies
+//! force"), the ship and the ground branch. Indoctrination is ported too (package W13), and Greyfire Mutagen (package W14). Van Hauge (the flagship) is here too (package M5). Not ported: the Spinner
+//! and the Ascendant (a Thunder's Edge breakthrough). The Ssruu copies of the agent are the pair rules of `yssaril::ssruu`; Ssruu copies
 //! no ability of the faction, so there is no Ssruu copy of Indoctrination.
 //!
 //! The units are placed without a capacity check beyond the reinforcements ("place 2"; 16.3 removes the excess at the
@@ -30,6 +30,8 @@ pub const INDOCTRINATION: Slot = Slot(7003);
 
 /// Greyfire Mutagen (`promissory:*:greyfire:GROUND_COMBAT_STARTED:after`).
 pub const GREYFIRE: Slot = Slot(7004);
+/// Van Hauge, the flagship (`unit:*:yin_flagship:SHIP_DESTROYED:after`): "When this ship is destroyed, destroy all ships in this system."
+pub const VAN_HAUGE: Slot = Slot(7005);
 
 const AGENT: Leader = Leader::BrotherMilor;
 
@@ -312,10 +314,49 @@ fn greyfire(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+/// The destroyed unit is the owner's Van Hauge. (A Nekro Alastor lent the text by the Z token of the Valefar Assimilator is a Thunder's Edge
+/// breakthrough: out of the agreed content.)
+// (Registered for every seat like the string: the unit in the payload says whose it is.)
+fn van_hauge_when(c: &CondCx<'_>) -> bool {
+    let p = &c.event.payload;
+    p.unit(Key::Unit) == Some(Unit::VanHauge) && p.seat(Key::Player) == Some(c.def.owner)
+}
+
+/// Every ship still in the system goes, whoever owns it: each is removed and its destruction staged under the cause `unit_ability:yin_flagship`;
+/// the emitter announces them (`announce_staged_destructions`), so a chain resolves. The enclosing combat fact is inherited from the destruction
+/// that opened the window.
+fn van_hauge(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    use ti4_engine_core::rules::combat::{assign::remove_ship, ships_of, Rd};
+    let Some(system) = eff.event.payload.system(Key::System) else { return Ok(()) };
+    let during_space_combat = eff.event.payload.flag(Key::DuringSpaceCombat) == Some(true);
+    let cause = eff.codes().van_hauge;
+    let (state, kernel) = eff.state_and_kernel();
+    let mut owners: Vec<Seat> = Vec::new();
+    for piece in &state.board().sys(system).units {
+        if !owners.contains(&piece.owner()) {
+            owners.push(piece.owner());
+        }
+    }
+    let blanked = ti4_engine_core::query::reach::blanked(state);
+    let mut doomed = Vec::new();
+    for owner in owners {
+        let ships = ships_of(Rd::new(state, kernel).with_blanked(blanked), owner, system);
+        doomed.extend(ships.into_iter().map(|p| (owner, p)));
+    }
+    eff.inline().with_sx(|sx| {
+        for (owner, piece) in doomed {
+            remove_ship(sx, system, owner, piece);
+            sx.state.transient_mut().combat.pending_destructions.push(ti4_engine_core::state::PendingDestruction { system, owner, unit: piece.kind(), reason: cause, during_space_combat });
+        }
+    });
+    Ok(())
+}
+
 pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(INDOCTRINATION, AbilityKind::Ability, EventKind::GroundCombatStarted, Relation::After, indoctrination).when(indoctrination_when));
     t.add(Spec::new(GREYFIRE, AbilityKind::Promissory, EventKind::GroundCombatStarted, Relation::After, greyfire).optional().when(greyfire_when));
 
+    t.add(Spec::new(VAN_HAUGE, AbilityKind::Unit, EventKind::ShipDestroyed, Relation::After, van_hauge).when(van_hauge_when));
     t.add(Spec::new(MILOR_SHIPS, AbilityKind::Leader, EventKind::ShipDestroyed, Relation::After, |e| place(e, UnitBaseType::Fighter, false)).optional().when(ship_when));
     t.add(Spec::new(MILOR_GROUND, AbilityKind::Leader, EventKind::GroundForceDestroyed, Relation::After, |e| place(e, UnitBaseType::Infantry, true)).optional().when(ground_when));
 }
