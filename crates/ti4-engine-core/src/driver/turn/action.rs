@@ -2,7 +2,7 @@
 //!
 //! [`run_action`] is `TurnJob::Action(key)`: the closing-menu bookkeeping (a non-free option taken from the closing menu is the second
 //! action), then the body of the option. Pass is the core's end to end. The component actions run through [`component`]; one whose body
-//! the core does not run yet stops the step with the counted gap [`MenuGap::Action`] (the code names which), leaving the position as it was.
+//! the core does not run yet stops the step with the counted gap [`MenuGap::Unrouted`] (the kind and the option's key name it), leaving the position as it was.
 
 use super::component;
 use super::inline::{emit_typed, gap, player_payload, Flow};
@@ -13,7 +13,7 @@ use crate::kernel::stage::Sx;
 use crate::kernel::turn_codes::{MenuGap, TurnGap};
 use crate::state::{EventKind, PlainKind, PlainRec};
 
-/// The gap code of an option the core does not run yet (`MenuGap::Action`).
+/// The gap code of an option the core does not run yet (`MenuGap::Unrouted`).
 #[must_use]
 pub const fn gap_code(d: &Dispatch) -> u8 {
     match d {
@@ -54,11 +54,19 @@ pub fn run_action(sx: &mut Sx<'_>, key: u32) -> Flow {
         Dispatch::Tactical => tactical(sx, active),
         Dispatch::Strategic(card) => crate::driver::windows::strategic::begin::run_begin(sx, card),
         Dispatch::Transaction(with) => transaction(sx, active, with),
-        _ => {
-            gap(sx, TurnGap::Menu(MenuGap::Action(gap_code(&d))));
-            Flow::Halt
-        }
+        Dispatch::ActionCard => match opt {
+            Opt::Play { index, card } => component::play_card(sx, active, key, card, Some(index)),
+            Opt::Salvaged(card) => component::play_card(sx, active, key, card, None),
+            _ => unrouted(sx, opt),
+        },
+        _ => unrouted(sx, opt),
     }
+}
+
+/// The option has no native body yet: the counted gap names it (the kind, and the option's key).
+fn unrouted(sx: &mut Sx<'_>, opt: Opt) -> Flow {
+    gap(sx, TurnGap::Menu(MenuGap::Unrouted(gap_code(&dispatch::dispatch(opt)), opt.key().unwrap_or(0))));
+    Flow::Halt
 }
 
 /// A tactical action begins (`Game::apply_choice`: `settle_extreme_duress`, the window, `TACTICAL_ACTION_BEGAN`); the activation question is the next

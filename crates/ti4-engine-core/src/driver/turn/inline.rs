@@ -37,6 +37,12 @@ pub fn gap(sx: &Sx<'_>, why: TurnGap) {
     }
 }
 
+/// [`gap`], and `Flow::Halt` (the shape every job returns it in).
+pub fn gap_flow(sx: &Sx<'_>, why: TurnGap) -> Flow {
+    gap(sx, why);
+    Flow::Halt
+}
+
 /// Run `w` to its end, putting its questions to the tape. The window must not open other windows.
 pub fn run<W: Window>(sx: &mut Sx<'_>, w: &mut W) -> Flow {
     loop {

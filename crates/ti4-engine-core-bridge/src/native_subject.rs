@@ -346,7 +346,7 @@ impl NativeSubject {
     fn compare(&mut self, mut shadow: Shadow, answers: Vec<String>, records: &[DecisionRecord], events: &[String]) {
         let name = arms::name(shadow.arm);
         // The action menu is the core's, its pass and its transactions too; the body of every other option is a counted gap of the core
-        // (`MenuGap::Action`: the entries of the tactical and strategic lanes, the component actions' performers): the legacy step ran it, the
+        // (`MenuGap::Unrouted`: the component actions' performers): the legacy step ran it, the
         // shadow counts it lent instead of comparing a step it cannot take.
         if matches!(shadow.arm, Arm::Ask | Arm::TurnPrelude) && answers.iter().any(|a| menu_body_is_lent(a)) {
             lend(shadow.arm, "the body of an action-menu option the core does not run yet");
@@ -466,16 +466,12 @@ fn without_staged_marks(mut state: Value) -> Value {
 // step that leaves it open must agree on everything, the position included. The position at the end of a window is compared when the
 // close is the core's too (KS5).
 
-/// Whether an option id of the action menu names a body the core does not run yet (`driver::turn::action::gap_code`): tactical and strategic
-/// actions, the component actions of the leaders, technologies, relics, exploration cards, action cards and factions. The pass and the opening
-/// of a transaction (`component|trade|<faction>`) are the core's.
+/// Whether an option id of the action menu names a body the core does not run yet (`driver::turn::action::unrouted`): the component actions of
+/// the leaders, technologies, relics, exploration cards and factions. The pass, the opening of a transaction (`component|trade|<faction>`), the
+/// tactical and strategic actions and the action cards are the core's (lane F2b).
 fn menu_body_is_lent(id: &str) -> bool {
-    id == "tactical"
-        || id == "strategic"
-        || id.starts_with("strategic|")
-        || id.starts_with("faction|")
+    id.starts_with("faction|")
         || (id.starts_with("component|") && !id.starts_with("component|trade|"))
-        || id.starts_with("action_card|")
         || id.starts_with("purge|")
         || id.starts_with("relic|")
         || id.starts_with("play_area:")

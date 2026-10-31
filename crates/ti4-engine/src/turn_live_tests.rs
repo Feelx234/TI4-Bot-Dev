@@ -128,7 +128,9 @@ pub(super) fn native_marked(state: &GameState, steps: &[(bool, Arm, Option<TurnJ
 /// [`native_marked`] where a step may be the reconcile alone (`None`).
 fn native_marked_arms(state: &GameState, steps: &[(bool, Option<Arm>, Option<TurnJob>)], ids: &[&str]) -> Run {
     let mut cx = Ctx::of(state).expect("a table the codecs carry");
-    let render = Render::new(cx.owners.ids().to_vec());
+    // (The options that name a seat by faction -- Politics, Trade -- need the faction texts.)
+    let factions = cx.owners.ids().iter().map(|id| state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
+    let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions);
     let game = super::Game::with_table(state.clone(), ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption)));
     let positions = game.rng_positions();
     let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
@@ -152,7 +154,7 @@ fn native_marked_arms(state: &GameState, steps: &[(bool, Option<Arm>, Option<Tur
         }
         let Some(arm) = arm else { continue };
         loop {
-            let step = live::live_step(&mut core, *arm, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native arm stopped: {e:?}"));
+            let step = live::live_step(&mut core, *arm, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native arm stopped: {e:?} after {:?}", asker.seen.iter().map(|c| (c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>()));
             if step.finished {
                 break;
             }

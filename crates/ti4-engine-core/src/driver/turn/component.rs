@@ -82,10 +82,11 @@ pub enum Verdict {
     Failed { withhold: bool },
 }
 
-/// Everything after a body (`Game::apply_choice`): what the body staged is announced, Extreme Duress settles, the verdict is told, and a
+/// Everything after a body (`Game::apply_choice`): what the body staged is announced (`announce`: the faction and leader arms do it, the
+/// technology, relic, device and action-card arms do not), Extreme Duress settles, the verdict is told, and a
 /// resolved action ends (`finish_action`). `key` is the option's key (the failed-action withholding).
-pub fn conclude(sx: &mut Sx<'_>, who: Seat, key: u32, verdict: Verdict) -> Flow {
-    if announce_staged(sx) == Flow::Halt || settle_extreme_duress(sx, who, false) == Flow::Halt {
+pub fn conclude(sx: &mut Sx<'_>, who: Seat, key: u32, verdict: Verdict, announce: bool) -> Flow {
+    if announce && announce_staged(sx) == Flow::Halt || settle_extreme_duress(sx, who, false) == Flow::Halt {
         return Flow::Halt;
     }
     match verdict {
@@ -101,4 +102,40 @@ pub fn conclude(sx: &mut Sx<'_>, who: Seat, key: u32, verdict: Verdict) -> Flow 
             Flow::Done
         }
     }
+}
+
+/// An action card played as the action (`action_cards::perform`, the `action_card|` arm): the card leaves the hand (or is purged off the salvage
+/// yard), is announced and resolved inside the step, and the verdict follows. A play that was cancelled leaves the turn open (22.4); the card
+/// is gone either way (22.3).
+pub fn play_card(sx: &mut Sx<'_>, who: Seat, key: u32, card: crate::generated::ActionCard, from_hand: Option<u8>) -> Flow {
+    let taken = match from_hand {
+        Some(index) => {
+            let Some(p) = sx.state.players_mut().by_seat_mut(who) else { return super::inline::gap_flow(sx, crate::kernel::turn_codes::TurnGap::ReplayDiverged) };
+            if p.cards.hand.as_slice().get(usize::from(index)) != Some(&card) {
+                return super::inline::gap_flow(sx, crate::kernel::turn_codes::TurnGap::ReplayDiverged);
+            }
+            p.cards.hand.remove(usize::from(index));
+            true
+        }
+        None => crate::rules::legendary::purge_salvaged(sx.state, who, card),
+    };
+    if !taken {
+        return super::inline::gap_flow(sx, crate::kernel::turn_codes::TurnGap::ReplayDiverged);
+    }
+    let mark = fx::journal_mark(sx.resolver);
+    let played = match crate::rules::action_cards::announce::play_inline(sx, who, card) {
+        Ok(played) => played,
+        Err(_) => {
+            if !super::inline::halted(sx) {
+                super::inline::gap(sx, crate::kernel::turn_codes::TurnGap::EmissionRefused);
+            }
+            return Flow::Halt;
+        }
+    };
+    if super::inline::halted(sx) {
+        return Flow::Halt;
+    }
+    // The string mirrors the timing log of the play into its event queue when the call returns.
+    fx::mirror_journal(sx.state, sx.resolver, mark);
+    conclude(sx, who, key, if played { Verdict::Resolved } else { Verdict::Failed { withhold: false } }, false)
 }
