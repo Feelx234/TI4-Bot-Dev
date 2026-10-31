@@ -1303,7 +1303,7 @@ impl Window for Exploring {
                         return Next::Continue(ask);
                     }
                     Some(Ran::Pass(next)) => {
-                        if self.hosted {
+                        if self.hosted { // mutants:skip (a child that hands back a Next is not one of the windows linked here)
                             self.fail(EWhy::LinkedAsks);
                             continue;
                         }

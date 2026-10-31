@@ -737,3 +737,29 @@ fn a_zero_conversion_announces_nothing_and_a_fuel_source_pays_no_goods() {
     assert_eq!(goods_of_seat(&fuel), 0);
     assert!(fuel.driver.emitted.iter().all(|e| e.kind != EventKind::TradeGoodsGained));
 }
+
+#[test]
+fn the_last_survivors_a_table_without_unit_forms_a_one_good_conversion_and_a_gain_from_nothing() {
+    covers!("rules::explore_windows::Exploring");
+    use ti4_engine_core::state::EWhy;
+    // No unit forms in the table: the placing options are offered (nothing can be said to forbid), placing is named, and nothing is charged.
+    let (mut rig, _, _) = build(holdings_setup(LATEST_RULES, 1, 0, Faction::TheArborec), ExploreType::Industrial, &[Explore::LocalFabricators1], false, EDeck::Fixed(ExploreType::Industrial));
+    rig.run();
+    assert_eq!(rig.opts(), vec![ex(EOpt::Gain), ex(EOpt::SpendTradeGood)]);
+    rig.pick_opt(ex(EOpt::SpendTradeGood));
+    assert_eq!(rig.driver.window.unsupported(), Some(EWhy::NoLink));
+    assert_eq!(goods_of_seat(&rig), 1, "no good is spent on a mech that cannot be placed");
+    // One commodity converts to one announced good.
+    let (mut conv, _, _) = build(holdings_setup(LATEST_RULES, 0, 1, Faction::TheArborec), ExploreType::Industrial, &[Explore::AbandonedWarehouses1], true, EDeck::Fixed(ExploreType::Industrial));
+    conv.run();
+    conv.pick_opt(ex(EOpt::Convert));
+    assert_eq!(conv.driver.emitted.iter().filter(|e| e.kind == EventKind::TradeGoodsGained).count(), 1);
+    // A gain is one commodity from none.
+    for card in [Explore::FunctioningBase1, Explore::LocalFabricators1] {
+        let (rig, _, _) = build(holdings_setup(LATEST_RULES, 0, 0, Faction::TheArborec), ExploreType::Industrial, &[card], false, EDeck::Fixed(ExploreType::Industrial));
+        let mut rig = with_roster(rig);
+        rig.run();
+        rig.pick_opt(ex(EOpt::Gain));
+        assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, 1, "{card:?}");
+    }
+}
