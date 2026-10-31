@@ -460,3 +460,37 @@ fn a_machine_that_was_stopped_stays_stopped() {
     assert!(rig.driver.window.fields.end_announced);
     assert_eq!(Machine::max_rounds(), 50);
 }
+
+#[test]
+fn the_ships_a_retreat_cannot_hold_are_announced_at_once_with_the_retreat_cause() {
+    covers!("rules::combat::machine::Machine");
+    // Package W10: a fleet of destroyers (no capacity) with fighters retreats; the fighters are stranded and lost. With staging the loss is
+    // staged and the machine announces it as SHIP_DESTROYED with the renderer's text of the cause (it bailed before).
+    let mut e = env();
+    e.staging = true;
+    e.may_retreat = [true, true];
+    e.neighbors = [vec![(there(), true)], vec![(there(), true)]];
+    e.retreat_cause = Code(11);
+    e.retreat_event = Code(51);
+    let sc = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 1).unit(sys(), None, Unit::DestroyerI, 1, 2).unit(sys(), None, Unit::FighterI, 1, 4).unit(there(), None, Unit::CruiserI, 1, 1);
+    let mut stranded_seeds = 0;
+    for seed in 0..60u64 {
+        let mut fight = Fight::new(sc(), e.clone(), seed);
+        let stop = fight.settle(Policy::Last);
+        assert_eq!(stop, Some(Stop::Over), "seed {seed}: the strand no longer bails");
+        let lost: Vec<_> = fight.events.iter().filter(|(k, p)| *k == EventKind::ShipDestroyed && p.code(Key::Cause) == Some(Code(51))).collect();
+        if fight.fields.fled.is_empty() {
+            assert!(lost.is_empty(), "seed {seed}: no retreat, no strand");
+            continue;
+        }
+        let fighters_before = 4;
+        let fighters_there = fight.state.board().sys(there()).units.iter().filter(|p| p.owner() == Seat(1) && p.kind() == Unit::FighterI).count();
+        assert_eq!(fighters_there, 0, "seed {seed}: fighters cannot retreat on their own");
+        // Fighters lost to the barrage and the rounds before the retreat are not stranded: the stranded are the ones still there then.
+        assert!(lost.len() <= fighters_before);
+        assert!(lost.iter().all(|(_, p)| p.unit(Key::Unit) == Some(Unit::FighterI) && p.seat(Key::Player) == Some(Seat(1))));
+        assert!(fight.state.transient().combat.pending_destructions.is_empty(), "nothing is left staged: the announcement drained it");
+        stranded_seeds += usize::from(!lost.is_empty());
+    }
+    assert!(stranded_seeds > 0, "the seeds cover a retreat that stranded fighters");
+}

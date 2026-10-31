@@ -412,3 +412,128 @@ fn assault_cannon_of_both_sides_fires_in_attacker_defender_order_with_eligibilit
     assert_eq!(count(&rig, 0, |_| true), 2);
     assert_eq!(count(&rig, 1, |_| true), 2);
 }
+
+// ---- the Jol-Nar commander and Waylay (package W10) ----------------------------------------------------
+
+fn jolnar_facts(commander: [bool; 2]) -> BarrageFacts {
+    BarrageFacts { commander, ..facts(false, true) }
+}
+
+fn commander_arena(seed: u64, commander: [bool; 2]) -> Rig<BarrageStep> {
+    let sc = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerII, 0, 1).unit(sys(), None, Unit::FighterI, 1, 3);
+    Rig::new(sc, BarrageStep::new(jolnar_facts(commander))).seeded(seed)
+}
+
+#[test]
+fn the_jolnar_commander_asks_about_each_die_and_rerolls_only_the_picked_ones() {
+    covers!("rules::combat::barrage::BarrageStep");
+    use ti4_engine_core::choice::combat::RerollSource;
+    use ti4_engine_core::choice::generic::Content;
+    use ti4_engine_core::choice::Origin;
+    let (mut rerolled_hit, mut rerolled_miss) = (false, false);
+    for seed in 0..60u64 {
+        let mut rig = commander_arena(seed, [true, false]);
+        rig.run();
+        let mut asked = 0;
+        let mut picked = Vec::new();
+        while !rig.is_done() {
+            assert_eq!(rig.asked().actor, Seat(0), "the holder is asked");
+            assert_eq!(rig.asked().ask, Ask::Combat(CAsk::RerollDie { source: RerollSource::Commander, unit: Code(11), die: asked }), "one question per die, in order");
+            assert_eq!(rig.asked().ctx.origin, Origin::Content(Content::Leader(ti4_engine_core::generated::Leader::AgnlanOln)));
+            assert_eq!(rig.asked().ctx.subtype, Subtype::Combat(CSub::Reroll(RerollSource::Commander)));
+            assert_eq!(rig.opts().len(), 2, "reroll the die or decline");
+            // The staged dice are mirrored for the question's display facts while it is open.
+            let staged = rig.state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == Seat(0)).map(|(_, set)| set.clone()).expect("the dice are staged");
+            assert_eq!(staged.rolls.len(), 1);
+            assert_eq!(staged.rolls[0].faces.len(), 3);
+            // Reroll the first die when it missed; keep the others.
+            let COpt::RerollDie { face, .. } = (match rig.opts()[0] { Opt::Combat(o) => o, _ => panic!() }) else { panic!() };
+            if asked == 0 && face < 6 {
+                picked.push(0u8);
+                rig.pick(0);
+            } else {
+                rig.decline();
+            }
+            asked += 1;
+        }
+        assert_eq!(asked, 3, "three dice, three questions");
+        assert!(rig.state.transient().combat.reroll_staging.is_empty(), "the staging is cleared");
+        let w = &rig.driver.window;
+        assert_eq!(w.first_draws().len(), 1, "the roll itself");
+        assert_eq!(w.drawn.len(), 1 + picked.len(), "one redraw per picked die");
+        assert_eq!(rig.state.ledger().dice.len(), 1 + picked.len());
+        let final_faces = &w.drawn.last().unwrap().1;
+        let hits = final_faces.iter().filter(|f| **f >= 6).count();
+        assert_eq!(rig.state.transient().combat.presentation.barrage_hits.get(&Seat(0)).copied(), Some(hits as u32), "the hits read the final faces");
+        assert_eq!(count(&rig, 1, fighters), 3usize.saturating_sub(hits), "seed {seed}");
+        let announced = rig.driver.emitted.iter().filter(|e| e.kind == EventKind::UnitAbilityRolled).count();
+        assert_eq!(announced, 1, "the roll is announced once, after the rerolls");
+        if !picked.is_empty() {
+            let (before, after) = (w.drawn[0].1[0], w.drawn[1].1[0]);
+            assert_ne!(rig.state.ledger().dice.last().unwrap().rerolled, 0, "the redraw is marked in the ledger");
+            rerolled_hit |= after >= 6 && before < 6;
+            rerolled_miss |= after < 6;
+        }
+    }
+    assert!(rerolled_hit && rerolled_miss, "the seeds cover a reroll that hit and one that missed");
+}
+
+#[test]
+fn a_barrage_whose_side_does_not_hold_the_commander_asks_nothing() {
+    covers!("rules::combat::barrage::BarrageStep");
+    for seed in 0..5u64 {
+        // The commander with the defender, who rolls no dice: the attacker is not asked.
+        let mut rig = commander_arena(seed, [false, true]);
+        rig.run();
+        assert!(rig.is_done(), "seed {seed}: neither the attacker's roll nor the empty roll of the defender is asked");
+        assert_eq!(rig.driver.window.drawn.len(), 1);
+    }
+}
+
+fn waylay_arena(seed: u64, waylay: bool) -> Rig<BarrageStep> {
+    let sc = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerII, 0, 1).unit(sys(), None, Unit::FighterI, 1, 1).unit(sys(), None, Unit::DreadnoughtI, 1, 1).unit(sys(), None, Unit::CruiserI, 1, 1);
+    let (mut state, kernel) = sc.build();
+    state.meta_mut().combat_round_seq = 4;
+    if waylay {
+        state.players_mut().by_seat_mut(Seat(0)).unwrap().card_timers.waylay_barrage_round.set(Some(4));
+    }
+    Rig::from_parts(state, kernel, BarrageStep::new(BarrageFacts { hit_texts: ti4_engine_core::kernel::children::HitTexts { staging: true, commander: Code(13), casualty: Code(14), effect_hit: Code(15) }, ..facts(true, true) })).seeded(seed)
+}
+
+#[test]
+fn a_waylay_sends_the_hits_to_every_ship_with_sustain_damage_first_and_the_owner_choosing_the_losses() {
+    covers!("rules::combat::barrage::BarrageStep");
+    let (mut asked_sustain, mut asked_casualty) = (false, false);
+    for seed in 0..60u64 {
+        let mut plain = waylay_arena(seed, false);
+        plain.run();
+        assert!(plain.is_done(), "without the card the barrage takes the fighters and asks nothing");
+        let hits = hits_of(&plain.driver.window.drawn);
+        let mut rig = waylay_arena(seed, true);
+        rig.run();
+        if hits == 0 {
+            assert!(rig.is_done(), "seed {seed}: no hit, nothing to assign");
+            continue;
+        }
+        let mut guard = 0;
+        while !rig.is_done() {
+            let q = rig.asked().clone();
+            assert_eq!(q.actor, Seat(1), "the victim's owner answers");
+            match q.ask {
+                Ask::Combat(CAsk::CancelHit { .. }) => asked_sustain = true,
+                Ask::Combat(CAsk::AssignHit) => asked_casualty = true,
+                ref other => panic!("{other:?}"),
+            }
+            rig.pick(0);
+            guard += 1;
+            assert!(guard < 10);
+        }
+        // The hits were absorbed by the dreadnought's sustain, the cruiser or the fighter, not only the fighter.
+        let lost = 3 - count(&rig, 1, |_| true);
+        let sustained = rig.state.board().sys(sys()).units.iter().any(|p| p.owner() == Seat(1) && p.sustained());
+        assert!(lost >= 1 || sustained, "seed {seed}: {hits} hits had an effect");
+        let destroyed = rig.driver.emitted.iter().filter(|e| e.kind == EventKind::ShipDestroyed).count();
+        assert!(destroyed >= lost, "each loss is announced");
+    }
+    assert!(asked_sustain && asked_casualty, "the seeds cover a sustain offer and a casualty choice");
+}

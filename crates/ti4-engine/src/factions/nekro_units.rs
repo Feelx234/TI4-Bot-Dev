@@ -1948,10 +1948,11 @@ mod tests {
         let seen = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
             crate::dual::run_dual_window(Area::LeadersAbilities, "factions::nekro::malleon", &mut spent, |_| crate::dual::Run::new(false), |s, script| crate::leaders_core::nekro_agent(s, &a(), DEFAULT, script))
         });
-        assert!(seen);
+        assert!(!seen, "the string declines and the window agrees");
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.windows.keys().all(|label| !label.contains("does not hold it readied")), "{r:?}");
+        assert_eq!(crate::dual::thread_window_counts("factions::nekro::malleon"), (7, 0), "{r:?}");
         let _ = take_report();
     }
 
