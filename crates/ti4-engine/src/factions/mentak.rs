@@ -1434,6 +1434,38 @@ mod tests {
         );
     }
 
+    /// Found by the end-of-D1 golden dual (`driver=dual`, `combat::settle`): the string bridge of the combat kernel asked
+    /// the string `may_sustain` of the snapshot the window started in, so the Fourth Moon destroyed INSIDE the window
+    /// still barred the other player's sustain in the core half (the core offered the casualty, the string the sustain).
+    /// The rule is now the native Mentak row, read from the core state the window is in.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn a_fourth_moon_destroyed_inside_a_combat_window_no_longer_bars_the_sustain_of_the_core_half() {
+        use crate::core_sync::{CoreView, Ctx, Sources};
+        use ti4_engine_core::rules::combat::{sustains_in_space, Rd};
+        use ti4_engine_core::state::Piece;
+
+        let mut before = crate::fixtures::seated_dealt(&[("a", "mentak"), ("b", "sol")], DEFAULT);
+        let system = SystemId::new("18");
+        put(&mut before, &system, FLAGSHIP, &a(), 1);
+        put(&mut before, &system, "dreadnought", &b(), 1);
+        // The window started with the flagship on the board and destroyed it (the snapshot keeps it).
+        let mut after = before.clone();
+        after.system_mut(&system).units.retain(|unit| unit.type_id.as_str() != FLAGSHIP);
+
+        let mut cx = Ctx::of(&before).expect("owners");
+        let env = crate::core_combat::window_env(&before, &cx, DEFAULT).expect("window env");
+        let sustains_at = |position: &GameState, cx: &mut Ctx| {
+            let view = CoreView::of(position, cx, Sources { galaxy: None, rng: None }, crate::core_combat::READS).expect("view");
+            let seat = cx.owners.seat("b").expect("seat of b");
+            let typed_system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(system.as_str()).expect("system");
+            let ship = Piece::new(ti4_engine_core::generated::Unit::DreadnoughtI, seat);
+            sustains_in_space(Rd::new(&view, &env.kernel), typed_system, seat, ship, true)
+        };
+        assert!(!sustains_at(&before, &mut cx), "the flagship stands: the other player's ships cannot sustain");
+        assert!(sustains_at(&after, &mut cx), "the flagship is gone: they can again");
+    }
+
     #[test]
     fn moll_terminus_stops_other_ground_forces_on_its_planet_sustaining() {
         let (mut state, _) = arena();
