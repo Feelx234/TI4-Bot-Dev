@@ -25,7 +25,7 @@ mod real {
     use ti4_engine_core::generated::{Planet, System, Technology};
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::hero_windows::{Devourable, KyverHero, NekroHero};
+    use ti4_engine_core::rules::hero_windows::{CabalHero, Devourable, KyverHero, NekroHero, Stranded};
     use ti4_engine_core::state::Slice;
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::PlayerId;
@@ -161,6 +161,89 @@ mod real {
         run.rng = Some(positions);
         Some(CoreWindow { run, questions: driven.rendered })
     }
+
+    /// What It Feeds on Carrion reads (the ships, the cargo, the fleet limits) and writes (the captured ships and cargo, the board, the stream).
+    const CARRION: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Rng],
+        &[Slice::Players, Slice::Board, Slice::Rng],
+    );
+
+    /// The core half of Cabal's It Feeds on Carrion (`factions::cabal::use_leader`; the value: the card resolved). `targets` are the ships the
+    /// string rolls for, in its order; the enforcement limits of each owner and system are the string's reads (`tactical_dual::limits_of`).
+    /// `rng_before` is where the streams stood before the string rolled; the streams after are compared.
+    pub fn cabal_hero(
+        gs: &mut GameState,
+        content: &ti4_content::ContentStore,
+        player: &PlayerId,
+        targets: &[(ti4_model::id::SystemId, ti4_model::units::Unit)],
+        rng_before: &crate::rng::RngPositions,
+        sources: SourceSet,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        use ti4_engine_core::kernel::children::SeeingLimits;
+        use ti4_engine_core::state::Piece;
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+        let pieces: Vec<(System, Piece)> = targets
+            .iter()
+            .map(|(system, unit)| {
+                let piece = Piece::new(typed::<ti4_engine_core::generated::Unit>(unit.type_id.as_str())?, r.seat(unit.owner.as_str())?)
+                    .with_sustained(unit.sustained_damage)
+                    .with_galvanized(unit.galvanized);
+                Some((typed::<System>(system.as_str())?, piece))
+            })
+            .collect::<Option<_>>()
+            .why("a ship, a system or an owner the typed tables do not know")?;
+        // The owners and systems a capture can strand cargo in, in the order of the string's set of (owner, system) texts.
+        let mut pairs: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
+        for (system, unit) in targets {
+            pairs.insert((unit.owner.to_string(), system.to_string()));
+        }
+        let mut stranded = Vec::new();
+        for (owner, system) in &pairs {
+            let owner_id = PlayerId::new(owner.clone());
+            let system_id = ti4_model::id::SystemId::new(system.clone());
+            let limits = match crate::tactical_dual::limits_of(gs, content, &owner_id, &system_id) {
+                Ok(limits) => limits,
+                Err(why) => {
+                    crate::dual::note_bail_here(why);
+                    return None;
+                }
+            };
+            stranded.push(Stranded {
+                owner: r.seat(owner)?,
+                system: typed::<System>(system)?,
+                limits: SeeingLimits { enforce: limits.enforce, shown: limits.shown, halves: limits.halves },
+            });
+        }
+        let before = gs.clone();
+        let kernel = crate::core_adapter::kernel_for(sources);
+        let mut table = AbilityTable::default();
+        ti4_engine_core::driver::children::register(&mut table);
+        let seeds = std::rc::Rc::new(crate::core_sync::codec::rng::TextSeeds::of(&cx));
+        let mut driver = Driver::new(CabalHero::new(seat, true, pieces, stranded), Resolver::new(&seats, Some(seat)), table, 1).with_seeds(seeds);
+        let mut after = None;
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy: None, rng: Some(rng_before) }, CARRION, |core, _| {
+            let driven = crate::dual_window::drive(&mut driver, core, kernel, &r, &before, script);
+            after = Some(core.rng().clone());
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        if driver.window.unsupported {
+            crate::dual::note_bail_here("the table has no link to the enforcement window");
+            return None;
+        }
+        let positions = crate::core_sync::codec::rng::positions(&cx, &after?).why("the random streams could not be read back")?;
+        let mut run = Run::new(driver.window.used).with_events_vec(Vec::new());
+        run.rng = Some(positions);
+        Some(CoreWindow { run, questions: driven.rendered })
+    }
 }
 
 #[cfg(not(feature = "typed-core"))]
@@ -184,6 +267,18 @@ mod stub {
         _: &ti4_content::ContentStore,
         _: &PlayerId,
         _: &crate::rng::RngPositions,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+
+    pub fn cabal_hero(
+        _: &mut GameState,
+        _: &ti4_content::ContentStore,
+        _: &PlayerId,
+        _: &[(ti4_model::id::SystemId, ti4_model::units::Unit)],
+        _: &crate::rng::RngPositions,
+        _: ti4_model::content_types::SourceSet,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {
         None

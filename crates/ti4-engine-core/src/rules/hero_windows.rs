@@ -442,3 +442,157 @@ impl Window for KyverHero {
         }
     }
 }
+
+// -- It Feeds on Carrion ------------------------------------------------------------------------------
+
+use crate::kernel::children::{ErasedChild, Report, SeeingLimits, Spawn};
+use crate::state::Piece;
+
+/// The suspension points of [`CabalHero`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CStage {
+    Start,
+    /// The next affected owner and system is enforced (a child).
+    Next,
+    Enforcing,
+    Done,
+}
+
+/// The owner and system whose cargo the captured ships strand, with what the adapter read for the enforcement there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stranded {
+    pub owner: Seat,
+    pub system: System,
+    pub limits: SeeingLimits,
+}
+
+/// It Feeds on Carrion (Cabal hero): "ACTION: Each other player rolls a die for each of his non-fighter ships that are in or adjacent to a
+/// system that contains a dimensional tear. On a 1-3, capture that unit. If this causes a player's ground forces or fighters to be removed,
+/// also capture those units. Then, purge this card." `targets` are the ships rolled for, in the order the string lists them (the system
+/// text order, the board order inside a system): each draws a die from the dice stream, a 1 to 3 captures it from the board. The cargo the
+/// captures strand is the enforcement of the capacity of each owner and system that lost a ship (`stranded`, in the string's order of
+/// (owner text, system text)): a child asks the owner which units go, and every fighter or ground force in the space area that is gone
+/// afterwards is captured by the holder (a row for the owner, in the order of the unit ids). `playable`: a Cabal seat, a tear and a map
+/// (the adapter read them; an unplayable card changes nothing). [`Self::used`]: the card resolved.
+#[derive(Debug, Clone)]
+pub struct CabalHero {
+    pub who: Seat,
+    playable: bool,
+    targets: Vec<(System, Piece)>,
+    stranded: Vec<Stranded>,
+    stage: CStage,
+    /// The pairs that lost a ship, in the order of `stranded`.
+    affected: Vec<usize>,
+    at: usize,
+    before: Vec<crate::generated::Unit>,
+    child: ErasedChild,
+    pub used: bool,
+    pub unsupported: bool,
+}
+
+impl CabalHero {
+    #[must_use]
+    pub fn new(who: Seat, playable: bool, targets: Vec<(System, Piece)>, stranded: Vec<Stranded>) -> Self {
+        Self { who, playable, targets, stranded, stage: CStage::Start, affected: Vec::new(), at: 0, before: Vec::new(), child: ErasedChild::idle(), used: false, unsupported: false }
+    }
+
+    /// The fighters and ground forces of `owner` in the space area of `system`, ordered by unit form (the order of the id text).
+    fn cargo(core: &CoreState, owner: Seat, system: System) -> Vec<crate::generated::Unit> {
+        let mut held: Vec<crate::generated::Unit> =
+            core.board().sys(system).units.as_slice().iter().filter(|p| p.owner() == owner && fleet::consumes_capacity(p.kind())).map(|p| p.kind()).collect();
+        // The unit forms are numbered in the order of their id text (the string sorts the ids).
+        held.sort();
+        held
+    }
+
+    /// The captures the removal of cargo caused: whatever was there before and is not now.
+    fn capture_the_gone(&mut self, sx: &mut Sx<'_>) {
+        let Some(pair) = self.affected.get(self.at).and_then(|i| self.stranded.get(*i)).copied() else { return };
+        let mut after = Self::cargo(sx.state, pair.owner, pair.system);
+        for unit in std::mem::take(&mut self.before) {
+            if let Some(index) = after.iter().position(|kept| *kept == unit) {
+                after.remove(index);
+            } else if let Some(p) = sx.state.players_mut().by_seat_mut(self.who) {
+                p.misc.captured_units.push((pair.owner, unit));
+            }
+        }
+    }
+}
+
+impl Window for CabalHero {
+    type Stage = CStage;
+
+    fn stage(&self) -> CStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        use crate::kernel::stage::Ran;
+        loop {
+            match self.stage {
+                CStage::Start => {
+                    if !self.playable {
+                        self.stage = CStage::Done;
+                        continue;
+                    }
+                    self.used = true;
+                    // Every die first, in the order of the ships; then the captures, in the same order.
+                    let mut hit: Vec<(System, Piece)> = Vec::new();
+                    for (system, piece) in &self.targets {
+                        if sx.die(crate::state::RngDomain::Dice, 10) <= 3 {
+                            hit.push((*system, *piece));
+                        }
+                    }
+                    let mut touched: Vec<(Seat, System)> = Vec::new();
+                    for (system, piece) in hit {
+                        if crate::rules::production::supply::capture_from_board(sx.state, self.who, system, None, piece) {
+                            touched.push((piece.owner(), system));
+                        }
+                    }
+                    self.affected = self.stranded.iter().enumerate().filter(|(_, s)| touched.contains(&(s.owner, s.system))).map(|(i, _)| i).collect();
+                    self.stage = CStage::Next;
+                }
+                CStage::Next => {
+                    let Some(pair) = self.affected.get(self.at).and_then(|i| self.stranded.get(*i)).copied() else {
+                        self.stage = CStage::Done;
+                        continue;
+                    };
+                    self.before = Self::cargo(sx.state, pair.owner, pair.system);
+                    match sx.table.links.start(&Spawn::Seeing { who: pair.owner, system: pair.system, limits: pair.limits }) {
+                        Some(window) => {
+                            self.child.start(window);
+                            self.stage = CStage::Enforcing;
+                        }
+                        None => {
+                            self.unsupported = true;
+                            self.stage = CStage::Done;
+                        }
+                    }
+                }
+                CStage::Enforcing => match self.child.step(sx) {
+                    Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                    Some(Ran::Pass(next)) => return next,
+                    Some(Ran::Done(report)) => {
+                        debug_assert!(matches!(report, Report::Removed(_)));
+                        self.capture_the_gone(sx);
+                        self.at += 1;
+                        self.stage = CStage::Next;
+                    }
+                    None => {
+                        self.at += 1;
+                        self.stage = CStage::Next;
+                    }
+                },
+                CStage::Done => return Next::Done,
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.stage == CStage::Enforcing { self.child.ask_of(s, k) } else { None }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == CStage::Enforcing { self.child.answer(sx, pick) } else { Err(Illegal) }
+    }
+}

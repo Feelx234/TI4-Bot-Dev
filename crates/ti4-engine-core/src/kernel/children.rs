@@ -73,6 +73,19 @@ pub struct OneFacts {
     pub alias: Option<Code>,
 }
 
+/// What `Spawn::Seeing` (the enforcement of the fleet supply and the capacity of one seat in one system, `fleet::enforce_seeing`) needs of the
+/// position that the core does not hold: the fleet limit as the string works it out (pool, laws, abilities), the one the question shows
+/// and the fighter types that count as half a ship for the seat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeeingLimits {
+    /// The limit the enforcement judges by.
+    pub enforce: i64,
+    /// The limit the question shows.
+    pub shown: i64,
+    /// The fighter types counted as half (Naalu Hybrid Crystal Fighter II), at most one per unit form.
+    pub halves: [Option<Unit>; 2],
+}
+
 /// The units a finished production made, in order: the unit and the planet it stands on (`None`: the space area).
 pub type Made = SmallList<(Unit, Option<Planet>), 12>;
 
@@ -113,6 +126,8 @@ pub enum Report {
     Built(bool),
     /// A production by an ability finished: what it made.
     Made(Made),
+    /// An enforcement finished: how many units it removed.
+    Removed(u32),
 }
 
 /// A window of another area, run as a child: the object-safe face of [`Window`] plus what the finished window reports.
@@ -270,6 +285,9 @@ pub enum Spawn {
     /// `production::one::ProduceOne`: one unit for `who` in `system`; reports [`Report::Left`] when the unit stands over the fleet supply
     /// or the capacity of its system (the string asks which units go), else [`Report::Nothing`].
     ProduceOne { who: Seat, system: System, facts: OneFacts },
+    /// `tactical::fleet::Enforce`: `who` removes the units over the fleet supply, then over capacity, in `system`, one question each;
+    /// reports [`Report::Removed`].
+    Seeing { who: Seat, system: System, limits: SeeingLimits },
 }
 
 /// Starts the child window a [`Spawn`] names; `None` for a request the table does not know.

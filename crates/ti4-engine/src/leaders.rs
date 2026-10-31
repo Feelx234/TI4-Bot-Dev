@@ -2414,7 +2414,6 @@ pub(crate) fn string_only_leader(id: &str) -> Option<&'static str> {
         "naazhero" => "naazhero: a relic and the secondary of one or two strategy cards chosen at run time. Read in lane 7 and kept: `Spawn` names no child for the secondaries of Warfare (home production) and Imperial as a continuation of a leader, and a failed secondary restores the whole position (a snapshot of the state)",
         "winnuhero" => "winnuhero: the primary of any strategy card, then the secondary offered to the other players (`use_leader_strategy_primary`, D1b dispatch). Read in lane 7 and kept: the primary of Imperial and the follow-up of every other seat are not children a leader can start",
         "empyreanhero" => "empyreanhero: explores every frontier token that holds a ship (the exploration composition, D1). Kept in lane 7: each exploration is a loop of `explore_frontier` whose rewards run other areas' bodies, with a rollback of the state, the dice and the stream on a failure",
-        "cabalhero" => "cabalhero: a hunt over the gravity rifts and the ships in or next to them. Kept in lane 7: one die per ship from the game's stream, `supply::capture_from_board`, the cargo the capture strands and `fleet::enforce_seeing` (a window the core cannot start as a child), all under a whole-state rollback",
         "argenthero" => "argenthero: moves the fleets of the board by the Flock's migration. Kept in lane 7: ships one at a time between command-token systems with their cargo (`migrate`), a movement the core runs only inside the tactical movement windows",
         "yinhero" => "yinhero: lands infantry and fights the ground combat. Kept in lane 7: the Game path (`use_leader_timed`) runs each chosen planet through the eventful ground-combat window with its timing events (the invasion composition, D1b)",
         "mahacthero" => "mahacthero: a space combat between two sides chosen on the map. Kept in lane 7: the pair is asked over the map, then the whole space combat runs with no retreat (the tactical composition, D1b)",
@@ -2752,13 +2751,13 @@ mod tests {
         let content = ContentStore::embedded();
         let ids = [
             "naazhero", "winnuhero",
-            "empyreanhero", "cabalhero", "argenthero", "yinhero", "mahacthero",
+            "empyreanhero", "argenthero", "yinhero", "mahacthero",
         ];
         for id in ids {
             assert!(string_only_leader(id).is_some_and(|why| why.starts_with(id)), "{id}");
             assert!(kind_of(content, &LeaderId::new(id)).is_some(), "{id} is a leader of the corpus");
         }
-        for carried in ["nekrohero", "yssarilhero", "arborechero", "muaatagent", "arborecagent", "saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
+        for carried in ["nekrohero", "yssarilhero", "cabalhero", "arborechero", "muaatagent", "arborecagent", "saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
             assert_eq!(string_only_leader(carried), None, "{carried} has a port");
         }
         let _guard = crate::dual::tests::serial();

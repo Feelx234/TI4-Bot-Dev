@@ -273,3 +273,178 @@ fn answers_outside_the_offer_are_refused() {
     rig.expect_illegal(Pick::Opt(Opt::Cards(COpt::Card(C[0]))));
     rig.expect_illegal(Pick::Opt(Opt::Leaders(LOpt::Gain(Technology::GravityDrive))));
 }
+
+// -- It Feeds on Carrion ------------------------------------------------------------------------------
+
+use ti4_engine_core::kernel::children::SeeingLimits;
+use ti4_engine_core::rules::hero_windows::{CabalHero, Stranded};
+use ti4_engine_core::state::Piece;
+
+fn limits() -> SeeingLimits {
+    SeeingLimits { enforce: 8, shown: 8, halves: [None, None] }
+}
+
+fn carrion(sc: Scenario, playable: bool, targets: Vec<(System, Piece)>, stranded: Vec<Stranded>) -> Rig<CabalHero> {
+    Rig::new(sc, CabalHero::new(Seat(0), playable, targets, stranded))
+}
+
+fn captured(rig: &Rig<CabalHero>) -> Vec<(Seat, Unit)> {
+    rig.state.players().by_seat(Seat(0)).unwrap().misc.captured_units.as_slice().to_vec()
+}
+
+fn at(rig: &Rig<CabalHero>, system: System, seat: u8, unit: Unit) -> usize {
+    rig.state.board().sys(system).units.as_slice().iter().filter(|p| p.owner() == Seat(seat) && p.kind() == unit).count()
+}
+
+/// Run the hero on `seed` and answer every enforcement question with its first option.
+fn play(sc: &Scenario, playable: bool, targets: &[(System, Piece)], stranded: &[Stranded], seed: u64) -> Rig<CabalHero> {
+    play_with(sc, playable, targets, stranded, &[], seed)
+}
+
+/// [`play`] with `extra` pieces added to the space area of their system first (ground forces cannot be put there by a scenario).
+fn play_with(sc: &Scenario, playable: bool, targets: &[(System, Piece)], stranded: &[Stranded], extra: &[(System, Piece)], seed: u64) -> Rig<CabalHero> {
+    let mut rig = carrion(sc.clone(), playable, targets.to_vec(), stranded.to_vec()).seeded(seed);
+    for (system, piece) in extra {
+        rig.state.board_mut().sys_mut(*system).units.push(*piece);
+    }
+    rig.run();
+    while !rig.is_done() {
+        // The soundness check replays from the scenario, which lacks the extra pieces.
+        if extra.is_empty() {
+            rig.assert_options_sound();
+        }
+        rig.pick(0);
+    }
+    rig
+}
+
+fn hub() -> (Scenario, System) {
+    let [a, b] = two();
+    let sc = Scenario::new(&[Faction::TheVuilraithCabal, Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[a.0, b.0]);
+    (sc, a.0)
+}
+
+#[test]
+fn each_ship_rolls_one_die_and_a_one_to_three_captures_it_from_the_board() {
+    covers!("rules::hero_windows::CabalHero");
+    let (sc, system) = hub();
+    let sc = sc.unit(system, None, Unit::CruiserI, 1, 2);
+    let ships: Vec<Piece> = vec![Piece::new(Unit::CruiserI, Seat(1)); 2];
+    let targets: Vec<(System, Piece)> = ships.iter().map(|p| (system, *p)).collect();
+    let (mut hit, mut miss) = (false, false);
+    for seed in 0..60 {
+        let rig = play(&sc, true, &targets, &[], seed);
+        assert!(rig.driver.window.used);
+        let taken = captured(&rig).len();
+        assert_eq!(at(&rig, system, 1, Unit::CruiserI) + taken, 2, "a ship is on the board or in the holder's sheet");
+        assert!(captured(&rig).iter().all(|c| *c == (Seat(1), Unit::CruiserI)));
+        hit |= taken > 0;
+        miss |= taken < 2;
+    }
+    assert!(hit && miss, "both outcomes are reached on some seed");
+    // The same seed gives the same outcome.
+    assert_eq!(captured(&play(&sc, true, &targets, &[], 9)), captured(&play(&sc, true, &targets, &[], 9)));
+}
+
+#[test]
+fn an_unplayable_card_rolls_nothing_and_changes_nothing() {
+    covers!("rules::hero_windows::CabalHero");
+    let (sc, system) = hub();
+    let sc = sc.unit(system, None, Unit::CruiserI, 1, 1);
+    let rig = play(&sc, false, &[(system, Piece::new(Unit::CruiserI, Seat(1)))], &[], 3);
+    assert!(rig.is_done() && !rig.driver.window.used);
+    assert_eq!(delta(rig.start_state(), &rig.state), "");
+}
+
+#[test]
+fn the_cargo_a_captured_carrier_strands_is_removed_by_the_owner_and_captured_in_unit_order() {
+    covers!("rules::hero_windows::CabalHero");
+    let (sc, system) = hub();
+    let sc = sc.unit(system, None, Unit::CarrierI, 1, 1).unit(system, None, Unit::FighterI, 1, 2);
+    let infantry = [(system, Piece::new(Unit::InfantryI, Seat(1))); 2];
+    let target = (system, Piece::new(Unit::CarrierI, Seat(1)));
+    let stranded = [Stranded { owner: Seat(1), system, limits: limits() }];
+    let mut found = false;
+    for seed in 0..60 {
+        let rig = play_with(&sc, true, &[target], &stranded, &infantry, seed);
+        if captured(&rig).is_empty() {
+            assert_eq!(at(&rig, system, 1, Unit::FighterI), 2, "a carrier that was not captured keeps its cargo");
+            continue;
+        }
+        found = true;
+        assert_eq!(
+            captured(&rig),
+            vec![(Seat(1), Unit::CarrierI), (Seat(1), Unit::FighterI), (Seat(1), Unit::FighterI), (Seat(1), Unit::InfantryI), (Seat(1), Unit::InfantryI)],
+            "the carrier, then what it carried, in the order of the unit ids"
+        );
+        assert!(rig.state.board().sys(system).units.as_slice().iter().all(|p| p.owner() != Seat(1)));
+        break;
+    }
+    assert!(found, "a seed captures the carrier");
+}
+
+#[test]
+fn the_owner_is_asked_which_units_go_when_the_survivors_cannot_hold_them_all() {
+    covers!("rules::hero_windows::CabalHero");
+    let (sc, system) = hub();
+    let sc = sc.unit(system, None, Unit::CarrierI, 1, 2).unit(system, None, Unit::FighterI, 1, 8);
+    let targets = [(system, Piece::new(Unit::CarrierI, Seat(1))), (system, Piece::new(Unit::CarrierI, Seat(1)))];
+    let stranded = [Stranded { owner: Seat(1), system, limits: limits() }];
+    for seed in 0..80 {
+        let mut rig = carrion(sc.clone(), true, targets.to_vec(), stranded.to_vec()).seeded(seed);
+        rig.run();
+        if rig.is_done() {
+            continue;
+        }
+        // One carrier left (capacity 4): four of the eight fighters must go, and the owner chooses.
+        assert_eq!(rig.asked().actor, Seat(1), "the owner of the units answers");
+        assert!(matches!(rig.asked().ask, Ask::Tactical(_)), "{:?}", rig.asked().ask);
+        let mut questions = 0;
+        while !rig.is_done() {
+            rig.pick(0);
+            questions += 1;
+        }
+        assert_eq!(at(&rig, system, 1, Unit::FighterI), 4);
+        assert_eq!(questions, 4);
+        assert_eq!(captured(&rig).iter().filter(|c| c.1 == Unit::FighterI).count(), 4, "each fighter that left is captured");
+        return;
+    }
+    panic!("no seed captures exactly one of the two carriers");
+}
+
+#[test]
+fn owners_and_systems_are_enforced_in_the_order_the_adapter_gives() {
+    covers!("rules::hero_windows::CabalHero");
+    let [(a, _), (b, _)] = two();
+    let sc = Scenario::new(&[Faction::TheVuilraithCabal, Faction::TheArborec, Faction::TheEmbersOfMuaat])
+        .map_from(&[a, b])
+        .unit(a, None, Unit::CarrierI, 2, 1)
+        .unit(a, None, Unit::FighterI, 2, 2)
+        .unit(b, None, Unit::CarrierI, 1, 1)
+        .unit(b, None, Unit::FighterI, 1, 2);
+    // Seat 2 in the first system, seat 1 in the second; the adapter's order puts seat 2 first.
+    let targets = [(a, Piece::new(Unit::CarrierI, Seat(2))), (b, Piece::new(Unit::CarrierI, Seat(1)))];
+    let stranded = [Stranded { owner: Seat(2), system: a, limits: limits() }, Stranded { owner: Seat(1), system: b, limits: limits() }];
+    for seed in 0..80 {
+        let mut rig = carrion(sc.clone(), true, targets.to_vec(), stranded.to_vec()).seeded(seed);
+        rig.run();
+        if rig.is_done() {
+            continue;
+        }
+        assert_eq!(rig.asked().actor, Seat(2), "the first pair of the list is enforced first when both lost a ship, or the only one that did");
+        let both = {
+            while !rig.is_done() {
+                rig.pick(0);
+            }
+            captured(&rig).iter().any(|c| c.0 == Seat(1)) && captured(&rig).iter().any(|c| c.0 == Seat(2))
+        };
+        if both {
+            let rows = captured(&rig);
+            let first_seat1 = rows.iter().position(|c| c.0 == Seat(1)).unwrap();
+            let last_seat2 = rows.iter().rposition(|c| c.0 == Seat(2)).unwrap();
+            assert!(first_seat1 < last_seat2 || rows.len() >= 4, "{rows:?}");
+            return;
+        }
+    }
+    panic!("no seed captures both carriers");
+}
