@@ -124,10 +124,7 @@ mod real {
             crate::dual::note_bail_here("a faction rule forbids the placement of the PDS (the string asks the planet, then places nothing)");
             return None;
         }
-        if !gs.player(player).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"nekroc4r"))) {
-            crate::dual::note_bail_here("???_ERROR_ERROR_??? carried by something other than the player's own card (a Valefar Assimilator)");
-            return None;
-        }
+        // (The card is the seat's own or the Valefar Assimilator that carries its text: the core exhausts the carrier, `fx_strategy::text_carrier`.)
         let unit = match pds {
             Some(id) => Some(crate::core_adapter::typed::<Unit>(id.as_str()).why("a unit form the typed tables do not know")?),
             None => None,
@@ -333,10 +330,7 @@ mod real {
             crate::dual::note_bail_here(why);
             return None;
         }
-        if !gs.player(player).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"nekroc4r"))) {
-            crate::dual::note_bail_here("???_ERROR_ERROR_??? carried by something other than the player's own card (a Valefar Assimilator)");
-            return None;
-        }
+        // (The card is the seat's own or the Valefar Assimilator that carries its text: the core exhausts the carrier, `fx_strategy::text_carrier`.)
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
@@ -485,10 +479,7 @@ mod real {
             crate::dual::note_bail_here(why);
             return None;
         }
-        if !gs.player(player).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"nekroc4r"))) {
-            crate::dual::note_bail_here("???_ERROR_ERROR_??? carried by something other than the player's own card (a Valefar Assimilator)");
-            return None;
-        }
+        // (The card is the seat's own or the Valefar Assimilator that carries its text: the core exhausts the carrier, `fx_strategy::text_carrier`.)
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let done = with_core(gs, &mut cx, Sources::default(), LEAF, |core, _| rules::c4r_repair(core, seat)).ok().why(crate::dual::reason::NOT_LENDABLE)?;

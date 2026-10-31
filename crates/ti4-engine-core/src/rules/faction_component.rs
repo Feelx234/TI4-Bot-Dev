@@ -42,7 +42,9 @@ pub fn lazax_gate_folding(core: &mut CoreState, scope: Scope, who: Seat, mecatol
 /// unit of the seat, in the space areas and on the planets, is repaired and the card is exhausted. `false` (nothing written) when the seat
 /// does not own the card; the offer (a ready card and a damaged unit) is the caller's.
 pub fn c4r_repair(core: &mut CoreState, who: Seat) -> bool {
-    if !fx_strategy::exhaust_technology(core, who, Technology::ERRORERROR) {
+    // The card is the seat's own, or the Valefar Assimilator that carries its text; a card already exhausted does not repair.
+    let Some(carrier) = fx_strategy::text_carrier(core, who, Technology::ERRORERROR) else { return false };
+    if !fx_strategy::exhaust_technology(core, who, carrier) {
         return false;
     }
     let damaged = |list: &crate::state::UnitList| list.as_slice().iter().any(|p| p.owner() == who && p.sustained());

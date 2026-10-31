@@ -12,6 +12,32 @@ use crate::query::{laws, promissory as qn, tech};
 use crate::state::{CoreState, LeaderStatus, NoteKey, Piece};
 use crate::tables::Scope;
 
+/// The technology card that carries `tech`'s text for `who` (`technology::exhaust_technology_text`'s carrier): the technology itself, or
+/// the Valefar Assimilator (X before Y) of a Nekro whose token sits on it while another seat still owns it.
+#[must_use]
+pub fn text_carrier(core: &CoreState, who: Seat, tech: Technology) -> Option<Technology> {
+    let p = core.players().by_seat(who)?;
+    if p.tech.owned.contains(tech) {
+        return Some(tech);
+    }
+    if p.faction != crate::generated::Faction::TheNekroVirus {
+        return None;
+    }
+    [Technology::ValefarAssimilatorX, Technology::ValefarAssimilatorY].into_iter().find(|card| {
+        p.tech.owned.contains(*card) && p.tech.assimilated.get(card) == Some(&tech) && core.players().iter().any(|o| o.seat != who && o.tech.owned.contains(tech))
+    })
+}
+
+/// `technology::exhaust_technology_text`: exhaust the card that carries `tech`'s text for `who` ([`text_carrier`]); `false`, changing
+/// nothing, when the seat has neither the technology nor an assimilator carrying it.
+pub fn exhaust_technology_text(core: &mut CoreState, who: Seat, tech: Technology) -> bool {
+    let Some(carrier) = text_carrier(core, who, tech) else { return false };
+    if let Some(p) = core.players_mut().by_seat_mut(who) {
+        p.tech.exhausted.insert(carrier);
+    }
+    true
+}
+
 /// `promissory::take`: `holder` gets the note, faceup if that is where the card lives (69.3). The same write as
 /// `rules::trade::take_note`.
 pub fn take_note(core: &mut CoreState, holder: Seat, key: NoteKey) {

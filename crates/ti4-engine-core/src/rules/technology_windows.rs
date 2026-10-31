@@ -203,7 +203,7 @@ impl Window for ProductionBiomes {
                 cancelled: false,
             },
         );
-        fx_strategy::exhaust_technology(sx.state, self.who, Technology::ProductionBiomes);
+        fx_strategy::exhaust_technology_text(sx.state, self.who, Technology::ProductionBiomes);
         fx::gain_trade_goods_staged(sx.state, self.who, 4, self.source);
         fx::gain_trade_goods_staged(sx.state, chosen, 2, self.source);
         self.done = true;
@@ -276,7 +276,7 @@ impl Vortex {
         if let Some(p) = s.players_mut().by_seat_mut(self.who) {
             p.misc.captured_units.push((owner, unit));
         }
-        fx_strategy::exhaust_technology(s, self.who, Technology::Vortex);
+        fx_strategy::exhaust_technology_text(s, self.who, Technology::Vortex);
         self.done = true;
         self.stage = Stage::Done;
     }
@@ -855,7 +855,7 @@ impl Window for ChaosMapping {
         use crate::kernel::children::Report;
         use crate::kernel::stage::Ran;
         if self.stage == CStage::Start {
-            self.stage = if owns(sx.state, self.who, Technology::ChaosMapping) && !self.facts.systems.is_empty() { CStage::Asking } else { CStage::Done };
+            self.stage = if fx_strategy::text_carrier(sx.state, self.who, Technology::ChaosMapping).is_some() && !self.facts.systems.is_empty() { CStage::Asking } else { CStage::Done };
         }
         if self.stage == CStage::Producing {
             match self.child.step(sx) {
