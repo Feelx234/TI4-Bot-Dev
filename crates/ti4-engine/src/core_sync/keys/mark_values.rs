@@ -74,6 +74,20 @@ const STAGED_GROUND: Sh = Sh::Alt(&[
             Sh::A(K::Destroy),
         ],
     ),
+    // ... of a galvanized unit: the string appends the token `|g` (`hooks_ground::stage_ground_force_destroyed`).
+    Sh::Rec(
+        b'|',
+        &[
+            Sh::A(K::Word(&[Word::Destroyed])),
+            SYS,
+            PLANET,
+            SEAT,
+            UNIT,
+            BOOL,
+            Sh::A(K::Destroy),
+            Sh::A(K::Word(&[Word::Galvanized])),
+        ],
+    ),
 ]);
 
 const SAAR_BOOST: Sh = Sh::Alt(&[

@@ -14,6 +14,7 @@ pub static WORD_TEXT: [&str; Word::COUNT] = [
     "discarded",         // Discarded
     "exempt",            // Exempt
     "false",             // False
+    "g",                 // Galvanized (the trailing token of a staged destruction of a galvanized unit)
     "granted",           // Granted
     "ground",            // Ground
     "insider:peek",      // InsiderPeek

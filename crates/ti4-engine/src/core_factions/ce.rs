@@ -418,6 +418,15 @@ fn empyrean_notes(gs: &GameState) -> Vec<(String, Option<PlayerId>)> {
 /// it; both then answer the Empyrean notes and their holders.
 pub fn dual_empyrean_deal_notes(gs: &mut GameState, sources: SourceSet, who: &PlayerId, string: impl FnOnce(&mut GameState)) {
     use ti4_engine_core::kernel::{Cx, FirstOption};
+    // Seating deploys a faction while the other seats still hold the scaffolding faction "generic" (or a faction the
+    // typed state does not carry): no typed view exists, and in strict mode (the gate binaries) loading one would
+    // count a refusal and panic. Not a bail: the string runs alone, as it always did.
+    // The notes dealt before the factions are named (`alias:generic`) are refused by the Cards codec the same way.
+    let scaffolding = crate::core_sync::guard::factions_known(gs.players.iter().map(|p| p.faction.as_str())).is_err()
+        || gs.promissory_notes.keys().chain(gs.promissory_faceup.iter()).any(|note| note.ends_with(":generic"));
+    if scaffolding {
+        return string(gs);
+    }
     let Some(before) = Pos::of(gs, sources) else { return string(gs) };
     let Some(seat) = before.seat(who) else { return string(gs) };
     crate::dual::run_dual_hook(
@@ -708,6 +717,33 @@ mod tests {
         let (_, obsidian) = variants(&gs).into_iter().find(|(n, _)| *n == "obsidian").unwrap();
         let waivers = obsidian_secondary_waivers(&obsidian, &obsidian.players[0].id, &obsidian.players[1].id, None).unwrap();
         assert_eq!(waivers.len(), 1);
+    }
+
+    /// Found by the end-of-D1 gate run: `dual_run ... all=dual` (strict) panicked in `seating::deploy` ("unmapped (strict mode):
+    /// Players: faction \"generic\""): the Empyrean's notes are dealt while the other seats are not yet dealt a faction.
+    #[test]
+    fn the_empyrean_deal_at_a_table_not_yet_fully_seated_runs_the_string_alone_in_strict_mode() {
+        let sources = ti4_model::content_types::POK;
+        let mut gs = crate::fixtures::game(&["a", "b"]);
+        assert_eq!(gs.players[1].faction.as_str(), "generic");
+        gs.players[0].faction = ti4_model::id::FactionId::new("empyrean");
+        let mut ran = false;
+        crate::core_sync::unmapped::strict_on_this_thread(|| {
+            dual_empyrean_deal_notes(&mut gs, sources, &PlayerId::new("a"), |_| ran = true);
+        });
+        assert!(ran, "the string half ran");
+    }
+
+    #[test]
+    fn the_empyrean_deal_with_the_notes_still_dealt_to_generic_runs_the_string_alone_in_strict_mode() {
+        let sources = ti4_model::content_types::POK;
+        let mut gs = crate::fixtures::seated_game(&[("a", "empyrean"), ("b", "sol")], sources);
+        assert!(gs.promissory_notes.keys().any(|n| n.ends_with(":generic")), "the fixture deals the generic notes");
+        let mut ran = false;
+        crate::core_sync::unmapped::strict_on_this_thread(|| {
+            dual_empyrean_deal_notes(&mut gs, sources, &PlayerId::new("a"), |_| ran = true);
+        });
+        assert!(ran, "the string half ran");
     }
 
     #[test]

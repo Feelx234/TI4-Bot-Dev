@@ -81,7 +81,9 @@ fn package_modules() -> [fn(&mut HookTable); 6] {
 
 fn load_why(gs: &GameState, galaxy: Option<&Galaxy>) -> Result<(CoreState, Ctx), String> {
     let mut cx = Ctx::of(gs).map_err(|e| format!("{e:?}"))?;
-    let view = CoreView::of(gs, &mut cx, CodecSources { galaxy, rng: None }, SliceSet::ALL).map_err(|e| format!("{e:?}"))?;
+    // As `Pos::of`: no galaxy, no map slice (it would refuse, and a strict gate binary panics at the refusal).
+    let slices = if galaxy.is_some() { SliceSet::ALL } else { SliceSet::of_without(SliceSet::ALL, ti4_engine_core::state::Slice::Map) };
+    let view = CoreView::of(gs, &mut cx, CodecSources { galaxy, rng: None }, slices).map_err(|e| format!("{e:?}"))?;
     Ok((view.into_state(), cx))
 }
 
@@ -516,7 +518,9 @@ struct Pos {
 impl Pos {
     fn of(gs: &GameState, sources: SourceSet) -> Option<Self> {
         let mut cx = Ctx::of(gs).ok()?;
-        let view = CoreView::of(gs, &mut cx, CodecSources::default(), SliceSet::ALL).ok()?;
+        // Every slice but the map: it needs the string galaxy (`CodecSources::default()` has none), and a strict gate binary
+        // (`unmapped::set_strict_for_gate`) panics at the refusal. No hook of this file reads the map.
+        let view = CoreView::of(gs, &mut cx, CodecSources::default(), SliceSet::of_without(SliceSet::ALL, ti4_engine_core::state::Slice::Map)).ok()?;
         Some(Self { view, cx, k: package_kernel(sources) })
     }
 
@@ -607,4 +611,19 @@ macro_rules! cc_dual {
         let answer = $string;
         answer
     }};
+}
+
+#[cfg(test)]
+mod strict_tests {
+    use super::*;
+
+    /// Found by the end-of-D1 gate run (`dual_run ... all=dual`, strict): the call-site hooks of this file loaded every slice, the
+    /// map among them, which needs a galaxy they never have; the refusal panicked in a gate binary.
+    #[test]
+    fn a_call_site_hook_loads_no_map_slice_so_strict_mode_does_not_trip() {
+        let gs = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "sol")], ti4_model::content_types::POK);
+        crate::core_sync::unmapped::strict_on_this_thread(|| {
+            assert!(mentak_trade_good_worth(&gs, &PlayerId::new("a"), 1).is_some(), "the typed view exists without the map");
+        });
+    }
 }

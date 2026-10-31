@@ -438,7 +438,11 @@ impl Machine {
 
     fn begin(&mut self, sx: &mut Sx<'_>, round: u32) {
         let e = &self.env;
-        let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce, round_seq_listens: e.round_seq_listens });
+        // The string asks at each announcement whether a Letnev round agent (the owner's, or a Yssaril copy) is still usable;
+        // using one exhausts it (or the Ssruu that copies it), so the answer taken when the machine was built goes stale.
+        // The fact stays the upper bound (it is what the string saw), the state says what holds now.
+        let listens = e.round_seq_listens && super::begin_round::letnev_round_agent_usable(&*sx.state);
+        let mut w = BeginRound::new(BeginFacts { attacker: e.attacker, defender: e.defender, system: e.system, round, phase: e.phases[0], announce: e.announce, round_seq_listens: listens });
         let _ = w.step(sx);
         // A unit that took its ship form joins the fleet the end announcement measures the losses against.
         for (owner, form) in w.flipped {
