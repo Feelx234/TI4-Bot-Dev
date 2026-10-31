@@ -469,3 +469,57 @@ fn argent_flight_chooses_two_of_three_starting_technologies_like_the_string() {
     assert_eq!(string.questions.len(), 2);
     assert!(string.questions[0].prompt.contains("1 of 2"), "{}", string.questions[0].prompt);
 }
+
+// -- the end of an action ----------------------------------------------------------------------------------------------------------
+
+fn finish_both(state: &GameState) -> (Run, Run) {
+    let string = string_run(state, &[], |g| g.finish_action().expect("the action finishes"));
+    let native = native_run(state, Arm::Ask, Some(TurnJob::Finish), &[]);
+    (string, native)
+}
+
+#[test]
+fn the_end_of_an_action_announces_it_and_passes_the_turn_when_nothing_else_is_offered_like_the_string() {
+    let state = action_table(&THREE);
+    let (string, native) = finish_both(&state);
+    assert_same(&string, &native);
+    assert_eq!(string.events.first().map(String::as_str), Some("ACTION_COMPLETED"), "{:?}", string.events);
+    assert!(string.events.iter().any(|e| e == "TURN_PASSED"));
+}
+
+#[test]
+fn a_retained_turn_skips_the_closing_menu_like_the_string() {
+    let mut state = action_table(&THREE);
+    state.transient_flags.set(ti4_model::state::TransientFlags::ADDITIONAL_ACTION);
+    let (string, native) = finish_both(&state);
+    assert_same(&string, &native);
+    assert!(string.events.iter().any(|e| e == "TURN_RETAINED"), "{:?}", string.events);
+}
+
+/// What the native job says where the core does not assemble the menu: the gap, and the position untouched.
+fn native_stop(state: &GameState, arm: Arm, job: TurnJob) -> (crate::live::Stop, bool) {
+    let mut cx = Ctx::of(state).expect("a table the codecs carry");
+    let render = Render::new(cx.owners.ids().to_vec());
+    let game = super::Game::with_table(state.clone(), ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption)));
+    let positions = game.rng_positions();
+    let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+    let mut core = Codec::load(&mut cx, state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("loads");
+    let kernel = live::kernel::kernel_for(DEFAULT);
+    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+    let lcx = live::Cx::new(&render, &env);
+    open_job(&mut core, job);
+    let held = core.clone();
+    let stop = live::live_step(&mut core, arm, &lcx, &mut Scripted::new(Vec::<String>::new())).expect_err("the job stops");
+    (stop, core == held)
+}
+
+#[test]
+fn fleet_logistics_offers_a_second_action_which_the_core_does_not_assemble_yet() {
+    use ti4_engine_core::kernel::ability::Unknown;
+    use ti4_engine_core::kernel::turn_codes::TurnGap;
+    let mut state = action_table(&THREE);
+    state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("fl"));
+    let (stop, untouched) = native_stop(&state, Arm::Ask, TurnJob::Finish);
+    assert_eq!(stop, crate::live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources))));
+    assert!(untouched, "the gap leaves the position as it was, ACTION_COMPLETED included");
+}

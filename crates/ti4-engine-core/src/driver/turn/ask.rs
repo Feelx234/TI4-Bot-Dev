@@ -35,8 +35,17 @@ pub fn ask_ask(core: &CoreState, env: &Env<'_>) -> Result<Option<Asking>, LiveEr
     match live_ask_arm(&Facts::of_core(core, false)) {
         AskArm::Draft => Ok(super::draft::question(core).map(asking)),
         AskArm::StartingTech => Ok(super::starting::question(core, env.kernel, env.table.codes.turn.starting_technology).map(asking)),
+        AskArm::Closing => closing_question(core, env).map(|q| Some(asking(q))),
         _ => Err(not_native(core)),
     }
+}
+
+/// The closing menu of the seat in it (`Game::closing_options`), where the core assembles it.
+fn closing_question(core: &CoreState, env: &Env<'_>) -> Result<crate::choice::Choice, LiveError> {
+    let seat = core.pending().turn_closing.ok_or(LiveError::NotOpen)?;
+    let options = super::closing::options(core, env.kernel, seat).map_err(|why| LiveError::Unknown(Unknown::TurnGap(why)))?;
+    let second = crate::driver::menu::second_action(core, seat, core.pending().actions_this_turn);
+    Ok(crate::driver::menu::closing_choice(seat, options, second))
 }
 
 /// Answer the arm's question (or run the job it has open).
@@ -74,7 +83,24 @@ pub fn advance_ask(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) ->
             }
             Ok((Live::Done, Out::default()))
         }
+        AskArm::Closing => {
+            let question = closing_question(core, env)?;
+            let Some(pick) = answer else { return Ok((Live::Asks(Box::new(asking(question))), Out::default())) };
+            // "End your turn" ends it; anything else the menu offers takes an action (Fleet Logistics' second one) or is a free option:
+            // the menu's sources are not native, so the question offers nothing else yet.
+            if !question.opts.iter().any(|o| *o == pick_opt(pick)) {
+                return Err(LiveError::Illegal);
+            }
+            super::advance_job(TurnJob::End, core, env, None)
+        }
         _ => Err(not_native(core)),
+    }
+}
+
+fn pick_opt(pick: Pick) -> Opt {
+    match pick {
+        Pick::Opt(o) => o,
+        Pick::Number(_) => Opt::Decline,
     }
 }
 
