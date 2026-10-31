@@ -3,14 +3,14 @@
 //! `cannon_prelude`), wrapped in `dual_window!(Area::Driver, "combat::space_cannon_offense", ..)` on `driver=dual`.
 //!
 //! What stays with the string (bails, each counted under the label with its reason): irreproducible dice, a seat of a faction
-//! dropped by decision, seats not in id order (the string iterates its gunners by player id), a Jol-Nar commander or a Heart of
-//! Ixth (their reroll windows ask), a Letnev commander that pays on a sustain without being unlocked, games below the rules
-//! version of the faction effects, nested activity the reaction table does not follow.
+//! dropped by decision, seats not in id order (the string iterates its gunners by player id), a Heart of Ixth (its reroll windows
+//! ask; the Jol-Nar commander's questions are the core's since W16), a Letnev commander that pays on a sustain without being unlocked, nested activity the
+//! reaction table does not follow. (A game below the rules version of the faction effects is carried since W12: the sustain offer of
+//! the absorbing window pays the commander unasked there; neutral units are carried since W11.)
 
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine_core::choice::combat::Ask as CAsk;
-use ti4_engine_core::driver::Driver;
 use ti4_engine_core::generated::Unit as CUnit;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::Resolver;
@@ -64,19 +64,51 @@ pub fn unported(gs: &GameState, a: &Args<'_>) -> Option<&'static str> {
     if crate::tactical_dual::dropped_faction_at_the_table(gs) {
         return Some("a faction dropped by decision at the table");
     }
-    if gs.rules_version < ti4_model::state::RULES_FACTION_EFFECTS {
-        return Some("rules version below the faction effects");
-    }
     let heart = ti4_model::id::RelicId::new("heartofixth");
     if gs.players.iter().any(|p| {
         crate::relics::holds(gs, &p.id, &heart)
-            || crate::promissory::has_commander_ability(gs, &p.id, "jolnarcommander")
             || (crate::promissory::has_commander_ability(gs, &p.id, "letnevcommander")
                 && p.leaders.get(ti4_model::id::text("letnevcommander")) != Some(&ti4_model::state::LeaderStatus::Unlocked))
     }) {
-        return Some("a reroll question (Jol-Nar commander, Heart of Ixth) or a commander payment not held as unlocked");
+        return Some("a reroll question (Heart of Ixth) or a commander payment not held as unlocked");
     }
     None
+}
+
+/// What the Jol-Nar commander's questions about the guns' dice need besides the position (W16): the seats that hold the commander, and the
+/// text of every unit form on the board (and of every attachment cannon) as the staged entry carries it and as the question renderer shows
+/// it. Interned only when a commander is in play, so the usual position pays nothing.
+struct RerollTexts {
+    jolnar: Vec<ti4_engine_core::ids::Seat>,
+    units: Vec<(CUnit, ti4_engine_core::state::Code, ti4_engine_core::state::Code)>,
+    planets: Vec<(ti4_engine_core::generated::Planet, ti4_engine_core::state::Code, ti4_engine_core::state::Code)>,
+    /// The state code of each text, for the display facts of the questions (`dual_window::roll_details`).
+    names: Vec<(ti4_engine_core::state::Code, String)>,
+}
+
+fn reroll_texts(gs: &GameState, cx: &mut crate::core_sync::Ctx, r: &crate::render::Render) -> Option<RerollTexts> {
+    let jolnar: Vec<ti4_engine_core::ids::Seat> = gs.players.iter().filter(|p| crate::promissory::has_commander_ability(gs, &p.id, "jolnarcommander")).filter_map(|p| r.seat(p.id.as_str())).collect();
+    let mut out = RerollTexts { jolnar, units: Vec::new(), planets: Vec::new(), names: Vec::new() };
+    if out.jolnar.is_empty() {
+        return Some(out);
+    }
+    for piece in gs.board.values().flat_map(|s| s.units.iter().chain(s.planet_units.values().flatten())) {
+        let Some(unit) = <CUnit as IdStr>::from_id(piece.type_id.as_str()) else { continue };
+        if out.units.iter().any(|(u, _, _)| *u == unit) {
+            continue;
+        }
+        let state = cx.texts.intern(Slice::Transient, piece.type_id.as_str()).ok()?;
+        out.units.push((unit, state, r.code(piece.type_id.as_str())));
+        out.names.push((state, piece.type_id.as_str().to_owned()));
+    }
+    for planet in gs.planet_attachments.keys() {
+        let Some(p) = <ti4_engine_core::generated::Planet as IdStr>::from_id(planet.as_str()) else { continue };
+        let text = format!("planet cannon {planet}");
+        let state = cx.texts.intern(Slice::Transient, &text).ok()?;
+        out.planets.push((p, state, r.code(&text)));
+        out.names.push((state, text));
+    }
+    Some(out)
 }
 
 /// The core half of the prelude's offense. `rng_before` is where the streams stood before the string step. `None` for the
@@ -116,6 +148,7 @@ pub fn space_cannon_offense(
         .iter()
         .map(|id| <CUnit as IdStr>::from_id(id))
         .collect::<Option<_>>()?;
+    let texts = reroll_texts(&before, &mut cx, &r)?;
     let facts = Facts {
         active,
         system,
@@ -127,11 +160,14 @@ pub fn space_cannon_offense(
         cause: r.code("unit_ability:space_cannon"),
         casualty: r.code("assign_casualty"),
         commander: r.code("letnevcommander"),
+        jolnar: texts.jolnar.clone(),
+        unit_texts: texts.units.clone(),
+        planet_texts: texts.planets.clone(),
     };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, Some(active));
-    let mut driver = Driver::new(SpaceCannonOffense::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(SpaceCannonOffense::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy, rng: Some(rng_before) };
@@ -154,6 +190,7 @@ pub fn space_cannon_offense(
                         }));
                     }
                 }
+                CAsk::RerollDie { .. } => crate::dual_window::roll_details(content, &texts.names, choice, st, rendered),
                 _ => {}
             }
         });
@@ -259,6 +296,7 @@ pub fn aftermath_head(
         .iter()
         .map(|id| <CUnit as IdStr>::from_id(id))
         .collect::<Option<_>>()?;
+    let texts = reroll_texts(&before, &mut cx, &r)?;
     let cannon = Facts {
         active,
         system,
@@ -270,6 +308,9 @@ pub fn aftermath_head(
         cause: r.code("unit_ability:space_cannon"),
         casualty: r.code("assign_casualty"),
         commander: r.code("letnevcommander"),
+        jolnar: texts.jolnar.clone(),
+        unit_texts: texts.units.clone(),
+        planet_texts: texts.planets.clone(),
     };
     let facts = HeadFacts {
         player: active,
@@ -283,7 +324,7 @@ pub fn aftermath_head(
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, Some(active));
-    let mut driver = Driver::new(Head::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(Head::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy, rng: Some(rng_before) };
@@ -307,6 +348,7 @@ pub fn aftermath_head(
                         }));
                     }
                 }
+                CAsk::RerollDie { .. } => crate::dual_window::roll_details(content, &texts.names, choice, st, rendered),
                 _ => {}
             }
         });
@@ -370,7 +412,7 @@ pub fn enforce_everywhere(gs: &mut GameState, content: &ContentStore, sources: S
     let kernel = crate::core_adapter::kernel_for(sources);
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, seats.first().copied());
-    let mut driver = Driver::new(EnforceAll::new(pairs), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(EnforceAll::new(pairs), resolver, AbilityTable::default(), 1);
     let driven = with_core(gs, &mut cx, Sources::default(), crate::tactical_dual::ENFORCE, |core, _| {
         crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {})
     });
@@ -424,7 +466,7 @@ pub fn minister_of_war(gs: &mut GameState, script: &Recording) -> Option<CoreWin
     );
     let before = gs.clone();
     let kernel = ti4_engine_core::kernel::Kernel::plain();
-    let mut driver = Driver::new(window, Resolver::new(&[owner], Some(owner)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[owner], Some(owner)), AbilityTable::default(), 1);
     let recorded: Vec<_> = script.questions.iter().map(|q| q.choice.details.clone()).collect();
     let asked = std::cell::Cell::new(0_usize);
     let driven = with_core(gs, &mut cx, Sources::default(), MINISTER, |core, _| {
@@ -596,7 +638,7 @@ pub fn fight_over(gs: &mut GameState, content: &ContentStore, sources: SourceSet
         pairs,
     };
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
-    let mut driver = Driver::new(FightOver::new(facts), Resolver::new(&seats, Some(player)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(FightOver::new(facts), Resolver::new(&seats, Some(player)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OVER, script), |core, _| {
         let driven = crate::dual_window::drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});

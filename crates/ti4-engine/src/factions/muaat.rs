@@ -674,11 +674,6 @@ fn inferno(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
             crate::dual::Run::new(inferno_string(&mut inner, player))
         },
         |s: &mut GameState, script: &crate::dual_window::Recording| {
-            // A Nekro seat may carry the flagship text on its own flagship (the Z token): the string decides.
-            if s.player(player).is_some_and(|seat| seat.faction.as_str() == "nekro") {
-                crate::dual::note_bail_here("a Nekro seat (a flagship carrying The Inferno's text through the Z token)");
-                return None;
-            }
             let facts = placement_facts(s, content, sources, galaxy, player);
             crate::faction_dual::inferno(s, player, &facts, sources, script)
         }
@@ -1190,14 +1185,7 @@ fn umbat(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
             crate::dual::Run::new(umbat_string(&mut inner, player))
         },
         |s: &mut GameState, script: &crate::dual_window::Recording| {
-            // A copy through Ssruu is atomic in the string (a failed copy restores the log): the string decides.
-            let copied = crate::factions::hooks_cards::borrowable_agents(s, content, player)
-                .iter()
-                .any(|(_, source)| source.as_str() == AGENT);
-            if copied {
-                crate::dual::note_bail_here("Umbat copied through Ssruu, Clever Genome (an atomic use)");
-                return None;
-            }
+            // A copy through Ssruu is atomic: the window restores the position when the decisions stop before it is over.
             crate::leaders_core::muaat_agent(s, content, player, sources, script)
         }
     )
@@ -2411,31 +2399,67 @@ mod tests {
         let _ = take_report();
     }
 
-    /// A Nekro seat may carry the text of The Inferno on its own flagship (the Z token), and a Nekro holder of Fires of the Gashlai may
-    /// carry the war sun technology on a Valefar Assimilator: the string decides both, counted as bails with their reasons.
+    /// W12: a Nekro seat carries The Inferno's text on its own flagship through the Z token (`reach::flagship_text`), and the war sun technology a
+    /// Nekro holder of Fires of the Gashlai has carried by a Valefar Assimilator counts as owned (`reach::technology_text`): both run as the
+    /// core's bodies in lockstep (they bailed "a Nekro seat" / "a Nekro holder" before), with the contrast cases (no token: no flagship text,
+    /// nothing placed; a carried war sun: the note stays).
     #[test]
-    fn the_inferno_and_fires_of_a_nekro_seat_stay_with_the_string() {
+    fn the_inferno_and_fires_of_a_nekro_seat_run_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         crate::dual::reset_thread_windows();
-        let mut state = seated_game(&[("a", "nekro"), ("b", "muaat")], DEFAULT);
-        let home = home_of(&state, &a());
-        put(&mut state, &home, "muaat_flagship", &a(), 1);
-        let _ = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, None, &mut never(), INFERNO));
+        // The Inferno on the Nekro flagship, the Z token on the Embers of Muaat.
+        let nekro_flagship = |with_token: bool| {
+            let mut state = seated_game(&[("a", "nekro"), ("b", "muaat")], DEFAULT);
+            state.player_mut(&a()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new(crate::factions::nekro::Z_BREAKTHROUGH));
+            if with_token {
+                assert!(crate::factions::nekro::place_z(&mut state, &a(), "muaat"));
+            }
+            let home = home_of(&state, &a());
+            put(&mut state, &home, crate::factions::nekro::NEKRO_FLAGSHIP, &a(), 1);
+            // Room under the fleet supply for the cruiser, and a token to spend.
+            state.player_mut(&a()).unwrap().fleet_tokens = 12;
+            state.player_mut(&a()).unwrap().strategic_tokens = 2;
+            (state, home)
+        };
+        let (mut state, home) = nekro_flagship(true);
+        let cruisers = state.system_state(&home).units.iter().filter(|u| u.owner == a() && u.type_id.as_str() == "cruiser").count();
+        let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, None, &mut never(), INFERNO));
+        assert!(done, "the Z token lends the flagship's text");
+        assert_eq!(state.system_state(&home).units.iter().filter(|u| u.owner == a() && u.type_id.as_str() == "cruiser").count(), cruisers + 1);
+        let (mut state, _) = nekro_flagship(false);
+        let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut state, None, &mut never(), INFERNO));
+        assert!(!done, "no token, no text");
+        // Fires of the Gashlai in the hand of a Nekro seat.
         let mut state = seated_game(&[("a", "muaat"), ("b", "nekro")], DEFAULT);
         state.promissory_notes.clear();
         state.promissory_faceup.clear();
         lend_fires(&mut state, &b());
         let option = action(FIRES, "test");
-        with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+        let fired = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
             with_context(&mut state, DEFAULT, None, &mut never(), |ctx| perform_component(ctx, &b(), &option))
         });
+        assert!(fired, "a Nekro holder without the war sun text gains it");
+        assert!(has_technology(&state, &b(), "ws"));
+        // The war sun text carried by a Valefar Assimilator whose token another seat's card backs: the Nekro already has it, the note stays.
+        let mut state = seated_game(&[("a", "muaat"), ("b", "nekro"), ("c", "sol")], DEFAULT);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        lend_fires(&mut state, &b());
+        give_technology(&mut state, &PlayerId::new("c"), "ws");
+        give_technology(&mut state, &b(), "vax");
+        state.player_mut(&b()).unwrap().assimilated_technologies.insert("vax".to_owned(), TechnologyId::new("ws"));
+        assert!(crate::technology::has_technology_text(&state, &b(), "ws"), "carried by the Assimilator");
+        let fired = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+            with_context(&mut state, DEFAULT, None, &mut never(), |ctx| perform_component(ctx, &b(), &option))
+        });
+        assert!(!fired, "the carried text counts as owned");
+        assert_eq!(state.promissory_notes.get(&crate::promissory::note_id("fires", "muaat")), Some(&b()), "the note stays with its holder");
         let r = report();
-        assert_eq!(thread_window_counts("factions::muaat::inferno"), (0, 1), "{r:?}");
-        assert_eq!(thread_window_counts("factions::muaat::fires"), (0, 1), "{r:?}");
-        assert!(r.windows.keys().any(|k| k.starts_with("factions::muaat::inferno [bail: a Nekro seat")), "{r:?}");
-        assert!(r.windows.keys().any(|k| k.starts_with("factions::muaat::fires [bail: a Nekro holder")), "{r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::muaat::inferno"), (2, 0), "{r:?}");
+        assert_eq!(thread_window_counts("factions::muaat::fires"), (2, 0), "{r:?}");
         let _ = take_report();
     }
 
@@ -3291,6 +3315,60 @@ mod tests {
             leader_status(&state, &a(), AGENT),
             Some(LeaderStatus::Readied)
         );
+    }
+
+    /// W12: Umbat copied through Ssruu runs as the core window of the carrier (it ended at once with no question before: the copier is no Muaat
+    /// seat) and the copy is atomic in the core too: a decision that fails part-way restores the position and leaves Ssruu ready. Each case
+    /// is compared with the string (zero differences) and counted as a window the core ran (none bailed).
+    #[test]
+    fn a_copy_of_umbat_through_ssruu_runs_in_lockstep_with_the_core_and_is_atomic() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask, reset_thread_windows};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        reset_thread_windows();
+        let fresh = || {
+            let mut state = borrow_game();
+            // (The lender can lend a position only without promissory notes: the typed cards slice has no generic faction.)
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state
+        };
+        let dual = |state: &mut GameState, answers: &[&str]| -> bool {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || borrow_umbat(state, &mut table, &b()))
+        };
+        // The source agent readied or exhausted: the chosen player produces for itself, Ssruu is spent.
+        for source_status in [LeaderStatus::Readied, LeaderStatus::Exhausted] {
+            let mut state = fresh();
+            set_status(&mut state, &a(), UMBAT, source_status);
+            assert!(dual(&mut state, &["a", "build|cruiser|1", "done_producing"]));
+            assert_eq!(leader_status(&state, &b(), "yssarilagent"), Some(LeaderStatus::Exhausted));
+            assert_eq!(leader_status(&state, &a(), UMBAT), Some(source_status));
+        }
+        // A decline of the player pick spends nothing and keeps the answered decision.
+        let mut state = fresh();
+        let before = state.clone();
+        assert!(!dual(&mut state, &["decline"]));
+        assert_eq!(state, before);
+        // Two systems: a legal decline of the system spends Ssruu; an answer that is no option leaves everything as it was.
+        let mut state = fresh();
+        let home = home_of(&state, &a());
+        let ship = state.system_state(&home).units.iter().find(|unit| unit.owner == a() && unit.type_id.as_str().contains("warsun")).unwrap().clone();
+        state.system_mut(&SystemId::new("19")).units.push(ship);
+        let before = state.clone();
+        assert!(!dual(&mut state, &["a", "invalid-system"]));
+        assert_eq!(state, before, "a failed copy restores the position");
+        assert!(dual(&mut state, &["a", "decline"]));
+        assert_eq!(leader_status(&state, &b(), "yssarilagent"), Some(LeaderStatus::Exhausted));
+        // A production that fails after a cruiser was paid and placed restores the units, the payment and the statuses.
+        let mut state = fresh();
+        let before = state.clone();
+        assert!(!dual(&mut state, &["a", "build|cruiser|1", "invalid-build"]));
+        assert_eq!(state, before, "failed copied production restores units, payment and leader status");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::muaat::agent"), (6, 0), "the core window ran every time: {r:?}");
+        let _ = take_report();
     }
 
     #[test]

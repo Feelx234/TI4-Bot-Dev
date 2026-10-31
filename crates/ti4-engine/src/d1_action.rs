@@ -10,7 +10,7 @@
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{System, Unit as CUnit};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::state::{AStage, Aftermath, Before, NoteHold, PauseLimit, Piece, TStage, Tactical, Window, WindowKind};
+use ti4_engine_core::state::{AFight, AStage, Aftermath, Before, NoteHold, PauseLimit, Piece, TStage, Tactical, Window};
 
 use super::super::{Aftermath as AStr, AftermathWindow, Game, TacticalStage, TacticalWindow};
 use crate::combat::NoteHoldings;
@@ -66,6 +66,9 @@ enum TStageKey {
     Activating,
     Moving,
     Loading { origin: String, ship: (String, String, bool, bool), path: Vec<String>, loaded: Vec<usize>, closed: bool },
+    /// A stage only the live path has (the close, the head, the wait for the aftermath, the tail): the string window is gone by then,
+    /// so no string key equals it.
+    Live,
 }
 
 pub(super) fn tactical_key(w: &TacticalWindow) -> TKey {
@@ -121,6 +124,7 @@ pub(super) fn tactical_back(t: &Tactical, r: &Render) -> TKey {
             loaded: loaded.as_slice().iter().map(|i| usize::from(*i)).collect(),
             closed: *closed,
         },
+        TStage::Free(_) | TStage::Hooks | TStage::Closing | TStage::Heading(_) | TStage::Aftermath | TStage::Tail => TStageKey::Live,
     };
     TKey { player: r.player(t.player).to_string(), stage, notes: nonempty(&notes_back(&t.notes_at_start, r)) }
 }
@@ -185,17 +189,14 @@ pub(super) fn aftermath_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
         capitals.push((seat, u16::try_from(n).map_err(|_| "a capital count above 65535")?));
     }
     let notes = notes_of(&w.notes_at_tactical_start, r)?;
-    Ok(Some(Window::Aftermath(Box::new(Aftermath {
-        player: seat(r, &w.player)?,
-        system: system(&w.system)?,
-        stage,
-        before_combat: Before { sides, capitals, notes: notes.clone() },
-        feats_noted: w.feats_noted,
-        event_scoring: w.pending_event_scoring.map(|(o, l)| {
-            (o.0, if l == EventScoreLimit::OnePerPlayer { PauseLimit::OnePerPlayer } else { PauseLimit::AnyPerPlayer })
-        }),
-        notes_at_start: notes,
-    }))))
+    let mut a = Aftermath::new(seat(r, &w.player)?, system(&w.system)?, stage, Before { sides, capitals, notes: notes.clone() }, notes);
+    a.feats_noted = w.feats_noted;
+    a.event_scoring = w.pending_event_scoring.map(|(o, l)| {
+        (o.0, if l == EventScoreLimit::OnePerPlayer { PauseLimit::OnePerPlayer } else { PauseLimit::AnyPerPlayer })
+    });
+    // The string holds the combat inside its window: the observed copy stands at the stage the string is in.
+    a.fight = if stage == AStage::Fighting { AFight::Fighting } else { AFight::Over };
+    Ok(Some(Window::Aftermath(Box::new(a))))
 }
 
 pub(super) fn aftermath_back(a: &Aftermath, r: &Render) -> AKey {
@@ -256,7 +257,7 @@ pub(in super::super) fn transition(ended: Ended, to: &AStr) {
 }
 
 /// The sub-window of an aftermath, above its own entry (package D1b2): the space combat as the fields of its machine
-/// (`Window::Combat`), the invasion and the production step as untyped placeholders (no machine state exists for them: the
+/// (`Window::Combat`), the invasion and the production step as stub payloads (`Window::Invasion`/`Window::Production`, lanes M3/M2 type them: the
 /// string drives both; documented bail D1b2-bail-02).
 pub(super) fn sub_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
     let Some(w) = &g.aftermath else { return Ok(None) };
@@ -264,8 +265,11 @@ pub(super) fn sub_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
         AStr::Fighting(window) => {
             Some(Window::Combat(Box::new(crate::dual_window::fields_of(&window.fields_in(), r).ok_or("a seat or unit the table does not know")?)))
         }
-        AStr::Invading(_) => Some(Window::Untyped { kind: WindowKind::Invasion, actor: Some(seat(r, &w.player)?), data: [0; 3] }),
-        AStr::Producing(_) => Some(Window::Untyped { kind: WindowKind::Production, actor: Some(seat(r, &w.player)?), data: [0; 3] }),
+        AStr::Invading(_) => {
+            let system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(w.system.as_str()).ok_or("a system the table does not know")?;
+            Some(Window::Invasion(Box::new(ti4_engine_core::state::Invasion::observed(seat(r, &w.player)?, system))))
+        }
+        AStr::Producing(_) => Some(Window::Production(Box::new(ti4_engine_core::state::ProductionUse { actor: Some(seat(r, &w.player)?), data: [0; 3] }))),
         AStr::Negotiating { .. } | AStr::Done => None,
     })
 }

@@ -29,7 +29,19 @@ use crate::kernel::{Kernel, Next};
 use crate::query::transit::Hold;
 use crate::state::{Code, CoreState, Piece};
 
-pub use finish::Closed;
+pub use finish::{destroy_blockaded_mobile_docks, Closed};
+
+impl Machine {
+    /// The announcement of the end of the movement step (`MOVEMENT_FINISHED`); the count of ships that arrived stays for the hero.
+    pub fn announce_finished(&mut self, sx: &mut Sx<'_>) -> Closed {
+        finish::announce(self, sx)
+    }
+
+    /// The count of ships that arrived has served (`finish_head`).
+    pub fn forget_arrivals(sx: &mut Sx<'_>) {
+        finish::forget_arrivals(sx);
+    }
+}
 
 /// The suspension points of [`Machine`] (the string `TacticalStage`, plus the end).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,11 +143,14 @@ pub struct Machine {
     pub dice: Vec<u32>,
     /// Set when the position holds something the machine does not follow (the adapter then keeps the string result).
     pub bailed: Option<Bail>,
+    /// The machine runs LIVE (`driver::windows::tactical`): the typed events it emits are mirrored into the ordered emission queue
+    /// and its plain events are written to it as they happen (`Game::emit_typed` and `Game::emit`). The dual's machine keeps both aside.
+    live: bool,
 }
 
 impl Machine {
     fn new(seat: Seat, stage: Stage, facts: Facts) -> Self {
-        Self { seat, stage, facts, load: None, route: None, single: false, free: None, closing: false, closed: None, step: None, plain: Vec::new(), dice: Vec::new(), bailed: None }
+        Self { seat, stage, facts, load: None, route: None, single: false, free: None, closing: false, closed: None, step: None, plain: Vec::new(), dice: Vec::new(), bailed: None, live: false }
     }
 
     /// The seat is to choose a system to activate.
@@ -178,6 +193,45 @@ impl Machine {
         m
     }
 
+    /// The machine of a live game: its events go to the emission queue as the string's `emit` and `emit_typed` put them there.
+    #[must_use]
+    pub const fn live(mut self) -> Self {
+        self.live = true;
+        self
+    }
+
+    /// Emit a typed event of the action: mirrored into the emission queue when live (`emit_typed`), else only announced.
+    pub(crate) fn emit(&self, sx: &mut Sx<'_>, rec: crate::state::EventRec) -> Result<crate::state::EventRec, crate::kernel::TimingError> {
+        if !self.live {
+            return sx.emit(rec);
+        }
+        // `Game::emit_typed` announces what effects staged without a resolver (E-Res Siphons' trade goods) before the event.
+        for staged in crate::kernel::fx::drain_staged(sx.state) {
+            let _ = sx.emit_mirrored(staged);
+        }
+        sx.emit_mirrored(rec)
+    }
+
+    /// Record a plain event of the action (`Game::emit`); live, also on the emission queue. A [`Plain::Typed`] line is the
+    /// mirror of an event [`Self::emit`] already queued.
+    pub(crate) fn note(&mut self, sx: &mut Sx<'_>, p: Plain) {
+        use crate::state::{PlainArg, PlainKind, PlainRec};
+        self.plain.push(p);
+        if !self.live {
+            return;
+        }
+        let rec = match p {
+            Plain::SupportReturned(owner) => PlainRec::one(PlainKind::SupportForTheThroneReturned, PlainArg::Seat(owner)),
+            Plain::SystemActivated(system) => PlainRec::one(PlainKind::SystemActivated, PlainArg::System(system)),
+            Plain::FreeActivated => PlainRec::bare(PlainKind::SystemActivated),
+            Plain::FreeTactical => PlainRec::bare(PlainKind::FreeTacticalAction),
+            Plain::ShipMoved => PlainRec::bare(PlainKind::ShipMoved),
+            Plain::ShipLost => PlainRec::bare(PlainKind::ShipLostToGravityRift),
+            Plain::Typed(_) => return,
+        };
+        sx.plain(rec);
+    }
+
     /// End the run after the next answer (the adapter's one string step).
     #[must_use]
     pub fn single(mut self) -> Self {
@@ -205,6 +259,7 @@ impl Machine {
                 closed: l.hold.closed,
             },
             (Stage::Activating, _) => TStage::Activating,
+            (Stage::Done, _) => TStage::Closing,
             _ => TStage::Moving,
         };
         crate::state::Tactical { player: self.seat, stage, notes_at_start }
@@ -220,6 +275,9 @@ impl Machine {
             TStage::Loading { origin, ship, path, loaded, closed } => {
                 Self::loading(core, k, open.player, facts, *origin, *ship, path.to_vec(), loaded, *closed)
             }
+            // The close is this machine's `closing` step; the stages after it are the composer's (`driver::windows::tactical`).
+            TStage::Closing => Self::closing(open.player, facts),
+            TStage::Free(_) | TStage::Hooks | TStage::Heading(_) | TStage::Aftermath | TStage::Tail => Self::moving(open.player, facts),
         }
     }
 

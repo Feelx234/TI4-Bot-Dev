@@ -1,0 +1,7 @@
+Q0 seat 1 Leaders(OsphaReplace { owner: Seat(1), ship: DestroyerI, system: Olergodt })
+  >0: Leaders(OsphaReplace(Carrier))
+   1: Leaders(OsphaReplace(Cruiser))
+   2: Decline
+done
+--- delta ---
+sys[Olergodt]: units [1xDestroyerI/s1] tokens {} flags 0 -> units [1xCarrierI/s1] tokens {} flags 0

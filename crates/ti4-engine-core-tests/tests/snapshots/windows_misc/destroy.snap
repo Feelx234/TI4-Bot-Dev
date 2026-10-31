@@ -1,0 +1,12 @@
+Q0 seat 1 Combat(AssignHit)
+  >0: Combat(Destroy { index: 0, unit: CruiserI, damaged: false })
+   1: Combat(Destroy { index: 1, unit: DestroyerI, damaged: false })
+done
+--- delta ---
+sys[Olergodt]: units [1xCruiserI/s0, 1xCruiserI/s1, 1xDestroyerI/s1] tokens {} flags 0 -> units [1xCruiserI/s0, 1xDestroyerI/s1] tokens {} flags 0
+transient.combat.pending_destructions: [] -> -
+transient.combat.pending_destructions.[0].during_space_combat: - -> true
+transient.combat.pending_destructions.[0].owner.[0]: - -> 1
+transient.combat.pending_destructions.[0].reason.[0]: - -> 22
+transient.combat.pending_destructions.[0].system: - -> Olergodt
+transient.combat.pending_destructions.[0].unit: - -> CruiserI

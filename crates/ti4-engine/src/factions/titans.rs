@@ -1996,6 +1996,9 @@ mod tests {
     fn slumberstate_lets_coalescing_units_coexist_instead_of_fighting() {
         let run = |bt: bool, answer: &str| {
             let (mut state, hub, system, planet) = tactical_setup();
+            // (A position with promissory notes is not lent to the core: the typed cards slice has no generic faction.)
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
             give_tech(&mut state, &a(), "ht2");
             if bt {
                 state.player_mut(&a()).unwrap().breakthrough =
@@ -2044,6 +2047,39 @@ mod tests {
             &system,
             &planet
         ));
+    }
+
+    /// W12: the combats Coalescence forces at the end of the commitment and Slumberstate Computing's coexist question are the core window
+    /// `rules::invasion::forced` (they were the counted gate "a combat a faction rule forces"): compared in lockstep with the string for
+    /// the fight, the coexistence, no breakthrough (the combat is forced without a question) and a planet nobody else controls.
+    #[test]
+    fn coalescence_and_slumberstate_run_as_the_core_forced_combats_window_in_lockstep() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut coexisted = 0;
+        let mut fought = 0;
+        for (bt, answer) in [(true, "coexist"), (true, "fight"), (false, "fight")] {
+            let (mut state, hub, system, planet) = tactical_setup();
+            give_tech(&mut state, &a(), "ht2");
+            if bt {
+                state.player_mut(&a()).unwrap().breakthrough = Some(ti4_model::id::BreakthroughId::new("titansbt"));
+            }
+            place_sleeper(&mut state, &a(), &system, &planet);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+            state.system_mut(&system).planet_control.insert(planet.clone(), b());
+            let game = with_mask(AreaMask::STRING.with(Area::Invasion, Backend::Dual), || {
+                run_tactical(state, hub, &[crate::game::TACTICAL_ACTION_ID, system.as_str(), AWAKEN_ID, "pds", "done_moving", answer, "decline"])
+            });
+            coexisted += usize::from(crate::coexistence::is_coexisting(&game.state, &system, &planet, &a()));
+            fought += usize::from(rolled_by(&game, "a", 6) > 0);
+        }
+        assert_eq!((coexisted, fought), (1, 2));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        assert_eq!(thread_window_counts("invasion::forced_combats"), (3, 0), "the core window ran every time: {:?}", r.windows);
+        let _ = take_report();
     }
 
     /// "During the status phase, for each player you are coexisting with, you and that player each

@@ -73,6 +73,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::THUNDARIAN_SPACE, kind: "leader", card: "nomadagentthundarian" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::THUNDARIAN_GROUND, kind: "leader", card: "nomadagentthundarian" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::VAN_HAUGE, kind: "unit", card: "yin_flagship" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::SOL_AGENT, kind: "leader", card: "solagent" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
@@ -157,7 +158,7 @@ pub fn with_reroll<T>(facts: ti4_engine_core::kernel::ability::RerollFacts, body
 }
 
 /// The registered id of `spec` for an owner called `owner`.
-fn id_text(r: &Render, spec: &Spec, owner: &str, owner_seat: &str, lender: Option<&(String, String)>) -> String {
+pub(crate) fn id_text(r: &Render, spec: &Spec, owner: &str, owner_seat: &str, lender: Option<&(String, String)>) -> String {
     let (event, rel) = (event_text(r, spec.event), rel_segment(spec));
     if let (Some((lender_faction, lender_seat)), Some((_, agent, style))) = (lender, PAIRS.iter().find(|p| p.0 == spec.slot)) {
         return match style {
@@ -408,6 +409,18 @@ pub(crate) fn card_groups() -> Vec<u8> {
     card_tables().0.clone()
 }
 
+/// The cards the string side has an effect for (`action_cards::effect_for`), by card index: [`PlayFacts::has_effect`].
+pub(crate) fn card_effects() -> Vec<bool> {
+    card_tables().1.clone()
+}
+
+/// [`play_facts`] for the checks that compare it with the core's own (`live::plays`).
+#[doc(hidden)]
+#[must_use]
+pub fn string_play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::SourceSet) -> Option<ti4_engine_core::kernel::ability::PlayFacts> {
+    play_facts(r, gs, sources)
+}
+
 /// What the play of an action card inside a window reads from outside the core (`None`: a seat or a unit form the
 /// tables do not know; the play then marks the run unknown and the window bails).
 fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::SourceSet) -> Option<ti4_engine_core::kernel::ability::PlayFacts> {
@@ -422,7 +435,7 @@ fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::So
         // Reveal Prototype (package W4): carried for a seat whose research the core window carries (the hooks of the string modules and
         // the core are compared in `Follow::arm`, which has the core state).
         let content = ti4_content::ContentStore::embedded();
-        let researches = gs.rules_version >= ti4_model::state::RULES_TECH_PAYMENT_CHOICE && !crate::action_cards_view::technology_unported(gs, sources, &player);
+        let researches = !crate::action_cards_view::technology_unported(gs, sources, &player);
         seats.push(SeatPlay {
             who,
             mahact_held: gs.tokens_held_by_mahact(&player),
@@ -491,6 +504,43 @@ fn seat_more(gs: &GameState, player: &ti4_model::id::PlayerId, sources: &ti4_mod
     })
 }
 
+/// The interned texts the ability table's rules compare by (`AbilityTable::codes`) and the pay kernel: functions of the render
+/// tables alone (package KF2: the live path sets them without a string position).
+pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
+        table.codes.ground_combat = r.code("ground_combat");
+        table.codes.harrow = r.code("harrow");
+        table.codes.self_assembly = r.code("self_assembly_routines");
+        table.codes.van_hauge = r.code("unit_ability:yin_flagship");
+        table.codes.action_card = r.code("action_card");
+        table.codes.supply_base = r.code("forward_supply_base");
+        table.codes.mentak = r.code("mentak");
+        table.codes.future_sight = r.code("future_sight");
+        table.codes.instinct_training = r.code("instinct_training");
+        table.codes.direct_hit = r.code("action_card:direct_hit");
+        table.codes.cavalry = r.code("cavalry");
+        table.codes.technological_singularity = r.code("technological_singularity");
+        table.codes.galactic_threat = r.code("galactic_threat");
+        table.codes.empyrean_mech = r.code("empyrean_mech");
+        table.codes.salvage = r.code("so");
+        table.facts.pay_kernel = Some(crate::production_view::kernel);
+        table.codes.mahact_infantry = r.code("mahact_infantry");
+        table.codes.mahact_infantry2 = r.code("mahact_infantry2");
+        table.codes.retreat_capacity = r.code("retreat_capacity");
+        table.codes.reinforcements = r.code("reinforcements");
+        table.codes.assign_casualty = r.code("assign_casualty");
+        table.codes.reflective_cause = r.code("action_card:reflective_shielding");
+        table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
+        table.codes.tactical = ti4_engine_core::kernel::ability::TacticalCodes {
+            tactic: r.code("tactic"),
+            space_cannon: r.code("space_cannon"),
+            space_cannon_cause: r.code("unit_ability:space_cannon"),
+            casualty: r.code("assign_casualty"),
+            commander: r.code("letnevcommander"),
+            pre_roll: r.code("pre_roll"),
+            faction_technology: r.code("faction_technology"),
+        };
+}
+
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {
     crate::render::generic::core_phase(p)
 }
@@ -512,34 +562,24 @@ pub fn resolver_of(r: &Render, cfg: &ResolverCfg) -> Option<Resolver> {
 }
 
 impl Follow {
+    /// The follow of a window that ran with no nested activity, for the armed drivers (`window_driver::arm`): the core table with
+    /// the play facts of the position, and the window's own resolver (its seats and clock). The sources are the table's (the game's
+    /// own are not in the state): Thunder's Edge on means the full set. Call [`Follow::arm`] before the first `run`.
+    #[must_use]
+    pub(crate) fn armed(r: &Render, gs: &GameState, resolver: Resolver) -> Self {
+        let sources = if gs.thunders_edge { ti4_model::content_types::FULL } else { ti4_model::content_types::POK };
+        let mut table = table();
+        table.facts.plays = play_facts(r, gs, &sources);
+        Self { table, resolver, sources }
+    }
+
     /// Register the ported abilities of every seat in the resolver, in the string order. Call once, with the
     /// core state of the window, before the first `run`.
     pub fn arm(&mut self, r: &Render, gs: &GameState, core: &CoreState) {
         let order: Vec<Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
         let owner_name = |who: Seat| crate::promissory::faction_name(gs, &ti4_model::id::PlayerId::new(r.seat_text(who)));
         let mut name = |spec: &Spec, who: Seat, lender: Option<Seat>| -> AbilityId { ability_id(r, &id_text(r, spec, &owner_name(who), r.seat_text(who), lender.map(|l| (owner_name(l), r.seat_text(l).to_owned())).as_ref())) };
-        self.table.codes.ground_combat = r.code("ground_combat");
-        self.table.codes.harrow = r.code("harrow");
-        self.table.codes.self_assembly = r.code("self_assembly_routines");
-        self.table.codes.action_card = r.code("action_card");
-        self.table.codes.supply_base = r.code("forward_supply_base");
-        self.table.codes.mentak = r.code("mentak");
-        self.table.codes.future_sight = r.code("future_sight");
-        self.table.codes.instinct_training = r.code("instinct_training");
-        self.table.codes.direct_hit = r.code("action_card:direct_hit");
-        self.table.codes.cavalry = r.code("cavalry");
-        self.table.codes.technological_singularity = r.code("technological_singularity");
-        self.table.codes.galactic_threat = r.code("galactic_threat");
-        self.table.codes.empyrean_mech = r.code("empyrean_mech");
-        self.table.codes.salvage = r.code("so");
-        self.table.facts.pay_kernel = Some(crate::production_view::kernel);
-        self.table.codes.mahact_infantry = r.code("mahact_infantry");
-        self.table.codes.mahact_infantry2 = r.code("mahact_infantry2");
-        self.table.codes.retreat_capacity = r.code("retreat_capacity");
-        self.table.codes.reinforcements = r.code("reinforcements");
-        self.table.codes.assign_casualty = r.code("assign_casualty");
-        self.table.codes.reflective_cause = r.code("action_card:reflective_shielding");
-        self.table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
+        set_table_codes(&mut self.table, r);
         self.table.facts.staging = crate::supply::staging_enabled(gs);
         // Reveal Prototype researches: a seat whose research hooks the core table answers differently from the string modules is the string's.
         if let Some(plays) = self.table.facts.plays.as_mut() {

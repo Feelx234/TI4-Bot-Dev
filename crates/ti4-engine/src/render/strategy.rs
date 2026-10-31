@@ -61,6 +61,9 @@ fn pool_id(p: Pool) -> &'static str {
     }
 }
 
+/// The id of Hecatoncheires' alternative at a "place a PDS" site (`factions::titans`).
+const HECATONCHEIRES: &str = "titans|hecatoncheires";
+
 impl Family for Fam {
     type Ask = Ask;
     type Opt = Opt;
@@ -80,6 +83,7 @@ impl Family for Fam {
                 format!("spend {owed}{} influence for a command token", if *more { " more" } else { "" })
             }
             Ask::PlaceStructure { .. } => "place a structure".to_owned(),
+            Ask::PdsAlternative { .. } => "place a PDS or an alternative".to_owned(),
             Ask::ImperialScore => "score a public objective with Imperial".to_owned(),
             Ask::ConstructionAbility => "Construction: a structure or a production".to_owned(),
             Ask::TeWarfareRedistribute { .. } => "Warfare: redistribute your command tokens before the tactical action".to_owned(),
@@ -101,6 +105,7 @@ impl Family for Fam {
             Subtype::PoliticsPlaceAgenda => "politics_place_agenda",
             Subtype::BuyTokenWithInfluence => "buy_token_with_influence",
             Subtype::PlaceStructure => "place_structure",
+            Subtype::PlaceStructurePdsAlternative => "place_structure_pds_alternative",
             Subtype::ImperialScoreObjective => "imperial_score_objective",
             Subtype::ResearchTechnology => "research_technology",
             Subtype::FollowSecondary => "strategy_secondary",
@@ -152,6 +157,20 @@ impl Family for Fam {
                 ChoiceOption::labelled(format!("{kind}|{system}|{planet}"), "build", format!("place {kind} on {planet}"))
                     .with_planet(planet, Some(system))
                     .with("unit", kind)
+            }
+            Opt::PlacePds => {
+                let planet = match a {
+                    Ask::PdsAlternative { planet, .. } => planet.as_str(),
+                    _ => "",
+                };
+                ChoiceOption::labelled("pds", "build", format!("place pds on {planet}"))
+            }
+            Opt::Alternative => {
+                let planet = match a {
+                    Ask::PdsAlternative { planet, .. } => planet.as_str(),
+                    _ => "",
+                };
+                ChoiceOption::labelled(HECATONCHEIRES, "build", format!("place 1 mech and 1 infantry on {planet} instead"))
             }
             Opt::Research(t) => {
                 // The label is the printed name, which only the content store has: the caller completes it.
@@ -221,6 +240,11 @@ impl Family for Fam {
                 rest.is_none().then_some(())?;
                 Some(Opt::Structure { pds, system: System::from_id(system)?, planet: Planet::from_id(planet)? })
             }
+            Ask::PdsAlternative { .. } => match id {
+                "pds" => Some(Opt::PlacePds),
+                HECATONCHEIRES => Some(Opt::Alternative),
+                _ => None,
+            },
             Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
             Ask::ResearchTechnology { .. } => Technology::from_id(id).map(Opt::Research),
             Ask::Follow { .. } => match id {
@@ -253,6 +277,19 @@ impl Family for Fam {
             d.insert("card".to_owned(), card.as_str().into());
             d.insert("played_by".to_owned(), r.seat_text(*primary).into());
             d.insert("costs_token".to_owned(), (*costs_token).into());
+        }
+        if let Ask::PdsAlternative { system, planet } = a {
+            // `strategy_cards::construction_structure`: the offer card of the alternative.
+            d = crate::choice::offer_details(
+                crate::choice::offer_card(
+                    "Place a PDS",
+                    "construction",
+                    Some("A faction ability can replace this PDS"),
+                    Some("You may place something else on this planet instead of the PDS."),
+                ),
+                vec![crate::choice::offer_fact_planet("Planet", planet.as_str(), system.as_str())],
+                &[("pds", crate::choice::offer_caption("Place the PDS", Some("As planned")))],
+            );
         }
         if let Ask::PlaceStructure { step, only_pds } = a {
             if *step > 0 {

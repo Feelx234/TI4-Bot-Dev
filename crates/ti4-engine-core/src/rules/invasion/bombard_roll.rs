@@ -6,10 +6,14 @@
 //! faces back, spends the staging and leaves the faces for the caller to take the planets' hits from (the string recomputes the plan's
 //! dice and groups from the staged set).
 //!
-//! Not covered (the adapter returns `None`, the string result stands): the Jol-Nar commander and the Heart of Ixth (questions of the
-//! roller), irreproducible dice.
+//! The invader's Jol-Nar commander (`Facts::commander`, W16): before the event the invader is asked about each die in turn
+//! ([`Walk`]: one optional question per die of the staged set, the picked dice drawn again afterwards), as the string
+//! `reroll_window` does before it emits; the event shows the hits of the faces that remain.
+//!
+//! Not covered (the adapter returns `None`, the string result stands): the Heart of Ixth (questions of the roller), irreproducible dice.
 
 use crate::choice::{Choice, Pick};
+use crate::rules::combat::commander_walk::Walk;
 use crate::generated::System;
 use crate::ids::Seat;
 use crate::kernel::fx;
@@ -20,11 +24,15 @@ use crate::state::{Code, CoreState, EventKind, Key, Payload, Val};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     Start,
+    /// The invader's Jol-Nar commander is asked about each die.
+    Walking,
+    /// The event and the faces that remain.
+    Rolled,
     Done,
 }
 
 /// The facts of one bombardment's reroll window.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Facts {
     pub invader: Seat,
     pub system: System,
@@ -32,6 +40,11 @@ pub struct Facts {
     pub announce: bool,
     /// The interned roll kind `bombardment` of the event.
     pub kind: Code,
+    /// The invader's Jol-Nar commander is in play (it may reroll any of the dice).
+    pub commander: bool,
+    /// The unit text of each staged entry in the question renderer's table (the label of the commander's questions); empty: the staged
+    /// entry's own code.
+    pub shown: Vec<Code>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,12 +53,13 @@ pub struct BombardRolled {
     /// The faces of each staged entry after the event, in order of the entries (what the caller recomputes the planets' hits from).
     pub faces: Vec<Vec<u8>>,
     stage: Stage,
+    walk: Option<Walk>,
 }
 
 impl BombardRolled {
     #[must_use]
     pub fn new(f: Facts) -> Self {
-        Self { f, faces: Vec::new(), stage: Stage::Start }
+        Self { f, faces: Vec::new(), stage: Stage::Start, walk: None }
     }
 
     /// `staged_hits`: the hits the invader's staged set makes (a die hits when its face plus its adjustment reaches the number).
@@ -75,45 +89,74 @@ impl Window for BombardRolled {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        if self.stage == Stage::Done {
-            return Next::Done;
+        loop {
+            match self.stage {
+                Stage::Done => return Next::Done,
+                Stage::Start => {
+                    // (The string stages the set, and names the roller, only when some die was rolled; without one there is no window.)
+                    if !sx.state.transient().combat.reroll_staging.iter().any(|(seat, _)| *seat == self.f.invader) {
+                        self.stage = Stage::Done;
+                        return Next::Done;
+                    }
+                    // "After you roll dice for a unit ability: you may reroll any of those dice" (the Jol-Nar commander).
+                    self.walk = if self.f.commander { Walk::start(sx.state, self.f.invader, &self.f.shown) } else { None };
+                    self.stage = if self.walk.is_some() { Stage::Walking } else { Stage::Rolled };
+                }
+                Stage::Walking => {
+                    let Some(walk) = self.walk.as_mut() else {
+                        self.stage = Stage::Rolled;
+                        continue;
+                    };
+                    if walk.done() {
+                        walk.redraw(sx);
+                        self.walk = None;
+                        self.stage = Stage::Rolled;
+                    } else {
+                        return match walk.ask(sx.state) {
+                            Some(choice) => Next::Continue(choice.ask),
+                            None => Next::Done,
+                        };
+                    }
+                }
+                Stage::Rolled => {
+                    self.stage = Stage::Done;
+                    let f = self.f.clone();
+                    if f.announce {
+                        let hits = Self::staged_hits(sx.state, f.invader);
+                        let payload = Payload::new()
+                            .with(Key::Kind, Val::Code(f.kind))
+                            .with(Key::Player, Val::Seat(f.invader))
+                            .with(Key::System, Val::System(f.system))
+                            .with(Key::Hits, Val::Int(i64::try_from(hits).unwrap_or(0)));
+                        let _ = sx.emit(fx::event(EventKind::UnitAbilityRolled, payload));
+                    }
+                    // The faces the cards left, then the staging is spent (the string removes it and the roller after the plan is recomputed).
+                    self.faces = sx
+                        .state
+                        .transient()
+                        .combat
+                        .reroll_staging
+                        .iter()
+                        .find(|(seat, _)| *seat == f.invader)
+                        .map(|(_, set)| set.rolls.iter().map(|e| e.faces.to_vec()).collect())
+                        .unwrap_or_default();
+                    let combat = &mut sx.state.transient_mut().combat;
+                    combat.reroll_staging.edit().retain(|(seat, _)| *seat != f.invader);
+                    combat.last_reroll_player = None;
+                    return Next::Done;
+                }
+            }
         }
-        self.stage = Stage::Done;
-        let f = self.f;
-        // (The string stages the set, and names the roller, only when some die was rolled; without one there is no window.)
-        if !sx.state.transient().combat.reroll_staging.iter().any(|(seat, _)| *seat == f.invader) {
-            return Next::Done;
-        }
-        if f.announce {
-            let hits = Self::staged_hits(sx.state, f.invader);
-            let payload = Payload::new()
-                .with(Key::Kind, Val::Code(f.kind))
-                .with(Key::Player, Val::Seat(f.invader))
-                .with(Key::System, Val::System(f.system))
-                .with(Key::Hits, Val::Int(i64::try_from(hits).unwrap_or(0)));
-            let _ = sx.emit(fx::event(EventKind::UnitAbilityRolled, payload));
-        }
-        // The faces the cards left, then the staging is spent (the string removes it and the roller after the plan is recomputed).
-        self.faces = sx
-            .state
-            .transient()
-            .combat
-            .reroll_staging
-            .iter()
-            .find(|(seat, _)| *seat == f.invader)
-            .map(|(_, set)| set.rolls.iter().map(|e| e.faces.to_vec()).collect())
-            .unwrap_or_default();
-        let combat = &mut sx.state.transient_mut().combat;
-        combat.reroll_staging.edit().retain(|(seat, _)| *seat != f.invader);
-        combat.last_reroll_player = None;
-        Next::Done
     }
 
-    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
-        None
+    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
+        if self.stage == Stage::Walking { self.walk.as_ref()?.ask(s) } else { None }
     }
 
-    fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
-        Err(Illegal)
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage != Stage::Walking {
+            return Err(Illegal);
+        }
+        self.walk.as_mut().ok_or(Illegal)?.answer(sx.state, pick)
     }
 }

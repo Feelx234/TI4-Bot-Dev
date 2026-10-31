@@ -7,12 +7,44 @@
 //! Each area owner adds its providers here, in their own function (`laws`, `relics`, ...), not in a window.
 
 use super::data::COMBAT_ROWS;
-use super::{Delta, Layer, RuleRef, Source, SpendSite};
+use super::{Delta, Layer, RollKind, RollSite, RuleRef, Source, SpendSite};
 use crate::kernel::HookTable;
 use crate::query::{laws, reach};
 
 /// `Source::Rule` code of the planet-value laws (Minister of Commerce style effects; `ValueLaw`).
 pub const LAW_PLANET_VALUE: Source = Source::Rule(RuleRef(9101));
+
+/// `Source::Rule` code of the faction abilities that shift a ground roll (Fragile, Unrelenting; lane M3).
+pub const GROUND_ABILITIES: Source = Source::Rule(RuleRef(9102));
+
+/// `ground_roll_shift`'s faction-ability term (`faction_abilities::combat_modifier(.., "ground")`): Fragile -1, Unrelenting +1, unless the unit is
+/// an infantry on a planet that holds the owner's Shield Paling mech ("your infantry on this planet are not affected by your Fragile ability").
+fn ground_ability_shift(q: &crate::kernel::seam::Q<'_>, site: &RollSite) -> Delta {
+    use crate::generated::{Ability, Unit, UnitBaseType};
+    if site.kind != RollKind::Ground {
+        return Delta::None;
+    }
+    let owner = site.unit.owner;
+    let mut faction: i64 = q
+        .s
+        .players()
+        .by_seat(owner)
+        .map_or(&[][..], |p| p.faction.data().abilities)
+        .iter()
+        .map(|a| match a {
+            Ability::Fragile => -1,
+            Ability::Unrelenting => 1,
+            _ => 0,
+        })
+        .sum();
+    if faction < 0
+        && site.unit.unit.data().base_type == UnitBaseType::Infantry
+        && site.unit.planet.is_some_and(|planet| q.s.board().planet(planet).units.iter().any(|u| u.owner() == owner && u.kind() == Unit::ShieldPaling))
+    {
+        faction = 0;
+    }
+    if faction == 0 { Delta::None } else { Delta::Add(faction) }
+}
 
 /// The hook table's `Spend` and the query layer's are two types of the same two values.
 const fn query_spend(s: super::Spend) -> crate::query::economy::Spend {
@@ -20,6 +52,13 @@ const fn query_spend(s: super::Spend) -> crate::query::economy::Spend {
         super::Spend::Resources => crate::query::economy::Spend::Resources,
         super::Spend::Influence => crate::query::economy::Spend::Influence,
     }
+}
+
+/// The faction-ability term of the ground rolls as a provider. NOT in [`register_core`]: the dual's combat kernel carries the string's whole
+/// ground shift through its bridge (which includes this term), so a kernel that has the bridge must not register this too. The live kernel
+/// (no string engine) registers both.
+pub fn register_ground_abilities(t: &mut HookTable) {
+    t.seam.hit_shift.push_add(GROUND_ABILITIES, Layer::Faction, |q, site: &RollSite, _| ground_ability_shift(&q, site));
 }
 
 /// Register the providers of the laws, relics and technologies the core carries.

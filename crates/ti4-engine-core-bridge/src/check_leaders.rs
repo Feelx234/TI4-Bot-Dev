@@ -76,7 +76,7 @@ fn unit(kind: &str, owner: &PlayerId) -> Unit {
 }
 
 /// The variants of one position: a label and the perturbed state.
-fn variants(gs: &GameState) -> Vec<(&'static str, GameState)> {
+pub(crate) fn variants(gs: &GameState) -> Vec<(&'static str, GameState)> {
     let mut out = vec![("as is", gs.clone())];
     let all = |status: LeaderStatus| {
         let mut g = gs.clone();

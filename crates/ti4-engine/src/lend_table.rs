@@ -19,6 +19,39 @@ use ti4_model::state::GameState;
 
 use crate::dual::WindowCounts;
 
+/// Where the string runs for a label (`tools/engine_core/lent_sites.py`, column `kind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A bailing `dual_window!`: the core opened no window and the string window ran.
+    Window,
+    /// A `[gate: ..]` position: the call site ran the string bare, no window was opened.
+    Gate,
+    /// A `None` fallback of `dual_typed!`, `dual!`, `dual::write` or a `dual_hook!` slot: the string answered.
+    Fallback,
+    /// The question half of a stage window (`run_dual_ask`).
+    Question,
+}
+
+/// How the string body's window struct crosses into a lend (docs/todo/D2-remaining.md 3.1 R2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Args {
+    /// Plain data in the call's arguments: a free function over `&mut GameState` and its context.
+    Plain,
+    /// A typed `Window` with a round trip (`Window::Combat(CombatFields)`, `d1::pending.roundtrip`): a method on a window struct.
+    Typed,
+    /// No machine state in the core (invasion, the production step, the aftermath chain): not portable, no wrapper (D2-8.0).
+    Island,
+}
+
+/// When the core bails relative to the player's answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum When {
+    /// Before it asked the player anything: the string body starts from the window's start.
+    Start,
+    /// After: the string body re-asks from the start and needs the tape of the window's earlier answers.
+    Mid,
+}
+
 /// One window label the core bails out of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bail {
@@ -28,6 +61,12 @@ pub struct Bail {
     pub writes: SliceSet,
     /// What it reads (a superset of `writes` is fine; `SliceSet::ALL` when unknown).
     pub reads: SliceSet,
+    /// Where the string runs.
+    pub kind: Kind,
+    /// How the body's window struct crosses.
+    pub args: Args,
+    /// Before or after the first answer.
+    pub when: When,
     /// The issue ids of `docs/ENGINE_KNOWN_ISSUES.md` that explain the bail (`"B12-bail-02"`).
     pub ids: &'static [&'static str],
     /// The test that pins the bail.
@@ -105,18 +144,245 @@ pub fn merge_probe<'a>(lines: impl IntoIterator<Item = &'a str>) -> BTreeMap<Str
     out
 }
 
-/// The Rust source of the rows [`BAILS`] needs for `observed`.
+/// What `bail_table` knows about a label besides its writes (defaults: a plain window that bails at its start).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct How {
+    pub kind: Kind,
+    pub args: Args,
+    pub when: When,
+}
+
+impl Default for How {
+    fn default() -> Self {
+        Self { kind: Kind::Window, args: Args::Plain, when: When::Start }
+    }
+}
+
+/// The Rust source of the rows [`BAILS`] needs for `observed`, every row with the default [`How`].
 #[must_use]
 pub fn render_table(observed: &BTreeMap<String, SliceSet>) -> String {
+    render_table_with(observed, &BTreeMap::new())
+}
+
+/// The Rust source of the rows [`BAILS`] needs for `observed`, with `kind`/`args`/`when` from `how` (default for a label not in it).
+#[must_use]
+pub fn render_table_with(observed: &BTreeMap<String, SliceSet>, how: &BTreeMap<String, How>) -> String {
     let mut out = String::from("pub const BAILS: &[Bail] = &[\n");
     for (label, writes) in observed {
+        let how = how.get(label).copied().unwrap_or_default();
         let names: Vec<String> = Slice::ALL.iter().filter(|s| writes.has(**s)).map(|s| format!("Slice::{s:?}")).collect();
         out.push_str(&format!(
-            "    Bail {{ label: {label:?}, writes: SliceSet::of(&[{}]), reads: SliceSet::ALL, ids: &[], test: \"\" }},\n",
-            names.join(", ")
+            "    Bail {{ label: {label:?}, writes: SliceSet::of(&[{}]), reads: SliceSet::ALL, kind: Kind::{:?}, args: Args::{:?}, when: When::{:?}, ids: &[], test: \"\" }},\n",
+            names.join(", "),
+            how.kind,
+            how.args,
+            how.when,
         ));
     }
     out.push_str("];\n");
+    out
+}
+
+// --- the cross-check against a dual report (`bail_table --check`) ---------------------------------------------------
+
+/// A merged `dual_run` report as the rows the census reads (the text lines `    <label>: N compared, M bailed`, with ` [bail: why]` or
+/// ` [gate: why]` after the label for a reason row; the same lines `tools/engine_core/lent_census.py` parses).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ReportRows {
+    /// The plain row of every window label.
+    pub windows: BTreeMap<String, WindowCounts>,
+    /// `[bail: why]` rows: label -> (why, runs).
+    pub bail_reasons: BTreeMap<String, Vec<(String, u64)>>,
+    /// `[gate: why]` rows: label -> (why, runs). Positions the call site runs bare: no window, no probe line.
+    pub gates: BTreeMap<String, Vec<(String, u64)>>,
+}
+
+/// The reason `dual::NO_REASON` counts when a core half bails without saying why.
+pub const NO_REASON: &str = "NO REASON RECORDED";
+
+/// Read the report text; lines that are not window rows are ignored.
+#[must_use]
+pub fn parse_report(text: &str) -> ReportRows {
+    let mut rows = ReportRows::default();
+    for line in text.lines() {
+        let Some(line) = line.trim().strip_suffix(" bailed") else { continue };
+        let Some((head, bailed)) = line.rsplit_once(", ") else { continue };
+        let Some((head, compared)) = head.rsplit_once(": ") else { continue };
+        let (Ok(bailed), Some(Ok(compared))) = (bailed.parse::<u64>(), compared.strip_suffix(" compared").map(str::parse::<u64>)) else { continue };
+        match head.split_once(" [") {
+            None if !head.contains(' ') => {
+                rows.windows.insert(head.to_owned(), WindowCounts { compared, bailed });
+            }
+            Some((label, rest)) if !label.contains(' ') => {
+                let Some(rest) = rest.strip_suffix(']') else { continue };
+                if let Some(why) = rest.strip_prefix("bail: ") {
+                    rows.bail_reasons.entry(label.to_owned()).or_default().push((why.to_owned(), bailed));
+                } else if let Some(why) = rest.strip_prefix("gate: ") {
+                    rows.gates.entry(label.to_owned()).or_default().push((why.to_owned(), bailed));
+                }
+            }
+            _ => {}
+        }
+    }
+    rows
+}
+
+/// Whether a bail reason is one the core hits after it has asked the player something (so the string body must replay the
+/// window's earlier answers from a tape): the nested windows, a recorded answer or stage the core refused, a position the
+/// machine does not carry. Every other reason (a gate, a typed state that could not be lent, a seat the production windows do
+/// not carry, ...) is hit at the window's start.
+#[must_use]
+pub fn when_of_reason(reason: &str) -> When {
+    if reason.starts_with("nested (")
+        || reason.contains("the core window refused the recorded answer or stage")
+        || reason.contains("the machine: a position it does not carry")
+    {
+        When::Mid
+    } else {
+        When::Start
+    }
+}
+
+/// One line of the check's table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckRow {
+    pub label: String,
+    /// Compared plus bailed runs of the window.
+    pub calls: u64,
+    pub bailed: u64,
+    /// Runs of the `[gate: ..]` rows of the label.
+    pub gate_runs: u64,
+    /// The slices the probe saw the string body write; `None`: no probe line.
+    pub writes: Option<SliceSet>,
+    /// `Mid` when any reason of the label is.
+    pub when: When,
+    /// Every reason of the bails is a `nested (..)` one (the probe is not required to have seen the outer label).
+    pub nested_only: bool,
+}
+
+/// The result of [`check`].
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Check {
+    /// Every label that bailed or has gate runs, in label order.
+    pub rows: Vec<CheckRow>,
+    /// Why the run cannot be trusted as the lent set; empty: the report, the probe and the table agree.
+    pub problems: Vec<String>,
+}
+
+/// The cross-check of a dual run: for every window label with `bailed > 0` there must be a probe line (the probe sees
+/// `run_dual_window` bails only, so a bail without one is a path the table would miss), except labels whose reasons are all
+/// nested ones; no probe line may name a label that never bailed; no bail may lack a counted reason; and once [`BAILS`] has
+/// rows, every bailing label and every gate label needs an entry and no entry may be stale. `d1::pending` counts steps that
+/// have no window to compare, not lends, and is left out (as `lent_census.py` does).
+#[must_use]
+pub fn check(report: &ReportRows, probe: &BTreeMap<String, SliceSet>, table: &[Bail]) -> Check {
+    let mut out = Check::default();
+    let labels: std::collections::BTreeSet<&String> = report
+        .windows
+        .iter()
+        .filter(|(_, w)| w.bailed > 0)
+        .map(|(l, _)| l)
+        .chain(report.gates.iter().filter(|(_, g)| g.iter().any(|(_, n)| *n > 0)).map(|(l, _)| l))
+        .collect();
+    for label in labels {
+        let counts = report.windows.get(label).copied().unwrap_or_default();
+        let reasons = report.bail_reasons.get(label).map_or(&[][..], Vec::as_slice);
+        let gate_runs: u64 = report.gates.get(label).map_or(0, |g| g.iter().map(|(_, n)| n).sum());
+        let counted: u64 = reasons.iter().map(|(_, n)| n).sum();
+        let nested_only = counts.bailed > 0 && !reasons.is_empty() && reasons.iter().all(|(why, _)| why.starts_with("nested ("));
+        let when = if reasons.iter().any(|(why, _)| when_of_reason(why) == When::Mid) { When::Mid } else { When::Start };
+        let writes = probe.get(label).copied();
+        if label != "d1::pending" && counts.bailed > 0 {
+            if writes.is_none() && !nested_only {
+                out.problems.push(format!("BAIL WITHOUT A PROBE LINE: {label}: {} of {} runs bailed, the probe saw none (reasons: {})", counts.bailed, counts.compared + counts.bailed, why_list(reasons)));
+            }
+            if reasons.iter().any(|(why, _)| why == NO_REASON) {
+                out.problems.push(format!("SILENT BAIL: {label}: a core half bailed without a counted reason"));
+            } else if counted < counts.bailed {
+                out.problems.push(format!("UNCOUNTED BAIL: {label}: {} bailed, the reasons add up to {counted}", counts.bailed));
+            }
+        }
+        out.rows.push(CheckRow { label: label.clone(), calls: counts.compared + counts.bailed, bailed: counts.bailed, gate_runs, writes, when, nested_only });
+    }
+    for label in probe.keys() {
+        if report.windows.get(label).is_none_or(|w| w.bailed == 0) {
+            out.problems.push(format!("PROBE LINE WITHOUT A BAIL: {label}: the probe saw the core bow out, the report counts no bail (another run's file?)"));
+        }
+    }
+    if !table.is_empty() {
+        for row in &out.rows {
+            if !table.iter().any(|b| b.label == row.label) && row.label != "d1::pending" {
+                out.problems.push(format!("NO TABLE ENTRY: {} ({} bailed, {} gate runs)", row.label, row.bailed, row.gate_runs));
+            }
+        }
+        for stale in stale_entries(&report.windows, table) {
+            if !report.gates.get(stale).is_some_and(|g| g.iter().any(|(_, n)| *n > 0)) {
+                out.problems.push(format!("STALE TABLE ENTRY: {stale}: no run bails at it any more (the port landed?)"));
+            }
+        }
+    }
+    out
+}
+
+fn why_list(reasons: &[(String, u64)]) -> String {
+    if reasons.is_empty() {
+        return "none counted".to_owned();
+    }
+    reasons.iter().map(|(why, n)| format!("{n}x {why}")).collect::<Vec<_>>().join("; ")
+}
+
+/// The check's table: label, calls, bailed, share, gate runs, writes, when.
+#[must_use]
+pub fn render_check(check: &Check) -> String {
+    let mut out = format!("{:<46} {:>8} {:>7} {:>6} {:>6}  {:<5} writes\n", "label", "calls", "bailed", "share", "gates", "when");
+    for r in &check.rows {
+        let share = if r.calls == 0 { "-".to_owned() } else { format!("{:.1}%", 100.0 * r.bailed as f64 / r.calls as f64) };
+        let writes = match r.writes {
+            Some(w) => {
+                let names: Vec<String> = Slice::ALL.iter().filter(|s| w.has(**s)).map(|s| format!("{s:?}")).collect();
+                if names.is_empty() { "-".to_owned() } else { names.join(",") }
+            }
+            None if r.nested_only => "(nested only)".to_owned(),
+            None if r.bailed == 0 => "(gate)".to_owned(),
+            None => "NO PROBE".to_owned(),
+        };
+        let when = if r.when == When::Mid { "Mid" } else { "Start" };
+        out.push_str(&format!("{:<46} {:>8} {:>7} {:>6} {:>6}  {when:<5} {writes}\n", r.label, r.calls, r.bailed, share, r.gate_runs));
+    }
+    for p in &check.problems {
+        out.push_str(p);
+        out.push('\n');
+    }
+    out
+}
+
+/// `kind` and `args` per label from `tools/engine_core/lent_sites.tsv` (columns `kind`, `label`, `receiver`): a free function takes
+/// plain arguments, a method on a window struct a typed window; a label with several sites takes the window site's. `a|b` labels
+/// (an `if` of two literals) give both. A `query` site is no lend and is left out.
+#[must_use]
+pub fn how_from_sites(tsv: &str) -> BTreeMap<String, How> {
+    let mut out: BTreeMap<String, How> = BTreeMap::new();
+    for line in tsv.lines().skip(1) {
+        let cells: Vec<&str> = line.split('\t').collect();
+        let (Some(kind), Some(label), Some(receiver)) = (cells.get(2), cells.get(4), cells.get(7)) else { continue };
+        let kind = match *kind {
+            "window" => Kind::Window,
+            "gate" => Kind::Gate,
+            "fallback" | "hook" => Kind::Fallback,
+            "question" => Kind::Question,
+            _ => continue,
+        };
+        let how = How { kind, args: if *receiver == "self" { Args::Typed } else { Args::Plain }, when: When::Start };
+        for label in label.split('|') {
+            // a window site wins over a gate or fallback site of the same label
+            match out.get(label) {
+                Some(have) if have.kind == Kind::Window => {}
+                _ => {
+                    out.insert(label.to_owned(), how);
+                }
+            }
+        }
+    }
     out
 }
 
@@ -153,7 +419,16 @@ mod tests {
         WindowCounts { compared, bailed }
     }
 
-    const ENTRY: Bail = Bail { label: "combat::roll", writes: SliceSet::of(&[Slice::Transient]), reads: SliceSet::ALL, ids: &["B12-bail-02"], test: "t" };
+    const ENTRY: Bail = Bail {
+        label: "combat::roll",
+        writes: SliceSet::of(&[Slice::Transient]),
+        reads: SliceSet::ALL,
+        kind: Kind::Window,
+        args: Args::Typed,
+        when: When::Mid,
+        ids: &["B12-bail-02"],
+        test: "t",
+    };
 
     #[test]
     fn a_bailing_label_without_an_entry_is_missing_whatever_its_reason_row() {
@@ -222,6 +497,103 @@ mod tests {
         assert_eq!(changed_slices(&before, &before), SliceSet::EMPTY);
     }
 
+
+    // --- the cross-check ---
+
+    const REPORT: &str = "dual: 10 calls\n  windows: 3 call sites\n    combat::roll: 5 compared, 2 bailed\n    combat::roll [bail: nested (x)]: 0 compared, 1 bailed\n    combat::roll [bail: a gate of the roll]: 0 compared, 1 bailed\n    invasion::finish_committing [gate: a forced combat]: 0 compared, 7 bailed\n    leaders::xxcha: 3 compared, 0 bailed\n    trade::deal: 0 compared, 2 bailed\n    trade::deal [bail: nested (a)]: 0 compared, 2 bailed\n    garbage: x compared, y bailed\n";
+
+    fn probe_of(lines: &[&str]) -> BTreeMap<String, SliceSet> {
+        merge_probe(lines.iter().copied())
+    }
+
+    #[test]
+    fn a_report_is_read_into_plain_bail_and_gate_rows() {
+        let r = parse_report(REPORT);
+        assert_eq!(r.windows["combat::roll"], counts(5, 2));
+        assert_eq!(r.windows["leaders::xxcha"], counts(3, 0));
+        assert_eq!(r.bail_reasons["combat::roll"], vec![("nested (x)".to_owned(), 1), ("a gate of the roll".to_owned(), 1)]);
+        assert_eq!(r.gates["invasion::finish_committing"], vec![("a forced combat".to_owned(), 7)]);
+        assert!(!r.windows.contains_key("garbage"));
+        assert_eq!(r.windows.len(), 3);
+    }
+
+    #[test]
+    fn a_bail_without_a_probe_line_fails_unless_every_reason_is_nested() {
+        let report = parse_report(REPORT);
+        // trade::deal bails only nested: no probe line needed; combat::roll has no probe line: a problem.
+        let c = check(&report, &probe_of(&[]), &[]);
+        assert_eq!(c.problems.len(), 1, "{:?}", c.problems);
+        assert!(c.problems[0].starts_with("BAIL WITHOUT A PROBE LINE: combat::roll"), "{}", c.problems[0]);
+        let ok = check(&report, &probe_of(&["combat::roll\tPlayers"]), &[]);
+        assert!(ok.problems.is_empty(), "{:?}", ok.problems);
+        let row = ok.rows.iter().find(|r| r.label == "combat::roll").unwrap();
+        assert_eq!((row.calls, row.bailed, row.when), (7, 2, When::Mid));
+        assert_eq!(row.writes, Some(SliceSet::of(&[Slice::Players])));
+        assert!(ok.rows.iter().find(|r| r.label == "trade::deal").unwrap().nested_only);
+        let gate = ok.rows.iter().find(|r| r.label == "invasion::finish_committing").unwrap();
+        assert_eq!((gate.gate_runs, gate.bailed, gate.when), (7, 0, When::Start));
+    }
+
+    #[test]
+    fn a_probe_line_for_a_label_that_never_bailed_is_a_problem() {
+        let report = parse_report(REPORT);
+        let c = check(&report, &probe_of(&["combat::roll\tPlayers", "leaders::xxcha\t-", "ghost::label\t-"]), &[]);
+        let text = c.problems.join("\n");
+        assert!(text.contains("PROBE LINE WITHOUT A BAIL: leaders::xxcha"), "{text}");
+        assert!(text.contains("PROBE LINE WITHOUT A BAIL: ghost::label"), "{text}");
+    }
+
+    #[test]
+    fn a_bail_with_no_counted_reason_or_too_few_is_reported() {
+        let report = parse_report("    w::a: 1 compared, 3 bailed\n    w::a [bail: x]: 0 compared, 1 bailed\n    w::b: 0 compared, 1 bailed\n    w::b [bail: NO REASON RECORDED]: 0 compared, 1 bailed\n");
+        let c = check(&report, &probe_of(&["w::a\t-", "w::b\t-"]), &[]);
+        let text = c.problems.join("\n");
+        assert!(text.contains("UNCOUNTED BAIL: w::a: 3 bailed, the reasons add up to 1"), "{text}");
+        assert!(text.contains("SILENT BAIL: w::b"), "{text}");
+    }
+
+    #[test]
+    fn once_the_table_has_rows_a_missing_gate_or_window_entry_and_a_stale_one_fail() {
+        let report = parse_report(REPORT);
+        let probe = probe_of(&["combat::roll\tPlayers"]);
+        let c = check(&report, &probe, &[ENTRY]);
+        let text = c.problems.join("\n");
+        assert!(text.contains("NO TABLE ENTRY: invasion::finish_committing"), "{text}");
+        assert!(text.contains("NO TABLE ENTRY: trade::deal"), "{text}");
+        assert!(!text.contains("NO TABLE ENTRY: combat::roll"), "{text}");
+        let stale = Bail { label: "gone::label", ..ENTRY };
+        let c = check(&report, &probe, &[ENTRY, stale]);
+        assert!(c.problems.join("\n").contains("STALE TABLE ENTRY: gone::label"));
+        // an empty table skips the table checks (R2 not landed)
+        assert!(check(&report, &probe, &[]).problems.iter().all(|p| !p.contains("TABLE ENTRY")));
+    }
+
+    #[test]
+    fn the_reasons_after_a_first_answer_are_mid() {
+        assert_eq!(when_of_reason("nested (unported ability reaction: x)"), When::Mid);
+        assert_eq!(when_of_reason("the core window refused the recorded answer or stage"), When::Mid);
+        assert_eq!(when_of_reason("the machine: a position it does not carry (x)"), When::Mid);
+        assert_eq!(when_of_reason("a seat the production windows do not carry"), When::Start);
+        assert_eq!(when_of_reason("the typed state could not be lent"), When::Start);
+    }
+
+    #[test]
+    fn kind_and_args_come_from_the_sites_file_and_the_window_site_wins() {
+        let tsv = "site\tmacro\tkind\tarea\tlabel\tdynamic\tfn\treceiver\tstring_body\tstring_call\n\
+            a.rs:1\tdual_window\twindow\tCombat\tc::roll\tn\tCombatWindow::roll\tself\tn\t\n\
+            a.rs:9\tnote_gate\tgate\tCombat\tc::roll\tn\tCombatWindow::roll\tself\t-\t\n\
+            b.rs:2\tdual_typed\tfallback\tObjectives\to::list\tn\tlist\tfree\ty\tlist_string\n\
+            b.rs:3\tdual_window\twindow\tDriver\ts::lead|s::sec\talt\tlead\tfree\ty\tx_string\n\
+            b.rs:4\tdual_query\tquery\tCombat\tq::x\tn\tq\tfree\tn\t\n";
+        let how = how_from_sites(tsv);
+        assert_eq!(how["c::roll"], How { kind: Kind::Window, args: Args::Typed, when: When::Start });
+        assert_eq!(how["o::list"], How { kind: Kind::Fallback, args: Args::Plain, when: When::Start });
+        assert_eq!(how["s::lead"], how["s::sec"]);
+        assert!(!how.contains_key("q::x"));
+        let rows = render_table_with(&probe_of(&["c::roll\tPlayers"]), &how);
+        assert!(rows.contains("kind: Kind::Window, args: Args::Typed, when: When::Start"), "{rows}");
+    }
+
     #[test]
     fn the_table_has_no_duplicate_labels() {
         let mut labels: Vec<&str> = BAILS.iter().map(|b| b.label).collect();
@@ -229,5 +601,41 @@ mod tests {
         let n = labels.len();
         labels.dedup();
         assert_eq!(n, labels.len());
+    }
+
+    #[test]
+    fn rows_cover_only_labels_that_bailed_or_were_gated_and_say_start_for_a_start_reason() {
+        let report = parse_report(
+            "    w::quiet: 4 compared, 0 bailed\n    w::zerogate: 3 compared, 0 bailed\n    w::zerogate [gate: nothing]: 0 compared, 0 bailed\n    w::start: 2 compared, 1 bailed\n    w::start [bail: a seat the production windows do not carry]: 0 compared, 1 bailed\n    w::gated [gate: a forced combat]: 0 compared, 3 bailed\n",
+        );
+        let c = check(&report, &probe_of(&["w::start\tPlayers"]), &[]);
+        let labels: Vec<&str> = c.rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(labels, vec!["w::gated", "w::start"], "no row for a quiet window or a gate row of 0 runs");
+        let start = c.rows.iter().find(|r| r.label == "w::start").unwrap();
+        assert_eq!((start.when, start.nested_only, start.gate_runs), (When::Start, false, 0));
+        let gated = c.rows.iter().find(|r| r.label == "w::gated").unwrap();
+        assert!(!gated.nested_only, "no bail at all is not nested-only");
+        assert!(c.problems.is_empty(), "{:?}", c.problems);
+    }
+
+    #[test]
+    fn the_check_table_and_the_problems_are_rendered() {
+        let report = parse_report(REPORT);
+        let c = check(&report, &probe_of(&["combat::roll\tPlayers,Board"]), &[]);
+        let text = render_check(&c);
+        let line = |label: &str| text.lines().find(|l| l.starts_with(label)).unwrap_or_else(|| panic!("no line for {label} in\n{text}")).to_owned();
+        let roll = line("combat::roll");
+        assert!(roll.contains("7") && roll.contains("28.6%") && roll.contains("Mid") && roll.contains("Players,Board"), "{roll}");
+        assert!(line("trade::deal").contains("(nested only)"), "{}", line("trade::deal"));
+        assert!(line("invasion::finish_committing").contains("(gate)"), "{}", line("invasion::finish_committing"));
+        assert!(line("invasion::finish_committing").contains("Start"));
+        let none = render_check(&check(&report, &probe_of(&[]), &[]));
+        assert!(none.contains("NO PROBE"), "{none}");
+        assert!(none.contains("BAIL WITHOUT A PROBE LINE: combat::roll") && none.contains("1x nested (x); 1x a gate of the roll"), "{none}");
+        let quiet = render_check(&check(&parse_report("    w::q: 0 compared, 0 bailed\n"), &probe_of(&["w::q\t-"]), &[]));
+        assert!(quiet.contains("PROBE LINE WITHOUT A BAIL: w::q"), "{quiet}");
+        let empty_writes = render_check(&check(&parse_report("    w::e: 1 compared, 1 bailed\n    w::e [bail: x]: 0 compared, 1 bailed\n"), &probe_of(&["w::e\t-"]), &[]));
+        assert!(empty_writes.lines().any(|l| l.starts_with("w::e") && l.trim_end().ends_with(" -")), "{empty_writes}");
+        assert!(why_list(&[]) == "none counted");
     }
 }

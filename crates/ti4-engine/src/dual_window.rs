@@ -695,7 +695,8 @@ pub fn drive_windowed<W: Window>(
                 }
             }
         }
-        Ok(None) => {}
+        // D2-8a: with the drivers armed, a window that followed no nested activity runs on the resolver of the flip too.
+        Ok(None) => crate::window_driver::arm(driver, r, gs, core),
         Err(why) => {
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -720,6 +721,9 @@ pub fn drive_windowed<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::PendingDestructions => "an action card that staged destructions",
                 ti4_engine_core::kernel::ability::Unknown::DataSkimmer => "a discard the Data Skimmer could take",
                 ti4_engine_core::kernel::ability::Unknown::PlayFacts => "an action card the core does not play",
+                ti4_engine_core::kernel::ability::Unknown::UnportedTactical(_) => "a tactical position the native action does not run",
+                ti4_engine_core::kernel::ability::Unknown::UnportedAftermath(why) => crate::combat_live::gap_text(why),
+                ti4_engine_core::kernel::ability::Unknown::Unported(why) => crate::invasion_live::unported_text(why),
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -748,7 +752,7 @@ pub fn drive_windowed<W: Window>(
                 if let Some(facts) = driver.nested_facts() {
                     // The question was put in a state the driver has since rolled back: its display facts read that one.
                     let at = driver.nested_state().unwrap_or(core);
-                    complete_nested(r, &choice, facts, gs, at, &mut rendered);
+                    complete_nested(r, &choice, facts, &NestedPos::of_gs(gs), at, &mut rendered);
                     // The previews of a reaction window ("what each single-card slot would do now") are display facts
                     // the string builds from its position (`reaction_preview`); the core renders none, so they are the
                     // recorded question's own (the same convention as the option previews, B1g-10).
@@ -935,11 +939,11 @@ pub(crate) fn nested_fp(base: Footprint, script: &Recording) -> Footprint {
 /// The display facts of a question asked inside an emission (a reaction window's pick, an ability's question):
 /// the trigger of its window, the `active` detail of a pick, the battle or invasion the position is in. What
 /// the string builds from the event in hand and `TimingContext::ask_seeing`.
-fn complete_nested(
+pub(crate) fn complete_nested(
     r: &Render,
     choice: &CoreChoice,
     facts: &ti4_engine_core::kernel::NestedFacts,
-    gs: &GameState,
+    pos: &NestedPos,
     core: &ti4_engine_core::state::CoreState,
     rendered: &mut Choice,
 ) {
@@ -965,7 +969,7 @@ fn complete_nested(
         } else {
             ctx
         };
-        rendered.context = Some(nested_position(choice, ctx, gs));
+        rendered.context = Some(nested_position(choice, ctx, pos));
     }
     crate::render::leaders::complete_round_agent(r, choice, rendered);
     if matches!(choice.ask, ti4_engine_core::choice::Ask::Reaction(ti4_engine_core::choice::reaction::Ask::Legionnaire { .. })) {
@@ -980,9 +984,49 @@ fn complete_nested(
     if is_window_pick(choice) {
         slot_options(r, choice, facts, rendered);
     }
-    if is_window_pick(choice) && gs.phase == ti4_model::state::Phase::Action {
-        if let Some(active) = &gs.active {
-            rendered.details.insert(crate::timing::ACTIVE_DETAIL.to_owned(), active.to_string().into());
+    if is_window_pick(choice) && pos.action_phase {
+        if let Some(active) = &pos.active {
+            rendered.details.insert(crate::timing::ACTIVE_DETAIL.to_owned(), active.clone().into());
+        }
+    }
+}
+
+/// The few facts of the position a nested question's display reads (the string `GameState`'s `phase`, `active`, `active_space_combat` and
+/// `active_invasion`; the core position's `meta` and `transient`): the replay path takes them from the string, the live path from the core.
+#[derive(Debug, Clone, Default)]
+pub struct NestedPos {
+    /// The action phase is on (a reaction window's pick then names the active seat).
+    pub action_phase: bool,
+    /// The active seat's player id.
+    pub active: Option<String>,
+    /// The system of the space combat in progress.
+    pub combat_system: Option<ti4_model::id::SystemId>,
+    /// The system and sequence number of the invasion in progress.
+    pub invasion: Option<(ti4_model::id::SystemId, u64)>,
+}
+
+impl NestedPos {
+    /// From the string position.
+    #[must_use]
+    pub fn of_gs(gs: &GameState) -> Self {
+        Self {
+            action_phase: gs.phase == ti4_model::state::Phase::Action,
+            active: gs.active.as_ref().map(ToString::to_string),
+            combat_system: gs.active_space_combat.as_ref().map(|(system, _, _)| system.clone()),
+            invasion: gs.active_invasion.as_ref().map(|a| (a.system.clone(), a.seq)),
+        }
+    }
+
+    /// From the core position (the live path): `r` names the seats.
+    #[must_use]
+    pub fn of_core(r: &Render, core: &ti4_engine_core::state::CoreState) -> Self {
+        use crate::generated::IdStr;
+        let system = |s: ti4_engine_core::generated::System| ti4_model::id::SystemId::new(s.as_str());
+        Self {
+            action_phase: core.meta().phase == ti4_engine_core::state::Phase::Action,
+            active: core.meta().active.map(|a| r.seat_text(a).to_owned()),
+            combat_system: core.transient().combat.active_space_combat.map(|(s, _, _)| system(s)),
+            invasion: core.transient().invasion.active.as_ref().map(|a| (system(a.system), a.seq)),
         }
     }
 }
@@ -1001,11 +1045,11 @@ fn with_trigger_of(choice: &CoreChoice) -> bool {
 /// The battle and invasion a nested question is asked in. The string puts a payment an ability asks (`pay_seeing`, the
 /// table's own `ask_seeing`) in the position of an invasion only, never of a battle; the other nested questions
 /// (`TimingContext::ask_seeing`) name both.
-fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionContext, gs: &GameState) -> crate::decision_context::DecisionContext {
+fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionContext, pos: &NestedPos) -> crate::decision_context::DecisionContext {
     if matches!(choice.ask, ti4_engine_core::choice::Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
-        ctx.about_invasion(gs)
+        ctx.about_invasion_in(pos.invasion.clone())
     } else {
-        ctx.about_battle(gs).about_invasion(gs)
+        ctx.about_battle_in(pos.combat_system.clone()).about_invasion_in(pos.invasion.clone())
     }
 }
 
@@ -1152,7 +1196,7 @@ pub fn sustain_commander(
     let before = gs.clone();
     let kernel = Kernel::plain();
     let resolver = Resolver::new(&[seat], Some(seat));
-    let mut driver = Driver::new(SustainCommander::new(seat, source), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(SustainCommander::new(seat, source), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(SUSTAIN_COMMANDER, script), |core, _| {
         let driven = drive(&mut driver, core, &kernel, &r, &before, script);
@@ -1298,7 +1342,7 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
     };
     let before = gs.clone();
     let kernel = Kernel::plain();
-    let mut driver = Driver::new(window, Resolver::new(&[], None), crate::reactions_core::linked_table(), 1);
+    let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[], None), crate::reactions_core::linked_table(), 1);
     let mut staged = Vec::new();
     let mut footprint = if driver.window.needs_map() { AGENDA_EFFECT_MAP } else { AGENDA_EFFECT };
     if rolls.is_some() {
@@ -1359,7 +1403,7 @@ pub fn offer_discard(gs: &mut GameState, alias: &str, prompt: &str, script: &Rec
     let window = OfferDiscard::new(law, owner, r.code(prompt), r.code(alias));
     let before = gs.clone();
     let kernel = Kernel::plain();
-    let mut driver = Driver::new(window, Resolver::new(&[owner], Some(owner)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[owner], Some(owner)), AbilityTable::default(), 1);
     let recorded = script.questions.first().map(|q| q.choice.details.clone());
     let driven = with_core(gs, &mut cx, Sources::default(), OFFER_DISCARD, |core, _| {
         drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, rendered| {
@@ -1386,7 +1430,7 @@ pub fn laws_repeal(gs: &mut GameState, alias: &str, script: &Recording) -> Optio
     let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
     let before = gs.clone();
     let kernel = Kernel::plain();
-    let mut driver = Driver::new(Resolve::repeal(law), Resolver::new(&[], None), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(Resolve::repeal(law), Resolver::new(&[], None), AbilityTable::default(), 1);
     let driven = with_core(gs, &mut cx, Sources::default(), AGENDA_EFFECT, |core, _| drive(&mut driver, core, &kernel, &r, &before, script)).why(crate::dual::reason::NOT_LENDABLE)?.why(crate::dual::reason::DRIVER_REFUSED)?;
     Some(CoreWindow { run: Run::new(driver.window.repealed()), questions: driven.rendered })
 }
@@ -1406,9 +1450,56 @@ pub fn deadly_plot(gs: &mut GameState, holder: &PlayerId, script: &Recording) ->
     let seat = r.seat(holder.as_str()).why(crate::dual::reason::NO_SEAT)?;
     let before = gs.clone();
     let kernel = Kernel::plain();
-    let mut driver = Driver::new(DeadlyPlot::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(DeadlyPlot::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let driven = with_core(gs, &mut cx, Sources::default(), DEADLY_PLOT, |core, _| drive(&mut driver, core, &kernel, &r, &before, script)).why(crate::dual::reason::NOT_LENDABLE)?.why(crate::dual::reason::DRIVER_REFUSED)?;
     Some(CoreWindow { run: Run::new(()), questions: driven.rendered })
+}
+
+/// What the forced combats of a commitment read and write: the board's coexisting sets and the planets' units and control.
+const FORCED: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks, Slice::Transient], &[Slice::Board]);
+
+/// The core half of `InvasionWindow::add_forced_combats` (`rules::invasion::forced`; the value: the planets added to the commitment, in
+/// order). `committed` are the planets the commitment already holds.
+pub fn forced_combats(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    invader: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    committed: &[ti4_model::id::PlanetId],
+    script: &Recording,
+) -> Option<CoreWindow<Vec<String>>> {
+    use ti4_engine_core::rules::invasion::forced::ForcedCombats;
+    // The question is asked inside the invasion by definition: its context names the battle and the invasion (completed below), so only
+    // nested activity and diplomacy promises are left to the string.
+    if script.nested {
+        crate::dual::note_bail_here("nested activity (a card or an ability played inside the window)");
+        return None;
+    }
+    if gs.diplomacy.enabled {
+        crate::dual::note_bail_here("diplomacy on");
+        return None;
+    }
+    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let seat = r.seat(invader.as_str()).why(crate::dual::reason::NO_SEAT)?;
+    let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+    let committed: Vec<ti4_engine_core::generated::Planet> = committed
+        .iter()
+        .map(|p| <ti4_engine_core::generated::Planet as IdStr>::from_id(p.as_str()))
+        .collect::<Option<_>>()
+        .why(crate::dual::reason::UNKNOWN_ID)?;
+    let env = crate::core_invasion::ground_env(gs, &cx, sources).why("the invasion environment could not be built from the position")?;
+    let before = gs.clone();
+    let mut driver = Driver::new(ForcedCombats::new(seat, sys, committed), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let driven = with_core(gs, &mut cx, Sources::default(), FORCED, |core, _| {
+        drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, rendered| {
+            // As `Resolving::ask_seeing` asks it: the context knows the battle and the invasion it is asked in.
+            rendered.context = rendered.context.take().map(|c| c.about_battle(&before).about_invasion(&before));
+        })
+    })
+    .why(crate::dual::reason::NOT_LENDABLE)?
+    .why(crate::dual::reason::DRIVER_REFUSED)?;
+    let added = driver.window.added.iter().map(|p| p.as_str().to_owned()).collect();
+    Some(CoreWindow { run: Run::new(added), questions: driven.rendered })
 }
 
 const SUSTAIN_OFFER: Footprint = Footprint::new(
@@ -1434,8 +1525,8 @@ pub struct SustainArgs<'a> {
 }
 
 /// The core half of `combat::offer_sustain`. `None` for what the core window does not express: staged
-/// planet sustainers, games below `RULES_FACTION_EFFECTS`, a commander held another way than as an
-/// unlocked leader, or a position the codecs refuse.
+/// planet sustainers, a commander held another way than as an unlocked leader, or a position the codecs refuse.
+/// (A game below `RULES_FACTION_EFFECTS` is the window's own: the holder's trade good is paid without a question.)
 #[must_use]
 pub fn sustain_offer(
     gs: &mut GameState,
@@ -1444,10 +1535,6 @@ pub fn sustain_offer(
     script: &Recording,
 ) -> Option<CoreWindow<usize>> {
     use ti4_engine_core::rules::combat::sustain_offer::{Offer, SustainOffer};
-    if gs.rules_version < ti4_model::state::RULES_FACTION_EFFECTS {
-        crate::dual::note_bail_here("a game below the faction effects");
-        return None;
-    }
     let unlocked = gs
         .player(a.player)
         .is_some_and(|p| p.leaders.get(ti4_model::id::text("letnevcommander")) == Some(&ti4_model::state::LeaderStatus::Unlocked));
@@ -1474,8 +1561,7 @@ pub fn sustain_offer(
         announce: a.announce,
     };
     let resolver = Resolver::new(&[player], Some(player));
-    let window = SustainOffer::new(offer, u16::try_from(a.hits).ok()?);
-    let mut driver = Driver::new(window, resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(SustainOffer::new(offer, u16::try_from(a.hits).ok()?), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(SUSTAIN_OFFER, script), |core, _| {
         let sustaining = a.player.clone();
@@ -1563,7 +1649,7 @@ pub fn assign_hits(
         announce: a.announce,
     };
     let resolver = Resolver::new(&[player], Some(player));
-    let mut driver = Driver::new(AssignHits::new(facts, u16::try_from(a.hits).ok()?), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(AssignHits::new(facts, u16::try_from(a.hits).ok()?), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let producer = a.producer.clone();
     let restriction = if a.non_fighters_first {
@@ -1624,7 +1710,7 @@ pub fn commit_ground(
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, sources).why("the invasion environment could not be built from the position")?;
     let resolver = Resolver::new(&[seat], Some(seat));
-    let mut driver = Driver::new(CommitGround::new(seat, sys), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(CommitGround::new(seat, sys), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(COMMIT_GROUND, script), |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
@@ -1672,7 +1758,7 @@ pub fn absorb_ground(
     let env = crate::core_invasion::ground_env(&before, &cx, sources).why("the invasion environment could not be built from the position")?;
     let resolver = Resolver::new(&[seat], Some(seat));
     let window = AbsorbGround::new(seat, sys, pl, u16::try_from(hits).ok()?, unit_ability, crate::supply::staging_enabled(&before));
-    let mut driver = Driver::new(window, resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(window, resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ABSORB_GROUND, script), |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
@@ -1735,7 +1821,7 @@ pub fn custodians(
     let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let (phase, round) = (render::generic::core_phase(gs.phase), gs.round);
     let kernel = crate::production_view::kernel();
-    let mut driver = Driver::new(Custodians::new(seat, sys, affordable), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(Custodians::new(seat, sys, affordable), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let mut rendered = Vec::new();
     let mut staged = Vec::new();
     with_core(gs, &mut cx, Sources::default(), nested_fp(CUSTODIANS, script), |core, _| -> Result<(), DriverError> {
@@ -1749,7 +1835,7 @@ pub fn custodians(
             let (mut paid, mut next) = (0_i64, 1_usize);
             while paid < cost {
                 let step = PayStep { who: seat, kind: CoreSpend::Influence, cost, used_credit: 0, owed: cost, paid, took: None, stage: PayStage::Paying };
-                let mut pay = Driver::new(step, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+                let mut pay = crate::window_driver::driver_for(step, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
                 if let Status::Asking(q) = pay.run(core, kernel)? {
                     let position = render::Position { state: Rc::new(core.clone()), kernel };
                     rendered.push(Typed::new_at(&r, position, q.clone(), phase, round).rendered);
@@ -1832,7 +1918,7 @@ pub fn destroy_fighters(
         announce: a.announce,
     };
     let resolver = Resolver::new(&[target], Some(target));
-    let mut driver = Driver::new(DestroyFighters::new(f), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(DestroyFighters::new(f), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
@@ -1883,7 +1969,7 @@ pub fn assault_cannon(
         announce: a.announce,
     };
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = Driver::new(AssaultCannon::new(facts), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(AssaultCannon::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let (att_id, def_id) = (a.attacker.clone(), a.defender.clone());
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
@@ -1993,7 +2079,7 @@ pub fn begin_round(
         || crate::factions::borrowed_round_agents::has_owner_space_round_agent(gs);
     let facts = Facts { attacker, defender, system, round: a.round, phase: cx.texts.intern(Slice::Transient, "pre_roll").why("the text table of the typed state is full")?, announce: a.announce, round_seq_listens, munitions_start: [a.attacker, a.defender].map(|id| munitions_at_opening(gs, content, id)) };
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = Driver::new(BeginRound::new(facts), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(BeginRound::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ROUND_OPENING, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
@@ -2098,7 +2184,7 @@ pub fn retreat_to(
         pool: r.code("reinforcements"),
     };
     let resolver = Resolver::new(&[player], Some(player));
-    let mut driver = Driver::new(Retreat::new(facts), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(Retreat::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut stranded = 0;
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(RETREAT, script), |core, _| {
@@ -2284,7 +2370,7 @@ pub fn barrage_step(
     };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = Driver::new(BarrageStep::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(BarrageStep::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -2373,7 +2459,7 @@ pub fn produce_hits(
     };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = Driver::new(ProduceHits::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(ProduceHits::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -2490,7 +2576,7 @@ pub fn roll_step(
     };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = Driver::new(RollStep::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(RollStep::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -2534,7 +2620,7 @@ pub fn roll_step(
 /// The display facts of a roll step's questions (`Choice.details`): the staged dice, which one is asked
 /// about, and Munitions Reserves' printed card and cost (the goods held are read from the core state at the question: a composed settle
 /// pays Munitions in one round and asks again in the next).
-fn roll_details(
+pub(crate) fn roll_details(
     content: &ti4_content::ContentStore,
     texts: &[(ti4_engine_core::state::Code, String)],
     c: &CoreChoice,
@@ -2703,7 +2789,7 @@ pub fn flow_step(
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources).why(WINDOW_ENV)?;
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = Driver::new(Flow::new(facts, step), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(Flow::new(facts, step), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(FLOW_STEP, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
@@ -2792,7 +2878,7 @@ pub fn announce_end(
     };
     let facts = Facts { attacker, defender, system, rounds: a.rounds, winner, declared_draw: a.declared_draw, fled, at_start, codes, announce: a.announce };
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = Driver::new(EndAnnounce::new(facts), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(EndAnnounce::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(END_ANNOUNCE, script), |core, _| {
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
@@ -2838,7 +2924,7 @@ pub fn raid_formation(
     let env = crate::core_combat::window_env(&before, &cx, sources).why(WINDOW_ENV)?;
     let facts = Facts { producer, target, system, excess: u16::try_from(a.excess).ok()?, subtype: r.code("raid_formation_damage") };
     let resolver = Resolver::new(&[producer], Some(producer));
-    let mut driver = Driver::new(RaidFormation::new(facts), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(RaidFormation::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ASSIGN_HITS, script), |core, _| {
         // The string asks it in the battle it is fought in (`TimingContext::ask_seeing`): the position names it.
@@ -2948,7 +3034,7 @@ pub fn land_one(
         troops.push(Troop { piece: crate::core_sync::codec::board::piece(&cx, &entry.unit).ok()?, origin, temporary: entry.temporary });
     }
     let deploy_planets: Vec<_> = deploy.iter().map(|p| <ti4_engine_core::generated::Planet as IdStr>::from_id(p.as_str())).collect::<Option<_>>().why(crate::dual::reason::UNKNOWN_ID)?;
-    let mut driver = Driver::new(LandOne::new(seat, sys, announce).with_pool(troops).with_deploy(deploy_planets), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(LandOne::new(seat, sys, announce).with_pool(troops).with_deploy(deploy_planets), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let rendered = if toll.is_none() {
         let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(LAND_ONE, script), |core, _| {
@@ -2975,7 +3061,7 @@ pub fn land_one(
             let (mut paid, mut next) = (0_i64, 1_usize);
             while paid < cost {
                 let step = PayStep { who: seat, kind: CoreSpend::Influence, cost, used_credit: 0, owed: cost, paid, took: None, stage: PayStage::Paying };
-                let mut pay = Driver::new(step, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+                let mut pay = crate::window_driver::driver_for(step, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
                 let pk = crate::production_view::kernel();
                 if let Status::Asking(q) = pay.run(core, pk)? {
                     let position = render::Position { state: std::rc::Rc::new(core.clone()), kernel: pk };
@@ -3086,7 +3172,7 @@ pub fn bombard_target_ask(
     let pl = <ti4_engine_core::generated::Planet as IdStr>::from_id(planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let env = crate::core_invasion::ground_env(gs, &cx, ti4_model::content_types::DEFAULT).why("the invasion environment could not be built from the position")?;
     let mut copy = gs.clone();
-    let mut driver = Driver::new(
+    let mut driver = crate::window_driver::driver_for(
         BombardTarget::new(seat, sys, pl, u16::try_from(hits).ok()?),
         Resolver::new(&[seat], Some(seat)),
         AbilityTable::default(),
@@ -3158,7 +3244,7 @@ pub fn ground_hits(
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, sources).why("the invasion environment could not be built from the position")?;
     let batch = Batch { victim: seat, system, planet, cause, unit_ability: a.unit_ability, announce: a.announce };
-    let mut driver = Driver::new(GroundHits::new(batch, hits, a.open, a.apply), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(GroundHits::new(batch, hits, a.open, a.apply), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(GROUND_HITS, script), |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
@@ -3298,7 +3384,7 @@ pub fn bombard(
     }
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, sources).why("the invasion environment could not be built from the position")?;
-    let mut driver = Driver::new(window, Resolver::new(&[invader], Some(invader)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[invader], Some(invader)), AbilityTable::default(), 1);
     let kernel = &env.kernel;
     let complete = |asked: &CoreChoice, _: &CoreState, c: &mut Choice| {
         // The target question carries the offer card the string side shares (`invasion::with_bombard_offer`).
@@ -3429,7 +3515,7 @@ pub fn space_cannon_defense(
     };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[invader], Some(invader));
-    let mut driver = Driver::new(SpaceCannonDefense::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(SpaceCannonDefense::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -3470,7 +3556,7 @@ const BOMBARD_ROLL: Footprint = Footprint::new(
 );
 
 /// Why the position holds something the core window does not carry (`None`: it is carried): test faces or a pending stream restore, a
-/// Heart of Ixth in play (it bends the faces that survive the event) and the invader's Jol-Nar commander (a question per die).
+/// Heart of Ixth in play (it bends the faces that survive the event). The invader's Jol-Nar commander is a core question per die since W16.
 #[must_use]
 pub fn bombard_rolled_why(gs: &GameState, a: &BombardRollArgs<'_>) -> Option<&'static str> {
     if !a.reproducible {
@@ -3479,9 +3565,6 @@ pub fn bombard_rolled_why(gs: &GameState, a: &BombardRollArgs<'_>) -> Option<&'s
     let heart = ti4_model::id::RelicId::new("heartofixth");
     if gs.players.iter().any(|p| crate::relics::holds(gs, &p.id, &heart)) {
         return Some("the Heart of Ixth (Thunder's Edge relic)");
-    }
-    if crate::promissory::has_commander_ability(gs, a.invader, "jolnarcommander") {
-        return Some("the Jol-Nar commander (a reroll question per die)");
     }
     None
 }
@@ -3503,7 +3586,19 @@ pub fn bombard_rolled(
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, sources).why("the invasion environment could not be built from the position")?;
-    let facts = Facts { invader, system, announce: a.announce, kind: r.code("bombardment") };
+    // The Jol-Nar commander's questions label each staged entry by its unit text (the string's `reroll die N of {unit}`), in the question
+    // renderer's table, and show every die (the text of the state's table).
+    let commander = crate::promissory::has_commander_ability(gs, a.invader, "jolnarcommander");
+    let mut shown = Vec::new();
+    let mut names: Vec<(ti4_engine_core::state::Code, String)> = Vec::new();
+    if commander {
+        for roll in gs.reroll_staging.get(a.invader).map(|set| set.rolls.as_slice()).unwrap_or_default() {
+            shown.push(r.code(&roll.unit));
+            let state = cx.texts.intern(Slice::Transient, &roll.unit).why("the text table of the typed state is full")?;
+            names.push((state, roll.unit.clone()));
+        }
+    }
+    let facts = Facts { invader, system, announce: a.announce, kind: r.code("bombardment"), commander, shown };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, Some(invader));
@@ -3512,7 +3607,8 @@ pub fn bombard_rolled(
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let driven = with_core(gs, &mut cx, src, nested_fp(BOMBARD_ROLL, script), |core, _| {
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        let content = ti4_content::ContentStore::embedded();
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|c, st, rendered| roll_details(content, &names, c, st, rendered));
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
         driven
@@ -3596,7 +3692,7 @@ pub fn ground_roll(gs: &mut GameState, a: &GroundRollArgs<'_>, rng_before: &crat
     }
     let facts = Facts { attacker, defender, system, planet, kind: cx.texts.intern(Slice::Transient, "ground").why("the text table of the typed state is full")?, names, unit_codes, x89: [holds_x89(gs, a.attacker), holds_x89(gs, a.defender)] };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
-    let mut driver = Driver::new(GroundRoll::new(facts), Resolver::new(&[attacker, defender], Some(attacker)), AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(GroundRoll::new(facts), Resolver::new(&[attacker, defender], Some(attacker)), AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -3713,7 +3809,7 @@ pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceS
         harrow: a.harrow.then(|| ti4_engine_core::rules::invasion::harrow::Facts { invader, defender, system, planet, announce: a.announce, cause: r.code("harrow") }),
     };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
-    let mut driver = Driver::new(GroundRoundHits::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(GroundRoundHits::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(a.rng_before) };
@@ -3803,7 +3899,7 @@ pub fn begin_ground(gs: &mut GameState, a: &BeginGroundArgs<'_>, script: &Record
     // The Reaper's payment is a child window of the production area: the table carries the links to it.
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
-    let mut driver = Driver::new(BeginGroundRound::new(facts), Resolver::new(&[invader, defender], Some(invader)), table, 1);
+    let mut driver = crate::window_driver::driver_for(BeginGroundRound::new(facts), Resolver::new(&[invader, defender], Some(invader)), table, 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(BEGIN_GROUND, script), |core, _| {
         let driven = drive_positioned(&mut driver, core, &env.kernel, Some(crate::production_view::kernel()), &r, &before, script, &|_, _, _| {});
@@ -3875,7 +3971,7 @@ pub fn control_gained(gs: &mut GameState, a: &ControlArgs<'_>, script: &Recordin
     let facts = Facts { invader, system, planet, previous, infiltrate_fix: gs.rules_version >= ti4_model::state::RULES_INFILTRATE_FIX, announce: a.announce };
     let mut seats = vec![invader];
     seats.extend(previous);
-    let mut driver = Driver::new(ControlGained::new(facts, roster), Resolver::new(&seats, Some(invader)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(ControlGained::new(facts, roster), Resolver::new(&seats, Some(invader)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(CONTROL_GAINED, script), |core, _| {
         let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
@@ -3947,7 +4043,7 @@ pub fn roll_tail(
     let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default()).why("the invasion environment could not be built from the position")?;
     let facts = Facts { invader, defender, system, planet, rolled: (u32::try_from(a.rolled.0).ok()?, u32::try_from(a.rolled.1).ok()?), bump: a.bump, announce: a.announce, x89: [holds_x89(gs, a.invader), holds_x89(gs, a.defender)] };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
-    let mut driver = Driver::new(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1).with_seeds(seeds);
     // The cards that reroll the staged dice (Fire Team) read the texts of the staged sets.
     let (reroll, texts) = reroll_facts(&mut cx, &r, &before)?;
     let mut staged = Vec::new();
@@ -4046,7 +4142,7 @@ pub(crate) fn advance(gs: &mut GameState, a: &AdvanceArgs<'_>, script: &Recordin
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, a.sources).why("the invasion environment could not be built from the position")?;
     let facts = Facts { invader, system, planets, index: a.index, coexisted };
-    let mut driver = Driver::new(Advance::new(facts), Resolver::new(&[invader], Some(invader)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(Advance::new(facts), Resolver::new(&[invader], Some(invader)), AbilityTable::default(), 1);
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(ADVANCE, script), |core, _| drive(&mut driver, core, &env.kernel, &r, &before, script)).why(crate::dual::reason::NOT_LENDABLE)?.why(crate::dual::reason::DRIVER_REFUSED)?;
     let pick = match driver.window.pick.clone()? {
         Upcoming::Fight { index, defender } => crate::invasion::FightPick::Fight { index, defender: r.player(defender) },
@@ -4446,7 +4542,7 @@ fn settle_run(
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let machine = if answering.is_some() { Machine::awaiting(menv, fields) } else { Machine::new(menv, fields) };
-    let mut driver = Driver::new(machine, resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(machine, resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };

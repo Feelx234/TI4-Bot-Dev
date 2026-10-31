@@ -150,6 +150,27 @@ fn a_dreadnought_is_offered_its_sustain_and_graviton_binds_the_loss_in_lockstep(
     assert!(bound > 0, "Graviton Laser System was exhausted to bind a loss");
 }
 
+/// W12: a game below `RULES_FACTION_EFFECTS` is carried (the guard "rules version below the faction effects" is gone): the victim's
+/// sustain is answered by the same window, and an unlocked Letnev commander is paid his trade good without a question.
+#[test]
+fn a_game_below_the_faction_effects_fires_the_guns_in_the_core_window_and_pays_the_commander_unasked() {
+    let old = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        s.rules_version = ti4_model::state::RULES_FACTION_EFFECTS - 1;
+        crate::fixtures::put_on_planet(s, system, planet, "pds", &a(), 4);
+        s.system_mut(system).set_control(planet.clone(), a());
+        crate::fixtures::put(s, system, "dreadnought", &b(), 3);
+        s.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("letnevcommander"), ti4_model::state::LeaderStatus::Unlocked);
+    };
+    let (ran, r) = lockstep(0..20, &[("a", "sol"), ("b", "letnev")], old);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(compared(&r) >= 15, "the core window ran: {:?}", r.windows);
+    let before = {
+        let (s, _) = position(0, &[("a", "sol"), ("b", "letnev")], old);
+        s.player(&b()).unwrap().trade_goods
+    };
+    assert!(ran.iter().any(|x| x.state.player(&b()).unwrap().trade_goods > before), "a sustain paid the commander's trade good in some run");
+}
+
 #[test]
 fn the_active_seats_own_guns_fire_at_the_ships_of_the_seat_it_attacks_in_lockstep() {
     let own = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {

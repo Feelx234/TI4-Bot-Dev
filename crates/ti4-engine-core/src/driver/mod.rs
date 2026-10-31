@@ -21,6 +21,8 @@ use crate::state::{CoreState, EventRec, RngDomain, SeedSource, Window as OpenWin
 pub mod aftermath;
 pub mod children;
 pub mod dispatch;
+pub mod kernel_env;
+pub mod live;
 pub mod menu;
 pub mod session;
 pub mod step;
@@ -72,11 +74,7 @@ impl From<Illegal> for DriverError {
     }
 }
 
-#[derive(Debug, Clone)]
-enum Op {
-    Step,
-    Answer(Pick),
-}
+type Op = crate::state::NestedOp;
 
 #[derive(Debug, Clone)]
 #[allow(clippy::large_enum_variant, reason = "one value per step, never stored in bulk; boxing the Choice would cost an allocation per question")]
@@ -294,6 +292,48 @@ impl<W: Window> Driver<W> {
             }
         }
         Ok(flow)
+    }
+
+    // -- the live path (package M0, `driver::live`): a driver rebuilt from the state a suspended step left --------------
+
+    /// The window of this driver is at its own question: take that question as the one reported last, so that
+    /// [`Self::resume`] can answer it. `Ok(false)` when the window asks nothing in this position.
+    pub fn restore_stage(&mut self, s: &CoreState, k: &Kernel) -> bool {
+        match self.window.ask_of(s, k) {
+            Some(choice) => {
+                self.awaiting = Awaiting::Stage(choice);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The step was suspended by a question from inside an emission: put the driver back at that question (the tape holds
+    /// the answers given so far, the operation is re-run by the next [`Self::resume`] / [`Self::reask`]).
+    pub fn restore_nested(&mut self, nested: &crate::state::Nested) {
+        self.tape.set_answers(nested.answers.as_slice());
+        self.awaiting = Awaiting::Nested(nested.op);
+    }
+
+    /// Re-run the suspended operation with the answers on the tape and report the question it stops at again (the display
+    /// facts of a nested question are not stored: they are the product of this re-run).
+    ///
+    /// # Errors
+    /// [`DriverError::NotAsking`] when no nested question was restored; otherwise as [`Self::run`].
+    pub fn reask(&mut self, s: &mut CoreState, k: &Kernel) -> Result<Status, DriverError> {
+        let Awaiting::Nested(op) = std::mem::replace(&mut self.awaiting, Awaiting::Nothing) else { return Err(DriverError::NotAsking) };
+        let prior = Awaiting::Nested(op);
+        self.settle(s, k, op, prior)
+    }
+
+    /// The suspension to store when the driver stopped at a question from inside an emission (`None`: the question is a stage
+    /// of the window).
+    #[must_use]
+    pub fn nested_journal(&self) -> Option<crate::state::Nested> {
+        match &self.awaiting {
+            Awaiting::Nested(op) => Some(crate::state::Nested { op: *op, answers: crate::containers::SmallList::from_slice(self.tape.answers()) }),
+            _ => None,
+        }
     }
 
     /// A condition of the ability table the core could not answer (a documented bail of the rule it reads); the

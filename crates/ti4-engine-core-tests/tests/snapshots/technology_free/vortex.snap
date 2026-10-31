@@ -1,0 +1,10 @@
+Q0 seat 0 Technology(Vortex)
+  >0: Technology(Capture(Seat(1), CruiserI))
+   1: Technology(Capture(Seat(2), DestroyerI))
+done
+--- delta ---
+player0.misc.captured_units: [] -> -
+player0.misc.captured_units.[0].[0].[0]: - -> 1
+player0.misc.captured_units.[0].[1]: - -> CruiserI
+player0.tech.exhausted: {} -> -
+player0.tech.exhausted.[0]: - -> Vortex

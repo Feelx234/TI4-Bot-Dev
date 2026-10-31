@@ -19,6 +19,7 @@ pub mod bombard_roll;
 pub mod commit;
 pub mod control;
 pub mod defense;
+pub mod forced;
 pub mod harrow;
 pub mod hits;
 pub mod roll;

@@ -1,0 +1,486 @@
+//! The engine half of the native invasion (lane M3, `docs/M3_RESUME.md`): the texts the core composer needs from outside
+//! (`driver::windows::invasion` has no text of its own) and the lockstep tests that run the same invasion twice, once as the string
+//! `InvasionWindow` and once as the native `Arm::Invasion` through `live_step`, and compare the questions, the answers and the positions.
+
+use ti4_engine_core::kernel::stage::AbilityTable;
+use ti4_engine_core::state::Code;
+
+use crate::generated::IdStr;
+use crate::render::Render;
+
+/// Fill the invasion texts of `table`. `state_code` mints a text of the position (`InvasionStep.kind`, a reroll kind, the dice groups: the state's
+/// text table); the texts of events and questions are the render table's.
+pub fn fill_codes(table: &mut AbilityTable, r: &Render, state_code: &mut dyn FnMut(&str) -> Code) {
+    let c = &mut table.codes.invasion;
+    c.ground = state_code("ground");
+    c.bombardment = state_code("bombardment");
+    c.ground_round = state_code("ground_round");
+    c.space_cannon_defense = state_code("space_cannon_defense");
+    c.bombardment_cause = r.code("bombardment");
+    c.space_cannon_cause = r.code("space_cannon_defense");
+    c.planets = r.code("planets");
+    c.dunlain_reaper = r.code("dunlain_reaper");
+    for (slot, text) in c.phases.iter_mut().zip(["bombardment", "custodians", "landing", "ground_battle", "planet_result", "next_defender", "control", "complete"]) {
+        *slot = state_code(text);
+    }
+    for (i, slot) in c.names.iter_mut().enumerate() {
+        *slot = state_code(&format!("combat value {}", i + 1));
+    }
+    for unit in ti4_engine_core::generated::Unit::ALL {
+        c.units[unit as usize] = state_code(IdStr::as_str(unit));
+    }
+}
+
+/// The words of a position the native invasion does not run (`Unknown::Unported`).
+#[must_use]
+pub const fn unported_text(why: ti4_engine_core::kernel::ability::Unported) -> &'static str {
+    use ti4_engine_core::kernel::ability::Unported as U;
+    match why {
+        U::NoProgress => "the invasion made no progress (a stage that neither asks nor moves on)",
+        U::EntropicScarDefense => "an entropic scar in the space cannon defense",
+        U::L4Disruptors => "L4 Disruptors in the space cannon defense",
+        U::AttachmentCannon => "an attachment that grants SPACE CANNON in the space cannon defense",
+        U::Slumberstate => "Slumberstate Computing (a Thunder's Edge breakthrough)",
+        U::RollCannotName => "a pool or unit the ground roll cannot name",
+        U::HitsAddedToARoll => "hits added to a ground roll",
+        U::MinisterOfExploration => "the Minister of Exploration's trade good for a planet taken",
+        U::CrownOfEmphidia => "the Crown of Emphidia changes hands",
+        U::IntegratedEconomy => "Integrated Economy (a triggered production nested in the control gain)",
+        U::AssimilateRoster => "an Assimilate seat whose unit forms the core cannot name",
+        U::ExplorationOfAFirstClaim => "the exploration of a first claim (no native exploration window yet)",
+        U::BombardmentDiceMismatch => "the bombardment dice do not match the plan",
+        U::JolNarCommanderReroll => "the Jol-Nar commander's reroll of the bombardment dice",
+        U::ShipFormFlip => "a ship-form unit flipping on landing (Naaz Eidolon)",
+        U::X89 => "X-89 Bacterial Weapon in a ground round",
+        U::Thundarian => "The Thundarian watching the roll step",
+        U::Dacxive => "Dacxive Animators in a ground combat",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use ti4_engine_core::driver::live::{is_open, Env};
+    use ti4_engine_core::driver::session::Arm;
+    use ti4_engine_core::driver::windows::invasion::{open_at_commit, open_invasion, InvasionMachine};
+    use ti4_engine_core::state::{NoteHold, Slice, WindowKind};
+    use ti4_model::content_types::POK;
+    use ti4_model::id::{PlayerId, SystemId};
+
+    use super::*;
+    use crate::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Table, Window as _};
+    use crate::core_sync::codec::rng::TextSeeds;
+    use crate::core_sync::{with_core, Footprint, Sources};
+    use crate::dice::Dice;
+    use crate::invasion::InvasionWindow;
+    use crate::live::{live_step, Cx, Scripted, Stop};
+    use crate::rng::GameRng;
+    use ti4_model::state::GameState;
+
+    /// Records every question and answers with `pick` (the first option by default).
+    struct Recorder {
+        asked: Rc<RefCell<Vec<Choice>>>,
+        answers: Rc<RefCell<Vec<String>>>,
+        pick: Box<dyn FnMut(&Choice) -> usize>,
+    }
+
+    impl Decider for Recorder {
+        fn choose(&mut self, c: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            let i = (self.pick)(c).min(c.options.len() - 1);
+            self.asked.borrow_mut().push(c.clone());
+            self.answers.borrow_mut().push(c.options[i].id.clone());
+            Ok(c.options[i].clone())
+        }
+    }
+
+    /// What one run left: the questions in order, the answers, the position.
+    struct Run {
+        asked: Vec<Choice>,
+        answers: Vec<String>,
+        state: GameState,
+        /// The scoring occurrences the invasion queued, in order: (occurrence, combat).
+        scoring: Vec<(u64, bool)>,
+        /// The events the invasion announced: (name, payload), in order.
+        events: Vec<(String, std::collections::BTreeMap<String, serde_json::Value>)>,
+    }
+
+    fn armed_resolver(state: &GameState, players: Vec<PlayerId>) -> crate::timing::Resolver {
+        let mut resolver = crate::timing::Resolver::new(players, Some(PlayerId::new("a")), crate::choice::Table::default());
+        crate::reactions::arm(&mut resolver, state);
+        resolver
+    }
+
+    /// The string run: the aftermath's opening (`active_invasion`, `INVASION_BEGAN`), the window, every question answered by `pick`.
+    fn string_run(mut state: GameState, seed: u64, system: &SystemId, invader: &str, hero: bool, pick: Box<dyn FnMut(&Choice) -> usize>) -> Run {
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let answers = Rc::new(RefCell::new(Vec::new()));
+        let mut table = Table::with_default(Box::new(Recorder { asked: asked.clone(), answers: answers.clone(), pick }));
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(seed);
+        let content = ti4_content::ContentStore::embedded();
+        let order: Vec<PlayerId> = state.players.iter().map(|p| p.id.clone()).collect();
+        let mut resolver = armed_resolver(&state, order);
+        let mut sequence = crate::event::EventSequence::new();
+        let invader = PlayerId::new(invader);
+        let notes = crate::combat::note_holdings(&state);
+        let mut window = if hero {
+            InvasionWindow::at_commit_step(&mut state, &invader, system)
+        } else {
+            state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+                system: system.clone(),
+                invader: invader.clone(),
+                seq: u64::from(state.activation_seq),
+                phase: "bombardment".to_owned(),
+                planet: None,
+                defender: None,
+                ground_round: 0,
+                last_step: None,
+            });
+            let mut payload = std::collections::BTreeMap::new();
+            payload.insert("player".to_owned(), serde_json::Value::String(invader.to_string()));
+            payload.insert("system".to_owned(), serde_json::Value::String(system.to_string()));
+            let mut ctx = crate::choice::Resolving {
+                content,
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+            };
+            let _ = ctx.emit(&mut state, "INVASION_BEGAN", payload);
+            InvasionWindow::new_with_notes(&mut state, content, POK, ctx.dice, ctx.rng, &invader, system, notes)
+        };
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+        };
+        let mut guard = 0;
+        let mut scoring: Vec<(u64, bool)> = Vec::new();
+        while !window.is_done() {
+            window.drive(&mut state, &mut ctx).expect("the string run is legal");
+            while let Some((o, combat)) = window.take_scoring_occurrence() {
+                scoring.push((o.0, combat));
+            }
+            window.settle(&mut state, &mut ctx);
+            guard += 1;
+            assert!(guard < 400, "the string invasion does not end");
+        }
+        if std::env::var_os("M3_DEBUG").is_some() {
+            eprintln!("STRING DICE {:?}", ctx.dice.history().iter().map(|r| (r.reason.clone(), r.hits_on, r.faces.clone())).collect::<Vec<_>>());
+        }
+        state.active_invasion = None;
+        drop(ctx);
+        let (asked, answers) = (asked.borrow().clone(), answers.borrow().clone());
+        let events = resolver.applied_events().iter().map(|e| (e.event_type.clone(), e.payload.clone())).collect();
+        Run { asked, answers, state, scoring, events }
+    }
+
+    const FP: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Strategy, Slice::Trade, Slice::Explore, Slice::Decks, Slice::Objectives],
+        &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Objectives],
+    );
+
+    /// The native run of the same invasion: the arm `Arm::Invasion` through `live_step`, answered by `answers` in order.
+    fn live_run(mut gs: GameState, seed: u64, system: &SystemId, invader: &str, answers: &[String], hero: bool) -> Result<(Vec<Choice>, GameState, Vec<(u64, bool)>, Vec<(String, std::collections::BTreeMap<String, serde_json::Value>)>), (Stop, Vec<Choice>)> {
+        let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
+        let rng_before = GameRng::new(seed).positions();
+        let seeds: Rc<dyn ti4_engine_core::state::SeedSource> = Rc::new(TextSeeds::of(&cx));
+        // The texts of the position the composer needs, minted in the state's table before the lend.
+        let mut minted: Vec<(String, Code)> = Vec::new();
+        let mut mint = |t: &str| -> Code {
+            let c = cx.texts.intern(Slice::Transient, t).expect("room for the text");
+            minted.push((t.to_owned(), c));
+            c
+        };
+        let mut table = ti4_engine_core::kernel::stage::AbilityTable::default();
+        fill_codes(&mut table, &r, &mut mint);
+        let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str()).expect("a system");
+        let seat = r.seat(invader).expect("a seat");
+        let src = Sources { galaxy: None, rng: Some(&rng_before) };
+        let mut asked = Vec::new();
+        let mut native_dice: Vec<(Option<u8>, Vec<u8>)> = Vec::new();
+        let mut steps = 0;
+        let mut windows: Vec<(u64, bool)> = Vec::new();
+        let mut events: Vec<(String, std::collections::BTreeMap<String, serde_json::Value>)> = Vec::new();
+        let mut outcome: Result<(), Stop> = Ok(());
+        let mut seen_all: Vec<Choice> = Vec::new();
+        let r_ref = &r;
+        with_core(&mut gs, &mut cx, src, FP, |core, _| {
+            let kernel = crate::live::kernel::kernel_for(POK);
+            let mut env: Env<'_> = crate::live::env::env_for(r_ref, core, kernel, seeds.clone());
+            env.table.codes.invasion = table.codes.invasion;
+            if hero {
+                open_at_commit(core, seat, sys, NoteHold::new());
+            } else {
+                open_invasion(core, seat, sys, NoteHold::new());
+            }
+            let live = Cx::new(r_ref, &env);
+            let mut asker = Scripted::new(answers.iter().cloned());
+            loop {
+                steps += 1;
+                if steps > 400 {
+                    outcome = Err(Stop::Blocked);
+                    break;
+                }
+                match live_step(core, Arm::Invasion, &live, &mut asker) {
+                    Ok(step) => {
+                        asked.extend(step.asked);
+                        for e in &step.out.emitted {
+                            if let Some(ev) = crate::dual_window::event_of(r_ref, e) {
+                                events.push((ev.event_type, ev.payload));
+                            }
+                        }
+                        // The event scoring window of a pause: nobody has anything to score here, so it closes at once.
+                        for w in &step.out.opened {
+                            if let ti4_engine_core::state::Window::EventScoring(sc) = w {
+                                windows.push((sc.occurrence.unwrap_or(0), sc.one_per_player));
+                            }
+                        }
+                        core.pending_mut().close(WindowKind::EventScoring);
+                        if !is_open::<InvasionMachine>(core) {
+                            native_dice = core.ledger().dice.iter().map(|d| (d.hits_on, d.faces.iter().copied().collect())).collect();
+                            break;
+                        }
+                    }
+                    Err(stop) => {
+                        native_dice = core.ledger().dice.iter().map(|d| (d.hits_on, d.faces.iter().copied().collect())).collect();
+                        seen_all = asker.seen.clone();
+                        outcome = Err(stop);
+                        break;
+                    }
+                }
+            }
+        })
+        .expect("lendable");
+        if std::env::var_os("M3_DEBUG").is_some() {
+            eprintln!("NATIVE DICE {native_dice:?}");
+        }
+        match outcome {
+            Ok(()) => Ok((asked, gs, windows, events)),
+            Err(stop) => Err((stop, if seen_all.is_empty() { asked } else { seen_all })),
+        }
+    }
+
+    fn assert_same_questions(live: &[Choice], string: &[Choice]) {
+        assert_eq!(live.len(), string.len(), "live {:?}\nstring {:?}", live.iter().map(|c| &c.prompt).collect::<Vec<_>>(), string.iter().map(|c| &c.prompt).collect::<Vec<_>>());
+        for (i, (l, s)) in live.iter().zip(string).enumerate() {
+            assert_eq!(l.player, s.player, "question {i}");
+            assert_eq!(l.prompt, s.prompt, "question {i}");
+            assert_eq!(l.options, s.options, "question {i}: {}", s.prompt);
+            assert_eq!(l.context, s.context, "question {i}: {}", s.prompt);
+        }
+    }
+
+    fn game(seats: &[(&str, &str)], seed: u64) -> (GameState, SystemId, ti4_model::id::PlanetId) {
+        let mut state = crate::fixtures::seated_dealt(seats, POK);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.rng_seed = seed;
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        (state, system, planet)
+    }
+
+    /// Pick the first option whose id starts with one of `prefer` (in the order given), else the first option.
+    fn prefer(prefer: &'static [&'static str]) -> Box<dyn FnMut(&Choice) -> usize> {
+        Box::new(move |c| prefer.iter().find_map(|p| c.options.iter().position(|o| o.id.starts_with(p))).unwrap_or(0))
+    }
+
+    /// Run `state` both ways and compare the questions, the position of the planets, the points and the control.
+    fn check(label: &str, state: &GameState, seed: u64, system: &SystemId, hero: bool, pick: Box<dyn FnMut(&Choice) -> usize>) -> usize {
+        let string = string_run(state.clone(), seed, system, "a", hero, pick);
+        let mut padded = string.answers.clone();
+        padded.extend(std::iter::repeat_n("fight".to_owned(), 6));
+        let (asked, gs, windows, events) = match live_run(state.clone(), seed, system, "a", &padded, hero) {
+            Ok(r) => r,
+            Err((stop, seen)) => panic!(
+                "{label}: the native run stopped: {stop:?}\nnative {:?}\nstring {:?}",
+                seen.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>(),
+                string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>()
+            ),
+        };
+        if std::env::var_os("M3_DEBUG").is_some() {
+            eprintln!("QUESTIONS {label}: {:?}", string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>());
+        }
+        assert_same_questions(&asked, &string.asked);
+        assert_eq!(events, string.events, "{label}: the events the invasion announced");
+        assert_eq!(windows, string.scoring, "{label}: the scoring windows the invasion pauses for");
+        assert_eq!(gs.feat_occurrence_seq, string.state.feat_occurrence_seq, "{label}: the feat occurrences");
+        assert!(gs.active_invasion.is_none() && string.state.active_invasion.is_none());
+        for id in state.players.iter().map(|p| &p.id) {
+            let (l, s) = (gs.player(id).unwrap(), string.state.player(id).unwrap());
+            assert_eq!((l.victory_points, l.trade_goods), (s.victory_points, s.trade_goods), "{label} {id}");
+            assert_eq!(l.event_feats, s.event_feats, "{label} {id}: the feats");
+        }
+        assert_eq!(gs.system_state(system).planet_units, string.state.system_state(system).planet_units, "{label}: the units on the planets");
+        assert_eq!(gs.system_state(system).units, string.state.system_state(system).units, "{label}: the units in space");
+        assert_eq!(gs.system_state(system).planet_control, string.state.system_state(system).planet_control, "{label}: the control");
+        assert_eq!(gs.exhausted_planets, string.state.exhausted_planets, "{label}: the exhausted planets");
+        asked.len()
+    }
+
+    /// A conquest of a planet another player holds (no first claim, no exploration): the questions, the answers and the position agree with the
+    /// string window's, for several factions of the invader and several seeds.
+    #[test]
+    fn a_conquest_runs_natively_with_the_questions_and_the_position_of_the_string_window() {
+        let _guard = crate::dual::tests::serial();
+        for (seed, invader) in (1..=18_u64).zip(["hacan", "sardakk", "mentak", "letnev", "sol", "naalu"].into_iter().cycle()) {
+            let (mut state, system, planet) = game(&[("a", invader), ("b", "jolnar")], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+            // The invader wins with six against two; with three against four it loses or both are wiped out in some seeds.
+            let (n, d) = if seed % 3 == 0 { (3, 4) } else { (6, 2) };
+            crate::fixtures::put(&mut state, &system, "infantry", &a, n);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, d);
+            check(invader, &state, seed, &system, false, prefer(&[]));
+        }
+    }
+
+    /// Bombardment (dreadnoughts), the space cannon defense of a PDS and a long fight, against several defender factions.
+    #[test]
+    fn bombardment_and_the_space_cannon_defense_run_natively() {
+        let _guard = crate::dual::tests::serial();
+        let mut asked = 0;
+        for (seed, defender) in (1..=6_u64).zip(["letnev", "hacan", "sol", "jolnar", "mentak", "sardakk"]) {
+            let (mut state, system, planet) = game(&[("a", "naalu"), ("b", defender)], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "dreadnought", &a, 2);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 5);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 3);
+            if seed % 2 == 0 {
+                crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &b, 1);
+            }
+            asked += check(defender, &state, seed, &system, false, prefer(&[]));
+        }
+        assert!(asked > 6);
+    }
+
+    /// The custodians offer on Mecatol Rex: declined, paid (the payment asks which planets), and the hero's opening at the commit step.
+    #[test]
+    fn the_custodians_offer_runs_natively_declined_and_paid() {
+        let _guard = crate::dual::tests::serial();
+        let mecatol = SystemId::new(crate::seating::MECATOL);
+        for (seed, (faction, choice)) in [("sol", &["no"][..]), ("sol", &["yes", "exhaust|"][..]), ("winnu", &["yes"][..])].into_iter().enumerate() {
+            let mut state = crate::fixtures::seated_dealt(&[("a", faction), ("b", "letnev")], POK);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.rng_seed = seed as u64 + 1;
+            state.board.entry(mecatol.clone()).or_default();
+            crate::fixtures::put(&mut state, &mecatol, "infantry", &PlayerId::new("a"), 2);
+            state.player_mut(&PlayerId::new("a")).unwrap().trade_goods = 4;
+            check(faction, &state, seed as u64 + 1, &mecatol, true, prefer(choice));
+        }
+    }
+
+    /// Letnev's Dunlain Reaper at the start of each ground round: the offer, the payment (a child bill resumable from the payload), declined, unaffordable
+    /// and with no mech in the reinforcements; the Letnev seat is the defender or the invader.
+    #[test]
+    fn the_dunlain_reaper_runs_natively_offered_paid_and_declined() {
+        let _guard = crate::dual::tests::serial();
+        let mut paid = 0;
+        for seed in 1..=18_u64 {
+            let invader_letnev = seed % 2 == 0;
+            let seats = if invader_letnev { [("a", "letnev"), ("b", "hacan")] } else { [("a", "hacan"), ("b", "letnev")] };
+            let (mut state, system, planet) = game(&seats, seed);
+            let (l, other) = if invader_letnev { ("a", "b") } else { ("b", "a") };
+            crate::fixtures::put(&mut state, &system, "carrier", &PlayerId::new("a"), 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &PlayerId::new("a"), 6);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &PlayerId::new("b"), 4);
+            if !invader_letnev {
+                state.system_mut(&system).set_control(planet.clone(), PlayerId::new("b"));
+            }
+            let poor = seed % 9 >= 7 || seed % 9 == 0;
+            state.player_mut(&PlayerId::new(l)).unwrap().trade_goods = if poor { 0 } else { 5 };
+            if poor {
+                for (_, p) in state.controlled_planets(&PlayerId::new(l)).into_iter().map(|(s, p)| (s.clone(), p.clone())).collect::<Vec<_>>() {
+                    state.exhausted_planets.insert(p);
+                }
+            }
+            if seed % 9 == 4 {
+                let home = state.player(&PlayerId::new(other)).unwrap().home_system.clone().unwrap();
+                let at = state.system_state(&home).planet_control.keys().next().cloned().unwrap();
+                crate::fixtures::put_on_planet(&mut state, &home, &at, "letnev_mech", &PlayerId::new(l), 4);
+            }
+            let decline = seed % 3 == 1;
+            let n = check(
+                "reaper",
+                &state,
+                seed,
+                &system,
+                false,
+                Box::new(move |c| if c.prompt.starts_with("Dunlain Reaper") && decline { c.options.len() - 1 } else { 0 }),
+            );
+            paid += usize::from(n > 8);
+        }
+        assert!(paid > 0);
+    }
+
+    /// The capture of a home planet: the winner earns the feats of a rival's home system, the former holder the feat of a lost home planet, and the
+    /// machine stops for the scoring windows in between (the lockstep closes them at once, as the string run ignores the occurrences).
+    #[test]
+    fn the_capture_of_a_home_planet_pauses_for_the_scoring_windows() {
+        let _guard = crate::dual::tests::serial();
+        for (seed, defender) in (1..=4_u64).zip(["hacan", "letnev", "sol", "mentak"]) {
+            let (mut state, _, _) = game(&[("a", "naalu"), ("b", defender)], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            let home = state.player(&b).unwrap().home_system.clone().unwrap();
+            let planet = state.system_state(&home).planet_control.keys().next().cloned().unwrap();
+            crate::fixtures::put(&mut state, &home, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &home, "infantry", &a, 9);
+            check(defender, &state, seed, &home, false, prefer(&[]));
+            let _ = planet;
+        }
+    }
+
+    /// A first claim explores the planet, which the core cannot do yet: the arm stops with a counted bail, and with the acceptance switch on the
+    /// bail is a failure of the run (`bail::live::invasion`).
+    #[test]
+    fn a_first_claim_is_a_bail_and_with_the_switch_on_a_failure() {
+        use crate::dual::{report, take_report, with_bail_is_failure};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let (mut state, system, _planet) = game(&[("a", "hacan"), ("b", "jolnar")], 1);
+        let a = PlayerId::new("a");
+        // A planet nobody holds, with a trait to explore into.
+        let free = ti4_content::galaxy::all_planets(ti4_content::ContentStore::embedded(), POK)
+            .iter()
+            .find(|(id, p)| p.system_id().is_some() && !p.is_placed_during_play() && p.homeworld_of().is_none() && !p.planet_types().is_empty() && **id != "mr")
+            .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), ti4_model::id::PlanetId::new(*id)))
+            .expect("a free planet");
+        let _ = system;
+        crate::fixtures::put(&mut state, &free.0, "carrier", &a, 1);
+        crate::fixtures::put(&mut state, &free.0, "infantry", &a, 2);
+        let string = string_run(state.clone(), 1, &free.0, "a", false, prefer(&[]));
+        let out = with_bail_is_failure(true, || live_run(state.clone(), 1, &free.0, "a", &string.answers, false));
+        let Err((Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(why)), _)) = out else { panic!("a first claim bails: {:?}", out.map(|_| ())) };
+        assert!(format!("{why:?}").contains("ExplorationOfAFirstClaim"), "{why:?}");
+        let r = report();
+        assert!(r.differences.iter().any(|d| d.label.contains("bail::live::invasion")), "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// The 14 alpha saves carry no rules version (version 0): every legacy branch of the invasion (the round is not numbered, the rival structures are
+    /// destroyed BEFORE the capture is announced, no copied round agent) runs natively with the same questions and the same position.
+    #[test]
+    fn a_version_zero_game_runs_natively_like_the_string_window() {
+        let _guard = crate::dual::tests::serial();
+        for (seed, version) in [(1_u64, 0_u32), (2, 0), (3, 1), (4, 15), (5, 0), (6, 16)] {
+            let (mut state, system, planet) = game(&[("a", "l1z1x"), ("b", if seed % 2 == 0 { "letnev" } else { "sol" })], seed);
+            state.rules_version = version;
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 7);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &b, 1);
+            check(&format!("version {version}"), &state, seed, &system, false, prefer(&[]));
+        }
+    }
+}

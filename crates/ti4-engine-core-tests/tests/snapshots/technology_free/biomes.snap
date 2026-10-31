@@ -1,0 +1,42 @@
+Q0 seat 0 Technology(ProductionBiomes)
+  >0: Technology(Player(Seat(1)))
+   1: Technology(Player(Seat(2)))
+done
+--- delta ---
+player0.econ.strategic_tokens: 2 -> 1
+player0.econ.trade_goods: 1 -> 5
+player0.tech.exhausted: {} -> -
+player0.tech.exhausted.[0]: - -> ProductionBiomes
+player1.econ.trade_goods: 0 -> 2
+pending.staged: [] -> -
+pending.staged.[0].cancelled: - -> false
+pending.staged.[0].id: - -> 0
+pending.staged.[0].kind: - -> StrategyTokenSpent
+pending.staged.[0].payload.items.[0].[0]: - -> Player
+pending.staged.[0].payload.items.[0].[1].[0].[0]: - -> 0
+pending.staged.[0].payload.items.[1].[0]: - -> Reason
+pending.staged.[0].payload.items.[1].[1].[0].[0]: - -> 41
+pending.staged.[0].payload.lists: - -> []
+pending.staged.[0].payload.units: - -> []
+pending.staged.[1].cancelled: - -> false
+pending.staged.[1].id: - -> 0
+pending.staged.[1].kind: - -> TradeGoodsGained
+pending.staged.[1].payload.items.[0].[0]: - -> Player
+pending.staged.[1].payload.items.[0].[1].[0].[0]: - -> 0
+pending.staged.[1].payload.items.[1].[0]: - -> Amount
+pending.staged.[1].payload.items.[1].[1].[0]: - -> 4
+pending.staged.[1].payload.items.[2].[0]: - -> Source
+pending.staged.[1].payload.items.[2].[1].[0].[0]: - -> 41
+pending.staged.[1].payload.lists: - -> []
+pending.staged.[1].payload.units: - -> []
+pending.staged.[2].cancelled: - -> false
+pending.staged.[2].id: - -> 0
+pending.staged.[2].kind: - -> TradeGoodsGained
+pending.staged.[2].payload.items.[0].[0]: - -> Player
+pending.staged.[2].payload.items.[0].[1].[0].[0]: - -> 1
+pending.staged.[2].payload.items.[1].[0]: - -> Amount
+pending.staged.[2].payload.items.[1].[1].[0]: - -> 2
+pending.staged.[2].payload.items.[2].[0]: - -> Source
+pending.staged.[2].payload.items.[2].[1].[0].[0]: - -> 41
+pending.staged.[2].payload.lists: - -> []
+pending.staged.[2].payload.units: - -> []

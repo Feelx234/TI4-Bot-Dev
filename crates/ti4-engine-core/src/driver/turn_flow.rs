@@ -202,6 +202,12 @@ pub fn end_turn_scratch(core: &mut CoreState) {
     flags.clear(TransientFlags::EXPEDITION_CLAIMED);
 }
 
+/// `Game::advance_turn_inner` forgets the component actions that failed this turn (`Pending::failed_component_actions`). A separate
+/// step from [`end_turn_scratch`]: the dual lends that one without the `Pending` slice, the live turn-end composer calls both.
+pub fn forget_failed_components(core: &mut CoreState) {
+    core.pending_mut().failed_component_actions.clear();
+}
+
 /// What the end of a turn announces, in the order the string pushes it. `Passed` is the plain `TURN_PASSED` and the typed event
 /// of the same name; `Skipped` and `Puppet` are the plain lines `TURN_SKIPPED:{seat}` and `TURN_PUPPET:{seat}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -395,6 +401,18 @@ mod tests {
         assert_eq!((s.pending.turn_closing, s.pending.actions_this_turn), (None, 1), "counted, nothing to close");
         assert_eq!(finish_action(&mut s, 2), Finish::Closing);
         assert_eq!((s.pending.turn_closing, s.pending.actions_this_turn), (Some(Seat(0)), 2));
+    }
+
+    #[test]
+    fn a_failed_component_action_is_remembered_once_and_forgotten_by_the_turn_end_step() {
+        use crate::state::Code;
+        let mut s = table();
+        s.pending.note_failed_component(Code(7));
+        s.pending.note_failed_component(Code(7));
+        s.pending.note_failed_component(Code(9));
+        assert_eq!(s.pending.failed_component_actions.as_slice(), [Code(7), Code(9)]);
+        forget_failed_components(&mut s);
+        assert!(s.pending.failed_component_actions.is_empty());
     }
 
     #[test]

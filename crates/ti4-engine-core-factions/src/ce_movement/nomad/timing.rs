@@ -224,14 +224,12 @@ fn thundarian_condition(c: &CondCx<'_>) -> bool {
 }
 
 /// Exhaust the card and ask for the step to be played again (`combat::request_roll_replay`). A Nomad that hears every agent exhausted
-/// (Temporal Command Suite) is told by an event the core does not emit: that position is the string's.
+/// (Temporal Command Suite) is told by the staged `AGENT_EXHAUSTED` of the exhaustion (`fx_strategy::exhaust_agent`).
 fn thundarian(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let owner = eff.owner();
-    let (s, k) = eff.read();
-    if k.hooks.direct.nomad_watches_agent_exhaustion(s) {
-        eff.unknown(ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion);
-    }
-    if fx_strategy::exhaust_leader(eff.state(), owner, Leader::TheThundarian) {
+    let (state, kernel) = eff.state_and_kernel();
+    let ready = state.players().by_seat(owner).is_some_and(|p| p.leaders.status.get(&Leader::TheThundarian) == Some(&LeaderStatus::Readied));
+    if ready && fx_strategy::exhaust_agent(state, kernel, owner, Leader::TheThundarian) {
         eff.state().marks_mut().tail.edit().insert(MarkKey::PrivateCombatReplayRoll(), MarkVal::Atom(Atom::Absent));
     }
     Ok(())

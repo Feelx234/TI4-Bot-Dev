@@ -80,6 +80,84 @@ pub enum Unknown {
     DataSkimmer,
     /// The play of a card needs what the adapter did not compute (`AdapterFacts::plays`).
     PlayFacts,
+    /// A position the native tactical action does not run yet (a documented bail of `driver::windows::tactical`, named by its gap).
+    UnportedTactical(TacticalGap),
+    /// A position the native invasion does not run yet (a documented bail of `driver::windows::invasion`, named by its reason).
+    Unported(Unported),
+    /// A position the native aftermath chain or its space combat does not run (a documented bail of `driver::windows::{chain, combat}`).
+    UnportedAftermath(AftermathGap),
+}
+
+/// The positions the native aftermath chain and its space combat do not run, each a counted bail of the live path. The words are the adapter's
+/// (`combat_live::gap_text`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AftermathGap {
+    /// A stage that neither asks nor moves on.
+    NoProgress,
+    /// The production step after the fight or the invasion (the production island is not native).
+    ProductionStep,
+    /// A contact pause (`Aftermath::Negotiating`): structured diplomacy is dropped.
+    Negotiating,
+    /// A space combat whose environment cannot be built from the position (no galaxy, an unseated side).
+    NoCombatEnv,
+    /// The machine reached a position it does not carry (see `Machine::bailed`).
+    CombatUnported,
+    /// A roll that ended the fight inside the roll step and left the machine in a position it does not carry.
+    RollEndsFight,
+    /// A neutral side (Thunder's Edge neutral units).
+    NeutralSide,
+    /// A scoring window that asks for something the core does not offer (a plot, a priced objective).
+    EventScoring,
+}
+
+/// The positions the native tactical action (`driver::windows::tactical`) does not run, each a counted bail of the live path. The words are
+/// the adapter's (`tactical_live::gap_text`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TacticalGap {
+    /// A stage that neither asks nor moves on.
+    NoProgress,
+    /// A hook of the activation that asks, pays or ends the turn is in the position (Spatial Conduit Cylinders, Scanlink Drone Network,
+    /// E-Res Siphons, Nullification Field, Mahact, Minister of Peace, the Dominus Orb, Ceasefire).
+    ActivationHook,
+    /// Nova Seed replaced a tile during `MOVEMENT_FINISHED`: the derived map is replayed by the per-step hooks, not here.
+    NovaSeed,
+    /// A hit of the space cannon offense needs a question (sustain damage, a casualty to choose).
+    CannonHits,
+    /// The Crown of Emphidia or Dark Energy Tap explores at the end of the action: no native planet exploration window.
+    ExplorationAtTheEnd,
+    /// Thunder's Edge Warfare's follower window, or a hero's strategy primary, waits for the end of the free tactical action.
+    WarfareSecondary,
+    LeaderStrategy,
+    /// A Yssaril seat with a readied Ssruu could copy an agent that listens to the end of the action.
+    SsruuLends,
+    /// The map slice holds no galaxy.
+    NoGalaxy,
+}
+
+/// The positions the native invasion (`driver::windows::invasion`) does not run, each a counted bail of the live path. The words are the adapter's
+/// (`invasion_live::unported_text`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unported {
+    /// The machine made no progress: a stage that neither asks nor moves on.
+    NoProgress,
+    EntropicScarDefense,
+    L4Disruptors,
+    AttachmentCannon,
+    Slumberstate,
+    RollCannotName,
+    HitsAddedToARoll,
+    MinisterOfExploration,
+    CrownOfEmphidia,
+    IntegratedEconomy,
+    AssimilateRoster,
+    /// A first claim explores the planet and no native exploration window exists yet.
+    ExplorationOfAFirstClaim,
+    BombardmentDiceMismatch,
+    JolNarCommanderReroll,
+    ShipFormFlip,
+    X89,
+    Thundarian,
+    Dacxive,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -119,6 +197,8 @@ pub struct Codes {
     pub harrow: crate::state::Code,
     /// The `source` of the trade good Self-Assembly Routines gains.
     pub self_assembly: crate::state::Code,
+    /// `unit_ability:yin_flagship`: the cause of the ships Van Hauge destroys.
+    pub van_hauge: crate::state::Code,
     /// The `source` `action_card` and `forward_supply_base` of the trade goods a card gains (`Env`).
     pub action_card: crate::state::Code,
     pub supply_base: crate::state::Code,
@@ -154,6 +234,68 @@ pub struct Codes {
     /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
     /// `trade_agreement`, `artuno` (Artuno the Betrayer does not copy them).
     pub not_from_supply: [crate::state::Code; 5],
+    /// The texts of the tactical composer (`driver::windows::tactical`).
+    pub tactical: TacticalCodes,
+    /// The texts of the invasion composer (`driver::windows::invasion`).
+    pub invasion: InvasionCodes,
+}
+
+/// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind
+/// and loss causes of the space cannon offense, the casualty subtype and the Letnev commander's source, the presentation phase of a
+/// battle about to be rolled. Interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TacticalCodes {
+    /// `tactic`.
+    pub tactic: crate::state::Code,
+    /// `space_cannon`, `unit_ability:space_cannon`, `assign_casualty`, `letnevcommander`, `pre_roll`.
+    pub space_cannon: crate::state::Code,
+    pub space_cannon_cause: crate::state::Code,
+    pub casualty: crate::state::Code,
+    pub commander: crate::state::Code,
+    pub pre_roll: crate::state::Code,
+    /// `faction_technology`: the source of the trade goods E-Res Siphons gains.
+    pub faction_technology: crate::state::Code,
+}
+
+/// The texts the invasion composer puts into the position: the step kinds and causes of its records, the dice groups and the text of every
+/// unit type (a roll names the unit types behind it). Interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy)]
+pub struct InvasionCodes {
+    /// The reroll kind of the ground dice (`ground`) and of the bombardment's (`bombardment`), and the step kinds `ground_round`,
+    /// `bombardment`, `space_cannon_defense`.
+    pub ground: crate::state::Code,
+    pub bombardment: crate::state::Code,
+    pub ground_round: crate::state::Code,
+    pub space_cannon_defense: crate::state::Code,
+    /// The causes `bombardment` and `space_cannon_defense` of the events of the hits (the adapter's event texts, not the state's).
+    pub bombardment_cause: crate::state::Code,
+    pub space_cannon_cause: crate::state::Code,
+    /// The payload key `planets` of `GROUND_COMMITMENT_FINISHED`.
+    pub planets: crate::state::Code,
+    /// The source `dunlain_reaper` of the Reaper's question.
+    pub dunlain_reaper: crate::state::Code,
+    /// The phases of the public boundary `ActiveInvasion.phase`: bombardment, custodians, landing, ground_battle, planet_result,
+    /// next_defender, control, complete.
+    pub phases: [crate::state::Code; 8],
+    /// `combat value N` for N in 1..=12 (index N - 1).
+    pub names: [crate::state::Code; 12],
+    /// The text of every unit type, by `Unit` index.
+    pub units: [crate::state::Code; crate::generated::Unit::COUNT],
+}
+
+impl Default for InvasionCodes {
+    fn default() -> Self {
+        let z = crate::state::Code(0);
+        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, bombardment_cause: z, space_cannon_cause: z, planets: z, dunlain_reaper: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT] }
+    }
+}
+
+impl InvasionCodes {
+    /// The text of `unit`.
+    #[must_use]
+    pub fn unit(&self, unit: crate::generated::Unit) -> crate::state::Code {
+        self.units[unit as usize]
+    }
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of
@@ -262,6 +404,17 @@ pub struct PlayFacts {
     pub shared: SharedPlay,
 }
 
+/// Computes the [`PlayFacts`] of a position: a function of the core position and the kernel alone (the live loop has no string state).
+/// The text tables it needs (interned codes, note order) are captured by the host that builds it.
+#[derive(Clone)]
+pub struct PlaysProvider(pub std::sync::Arc<dyn Fn(&crate::state::CoreState, &crate::kernel::Kernel) -> Option<PlayFacts> + Send + Sync>);
+
+impl core::fmt::Debug for PlaysProvider {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("PlaysProvider")
+    }
+}
+
 /// Facts the adapter computes for the window and the core cannot (no galaxy is lent to the windows that follow
 /// abilities): the systems adjacent to a system as one seat sees them (`PlayerAdjacency::neighbours`).
 #[derive(Debug, Clone, Default)]
@@ -269,6 +422,9 @@ pub struct AdapterFacts {
     reach: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
     /// The play of action cards (B6).
     pub plays: Option<PlayFacts>,
+    /// The live loop's source of [`Self::plays`]: facts that change with the position (what a seat places, the research a card opens,
+    /// the Mahact pools) are computed from the core position every time a live driver is built (`driver::live`), not once per game.
+    pub plays_provider: Option<PlaysProvider>,
     /// `supply::staging_enabled` of the position (a registered faction module is seated): losses are announced and a Direct
     /// Hit removes the exact sustained ship.
     pub staging: bool,
@@ -276,6 +432,8 @@ pub struct AdapterFacts {
     /// The kernel whose economy hooks a payment inside an ability reads (the production kernel; the combat kernel holds none of
     /// the faction hooks of a payment). Set by the adapter.
     pub pay_kernel: Option<fn() -> &'static Kernel>,
+    /// The faction units of the scope (the form Assimilate places; set by the live `Env`).
+    pub roster: Option<&'static crate::query::tech::UnitRoster>,
     adjacent: Vec<(crate::generated::System, crate::generated::System, bool)>,
     buildable: Vec<(Seat, Vec<crate::generated::Unit>)>,
     /// The texts of the staged rerolls (Fire Team, Scramble Frequency), set by the adapter of a window that stages dice.
@@ -283,6 +441,48 @@ pub struct AdapterFacts {
     /// The printed name of each action card as the index of the first card with the same name, for the windows that offer one
     /// option per name outside a card play (the hand limit, package W6). Empty: the adapter did not say, the window declines.
     pub card_groups: Vec<u8>,
+    /// The texts of the space combat the live loop runs (`driver::windows::combat`): unit and roll-group names, causes and phases. The
+    /// core holds no text; the adapter interns them for the unit types in the fight at every call (`ti4-engine/src/combat_live.rs`).
+    pub combat: CombatTexts,
+}
+
+/// The texts the live space combat needs from outside: the string's `settle_run` interned them per settle, the live adapter does per call.
+/// `state` codes are texts of the position (`CoreState::texts`: unit names in a roll's record, the presentation phases), `shown` codes the
+/// renderer's (labels, the payloads of events).
+#[derive(Debug, Clone, Default)]
+pub struct CombatTexts {
+    /// The presentation phases `pre_roll`, `barrage`, `resolving_hits`, `retreating`, `complete` (state).
+    pub phases: [crate::state::Code; 5],
+    /// The state text of every unit type that can be named in the fight (the types present and the other form of a dual-form unit).
+    pub unit_codes: Vec<(crate::generated::Unit, crate::state::Code)>,
+    /// The renderer's text of the same types.
+    pub shown_codes: Vec<(crate::generated::Unit, crate::state::Code)>,
+    /// Every roll group: the sorted unit types, the state text (the ids joined with `+`) and the shown text.
+    pub groups: Vec<(Vec<crate::generated::Unit>, crate::state::Code, crate::state::Code)>,
+    /// The state texts `extra barrage` and `retreat_capacity`; the shown `extra barrage`.
+    pub barrage_extra: crate::state::Code,
+    pub retreat_cause: crate::state::Code,
+    pub barrage_extra_shown: crate::state::Code,
+    /// Shown texts: the cause and kind of the barrage, of a roll, the Hacan flagship, a retreat's loss and the pool it returns to, Raid
+    /// Formation, Assault Cannon (its subtype and cause), Ambush, Impulse Core, Devotion, the casualty question, the Letnev commander.
+    pub barrage_cause: crate::state::Code,
+    pub barrage_kind: crate::state::Code,
+    pub roll_cause: crate::state::Code,
+    pub hacan: crate::state::Code,
+    pub retreat_event: crate::state::Code,
+    pub retreat_pool: crate::state::Code,
+    pub raid: crate::state::Code,
+    pub ac_subtype: crate::state::Code,
+    pub ac_cause: crate::state::Code,
+    pub ambush: crate::state::Code,
+    pub cause_core: crate::state::Code,
+    pub cause_devotion: crate::state::Code,
+    pub casualty: crate::state::Code,
+    pub commander: crate::state::Code,
+    /// The payload keys `losers`, `retreated` and the reasons `retreat`, `draw`, `destruction`, `round_limit` of the end announcement.
+    pub end: [crate::state::Code; 6],
+    /// The state text of the payload key `opponents` and the shown text of the presentation phase `pre_roll` are the tactical codes'.
+    pub opponents: crate::state::Code,
 }
 
 /// What the cards that reroll staged dice (Fire Team) need of the adapter: the state text of the ground kind, and for each
@@ -685,6 +885,18 @@ impl Tape {
 
     pub fn push(&mut self, pick: Pick) {
         self.answers.push(pick);
+    }
+
+    /// The answers given so far, in order (what a suspended step stores, `state::Nested`).
+    #[must_use]
+    pub fn answers(&self) -> &[Pick] {
+        &self.answers
+    }
+
+    /// Replace the answers (a driver rebuilt from a suspended step).
+    pub fn set_answers(&mut self, answers: &[Pick]) {
+        self.answers = answers.to_vec();
+        self.rewind();
     }
 
     /// The question that found the tape dry in the run just made.

@@ -69,12 +69,9 @@ fn condition(c: &CondCx<'_>) -> bool {
         Ok(None) => return false,
         Err(why) => return c.unknown(why),
     }
-    // The placement of a Naaz mech is announced, a Nomad hears the exhaustion: the string's.
+    // The placement of a Naaz mech is announced: the string's.
     if c.state.players().by_seat(target).is_some_and(|p| p.faction == crate::generated::Faction::TheNaazRokhaAlliance) {
         return c.unknown(Unknown::MissingFact);
-    }
-    if c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.state) {
-        return c.unknown(Unknown::NomadAgentExhaustion);
     }
     true
 }
@@ -103,9 +100,8 @@ fn swap(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         return Ok(());
     }
     eff.state().board_mut().planet_mut(planet).units.as_mut_slice()[at] = crate::state::Piece::new(mech, target);
-    if let Some(p) = eff.state().players_mut().by_seat_mut(me) {
-        p.leaders.status.insert(AGENT, LeaderStatus::Exhausted);
-    }
+    let (state, kernel) = eff.state_and_kernel();
+    crate::kernel::fx_strategy::exhaust_agent(state, kernel, me, AGENT);
     Ok(())
 }
 

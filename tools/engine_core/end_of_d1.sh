@@ -10,7 +10,7 @@
 #           --from ID       start at this step (a resumed run)
 #           --base-ref REF  the ref the `lint` step compares the immutable surfaces against (also env BASE_REF)
 #           --dry-run       as above
-# Env:      CARGO_TARGET_DIR (required except for --dry-run: private, gate/lockstep/dev profiles are built into it),
+# Env:      ZERO_BAIL (report|enforce, the zero-bail step), CARGO_TARGET_DIR (required except for --dry-run: private, gate/lockstep/dev profiles are built into it),
 #           SHARDS (default 3: two gates fit on 8 cores), WORKERS (benches, default 6), GAMES (golden dual games, default 20),
 #           ALPHA_SRC (default /var/lib/ti4-public), SOAK_GAMES (default 40), BASE_REF (immutable-surface check; default core-integration-6, else origin/core-integration-6, else the step FAILS and says so)
 #
@@ -115,6 +115,13 @@ step census   "golden lent census: the labels the core bails at (bail probe merg
   "if [[ ! -s $out/bail-probe.tsv ]]; then echo \"census: $out/bail-probe.tsv is missing or empty: it is written by the step dual-all (TI4_BAIL_PROBE); run dual-all first (same --out), or --from dual-all\"; exit 1; fi \
    && $T/gate/bail_table $out/bail-probe.tsv \$( [[ -s $out/bail-probe-lent.tsv ]] && echo $out/bail-probe-lent.tsv ) > $out/bails.rs.txt \
    && $T/gate/golden check --mask all=core && $T/gate/golden check --mask all=string"
+# The zero-bail acceptance (user rule: a whole game plays in the new engine without a bail, on the agreed content: everything except
+# Thunder's Edge and the dropped factions). Counts every bail and gate by cause in the reports of dual-all and dual-lent (every area on
+# Dual, gate binaries under unsupported::Policy::Panic and strict unmapped mode). ZERO_BAIL=report (default for now: the starting list of
+# the lanes still porting, exit 0) or ZERO_BAIL=enforce (the acceptance run after lanes 9/10: any cause left fails the step).
+# Corpus today: the 20 golden games and the lent set; widening it to every lobby-seatable faction is the soak lane `factions`.
+step zero-bail "zero-bail acceptance: bails and gates by cause over the all=dual reports (ZERO_BAIL=${ZERO_BAIL:-report})" \
+  "python3 -I tools/engine_core/zero_bail.py \$( [[ \"${ZERO_BAIL:-report}\" == enforce ]] && echo --enforce ) $out/dual-all.log \$( [[ -s $out/dual-lent.log ]] && echo $out/dual-lent.log ) | tee $out/zero-bail.txt"
 # Strict product mode (TI4_CORE_STRICT=1: the W17 product assertions, docs/todo/D2-remaining.md finding 5) is exercised by a gate here and
 # only here: dual-all itself must stay un-strict (a strict assertion would turn a counted bail into a panic and empty the probe).
 step strict   "TI4_CORE_STRICT=1: the golden replays on core and the driver dual over the golden games (0 product assertions)" \

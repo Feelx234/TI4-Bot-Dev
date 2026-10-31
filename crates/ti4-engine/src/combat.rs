@@ -9902,6 +9902,54 @@ mod tests {
         let _ = take_report();
     }
 
+    /// W12: a Nomad that holds Temporal Command Suite hears every agent exhausted; the core sites of the agents announce the exhaustion by a
+    /// staged `AGENT_EXHAUSTED` as `leaders::exhaust` does (they bailed "Nomad Temporal Command Suite (agent exhaustion)" before): Tellurian
+    /// (Titans), Brother Milor (Yin) and The Thundarian (the Nomad's own agent, replaying the roll step). The window is compared, the staged
+    /// event of the string and the core agree, and the Nomad's card answers at the next flush (string).
+    #[test]
+    fn an_agent_exhausted_at_a_table_with_temporal_command_suite_is_announced_by_the_core_in_lockstep() {
+        use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut announced = 0;
+        with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+            for (seed, (who, agent, holder)) in (1..=6_u64).zip([("titans", "titansagent", "a"), ("titans", "titansagent", "a"), ("hacan", "yinagent", "b"), ("hacan", "yinagent", "b"), ("hacan", "nomadagentthundarian", "c"), ("hacan", "nomadagentthundarian", "c")]) {
+                let mut state = crate::fixtures::seated_game(&[("a", who), ("b", if holder == "b" { "yin" } else { "hacan" }), ("c", "nomad")], ti4_model::content_types::DEFAULT);
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                state.rng_seed = seed;
+                state.player_mut(&PlayerId::new("c")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("tcs"));
+                state.player_mut(&PlayerId::new(holder)).unwrap().leaders.insert(ti4_model::id::LeaderId::new(agent), ti4_model::state::LeaderStatus::Readied);
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &attacker(), 3);
+                put(&mut state, &system, "cruiser", &defender(), 3);
+                let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+                let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut ctx = Resolving {
+                    content: ContentStore::embedded(),
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+                };
+                resolve_resolving(&mut state, &mut ctx, &system, None).unwrap();
+                let exhausted = state.player(&PlayerId::new(holder)).unwrap().leaders.get(ti4_model::id::text(&agent)) == Some(&ti4_model::state::LeaderStatus::Exhausted);
+                if exhausted {
+                    assert!(crate::supply::staged_event_types(&state).contains(&"AGENT_EXHAUSTED".to_owned()), "seed {seed} {agent}: the exhaustion is announced");
+                    announced += 1;
+                }
+            }
+        });
+        let r = report();
+        assert!(announced > 0, "some agent was used");
+        assert!(r.windows.keys().all(|k| !k.contains("Temporal Command Suite")), "{:?}", r.windows);
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
     /// Brother Milor, ship branch: after a ship is destroyed in a space combat the readied agent lets its owner place
     /// 2 fighters in the system (the destroyed ship's owner's form).
     #[test]
@@ -10068,6 +10116,28 @@ mod tests {
             played += usize::from(plays.iter().any(|c| c == "reflective"));
         }
         assert!(played > 0, "a Reflective Shielding was played");
+    }
+
+    /// Found by the end-of-D1 gate (`dual_run ... driver=dual --game 18`): Reveal Prototype researches Destroyer II at the start of the
+    /// combat and the destroyers on the board become Destroyer II before the barrage; the core settle interned its unit texts for the
+    /// board it began on, so the barrage dice of the new type were labelled `extra barrage` where the string names `destroyer2`. The
+    /// window is a counted bail now (the string stands), not a difference.
+    #[test]
+    fn reveal_prototype_upgrading_a_barrage_ship_at_the_start_of_the_combat_leaves_no_label_difference() {
+        let mut played = 0;
+        for seed in 1..=6_u64 {
+            let (_, _, _, plays) = cards_fight_with(seed, ["hacan", "sol"], &[], &["reveal_prototype"], false, false, &|state, system| {
+                state.system_mut(system).units.retain(|u| u.owner != defender());
+                put(state, system, "destroyer", &defender(), 2);
+                put(state, system, "fighter", &attacker(), 2);
+                // Destroyer II asks for two warfare prerequisites, and Reveal Prototype four resources.
+                let holder = state.player_mut(&defender()).unwrap();
+                holder.trade_goods = 12;
+                holder.technologies.extend(["ps", "aida"].map(ti4_model::id::TechnologyId::new));
+            });
+            played += usize::from(plays.iter().any(|c| c == "reveal_prototype"));
+        }
+        assert!(played > 0, "a Reveal Prototype was played");
     }
 
     /// The promissory notes played at the start of a space combat: Antivirus (placed faceup) and The Cavalry (a ship type
@@ -12150,9 +12220,8 @@ mod tests {
     /// the single windows and the composed machine.
     #[test]
     fn a_neutral_side_fights_in_the_core_for_every_faction_across_from_it() {
-        // (Yin is left out: its Devotion hits are placed by their producer, which the composed machine does not carry, neutral opponent
-        // or not: `a_yin_seat_that_uses_devotion_keeps_the_composed_machine_on_the_string_and_says_why` pins it.)
-        let rotation = ["letnev", "mentak", "argent", "nomad", "jolnar", "sardakk", "l1z1x", "titans", "naaz", "yssaril", "muaat", "empyrean", "saar", "ghost", "arborec", "naalu", "mahact", "cabal", "winnu", "nekro", "xxcha", "sol"];
+        // (Yin is in the rotation since W16: its Devotion hits are placed by their producer, which the composed machine asks.)
+        let rotation = ["letnev", "mentak", "argent", "nomad", "jolnar", "sardakk", "l1z1x", "titans", "naaz", "yssaril", "muaat", "empyrean", "saar", "ghost", "arborec", "naalu", "mahact", "cabal", "winnu", "nekro", "xxcha", "sol", "yin"];
         let mut failures = Vec::new();
         for (n, faction) in rotation.iter().enumerate() {
             let table = ["sol", "hacan", rotation[(n + 5) % rotation.len()]];
@@ -12170,27 +12239,47 @@ mod tests {
         assert!(failures.is_empty(), "a neutral side across from these factions is not carried by the core: {failures:#?}");
     }
 
-    /// The open item the neutral-side scenarios found: a Yin seat's Devotion hits ("destroy one of your cruisers or destroyers after a round:
-    /// produce one hit") are placed by their producer, and the composed machine does not carry a hit the producer assigns
-    /// (`Machine::pending_choice` returns nothing for a `producer_assigns` pend, the machine bails `Bail::Unported`). The single windows carry
-    /// it. True of every fight a Yin seat takes part in, a neutral opponent or not. Fails the day the machine carries it: then this test
-    /// becomes a bail-as-failure test and `yin` joins the rotation of `a_neutral_side_fights_in_the_core_for_every_faction_across_from_it`.
+    /// Package W16: a hit Yin's Devotion produces ("destroy one of your cruisers or destroyers after a round: produce one hit") is placed by
+    /// its producer. The composed machine asks the producer (not the owner) which of the victim's ships dies, with the string's casualty
+    /// question (source `78.4`, subtype `assign_casualty`, the system, the hits owed), and the fight runs in lockstep with no bail. The
+    /// victim holds three kinds of ship, so the producer's question has options; a lone candidate is taken without one. Fails on the
+    /// pre-M5 machine, whose `pending_choice` returned nothing for a `producer_assigns` pend and bailed `Bail::Unported`.
     #[test]
-    fn a_yin_seat_that_uses_devotion_keeps_the_composed_machine_on_the_string_and_says_why() {
-        let mut composed_keys = Vec::new();
-        for (setup, what) in [(&(|_: &mut GameState, _: u64| {}) as &dyn Fn(&mut GameState, u64), "a plain fight"), (&neutral_garrison, "a neutral garrison")] {
-            let (_, compared, _) = roll_step_fights_of(["yin", "hacan", "xxcha"], setup, 0, false);
-            assert!(compared > 0, "{what}: the single windows are compared");
-            assert_eq!(take_bail_keys(), Vec::<String>::new(), "{what}: the single windows carry Devotion");
-            let _ = roll_step_fights_of(["yin", "hacan", "xxcha"], setup, 0, true);
-            composed_keys.extend(take_bail_keys());
+    fn a_devotion_hit_is_asked_of_its_producer_in_the_composed_machine_in_lockstep() {
+        static ASKED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        fn pick(seed: u64, nth: usize, c: &Choice) -> usize {
+            // The Yin seat holds cruisers and destroyers only: a casualty question of its that offers a dreadnought or a carrier is the
+            // victim's ship, placed by the producer.
+            if c.prompt == "assign a hit" && c.options.iter().any(|o| o.payload.get("unit").and_then(|u| u.as_str()).is_some_and(|u| u == "dreadnought" || u == "carrier")) {
+                ASKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                assert_eq!(c.context.as_ref().map(|x| (x.subtype.as_str(), x.actor.as_str().to_owned())), Some(("assign_casualty", c.player.to_string())));
+            }
+            usize::try_from(seed).unwrap_or(0).wrapping_add(nth) % 3
         }
-        assert!(!composed_keys.is_empty(), "the composed machine bails on a producer-assigned hit");
-        assert!(composed_keys.iter().all(|k| k.contains("a position it does not carry")), "the only reason is the machine's position: {composed_keys:?}");
-    }
-
-    fn take_bail_keys() -> Vec<String> {
-        BAIL_KEYS.with(|k| std::mem::take(&mut *k.borrow_mut()))
+        for (seed, composed, swap) in (0..30_u64).flat_map(|s| [(s, false, s % 2 == 1), (s, true, s % 2 == 1)]) {
+            let order: Vec<&str> = if swap { vec!["hacan", "yin"] } else { vec!["yin", "hacan"] };
+            let (me, other) = if swap { (defender(), attacker()) } else { (attacker(), defender()) };
+            let (_, windows, differences, _) = hub_fight_composed(
+                composed,
+                seed,
+                &order,
+                |s, system| {
+                    put(s, system, "cruiser", &me, 3);
+                    put(s, system, "destroyer", &me, 2);
+                    put(s, system, "dreadnought", &other, 2);
+                    put(s, system, "carrier", &other, 2);
+                    put(s, system, "cruiser", &other, 2);
+                },
+                pick,
+            );
+            assert_eq!(differences, 0, "seed {seed} swap {swap} composed {composed}: {windows:?}");
+            let w = windows.get(if composed { "combat::settle" } else { "combat::answer" }).copied().unwrap_or_default();
+            assert!(!windows.iter().any(|(label, w)| (label.contains("[bail:") || label.contains("[gate:")) && w.bailed > 0 && label.contains("settle")), "seed {seed}: {windows:?}");
+            if composed {
+                assert_eq!(w.bailed, 0, "seed {seed} swap {swap}: the machine carries a producer-assigned hit: {windows:?}");
+            }
+        }
+        assert!(ASKED.load(std::sync::atomic::Ordering::Relaxed) > 0, "a Devotion hit was asked of its producer");
     }
 
     /// W15: a fight with a Cabal seat runs through the composed machine without bailing at the end: the Cabal's participation mark of the

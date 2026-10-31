@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use ti4_engine_core::driver::{Driver, Status};
+use ti4_engine_core::driver::Status;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::Resolver;
 use ti4_engine_core::state::{Slice, SliceSet};
@@ -56,7 +56,7 @@ pub fn step(
         }
     };
     let kernel = crate::production_view::kernel();
-    let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     // The systems the producing player sees as adjacent to the producing system (Argent's agent reads them; the
     // core is lent no galaxy). No galaxy: none, which is what the string agent finds too.
     let neighbours: Vec<String> = galaxy
@@ -140,7 +140,7 @@ pub fn pay_step(
         took: None,
         stage: Stage::Paying,
     };
-    let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let mut rendered = Vec::new();
     with_core(gs, &mut cx, Sources::default(), PAY_FOOTPRINT, |core, _| -> Result<(), ti4_engine_core::driver::DriverError> {
         if let Status::Asking(choice) = driver.run(core, kernel)? {
@@ -210,7 +210,7 @@ fn run_triggered<W: ti4_engine_core::kernel::stage::Window>(
     let seat = r.seat(player.as_str()).why(NO_SEAT)?;
     let window = window(seat).why("the window cannot be built from the position")?;
     let kernel = crate::production_view::kernel();
-    let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let before_state = gs.clone();
     let mut rendered = Vec::new();
     with_core(gs, &mut cx, Sources::default(), nested_fp(TRIGGERED_FOOTPRINT, script), |core, _| {
@@ -298,7 +298,7 @@ pub fn agent_offer(gs: &mut GameState, payer: &PlayerId, script: &Recording) -> 
     let seat = r.seat(payer.as_str()).why(NO_SEAT)?;
     let before = gs.clone();
     let kernel = crate::production_view::kernel();
-    let mut driver = Driver::new(AgentOffer::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(AgentOffer::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OFFER_FOOTPRINT, script), |core, _| drive(&mut driver, core, kernel, &r, &before, script)).why(NOT_LENDABLE)?.why(DRIVER_REFUSED)?;
     Some(CoreWindow { run: Run::new(driver.window.opened), questions: driven.rendered })
 }
@@ -338,7 +338,7 @@ pub fn produce_one(
     let typed_system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(system.as_str()).why("a system the core tables do not know")?;
     let facts = OneFacts { buildable, fleet_limit, name: source.map(|(_, name)| r.code(name)), alias: source.map(|(alias, _)| r.code(alias)) };
     let kernel = crate::production_view::kernel();
-    let mut driver = Driver::new(ProduceOne::new(seat, typed_system, facts), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(ProduceOne::new(seat, typed_system, facts), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
     let before_state = gs.clone();
     let mut staged = Vec::new();
     let mut rendered = Vec::new();

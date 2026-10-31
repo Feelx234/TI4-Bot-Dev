@@ -39,8 +39,57 @@ pub enum Step {
     Ran { arm: Arm, lent: Option<Lent> },
     /// A question is put to the table (the arm of the question).
     Asks(AskArm),
+    /// The arm is in the caller's [`NativeArms`] and has a live function: the caller runs it (`live::live_arm`, `live::ask_arm_fn`)
+    /// with its `Env`; nothing is lent.
+    Native(Arm),
     /// The arm is not run by the core.
     Lend(Lent),
+}
+
+/// The arms the core runs LIVE (package KF1): one bit per [`Arm`]. An arm in the set that has an entry in the arm registry
+/// (`live::live_arm`) is [`Step::Native`]; any other arm is what it was (`Step::Lend`, or the part the core ran). The empty set
+/// is the dual's world: [`step`] behaves exactly as before the live loop existed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct NativeArms(u32);
+
+impl NativeArms {
+    pub const NONE: Self = Self(0);
+    pub const ALL: Self = Self((1 << 20) - 1);
+
+    /// The set of exactly `arms`.
+    #[must_use]
+    pub const fn of(arms: &[Arm]) -> Self {
+        let mut bits = 0;
+        let mut i = 0;
+        while i < arms.len() {
+            bits |= 1 << (arms[i] as u32);
+            i += 1;
+        }
+        Self(bits)
+    }
+
+    /// The bit set as a number (the report of a run: the names are the engine's, `live::arms`).
+    #[must_use]
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    /// Every arm that has a live function today (the registry's own list).
+    #[must_use]
+    pub fn registered() -> Self {
+        let mut bits = 0;
+        for arm in Arm::ALL {
+            if super::live::live_arm(arm).is_some() {
+                bits |= 1 << (arm as u32);
+            }
+        }
+        Self(bits)
+    }
+
+    #[must_use]
+    pub const fn has(self, arm: Arm) -> bool {
+        self.0 & (1 << (arm as u32)) != 0
+    }
 }
 
 /// What the caller supplies that the position does not hold.
@@ -53,8 +102,11 @@ pub struct Needs {
 }
 
 /// One step of the loop over `facts` (taken from the position before the arm is chosen).
-pub fn step(core: &mut CoreState, facts: &Facts, needs: Needs) -> Step {
+pub fn step(core: &mut CoreState, facts: &Facts, needs: Needs, native: NativeArms) -> Step {
     let arm = step_arm(facts, needs.asks);
+    if native.has(arm) && super::live::live_arm(arm).is_some() {
+        return Step::Native(arm);
+    }
     match arm {
         Arm::Finished | Arm::Blocked => Step::Stopped(arm),
         Arm::TurnPrelude => {
@@ -115,12 +167,12 @@ mod tests {
         let mut s = table(Phase::Action);
         s.meta.finished = true;
         let f = facts(&s);
-        assert_eq!(step(&mut s, &f, needs()), Step::Stopped(Arm::Finished));
+        assert_eq!(step(&mut s, &f, needs(), NativeArms::NONE), Step::Stopped(Arm::Finished));
         let mut s = table(Phase::Action);
         s.meta.active = Some(Seat(0));
         s.pending.stack.push(crate::state::Window::Untyped { kind: crate::state::WindowKind::Trade, actor: None, data: [0; 3] });
         let f = facts(&s);
-        assert_eq!(step(&mut s, &f, needs()), Step::Lend(Lent::Arm(Arm::Trade)));
+        assert_eq!(step(&mut s, &f, needs(), NativeArms::NONE), Step::Lend(Lent::Arm(Arm::Trade)));
     }
 
     #[test]
@@ -130,7 +182,7 @@ mod tests {
         s.meta.turn_seq = 4;
         let f = facts(&s);
         assert_eq!(step_arm(&f, true), Arm::TurnPrelude);
-        let out = step(&mut s, &f, Needs { asks: true, ..needs() });
+        let out = step(&mut s, &f, Needs { asks: true, ..needs() }, NativeArms::NONE);
         assert_eq!(out, Step::Ran { arm: Arm::TurnPrelude, lent: Some(Lent::TurnHooks) });
         assert_eq!(s.pending.prepared_turn_seq, Some(4), "the turn is the prepared one");
     }
@@ -145,7 +197,7 @@ mod tests {
         }
         let f = Facts::of(&s, false, true, false, true);
         assert_eq!(step_arm(&f, false), Arm::Phase);
-        let out = step(&mut s, &f, needs());
+        let out = step(&mut s, &f, needs(), NativeArms::NONE);
         assert_eq!(out, Step::Ran { arm: Arm::Phase, lent: Some(Lent::PhaseEvents) });
         assert_eq!((s.meta.phase, s.meta.active), (Phase::Status, None));
     }
@@ -156,7 +208,7 @@ mod tests {
         s.players.edit(1).econ.stability = true;
         let f = Facts::of(&s, false, false, false, true);
         assert_eq!(step_arm(&f, false), Arm::Phase);
-        let out = step(&mut s, &f, needs());
+        let out = step(&mut s, &f, needs(), NativeArms::NONE);
         assert_eq!(out, Step::Ran { arm: Arm::Phase, lent: Some(Lent::StrategyHooks) });
         assert_eq!(s.meta.phase, Phase::Action);
         assert!(s.meta.active.is_some(), "the first turn began");
@@ -165,13 +217,35 @@ mod tests {
     }
 
     #[test]
+    fn an_arm_is_native_only_when_it_is_in_the_set_and_has_a_live_function() {
+        let open = |kind: crate::state::WindowKind| {
+            let mut s = table(Phase::Status);
+            s.pending.stack.push(crate::state::Window::Untyped { kind, actor: None, data: [0; 3] });
+            s
+        };
+        let mut s = open(crate::state::WindowKind::Tokens);
+        let f = facts(&s);
+        assert_eq!(step(&mut s, &f, needs(), NativeArms::NONE), Step::Lend(Lent::Arm(Arm::Tokens)), "the empty set is today's behaviour");
+        assert_eq!(step(&mut s, &f, needs(), NativeArms::of(&[Arm::Tokens])), Step::Native(Arm::Tokens));
+        assert_eq!(step(&mut s, &f, needs(), NativeArms::registered()), Step::Native(Arm::Tokens));
+        assert_eq!(step(&mut s, &f, needs(), NativeArms::of(&[Arm::Voting])), Step::Lend(Lent::Arm(Arm::Tokens)), "another arm's bit does not count");
+        // An arm in the set with no live function yet is still lent: the set can be written before the lane lands.
+        let mut s = open(crate::state::WindowKind::Voting);
+        let f = facts(&s);
+        assert_eq!(step(&mut s, &f, needs(), NativeArms::ALL), Step::Lend(Lent::Arm(Arm::Voting)));
+        assert_eq!(NativeArms::registered(), NativeArms::of(&[Arm::Tokens, Arm::EventScoring, Arm::Aftermath, Arm::Tactical, Arm::Invasion]));
+        assert_eq!(NativeArms::ALL.bits().count_ones(), 20);
+        assert!(NativeArms::NONE.bits() == 0 && !NativeArms::NONE.has(Arm::Tokens));
+    }
+
+    #[test]
     fn a_question_is_named_by_the_arm_that_asks_it() {
         let mut s = table(Phase::Action);
         s.meta.active = Some(Seat(0));
         s.pending.prepared_turn_seq = Some(s.meta.turn_seq);
         let f = Facts::of(&s, false, true, false, true);
-        assert_eq!(step(&mut s, &f, Needs { asks: true, ..needs() }), Step::Asks(AskArm::ActionMenu));
+        assert_eq!(step(&mut s, &f, Needs { asks: true, ..needs() }, NativeArms::NONE), Step::Asks(AskArm::ActionMenu));
         let f = Facts::of(&s, false, true, true, true);
-        assert_eq!(step(&mut s, &f, Needs { asks: true, ..needs() }), Step::Asks(AskArm::Closing));
+        assert_eq!(step(&mut s, &f, Needs { asks: true, ..needs() }, NativeArms::NONE), Step::Asks(AskArm::Closing));
     }
 }

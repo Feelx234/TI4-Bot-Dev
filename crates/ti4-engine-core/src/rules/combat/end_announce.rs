@@ -54,6 +54,7 @@ pub struct Facts {
 
 #[derive(Debug, Clone)]
 pub struct EndAnnounce {
+    drain: Option<(Code, Code)>,
     pub f: Facts,
     stage: Stage,
 }
@@ -61,7 +62,14 @@ pub struct EndAnnounce {
 impl EndAnnounce {
     #[must_use]
     pub const fn new(f: Facts) -> Self {
-        Self { f, stage: Stage::Start }
+        Self { drain: None, f, stage: Stage::Start }
+    }
+
+    /// The same ending draining the destructions an effect staged on it (`announce_end`'s last step).
+    #[must_use]
+    pub const fn with_drain(mut self, retreat: (Code, Code)) -> Self {
+        self.drain = Some(retreat);
+        self
     }
 }
 
@@ -124,6 +132,9 @@ impl Window for EndAnnounce {
         {
             let (k, mut cx) = (sx.kernel, sx.cx());
             k.hooks.direct.nekro_units_alastor_clear(&mut cx, f.system, None);
+        }
+        if let Some(retreat) = self.drain {
+            super::assign::drain_staged(sx, self.f.announce, retreat);
         }
         self.stage = Stage::Done;
         Next::Done

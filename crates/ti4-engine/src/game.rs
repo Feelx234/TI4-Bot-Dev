@@ -2118,6 +2118,34 @@ impl<'a> Game<'a> {
         self.galaxy.as_ref()
     }
 
+    /// The facts the arm of the next step is chosen from (`driver::session::step_arm`), read from the string windows now. For the
+    /// oracle's `NativeSubject` (bridge only; the feature `native-subject` is never on in a production build).
+    #[cfg(all(feature = "typed-core", feature = "native-subject"))]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn step_facts(&self) -> ti4_engine_core::driver::session::Facts {
+        d1_pending::facts_of(self)
+    }
+
+    /// The content scope of this game. For the oracle's `NativeSubject` (bridge only, feature `native-subject`).
+    #[cfg(all(feature = "typed-core", feature = "native-subject"))]
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn content_sources(&self) -> SourceSet {
+        self.sources
+    }
+
+    /// The typed windows the string window fields hold now, in the order of the fields (what `d1::pending` compares). `Err`: a window
+    /// the tables cannot type. For the oracle's `NativeSubject` (bridge only, feature `native-subject`).
+    ///
+    /// # Errors
+    /// A seat, leader or card the typed tables do not know.
+    #[cfg(all(feature = "typed-core", feature = "native-subject"))]
+    #[doc(hidden)]
+    pub fn observed_windows(&self, r: &crate::render::Render, cx: &crate::core_sync::Ctx) -> Result<Vec<ti4_engine_core::state::Window>, &'static str> {
+        d1_pending::observed(self, r, cx)
+    }
+
     /// Bind on a disposable fork, before preparing its hypothetical turn, or on a game whose
     /// host reads the activity after each decision ([`crate::observation::ExecutionObservation::take`]).
     pub fn bind_observation(&mut self, observation: crate::observation::ExecutionObservation) {

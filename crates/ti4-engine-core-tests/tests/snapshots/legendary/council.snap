@@ -1,0 +1,19 @@
+Q0 seat 0 Legendary(Offer { when: EndOfTurn })
+  >0: Legendary(Use(MecatolRexTe))
+   1: Legendary(Use(ThundersEdge))
+   2: Decline
+Q1 seat 0 Legendary(Council)
+  >0: Legendary(DiscardSecret(AdaptNewStrategies))
+   1: Legendary(DiscardSecret(BetrayAFriend))
+Q2 seat 0 Legendary(Offer { when: EndOfTurn })
+  >0: Legendary(Use(ThundersEdge))
+   1: Decline
+done
+--- delta ---
+player0.cards.legendary_exhausted: {} -> -
+player0.cards.legendary_exhausted.MecatolRexTe: - -> ()
+player0.cards.legendary_exhausted.ThundersEdge: - -> ()
+player0.cards.secrets.[0]: AdaptNewStrategies -> BetrayAFriend
+player0.cards.secrets.[1]: BetrayAFriend -> CutSupplyLines
+decks: changed
+transient.misc.flags.[0]: 0 -> 8

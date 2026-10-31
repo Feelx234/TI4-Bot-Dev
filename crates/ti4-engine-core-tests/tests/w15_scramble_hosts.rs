@@ -131,7 +131,7 @@ fn a_card_that_draws_the_space_cannon_dice_again_decides_the_hits_of_each_gunner
             .control(p2, 2)
             .unit(sys(), None, Unit::CruiserI, 0, 12)
     };
-    let facts = CannonFacts { active: Seat(0), system: sys(), announce: true, staging: false, reaching: vec![], mapped: false, kind: Code(1), cause: Code(2), casualty: Code(3), commander: Code(4) };
+    let facts = CannonFacts { active: Seat(0), system: sys(), announce: true, staging: false, reaching: vec![], mapped: false, kind: Code(1), cause: Code(2), casualty: Code(3), commander: Code(4), jolnar: vec![], unit_texts: vec![], planet_texts: vec![] };
     let (mut one, mut both) = (0, 0);
     for seed in 0..60u64 {
         let mut bare = Rig::new(arena(), SpaceCannonOffense::new(CannonFacts { announce: false, ..facts.clone() })).seeded(seed);
@@ -176,10 +176,10 @@ fn the_reroll_window_of_a_bombardment_emits_the_event_with_the_staged_hits_and_r
         // (The string names the roller when it stages the roll.)
         s.transient_mut().combat.last_reroll_player = Some(Seat(0));
     };
-    let facts = RollFacts { invader: Seat(0), system: sys(), announce: true, kind: Code(7) };
+    let facts = RollFacts { invader: Seat(0), system: sys(), announce: true, kind: Code(7), commander: false, shown: vec![] };
     let (mut state, kernel) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[sys()]).build();
     stage(&mut state);
-    let mut rig = Rig::from_parts(state, kernel, BombardRolled::new(facts)).with_abilities(table());
+    let mut rig = Rig::from_parts(state, kernel, BombardRolled::new(facts.clone())).with_abilities(table());
     rig.run();
     assert!(rig.is_done());
     let event = rig.driver.emitted.iter().find(|e| e.kind == EventKind::UnitAbilityRolled).expect("the event goes out");
@@ -190,12 +190,12 @@ fn the_reroll_window_of_a_bombardment_emits_the_event_with_the_staged_hits_and_r
     assert_eq!(rig.state.transient().combat.last_reroll_player, None);
     // Without staged dice there is no window, and without the resolver's announcements the dice are only read.
     let (state, kernel) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[sys()]).build();
-    let mut none = Rig::from_parts(state, kernel, BombardRolled::new(facts)).with_abilities(table());
+    let mut none = Rig::from_parts(state, kernel, BombardRolled::new(facts.clone())).with_abilities(table());
     none.run();
     assert!(none.is_done() && none.driver.emitted.is_empty() && none.driver.window.faces.is_empty());
     let (mut state, kernel) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[sys()]).build();
     stage(&mut state);
-    let mut quiet = Rig::from_parts(state, kernel, BombardRolled::new(RollFacts { announce: false, ..facts })).with_abilities(table());
+    let mut quiet = Rig::from_parts(state, kernel, BombardRolled::new(RollFacts { announce: false, ..facts.clone() })).with_abilities(table());
     quiet.run();
     assert!(quiet.driver.emitted.is_empty());
     assert_eq!(quiet.driver.window.faces, vec![vec![2, 6], vec![5], vec![1]]);
