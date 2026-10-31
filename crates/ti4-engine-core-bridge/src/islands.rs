@@ -77,7 +77,7 @@ impl Island {
 }
 
 /// The words of each island, in the order the rules are tried (the first island with a word in the key wins).
-const RULES: [(Island, &[&str]); 12] = [
+const RULES: [(Island, &[&str]); 15] = [
     (Island::Trade, &["trade", "transaction"]),
     (Island::Production, &["production", "produce", "purchase"]),
     (Island::Invasion, &["invasion", "bombard", "landing", "ground_combat", "control_gain", "custodians"]),
@@ -86,12 +86,18 @@ const RULES: [(Island, &[&str]); 12] = [
     // The follower window of the strategic action is the strategic lane's even when it follows a tactical action.
     (Island::Strategic, &["secondary", "leader_followers"]),
     (Island::Tactical, &["tactical", "activation", "movement"]),
+    // The words of the live path's own gaps (`native_play`): the commander unlock is the menu lane's although the turn flow raises it.
+    (Island::Menu, &["commanderunlock", "leader_action"]),
     // The turn flow before the strategic action: `strategy_announce` is the phase's, not the card's.
-    (Island::TurnFlow, &["turn_prelude", "turn::", "prelude", "phase", "closing", "draft", "starting_tech", "strategy_announce", "end_turn", "hooks"]),
+    (Island::TurnFlow, &["turn_prelude", "turn::", "prelude", "phase", "closing", "draft", "starting_tech", "strategy_announce", "end_turn", "hooks", "turngap", "reconcile"]),
     (Island::Status, &["status", "token", "scoring", "objective"]),
     (Island::Agenda, &["agenda", "voting", "vote", "diplomacy"]),
     (Island::Strategic, &["strategy", "primary"]),
     (Island::Menu, &["action_menu", "leader", "hero", "agent", "commander", "explor", "relic", "action_card", "component", "promissory"]),
+    // The live path's `Unknown` words (`ti4_engine_core::kernel::ability::Unknown`): the invasion's `Unported(..)` reasons, and the card plays and
+    // abilities the reaction port owns (listed with the menu lane: they are cards and leaders).
+    (Island::Invasion, &["unported("]),
+    (Island::Menu, &["playfacts", "unportedcard", "immediatecardplay", "harnessorinfiltrate", "briberygoods", "cardcost", "dataskimmer", "pendingdestructions", "nomadagentexhaustion", "missingfact"]),
 ];
 
 /// The island a counted cause belongs to: `key` is the whole `<label> [bail: <why>]` (the label alone also works).
@@ -180,6 +186,17 @@ mod tests {
             ("d1::step [bail: agenda]", Island::Agenda),
             ("d1::step [bail: ask.action_menu]", Island::Menu),
             ("d1::step [bail: something new]", Island::Other),
+            // The gaps of the native playthrough (`native_play::Gap::key`).
+            ("ask.action_menu [gap: ask source not native: question source action_menu]", Island::Menu),
+            ("ask.secondary [gap: ask source not native: question source secondary]", Island::Strategic),
+            ("status [gap: arm not native: no live function]", Island::Status),
+            ("tactical [gap: bail of a live window: UnportedTactical(ActivationHook)]", Island::Tactical),
+            ("live [gap: bail of a live window: Unported(Dacxive)]", Island::Invasion),
+            ("ask.closing [gap: bail of a live window: TurnGap(MenuSources)]", Island::TurnFlow),
+            ("turn_prelude [gap: bail of a live window: TurnGap(CommanderUnlock)]", Island::Menu),
+            ("aftermath [gap: bail of a live window: UnportedAftermath(CombatUnported)]", Island::Combat),
+            ("live [gap: bail of a live window: PlayFacts]", Island::Menu),
+            ("tokens [gap: close lent: the status steps 81.6-81.8 after the last token (KS5, lane C)]", Island::Status),
         ];
         for (key, island) in cases {
             assert_eq!(island_of(key), island, "{key}");

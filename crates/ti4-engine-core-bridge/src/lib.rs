@@ -18,3 +18,4 @@ pub mod golden;
 pub mod oracle;
 pub mod islands;
 pub mod native_subject;
+pub mod native_play;

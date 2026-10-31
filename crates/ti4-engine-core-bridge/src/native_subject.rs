@@ -298,6 +298,11 @@ fn compare_state(finished: bool, legacy: &Value, native: &Value) -> Vec<Raw> {
     out
 }
 
+/// The first leaf where `left` and `right` differ (`native_play`'s shadow compare), `None` when they agree.
+pub(crate) fn first_leaf(left: &Value, right: &Value) -> Option<ti4_engine::dual::JsonDiff> {
+    diff_json(left, right, 1).into_iter().next()
+}
+
 fn leaves(category: Category, prefix: &str, left: &Value, right: &Value, out: &mut Vec<Raw>) {
     for d in diff_json(left, right, LEAVES) {
         let path = if d.path.is_empty() {
