@@ -91,6 +91,14 @@ round trip, the illegal-answer rollback and the clone-mid-window check are core 
 3. Final KF2 validation named in the doc: `drive_live` against the replay `drive` over the existing `dual_window!` corpus (the Core backend of ONE area run through
    `live::advance`); needs the `plays` facts for the areas with card plays, so start with `strategy::secondary` after lane E ports its follower facts.
 
-## 6. Checks run (cheap) and not run
+## 6. Checks run (cheap) and results
 
-See the final report of the lane. Not run: any heavy gate (golden/wide dual, benches, soak, mutation ratchet, census, workspace clippy).
+* `cargo test -p ti4-engine-core --lib`: 464 passed. `check_layers.py core`: 0 violations; `lint_core.sh`: 0 hits.
+* `cargo test -p ti4-engine --lib` (default areas): 4894 passed after the fix below (the first run failed 7 tests: clearing `failed_component_actions` inside `end_turn_scratch` needs the `Pending` slice, which the dual does not lend; it is its own step now).
+* `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine --lib -- dual:: dual_window window_driver live:: decision_context d1_pending d1_action reactions_core product::`: 99 passed. `dual::tests::detects_an_injected_difference_in_each_category` fails ALONE under `TI4_DUAL_FAIL_FAST=1` (the env var is read lazily by `init_default` after `serial()` turned fail-fast off): pre-existing, not touched.
+* `cargo test -p ti4-engine-core-bridge --test kernel_env`: passes; reports the two empty hook slots (`commander_unlocked` 935, `leader_action` 1265 answers the string gives that no faction module registers yet).
+* Single-file mutation checks (Haiku runner, committed snapshot): `driver/live.rs` 12 mutants, 7 killed, 5 survived; `rules/token_gain.rs` 14 mutants, 10 killed, 4 survived. Tests added for 6 of the 9 survivors; 3 are equivalent mutants (`restore_stage` negation is caught by the driver's own `NotAsking`; `left()`'s unreachable default `0`).
+* FINDING by the first `playthrough` run: `unsupported::find` (called by `Driver::run` under the gate policy `Panic`) read the Trade slice of a position that a dual window had not lent and panicked in the first technology window of EVERY game of a gate binary. Fixed (`find` reads loaded slices only) with a regression test; `dual_run`/`end_of_d1.sh` had never reached it because the heavy run has not happened yet.
+* `playthrough --factions sol --players 4 --seeds 1 --maxsteps 300` (debug build, all=dual, te set, starting_tech): 300 steps in 2 rounds, 575 counted bails; the biggest causes: `d1::step [bail: tactical]` 110, `aftermath` 64, `turn_prelude` 35, `turn::hooks [bail: legendary::end_turn / minister_of_war / technology::end_turn]` 34 each, `ask.closing` 28, `invasion::control_gain_exploration [gate]` 21, `ask.draft` 15, `tokens` 9, `trade` 6, `status` 1, `strategy_announce` 1. A whole game in a debug build under all=dual takes more than 17 CPU minutes for 2500 steps: use a release build for whole games.
+
+Not run: any heavy gate (golden/wide dual, benches, soak, mutation ratchet, census, workspace clippy), the armed dual, `NativeSubject` (not built).
