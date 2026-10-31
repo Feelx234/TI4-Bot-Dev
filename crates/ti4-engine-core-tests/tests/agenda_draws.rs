@@ -36,7 +36,7 @@ fn hand(s: &CoreState, seat: u8) -> usize {
 #[test]
 fn the_politics_rider_draws_three_cards_asks_what_to_discard_over_the_limit_and_gives_the_speaker_token() {
     covers!("rules::agenda::close::Close");
-    let facts = Facts { trade_rider: Code(1), keleres_rider: Code(2), drop_unofficial: false, blanked: false, hooked: 0, research: None };
+    let facts = Facts { trade_rider: Code(1), keleres_rider: Code(2), drop_unofficial: false, blanked: false, hooked: 0, research: None, fleet_pool: Code(3) };
     let st = || {
         let mut s = Scenario::lobby(3).round(2).hand(1, &SEVEN[..5]).speaker(0).state();
         s.agenda_mut().predictions.insert(Seat(1), Prediction::Tagged(Outcome::For, PredictionTag::PoliticRider));

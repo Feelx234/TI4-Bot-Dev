@@ -973,15 +973,17 @@ mod tests {
     }
 
     #[test]
-    fn riders_that_place_and_old_games_are_not_expressed() {
+    fn riders_that_place_pay_nothing_where_there_is_no_place_and_old_games_are_not_expressed() {
         for tag in [PredictionTag::ConstRider, PredictionTag::DiploRider, PredictionTag::WarRider] {
+            // A correct rider at a seat with no planet and no ship has no place to go: nothing is paid and the window stands.
             let mut s = game();
             predict(&mut s, B, Prediction::Tagged(Outcome::For, tag));
-            assert!(run(close(law(), Some(Outcome::For)), &mut s, &[]).window.unsupported(), "{tag:?}");
-            // Wrong prediction: nothing to pay, so the window stands.
+            assert!(!run(close(law(), Some(Outcome::For)), &mut s, &[]).window.unsupported(), "{tag:?}");
+            // Before the rules version that asks the place (9) the reward is the string's.
             let mut s = game();
-            predict(&mut s, B, Prediction::Tagged(Outcome::Against, tag));
-            assert!(!run(close(law(), Some(Outcome::For)), &mut s, &[]).window.unsupported(), "{tag:?} missed");
+            s.meta_mut().rules_version = RULES_TECH_RIDER - 1;
+            predict(&mut s, B, Prediction::Tagged(Outcome::For, tag));
+            assert!(run(close(law(), Some(Outcome::For)), &mut s, &[]).window.unsupported(), "{tag:?} in an old game");
         }
         let mut s = game();
         s.meta_mut().rules_version = RULES_COMMAND_TOKEN_POOL - 1;
