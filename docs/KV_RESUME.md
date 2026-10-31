@@ -29,9 +29,30 @@ Registry: `driver/live.rs` `live_arm`/`ask_arm_fn` gained `Agenda` (`agenda::adv
 * `Tally::MAX` (8): a planet election among more than 8 planets made the vote question `None`; the question keeps the first 8 and `live::agenda::full_tally` rebuilds `details.tally` from the vote on the stack.
 * `KernelEnv::is_nekro` answered `false` ("the adapter applies it"): Galactic Threat now bars the Nekro seat in the core's voting order. Test: `nekro_cannot_vote_on_agendas_...`.
 
+## More native pieces added after the first draft
+
+* The placement riders (Construction, Diplomacy, Warfare) in `rules/agenda/close.rs`: the place is forced when there is one and asked when there are several (new `Ask::RiderTarget`, `Opt::Spot`, rendered byte-exact);
+  the space dock goes where the string puts it (the dock I forms only count as a dock on the planet: the string compares the unit id with `spacedock`, so a planet with a dock II is offered again: parity kept),
+  Diplomacy takes a fleet token from every other seat that has one and stages `COMMAND_TOKEN_PLACED`, Warfare places the dreadnought without a supply check (as the string).
+* Draws with hooks: `driver/windows/hooked_draw.rs` (`HookedDraw`, registered in `driver/children.rs` for `Spawn::DrawCards`): without a hook it is `DrawCards`; with one (Yssaril's Scheming and Crafty, a draw bonus, a changed limit,
+  blank laws) the bonus card joins, `SchemingDiscard` (lane C) comes before the limit and the limit is the faction's. The Politics Rider and Unconventional Measures of a Yssaril seat run natively.
+* The card moves a faction effect staged in a window (a Scheming discard) are announced right after `AGENDA_REVEALED` and `AGENDA_RESOLVED` (`kernel/fx_cards.rs`, as `Live::emit_typed` does).
+* The Technology Rider's research options are labelled with the printed names (`live::agenda::complete`).
+
 ## Gaps (counted, never silent): `Unknown::AgendaGap(AgendaGap)` -> `live::<arm> [AgendaGap(..)]`
 
-See `kernel/agenda_codes.rs`. Open at this commit: see "Open list" at the end of this file.
+`kernel/agenda_codes.rs`. Open at the end of this lane:
+
+| gap | when | who closes it |
+|---|---|---|
+| `NoEffect(15)` | Galactic Crisis Pact elected: each seat may perform the secondary of the elected strategy card without a command token (`strategy::crisis_pact_choice`, `strategy_cards::secondary`) | lane E (KX): the per-card secondary windows and `secondary_can_do_something`; one `Kind::Pact` in `rules/agenda/effects` or a driver-level window like `driver/agenda/grant.rs` |
+| `CloseUnsupported` | a correct Technology Rider at a seat the research window does not carry (no unit roster in the table's play facts, `research: None`); any correct rider below `RULES_COMMAND_TOKEN_POOL` (12) or a placement rider below `RULES_TECH_RIDER` (9); `Classified Document Leaks` electing a non-secret | old rules versions: the string path; the roster: the live `Env` must carry `plays` (`env_with_plays`) |
+| `EffectUnsupported(n)` | Plowshares / Rearmament / Redistribution / Grant without the unit roster in the table's play facts | same |
+| `PhaseNotReady`, `RevealFailed`, `CloseFailed`, `ReplayDiverged`, `OpenedWindow`, `EmissionRefused`, `Refused` | defects of the position or the environment; `Refused`: a deck reserve (turn redo, dropped) | n/a |
+
+Not native by decision (the dropped content): the Executive Order, the Keleres agent's goods window, `Arm::AgendaTalks` (structured diplomacy), the Deepwrought oceans, Last Bastion's dock bonus.
+NOT done: the vote of a Valefar Assimilator carrying Genetic Recombination (the holder query of the core reads the owned technology only; the string's `mahact::recombination_holder` also reads the Valefar token): the core would
+ask the wrong seat. Not covered by a scenario either; list it with the Nekro lane.
 
 ## Checks (cheap)
 
