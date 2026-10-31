@@ -35,7 +35,9 @@ run() {
   /usr/bin/time -f "%U %S %e" -o "$out/$name.time" "$bin" run "$@" --no-cache --workers "$per" \
     --out "$out/$name.json" --quiet --no-table > "$out/$name.log" 2>&1
   local rc=$?
-  read -r u s e < "$out/$name.time"
+  # `time -o` puts "Command exited with non-zero status N" in front of the numbers when the bench exits non-zero (selfplay exits 2
+  # on a difference): read the last line, else the "different" line came out as "cpu  s wall with non-zero status 2 s" and bc failed.
+  read -r u s e < <(tail -n 1 "$out/$name.time")
   echo "$name: $(grep -o '[0-9]* identical, [0-9]* different, [0-9]* not in the baseline' "$out/$name.log" || echo "rc $rc, see $out/$name.log") | cpu $(echo "$u + $s" | bc) s wall $e s" > "$out/$name.line"
 }
 start() {
