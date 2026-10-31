@@ -484,6 +484,35 @@ fn a_copied_round_agent_numbers_the_round_in_any_version_and_announces_it() {
     assert_eq!((ev.payload.int(Key::RoundSeq), ev.payload.seat(Key::Attacker), ev.payload.seat(Key::Defender), ev.payload.planet(Key::Planet)), (Some(1), Some(Seat(0)), Some(Seat(1)), Some(p1)));
 }
 
+/// Package W13: a fight of many rounds reads what the Letnev can spend in each round (`Facts::pay_env`): the Reaper is offered while the seat can
+/// pay two resources and is not once it cannot, whatever `can_pay` said at the start.
+#[test]
+fn the_dunlain_reaper_reads_what_the_letnev_can_spend_when_the_fight_gives_the_environment() {
+    covers!("rules::invasion::begin::BeginGroundRound");
+    let (p1, _) = planets();
+    let letnev = |goods: i16| {
+        Scenario::new(&[Faction::TheBaronyOfLetnev, Faction::TheArborec])
+            .kernel(kernel_all())
+            .map_from(&[sys()])
+            .unit(sys(), Some(p1), Unit::InfantryI, 0, 1)
+            .unit(sys(), Some(p1), Unit::InfantryI, 1, 1)
+            .goods(0, goods)
+    };
+    let env = ti4_engine_core::kernel::fx_pay::PayEnv { scope: ti4_engine_core::tables::Scope(u32::from(kernel_all().sources.0)), blanked: false };
+    let asked = |goods: i16, can_pay: bool, env: Option<ti4_engine_core::kernel::fx_pay::PayEnv>| {
+        let (s, k) = letnev(goods).build();
+        let s = with_active(s, p1, 1);
+        let facts = BeginFacts { can_pay: [can_pay, false], pay_env: env, ..begin(false, true) };
+        let mut rig = Rig::from_parts(s, k, BeginGroundRound::new(facts));
+        rig.run();
+        !rig.is_done()
+    };
+    assert!(asked(3, false, Some(env)), "three trade goods pay the Reaper: offered although the static flag says no");
+    assert!(!asked(0, true, Some(env)), "nothing to spend: not offered although the static flag says yes");
+    assert!(asked(0, true, None), "without the environment the static flag stands");
+    assert!(!asked(3, false, None));
+}
+
 // ---- which planet is fought next --------------------------------------------------------------------
 
 fn adv(index: usize, coexisted: Vec<Planet>) -> AdvFacts {
@@ -671,6 +700,29 @@ fn a_ground_round_removes_the_hits_of_both_sides_announces_them_after_the_round_
     assert_eq!(step.hits.get(&Seat(0)).copied(), Some(2), "hits the invader produced");
     assert_eq!(step.hits.get(&Seat(1)).copied(), Some(1));
     assert_eq!(step.after.len(), 2);
+}
+
+/// Package W13: the hits a faction adds to its own roll (Valkyrie Particle Weave: one more when the opponent produced any) are the kernel's hook,
+/// read once both sides' dice are final: the invader's two hits and the defender's one become two and one + 1.
+#[test]
+fn the_hits_a_faction_adds_to_its_roll_are_assigned_by_the_opponent_like_any_other() {
+    covers!("rules::invasion::round::GroundRoundHits");
+    fn weave(_: &ti4_engine_core::state::CoreState, _: &ti4_engine_core::kernel::Kernel, roller: Seat, _: System, _: Planet, own: usize, opponent: usize) -> usize {
+        usize::from(roller == Seat(1) && opponent >= 1 && own < 9)
+    }
+    let (sc, p1) = fighting();
+    let (s, mut k) = sc.build();
+    k.hooks.ground.ground_rolls_extra_hits.push(weave);
+    let s = with_active(s, p1, 1);
+    // The defender (seat 1) rolled none of its own: the weave adds one to the invader's two.
+    let mut rig = Rig::from_parts(s.clone(), k.clone(), GroundRoundHits::new(round_facts((2, 0), None)));
+    rig.run();
+    assert_eq!(rig.driver.window.assigned, (2, 1), "the defender's weave hit lands on the invader");
+    assert_eq!(units_on(&rig, p1, 0).len(), 2);
+    // The invader rolled nothing: the defender's hook reads the opponent's hits as zero and adds nothing.
+    let mut quiet = Rig::from_parts(s, k, GroundRoundHits::new(round_facts((0, 1), None)));
+    quiet.run();
+    assert_eq!(quiet.driver.window.assigned, (0, 1));
 }
 
 #[test]

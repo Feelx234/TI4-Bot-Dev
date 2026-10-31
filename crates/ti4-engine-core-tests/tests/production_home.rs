@@ -250,22 +250,22 @@ fn the_prophecy_of_ixth_is_discarded_by_a_use_that_made_fewer_than_two_fighters(
     let prophecy = |rig: &mut Rig<HomeProduction>| {
         rig.state.agenda_mut().laws.insert(Agenda::ProphecyOfIxth, Outcome::Seat(Seat(0)));
     };
-    // One fighter and a destroyer: discarded.
+    // A destroyer: no fighter, discarded.
     let (mut rig, _, _) = home(6, &[Unit::FighterI, Unit::DestroyerI], 3);
     prophecy(&mut rig);
     rig.run();
-    build(&mut rig, Unit::FighterI);
+    build(&mut rig, Unit::DestroyerI);
     stop(&mut rig);
     assert!(rig.is_done());
-    assert!(!rig.state.agenda().laws.contains_key(&Agenda::ProphecyOfIxth), "one fighter is not two: the law is discarded");
-    // Two fighters: kept.
+    assert!(!rig.state.agenda().laws.contains_key(&Agenda::ProphecyOfIxth), "no fighter is not two: the law is discarded");
+    // A fighter is built two at a time: kept.
     let (mut rig, _, _) = home(6, &[Unit::FighterI], 3);
     prophecy(&mut rig);
     rig.run();
     build(&mut rig, Unit::FighterI);
-    build(&mut rig, Unit::FighterI);
     stop(&mut rig);
     assert!(rig.is_done());
+    assert_eq!(rig.driver.window.made().as_slice().iter().filter(|(u, _)| *u == Unit::FighterI).count(), 2);
     assert!(rig.state.agenda().laws.contains_key(&Agenda::ProphecyOfIxth), "two fighters keep it");
     // Held by another seat: never touched.
     let (mut rig, _, _) = home(6, &[Unit::DestroyerI], 3);
