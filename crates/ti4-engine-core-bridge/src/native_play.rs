@@ -1046,8 +1046,10 @@ mod tests {
         assert_eq!(bot.ask(&Question { asking: &asking, rendered: empty }), Err(Stop::Blocked), "a question without options is not answered");
     }
 
+    /// Fleet Logistics' second action is a free option of the closing menu: since lane F the core assembles it (`driver::menu::closing_menu`), so the
+    /// step is the question itself (it was the counted gap `MenuSources` before; the gap no longer exists).
     #[test]
-    fn a_closing_menu_the_core_does_not_assemble_is_a_gap_named_by_its_source_and_the_position_is_kept() {
+    fn a_closing_menu_with_a_second_action_is_asked_natively_and_offers_the_end_of_the_turn_and_the_action() {
         use ti4_engine_core::generated::Technology;
         let mut g = game("sol", 4, 1);
         g.core.transient_mut().misc.starting_tech_picks.clear();
@@ -1058,11 +1060,11 @@ mod tests {
         g.core.pending_mut().prepared_turn_seq = Some(turn_seq);
         g.core.pending_mut().turn_closing = Some(Seat(0));
         g.core.pending_mut().actions_this_turn = 1;
-        let held = g.core.clone();
-        let Step::Gap(gap) = g.step() else { panic!("a second action is offered, which the core does not assemble") };
-        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("ask.closing", GapKind::Bail, "TurnGap(MenuSources)"), "{gap:?}");
-        assert_eq!(gap.island(), Island::TurnFlow);
-        assert_eq!(g.core, held);
+        let Step::Played(played) = g.step() else { panic!("the closing menu with a second action is a native question") };
+        assert_eq!(played.source, Some(AskArm::Closing));
+        let menu = &played.asked[0];
+        assert!(menu.options.len() >= 2, "the end of the turn and the second action: {menu:?}");
+        assert!(menu.options.iter().any(|o| o == "end_turn" || o.contains("end")), "the end of the turn is offered: {menu:?}");
     }
 
     #[test]
