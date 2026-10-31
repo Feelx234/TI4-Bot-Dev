@@ -96,6 +96,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::winnu::RECLAIMER, kind: "unit", card: "winnu_mech" },
     Named { slot: ti4_engine_core_factions::silent::winnu::HTP, kind: "technology", card: "htp" },
     Named { slot: ti4_engine_core_factions::silent::winnu::AGENT, kind: "leader", card: "winnuagent" },
+    Named { slot: ti4_engine_core_factions::silent::sol::CLAIRE_GIBSON, kind: "leader", card: "solcommander" },
+    Named { slot: ti4_engine_core_factions::silent::cabal::STILLNESS, kind: "leader", card: "cabalagent" },
     Named { slot: ti4_engine_core_factions::silent::empyrean::ACAMAR, kind: "leader", card: "empyreanagent" },
     Named { slot: ti4_engine_core_factions::silent::empyrean::VOIDWATCH, kind: "technology", card: "vw" },
     Named { slot: ti4_engine_core_factions::silent::empyrean::XUANGE, kind: "leader", card: "empyreancommander" },
@@ -576,7 +578,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             faction_technology: r.code("faction_technology"),
         };
         table.codes.turn = crate::live::turn::codes(r);
-        table.codes.g2 = ti4_engine_core::kernel::ability::G2Codes { winnu_mech: r.code("winnu_mech"), muaat: r.code("muaat") };
+        table.codes.g2 = ti4_engine_core::kernel::ability::G2Codes { winnu_mech: r.code("winnu_mech"), muaat: r.code("muaat"), cabal_agent: r.code("cabalagent") };
         table.codes.silent = ti4_engine_core::kernel::ability::SilentCodes {
             lw2: r.code("lw2"),
             scavenge: r.code("scavenge"),

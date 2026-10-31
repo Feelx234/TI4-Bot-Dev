@@ -31,6 +31,8 @@ pub enum Ask {
     CommanderFighters,
     /// Voidwatch (Empyrean): which promissory note the mover gives.
     Voidwatch,
+    /// The Stillness of Stars (Cabal): which unit of the opponent's reinforcements is captured.
+    Stillness,
 }
 
 /// One answer.
@@ -53,6 +55,8 @@ pub enum Opt {
     Note(crate::state::NoteKey),
     /// The seat's own Support for the Throne given (the faction it belongs to).
     Support(crate::generated::Faction),
+    /// A model of `victim`'s reinforcements captured.
+    Capture { unit: crate::generated::Unit, victim: Seat },
 }
 
 /// The machine identifier of the question.
@@ -72,6 +76,8 @@ pub enum Subtype {
     CommanderFighters,
     /// `voidwatch_note`.
     Voidwatch,
+    /// `stillness_target`.
+    Stillness,
 }
 
 impl Ask {
@@ -79,6 +85,6 @@ impl Ask {
     /// timing context's `ask_seeing` do, the ones it builds by hand do not.
     #[must_use]
     pub const fn carries_trigger(&self) -> bool {
-        matches!(self, Self::Landing(_) | Self::Mitosis | Self::Pillage | Self::Reclaimer)
+        matches!(self, Self::Landing(_) | Self::Mitosis | Self::Pillage | Self::Reclaimer | Self::Stillness)
     }
 }

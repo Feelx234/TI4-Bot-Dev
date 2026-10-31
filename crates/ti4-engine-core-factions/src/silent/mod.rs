@@ -2,6 +2,7 @@
 //! twin for, so a native game would have lacked them without any bail. Slots `40_000..` are this module's; the ids are named in `reactions_core::NAMED`.
 
 pub mod gaps;
+pub mod cabal;
 pub mod empyrean;
 pub mod ghost;
 pub mod gift;
@@ -10,6 +11,7 @@ pub mod muaat;
 pub mod pillage;
 pub mod returns;
 pub mod scavenge;
+pub mod sol;
 pub mod winnu;
 
 use ti4_engine_core::kernel::ability::AbilityTable;
@@ -20,10 +22,12 @@ pub fn register_abilities(t: &mut AbilityTable) {
     mitosis::register_abilities(t);
     returns::register_abilities(t);
     scavenge::register_abilities(t);
+    cabal::register_abilities(t);
     empyrean::register_abilities(t);
     ghost::register_abilities(t);
     muaat::register_abilities(t);
     winnu::register_abilities(t);
+    sol::register_last(t);
     empyrean::register_last(t);
 }
 

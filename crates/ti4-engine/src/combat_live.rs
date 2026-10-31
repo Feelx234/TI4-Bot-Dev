@@ -900,4 +900,30 @@ mod tests {
             assert!(diffs.is_empty(), "{label}: {diffs:#?}");
         }
     }
+
+    /// Claire Gibson (the Sol commander): at the start of a ground combat on a planet the Sol hold, an infantry from the reinforcements joins the defence, if
+    /// the commander says so; the whole action is compared with the string's.
+    #[test]
+    fn claire_gibson_places_an_infantry_at_the_start_of_a_ground_combat_in_lockstep() {
+        use ti4_model::id::LeaderId;
+        use ti4_model::state::LeaderStatus;
+        for (label, decline) in [("accepted", false), ("declined", true)] {
+            let (hub, origin, target, planet) = planet_hub();
+            let mut state = table(&[("a", "hacan"), ("b", "sol")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &origin, "infantry", &a(), 3);
+            state.system_mut(&target).planet_control.insert(planet.clone(), b());
+            crate::fixtures::put_on_planet(&mut state, &target, &planet, "infantry", &b(), 1);
+            state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("solcommander"), LeaderStatus::Unlocked);
+            let mut script = vec![TACTICAL_ACTION_ID.to_owned(), target.to_string(), mv(&origin, 0), "load|0".to_owned(), "load|1".to_owned(), "load|2".to_owned(), "done_moving".to_owned()];
+            if decline {
+                // The three commits come first (the defender's window opens when the combat does).
+                script.extend(["commit|0|0.0.0".to_owned(), "commit|0|0.0.0".to_owned(), "commit|0|0.0.0".to_owned(), "decline".to_owned()]);
+            }
+            let script: Vec<&str> = script.iter().map(String::as_str).collect();
+            assert!(string_offered(&state, &hub.galaxy, &script, 0, "solcommander:GROUND_COMBAT_STARTED"), "{label}: the string offers the commander");
+            let diffs = lockstep_buying(state, &hub.galaxy, &script, 0);
+            assert!(diffs.is_empty(), "{label}: {diffs:#?}");
+        }
+    }
 }

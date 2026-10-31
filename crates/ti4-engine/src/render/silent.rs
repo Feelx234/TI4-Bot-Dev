@@ -19,6 +19,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
         Ask::TradePolicy => "Hegemonic Trade Policy: swap which planet's values".to_owned(),
         Ask::CommanderFighters => "Sai Seravus: how many fighters do you place from reinforcements".to_owned(),
         Ask::Voidwatch => "Voidwatch: which promissory note to give".to_owned(),
+        Ask::Stillness => "The Stillness of Stars: which unit do you capture".to_owned(),
     }
 }
 
@@ -32,6 +33,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::TradePolicy => "htp_planet",
         Subtype::CommanderFighters => "commander_fighters",
         Subtype::Voidwatch => "voidwatch_note",
+        Subtype::Stillness => "stillness_target",
     }
     .to_owned()
 }
@@ -73,6 +75,7 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
             let note = format!("support:{}", faction.as_str());
             ChoiceOption::labelled(format!("note|{note}"), "promissory", format!("give {note} to the Empyrean"))
         }
+        (Ask::Stillness, Opt::Capture { unit, victim }) => ChoiceOption::labelled(unit.as_str(), "stillness", format!("capture a {} from {}'s reinforcements", unit.as_str(), r.seat_text(*victim))),
         _ => panic!("option {o:?} in the question {a:?}"),
     }
 }
@@ -101,7 +104,8 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
             Some(ROpt::G(Opt::Reclaimer { pds, system: <System as IdStr>::from_id(system)?, planet: <Planet as IdStr>::from_id(planet)? }))
         }
         // The system is not in the option id: the option is matched against the rendered ones of its question.
-        Ask::CommanderFighters | Ask::Voidwatch => None,
+        // The victim is not in the option id: the option is matched against the rendered ones of its question.
+        Ask::CommanderFighters | Ask::Voidwatch | Ask::Stillness => None,
         // The system is an attribute of the rendered option: the option is matched against the rendered ones of its question.
         Ask::TradePolicy => None,
         Ask::Mitosis => {
