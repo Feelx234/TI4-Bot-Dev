@@ -646,3 +646,20 @@ fn a_yssaril_agent_copying_the_jolnar_agent_is_doctor_sucaban_too() {
     s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
     assert!(!research_asks_more(&s, Seat(0)), "no Jol-Nar agent to copy");
 }
+
+#[test]
+fn the_systems_of_the_free_action_are_the_map_and_the_systems_the_string_holds_an_entry_for_not_every_cell_of_the_board() {
+    // Found by the lockstep with a map: the board has a cell for every system of the tables (231), the string only the ones in play; the whole
+    // list overflowed the facts and the primary was refused (a counted gap in every real game).
+    use ti4_engine_core::driver::windows::strategic::facts::facts_at;
+    use ti4_engine_core_tests::scenario::plain_systems;
+    let p = plain_systems();
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).map_from(&[p[0], p[1]]).build();
+    s.board_mut().sys_mut(p[5]).flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
+    let facts = facts_at(&s, &k, &Default::default(), None, Seat(0), StrategyCard::WarfareThundersEdge);
+    let systems = facts.free.expect("a list that fits").systems().to_vec();
+    assert!(systems.contains(&p[0]) && systems.contains(&p[1]), "the printed map");
+    assert!(systems.contains(&p[5]), "a system the string holds an entry for, beside the map");
+    assert!(!systems.contains(&p[6]), "a system nobody touched is not in play");
+    assert!(systems.len() < 20, "{} systems", systems.len());
+}

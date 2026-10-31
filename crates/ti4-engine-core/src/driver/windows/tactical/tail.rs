@@ -47,8 +47,12 @@ pub(super) fn run(a: &mut TacticalAction, sx: &mut Sx<'_>) -> Next {
     sx.plain(PlainRec::bare(PlainKind::TacticalActionComplete));
     let pending = sx.state.pending();
     match tail::then(pending.window(WindowKind::LeaderStrategy).is_some(), pending.window(WindowKind::StrategySecondaryAfterTactical).is_some()) {
-        tail::Then::LeaderStrategy => TacticalAction::bail(sx, TacticalGap::LeaderStrategy),
-        tail::Then::Secondary => TacticalAction::bail(sx, TacticalGap::WarfareSecondary),
+        // A strategy card's free action ended (a hero's primary, Thunder's Edge Warfare): the redistribution and the followers are the strategic
+        // action's own job (`strategic::after`), opened now and run by the next call.
+        tail::Then::LeaderStrategy | tail::Then::Secondary => {
+            crate::driver::windows::strategic::after::open_after(sx.state);
+            Next::Done
+        }
         tail::Then::FinishAction => {
             let _ = a;
             Next::Done

@@ -67,12 +67,11 @@ pub fn run_begin(sx: &mut Sx<'_>, card: StrategyCard) -> Flow {
     let followers = others_clockwise(sx.state, active);
     let window = secondary_of(active, card, &followers, true);
     match free {
-        Some(_system) => {
-            // Thunder's Edge Warfare: the follower window waits for the end of the free tactical action. The action itself is the tactical lane's
-            // (`tactical::open_free`); until that window is native the job stops with a counted gap.
+        Some(system) => {
+            // Thunder's Edge Warfare: the follower window waits for the end of the free tactical action, which begins now (the string activates
+            // the system before it says `STRATEGIC_ACTION_BEGAN`); the tail of that action opens `after::open_after`.
             sx.state.pending_mut().open(OpenWindow::StrategySecondaryAfterTactical(window));
-            gap(sx, TurnGap::FreeTactical);
-            return Flow::Halt;
+            crate::driver::windows::tactical::begin_free(sx, active, system);
         }
         None => sx.state.pending_mut().open(OpenWindow::StrategySecondary(window)),
     }

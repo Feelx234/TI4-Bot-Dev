@@ -42,7 +42,7 @@ use crate::state::{AFight, AStage, Aftermath, CoreState, Code, NoteHold, PauseLi
 use super::aftermath::Head;
 
 pub use facts::{fleet_limit, limits, note_holdings, REACHING};
-pub use live::{advance_tactical, ask_tactical, open_free, open_tactical};
+pub use live::{advance_tactical, ask_tactical, begin_free, open_free, open_tactical};
 
 /// The suspension points, as the payload names them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
