@@ -83,7 +83,6 @@ fn note(c: &CondCx<'_>, n: PromissoryNote) -> bool {
 pub const GAPS: &[Gap] = &[
     // -- abilities
     Gap { kind: AbilityKind::Ability, event: EventKind::MovementFinished, relation: Relation::After, holds: foresight_possible }, // foresight
-    Gap { kind: AbilityKind::Ability, event: EventKind::PropagationResearch, relation: Relation::After, holds: |c| faction(c, Faction::TheNekroVirus) }, // propagation
     // -- leaders
     Gap { kind: AbilityKind::Leader, event: EventKind::UnitAbilityRolled, relation: Relation::When, holds: |c| leader(c, Faction::TheArgentFlight, LeaderType::Commander) }, // argentcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: downstream }, // muaathero
@@ -95,7 +94,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Promissory, event: EventKind::TurnBegan, relation: Relation::After, holds: |c| note(c, PromissoryNote::SpyNet) }, // spynet
     Gap { kind: AbilityKind::Promissory, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| note(c, PromissoryNote::Stymie) }, // stymie
     // -- technologies
-    Gap { kind: AbilityKind::Technology, event: EventKind::ActionCompleted, relation: Relation::After, holds: downstream }, // asn_clear
     Gap { kind: AbilityKind::Technology, event: EventKind::GroundCombatStarted, relation: Relation::After, holds: |c| tech(c, Technology::MagenDefenseGridOmegaOmega) }, // md_hit
     Gap { kind: AbilityKind::Technology, event: EventKind::UnitAbilityRolled, relation: Relation::After, holds: |c| tech(c, Technology::StrikeWingAlphaII) }, // swa2
     Gap { kind: AbilityKind::Technology, event: EventKind::UnitsProduced, relation: Relation::After, holds: |c| tech(c, Technology::YinSpinnerOmega) }, // yso

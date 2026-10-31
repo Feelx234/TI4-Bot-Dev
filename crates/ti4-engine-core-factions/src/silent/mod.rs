@@ -3,6 +3,7 @@
 
 pub mod gaps;
 pub mod g3;
+pub mod g4;
 pub mod cabal;
 pub mod empyrean;
 pub mod ghost;
@@ -34,6 +35,7 @@ pub fn register_abilities(t: &mut AbilityTable) {
     scavenge::register_abilities(t);
     g3::register_saar(t);
     g3::register_abilities(t);
+    g4::register_abilities(t);
     winnu::register_abilities(t);
     sol::register_last(t);
     empyrean::register_last(t);

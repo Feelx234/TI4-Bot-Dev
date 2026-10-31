@@ -44,8 +44,6 @@ pub enum TurnGap {
     PromiseBook,
     /// A question source (`AskArm as u8`) no lane has made native yet.
     AskArm(u8),
-    /// Nekro's Propagation is announced (its reaction is the string's).
-    Propagation,
     /// A tile a faction effect replaced or swapped has to be replayed onto the map.
     MapEdits,
     /// Imperial Arbiter (a ministry law) could swap strategy cards at the end of the draft.

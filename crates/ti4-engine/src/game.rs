@@ -58,6 +58,10 @@ mod silent_live_tests;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "silent3_live_tests.rs"]
 mod silent3_live_tests;
+// The lockstep of lane G4's native rules in the turn flow.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "silent4_live_tests.rs"]
+mod silent4_live_tests;
 #[cfg(not(feature = "typed-core"))]
 mod d1_pending {
     pub(super) const fn active() -> bool {

@@ -7,7 +7,6 @@ use ti4_engine_core::kernel::ability::Slot;
 /// The string ability each row stands for, in the order of the rows.
 pub(crate) const GAP_IDS: &[&str] = &[
     "ability:*:foresight:MOVEMENT_FINISHED:after",
-    "ability:*:propagation:PROPAGATION_RESEARCH:after",
     "leader:*:argentcommander:UNIT_ABILITY_ROLLED:when",
     "leader:*:muaathero:MOVEMENT_FINISHED:after",
     "leader:*:muaathero_moved:SHIP_MOVED:after",
@@ -16,7 +15,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "promissory:*:ambuscade:UNIT_ABILITY_ROLLED:when",
     "promissory:*:spynet:TURN_BEGAN:after",
     "promissory:*:stymie:SHIP_MOVED:after",
-    "technology:*:asn_clear:ACTION_COMPLETED:after",
     "technology:*:md_hit:GROUND_COMBAT_STARTED:after",
     "technology:*:swa2:UNIT_ABILITY_ROLLED:after",
     "technology:*:yso:UNITS_PRODUCED:after",
