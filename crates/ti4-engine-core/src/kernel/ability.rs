@@ -239,6 +239,8 @@ pub struct Codes {
     pub tactical: TacticalCodes,
     /// The texts of the invasion composer (`driver::windows::invasion`).
     pub invasion: InvasionCodes,
+    /// The texts of the questions of the activation-window abilities (lane M6c).
+    pub activation: ActivationCodes,
     /// The texts of the events of an exploration (`rules::explore_windows::Exploring`).
     pub explore: ExploreCodes,
     /// The texts of the turn flow (lane B).
@@ -264,6 +266,13 @@ impl Default for ExploreCodes {
         let z = crate::state::Code(0);
         Self { filled: false, goods: z, trade_agreement: z, decks: [z; crate::generated::ExploreType::COUNT], cards: [z; crate::generated::Explore::COUNT] }
     }
+}
+
+/// The texts of the questions of the activation-window abilities (lane M6c), interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ActivationCodes {
+    /// The unit alias `ghost_mech`, the source of Icarus Drive's question.
+    pub ghost_mech: crate::state::Code,
 }
 
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind

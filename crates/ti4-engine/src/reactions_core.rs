@@ -85,6 +85,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cc_ground::mentak::timing::PROMISE, kind: "promissory", card: "pop" },
     Named { slot: cabal::CRUCIBLE, kind: "promissory", card: "crucible" },
     Named { slot: ti4_engine_core_factions::cd_registry::naalu::timing::NEUROGLAIVE, kind: "technology", card: "ng" },
+    Named { slot: ti4_engine_core_factions::cc_ground::ghost::timing::TAIVRA, kind: "leader", card: "ghostagent" },
+    Named { slot: ti4_engine_core_factions::cc_ground::ghost::timing::ICARUS, kind: "unit", card: "ghost_mech" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
     Named { slot: cabal::DEVOUR_GROUND, kind: "ability", card: "devour" },
     Named { slot: cabal::TERROR_SHIPS, kind: "unit", card: "cabal_flagship" },
@@ -554,6 +556,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             peace_prompt: r.code(crate::tactical_live::PEACE_PROMPT),
             peace_source: r.code("minister_peace"),
         };
+        table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech") };
         table.codes.turn = crate::live::turn::codes(r);
 }
 
@@ -814,7 +817,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")], [("a", "ghost"), ("b", "sol")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
@@ -930,14 +933,12 @@ mod tests {
         ("leader:*:a:yssarilagent:b:saaragent:SYSTEM_ACTIVATED:after", Status::Gap("the Ssruu copy of the Saar agent (needs the Saar agent)")),
         ("leader:*:arboreccommander:SYSTEM_ACTIVATED:after", Status::Gap("Arborec commander: after another player's activation, a production in the system")),
         ("leader:*:firmamentagent:SYSTEM_ACTIVATED:after", Status::Dropped("Firmament")),
-        ("leader:*:ghostagent:SYSTEM_ACTIVATED:after", Status::Gap("Ghosts agent Emissary Taivra: wormholes adjacent for the activation (linked_systems)")),
         ("leader:*:saaragent:SYSTEM_ACTIVATED:after", Status::Gap("Saar agent: a move value boost remembered against the activation (agent_move_bonus)")),
         ("leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the T'ro mark of the end of the action)")),
         ("leader:*:yssarilcommander:SYSTEM_ACTIVATED:after", Status::Gap("Yssaril commander So Ata: after another player's activation, look at a hand")),
         ("promissory:*:nanolink:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
         ("unit:*:arborec_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Arborec flagship Duha Menaimon: a production in the activated system")),
         ("unit:*:deepwrought_mech:SYSTEM_ACTIVATED:when", Status::Dropped("Deepwrought")),
-        ("unit:*:ghost_mech:SYSTEM_ACTIVATED:after", Status::Gap("Ghosts mech Quantum (wormhole token)")),
         ("unit:*:keleres_flagship:SYSTEM_ACTIVATED:when", Status::Dropped("Keleres")),
         ("unit:*:titans_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Titans flagship Ouranos")),
     ];

@@ -764,4 +764,51 @@ mod tests {
             assert!(diffs.is_empty(), "ships {ships_there} tokens {tokens}: {diffs:#?}");
         }
     }
+
+    /// A hub whose centre prints an alpha wormhole and whose first ring system prints a beta one.
+    fn wormhole_hub() -> crate::fixtures::Hub {
+        let mut ids = vec!["39".to_owned(), "25".to_owned()];
+        ids.extend(crate::fixtures::plain_systems(9).into_iter().filter(|i| i != "39" && i != "25").take(5));
+        crate::fixtures::hub_from(&ids)
+    }
+
+    /// Emissary Taivra (the Ghosts agent) and Icarus Drive (the Ghosts mech): offered after an activation of a system with a wormhole.
+    #[test]
+    fn the_ghosts_agent_and_mech_are_offered_after_the_activation_in_lockstep() {
+        let hub = wormhole_hub();
+        let (centre, ring) = (ti4_model::id::SystemId::new(hub.centre.clone()), ti4_model::id::SystemId::new(hub.outer[1].clone()));
+        // Taivra: the activator is another player, the system is the alpha centre; the link lets the ship in the ring ... reach it.
+        for answer in ["leader:ghost:ghostagent:SYSTEM_ACTIVATED:after", "decline"] {
+            let mut state = table(&[("a", "sol"), ("b", "ghost")]);
+            crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+            let mv = id(&ring, 0);
+            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, centre.as_str(), answer, &mv], false);
+            assert!(diffs.is_empty(), "taivra {answer}: {diffs:#?}");
+        }
+        // Icarus Drive: the mech in the ring system (off the activated one) places a token there and leaves the board.
+        for answer in [vec!["unit:ghost:ghost_mech:SYSTEM_ACTIVATED:after".to_owned(), format!("ALPHA|{}", hub.outer[0])], vec!["unit:ghost:ghost_mech:SYSTEM_ACTIVATED:after".to_owned(), format!("BETA|{}", hub.outer[0])], vec!["decline".to_owned()]] {
+            for on_planet in [false, true] {
+                let mut state = table(&[("a", "sol"), ("b", "ghost")]);
+                crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+                // Tile 25 (the first ring system) prints the planet Quann.
+                let home = ti4_model::id::SystemId::new(hub.outer[0].clone());
+                if on_planet {
+                    crate::fixtures::put_on_planet(&mut state, &home, &ti4_model::id::PlanetId::new("quann"), "ghost_mech", &b(), 1);
+                } else {
+                    crate::fixtures::put(&mut state, &home, "ghost_mech", &b(), 1);
+                }
+                let mv = id(&ring, 0);
+                let mut script = vec![TACTICAL_ACTION_ID.to_owned(), centre.to_string()];
+                script.extend(answer.clone());
+                if answer.len() > 1 {
+                    // The agent is still offered in the window the mech's use leaves open.
+                    script.push("decline".to_owned());
+                }
+                script.push(mv);
+                let refs: Vec<&str> = script.iter().map(String::as_str).collect();
+                let diffs = lockstep(state, &hub.galaxy, &refs, false);
+                assert!(diffs.is_empty(), "icarus {answer:?} planet {on_planet}: {diffs:#?}");
+            }
+        }
+    }
 }
