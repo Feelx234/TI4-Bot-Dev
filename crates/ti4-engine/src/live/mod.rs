@@ -72,6 +72,20 @@ pub trait Asker {
     fn ask(&mut self, q: &Question<'_>) -> Result<String, Stop>;
 }
 
+/// The table's rule for the draft (`Game::step_flow`: `table.auto_resolve(&choice, "only one strategy card left")`, never journaled): the
+/// last card is not a choice, the picker takes it and is told so. Wrap the asker of a live loop in it so that question is not put (and, in a
+/// recording, not counted as a decision).
+pub struct LoneCard<'a>(pub &'a mut dyn Asker);
+
+impl Asker for LoneCard<'_> {
+    fn ask(&mut self, q: &Question<'_>) -> Result<String, Stop> {
+        if q.asking.choice.ask == ti4_engine_core::choice::Ask::Strategy(ti4_engine_core::choice::strategy::Ask::Draft) && q.rendered.options.len() == 1 {
+            return Ok(q.rendered.options[0].id.clone());
+        }
+        self.0.ask(q)
+    }
+}
+
 /// A fixed list of option ids (a recorded game, a test); asking past its end is [`Stop::Exhausted`].
 #[derive(Debug, Clone, Default)]
 pub struct Scripted {
