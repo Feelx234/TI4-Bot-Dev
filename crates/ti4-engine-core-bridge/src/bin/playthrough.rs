@@ -9,17 +9,28 @@
 //! * per game: faction at seat a, players, map, seed, rounds, steps, finished, the decision hash, the bails of THIS game;
 //! * per cause (the `zero_bail.py` shape, `<n> bail|gate <label> -- <why>`), biggest first, over all games;
 //! * the unmapped positions (`core_sync::unmapped`) and the lent steps (`product::take_lent`);
+//! * the bails BY ISLAND (`ti4_engine_core_bridge::islands`): the same causes sorted into the lanes that own them (M1 trade ... F menu),
+//!   so a lane reads its own rows and sees at once whether its island is green;
 //! * the COVERAGE of the live path (`live::coverage`): how many live steps each native arm ran. A zero bail count that never ran a
 //!   native arm proves nothing (trap T-Z1).
 //!
 //! ```text
 //! playthrough [--factions all|f1,f2,..] [--players 4,6] [--seeds N] [--first-seed S] [--maxsteps M] [--maxrounds R]
-//!             [--areas SPEC] [--card-set te] [--no-starting-tech] [--native ARMS] [--list]
+//!             [--areas SPEC] [--card-set te] [--no-starting-tech] [--native ARMS] [--quick] [--top N] [--list]
 //! ```
 //!
 //! Exit 0 only when no game bailed, none is unfinished (round or step limit), none panicked and no position was unmapped. Exit 1
 //! otherwise (the list IS the work list of the lanes still porting), exit 2 on a usage error. `--list` prints the games and exits.
 //! A game is `GameSpec { seat a: the faction under test, the others drawn from the lobby factions by the seed }`.
+//!
+//! # The cheap check of an island lane (`--quick`)
+//!
+//! `--quick` is the one-game check a lane runs after wiring its island: ONE faction (`--factions`, default `sol`), ONE player count
+//! (`--players`, default 4), ONE seed (`--seeds`/`--first-seed`), and a step cap (`--maxsteps`, default [`QUICK_STEPS`]) that is not a
+//! failure by itself: a game that reaches the cap without a bail is reported `capped` and the verdict says so, because the check
+//! is "does my island bail", not "does the game finish" (the finish is the Z-gate's, which waits for 8 consecutive green seeds). The
+//! per-island table at the end is the result to read. Build it with the `gate` profile (`tools/engine_core/playthrough_quick.sh`
+//! does, and runs it): a debug build needs more than 17 CPU minutes for 2500 steps under `all=dual`.
 
 use std::panic::AssertUnwindSafe;
 
@@ -43,11 +54,18 @@ struct Options {
     starting_tech: bool,
     native: Option<String>,
     list: bool,
+    /// The one-game check of a lane: a step cap is not a failure.
+    quick: bool,
+    /// Causes printed per island.
+    top: usize,
 }
+
+/// The step cap of `--quick` when `--maxsteps` is not given.
+const QUICK_STEPS: usize = 2_500;
 
 fn usage() -> ! {
     eprintln!(
-        "usage: playthrough [--factions all|f1,f2] [--players 4,6] [--seeds N] [--first-seed S] [--maxsteps M] [--maxrounds R] [--areas SPEC] [--card-set te] [--no-starting-tech] [--native ARMS] [--list]"
+        "usage: playthrough [--factions all|f1,f2] [--players 4,6] [--seeds N] [--first-seed S] [--maxsteps M] [--maxrounds R] [--areas SPEC] [--card-set te] [--no-starting-tech] [--native ARMS] [--quick] [--top N] [--list]"
     );
     std::process::exit(2);
 }
@@ -65,13 +83,17 @@ fn parse() -> Options {
         starting_tech: true,
         native: None,
         list: false,
+        quick: false,
+        top: 3,
     };
+    let (mut factions_given, mut steps_given) = (false, false);
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         let mut value = || args.next().unwrap_or_else(|| usage());
         match a.as_str() {
             "--factions" => {
                 let v = value();
+                factions_given = true;
                 if v != "all" {
                     o.factions = v.split(',').map(str::to_owned).collect();
                 }
@@ -79,14 +101,28 @@ fn parse() -> Options {
             "--players" => o.players = value().split(',').map(|p| p.parse().unwrap_or_else(|_| usage())).collect(),
             "--seeds" => o.seeds = value().parse().unwrap_or_else(|_| usage()),
             "--first-seed" => o.first_seed = value().parse().unwrap_or_else(|_| usage()),
-            "--maxsteps" => o.max_steps = value().parse().unwrap_or_else(|_| usage()),
+            "--maxsteps" => {
+                o.max_steps = value().parse().unwrap_or_else(|_| usage());
+                steps_given = true;
+            }
             "--maxrounds" => o.max_rounds = value().parse().unwrap_or_else(|_| usage()),
             "--areas" => o.areas = value(),
             "--card-set" => o.card_set = value(),
             "--no-starting-tech" => o.starting_tech = false,
             "--native" => o.native = Some(value()),
             "--list" => o.list = true,
+            "--quick" => o.quick = true,
+            "--top" => o.top = value().parse().unwrap_or_else(|_| usage()),
             _ => usage(),
+        }
+    }
+    if o.quick {
+        // The cheap check: one faction (sol unless named), the player count and seeds as given (4 players, 1 seed by default).
+        if !factions_given {
+            o.factions = vec!["sol".to_owned()];
+        }
+        if !steps_given {
+            o.max_steps = QUICK_STEPS;
         }
     }
     for f in &o.factions {
@@ -147,9 +183,13 @@ struct Played {
     why_not: Option<String>,
     hash: String,
     bails: u64,
+    /// `--quick`: the game stopped at the step cap (not a failure by itself).
+    capped: bool,
+    seconds: f64,
 }
 
 fn play(o: &Options, spec: &GameSpec) -> Played {
+    let started = std::time::Instant::now();
     let _ = dual::take_report();
     let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| -> Result<(u32, usize, bool, Option<String>, String), String> {
         let mut game = spec.build()?;
@@ -183,7 +223,8 @@ fn play(o: &Options, spec: &GameSpec) -> Played {
             (0, 0, false, Some(format!("PANIC: {text}")), String::new())
         }
     };
-    Played { spec: spec.clone(), rounds, steps, finished, why_not, hash, bails }
+    let capped = o.quick && !finished && why_not.as_deref().is_some_and(|w| w.starts_with("step limit"));
+    Played { spec: spec.clone(), rounds, steps, finished, why_not, hash, bails, capped, seconds: started.elapsed().as_secs_f64() }
 }
 
 thread_local! {
@@ -228,22 +269,24 @@ fn main() {
     for spec in &specs {
         let p = play(&o, spec);
         println!(
-            "game {} players {} {} seed {} | rounds {} steps {} | {} | bails {} | hash {}",
+            "game {} players {} {} seed {} | rounds {} steps {} | {} | bails {} | hash {} | {:.0}s",
             p.spec.factions[0],
             p.spec.players,
             p.spec.map,
             p.spec.seed,
             p.rounds,
             p.steps,
-            p.why_not.as_deref().unwrap_or("finished"),
+            if p.capped { "capped (quick)" } else { p.why_not.as_deref().unwrap_or("finished") },
             p.bails,
-            p.hash
+            p.hash,
+            p.seconds
         );
         played.push(p);
     }
     let report = GAME_REPORTS.with(|r| std::mem::take(&mut *r.borrow_mut()));
     let lent = ti4_engine::product::take_lent();
-    let unfinished = played.iter().filter(|p| !p.finished).count();
+    let unfinished = played.iter().filter(|p| !p.finished && !p.capped).count();
+    let capped = played.iter().filter(|p| p.capped).count();
     let bailing = played.iter().filter(|p| p.bails > 0).count();
     println!("---- bails by cause (all games) ----");
     let mut causes: Vec<(String, u64)> =
@@ -251,6 +294,11 @@ fn main() {
     causes.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
     for (cause, n) in &causes {
         println!("{n:9}  {cause}");
+    }
+    println!("---- bails by island (the lanes' work lists; green = none counted) ----");
+    let rows = ti4_engine_core_bridge::islands::by_island(causes.iter().map(|(k, n)| (k.as_str(), *n)));
+    for line in ti4_engine_core_bridge::islands::render(&rows, o.top) {
+        println!("{line}");
     }
     println!("---- unmapped positions ----");
     for (reason, n) in &report.unmapped {
@@ -270,14 +318,21 @@ fn main() {
     }
     let bad = bailing > 0 || unfinished > 0 || !report.unmapped.is_empty() || !lent.is_empty() || report.total_differences() > 0;
     println!(
-        "playthrough: {} games | {} unfinished | {} with bails | {} causes | {} unmapped | {} lent | {}",
+        "playthrough: {} games | {} unfinished | {} capped | {} with bails | {} causes | {} unmapped | {} lent | {}",
         played.len(),
         unfinished,
+        capped,
         bailing,
         causes.len(),
         report.unmapped.values().sum::<u64>(),
         lent.values().sum::<u64>(),
-        if bad { "FAILED (a whole game must play without a bail)" } else { "ZERO BAIL" }
+        if bad {
+            "FAILED (a whole game must play without a bail)"
+        } else if capped > 0 {
+            "NO BAIL SO FAR (quick: the step cap stopped the game, the finish is the Z-gate's)"
+        } else {
+            "ZERO BAIL"
+        }
     );
     std::process::exit(i32::from(bad));
 }

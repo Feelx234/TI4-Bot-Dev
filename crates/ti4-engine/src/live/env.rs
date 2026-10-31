@@ -2,10 +2,11 @@
 //! alone. The replay path builds the same thing from the string `GameState` (`reactions_core::Follow::armed` + `arm`); this is its
 //! live counterpart, and the two share `reactions_core::{table, set_table_codes, id_text, ability_id}`, so the ids agree.
 //!
-//! Open (docs/D2_LF_RESUME.md section 4): the PLAY FACTS of an action card played inside a window (`AbilityTable::facts.plays`:
-//! who holds which unit on a card, Reveal Prototype's research set, the Data Skimmer holder, the blanked laws) and the Thunder's Edge
-//! staging flag are string reads in `reactions_core::play_facts`. Until they come from the core, a card played inside a live window
-//! stops the step with `LiveError::Unknown(PlayFacts)`, which the playthrough counts as a bail (never a silent skip).
+//! The PLAY FACTS of an action card played inside a window (`AbilityTable::facts.plays`: the unit a seat places, Reveal Prototype's
+//! research set, the Mahact pools, the blanked laws) are position-dependent, so they are not kept here: [`env_with_plays`] hangs the
+//! provider of `live::plays` on the table and the core's `driver::live` computes them from the position at every call. [`env_for`]
+//! alone leaves them out: a card played inside such an `Env`'s window stops the step with `LiveError::Unknown(PlayFacts)`, which the
+//! playthrough counts as a bail (never a silent skip).
 
 use std::rc::Rc;
 
@@ -37,4 +38,13 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
     let mut resolver = Resolver::new(&order, None);
     resolver.register(defs);
     Env { kernel, registry: Cow::new(resolver.registry().clone()), table, seeds }
+}
+
+/// [`env_for`] with the play facts: a card played from inside a live window finds the facts of the position it is played in
+/// (`live::plays`), computed from the core alone. `sources` is the game's content scope (the unit roster of the forms).
+#[must_use]
+pub fn env_with_plays<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<dyn SeedSource>, sources: ti4_model::content_types::SourceSet) -> Env<'a> {
+    let mut env = env_for(r, core, kernel, seeds);
+    env.table.facts.plays_provider = Some(super::plays::provider(r, sources));
+    env
 }
