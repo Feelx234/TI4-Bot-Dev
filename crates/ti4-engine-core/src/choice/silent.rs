@@ -29,6 +29,8 @@ pub enum Ask {
     TradePolicy,
     /// Sai Seravus (the Ghosts' commander): how many fighters go with the ships that moved through wormholes.
     CommanderFighters,
+    /// Voidwatch (Empyrean): which promissory note the mover gives.
+    Voidwatch,
 }
 
 /// One answer.
@@ -47,6 +49,10 @@ pub enum Opt {
     Swap { system: System, planet: Planet },
     /// `count` fighters placed in the space area of `system`.
     Fighters { count: u8, system: System },
+    /// A promissory note given.
+    Note(crate::state::NoteKey),
+    /// The seat's own Support for the Throne given (the faction it belongs to).
+    Support(crate::generated::Faction),
 }
 
 /// The machine identifier of the question.
@@ -64,6 +70,8 @@ pub enum Subtype {
     TradePolicy,
     /// `commander_fighters`.
     CommanderFighters,
+    /// `voidwatch_note`.
+    Voidwatch,
 }
 
 impl Ask {

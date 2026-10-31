@@ -17,8 +17,8 @@ use ti4_engine_core::state::{EventKind, LeaderStatus};
 pub const FIRST_SLOT: u16 = 41_000;
 
 /// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
-pub const SUFFI_AN: usize = 6;
-pub const SUFFI_AN_COPY: usize = 41;
+pub const SUFFI_AN: usize = 4;
+pub const SUFFI_AN_COPY: usize = 38;
 
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
@@ -82,8 +82,6 @@ pub const GAPS: &[Gap] = &[
     // -- leaders
     Gap { kind: AbilityKind::Leader, event: EventKind::UnitAbilityRolled, relation: Relation::When, holds: |c| leader(c, Faction::TheArgentFlight, LeaderType::Commander) }, // argentcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::CommoditiesReplenished, relation: Relation::After, holds: |c| leader(c, Faction::TheVuilraithCabal, LeaderType::Agent) }, // cabalagent
-    Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| leader(c, Faction::TheEmpyrean, LeaderType::Agent) }, // empyreanagent
-    Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| leader(c, Faction::TheEmpyrean, LeaderType::Commander) }, // empyreancommander
     Gap { kind: AbilityKind::Leader, event: EventKind::PillageUsed, relation: Relation::After, holds: |c| leader(c, Faction::TheMentakCoalition, LeaderType::Agent) }, // mentakagent
     Gap { kind: AbilityKind::Leader, event: EventKind::SpaceCombatWon, relation: Relation::After, holds: |c| leader(c, Faction::TheMentakCoalition, LeaderType::Commander) }, // mentakcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: downstream }, // muaathero
@@ -116,7 +114,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Technology, event: EventKind::GroundCombatStarted, relation: Relation::After, holds: |c| tech(c, Technology::MagenDefenseGridOmegaOmega) }, // md_hit
     Gap { kind: AbilityKind::Technology, event: EventKind::ShipDestroyed, relation: Relation::After, holds: |c| tech(c, Technology::NULLREFERENCE) }, // nekroc4y
     Gap { kind: AbilityKind::Technology, event: EventKind::UnitAbilityRolled, relation: Relation::After, holds: |c| tech(c, Technology::StrikeWingAlphaII) }, // swa2
-    Gap { kind: AbilityKind::Technology, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| tech(c, Technology::Voidwatch) }, // vw
     Gap { kind: AbilityKind::Technology, event: EventKind::UnitsProduced, relation: Relation::After, holds: |c| tech(c, Technology::YinSpinnerOmega) }, // yso
     // -- units
     Gap { kind: AbilityKind::Unit, event: EventKind::RelicGained, relation: Relation::After, holds: |c| unit_in_play(c, Faction::TheNaaluCollective, UnitBaseType::Mech) }, // naalu_mech_te

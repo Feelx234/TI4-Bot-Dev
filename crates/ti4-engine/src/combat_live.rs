@@ -852,4 +852,52 @@ mod tests {
             assert_eq!(fighters(&string_run(&state, &hub.galaxy, &script, 0)), usize::from(pick != "decline"), "{pick}");
         }
     }
+
+    /// The Empyrean abilities of the end of the movement step and of every arrival (Acamar, Voidwatch, Xuange), in lockstep with the string over a whole
+    /// tactical action. `b` plays the Empyrean (or another faction holding the technology / commander), `a` moves in.
+    #[test]
+    fn the_empyrean_abilities_of_the_movement_step_run_in_lockstep_with_the_string() {
+        use ti4_model::id::{LeaderId, TechnologyId};
+        use ti4_model::state::LeaderStatus;
+        let planetless = "39";
+        let planet2 = dock_hub().3;
+        let cases: [(&str, &str); 3] = [("acamar", "leader:empyrean:empyreanagent:MOVEMENT_FINISHED:after"), ("voidwatch", "technology:empyrean:vw:MOVEMENT_FINISHED:after"), ("xuange", "leader:empyrean:empyreancommander:SHIP_MOVED:after")];
+        for (label, needle) in cases {
+            let (hub, origin, target) = if label == "acamar" {
+                let hub = crate::fixtures::hub_with_centre(planetless);
+                let origin = SystemId::new(hub.outer[0].clone());
+                (hub, origin, SystemId::new(planetless))
+            } else {
+                let (hub, origin, target, _, _) = dock_hub();
+                (hub, origin, target)
+            };
+            let mut state = table(&[("a", "hacan"), ("b", "empyrean")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            // The string places a frontier token on every planetless system when it is given the map: the native run starts from the position after.
+            match label {
+                "acamar" => {
+                    state.frontier_tokens.insert(SystemId::new(planetless));
+                    state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("empyreanagent"), LeaderStatus::Readied);
+                }
+                "voidwatch" => {
+                    crate::technology::grant(&mut state, &b(), &TechnologyId::new("vw"));
+                    crate::fixtures::put_on_planet(&mut state, &target, &planet2, "infantry", &b(), 1);
+                }
+                _ => {
+                    state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("empyreancommander"), LeaderStatus::Unlocked);
+                    state.system_mut(&target).command_tokens.insert(b());
+                }
+            }
+            // The Empyrean's token return is offered at the arrival of the ship, before the movement step is closed.
+            let moved = mv(&origin, 0);
+            let script: Vec<&str> = if label == "xuange" { vec![TACTICAL_ACTION_ID, target.as_str(), &moved, needle, "done_moving"] } else { vec![TACTICAL_ACTION_ID, target.as_str(), &moved, "done_moving"] };
+            if label == "voidwatch" {
+                assert!(string_run(&state, &hub.galaxy, &script, 0).asked.iter().any(|q| q.prompt.starts_with("Voidwatch")), "the mover is asked which note to give");
+            } else {
+                assert!(string_offered(&state, &hub.galaxy, &script, 0, needle), "{label}: the string offers the ability");
+            }
+            let diffs = lockstep_buying(state.clone(), &hub.galaxy, &script, 0);
+            assert!(diffs.is_empty(), "{label}: {diffs:#?}");
+        }
+    }
 }
