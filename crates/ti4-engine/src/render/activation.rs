@@ -17,6 +17,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
         Ask::L1z1xCopy => "I48S (Ssruu): replace which infantry in the active system?".to_owned(),
         Ask::MercerTake { n } => format!("Field Marshal Mercer: remove a ground force ({n} of 2)"),
         Ask::MercerPlace { unit } => format!("Field Marshal Mercer: place {} on a planet", unit.as_str()),
+        Ask::SaiSeravus { .. } => "Sai Seravus: how many fighters do you place from reinforcements".to_owned(),
     }
 }
 
@@ -28,6 +29,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::L1z1xCopy => "leader_l1z1xagent_copy_planet",
         Subtype::MercerTake => "mercer_take",
         Subtype::MercerPlace => "mercer_place",
+        Subtype::SaiSeravus => "commander_fighters",
     }
     .to_owned()
 }
@@ -59,6 +61,9 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
             let system = p.data().system.map(|s| s.as_str()).unwrap_or_default();
             ChoiceOption::labelled(p.as_str(), "mercer_place", format!("place {} on {}", unit.as_str(), p.as_str())).with("unit", unit.as_str()).with("system", system)
         }
+        (Ask::SaiSeravus { system }, Opt::Fighters(n)) => {
+            ChoiceOption::labelled(format!("fighters|{n}"), "fighter", format!("place {n} fighter(s) in {}", system.as_str())).with("count", i64::from(*n))
+        }
         (Ask::Ouranos, Opt::Planet(p)) => ChoiceOption::labelled(p.as_str(), "pds", format!("replace the PDS on {} with Ouranos", p.as_str())),
         _ => panic!("option {o:?} in the question {a:?}"),
     }
@@ -72,6 +77,7 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
             "mech" => Some(ROpt::Act(Opt::Awaken(Awakening::MechAndInfantry))),
             _ => None,
         },
+        Ask::SaiSeravus { .. } => id.strip_prefix("fighters|")?.parse::<u8>().ok().map(|n| ROpt::Act(Opt::Fighters(n))),
         Ask::MercerTake { .. } => {
             let mut parts = id.splitn(5, '|');
             let (Some("take"), Some(system), Some(place), Some(unit), Some(damaged)) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next()) else { return None };

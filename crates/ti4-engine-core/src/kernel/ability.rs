@@ -339,6 +339,8 @@ pub struct ActivationCodes {
     pub mercer: crate::state::Code,
     /// The cause `breakthrough:nova_seed` of the ships Nova Seed destroys.
     pub nova_seed_cause: crate::state::Code,
+    /// The leader alias `ghostcommander`, the source of Sai Seravus' question.
+    pub ghost_commander: crate::state::Code,
 }
 
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind

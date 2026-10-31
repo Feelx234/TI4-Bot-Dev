@@ -15,8 +15,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:cabalagent:COMMODITIES_REPLENISHED:after",
     "leader:*:empyreanagent:MOVEMENT_FINISHED:after",
     "leader:*:empyreancommander:SHIP_MOVED:after",
-    "leader:*:ghostcommander:MOVEMENT_FINISHED:after",
-    "leader:*:ghostcommander:SHIP_MOVED:after",
     "leader:*:mentakagent:PILLAGE_USED:after",
     "leader:*:mentakcommander:SPACE_COMBAT_WON:after",
     "leader:*:muaatcommander:STRATEGY_TOKEN_SPENT:after",

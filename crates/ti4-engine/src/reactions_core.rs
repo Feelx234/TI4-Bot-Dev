@@ -99,6 +99,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::MERCER, kind: "leader", card: "nomadagentmercer" },
     Named { slot: ti4_engine_core_factions::ce_movement::muaat::timing::NOVA_SEED, kind: "leader", card: "muaathero" },
     Named { slot: ti4_engine_core_factions::ce_movement::muaat::timing::WAR_SUN_MOVED, kind: "leader", card: "muaathero_moved" },
+    Named { slot: ti4_engine_core_factions::cc_ground::ghost::timing::SAI_SHIP_MOVED, kind: "leader", card: "ghostcommander" },
+    Named { slot: ti4_engine_core_factions::cc_ground::ghost::timing::SAI_FINISHED, kind: "leader", card: "ghostcommander" },
     Named { slot: ti4_engine_core_factions::cd_registry::titans::timing::AWAKEN, kind: "ability", card: "awaken" },
     Named { slot: ti4_engine_core_factions::cd_registry::titans::timing::OURANOS, kind: "unit", card: "titans_flagship" },
     Named { slot: ti4_engine_core_factions::silent::gift::GIFT, kind: "promissory", card: "gift" },
@@ -604,7 +606,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             peace_prompt: r.code(crate::tactical_live::PEACE_PROMPT),
             peace_source: r.code("minister_peace"),
         };
-        table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent"), sardakk_agent: r.code("sardakkagent"), edict: r.code("edict"), awaken: r.code("awaken"), titans_flagship: r.code("titans_flagship"), yssaril_commander: r.code("yssarilcommander"), mercer: r.code("nomadagentmercer"), nova_seed_cause: r.code("breakthrough:nova_seed") };
+        table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent"), sardakk_agent: r.code("sardakkagent"), edict: r.code("edict"), awaken: r.code("awaken"), titans_flagship: r.code("titans_flagship"), yssaril_commander: r.code("yssarilcommander"), mercer: r.code("nomadagentmercer"), nova_seed_cause: r.code("breakthrough:nova_seed"), ghost_commander: r.code("ghostcommander") };
         table.codes.turn = crate::live::turn::codes(r);
         table.codes.silent = ti4_engine_core::kernel::ability::SilentCodes {
             lw2: r.code("lw2"),

@@ -40,6 +40,8 @@ pub enum Ask {
     MercerTake { n: u8 },
     /// Mercer: on which planet of the active system the removed `unit` is placed.
     MercerPlace { unit: crate::generated::Unit },
+    /// Sai Seravus (the Ghosts commander): how many fighters are placed in `system` from the reinforcements.
+    SaiSeravus { system: crate::generated::System },
 }
 
 /// One answer.
@@ -53,6 +55,8 @@ pub enum Opt {
     Look(Look),
     /// A ground force Mercer removes: where it stands (`planet` `None`: the space area of `system`), what it is and whether it is damaged.
     Take { system: crate::generated::System, planet: Option<Planet>, unit: crate::generated::Unit, damaged: bool },
+    /// A number of fighters (`fighters|{n}`).
+    Fighters(u8),
 }
 
 /// The machine identifier of the question.
@@ -70,6 +74,8 @@ pub enum Subtype {
     MercerTake,
     /// `mercer_place`.
     MercerPlace,
+    /// `commander_fighters`.
+    SaiSeravus,
 }
 
 impl Ask {
@@ -78,7 +84,7 @@ impl Ask {
     #[must_use]
     pub const fn carries_trigger(&self) -> bool {
         match self {
-            Self::Awaken { .. } | Self::Ouranos | Self::SoAta { .. } | Self::L1z1xCopy | Self::MercerTake { .. } | Self::MercerPlace { .. } => false,
+            Self::Awaken { .. } | Self::Ouranos | Self::SoAta { .. } | Self::L1z1xCopy | Self::MercerTake { .. } | Self::MercerPlace { .. } | Self::SaiSeravus { .. } => false,
         }
     }
 }

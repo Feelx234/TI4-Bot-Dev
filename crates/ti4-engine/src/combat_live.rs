@@ -435,7 +435,7 @@ mod tests {
             }
         }
         let (left, right) = (&without_seen(left), &without_seen(right));
-        diff_json(left, right, 60).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("event_id") && !d.path.ends_with("combat_round_seq") && !matches!(d.path.as_str(), "action_turn" | "active" | "turn_seq" | "/action_turn" | "/active" | "/turn_seq") && !d.path.ends_with("action_turn") && !d.path.ends_with("active") && !d.path.ends_with("turn_seq")).take(10).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
+        diff_json(left, right, 60).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("event_id") && !d.path.contains("frontier_tokens") && !d.path.ends_with("combat_round_seq") && !matches!(d.path.as_str(), "action_turn" | "active" | "turn_seq" | "/action_turn" | "/active" | "/turn_seq") && !d.path.ends_with("action_turn") && !d.path.ends_with("active") && !d.path.ends_with("turn_seq")).take(10).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
     /// Run both and report every difference of the questions, the events and the position.
@@ -744,6 +744,31 @@ mod tests {
             // presentation words apart from the renderer's.)
             let diffs: Vec<String> = lockstep(state, &hub.galaxy, &script).into_iter().filter(|d| !d.contains("combat_presentation.phase") && !d.contains("frontier_tokens")).collect();
             assert!(diffs.is_empty(), "nova seed rich {rich} {answer}: {diffs:#?}");
+        }
+    }
+
+    /// Sai Seravus (the Ghosts commander): once movement is finished the player may place fighters with the ships that moved through a wormhole.
+    #[test]
+    fn sai_seravus_places_fighters_for_the_ships_that_moved_through_a_wormhole_in_lockstep() {
+        // The ring system 25 prints a beta wormhole and 39 an alpha one, opposite each other: the Ghosts treat them as adjacent (Quantum Entanglement).
+        let plain = crate::fixtures::plain_systems(12);
+        let others: Vec<String> = plain.into_iter().filter(|i| i != "25" && i != "39").take(5).collect();
+        let ids = vec![others[0].clone(), "25".to_owned(), others[1].clone(), others[2].clone(), "39".to_owned(), others[3].clone(), others[4].clone()];
+        let hub = crate::fixtures::hub_from(&ids);
+        let (origin, target) = (ti4_model::id::SystemId::new("25"), ti4_model::id::SystemId::new("39"));
+        let mv = format!("move|{origin}|0");
+        for (ships, answers) in [(1_usize, vec!["fighters|1"]), (2, vec!["fighters|2"]), (2, vec!["fighters|1"]), (1, vec!["decline"])] {
+            let mut state = table(&[("a", "ghost"), ("b", "sol")]);
+            state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("ghostcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), ships);
+            let mut script = vec![TACTICAL_ACTION_ID, target.as_str(), "decline", mv.as_str()];
+            for _ in 1..ships {
+                script.push(mv.as_str());
+            }
+            script.push("done_moving");
+            script.extend(answers.iter().copied());
+            let diffs = lockstep(state, &hub.galaxy, &script);
+            assert!(diffs.is_empty(), "sai seravus ships {ships} {script:?}: {diffs:#?}");
         }
     }
 

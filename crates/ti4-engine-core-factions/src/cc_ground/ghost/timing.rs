@@ -205,3 +205,109 @@ pub fn register_activation(t: &mut AbilityTable) {
     t.add(Spec::new(TAIVRA, AbilityKind::Leader, EventKind::SystemActivated, Relation::After, taivra).optional().when(when));
     t.add(Spec::new(TAIVRA_COPY, AbilityKind::Leader, EventKind::SystemActivated, Relation::After, taivra_copy).applies(Applies::Faction(Faction::TheGhostsOfCreuss)).pair(lends).optional().when(copy_when));
 }
+
+// -- Sai Seravus (the commander, lane M6d) ----------------------------------------------------------------------------------------------
+
+/// Sai Seravus, the record of a ship that moved through a wormhole (`leader:*:ghostcommander:SHIP_MOVED:after`).
+pub const SAI_SHIP_MOVED: Slot = Slot(50_060);
+/// Sai Seravus, the fighters once movement is finished (`leader:*:ghostcommander:MOVEMENT_FINISHED:after`).
+pub const SAI_FINISHED: Slot = Slot(50_061);
+
+/// "After your ships move: for each ship that has a capacity value and moved through 1 or more wormholes": the ship is in the active system, its
+/// route crossed a wormhole and it carries something.
+fn sai_moved_when(c: &CondCx<'_>) -> bool {
+    let (s, me) = (c.state, c.def.owner);
+    let p = &c.event.payload;
+    p.seat(Key::Player) == Some(me)
+        && p.system(Key::System) == s.meta().active_system
+        && ti4_engine_core::query::leaders::has_commander_ability_in(s, me, Leader::SaiSeravus)
+        && matches!(p.get(Key::Wormholes), Some(ti4_engine_core::state::Val::Int(hops)) if hops > 0)
+        && p.unit(Key::Unit).is_some_and(|u| crate::common::scope(c.kernel).unit(u).is_some_and(|d| d.ship && ti4_engine_core::query::fleet::capacity(u) > 0))
+}
+
+fn sai_key(s: &CoreState, me: Seat) -> MarkKey {
+    MarkKey::PrivateGhostCommander(me, ti4_engine_core::keys::DecimalTextOrd(s.meta().activation_seq))
+}
+
+fn sai_count(s: &CoreState, me: Seat) -> u32 {
+    match s.marks().tail.get(&sai_key(s, me)) {
+        Some(MarkVal::Atom(Atom::Num(n))) => *n,
+        _ => 0,
+    }
+}
+
+fn sai_moved(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let me = eff.owner();
+    let key = sai_key(eff.state(), me);
+    let now = sai_count(eff.state(), me).saturating_add(1);
+    eff.state().marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(now)));
+    Ok(())
+}
+
+fn sai_finished_when(c: &CondCx<'_>) -> bool {
+    let me = c.def.owner;
+    c.event.payload.seat(Key::Player) == Some(me) && ti4_engine_core::query::leaders::has_commander_ability_in(c.state, me, Leader::SaiSeravus) && sai_count(c.state, me) > 0
+}
+
+/// `commander_fighters`: the fighters that fit the unused capacity and the reinforcements, never more than the ships recorded.
+fn sai_fighters(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, me: Seat, system: System) -> usize {
+    use ti4_engine_core::generated::UnitBaseType;
+    if !ti4_engine_core::query::leaders::has_commander_ability_in(s, me, Leader::SaiSeravus) {
+        return 0;
+    }
+    let sc = crate::common::scope(k);
+    let free = ti4_engine_core::query::fleet::standing(s, sc, me, system, 0, None, &|_| false).capacity_free();
+    let plastic = crate::cd_registry::yin::timing::placed_form(s, sc, me, UnitBaseType::Fighter).map_or(0, |fighter| ti4_engine_core::query::fleet::remaining(s, sc, me, fighter, 0));
+    usize::try_from(sai_count(s, me)).unwrap_or(0).min(usize::try_from(free).unwrap_or(0)).min(usize::try_from(plastic).unwrap_or(0))
+}
+
+fn sai_finished(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    use ti4_engine_core::choice::activation::{Ask as MAsk, Opt as MOpt, Subtype as MSub};
+    use ti4_engine_core::choice::generic::Content;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt, Subtype as RSub};
+    use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
+    let me = eff.owner();
+    let Some(system) = eff.event.payload.system(Key::System) else { return Ok(()) };
+    let key = sai_key(eff.state(), me);
+    let available = {
+        let (s, k) = eff.read();
+        sai_fighters(s, k, me, system)
+    };
+    if available == 0 {
+        eff.state().marks_mut().tail.edit().remove(&key);
+        return Ok(());
+    }
+    let mut opts: Opts = (1..=available).filter_map(|n| u8::try_from(n).ok()).map(|n| Opt::Reaction(ROpt::Act(MOpt::Fighters(n)))).collect();
+    opts.push(Opt::Decline);
+    let choice = Choice {
+        actor: me,
+        ask: Ask::Reaction(RAsk::Act(MAsk::SaiSeravus { system })),
+        ctx: Ctx {
+            origin: Origin::FactionAbility(Content::Other(eff.codes().activation.ghost_commander)),
+            subtype: Subtype::Reaction(RSub::Act(MSub::SaiSeravus)),
+            optional: false,
+            target: None,
+            outstanding: ti4_engine_core::containers::SmallList::new(),
+            space_battle: false,
+            invasion_seq: None,
+        },
+        opts,
+    };
+    if let Pick::Opt(Opt::Reaction(ROpt::Act(MOpt::Fighters(n)))) = eff.ask(&choice)
+        && usize::from(n) <= available
+    {
+        let sc = crate::common::scope(eff.kernel());
+        let (s, k) = eff.state_and_kernel();
+        let form = crate::cd_registry::yin::timing::placed_form_overridden(s, k, sc, me, ti4_engine_core::generated::UnitBaseType::Fighter);
+        let _ = ti4_engine_core::kernel::fx::place_counted(s, k, sc, me, system, None, form, usize::from(n));
+    }
+    eff.state().marks_mut().tail.edit().remove(&key);
+    Ok(())
+}
+
+/// The commander's two abilities (the string's order in `ghost::timing_abilities`; the abilities of other windows of the faction are not in these
+/// buckets).
+pub fn register_events(t: &mut AbilityTable) {
+    t.add(Spec::new(SAI_SHIP_MOVED, AbilityKind::Leader, EventKind::ShipMoved, Relation::After, sai_moved).when(sai_moved_when));
+    t.add(Spec::new(SAI_FINISHED, AbilityKind::Leader, EventKind::MovementFinished, Relation::After, sai_finished).when(sai_finished_when));
+}
