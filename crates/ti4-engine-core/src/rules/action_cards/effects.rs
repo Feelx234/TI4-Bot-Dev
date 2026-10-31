@@ -196,7 +196,7 @@ impl Fx {
     /// with the other facts of a play ([`crate::kernel::ability::PlayFacts`]: `SeatPlayMore`, `SharedPlay`), so a card is nested when
     /// everything it reads is in them. Not nested: the cards of an Action timing (a component action is never played from a window), the
     /// cards that read the map (Experimental Battlestation, Exploration Probe: the host would have to lend the galaxy), Lie in Wait (the
-    /// neighbours who traded come from the map), Crash Landing (no host of the ported areas places the units it saves), Harness Energy, Infiltrate, Bribery and Upgrade and Decoy Operation (windows of the
+    /// neighbours who traded come from the map), Courageous To The End (its dice are not recorded as the ledger rows of an ability and its casualty question lacks the display context of the string's, see docs/W_L11_RESUME.md), Crash Landing (no host of the ported areas places the units it saves), Harness Energy, Infiltrate, Bribery and Upgrade and Decoy Operation (windows of the
     /// tactical action, whose hosts are not ported), and Fire Team and Scramble Frequency, which read the dice a roll staged and are played
     /// by the window that stages them (`core-b12` registers Fire Team for the ground roll's tail).
     #[must_use]
@@ -221,6 +221,7 @@ impl Fx {
                 | Self::Bribery
                 | Self::Infiltrate
                 | Self::Crash
+                | Self::Courageous
                 | Self::Probe
                 | Self::Perform { .. }
                 | Self::Reroll
@@ -3897,7 +3898,7 @@ mod tests {
     fn a_card_that_needs_a_link_is_not_played_in_a_reaction_window() {
         for card in ActionCard::ALL {
             if let Some(fx) = Fx::of(card) {
-                assert!(!(fx.links() && fx.nested()) || matches!(fx, Fx::Reveal | Fx::Courageous), "{card:?} needs the links and is nested");
+                assert!(!(fx.links() && fx.nested()) || fx == Fx::Reveal, "{card:?} needs the links and is nested");
             }
         }
     }

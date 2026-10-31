@@ -273,7 +273,7 @@ mod tests {
         // The core keeps the order as a constant (it knows no content records); it must be the records' order, lowest first.
         let content = ti4_content::ContentStore::embedded();
         let string_side: Vec<String> = roster(content, ALL_SOURCES).into_iter().map(|id| id.as_str().to_owned()).collect();
-        let core_side: Vec<String> = ti4_engine_core::rules::combat::NEUTRAL_LOWEST_FIRST.iter().map(|u| u.as_str().to_owned()).collect();
+        let core_side: Vec<String> = ti4_engine_core::rules::combat::NEUTRAL_LOWEST_FIRST.iter().map(|u| crate::generated::IdStr::as_str(*u).to_owned()).collect();
         assert_eq!(core_side, string_side);
     }
 

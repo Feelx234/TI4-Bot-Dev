@@ -11260,6 +11260,11 @@ mod tests {
         let a = invader();
         let b = holder();
         let (mut state, system, planet, other) = dual_arena();
+        for (seat, faction) in state.players.iter_mut().zip(["sol", "hacan"]) {
+            seat.faction = ti4_model::id::FactionId::new(faction);
+        }
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
         state
             .system_mut(&system)
             .set_control(planet.clone(), b.clone());
@@ -11281,7 +11286,7 @@ mod tests {
         let script: Vec<String> = if with_card {
             vec![
                 commit,
-                "reaction:generic:UNITS_COMMITTED:after".to_owned(),
+                "reaction:hacan:UNITS_COMMITTED:after".to_owned(),
                 format!("move|{planet}|{other}|infantry"),
                 "decline".to_owned(),
             ]
@@ -11309,7 +11314,7 @@ mod tests {
         let _serial = crate::dual::tests::serial();
         let _ = crate::dual::take_report();
         let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
-        let (_, state, system, planet, other) = crate::dual::with_mask(mask, || ghost_run(true));
+        let (_, state, system, planet, other) = crate::product::with_strict(std::env::var("W11_STRICT").is_ok(), || crate::dual::with_mask(mask, || ghost_run(true)));
         let report = crate::dual::report();
         let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
         assert!(report.differences.is_empty(), "{shown}");
@@ -11398,7 +11403,7 @@ mod tests {
             vec![format!("move|{from}|{to}|infantry"), "decline".to_owned()]
         };
         let reaction_offer = vec![
-            "reaction:generic:UNITS_COMMITTED:after".to_owned(),
+            "reaction:hacan:UNITS_COMMITTED:after".to_owned(),
             "decline".to_owned(),
         ];
         assert_eq!(
