@@ -103,6 +103,18 @@ impl Render {
         self
     }
 
+    /// Make this `Render` and the state's own code table one: the texts a window minted straight into the state (the exploration's log words)
+    /// reach the render, the codes the render handed out reach the state, whichever has more (one of them is always a prefix of the other: the
+    /// live loop syncs after every call that can mint).
+    pub fn sync_codes(&self, state: &mut ti4_engine_core::containers::Interner) {
+        let mut mine = self.codes.borrow_mut();
+        match mine.len().cmp(&state.len()) {
+            std::cmp::Ordering::Greater => *state = mine.clone(),
+            std::cmp::Ordering::Less => *mine = state.clone(),
+            std::cmp::Ordering::Equal => {}
+        }
+    }
+
     /// The code table as it stands (a clone: one refcount and the short local suffix).
     #[must_use]
     pub fn codes_snapshot(&self) -> ti4_engine_core::containers::Interner {

@@ -435,7 +435,7 @@ impl NativeGame {
             .map(|lines| lines.into_iter().map(|p| p.text().to_owned()).collect::<Vec<_>>())
             .unwrap_or_else(|| vec!["<a line the tables cannot name>".to_owned()]);
         self.events.extend(events.iter().cloned());
-        self.core.texts.codes = self.render.codes_snapshot();
+        self.render.sync_codes(&mut self.core.texts.codes);
         self.steps += 1;
         Step::Played(Played { arm, source, asked, events, finished: out.finished })
     }

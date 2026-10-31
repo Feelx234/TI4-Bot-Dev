@@ -298,20 +298,22 @@ impl NativeSubject {
             lend(arm, "no owners table");
             return None;
         };
-        let render = Render::new(cx.owners.ids().to_vec());
-        let windows = match g.observed_windows(&render, &cx) {
-            Ok(w) => w,
-            Err(why) => {
-                lend(arm, why);
-                return None;
-            }
-        };
         let slices = slices_for(g.galaxy().is_some());
         let positions = g.rng_positions();
         let loaded = Codec::load(&mut cx, &g.state, Sources { galaxy: g.galaxy(), rng: Some(&positions) }, slices);
         let Ok(mut core) = loaded else {
             lend(arm, "the position does not load");
             return None;
+        };
+        // The renderer's code table continues the position's, as the native loop does (`native_play`): the codes the observed windows carry into the
+        // position and the texts the rules mint into it (a combat's phases, the exploration's words) then mean the same text in both.
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let windows = match g.observed_windows(&render, &cx) {
+            Ok(w) => w,
+            Err(why) => {
+                lend(arm, why);
+                return None;
+            }
         };
         prime(&mut core, &facts, g.actions_this_turn());
         if !staged_marks(&g.state).is_empty() {

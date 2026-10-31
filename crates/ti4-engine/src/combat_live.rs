@@ -5,7 +5,7 @@
 
 use ti4_engine_core::generated::Unit;
 use ti4_engine_core::kernel::ability::{AftermathGap, CombatTexts};
-use ti4_engine_core::state::{Code, CoreState, CODE_CAPACITY};
+use ti4_engine_core::state::{Code, CoreState};
 
 use crate::generated::IdStr;
 use crate::render::Render;
@@ -127,9 +127,18 @@ const MAX_TYPES: usize = 10;
 /// types present, with the other form of each dual-form unit) their names and every roll group's. State texts go to the position's table, shown
 /// texts to the render table. A fight with more than ten types names none (the machine then stops at a roll it cannot name).
 pub fn combat_texts(core: &mut CoreState, r: &Render) -> CombatTexts {
-    let state_code = |core: &mut CoreState, text: &str| -> Code {
-        Code(u16::try_from(core.texts.codes.intern(text.as_bytes(), CODE_CAPACITY).expect("room for the text")).expect("a code fits"))
-    };
+    // ONE table: the state texts and the shown texts are minted into the render's table, which continues the position's, and the position takes
+    // it back. Minting the state texts into the position's table and the shown ones into the render's makes two tables that disagree about every
+    // code minted after the split; the render's table, which the live loop commits to the position, then names a state code by a shown text (or
+    // by none: `unknown text code`, the Argent and Nekro rows of the faction sweep).
+    r.sync_codes(&mut core.texts.codes);
+    let t = combat_texts_in(core, r);
+    r.sync_codes(&mut core.texts.codes);
+    t
+}
+
+fn combat_texts_in(core: &CoreState, r: &Render) -> CombatTexts {
+    let state_code = |_: &CoreState, text: &str| -> Code { r.code(text) };
     let mut t = CombatTexts::default();
     for (slot, text) in t.phases.iter_mut().zip(["pre_roll", "barrage", "resolving_hits", "retreating", "complete"]) {
         *slot = state_code(core, text);
@@ -589,6 +598,48 @@ mod tests {
         crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
         let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]);
         assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    /// The texts of a combat step are ONE table for the render and the position: the state phases, the unit names and the roll groups (state) and the
+    /// causes (shown) all mean the same text in the render's table and in the position's, in whichever order they were minted. Regression: the state
+    /// texts went to the position's table and the shown ones to the render's, so the render's table (which the live loop commits to the position
+    /// after the step) named a state code by a shown text, or by none (`unknown text code` in the Transient slice, `presentation.phase`).
+    #[test]
+    fn the_texts_of_a_combat_step_are_one_table_for_the_render_and_the_position() {
+        let (hub, _origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "dreadnought", &b(), 1);
+        let mut cx = Ctx::of(&state).expect("owners");
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+        // A code the render minted before the step and one the position's own rules minted: both tables continue each other.
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let early = render.code("minted before the step");
+        let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
+        core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
+        let t = super::combat_texts(&mut core, &render);
+        let shown = render.codes_snapshot();
+        let name = |table: &ti4_engine_core::containers::Interner, c: ti4_engine_core::state::Code| table.get(u32::from(c.0)).map(|b| String::from_utf8_lossy(b).into_owned());
+        for (table, which) in [(&shown, "the render's"), (&core.texts.codes, "the position's")] {
+            assert_eq!(name(table, early).as_deref(), Some("minted before the step"), "{which} table");
+            for (c, want) in t.phases.iter().zip(["pre_roll", "barrage", "resolving_hits", "retreating", "complete"]) {
+                assert_eq!(name(table, *c).as_deref(), Some(want), "{which} table: the presentation phase {want}");
+            }
+            for (c, want) in [(t.barrage_extra, "extra barrage"), (t.retreat_cause, "retreat_capacity"), (t.roll_cause, "space_combat"), (t.hacan, "hacan_flagship")] {
+                assert_eq!(name(table, c).as_deref(), Some(want), "{which} table");
+            }
+            assert!(!t.unit_codes.is_empty() && !t.groups.is_empty(), "the fight names its unit types");
+            for (u, c) in t.unit_codes.iter().chain(t.shown_codes.iter()) {
+                assert_eq!(name(table, *c).as_deref(), Some(crate::generated::IdStr::as_str(*u)), "{which} table: the unit {u:?}");
+            }
+            for (kinds, state_code, shown_code) in &t.groups {
+                let joined = kinds.iter().map(|u| crate::generated::IdStr::as_str(*u)).collect::<Vec<_>>().join("+");
+                assert_eq!((name(table, *state_code), name(table, *shown_code)), (Some(joined.clone()), Some(joined)), "{which} table");
+            }
+        }
+        // The position is materialisable with the render's table handed back as the table (the live loop's commit).
+        core.texts.codes = shown;
+        materialize::materialize(&core, &cx, &state).expect("the position with the render's table materialises");
     }
 
     /// A space fight of every faction as the attacker and as the defender, native from the end of the movement step to the end of the action,
