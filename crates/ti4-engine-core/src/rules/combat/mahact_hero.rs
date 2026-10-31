@@ -13,12 +13,12 @@
 use super::feats::{self, Outcome};
 use super::fight::FightToEnd;
 use super::machine::{Env, Fields};
-use super::Rd;
+use super::{ships_of, Rd};
 use crate::choice::generic::Content;
 use crate::choice::leaders::{Ask as LAsk, Opt as LOpt, Subtype as LSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Leader, System};
+use crate::generated::{Leader, System, UnitBaseType};
 use crate::ids::Seat;
 use crate::keys::{Atom, MarkKey, MarkVal};
 use crate::kernel::children::{ErasedChild, Spawn, SeeingLimits};
@@ -37,7 +37,7 @@ pub struct Prepared {
     /// The environment of the machine and the fields of a fresh window, as the string `settle` hands them over.
     pub env: Env,
     pub fields: Fields,
-    /// The sides, their capital ships and the notes held when the fight opened (the feats are decided from them).
+    /// The notes held when the fight opened (the sides and their capital ships are read when the fight starts, after the enforcement).
     pub before: Before,
 }
 
@@ -64,6 +64,8 @@ pub struct MahactHero {
     enforce: ErasedChild,
     fight: Child<FightToEnd>,
     previous: Option<System>,
+    /// The sides, their capital ships and the notes of the fight that started (the feats are decided from them).
+    before: Option<Before>,
     /// The card resolved (the fight was fought).
     pub used: bool,
     /// The run holds something the window does not carry: a pair without a preparation, no link to the enforcement, a fight the machine
@@ -77,7 +79,7 @@ impl MahactHero {
     /// `pairs` in board order; `prepared` for the pairs the adapter vouches for.
     #[must_use]
     pub fn new(who: Seat, pairs: Vec<(System, System)>, prepared: Vec<Prepared>) -> Self {
-        Self { who, pairs, prepared, stage: MStage::Start, chosen: None, enforce: ErasedChild::idle(), fight: Child::idle(), previous: None, used: false, unsupported: false, bailed: None }
+        Self { who, pairs, prepared, stage: MStage::Start, chosen: None, enforce: ErasedChild::idle(), fight: Child::idle(), previous: None, before: None, used: false, unsupported: false, bailed: None }
     }
 
     fn decline(&mut self) {
@@ -112,7 +114,29 @@ impl MahactHero {
         self.previous = sx.state.meta().active_system;
         sx.state.meta_mut().active_system = Some(to);
         sx.state.marks_mut().tail.edit().insert(MarkKey::MahactBenediction(), MarkVal::Atom(Atom::System(to)));
-        self.fight.start(FightToEnd::new(prepared.env, prepared.fields));
+        // `CombatWindow::new` and `before_combat` read the sides when the fight opens: after the fleet has moved and been enforced.
+        let (env, mut fields, mut before) = (prepared.env, prepared.fields, prepared.before);
+        let rd = Rd::new(sx.state, sx.kernel);
+        fields.at_start = [env.attacker, env.defender]
+            .into_iter()
+            .map(|side| {
+                let mut fleet: Vec<crate::generated::Unit> = ships_of(rd, side, to).iter().map(|p| p.kind()).collect();
+                fleet.sort_unstable();
+                (side, fleet)
+            })
+            .collect();
+        before.sides = sx.state.seats().seating_order().iter().copied().filter(|seat| !ships_of(rd, *seat, to).is_empty()).collect();
+        before.capitals = before
+            .sides
+            .as_slice()
+            .iter()
+            .map(|seat| {
+                let n = sx.state.board().sys(to).units.as_slice().iter().filter(|p| p.owner() == *seat && matches!(p.kind().data().base_type, UnitBaseType::Warsun | UnitBaseType::Flagship)).count();
+                (*seat, u16::try_from(n).unwrap_or(u16::MAX))
+            })
+            .collect();
+        self.before = Some(before);
+        self.fight.start(FightToEnd::new(env, fields));
         self.stage = MStage::Fighting;
     }
 
@@ -127,11 +151,11 @@ impl MahactHero {
             return;
         };
         let Some(at) = self.chosen else { return };
-        let (from, to) = self.pairs[at];
-        let Some(prepared) = self.prepared.iter().find(|p| p.from == from && p.to == to) else { return };
+        let (_, to) = self.pairs[at];
+        let Some(before) = self.before.take() else { return };
         // `complete_window`: a combat that began an occurrence notes the feats it earned against it.
         if fight.occurrence() > 0 {
-            let list = feats::feats(Rd::new(sx.state, sx.kernel), to, &prepared.before, Outcome { winner, rounds });
+            let list = feats::feats(Rd::new(sx.state, sx.kernel), to, &before, Outcome { winner, rounds });
             feats::record(sx.state, &list, fight.occurrence());
         }
         self.used = true;

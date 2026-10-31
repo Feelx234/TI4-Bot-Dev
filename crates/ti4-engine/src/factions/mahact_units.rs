@@ -403,7 +403,7 @@ pub(crate) fn ship_movement_barred_text(state: &GameState) -> bool {
 /// The `(origin, destination)` pairs the hero can use: `player` has ships in the origin's space area,
 /// the destination is adjacent and holds exactly one other seated player's ships and no neutral ones
 /// (so the combat has two sides), in board order.
-fn hero_pairs(
+pub(crate) fn hero_pairs(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -489,8 +489,59 @@ pub(crate) fn use_leader_timed(
         galaxy,
         player,
     );
-    let (origin, destination) = match pairs.as_slice() {
-        [] => return Ok(Some(false)),
+    if pairs.is_empty() {
+        return Ok(Some(false));
+    }
+    hero_dual(context, resolver, galaxy, player, &pairs).map(Some)
+}
+
+/// The card as a window of the core (`rules::combat::mahact_hero::MahactHero`): the pair, the move, the enforcement of the destination and the whole
+/// space combat as children; the string body ([`hero_string`]) is the oracle of the dual run.
+fn hero_dual(
+    context: &mut TimingContext<'_>,
+    resolver: &mut Resolver,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+    pairs: &[(SystemId, SystemId)],
+) -> Result<bool, TimingError> {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy: map } = context;
+    let (content, sources, map) = (*content, *sources, *map);
+    let rng_before = rng.positions();
+    // The dice of the fight: only streams the core can reproduce (no test faces, no pending restore, the state's seed).
+    let reproducible = crate::product::reproducible(dice.is_preloaded(), rng.sync_pending(), rng.seed(), state.rng_seed);
+    let result = std::cell::RefCell::new(None);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::mahact::hero",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy: map };
+            let done = hero_string(&mut inner, &mut *resolver, galaxy, player, pairs);
+            let value = done.as_ref().ok().copied();
+            *result.borrow_mut() = Some(done);
+            crate::dual::Run::new(value).with_rng(&*inner.rng)
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            // An answer the string refused undoes the whole card at the caller: nothing to follow.
+            if result.borrow().as_ref().is_some_and(Result::is_err) {
+                crate::dual::note_bail_here("the string refused an answer inside the card");
+                return None;
+            }
+            crate::dual_window::mahact_hero(s, content, sources, galaxy, player, pairs, &rng_before, reproducible, script)
+        }
+    );
+    result.into_inner().expect("the string side always runs")
+}
+
+/// [`use_leader_timed`] on the string engine once the hero has pairs to choose from: the oracle of the dual run.
+fn hero_string(
+    context: &mut TimingContext<'_>,
+    resolver: &mut Resolver,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+    pairs: &[(SystemId, SystemId)],
+) -> Result<bool, TimingError> {
+    let (origin, destination) = match pairs {
         [only] => only.clone(),
         _ => {
             let options = pairs
@@ -514,7 +565,7 @@ pub(crate) fn use_leader_timed(
                 .iter()
                 .find(|(from, to)| format!("{from}|{to}") == answer.id)
             else {
-                return Ok(Some(false));
+                return Ok(false);
             };
             found.clone()
         }
@@ -572,7 +623,7 @@ pub(crate) fn use_leader_timed(
     context.state.faction_marks.remove(BENEDICTION_MARK);
     context.state.active_system = previous;
     match fought {
-        Ok(_) => Ok(Some(true)),
+        Ok(_) => Ok(true),
         Err(crate::combat::CombatError::Timing(error)) => Err(error),
         Err(other) => Err(illegal(other.into_illegal_choice())),
     }
@@ -1148,6 +1199,68 @@ mod tests {
             "the bar ends with the combat"
         );
         assert_eq!(state.active_system, None, "the active system is restored");
+    }
+
+    /// The hero through the timed route with the real dice stream of `seed` (the core half draws the same dice from the lent stream).
+    fn use_hero_seeded(state: &mut GameState, hub: &crate::fixtures::Hub, answers: &[&str], seed: u64) -> Result<Option<bool>, TimingError> {
+        let mut resolver = crate::fixtures::armed_resolver(state);
+        let mut table = scripted(answers);
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(seed);
+        state.rng_seed = seed;
+        let mut sequence = crate::event::EventSequence::new();
+        let mut context = TimingContext {
+            state,
+            content: ContentStore::embedded(),
+            sources: DEFAULT,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: Some(&hub.galaxy),
+        };
+        use_leader_timed(&mut context, &mut resolver, &a(), &LeaderId::new(HERO))
+    }
+
+    /// Airo Shir Aur is a body of the core (`rules::combat::mahact_hero::MahactHero`): the pair, the move of the whole space area, the
+    /// enforcement at the destination and the whole combat run as children, the feats of the combat recorded. The core half agrees with the
+    /// string (the questions, the position, the events, the streams after) over fights of one and of several rounds, a fleet that does not fit
+    /// its destination, and a choice between two pairs; and the window ran each time.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut ran = 0;
+        for seed in 0..8_u64 {
+            let (mut state, hub, origin, _) = hero_game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            // More ships on the defender's side so the fights last several rounds on some seeds.
+            crate::fixtures::put(&mut state, &SystemId::new(&hub.centre), "destroyer", &b(), 1);
+            let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || use_hero_seeded(&mut state, &hub, &[], seed));
+            assert_eq!(done, Ok(Some(true)), "seed {seed}");
+            assert_eq!(count(&state, &origin, &a(), "cruiser"), 0);
+            ran += 1;
+        }
+        // Two pairs: the owner chooses which fleet moves.
+        let (mut state, hub, _, destination) = hero_game();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let second = SystemId::new(&hub.outer[1]);
+        state.system_mut(&second).units.clear();
+        crate::fixtures::put(&mut state, &second, "cruiser", &a(), 2);
+        let pair = format!("{second}|{destination}");
+        let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || use_hero_seeded(&mut state, &hub, &[&pair], 3));
+        assert_eq!(done, Ok(Some(true)));
+        ran += 1;
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let (compared, bailed) = thread_window_counts("factions::mahact::hero");
+        assert_eq!(compared + bailed, ran, "{r:?}");
+        assert!(compared >= 6, "the window ran: {r:?}");
+        let _ = take_report();
     }
 
     #[test]

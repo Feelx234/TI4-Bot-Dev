@@ -4150,6 +4150,138 @@ pub fn answer_machine(
     settle_run(gs, sources, a, rng_before, script, Some(()))
 }
 
+/// The core half of Airo Shir Aur (`factions::mahact_units::use_leader_timed`; the value: the card resolved, `None` when the string refused
+/// an answer): the pair, the move, the enforcement at the destination and the whole space combat as children of
+/// `rules::combat::mahact_hero::MahactHero`. The environment of the fight is the string window's own, read on a copy of the position with the
+/// fleet moved and the barring mark set (`SettleArgs` of a fresh window); the pair is the one the recording shows (the only one, or the answer
+/// of the first question). `rng_before` is where the streams stood before the string fought; `reproducible` says the dice are the state's
+/// streams.
+#[must_use]
+#[allow(clippy::too_many_arguments, reason = "the position, the sources, the map, the seat, its pairs, the streams and the recording")]
+pub fn mahact_hero(
+    gs: &mut GameState,
+    content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    pairs: &[(ti4_model::id::SystemId, ti4_model::id::SystemId)],
+    rng_before: &crate::rng::RngPositions,
+    reproducible: bool,
+    script: &Recording,
+) -> Option<CoreWindow<Option<bool>>> {
+    use ti4_engine_core::rules::combat::mahact_hero::{MahactHero, Prepared};
+    use ti4_engine_core::rules::combat::machine::Bail;
+    if let Some(why) = outside_why(gs, script) {
+        crate::dual::note_bail_here(why);
+        return None;
+    }
+    if !reproducible {
+        crate::dual::note_bail_here("irreproducible dice (test faces or a stream restore)");
+        return None;
+    }
+    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+    let seats: Vec<ti4_engine_core::ids::Seat> = r.seats.iter().filter_map(|text| r.seat(text)).collect();
+    let typed = |id: &ti4_model::id::SystemId| <ti4_engine_core::generated::System as IdStr>::from_id(id.as_str());
+    let core_pairs: Vec<(ti4_engine_core::generated::System, ti4_engine_core::generated::System)> =
+        pairs.iter().map(|(from, to)| Some((typed(from)?, typed(to)?))).collect::<Option<_>>().why(crate::dual::reason::UNKNOWN_ID)?;
+    // The pair the string played.
+    let chosen = match pairs {
+        [only] => only.clone(),
+        _ => {
+            let asked = script.questions.first().and_then(|q| q.answer.as_deref());
+            let found = asked.and_then(|id| pairs.iter().find(|(from, to)| format!("{from}|{to}") == id));
+            found.cloned().why("the pair the card played is not in the recording")?
+        }
+    };
+    let (from, to) = chosen.clone();
+    // The position the fight starts from: the fleet has moved and the mark bars the retreats (the enforcement is the window's own).
+    let mut sim = gs.clone();
+    let fleet: Vec<ti4_model::units::Unit> = sim.system_state(&from).units_of(player).into_iter().cloned().collect();
+    sim.move_units(&from, &to, &fleet);
+    sim.active_system = Some(to.clone());
+    sim.faction_marks.insert("mahact:benediction".to_owned(), to.to_string());
+    let limits = match crate::tactical_dual::limits_of(&sim, content, player, &to) {
+        Ok(limits) => ti4_engine_core::kernel::children::SeeingLimits { enforce: limits.enforce, shown: limits.shown, halves: limits.halves },
+        Err(why) => {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+    };
+    let args = crate::combat::CombatWindow::opening_args(&sim, content, sources, Some(galaxy), &to, true, true).why("no map to read the retreats from")?;
+    if let Some(why) = args.gate_why {
+        crate::dual::note_bail_here(why);
+        return None;
+    }
+    let begin_occurrence = args.begin_occurrence && args.occurrence.is_none();
+    let wenv = crate::core_combat::window_env(&sim, &cx, sources).why(WINDOW_ENV)?;
+    let (menv, fields, texts) = build_settle_env(&sim, &mut cx, &r, sources, &args, begin_occurrence)?;
+    let snapshot = crate::cannon_dual::before_snapshot(&r, &crate::combat::before_combat(&sim, content, sources, &to))?;
+    let prepared = Prepared {
+        from: typed(&from)?,
+        to: typed(&to)?,
+        limits,
+        env: menv,
+        fields,
+        before: snapshot,
+    };
+    let before = gs.clone();
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let mut table = AbilityTable::default();
+    ti4_engine_core::driver::children::register(&mut table);
+    let resolver = Resolver::new(&seats, Some(seat));
+    let mut driver = Driver::new(MahactHero::new(seat, core_pairs, vec![prepared]), resolver, table, 1).with_seeds(seeds);
+    let mut staged = Vec::new();
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let (att_id, def_id) = (args.attacker.clone(), args.defender.clone());
+    let (attacker, _) = (r.seat(att_id.as_str())?, ());
+    let driven = with_core(gs, &mut cx, src, nested_fp(SETTLE, script), |core, _| {
+        let driven = drive_with(&mut driver, core, &wenv.kernel, &r, &before, script, &|c, st, rendered| {
+            if matches!(&c.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::Ambush | ti4_engine_core::choice::combat::Ask::Sacrifice { .. } | ti4_engine_core::choice::combat::Ask::Splicer | ti4_engine_core::choice::combat::Ask::RaidDamage { .. })) {
+                if let Some(context) = rendered.context.take() {
+                    rendered.context = Some(context.about_battle(&before));
+                }
+            }
+            roll_details(content, &texts, c, st, rendered);
+            if let ti4_engine_core::choice::Ask::Combat(ask @ ti4_engine_core::choice::combat::Ask::CancelHit { .. }) = &c.ask {
+                rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(&wenv.kernel, st, ask, c.actor));
+            }
+            if rendered.context.as_ref().is_some_and(|ctx| ctx.subtype == "assault_cannon_destroy") {
+                let producer = if c.actor == attacker { def_id.clone() } else { att_id.clone() };
+                if let Some(context) = rendered.context.take() {
+                    rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
+                        cause: crate::decision_context::HitCause::AssaultCannon,
+                        destroy: true,
+                        restriction: crate::decision_context::HitRestriction::NonFighter,
+                        producer: Some(producer),
+                    }));
+                }
+            }
+        });
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
+        driven
+    })
+    .why(crate::dual::reason::NOT_LENDABLE)?
+    .why(crate::dual::reason::DRIVER_REFUSED)?;
+    let w = &driver.window;
+    if w.unsupported {
+        crate::dual::note_bail_here(match w.bailed {
+            Some(Bail::RollEndsFight) => "the machine: a roll that ends the fight",
+            Some(Bail::Unported) => "the machine: a position it does not carry (cancelled hits, Duranium, staged destructions, Devotion, a retreat the core does not move)",
+            None => "the table has no link to the enforcement window, or a pair without a preparation",
+        });
+        return None;
+    }
+    apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+    let mut run = Run::new(Some(w.used)).with_events_vec(events);
+    run.rng = Some(positions);
+    Some(CoreWindow { run, questions: driven.rendered })
+}
+
 #[cfg(test)]
 mod twin_form_tests {
     use ti4_engine_core::generated::Unit;
@@ -4182,32 +4314,22 @@ fn with_twin_forms(present: &mut Vec<ti4_engine_core::generated::Unit>) {
     }
 }
 
+/// The environment of the machine, the fields of the window and the texts of the roll groups, as the string `settle` hands them over
+/// (`a`: its gates and fields, `before` the position it starts from).
 #[allow(clippy::too_many_lines, reason = "one environment, built field by field")]
-fn settle_run(
-    gs: &mut GameState,
+pub(crate) fn build_settle_env(
+    before: &GameState,
+    cx: &mut Ctx,
+    r: &Render,
     sources: ti4_model::content_types::SourceSet,
-    a: SettleArgs,
-    rng_before: &crate::rng::RngPositions,
-    script: &Recording,
-    answering: Option<()>,
-) -> Option<CoreWindow<SettleOut>> {
-    use ti4_engine_core::rules::combat::flow::{Phase, Step};
-    use ti4_engine_core::rules::combat::machine::{Env, Machine, Stop};
-    if crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
-    // The first round begins the occurrence itself, once the opening has not ended the fight.
-    let begin_occurrence = a.begin_occurrence && a.occurrence.is_none();
-    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
-    nested_check(script)?;
-    waylay_check(script)?;
+    a: &SettleArgs,
+    begin_occurrence: bool,
+) -> Option<(ti4_engine_core::rules::combat::machine::Env, ti4_engine_core::state::CombatFields, Vec<(ti4_engine_core::state::Code, String)>)> {
+    use ti4_engine_core::rules::combat::machine::Env;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let (attacker, defender) = (seat(&a.attacker).why(crate::dual::reason::NO_SEAT)?, seat(&a.defender).why(crate::dual::reason::NO_SEAT)?);
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let unit_of = |k: &str| <ti4_engine_core::generated::Unit as IdStr>::from_id(k);
-    let before = gs.clone();
-    let env = crate::core_combat::window_env(&before, &cx, sources).why(WINDOW_ENV)?;
     // The unit types present: every one a roll group or a barrage can name.
     let mut present: Vec<ti4_engine_core::generated::Unit> = Vec::new();
     let cell = before.system_state(&a.system);
@@ -4314,6 +4436,35 @@ fn settle_run(
         },
         &r,
     )?;
+    Some((menv, fields, texts))
+}
+
+#[allow(clippy::too_many_lines, reason = "one environment, built field by field")]
+fn settle_run(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: SettleArgs,
+    rng_before: &crate::rng::RngPositions,
+    script: &Recording,
+    answering: Option<()>,
+) -> Option<CoreWindow<SettleOut>> {
+    use ti4_engine_core::rules::combat::flow::{Phase, Step};
+    use ti4_engine_core::rules::combat::machine::{Env, Machine, Stop};
+    if crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
+        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
+        return None;
+    }
+    // The first round begins the occurrence itself, once the opening has not ended the fight.
+    let begin_occurrence = a.begin_occurrence && a.occurrence.is_none();
+    let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
+    nested_check(script)?;
+    waylay_check(script)?;
+    let seat = |p: &PlayerId| r.seat(p.as_str());
+    let (attacker, defender) = (seat(&a.attacker).why(crate::dual::reason::NO_SEAT)?, seat(&a.defender).why(crate::dual::reason::NO_SEAT)?);
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+    let before = gs.clone();
+    let env = crate::core_combat::window_env(&before, &cx, sources).why(WINDOW_ENV)?;
+    let (menv, fields, texts) = build_settle_env(&before, &mut cx, &r, sources, &a, begin_occurrence)?;
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let machine = if answering.is_some() { Machine::awaiting(menv, fields) } else { Machine::new(menv, fields) };

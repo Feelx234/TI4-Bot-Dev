@@ -6939,10 +6939,31 @@ impl CombatWindow {
 
     /// The facts and gates the composed machine starts from. `None`: no map to read the retreats from.
     fn settle_args(&self, state: &GameState, ctx: &Resolving<'_>) -> Option<crate::dual_window::SettleArgs> {
-        let (content, sources) = (ctx.content, ctx.sources);
-        let sides = [&self.attacker, &self.defender];
-        let announce = ctx.timing.is_some();
         let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
+        self.settle_args_with(state, ctx.content, ctx.sources, ctx.timing.is_some(), reproducible)
+    }
+
+    /// The facts and gates of a fresh fight in `system` as the string window opens it (the Mahact hero's adapter prepares the
+    /// environment of the core fight from the position after the move). `announce`: the resolver carries the timing machinery;
+    /// `reproducible`: the dice of the fight are the state's streams.
+    pub(crate) fn opening_args(
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        galaxy: Option<&Galaxy>,
+        system: &SystemId,
+        announce: bool,
+        reproducible: bool,
+    ) -> Option<crate::dual_window::SettleArgs> {
+        let mut window = CombatWindow::new(state, content, sources, system);
+        if let Some(galaxy) = galaxy {
+            window = window.with_galaxy(galaxy.clone());
+        }
+        window.settle_args_with(state, content, sources, announce, reproducible)
+    }
+
+    fn settle_args_with(&self, state: &GameState, content: &ContentStore, sources: SourceSet, announce: bool, reproducible: bool) -> Option<crate::dual_window::SettleArgs> {
+        let sides = [&self.attacker, &self.defender];
         let galaxy = self.galaxy.as_ref();
         let neighbors = sides.map(|side| match galaxy {
             Some(g) => crate::core_combat::retreat_neighbors(state, sources, g, side, &self.system),
