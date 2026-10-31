@@ -47,10 +47,11 @@ pub enum WaiverEffect {
     Unported,
 }
 
-/// One token-free way to follow: its interned option shape and what it costs.
+/// One token-free way to follow: the option it offers (the string module's own, interned as an option shape: `Opt::Waive`; or the
+/// core module's, `Opt::WaiveBy`) and what it costs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Waiver {
-    pub code: Code,
+    pub opt: SOpt,
     pub effect: WaiverEffect,
 }
 
@@ -192,40 +193,6 @@ impl SecondaryStep {
     fn follower(&self) -> Option<&FollowerFacts> {
         self.followers.get(self.asked?)
     }
-
-    /// `hooks_strategy::secondary_waived` of the module that offered the waiver.
-    fn pay_waiver(&self, core: &mut CoreState, f: &FollowerFacts, effect: WaiverEffect) -> Result<(), Illegal> {
-        match effect {
-            WaiverEffect::Free => {}
-            WaiverEffect::GiveBack(note) => {
-                if core.cards().promissory.get(&note) == Some(&f.who) {
-                    fx::give_back_note(core, note);
-                }
-            }
-            WaiverEffect::HandOver(note) => {
-                if f.who != self.primary && core.cards().promissory.get(&note) == Some(&f.who) {
-                    fx_strategy::take_note(core, self.primary, note);
-                }
-            }
-            WaiverEffect::Agent { leader, system } => {
-                if core.board().sys(system).cmd.contains(self.primary) && fx_strategy::exhaust_leader(core, f.who, leader) {
-                    fx::remove_command_token(core, self.primary, system);
-                }
-            }
-            WaiverEffect::Unported => return Err(Illegal),
-        }
-        Ok(())
-    }
-
-    /// `Enervate` is remembered per follower; every other answer forgets it (`record_follow_answer`).
-    fn note_answer(core: &mut CoreState, who: Seat, primary_instead: bool) {
-        let marks = core.marks_mut().tail.edit();
-        if primary_instead {
-            marks.insert(MarkKey::FirmamentEnervate(), MarkVal::Atom(Atom::Seat(who)));
-        } else {
-            marks.remove(&MarkKey::FirmamentEnervate());
-        }
-    }
 }
 
 impl Window for SecondaryStep {
@@ -263,66 +230,13 @@ impl Window for SecondaryStep {
 
     fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
         let f = self.follower().filter(|_| self.stage == Stage::Asking)?;
-        let mut opts = Opts::default();
-        opts.push(Opt::Strategy(SOpt::Skip));
-        // A follower who must pay a token and has none is offered a waiver instead of a "yes" that could not be paid.
-        let tokenless = s.players().by_seat(f.who).is_none_or(|p| p.econ.strategic_tokens <= 0);
-        if !(f.costs_token && !f.waivers.is_empty() && tokenless) {
-            opts.push(Opt::Strategy(SOpt::Follow));
-        }
-        if !f.costs_token {
-            // Enervate: a puppeted player's Leadership may be followed by performing its primary instead.
-            if f.primary_instead {
-                opts.push(Opt::Strategy(SOpt::PrimaryInstead));
-            }
-        } else {
-            for w in &f.waivers {
-                opts.push(Opt::Strategy(SOpt::Waive(w.code)));
-            }
-        }
-        let leadership = self.card.data().kind == StrategyCardKind::Leadership;
-        Some(Choice {
-            actor: f.who,
-            ask: Ask::Strategy(SAsk::Follow { card: self.card, primary: self.primary, costs_token: f.costs_token }),
-            // Leadership's window question is the purchase question itself (52.3); the others carry no context.
-            ctx: if leadership { rule_ctx(Rule::R52_3, SSub::BuyTokenWithInfluence) } else { ctx(self.card, true, SSub::FollowSecondary) },
-            opts,
-        })
+        Some(follow_choice(s, self.card, self.primary, f))
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         let Some(f) = self.follower().filter(|_| self.stage == Stage::Asking).cloned() else { return Err(Illegal) };
         let Pick::Opt(Opt::Strategy(opt)) = pick else { return Err(Illegal) };
-        let resolution = match opt {
-            SOpt::Skip => Resolution::Declined,
-            SOpt::Follow => {
-                if f.costs_token {
-                    if !fx::spend_strategic_token(sx.state, f.who) {
-                        return Err(Illegal);
-                    }
-                    // `supply::note_strategy_token_spent(.., "strategy_secondary")`.
-                    fx::stage(
-                        sx.state,
-                        EventRec {
-                            id: 0,
-                            kind: EventKind::StrategyTokenSpent,
-                            payload: Payload::new().with(Key::Player, Val::Seat(f.who)).with(Key::Reason, Val::Code(self.reason)),
-                            cancelled: false,
-                        },
-                    );
-                }
-                Resolution::Followed
-            }
-            SOpt::PrimaryInstead if !f.costs_token && f.primary_instead => Resolution::Followed,
-            // A token-free way: the module that offered it pays its cost.
-            SOpt::Waive(code) if f.costs_token => {
-                let waiver = f.waivers.iter().find(|w| w.code == code).ok_or(Illegal)?;
-                self.pay_waiver(sx.state, &f, waiver.effect)?;
-                Resolution::Followed
-            }
-            _ => return Err(Illegal),
-        };
-        Self::note_answer(sx.state, f.who, opt == SOpt::PrimaryInstead);
+        let resolution = take_answer(sx.state, self.primary, self.reason, &f, opt)?;
         self.out.answered = Some((f.who, resolution));
         // The window is complete when the asked follower was the last one.
         let index = self.asked.unwrap_or(0);
@@ -333,6 +247,110 @@ impl Window for SecondaryStep {
         // The followers before the asked one were recorded as ineligible in `step`.
         self.stage = Stage::Done;
         Ok(())
+    }
+}
+
+/// The question put to `f` about the secondary of `card` (the string `StrategySecondaryWindow::pending_choice` for a follower who may be asked): follow or
+/// not, a token-free way instead (a waiver) or Enervate's primary instead. A follower who must pay a token and has none is offered a waiver instead of a
+/// "yes" that could not be paid.
+#[must_use]
+pub fn follow_choice(s: &CoreState, card: StrategyCard, primary: Seat, f: &FollowerFacts) -> Choice {
+    let mut opts = Opts::default();
+    opts.push(Opt::Strategy(SOpt::Skip));
+    let tokenless = s.players().by_seat(f.who).is_none_or(|p| p.econ.strategic_tokens <= 0);
+    if !(f.costs_token && !f.waivers.is_empty() && tokenless) {
+        opts.push(Opt::Strategy(SOpt::Follow));
+    }
+    if !f.costs_token {
+        // Enervate: a puppeted player's Leadership may be followed by performing its primary instead.
+        if f.primary_instead {
+            opts.push(Opt::Strategy(SOpt::PrimaryInstead));
+        }
+    } else {
+        for w in &f.waivers {
+            opts.push(Opt::Strategy(w.opt));
+        }
+    }
+    let leadership = card.data().kind == StrategyCardKind::Leadership;
+    Choice {
+        actor: f.who,
+        ask: Ask::Strategy(SAsk::Follow { card, primary, costs_token: f.costs_token }),
+        // Leadership's window question is the purchase question itself (52.3); the others carry no context.
+        ctx: if leadership { rule_ctx(Rule::R52_3, SSub::BuyTokenWithInfluence) } else { ctx(card, true, SSub::FollowSecondary) },
+        opts,
+    }
+}
+
+/// What taking `opt` does to the position (`StrategySecondaryWindow::take_choice` after the answer was validated): a refusal, a decline, the
+/// strategy token spent and announced, or a waiver paid by the module that offered it. `reason` is the interned `strategy_secondary`.
+///
+/// # Errors
+/// The option is not one the follower was offered, or the token cannot be paid.
+pub fn take_answer(core: &mut CoreState, primary: Seat, reason: Code, f: &FollowerFacts, opt: SOpt) -> Result<Resolution, Illegal> {
+    let resolution = match opt {
+        SOpt::Skip => Resolution::Declined,
+        SOpt::Follow => {
+            if f.costs_token {
+                if !fx::spend_strategic_token(core, f.who) {
+                    return Err(Illegal);
+                }
+                // `supply::note_strategy_token_spent(.., "strategy_secondary")`.
+                fx::stage(
+                    core,
+                    EventRec {
+                        id: 0,
+                        kind: EventKind::StrategyTokenSpent,
+                        payload: Payload::new().with(Key::Player, Val::Seat(f.who)).with(Key::Reason, Val::Code(reason)),
+                        cancelled: false,
+                    },
+                );
+            }
+            Resolution::Followed
+        }
+        SOpt::PrimaryInstead if !f.costs_token && f.primary_instead => Resolution::Followed,
+        // A token-free way: the module that offered it pays its cost.
+        SOpt::Waive(_) | SOpt::WaiveBy(..) if f.costs_token => {
+            let waiver = f.waivers.iter().find(|w| w.opt == opt).ok_or(Illegal)?;
+            pay_waiver(core, primary, f, waiver.effect)?;
+            Resolution::Followed
+        }
+        _ => return Err(Illegal),
+    };
+    note_answer(core, f.who, opt == SOpt::PrimaryInstead);
+    Ok(resolution)
+}
+
+/// `hooks_strategy::secondary_waived` of the module that offered the waiver.
+fn pay_waiver(core: &mut CoreState, primary: Seat, f: &FollowerFacts, effect: WaiverEffect) -> Result<(), Illegal> {
+    match effect {
+        WaiverEffect::Free => {}
+        WaiverEffect::GiveBack(note) => {
+            if core.cards().promissory.get(&note) == Some(&f.who) {
+                fx::give_back_note(core, note);
+            }
+        }
+        WaiverEffect::HandOver(note) => {
+            if f.who != primary && core.cards().promissory.get(&note) == Some(&f.who) {
+                fx_strategy::take_note(core, primary, note);
+            }
+        }
+        WaiverEffect::Agent { leader, system } => {
+            if core.board().sys(system).cmd.contains(primary) && fx_strategy::exhaust_leader(core, f.who, leader) {
+                fx::remove_command_token(core, primary, system);
+            }
+        }
+        WaiverEffect::Unported => return Err(Illegal),
+    }
+    Ok(())
+}
+
+/// `Enervate` is remembered per follower; every other answer forgets it (`record_follow_answer`).
+fn note_answer(core: &mut CoreState, who: Seat, primary_instead: bool) {
+    let marks = core.marks_mut().tail.edit();
+    if primary_instead {
+        marks.insert(MarkKey::FirmamentEnervate(), MarkVal::Atom(Atom::Seat(who)));
+    } else {
+        marks.remove(&MarkKey::FirmamentEnervate());
     }
 }
 
@@ -476,7 +494,7 @@ mod tests {
     }
 
     fn waiver(effect: WaiverEffect) -> Waiver {
-        Waiver { code: Code(7), effect }
+        Waiver { opt: SOpt::Waive(Code(7)), effect }
     }
 
     /// Drives one asked follower holding `effect` as its only waiver and answers it by taking the waiver.

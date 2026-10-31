@@ -14,7 +14,7 @@
 //!    (`d1::pending.roundtrip`): the codec is total on the positions the games reach.
 //!
 //! The kinds with no typed payload (`Scoring`, `Tokens`, `Voting`, the tactical and trade windows, ...) are counted under
-//! `d1::pending.untyped [bail: <field>]`. A step whose result is an error, a preview window (a planning fork), an id the typed
+//! `d1::pending.untyped [bail: <field>]`. A step whose result is an error, an id the typed
 //! tables do not know and a window the core step does not cover (a card nobody holds) are counted as bails and re-seed the
 //! held copy from the string. Runs only with `driver=dual`; a pure observer (the string result stands).
 
@@ -273,12 +273,9 @@ fn resolution_of(h: SecondaryHow) -> SecondaryResolution {
     }
 }
 
-/// The typed copy of a follower window; `Err` for a preview window and an id the tables do not know.
+/// The typed copy of a follower window; `Err` for an id the tables do not know.
 fn secondary_of(w: &StrategySecondaryWindow, r: &Render) -> Result<Secondary, &'static str> {
     let parts = w.parts();
-    if parts.preview {
-        return Err("a preview window");
-    }
     let seat = |p: &PlayerId| r.seat(p.as_str()).ok_or("a seat the table does not know");
     let mut followers = SmallList::new();
     for f in parts.followers {
@@ -295,6 +292,7 @@ fn secondary_of(w: &StrategySecondaryWindow, r: &Render) -> Result<Secondary, &'
         next: u8::try_from(parts.next).map_err(|_| "more than 255 followers")?,
         resolved,
         exhausts_card: parts.exhausts_card,
+        preview: parts.preview,
     })
 }
 
@@ -307,6 +305,7 @@ fn secondary_back(s: &Secondary, r: &Render) -> StrategySecondaryWindow {
         usize::from(s.next),
         s.resolved.as_slice().iter().map(|(p, how)| (r.player(*p), resolution_of(*how))).collect(),
         s.exhausts_card,
+        s.preview,
     )
 }
 
