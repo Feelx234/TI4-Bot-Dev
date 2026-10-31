@@ -20,6 +20,7 @@ pub fn fill_codes(table: &mut AbilityTable, r: &Render, state_code: &mut dyn FnM
     c.space_cannon_cause = r.code("space_cannon_defense");
     c.planets = r.code("planets");
     c.dunlain_reaper = r.code("dunlain_reaper");
+    c.minister = r.code("minister_exploration");
     for (slot, text) in c.phases.iter_mut().zip(["bombardment", "custodians", "landing", "ground_battle", "planet_result", "next_defender", "control", "complete"]) {
         *slot = state_code(text);
     }
@@ -43,8 +44,6 @@ pub const fn unported_text(why: ti4_engine_core::kernel::ability::Unported) -> &
         U::Slumberstate => "Slumberstate Computing (a Thunder's Edge breakthrough)",
         U::RollCannotName => "a pool or unit the ground roll cannot name",
         U::HitsAddedToARoll => "hits added to a ground roll",
-        U::MinisterOfExploration => "the Minister of Exploration's trade good for a planet taken",
-        U::CrownOfEmphidia => "the Crown of Emphidia changes hands",
         U::IntegratedEconomy => "Integrated Economy (a triggered production nested in the control gain)",
         U::AssimilateRoster => "an Assimilate seat whose unit forms the core cannot name",
         U::Exploration(why) => {
@@ -194,7 +193,7 @@ mod tests {
 
     const FP: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Strategy, Slice::Trade, Slice::Explore, Slice::Decks, Slice::Objectives],
-        &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Objectives, Slice::Decks, Slice::Explore],
+        &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Objectives, Slice::Decks, Slice::Explore, Slice::Agenda],
     );
 
     /// The native run of the same invasion: the arm `Arm::Invasion` through `live_step`, answered by `answers` in order.
@@ -334,6 +333,7 @@ mod tests {
                 "{label} {id}: what the exploration gave"
             );
         }
+        assert_eq!(gs.laws, string.state.laws, "{label}: the laws (the Crown of Emphidia changes hands)");
         assert_eq!(gs.exploration_log, string.state.exploration_log, "{label}: the exploration log");
         assert_eq!(gs.exploration_decks, string.state.exploration_decks, "{label}: the exploration decks");
         assert_eq!(gs.planet_attachments, string.state.planet_attachments, "{label}: the attachments");
@@ -459,6 +459,31 @@ mod tests {
             check(defender, &state, seed, &home, false, prefer(&[]));
             let _ = planet;
         }
+    }
+
+    /// A planet taken pays the Minister of Exploration a trade good, and the Crown of Emphidia changes hands when the planet is in its owner's
+    /// home system (the owner loses the point, the taker gains it).
+    #[test]
+    fn a_planet_taken_pays_the_minister_of_exploration_and_the_crown_of_emphidia_changes_hands() {
+        use crate::dual::{take_report, with_bail_is_failure};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        for (seed, defender) in (1..=4_u64).zip(["hacan", "letnev", "sol", "mentak"]) {
+            let (mut state, _, _) = game(&[("a", "naalu"), ("b", defender)], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            let home = state.player(&b).unwrap().home_system.clone().unwrap();
+            crate::fixtures::put(&mut state, &home, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &home, "infantry", &a, 9);
+            state.laws.insert("minister_exploration".to_owned(), "a".to_owned());
+            if seed % 2 == 1 {
+                state.laws.insert("crown_of_emphidia".to_owned(), "b".to_owned());
+                state.player_mut(&b).unwrap().victory_points = 2;
+            }
+            with_bail_is_failure(true, || check(defender, &state, seed, &home, false, prefer(&[])));
+            let (string_goods, _) = (state.player(&a).unwrap().trade_goods, ());
+            let _ = string_goods;
+        }
+        let _ = take_report();
     }
 
     /// A planet nobody holds whose printed traits are exactly `wanted` (lower case), with its system.

@@ -99,8 +99,6 @@ pub enum Unported {
     Slumberstate,
     RollCannotName,
     HitsAddedToARoll,
-    MinisterOfExploration,
-    CrownOfEmphidia,
     IntegratedEconomy,
     AssimilateRoster,
     /// The exploration of a first claim holds something the native window does not carry (`ExploreRun::why`).
@@ -227,6 +225,8 @@ pub struct InvasionCodes {
     pub planets: crate::state::Code,
     /// The source `dunlain_reaper` of the Reaper's question.
     pub dunlain_reaper: crate::state::Code,
+    /// The source `minister_exploration` of the trade good the Minister of Exploration pays for a planet taken (an event text).
+    pub minister: crate::state::Code,
     /// The phases of the public boundary `ActiveInvasion.phase`: bombardment, custodians, landing, ground_battle, planet_result,
     /// next_defender, control, complete.
     pub phases: [crate::state::Code; 8],
@@ -239,7 +239,7 @@ pub struct InvasionCodes {
 impl Default for InvasionCodes {
     fn default() -> Self {
         let z = crate::state::Code(0);
-        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, bombardment_cause: z, space_cannon_cause: z, planets: z, dunlain_reaper: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT] }
+        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, bombardment_cause: z, space_cannon_cause: z, planets: z, dunlain_reaper: z, minister: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT] }
     }
 }
 

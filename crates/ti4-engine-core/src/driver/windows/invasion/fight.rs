@@ -487,19 +487,22 @@ impl InvasionMachine {
         if previous == Some(invader) {
             return Ok(None); // 49.5c
         }
+        sx.state.board_mut().planet_mut(planet).control = Some(invader);
+        sx.state.board_mut().sys_mut(system).flags.set(crate::state::SysFlags::TOUCHED, true);
+        fx::exhaust_planet(sx.state, planet);
+        // Everything that reads "when you gain control of a planet" fires here, where control actually changes hands: the Minister of
+        // Exploration pays a trade good (staged, as the string stages it), and the Crown of Emphidia changes hands when a planet in its
+        // owner's home system is taken.
         let blanked = reach::blanked(sx.state);
         if crate::query::laws::holds_ministry(sx.state, blanked, invader, crate::query::laws::MINISTER_EXPLORATION) {
-            return Err(Why::MinisterOfExploration);
+            fx::gain_trade_goods_staged(sx.state, invader, 1, sx.table.codes.invasion.minister);
         }
         let crown = crate::generated::Agenda::TheCrownOfEmphidia;
         if let Some(crate::keys::Outcome::Seat(owner)) = crate::query::laws::elected(sx.state, blanked, crown)
             && crate::query::objectives::home_system_of(sx.state, owner) == Some(system)
         {
-            return Err(Why::CrownOfEmphidia);
+            fx::steal_throne_card(sx.state, crown, invader);
         }
-        sx.state.board_mut().planet_mut(planet).control = Some(invader);
-        sx.state.board_mut().sys_mut(system).flags.set(crate::state::SysFlags::TOUCHED, true);
-        fx::exhaust_planet(sx.state, planet);
         Ok(Some(previous))
     }
 
