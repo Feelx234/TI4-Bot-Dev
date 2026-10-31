@@ -236,6 +236,7 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
     use crate::rules::token_gain::TokenGain;
     match arm {
         Arm::Tokens => Some(advance::<TokenGain>),
+        Arm::Tactical => Some(crate::driver::windows::tactical::advance_tactical),
         _ => None,
     }
 }
@@ -246,6 +247,7 @@ pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
     use crate::rules::token_gain::TokenGain;
     match arm {
         Arm::Tokens => Some(ask::<TokenGain>),
+        Arm::Tactical => Some(crate::driver::windows::tactical::ask_tactical),
         _ => None,
     }
 }

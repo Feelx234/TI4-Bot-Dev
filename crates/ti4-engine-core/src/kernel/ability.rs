@@ -83,6 +83,32 @@ pub enum Unknown {
     /// Reflective Shielding played inside a window: it stages hits that the string sustain step drains after the
     /// window closes (the combat area's absorption), which the core windows do not.
     ReflectiveShielding,
+    /// A position the native tactical action does not run yet (a documented bail of `driver::windows::tactical`, named by its gap).
+    UnportedTactical(TacticalGap),
+}
+
+/// The positions the native tactical action (`driver::windows::tactical`) does not run, each a counted bail of the live path. The words are
+/// the adapter's (`tactical_live::gap_text`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TacticalGap {
+    /// A stage that neither asks nor moves on.
+    NoProgress,
+    /// A hook of the activation that asks, pays or ends the turn is in the position (Spatial Conduit Cylinders, Scanlink Drone Network,
+    /// E-Res Siphons, Nullification Field, Mahact, Minister of Peace, the Dominus Orb, Ceasefire).
+    ActivationHook,
+    /// Nova Seed replaced a tile during `MOVEMENT_FINISHED`: the derived map is replayed by the per-step hooks, not here.
+    NovaSeed,
+    /// A hit of the space cannon offense needs a question (sustain damage, a casualty to choose).
+    CannonHits,
+    /// The Crown of Emphidia or Dark Energy Tap explores at the end of the action: no native planet exploration window.
+    ExplorationAtTheEnd,
+    /// Thunder's Edge Warfare's follower window, or a hero's strategy primary, waits for the end of the free tactical action.
+    WarfareSecondary,
+    LeaderStrategy,
+    /// A Yssaril seat with a readied Ssruu could copy an agent that listens to the end of the action.
+    SsruuLends,
+    /// The map slice holds no galaxy.
+    NoGalaxy,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -153,6 +179,23 @@ pub struct Codes {
     /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
     /// `trade_agreement`, `artuno` (Artuno the Betrayer does not copy them).
     pub not_from_supply: [crate::state::Code; 5],
+    /// The texts of the tactical composer (`driver::windows::tactical`).
+    pub tactical: TacticalCodes,
+}
+
+/// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind
+/// and loss causes of the space cannon offense, the casualty subtype and the Letnev commander's source, the presentation phase of a
+/// battle about to be rolled. Interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TacticalCodes {
+    /// `tactic`.
+    pub tactic: crate::state::Code,
+    /// `space_cannon`, `unit_ability:space_cannon`, `assign_casualty`, `letnevcommander`, `pre_roll`.
+    pub space_cannon: crate::state::Code,
+    pub space_cannon_cause: crate::state::Code,
+    pub casualty: crate::state::Code,
+    pub commander: crate::state::Code,
+    pub pre_roll: crate::state::Code,
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of

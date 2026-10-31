@@ -7,3 +7,4 @@ pub use crate::rules::combat::sustain_commander;
 pub mod aftermath;
 pub mod enforce_all;
 pub mod minister;
+pub mod tactical;

@@ -103,9 +103,9 @@ pub(super) fn sail(m: &mut Machine, sx: &mut Sx<'_>, l: &Loading) -> Result<bool
     fx_move::flip_ion_storm(sx.state, l.origin, active);
     if survives {
         arrived(m, sx, l, &cargo, active);
-        m.plain.push(Plain::ShipMoved);
+        m.note(sx, Plain::ShipMoved);
     } else {
-        m.plain.push(Plain::ShipLost);
+        m.note(sx, Plain::ShipLost);
     }
     Ok(!survives)
 }
@@ -130,6 +130,6 @@ fn arrived(m: &mut Machine, sx: &mut Sx<'_>, l: &Loading, cargo: &[transit::Cand
     if let Some(hops) = transit::wormhole_hops(sx.state, seat, l.origin, &l.path) {
         payload.set(Key::Wormholes, Val::Int(i64::from(hops)));
     }
-    let _ = sx.emit(fx::event(EventKind::ShipMoved, payload));
-    m.plain.push(Plain::Typed(EventKind::ShipMoved));
+    let _ = m.emit(sx, fx::event(EventKind::ShipMoved, payload));
+    m.note(sx, Plain::Typed(EventKind::ShipMoved));
 }

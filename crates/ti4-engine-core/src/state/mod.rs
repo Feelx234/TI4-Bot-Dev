@@ -65,7 +65,7 @@ pub use resolver::{ResolverState, UsedScope};
 pub use rng::{Rng, RngDomain, SeedSource};
 pub use seats::{MAX_PLAYERS, Seats};
 pub use strategy::StrategyState;
-pub use tactical::{TStage, Tactical};
+pub use tactical::{THead, THeadStep, TStage, Tactical};
 pub use texts::{BLOB_CAPACITY, CODE_CAPACITY, DIPLOMACY_RULES_V1, OwnerTable, Texts};
 pub use trade::*;
 pub use transient::*;

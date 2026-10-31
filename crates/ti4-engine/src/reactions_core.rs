@@ -486,6 +486,14 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.retreat_capacity = r.code("retreat_capacity");
         table.codes.reinforcements = r.code("reinforcements");
         table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
+        table.codes.tactical = ti4_engine_core::kernel::ability::TacticalCodes {
+            tactic: r.code("tactic"),
+            space_cannon: r.code("space_cannon"),
+            space_cannon_cause: r.code("unit_ability:space_cannon"),
+            casualty: r.code("assign_casualty"),
+            commander: r.code("letnevcommander"),
+            pre_roll: r.code("pre_roll"),
+        };
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {

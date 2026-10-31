@@ -72,6 +72,14 @@ impl Head {
         Self { f, stage: Stage::Enforcing, enforce: Child::idle(), cannon: Child::idle(), before: None, scoring: None, drawn: Vec::new() }
     }
 
+    /// A head whose enforcement is already running (the live path rebuilds a held head at its question).
+    #[must_use]
+    pub fn enforcing(f: Facts, enforce: Enforce) -> Self {
+        let mut head = Self::new(f);
+        head.enforce.start(enforce);
+        head
+    }
+
     /// `combat::before_combat_with_notes`: the sides in seating order and what each had in war suns and flagships.
     fn snapshot(&self, s: &CoreState, k: &Kernel) -> Before {
         let rd = Rd::new(s, k).with_blanked(reach::blanked(s));

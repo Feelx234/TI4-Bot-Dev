@@ -98,7 +98,7 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
     match arm {
         Arm::Tokens => match windows.iter().find_map(|w| if let Window::Tokens(t) = w { Some(t.clone()) } else { None }) {
             Some(t) => {
-                open(core, &TokenGain::new(t));
+                open(core, &TokenGain::new(*t));
                 true
             }
             None => false,
