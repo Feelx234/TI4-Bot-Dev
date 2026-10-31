@@ -554,7 +554,8 @@ fn the_routes_of_a_ship_are_the_default_first_at_most_five_and_follow_the_boosts
     // Plain ring: the move value 3 reaches seven different sets of systems; five are offered, the default first.
     let (core, k) = scenario(p[0]).build();
     let routes = ship_routes(&core, &k, Seat(0), origin, 0, Unit::CruiserII, (false, false));
-    assert_eq!(routes.len(), MAX_ROUTES, "{routes:?}");
+    assert_eq!(routes.len(), 5, "{routes:?}");
+    assert_eq!(MAX_ROUTES, 5, "the limit the string documents");
     assert!(routes[0].default && routes.iter().skip(1).all(|r| !r.default));
     assert!(routes.iter().all(|r| r.path.first() == Some(&origin) && r.path.last() == Some(&target) && !r.gd && !r.ionian));
     let sets: std::collections::BTreeSet<Vec<System>> = routes.iter().map(|r| { let mut s = r.path.clone(); s.sort(); s }).collect();
