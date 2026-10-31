@@ -200,8 +200,11 @@ fn stall_tactics_with_a_single_card_discards_it_unasked_and_with_an_empty_hand_d
 
 // ---- Mageon Implants --------------------------------------------------------------------------
 
+/// The holder of the card is a Yssaril seat when the hand limit is lifted (Crafty is the kernel's hook since lane 14: the draw window the
+/// card ends with follows it from the faction), and a seat without any hook (a Nekro seat that copied the card) when the limit applies.
 fn mageon(hand0: &[ActionCard], hand1: &[ActionCard], limited: bool) -> Rig<MageonImplants> {
-    let sc = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheArborec]).tech(0, T::MageonImplants).hand(0, hand0).hand(1, hand1);
+    let holder = if limited { Faction::TheNekroVirus } else { Faction::TheYssarilTribes };
+    let sc = Scenario::new(&[holder, Faction::TheArborec]).tech(0, T::MageonImplants).hand(0, hand0).hand(1, hand1);
     Rig::new(sc, MageonImplants::new(Seat(0), Seat(1), limited)).with_table(table_with_groups())
 }
 

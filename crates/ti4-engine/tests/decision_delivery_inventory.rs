@@ -527,7 +527,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "mahact_units.rs",
-        function: "use_leader_timed",
+        function: "hero_string",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1663,7 +1663,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("mahact_units.rs", "legionnaire", 1),
     ("mahact_units.rs", "legionnaire_returns", 1),
     ("mahact_units.rs", "offer_starlancer", 1),
-    ("mahact_units.rs", "use_leader_timed", 1),
+    ("mahact_units.rs", "hero_string", 1),
     ("empyrean_units.rs", "ask", 1),
     ("nomad.rs", "temporal_command_suite", 1),
     ("nomad_agents.rs", "ask", 1),
