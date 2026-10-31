@@ -36,9 +36,9 @@ pub enum Opened {
 }
 
 /// A text of the state's own table (`AgendaRecord::discard_reason`).
-fn state_code(core: &mut CoreState, text: &str) -> Code {
-    // The table holds 65 535 texts; these two are interned by the first discarded agenda.
-    Code(u16::try_from(core.texts.codes.intern(text.as_bytes(), CODE_CAPACITY).unwrap_or(0)).unwrap_or(0))
+fn state_code(core: &mut CoreState, text: &[u8]) -> Code {
+    // The state's own text table mints the code (a code means the same text in every lineage of the state); the table holds 65 535 texts.
+    Code(u16::try_from(core.texts.codes.intern(text, CODE_CAPACITY).unwrap_or(0)).unwrap_or(0))
 }
 
 /// What the reveal reads besides the position.
@@ -47,8 +47,8 @@ fn reveal_facts(sx: &mut Sx<'_>) -> RevealFacts {
     RevealFacts {
         scope: reach::scope_of(sx.kernel),
         blanked: reach::blanked(sx.state),
-        no_choice: state_code(sx.state, "no_choice"),
-        replaced: state_code(sx.state, "replaced"),
+        no_choice: state_code(sx.state, b"no_choice"),
+        replaced: state_code(sx.state, b"replaced"),
         quash: codes.quash,
         favor: codes.favor,
         secret: codes.secret,

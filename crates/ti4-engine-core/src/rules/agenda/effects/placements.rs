@@ -6,17 +6,14 @@ use super::{Resolve, Stage};
 use crate::choice::agenda::{Ask as AAsk, Opt as AOpt};
 use crate::choice::generic::Content;
 use crate::choice::{Ask, Choice, Opt, Opts, Origin, Pick};
-use crate::containers::SmallList;
-use crate::generated::{Agenda, Faction, Planet, System, Technology, Unit, UnitBaseType};
+use crate::generated::{Agenda, Faction, Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;
-use crate::kernel::stage::{Illegal, Sx, Window};
+use crate::kernel::stage::{Illegal, Sx};
 use crate::kernel::{fx, fx_strategy, Next};
-use crate::query::{board, tech};
-use crate::rules::relic_windows::GainTechnology;
+use crate::query::board;
 use crate::state::CoreState;
 
-use super::super::reveal::RULES_AGENDA_GRANT_REVEAL;
-use super::super::table_effects::{clear_planet, everyone, in_scope};
+use super::super::table_effects::{clear_planet, everyone};
 
 impl Resolve {
     /// `agenda_effects::place_infantry`: the seat's own form, refused when the reinforcements hold none (31.4). `false`: the facts the
@@ -135,75 +132,10 @@ impl Resolve {
             _ => Err(Illegal),
         }
     }
-
-    /// The technologies a seat may be granted: those it does not hold, of the game's sources, its faction's own among the faction ones
-    /// (90.11), in the order of the corpus.
-    fn grantable(core: &CoreState, scope: crate::tables::Scope, who: Seat, corpus: fn(Technology, Technology) -> core::cmp::Ordering) -> SmallList<Technology, 64> {
-        let Some(p) = core.players().by_seat(who) else { return SmallList::new() };
-        let mut out: SmallList<Technology, 64> = Technology::ALL
-            .iter()
-            .copied()
-            .filter(|t| in_scope(scope, t.data().source))
-            .filter(|t| t.data().faction.is_none_or(|tag| tech::tag_is(tag, p.faction)))
-            .filter(|t| !p.tech.owned.contains(*t))
-            .collect();
-        out.as_mut_slice().sort_by(|a, b| corpus(*a, *b));
-        out
-    }
-
-    /// Research Grant Reallocation: "gains any 1 technology of their choice. Then, for each prerequisite on that technology, they remove
-    /// 1 token from their fleet pool and return it to their reinforcements."
-    pub(super) fn grant(&mut self, sx: &mut Sx<'_>, who: Seat) -> Next {
-        if self.stage == Stage::Apply {
-            let Some(f) = self.facts.clone() else {
-                self.unsupported = true;
-                self.stage = Stage::Done;
-                return Next::Done;
-            };
-            if sx.state.players().by_seat(who).is_none() {
-                self.stage = Stage::Done;
-                return Next::Done;
-            }
-            if !sx.state.meta().rules_at_least(RULES_AGENDA_GRANT_REVEAL) {
-                // Before rules version 14 no technology was granted and a single fleet token was removed whatever it would have cost.
-                spend_fleet(sx.state, who, 1);
-                self.stage = Stage::Done;
-                return Next::Done;
-            }
-            let options = Self::grantable(sx.state, f.scope, who, sx.table.codes.agenda.tech_corpus);
-            if options.is_empty() {
-                self.stage = Stage::Done;
-                return Next::Done;
-            }
-            self.gain = Some(GainTechnology::from_source(who, f.grant, options.as_slice()));
-            self.stage = Stage::Asking;
-        }
-        let Some(gain) = self.gain.as_mut() else { return Next::Done };
-        if let Next::Continue(ask) = gain.step(sx) {
-            return Next::Continue(ask);
-        }
-        // Gained, not researched: no prerequisites needed, nothing that fires on research.
-        if let Some(chosen) = gain.chosen {
-            let (Some(f), true) = (self.facts.as_ref(), fx::grant_technology(sx.state, who, chosen)) else {
-                self.stage = Stage::Done;
-                return Next::Done;
-            };
-            if let Some(roster) = f.roster {
-                fx_strategy::apply_unit_upgrades(sx.state, sx.kernel, f.scope, roster, who);
-            } else {
-                self.unsupported = true;
-            }
-            let cost: usize = tech::prerequisites(chosen).iter().map(|n| usize::from(*n)).sum();
-            spend_fleet(sx.state, who, cost);
-        }
-        self.gain = None;
-        self.stage = Stage::Done;
-        Next::Done
-    }
 }
 
 /// `Player::spend_token(Fleet)` `times` times (a pool never goes negative).
-fn spend_fleet(core: &mut CoreState, who: Seat, times: usize) {
+pub(crate) fn spend_fleet(core: &mut CoreState, who: Seat, times: usize) {
     if let Some(p) = core.players_mut().by_seat_mut(who) {
         for _ in 0..times {
             if p.econ.fleet_tokens <= 0 {

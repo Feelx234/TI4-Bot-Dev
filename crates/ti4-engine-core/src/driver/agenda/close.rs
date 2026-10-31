@@ -6,6 +6,7 @@
 //! agendas still to come held behind it (`AgendaQueueAfterEventScoring`); a vote that resolved nothing goes straight on to the next agenda.
 
 use super::flow::{open_next_vote, Opened};
+use super::grant::Grant;
 use super::VotingWin;
 use crate::containers::SmallList;
 use super::gap;
@@ -93,12 +94,24 @@ fn effect_facts(sx: &Sx<'_>, ballot: &[(crate::ids::Seat, Outcome)]) -> EffectFa
         blanked: reach::blanked(sx.state),
         roster: sx.table.facts.plays.as_ref().and_then(|p| p.roster),
         redistribution: codes.agenda.redistribution,
-        grant: codes.agenda.grant,
     }
 }
 
 /// `Game::run_agenda_effect`: the effect of `agenda` resolved with `effective`, then its plain announcement.
 fn run_effect(sx: &mut Sx<'_>, agenda: Agenda, effective: Outcome, ballot: &[(crate::ids::Seat, Outcome)]) -> Flow {
+    // Research Grant Reallocation composes the technology question of the relics, which an area window may not import.
+    if let (Agenda::ResearchGrantReallocation, Outcome::Seat(who)) = (agenda, effective) {
+        let mut grant = Grant::new(who, reach::scope_of(sx.kernel), sx.table.facts.plays.as_ref().and_then(|p| p.roster), sx.table.codes.agenda);
+        if run(sx, &mut grant) == Flow::Halt {
+            return Flow::Halt;
+        }
+        if grant.unsupported {
+            gap(sx, AgendaGap::EffectUnsupported(agenda as u8));
+            return Flow::Halt;
+        }
+        sx.plain(PlainRec::one(PlainKind::AgendaEffectResolved, PlainArg::Agenda(agenda)));
+        return Flow::Done;
+    }
     let facts = effect_facts(sx, ballot);
     let Some(mut window) = Resolve::of_facts(agenda, effective, &facts) else {
         gap(sx, AgendaGap::NoEffect(agenda as u8));

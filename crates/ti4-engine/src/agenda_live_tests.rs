@@ -306,3 +306,50 @@ fn research_grant_reallocation_gains_the_chosen_technology_and_pays_its_prerequi
     assert_eq!(last(&string), last(&native));
     assert_same(&string, &native);
 }
+
+fn with_hand(mut state: GameState, who: &str, cards: &[&str]) -> GameState {
+    state.player_mut(&pid(who)).unwrap().action_cards = cards.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
+    based(state)
+}
+
+/// Every rider card, played by seat `b` into the reveal of the first agenda (the table's first option predicts the outcome that wins).
+fn rider_sweep(prefer: Policy, table: impl Fn(&str) -> GameState) -> Vec<String> {
+    let mut failures = Vec::new();
+    for rider in ["imp_rider", "trade_rider", "politic_rider", "lead_rider", "const_rider", "diplo_rider", "war_rider", "tech_rider", "sanction", "assassin"] {
+        let state = table(rider);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let (string, native) = both_preferring(&state, &[], prefer);
+            assert!(string.events.iter().any(|e| e == "ACTION_CARD_PLAYED"), "the rider was never played: {:?}", string.events);
+            assert_same(&string, &native);
+        }));
+        if let Err(e) = outcome {
+            let text = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_owned())).unwrap_or_default();
+            failures.push(format!("{rider}: {}", text.lines().next().unwrap_or("")));
+        }
+    }
+    failures
+}
+
+#[test]
+fn a_correct_rider_is_paid_like_the_string() {
+    let failures = rider_sweep(&[], |rider| with_hand(agenda_table(&FOUR, &["checks", "conscription"]), "b", &[rider]));
+    assert!(failures.is_empty(), "{} riders differ:\n{}", failures.len(), failures.join("\n"));
+}
+
+#[test]
+fn a_rider_of_a_yssaril_seat_is_paid_like_the_string() {
+    let failures = rider_sweep(&[], |rider| with_hand(agenda_table(&[("a", "sol"), ("b", "yssaril"), ("c", "arborec"), ("d", "letnev")], &["checks", "conscription"]), "b", &[rider]));
+    assert!(failures.is_empty(), "{} riders differ:\n{}", failures.len(), failures.join("\n"));
+}
+
+#[test]
+#[ignore = "exploration aid"]
+fn explore_tech_rider() {
+    let state = with_hand(agenda_table(&FOUR, &["checks", "conscription"]), "b", &["tech_rider"]);
+    let (string, native) = both(&state, &[]);
+    for (name, run) in [("string", &string), ("native", &native)] {
+        for q in run.questions.iter().filter(|q| q.player.as_str() == "b" && !q.prompt.starts_with("exhaust") && !q.prompt.starts_with("vote")) {
+            eprintln!("{name}: {} | {} | {:?} | {:?}", q.player, q.prompt, q.options.iter().take(4).collect::<Vec<_>>(), q.details);
+        }
+    }
+}

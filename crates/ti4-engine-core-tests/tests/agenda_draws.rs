@@ -77,7 +77,6 @@ fn unconventional_measures_for_asks_a_voter_over_the_limit_which_card_goes() {
         blanked: false,
         roster: None,
         redistribution: Code(4),
-        grant: Code(5),
     };
     let st = || {
         let mut s = Scenario::lobby(3).hand(1, &SEVEN[..6]).state();

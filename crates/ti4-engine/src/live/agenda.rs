@@ -88,6 +88,15 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
     if let Ask::Agenda(AAsk::Planets { .. }) = choice.ask {
         full_tally(core, rendered);
     }
+    // The Technology Rider's research: the options are named by the technology's printed name.
+    if matches!(choice.ask, Ask::Strategy(ti4_engine_core::choice::strategy::Ask::ResearchTechnology { .. })) {
+        let content = ti4_content::ContentStore::embedded();
+        for (option, opt) in rendered.options.iter_mut().zip(choice.opts.iter()) {
+            if let ti4_engine_core::choice::Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Research(t)) = opt {
+                option.label = crate::technology::name(content, &ti4_model::id::TechnologyId::new(IdStr::as_str(*t)));
+            }
+        }
+    }
     if let Ask::Agenda(AAsk::DiscardLaw { law: Agenda::CommitteeFormation, .. }) = choice.ask {
         // The prompt names the agenda the election is for: the one in play (revealed, not yet voted on).
         let alias = core.agenda().in_play.map_or("", |a| IdStr::as_str(a));

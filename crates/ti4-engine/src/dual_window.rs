@@ -1305,7 +1305,6 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
         blanked: crate::laws::blanked(gs),
         roster: crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), a.sources),
         redistribution: r.code("redistribution"),
-        grant: r.code("grant_reallocation"),
     };
     let window = Resolve::of_facts(agenda, outcome, &facts).why("an agenda whose effect the core has no window for")?;
     if window.draws() && gs.deck_reserve.is_some() {

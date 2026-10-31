@@ -61,9 +61,8 @@ pub struct EffectFacts {
     pub blanked: bool,
     /// The faction units of the scope (the form a seat places for a base type); `None`: the effects that place units are the string's.
     pub roster: Option<&'static crate::query::tech::UnitRoster>,
-    /// `"redistribution"` and `"grant_reallocation"`, the sources of those effects' questions.
+    /// `"redistribution"`, the source of Colonial Redistribution's question.
     pub redistribution: Code,
-    pub grant: Code,
 }
 
 /// Technologies whose printed name mentions a war sun (`owns_a_war_sun_technology`).
