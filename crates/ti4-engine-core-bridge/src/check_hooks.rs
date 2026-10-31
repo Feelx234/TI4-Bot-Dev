@@ -397,6 +397,25 @@ pub fn hook_variants(p: &Position) -> Vec<(&'static str, GameState)> {
             }
         }
     });
+    // Sling Relay (a technology component action): owned and ready, spent, unaffordable, and every dock blockaded.
+    push("hooks sling", &|g| {
+        mixed(g);
+        sling(g, false);
+    });
+    push("hooks sling spent", &|g| {
+        mixed(g);
+        sling(g, true);
+    });
+    push("hooks sling broke", &|g| {
+        mixed(g);
+        sling(g, false);
+        broke(g);
+    });
+    push("hooks sling blockaded", &|g| {
+        mixed(g);
+        sling(g, false);
+        apply(p, g, MET);
+    });
     push("hooks ssruu", &|g| {
         statuses(g, LeaderStatus::Exhausted, LeaderStatus::Unlocked, LeaderStatus::Locked);
         for seat in &mut g.players {
@@ -407,6 +426,19 @@ pub fn hook_variants(p: &Position) -> Vec<(&'static str, GameState)> {
         war_suns(g);
     });
     out
+}
+
+/// Every seat owns Sling Relay, spent or ready.
+fn sling(g: &mut GameState, spent: bool) {
+    let sr = TechnologyId::new(Technology::SlingRelay.as_str());
+    for seat in &mut g.players {
+        seat.technologies.insert(sr.clone());
+        if spent {
+            seat.exhausted_technologies.insert(sr.clone());
+        } else {
+            seat.exhausted_technologies.remove(&sr);
+        }
+    }
 }
 
 fn no_docks_and_full_infantry(g: &mut GameState) {

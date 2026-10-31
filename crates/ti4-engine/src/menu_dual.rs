@@ -38,7 +38,7 @@ mod real {
     use ti4_engine_core::choice::turn::Opt as TOpt;
     use ti4_engine_core::driver::menu::{self, Entry, Source};
     use ti4_engine_core::driver::menu_sources;
-    use ti4_engine_core::generated::{Leader, StrategyCard};
+    use ti4_engine_core::generated::{Leader, StrategyCard, Technology};
     use ti4_engine_core::state::Code;
 
     use super::{Choice, ClosingEntry, GameState, MenuParts, PlayerId, SourceSet};
@@ -75,6 +75,9 @@ mod real {
                         return TOpt::Strategic { card, bare: false };
                     }
                     // The leaders' component actions are the core's own options (`Family::parse` of the renderer reads the same ids).
+                    if let Some(tech) = id.strip_prefix("component|tech|").and_then(<Technology as IdStr>::from_id) {
+                        return TOpt::Tech(tech);
+                    }
                     if let Some(rest) = id.strip_prefix("component|leader|") {
                         let typed = match rest.strip_prefix("yssarilagent|") {
                             Some(agent) => <Leader as IdStr>::from_id(agent).map(TOpt::Borrowed),
@@ -133,6 +136,7 @@ mod real {
                 let options = match (&native, source) {
                     (Some(native), Source::Strategic) => native.strategic.clone(),
                     (Some(native), Source::Leaders) => native.leaders.clone(),
+                    (Some(native), Source::Technology) => native.technology.clone(),
                     _ => ids.iter().map(|id| lent.typed(state, &active, id)).collect(),
                 };
                 Some((source, options))

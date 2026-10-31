@@ -17,6 +17,16 @@ pub const LENT_ID: &str = "lent";
 /// The id of a leader's component action, and that of a copy through Ssruu (`leaders::component_actions`, `borrowed_component_actions`).
 const LEADER_PREFIX: &str = "component|leader|";
 const BORROWED: &str = "yssarilagent|";
+/// The id of a technology's component action (`technology::component_actions`).
+const TECH_PREFIX: &str = "component|tech|";
+
+/// The label of a technology's component action: Sling Relay's is the engine's own text.
+fn tech_label(tech: ti4_engine_core::generated::Technology) -> String {
+    match tech {
+        ti4_engine_core::generated::Technology::SlingRelay => "use Sling Relay".to_owned(),
+        other => format!("use {}", other.as_str()),
+    }
+}
 
 /// The printed name of a leader, or its id: the label of its component action.
 fn leader_name(leader: ti4_engine_core::generated::Leader) -> String {
@@ -64,6 +74,7 @@ impl Family for Fam {
             Opt::EndTurn => ChoiceOption::labelled(END_TURN_ID, END_TURN_KIND, "end your turn"),
             Opt::Lent(_) => ChoiceOption::labelled(LENT_ID, "lent", "lent"),
             Opt::Leader(leader) => ChoiceOption::labelled(format!("{LEADER_PREFIX}{}", leader.as_str()), "component", leader_name(*leader)),
+            Opt::Tech(tech) => ChoiceOption::labelled(format!("{TECH_PREFIX}{}", tech.as_str()), "component", tech_label(*tech)),
             Opt::Borrowed(agent) => ChoiceOption::labelled(
                 format!("{LEADER_PREFIX}{BORROWED}{}", agent.as_str()),
                 "component",
@@ -82,6 +93,9 @@ impl Family for Fam {
             TACTICAL_ACTION_ID => Some(Opt::Tactical),
             END_TURN_ID => Some(Opt::EndTurn),
             _ => {
+                if let Some(tech) = id.strip_prefix(TECH_PREFIX) {
+                    return ti4_engine_core::generated::Technology::from_id(tech).map(Opt::Tech);
+                }
                 if let Some(rest) = id.strip_prefix(LEADER_PREFIX) {
                     return match rest.strip_prefix(BORROWED) {
                         Some(agent) => ti4_engine_core::generated::Leader::from_id(agent).map(Opt::Borrowed),

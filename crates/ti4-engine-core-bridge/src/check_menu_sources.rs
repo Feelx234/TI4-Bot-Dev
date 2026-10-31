@@ -24,6 +24,8 @@ pub struct MenuReport {
     pub lone_pass: usize,
     pub own_leaders: usize,
     pub borrowed: usize,
+    /// Seats that were offered Sling Relay.
+    pub sling: usize,
 }
 
 impl MenuReport {
@@ -37,6 +39,7 @@ impl MenuReport {
         self.lone_pass += o.lone_pass;
         self.own_leaders += o.own_leaders;
         self.borrowed += o.borrowed;
+        self.sling += o.sling;
     }
 }
 
@@ -81,7 +84,7 @@ pub fn check_variants(p: &Position, variants: Vec<(&'static str, GameState)>, re
                 report.seats += 1;
                 let pid: &PlayerId = &seat.id;
                 let at = format!("{} [{name}, {deal}] {pid}", p.label);
-                let Some((strategic, leaders)) = ti4_engine::menu_sources_view::rendered(&g, p.sources, pid) else {
+                let Some([strategic, leaders, technology]) = ti4_engine::menu_sources_view::rendered(&g, p.sources, pid) else {
                     report.unmapped += 1;
                     continue;
                 };
@@ -91,7 +94,10 @@ pub fn check_variants(p: &Position, variants: Vec<(&'static str, GameState)>, re
                     None => vec![ChoiceOption::labelled("pass", ti4_engine::strategy::ACTION_KIND, "pass")],
                 };
                 let string_leaders = ti4_engine::leaders::component_actions(&g, content, pid);
-                for (what, string, core) in [("strategic", &string_strategic, &strategic), ("leaders", &string_leaders, &leaders)] {
+                let string_technology = ti4_engine::technology::component_actions(&g, content, p.sources, pid);
+                for (what, string, core) in
+                    [("strategic", &string_strategic, &strategic), ("leaders", &string_leaders, &leaders), ("technology", &string_technology, &technology)]
+                {
                     let (s, c): (Vec<_>, Vec<_>) = (string.iter().map(key).collect(), core.iter().map(key).collect());
                     if s != c && report.mismatches.len() < 40 {
                         report.mismatches.push(format!("{at} {what}: string {s:?} vs core {c:?}"));
@@ -104,6 +110,7 @@ pub fn check_variants(p: &Position, variants: Vec<(&'static str, GameState)>, re
                     _ => {}
                 }
                 report.own_leaders += leaders.iter().filter(|o| !o.id.starts_with("component|leader|yssarilagent|")).count();
+                report.sling += technology.len();
                 report.borrowed += leaders.iter().filter(|o| o.id.starts_with("component|leader|yssarilagent|")).count();
             }
         }

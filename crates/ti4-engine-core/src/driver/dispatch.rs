@@ -35,7 +35,7 @@ pub const fn dispatch(opt: Opt) -> Dispatch {
         Opt::Strategic { card, .. } => Dispatch::Strategic(card),
         Opt::EndTurn => Dispatch::EndTurn,
         Opt::Token(_) => Dispatch::Token,
-        Opt::Lent(_) | Opt::Leader(_) | Opt::Borrowed(_) => Dispatch::Lend,
+        Opt::Lent(_) | Opt::Leader(_) | Opt::Borrowed(_) | Opt::Tech(_) => Dispatch::Lend,
     }
 }
 
@@ -85,6 +85,7 @@ mod tests {
         assert_eq!(dispatch(Opt::Lent(Code(3))), Dispatch::Lend);
         assert_eq!(dispatch(Opt::Leader(crate::generated::Leader::ALL[0])), Dispatch::Lend);
         assert_eq!(dispatch(Opt::Borrowed(crate::generated::Leader::ALL[0])), Dispatch::Lend);
+        assert_eq!(dispatch(Opt::Tech(crate::generated::Technology::SlingRelay)), Dispatch::Lend);
         assert_eq!(dispatch(Opt::Token(crate::generated::System::ALL[0])), Dispatch::Token);
     }
 

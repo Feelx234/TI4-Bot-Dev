@@ -8,9 +8,10 @@
 //! `ti4-engine-core-bridge::check_menu_sources`.
 
 use crate::choice::turn::Opt;
-use crate::generated::{Leader, LeaderType, StrategyCard};
+use crate::generated::{Leader, LeaderType, StrategyCard, Technology};
 use crate::ids::Seat;
 use crate::kernel::Kernel;
+use crate::query::tech::UnitRoster;
 use crate::query::{leaders as qleaders, reach};
 use crate::rules::leaders::{self, Cx};
 use crate::state::{CoreState, LeaderStatus};
@@ -87,6 +88,20 @@ fn borrowed(cx: &Cx<'_>, who: Seat) -> Vec<Leader> {
         }
     }
     out
+}
+
+/// The technologies' component actions (`technology::component_actions`): Sling Relay, owned and ready, when a ship could be produced at a dock
+/// nobody blockades (`production::can_sling_relay`). `roster` holds the faction units of the source scope.
+#[must_use]
+pub fn technology(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, who: Seat) -> Vec<Opt> {
+    let Some(p) = core.players().by_seat(who) else { return Vec::new() };
+    if !p.tech.owned.contains(Technology::SlingRelay) || p.tech.exhausted.contains(Technology::SlingRelay) {
+        return Vec::new();
+    }
+    let scope = reach::scope_of(kernel);
+    let cx = crate::rules::production::Cx::new(core, kernel, scope, reach::blanked(core));
+    let Some(buildable) = crate::rules::production::probe::buildable_for(core, kernel, scope, roster, who) else { return Vec::new() };
+    if crate::rules::production::triggered::sling_candidates(&cx, who, &buildable).as_slice().is_empty() { Vec::new() } else { vec![Opt::Tech(Technology::SlingRelay)] }
 }
 
 /// `Game::is_free_option` for a leader option: one printed "During the action phase:" leaves the turn's action untouched. A copy through Ssruu

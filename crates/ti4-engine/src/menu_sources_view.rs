@@ -20,6 +20,8 @@ pub struct Native {
     pub strategic: Vec<TOpt>,
     /// The leaders' component actions (own, then Ssruu's copies).
     pub leaders: Vec<TOpt>,
+    /// The technologies' component actions (Sling Relay).
+    pub technology: Vec<TOpt>,
 }
 
 /// Every slice but the random streams and the map (the hooks the sources ask read most of the position; none needs the galaxy, which the
@@ -34,13 +36,18 @@ fn reads() -> SliceSet {
 pub fn native(gs: &GameState, cx: &mut Ctx, sources: SourceSet, seat: Seat) -> Option<Native> {
     let view = CoreView::of(gs, cx, Sources { galaxy: None, rng: None }, reads()).ok()?;
     let kernel = crate::live::kernel::kernel_for(sources);
-    Some(Native { strategic: menu_sources::strategic(&view, seat), leaders: menu_sources::leaders(&view, kernel, seat) })
+    let roster = ti4_engine_core_factions::cd_registry::yin::timing::roster(ti4_engine_core::query::reach::scope_of(kernel));
+    Some(Native {
+        strategic: menu_sources::strategic(&view, seat),
+        leaders: menu_sources::leaders(&view, kernel, seat),
+        technology: menu_sources::technology(&view, kernel, &roster, seat),
+    })
 }
 
-/// The two sources of `player`'s action menu as the options the table renders (`ChoiceOption`: id, kind, label): `(strategic, leaders)`.
+/// The sources of `player`'s action menu as the options the table renders (`ChoiceOption`: id, kind, label): `(strategic, leaders, technology)`.
 /// `None`: the position is not one the core holds.
 #[must_use]
-pub fn rendered(gs: &GameState, sources: SourceSet, player: &ti4_model::id::PlayerId) -> Option<(Vec<crate::choice::ChoiceOption>, Vec<crate::choice::ChoiceOption>)> {
+pub fn rendered(gs: &GameState, sources: SourceSet, player: &ti4_model::id::PlayerId) -> Option<[Vec<crate::choice::ChoiceOption>; 3]> {
     use ti4_engine_core::driver::menu::{self, Source};
     let (mut cx, r) = crate::dual_window::tables(gs)?;
     let seat = r.seat(player.as_str())?;
@@ -49,5 +56,5 @@ pub fn rendered(gs: &GameState, sources: SourceSet, player: &ti4_model::id::Play
         let choice = menu::action_menu(seat, &[(source, part)], false, &[]);
         crate::render::Typed::new(&r, choice, crate::render::generic::core_phase(gs.phase), gs.round).rendered.options
     };
-    Some((render(found.strategic, Source::Strategic), render(found.leaders, Source::Leaders)))
+    Some([render(found.strategic, Source::Strategic), render(found.leaders, Source::Leaders), render(found.technology, Source::Technology)])
 }

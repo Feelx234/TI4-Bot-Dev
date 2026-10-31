@@ -16,4 +16,6 @@ fn the_core_lists_the_strategic_and_leader_options_the_string_lists() {
     assert!(report.bare > 0 && report.several > 0 && report.lone_pass > 0, "strategic: {report:?}");
     assert!(report.own_leaders > 0, "leaders: {report:?}");
     assert!(report.borrowed > 0, "a copy through Ssruu: {report:?}");
+    assert!(report.sling > 0, "Sling Relay offered: {report:?}");
+    assert!(report.sling < report.seats, "and withheld: {report:?}");
 }
