@@ -202,7 +202,14 @@ impl Machine {
 
     /// Emit a typed event of the action: mirrored into the emission queue when live (`emit_typed`), else only announced.
     pub(crate) fn emit(&self, sx: &mut Sx<'_>, rec: crate::state::EventRec) -> Result<crate::state::EventRec, crate::kernel::TimingError> {
-        if self.live { sx.emit_mirrored(rec) } else { sx.emit(rec) }
+        if !self.live {
+            return sx.emit(rec);
+        }
+        // `Game::emit_typed` announces what effects staged without a resolver (E-Res Siphons' trade goods) before the event.
+        for staged in crate::kernel::fx::drain_staged(sx.state) {
+            let _ = sx.emit_mirrored(staged);
+        }
+        sx.emit_mirrored(rec)
     }
 
     /// Record a plain event of the action (`Game::emit`); live, also on the emission queue. A [`Plain::Typed`] line is the

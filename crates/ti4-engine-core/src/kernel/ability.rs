@@ -196,6 +196,8 @@ pub struct TacticalCodes {
     pub casualty: crate::state::Code,
     pub commander: crate::state::Code,
     pub pre_roll: crate::state::Code,
+    /// `faction_technology`: the source of the trade goods E-Res Siphons gains.
+    pub faction_technology: crate::state::Code,
 }
 
 /// What the effects of the action cards read from outside the core, per seat (the faction and source answers of

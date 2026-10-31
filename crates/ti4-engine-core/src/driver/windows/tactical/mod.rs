@@ -26,6 +26,7 @@
 //! What the window does not carry is a counted bail of the native path: `Unknown::UnportedTactical(gap)`.
 
 mod facts;
+mod hooks;
 mod live;
 mod tail;
 
@@ -113,8 +114,8 @@ impl TacticalAction {
     }
 
     /// Whether a hook of the activation that this window does not carry is in the position.
-    fn hook_gap(core: &CoreState, k: &Kernel, seat: Seat, system: System) -> Option<TacticalGap> {
-        facts::activation_hook_held(core, k, seat, system).then_some(TacticalGap::ActivationHook)
+    fn hook_gap(core: &CoreState, k: &Kernel, seat: Seat) -> Option<TacticalGap> {
+        facts::activation_hook_held(core, k, seat).then_some(TacticalGap::ActivationHook)
     }
 
     /// The stage of the leaf machine after an answer, as the payload.
@@ -198,11 +199,14 @@ impl Window for TacticalAction {
                 }
                 TStage::Hooks => {
                     let Some(system) = sx.state.meta().active_system else { return Self::bail(sx, TacticalGap::NoProgress) };
-                    if let Some(gap) = Self::hook_gap(sx.state, sx.kernel, seat, system) {
+                    if let Some(gap) = Self::hook_gap(sx.state, sx.kernel, seat) {
                         return Self::bail(sx, gap);
                     }
                     self.leaf = None;
-                    self.p.stage = TStage::Moving;
+                    self.p.stage = match hooks::run(sx, seat, system) {
+                        hooks::After::Move => TStage::Moving,
+                        hooks::After::Close => TStage::Closing,
+                    };
                 }
                 TStage::Closing => {
                     let Some(system) = sx.state.meta().active_system else {

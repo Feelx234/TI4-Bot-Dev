@@ -493,6 +493,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             casualty: r.code("assign_casualty"),
             commander: r.code("letnevcommander"),
             pre_roll: r.code("pre_roll"),
+            faction_technology: r.code("faction_technology"),
         };
 }
 

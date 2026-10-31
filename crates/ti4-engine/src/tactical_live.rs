@@ -187,6 +187,8 @@ mod tests {
         asked: Vec<Choice>,
         events: Vec<String>,
         state: Value,
+        /// The native run stopped on a position the core does not run (a bail), worded.
+        bail: Option<String>,
     }
 
     /// Records every question the string table is asked and answers from the script; a spent script refuses (the step then fails and the
@@ -226,7 +228,7 @@ mod tests {
         // The first question is the action menu's.
         let asked = asked.borrow().iter().skip(1).filter(|c| !c.options.is_empty()).cloned().collect::<Vec<_>>();
         let asked = asked.into_iter().take(script.len() - 1).collect();
-        Side { asked, events: game.events.clone(), state: serde_json::to_value(&game.state).expect("serialises") }
+        Side { asked, events: game.events.clone(), state: serde_json::to_value(&game.state).expect("serialises"), bail: None }
     }
 
     /// Answers from one shared queue: the questions of a step (stage and nested) take what the script has next.
@@ -256,6 +258,7 @@ mod tests {
         let queue = Rc::new(RefCell::new(script[1..].iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
         let seen = Rc::new(RefCell::new(Vec::new()));
         let mut asker = Shared { queue: queue.clone(), seen: seen.clone() };
+        let mut bail = None;
         for _ in 0..script.len() + 4 {
             if queue.borrow().is_empty() {
                 break;
@@ -263,17 +266,22 @@ mod tests {
             match live_step(&mut core, Arm::Tactical, &live, &mut asker) {
                 Ok(step) if step.finished => break,
                 Ok(_) => {}
+                Err(crate::live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::UnportedTactical(gap)))) => {
+                    bail = Some(super::gap_text(gap).to_owned());
+                    break;
+                }
                 Err(e) => panic!("the native step: {e:?}"),
             }
         }
         let asked = seen.borrow().clone();
         let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
         let after = materialize::materialize(&core, &cx, state).expect("materializes");
-        Side { asked, events, state: serde_json::to_value(&after).expect("serialises") }
+        Side { asked, events, state: serde_json::to_value(&after).expect("serialises"), bail }
     }
 
     fn leaves(label: &str, left: &Value, right: &Value) -> Vec<String> {
-        diff_json(left, right, 8).into_iter().map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
+        // `private:#seen:*` is the string's own bookkeeping of what each seat has been shown (the per-step reconcile), not a rule.
+        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:")).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
     /// Run both and report every difference of the questions, the events (the native ones must be a prefix of the string's when `prefix`) and the position.
@@ -283,6 +291,11 @@ mod tests {
         let s = string_run(&state, galaxy, script);
         let n = native_run(&state, galaxy, &rng, script);
         let mut out = Vec::new();
+        if let Some(why) = &n.bail {
+            // Bail as failure: a position the native path does not run is a defect of the island, never a silent lend.
+            out.push(format!("BAIL: {why}"));
+            return out;
+        }
         if s.asked.len() != n.asked.len() {
             out.push(format!("questions: string {} native {}", s.asked.len(), n.asked.len()));
         }
@@ -375,6 +388,45 @@ mod tests {
         state.player_mut(&a()).unwrap().fleet_tokens = 1;
         let mv = id(&origin, 0);
         let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "done_moving", "remove|0", "remove|0"], true);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    /// Bail as failure (`TI4_BAIL_IS_FAILURE`): a real tactical action of every faction named by the brief, native from the activation to the
+    /// hand-off to the aftermath, with the factions' own abilities of the movement and tactical windows (Mentak, Argent, Ghost, Naalu,
+    /// Sardakk, Xxcha, Hacan, Winnu, ...) in play. The same script runs twice: to the end of the hold (state compared) and through the close.
+    #[test]
+    fn a_tactical_action_of_each_faction_runs_native_without_a_bail_and_as_the_string_does() {
+        let (hub, origin, target) = hub();
+        let mut failures = Vec::new();
+        for faction in ["mentak", "argent", "ghost", "naalu", "sardakk", "xxcha", "hacan", "winnu", "sol", "letnev", "jolnar", "l1z1x", "arborec", "muaat", "nekro", "saar", "yin", "yssaril", "cabal", "empyrean", "naaz", "nomad", "titans"] {
+            let other = if faction == "letnev" { "sol" } else { "letnev" };
+            let mut state = table(&[("a", faction), ("b", other)]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &origin, "infantry", &a(), 2);
+            let mv = id(&origin, 0);
+            for (script, prefix) in [(vec![TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "load|1"], false), (vec![TACTICAL_ACTION_ID, target.as_str(), &mv, "load|0", "load|1", "done_moving"], true)] {
+                for d in lockstep(state.clone(), &hub.galaxy, &script, prefix) {
+                    failures.push(format!("{faction} (prefix {prefix}): {d}"));
+                }
+            }
+        }
+        // Residual, counted: the hooks of the activation that ask (Scanlink Drone Network is a Titans starting technology; Mahact's Starlancer and
+        // commander); see `docs/M6_RESUME.md`. Nothing else may bail.
+        failures.retain(|f| !(f.contains("BAIL: a hook of the activation") && (f.starts_with("titans") || f.starts_with("mahact"))));
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// E-Res Siphons (automatic, after the activation of a system that holds the holder's ships) and the Sardakk and Winnu marks of the
+    /// activation, in lockstep with the string.
+    #[test]
+    fn the_hooks_of_the_activation_that_do_not_ask_run_as_the_string_runs_them() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "sardakk"), ("b", "jolnar")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "cruiser", &PlayerId::new("b"), 1);
+        state.player_mut(&PlayerId::new("b")).unwrap().technologies.insert(ti4_model::TechnologyId::new("ers"));
+        let mv = id(&origin, 0);
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], false);
         assert!(diffs.is_empty(), "{diffs:#?}");
     }
 }
