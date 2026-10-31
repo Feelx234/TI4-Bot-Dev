@@ -187,6 +187,16 @@ impl BarrageStep {
         e.faces.iter().filter(|face| **face >= e.hits_on).count()
     }
 
+    /// The unit type behind a staged entry, as the string stages it (`unit_types`: the type's text once): what Strike Wing's dice and the
+    /// commander's extra die read to know which unit rolled. The relic's dice name no unit and stage none.
+    fn unit_types(&self, unit: Option<Unit>) -> crate::containers::SortedMap<Code, u32, 4> {
+        let mut types = crate::containers::SortedMap::default();
+        if let Some(code) = unit.and_then(|u| self.f.unit_codes.iter().find(|(k, _)| *k == u).map(|(_, c)| *c)) {
+            types.insert(code, 1);
+        }
+        types
+    }
+
     /// The side's dice as the staged set the questions describe (`transient.combat.reroll_staging`, mirrored while a question is open).
     fn mirror(&self, sx: &mut Sx<'_>, seat: Seat) {
         let rolls: Vec<RerollEntry> = self
@@ -199,7 +209,8 @@ impl BarrageStep {
                 faces: e.faces.iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect(),
                 rerolled: e.rerolled,
                 deltas: crate::containers::SortedMap::default(),
-                unit_types: crate::containers::SortedMap::default(),
+                unit_types: self.unit_types(e.unit),
+                kind: e.unit.filter(|u| self.f.unit_codes.iter().any(|(k, _)| k == u)),
             })
             .collect();
         let set = RerollSet { kind: self.f.phase, system: self.f.system, rolls };

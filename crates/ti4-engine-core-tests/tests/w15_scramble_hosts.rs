@@ -174,7 +174,7 @@ fn the_reroll_window_of_a_bombardment_emits_the_event_with_the_staged_hits_and_r
             if let Some((die, by)) = bonus {
                 deltas.insert(die, by);
             }
-            RerollEntry { unit: Code(1), planet: None, hits_on: Some(5), faces: faces.iter().copied().collect(), rerolled: 0, deltas, unit_types: ti4_engine_core::containers::SortedMap::default() }
+            RerollEntry { unit: Code(1), planet: None, hits_on: Some(5), faces: faces.iter().copied().collect(), rerolled: 0, deltas, unit_types: ti4_engine_core::containers::SortedMap::default(), kind: None }
         };
         // A 2 with a +3 adjustment hits on 5 as a 5 does: the hits count the adjusted face.
         let set = RerollSet { kind: Code(7), system: sys(), rolls: vec![entry(&[2, 6], Some((0, 3))), entry(&[5], None), entry(&[1], Some((0, 1)))] };

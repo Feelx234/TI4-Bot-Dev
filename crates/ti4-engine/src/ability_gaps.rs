@@ -8,7 +8,6 @@ use ti4_engine_core::kernel::ability::Slot;
 pub(crate) const GAP_IDS: &[&str] = &[
     "ability:*:foresight:MOVEMENT_FINISHED:after",
     "ability:*:propagation:PROPAGATION_RESEARCH:after",
-    "leader:*:argentcommander:UNIT_ABILITY_ROLLED:when",
     "leader:*:mentakagent:PILLAGE_USED:after",
     "leader:*:mentakcommander:SPACE_COMBAT_WON:after",
     "leader:*:muaathero:MOVEMENT_FINISHED:after",
@@ -21,7 +20,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:sardakkhero_turn:TURN_BEGAN:after",
     "leader:*:titanscommander:PRODUCTION_USED:when",
     "leader:*:yssarilcommander_clear:ACTION_COMPLETED:after",
-    "promissory:*:ambuscade:UNIT_ABILITY_ROLLED:when",
     "promissory:*:iff:TURN_BEGAN:after",
     "promissory:*:ragh:UNITS_COMMITTED:after",
     "promissory:*:scepter:STRATEGY_PHASE_BEGAN:after",
@@ -35,7 +33,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "technology:*:exo2:SPACE_COMBAT_ROUND_ENDED:after",
     "technology:*:md_hit:GROUND_COMBAT_STARTED:after",
     "technology:*:nekroc4y:SHIP_DESTROYED:after",
-    "technology:*:swa2:UNIT_ABILITY_ROLLED:after",
     "technology:*:yso:UNITS_PRODUCED:after",
     "unit:*:naalu_mech_te:RELIC_GAINED:after",
     "unit:*:nekro_flagship:SPACE_COMBAT_STARTED:after",

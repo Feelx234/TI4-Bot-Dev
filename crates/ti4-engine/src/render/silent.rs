@@ -2,7 +2,7 @@
 //! for `reaction::Ask::G`.
 
 use ti4_engine_core::choice::reaction::Opt as ROpt;
-use ti4_engine_core::choice::silent::{Ask, Landing, Opt, Subtype};
+use ti4_engine_core::choice::silent::{Ask, DieSource, Landing, Opt, Subtype};
 
 use super::Render;
 use crate::choice::ChoiceOption;
@@ -21,6 +21,9 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
         Ask::Voidwatch => "Voidwatch: which promissory note to give".to_owned(),
         Ask::Stillness => "The Stillness of Stars: which unit do you capture".to_owned(),
         Ask::NaazAgent | Ask::NaazCopy => "Garv and Gunn: explore which of your planets".to_owned(),
+        Ask::ExtraDie(DieSource::Ambuscade) => "ambuscade: choose a unit to roll 1 additional die".to_owned(),
+        Ask::ExtraDie(DieSource::Commander) => "argentcommander: choose a unit to roll 1 additional die".to_owned(),
+        Ask::StrikeWing => "Strike Wing Alpha II: choose an infantry to destroy".to_owned(),
     }
 }
 
@@ -37,6 +40,8 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Stillness => "stillness_target",
         Subtype::NaazAgent => "agent_planet",
         Subtype::NaazCopy => "borrowed_agent_planet",
+        Subtype::ExtraDie => "extra_die_unit",
+        Subtype::StrikeWing => "swa2_infantry",
     }
     .to_owned()
 }
@@ -85,6 +90,8 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
             let name = ti4_content::galaxy::planet(content, planet.as_str(), ti4_model::content_types::FULL).and_then(|record| record.name()).unwrap_or(planet.as_str());
             ChoiceOption::labelled(planet.as_str(), "planet", format!("explore {name}"))
         }
+        (Ask::ExtraDie(_), Opt::ExtraDie { entry, unit }) => ChoiceOption::labelled(format!("unit|{entry}"), "extra_die", format!("{} rolls 1 additional die", unit.as_str())),
+        (Ask::StrikeWing, Opt::Infantry { unit, victim }) => ChoiceOption::labelled(unit.as_str(), "strike_wing_destroy", format!("destroy 1 {} of {}", unit.as_str(), r.seat_text(*victim))),
         _ => panic!("option {o:?} in the question {a:?}"),
     }
 }
@@ -115,7 +122,7 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
         }
         // The system is not in the option id: the option is matched against the rendered ones of its question.
         // The victim is not in the option id: the option is matched against the rendered ones of its question.
-        Ask::CommanderFighters | Ask::Voidwatch | Ask::Stillness => None,
+        Ask::CommanderFighters | Ask::Voidwatch | Ask::Stillness | Ask::ExtraDie(_) | Ask::StrikeWing => None,
         // The system is an attribute of the rendered option: the option is matched against the rendered ones of its question.
         Ask::TradePolicy => None,
         Ask::Mitosis => {

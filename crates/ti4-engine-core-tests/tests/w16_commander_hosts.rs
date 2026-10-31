@@ -31,6 +31,7 @@ fn staged(faces: &[&[u8]], hits_on: u8) -> RerollSet {
             rerolled: 0,
             deltas: ti4_engine_core::containers::SortedMap::default(),
             unit_types: ti4_engine_core::containers::SortedMap::default(),
+            kind: None,
         })
         .collect();
     RerollSet { kind: Code(7), system: sys(), rolls }

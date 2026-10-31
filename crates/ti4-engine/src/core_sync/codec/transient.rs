@@ -93,6 +93,11 @@ pub(crate) fn reroll_set(_cx: &Ctx, tx: &mut Texts, r: &m::RerollSet) -> R<c::Re
         for (k, v) in &e.unit_types {
             unit_types.insert(tx.intern_code(S, k)?, *v);
         }
+        // The one type behind the entry, typed (a pooled entry has several, the relic's dice and an attachment's cannon none).
+        let kind = match e.unit_types.keys().collect::<Vec<_>>().as_slice() {
+            [only] => <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id(only),
+            _ => None,
+        };
         rolls.push(c::RerollEntry {
             unit: tx.intern_code(S, &e.unit)?,
             planet: e.planet.as_ref().map(planet).transpose()?,
@@ -101,6 +106,7 @@ pub(crate) fn reroll_set(_cx: &Ctx, tx: &mut Texts, r: &m::RerollSet) -> R<c::Re
             rerolled,
             deltas,
             unit_types,
+            kind,
         });
     }
     Ok(c::RerollSet { kind: tx.intern_code(S, &r.kind)?, system: sys(&r.system)?, rolls })
