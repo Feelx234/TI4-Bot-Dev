@@ -203,7 +203,7 @@ fn each_player_shows_a_card_in_seat_order_then_the_holder_decides_for_each_and_n
     assert_eq!((q.actor, q.ask), (Seat(1), Ask::Cards(CAsk::OwnHand { reason: Reason::Show { viewer: Seat(0) } })));
     assert_eq!(q.ctx.origin, Origin::FactionAbility(ti4_engine_core::choice::generic::Content::Leader(Leader::KyverBladeAndKey)));
     rig.assert_options_sound();
-    let mut by_name = vec![C[0], C[1]];
+    let mut by_name = [C[0], C[1]];
     by_name.sort_by_key(|card| card.name_rank());
     assert_eq!(rig.opts(), by_name.iter().map(|card| Opt::Cards(COpt::Card(*card))).collect::<Vec<_>>(), "one option per printed card, in the order of the names");
     rig.pick_opt(Opt::Cards(COpt::Card(C[1])));

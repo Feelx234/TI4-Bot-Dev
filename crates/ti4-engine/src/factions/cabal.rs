@@ -948,6 +948,8 @@ fn carrion_dual(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
     let (content, sources, galaxy) = (*content, *sources, *galaxy);
     let rng_before = rng.positions();
+    // The dice of the card: only streams the core can reproduce (no test faces, no pending restore, the state's seed).
+    let reproducible = crate::product::reproducible(dice.is_preloaded(), rng.sync_pending(), rng.seed(), state.rng_seed);
     crate::dual_window!(
         crate::dual::Area::LeadersAbilities,
         "factions::cabal::hero",
@@ -958,6 +960,10 @@ fn carrion_dual(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
             crate::dual::Run::new(done).with_rng(&*inner.rng)
         },
         |s: &mut GameState, script: &crate::dual_window::Recording| {
+            if !reproducible {
+                crate::dual::note_bail_here("irreproducible dice (test faces or a stream restore)");
+                return None;
+            }
             let targets = carrion_targets(s, content, sources, galaxy, player);
             crate::hero_dual::cabal_hero(s, content, player, &targets, &rng_before, sources, script)
         }
@@ -4178,6 +4184,27 @@ mod tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert_eq!(thread_window_counts("factions::cabal::hero"), (5, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    #[test]
+    fn a_hero_rolled_with_test_faces_has_no_core_window_and_the_dual_run_stays_silent() {
+        // Found by the full dual suite (INT7 round 6): with `Area::LeadersAbilities` dual the core drew its dice from the state's stream while the
+        // string rolled the test faces, and every such test differed (questions, a captured ship). Test faces have no window, counted.
+        use crate::dual::{report, take_report, thread_window_counts, with_mask, Area, AreaMask, Backend};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let (mut state, hub, tear) = tear_hub();
+        unlock_hero(&mut state);
+        crate::fixtures::put(&mut state, &tear, "carrier", &b(), 2);
+        crate::fixtures::put(&mut state, &tear, "fighter", &b(), 2);
+        let (done, _) = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || play_hero(&mut state, Some(&hub.galaxy), &[2, 6]));
+        assert!(done);
+        assert_eq!(all_captured(&state), vec![row("a", "b", "carrier")]);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::cabal::hero"), (0, 1), "no window ran, one bail counted: {r:?}");
         let _ = take_report();
     }
 
