@@ -45,6 +45,32 @@ fn follow_words(card: StrategyCard) -> (&'static str, &'static str, &'static str
     }
 }
 
+/// A token-free way to follow the core's hook table offers (`hooks_strategy::secondary_waivers` of the module that offered it): the id carries
+/// the position of the module among the string modules that have the hook, the label is the module's text.
+fn waiver_option(r: &Render, a: &Ask, module: ti4_engine_core::generated::Faction, code: u16) -> ChoiceOption {
+    use ti4_engine_core::generated::Faction;
+    let primary = match a {
+        Ask::Follow { primary, .. } => r.seat_text(*primary).to_owned(),
+        _ => unreachable!("a waiver is offered by Ask::Follow"),
+    };
+    let index = crate::factions::hooks_strategy::waiver_module_index(crate::generated::IdStr::as_str(module)).unwrap_or(0);
+    let (id, label) = match module {
+        Faction::TheWinnu => ("acq".to_owned(), "resolve the secondary using Acquiescence".to_owned()),
+        Faction::TheMahactGeneSorcerers => {
+            let system = System::from_index(usize::from(code)).map_or("?", |s| s.as_str());
+            (
+                format!("{}{system}", crate::factions::mahact::AGENT_WAIVER_PREFIX),
+                format!("exhaust Jae Mir Kan: use {primary}'s command token from {} instead of a token", crate::factions::mahact::system_name_of(system)),
+            )
+        }
+        _ => {
+            let note = ti4_engine_core_factions::cd_registry::naalu::query::mindsieve_parts(code).map_or_else(String::new, |(note, faction)| crate::render::cards::note_text(ti4_engine_core::state::NoteKey { note, faction }));
+            (format!("{}{note}", crate::factions::naalu::MINDSIEVE_PREFIX), format!("resolve the secondary by giving {primary} the {note} promissory note"))
+        }
+    };
+    ChoiceOption::labelled(format!("{}{index}|{id}", crate::strategy::WAIVED_SECONDARY_PREFIX), crate::strategy::STRATEGY_KIND, label)
+}
+
 /// The renderer of the strategy card questions.
 pub struct Fam;
 
@@ -177,6 +203,7 @@ impl Family for Fam {
             Opt::Skip => ChoiceOption::labelled("no", crate::strategy::STRATEGY_KIND, follow_words(follow_card(a)).1),
             Opt::Follow => ChoiceOption::labelled("yes", crate::strategy::STRATEGY_KIND, follow_words(follow_card(a)).2),
             Opt::Waive(shape) => r.shape_option(*shape),
+            Opt::WaiveBy(module, code) => waiver_option(r, a, *module, *code),
             Opt::PrimaryInstead => ChoiceOption::labelled(
                 crate::factions::firmament_plots::PRIMARY_INSTEAD_ID,
                 crate::strategy::STRATEGY_KIND,

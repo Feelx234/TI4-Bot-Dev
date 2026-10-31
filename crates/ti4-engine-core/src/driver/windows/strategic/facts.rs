@@ -12,7 +12,7 @@
 
 use crate::choice::strategy::Opt as SOpt;
 use crate::driver::kernel_env::KernelEnv;
-use crate::generated::{Faction, Leader, PromissoryNote, StrategyCard, StrategyCardKind, System, Unit, UnitBaseType};
+use crate::generated::{Faction, Leader, PromissoryNote, StrategyCard, StrategyCardKind, System, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::children::{FreeSystems, ImperialFacts, Placement, StructureFacts, TeUses};
 use crate::kernel::fx_perform::{Carried, Facts, Home};

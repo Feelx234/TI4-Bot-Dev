@@ -437,6 +437,11 @@ fn tokens_on_board(state: &GameState, primary: &PlayerId) -> Vec<SystemId> {
         .collect()
 }
 
+/// [`system_name`] of a system id text (the render of the core's Jae Mir Kan waiver).
+pub(crate) fn system_name_of(system: &str) -> String {
+    system_name(&SystemId::new(system))
+}
+
 /// What a player calls the system in a prompt: its planets ("Mecatol Rex", "Bakal and Alio Prima"),
 /// else the tile number. The tile number follows, so two systems never read alike.
 fn system_name(system: &SystemId) -> String {

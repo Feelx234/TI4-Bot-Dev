@@ -34,6 +34,11 @@ pub fn codes(r: &Render) -> TurnCodes {
         spec_ops: r.code("spec ops II"),
         strategy_card: r.code("strategy_card"),
         starting_technology: r.code("starting_technology"),
+        strategy_secondary: r.code("strategy_secondary"),
+        trade_primary: r.code("trade_primary"),
+        place_structure: r.code("place_structure"),
+        te6warfare: r.code("te6warfare"),
+        te4construction: r.code("te4construction"),
     }
 }
 

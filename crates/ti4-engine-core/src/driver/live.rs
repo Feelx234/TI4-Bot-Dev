@@ -245,6 +245,8 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
         Arm::TurnPrelude => Some(super::turn::advance_prelude),
         Arm::StrategyAnnounce => Some(super::turn::advance_announce),
         Arm::Phase => Some(super::turn::advance_phase),
+        Arm::Secondary => Some(super::windows::strategic::advance_secondary),
+        Arm::LeaderFollowers => Some(super::windows::strategic::advance_leader_followers),
         Arm::Ask => Some(super::turn::ask::advance_ask),
         _ => None,
     }
@@ -259,6 +261,8 @@ pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
         Arm::EventScoring => Some(super::windows::status::ask_event_scoring),
         Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase | Arm::Status => Some(super::turn::ask_job),
         Arm::Ask => Some(super::turn::ask::ask_ask),
+        Arm::Secondary => Some(super::windows::strategic::ask_secondary),
+        Arm::LeaderFollowers => Some(super::windows::strategic::ask_leader_followers),
         _ => None,
     }
 }

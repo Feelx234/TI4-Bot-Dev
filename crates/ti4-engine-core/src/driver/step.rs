@@ -233,7 +233,7 @@ mod tests {
         let mut s = open(crate::state::WindowKind::Voting);
         let f = facts(&s);
         assert_eq!(step(&mut s, &f, needs(), NativeArms::ALL), Step::Lend(Lent::Arm(Arm::Voting)));
-        assert_eq!(NativeArms::registered(), NativeArms::of(&[Arm::EventScoring, Arm::Scoring, Arm::Tokens, Arm::TurnPrelude, Arm::Status, Arm::StrategyAnnounce, Arm::Ask, Arm::Phase]));
+        assert_eq!(NativeArms::registered(), NativeArms::of(&[Arm::EventScoring, Arm::Scoring, Arm::Tokens, Arm::TurnPrelude, Arm::Status, Arm::StrategyAnnounce, Arm::Ask, Arm::Phase, Arm::Secondary, Arm::LeaderFollowers]));
         assert_eq!(NativeArms::ALL.bits().count_ones(), 19);
         assert!(NativeArms::NONE.bits() == 0 && !NativeArms::NONE.has(Arm::Tokens));
     }

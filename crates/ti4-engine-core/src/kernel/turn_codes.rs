@@ -22,6 +22,14 @@ pub struct TurnCodes {
     pub strategy_card: Code,
     /// `starting_technology`: the source of a starting technology question.
     pub starting_technology: Code,
+    /// `strategy_secondary`: the reason of the strategy token a follower spends (lane E).
+    pub strategy_secondary: Code,
+    /// `trade_primary`: the source of the three trade goods the Trade primary gains; `place_structure`: the source of Construction's
+    /// structure question; `te6warfare` and `te4construction`: the sources of the Thunder's Edge primaries' questions.
+    pub trade_primary: Code,
+    pub place_structure: Code,
+    pub te6warfare: Code,
+    pub te4construction: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.
@@ -70,4 +78,20 @@ pub enum TurnGap {
     AgendaQueue,
     /// A secret objective the core cannot judge (Strengthen Bonds, Produce en Masse).
     ScoringSecret,
+    /// The ability of a strategy card could not begin at this table (`fx_perform::Began::Unsupported`: a table without the unit roster, a
+    /// research below `RULES_TECH_PAYMENT_CHOICE`, a placement a faction effect changes, a scoreable objective the core cannot name).
+    StrategyAbility,
+    /// The table has no link to the window of an ability (`AbilityTable::links`).
+    NoLink,
+    /// A use of PRODUCTION made units and their `UNITS_PRODUCED` announcement is the production lane's (M2): the core's payload cannot carry
+    /// the list yet.
+    ProductionAnnounce,
+    /// Xxcha's Peace Accords could annex a planet after a Diplomacy ability (the annexation window is not ported yet).
+    PeaceAccords,
+    /// A hero's strategy primary or Thunder's Edge Warfare's free tactical action needs the tactical action of the tactical lane.
+    FreeTactical,
+    /// A strategic action was cancelled (Coup d'Etat) and ends the turn.
+    StrategicCancelled,
+    /// The follower window of a card nobody holds, resolved by a hero (`exhausts_card` false), is not run by this arm.
+    ForeignWindow,
 }
