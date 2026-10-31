@@ -204,6 +204,17 @@ pub struct PlayFacts {
     pub tech_order: fn(crate::generated::Technology, crate::generated::Technology) -> core::cmp::Ordering,
 }
 
+/// Computes the [`PlayFacts`] of a position: a function of the core position and the kernel alone (the live loop has no string state).
+/// The text tables it needs (interned codes, note order) are captured by the host that builds it.
+#[derive(Clone)]
+pub struct PlaysProvider(pub std::sync::Arc<dyn Fn(&crate::state::CoreState, &crate::kernel::Kernel) -> Option<PlayFacts> + Send + Sync>);
+
+impl core::fmt::Debug for PlaysProvider {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("PlaysProvider")
+    }
+}
+
 /// Facts the adapter computes for the window and the core cannot (no galaxy is lent to the windows that follow
 /// abilities): the systems adjacent to a system as one seat sees them (`PlayerAdjacency::neighbours`).
 #[derive(Debug, Clone, Default)]
@@ -211,6 +222,9 @@ pub struct AdapterFacts {
     reach: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
     /// The play of action cards (B6).
     pub plays: Option<PlayFacts>,
+    /// The live loop's source of [`Self::plays`]: facts that change with the position (what a seat places, the research a card opens,
+    /// the Mahact pools) are computed from the core position every time a live driver is built (`driver::live`), not once per game.
+    pub plays_provider: Option<PlaysProvider>,
     /// `supply::staging_enabled` of the position (a registered faction module is seated): losses are announced and a Direct
     /// Hit removes the exact sustained ship.
     pub staging: bool,

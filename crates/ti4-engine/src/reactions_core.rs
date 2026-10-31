@@ -408,6 +408,18 @@ pub(crate) fn card_groups() -> Vec<u8> {
     card_tables().0.clone()
 }
 
+/// The cards the string side has an effect for (`action_cards::effect_for`), by card index: [`PlayFacts::has_effect`].
+pub(crate) fn card_effects() -> Vec<bool> {
+    card_tables().1.clone()
+}
+
+/// [`play_facts`] for the checks that compare it with the core's own (`live::plays`).
+#[doc(hidden)]
+#[must_use]
+pub fn string_play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::SourceSet) -> Option<ti4_engine_core::kernel::ability::PlayFacts> {
+    play_facts(r, gs, sources)
+}
+
 /// What the play of an action card inside a window reads from outside the core (`None`: a seat or a unit form the
 /// tables do not know; the play then marks the run unknown and the window bails).
 fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::SourceSet) -> Option<ti4_engine_core::kernel::ability::PlayFacts> {

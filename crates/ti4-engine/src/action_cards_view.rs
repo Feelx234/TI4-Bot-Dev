@@ -955,17 +955,27 @@ fn own_breakthroughs(state: &GameState, r: &crate::render::Render) -> [Option<ti
 /// Reveal Prototype's candidates: the unit upgrades "of the same type as 1 of your units that is participating in this combat"
 /// (the string's line matching of `baseUpgrade` and the unnamed second-generation line by name).
 pub(crate) fn reveal_set(state: &GameState, player: &PlayerId, sources: &ti4_model::content_types::SourceSet) -> ti4_engine_core::state::TechSet {
-    use ti4_model::content_types::ContentType;
-    let content = ti4_content::ContentStore::embedded();
-    let mut out = ti4_engine_core::state::TechSet::default();
-    let Some(system) = state.active_system.clone() else { return out };
-    let types = ti4_content::units::catalogue(content, sources.clone());
+    let Some(system) = state.active_system.clone() else { return ti4_engine_core::state::TechSet::default() };
+    let types = ti4_content::units::catalogue(ti4_content::ContentStore::embedded(), sources.clone());
     let units = state.system_state(&system).units.clone();
     let lines: Vec<&str> = units
         .iter()
         .filter(|u| &u.owner == player)
         .filter_map(|u| types.get(u.type_id.as_str()).map(ti4_content::units::UnitType::base_type))
         .collect();
+    reveal_set_of_lines(&lines, sources)
+}
+
+/// [`reveal_set`] from the lines (base type texts) of the seat's units in the active system: the live loop reads them from the core
+/// position (`live::plays`), so both sides share the matching, quirks included.
+pub(crate) fn reveal_set_of_lines(lines: &[&str], sources: &ti4_model::content_types::SourceSet) -> ti4_engine_core::state::TechSet {
+    use ti4_model::content_types::ContentType;
+    let content = ti4_content::ContentStore::embedded();
+    let mut out = ti4_engine_core::state::TechSet::default();
+    if lines.is_empty() {
+        return out;
+    }
+    let types = ti4_content::units::catalogue(content, sources.clone());
     for tech in ti4_engine_core::generated::Technology::ALL {
         let alias = ti4_model::id::TechnologyId::new(crate::generated::IdStr::as_str(tech));
         if !crate::technology::is_unit_upgrade(content, &alias) {

@@ -18,6 +18,7 @@ pub mod coverage;
 pub mod details;
 pub mod env;
 pub mod kernel;
+pub mod plays;
 
 use std::collections::VecDeque;
 
