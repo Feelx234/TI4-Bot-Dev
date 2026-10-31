@@ -272,4 +272,6 @@ mod tests {
             assert_eq!(shown, id.replacen(":*:", ":hacan:", 1), "row {index}");
         }
     }
+
+    include!("ability_audit_g3_tests.rs");
 }

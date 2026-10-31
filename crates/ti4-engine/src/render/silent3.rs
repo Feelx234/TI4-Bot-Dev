@@ -107,3 +107,73 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_engine_core::generated::{Faction, Planet, PromissoryNote, System, Unit};
+    use ti4_engine_core::ids::Seat;
+    use ti4_engine_core::state::NoteKey;
+
+    fn r() -> Render {
+        Render::new(vec!["a".to_owned(), "b".to_owned()])
+    }
+
+    /// An answer parses back to the typed option it was rendered from, where the id says everything.
+    #[test]
+    fn the_ids_that_name_their_option_parse_back_to_it() {
+        let r = r();
+        let planet = Planet::ALL[3];
+        let system = System::ALL[4];
+        let cases = [
+            (Ask::Ragh { planet }, Opt::Site { system, planet }),
+            (Ask::Alastor { planet, unit: Unit::InfantryI }, Opt::Count(2)),
+            (Ask::SuffiAn { target: Seat(1) }, Opt::Exhaust),
+            (Ask::SulaOpponent, Opt::Seat(Seat(1))),
+        ];
+        for (ask, opt) in cases {
+            let id = option(&r, &ask, &opt).id;
+            assert_eq!(parse(&r, &ask, &id), Some(ROpt::G(GOpt::T(opt))), "{ask:?} {id}");
+        }
+        // The index and note ids are matched against the rendered options of their question instead.
+        for ask in [Ask::ExoSelf, Ask::ExoVictim { round: 0 }, Ask::SulaGive { to: Seat(0) }, Ask::Bio { so_far: 0 }, Ask::OracleGive, Ask::Scepter] {
+            assert_eq!(parse(&r, &ask, "x"), None, "{ask:?}");
+        }
+        assert_eq!(parse(&r, &Ask::SuffiAn { target: Seat(1) }, "decline"), None);
+    }
+
+    /// The words of the string, for the questions no lockstep reaches (their string bodies are the source of each line).
+    #[test]
+    fn the_questions_and_answers_read_as_the_string_words_them() {
+        let r = r();
+        let (planet, system) = (Planet::ALL[3], System::ALL[4]);
+        let key = NoteKey { note: PromissoryNote::Ceasefire, faction: Faction::TheFederationOfSol };
+        assert_eq!(prompt(&r, &Ask::SuffiAn { target: Seat(1) }), "Suffi An: exhaust to draw 1 action card each with b");
+        assert_eq!(option(&r, &Ask::SuffiAn { target: Seat(1) }, &Opt::Exhaust).label, "exhaust Suffi An: you and the pillaged player each draw 1 action card");
+        assert_eq!(prompt(&r, &Ask::SulaOpponent), "S'ula Mentarion: choose an opponent");
+        assert_eq!(option(&r, &Ask::SulaOpponent, &Opt::Seat(Seat(1))).label, "force b to give you a promissory note");
+        assert_eq!(prompt(&r, &Ask::SulaGive { to: Seat(0) }), "Give a 1 promissory note from your hand");
+        let give = option(&r, &Ask::SulaGive { to: Seat(0) }, &Opt::Note(key));
+        assert_eq!((give.id.as_str(), give.kind.as_str(), give.label.as_str()), ("cf:sol", "give_note", "cf:sol"));
+        let support = option(&r, &Ask::SulaGive { to: Seat(0) }, &Opt::Support(Faction::TheFederationOfSol));
+        assert_eq!(support.id, "support:sol");
+        assert_eq!(prompt(&r, &Ask::OracleGive), "The Oracle: which promissory note do you give");
+        assert_eq!(option(&r, &Ask::OracleGive, &Opt::Note(key)).label, "give cf:sol to the Naalu player");
+        assert_eq!(prompt(&r, &Ask::Bio { so_far: 2 }), "Bioplasmosis: move an infantry (2 so far)");
+        let shift = option(&r, &Ask::Bio { so_far: 0 }, &Opt::Shift { index: 3, from: (system, planet), to: (system, planet) });
+        assert_eq!(shift.id, "move|3");
+        assert!(shift.label.starts_with("move 1 infantry from "), "{}", shift.label);
+        assert_eq!(prompt(&r, &Ask::Scepter), "Scepter of Dominion: choose a system");
+        let none = option(&r, &Ask::Scepter, &Opt::Scepter { system, payers: [None; 5] });
+        assert!(none.label.starts_with("nobody places a command token in "), "{}", none.label);
+        let two = option(&r, &Ask::Scepter, &Opt::Scepter { system, payers: [Some(Faction::TheFederationOfSol), Some(Faction::TheEmiratesOfHacan), None, None, None] });
+        assert!(two.label.starts_with("sol, hacan place a command token in "), "{}", two.label);
+        let one = option(&r, &Ask::Scepter, &Opt::Scepter { system, payers: [Some(Faction::TheFederationOfSol), None, None, None, None] });
+        assert!(one.label.starts_with("sol places a command token in "), "{}", one.label);
+        assert_eq!(prompt(&r, &Ask::ExoSelf), "Exotrireme II: which one is destroyed");
+        assert_eq!(prompt(&r, &Ask::ExoVictim { round: 1 }), "Exotrireme II: destroy ship 2 of up to 2");
+        let ship = option(&r, &Ask::ExoVictim { round: 0 }, &Opt::Ship { index: 1, owner: Seat(1), unit: Unit::CruiserI, damaged: true, victim: true });
+        assert_eq!((ship.id.as_str(), ship.label.as_str()), ("ship|1", "destroy b's cruiser (damaged)"));
+        assert_eq!(option(&r, &Ask::ExoSelf, &Opt::Ship { index: 0, owner: Seat(0), unit: Unit::ExotriremeII, damaged: false, victim: false }).id, "self|0");
+    }
+}
