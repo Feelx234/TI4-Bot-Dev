@@ -283,9 +283,10 @@ pub fn hero_offer(gs: &mut GameState, player: &PlayerId, script: &Recording) -> 
     )
 }
 
+/// (The Pending slice: the exhaustion of the agent is announced to a Nomad that holds Temporal Command Suite by a staged event.)
 const OFFER_FOOTPRINT: Footprint = Footprint {
-    reads: crate::production_view::READS,
-    writes: SliceSet::of(&[Slice::Players, Slice::Marks]),
+    reads: crate::production_view::READS.union(SliceSet::of(&[Slice::Pending])),
+    writes: SliceSet::of(&[Slice::Players, Slice::Marks, Slice::Pending]),
 };
 
 /// The core half of `keleres::offer_agent`: whether the offer opened a window the caller must close. `None`: the position holds
@@ -299,7 +300,15 @@ pub fn agent_offer(gs: &mut GameState, payer: &PlayerId, script: &Recording) -> 
     let before = gs.clone();
     let kernel = crate::production_view::kernel();
     let mut driver = crate::window_driver::driver_for(AgentOffer::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
-    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OFFER_FOOTPRINT, script), |core, _| drive(&mut driver, core, kernel, &r, &before, script)).why(NOT_LENDABLE)?.why(DRIVER_REFUSED)?;
+    let mut staged = Vec::new();
+    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OFFER_FOOTPRINT, script), |core, _| {
+        let driven = drive(&mut driver, core, kernel, &r, &before, script);
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        driven
+    })
+    .why(NOT_LENDABLE)?
+    .why(DRIVER_REFUSED)?;
+    crate::dual_window::apply_staged(gs, &r, &staged).why(STAGED_UNAPPLIED)?;
     Some(CoreWindow { run: Run::new(driver.window.opened), questions: driven.rendered })
 }
 

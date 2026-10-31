@@ -195,16 +195,16 @@ fn the_third_scored_objective_unlocks_the_hero() {
 }
 
 #[test]
-fn a_locked_commander_without_a_hook_stops_the_bookkeeping_with_a_counted_gap() {
+fn a_locked_commander_whose_condition_does_not_hold_is_judged_and_stays_locked_without_a_gap() {
+    // (Lane F2 filled the unlock hook of every in-scope faction: the gap `TurnGap::CommanderUnlock` of lane C is never raised.)
     let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).phase(Phase::Status).active(None).build();
     s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
     let commander = Leader::ALL.iter().copied().find(|l| l.data().faction == FactionTag::Arborec && l.data().kind == LeaderType::Commander).unwrap();
     s.players_mut().edit(0).leaders.status.insert(commander, LeaderStatus::Locked);
     let e = env(&k);
     advance_status(&mut s, &e, None).unwrap();
-    let held = s.clone();
-    assert_eq!(advance_scoring(&mut s, &e, None), gap(TurnGap::CommanderUnlock));
-    assert_eq!(s, held, "the window is as it was");
+    assert!(advance_scoring(&mut s, &e, None).is_ok(), "no counted gap for a commander");
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&commander), Some(&LeaderStatus::Locked));
 }
 
 // -- KS4, KS5: the tokens and the close ----------------------------------------------------------------------------------------

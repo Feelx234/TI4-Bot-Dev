@@ -79,6 +79,14 @@ pub fn exhaust_agent(core: &mut CoreState, k: &Kernel, who: Seat, card: Leader) 
     true
 }
 
+/// `leaders::exhaust` of an agent (the string's `leaders::exhaust`: the status only if the card is readied, then the announcement): a readied `card` of
+/// `who` is exhausted and announced as [`exhaust_agent`] does; `false`, changing nothing, when the seat does not hold it readied. Every site that
+/// exhausts an agent goes through this or [`exhaust_agent`], so a Nomad that holds Temporal Command Suite is told by a staged `AGENT_EXHAUSTED`.
+pub fn exhaust_ready_agent(core: &mut CoreState, k: &Kernel, who: Seat, card: Leader) -> bool {
+    let ready = core.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&card) == Some(&LeaderStatus::Readied));
+    ready && exhaust_agent(core, k, who, card)
+}
+
 // -- research ---------------------------------------------------------------------------------------------
 
 /// `technology::exhaust` of an owned technology card (Inheritance Systems, AI Development Algorithm): whether it was

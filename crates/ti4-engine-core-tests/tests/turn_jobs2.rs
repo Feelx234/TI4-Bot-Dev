@@ -134,11 +134,18 @@ fn the_closing_menu_holds_only_the_end_of_the_turn_when_no_source_can_offer_a_fr
     assert_eq!(closing::options(&s, &k, Seat(0)), Ok(vec![TuOpt::EndTurn]));
 }
 
+/// The position as a lend without its map leaves it: Hacan's Guild Ships reach every seat only over a map, so no transaction partner is a source of
+/// the closing menu (with one, the menu stops with `TurnGap::MenuSources`: the typed partner options are lane F's).
+fn without_map(s: &mut ti4_engine_core::state::CoreState) {
+    s.loaded = ti4_engine_core::state::SliceSet(ti4_engine_core::state::SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+}
+
 #[test]
 fn a_leader_printed_during_the_action_phase_is_a_free_option_of_the_closing_menu() {
     let agent = Leader::ALL.iter().copied().find(|l| l.data().kind == LeaderType::Agent && l.data().window == LeaderWindow::ActionPhase).unwrap();
     let faction = Faction::ALL.iter().copied().find(|f| ti4_engine_core::query::tech::tag_is(agent.data().faction, *f)).unwrap();
     let (mut s, k) = Scenario::new(&[faction, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
+    without_map(&mut s);
     s.players_mut().edit(0).leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Readied);
     // The menu lists exactly what the action menu's leaders source lists and calls free: "end your turn" first, then those.
     let free: Vec<TuOpt> = ti4_engine_core::driver::menu_sources::leaders(&s, &k, Seat(0)).into_iter().filter(|o| ti4_engine_core::driver::menu_sources::leader_is_free(*o) == Some(true)).collect();
@@ -154,6 +161,7 @@ fn a_free_leader_of_the_closing_menu_is_asked_and_its_dispatch_is_a_counted_gap(
     use ti4_engine_core::generated::Leader as L;
     let faction = Faction::ALL.iter().copied().find(|f| ti4_engine_core::query::tech::tag_is(L::CarthOfGoldenSands.data().faction, *f)).unwrap();
     let (mut s, k) = Scenario::new(&[faction, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
+    without_map(&mut s);
     s.players_mut().edit(0).leaders.status.insert(L::CarthOfGoldenSands, ti4_engine_core::state::LeaderStatus::Readied);
     s.pending_mut().turn_closing = Some(Seat(0));
     let e = env(&k);

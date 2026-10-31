@@ -206,7 +206,9 @@ fn artuno(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         let Some(amount) = p.int(Key::Amount).and_then(|n| u32::try_from(n).ok()) else { return Ok(()) };
         amount
     };
-    if !ti4_engine_core::rules::leaders::exhaust(eff.state(), me, Leader::ArtunoTheBetrayer) {
+    // (`leaders::exhaust`: Artuno is an agent, so a Nomad holding Temporal Command Suite hears this exhaustion too: a staged `AGENT_EXHAUSTED`.)
+    let (state, kernel) = eff.state_and_kernel();
+    if !fx_strategy::exhaust_ready_agent(state, kernel, me, Leader::ArtunoTheBetrayer) {
         return Ok(());
     }
     add_to_pile(eff.state(), me, amount);
