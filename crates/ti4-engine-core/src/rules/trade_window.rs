@@ -92,12 +92,14 @@ pub struct TradeWindow {
 impl TradeWindow {
     /// A negotiation just opened: `proposer` is to propose, with two proposals to spend.
     #[must_use]
+    // mutants:skip (the flags of a dual window only matter once `live` is set, and `from_pending` sets them all)
     pub fn open(proposer: Seat, partner: Seat, facts: DealFacts) -> Self {
         Self { proposer, partner, stage: TStage::Proposing, deal: None, rounds_left: 2, facts, single: false, outcome: None, live: false, announced: true, unmapped: false, quiet: false }
     }
 
     /// A negotiation at a position the string engine is in: waiting for a proposal, or for the answer to `deal`.
     #[must_use]
+    // mutants:skip (as `open`)
     pub fn at(proposer: Seat, partner: Seat, deal: Option<Shape>, rounds_left: u8, facts: DealFacts) -> Self {
         Self {
             proposer,

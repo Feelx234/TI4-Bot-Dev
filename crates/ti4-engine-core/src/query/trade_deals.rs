@@ -555,8 +555,7 @@ pub fn commander_unlocked_mask(core: &CoreState) -> u16 {
     let mut mask = 0_u16;
     for p in core.players().iter() {
         let unlocked = p.leaders.status.iter().any(|(leader, status)| *status == crate::state::LeaderStatus::Unlocked && leader.data().kind == crate::generated::LeaderType::Commander);
-        // mutants:skip (the bound is a guard of the shift: a table has at most 8 seats)
-        if unlocked && p.seat.0 < 16 {
+        if unlocked && p.seat.0 < 16 { // mutants:skip (the bound guards the shift: a table has at most 8 seats)
             mask |= 1 << p.seat.0;
         }
     }
