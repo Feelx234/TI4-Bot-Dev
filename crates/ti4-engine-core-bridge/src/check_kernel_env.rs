@@ -26,7 +26,7 @@ pub struct EnvReport {
     pub unmapped: usize,
     pub mismatches: Vec<String>,
     /// Hook slots the live kernel has no function for where the string engine answers (`Some` vs `None`): the faction modules that are
-    /// not ported yet (`commander_unlocked`, `leader_action`: lane F2's work), counted by method, never a silent agreement.
+    /// not ported (since lane F2 only the leaders of the dropped factions), counted by method, never a silent agreement.
     pub gaps: std::collections::BTreeMap<String, usize>,
     /// What the string side answered per hook method and leader (`[false, true]` counts), over the answers compared: a hook whose string
     /// answer was never `true` (or never `false`) was not compared on that side.

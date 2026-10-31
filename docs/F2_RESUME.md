@@ -35,7 +35,6 @@ and `docs/D2_LF_RESUME.md` (the recipe) first.
 
 * The Faction, Mapped, Relics, Exploration, Action cards, Transactions, Contacts, Payments and Thunder's Edge sources stay lent as ids (`Opt::Lent`). Faction/Mapped are 19 module functions with their own texts and codes (the KM1 "4-8 h" row); transactions belong to the trade lane; contacts/payments are dropped with diplomacy; Thunder's Edge is refused content.
 * Dispatch of the chosen leader/tech option (`use_leader` router, KM2) stays `Dispatch::Lend`.
-* The Faction/Mapped sources and the dispatch are the next F2 steps.
 
 ## Hand-over to lane B (`core-d2-c2-turn`)
 
@@ -43,6 +42,9 @@ After merging: delete `COMMANDER_HOOK_MISSING` in `driver/turn/start.rs` and its
 
 ## Checks (cheap), `CARGO_BUILD_JOBS=2`, private target `/root/deploytmp/core-f2h` (no incremental; deleted at the end)
 
-RESULTS
+* `cargo test -p ti4-engine-core --lib`: 470 passed (+ the probe tests after). `-p ti4-engine-core-factions`: 126 passed (+11 `leader_hook_tests`). `-p ti4-engine-core-bridge` (all tests incl. `kernel_env` 3, `menu_sources` 1): ok. `-p ti4-engine-core-tests`: ok.
+* `cargo test -p ti4-engine --lib` default areas: 4921 passed, 4 ignored. `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: the first run failed 2 tests (`faction_effects_tests::d5::nanolink_2...`, `d6::sever_1_and_2...`: the dual menu offered Ral Nel's and Crimson's agents the core has no hook for); fixed (`menu_sources_view::native` returns `None` at a table with a switched-off faction) and both pass, as do `menu_dual`. The whole dual lib was not re-run after that fix.
+* `tools/engine_core/check_layers.py core`: 0 violations; `lint_core.sh`: 0 hits.
+* Mutation (single-file runs of `tools/engine_core/mutants.sh`, union of core and bridge tests): the hook functions (FN-filtered over the factions crate, bridge `kernel_env`): 180/241, the survivors in OTHER lanes' code (ghost movement, naaz/sardakk/titans/yssaril commanders) are not this lane's; own survivors drove the 11 `leader_hook_tests`, the `probe` tests and the "ssruu, gone agents" variant (not re-run). Left alive and judged equivalent or minor: `yin::leader_action` `> 0` (infantry are uncapped), the cost-halves arithmetic of `arborec::ospha_has_target` (`+4`, `<=`), `umbat_has_target` literals 2 and 4, `ability_facts`' `max(0)`. `probe.rs` 10/23 before its tests, `leader_reads.rs` 7/7, `menu_sources.rs` 18/23 bridge and 4/23 core (the union leaves only the `borrowed` `&&` chain, covered by the added variant), `menu_sources_view.rs` 4/5 (the fifth is equivalent, marked), `render/turn.rs` 2/6 before the parse tests, `driver/live.rs::sync_clock` killed.
 
 Not run (standing rule, no full zero-bail playthrough yet): golden/wide dual sweeps, benches, soak, mutation ratchet, census, workspace clippy, `playthrough`.

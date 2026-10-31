@@ -100,3 +100,60 @@ pub fn ability_facts(core: &CoreState, k: &Kernel, roster: &UnitRoster, who: Sea
 pub fn would_ask(core: &CoreState, k: &Kernel, roster: &UnitRoster, who: Seat, system: System, limit: i64, max_unit_cost: Option<i32>) -> bool {
     ability_facts(core, k, roster, who, system, limit, max_unit_cost).is_some_and(|facts| ProductionWindow::ability(&facts).ask_of(core, k).is_some())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generated::Faction;
+    use crate::state::{Player, Players};
+
+    fn table(factions: &[Faction]) -> CoreState {
+        let mut s = CoreState::all_loaded();
+        *s.players_mut() = Players::from_vec(factions.iter().enumerate().map(|(i, f)| Player::new(Seat(u8::try_from(i).unwrap()), *f)).collect());
+        s
+    }
+
+    #[test]
+    fn letnevs_armada_lifts_the_fleet_limit_by_two_and_nobody_elses() {
+        let mut s = table(&[Faction::TheBaronyOfLetnev, Faction::TheFederationOfSol]);
+        s.players_mut().edit(0).econ.fleet_tokens = 4;
+        s.players_mut().edit(1).econ.fleet_tokens = 4;
+        let k = Kernel::plain();
+        assert_eq!(armada(&s, Seat(0)), 2);
+        assert_eq!(armada(&s, Seat(1)), 0);
+        let sol = fleet_limit(&s, &k, false, Seat(1));
+        assert!(sol > 2, "a real limit: {sol}");
+        assert_eq!(fleet_limit(&s, &k, false, Seat(0)), sol + 2);
+        let base = crate::query::fleet::pool_base(&s, Seat(1), 0);
+        assert_eq!(base, 4);
+        assert_eq!(sol, i64::from(crate::query::laws::fleet_pool_cap(&s, false, base)));
+    }
+
+    #[test]
+    fn the_unlimited_round_of_darktalon_treilla_judges_by_the_unlimited_bill() {
+        let mut s = table(&[Faction::TheBaronyOfLetnev, Faction::TheFederationOfSol]);
+        s.players_mut().edit(0).econ.fleet_tokens = 4;
+        s.players_mut().edit(1).econ.fleet_tokens = 4;
+        let k = Kernel::plain();
+        let round = s.meta().round;
+        s.players_mut().edit(0).production_timers.fleet_supply_unlimited_until.set(Some(round));
+        assert_eq!(fleet_limit(&s, &k, false, Seat(0)), UNLIMITED_FLEET_BILL);
+        assert!(fleet_limit(&s, &k, false, Seat(1)) < UNLIMITED_FLEET_BILL);
+    }
+
+    #[test]
+    fn the_commanders_of_the_cabal_and_the_nomad_show_in_the_facts() {
+        let mut s = table(&[Faction::TheVuilraithCabal, Faction::TheNomad]);
+        let k = Kernel::plain();
+        let roster = UnitRoster::default();
+        let facts = |s: &CoreState, who: u8| ability_facts(s, &k, &roster, Seat(who), System::ALL[0], 5, Some(4)).expect("a seated player");
+        let (cabal, nomad) = (facts(&s, 0), facts(&s, 1));
+        assert_eq!((cabal.small_exemptions, nomad.small_exemptions, cabal.flagship_free, nomad.flagship_free), (0, 0, false, false));
+        assert_eq!((cabal.limit, cabal.max_unit_cost), (5, Some(4)));
+        s.players_mut().edit(0).leaders.status.insert(Leader::ThatWhichMoldsFlesh, crate::state::LeaderStatus::Unlocked);
+        s.players_mut().edit(1).leaders.status.insert(Leader::NavarchFeng, crate::state::LeaderStatus::Unlocked);
+        let (cabal, nomad) = (facts(&s, 0), facts(&s, 1));
+        assert_eq!((cabal.small_exemptions, nomad.small_exemptions, cabal.flagship_free, nomad.flagship_free), (2, 0, false, true));
+        assert!(ability_facts(&s, &k, &roster, Seat(7), System::ALL[0], 5, None).is_none(), "no such seat");
+    }
+}

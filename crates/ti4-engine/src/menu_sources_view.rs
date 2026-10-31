@@ -56,8 +56,9 @@ pub fn rendered(gs: &GameState, sources: SourceSet, player: &ti4_model::id::Play
     let (mut cx, r) = crate::dual_window::tables(gs)?;
     let seat = r.seat(player.as_str())?;
     let found = native(gs, &mut cx, sources, seat)?;
+    // (`thunders_edge_on` only hides the Thunder's Edge source, which is not asked for here.)
     let render = |part: Vec<TOpt>, source: Source| {
-        let choice = menu::action_menu(seat, &[(source, part)], false, &[]);
+        let choice = menu::action_menu(seat, &[(source, part)], false, &[]); // mutants:skip
         crate::render::Typed::new(&r, choice, crate::render::generic::core_phase(gs.phase), gs.round).rendered.options
     };
     Some([render(found.strategic, Source::Strategic), render(found.leaders, Source::Leaders), render(found.technology, Source::Technology)])

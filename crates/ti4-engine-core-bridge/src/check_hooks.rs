@@ -425,6 +425,16 @@ pub fn hook_variants(p: &Position) -> Vec<(&'static str, GameState)> {
         }
         war_suns(g);
     });
+    // The Ssruu holder looks at agents that are spent for good: a purged or locked agent is nobody's to copy.
+    push("hooks ssruu, gone agents", &|g| {
+        statuses(g, LeaderStatus::Purged, LeaderStatus::Unlocked, LeaderStatus::Locked);
+        for seat in &mut g.players {
+            if seat.faction.as_str() == "yssaril" {
+                seat.leaders.insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+            }
+        }
+        war_suns(g);
+    });
     out
 }
 

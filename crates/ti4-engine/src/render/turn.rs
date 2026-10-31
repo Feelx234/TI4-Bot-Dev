@@ -110,3 +110,46 @@ impl Family for Fam {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_engine_core::generated::{Leader, StrategyCard, System, Technology};
+
+    fn parse(id: &str) -> Option<Opt> {
+        Fam::parse(&Render::new(Vec::new()), &Ask::ActionMenu, id)
+    }
+
+    fn option(o: Opt) -> ChoiceOption {
+        Fam::option(&Render::new(Vec::new()), &Ask::ActionMenu, &o)
+    }
+
+    #[test]
+    fn every_native_option_parses_back_from_the_id_it_renders() {
+        let card = StrategyCard::ALL[1];
+        let leader = Leader::ALL[0];
+        let borrowed = Leader::ALL[3];
+        for o in [Opt::Pass, Opt::Tactical, Opt::EndTurn, Opt::Strategic { card, bare: false }, Opt::Leader(leader), Opt::Borrowed(borrowed), Opt::Tech(Technology::SlingRelay)] {
+            assert_eq!(parse(&option(o).id), Some(o), "{o:?}");
+        }
+        // The lone card's bare id names no card: the position resolves it.
+        assert_eq!(parse(STRATEGIC_ACTION_ID), None);
+        assert_eq!(parse("component|leader|no-such-leader"), None);
+        assert_eq!(parse("component|leader|yssarilagent|no-such-leader"), None);
+        assert_eq!(parse("component|tech|no-such-tech"), None);
+        assert_eq!(parse("faction|orbital_drop"), None, "an option of a source that is lent");
+        let token = System::ALL[0];
+        assert_eq!(Fam::parse(&Render::new(Vec::new()), &Ask::MinisterToken, token.as_str()), Some(Opt::Token(token)));
+        assert_eq!(parse(token.as_str()), None, "a system is an answer to the Minister's question only");
+    }
+
+    #[test]
+    fn the_leaders_options_are_labelled_as_the_string_labels_them() {
+        let o = option(Opt::Leader(Leader::CarthOfGoldenSands));
+        assert_eq!((o.id.as_str(), o.kind.as_str(), o.label.as_str()), ("component|leader|hacanagent", "component", "Carth of Golden Sands"));
+        let o = option(Opt::Borrowed(Leader::CarthOfGoldenSands));
+        assert_eq!((o.id.as_str(), o.label.as_str()), ("component|leader|yssarilagent|hacanagent", "Ssruu: use Carth of Golden Sands's ability"));
+        let o = option(Opt::Tech(Technology::SlingRelay));
+        assert_eq!((o.id.as_str(), o.kind.as_str(), o.label.as_str()), ("component|tech|sr", "component", "use Sling Relay"));
+    }
+}

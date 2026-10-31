@@ -60,7 +60,7 @@ pub fn commander_unlocked(s: &CoreState, _: &Kernel, who: Seat, leader: ti4_engi
 
 /// Whether `who` may act on Umbat's text now: the Muaat's own readied agent, or a copy through a readied Ssruu of an agent another seat holds
 /// readied or exhausted (`muaat::umbat_available`).
-fn umbat_available(s: &CoreState, who: Seat) -> bool {
+pub(crate) fn umbat_available(s: &CoreState, who: Seat) -> bool {
     use ti4_engine_core::generated::Leader;
     use ti4_engine_core::query::leaders::status;
     use ti4_engine_core::state::LeaderStatus;
