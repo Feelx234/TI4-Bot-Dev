@@ -31,7 +31,8 @@ Indoctrination 7003 and Greyfire 7004) and `core-d2-c2-turn` (lane B, the turn f
 
 All with `CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0`, a private `CARGO_TARGET_DIR=/root/deploytmp/core-m6b` (deleted at the end).
 
-* `cargo test -p ti4-engine --lib`: 5006 passed, 2 failed (the two neutral combat lockstep tests: the slip above, fixed afterwards); `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine --lib`: see the final report.
+* `cargo test -p ti4-engine --lib`: 5006 passed, 2 failed (the two neutral combat lockstep tests: the slip above, fixed afterwards); `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine --lib` on the last commit: 5008 passed, 0 failed, 4 ignored (634 s).
+* `tools/engine_core/playthrough_quick.sh --maxsteps 1500` (sol, 4 players, seed 1, gate build): the island table is UNCHANGED (M6 tactical 631 counted bails, M5 482, M3 114, M4 71, B 865): `Game::step` does not call `live_step` until the wrapper (D2-8) exists, so the bin counts the dual's windows, not the native arms. The proof of this lane is the lockstep and the sweeps above, not that count.
 * Engine lockstep, all green: `tactical_live` (Spatial Conduit use / decline / route 1, Nullification Field, Minister of Peace, Dominus Orb, Mahact commander and Starlancer, Scanlink, a ship exiting a gravity rift for 16 seeds with the rng positions compared, a clone taken while a hook waits, the 24-faction activation sweep with `mahact` and `titans` and no filter), `invasion_live`, `combat_live` (the 24-faction fight sweep, Mahact entries named residual below), `reactions_core` (the audit).
 * `cargo test -p ti4-engine-core --lib` (469), `-p ti4-engine-core-tests --test tactical_composer --test aftermath_chain --test invasion_composer --test exploring` (all green).
 * `check_layers.py core`: 0 violations (one found and fixed: `rules::tactical` imported `rules::leaders`; it uses `query::leaders` now); `lint_core.sh`: 0 hits.
