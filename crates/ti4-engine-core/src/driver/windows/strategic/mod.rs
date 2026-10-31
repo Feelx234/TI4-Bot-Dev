@@ -157,8 +157,8 @@ impl Window for SecondaryWin {
         let Pick::Opt(Opt::Strategy(opt)) = pick else { return Err(Illegal) };
         let f = facts::follower_facts(sx.state, sx.kernel, self.w.primary, self.w.card, who);
         // The question is the follower's: an option it did not offer is refused before anything changes.
-        // mutants:skip: `take_answer` refuses an option the follower was not offered too (this check only comes first)
-        if !follow_choice(sx.state, self.w.card, self.w.primary, &f).opts.iter().any(|o| *o == Opt::Strategy(opt)) {
+        // (`take_answer` refuses an option the follower was not offered too: this check only comes first.)
+        if !follow_choice(sx.state, self.w.card, self.w.primary, &f).opts.iter().any(|o| *o == Opt::Strategy(opt)) { // mutants:skip: equivalent, see above
             return Err(Illegal);
         }
         // A waiver whose payment the core does not carry is offered like the string offers it, and stops the step when it is taken.
