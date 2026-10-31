@@ -49,4 +49,16 @@ The questions are typed in `choice/silent.rs` (`Ask::{Reclaimer, TradePolicy, Co
 
 ## Checks (cheap), private target `/root/deploytmp/core-g2` (no incremental; deleted at the end), `CARGO_BUILD_JOBS=2`
 
-RESULTS_PLACEHOLDER
+* `cargo test -p ti4-engine --lib` (default areas): 5039 passed, 3 failed, 4 ignored. `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: the same 5039 passed, the same 3 failed. The 3 are the bail-as-failure scenarios that meet OTHER lanes' loud rows
+  (`combat_live::{an_undefended_system_with_a_space_dock_goes_on_to_the_production_step, a_space_fight_of_each_faction_runs_native_without_a_bail}`, `tactical_live::a_tactical_action_of_each_faction_runs_native_without_a_bail`:
+  `AbilityGap` of `naaluagent-te` (G3), Awaken, the Arborec flagship and Mercer (M6d)); they fail before this branch too and pass when those rows are ported.
+* `-p ti4-engine-core-tests --test g2_abilities`: 25 passed. `-p ti4-engine-core-bridge --lib` 95 and `--test kernel_env` 3: ok. `ability_audit` (3) and `reactions_core` (12, with 12 more seat pairs in the registry test): ok.
+* `tools/engine_core/check_layers.py core`: 499 files, 0 violations; `lint_core.sh`: 501 files, 0 hits.
+* Mutation (`tools/engine_core/mutants.sh` on the whole `silent/` directory minus lane G's files, `D4_COVERS_FILE=/dev/null`, union of two runs: the engine lockstep + registry tests (`--lib` with the names of the lockstep tests and
+  `the_native_registry_equals`) and the core tests (`g2_abilities`)): 297 mutation points, 218 killed by the lockstep run alone and 257 by the core run alone; first union 9 survivors, all dealt with (a test for the ships-moved count, the decks present, the two
+  pairs of Ssruu's copies registered for the seats that hold both cards; the rest named equivalent with `// mutants:skip (why)`: a guard the condition holds, an infantry/fighter box that has no limit, a capacity no ship prints, the dropped Last Bastion's dock,
+  a bound). Re-run of the core half after the additions: 290 points, 0 survivors of the union. Earlier rounds found: the Voidwatch hand (Alliance and Support, the ordering), the Naaz offers (which seat, which deck), Cabal's exact list, Sai Seravus's capacity and the
+  empty-box paths, the contexts of every question.
+* Not run (standing rule): golden/wide dual sweeps, benches, soak, the mutation ratchet, census, workspace clippy, `playthrough`; the shadow (`native_play.sh --shadow`).
+* Not covered by a lockstep (core tests only, no flow of the harness reaches the event): Magmus (`STRATEGY_TOKEN_SPENT`) and its unlock, The Stillness of Stars (the replenish is staged by the Trade strategic action: lane E), the Voidwatch note pick beyond the first
+  option, Garv and Gunn's explorations beyond one planet.
