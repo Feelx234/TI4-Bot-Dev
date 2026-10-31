@@ -189,7 +189,6 @@ mod tests {
         ("technology:*:radical:STATUS_PHASE_BEGAN:after", Status::Dropped("a dropped faction")),
         ("technology:*:subatomic:SHIP_DESTROYED:after", Status::Dropped("a dropped faction")),
         ("technology:*:swa2:UNIT_ABILITY_ROLLED:after", Status::Gap(29)),
-        ("technology:*:tcs:AGENT_EXHAUSTED:after", Status::Lane("core-m1-trade")),
         ("technology:*:yso:UNITS_PRODUCED:after", Status::Gap(30)),
         ("unit:*:arborec_flagship:SYSTEM_ACTIVATED:after", Status::Gap(38)),
         ("unit:*:bastion_mech:GROUND_FORCE_DESTROYED:after", Status::Dropped("a dropped faction")),
