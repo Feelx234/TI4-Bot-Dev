@@ -1,7 +1,7 @@
 # core-integration-7: merge record (2026-10-30)
 
 Branch `core-integration-7`, cut from `core-integration-6` @ `c519216e`. Round 1 (sections 1 to 5): the lent-bodies lanes `core-w`, `core-w-l2`, `core-w-l4`.
-Round 2 (section 6): `core-w-l1`, `core-w-l3`, `core-d4a2`, `core-d4a3`. Round 3 (section 7): `core-w-l5`, and the barrage-scoring bug of the combat machine. `core-w-l6` is not merged. Cheap checks only: heavy work is deferred to the
+Round 2 (section 6): `core-w-l1`, `core-w-l3`, `core-d4a2`, `core-d4a3`. Round 3 (section 7): `core-w-l5`, and the barrage-scoring bug of the combat machine. `core-w-l6` is merged in round 4 (section 8). Cheap checks only: heavy work is deferred to the
 end of D1. Not pushed. The live branch was not touched.
 
 ## 1. Merges
@@ -162,3 +162,26 @@ Regression tests: the machine test is strict again (per seed: the feat recorded 
 | `check_layers.py core`, `lint_core.sh` | 432 files, 0 violations; 434 files, 0 hits |
 
 Not run: heavy work (combined gate, golden lent census, `TI4_CORE_STRICT=1`, mutation runs). Not pushed.
+
+## 8. Round 4: `core-w-l6`
+
+### 8.1 Merge
+
+`core-w-l6` @ `7aff9f83` (8 commits on `core-w-l5`): Nekro C4R PDS, Yssaril Mageon Implants, the Arborec agent, Naaz Fabrication and Black Market Forgery (`relic_windows::Fabrication`), Ghost Wormhole Generator, Mahact Vaults of the Heir, Sol Orbital Drop; `structure_allowed` moved to `query::laws` (re-exported from `rules::production`); `fx::take_action_card_staged`. **No conflicts** (auto-merged: `leader_windows.rs`, `promissory_windows.rs`, `ENGINE_KNOWN_ISSUES.md`).
+
+Break of the combination: the delivery registry named `arborec.rs::agent_use` and `faction_abilities.rs::perform_component` (the Sol Orbital Drop entry); l6 renamed them `agent_use_string` and `orbital_drop_string`. Rename only (two Producer rows, two tuples); no count changed. The Arborec `perform_component` row is untouched.
+
+### 8.2 Checks (cheap), runner chain `w7` at `2bf5b06e` (the merge) and a rerun of the inventory at the tip
+
+| Check | Result |
+|---|---|
+| `cargo check --workspace --all-targets` | ok |
+| `cargo clippy` of core, factions, engine, bridge, core-tests, rule-bot-typed | ok; **no warning** in the core crates or in `dual`, `dual_window`, `core_sync`, `render`, `combat`: the three round-3 clean-ups build |
+| `cargo test -p ti4-engine --lib` | 4842 passed, 0 failed |
+| same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` | 4842 passed, 0 failed |
+| core + factions + rule-bot-typed + bridge `--lib` | 605 passed |
+| `decision_delivery_inventory`, `content_ids_resolve` | W7_INV |
+| `ti4-engine-core-tests` with the D4 flags | 1105 passed, 0 failed |
+| `check_layers.py core`, `lint_core.sh` | 432 files, 0 violations; 434 files, 0 hits |
+
+Not run: heavy work. Not pushed.
