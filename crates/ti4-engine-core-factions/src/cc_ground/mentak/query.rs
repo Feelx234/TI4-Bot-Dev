@@ -24,6 +24,7 @@ const SOURCE: Source = Source::Faction(Faction::TheMentakCoalition);
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.commander_unlocked.push(commander_unlocked);
     t.seam.may_sustain.push(SOURCE, may_sustain);
     t.economy.trade_good_worth.push(trade_good_worth);
     t.strategy.unit_form_override.push(unit_form_override);
@@ -59,6 +60,16 @@ pub fn unit_form_override(s: &CoreState, _: &Kernel, who: Seat, base: UnitBaseTy
         && is_faction(s, who, Faction::TheMentakCoalition)
         && holds_breakthrough(s, who, Breakthrough::TheTablesGrace))
     .then_some(Unit::Corsair)
+}
+
+// -- leader hooks (package F2) ----------------------------------------
+
+/// S'ula Mentarion, unlock: "Have 4 cruisers on the game board." A Corsair is a cruiser; ships stand in the space areas.
+pub fn commander_unlocked(s: &CoreState, k: &Kernel, who: Seat, leader: ti4_engine_core::generated::Leader) -> Option<bool> {
+    (leader == ti4_engine_core::generated::Leader::SulaMentarion).then(|| {
+        let scope = crate::common::scope(k);
+        ti4_engine_core::query::leader_reads::space_pieces(s, who).filter(|(_, p)| scope.unit(p.kind()).is_some_and(|d| d.base_type == UnitBaseType::Cruiser)).count() >= 4
+    })
 }
 
 #[cfg(test)]

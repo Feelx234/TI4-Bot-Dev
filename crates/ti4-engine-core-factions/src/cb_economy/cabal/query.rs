@@ -19,6 +19,8 @@ use crate::common::{is_faction, player, scope};
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.commander_unlocked.push(commander_unlocked);
+    t.general.leader_action.push(leader_action);
     t.economy.production_unit_exchange.push(amalgamation_offer);
 }
 
@@ -35,6 +37,28 @@ pub fn amalgamation_offer(s: &CoreState, k: &Kernel, who: Seat, _: System, unit:
     }
     let base = base_of(k, unit);
     player(s, who).is_some_and(|p| p.misc.captured_units.as_slice().iter().any(|(_, captured)| base_of(k, *captured) == base))
+}
+
+// -- leader hooks (package F2) ----------------------------------------
+
+/// That Which Molds Flesh, unlock: "Have units in 3 gravity rifts." Counts systems: printed rifts and dimensional tears alike.
+pub fn commander_unlocked(s: &CoreState, k: &Kernel, who: Seat, leader: ti4_engine_core::generated::Leader) -> Option<bool> {
+    use ti4_engine_core::tables::{Flags, SystemFlags};
+    (leader == ti4_engine_core::generated::Leader::ThatWhichMoldsFlesh).then(|| {
+        let scope = scope(k);
+        let tear = |system: System| super::movement::has_tear(s, system);
+        crate::common::systems_with_piece(s, |p| p.owner() == who)
+            .iter()
+            .map(ti4_engine_core::ids::system_at)
+            .filter(|system| scope.system(*system).is_some_and(|d| d.has(SystemFlags::GRAVITY_RIFT)) || tear(*system))
+            .count()
+            >= 3
+    })
+}
+
+/// It Feeds on Carrion: a Cabal seat and a dimensional tear on the board (`cabal::leader_action`).
+pub fn leader_action(s: &CoreState, _: &Kernel, who: Seat, leader: ti4_engine_core::generated::Leader) -> Option<bool> {
+    (leader == ti4_engine_core::generated::Leader::ItFeedsOnCarrion).then(|| is_faction(s, who, Faction::TheVuilraithCabal) && super::movement::any_tear(s))
 }
 
 #[cfg(test)]

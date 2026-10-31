@@ -23,6 +23,7 @@ use crate::common::{has_tech_text, is_faction, mark, num, player};
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.leader_action.push(leader_action);
     t.general.commander_unlocked.push(commander_unlocked);
     t.cards.transaction_reach.push(deepgloom_reach);
     t.cards.transaction_limit_exempt.push(transaction_limit_exempt);
@@ -75,3 +76,11 @@ pub fn transaction_limit_exempt(s: &CoreState, _: &Kernel, active: Seat, other: 
 pub fn commander_unlocked(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
     (leader == Leader::SoAta).then(|| player(s, who).map_or(0, |p| p.cards.hand.len()) >= 7)
 }
+
+// -- leader hooks (package F2) ----------------------------------------
+
+/// Kyver, Blade and Key: another player holds an action card (`yssaril::hero_targets`).
+pub fn leader_action(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::KyverBladeAndKey).then(|| s.players().iter().any(|p| p.seat != who && !p.cards.hand.as_slice().is_empty()))
+}
+

@@ -24,6 +24,8 @@ use crate::common::{flagship_has_text, has_tech_text, is_faction, mark, scope, s
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.commander_unlocked.push(commander_unlocked);
+    t.general.leader_action.push(leader_action);
     t.general.vote_bonus.push(vote_bonus);
     t.cards.votes_first.push(votes_first);
     t.combat.space_cannon_barred.push(space_cannon_barred);
@@ -95,6 +97,37 @@ pub fn agent_production_destinations(s: &CoreState, k: &Kernel, who: Seat, syste
         }
     }
     out
+}
+
+// -- leader hooks (package F2) ----------------------------------------
+
+/// Trrakan Aun Zulok, unlock: "Have 6 units that have ANTI-FIGHTER BARRAGE, SPACE CANNON, or BOMBARDMENT on the game board."
+pub fn commander_unlocked(s: &CoreState, k: &Kernel, who: Seat, leader: ti4_engine_core::generated::Leader) -> Option<bool> {
+    (leader == ti4_engine_core::generated::Leader::TrrakanAunZulok).then(|| {
+        let scope = scope(k);
+        ti4_engine_core::query::leader_reads::count_pieces(s, who, |p| {
+            scope.unit(p.kind()).is_some_and(|d| d.anti_fighter_barrage.is_some() || d.space_cannon.is_some() || d.bombardment.is_some())
+        }) >= 6
+    })
+}
+
+/// Mirik Aun Sissiri: an Argent seat with a ship that has a system to fly to (`argent::leader_action`).
+pub fn leader_action(s: &CoreState, k: &Kernel, who: Seat, leader: ti4_engine_core::generated::Leader) -> Option<bool> {
+    (leader == ti4_engine_core::generated::Leader::MirikAunSissiri).then(|| is_faction(s, who, Faction::TheArgentFlight) && flock_can_move(s, k, who))
+}
+
+/// Some ship stands in a system other than a destination of Flock Migration: a system holding the seat's command token and no other
+/// player's ship (`argent::hero_destinations`, `hero_ships`).
+fn flock_can_move(s: &CoreState, k: &Kernel, who: Seat) -> bool {
+    use ti4_engine_core::query::board;
+    let scope = scope(k);
+    let is_ship = |p: &ti4_engine_core::state::Piece| scope.unit(p.kind()).is_some_and(|d| d.ship);
+    let destinations: Vec<System> = System::ALL
+        .iter()
+        .copied()
+        .filter(|system| board::has_token(s, *system, who) && !board::space_units(s, *system).iter().any(|p| p.owner() != who && is_ship(p)))
+        .collect();
+    s.board().systems().any(|(from, cell)| cell.units.as_slice().iter().any(|p| p.owner() == who && is_ship(p)) && destinations.iter().any(|to| *to != from))
 }
 
 #[cfg(test)]

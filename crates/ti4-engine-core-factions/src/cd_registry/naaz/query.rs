@@ -28,6 +28,7 @@ const SOURCE: Source = Source::Faction(Faction::TheNaazRokhaAlliance);
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.leader_action.push(leader_action);
     t.seam.hit_shift.push_add(SOURCE, Layer::Faction, supercharge);
     t.seam.dice.push_add(SOURCE, Layer::Faction, visz_el_vir);
     t.economy.explore_extra_draw.push(explore_extra_draw);
@@ -134,3 +135,11 @@ pub fn commander_unlocked(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) 
         crate::common::systems_with_piece(s, |p| p.owner() == who && p.kind().data().base_type == UnitBaseType::Mech).len() >= 3
     })
 }
+
+// -- leader hooks (package F2) ----------------------------------------
+
+/// Hesh and Prit: the relic deck is not empty (`naaz::leader_action`).
+pub fn leader_action(s: &CoreState, _: &Kernel, _: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::HeshAndPrit).then(|| !s.decks().relic.cards().is_empty())
+}
+
