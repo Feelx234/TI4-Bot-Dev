@@ -73,6 +73,7 @@ impl Offers for CoreOffers<'_> {
         })
     }
 
+    // mutants:skip: an empty list either way (the Firmament is dropped)
     fn plots(&mut self, _: Seat) -> SmallList<(SecretObjective, Seat), 8> {
         // Plots Within Plots belongs to the Firmament (dropped).
         SmallList::new()
@@ -202,6 +203,7 @@ impl<const EVENT: bool> Window for ScoringWin<EVENT> {
         }
         let asked = self.next(core, k).ok()??;
         // `ScoreOne::ask_of` answers only after its own `step`; the question is the same function of the position.
+        // mutants:skip: the seat asked exists, the default is unreachable
         let vp = core.players().by_seat(asked.seat).map_or(0, |p| u8::try_from(p.econ.victory_points.max(0)).unwrap_or(u8::MAX));
         Some(score_choice(asked.seat, vp, !EVENT, asked.offers.as_slice()))
     }

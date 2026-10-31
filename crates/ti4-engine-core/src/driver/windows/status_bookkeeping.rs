@@ -170,9 +170,11 @@ fn draw(sx: &mut Sx<'_>, seat: Seat) -> Option<u32> {
     if sx.state.meta().rules_at_least(RULES_FACTION_BUGFIXES) {
         let k = sx.kernel;
         let limit = hand_limit(sx.state, crate::query::reach::blanked(sx.state), |l| k.hooks.economy.action_card_limit(sx.state, k, seat, l));
-        let held = sx.state.players().by_seat(seat).map_or(0, |p| p.cards.hand.len());
+        let held = sx.state.players().by_seat(seat).map_or(0, |p| p.cards.hand.len()); // mutants:skip: a seat that draws exists
+        // mutants:skip: at the limit the window asks nothing either way (its own check is `held > limit`)
         if held > limit {
-            let mut window = DrawCards::new(seat, 0, false);
+            let mut window = DrawCards::new(seat, 0, false); // mutants:skip: nothing is drawn, so nothing unofficial can be dropped again
+            // mutants:skip: the driver rolls a dry step back whatever the job returns
             if run(sx, &mut window) == Flow::Halt {
                 return None;
             }
@@ -192,7 +194,7 @@ fn tokens_owed(core: &CoreState, kernel: &Kernel, order: &[Seat]) -> SmallList<S
     let cx = abilities::Cx { core, env: &env };
     let mut pending = SmallList::new();
     for seat in order {
-        for _ in 0..abilities::status_tokens(&cx, *seat, STATUS_TOKENS).max(0) {
+        for _ in 0..abilities::status_tokens(&cx, *seat, STATUS_TOKENS).max(0) { // mutants:skip: a negative fold is clamped to nothing owed
             pending.push(*seat);
         }
     }
@@ -239,6 +241,7 @@ pub fn run_bookkeeping(sx: &mut Sx<'_>) -> Flow {
     let holder = sx.state.players().iter().find(|p| p.cards.relics.as_slice().contains(&Relic::Neuraloop)).map(|p| p.seat);
     if let Some(holder) = holder {
         let mut window = Neuraloop::new(holder, revealed);
+        // mutants:skip: the driver rolls a dry step back whatever the job returns
         if run(sx, &mut window) == Flow::Halt {
             return Flow::Halt;
         }

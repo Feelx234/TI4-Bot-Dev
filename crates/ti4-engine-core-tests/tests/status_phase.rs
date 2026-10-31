@@ -511,7 +511,7 @@ fn advance_scoring_event(s: &mut CoreState, e: &Env<'_>, pick: Pick) -> (Live, O
 
 #[test]
 fn a_leaked_event_secret_keeps_its_timing_from_the_rules_version_that_says_so() {
-    for (version, offered) in [(40, true), (23, false)] {
+    for (version, offered) in [(40, true), (24, true), (23, false)] {
         let (mut s, k) = Scenario::lobby(2).phase(Phase::Action).rules(version).build();
         s.objectives_mut().revealed.push(ObjectiveRef::Secret(SecretObjective::ProveEndurance));
         s.players_mut().edit(1).misc.event_feats.push((Feat::LastToPass, 3));
@@ -661,4 +661,65 @@ fn a_position_secret_of_an_event_window_is_offered_without_a_feat_and_a_leaked_s
     assert_eq!(q.actor, Seat(0));
     let (s, k) = mk(true);
     assert!(ask::<StatusScoring>(&s, &env(&k)).unwrap().is_none());
+}
+
+#[test]
+fn a_seat_with_one_token_is_asked_to_redistribute_and_an_empty_deck_draws_nothing() {
+    let (mut s, k) = finish_of(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan], 40, (1, 0, 0));
+    assert_eq!(ask_redistribution(&mut s, &k), Some((1, 2)), "one token is still a sheet; the split list handles a total under the floor");
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).build();
+    s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
+    s.decks_mut().action.set(Vec::new());
+    let e = env(&k);
+    advance_status(&mut s, &e, None).unwrap();
+    advance_scoring(&mut s, &e, None).unwrap();
+    let Some(ti4_engine_core::state::Window::Tokens(t)) = s.pending().window(WindowKind::Tokens) else { panic!("tokens") };
+    assert_eq!(t.report.action_cards_drawn.as_slice(), [(Seat(0), 0), (Seat(1), 0)]);
+}
+
+#[test]
+fn a_revealed_event_secret_is_no_status_offer_and_a_held_one_is_offered_once() {
+    // Prove Endurance has no position requirement: made public in the status window it is not scoreable.
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).build();
+    s.objectives_mut().revealed.push(ObjectiveRef::Secret(SecretObjective::ProveEndurance));
+    ti4_engine_core::driver::live::open(&mut s, &StatusScoring::status(&[Seat(0), Seat(1)]));
+    assert!(ask::<StatusScoring>(&s, &env(&k)).unwrap().is_none());
+    // Held and revealed at once, with its feat recorded: one offer.
+    let (mut s, k) = pe_table(40);
+    s.objectives_mut().revealed.push(ObjectiveRef::Secret(SecretObjective::ProveEndurance));
+    open_event(&mut s, ScoringTiming::Action, 3, true);
+    let q = ask::<EventScoring>(&s, &env(&k)).unwrap().expect("offered").choice;
+    let scores = q.opts.iter().filter(|o| matches!(o, Opt::Objectives(OOpt::Score(_)))).count();
+    assert_eq!(scores, 1);
+}
+
+#[test]
+fn a_leaked_secret_the_core_cannot_judge_stops_the_window_with_a_counted_gap() {
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).build();
+    s.objectives_mut().revealed.push(ObjectiveRef::Secret(SecretObjective::StrengthenBonds));
+    ti4_engine_core::driver::live::open(&mut s, &StatusScoring::status(&[Seat(0)]));
+    let held = s.clone();
+    assert_eq!(advance_scoring(&mut s, &env(&k), None), gap(TurnGap::ScoringSecret));
+    assert_eq!(s, held);
+}
+
+#[test]
+fn scheming_without_the_printed_name_groups_is_a_counted_gap_and_a_public_leak_scores_as_public() {
+    let (mut y, k) = yssaril_table();
+    let mut e = env(&k);
+    e.table.facts.card_groups = Vec::new();
+    advance_status(&mut y, &e, None).unwrap();
+    let held = y.clone();
+    assert_eq!(advance_scoring(&mut y, &e, None), gap(TurnGap::NoRoster));
+    assert_eq!(y, held);
+    // A secret made public that its holder's position satisfies is scored as a public objective: the public cap is used, the hand untouched.
+    let planet = Planet::ALL.iter().copied().find(|p| p.data().legendary && p.data().system.is_some()).unwrap();
+    let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).control(planet, 0).build();
+    s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
+    s.objectives_mut().revealed.push(ObjectiveRef::Secret(SecretObjective::SeizeAnIcon));
+    let e = env(&k);
+    advance_status(&mut s, &e, None).unwrap();
+    let pick = Pick::Opt(Opt::Objectives(OOpt::Score(ObjectiveRef::Secret(SecretObjective::SeizeAnIcon))));
+    advance_scoring(&mut s, &e, Some(pick)).unwrap();
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.victory_points, 1);
 }

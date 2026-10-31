@@ -221,6 +221,7 @@ fn announce_staged_cards(sx: &mut Sx<'_>) -> Flow {
             }
             _ => Flow::Done,
         };
+        // mutants:skip: the driver rolls a dry step back whatever the job returns
         if flow == Flow::Halt {
             return Flow::Halt;
         }
