@@ -150,10 +150,13 @@ pub struct StepOut {
 #[must_use]
 pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let (phase, round) = (core.meta().phase, core.meta().round);
-    let mut rendered = Typed::new(cx.render, asking.choice.clone(), phase, round).rendered;
-    // The display facts read the position the question was put in: a question asked from inside a step (an emission, a job of the turn
-    // flow) was put in a position the driver has rolled back since.
-    (cx.complete)(asking.at.as_deref().unwrap_or(core), cx.env.kernel, &asking.choice, &mut rendered);
+    // The position the question is asked in: the options of a production question carry numbers only the position gives (`Render::position`). The
+    // display facts read the position the question was put in: a question asked from inside a step (an emission, a job of the turn flow) was
+    // put in a position the driver has rolled back since.
+    let at = asking.at.as_deref().or(asking.nested.as_ref().map(|(_, at)| &**at)).unwrap_or(core);
+    let position = render::Position { state: std::rc::Rc::new(at.clone()), kernel: kernel::static_of(cx.env.kernel) };
+    let mut rendered = Typed::new_at(cx.render, position, asking.choice.clone(), phase, round).rendered;
+    (cx.complete)(at, cx.env.kernel, &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
     if let Some((facts, at)) = &asking.nested {

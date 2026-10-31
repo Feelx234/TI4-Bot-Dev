@@ -23,8 +23,18 @@ const INFLUENCE_PER_TOKEN: i64 = 3;
 
 /// The display facts of the strategic action's questions.
 pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered: &mut Choice) {
-    if let Ask::Strategy(SAsk::Follow { card, .. }) = choice.ask {
-        follow(core, kernel, choice.actor, card.data().kind, rendered);
+    match choice.ask {
+        Ask::Strategy(SAsk::Follow { card, .. }) => follow(core, kernel, choice.actor, card.data().kind, rendered),
+        // The label of a technology is its printed name, which only the content store has.
+        Ask::Strategy(SAsk::ResearchTechnology { .. }) => {
+            let content = ContentStore::embedded();
+            for (option, opt) in rendered.options.iter_mut().zip(choice.opts.iter()) {
+                if let ti4_engine_core::choice::Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Research(t)) = opt {
+                    option.label = crate::technology::name(content, &ti4_model::id::TechnologyId::new(t.as_str()));
+                }
+            }
+        }
+        _ => {}
     }
 }
 

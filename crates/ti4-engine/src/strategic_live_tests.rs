@@ -22,6 +22,13 @@ use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
 use crate::render::Render;
 
+/// The renderer of a native table: the seats and the faction text the options that name a seat by faction use.
+fn named(cx: &Ctx, state: &GameState) -> Render {
+    let r = Render::new(cx.owners.ids().to_vec());
+    let factions = r.seats.iter().map(|id| state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
+    r.with_factions(factions)
+}
+
 /// The text of a strategy card's id for the table's card set.
 fn card_id(card: &str) -> StrategyCardId {
     StrategyCardId::new(card)
@@ -69,7 +76,7 @@ fn native_secondary(state: &GameState, card: &str, ids: &[String]) -> Run {
 /// The native arms of the strategic action on a copy of `state`, after `setup` opened the window, with the answers the string was given.
 fn native_arms(state: &GameState, ids: &[String], setup: &dyn Fn(&mut ti4_engine_core::state::CoreState, &Render)) -> Run {
     let mut cx = Ctx::of(state).expect("a table the codecs carry");
-    let render = Render::new(cx.owners.ids().to_vec());
+    let render = named(&cx, state);
     let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
     let positions = game.rng_positions();
     let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
@@ -135,6 +142,16 @@ fn table_for(card: &str) -> GameState {
         let seat = state.player_mut(&pid(p)).unwrap();
         seat.strategic_tokens = 2;
         seat.commodities = 0;
+        // Influence to buy a token with, and a planet to ready.
+        seat.trade_goods = 6;
+    }
+    if card == "pok2diplomacy" {
+        for p in ["b", "c", "d"] {
+            let planets: Vec<_> = state.controlled_planets(&pid(p)).into_iter().map(|(_, planet)| planet.clone()).collect();
+            for planet in planets {
+                state.exhausted_planets.insert(planet);
+            }
+        }
     }
     based(state)
 }
@@ -171,6 +188,29 @@ fn nobody_who_can_follow_ends_the_action_without_a_question_like_the_string() {
     assert_same(&string, &native);
     assert!(string.questions.is_empty());
     assert!(has(&string, "STRATEGIC_ACTION_COMPLETE"));
+}
+
+// -- a planning fork's one-follower window --------------------------------------------------------------------------------------------
+
+#[test]
+fn a_preview_window_asks_one_follower_and_neither_finishes_the_action_nor_passes_the_turn_like_the_string() {
+    let state = table_for("pok5trade");
+    let (string, taken) = string_run_first(&state, &["yes"], |g| {
+        g.secondary = Some(crate::strategy::StrategySecondaryWindow::preview(pid("a"), card_id("pok5trade"), pid("c")));
+        for _ in 0..10 {
+            let _ = g.step();
+            if g.events.iter().any(|e| e == "STRATEGY_SECONDARY_PREVIEW_COMPLETE") {
+                break;
+            }
+        }
+    });
+    let native = native_arms(&state, &taken, &|core, render| {
+        let mut window = secondary_of(render.seat("a").unwrap(), ti4_engine_core::generated::StrategyCard::Trade, &[render.seat("c").unwrap()], false);
+        window.preview = true;
+        core.pending_mut().open(ti4_engine_core::state::Window::StrategySecondary(window));
+    });
+    assert_same(&string, &native);
+    assert!(has(&string, "STRATEGY_SECONDARY_PREVIEW_COMPLETE") && !has(&string, "STRATEGIC_ACTION_COMPLETE") && !has(&string, "TURN_PASSED"), "{:?}", string.events);
 }
 
 // -- a hero's strategy: the Winnu hero's follower selection ----------------------------------------------------------------------------
@@ -232,7 +272,7 @@ fn string_primary(state: &GameState, ids: &[&str]) -> (Run, Vec<String>, bool) {
 /// The native job on a copy of `state` with the answers the string was given after the menu's.
 fn native_primary(state: &GameState, card: &str, ids: &[String]) -> (Run, bool) {
     let mut cx = Ctx::of(state).expect("a table the codecs carry");
-    let render = Render::new(cx.owners.ids().to_vec());
+    let render = named(&cx, state);
     let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
     let positions = game.rng_positions();
     let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
@@ -300,11 +340,3 @@ primary_case!(an_imperial_primary_runs_like_the_string, "pok8imperial", []);
 #[allow(dead_code)]
 fn unused(_: PlayerId) {}
 
-#[test]
-fn debug_eligibility() {
-    for card in ["pok1leadership", "pok2diplomacy"] {
-        let state = table_for(card);
-        let (string, _) = string_secondary(&state, card, &["yes"]);
-        eprintln!("{card}: string asked {:?}", string.questions.iter().map(|q| (q.player.to_string(), q.prompt.clone())).collect::<Vec<_>>());
-    }
-}
