@@ -360,3 +360,26 @@ pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(MILOR_SHIPS, AbilityKind::Leader, EventKind::ShipDestroyed, Relation::After, |e| place(e, UnitBaseType::Fighter, false)).optional().when(ship_when));
     t.add(Spec::new(MILOR_GROUND, AbilityKind::Leader, EventKind::GroundForceDestroyed, Relation::After, |e| place(e, UnitBaseType::Infantry, true)).optional().when(ground_when));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two abilities of one table never share a slot (a second registration is a `debug_assert` of `AbilityTable::add`). Lane M5's Van Hauge and
+    /// the Indoctrination of lane 13 were both `Slot(7003)` until integration 10.
+    #[test]
+    fn the_yin_slots_are_distinct() {
+        let slots = [MILOR_SHIPS, MILOR_GROUND, INDOCTRINATION, GREYFIRE, VAN_HAUGE];
+        for (i, a) in slots.iter().enumerate() {
+            for b in &slots[i + 1..] {
+                assert_ne!(a, b, "two yin abilities share the slot {a:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_whole_yin_table_registers_without_a_slot_clash() {
+        let mut table = AbilityTable::default();
+        register_abilities(&mut table);
+    }
+}
