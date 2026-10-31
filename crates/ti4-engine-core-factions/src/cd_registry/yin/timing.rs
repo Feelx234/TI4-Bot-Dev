@@ -10,7 +10,7 @@
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::{Faction, Leader, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Runner, Slot, Spec, Unknown};
+use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Runner, Slot, Spec, Unknown};
 use ti4_engine_core::kernel::fx;
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::query::{fleet, tech};
@@ -138,6 +138,7 @@ pub(crate) fn place_by(eff: &mut Eff<'_, '_>, base: UnitBaseType, on_planet: boo
 
 /// The destroyed unit is the owner's Van Hauge. (A Nekro Alastor lent the text by the Z token of the Valefar Assimilator is a Thunder's Edge
 /// breakthrough: out of the agreed content.)
+// (Registered for every seat like the string: the unit in the payload says whose it is.)
 fn van_hauge_when(c: &CondCx<'_>) -> bool {
     let p = &c.event.payload;
     p.unit(Key::Unit) == Some(Unit::VanHauge) && p.seat(Key::Player) == Some(c.def.owner)
@@ -174,7 +175,7 @@ fn van_hauge(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 }
 
 pub fn register_abilities(t: &mut AbilityTable) {
-    t.add(Spec::new(VAN_HAUGE, AbilityKind::Unit, EventKind::ShipDestroyed, Relation::After, van_hauge).applies(Applies::Faction(Faction::TheYinBrotherhood)).when(van_hauge_when));
+    t.add(Spec::new(VAN_HAUGE, AbilityKind::Unit, EventKind::ShipDestroyed, Relation::After, van_hauge).when(van_hauge_when));
     t.add(Spec::new(MILOR_SHIPS, AbilityKind::Leader, EventKind::ShipDestroyed, Relation::After, |e| place(e, UnitBaseType::Fighter, false)).optional().when(ship_when));
     t.add(Spec::new(MILOR_GROUND, AbilityKind::Leader, EventKind::GroundForceDestroyed, Relation::After, |e| place(e, UnitBaseType::Infantry, true)).optional().when(ground_when));
 }
