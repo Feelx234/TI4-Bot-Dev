@@ -10960,6 +10960,56 @@ mod tests {
         }
     }
 
+    /// Package W11: a ground combat against neutral infantry (Mercenary Contract) runs in the core windows: the start of the round, the
+    /// dice, the tail, the hits (the casualty goes to the unit lowest on the reference card, nobody is asked for the neutral side).
+    /// Fails on the pre-W11 gates ("neutral side").
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn a_ground_combat_against_neutral_infantry_runs_in_the_core_windows_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let a = invader();
+        let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
+        for seed in 0..8_u64 {
+            let (mut state, system, planet) = arena();
+            for (seat, faction) in state.players.iter_mut().zip(["sol", "hacan"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            on_planet(&mut state, &system, &planet, "infantry", &a, 2 + usize::try_from(seed % 4).unwrap());
+            on_planet(&mut state, &system, &planet, "neutral_infantry", &neutral, 2 + usize::try_from(seed % 3).unwrap());
+            if seed % 2 == 1 {
+                on_planet(&mut state, &system, &planet, "mech", &a, 1);
+            }
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            state.rng_seed = seed;
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+            let _ = crate::product::with_strict(std::env::var("W11_STRICT").is_ok(), || crate::dual::with_mask(mask, || {
+                drive_invasion(
+                    &mut state,
+                    &system,
+                    Stage::Fighting { planets: vec![planet.clone()], index: 0, defender: neutral.clone() },
+                    InvasionReport { committed: vec![planet.clone()], ..InvasionReport::default() },
+                    vec!["fight".to_owned()],
+                    &mut dice,
+                    &mut rng,
+                )
+            }));
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1200).collect();
+            assert!(report.differences.is_empty(), "seed {seed}: {shown}");
+            for label in ["invasion::roll_ground", "invasion::roll_ground_tail", "invasion::begin_ground_round"] {
+                let w = report.windows.get(label).cloned().unwrap_or_default();
+                assert!(w.compared > 0 && w.bailed == 0, "seed {seed}: {label} ran in the core: {:?}", report.windows);
+            }
+            // Bail-as-failure: the whole fight ran natively (the exploration of a first claim of the planet is the exploration area's gate).
+            let others = |label: &String| !label.contains("control_gain_exploration");
+            assert!(report.windows.iter().filter(|(label, _)| others(label)).all(|(_, w)| w.bailed == 0), "seed {seed}: no window bailed: {:?}", report.windows);
+            let _ = crate::dual::take_report();
+        }
+    }
+
     /// Package W1: Naaz's Supercharge and the repair of the Eidolon Maximum at the start of a ground round run in the core window
     /// (`ground_combat_round_started` of the Naaz crate; the question rides on the tape of the step). Both answers, both sides
     /// holding the technology, a damaged Maximum, with the invasion on `Dual`: no difference, the window ran in the core and the

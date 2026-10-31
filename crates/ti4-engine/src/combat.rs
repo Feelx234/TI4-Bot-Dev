@@ -12069,6 +12069,42 @@ mod tests {
         }
     }
 
+    /// Package W11: Assault Cannon ("at the start of a space combat, if your opponent has 3 or more non-fighter ships: destroy 1 of them")
+    /// against a neutral side, and the neutral side as the one whose non-fighters are counted: the victim is chosen by the rules (the unit
+    /// lowest on the reference card), nobody is asked. Fails on the pre-W11 gate ("Assault Cannon at a neutral side").
+    #[test]
+    fn assault_cannon_against_a_neutral_side_runs_in_the_core_in_lockstep() {
+        let setup = |state: &mut GameState, seed: u64| {
+            neutral_garrison(state, seed);
+            state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("asc"));
+        };
+        for composed in [false, true] {
+            let (asked, compared, bailed) = roll_step_fights(&setup, 0, composed);
+            assert!(asked.iter().all(|c| c.player.as_str() != crate::neutral_units::NEUTRAL), "the neutral side is never asked: {composed}");
+            assert!(compared > 0 && bailed == 0, "composed {composed}: {compared} compared, {bailed} bailed");
+            no_bails(&format!("Assault Cannon against a neutral side (composed {composed})"));
+        }
+    }
+
+    /// Assault Cannon taking the last ship of a side ends the fight inside the opening of round one (`rounds` = 1, as the string
+    /// concludes it after the cannon), in the composed machine as in the single windows. Found by the neutral-side test; the machine
+    /// concluded it with the previous round (0) because the opening was read again after the cannon's window.
+    #[test]
+    fn an_assault_cannon_that_takes_the_last_ship_ends_the_fight_in_round_one_in_lockstep() {
+        let setup = |state: &mut GameState, _seed: u64| {
+            let system = SystemId::new("18");
+            state.system_mut(&system).units.retain(|u| u.owner != defender());
+            put(state, &system, "cruiser", &defender(), 1);
+            state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("asc"));
+        };
+        for composed in [false, true] {
+            // (The fight ends before a roll: the single windows compare no roll, the composed machine compares the whole settle.)
+            let (_, compared, bailed) = roll_step_fights(&setup, 0, composed);
+            assert!(bailed == 0 && (compared > 0 || !composed), "composed {composed}: {compared} compared, {bailed} bailed");
+            no_bails(&format!("an Assault Cannon that takes the last ship (composed {composed})"));
+        }
+    }
+
     #[test]
     fn the_heart_of_ixth_runs_in_the_core_roll_window() {
         let asked = roll_step_lockstep(
