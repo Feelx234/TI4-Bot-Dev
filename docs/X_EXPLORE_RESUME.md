@@ -91,6 +91,11 @@ and the `FinalizingControl` settle step suspend there, `question` / `resolve` / 
   Politics draw lost the Scheming / Crafty hooks; restored). The plain-areas lib run was started and stopped (the machine was loaded; the `all=dual` run subsumes it).
 * `tools/engine_core/check_layers.py core`: 453 files, 0 violations (the first version imported `rules::explore` from `explore_windows` by path); `tools/engine_core/lint_core.sh`: 0 hits (the first version put `String` in `kernel::fx_explore`:
   the words are minted by the adapter, the core closes the row with codes).
-* Mutation: see below.
+* Mutation (single file, Haiku runners, scratch worktree on committed snapshots b776e43c and 7e3a196e, `tools/engine_core/mutants.sh`): `explore_windows.rs` (Exploring, 151 mutants) 114 killed / 37 survived first, 12 tests added (options of
+  Functioning Base / Local Fabricators incl. a seat that may not place its mech, spend a commodity, every entropic field and Keleres ship, the gates of the texts and Terragenesis, a zero conversion, Lost Crew exactly two cards, a non-hosted window asks the discard)
+  and 7 defensive lines marked `// mutants:skip`: second run 131 / 137 killed, the 6 left then got tests (`the_last_survivors_...`) or a skip mark (a child handing back a `Next`); `hero_windows.rs` Procyon 14/14; `defense.rs::defend` 17/23 (the 6 are pre-existing
+  lines or `rerolled: 0`, which got an assertion); `commit.rs::answer` 20/24 (the 4 are pre-existing flags and an equivalent `&&` for temporary fighters, which have no twin form); `fx_explore.rs` 5/8 (all `place_planet`, not this lane);
+  `fight.rs` (establish_control, explore_first_claim, finish_control_gain, advance_control) against the engine lockstep tests 26/33; the 7 survivors (indices of a chain of several planets, the report of explored planets, `previous.is_none() &&
+  explorable`) got the core test `two_first_claims_are_explored_in_order_and_a_conquest_is_not_explored` (passes; not re-mutated). The survivors of the last two edits were not re-run.
 
 Not run: golden / wide dual, benches, soak, ratchet, workspace clippy, census (a full zero-bail playthrough is not possible yet).

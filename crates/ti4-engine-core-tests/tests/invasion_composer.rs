@@ -252,6 +252,46 @@ fn a_first_claim_explores_the_planet_natively() {
     assert!(core.pending().window(WindowKind::Invasion).is_none());
 }
 
+/// Two planets taken for the first time in one invasion are explored one after the other, in the order of the chain, and a planet taken from
+/// its holder is not explored at all.
+#[test]
+fn two_first_claims_are_explored_in_order_and_a_conquest_is_not_explored() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    let (p1, p2) = planets();
+    let (mut core, k) = arena().unit(sys(), None, Unit::CarrierI, 0, 1).build();
+    carry(&mut core, 2);
+    for deck in [ExploreType::Cultural, ExploreType::Hazardous, ExploreType::Industrial] {
+        stack_deck(&mut core, deck, &[Explore::CulturalRelicFragment1, Explore::HazardousRelicFragment1, Explore::IndustrialRelicFragment1]);
+    }
+    let env = exploring_env(&k, 1);
+    open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+    // One infantry to each planet: the first commit question is answered with p1, the second with p2.
+    let mut wanted = vec![p1, p2];
+    let mut pick = move |c: &Choice| -> usize {
+        let want = wanted.first().copied();
+        let at = c.opts.as_slice().iter().position(|o| matches!(o, Opt::Invasion(IOpt::Commit { planet, .. }) if Some(*planet) == want));
+        if at.is_some() {
+            wanted.remove(0);
+        }
+        at.unwrap_or(0)
+    };
+    let (_, end) = play(&mut core, &env, &mut pick);
+    assert!(end.is_ok(), "{end:?}");
+    let explored: Vec<_> = core.explore().log.iter().map(|r| r.planet).collect();
+    assert_eq!(explored, vec![Some(p1), Some(p2)], "both planets, in the order of the chain");
+    assert_eq!((core.board().planet(p1).control, core.board().planet(p2).control), (Some(Seat(0)), Some(Seat(0))));
+    // A conquest explores nothing.
+    let (mut held, k) = conquest(6, 1);
+    for deck in [ExploreType::Cultural, ExploreType::Hazardous, ExploreType::Industrial] {
+        stack_deck(&mut held, deck, &[Explore::CulturalRelicFragment1]);
+    }
+    let env = exploring_env(&k, 1);
+    open_invasion(&mut held, Seat(0), sys(), NoteHold::new());
+    let (_, end) = play(&mut held, &env, &mut first);
+    assert!(end.is_ok(), "{end:?}");
+    assert!(held.explore().log.is_empty(), "a planet taken from its holder is not explored");
+}
+
 /// A table that gives the exploration no texts for its log row: the arm stops with a counted bail that names the exploration, and the
 /// planet stays unclaimed.
 #[test]
