@@ -1,0 +1,38 @@
+Q0 seat 1 Cards(HandLimit { held: 8 })
+  >0: Cards(Discard { index: 2, card: CoupDEtat })
+   1: Cards(Discard { index: 1, card: NavSuite })
+   2: Cards(Discard { index: 5, card: Plague })
+   3: Cards(Discard { index: 0, card: Rally })
+   4: Cards(Discard { index: 6, card: Rout })
+   5: Cards(Discard { index: 4, card: Sabotage1 })
+   6: Cards(Discard { index: 3, card: Spy })
+   7: Cards(Discard { index: 7, card: Upgrade })
+done
+--- delta ---
+meta.speaker.[0]: 0 -> 1
+player1.cards.hand.[2]: CoupDEtat -> Spy
+player1.cards.hand.[3]: Spy -> Sabotage1
+player1.cards.hand.[4]: Sabotage1 -> Plague
+player1.cards.hand.[5]: - -> Rout
+player1.cards.hand.[6]: - -> Upgrade
+decks: changed
+agenda.log: [] -> -
+agenda.log.[0].agenda: - -> ArmsReduction
+agenda.log.[0].discard_reason: - -> None
+agenda.log.[0].discarded: - -> false
+agenda.log.[0].enacted: - -> false
+agenda.log.[0].law: - -> false
+agenda.log.[0].outcome.[0]: - -> For
+agenda.log.[0].redirected_to: - -> None
+agenda.log.[0].round: - -> 2
+agenda.log.[0].speaker_decided: - -> false
+agenda.log.[0].votes.Against: - -> 1
+agenda.log.[0].votes.For: - -> 3
+agenda.predictions: - -> {}
+agenda.predictions.[0].[0]: 1 -> -
+agenda.predictions.[1]: For -> -
+agenda.predictions.[2]: PoliticRider -> -
+ledger.events: 0 -> 3
+event[0]: Plain(PlainRec { kind: AgendaResolved, a: Agenda(ArmsReduction), b: Outcome(For) })
+event[1]: Typed(EventRec { id: 1, kind: AgendaResolved, payload: Payload { items: [(Agenda, Agenda(ArmsReduction)), (Player, Outcome(For))], units: [], lists: [] }, cancelled: false })
+event[2]: Plain(PlainRec { kind: AgendaPredictionCorrect, a: Seat(Seat(1)), b: None })
