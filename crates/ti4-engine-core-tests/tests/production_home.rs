@@ -164,6 +164,9 @@ fn auto_factories_pays_a_fleet_token_for_three_ships_that_are_no_fighters() {
     let before = rig.state.players().by_seat(Seat(0)).unwrap().econ.fleet_tokens;
     rig.run();
     build(&mut rig, Unit::FighterI);
+    if !rig.is_done() {
+        build(&mut rig, Unit::FighterI);
+    }
     while !rig.is_done() {
         stop(&mut rig);
     }
@@ -223,4 +226,16 @@ fn a_table_without_the_factions_link_declines_the_run_when_self_assembly_is_owne
     build(&mut rig, Unit::DestroyerI);
     stop(&mut rig);
     assert!(rig.is_done() && rig.driver.window.unsupported, "{}", rig.transcript());
+}
+
+#[test]
+fn a_use_without_capacity_makes_no_offer_to_the_hacan_hero() {
+    covers!("rules::production::home::HomeProduction");
+    let (mut rig, _, _) = home(6, &[Unit::DestroyerI], 0);
+    rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::HarrughGefhara, LeaderStatus::Unlocked);
+    let seq = rig.state.meta().production_seq;
+    rig.run();
+    assert!(rig.is_done());
+    assert_eq!(rig.state.meta().production_seq, seq, "no use, no number");
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::HarrughGefhara), Some(&LeaderStatus::Unlocked));
 }

@@ -272,3 +272,40 @@ fn a_fleet_that_does_not_fit_its_destination_is_enforced_before_the_fight() {
     let fighters = rig.state.board().sys(destination).units.as_slice().iter().filter(|p| p.kind() == Unit::FighterI).count();
     assert!(fighters < 2, "some fighter was removed ({fighters} left)");
 }
+
+#[test]
+fn a_fleet_that_stands_after_the_fight_earns_the_feat_against_the_occurrence_of_the_combat() {
+    covers!("rules::combat::mahact_hero::MahactHero");
+    use ti4_engine_core::state::Feat;
+    let mut earned = 0;
+    for seed in 0..8 {
+        let (origin, destination) = (there(), sys());
+        let sc = arena().unit(origin, None, Unit::DreadnoughtI, 0, 3).unit(destination, None, Unit::FighterI, 1, 1);
+        let (state, kernel) = sc.build();
+        let window = MahactHero::new(Seat(0), vec![(origin, destination)], vec![prepared(origin, destination)]);
+        let mut rig = Rig::from_parts(state, kernel, window).seeded(seed);
+        rig.run();
+        answer_first(&mut rig);
+        assert!(rig.driver.window.used);
+        let feats = rig.state.players().by_seat(Seat(0)).unwrap().misc.event_feats.as_slice().to_vec();
+        if feats.iter().any(|(f, o)| *f == Feat::HeldThreeShipsAfterASpaceCombat && *o == rig.state.meta().feat_occurrence_seq) {
+            earned += 1;
+        }
+    }
+    assert!(earned > 0, "three dreadnoughts that stand earn the feat");
+}
+
+#[test]
+fn only_the_seats_units_move_and_the_preparation_of_the_chosen_pair_is_used() {
+    covers!("rules::combat::mahact_hero::MahactHero");
+    let (a, b, destination) = (there(), plain_systems()[2], sys());
+    let sc = arena_with(b).unit(a, None, Unit::CruiserI, 0, 2).unit(a, None, Unit::CruiserI, 1, 1).unit(destination, None, Unit::CruiserI, 1, 1);
+    let (state, kernel) = sc.build();
+    let window = MahactHero::new(Seat(0), vec![(a, destination)], vec![prepared(b, destination), prepared(a, destination)]);
+    let mut rig = Rig::from_parts(state, kernel, window).seeded(2);
+    rig.run();
+    answer_first(&mut rig);
+    assert!(rig.driver.window.used && !rig.driver.window.unsupported);
+    let other = rig.state.board().sys(a).units.as_slice().iter().filter(|p| p.owner() == Seat(1)).count();
+    assert_eq!(other, 1, "another player's ship in the origin stays");
+}

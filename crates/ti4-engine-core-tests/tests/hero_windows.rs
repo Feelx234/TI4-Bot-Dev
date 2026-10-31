@@ -1337,3 +1337,34 @@ fn the_imperial_primary_is_a_child_that_reports_the_objective_scored() {
     }
     assert!(!rig.driver.window.unsupported && rig.driver.window.scored.is_none());
 }
+
+#[test]
+fn the_pool_is_asked_from_version_twelve_and_a_minor_field_gives_one_good() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut rig, _) = empyrean(&[Explore::MinorEntropicField], 1, FrontierFacts { rules_version: 12, ..frontier_facts() });
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { .. })), "version 12 asks");
+    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
+    assert_eq!(goods_of(&rig), 1, "a minor entropic field: one command token and one trade good");
+}
+
+#[test]
+fn an_empty_secret_deck_draws_nothing_and_the_card_still_resolves() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut rig, _) = empyrean(&[Explore::DerelictVessel1], 1, frontier_facts());
+    rig.state.decks_mut().secret.set(vec![]);
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
+    assert_eq!(rig.driver.window.rows()[0].how, How::Resolved);
+}
+
+#[test]
+fn a_token_under_a_ground_force_alone_is_not_explored() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1], 1, frontier_facts());
+    state.board_mut().sys_mut(systems[0]).units.clear();
+    state.board_mut().sys_mut(systems[0]).units.push(Piece::new(Unit::InfantryI, Seat(0)));
+    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), systems.clone(), frontier_facts()));
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.rows().is_empty() && rig.state.explore().frontier.contains(systems[0]));
+}

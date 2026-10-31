@@ -187,3 +187,65 @@ fn a_defended_planet_is_fought_and_taken_only_by_the_side_that_stands() {
     }
     assert!(taken.0 > 0, "some seed is won by the hero");
 }
+
+#[test]
+fn the_end_of_a_combat_names_the_winner_the_rival_and_whether_control_changed() {
+    covers!("rules::invasion::fight::CommittedFight");
+    let (_, planet) = first_planet();
+    let (mut won, mut lost) = (0, 0);
+    for seed in 0..12 {
+        let (sc, system, planet2) = arena(2, 2);
+        assert_eq!(planet, planet2);
+        let mut rig = Rig::new(sc, CommittedFight::new(facts(system, planet))).seeded(seed);
+        rig.run();
+        while !rig.is_done() {
+            rig.pick(0);
+        }
+        let ended = rig.driver.emitted.iter().find(|e| e.kind == EventKind::GroundCombatEnded).expect("the end is announced");
+        let get = |key: ti4_engine_core::state::Key| ended.payload.get(key);
+        let mine = left(&rig, planet, 0);
+        assert_eq!(get(ti4_engine_core::state::Key::Defender), Some(ti4_engine_core::state::Val::Seat(Seat(1))), "the rival is named whoever wins");
+        let winner = get(ti4_engine_core::state::Key::Winner);
+        if mine > 0 {
+            won += 1;
+            assert_eq!(winner, Some(ti4_engine_core::state::Val::Seat(Seat(0))));
+            assert_eq!(get(ti4_engine_core::state::Key::ControlChanged), Some(ti4_engine_core::state::Val::Flag(true)), "the invader took an uncontrolled planet");
+        } else {
+            lost += 1;
+            assert_eq!(get(ti4_engine_core::state::Key::ControlChanged), Some(ti4_engine_core::state::Val::Flag(false)));
+            if left(&rig, planet, 1) > 0 {
+                assert_eq!(winner, Some(ti4_engine_core::state::Val::Seat(Seat(1))));
+            } else {
+                assert_eq!(winner, None, "nobody stands: no winner is named");
+            }
+        }
+    }
+    assert!(won > 0 && lost > 0, "the seeds give both outcomes ({won}, {lost})");
+}
+
+#[test]
+fn a_spot_that_is_not_offered_is_refused_and_a_hero_that_loses_does_not_take_the_planet() {
+    covers!("rules::invasion::yin_hero::YinHero");
+    let (mut rig, _, _) = yin(0, 0, 3, 1);
+    rig.run();
+    rig.expect_illegal(Pick::Opt(Opt::Leaders(ti4_engine_core::choice::leaders::Opt::YinSpot(there(), Planet::ALL[0]))));
+    let mut lost = 0;
+    for seed in 0..10 {
+        let (mut rig, system, planet) = yin(0, 6, 1, seed);
+        rig.run();
+        rig.pick_opt(Opt::Leaders(ti4_engine_core::choice::leaders::Opt::YinSpot(system, planet)));
+        while !rig.is_done() {
+            rig.pick(0);
+        }
+        if left(&rig, planet, 0) == 0 {
+            lost += 1;
+            assert_eq!(rig.state.board().planet(planet).control, None, "seed {seed}: a lost planet is not taken");
+            assert!(rig.driver.window.used, "the card is spent all the same");
+        }
+    }
+    assert!(lost > 0);
+}
+
+fn there() -> System {
+    ti4_engine_core_tests::scenario::plain_systems()[5]
+}
