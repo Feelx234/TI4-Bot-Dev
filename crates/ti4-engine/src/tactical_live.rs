@@ -524,4 +524,22 @@ mod tests {
             assert!(diffs.is_empty(), "{kind}: {diffs:#?}");
         }
     }
+
+    /// Experimental Battlestation: after the active player moves ships into the active system, a seat with a space dock in or next to it rolls three dice
+    /// (hits on 5) against the active player's ships there.
+    #[test]
+    fn experimental_battlestation_is_played_after_the_active_player_moves_natively_as_the_string_does() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        let b = PlayerId::new("b");
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        let next = ti4_model::id::SystemId::new(hub.outer[2].clone());
+        crate::fixtures::put(&mut state, &next, "spacedock", &b, 1);
+        crate::fixtures::put(&mut state, &next, "spacedock", &a(), 1);
+        state.player_mut(&a()).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("experimental"));
+        let mv = id(&origin, 0);
+        let script = [TACTICAL_ACTION_ID, target.as_str(), &mv, "reaction:sol:SHIP_MOVED:after"];
+        let diffs = lockstep(state, &hub.galaxy, &script, false);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
 }

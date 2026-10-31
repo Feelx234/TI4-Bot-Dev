@@ -337,6 +337,22 @@ fn rider_sweep(prefer: Policy, table: impl Fn(&str) -> GameState) -> Vec<String>
     failures
 }
 
+/// Bribery ("after the speaker votes ... spend trade goods, one extra vote each"): held by a seat with trade goods, offered and played in the
+/// vote window of the native agenda phase as the string does it. The judge of the goods is the core's (`potential_goods`).
+#[test]
+fn bribery_is_played_in_the_vote_like_the_string() {
+    for seat in ["b", "c"] {
+        let mut state = with_hand(agenda_table(&FOUR, &["checks", "conscription"]), seat, &["bribery"]);
+        state.player_mut(&pid(seat)).unwrap().trade_goods = 3;
+        let state = based(state);
+        let reaction = format!("reaction:{}:VOTES_CAST:after", if seat == "b" { "hacan" } else { "arborec" });
+        let policy: Policy = Box::leak(vec![Box::leak(reaction.into_boxed_str()) as &'static str, "1"].into_boxed_slice());
+        let (string, native) = both_preferring(&state, &[], policy);
+        assert!(string.events.iter().any(|e| e == "ACTION_CARD_PLAYED"), "{seat}: Bribery was never played: {:?}", string.events);
+        assert_same(&string, &native);
+    }
+}
+
 #[test]
 fn a_correct_rider_is_paid_like_the_string() {
     let failures = rider_sweep(&[], |rider| with_hand(agenda_table(&FOUR, &["checks", "conscription"]), "b", &[rider]));
