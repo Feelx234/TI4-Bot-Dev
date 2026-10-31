@@ -325,6 +325,23 @@ fn every_observed_mark_round_trips_or_is_a_listed_exception() {
     assert!(typed > 7000, "typed {typed}");
 }
 
+/// Found by the end-of-D1 gate run (`TI4_CHURN=state`, bench-v5 seed 85): a galvanized unit destroyed on a planet is staged with a
+/// trailing `|g` (`hooks_ground::stage_ground_force_destroyed`); the corpus never held one and the codec refused the mark.
+#[test]
+fn a_staged_ground_destruction_of_a_galvanized_unit_round_trips() {
+    let mut blobs = Interner::default();
+    let codec = codec();
+    let key = "private:#staged:ground:00000001";
+    for value in [
+        "destroyed|01|jord|a|sol_infantry|false|agenda:plowshares",
+        "destroyed|01|jord|a|sol_infantry|false|agenda:plowshares|g",
+    ] {
+        let (k, v) = codec.parse_mark(&mut blobs, key, value).unwrap_or_else(|| panic!("{value} is not typed"));
+        let (rk, rv) = codec.render_mark(&blobs, &k, &v).expect("a parsed mark renders");
+        assert_eq!((rk.as_str(), rv.as_str()), (key, value));
+    }
+}
+
 #[test]
 fn every_observed_key_text_is_typed_or_a_listed_exception() {
     let mut blobs = Interner::default();

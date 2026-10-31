@@ -84,7 +84,10 @@ fn load(gs: &GameState, galaxy: Option<&Galaxy>) -> Option<(CoreState, Ctx)> {
 
 fn load_why(gs: &GameState, galaxy: Option<&Galaxy>) -> Result<(CoreState, Ctx), String> {
     let mut cx = Ctx::of(gs).map_err(|e| format!("{e:?}"))?;
-    let view = CoreView::of(gs, &mut cx, CodecSources { galaxy, rng: None }, SliceSet::ALL).map_err(|e| format!("{e:?}"))?;
+    // Without the string galaxy the map slice cannot be loaded (and a strict gate binary panics at the refusal): the hooks that
+    // read it are handed the galaxy by their call site, the others do not need it.
+    let slices = if galaxy.is_some() { SliceSet::ALL } else { SliceSet::of_without(SliceSet::ALL, ti4_engine_core::state::Slice::Map) };
+    let view = CoreView::of(gs, &mut cx, CodecSources { galaxy, rng: None }, slices).map_err(|e| format!("{e:?}"))?;
     Ok((view.into_state(), cx))
 }
 
@@ -596,4 +599,30 @@ pub fn dual_roll_shift(
         k.hooks.seam.hit_shift.eval(Q::new(&core, &k), &site, 0, Clamp::None).value
     };
     let _ = crate::dual_hook!(HookGroup::Seam, "hit_shift", string(), core());
+}
+
+#[cfg(test)]
+mod strict_tests {
+    use super::*;
+    use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+
+    /// Found by the end-of-D1 gate run (`dual_run ... all=dual`, strict): the roll shift of a unit loaded the whole position
+    /// without a galaxy, so the map slice refused and a gate binary panicked (without strict mode the typed side silently fell
+    /// back to the string answer and compared nothing).
+    #[test]
+    fn the_roll_shift_dual_loads_a_view_without_the_map_and_compares_in_strict_mode() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let gs = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "sol")], ti4_model::content_types::POK);
+        let (content, sources) = (ContentStore::embedded(), ti4_model::content_types::POK);
+        with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
+            crate::core_sync::unmapped::strict_on_this_thread(|| {
+                dual_roll_shift(&gs, content, sources, &PlayerId::new("a"), "cruiser", Some(&SystemId::new("18")), None);
+            });
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert!(r.areas.get(&Area::Factions).is_some_and(|c| c.calls >= 1), "the hook was compared: {:?}", r.areas);
+        let _ = take_report();
+    }
 }

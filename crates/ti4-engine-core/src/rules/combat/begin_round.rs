@@ -21,6 +21,27 @@ use crate::kernel::{Kernel, Next};
 use crate::query::reach;
 use crate::state::{Code, CoreState, EventKind, Key, Payload, Val};
 
+/// `ti4_model::state::RULES_FACTION_BUGFIXES`: from this version the Letnev agent listens to its owner's rounds.
+const RULES_FACTION_BUGFIXES: u32 = 17;
+
+/// The string's `borrowed_round_agents::has_round_copy(.., "letnevagent") || has_owner_space_round_agent(..)` on the core state: a
+/// Letnev seat holds Viscount Unlenn readied (rules version 17 and later), or a Yssaril seat holds Ssruu readied while another seat
+/// holds Viscount Unlenn, readied or exhausted. The hook table is not asked: the combat kernel carries no such slot.
+#[must_use]
+pub fn letnev_round_agent_usable(s: &CoreState) -> bool {
+    use crate::generated::{Faction, Leader};
+    use crate::state::LeaderStatus;
+    let status = |p: &crate::state::Player, card: Leader| p.leaders.status.get(&card).copied();
+    let owner = s.meta().rules_at_least(RULES_FACTION_BUGFIXES)
+        && s.players().iter().any(|p| p.faction == Faction::TheBaronyOfLetnev && status(p, Leader::ViscountUnlenn) == Some(LeaderStatus::Readied));
+    owner
+        || s.players().iter().any(|b| {
+            b.faction == Faction::TheYssarilTribes
+                && status(b, Leader::Ssruu) == Some(LeaderStatus::Readied)
+                && s.players().iter().any(|l| l.seat != b.seat && matches!(status(l, Leader::ViscountUnlenn), Some(LeaderStatus::Readied | LeaderStatus::Exhausted)))
+        })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     Start,

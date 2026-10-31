@@ -9841,6 +9841,33 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Found by the end-of-D1 gate run (golden game 3, `dual_run ... driver=dual`): Ssruu copies the Letnev agent in one round
+    /// and is exhausted; from then on the string no longer stamps `round_seq` on `COMBAT_ROUND_STARTED`, but the core settle
+    /// machine kept the answer it was built with ("a copy is held") for the later rounds of the same call.
+    #[test]
+    fn a_ssruu_copy_used_in_one_round_stops_the_round_seq_of_the_next_rounds_in_the_core_machine() {
+        let (mut marked, mut long) = (0, 0);
+        for seed in 0..8_u64 {
+            let (state, windows, differences, _) = hub_fight(
+                seed,
+                &["yssaril", "hacan", "letnev"],
+                |s, system| {
+                    put(s, system, "dreadnought", &attacker(), 4);
+                    put(s, system, "dreadnought", &defender(), 4);
+                    // Exhausted: nobody listens as the owner, only Ssruu (readied) can copy the agent.
+                    s.player_mut(&PlayerId::new("c")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("letnevagent"), ti4_model::state::LeaderStatus::Exhausted);
+                },
+                |_, _, c| c.options.iter().position(|o| o.id.contains("ssruu-copy")).unwrap_or(0),
+            );
+            assert_eq!(differences, 0, "seed {seed}: {windows:?}");
+            assert!(windows.keys().all(|k| !k.contains("[bail:")), "seed {seed}: {windows:?}");
+            marked += state.faction_marks.keys().filter(|k| k.starts_with("yssaril:ssruu-round-agent:a:letnevagent:")).count();
+            long += usize::from(state.combat_round_seq >= 3);
+        }
+        assert!(marked > 0, "Ssruu copied the agent in some round");
+        assert!(long > 0, "some fight went on after the copy was used");
+    }
+
     /// Tellurian (the Titans agent) is an ability of the core table: in the `HITS_TO_ASSIGN` window of a round the
     /// readied agent is offered, the core resolver exhausts it and grants the cancellation the next hit spends, and
     /// the window is compared rather than bailed.
