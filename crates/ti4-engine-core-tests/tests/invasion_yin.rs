@@ -353,7 +353,7 @@ fn the_control_gained_pays_the_minister_of_exploration_and_moves_the_crown_of_em
     take(&mut rig, system, planet);
     assert_eq!(rig.state.agenda().laws.get(&Agenda::TheCrownOfEmphidia), Some(&Outcome::Seat(Seat(0))), "the card changed hands");
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, mine + 1);
-    assert_eq!(rig.state.players().by_seat(Seat(1)).unwrap().econ.victory_points, (theirs - 1).max(0));
+    assert_eq!(rig.state.players().by_seat(Seat(1)).unwrap().econ.victory_points, theirs - 1);
     // Another system: it stays.
     let (mut rig, system, planet) = yin(0, 0, 2, 3);
     rig.state.agenda_mut().laws.insert(Agenda::TheCrownOfEmphidia, Outcome::Seat(Seat(1)));

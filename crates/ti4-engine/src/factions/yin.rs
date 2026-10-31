@@ -3463,6 +3463,64 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Package W13: the effects the core fight and the hero carry that used to send the run to the string (X-89 Bacterial Weapon, Dacxive
+    /// Animators, the Minister of Exploration, the Crown of Emphidia, a Letnev rival's Dunlain Reaper, Indoctrination) agree with the string and
+    /// the window runs each time (bail-as-failure).
+    #[test]
+    fn the_effects_of_the_core_fight_run_in_lockstep_and_no_window_bails() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let poor = |state: &mut GameState| {
+            state.player_mut(&a()).unwrap().leaders.insert(LeaderId::new("yinagent"), LeaderStatus::Exhausted);
+            state.player_mut(&a()).unwrap().trade_goods = 0;
+            let controlled: Vec<PlanetId> = state.board.values().flat_map(|board| board.planet_control.keys().cloned()).collect();
+            for planet in controlled {
+                state.exhaust_planet(planet);
+            }
+        };
+        type Tweak = Box<dyn Fn(&mut GameState, &SystemId)>;
+        let cases: Vec<(&str, Tweak)> = vec![
+            ("x89", Box::new(|s, _| {
+                s.player_mut(&b()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("x89c4"));
+            })),
+            ("dacxive", Box::new(|s, _| {
+                s.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("dxa"));
+                s.player_mut(&b()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("dxa"));
+            })),
+            ("minister", Box::new(|s, _| {
+                s.laws.insert("minister_exploration".to_owned(), "a".to_owned());
+            })),
+            ("crown", Box::new(|s, system| {
+                s.laws.insert("crown_of_emphidia".to_owned(), "b".to_owned());
+                s.player_mut(&b()).unwrap().home_system = Some(system.clone());
+            })),
+        ];
+        let mut ran = 0;
+        for (what, tweak) in &cases {
+            for seed in 0..4_u64 {
+                let (mut state, system, planet, galaxy) = hero_state();
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+                unlock_hero(&mut state);
+                poor(&mut state);
+                tweak(&mut state, &system);
+                let spot = format!("{system}|{planet}");
+                let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || use_hero_timed_seeded(&mut state, &galaxy, &[&spot, &spot, &spot], seed));
+                assert_eq!(done, Ok(true), "{what} seed {seed}");
+                ran += 1;
+            }
+        }
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("yin hero effects", &r);
+        assert_eq!(thread_window_counts("factions::yin::hero"), (ran, 0), "{r:?}");
+        let _ = take_report();
+    }
+
     fn unlock_hero(state: &mut GameState) {
         state
             .player_mut(&a())
