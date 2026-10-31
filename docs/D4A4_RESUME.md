@@ -11,7 +11,7 @@ destroyed-mark shapes kept, the space-area ground force and the galvanized one).
 | windows covered | 89 / 124 | 120 / 123 (3 exempt, 0 uncovered) |
 | areas below 80 % stage variants | 22 | 0 |
 | `coverage.py --check` | FAIL | exit 0 |
-| tests of `ti4-engine-core-tests` | 1105 (lane A3) / 1172 at the start of this lane | 1263 pass, 0 fail |
+| tests of `ti4-engine-core-tests` | 1105 (lane A3) / 1172 at the start of this lane | 1261 pass, 0 fail |
 
 (The 124 -> 123: `rules::reactions::Emit` was a test fixture counted as a window, see D4A4-info-02.)
 
