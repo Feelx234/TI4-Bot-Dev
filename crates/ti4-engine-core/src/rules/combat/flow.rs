@@ -92,7 +92,14 @@ impl Flow {
         self
     }
 
-    fn round_ended(&self, sx: &mut Sx<'_>, round: u32) {
+    /// Announce the end of the round; whether the fight is over AFTER it (an ability of the window, Exotrireme II, may have destroyed the last ships of
+    /// a side: the string reads `over` again in `next_round_or_end`, after the announcement).
+    fn round_ended(&self, sx: &mut Sx<'_>, round: u32) -> bool {
+        let finished = |sx: &Sx<'_>| {
+            let rd = super::Rd::new(sx.state, sx.kernel).with_blanked(crate::query::reach::blanked(sx.state));
+            super::end::finished(rd, self.f.system, self.f.attacker, self.f.defender)
+        };
+        let before = finished(sx);
         if self.f.announce {
             let payload = Payload::new()
                 .with(Key::System, Val::System(self.f.system))
@@ -104,6 +111,8 @@ impl Flow {
         if let Some(retreat) = self.drain {
             super::assign::drain_staged(sx, self.f.announce, retreat);
         }
+        // (Over before the announcement: the fact the caller read. Over only after it: the window's doing.)
+        self.f.over || (!before && finished(sx))
     }
 
     /// `spend_cancellations`: up to `wanted` of the seat's round-scoped cancellations, how many were spent.
@@ -121,8 +130,8 @@ impl Flow {
         spent
     }
 
-    fn after_round(&self, round: u32) -> Step {
-        if self.f.over || round >= MAX_ROUNDS {
+    fn after_round(over: bool, round: u32) -> Step {
+        if over || round >= MAX_ROUNDS {
             Step::Done
         } else {
             Step::Opening { round: round + 1 }
@@ -166,9 +175,9 @@ impl Window for Flow {
             }
             Step::Retreating { round, leaving } => {
                 if leaving.is_empty() {
-                    self.round_ended(sx, round);
+                    let over = self.round_ended(sx, round);
                     out.phase = Phase::Round;
-                    out.next = self.after_round(round);
+                    out.next = Self::after_round(over, round);
                 } else if f.leaver_destinations == 0 {
                     out.next = Step::Retreating { round, leaving: leaving[1..].to_vec() };
                 } else {
@@ -189,13 +198,13 @@ impl Window for Flow {
                             }
                         }
                         Phase::RoundEnd => {
-                            self.round_ended(sx, round);
+                            let over = self.round_ended(sx, round);
                             out.phase = Phase::Round;
-                            out.next = self.after_round(round);
+                            out.next = Self::after_round(over, round);
                         }
                         Phase::Round => {
                             if f.over || round >= MAX_ROUNDS {
-                                self.round_ended(sx, round);
+                                let _ = self.round_ended(sx, round);
                                 out.phase = Phase::Round;
                                 out.next = Step::Done;
                                 out.returned = true;

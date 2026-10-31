@@ -18,7 +18,7 @@ pub const FIRST_SLOT: u16 = 41_000;
 
 /// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
 pub const SUFFI_AN: usize = 11;
-pub const SUFFI_AN_COPY: usize = 43;
+pub const SUFFI_AN_COPY: usize = 41;
 
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
@@ -114,10 +114,8 @@ pub const GAPS: &[Gap] = &[
     // -- technologies
     Gap { kind: AbilityKind::Technology, event: EventKind::ActionCompleted, relation: Relation::After, holds: downstream }, // asn_clear
     Gap { kind: AbilityKind::Technology, event: EventKind::StatusPhaseEnded, relation: Relation::After, holds: |c| tech(c, Technology::Bioplasmosis) }, // bio
-    Gap { kind: AbilityKind::Technology, event: EventKind::SpaceCombatRoundEnded, relation: Relation::After, holds: |c| tech(c, Technology::ExotriremeII) }, // exo2
     Gap { kind: AbilityKind::Technology, event: EventKind::ProductionUsed, relation: Relation::After, holds: |c| tech(c, Technology::HegemonicTradePolicy) }, // htp
     Gap { kind: AbilityKind::Technology, event: EventKind::GroundCombatStarted, relation: Relation::After, holds: |c| tech(c, Technology::MagenDefenseGridOmegaOmega) }, // md_hit
-    Gap { kind: AbilityKind::Technology, event: EventKind::ShipDestroyed, relation: Relation::After, holds: |c| tech(c, Technology::NULLREFERENCE) }, // nekroc4y
     Gap { kind: AbilityKind::Technology, event: EventKind::UnitAbilityRolled, relation: Relation::After, holds: |c| tech(c, Technology::StrikeWingAlphaII) }, // swa2
     Gap { kind: AbilityKind::Technology, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| tech(c, Technology::Voidwatch) }, // vw
     Gap { kind: AbilityKind::Technology, event: EventKind::UnitsProduced, relation: Relation::After, holds: |c| tech(c, Technology::YinSpinnerOmega) }, // yso

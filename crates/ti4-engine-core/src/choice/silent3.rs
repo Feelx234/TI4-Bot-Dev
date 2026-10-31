@@ -2,6 +2,7 @@
 //! `Subtype::T`), so the lanes that add to `silent` and this one never touch the same lines; the renderer is `render/silent3.rs`.
 
 use crate::generated::{Planet, System, Unit};
+use crate::ids::Seat;
 
 /// What a G3 ability asks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -10,6 +11,10 @@ pub enum Ask {
     Ragh { planet: Planet },
     /// The Alastor (Nekro flagship): how many of the ground forces of type `unit` on `planet` fight as ships.
     Alastor { planet: Planet, unit: Unit },
+    /// Exotrireme II (Sardakk): which of the owner's Exotrireme II is destroyed.
+    ExoSelf,
+    /// Exotrireme II: the ship to destroy, number `round + 1` of up to 2.
+    ExoVictim { round: u8 },
 }
 
 /// One answer.
@@ -19,6 +24,9 @@ pub enum Opt {
     Site { system: System, planet: Planet },
     /// A count (the option id is `alastor|{n}`).
     Count(u32),
+    /// A ship of the list the question was built from (`index`), its owner, kind and whether it is damaged; `victim`: one of the up-to-two ships (the other is the
+    /// Exotrireme II itself).
+    Ship { index: u8, owner: Seat, unit: Unit, damaged: bool, victim: bool },
 }
 
 /// The machine identifier of the question.
@@ -28,6 +36,10 @@ pub enum Subtype {
     Ragh,
     /// `alastor_participants`.
     Alastor,
+    /// `exotrireme_self`.
+    ExoSelf,
+    /// `exotrireme_victim`.
+    ExoVictim,
 }
 
 impl Ask {
@@ -37,7 +49,7 @@ impl Ask {
     pub const fn carries_trigger(&self) -> bool {
         match self {
             Self::Ragh { .. } => false,
-            Self::Alastor { .. } => false,
+            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } => false,
         }
     }
 }

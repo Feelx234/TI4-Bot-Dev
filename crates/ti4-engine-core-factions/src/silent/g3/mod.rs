@@ -3,6 +3,7 @@
 //! string registers it (`register_abilities`, after the packages, unless a file says otherwise).
 
 pub mod alastor;
+pub mod exo2;
 pub mod ragh;
 pub mod tekklar;
 pub mod tro_marks;
@@ -14,7 +15,7 @@ use ti4_engine_core::kernel::ability::AbilityTable;
 /// constants of `code`. Unused places hold a placeholder.
 pub const CODE_TEXTS: [&str; 16] = [
     "nekro_flagship",
-    "g3_unused",
+    "technology:exo2",
     "g3_unused",
     "g3_unused",
     "g3_unused",
@@ -35,6 +36,8 @@ pub const CODE_TEXTS: [&str; 16] = [
 pub mod code {
     /// The unit alias `nekro_flagship`: the source of the Alastor's question.
     pub const NEKRO_FLAGSHIP: usize = 0;
+    /// The cause `technology:exo2` of the ships Exotrireme II destroys.
+    pub const EXO2_CAUSE: usize = 1;
 }
 
 /// The rules of this module, registered after the faction packages.
@@ -49,4 +52,5 @@ pub fn register_abilities(t: &mut AbilityTable) {
 pub fn register_after_ca_combat(t: &mut AbilityTable) {
     tekklar::register_play(t);
     alastor::register_abilities(t);
+    exo2::register_abilities(t);
 }

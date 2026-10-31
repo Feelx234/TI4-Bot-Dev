@@ -373,3 +373,102 @@ mod alastor {
         assert!(rig(three, |_| {}, bystander).is_done());
     }
 }
+
+// -- Exotrireme II ---------------------------------------------------------------------------------------------------------------
+
+mod exo2 {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent3::{Ask as TAsk, Opt as TOpt};
+    use ti4_engine_core::generated::Technology;
+
+    fn round_ended(system: System) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::SpaceCombatRoundEnded, Payload::new().with(Key::System, Val::System(system)).with(Key::Round, Val::Int(1)).with(Key::Attacker, Val::Seat(Seat(0))).with(Key::Defender, Val::Seat(Seat(1))))
+    }
+
+    fn scenario(system: System) -> Scenario {
+        Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan])
+            .tech(0, Technology::ExotriremeII)
+            .unit(system, None, Unit::ExotriremeII, 0, 1)
+            .unit(system, None, Unit::CruiserI, 0, 1)
+            .unit(system, None, Unit::CruiserI, 1, 2)
+            .unit(system, None, Unit::DreadnoughtI, 1, 1)
+    }
+
+    fn ships_left(r: &Rig<EmitEvent>, system: System, seat: u8) -> usize {
+        board::space_units(&r.state, system).iter().filter(|p| p.owner() == Seat(seat)).count()
+    }
+
+    #[test]
+    fn it_destroys_itself_and_up_to_two_chosen_ships_staging_their_destruction() {
+        covers!("silent::g3::exo2::EXO2");
+        let (system, _) = two_planet_system();
+        let mut r = rig(scenario(system), |_| {}, round_ended(system));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the ability");
+        r.pick(use_it);
+        // The only Exotrireme II needs no question; then up to two ships: the distinct ones of the list in order (the Exotrireme II itself is not among them).
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::ExoVictim { round: 0 }))), "{}", r.transcript());
+        assert_eq!(
+            r.opts().len(),
+            3,
+            "my cruiser, their cruiser (two of them are one choice), their dreadnought: {}",
+            r.transcript()
+        );
+        assert!(matches!(r.opts()[0], Opt::Reaction(ROpt::G(GOpt::T(TOpt::Ship { index: 0, owner: Seat(0), unit: Unit::CruiserI, victim: true, .. })))));
+        r.pick(1);
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::ExoVictim { round: 1 }))));
+        assert_eq!(r.opts().last(), Some(&Opt::Decline), "the second ship may be declined");
+        r.pick(1);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!(ships_left(&r, system, 0), 1, "the Exotrireme II is gone, my cruiser stays");
+        assert_eq!(ships_left(&r, system, 1), 1, "two of their three ships are gone");
+        assert_eq!(r.state.transient().combat.pending_destructions.len(), 3, "its own destruction and the two it chose are staged");
+    }
+
+    #[test]
+    fn declining_the_second_ship_destroys_one_and_the_ability_needs_the_technology_a_side_and_another_ship() {
+        covers!("silent::g3::exo2::EXO2");
+        let (system, _) = two_planet_system();
+        let mut r = rig(scenario(system), |_| {}, round_ended(system));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the ability");
+        r.pick(use_it);
+        r.pick(2);
+        r.decline();
+        assert!(r.is_done());
+        assert_eq!(r.state.transient().combat.pending_destructions.len(), 2);
+        // Declined at the window: nothing happens.
+        let mut declined = rig(scenario(system), |_| {}, round_ended(system));
+        declined.decline();
+        assert!(declined.is_done() && declined.state.transient().combat.pending_destructions.is_empty());
+        // No technology: not a side's ability. (The unit alone does nothing.)
+        let plain = Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan]).unit(system, None, Unit::ExotriremeII, 0, 1).unit(system, None, Unit::CruiserI, 1, 2);
+        assert!(rig(plain, |_| {}, round_ended(system)).is_done());
+        // Alone in the system: no other ship to destroy.
+        let alone = Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan]).tech(0, Technology::ExotriremeII).unit(system, None, Unit::ExotriremeII, 0, 1);
+        assert!(rig(alone, |_| {}, round_ended(system)).is_done());
+        // The owner watches a combat of two others.
+        let watched = fx::event(EventKind::SpaceCombatRoundEnded, Payload::new().with(Key::System, Val::System(system)).with(Key::Round, Val::Int(1)).with(Key::Attacker, Val::Seat(Seat(1))).with(Key::Defender, Val::Seat(Seat(2))));
+        let three = Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]).tech(0, Technology::ExotriremeII).unit(system, None, Unit::ExotriremeII, 0, 1).unit(system, None, Unit::CruiserI, 1, 2);
+        assert!(rig(three, |_| {}, watched).is_done());
+    }
+
+    #[test]
+    fn a_damaged_and_an_undamaged_exotrireme_are_asked_which_one_goes() {
+        covers!("silent::g3::exo2::EXO2");
+        let (system, _) = two_planet_system();
+        let scenario = scenario(system).unit(system, None, Unit::ExotriremeII, 0, 1);
+        let damage = |s: &mut CoreState| {
+            let units = &mut s.board_mut().sys_mut(system).units;
+            let at = units.as_slice().iter().position(|p| p.kind() == Unit::ExotriremeII).unwrap();
+            let damaged = units.as_slice()[at].with_sustained(true);
+            units.remove(at);
+            units.push(damaged);
+        };
+        let mut r = rig(scenario, damage, round_ended(system));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the ability");
+        r.pick(use_it);
+        assert_eq!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::ExoSelf))), "{}", r.transcript());
+        assert_eq!(r.opts().len(), 2, "one damaged, one not");
+    }
+}
