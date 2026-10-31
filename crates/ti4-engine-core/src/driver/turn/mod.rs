@@ -53,6 +53,7 @@ impl Window for TurnFlowWin {
             TurnJob::Announce => phase::run_announce(sx),
             TurnJob::Reconcile => prelude::run_reconcile(sx),
             TurnJob::Draft(card) => draft::run_draft(sx, card),
+            TurnJob::Strategic(card) => crate::driver::windows::strategic::begin::run_begin(sx, card),
             TurnJob::StatusOpen => crate::driver::windows::status::run_open(sx),
             TurnJob::StatusBookkeeping => crate::driver::windows::status_bookkeeping::run_bookkeeping(sx),
             TurnJob::StatusFinish => crate::driver::windows::status_finish::run_finish(sx),

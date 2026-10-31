@@ -1,0 +1,159 @@
+//! The strategic action's share of the live loop (package KX, lane E): the display facts of the questions the follower window and the
+//! card abilities ask that only the state and the content store know (`strategy::secondary_choice`, `strategy_cards::{purchase_details,
+//! ready_hints, commodity_standing}`), computed from the core position and the kernel alone.
+
+use serde_json::{json, Value};
+use ti4_content::ContentStore;
+use ti4_engine_core::choice::strategy::Ask as SAsk;
+use ti4_engine_core::choice::{Ask, Choice as CoreChoice};
+use ti4_engine_core::generated::{StrategyCardKind, Faction};
+use ti4_engine_core::ids::Seat;
+use ti4_engine_core::kernel::Kernel;
+use ti4_engine_core::query::economy::Spend;
+use ti4_engine_core::query::{board, reach};
+use ti4_engine_core::rules::production::{self as prod, Cx as ProdCx, Held};
+use ti4_engine_core::state::CoreState;
+use ti4_model::content_types::SourceSet;
+
+use crate::choice::Choice;
+use crate::generated::IdStr;
+
+/// Influence one Leadership token costs (`strategy_cards::INFLUENCE_PER_TOKEN`).
+const INFLUENCE_PER_TOKEN: i64 = 3;
+
+/// The display facts of the strategic action's questions.
+pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered: &mut Choice) {
+    if let Ask::Strategy(SAsk::Follow { card, .. }) = choice.ask {
+        follow(core, kernel, choice.actor, card.data().kind, rendered);
+    }
+}
+
+/// `strategy::secondary_choice`: the follower's secondary question with the facts a client needs to present it.
+fn follow(core: &CoreState, kernel: &Kernel, who: Seat, kind: StrategyCardKind, rendered: &mut Choice) {
+    let tokens_left = core.players().by_seat(who).map_or(0, |p| i64::from(p.econ.strategic_tokens));
+    match kind {
+        StrategyCardKind::Leadership => {
+            // The window's question is the purchase question itself: it carries the pools and what a client needs to plan every purchase.
+            super::details::pool_details(core, who, "buy", Some(0), rendered);
+            if let Some(purchase) = purchase_details(core, kernel, who) {
+                rendered.details.insert("purchase".to_owned(), purchase);
+            }
+        }
+        StrategyCardKind::Diplomacy => {
+            rendered.details.insert("ready_hints".to_owned(), ready_hints(core, kernel, who));
+        }
+        StrategyCardKind::Trade => {
+            // Display only: the follower's commodities now and at the limit the replenish fills to.
+            rendered.details.insert("commodities".to_owned(), commodity_standing(core, who));
+        }
+        _ => {}
+    }
+    // (`kind` is the area's marker of the question, not the pools': it is set last.)
+    rendered.details.insert("kind".to_owned(), "strategy_secondary".into());
+    rendered.details.insert("tokens_left".to_owned(), tokens_left.into());
+    // A follower's question carries no context but Leadership's (the string asks it with `Choice::new`).
+    if kind != StrategyCardKind::Leadership {
+        rendered.context = None;
+    }
+}
+
+/// `strategy_cards::commodity_standing`.
+#[must_use]
+pub fn commodity_standing(core: &CoreState, who: Seat) -> Value {
+    let (have, goods, faction) = core
+        .players()
+        .by_seat(who)
+        .map_or((0, 0, None), |p| (p.econ.commodities, p.econ.trade_goods, Some(p.faction)));
+    json!({
+        "have": have,
+        "max": faction.map_or(0, ti4_engine_core::rules::strategy::commodity_limit),
+        "trade_goods": goods,
+    })
+}
+
+/// `strategy_cards::purchase_details`: what the Leadership purchase question shows. `None` below the price of one token.
+#[must_use]
+pub fn purchase_details(core: &CoreState, kernel: &Kernel, who: Seat) -> Option<Value> {
+    let cx = ProdCx::new(core, kernel, reach::scope_of(kernel), reach::blanked(core));
+    let held = Held::of(&cx, who);
+    let ex = held.extras();
+    let available = prod::available(&cx, who, Spend::Influence, &ex);
+    if available < INFLUENCE_PER_TOKEN {
+        return None;
+    }
+    let planets: Vec<Value> = prod::spendable_planets(&cx, who, &ex)
+        .as_slice()
+        .iter()
+        .filter_map(|planet| {
+            prod::payment_faces(&cx, who, *planet, Spend::Influence)
+                .as_slice()
+                .iter()
+                .find(|(source, _)| *source == Spend::Influence)
+                .map(|(_, worth)| json!({ "id": planet.as_str(), "worth": worth }))
+        })
+        .collect();
+    let goods = core.players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods));
+    Some(json!({
+        "cost": INFLUENCE_PER_TOKEN,
+        "influence_available": available,
+        "max": available / INFLUENCE_PER_TOKEN,
+        "trade_goods": goods,
+        "trade_good_worth": prod::trade_good_worth(&cx, who),
+        "planets": planets,
+    }))
+}
+
+/// `strategy_cards::ready_hints`: the exhausted planets of the seat as they pay now, and where the cards that spend stand.
+#[must_use]
+pub fn ready_hints(core: &CoreState, kernel: &Kernel, who: Seat) -> Value {
+    let content = ContentStore::embedded();
+    // (A planet's printed name does not depend on the sources in play.)
+    let sources = SourceSet::all();
+    let cx = ProdCx::new(core, kernel, reach::scope_of(kernel), reach::blanked(core));
+    let planets: Vec<Value> = board::controlled_planets(core, who)
+        .as_slice()
+        .iter()
+        .map(|(_, planet)| *planet)
+        .filter(|planet| board::exhausted(core, *planet))
+        .map(|planet| {
+            let record = ti4_content::galaxy::planet(content, planet.as_str(), sources);
+            json!({
+                "id": planet.as_str(),
+                "name": record.as_ref().and_then(|r| r.name()).unwrap_or(planet.as_str()),
+                // As the planet pays now (attachments and laws included), like the payment screens.
+                "resources": record.as_ref().map(|_| prod::planet_value(&cx, who, planet, Spend::Resources)),
+                "influence": record.as_ref().map(|_| prod::planet_value(&cx, who, planet, Spend::Influence)),
+            })
+        })
+        .collect();
+    let spenders: Vec<Value> = [(StrategyCardKind::Leadership, "influence"), (StrategyCardKind::Technology, "resources"), (StrategyCardKind::Warfare, "resources")]
+        .iter()
+        .map(|(kind, spends)| {
+            let mut held = false;
+            let mut played = false;
+            for seat in core.players().iter() {
+                for card in seat.strat.iter() {
+                    if card.data().kind == *kind {
+                        held = true;
+                        played |= seat.strat_exhausted.contains(*card);
+                    }
+                }
+            }
+            let status = if !held {
+                "not_in_play"
+            } else if played {
+                "played"
+            } else {
+                "to_come"
+            };
+            json!({ "card": ti4_content::StrategyCardKind::printed_name(match kind { StrategyCardKind::Leadership => ti4_content::StrategyCardKind::Leadership, StrategyCardKind::Technology => ti4_content::StrategyCardKind::Technology, _ => ti4_content::StrategyCardKind::Warfare }), "spends": spends, "status": status })
+        })
+        .collect();
+    json!({ "planets": planets, "spenders": spenders })
+}
+
+/// The faction of a seat, for the callers that need it.
+#[must_use]
+pub fn faction_of(core: &CoreState, who: Seat) -> Option<Faction> {
+    core.players().by_seat(who).map(|p| p.faction)
+}

@@ -17,6 +17,7 @@
 //!
 //! L5: it composes the windows of the strategy areas through the table's links, never imports one.
 
+pub mod begin;
 pub mod facts;
 pub mod perform;
 
@@ -117,7 +118,8 @@ impl SecondaryWin {
         let card = self.w.card;
         let kind = card.data().kind;
         let substitutes = sx.kernel.hooks.general.substitutes_primary(sx.state, sx.kernel, who, Some(kind));
-        if perform::run(sx, who, card, substitutes) == Flow::Halt {
+        let mut free = None;
+        if perform::run(sx, who, card, substitutes, &mut free) == Flow::Halt {
             return Flow::Halt;
         }
         perform::resolved(sx, who, kind)

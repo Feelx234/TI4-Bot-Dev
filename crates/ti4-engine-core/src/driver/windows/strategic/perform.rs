@@ -23,8 +23,9 @@ use crate::state::{EventKind, Key, Payload, Val};
 
 use super::facts;
 
-/// Run the ability of `card` for `who` (the secondary, or the primary when `primary`) to its end, putting its questions to the tape.
-pub fn run(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool) -> Flow {
+/// Run the ability of `card` for `who` (the secondary, or the primary when `primary`) to its end, putting its questions to the tape. `free`
+/// is where the system of Thunder's Edge Warfare's free tactical action goes (`Ability::FreeTactical`).
+pub fn run(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, free: &mut Option<System>) -> Flow {
     let Some(card_facts) = facts::perform_facts(sx, who, card) else {
         gap(sx, TurnGap::NoRoster);
         return Flow::Halt;
@@ -85,19 +86,32 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool) -> Flo
                     }
                 }
             };
-            announce(sx, who, finished)
+            *free = finished.free;
+            announce(sx, who, card, primary, finished)
         }
     }
 }
 
 /// What the finished ability announces (the string stages it after the window).
-fn announce(sx: &mut Sx<'_>, _who: Seat, done: Finished) -> Flow {
+fn announce(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, done: Finished) -> Flow {
     if done.failed {
         gap(sx, TurnGap::StrategyAbility);
         return Flow::Halt;
     }
     if let Some((system, seats)) = done.tokens {
         place_tokens(sx, system, seats.as_slice());
+    }
+    if done.scored.is_some() {
+        // What a public score sets off (51.7: a hero may unlock) and the winner (`imperial_primary_string`).
+        if let Some(unlocking) = crate::driver::turn::start::unlockable(sx, who, true) {
+            crate::rules::leaders::unlock(sx.state, who, unlocking.as_slice());
+        } else {
+            gap(sx, TurnGap::CommanderUnlock);
+            return Flow::Halt;
+        }
+    }
+    if primary && card.data().kind == StrategyCardKind::Imperial {
+        fx::finish_if_won(sx.state);
     }
     if done.made.as_ref().is_some_and(|made| !made.as_slice().is_empty()) {
         gap(sx, TurnGap::ProductionAnnounce);

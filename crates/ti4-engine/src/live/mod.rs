@@ -19,6 +19,7 @@ pub mod details;
 pub mod env;
 pub mod kernel;
 pub mod plays;
+pub mod strategic;
 pub mod turn;
 
 use std::collections::VecDeque;
@@ -26,6 +27,7 @@ use std::collections::VecDeque;
 use ti4_engine_core::choice::Choice as CoreChoice;
 use ti4_engine_core::driver::live::{ask_arm_fn, live_arm, Asking, AskFn, Env, Live, LiveError, LiveFn, Out};
 use ti4_engine_core::driver::session::Arm;
+use ti4_engine_core::kernel::Kernel;
 use ti4_engine_core::state::CoreState;
 
 use crate::choice::Choice;
@@ -119,7 +121,7 @@ pub struct Cx<'a> {
     pub render: &'a Render,
     pub env: &'a Env<'a>,
     /// The display facts only the state knows (`Choice.details`), given the core question and the position it is asked in.
-    pub complete: &'a dyn Fn(&CoreState, &CoreChoice, &mut Choice),
+    pub complete: &'a dyn Fn(&CoreState, &Kernel, &CoreChoice, &mut Choice),
 }
 
 impl<'a> Cx<'a> {
@@ -151,7 +153,7 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let mut rendered = Typed::new(cx.render, asking.choice.clone(), phase, round).rendered;
     // The display facts read the position the question was put in: a question asked from inside a step (an emission, a job of the turn
     // flow) was put in a position the driver has rolled back since.
-    (cx.complete)(asking.at.as_deref().unwrap_or(core), &asking.choice, &mut rendered);
+    (cx.complete)(asking.at.as_deref().unwrap_or(core), cx.env.kernel, &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
     if let Some((facts, at)) = &asking.nested {
