@@ -40,6 +40,13 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, free: 
             };
             let mut child = ErasedChild::idle();
             child.start(window);
+            // The Trade primary: the string stages the three trade goods when it gains them, BEFORE the replenishes its window announces; the
+            // window reports the goods for the parent to stage once it is done (the action cards' way), which would order the events after the
+            // replenishes. The strategic action stages them first and drops the report.
+            let trade_primary = primary && card.data().kind == StrategyCardKind::Trade;
+            if trade_primary {
+                fx::stage(sx.state, fx::trade_goods_gained(who, crate::rules::strategy_windows::TRADE_PRIMARY_GOODS, card_facts.carried.trade_source));
+            }
             let finished = loop {
                 if halted(sx) {
                     return Flow::Halt;
@@ -49,7 +56,10 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, free: 
                         gap(sx, TurnGap::ReplayDiverged);
                         return Flow::Halt;
                     }
-                    Some(Ran::Done(report)) => break fx_perform::finish(report, sx.state, card_facts.carried.trade_source),
+                    Some(Ran::Done(report)) => {
+                        let report = if trade_primary && matches!(report, crate::kernel::children::Report::Goods(..)) { crate::kernel::children::Report::Nothing } else { report };
+                        break fx_perform::finish(report, sx.state, card_facts.carried.trade_source);
+                    }
                     Some(Ran::Asks(_)) => {
                         let Some(choice) = child.ask_of(sx.state, sx.kernel) else {
                             gap(sx, TurnGap::ReplayDiverged);

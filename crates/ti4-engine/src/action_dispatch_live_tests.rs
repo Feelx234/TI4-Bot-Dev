@@ -118,3 +118,14 @@ fn a_purge_that_cannot_resolve_fails_and_the_menu_withholds_it_this_turn_like_th
     let second = string.questions.last().expect("the menu again");
     assert!(!second.options.iter().any(|o| o.id.starts_with("purge|")), "the failed purge is withheld: {:?}", second.ids());
 }
+
+#[test]
+fn the_trade_primary_at_a_cabal_table_stages_the_goods_before_the_replenish_like_the_string() {
+    let mut state = action_table(&[("a", "sol"), ("b", "hacan"), ("c", "cabal")]);
+    state.player_mut(&pid("a")).unwrap().strategy_cards.push(ti4_model::id::StrategyCardId::new("pok5trade"));
+    state.player_mut(&pid("a")).unwrap().commodities = 0;
+    let state = super::turn_live_tests::based(state);
+    let (string, native) = both(&state, &["strategic", "done"]);
+    assert_same(&string, &native);
+    assert_eq!(string.staged, ["TRADE_GOODS_GAINED", "COMMODITIES_REPLENISHED"], "the string's order");
+}
