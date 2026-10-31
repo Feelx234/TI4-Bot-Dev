@@ -103,6 +103,33 @@ fn the_hero_passes_over_a_system_where_nothing_can_be_built_and_a_seat_without_g
 }
 
 #[test]
+fn the_systems_of_the_hero_are_those_with_a_ground_force_in_space_or_on_a_planet_once_each_in_system_order() {
+    covers!("rules::leader_production::ArborecHero");
+    let [(a, pa), (b, pb)] = two();
+    let (sc, _) = hero_table(6);
+    let (mut state, _) = sc.build();
+    // A second planet of a system that already has one with a ground force does not list it twice.
+    let planets = a.data().planets;
+    for p in planets {
+        ti4_engine_core::kernel::fx::place_unit(&mut state, Seat(0), a, Some(*p), Unit::InfantryI);
+    }
+    // A ground force in the space area of the later system, one on a planet of the earlier: system order, not the order of finding.
+    ti4_engine_core::kernel::fx::place_unit(&mut state, Seat(0), b, None, Unit::InfantryI);
+    assert!(a < b);
+    assert_eq!(ArborecHero::ground_force_systems(&state, Seat(0)), vec![a, b]);
+    assert_eq!(ArborecHero::ground_force_systems(&state, Seat(1)), Vec::<System>::new(), "the other seat has none");
+    // A ship is no ground force.
+    let (sc, _) = hero_table(6);
+    let (mut state, _) = sc.build();
+    state.board_mut().sys_mut(a).units.clear();
+    for planet in [pa, pb] {
+        state.board_mut().planet_mut(planet).units.clear();
+    }
+    ti4_engine_core::kernel::fx::place_unit(&mut state, Seat(0), a, None, Unit::CarrierI);
+    assert_eq!(ArborecHero::ground_force_systems(&state, Seat(0)), Vec::<System>::new());
+}
+
+#[test]
 fn the_hero_is_unsupported_for_a_system_the_adapter_gave_no_facts_for() {
     covers!("rules::leader_production::ArborecHero");
     let (sc, [(a, _), _]) = hero_table(6);
@@ -237,9 +264,50 @@ fn umbat_needs_the_agent_readied_and_a_muaat_seat() {
         assert!(rig.is_done(), "no question for an agent that is not ready");
         assert!(!rig.driver.window.used);
     }
-    let mut other = Rig::new(sc, Umbat::new(Seat(1), both_facts(a, b)));
+    let mut other = Rig::new(sc.clone(), Umbat::new(Seat(1), both_facts(a, b)));
     other.run();
     assert!(other.is_done(), "the other seat does not play Muaat");
+    // Another faction holding a readied card of that name is not the Muaat agent.
+    let (mut state, kernel) = sc.build();
+    state.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::Umbat, LeaderStatus::Readied);
+    let mut foreign = Rig::from_parts(state, kernel, Umbat::new(Seat(1), both_facts(a, b)));
+    foreign.run();
+    assert!(foreign.is_done(), "no question for a seat that does not play Muaat");
+    assert!(!foreign.driver.window.used);
+}
+
+#[test]
+fn umbat_counts_a_flagship_as_well_as_a_war_sun() {
+    covers!("rules::leader_production::Umbat");
+    let [(a, pa), (b, pb)] = two();
+    // The other seat has only a flagship in its system.
+    let sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
+        .map_from(&[a, b])
+        .control(pa, 0)
+        .control(pb, 1)
+        .unit(a, None, Unit::WarSun, 0, 1)
+        .unit(b, None, Unit::TheInferno, 1, 1)
+        .goods(0, 6)
+        .goods(1, 6)
+        .tokens(0, 3, 3, 2)
+        .tokens(1, 3, 3, 2);
+    let mut rig = umbat_rig(sc, both_facts(a, b), LeaderStatus::Readied);
+    rig.run();
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::Player(Seat(0))), Opt::Leaders(LOpt::Player(Seat(1))), Opt::Decline], "the flagship's seat is offered");
+    // A carrier alone is neither.
+    let sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
+        .map_from(&[a, b])
+        .control(pa, 0)
+        .control(pb, 1)
+        .unit(a, None, Unit::WarSun, 0, 1)
+        .unit(b, None, Unit::CarrierI, 1, 1)
+        .goods(0, 6)
+        .goods(1, 6)
+        .tokens(0, 3, 3, 2)
+        .tokens(1, 3, 3, 2);
+    let mut rig = umbat_rig(sc, both_facts(a, b), LeaderStatus::Readied);
+    rig.run();
+    assert_eq!(rig.opts(), vec![Opt::Leaders(LOpt::Player(Seat(0))), Opt::Decline]);
 }
 
 #[test]

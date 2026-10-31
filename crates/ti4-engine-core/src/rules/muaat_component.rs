@@ -634,9 +634,10 @@ mod tests {
         use crate::generated::PromissoryNote;
         let [(a, _), _, _] = systems();
         let mut s = fires_state();
-        fx::place_unit(&mut s, B, a, None, war_sun());
+        fx::place_unit(&mut s, B, a, None, Unit::NotAWarSunYet);
         let roster = UnitRoster::default();
         assert!(fires_of_the_gashlai(&mut s, &kernel(), Scope(u32::MAX), &roster, B, A));
+        assert_eq!(board::space_units(&s, a)[0].kind(), Unit::WarSun, "the unit on the board takes the upgrade's form (90.8)");
         assert_eq!(s.players().by_seat(A).unwrap().econ.fleet_tokens, 1);
         assert!(s.players().by_seat(B).unwrap().tech.owned.contains(Technology::WarSun));
         let note = crate::state::NoteKey { note: PromissoryNote::FiresOfTheGashlai, faction: Faction::TheEmbersOfMuaat };
