@@ -455,3 +455,81 @@ fn a_machine_that_was_stopped_stays_stopped() {
     assert!(rig.driver.window.fields.end_announced);
     assert_eq!(Machine::max_rounds(), 50);
 }
+
+// ---- the stages a settle can stop in (D4A4) -------------------------------------------------------------------------------------------
+
+/// Settle once from the opening of round 1 and say which stage each question was asked in.
+fn first_question(sc: Scenario, env: Env, seed: u64) -> (Rig<Machine>, Option<Ask>) {
+    let (state, kernel) = sc.build();
+    let fields = fields(&state);
+    let mut rig = Rig::from_parts(state, kernel, Machine::new(env, fields)).seeded(seed);
+    rig.run();
+    let ask = match rig.status() {
+        Some(ti4_engine_core::driver::Status::Asking(c)) => Some(c.ask.clone()),
+        _ => None,
+    };
+    (rig, ask)
+}
+
+#[test]
+fn the_machine_waits_in_the_rolling_stage_when_the_roll_asks_about_munitions_reserves() {
+    covers!("rules::combat::machine::Machine");
+    let sc = || arena(Faction::TheBaronyOfLetnev, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 4).unit(sys(), None, Unit::CruiserI, 1, 1).goods(0, 3);
+    let mut found = false;
+    for seed in 0..40u64 {
+        let mut e = env();
+        e.munitions_after = [true, false];
+        let (rig, ask) = first_question(sc(), e, seed);
+        if ask == Some(Ask::Combat(CAsk::MunitionsRoll)) {
+            assert_eq!(rig.asked().actor, Seat(0));
+            assert_eq!(rig.stages.last().map(String::as_str), Some("Rolling"), "{:?}", rig.stages);
+            rig.assert_options_sound();
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "a roll with misses was found among 40 seeds");
+}
+
+#[test]
+fn the_machine_waits_in_the_producing_stage_while_the_opponent_picks_the_ship_assault_cannon_destroys() {
+    covers!("rules::combat::machine::Machine");
+    let sc = || {
+        arena(Faction::TheEmbersOfMuaat, Faction::TheArborec)
+            .tech(0, ti4_engine_core::generated::Technology::AssaultCannon)
+            .unit(sys(), None, Unit::CruiserI, 0, 3)
+            .unit(sys(), None, Unit::CruiserI, 1, 1)
+            .unit(sys(), None, Unit::DestroyerI, 1, 2)
+    };
+    let mut e = env();
+    e.ac = true;
+    let (rig, ask) = first_question(sc(), e, 1);
+    assert_eq!(ask, Some(Ask::Combat(CAsk::AssignHit)));
+    assert_eq!(rig.asked().actor, Seat(1), "the victim chooses which of their non-fighter ships is destroyed");
+    assert_eq!(rig.stages.last().map(String::as_str), Some("Producing"), "{:?}", rig.stages);
+    rig.assert_options_sound();
+}
+
+#[test]
+fn the_machine_waits_in_the_barraging_stage_while_raid_formation_picks_the_ship_to_damage() {
+    covers!("rules::combat::machine::Machine");
+    let sc = || {
+        arena(Faction::TheArgentFlight, Faction::TheArborec)
+            .unit(sys(), None, Unit::DestroyerII, 0, 6)
+            .unit(sys(), None, Unit::DreadnoughtI, 1, 1)
+            .unit(sys(), None, Unit::WarSun, 1, 1)
+            .unit(sys(), None, Unit::FighterI, 1, 1)
+    };
+    let mut found = false;
+    for seed in 0..60u64 {
+        let (rig, ask) = first_question(sc(), env(), seed);
+        if matches!(ask, Some(Ask::Combat(CAsk::RaidDamage { .. }))) {
+            assert_eq!(rig.asked().actor, Seat(0), "the Argent player picks the type to damage");
+            assert_eq!(rig.stages.last().map(String::as_str), Some("Barraging"), "{:?}", rig.stages);
+            rig.assert_options_sound();
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "a barrage with more hits than fighters was found among 60 seeds");
+}
