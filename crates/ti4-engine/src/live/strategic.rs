@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use ti4_content::ContentStore;
 use ti4_engine_core::choice::strategy::Ask as SAsk;
 use ti4_engine_core::choice::{Ask, Choice as CoreChoice};
-use ti4_engine_core::generated::{StrategyCardKind, Faction};
+use ti4_engine_core::generated::StrategyCardKind;
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::Kernel;
 use ti4_engine_core::query::economy::Spend;
@@ -199,14 +199,22 @@ pub fn ready_hints(core: &CoreState, kernel: &Kernel, who: Seat) -> Value {
             } else {
                 "to_come"
             };
-            json!({ "card": ti4_content::StrategyCardKind::printed_name(match kind { StrategyCardKind::Leadership => ti4_content::StrategyCardKind::Leadership, StrategyCardKind::Technology => ti4_content::StrategyCardKind::Technology, _ => ti4_content::StrategyCardKind::Warfare }), "spends": spends, "status": status })
+            json!({ "card": printed_name(*kind), "spends": spends, "status": status })
         })
         .collect();
     json!({ "planets": planets, "spenders": spenders })
 }
 
-/// The faction of a seat, for the callers that need it.
-#[must_use]
-pub fn faction_of(core: &CoreState, who: Seat) -> Option<Faction> {
-    core.players().by_seat(who).map(|p| p.faction)
+/// The printed name of a card kind (`StrategyCardKind::printed_name`).
+const fn printed_name(kind: StrategyCardKind) -> &'static str {
+    match kind {
+        StrategyCardKind::Leadership => "Leadership",
+        StrategyCardKind::Diplomacy => "Diplomacy",
+        StrategyCardKind::Politics => "Politics",
+        StrategyCardKind::Construction => "Construction",
+        StrategyCardKind::Trade => "Trade",
+        StrategyCardKind::Warfare => "Warfare",
+        StrategyCardKind::Technology => "Technology",
+        StrategyCardKind::Imperial => "Imperial",
+    }
 }

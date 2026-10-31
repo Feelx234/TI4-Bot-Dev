@@ -455,16 +455,27 @@ fn native_action(faction: &str, others: [&str; 3], card: &str) -> usize {
     let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
     let lcx = live::Cx::new(&render, &env);
     let typed_card = <ti4_engine_core::generated::StrategyCard as crate::generated::IdStr>::from_id(card).expect("a card of the tables");
-    ti4_engine_core::driver::turn::open_job(&mut core, ti4_engine_core::state::TurnJob::Strategic(typed_card));
     let mut asker = FirstOption;
+    // The reconcile of the step that takes the menu's answer, then the job.
     let mut steps = 0;
-    for _ in 0..60 {
-        // Nekro's Propagation (a technology gained at the table) is the Nekro lane's counted gap (`docs/KP_RESUME.md`).
-        match live::live_reconcile(&mut core, &lcx, &mut asker) {
-            Err(live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::Propagation)))) => break,
-            Err(stop) => panic!("{faction} {card}: the reconcile stopped: {stop:?}"),
-            Ok(_) => {}
+    let known = |stop: &live::Stop| -> bool {
+        match stop {
+            // Nekro's Propagation (a technology gained at the table) is the Nekro lane's counted gap (`docs/KP_RESUME.md`).
+            live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::Propagation))) => true,
+            // The closing menu's free options are the menu lane's: the action itself ended.
+            live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources))) => true,
+            // Doctor Sucaban's offer in a research (the Jol-Nar agent readied at the table, infantry on the board) is not ported: counted.
+            live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::StrategyAbility))) => card.contains("technology") && (faction == "jolnar" || others.contains(&"jolnar")),
+            _ => false,
         }
+    };
+    match live::live_reconcile(&mut core, &lcx, &mut asker) {
+        Ok(_) => {}
+        Err(stop) if known(&stop) => return steps,
+        Err(stop) => panic!("{faction} {card}: the reconcile stopped: {stop:?}"),
+    }
+    ti4_engine_core::driver::turn::open_job(&mut core, ti4_engine_core::state::TurnJob::Strategic(typed_card));
+    for _ in 0..60 {
         let arm = step_arm(&Facts::of_core(&core, false), false);
         let in_action = matches!(arm, Arm::Secondary | Arm::LeaderFollowers) || (arm == Arm::Ask && core.pending().window(WindowKind::TurnFlow).is_some());
         if !in_action {
@@ -472,9 +483,13 @@ fn native_action(faction: &str, others: [&str; 3], card: &str) -> usize {
         }
         match live::live_step(&mut core, arm, &lcx, &mut asker) {
             Ok(_) => steps += 1,
-            // The closing menu's free options are the menu lane's: the action itself ended.
-            Err(live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources)))) => break,
+            Err(stop) if known(&stop) => break,
             Err(stop) => panic!("{faction} {card} (with {others:?}): the native {arm:?} stopped: {stop:?}"),
+        }
+        match live::live_reconcile(&mut core, &lcx, &mut asker) {
+            Ok(_) => {}
+            Err(stop) if known(&stop) => break,
+            Err(stop) => panic!("{faction} {card}: the reconcile stopped: {stop:?}"),
         }
     }
     steps
