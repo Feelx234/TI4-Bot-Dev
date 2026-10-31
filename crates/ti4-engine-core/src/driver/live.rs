@@ -108,6 +108,9 @@ fn sync_clock(r: &mut Resolver, core: &CoreState) {
     r.set_speaker(Some(m.speaker));
     r.set_seating_order(core.seats().seating_order());
     r.set_counters(u64::from(m.round), u64::from(m.turn_seq));
+    // The windows of an emission go to the seats in the position's initiative order; a resolver rebuilt from a position that never set
+    // it (the first window of a game) would offer them to the active seat alone (`chain::sync_initiative`, lane M5).
+    r.set_initiative_order(crate::query::seats::initiative_order(core).as_slice());
 }
 
 /// The ability table of one call: the game's table with the play facts of THIS position (a card played inside the window reads what a
@@ -471,5 +474,24 @@ mod tests {
         let (live, out) = advance::<Toy>(&mut s, &env, None).unwrap();
         assert_eq!((live, out.emitted.len()), (Live::Done, 1));
         assert!(!is_open::<Toy>(&s));
+    }
+    /// The live resolver is built from the position, initiative order included: in the action phase a window is offered to the active seat first
+    /// and then to the others in initiative order. A resolver that kept the order of the stored `Pending` (empty at the first window of a game)
+    /// offered the window to the active seat alone, so a reaction of any other seat was never asked (found by the Letnev agent in lane M5).
+    #[test]
+    fn a_live_driver_offers_its_windows_in_the_initiative_order_of_the_position() {
+        use crate::state::Phase;
+        let k = Kernel::plain();
+        let env = env(&k);
+        let mut s = position();
+        s.players = Players::from_vec((0..3u8).map(|i| Player::new(Seat(i), Faction::from_index(usize::from(i)).unwrap())).collect());
+        s.meta_mut().phase = Phase::Action;
+        s.meta_mut().active = Some(Seat(2));
+        for (seat, initiative) in [(Seat(2), 1), (Seat(0), 2), (Seat(1), 3)] {
+            s.strategy_mut().initiative_overrides.insert(seat, initiative);
+        }
+        assert!(s.pending().resolver.initiative.is_empty(), "nothing set the order before");
+        let d = driver_of(Toy { emitted: false }, &s, &env);
+        assert_eq!(d.resolver.player_order().as_slice(), &[Seat(2), Seat(0), Seat(1)]);
     }
 }
