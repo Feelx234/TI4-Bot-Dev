@@ -533,7 +533,7 @@ fn a_planet_where_only_the_invader_has_ground_forces_is_passed_over() {
 // ---- the dice of a ground round ----------------------------------------------------------------------
 
 fn roll_facts(planet: Planet) -> RollFacts {
-    RollFacts { attacker: Seat(0), defender: Seat(1), system: sys(), planet, kind: Code(40), names: (0..12).map(|i| Code(50 + i)).collect(), unit_codes: vec![(Unit::InfantryI, Code(70)), (Unit::InfantryII, Code(71)), (Unit::FactionlessMech, Code(72))] }
+    RollFacts { attacker: Seat(0), defender: Seat(1), system: sys(), planet, kind: Code(40), names: (0..12).map(|i| Code(50 + i)).collect(), unit_codes: vec![(Unit::InfantryI, Code(70)), (Unit::InfantryII, Code(71)), (Unit::FactionlessMech, Code(72))], x89: [false, false] }
 }
 
 fn fighting() -> (Scenario, Planet) {
@@ -587,7 +587,7 @@ fn a_pool_the_window_cannot_name_is_flagged_for_the_adapter() {
 }
 
 fn tail_facts(rolled: (u32, u32), bump: bool, planet: Planet) -> TailFacts {
-    TailFacts { invader: Seat(0), defender: Seat(1), system: sys(), planet, rolled, bump, announce: true }
+    TailFacts { invader: Seat(0), defender: Seat(1), system: sys(), planet, rolled, bump, announce: true, x89: [false, false] }
 }
 
 #[test]
@@ -813,4 +813,47 @@ fn a_planet_with_two_victims_pauses_on_the_target_question_and_the_answer_lands_
     assert_eq!(units_on(&ans, p1, 1).len(), 1);
     assert_eq!(ans.driver.window.kills, 2);
     assert!(ans.state.players().by_seat(Seat(0)).unwrap().misc.event_feats.is_empty(), "a victim is left: no feat");
+}
+
+// ---- X-89 Bacterial Weapon (package W10) ------------------------------------------------------------
+
+#[test]
+fn x89_doubles_the_hits_of_its_holders_ground_roll_and_the_tail_and_leaves_the_staged_dice_raw() {
+    covers!("rules::invasion::roll::GroundRoll");
+    covers!("rules::invasion::tail::GroundRollTail");
+    for x89 in [[false, false], [true, false], [false, true], [true, true]] {
+        for seed in 0..12u64 {
+            let (sc, p1) = fighting();
+            let mut rig = Rig::new(sc, GroundRoll::new(RollFacts { x89, ..roll_facts(p1) })).seeded(seed);
+            rig.run();
+            let w = &rig.driver.window;
+            let raw = (w.drawn[0].1.iter().filter(|f| **f >= 8).count() as u32, w.drawn[1].1.iter().filter(|f| **f >= 7).count() as u32);
+            let want = (raw.0 * if x89[0] { 2 } else { 1 }, raw.1 * if x89[1] { 2 } else { 1 });
+            assert_eq!(w.hits, want, "seed {seed} {x89:?}: the holder's hits are doubled, the other's are not");
+            // The dice a reroll window sees are the raw faces.
+            let staged_faces: usize = rig.state.transient().combat.reroll_staging.iter().map(|(_, set)| set.rolls.iter().map(|r| r.faces.len()).sum::<usize>()).sum();
+            assert_eq!(staged_faces, 5);
+            // The tail recomputes the hits from the staged dice and doubles them again for the holder.
+            let mut tail = Rig::from_parts(rig.state.clone(), rig.kernel.clone(), GroundRollTail::new(TailFacts { x89, ..tail_facts(w.hits, true, p1) }));
+            tail.run();
+            assert_eq!(tail.driver.window.hits, want, "seed {seed} {x89:?}");
+        }
+    }
+}
+
+#[test]
+fn x89_exhausts_each_planet_it_bombards_where_the_planets_turn_begins() {
+    covers!("rules::invasion::bombard::Bombardment");
+    let (p1, _) = planets();
+    let sc = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 2).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1);
+    let (s, k) = sc.build();
+    let plan = bombard_plan(Rd::new(&s, &k), sys(), Seat(0));
+    let mut plain = Rig::from_parts(with_active(s.clone(), p1, 1), k.clone(), Bombardment::new(Seat(0), sys(), 4, true, Code(2), entry_from(&plan, &[1, 1]), 0));
+    plain.run();
+    assert!(!plain.state.board().planet(p1).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED), "without the technology the planet stays ready");
+    let mut window = Bombardment::new(Seat(0), sys(), 4, true, Code(2), entry_from(&plan, &[1, 1]), 0);
+    window.x89 = true;
+    let mut rig = Rig::from_parts(with_active(s, p1, 1), k, window);
+    rig.run();
+    assert!(rig.state.board().planet(p1).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED), "the bombarded planet is exhausted");
 }

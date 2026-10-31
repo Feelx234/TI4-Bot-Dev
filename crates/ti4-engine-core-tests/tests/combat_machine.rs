@@ -53,13 +53,18 @@ fn env() -> Env {
         barrage_kind: Code(7),
         barrage_extra: Code(8),
         unit_codes: KINDS.iter().enumerate().map(|(i, u)| (*u, Code(100 + i as u16))).collect(),
+        shown_codes: KINDS.iter().enumerate().map(|(i, u)| (*u, Code(100 + i as u16))).collect(),
+        barrage_extra_shown: Code(99),
+        jolnar: [false, false],
         roll_unported: false,
         munitions_after: [false, false],
+        munitions_start: [false, false],
         roll_cause: Code(9),
         hacan: Code(10),
         groups: groups(),
         alpha,
         retreat_cause: Code(11),
+        retreat_event: Code(11),
         retreat_pool: Code(12),
         retreat_unported: false,
         neighbors: [vec![], vec![]],
@@ -506,6 +511,66 @@ fn a_machine_that_was_stopped_stays_stopped() {
     assert_eq!(rig.driver.window.bailed(), None);
     assert!(rig.driver.window.fields.end_announced);
     assert_eq!(Machine::max_rounds(), 50);
+}
+
+#[test]
+fn the_ships_a_retreat_cannot_hold_are_announced_at_once_with_the_retreat_cause() {
+    covers!("rules::combat::machine::Machine");
+    // Package W10: a fleet of destroyers (no capacity) with fighters retreats; the fighters are stranded and lost. With staging the loss is
+    // staged and the machine announces it as SHIP_DESTROYED with the renderer's text of the cause (it bailed before).
+    let mut e = env();
+    e.staging = true;
+    e.may_retreat = [true, true];
+    e.neighbors = [vec![(there(), true)], vec![(there(), true)]];
+    e.retreat_cause = Code(11);
+    e.retreat_event = Code(51);
+    let sc = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 1).unit(sys(), None, Unit::DestroyerI, 1, 2).unit(sys(), None, Unit::FighterI, 1, 4).unit(there(), None, Unit::CruiserI, 1, 1);
+    let mut stranded_seeds = 0;
+    for seed in 0..60u64 {
+        let mut fight = Fight::new(sc(), e.clone(), seed);
+        let stop = fight.settle(Policy::Last);
+        assert_eq!(stop, Some(Stop::Over), "seed {seed}: the strand no longer bails");
+        let lost: Vec<_> = fight.events.iter().filter(|(k, p)| *k == EventKind::ShipDestroyed && p.code(Key::Cause) == Some(Code(51))).collect();
+        if fight.fields.fled.is_empty() {
+            assert!(lost.is_empty(), "seed {seed}: no retreat, no strand");
+            continue;
+        }
+        let fighters_before = 4;
+        let fighters_there = fight.state.board().sys(there()).units.iter().filter(|p| p.owner() == Seat(1) && p.kind() == Unit::FighterI).count();
+        assert_eq!(fighters_there, 0, "seed {seed}: fighters cannot retreat on their own");
+        // Fighters lost to the barrage and the rounds before the retreat are not stranded: the stranded are the ones still there then.
+        assert!(lost.len() <= fighters_before);
+        assert!(lost.iter().all(|(_, p)| p.unit(Key::Unit) == Some(Unit::FighterI) && p.seat(Key::Player) == Some(Seat(1))));
+        assert!(fight.state.transient().combat.pending_destructions.is_empty(), "nothing is left staged: the announcement drained it");
+        stranded_seeds += usize::from(!lost.is_empty());
+    }
+    assert!(stranded_seeds > 0, "the seeds cover a retreat that stranded fighters");
+}
+
+#[test]
+fn a_roll_that_empties_a_fleet_concludes_the_fight_with_the_round_of_the_roll_and_announces_its_end() {
+    covers!("rules::combat::machine::Machine");
+    // Package W10: a Crown of Thalnos reroll that destroys the lone ship of the roller ends the fight inside the roll step (the machine
+    // bailed with `RollEndsFight` before): nothing is queued, the fight is concluded in round 1 and announced once.
+    let (mut ended, mut went_on) = (0, 0);
+    for seed in 0..60u64 {
+        let sc = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 1).unit(sys(), None, Unit::CruiserI, 1, 1);
+        let mut fight = Fight::new(sc(), env(), seed);
+        fight.state.players_mut().by_seat_mut(Seat(0)).unwrap().cards.relics.push(ti4_engine_core::generated::Relic::TheCrownOfThalnos);
+        let stop = fight.settle(Policy::First);
+        assert_eq!(stop, Some(Stop::Over), "seed {seed}: no bail");
+        let (winner, rounds) = fight.fields.outcome.expect("an outcome");
+        assert_eq!(fight.count(EventKind::SpaceCombatEnded), 1);
+        let first_round_over = rounds == 1 && winner == Some(Seat(1)) && fight.ships(0, sys()) == 0;
+        let crown_kill = fight.state.board().sys(sys()).units.iter().all(|p| p.owner() != Seat(0)) && fight.count(EventKind::HitsToAssign) == 0;
+        if crown_kill && first_round_over {
+            ended += 1;
+            assert_eq!(fight.count(EventKind::SpaceCombatRoundEnded), 0, "the round never ended: the fight was over inside the roll step");
+        } else {
+            went_on += 1;
+        }
+    }
+    assert!(ended > 0 && went_on > 0, "the seeds cover both: {ended} ended inside the roll, {went_on} went on");
 }
 
 /// Found by the end-of-D1 gate run (golden game 3): the string asks at every announcement whether a Letnev round agent is still usable

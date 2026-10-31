@@ -290,14 +290,10 @@ mod real {
     );
 
     /// The core half of the Muaat promissory note Fires of the Gashlai (`factions::muaat::fires`; the value: the action resolved). `owner`
-    /// is the Muaat seat the string found. A holder that is a Nekro (a technology carried by a Valefar Assimilator) is the string's.
+    /// is the Muaat seat the string found. A Nekro holder whose war sun technology is carried by a Valefar Assimilator holds its text: nothing happens.
     pub fn fires_of_the_gashlai(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, owner: &PlayerId, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
         if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
-            return None;
-        }
-        if gs.player(player).is_some_and(|p| p.faction.as_str() == "nekro") {
-            crate::dual::note_bail_here("a Nekro holder (the war sun technology may be carried by a Valefar Assimilator)");
             return None;
         }
         let scope = scope(sources)?;
@@ -398,7 +394,7 @@ mod real {
     /// What Fabrication and Black Market Forgery read (the fragments, the box of command tokens, the notes) and write (the fragments,
     /// the relic, the token, the note going home).
     const FABRICATION: Footprint = Footprint::new(
-        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Ledger, Slice::Pending],
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Ledger, Slice::Marks, Slice::Pending],
         &[Slice::Meta, Slice::Players, Slice::Decks, Slice::Cards, Slice::Ledger],
     );
 
@@ -411,7 +407,6 @@ mod real {
         use ti4_engine_core::rules::relic_windows::{FabMode, Fabrication};
         if let Some(why) = crate::dual_window::outside_why(gs, script)
             .or_else(|| gs.deck_reserve.is_some().then_some("deck reserve (a turn redo replays the draws)"))
-            .or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)"))
         {
             crate::dual::note_bail_here(why);
             return None;

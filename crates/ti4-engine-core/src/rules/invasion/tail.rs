@@ -6,7 +6,7 @@
 //! from the staged dice (the reroll windows the announcements opened may have changed them), the dice are
 //! listed as the board shows them for the invasion step's report, and the staging is cleared.
 //!
-//! Not covered (the adapter returns `None`, the string result stands): X-89 Bacterial Weapon (doubled hits), a
+//! Not covered (the adapter returns `None`, the string result stands): a
 //! readied The Thundarian (`GROUND_COMBAT_ROLL_STEP_ENDED` and the replays), a roll replay mark, nested activity.
 
 use crate::choice::{Choice, Pick};
@@ -36,6 +36,8 @@ pub struct Facts {
     pub bump: bool,
     /// The resolver carries the timing machinery.
     pub announce: bool,
+    /// Per side (invader, defender): X-89 Bacterial Weapon doubles the hits the staged dice show now (package W10; `rolled` is doubled already).
+    pub x89: [bool; 2],
 }
 
 /// One die as the board shows it: (side, pool name, face, target, hit).
@@ -98,7 +100,7 @@ impl Window for GroundRollTail {
                 let d = e.deltas.clone();
                 move |i: u8| d.get(&i).map_or(0, |v| i64::from(*v))
             };
-            hits[slot] = set.rolls.iter().map(|e| entry_hits(&e.faces, &delta(e), e.hits_on)).sum();
+            hits[slot] = set.rolls.iter().map(|e| entry_hits(&e.faces, &delta(e), e.hits_on)).sum::<u32>() * if f.x89[slot] { 2 } else { 1 };
             for e in set.rolls.iter().filter(|e| e.planet == Some(f.planet)) {
                 let target = e.hits_on.map_or(u32::MAX, u32::from);
                 for (i, face) in e.faces.iter().enumerate() {

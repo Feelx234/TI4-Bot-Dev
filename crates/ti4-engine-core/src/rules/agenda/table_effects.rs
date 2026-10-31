@@ -25,7 +25,7 @@ use crate::containers::SmallList;
 use crate::generated::{Agenda, Planet, System, Technology, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::fx;
-use crate::keys::{Atom, DestroyReason, MarkKey, MarkVal, Word};
+use crate::keys::DestroyReason;
 use crate::query::{board, economy};
 use crate::state::{Code, CoreState, EventKind, Key, Payload, Piece, PlanetFlags, SysFlags, Val};
 use crate::tables::Scope;
@@ -174,9 +174,8 @@ impl Table {
         matches!(self, Self::Incentive(_) | Self::Relic(_))
     }
 
-    /// Run the effect. `false` when the position holds something the effect does not express (a galvanized
-    /// ground force falls: its staged row has one more field); the state is then to be discarded.
-    pub fn apply(&self, core: &mut CoreState, f: &EffectFacts) -> bool {
+    /// Run the effect (a galvanized ground force that falls is staged with the string's trailing `|g` field).
+    pub fn apply(&self, core: &mut CoreState, f: &EffectFacts) {
         match *self {
             Self::Nothing => {}
             Self::Standardize(who) => standardize(core, who),
@@ -268,7 +267,6 @@ impl Table {
             Self::Disarmament(planet) => {
                 let controller = board::control(core, planet);
                 let destroyed = clear_planet(core, f, planet, |b| matches!(b, UnitBaseType::Infantry | UnitBaseType::Mech), None, Agenda::CompensatedDisarmament);
-                let Ok(destroyed) = destroyed else { return false };
                 if let Some(seat) = controller
                     && destroyed > 0
                     && core.players().by_seat(seat).is_some()
@@ -277,23 +275,18 @@ impl Table {
                 }
             }
             Self::CoreMining(planet) => {
-                if clear_planet(core, f, planet, |b| b == UnitBaseType::Infantry, Some(1), Agenda::CoreMining).is_err() {
-                    return false;
-                }
+                clear_planet(core, f, planet, |b| b == UnitBaseType::Infantry, Some(1), Agenda::CoreMining);
             }
             Self::Demilitarized(planet) => {
-                if clear_planet(core, f, planet, |_| true, None, Agenda::DemilitarizedZone).is_err() {
-                    return false;
-                }
+                clear_planet(core, f, planet, |_| true, None, Agenda::DemilitarizedZone);
             }
-            Self::Plowshares => return plowshares(core, f),
+            Self::Plowshares => plowshares(core, f),
             Self::Incentive(stage) => {
                 fx::reveal_stage(core, stage);
             }
             Self::TravelBan => travel_ban(core, f),
             Self::WormholeShips => wormhole_ships(core, f),
         }
-        true
     }
 }
 
@@ -416,33 +409,9 @@ fn rearm(core: &mut CoreState, scope: Scope) {
     }
 }
 
-/// The next `private:#staged:ground:` number: after the highest still staged.
-fn next_ground(core: &CoreState) -> u32 {
-    core.marks()
-        .tail
-        .iter()
-        .filter_map(|(k, _)| if let MarkKey::PrivateStagedGround(n) = k { Some(*n) } else { None })
-        .max()
-        .map_or(0, |n| n + 1)
-}
-
-/// `hooks_ground::stage_ground_force_destroyed` for a piece the caller has removed. `Err` for a galvanized one.
-fn stage_destroyed(core: &mut CoreState, system: System, planet: Planet, piece: Piece, cause: Agenda) -> Result<(), ()> {
-    if piece.galvanized() {
-        return Err(());
-    }
-    let key = MarkKey::PrivateStagedGround(next_ground(core));
-    let row = MarkVal::Rec(vec![
-        MarkVal::Atom(Atom::Word(Word::Destroyed)),
-        MarkVal::Atom(Atom::System(system)),
-        MarkVal::Atom(Atom::Planet(planet)),
-        MarkVal::Atom(Atom::Seat(piece.owner())),
-        MarkVal::Atom(Atom::Unit(piece.kind())),
-        MarkVal::Atom(Atom::Word(if piece.sustained() { Word::True } else { Word::False })),
-        MarkVal::Atom(Atom::Destroy(DestroyReason::Agenda(cause))),
-    ]);
-    core.marks_mut().tail.edit().insert(key, row);
-    Ok(())
+/// `hooks_ground::stage_ground_force_destroyed` for a piece the caller has removed (a galvanized one carries the trailing `|g`).
+fn stage_destroyed(core: &mut CoreState, system: System, planet: Planet, piece: Piece, cause: Agenda) {
+    crate::kernel::fx_ground::stage_destroyed(core, system, planet, piece, DestroyReason::Agenda(cause));
 }
 
 /// `agenda_effects::clear_planet`: remove the units whose base type `doomed` accepts (at most `limit`), stage
@@ -454,12 +423,12 @@ fn clear_planet(
     doomed: impl Fn(UnitBaseType) -> bool,
     limit: Option<usize>,
     cause: Agenda,
-) -> Result<usize, ()> {
-    let Some(system) = board::system_of(core, f.scope, planet) else { return Ok(0) };
+) -> usize {
+    let Some(system) = board::system_of(core, f.scope, planet) else { return 0 };
     // `state.system_mut` creates the system's entry.
     core.board_mut().sys_mut(system).flags.set(SysFlags::TOUCHED, true);
     if !core.board().planet(planet).flags.has(PlanetFlags::UNITS_ENTRY) {
-        return Ok(0);
+        return 0;
     }
     let mut destroyed = 0;
     let mut fallen: SmallList<Piece, 40> = SmallList::new();
@@ -478,13 +447,13 @@ fn clear_planet(
         !hit
     });
     for piece in fallen.as_slice() {
-        stage_destroyed(core, system, planet, *piece, cause)?;
+        stage_destroyed(core, system, planet, *piece, cause);
     }
-    Ok(destroyed)
+    destroyed
 }
 
 /// Swords to Plowshares, For: half of every seat's infantry (rounded up) is bought back for goods.
-fn plowshares(core: &mut CoreState, f: &EffectFacts) -> bool {
+fn plowshares(core: &mut CoreState, f: &EffectFacts) {
     for seat in everyone(core).as_slice() {
         let mut destroyed = 0usize;
         for (system, planet) in board::controlled_planets(core, *seat).as_slice() {
@@ -513,9 +482,7 @@ fn plowshares(core: &mut CoreState, f: &EffectFacts) -> bool {
                 fallen.push(core.board_mut().planet_mut(*planet).units.remove(*at));
             }
             for piece in fallen.as_slice() {
-                if stage_destroyed(core, *system, *planet, *piece, Agenda::SwordsToPlowshares).is_err() {
-                    return false;
-                }
+                stage_destroyed(core, *system, *planet, *piece, Agenda::SwordsToPlowshares);
             }
             destroyed += losses;
         }
@@ -524,7 +491,6 @@ fn plowshares(core: &mut CoreState, f: &EffectFacts) -> bool {
             fx::gain_trade_goods_staged(core, *seat, i32::try_from(destroyed).unwrap_or(i32::MAX), f.source);
         }
     }
-    true
 }
 
 /// The systems on the map (`Galaxy::system_ids`: placed on the grid).

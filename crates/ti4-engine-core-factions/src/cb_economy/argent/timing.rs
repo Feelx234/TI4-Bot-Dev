@@ -61,10 +61,6 @@ fn when_by(c: &CondCx<'_>, card: Leader, lent: bool) -> bool {
     if found.is_empty() {
         return false;
     }
-    // `leaders::exhaust` announces the exhaustion to a watching Nomad; the core does not.
-    if c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.state) {
-        return c.unknown(Unknown::NomadAgentExhaustion);
-    }
     true
 }
 
@@ -89,9 +85,8 @@ fn agent_by(eff: &mut Eff<'_, '_>, card: Leader) -> Result<(), TimingError> {
     if found.is_empty() || !ready_card(eff.state(), owner, card) {
         return Ok(());
     }
-    if let Some(p) = eff.state().players_mut().by_seat_mut(owner) {
-        p.leaders.status.insert(card, LeaderStatus::Exhausted);
-    }
+    let (state, kernel) = eff.state_and_kernel();
+    ti4_engine_core::kernel::fx_strategy::exhaust_agent(state, kernel, owner, card);
     let entries = found.into_iter().map(|(target, planet)| MarkVal::Rec(vec![MarkVal::Atom(Atom::System(target)), MarkVal::Atom(Atom::Planet(planet))])).collect();
     eff.state().marks_mut().tail.edit().insert(MarkKey::ArgentProduction(recipient, system), MarkVal::List(entries));
     Ok(())

@@ -150,7 +150,7 @@ fn a_wrong_answer_to_leadership_is_refused_and_leaves_the_stage() {
 // ---- Construction -----------------------------------------------------------------------------------------
 
 fn facts() -> StructureFacts {
-    StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::SpaceDockI, false)), source: Code(3) }
+    StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::SpaceDockI, false)), source: Code(3), alt: None }
 }
 
 fn two_planets() -> (Scenario, Vec<Planet>) {
@@ -205,7 +205,7 @@ fn space_stations_demilitarized_planets_and_planets_of_others_are_not_places_for
 #[test]
 fn a_structure_placed_in_space_goes_to_the_space_area_of_the_system() {
     let (sc, ps) = two_planets();
-    let in_space = StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::FloatingFactoryI, true)), source: Code(3) };
+    let in_space = StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::FloatingFactoryI, true)), source: Code(3), alt: None };
     let mut rig = Rig::new(sc, Construction::new(Seat(0), false, in_space));
     rig.run();
     // A space-only structure is offered on every planet regardless of the planet's limit, and lands in space.
@@ -227,11 +227,11 @@ fn a_structure_placed_in_space_goes_to_the_space_area_of_the_system() {
 #[test]
 fn a_kind_the_seat_does_not_place_is_not_offered() {
     let (sc, ps) = two_planets();
-    let only_pds = StructureFacts { pds: Some((Unit::PDSI, false)), dock: None, source: Code(3) };
+    let only_pds = StructureFacts { pds: Some((Unit::PDSI, false)), dock: None, source: Code(3), alt: None };
     let mut rig = Rig::new(sc.clone(), Construction::new(Seat(0), false, only_pds));
     rig.run();
     assert!(rig.opts().iter().all(|o| !matches!(o, Opt::Strategy(SOpt::Structure { pds: false, .. }))));
-    let neither = StructureFacts { pds: None, dock: None, source: Code(3) };
+    let neither = StructureFacts { pds: None, dock: None, source: Code(3), alt: None };
     let mut none = Rig::new(sc, Construction::new(Seat(0), true, neither));
     none.run();
     assert!(none.is_done(), "nothing to place: nothing asked");

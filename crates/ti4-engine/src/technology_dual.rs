@@ -77,10 +77,6 @@ mod real {
     /// The core half of Production Biomes (`faction_abilities::production_biomes`; the value: whether the action resolved). The card
     /// must be the player's own: a Nekro seat may carry its text on a Valefar Assimilator, which the string decides.
     pub fn production_biomes(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if !owned_ready(gs, player, "pm", false) {
-            crate::dual::note_bail_here("Production Biomes carried by something other than the player's own card (a Valefar Assimilator)");
-            return None;
-        }
         drive_valued(gs, player, script, |seat, r| ProductionBiomes::new(seat, r.code("production_biomes")), |w, _| w.done)
     }
 
@@ -89,6 +85,7 @@ mod real {
     /// (its neighbours are the map's plain adjacency, which the lent map carries).
     pub fn vortex(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
         use ti4_engine_core::rules::technology_windows::Vortex;
+        // (Only a Cabal seat uses Vortex, and only with the card itself: a Valefar Assimilator never carries it in the string.)
         if !owned_ready(gs, player, "vtx", false) {
             crate::dual::note_bail_here("Vortex carried by something other than the player's own card (a Valefar Assimilator)");
             return None;
@@ -183,15 +180,8 @@ mod real {
     pub fn exhaust_text(gs: &mut GameState, player: &PlayerId, alias: &str) -> Option<bool> {
         let tech = crate::core_adapter::typed::<Technology>(alias)?;
         write(gs, player, |core, seat| {
-            let p = core.players().by_seat(seat)?;
-            if !p.tech.owned.contains(tech) {
-                if p.faction == ti4_engine_core::generated::Faction::TheNekroVirus {
-                    return None;
-                }
-                return Some(false);
-            }
-            ti4_engine_core::kernel::fx_strategy::exhaust_technology(core, seat, tech);
-            Some(true)
+            // The card that carries the text: the technology, or the Valefar Assimilator whose token sits on it.
+            Some(ti4_engine_core::kernel::fx_strategy::exhaust_technology_text(core, seat, tech))
         })
     }
 
@@ -204,10 +194,6 @@ mod real {
         let has_text = crate::technology::has_technology_text(gs, player, "cm");
         if !has_text {
             return drive_one(gs, player, script, |seat, r| TurnStart::new(seat, r.code("psychoarchaeology")));
-        }
-        if !owned_ready(gs, player, "cm", false) {
-            crate::dual::note_bail_here("Chaos Mapping carried by something other than the player's own card (a Valefar Assimilator)");
-            return None;
         }
         if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
@@ -691,12 +677,21 @@ mod tests {
     }
 
     #[test]
-    fn a_nekro_seat_that_does_not_own_the_card_may_carry_its_text_on_a_valefar_assimilator_so_the_string_decides() {
+    fn a_nekro_seat_that_does_not_own_the_card_may_carry_its_text_on_a_valefar_assimilator_and_the_core_exhausts_the_carrier() {
         let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "hacan")], POK);
         crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+        // No assimilator carries it: nothing is exhausted (the string says false too).
         let mut probe = state.clone();
-        assert_eq!(super::exhaust_text(&mut probe, &a(), "pi"), None, "the core does not decide for a Nekro");
+        assert_eq!(super::exhaust_text(&mut probe, &a(), "pi"), Some(false));
         assert_eq!(probe, state, "and writes nothing");
+        // The assimilator X stands for it while another seat owns it (package W10): the carrier is the card exhausted.
+        let mut carried = state.clone();
+        carried.player_mut(&PlayerId::new("b")).unwrap().technologies.insert(TechnologyId::new("pi"));
+        carried.player_mut(&a()).unwrap().technologies.insert(TechnologyId::new("vax"));
+        carried.player_mut(&a()).unwrap().assimilated_technologies.insert("vax".to_owned(), TechnologyId::new("pi"));
+        assert_eq!(super::exhaust_text(&mut carried, &a(), "pi"), Some(true));
+        let exhausted = &carried.player(&a()).unwrap().exhausted_technologies;
+        assert!(exhausted.contains(ti4_model::id::text(&"vax")) && !exhausted.contains(ti4_model::id::text(&"pi")));
         // Any other faction: a card it does not own is simply not exhausted.
         let mut other = game(&[], &[]);
         assert_eq!(super::exhaust_text(&mut other, &a(), "pi"), Some(false));

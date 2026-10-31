@@ -14,10 +14,11 @@
 //!
 //! Not covered (the adapter returns `None`, the string result stands; see `dual_window::roll_step`): a readied
 //! The Thundarian / Yssaril agent (the roll-step reaction), the Keleres agent granting commodities as trade
-//! goods, neutral sides, test faces, a pending stream restore, a roll that empties a fleet, any hit a module
+//! goods, neutral sides, test faces, a pending stream restore, any hit a module
 //! produces after the roll, and a reaction window inside a reroll casualty's announcement.
 
 use super::assign::{announce_loss, remove_ship};
+use super::end::finished;
 use super::{fleet_groups, forced_hull, forces_non_fighters, planets_of_sorted, record_rolls, ships_of, FleetRoll, Rd, DIE_SIDES};
 use crate::choice::combat::{Ask as CAsk, Opt as COpt, RerollSource, Subtype as CSub};
 use crate::choice::generic::Content;
@@ -136,6 +137,9 @@ pub struct RollStep {
     pub queue: Vec<Queued>,
     /// Each side's damaged ships at the time the hits were queued (`damaged_before_round`).
     pub damaged: Vec<(Seat, Vec<Unit>)>,
+    /// A side's window left a side without ships (the Crowns destroy the units that reroll and miss): the fight is over inside the
+    /// step, so the other side does not roll, nothing is queued and nothing is announced (string `roll_both_sides` returning `None`).
+    pub ended: bool,
     stage: Stage,
     side: usize,
     staged: [Option<Staged>; 2],
@@ -160,6 +164,7 @@ impl RollStep {
             drawn: Vec::new(),
             queue: Vec::new(),
             damaged: Vec::new(),
+            ended: false,
             stage: Stage::Start,
             side: 0,
             staged: [None, None],
@@ -421,6 +426,7 @@ impl RollStep {
             RerollSource::Law => Origin::Agenda(Agenda::TheCrownOfThalnos),
             RerollSource::Munitions => Origin::FactionAbility(Content::Ability(Ability::MunitionsReserves)),
             RerollSource::FireTeam => Origin::ActionCard(crate::generated::ActionCard::FireTeam),
+            RerollSource::Commander => Origin::Content(Content::Leader(crate::generated::Leader::AgnlanOln)),
         }
     }
 
@@ -536,6 +542,12 @@ impl Window for RollStep {
                 Stage::SideDone => {
                     self.unmirror(sx);
                     sx.state.transient_mut().combat.last_reroll_player = None;
+                    // The string asks `over` after each side's window: a fleet the rerolls emptied ends the fight where it stands.
+                    if finished(Self::rd(sx.state, sx.kernel), self.f.system, self.f.attacker, self.f.defender) {
+                        self.ended = true;
+                        self.stage = Stage::Done;
+                        return Next::Done;
+                    }
                     if self.side == 0 {
                         self.side = 1;
                         self.stage = Stage::Roll;
@@ -742,7 +754,7 @@ impl RollStep {
                 RerollSource::Relic => Self::holds_crown_relic(sx.state, side),
                 RerollSource::Law => Self::owns_crown_law(sx.state, side),
                 // Munitions and Fire Team are not walks of the roll step (Fire Team is a card played after the ground roll).
-                RerollSource::Munitions | RerollSource::FireTeam => false,
+                RerollSource::Munitions | RerollSource::FireTeam | RerollSource::Commander => false,
             };
         if held {
             self.walk = self.cur().map(|s| Self::all_dice(&s.set)).unwrap_or_default();
@@ -777,7 +789,7 @@ impl RollStep {
                 self.crown = picks;
                 self.stage = Stage::Casualties;
             }
-            RerollSource::FireTeam => self.stage = Stage::Casualties,
+            RerollSource::FireTeam | RerollSource::Commander => self.stage = Stage::Casualties,
         }
     }
 

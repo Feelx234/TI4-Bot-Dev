@@ -7,7 +7,7 @@
 //! The window is `Window::step` for one transition: [`Flow::step`] is the stage, `out` the next stage. Facts
 //! the string window answers from its own rules (a player with nowhere to go, whether a ship is left, the
 //! sustain candidates) are inputs; the control flow, the events and the fields of the window it changes are
-//! the core's. Not covered (the adapter returns `None`): hit cancellations granted, the casualty shortcut of a
+//! the core's. Not covered (the adapter returns `None`): the casualty shortcut of a
 //! single candidate, a neutral side's automatic answer, Duranium Armor repairs, a fleet that retreats
 //! without a question, hits modules produce after a round, destructions still to announce, a reaction
 //! window opened by an announcement (`Recording::nested`).
@@ -200,6 +200,18 @@ impl Window for Flow {
                 if front.hits == 0 || f.front_alive == 0 {
                     out.next = Step::Queue { assigning: false, round, queue: queue[1..].to_vec() };
                 } else {
+                    // Shields Holding and friends cancel hits before any are assigned (string `hit_queue_head_string`): the pool the
+                    // round holds is spent here, before the once-per-round announcement and the sustain offer, because a cancelled hit
+                    // is one nobody has to absorb. A neutral side's automatic answer comes after this (the adapter keeps that string).
+                    let spent = self.spend_cancellations(sx, front.player, front.hits);
+                    if spent > 0 {
+                        let mut rest = queue.clone();
+                        rest[0].hits -= spent;
+                        out.next = Step::Queue { assigning, round, queue: rest };
+                        self.out = Some(out);
+                        self.stage = Stage::Done;
+                        return Next::Done;
+                    }
                     if !assigning && !f.offered_before {
                         out.offered_now = true;
                         if f.announce {

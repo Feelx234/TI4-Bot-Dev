@@ -183,7 +183,9 @@ pub enum UStage {
 /// in a system that contains one of their war suns or their flagship." Every player with such a system in which something can be built is
 /// offered to the holder (a decline spends nothing); the chosen player picks the system when there is more than one (a decline spends the
 /// agent and produces nothing); the production is one use by an ability for that player, with a limit of 2 and a cost ceiling of 4. The
-/// agent is spent once a player was chosen. This window is the agent of its own seat (readied); a copy through Ssruu is the adapter's to refuse.
+/// agent is spent once a player was chosen. The carrier is the agent's own seat (readied) or a seat holding a readied Ssruu while another seat
+/// holds Umbat, readied or exhausted ([`Self::copied`]: "This card has the text ability of each other player's agent, even if that agent is
+/// exhausted"). A copy is atomic: the adapter restores the position when the recorded decisions stop before the window is over.
 /// [`Self::used`]: the agent was spent. [`Self::made`]: what the use made.
 #[derive(Debug, Clone)]
 pub struct Umbat {
@@ -198,12 +200,28 @@ pub struct Umbat {
     pub made: Option<(System, Made)>,
     pub used: bool,
     pub unsupported: bool,
+    /// The text is Ssruu's copy of Umbat (the carrier is no Muaat seat holding the card).
+    pub copied: bool,
 }
 
 impl Umbat {
     #[must_use]
     pub fn new(who: Seat, facts: Vec<ProduceFacts>) -> Self {
-        Self { who, facts, stage: UStage::Start, targets: Vec::new(), target: None, child: ErasedChild::idle(), made: None, used: false, unsupported: false }
+        Self { who, facts, stage: UStage::Start, targets: Vec::new(), target: None, child: ErasedChild::idle(), made: None, used: false, unsupported: false, copied: false }
+    }
+
+    /// The text `who` may act on now (`factions::muaat::umbat_available`): Muaat's own readied agent, else a copy through a readied Ssruu
+    /// of the agent another seat holds (readied or exhausted). `Some(copied)`; `None`: neither.
+    #[must_use]
+    pub fn carried(core: &CoreState, who: Seat) -> Option<bool> {
+        let me = core.players().by_seat(who)?;
+        if me.faction == crate::generated::Faction::TheEmbersOfMuaat && me.leaders.status.get(&Leader::Umbat) == Some(&LeaderStatus::Readied) {
+            return Some(false);
+        }
+        let held = |s: &LeaderStatus| matches!(s, LeaderStatus::Readied | LeaderStatus::Exhausted);
+        (me.leaders.status.get(&Leader::Ssruu) == Some(&LeaderStatus::Readied)
+            && core.players().iter().any(|p| p.seat != who && p.leaders.status.get(&Leader::Umbat).is_some_and(held)))
+        .then_some(true)
     }
 
     /// The systems holding a war sun or the flagship of the seat in the space area, in system order.
@@ -259,10 +277,9 @@ impl Window for Umbat {
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if self.stage == UStage::Start {
-            let ready = sx.state.players().by_seat(self.who).is_some_and(|p| {
-                p.faction == crate::generated::Faction::TheEmbersOfMuaat && p.leaders.status.get(&Leader::Umbat) == Some(&LeaderStatus::Readied)
-            });
-            if ready {
+            let carried = Self::carried(sx.state, self.who);
+            self.copied = carried == Some(true);
+            if carried.is_some() {
                 let seats: Vec<Seat> = sx.state.players().iter().map(|p| p.seat).collect();
                 for seat in seats {
                     let systems: Vec<System> = Self::candidates(sx.state, seat)

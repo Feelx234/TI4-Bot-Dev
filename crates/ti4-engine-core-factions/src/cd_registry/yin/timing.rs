@@ -89,7 +89,6 @@ pub(crate) fn ship_ok(c: &CondCx<'_>, card: Leader) -> bool {
     p.flag(Key::DuringSpaceCombat) == Some(true)
         && ready_card(c.state, c.def.owner, card)
         && p.seat(Key::Player).is_some_and(|who| in_reinforcements(c.state, scope(c.kernel), who, UnitBaseType::Fighter).is_some())
-        && nomad_quiet(c)
 }
 
 fn ground_when(c: &CondCx<'_>) -> bool {
@@ -104,15 +103,6 @@ pub(crate) fn ground_ok(c: &CondCx<'_>, card: Leader) -> bool {
         && p.unit(Key::Unit).is_some()
         && ready_card(c.state, c.def.owner, card)
         && p.seat(Key::Player).is_some_and(|who| in_reinforcements(c.state, scope(c.kernel), who, UnitBaseType::Infantry).is_some())
-        && nomad_quiet(c)
-}
-
-/// `leaders::exhaust` announces the exhaustion to a watching Nomad; the core does not.
-pub(crate) fn nomad_quiet(c: &CondCx<'_>) -> bool {
-    if c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.state) {
-        return c.unknown(Unknown::NomadAgentExhaustion);
-    }
-    true
 }
 
 /// `place_units_counted`: up to `count` units of the form, as many as the box holds, appended where they go.
@@ -134,9 +124,9 @@ pub(crate) fn place_by(eff: &mut Eff<'_, '_>, base: UnitBaseType, on_planet: boo
     }
     let scope = scope(eff.kernel());
     let Some(unit) = in_reinforcements(eff.state(), scope, who, base) else { return Ok(()) };
-    if let Some(a) = eff.state().players_mut().by_seat_mut(owner) {
-        a.leaders.status.insert(card, LeaderStatus::Exhausted);
-    }
+    // `leaders::exhaust`: the status, and the staged announcement a watching Nomad is told by.
+    let (state, kernel) = eff.state_and_kernel();
+    ti4_engine_core::kernel::fx_strategy::exhaust_agent(state, kernel, owner, card);
     let count = fleet::remaining_all(eff.state(), scope, who, unit).min(2);
     for _ in 0..count {
         fx::place_unit(eff.state(), who, system, planet, unit);

@@ -36,6 +36,10 @@ pub struct StructureFacts {
     pub dock: Placement,
     /// The code of the source `place_structure` (the adapter's text table).
     pub source: Code,
+    /// Titans' Hecatoncheires, an alternative to a PDS: the mech and the infantry the seat places instead ("When you would place a PDS on a
+    /// planet, you may place 1 mech and 1 infantry on that planet instead"); `None`: the seat has no such alternative (or a faction effect
+    /// forbids one of the two). It is offered only while both fit in the reinforcements.
+    pub alt: Option<(Unit, Unit)>,
 }
 
 /// What a production by an ability (`Spawn::Produce`) needs of the position that the core does not hold: the numbers the string

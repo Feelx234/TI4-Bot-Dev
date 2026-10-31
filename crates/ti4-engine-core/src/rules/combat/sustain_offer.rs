@@ -6,9 +6,11 @@
 //! [`SustainCommander`] window (its question is this window's question while it runs); then the
 //! `SUSTAIN_DAMAGE_USED` event is emitted and the loop starts again, `cancel_per_sustain` hits fewer.
 //!
+//! Below `RULES_FACTION_EFFECTS` the Rear Admiral Farran trade good is paid without a question (the string
+//! `pay_sustain_commander`): the window reads the version from the state's meta and goes on to the event.
+//!
 //! Not covered (the adapter returns `None`, the string result stands): staged planet sustainers
-//! (`supply::staging_enabled`), games below `RULES_FACTION_EFFECTS` (the old commander payment), and the
-//! hits a Reflective Shielding reaction stages during the emission.
+//! (`supply::staging_enabled`), and the hits a Reflective Shielding reaction stages during the emission.
 
 use super::sustain_commander::SustainCommander;
 use super::{cancel_per_sustain, direct_hittable_at, apply_sustain, sustain_opts, Rd};
@@ -237,7 +239,15 @@ impl SustainOffer {
                 remember_target(sx.state, self.offer.system, self.offer.staging, site, piece);
                 self.last = Some((site, piece));
                 self.used = Some(unit);
-                self.commander = SustainCommander::new(self.offer.player, self.offer.source);
+                self.commander = if sx.state.meta().rules_at_least(super::RULES_FACTION_EFFECTS) {
+                    SustainCommander::new(self.offer.player, self.offer.source)
+                } else {
+                    // `pay_sustain_commander`: the old rule pays the holder's trade good at once, no question.
+                    if super::sustain_commander::pays_on_sustain(sx.state, self.offer.player) {
+                        fx::gain_trade_goods_staged(sx.state, self.offer.player, 1, self.offer.source);
+                    }
+                    SustainCommander::settled(self.offer.player, self.offer.source)
+                };
                 self.stage = Stage::Commander;
                 Ok(())
             }

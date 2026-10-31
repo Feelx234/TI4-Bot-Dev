@@ -262,3 +262,24 @@ fn minister_of_antiquities_gives_the_elected_player_the_top_relic() {
     assert!(rig.state.players().by_seat(Seat(0)).unwrap().cards.relics.as_slice().is_empty());
     assert_eq!(rig.state.decks().relic.cards().len(), 1, "one card left in the deck");
 }
+
+#[test]
+fn a_galvanized_infantry_that_falls_is_staged_with_the_galvanized_field_and_a_plain_one_without() {
+    covers!("rules::agenda::table_effects::Table");
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal, Word};
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    for (galvanized, fields) in [(true, 8), (false, 7)] {
+        let (mut s, k) = two(&[system]).control(planet, 1).unit(system, Some(planet), Unit::InfantryI, 1, 1).build();
+        let units = s.board_mut().planet_mut(planet).units.as_mut_slice();
+        units[0] = units[0].with_galvanized(galvanized);
+        let window = Resolve::of_facts(Agenda::DemilitarizedZone, Outcome::Planet(planet), &facts(&[])).expect("an effect");
+        let mut rig = Rig::from_parts(s, k, window);
+        rig.run();
+        assert!(!rig.driver.window.unsupported(), "a galvanized ground force that falls no longer makes the window unsupported");
+        let rows: Vec<&MarkVal> = rig.state.marks().tail.iter().filter(|(key, _)| matches!(key, MarkKey::PrivateStagedGround(_))).map(|(_, v)| v).collect();
+        assert_eq!(rows.len(), 1);
+        let MarkVal::Rec(row) = rows[0] else { panic!("a record") };
+        assert_eq!(row.len(), fields);
+        assert_eq!(row.get(7), galvanized.then_some(&MarkVal::Atom(Atom::Word(Word::Galvanized))));
+    }
+}

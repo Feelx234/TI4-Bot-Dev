@@ -38,8 +38,9 @@ mod real {
 
     type Complete<'a> = &'a dyn Fn(&CoreChoice, &CoreState, &mut Choice);
 
+    // (Marks: the command tokens in a Mahact fleet pool are not in the reinforcements, `kernel::fx::tokens_held_by_mahact`.)
     const WARFARE: Footprint =
-        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Players, Slice::Board]);
+        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks, Slice::Pending], &[Slice::Players, Slice::Board]);
     const DIPLOMACY: Footprint =
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board]);
     const POLITICS: Footprint = Footprint::new(
@@ -131,7 +132,7 @@ mod real {
     /// holds: a question inside a battle or an invasion, diplomacy on, a nested emission, a command token in a
     /// Mahact fleet pool (the reinforcements differ), a seat the tables do not hold.
     pub fn warfare_primary(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }
@@ -305,7 +306,7 @@ mod real {
         primary: bool,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)")).or_else(|| (crate::production_view::unported_window(gs, player)).then_some("a table with a seat the production windows do not carry (Naaz, Nomad, Yssaril, Keleres, Deepwrought)")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (crate::production_view::unported_window(gs, player)).then_some("a table with a seat the production windows do not carry (Naaz, Nomad, Yssaril, Keleres, Deepwrought)")) {
             crate::dual::note_bail_here(why);
             return None;
         }
@@ -341,20 +342,34 @@ mod real {
 
     // -- Construction ---------------------------------------------------------------------------------------
 
-    /// What a Construction window needs of the position, or `None` where a faction effect changes the placement: the
-    /// Titans' alternative to a PDS, Minister of Industry's production after a space dock, a unit the tables do not
-    /// name, what `production_view::unported_window` declines.
+    /// Hecatoncheires' alternative id at a "place a PDS" site (`factions::titans`).
+    const HECATONCHEIRES: &str = "titans|hecatoncheires";
+
+    /// What a Construction window needs of the position, or `None` where a faction effect changes the placement: an
+    /// alternative to a PDS other than Titans' Hecatoncheires (which the window asks), Minister of Industry's production
+    /// after a space dock, a unit the tables do not name, what `production_view::unported_window` declines.
     pub(crate) fn structure_facts(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, r: &Render) -> Option<StructureFacts> {
         if crate::production_view::unported_window(gs, player) || crate::laws::industry_produces_on_placement(gs, player) {
             crate::dual::note_bail_here("a seat the production windows do not carry, or Minister of Industry (a production after the dock)");
             return None;
         }
-        let alternatives = gs.controlled_planets(player).into_iter().any(|(system, planet)| {
-            !crate::factions::hooks_economy::pds_placement_alternatives(gs, content, sources, player, system, planet).is_empty()
-        });
-        if alternatives {
-            crate::dual::note_bail_here("a structure the seat may place instead of a PDS (Titans' Hecatoncheires)");
-            return None;
+        // "When you would place a PDS on a planet, you may ... instead" (Titans' Hecatoncheires): the core window asks it where both units fit in
+        // the reinforcements; an alternative of any other id is the string's.
+        let mut alt = None;
+        for (system, planet) in gs.controlled_planets(player) {
+            let offered = crate::factions::hooks_economy::pds_placement_alternatives(gs, content, sources, player, system, planet);
+            if offered.is_empty() {
+                continue;
+            }
+            if offered.iter().any(|o| o.id != HECATONCHEIRES) {
+                crate::dual::note_bail_here("a structure the seat may place instead of a PDS that the core does not carry");
+                return None;
+            }
+            let form = |base: &str| -> Option<ti4_engine_core::generated::Unit> {
+                crate::core_adapter::typed::<ti4_engine_core::generated::Unit>(crate::action_cards::placed_unit_id(gs, content, sources, player, base)?.as_str())
+            };
+            alt = Some((form("mech")?, form("infantry")?));
+            break;
         }
         let placement = |kind: &str| -> Option<Placement> {
             let (unit, in_space) = crate::strategy_cards::construction_placement(gs, content, sources, player, kind);
@@ -364,7 +379,7 @@ mod real {
             Some(Some((crate::core_adapter::typed::<ti4_engine_core::generated::Unit>(unit.as_str())?, in_space)))
         };
         let (pds, dock) = (placement("pds")?, placement("spacedock")?);
-        Some(StructureFacts { pds, dock, source: r.code("place_structure") })
+        Some(StructureFacts { pds, dock, source: r.code("place_structure"), alt })
     }
 
     /// The core half of the Construction abilities (`primary`: two structures, else the secondary's one).
@@ -478,7 +493,7 @@ mod real {
     pub fn warfare_te(gs: &mut GameState, player: &PlayerId, systems: &[String], script: &Recording) -> Option<CoreWindow<Option<String>>> {
         // A command token in a Mahact fleet pool is not in the reinforcements: the core's count of them differs (found by the census of
         // `golden-lent.json`, a Mahact at the table: `details.reinforcements` one too many in 8 games of 19).
-        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }
@@ -568,8 +583,8 @@ mod real {
 
     /// The core half of the two Technology abilities (`primary`: the free research and the six-resource one,
     /// else the secondary's four-resource one). `None` as for Leadership, and where [`research_unported`]
-    /// says so, below `RULES_TECH_PAYMENT_CHOICE` (the plan is not asked), where the faction hooks of the core and
-    /// the string differ, and where an answer leaves the carried paths (a technology only a faction waiver opens).
+    /// says so, where the faction hooks of the core and the string differ (a game below `RULES_TECH_PAYMENT_CHOICE`, where the cheapest
+    /// plan is spent unasked, is the window's own since W12), and where an answer leaves the carried paths (a technology only a faction waiver opens).
     pub fn research(
         gs: &mut GameState,
         content: &ContentStore,
@@ -580,7 +595,6 @@ mod real {
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
         if let Some(why) = crate::dual_window::outside_why(gs, script)
-            .or_else(|| (gs.rules_version < ti4_model::state::RULES_TECH_PAYMENT_CHOICE).then_some("a game below the technology payment choice"))
             .or_else(|| research_unported(gs, content, sources, player).then_some("a seat whose own effects on a research are questions or forms (Deepwrought, Keleres, a Mentak with The Table's Grace, Last Bastion, Crimson) or a purged technology"))
         {
             crate::dual::note_bail_here(why);
@@ -1108,13 +1122,15 @@ mod tests {
     }
 
     #[test]
-    fn warfare_declines_with_a_token_in_a_mahact_pool() {
+    fn warfare_counts_a_token_in_a_mahact_pool_out_of_the_reinforcements_in_the_core() {
+        // Package W10: the core subtracts the tokens in Mahact fleet pools from the reinforcements (`fx::tokens_held_by_mahact`, read from
+        // the marks); before it the window bailed ("a command token in a Mahact fleet pool (the reinforcements differ)").
         let label = "strategy_cards::warfare_primary";
         let held = |s: &mut GameState| {
             token_in(s, "26");
             s.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
         };
-        assert_eq!(run(label, &F3, held, &["26", "tactic_tokens", "3|3|3"], primary("pok6warfare")), (0, 1));
+        assert_eq!(run(label, &F3, held, &["26", "tactic_tokens", "3|3|3"], primary("pok6warfare")), (1, 0));
     }
 
     #[test]
@@ -1389,7 +1405,7 @@ mod tests {
     }
 
     #[test]
-    fn leadership_carries_an_overpayment_into_the_next_purchase_and_declines_a_mahact_pool() {
+    fn leadership_carries_an_overpayment_into_the_next_purchase_and_follows_a_mahact_pool() {
         let label = "strategy_cards::leadership_primary";
         // Mecatol pays six for a bill of three: the three left pay the next token, "0 more" influence.
         let mecatol = |s: &mut GameState| {
@@ -1401,7 +1417,7 @@ mod tests {
         let held = |s: &mut GameState| {
             s.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
         };
-        assert_eq!(run(label, &F3, held, &["tactic_tokens", "tactic_tokens", "fleet_tokens", "no"], primary("pok1leadership")), (0, 1));
+        assert_eq!(run(label, &F3, held, &["tactic_tokens", "tactic_tokens", "fleet_tokens", "no"], primary("pok1leadership")), (1, 0));
     }
 
     #[test]
@@ -1474,6 +1490,39 @@ mod tests {
             run(label, &F3, lodor, &["decline"], secondary("pok4construction"))
         });
         assert_eq!(declined, (0, 1));
+    }
+
+    /// W12: Titans' Hecatoncheires ("when you would place a PDS on a planet, you may place 1 mech and 1 infantry instead") is a question of the
+    /// core Construction window (`SAsk::PdsAlternative`), asked after each PDS spot while both units fit in the reinforcements; it was the counted
+    /// bail "a structure the seat may place instead of a PDS (Titans' Hecatoncheires)". An alternative of another id stays the string's.
+    #[test]
+    fn construction_asks_hecatoncheires_instead_of_a_pds_in_lockstep() {
+        let titans = [("a", "titans"), ("b", "hacan"), ("c", "arborec")];
+        let units_on = |s: &GameState, kind: &str| {
+            s.system_state(&SystemId::new("26")).planet_units.get(&PlanetId::new("lodor")).map_or(0, |u| u.iter().filter(|x| x.owner == a() && x.type_id.as_str().ends_with(kind)).count())
+        };
+        // The primary: the first PDS becomes a mech and an infantry, the second (a PDS only) is asked again and kept.
+        let label = "strategy_cards::construction_primary";
+        assert_eq!(run(label, &titans, lodor, &["pds|26|lodor", "titans|hecatoncheires", "pds|26|lodor", "pds"], primary("pok4construction")), (1, 0));
+        assert_eq!(run(label, &titans, lodor, &["pds|26|lodor", "pds", "pds|26|lodor", "titans|hecatoncheires"], primary("pok4construction")), (1, 0));
+        // A dock is no PDS: nothing is asked; the secondary asks once.
+        assert_eq!(run(label, &titans, lodor, &["spacedock|26|lodor", "pds|26|lodor", "pds"], primary("pok4construction")), (1, 0));
+        let label = "strategy_cards::construction_secondary";
+        assert_eq!(run(label, &titans, lodor, &["pds|26|lodor", "titans|hecatoncheires"], secondary("pok4construction")), (1, 0));
+        assert_eq!(run(label, &titans, lodor, &["pds|26|lodor", "pds"], secondary("pok4construction")), (1, 0));
+        assert_eq!(run(label, &titans, lodor, &["decline"], secondary("pok4construction")), (1, 0));
+        // The mech and the infantry really land: the string state after the secondary holds them (compared, and read here).
+        let mut state = crate::fixtures::seated_game(&titans, POK);
+        lodor(&mut state);
+        let mut table = Table::with_default(Box::new(Scripted::new(["pds|26|lodor".to_owned(), "titans|hecatoncheires".to_owned()])));
+        crate::strategy_cards::secondary(&mut state, ContentStore::embedded(), POK, None, &mut table, &a(), "pok4construction").unwrap();
+        assert_eq!((units_on(&state, "mech"), units_on(&state, "infantry")), (1, 1));
+        // No room for the mech in the reinforcements (all four stand on the board): the alternative is not offered, the PDS goes at once.
+        let full_of_mechs = |s: &mut GameState| {
+            lodor(s);
+            crate::fixtures::put_on_planet(s, &SystemId::new("26"), &PlanetId::new("lodor"), "titans_mech", &a(), 4);
+        };
+        assert_eq!(run(label, &titans, full_of_mechs, &["pds|26|lodor"], secondary("pok4construction")), (1, 0));
     }
 
     #[test]
@@ -1624,12 +1673,14 @@ mod tests {
             s.enact_law("revolution", "for");
         };
         assert_eq!(run(label, &F3, law, &[&techs[0], "decline"], primary("pok7technology")), (1, 0));
-        // Below the rules version that asks which planets pay, the plan is chosen for the player.
+        // Below the rules version that asks which planets pay, the plan is chosen for the player: the cheapest plan is spent, no question
+        // (carried by the window since W12; it was a counted bail "a game below the technology payment choice").
         let old_rules = |s: &mut GameState| {
             goods(4)(s);
             s.rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE - 1;
         };
-        assert_eq!(run(label, &F3, old_rules, &[&techs[0], &techs[1]], primary("pok7technology")), (0, 1));
+        assert_eq!(run(label, &F3, old_rules, &[&techs[0], &techs[1]], primary("pok7technology")), (1, 0));
+        assert_eq!(run("strategy_cards::technology_secondary", &F3, old_rules, &[&techs[1]], secondary("pok7technology")), (1, 0));
         // A faction effect that offers to waive prerequisites.
         let waiver = crate::factions::hooks_strategy::StrategyHooks {
             research_waiver_offer: Some(|_, _, _, _| {
