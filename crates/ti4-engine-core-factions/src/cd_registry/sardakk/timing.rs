@@ -21,7 +21,7 @@ use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::{Leader, Unit};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
-use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
+use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Runner, Slot, Spec};
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::state::{CoreState, EventKind, Key, Payload, Piece};
 
@@ -29,6 +29,11 @@ use ti4_engine_core::state::{CoreState, EventKind, Key, Payload, Piece};
 pub const HERO_FINISH: Slot = Slot(12001);
 /// Valkyrie Exoskeleton (`unit:*:sardakk_mech:GROUND_FORCE_SUSTAINED:after`).
 pub const MECH_HIT: Slot = Slot(12003);
+
+/// T'ro, the agent (`leader:*:sardakkagent:ACTION_COMPLETED:after`; the registered event is `TACTICAL_ACTION_ENDED`).
+pub const TRO: Slot = Slot(12004);
+/// Ssruu copying T'ro (`leader:{lender faction}:{lender}:yssarilagent:sardakkagent:TACTICAL_ACTION_ENDED:after`).
+pub const TRO_COPY: Slot = Slot(12005);
 
 const HERO: Leader = Leader::ShvalHarbinger;
 
@@ -117,7 +122,109 @@ fn mech_hit(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+// -- T'ro (lane M6c) ---------------------------------------------------------------------------------------
+
+/// `agent_event_window`: the system of the tactical action that just ended, if T'ro can act on it: the actor has an infantry in its
+/// reinforcements and controls a planet there that is not demilitarized.
+fn tro_system(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, p: &Payload) -> Option<(Seat, ti4_engine_core::generated::System)> {
+    use ti4_engine_core::query::{board, fleet, reach};
+    let (actor, system) = (p.seat(Key::Player)?, p.system(Key::System)?);
+    if fleet::remaining_all(s, reach::scope_of(k), actor, Unit::InfantryI) == 0 {
+        return None;
+    }
+    let blanked = reach::blanked(s);
+    board::planets_of(s, system).any(|planet| board::controls(s, actor, planet) && !ti4_engine_core::query::laws::planet_is_demilitarized(s, blanked, planet)).then_some((actor, system))
+}
+
+fn tro_when(c: &CondCx<'_>) -> bool {
+    ready(c.state, c.def.owner, Leader::Tro) && tro_system(c.state, c.kernel, &c.event.payload).is_some()
+}
+
+fn tro_copy_when(c: &CondCx<'_>) -> bool {
+    crate::cd_registry::yssaril::ssruu::borrowable(c.state, c.def.owner, c.def.pair_source(), Leader::Tro) && tro_system(c.state, c.kernel, &c.event.payload).is_some()
+}
+
+fn ready(s: &CoreState, who: Seat, card: Leader) -> bool {
+    s.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&card) == Some(&ti4_engine_core::state::LeaderStatus::Readied))
+}
+
+/// "That player may place 2 infantry from their reinforcements on a planet they control in the active system": the actor's optional
+/// placement, the card exhausted before the question (a declined placement leaves it exhausted).
+fn place_two(eff: &mut Eff<'_, '_>, actor: Seat, system: ti4_engine_core::generated::System) {
+    use ti4_engine_core::kernel::Next;
+    use ti4_engine_core::kernel::stage::Window;
+    use ti4_engine_core::rules::promissory_windows::{PlaceUnits, Then};
+    use ti4_engine_core::generated::UnitBaseType;
+    let scope = ti4_engine_core::query::reach::scope_of(eff.kernel());
+    let form = {
+        let (state, kernel) = eff.read();
+        crate::cd_registry::yin::timing::placed_form_overridden(state, kernel, scope, actor, UnitBaseType::Infantry).filter(|unit| !kernel.hooks.economy.effect_placement_forbidden(state, kernel, actor, *unit))
+    };
+    let code = eff.codes().activation.sardakk_agent;
+    let mut window = PlaceUnits::new(actor, form, 2, Some(system), true, scope, code, Then::Nothing);
+    loop {
+        let next = eff.inline().with_sx(|sx| window.step(sx));
+        if !matches!(next, Next::Continue(_)) {
+            break;
+        }
+        let choice = {
+            let (state, kernel) = eff.read();
+            window.ask_of(state, kernel)
+        };
+        let Some(choice) = choice else { break };
+        let pick = eff.ask(&choice);
+        if eff.inline().with_sx(|sx| window.answer(sx, pick)).is_err() {
+            break;
+        }
+    }
+}
+
+fn tro(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let me = eff.owner();
+    let found = {
+        let (state, kernel) = eff.read();
+        tro_system(state, kernel, &eff.event.payload)
+    };
+    let Some((actor, system)) = found else { return Ok(()) };
+    if !ready(eff.state(), me, Leader::Tro) {
+        return Ok(());
+    }
+    let (state, kernel) = eff.state_and_kernel();
+    ti4_engine_core::kernel::fx_strategy::exhaust_agent(state, kernel, me, Leader::Tro);
+    eff.state().marks_mut().tail.edit().remove(&MarkKey::SardakkAgentTactical(actor));
+    place_two(eff, actor, system);
+    Ok(())
+}
+
+fn tro_copy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let (me, lender) = (eff.owner(), eff.def.pair_source());
+    if !crate::cd_registry::yssaril::ssruu::borrowable(eff.state(), me, lender, Leader::Tro) {
+        return Ok(());
+    }
+    let found = {
+        let (state, kernel) = eff.read();
+        tro_system(state, kernel, &eff.event.payload)
+    };
+    let Some((actor, system)) = found else { return Ok(()) };
+    let (state, kernel) = eff.state_and_kernel();
+    if !ti4_engine_core::kernel::fx_strategy::exhaust_agent(state, kernel, me, Leader::Ssruu) {
+        return Ok(());
+    }
+    place_two(eff, actor, system);
+    eff.state().marks_mut().tail.edit().remove(&MarkKey::SardakkAgentTactical(actor));
+    Ok(())
+}
+
+/// The static roster of the string: a lender that holds T'ro and a borrower that holds Ssruu.
+fn lends(s: &CoreState, borrower: Seat, lender: Seat) -> bool {
+    let holds = |who: Seat, card: Leader| s.players().by_seat(who).is_some_and(|p| p.leaders.status.contains_key(&card));
+    holds(lender, Leader::Tro) && holds(borrower, Leader::Ssruu)
+}
+
 pub fn register_abilities(t: &mut AbilityTable) {
+    use ti4_engine_core::kernel::ability::Applies;
+    t.add(Spec::new(TRO, AbilityKind::Leader, EventKind::TacticalActionEnded, Relation::After, tro).optional().when(tro_when));
+    t.add(Spec::new(TRO_COPY, AbilityKind::Leader, EventKind::TacticalActionEnded, Relation::After, tro_copy).applies(Applies::Faction(ti4_engine_core::generated::Faction::SardakkNorr)).pair(lends).optional().when(tro_copy_when));
     t.add(Spec::new(MECH_HIT, AbilityKind::Unit, EventKind::GroundForceSustained, Relation::After, mech_hit).when(mech_when));
     t.add(Spec::new(HERO_FINISH, AbilityKind::Leader, EventKind::GroundCommitmentFinished, Relation::After, finish).when(finish_when));
 }

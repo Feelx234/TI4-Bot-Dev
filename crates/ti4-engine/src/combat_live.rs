@@ -374,6 +374,23 @@ mod tests {
         // `trigger.event_id`: the string's first step is the turn prelude (`TURN_BEGAN`), which numbers one event the native run does not take.
         // `combat_round_seq`: the native invasion bumps the counter once more than the string's window over a ground fight (a finding for lane
         // M3: `driver::windows::invasion::fight` and `GroundRollTail::bump`), compared separately in the invasion tests.
+        // The string's `#seen:` rows of `faction_marks` (what each seat has been shown) are no rule; a map left with none of its own rows is no map.
+        fn without_seen(v: &Value) -> Value {
+            match v {
+                Value::Object(map) => Value::Object(
+                    map.iter()
+                        .filter_map(|(k, v)| {
+                            let v = without_seen(v);
+                            (k != "faction_marks" || v.as_object().is_none_or(|o| !o.is_empty())).then(|| (k.clone(), v))
+                        })
+                        .filter(|(k, _)| !k.contains("#seen:"))
+                        .collect(),
+                ),
+                Value::Array(items) => Value::Array(items.iter().map(without_seen).collect()),
+                other => other.clone(),
+            }
+        }
+        let (left, right) = (&without_seen(left), &without_seen(right));
         diff_json(left, right, 60).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("event_id") && !d.path.ends_with("combat_round_seq") && !matches!(d.path.as_str(), "action_turn" | "active" | "turn_seq" | "/action_turn" | "/active" | "/turn_seq") && !d.path.ends_with("action_turn") && !d.path.ends_with("active") && !d.path.ends_with("turn_seq")).take(10).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
@@ -570,6 +587,25 @@ mod tests {
         // (Mahact at the table: both residual differences of docs/M6B_RESUME.md are closed. The extra questions were its end-of-turn technologies,
         // above; the fleet limit of 4 against 3 was Edict, "when you win a combat, take your opponent's token into your fleet pool", which the
         // core table lacked: it is `cc_ground::mahact::timing::edict` now.)
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// T'ro (the Sardakk agent, and Ssruu copying it) at the end of a tactical action: the actor may place 2 infantry on a planet it controls in the
+    /// active system. Offered after the action (`TACTICAL_ACTION_ENDED`), exhausted before the placement is asked.
+    #[test]
+    fn tro_places_two_infantry_at_the_end_of_the_action_in_lockstep() {
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let hub = crate::fixtures::hub_with_centre(system.as_str());
+        let (origin, target) = (SystemId::new(hub.outer[0].clone()), SystemId::new(hub.centre.clone()));
+        let mut failures = Vec::new();
+        for lobby in [vec![("a", "sol"), ("b", "sardakk")], vec![("a", "sol"), ("b", "yssaril"), ("c", "sardakk")], vec![("a", "sardakk"), ("b", "hacan")]] {
+            let mut state = table(&lobby);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put_on_planet(&mut state, &target, &planet, "infantry", &a(), 1);
+            for d in lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]) {
+                failures.push(format!("{lobby:?}: {d}"));
+            }
+        }
         assert!(failures.is_empty(), "{failures:#?}");
     }
 

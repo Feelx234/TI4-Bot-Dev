@@ -58,6 +58,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::singularity::CLOSE_GROUND, kind: "ability", card: "technological_singularity_close" },
     Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::HERO_FINISH, kind: "leader", card: "sardakkhero" },
     Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::MECH_HIT, kind: "unit", card: "sardakk_mech" },
+    Named { slot: ti4_engine_core_factions::cd_registry::sardakk::timing::TRO, kind: "leader", card: "sardakkagent" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_SHIP, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_GROUND, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::WATCHER, kind: "unit", card: "empyrean_mech" },
@@ -106,6 +107,12 @@ fn rel_segment(spec: &Spec) -> &'static str {
     if spec.slot == ti4_engine_core_factions::cc_ground::mentak::timing::SALVAGE_SHIP { "produce" } else { relation_text(spec.relation) }
 }
 
+/// The event segment of a registered id: the spec's event, except for T'ro, whose id says `ACTION_COMPLETED` although the string registers it on
+/// `TACTICAL_ACTION_ENDED` (the id was written for the event it was first hung on).
+fn event_segment(r: &Render, spec: &Spec) -> String {
+    if spec.slot == ti4_engine_core_factions::cd_registry::sardakk::timing::TRO { "ACTION_COMPLETED".to_owned() } else { event_text(r, spec.event) }
+}
+
 /// How the string spells the id of a pair rule (Ssruu's copies): `A` is `leader:{lender faction}:{lender}:yssarilagent:{agent}:EVENT:rel`,
 /// `B` is `leader:ssruu-copy:{borrower}:{agent}:{lender}:EVENT:after`, `C` (Captain Mendosa's) is
 /// `leader:{lender faction}:{lender}:yssarilagent:{borrower}:{agent}:EVENT:rel`.
@@ -124,6 +131,7 @@ const PAIRS: &[(Slot, &str, PairStyle)] = &[
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::ARGENT, "argentagent", PairStyle::A),
     (ti4_engine_core_factions::ce_movement::saar::timing::MENDOSA_COPY, "saaragent", PairStyle::C),
     (ti4_engine_core_factions::cc_ground::ghost::timing::TAIVRA_COPY, "ghostagent", PairStyle::A),
+    (ti4_engine_core_factions::cd_registry::sardakk::timing::TRO_COPY, "sardakkagent", PairStyle::A),
 ];
 
 fn is_reaction_slot(slot: Slot) -> bool {
@@ -175,7 +183,7 @@ pub fn with_reroll<T>(facts: ti4_engine_core::kernel::ability::RerollFacts, body
 
 /// The registered id of `spec` for an owner called `owner`.
 pub(crate) fn id_text(r: &Render, spec: &Spec, owner: &str, owner_seat: &str, lender: Option<&(String, String)>) -> String {
-    let (event, rel) = (event_text(r, spec.event), rel_segment(spec));
+    let (event, rel) = (event_segment(r, spec), rel_segment(spec));
     if let (Some((lender_faction, lender_seat)), Some((_, agent, style))) = (lender, PAIRS.iter().find(|p| p.0 == spec.slot)) {
         return match style {
             PairStyle::A => format!("leader:{lender_faction}:{lender_seat}:yssarilagent:{agent}:{event}:{rel}"),
@@ -285,7 +293,7 @@ pub fn slot_of(id: &str) -> Option<Slot> {
     let all = specs();
     NAMED.iter().filter(|n| n.kind == kind && n.card == card).find_map(|n| {
         let spec = all.iter().find(|s| s.slot == n.slot)?;
-        (event_text(&r, spec.event) == event && rel_segment(spec) == rel).then_some(n.slot)
+        (event_segment(&r, spec) == event && rel_segment(spec) == rel).then_some(n.slot)
     })
 }
 
@@ -568,7 +576,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             peace_prompt: r.code(crate::tactical_live::PEACE_PROMPT),
             peace_source: r.code("minister_peace"),
         };
-        table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent"), edict: r.code("edict") };
+        table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent"), sardakk_agent: r.code("sardakkagent"), edict: r.code("edict") };
         table.codes.turn = crate::live::turn::codes(r);
 }
 
@@ -829,7 +837,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")], [("a", "ghost"), ("b", "sol")], [("a", "saar"), ("b", "sol")], [("a", "sol"), ("b", "saar")], [("a", "mahact"), ("b", "sol")], [("a", "sol"), ("b", "mahact")], [("a", "ghost"), ("b", "yssaril")], [("a", "yssaril"), ("b", "ghost")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")], [("a", "ghost"), ("b", "sol")], [("a", "saar"), ("b", "sol")], [("a", "sol"), ("b", "saar")], [("a", "mahact"), ("b", "sol")], [("a", "sol"), ("b", "mahact")], [("a", "ghost"), ("b", "yssaril")], [("a", "yssaril"), ("b", "ghost")], [("a", "sardakk"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sardakk")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();
