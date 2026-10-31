@@ -86,3 +86,9 @@ reaction after a hitting bombardment, one position per gate (each must bail with
 1. Exploration of a first claim (above).
 2. The aftermath arm (M5) must call `advance_invasion` for the top sub-window, close the `EventScoring` window the pause leaves above the invasion, and own `INVASION_RESOLVED`.
 3. `live::details::complete` has no invasion family: the tested positions need none (the rendered commit/fight/custodians questions equal the string's).
+
+## Update by lane X (`core-x-explore`, merged with `core-w-l14`)
+
+The blocker is gone: a first claim explores natively (`IStage::Exploring`, `rules::explore_windows::Exploring`), as are the Minister of Exploration and the Crown of Emphidia on the control gain, a ship-form unit
+flipping on landing, and in the space cannon defense the entropic scar, L4 Disruptors and attachment cannons. Still counted bails of this list: the Jol-Nar commander's reroll of the bombardment dice, Integrated Economy,
+Slumberstate, Dacxive / Thundarian / X-89 in the round, and in a first claim Freelancers, the Titans' Terragenesis and a draw over the hand limit. See `docs/X_EXPLORE_RESUME.md`.
