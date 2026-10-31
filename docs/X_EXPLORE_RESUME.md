@@ -81,6 +81,16 @@ and the `FinalizingControl` settle step suspend there, `question` / `resolve` / 
 * `Integrated Economy`, Slumberstate, Dacxive / Thundarian, X-89 in the round (M3_RESUME) are unchanged.
 * The census (`docs/LENT_CENSUS.md`, `tools/engine_core/lent_sites.tsv`) is not re-counted (heavy); the line numbers of the tsv are stale as always.
 
-## Checks (private target `/root/deploytmp/core-x`, `CARGO_BUILD_JOBS=2`)
+## Checks (private target `/root/deploytmp/core-x`, `CARGO_BUILD_JOBS=2`, test binaries deleted afterwards)
 
-See the end of this file (filled when the runs finished).
+* `cargo test --no-fail-fast -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine-core-tests`: green (one stale test of W14 fixed: `promissory_windows::mageon_implants_takes_a_single_card_unasked_and_a_hand_over_the_limit_asks_which_card_goes` seated a Yssaril
+  seat, whose Crafty lifts the limit `DrawCards` reads from the kernel since W14; the limited case now seats another faction).
+* `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test --no-fail-fast -p ti4-engine --lib` (the whole lib, once at the end): 4932 passed, 4 failed, 4 ignored; the 4 were all mine and are fixed (re-run: `invasion_live`, `strategy_cards_core`, `yssarilbt`, `exploring`: 45 passed
+  under `all=dual`): `a_first_claim_explores_natively_in_lockstep_with_the_string_window` (the pool question of a command token inside an invasion lacked `invasion_seq`: `Exploring::ask_of` now names the open invasion on every question, children of other areas included;
+  core test `a_question_asked_inside_an_invasion_carries_its_sequence_number`), and three Politics / Deepgloom dual tests (a slip of my merge resolution in `strategy_cards_core::drive_window_on`: it shadowed the `kernel` argument with `Kernel::plain()`, so the
+  Politics draw lost the Scheming / Crafty hooks; restored). The plain-areas lib run was started and stopped (the machine was loaded; the `all=dual` run subsumes it).
+* `tools/engine_core/check_layers.py core`: 453 files, 0 violations (the first version imported `rules::explore` from `explore_windows` by path); `tools/engine_core/lint_core.sh`: 0 hits (the first version put `String` in `kernel::fx_explore`:
+  the words are minted by the adapter, the core closes the row with codes).
+* Mutation: see below.
+
+Not run: golden / wide dual, benches, soak, ratchet, workspace clippy, census (a full zero-bail playthrough is not possible yet).
