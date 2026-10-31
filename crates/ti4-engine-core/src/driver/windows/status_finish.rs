@@ -194,6 +194,47 @@ fn genesis(sx: &mut Sx<'_>) -> Flow {
     Flow::Done
 }
 
+/// `Live::announce_staged_cards` (`reactions::announce_staged_card_events`): after a typed event, the card moves an effect staged as
+/// `CardsStaged` marks (Scheming's discard) are announced now, oldest first, and the marks go. A discard reaches the pile and
+/// `last_action_discarded` first, as a played card's does; a take names the taker and the seat it came from, never the card.
+fn announce_staged_cards(sx: &mut Sx<'_>) -> Flow {
+    use crate::keys::{Atom, MarkKey, MarkVal, Word};
+    use crate::state::{Key, Val};
+    loop {
+        let first = sx.state.marks().tail.iter().find_map(|(k, v)| if let MarkKey::CardsStaged(n) = k { Some((*n, v.clone())) } else { None });
+        let Some((n, row)) = first else { return Flow::Done };
+        sx.state.marks_mut().tail.edit().remove(&MarkKey::CardsStaged(n));
+        let MarkVal::Rec(row) = row else { continue };
+        let [MarkVal::Atom(Atom::Word(word)), MarkVal::Atom(Atom::Seat(who)), from, MarkVal::Atom(Atom::Card(card))] = row.as_slice() else { continue };
+        let flow = match word {
+            Word::Discarded => {
+                sx.state.cards_mut().discarded_action.edit().push(*card);
+                sx.state.transient_mut().combat.last_action_discarded = Some((*who, *card));
+                emit_typed(sx, EventKind::ActionCardDiscarded, Payload::new().with(Key::Player, Val::Seat(*who)).with(Key::Card, Val::Action(*card)))
+            }
+            Word::Taken => {
+                let mut payload = Payload::new().with(Key::Player, Val::Seat(*who));
+                if let MarkVal::Atom(Atom::Seat(from)) = from {
+                    payload = payload.with(Key::From, Val::Seat(*from));
+                }
+                emit_typed(sx, EventKind::ActionCardTaken, payload)
+            }
+            _ => Flow::Done,
+        };
+        if flow == Flow::Halt {
+            return Flow::Halt;
+        }
+    }
+}
+
+/// `Live::emit_typed`: the event through its windows, then the staged card moves.
+fn emit_and_announce(sx: &mut Sx<'_>, kind: EventKind, payload: Payload) -> Flow {
+    if emit_typed(sx, kind, payload) == Flow::Halt {
+        return Flow::Halt;
+    }
+    announce_staged_cards(sx)
+}
+
 /// The job.
 pub fn run_finish(sx: &mut Sx<'_>) -> Flow {
     // 81.5: the rearrangement of everything already held, in initiative order (before 81.8 destroys it).
@@ -207,7 +248,7 @@ pub fn run_finish(sx: &mut Sx<'_>) -> Flow {
     let holders: Vec<Seat> = sx.state.players().iter().filter(|p| !p.strat.is_empty()).map(|p| p.seat).collect();
     sync_clock(sx);
     for seat in holders {
-        if emit_typed(sx, EventKind::StrategyCardsWouldReturn, player_payload(seat)) == Flow::Halt {
+        if emit_and_announce(sx, EventKind::StrategyCardsWouldReturn, player_payload(seat)) == Flow::Halt {
             return Flow::Halt;
         }
     }
@@ -221,5 +262,5 @@ pub fn run_finish(sx: &mut Sx<'_>) -> Flow {
     }
     sx.plain(PlainRec::bare(PlainKind::StatusPhaseResolved));
     // "At the end of the status phase" (Bioplasmosis): nothing opens unless a faction module listens.
-    emit_typed(sx, EventKind::StatusPhaseEnded, Payload::new())
+    emit_and_announce(sx, EventKind::StatusPhaseEnded, Payload::new())
 }

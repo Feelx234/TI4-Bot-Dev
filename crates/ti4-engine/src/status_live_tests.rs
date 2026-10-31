@@ -85,7 +85,7 @@ fn status_table(seats: &[(&str, &str)]) -> GameState {
     let mut state = crate::fixtures::seated_dealt(seats, DEFAULT);
     state.phase = Phase::Status;
     state.active = None;
-    let cards = ["leadership", "diplomacy", "politics", "construction"];
+    let cards = ["pok1leadership", "pok2diplomacy", "pok3politics", "pok4construction"];
     for (i, (p, _)) in seats.iter().enumerate() {
         state.player_mut(&pid(p)).unwrap().strategy_cards.push(StrategyCardId::new(cards[i]));
     }
@@ -180,7 +180,8 @@ fn the_third_objective_unlocks_the_hero_before_the_bookkeeping_like_the_string()
 fn relics_and_the_neuraloop_are_handled_like_the_string() {
     let mut state = status_table(&FOUR);
     state.player_mut(&pid("d")).unwrap().relics.push(RelicId::new("neuraloop"));
-    let (string, native) = both(&based(state), &["neuraloop"]);
+    // Seat c (Yssaril) is asked its Scheming discard first (the first card), then the Neuraloop's holder which relic to purge.
+    let (string, native) = both(&based(state), &[]);
     assert_same(&string, &native);
     assert!(has(&string, "STATUS_PHASE_RESOLVED"));
 }
