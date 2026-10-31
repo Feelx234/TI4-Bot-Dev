@@ -1,2 +1,5 @@
 # Windows that may stay without a covers! (label<TAB>reason<TAB>KNOWN_ISSUES id). Target: empty.
 # A silent window of the soak census needs a line here with its issue id for `coverage.py --check` to pass.
+rules::diplomacy_window::DiplomacyWindow	structured diplomacy is switched off (XF-1, Disabled::Diplomacy): the window never asks in a game and is deleted in D4	XF-1
+rules::production::offers::AgentOffer	the Keleres agent offer: Keleres is a dropped faction (Disabled::Keleres), no seat can hold the agent	
+rules::objective_windows::PlaceCard	Plots Within Plots belongs to the Firmament, a dropped faction (Disabled::Firmament): no seat can ask it	
