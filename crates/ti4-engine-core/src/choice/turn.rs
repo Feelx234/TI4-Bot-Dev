@@ -1,9 +1,9 @@
 //! Decision types of the `turn` area: the action menu of a turn and the closing menu that follows an action (package D1b2;
 //! `Game::{turn_options, closing_options}`). The sources that are not ported (transactions, contacts, relics, exploration,
-//! technologies, faction and mapped component actions, leaders, action cards) are LENT AS READS: their options come as
+//! technologies, faction and mapped component actions, action cards) are LENT AS READS: their options come as
 //! [`Opt::Lent`], the code of the option the string engine lists, and the adapter renders them from that list.
 
-use crate::generated::{StrategyCard, System};
+use crate::generated::{Leader, StrategyCard, System};
 use crate::state::Code;
 
 /// What the area asks. Parameters only; the option list is assembled by `driver::menu`.
@@ -41,4 +41,8 @@ pub enum Opt {
     Lent(Code),
     /// Minister of War: retrieve the command token from this system.
     Token(System),
+    /// A leader's component action: `component|leader|<id>` (package F2: the Leaders source of the menu is the core's).
+    Leader(Leader),
+    /// A readied Ssruu's copy of another seat's agent: `component|leader|yssarilagent|<agent>`.
+    Borrowed(Leader),
 }

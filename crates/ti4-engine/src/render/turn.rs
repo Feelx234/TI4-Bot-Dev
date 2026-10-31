@@ -1,6 +1,6 @@
 //! Renderer of the `turn` area: `impl Family` for `ti4_engine_core::choice::turn` (prompt, subtype, option, parse) and its
 //! entry in the registry (`render/mod.rs`). The action menu (`Game::turn_options`) and the closing menu (`closing_options`):
-//! the native options are `pass`, `tactical`, the strategic actions and `end_turn`; the options of the sources that are
+//! the native options are `pass`, `tactical`, the strategic actions, the leaders' component actions and `end_turn`; the options of the sources that are
 //! lent as reads render as a placeholder the adapter replaces with the option the string lists (`lent_options`).
 
 use ti4_engine_core::choice::turn::{Ask, Opt, Subtype};
@@ -13,6 +13,19 @@ use crate::strategy::{ACTION_KIND, STRATEGIC_ACTION_ID};
 
 /// The id a lent option renders with until the adapter puts the string's option in its place.
 pub const LENT_ID: &str = "lent";
+
+/// The id of a leader's component action, and that of a copy through Ssruu (`leaders::component_actions`, `borrowed_component_actions`).
+const LEADER_PREFIX: &str = "component|leader|";
+const BORROWED: &str = "yssarilagent|";
+
+/// The printed name of a leader, or its id: the label of its component action.
+fn leader_name(leader: ti4_engine_core::generated::Leader) -> String {
+    ti4_content::ContentStore::embedded()
+        .get(ti4_model::ContentType::Leaders, leader.as_str())
+        .and_then(|record| record.text("name"))
+        .unwrap_or(leader.as_str())
+        .to_owned()
+}
 
 pub struct Fam;
 
@@ -50,6 +63,12 @@ impl Family for Fam {
             ),
             Opt::EndTurn => ChoiceOption::labelled(END_TURN_ID, END_TURN_KIND, "end your turn"),
             Opt::Lent(_) => ChoiceOption::labelled(LENT_ID, "lent", "lent"),
+            Opt::Leader(leader) => ChoiceOption::labelled(format!("{LEADER_PREFIX}{}", leader.as_str()), "component", leader_name(*leader)),
+            Opt::Borrowed(agent) => ChoiceOption::labelled(
+                format!("{LEADER_PREFIX}{BORROWED}{}", agent.as_str()),
+                "component",
+                format!("Ssruu: use {}'s ability", leader_name(*agent)),
+            ),
             Opt::Token(system) => ChoiceOption::labelled(system.as_str(), "system", format!("retrieve your token from {}", system.as_str())),
         }
     }
@@ -62,11 +81,18 @@ impl Family for Fam {
             "pass" => Some(Opt::Pass),
             TACTICAL_ACTION_ID => Some(Opt::Tactical),
             END_TURN_ID => Some(Opt::EndTurn),
-            // A lone unused card keeps the bare id; which card it is the position's to say (the caller resolves it).
-            _ => id
-                .strip_prefix(&format!("{STRATEGIC_ACTION_ID}|"))
-                .and_then(ti4_engine_core::generated::StrategyCard::from_id)
-                .map(|card| Opt::Strategic { card, bare: false }),
+            _ => {
+                if let Some(rest) = id.strip_prefix(LEADER_PREFIX) {
+                    return match rest.strip_prefix(BORROWED) {
+                        Some(agent) => ti4_engine_core::generated::Leader::from_id(agent).map(Opt::Borrowed),
+                        None => ti4_engine_core::generated::Leader::from_id(rest).map(Opt::Leader),
+                    };
+                }
+                // A lone unused card keeps the bare id; which card it is the position's to say (the caller resolves it).
+                id.strip_prefix(&format!("{STRATEGIC_ACTION_ID}|"))
+                    .and_then(ti4_engine_core::generated::StrategyCard::from_id)
+                    .map(|card| Opt::Strategic { card, bare: false })
+            }
         }
     }
 }
