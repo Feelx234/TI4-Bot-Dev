@@ -239,6 +239,13 @@ fn mageon_implants_takes_a_single_card_unasked_and_a_hand_over_the_limit_asks_wh
     free.run();
     assert!(free.is_done(), "a seat that lifts the limit (Crafty) is not asked");
     assert_eq!(free.state.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 8);
+    // Since lane 14 the draw window the card ends with follows the faction hook itself: a Yssaril holder has no limit whatever flag the
+    // caller hands in (the fixture of this test once seated Yssaril for the "limited" case and the question vanished).
+    let sc = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheArborec]).tech(0, T::MageonImplants).hand(0, &seven).hand(1, &[ActionCard::Plague]);
+    let mut crafty = Rig::new(sc, MageonImplants::new(Seat(0), Seat(1), true)).with_table(table_with_groups());
+    crafty.run();
+    assert!(crafty.is_done(), "Crafty: no hand limit question for a Yssaril holder");
+    assert_eq!(crafty.state.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 8);
 }
 
 #[test]

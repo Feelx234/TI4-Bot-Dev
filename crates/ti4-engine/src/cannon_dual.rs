@@ -528,7 +528,7 @@ const OVER: Footprint = Footprint::new(
 /// (Coalescence's forced combats are a hook the combat kernel does not register), a diplomacy table (a contact pauses the chain),
 /// Shard of the Throne changing hands (a law's theft).
 #[must_use]
-pub fn over_unported(gs: &GameState, a: &OverArgs<'_>) -> Option<&'static str> {
+pub fn over_unported(gs: &GameState, _a: &OverArgs<'_>) -> Option<&'static str> {
     if crate::tactical_dual::dropped_faction_at_the_table(gs) {
         return Some("a faction dropped by decision at the table");
     }

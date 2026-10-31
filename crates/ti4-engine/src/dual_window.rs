@@ -3192,7 +3192,6 @@ pub fn ground_hits(
     script: &Recording,
 ) -> Option<CoreWindow<HitsOut>> {
     use ti4_engine_core::rules::invasion::hits::{Batch, GroundHits};
-    const LABEL: &str = "invasion::ground_hits";
     let (mut cx, r) = tables_of_sides(gs, &[a.victim]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let seat = r.seat(a.victim.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -3891,7 +3890,7 @@ pub struct RollTailArgs<'a> {
 /// which the string emits after the tail (`roll_ground_step`), outside this window; its replays run the tail again from the
 /// state the step left (the replay mark is cleared before the event, so the tail never sees one).
 #[must_use]
-pub fn roll_tail_unported(gs: &GameState, a: &RollTailArgs<'_>) -> Option<&'static str> {
+pub fn roll_tail_unported(gs: &GameState, _a: &RollTailArgs<'_>) -> Option<&'static str> {
     if gs.faction_marks.contains_key(crate::combat::ROLL_REPLAY_MARK) {
         Some("roll replay mark")
     } else {
@@ -4745,10 +4744,6 @@ fn settle_run(
 ) -> Option<CoreWindow<SettleOut>> {
     use ti4_engine_core::rules::combat::flow::{Phase, Step};
     use ti4_engine_core::rules::combat::machine::{Machine, Stop};
-    if crate::neutral_units::is_neutral(&a.attacker) || crate::neutral_units::is_neutral(&a.defender) {
-        crate::dual::note_bail_here(crate::dual::reason::NEUTRAL);
-        return None;
-    }
     // The first round begins the occurrence itself, once the opening has not ended the fight.
     let begin_occurrence = a.begin_occurrence && a.occurrence.is_none();
     let (mut cx, r) = tables_of_sides(gs, &[&a.attacker, &a.defender]).why(crate::dual::reason::NO_TABLES)?;
