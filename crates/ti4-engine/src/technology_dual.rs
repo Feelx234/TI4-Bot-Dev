@@ -542,9 +542,9 @@ mod tests {
             .expect("a base system whose planets are not named in id order");
         let there: Vec<Planet> = system.data().planets.to_vec();
         let destination = specialty_planets(8).into_iter().find(|(sys, _)| sys != system.as_str()).expect("a planet elsewhere");
-        let (system_id, destination_id) = (SystemId::new(system.as_str()), (SystemId::new(destination.0.as_str()), PlanetId::new(destination.1.as_str())));
+        let system_id = SystemId::new(system.as_str());
         let (state, counts, bails) = lockstep("technology::start_turn", || {
-            let mut state = game(&["td"], &[destination.clone()]);
+            let mut state = game(&["td"], std::slice::from_ref(&destination));
             for planet in &there {
                 crate::fixtures::put_on_planet(&mut state, &system_id, &PlanetId::new(planet.as_str()), "infantry", &a(), 1);
             }
@@ -552,7 +552,7 @@ mod tests {
             state
         });
         assert_eq!(counts, (1, 0), "{bails:?}");
-        let _ = (state, destination_id);
+        let _ = state;
     }
 
     #[test]
