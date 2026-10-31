@@ -85,6 +85,9 @@ pub enum Ask {
     Indoctrination { planet: crate::generated::Planet },
     /// Icarus Drive (Ghosts mech), after an activation: remove the mech to place or move a Creuss wormhole token into its system.
     IcarusDrive,
+    /// Captain Mendosa (Saar agent; `copy`: Ssruu copying it), after an activation: which of the activator's slower ships takes the move value
+    /// of the fastest ship on the board.
+    AgentShip { copy: bool },
 }
 
 /// What a Nekro takes of an opponent's technology through an ability.
@@ -124,6 +127,8 @@ pub enum Opt {
     Indoctrinate { base: crate::generated::UnitBaseType, cost: i16, opponent: crate::ids::Seat },
     /// A Creuss token into a system (Icarus Drive); the option id is `{kind}|{system}`.
     Token(crate::generated::Wormhole, crate::generated::System),
+    /// A ship that Captain Mendosa raises from move `own` to move `top`, the `n`th of the question (`ship|{n}`).
+    Boost { n: u8, system: crate::generated::System, unit: crate::generated::Unit, own: u8, top: u8 },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -147,4 +152,6 @@ pub enum Subtype {
     Indoctrination,
     /// `icarus_drive`.
     IcarusDrive,
+    /// `agent_ship`.
+    AgentShip,
 }

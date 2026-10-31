@@ -273,6 +273,8 @@ impl Default for ExploreCodes {
 pub struct ActivationCodes {
     /// The unit alias `ghost_mech`, the source of Icarus Drive's question.
     pub ghost_mech: crate::state::Code,
+    /// The leader alias `saaragent`, the source of Captain Mendosa's question.
+    pub saar_agent: crate::state::Code,
 }
 
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind

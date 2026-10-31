@@ -811,4 +811,38 @@ mod tests {
             }
         }
     }
+
+    /// Captain Mendosa (Saar agent) and Ssruu copying him: which slower ship of the activator takes the fastest move value on the board.
+    #[test]
+    fn captain_mendosa_and_the_ssruu_copy_ask_which_ship_in_lockstep() {
+        let (hub, origin, target) = hub();
+        let other = ti4_model::id::SystemId::new(hub.outer.iter().find(|s| **s != origin.as_str() && **s != target.as_str()).cloned().expect("another outer system"));
+        for (agent, answers) in [
+            ("leader:saar:saaragent:SYSTEM_ACTIVATED:after", vec!["ship|0"]),
+            ("leader:saar:saaragent:SYSTEM_ACTIVATED:after", vec!["ship|1"]),
+            ("leader:saar:saaragent:SYSTEM_ACTIVATED:after", vec!["decline"]),
+        ] {
+            let mut state = table(&[("a", "sol"), ("b", "saar")]);
+            // Two slower ships of the activator in two systems (carrier, dreadnought) and a faster one (dreadnought is 1, cruiser 2) of the Saar.
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &other, "dreadnought", &a(), 1);
+            crate::fixtures::put(&mut state, &other, "cruiser", &b(), 1);
+            let mv = id(&origin, 0);
+            let mut script = vec![TACTICAL_ACTION_ID, target.as_str(), agent];
+            script.extend(answers);
+            script.push(&mv);
+            let diffs = lockstep(state, &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "mendosa {script:?}: {diffs:#?}");
+        }
+        // Ssruu (the Yssaril `b`) copying the Saar agent (`c`).
+        let mut state = table(&[("a", "sol"), ("b", "yssaril"), ("c", "saar")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &other, "cruiser", &PlayerId::new("c"), 1);
+        let mv = id(&origin, 0);
+        let copy = "leader:saar:c:yssarilagent:b:saaragent:SYSTEM_ACTIVATED:after";
+        for script in [vec![TACTICAL_ACTION_ID, target.as_str(), copy, "ship|0", "decline", "decline", &mv], vec![TACTICAL_ACTION_ID, target.as_str(), "decline", "decline", &mv]] {
+            let diffs = lockstep(state.clone(), &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "ssruu {script:?}: {diffs:#?}");
+        }
+    }
 }
