@@ -8,5 +8,6 @@ use ti4_engine_core::kernel::ability::AbilityTable;
 
 /// Register the activation abilities in the string's module order.
 pub fn register(t: &mut AbilityTable) {
+    crate::ce_movement::empyrean::timing::register_activation(t);
     crate::cc_ground::mentak::timing::register_activation(t);
 }

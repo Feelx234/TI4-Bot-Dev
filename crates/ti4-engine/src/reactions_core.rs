@@ -61,6 +61,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_SHIP, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::DYNAMO_GROUND, kind: "unit", card: "empyrean_flagship" },
     Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::WATCHER, kind: "unit", card: "empyrean_mech" },
+    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::PASSAGE, kind: "ability", card: "aetherpassage" },
+    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::STREAM, kind: "technology", card: "as" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::FUTURE_SIGHT, kind: "ability", card: "future_sight" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_PLAY, kind: "promissory", card: "cavalry" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::CAVALRY_RETURN, kind: "promissory", card: "cavalry" },
@@ -914,7 +916,6 @@ mod tests {
 
     /// The string abilities of `SYSTEM_ACTIVATED` the core table has no slot for, sorted as the test sorts them, each with what carries it.
     const ACTIVATION_ACCOUNTED: &[(&str, Status)] = &[
-        ("ability:*:aetherpassage:SYSTEM_ACTIVATED:after", Status::Gap("Empyrean Aether Passage: a player to choose, then the adjacency of the activation (linked_systems)")),
         ("ability:*:awaken:SYSTEM_ACTIVATED:after", Status::Gap("Titans Awaken: a sleeper token in the system, replaced by a PDS or a mech (cd_registry/titans/offer.rs is empty)")),
         ("ability:*:incursion:SYSTEM_ACTIVATED:when", Status::Dropped("Crimson Rebellion")),
         ("ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the Winnu mark Reclamation reads)")),
@@ -933,7 +934,6 @@ mod tests {
         ("leader:*:yssarilcommander:SYSTEM_ACTIVATED:after", Status::Gap("Yssaril commander So Ata: after another player's activation, look at a hand")),
         ("promissory:*:crucible:SYSTEM_ACTIVATED:after", Status::Gap("Cabal promissory Crucible")),
         ("promissory:*:nanolink:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
-        ("technology:*:as:SYSTEM_ACTIVATED:after", Status::Gap("Empyrean Aetherstream")),
         ("technology:*:ng:SYSTEM_ACTIVATED:after", Status::Gap("Naalu Neuroglaive (technology ng)")),
         ("unit:*:arborec_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Arborec flagship Duha Menaimon: a production in the activated system")),
         ("unit:*:deepwrought_mech:SYSTEM_ACTIVATED:when", Status::Dropped("Deepwrought")),

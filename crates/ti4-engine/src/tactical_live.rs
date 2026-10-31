@@ -348,8 +348,10 @@ mod tests {
     }
 
     fn leaves(label: &str, left: &Value, right: &Value) -> Vec<String> {
+        // `trigger.event_id` counts from the string's turn prelude (`TURN_BEGAN`), which the native run of this harness does not take: an offset of the
+        // harness, not of the rule (the events themselves are compared by name and order).
         // `private:#seen:*` is the string's own bookkeeping of what each seat has been shown (the per-step reconcile), not a rule.
-        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("frontier_tokens")).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
+        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("frontier_tokens") && !d.path.contains("trigger.event_id")).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
     /// Run both and report every difference of the questions, the events (the native ones must be a prefix of the string's when `prefix`) and the position.
@@ -689,5 +691,45 @@ mod tests {
             let diffs = lockstep(state.clone(), &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], false);
             assert!(diffs.is_empty(), "{mentak_at:?}: {diffs:#?}");
         }
+    }
+
+    /// Aether Passage (the Empyrean `b` lets the activator pass its ships) and Aetherstream (+1 move for the activator next to an anomaly): both
+    /// are offered after the activation and write a stamp the movement rules read; the lockstep compares the stamp and the moves that follow.
+    #[test]
+    fn aether_passage_and_aetherstream_are_offered_after_the_activation_in_lockstep() {
+        let (hub, origin, target) = hub();
+        let far = ti4_model::id::SystemId::new(hub.outer.iter().find(|s| **s != origin.as_str() && **s != target.as_str()).cloned().expect("another outer system"));
+        for answer in ["ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after", "decline"] {
+            let mut state = table(&[("a", "sol"), ("b", "empyrean")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &far, "cruiser", &b(), 1);
+            let mv = id(&origin, 0);
+            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], false);
+            assert!(diffs.is_empty(), "passage {answer}: {diffs:#?}");
+        }
+        // Aetherstream: the centre of the map is a nebula, so every outer system is next to an anomaly.
+        let nebula = crate::fixtures::hub_with_centre("42");
+        let (n_origin, n_target) = (ti4_model::id::SystemId::new(nebula.outer[0].clone()), ti4_model::id::SystemId::new(nebula.outer[1].clone()));
+        for (owner, answer) in [("a", "technology:empyrean:as:SYSTEM_ACTIVATED:after"), ("a", "decline"), ("b", "technology:hacan:as:SYSTEM_ACTIVATED:after")] {
+            let mut state = table(&[("a", "empyrean"), ("b", "hacan")]);
+            crate::fixtures::put(&mut state, &n_origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &n_origin, "cruiser", &b(), 1);
+            let seat = if owner == "a" { a() } else { b() };
+            state.player_mut(&seat).unwrap().technologies.insert(ti4_model::TechnologyId::new("as"));
+            // (The string's turn prelude would unlock the commander of the seat that owns the technology: not what is tested here.)
+            state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("empyreancommander"), ti4_model::state::LeaderStatus::Unlocked);
+            let mv = id(&n_origin, 0);
+            let script = vec![TACTICAL_ACTION_ID, n_target.as_str(), answer, &mv];
+            let diffs = lockstep(state, &nebula.galaxy, &script, false);
+            assert!(diffs.is_empty(), "stream {owner} {answer}: {diffs:#?}");
+        }
+        // No anomaly next to the system: no offer on either side.
+        let mut state = table(&[("a", "empyrean"), ("b", "hacan")]);
+        state.player_mut(&a()).unwrap().technologies.insert(ti4_model::TechnologyId::new("as"));
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("empyreancommander"), ti4_model::state::LeaderStatus::Unlocked);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        let mv = id(&origin, 0);
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], false);
+        assert!(diffs.is_empty(), "no anomaly: {diffs:#?}");
     }
 }
