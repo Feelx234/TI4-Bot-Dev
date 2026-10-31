@@ -120,7 +120,7 @@ impl PlaceUnits {
             Then::Nothing => {}
             Then::C4rPds => {
                 if self.placed > 0 {
-                    crate::kernel::fx_strategy::exhaust_technology_text(s, self.who, crate::generated::Technology::ERRORERROR);
+                    crate::kernel::fx_strategy::exhaust_technology(s, self.who, crate::generated::Technology::ERRORERROR);
                 }
             }
             Then::MilitarySupport { owner, reason } => {
@@ -523,7 +523,7 @@ impl C4rDraw {
 
     fn discarded(&mut self, sx: &mut Sx<'_>, card: crate::generated::ActionCard) {
         fx::discard_action_card_staged(sx.state, self.who, card);
-        crate::kernel::fx_strategy::exhaust_technology_text(sx.state, self.who, crate::generated::Technology::ERRORERROR);
+        crate::kernel::fx_strategy::exhaust_technology(sx.state, self.who, crate::generated::Technology::ERRORERROR);
         self.done = true;
         match sx.table.links.start(&crate::kernel::children::Spawn::DrawCards { who: self.who, count: 1, drop_unofficial: self.drop_unofficial }) {
             Some(window) => {

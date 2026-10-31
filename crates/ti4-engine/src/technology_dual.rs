@@ -86,6 +86,11 @@ mod real {
     /// (its neighbours are the map's plain adjacency, which the lent map carries).
     pub fn vortex(gs: &mut GameState, player: &PlayerId, galaxy: Option<&ti4_content::galaxy::Galaxy>, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
         use ti4_engine_core::rules::technology_windows::Vortex;
+        // (Only a Cabal seat uses Vortex, and only with the card itself: a Valefar Assimilator never carries it in the string.)
+        if !owned_ready(gs, player, "vtx", false) {
+            crate::dual::note_bail_here("Vortex carried by something other than the player's own card (a Valefar Assimilator)");
+            return None;
+        }
         if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;

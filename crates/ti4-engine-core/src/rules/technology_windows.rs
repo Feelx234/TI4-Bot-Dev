@@ -276,7 +276,7 @@ impl Vortex {
         if let Some(p) = s.players_mut().by_seat_mut(self.who) {
             p.misc.captured_units.push((owner, unit));
         }
-        fx_strategy::exhaust_technology_text(s, self.who, Technology::Vortex);
+        fx_strategy::exhaust_technology(s, self.who, Technology::Vortex);
         self.done = true;
         self.stage = Stage::Done;
     }
