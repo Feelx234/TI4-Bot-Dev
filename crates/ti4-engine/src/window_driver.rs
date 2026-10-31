@@ -216,4 +216,36 @@ mod tests {
             assert_eq!(twice.resolver.registry().len(), again, "the registry is derived from the position, not accumulated");
         });
     }
+
+    /// The point of the module: no adapter builds its driver by hand any more. A `Driver::new(` in the production part of a file of this crate
+    /// (text before its first `#[cfg(test)]` / `#[cfg(all(test` line; test files are skipped) is a driver the armed flag cannot reach.
+    #[test]
+    fn no_adapter_builds_a_driver_without_the_constructor() {
+        fn walk(dir: &std::path::Path, hits: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).expect("the source directory") {
+                let path = entry.expect("an entry").path();
+                if path.is_dir() {
+                    walk(&path, hits);
+                    continue;
+                }
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                if !name.ends_with(".rs") || name.ends_with("_tests.rs") || name == "tests.rs" || name == "window_driver.rs" {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).expect("a source file");
+                for (n, line) in text.lines().enumerate() {
+                    let trimmed = line.trim_start();
+                    if trimmed.starts_with("#[cfg(test)]") || trimmed.starts_with("#[cfg(all(test") {
+                        break;
+                    }
+                    if !trimmed.starts_with("//") && line.contains("Driver::new(") {
+                        hits.push(format!("{}:{}", path.display(), n + 1));
+                    }
+                }
+            }
+        }
+        let mut hits = Vec::new();
+        walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut hits);
+        assert!(hits.is_empty(), "build the driver with window_driver::driver_for: {hits:?}");
+    }
 }
