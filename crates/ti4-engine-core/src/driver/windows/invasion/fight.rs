@@ -149,6 +149,7 @@ impl InvasionMachine {
             active.edit().ground_round += 1;
         }
         let copied = Self::copied_round(sx.state);
+        self.p.round_copied = copied;
         let numbered = sx.state.meta().rules_at_least(RULES_FACTION_EFFECTS);
         if numbered && !copied {
             sx.state.meta_mut().combat_round_seq = sx.state.meta().combat_round_seq.saturating_add(1);
@@ -231,7 +232,8 @@ impl InvasionMachine {
     fn round_body(&mut self, sx: &mut Sx<'_>, planet: Planet, defender: Seat) -> Result<(), Bail> {
         let (invader, system) = (self.p.invader, self.p.system);
         let codes = sx.table.codes.invasion;
-        let copied = Self::copied_round(sx.state);
+        // Decided when the round began: the agent that numbered it exhausts at that very start.
+        let copied = self.p.round_copied;
         let owns_x89 = |who: Seat| sx.state.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(Technology::X89BacterialWeapon));
         let x89 = [owns_x89(invader), owns_x89(defender)];
         let before: Vec<Piece> = sx.state.board().planet(planet).units.iter().copied().collect();

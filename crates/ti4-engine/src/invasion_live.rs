@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(gs.feat_occurrence_seq, string.state.feat_occurrence_seq, "{label}: the feat occurrences");
         assert!(gs.active_invasion.is_none() && string.state.active_invasion.is_none());
         // The numbered round counter: the native fight bumped it once more than the string's (lane M5's finding).
-        assert_eq!(gs.combat_round_seq, string.state.combat_round_seq, "{label}: the combat round counter after the fight");
+        assert_eq!(gs.combat_round_seq, string.state.combat_round_seq, "{label}: the combat round counter after the fight (before {}, rules version {}, events {:?})", state.combat_round_seq, state.rules_version, string.events);
         for id in state.players.iter().map(|p| &p.id) {
             let (l, s) = (gs.player(id).unwrap(), string.state.player(id).unwrap());
             assert_eq!((l.victory_points, l.trade_goods), (s.victory_points, s.trade_goods), "{label} {id}");

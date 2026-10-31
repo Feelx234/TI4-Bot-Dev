@@ -555,8 +555,6 @@ mod tests {
                 }
             }
         }
-        // The residual, counted (docs/M5_RESUME.md): the activation hooks of the tactical action that ask (Mahact at the table).
-        failures.retain(|f| !(f.contains("BAIL: a hook of the activation") && (f.contains("mahact") || f.contains("titans"))));
         // Residuals of the neighbours' lanes, not of this island (docs/M5_RESUME.md): the Saar agent is a string-registered SYSTEM_ACTIVATED
         // ability the core registry lacks (M6, open item 2), and the Empyrean commander's unlock is a hook slot nobody fills yet (A2/F2:
         // `commander_unlocked`).

@@ -318,12 +318,16 @@ mod tests {
             }
             match live_step(&mut core, Arm::Tactical, &live, &mut asker) {
                 Ok(step) if step.finished => break,
-                Ok(_) => {}
+                Ok(_) => {
+                    if std::env::var_os("M6B_DEBUG").is_some() {
+                        eprintln!("after a step: marks {:?} relics {:?} activation {}", core.players().by_seat(seat).map(|p| p.round_marks.clone()), core.players().by_seat(seat).map(|p| p.cards.relics.clone()), core.meta().activation_seq);
+                    }
+                }
                 Err(crate::live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::UnportedTactical(gap)))) => {
                     bail = Some(super::gap_text(gap).to_owned());
                     break;
                 }
-                Err(e) => panic!("the native step: {e:?}; asked so far: {:?}", seen.borrow().iter().map(|c| (c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>()),
+                Err(e) => panic!("the native step: {e:?}; asked so far: {:?}; last details {:?}; round marks {:?} activation {}", seen.borrow().iter().map(|c| (c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>(), seen.borrow().last().map(|c| c.details.get("routes").cloned()), core.players().by_seat(seat).map(|p| p.round_marks.clone()), core.meta().activation_seq),
             }
         }
         let asked = seen.borrow().clone();
@@ -482,7 +486,7 @@ mod tests {
             crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
             crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
             crate::fixtures::put(&mut state, &far, "cruiser", &a(), 1);
-            let mv = if route == 0 { id(&origin, 0) } else { format!("{}|r{route}", id(&origin, 0)) };
+            let mv = if route == 0 { id(&origin, 0) } else { format!("{}|r{route}", id(&far, 0)) };
             let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], false);
             assert!(diffs.is_empty(), "{answer} route {route}: {diffs:#?}");
         }
