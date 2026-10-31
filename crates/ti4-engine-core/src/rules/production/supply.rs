@@ -5,11 +5,11 @@
 //!
 //! Each function is a total copy of its string twin, including the refusals: a refusal changes nothing.
 
-use crate::generated::{Planet, System, Unit, UnitBaseType};
+use crate::generated::{Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::Kernel;
 use crate::query::fleet;
-use crate::state::{CoreState, Piece};
+use crate::state::CoreState;
 use crate::tables::Scope;
 
 /// `supply::spendable_goods`: the trade goods plus the commodities an open agent window lets `who` spend as
@@ -37,25 +37,7 @@ pub fn spend_goods(s: &mut CoreState, k: &Kernel, who: Seat, amount: i32) -> boo
     true
 }
 
-/// `supply::capture_from_board`: take `piece` off `system` (its space area, or `planet`) and onto `captor`'s
-/// sheet. `false`, nothing changed, when the unit is not there, when a seat is missing or when they are the same
-/// player.
-pub fn capture_from_board(s: &mut CoreState, captor: Seat, system: System, planet: Option<Planet>, piece: Piece) -> bool {
-    let owner = piece.owner();
-    if captor == owner || s.players().by_seat(captor).is_none() || s.players().by_seat(owner).is_none() {
-        return false;
-    }
-    let list = match planet {
-        Some(p) => &mut s.board_mut().planet_mut(p).units,
-        None => &mut s.board_mut().sys_mut(system).units,
-    };
-    let Some(at) = list.as_slice().iter().position(|found| *found == piece) else { return false };
-    list.remove(at);
-    if let Some(p) = s.players_mut().by_seat_mut(captor) {
-        p.misc.captured_units.push((owner, piece.kind()));
-    }
-    true
-}
+pub use crate::kernel::fx::capture_from_board;
 
 /// `supply::capture_from_reinforcements`: capture a model out of `owner`'s reinforcements. Needs a model left in
 /// the box (31.4); `false`, nothing changed, otherwise.
@@ -97,7 +79,7 @@ mod tests {
     use super::*;
     use crate::generated::Faction;
     use crate::ids::system_at;
-    use crate::state::{Player, Players};
+    use crate::state::{Piece, Player, Players};
 
     fn table() -> CoreState {
         let mut s = CoreState::all_loaded();

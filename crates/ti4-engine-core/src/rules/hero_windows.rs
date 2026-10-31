@@ -545,7 +545,7 @@ impl Window for CabalHero {
                     }
                     let mut touched: Vec<(Seat, System)> = Vec::new();
                     for (system, piece) in hit {
-                        if crate::rules::production::supply::capture_from_board(sx.state, self.who, system, None, piece) {
+                        if fx::capture_from_board(sx.state, self.who, system, None, piece) {
                             touched.push((piece.owner(), system));
                         }
                     }

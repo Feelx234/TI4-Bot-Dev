@@ -748,3 +748,23 @@ pub fn deal_strategy_card(s: &mut CoreState, who: Seat, card: crate::generated::
     }
     true
 }
+
+/// `supply::capture_from_board`: take `piece` off `system` (its space area, or `planet`) and onto `captor`'s
+/// sheet. `false`, nothing changed, when the unit is not there, when a seat is missing or when they are the same
+/// player.
+pub fn capture_from_board(s: &mut CoreState, captor: Seat, system: System, planet: Option<Planet>, piece: Piece) -> bool {
+    let owner = piece.owner();
+    if captor == owner || s.players().by_seat(captor).is_none() || s.players().by_seat(owner).is_none() {
+        return false;
+    }
+    let list = match planet {
+        Some(p) => &mut s.board_mut().planet_mut(p).units,
+        None => &mut s.board_mut().sys_mut(system).units,
+    };
+    let Some(at) = list.as_slice().iter().position(|found| *found == piece) else { return false };
+    list.remove(at);
+    if let Some(p) = s.players_mut().by_seat_mut(captor) {
+        p.misc.captured_units.push((owner, piece.kind()));
+    }
+    true
+}
