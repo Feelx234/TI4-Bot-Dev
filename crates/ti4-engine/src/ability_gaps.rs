@@ -26,7 +26,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:naaluhero:STATUS_PHASE_ENDED:after",
     "leader:*:naazagent:TURN_PASSED:after",
     "leader:*:naazcommander:PLANET_CONTROL_GAINED:after",
-    "leader:*:nekrocommander:TECHNOLOGY_GAINED:after",
     "leader:*:sardakkhero_turn:TURN_BEGAN:after",
     "leader:*:solcommander:GROUND_COMBAT_STARTED:after",
     "leader:*:titanscommander:PRODUCTION_USED:when",

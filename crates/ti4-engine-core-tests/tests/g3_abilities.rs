@@ -527,3 +527,55 @@ mod zeu {
         assert!(rig(scenario, edit, placed(system, 0)).is_done(), "no token in the system");
     }
 }
+
+// -- Acidos ---------------------------------------------------------------------------------------------------------------------
+
+mod acidos {
+    use super::*;
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+
+    fn gained(seat: u8) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::TechnologyGained, Payload::new().with(Key::Player, Val::Seat(Seat(seat))))
+    }
+
+    fn unlocked(s: &mut CoreState) {
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::NekroAcidos, LeaderStatus::Unlocked);
+    }
+
+    fn hand(r: &Rig<EmitEvent>, seat: u8) -> usize {
+        r.state.players().by_seat(Seat(seat)).unwrap().cards.hand.len()
+    }
+
+    fn deck(s: &mut CoreState) {
+        // A deck of known cards.
+        s.decks_mut().action.set(vec![ti4_engine_core::generated::ActionCard::ALL[0], ti4_engine_core::generated::ActionCard::ALL[1]]);
+    }
+
+    #[test]
+    fn the_commander_may_draw_a_card_after_a_technology_is_gained() {
+        covers!("silent::g3::nekro_commander::ACIDOS");
+        let scenario = || Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]);
+        let edit = |s: &mut CoreState| {
+            unlocked(s);
+            deck(s);
+        };
+        let mut r = rig(scenario(), edit, gained(0));
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the commander");
+        r.pick(use_it);
+        assert!(r.is_done());
+        assert_eq!(hand(&r, 0), 1);
+        let mut declined = rig(scenario(), edit, gained(0));
+        declined.decline();
+        assert_eq!(hand(&declined, 0), 0);
+    }
+
+    #[test]
+    fn it_needs_the_unlocked_commander_the_gainer_and_a_deck() {
+        covers!("silent::g3::nekro_commander::ACIDOS");
+        let scenario = || Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]);
+        assert!(rig(scenario(), deck, gained(0)).is_done(), "locked");
+        assert!(rig(scenario(), |s| { unlocked(s); deck(s); }, gained(1)).is_done(), "another seat gained it");
+        assert!(rig(scenario(), |s| { unlocked(s); s.decks_mut().action.set(vec![]); }, gained(0)).is_done(), "no deck");
+    }
+}
