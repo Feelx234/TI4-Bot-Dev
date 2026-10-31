@@ -111,6 +111,8 @@ fn sync_clock(r: &mut Resolver, core: &CoreState) {
     r.set_speaker(Some(m.speaker));
     r.set_seating_order(core.seats().seating_order());
     r.set_counters(u64::from(m.round), u64::from(m.turn_seq));
+    // The windows of an emission go to the seats in the position's initiative order; a resolver rebuilt from a position that never set
+    // it (the first window of a game) would offer them to the active seat alone (`chain::sync_initiative`, lane M5).
     r.set_initiative_order(crate::query::seats::initiative_order(core).as_slice());
 }
 
@@ -243,6 +245,7 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
         Arm::Tokens => Some(advance::<TokenGain>),
         Arm::Tactical => Some(crate::driver::windows::tactical::advance_tactical),
         Arm::Invasion => Some(crate::driver::windows::invasion::advance_invasion),
+        Arm::Production => Some(crate::driver::windows::production::advance_production),
         Arm::EventScoring => Some(crate::driver::windows::scoring::advance_event_scoring),
         Arm::Aftermath => Some(crate::driver::windows::chain::advance_aftermath),
         Arm::TurnPrelude => Some(super::turn::advance_prelude),
@@ -261,6 +264,7 @@ pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
         Arm::Tokens => Some(ask::<TokenGain>),
         Arm::Tactical => Some(crate::driver::windows::tactical::ask_tactical),
         Arm::Invasion => Some(crate::driver::windows::invasion::ask_invasion),
+        Arm::Production => Some(crate::driver::windows::production::ask_production),
         Arm::EventScoring => Some(crate::driver::windows::scoring::ask_event_scoring),
         Arm::Aftermath => Some(crate::driver::windows::chain::ask_aftermath),
         Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase => Some(super::turn::ask_job),
@@ -280,9 +284,9 @@ mod tests {
     use crate::kernel::resolver::AbilityDef;
     use crate::kernel::stage::{Illegal, Slot, Spec, Sx};
     use crate::kernel::{fx, Next};
-    use crate::state::{Code, EventKind, Payload, Player, Players, ProductionUse, WindowKind};
+    use crate::state::{Code, EventKind, Payload, Player, Players, ProductionUse, ProductionWindow, UseMode, UsePhase, WindowKind};
 
-    /// A toy machine held as the (stub) production window: `data[0]` is whether its event was emitted. It emits one event and ends;
+    /// A toy machine held as the production window (only its phase is used: `Using` is whether its event was emitted). It emits one event and ends;
     /// the event has two optional abilities, so the emission asks from inside the step.
     #[derive(Clone)]
     struct Toy {
@@ -315,12 +319,14 @@ mod tests {
         const KIND: WindowKind = WindowKind::Production;
         fn from_pending(core: &CoreState, _: &Kernel) -> Option<Self> {
             match core.pending().window(WindowKind::Production)? {
-                OpenWindow::Production(p) => Some(Self { emitted: p.data[0] == 1 }),
+                OpenWindow::Production(p) => Some(Self { emitted: p.phase == UsePhase::Using }),
                 _ => None,
             }
         }
         fn to_pending(&self, core: &mut CoreState) {
-            core.pending_mut().open(OpenWindow::Production(Box::new(ProductionUse { actor: None, data: [u32::from(self.emitted), 0, 0] })));
+            let (who, system) = (Seat(0), crate::generated::System::ALL[0]);
+            let phase = if self.emitted { UsePhase::Using } else { UsePhase::Start };
+            core.pending_mut().open(OpenWindow::Production(Box::new(ProductionUse { who, system, mode: UseMode::Home, phase, window: ProductionWindow::blank(who, system), answered: false })));
         }
     }
 
@@ -490,5 +496,24 @@ mod tests {
         let (live, out) = advance::<Toy>(&mut s, &env, None).unwrap();
         assert_eq!((live, out.emitted.len()), (Live::Done, 1));
         assert!(!is_open::<Toy>(&s));
+    }
+    /// The live resolver is built from the position, initiative order included: in the action phase a window is offered to the active seat first
+    /// and then to the others in initiative order. A resolver that kept the order of the stored `Pending` (empty at the first window of a game)
+    /// offered the window to the active seat alone, so a reaction of any other seat was never asked (found by the Letnev agent in lane M5).
+    #[test]
+    fn a_live_driver_offers_its_windows_in_the_initiative_order_of_the_position() {
+        use crate::state::Phase;
+        let k = Kernel::plain();
+        let env = env(&k);
+        let mut s = position();
+        s.players = Players::from_vec((0..3u8).map(|i| Player::new(Seat(i), Faction::from_index(usize::from(i)).unwrap())).collect());
+        s.meta_mut().phase = Phase::Action;
+        s.meta_mut().active = Some(Seat(2));
+        for (seat, initiative) in [(Seat(2), 1), (Seat(0), 2), (Seat(1), 3)] {
+            s.strategy_mut().initiative_overrides.insert(seat, initiative);
+        }
+        assert!(s.pending().resolver.initiative.is_empty(), "nothing set the order before");
+        let d = driver_of(Toy { emitted: false }, &s, &env);
+        assert_eq!(d.resolver.player_order().as_slice(), &[Seat(2), Seat(0), Seat(1)]);
     }
 }

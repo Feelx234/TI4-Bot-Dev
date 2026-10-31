@@ -11,5 +11,6 @@ pub mod enforce_all;
 pub mod live_common;
 pub mod invasion;
 pub mod minister;
+pub mod production;
 pub mod scoring;
 pub mod tactical;

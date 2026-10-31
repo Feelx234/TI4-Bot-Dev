@@ -196,7 +196,7 @@ impl Fx {
     /// with the other facts of a play ([`crate::kernel::ability::PlayFacts`]: `SeatPlayMore`, `SharedPlay`), so a card is nested when
     /// everything it reads is in them. Not nested: the cards of an Action timing (a component action is never played from a window), the
     /// cards that read the map (Experimental Battlestation, Exploration Probe: the host would have to lend the galaxy), Lie in Wait (the
-    /// neighbours who traded come from the map), Courageous To The End (its dice are not recorded as the ledger rows of an ability and its casualty question lacks the display context of the string's, see docs/W_L11_RESUME.md), Crash Landing (no host of the ported areas places the units it saves), Harness Energy, Infiltrate, Bribery and Upgrade and Decoy Operation (windows of the
+    /// neighbours who traded come from the map), Crash Landing (no host of the ported areas places the units it saves), Harness Energy, Infiltrate, Bribery and Upgrade and Decoy Operation (windows of the
     /// tactical action, whose hosts are not ported), and Fire Team and Scramble Frequency, which read the dice a roll staged and are played
     /// by the window that stages them (`core-b12` registers Fire Team for the ground roll's tail).
     #[must_use]
@@ -221,7 +221,6 @@ impl Fx {
                 | Self::Bribery
                 | Self::Infiltrate
                 | Self::Crash
-                | Self::Courageous
                 | Self::Probe
                 | Self::Perform { .. }
                 | Self::Reroll
@@ -517,6 +516,9 @@ const DIE_SIDES: u32 = 10;
 const PLAGUE_KILLS_ON: u32 = 6;
 /// Courageous To The End rolls two dice; Experimental Battlestation's space dock rolls three, hitting on a five or better.
 const COURAGEOUS_DICE: u8 = 2;
+/// The ledger purpose of Courageous To The End's two dice (`RollPurpose::Ability`: an action card is not a slot of the ability table,
+/// so the number lies beyond every slot of the packages).
+pub const COURAGEOUS_ROLLS: u16 = 30_001;
 const BATTLESTATION_DICE: u8 = 3;
 const BATTLESTATION_HITS_ON: u32 = 5;
 
@@ -2709,6 +2711,14 @@ impl Play {
         self.faces.as_slice()
     }
 
+    /// The dice the card's effect rolled as an ability does (the string `Dice::roll_by` inside the effect of a played card is noted as
+    /// the roll of an ability): the holder and the faces, no hit number. Only Courageous To The End, the one card of a reaction slot that
+    /// rolls (Spy, Plague and Brilliance are component actions, Experimental Battlestation is not played from a window).
+    #[must_use]
+    pub fn ability_roll(&self) -> Option<(Seat, Vec<u8>)> {
+        (self.fx == Fx::Courageous && !self.faces.as_slice().is_empty()).then(|| (self.who, self.faces.as_slice().iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect()))
+    }
+
     /// Exploration Probe: the card the frontier deck gave, how it resolved and what the seat held around it (`None`: no card was
     /// drawn, or the play has not finished).
     #[must_use]
@@ -3893,13 +3903,14 @@ mod tests {
         assert!(!unsupported);
     }
 
-    /// A card that needs a link is never played from inside a reaction window (the reactions table carries no links): the
-    /// nested plays are exactly the ones that need none.
+    /// A card that needs a link is not played from inside a reaction window by default (the bare reactions table carries no links): the
+    /// nested plays are the ones that need none, and Reveal Prototype (W4) and Courageous To The End (W15), whose table is the adapter's
+    /// reactions table with the links of the areas (`driver::children::register`; a table without them declines the play at its start).
     #[test]
     fn a_card_that_needs_a_link_is_not_played_in_a_reaction_window() {
         for card in ActionCard::ALL {
             if let Some(fx) = Fx::of(card) {
-                assert!(!(fx.links() && fx.nested()) || fx == Fx::Reveal, "{card:?} needs the links and is nested");
+                assert!(!(fx.links() && fx.nested()) || matches!(fx, Fx::Reveal | Fx::Courageous), "{card:?} needs the links and is nested");
             }
         }
     }

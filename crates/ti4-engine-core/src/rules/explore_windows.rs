@@ -627,7 +627,7 @@ impl Window for CrownExplore {
 // -- one exploration ------------------------------------------------------------------------------------------
 
 use crate::choice::strategy::{Ask as SAsk, Opt as SOpt};
-use crate::generated::{Attachment, ExploreResolution, Faction};
+use crate::generated::{Attachment, ExploreResolution};
 use crate::kernel::children::{ErasedChild, Report, Spawn};
 use crate::kernel::stage::Ran;
 use crate::kernel::{fx, fx_explore, fx_strategy};
@@ -702,7 +702,12 @@ pub struct Exploring {
     linked: ErasedChild,
     /// The window is kept by its payload: a child that asks cannot be kept.
     hosted: bool,
+    /// How Freelancers' unit is asked and run (`ProduceOne` is the production area's: a host supplies the link, a window that steps takes the table's).
+    one: Option<crate::kernel::children::OneLink>,
 }
+
+/// The most questions a child of another area may put to the tape in one step (a draw's discards, a hand limit's returns).
+const LINKED_TAPE_LIMIT: u8 = 16;
 
 impl Exploring {
     /// A planet explored; `deck` is the seat's choice or given.
@@ -721,13 +726,20 @@ impl Exploring {
 
     #[must_use]
     pub fn new(run: ExploreRun) -> Self {
-        Self { run, linked: ErasedChild::idle(), hosted: false }
+        Self { run, linked: ErasedChild::idle(), hosted: false, one: None }
     }
 
     /// The exploration as a host that keeps [`ExploreRun`] in a payload runs it: a child of another area that asks is not carried.
     #[must_use]
     pub fn hosted(run: ExploreRun) -> Self {
-        Self { run, linked: ErasedChild::idle(), hosted: true }
+        Self { run, linked: ErasedChild::idle(), hosted: true, one: None }
+    }
+
+    /// The link to `ProduceOne` for a window that is asked before it steps (a host that rebuilds the window from its payload).
+    #[must_use]
+    pub const fn with_one(mut self, link: crate::kernel::children::OneLink) -> Self {
+        self.one = Some(link);
+        self
     }
 
     /// The sequence number of the invasion the position is in (the string `Table::ask_seeing` puts it on every question asked meanwhile).
@@ -807,12 +819,8 @@ impl Exploring {
     // -- the flow -------------------------------------------------------------------------------------------------
 
     fn start(&mut self, sx: &mut Sx<'_>) {
-        let who = self.run.who;
         if !sx.table.codes.explore.filled || sx.table.facts.explore_words.is_none() {
             return self.fail(EWhy::NoTexts);
-        }
-        if self.planet_of().is_some() && self.run.announce && sx.state.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheTitansOfUl) {
-            return self.fail(EWhy::Terragenesis);
         }
         match (self.run.target, self.run.deck_mode) {
             (_, EDeck::Fixed(deck)) => self.run.deck = Some(deck),
@@ -957,11 +965,13 @@ impl Exploring {
                 self.close(sx);
             }
             Explore::Freelancers1 | Explore::Freelancers2 | Explore::Freelancers3 => {
-                if planet.is_none() {
-                    self.run.how = EHow::Unresolved;
-                    self.close(sx);
-                } else {
-                    self.fail(EWhy::Freelancers);
+                match planet.and_then(|p| p.data().system) {
+                    None if planet.is_none() => {
+                        self.run.how = EHow::Unresolved;
+                        self.close(sx);
+                    }
+                    None => self.fail(EWhy::Freelancers),
+                    Some(system) => self.freelancers(sx, card, system),
                 }
             }
             Explore::DeadWorld => {
@@ -1124,6 +1134,53 @@ impl Exploring {
         self.close(sx);
     }
 
+    /// Freelancers ("You may produce 1 unit in this system. You may spend influence as if it were resources to produce this unit"): the unit is
+    /// the production area's `ProduceOne`, its plain state kept in the run (`ExploreRun::one`) and rebuilt at every call through the table's link.
+    fn freelancers(&mut self, sx: &mut Sx<'_>, card: Explore, system: System) {
+        let who = self.run.who;
+        let (Some(link), Some(roster)) = (sx.table.links.one, sx.table.facts.roster) else { return self.fail(EWhy::NoLink) };
+        let Some((buildable, fleet_limit)) = (link.facts)(sx.state, sx.kernel, roster, who) else { return self.fail(EWhy::NoLink) };
+        let codes = sx.table.codes.explore;
+        let facts = crate::state::OneFacts { buildable, fleet_limit, name: Some(codes.freelancers), alias: Some(codes.cards[card as usize]) };
+        // The permission to pay with influence is the position's, for this one production.
+        sx.state.meta_mut().influence_pays_for_units.insert(who);
+        self.run.one = Some(crate::state::OneRun::new(who, system, facts));
+        self.run.stage = EStage::Producing;
+    }
+
+    /// Run Freelancers' unit to its next question; when it is done the permission goes and the card closes.
+    fn produce(&mut self, sx: &mut Sx<'_>) -> Option<Next> {
+        let (Some(link), Some(run)) = (self.one, self.run.one) else {
+            self.fail(EWhy::NoLink);
+            return None;
+        };
+        let (run, next) = (link.step)(run, sx);
+        self.run.one = Some(run);
+        match next {
+            Next::Continue(ask) => Some(Next::Continue(ask)),
+            Next::Done => {
+                self.leave_producing(sx);
+                None
+            }
+            other => Some(other),
+        }
+    }
+
+    fn leave_producing(&mut self, sx: &mut Sx<'_>) {
+        let who = self.run.who;
+        sx.state.meta_mut().influence_pays_for_units.remove(who);
+        let Some(run) = self.run.one.take() else { return self.fail(EWhy::NoLink) };
+        // A unit that stands over the supply or the capacity of its system: the string asks which units go, which the window cannot.
+        if run.unsupported {
+            return self.fail(EWhy::Freelancers);
+        }
+        // The card resolved when a unit stands (the string's `produce_one_paying_with_influence` answers whether one was made).
+        if run.made.is_none() {
+            self.run.how = EHow::Unresolved;
+        }
+        self.close(sx);
+    }
+
     /// Start a window of another area as a child. A host that keeps the exploration in a payload cannot keep the child between two calls, so it
     /// runs at once: a child that finishes without a question is carried, one that asks is not.
     fn link(&mut self, sx: &mut Sx<'_>, request: &Spawn, then: EThen) {
@@ -1135,12 +1192,36 @@ impl Exploring {
                     match self.linked.step(sx) {
                         Some(Ran::Done(Report::Left)) | None => self.fail(EWhy::NoLink),
                         Some(Ran::Done(_)) => self.close(sx),
-                        Some(Ran::Asks(_) | Ran::Pass(_)) => self.fail(EWhy::LinkedAsks),
+                        Some(Ran::Asks(_)) => self.link_on_tape(sx),
+                        Some(Ran::Pass(_)) => self.fail(EWhy::LinkedAsks),
                     }
                 }
             }
             None => self.fail(EWhy::NoLink),
         }
+    }
+
+    /// A child of another area that asks (the discard of a draw over the hand limit, the secret objective's hand limit) inside a hosted exploration:
+    /// the host cannot keep the child between two calls, so its questions go to the TAPE (`Sx::ask`): the driver rolls the step back and replays it
+    /// with the answers given so far, and the child is rebuilt by the same request each time.
+    fn link_on_tape(&mut self, sx: &mut Sx<'_>) {
+        for _ in 0..LINKED_TAPE_LIMIT { // mutants:skip (a bound no hand reaches)
+            let Some(mut choice) = self.linked.ask_of(sx.state, sx.kernel) else { return self.fail(EWhy::LinkedAsks) };
+            if choice.ctx.invasion_seq.is_none() && !choice.ctx.space_battle {
+                choice.ctx.invasion_seq = Self::inv(sx.state);
+            }
+            let pick = sx.ask(&choice);
+            if self.linked.answer(sx, pick).is_err() {
+                return self.fail(EWhy::LinkedAsks);
+            }
+            match self.linked.step(sx) {
+                Some(Ran::Done(Report::Left)) | None => return self.fail(EWhy::NoLink),
+                Some(Ran::Done(_)) => return self.close(sx),
+                Some(Ran::Asks(_)) => {}
+                Some(Ran::Pass(_)) => return self.fail(EWhy::LinkedAsks),
+            }
+        }
+        self.fail(EWhy::LinkedAsks);
     }
 
     /// The answer to a reward question.
@@ -1271,6 +1352,7 @@ impl Window for Exploring {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        self.one = self.one.or(sx.table.links.one);
         loop {
             if self.run.why.is_some() {
                 self.run.stage = EStage::Done;
@@ -1294,6 +1376,11 @@ impl Window for Exploring {
                     return ask.map_or_else(|| self.fail_next(EWhy::NoLink), Next::Continue);
                 }
                 EStage::Ion => return Next::Continue(Ask::Explore(EAsk::IonStorm)),
+                EStage::Producing => {
+                    if let Some(next) = self.produce(sx) {
+                        return next;
+                    }
+                }
                 EStage::Linked(then) => match self.linked.step(sx) {
                     Some(Ran::Asks(ask)) => {
                         if self.hosted {
@@ -1334,6 +1421,7 @@ impl Window for Exploring {
             EStage::Paying(then) => self.pay_child(s, then)?.ask_of(s, k),
             EStage::Ion => self.ion_child(s)?.ask_of(s, k),
             EStage::Linked(_) => self.linked.ask_of(s, k),
+            EStage::Producing => (self.one?.ask)(&self.run.one?, s, k),
             _ => None,
         }?;
         // Every question asked while an invasion is open names it (the string `Table::ask_seeing`), the children of other areas included.
@@ -1344,7 +1432,16 @@ impl Window for Exploring {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        self.one = self.one.or(sx.table.links.one);
         match self.run.stage {
+            EStage::Producing => {
+                let (link, run) = (self.one.ok_or(Illegal)?, self.run.one.ok_or(Illegal)?);
+                self.run.one = Some((link.answer)(run, sx, pick)?);
+                // Settle at once, like every other stage: a host that asks after an answer (the invasion) must not see the unit's stale question
+                // (a payment that is covered, a placement with one spot).
+                let _ = self.produce(sx);
+                Ok(())
+            }
             EStage::Deck => {
                 let mut child = self.deck_child(sx.state);
                 child.answer(sx, pick)?;

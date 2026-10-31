@@ -4,9 +4,9 @@
 //!
 //! What stays with the string (bails, each counted under the label with its reason): irreproducible dice, a seat of a faction
 //! dropped by decision, seats not in id order (the string iterates its gunners by player id), a Jol-Nar commander or a Heart of
-//! Ixth (their reroll windows ask), a Letnev commander that pays on a sustain without being unlocked, neutral units in the
-//! system, nested activity the reaction table does not follow. (A game below the rules version of the faction effects is carried
-//! since W12: the sustain offer of the absorbing window pays the commander unasked there.)
+//! Ixth (their reroll windows ask), a Letnev commander that pays on a sustain without being unlocked, nested activity the reaction table
+//! does not follow. (A game below the rules version of the faction effects is carried since W12: the sustain offer of the absorbing window
+//! pays the commander unasked there. The neutral force is carried since W11: the core holds it as an owner without a seat.)
 
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
@@ -173,7 +173,7 @@ pub fn space_cannon_offense(
     apply_staged(gs, &r, &staged)?;
     let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
     let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>()?;
-    let value: Out = (driver.window.scoring, driver.window.drawn.clone(), positions);
+    let value: Out = (driver.window.scoring, driver.window.first_draws(), positions);
     Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
 }
 
@@ -527,7 +527,7 @@ const OVER: Footprint = Footprint::new(
 /// (Coalescence's forced combats are a hook the combat kernel does not register), a diplomacy table (a contact pauses the chain),
 /// Shard of the Throne changing hands (a law's theft).
 #[must_use]
-pub fn over_unported(gs: &GameState, a: &OverArgs<'_>) -> Option<&'static str> {
+pub fn over_unported(gs: &GameState, _a: &OverArgs<'_>) -> Option<&'static str> {
     if crate::tactical_dual::dropped_faction_at_the_table(gs) {
         return Some("a faction dropped by decision at the table");
     }

@@ -5808,8 +5808,11 @@ impl CombatWindow {
         // The notes the announcement leaves (Cabal's marks, a staged event) are the core's when the string run had
         // nested activity: the abilities of the table write them, and the state comparison tells.
         // (Technological Singularity's combat mark, `nekro:ts:`, is one of those: the ability that closes it is in the table.)
-        let own = |marks: &std::collections::BTreeMap<String, String>| marks.iter().filter(|(k, _)| !k.starts_with("nekro:ts:")).map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>();
-        marks_changed.set(own(&state.faction_marks) != own(&marks));
+        // (The Cabal's participation mark of this combat, `cabal:devour:{system}`, is cleared by the core window itself when a side holds it.)
+        let devour = format!("cabal:devour:{}", self.system);
+        let own = |marks: &std::collections::BTreeMap<String, String>| marks.iter().filter(|(k, _)| !k.starts_with("nekro:ts:") && **k != devour).map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>();
+        let devour_cleared_or_kept = state.faction_marks.get(&devour).is_none_or(|now| marks.get(&devour) == Some(now));
+        marks_changed.set(own(&state.faction_marks) != own(&marks) || !devour_cleared_or_kept);
         announce_staged_destructions(state, ctx);
                 crate::dual::Run::new(true)
             },
@@ -11171,17 +11174,47 @@ mod tests {
         }
     }
 
-    /// Courageous to the End stays the string's when played from a window: its dice are not recorded as the ledger rows of an ability
-    /// (`nested.ability_dice` differs) and the casualty question of the opponent lacks the string's display context. The window that meets
-    /// the card bails, named (the facts handover of a nested play, `SharedPlay`, is in place for it; see `docs/W_L11_RESUME.md`).
+    /// Courageous to the End played from a window of the fight is followed by the core since package W15: its two dice are recorded as the
+    /// ledger rows of an ability (the string compares them as `nested.ability_dice`) and the casualty question of the opponent comes with
+    /// the string's display context (the hit of the card, the holder producing it). Every window of the fight is compared (the helper fails
+    /// on a difference) and none bails (bail-as-failure).
     #[test]
-    fn bail_courageous_to_the_end_is_counted() {
-        let mut named = 0;
+    fn courageous_to_the_end_played_in_a_window_of_the_fight_runs_in_the_core_in_lockstep() {
+        let mut played = 0;
         for seed in 1..=10_u64 {
-            let (_, _, bails) = declared_cards_fight(seed, &["courageous"], true);
-            named += bails.iter().filter(|k| k.contains("(card courageous)")).count();
+            for damaged in [true, false] {
+                // The defender holds it, the attacker holds it (two different holders and opponents), a table with faction modules (staging).
+                for (factions, attacker_hand, hand) in [(["sol", "hacan"], &[][..], &["courageous"][..]), (["sol", "hacan"], &["courageous"][..], &[][..]), (["mentak", "hacan"], &[][..], &["courageous"][..])] {
+                    let (_, _, bails, plays) = cards_fight(seed, factions, attacker_hand, hand, damaged);
+                    assert!(bails.iter().all(|k| !k.contains("(card courageous)")), "seed {seed}: {bails:?}");
+                    played += usize::from(plays.iter().any(|c| c == "courageous"));
+                }
+            }
         }
-        assert!(named > 0, "a Courageous to the End was played and named");
+        assert!(played > 0, "a Courageous to the End was played");
+    }
+
+    /// Scramble Frequency played against an anti-fighter barrage (package W15): the window stages the roller's dice before the event
+    /// `UNIT_ABILITY_ROLLED`, the registered play draws every die again, and the window reads the faces back (the hits, the presentation).
+    /// The whole fight is compared (no difference) and no window bails (bail-as-failure); the holder is the other side of the roller.
+    #[test]
+    fn scramble_frequency_played_against_the_barrage_runs_in_the_core_in_lockstep() {
+        let (mut played, mut redrawn) = (0, 0);
+        for seed in 1..=16_u64 {
+            for (attacker_hand, hand) in [(&[][..], &["scramble"][..]), (&["scramble"][..], &[][..])] {
+                let (_, _, bails, plays) = cards_fight_with(seed, ["sol", "hacan"], attacker_hand, hand, false, false, &|s, system| {
+                    for side in [attacker(), defender()] {
+                        put(s, system, "destroyer", &side, 2);
+                        put(s, system, "fighter", &side, 4);
+                    }
+                });
+                assert!(bails.iter().all(|k| !k.contains("(card scramble)")), "seed {seed}: {bails:?}");
+                let scrambled = plays.iter().filter(|c| *c == "scramble").count();
+                played += scrambled;
+                redrawn += usize::from(scrambled > 0);
+            }
+        }
+        assert!(played > 0 && redrawn > 0, "a Scramble Frequency was played");
     }
 
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of
@@ -11556,17 +11589,22 @@ mod tests {
     }
 
     fn roll_step_fights(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
-        crate::dual_window::with_composed(composed, || roll_step_fights_inner(setup, calls_at_least, composed))
+        roll_step_fights_of(["sol", "hacan", "xxcha"], setup, calls_at_least, composed)
     }
 
-    fn roll_step_fights_inner(setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
+    /// [`roll_step_fights`] for a table of these factions (attacker `a`, defender `b`, a third seat `c`).
+    fn roll_step_fights_of(factions: [&str; 3], setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
+        crate::dual_window::with_composed(composed, || roll_step_fights_inner(factions, setup, calls_at_least, composed))
+    }
+
+    fn roll_step_fights_inner(factions: [&str; 3], setup: &dyn Fn(&mut GameState, u64), calls_at_least: u64, composed: bool) -> (Vec<crate::choice::Choice>, u64, u64) {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         BAIL_KEYS.with(|k| k.borrow_mut().clear());
         let mut asked = Vec::new();
         for seed in 0..16_u64 {
-            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan"), ("c", "xxcha")], ti4_model::content_types::DEFAULT);
+            let mut state = crate::fixtures::seated_game(&[("a", factions[0]), ("b", factions[1]), ("c", factions[2])], ti4_model::content_types::DEFAULT);
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
             state.rng_seed = seed;
@@ -12236,6 +12274,86 @@ mod tests {
             assert!(asked.iter().all(|c| c.player.as_str() != crate::neutral_units::NEUTRAL), "the neutral side is never asked: {composed}");
             assert!(compared > 0 && bailed == 0, "composed {composed}: {compared} compared, {bailed} bailed");
             no_bails(&format!("Assault Cannon against a neutral side (composed {composed})"));
+        }
+    }
+
+    /// Package W15: a neutral force fights in the core windows whoever sits across from it. The seats' factions are the ones with the most
+    /// rules at a fight (Letnev's Munitions and flagship, Mentak's Ambush, Argent's Raid Formation and Zeal, Nomad's Thundarian, Jol-Nar,
+    /// Sardakk, L1Z1X, Titans, Naaz, Yssaril, Muaat, Hacan, Sol, Xxcha, Arborec, Empyrean, Saar, Creuss); every fight of every table is
+    /// compared and none bails (bail-as-failure), the neutral side is never asked. Each faction is the attacker once and the third seat once,
+    /// the single windows and the composed machine.
+    #[test]
+    fn a_neutral_side_fights_in_the_core_for_every_faction_across_from_it() {
+        // (Yin joined the rotation when lane M5 taught the composed machine the hits their producer places: Devotion.)
+        let rotation = ["yin", "letnev", "mentak", "argent", "nomad", "jolnar", "sardakk", "l1z1x", "titans", "naaz", "yssaril", "muaat", "empyrean", "saar", "ghost", "arborec", "naalu", "mahact", "cabal", "winnu", "nekro", "xxcha", "sol"];
+        let mut failures = Vec::new();
+        for (n, faction) in rotation.iter().enumerate() {
+            let table = ["sol", "hacan", rotation[(n + 5) % rotation.len()]];
+            for composed in [false, true] {
+                let (asked, compared, bailed) = roll_step_fights_of([faction, table[1], table[2]], &neutral_garrison, 0, composed);
+                let keys = BAIL_KEYS.with(|k| std::mem::take(&mut *k.borrow_mut()));
+                if asked.iter().any(|c| c.player.as_str() == crate::neutral_units::NEUTRAL) {
+                    failures.push(format!("{faction} (composed {composed}): the neutral side was asked"));
+                }
+                if compared == 0 || bailed > 0 || !keys.is_empty() {
+                    failures.push(format!("{faction} (composed {composed}): {compared} compared, {bailed} bailed: {keys:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "a neutral side across from these factions is not carried by the core: {failures:#?}");
+    }
+
+    /// The open item the neutral-side scenarios found (lane 15) and lane M5 closed: a Yin seat's Devotion hits ("destroy one of your cruisers or
+    /// destroyers after a round: produce one hit") are placed by their producer, and the composed machine asks the producer which ship dies
+    /// (`Machine::pending_choice` for a `producer_assigns` pend). True of every fight a Yin seat takes part in, a neutral opponent or not.
+    /// This test pinned the bail of the day before the machine carried it ("fails the day the machine carries it: then this test becomes a
+    /// bail-as-failure test"); it is that test now: the single windows AND the composed machine compare and none bails.
+    #[test]
+    fn a_yin_seat_that_uses_devotion_fights_through_the_composed_machine_in_lockstep() {
+        for (setup, what) in [(&(|_: &mut GameState, _: u64| {}) as &dyn Fn(&mut GameState, u64), "a plain fight"), (&neutral_garrison, "a neutral garrison")] {
+            for composed in [false, true] {
+                let (asked, compared, bailed) = roll_step_fights_of(["yin", "hacan", "xxcha"], setup, 0, composed);
+                let keys = take_bail_keys();
+                assert!(compared > 0, "{what} (composed {composed}): the fights are compared");
+                assert!(bailed == 0 && keys.is_empty(), "{what} (composed {composed}): {bailed} bailed: {keys:?}");
+                assert!(asked.iter().all(|c| c.player.as_str() != crate::neutral_units::NEUTRAL), "{what}: the neutral side is never asked");
+            }
+        }
+    }
+
+    fn take_bail_keys() -> Vec<String> {
+        BAIL_KEYS.with(|k| std::mem::take(&mut *k.borrow_mut()))
+    }
+
+    /// W15: a fight with a Cabal seat runs through the composed machine without bailing at the end: the Cabal's participation mark of the
+    /// combat (`cabal:devour:{system}`) is cleared by the core's announcement of the end (it was the string's note, a counted bail of every
+    /// fight a Cabal seat took part in, a neutral one or not).
+    #[test]
+    fn a_fight_of_a_cabal_seat_clears_its_participation_mark_in_the_core_announcement() {
+        for composed in [false, true] {
+            for (setup, what) in [(&(|_: &mut GameState, _: u64| {}) as &dyn Fn(&mut GameState, u64), "a plain fight"), (&neutral_garrison, "a neutral garrison")] {
+                let (_, compared, bailed) = roll_step_fights_of(["cabal", "hacan", "xxcha"], setup, 0, composed);
+                assert!(compared > 0 && bailed == 0, "{what} (composed {composed}): {compared} compared, {bailed} bailed");
+                no_bails(&format!("{what} with a Cabal attacker (composed {composed})"));
+            }
+        }
+    }
+
+    /// The same with a neutral fleet that sustains (dreadnoughts) and an attacker with Assault Cannon, Non-Euclidean Shielding or
+    /// Letnev's Munitions Reserves: the sustains of the neutral side are taken by the rules, the attacker's own questions are asked.
+    #[test]
+    fn a_neutral_side_with_dreadnoughts_fights_attackers_with_cannons_shields_and_munitions_in_lockstep() {
+        for (faction, tech) in [("sol", "asc"), ("letnev", "nes"), ("letnev", "asc"), ("hacan", "nes"), ("jolnar", "nes")] {
+            let setup = move |state: &mut GameState, seed: u64| {
+                neutral_garrison(state, seed + 2);
+                state.player_mut(&attacker()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+            };
+            for composed in [false, true] {
+                let (asked, compared, bailed) = roll_step_fights_of([faction, "hacan", "xxcha"], &setup, 0, composed);
+                assert!(asked.iter().all(|c| c.player.as_str() != crate::neutral_units::NEUTRAL), "{faction} {tech}: the neutral side is never asked ({composed})");
+                assert!(compared > 0 && bailed == 0, "{faction} {tech} (composed {composed}): {compared} compared, {bailed} bailed");
+                no_bails(&format!("a sustaining neutral fleet across from {faction} with {tech} (composed {composed})"));
+            }
         }
     }
 

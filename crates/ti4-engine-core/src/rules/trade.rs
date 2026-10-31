@@ -20,27 +20,38 @@ pub struct KernelEnv<'a> {
 }
 
 impl Env for KernelEnv<'_> {
+    /// I.I.H.Q. Modernization is a Keleres card: the faction is dropped.
     fn has_iihq(&self, _: Seat) -> bool {
         false
     }
+    /// `faction_abilities::ignores_neighbours || promissory::reaches_anyone`: Guild Ships (a printed faction ability, which the string reads
+    /// through `faction_abilities::has`, not through a module hook), the module hook, a faceup Trade Convoys.
     fn wide(&self, who: Seat) -> bool {
-        self.kernel.hooks.general.ignores_neighbours(self.core, self.kernel, who)
+        has_ability(self.core, who, crate::generated::Ability::GuildShips)
+            || self.kernel.hooks.general.ignores_neighbours(self.core, self.kernel, who)
+            || qn::reaches_anyone(self.core, who)
     }
-    fn transaction_reach(&self, _: Seat, _: Seat) -> bool {
-        false
+    /// `hooks_cards::transaction_reach`.
+    fn transaction_reach(&self, a: Seat, b: Seat) -> bool {
+        self.kernel.hooks.cards.transaction_reach(self.core, self.kernel, a, b)
     }
-    fn exempt_from_limit(&self, _: Seat, _: Seat) -> bool {
-        false
+    /// `hooks_cards::transaction_exempt_from_limit`.
+    fn exempt_from_limit(&self, a: Seat, b: Seat) -> bool {
+        self.kernel.hooks.cards.transaction_limit_exempt(self.core, self.kernel, a, b)
     }
+    /// `faction_abilities::trades_action_cards`: Arbiters, or a module hook.
     fn trades_action_cards(&self, who: Seat) -> bool {
-        self.kernel.hooks.general.trades_action_cards(self.core, self.kernel, who)
+        has_ability(self.core, who, crate::generated::Ability::Arbiters) || self.kernel.hooks.general.trades_action_cards(self.core, self.kernel, who)
     }
     fn black_market(&self) -> bool {
         self.core.transient().misc.flags.has(TransientFlags::BLACK_MARKET)
     }
 }
 
-
+/// `faction_abilities::has` for the abilities the trade reads.
+fn has_ability(core: &CoreState, who: Seat, ability: crate::generated::Ability) -> bool {
+    core.players().by_seat(who).is_some_and(|p| p.faction.data().abilities.contains(&ability))
+}
 
 /// `transactions::take`: remove what a seat gives away (goods, commodities, fragments, the first
 /// matching action card and secret).

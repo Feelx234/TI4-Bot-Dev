@@ -30,6 +30,8 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
     let faction = |who: Seat| core.players().by_seat(who).map_or_else(String::new, |p| crate::generated::IdStr::as_str(p.faction).to_owned());
     let mut table = table();
     set_table_codes(&mut table, r);
+    // The string abilities that have no rule yet: a native game stops (a counted bail) where a seat holds one, it never plays on without it.
+    ti4_engine_core_factions::silent::gaps::register_live(&mut table);
     table.facts.staging = false;
     // The faction units (the form an Assimilate seat places on a planet it takes).
     table.facts.roster = crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), ti4_model::content_types::FULL);
@@ -51,6 +53,9 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
 pub fn env_with_plays<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<dyn SeedSource>, sources: ti4_model::content_types::SourceSet) -> Env<'a> {
     let mut env = env_for(r, core, kernel, seeds);
     env.table.facts.plays_provider = Some(super::plays::provider(r, sources));
+    // The faction units of the game's own scope: a game without Thunder's Edge places the Naalu mech, not its reprint (`env_for` names the full scope,
+    // which the buildable units of a production step and the form an Assimilate seat places would follow).
+    env.table.facts.roster = crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), sources);
     // Losses are announced when some seat's faction has a module (`supply::staging_enabled`): fixed by the seating, set once.
     env.table.facts.staging = super::plays::staging_enabled(core);
     env

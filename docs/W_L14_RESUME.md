@@ -25,7 +25,7 @@ dual, bench, soak, ratchet, workspace clippy, census): a full zero-bail playthro
   `driver::children`, and the adapter must compare the plain records the string pushes (`ctx.emit("OBJECTIVE_SCORED:..")`) which `Run::with_events_vec` does not carry. The live driver's own `EventScoring` arm (`core-m3-invasion`,
   `driver/session.rs`) runs a scoring pause after a window, which would order a hero's scoring after the whole hero. **The Mahact hero has no scoring window to port**: the string consumes the pause of its combat
   (`window.take_scoring_occurrence()` in `resolve_resolving`) and the core fight matches (lane 9).
-* **Van Hauge, the Spinner, the Yin Ascendant** (reasons in `docs/ENGINE_KNOWN_ISSUES.md` W14-design-03): Van Hauge needs the combat machine to drain staged destructions at the string's four points (a retreat, produced hits, after
+* **Van Hauge, the Spinner, the Yin Ascendant** (reasons in `docs/ENGINE_KNOWN_ISSUES.md` W14b-design-03; renamed from W14-design-03 at the merge, which collided with lane 5's Military Support row): Van Hauge needs the combat machine to drain staged destructions at the string's four points (a retreat, produced hits, after
   `SPACE_COMBAT_ROUND_ENDED`, the end announcement) instead of bailing at a transition; the Spinner a placement question over planets and ship spaces (`PlaceUnits` has planets only); the Ascendant is a Thunder's Edge breakthrough.
   There is no Ssruu copy of Indoctrination (Ssruu copies the agent only; the Milor copies are the pair rules).
 * **Remaining gates of the combat machine** (`SettleArgs::gate_why`, `Machine::bailed`) after Supercharge: a neutral side (lane 11), diplomacy, goods only a Keleres agent could make spendable, a Last Bastion retreat (all dropped

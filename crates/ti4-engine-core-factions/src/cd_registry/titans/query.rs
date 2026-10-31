@@ -22,6 +22,7 @@ use crate::common::{holds_breakthrough, is_faction, rec};
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.leader_action.push(leader_action);
     t.ground.forced_combat_planets.push(forced_combat_planets);
     t.economy.action_card_draw_bonus.push(slumberstate_draw_bonus);
     t.general.commander_unlocked.push(commander_unlocked);
@@ -98,3 +99,12 @@ pub fn commander_unlocked(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) 
         count >= 5
     })
 }
+
+// -- leader hooks (package F2) ----------------------------------------
+
+/// Ul the Progenitor: Elysium is in play (controlled by somebody) and does not wear Geoform yet (`titans_leaders::elysium_available`).
+pub fn leader_action(s: &CoreState, _: &Kernel, _: Seat, leader: Leader) -> Option<bool> {
+    use ti4_engine_core::generated::{Attachment, Planet};
+    (leader == Leader::UlTheProgenitor).then(|| board::control(s, Planet::Elysium).is_some() && !board::attachments(s, Planet::Elysium).as_slice().contains(&Attachment::Geoform))
+}
+

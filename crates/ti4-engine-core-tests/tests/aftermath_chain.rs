@@ -5,6 +5,7 @@
 
 use std::rc::Rc;
 
+use ti4_engine_core::choice::production::{Ask as PAsk, Opt as POpt};
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{ask, Env, Live, LiveError};
 use ti4_engine_core::driver::windows::chain::{advance_aftermath, ask_aftermath, AftermathChain};
@@ -71,11 +72,16 @@ fn env<'a>(k: &'a Kernel, seed: u64, present: &[Unit]) -> Env<'a> {
     ti4_engine_core::driver::children::register(&mut table);
     table.codes.ground_combat = Code(1);
     table.codes.harrow = Code(2);
+    // The production step the chain hands over to (lane M2): its roster (every faction's own units are the plain ones), the texts of
+    // `UNITS_PRODUCED` and the link to Self-Assembly Routines' window.
+    ti4_engine_core_factions::self_assembly::register_links(&mut table);
+    table.facts.roster = Some(Box::leak(Box::default()));
+    table.codes.production.ability = Code(901);
+    table.codes.production.production = Code(902);
+    table.codes.production.units = Code(903);
     table.facts.combat = texts(present);
     Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(KitSeeds(seed)) }
 }
-
-const SHIPS: [Unit; 3] = [Unit::CarrierI, Unit::DreadnoughtI, Unit::CruiserI];
 
 /// Seat 0 (active) against seat 1 in the two-planet system; the head has written the sides.
 fn arena(mine: usize, theirs: usize) -> (CoreState, Kernel) {
@@ -162,8 +168,8 @@ fn a_clone_in_the_middle_of_the_window_continues_identically() {
                 assert_eq!((again.choice.actor, again.choice.ask, &again.choice.opts), (a.choice.actor, a.choice.ask, &a.choice.opts), "the copy asks the same question");
                 let pick = Pick::Opt(a.choice.opts.as_slice()[0]);
                 let mut rest = core.clone();
-                let mut p = |_: &Choice| 0;
-                let mut run = |c: &mut CoreState| {
+                let p = |_: &Choice| 0;
+                let run = |c: &mut CoreState| {
                     let mut answer = Some(pick);
                     for _ in 0..800 {
                         match advance_aftermath(c, &env, answer.take()).expect("legal") {
@@ -272,25 +278,139 @@ fn the_skip_to_the_commit_step_opens_the_invasion_at_its_commit_step() {
     assert!(core.ledger().events.iter().all(|e| !matches!(e, Emit::Typed(t) if t.kind == ti4_engine_core::state::EventKind::InvasionBegan)), "no INVASION_BEGAN: the skip starts at the commit step");
 }
 
-#[test]
-fn a_production_capacity_is_the_counted_gap_of_the_production_step() {
-    covers!("driver::windows::chain::AftermathChain");
-    let (mut core, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
+/// Seat 0 (the active one) holds a space dock on the first planet of the system, a carrier in the space and trade goods to build with.
+fn dock_arena() -> (CoreState, Kernel) {
+    Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
         .map_from(&[sys()])
         .active(Some(0))
         .active_system(sys())
         .unit(sys(), None, Unit::CarrierI, 0, 1)
         .unit(sys(), Some(sys().data().planets[0]), Unit::SpaceDockI, 0, 1)
         .control(sys().data().planets[0], 0)
-        .build();
-    let env = env(&k, 3, &[]);
+        .goods(0, 6)
+        .tokens(0, 3, 3, 2)
+        .build()
+}
+
+fn open_producing(core: &mut CoreState) {
     let mut a = Aftermath::new(Seat(0), sys(), AStage::Producing, Before::default(), NoteHold::new());
     a.fight = AFight::Over;
     a.feats_noted = true;
-    AftermathChain::new(a).to_pending(&mut core);
-    let (_, end) = play(&mut core, &env, &mut first);
-    assert_eq!(end, Err(LiveError::Unknown(Unknown::UnportedAftermath(AftermathGap::ProductionStep))));
-    assert!(core.pending().window(WindowKind::Aftermath).is_some(), "the position is what it was");
+    AftermathChain::new(a).to_pending(core);
+}
+
+/// Stop at once; pay with trade goods when something is built.
+fn stop_producing(c: &Choice) -> usize {
+    let at = |f: &dyn Fn(&Opt) -> bool| c.opts.as_slice().iter().position(f);
+    match c.ask {
+        Ask::Production(PAsk::Choose(_)) => at(&|o| matches!(o, Opt::Production(POpt::Stop))).unwrap_or(0),
+        Ask::Production(PAsk::Pay(_)) => at(&|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))).unwrap_or(0),
+        _ => 0,
+    }
+}
+
+/// Stage 4 of the hand-over of lane M5 to lane M2: the `Producing` stage of a seat with a production capacity in the system opens ONE use of
+/// PRODUCTION (`UseOpen::Tactical`) above the aftermath's entry, the aftermath arm hands the answers to it, and `PRODUCTION_RESOLVED` is written once
+/// the use has left the stack. (It was the counted gap `AftermathGap::ProductionStep` before the merge of the two lanes.)
+#[test]
+fn a_production_capacity_hands_the_step_to_the_production_use_and_announces_it_resolved() {
+    covers!("driver::windows::chain::AftermathChain");
+    covers!("driver::windows::production::ProductionMachine");
+    let (mut core, k) = dock_arena();
+    let env = env(&k, 3, &[]);
+    open_producing(&mut core);
+    let mut asked_while_open = Vec::new();
+    let mut emitted = Vec::new();
+    let mut answer: Option<Pick> = None;
+    for _ in 0..200 {
+        let (live, out) = advance_aftermath(&mut core, &env, answer.take()).expect("the aftermath runs natively");
+        emitted.extend(out.emitted.iter().map(|e| e.kind));
+        match live {
+            Live::Asks(a) => {
+                // The question belongs to the use above the entry: the chain stays under it.
+                assert!(core.pending().window(WindowKind::Production).is_some() && core.pending().window(WindowKind::Aftermath).is_some());
+                let again = ask_aftermath(&core, &env).expect("asks").expect("a question");
+                assert_eq!(again.choice, a.choice, "the aftermath's own question is the use's");
+                assert!(plain_kinds(&core).is_empty(), "PRODUCTION_RESOLVED is not written while the use asks");
+                let i = stop_producing(&a.choice);
+                answer = Some(Pick::Opt(a.choice.opts.as_slice()[i]));
+                asked_while_open.push(a.choice);
+            }
+            Live::Done => {
+                if core.pending().window(WindowKind::Aftermath).is_none() {
+                    break;
+                }
+            }
+        }
+    }
+    assert!(core.pending().window(WindowKind::Aftermath).is_none() && core.pending().window(WindowKind::Production).is_none(), "both left the stack");
+    assert!(matches!(asked_while_open[0].ask, Ask::Production(PAsk::Choose(_))), "the first question is what to build");
+    assert_eq!(core.meta().production_seq, 1, "the use has a number");
+    assert_eq!(emitted.first(), Some(&ti4_engine_core::state::EventKind::ProductionUsed), "the use announced itself when it started");
+    assert!(!emitted.contains(&ti4_engine_core::state::EventKind::UnitsProduced) || core.board().sys(sys()).units.as_slice().iter().all(|p| p.kind() != Unit::DestroyerI), "nothing was built");
+    assert_eq!(plain_kinds(&core), [PlainKind::ProductionResolved], "only the production step was run, and announced once, when the use had left the stack");
+}
+
+/// A unit built in the step is made (and announced) before `PRODUCTION_RESOLVED`; a clone in the middle of the use continues identically.
+#[test]
+fn a_unit_built_in_the_aftermath_production_step_is_announced_before_it_is_resolved() {
+    covers!("driver::windows::chain::AftermathChain");
+    let (mut core, k) = dock_arena();
+    let env = env(&k, 3, &[]);
+    open_producing(&mut core);
+    let mut built = false;
+    let mut answer: Option<Pick> = None;
+    let mut cloned_ok = false;
+    let mut emitted = Vec::new();
+    for _ in 0..200 {
+        let (live, out) = advance_aftermath(&mut core, &env, answer.take()).expect("legal");
+        emitted.extend(out.emitted.iter().map(|e| e.kind));
+        match live {
+            Live::Asks(a) => {
+                let mut copy = core.clone();
+                let from_copy = ask_aftermath(&copy, &env).expect("asks").expect("a question");
+                cloned_ok |= from_copy.choice == a.choice;
+                let _ = advance_aftermath(&mut copy, &env, None);
+                let i = match a.choice.ask {
+                    Ask::Production(PAsk::Choose(_)) if !built => {
+                        built = true;
+                        a.choice.opts.as_slice().iter().position(|o| matches!(o, Opt::Production(POpt::Build { unit: Unit::DestroyerI, .. }))).expect("a destroyer can be built")
+                    }
+                    _ => stop_producing(&a.choice),
+                };
+                answer = Some(Pick::Opt(a.choice.opts.as_slice()[i]));
+            }
+            Live::Done => {
+                if core.pending().window(WindowKind::Aftermath).is_none() {
+                    break;
+                }
+            }
+        }
+    }
+    assert!(built && cloned_ok);
+    let made = core.board().sys(sys()).units.as_slice().iter().filter(|p| p.owner() == Seat(0) && p.kind() == Unit::DestroyerI).count();
+    assert_eq!(made, 1, "the destroyer stands in the system");
+    assert_eq!(emitted, [ti4_engine_core::state::EventKind::ProductionUsed, ti4_engine_core::state::EventKind::UnitsProduced], "UNITS_PRODUCED comes with the end of the use");
+    assert_eq!(plain_kinds(&core), [PlainKind::ProductionResolved], "and PRODUCTION_RESOLVED after it, once");
+}
+
+/// A seat with no capacity in the system asks nothing and ends the step at once, with no number and no production events.
+#[test]
+fn a_system_without_a_production_capacity_ends_the_step_at_once() {
+    covers!("driver::windows::chain::AftermathChain");
+    let (mut core, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
+        .map_from(&[sys()])
+        .active(Some(0))
+        .active_system(sys())
+        .unit(sys(), None, Unit::CarrierI, 0, 1)
+        .build();
+    let env = env(&k, 3, &[]);
+    open_producing(&mut core);
+    let (asked, end) = play(&mut core, &env, &mut first);
+    assert_eq!(end, Ok(()));
+    assert!(asked.is_empty());
+    assert_eq!(core.meta().production_seq, 0);
+    assert_eq!(plain_kinds(&core), [PlainKind::ProductionResolved]);
 }
 
 #[test]

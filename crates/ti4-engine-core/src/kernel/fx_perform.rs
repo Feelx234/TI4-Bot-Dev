@@ -94,6 +94,7 @@ pub struct Facts {
 }
 
 /// How an ability began.
+#[allow(clippy::large_enum_variant, reason = "one value per performed ability, moved straight to the table; boxing the spawn request would cost an allocation per start")]
 pub enum Began {
     /// Performed, with nothing to ask.
     Done,

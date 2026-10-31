@@ -151,10 +151,12 @@ pub struct StepOut {
 #[must_use]
 pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let (phase, round) = (core.meta().phase, core.meta().round);
-    let mut rendered = Typed::new(cx.render, asking.choice.clone(), phase, round).rendered;
-    // The display facts read the position the question was put in: a question asked from inside an emission or from inside a step (a job
-    // of the turn flow) was put in a position the driver has rolled back since.
-    let at = asking.nested.as_ref().map(|(_, at)| &**at).or(asking.at.as_deref()).unwrap_or(core);
+    // The position the question is asked in: the options of a production question carry numbers only the position gives (`Render::position`). The
+    // display facts read the position the question was put in: a question asked from inside a step (an emission, a job of the turn flow) was
+    // put in a position the driver has rolled back since.
+    let at = asking.at.as_deref().or(asking.nested.as_ref().map(|(_, at)| &**at)).unwrap_or(core);
+    let position = render::Position { state: std::rc::Rc::new(at.clone()), kernel: kernel::static_of(cx.env.kernel) };
+    let mut rendered = Typed::new_at(cx.render, position, asking.choice.clone(), phase, round).rendered;
     (cx.complete)(at, cx.env.kernel, &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
@@ -231,7 +233,7 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
     let env = &prepared;
     let events_from = core.ledger.events.len();
     let mut step = StepOut { finished: false, asked: Vec::new(), out: Out::default(), events_from };
-    let mut merge = |step: &mut StepOut, out: Out| {
+    let merge = |step: &mut StepOut, out: Out| {
         step.out.emitted.extend(out.emitted);
         step.out.opened.extend(out.opened);
     };

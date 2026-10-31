@@ -95,8 +95,10 @@ impl abilities::Env for KernelEnv<'_> {
 }
 
 impl strategy::Env for KernelEnv<'_> {
+    /// Masters of Trade (Trade) or a module's hook (`rules::abilities::secondary_is_free`). The hook alone missed Hacan's printed ability.
     fn secondary_is_free(&self, who: Seat, card: Option<StrategyCardKind>) -> bool {
-        self.kernel.hooks.general.secondary_is_free(self.core, self.kernel, who, card)
+        (abilities::has(self.core, who, crate::generated::Ability::MastersOfTrade) && card == Some(StrategyCardKind::Trade))
+            || self.kernel.hooks.general.secondary_is_free(self.core, self.kernel, who, card)
     }
     fn substitutes_primary(&self, who: Seat, card: Option<StrategyCardKind>) -> bool {
         self.kernel.hooks.general.substitutes_primary(self.core, self.kernel, who, card)

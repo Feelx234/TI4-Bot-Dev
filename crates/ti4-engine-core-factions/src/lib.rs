@@ -31,6 +31,10 @@ pub mod common;
 pub mod cards;
 pub mod magen_defense;
 pub mod self_assembly;
+pub mod silent;
+
+#[cfg(test)]
+mod leader_hook_tests;
 
 pub mod ca_combat;
 pub mod cb_economy;

@@ -19,7 +19,7 @@ mod real {
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::Resolver;
     use ti4_engine_core::rules::explore_windows::Exploring;
-    use ti4_engine_core::state::{CoreState, EDeck, EHow, EWhy, Slice};
+    use ti4_engine_core::state::{CoreState, EDeck, EHow, ETarget, EWhy, Slice};
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::{PlanetId, PlayerId, SystemId};
     use ti4_model::state::GameState;
@@ -83,6 +83,7 @@ mod real {
         for card in Explore::ALL {
             codes.cards[card as usize] = r.code(IdStr::as_str(card));
         }
+        codes.freelancers = r.code("Freelancers");
         codes
     }
 
@@ -195,9 +196,16 @@ mod real {
         let mut table = table(&r, content, sources);
         ti4_engine_core_factions::self_assembly::register_links(&mut table);
         let mut staged = Vec::new();
-        let mut driver = crate::window_driver::driver_for(window(seat), Resolver::new(&[seat], Some(seat)), table, 1);
+        let window = window(seat);
+        // Terragenesis is a rule of the core table (the live path's registry has it); this driver has no registry, so the string's window for it
+        // is not followed.
+        if window.run().announce && matches!(window.run().target, ETarget::Planet(_)) && gs.player(player).is_some_and(|p| p.faction.as_str() == "titans") {
+            crate::dual::note_bail_here(unsupported_text(EWhy::Terragenesis));
+            return None;
+        }
+        let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[seat], Some(seat)), table, 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), crate::dual_window::nested_fp(FP, script), |core, _| {
-            let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
+            let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &details);
             staged = std::mem::take(&mut core.pending_mut().staged);
             driven
         })
@@ -345,7 +353,8 @@ mod tests {
         });
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
-        // Freelancers on every seat and everything the Titans explore are the named gaps; nothing else bails.
+        // Only the Titans' planet explorations bail here (the dual driver has no registry for Terragenesis; the live Env has) and a Freelancers unit
+        // that stands over the fleet supply or the capacity of its system (the string asks which units go); nothing else does.
         let unexpected: Vec<_> = bailed_cards.iter().filter(|(faction, id)| *faction != "titans" && !id.starts_with("frln")).collect();
         assert!(unexpected.is_empty(), "{unexpected:?}: {:?}", r.windows);
         assert!(r.windows.get("exploration::explore").map_or(0, |w| w.compared) > 300, "{:?}", r.windows);
@@ -383,7 +392,7 @@ mod tests {
         let w = r.windows.get("exploration::explore_frontier").copied();
         assert!(w.is_some_and(|w| w.compared > 150), "{:?}", r.windows);
         let bailed: Vec<_> = r.windows.iter().filter(|(label, w)| label.starts_with("exploration::explore_frontier [bail") && w.bailed > 0).collect();
-        assert!(bailed.iter().all(|(label, _)| label.contains("Freelancers")), "{bailed:?}");
+        assert!(bailed.is_empty(), "{bailed:?}");
         let _ = take_report();
     }
 }

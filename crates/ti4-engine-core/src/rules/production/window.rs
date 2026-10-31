@@ -13,7 +13,7 @@ use crate::choice::generic::Rule;
 use crate::choice::production::{Ask as PAsk, ChooseAsk, Currency, Icon, Opt as POpt, PlaceAsk, Subtype as PSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Owed, OwedKind, Pick, Subtype, Target};
 use crate::containers::SmallList;
-use crate::generated::{Planet, System, Unit, UnitBaseType};
+use crate::generated::{Planet, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::children::{Made, ProduceFacts};
 use crate::kernel::fx;
@@ -28,47 +28,9 @@ use crate::state::{CoreState, EventKind, LeaderStatus, Payload};
 use crate::state::{Key, Val};
 use crate::tables::Scope;
 
-/// The suspension points.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Stage {
-    Choosing,
-    Paying { unit: Unit, owed: i32, made: u8, cost: i32, paid: i32 },
-    Placing { unit: Unit, made: u8 },
-    Done,
-}
-
-/// One use of PRODUCTION.
-#[derive(Debug, Clone)]
-pub struct ProductionWindow {
-    pub who: Seat,
-    pub system: System,
-    pub stage: Stage,
-    pub limit: i32,
-    pub remaining: i32,
-    pub free_capacity: i32,
-    pub small_exemptions: i32,
-    pub credit: i32,
-    pub discount_remaining: i32,
-    pub fleet_limit: i32,
-    pub armada: i32,
-    pub free_this_use: bool,
-    pub flagship_free: bool,
-    pub only_unit: Option<Unit>,
-    pub max_unit_cost: Option<i32>,
-    pub buildable: [Option<Unit>; 9],
-    /// Units produced so far in this use and where they went.
-    pub produced: SmallList<(Unit, Spot), 12>,
-    pub purchased: bool,
-    pub placement_timing_done: bool,
-    /// The rules version offers Berekar Berekon inside the production question.
-    pub agent_rules: bool,
-    /// Berekar Berekon was exhausted in this use.
-    pub agent_spent: bool,
-    /// The caller has a timing handle: the ground-force production window is announced.
-    pub emit_timing: bool,
-    /// The units come from an ability, not from the PRODUCTION of a unit (`ProductionWindow::for_ability`, package W5).
-    pub ability: bool,
-}
+/// The suspension points (the data lives in the state layer: a held composer keeps the window in its payload).
+pub use crate::state::PStage as Stage;
+pub use crate::state::ProductionWindow;
 
 fn small(n: i64) -> i32 {
     i32::try_from(n).unwrap_or(if n < 0 { i32::MIN } else { i32::MAX })
@@ -127,6 +89,23 @@ impl ProductionWindow {
             .iter()
             .map(|(unit, spot)| (*unit, if let Spot::Planet(planet) = spot { Some(*planet) } else { None }))
             .collect()
+    }
+
+    /// Re-settle the budget once the start effects of a use have run (the string `ProductionWindow::refresh`): the window's limit is the
+    /// system's capacity as it stands now (a War Machine adds four), the discount is what Sarween Tools / AI Development Algorithm left plus
+    /// the faction hooks', the Hacan hero's marker makes the use free when it names this use, and a use that would have been done reopens.
+    /// A window in the middle of a payment or a placement keeps its budget.
+    pub fn refresh(&mut self, s: &CoreState, k: &Kernel) {
+        if matches!(self.stage, Stage::Paying { .. } | Stage::Placing { .. }) {
+            return;
+        }
+        let cx = self.cx(s, k);
+        self.limit = small(rules::capacity(&cx, self.who, self.system).max(0));
+        self.remaining = self.limit;
+        self.small_exemptions = if crate::query::leaders::has_commander_ability_in(s, self.who, Leader::ThatWhichMoldsFlesh) { 2 } else { 0 };
+        self.discount_remaining = s.transient().production.discount_remaining.saturating_add(small(k.hooks.economy.production_cost_reduction(s, self.who, self.system).max(0)));
+        self.free_this_use = s.players().by_seat(self.who).is_some_and(|p| p.production_timers.free_production_use.get() == Some(s.meta().production_seq));
+        self.stage = if self.remaining > 0 { Stage::Choosing } else { Stage::Done };
     }
 
     fn cx<'a>(&self, s: &'a CoreState, k: &'a Kernel) -> Cx<'a> {

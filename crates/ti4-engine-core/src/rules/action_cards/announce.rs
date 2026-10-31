@@ -130,6 +130,16 @@ impl Announce {
         }
     }
 
+    /// The dice the effect rolled as an ability does, to be kept in the ledger when the play was inside a window (see
+    /// [`Play::ability_roll`]).
+    #[must_use]
+    pub fn ability_roll(&self) -> Option<(Seat, Vec<u8>)> {
+        match &self.effect {
+            Effect::Play(play) => play.ability_roll(),
+            _ => None,
+        }
+    }
+
     /// Go on until the effect asks (the question) or the flow is finished (`None`).
     ///
     /// # Errors
@@ -298,7 +308,24 @@ pub fn play_inline<R: Runner>(rt: &mut R, who: Seat, card: ActionCard) -> Result
         rt.unknown(Unknown::PlayFacts);
         return Ok(false);
     };
-    announce.run_inline(rt)
+    let played = announce.run_inline(rt)?;
+    // Inside a window the string notes the dice of a card's effect as the roll of an ability (`nested.ability_dice`); the component action
+    // (the play window of the action-card area) notes none. A window lent no ledger keeps none.
+    if let Some((owner, faces)) = announce.ability_roll()
+        && rt.state().loaded.has(crate::state::Slice::Ledger)
+    {
+        rt.state().ledger_mut().dice.push(crate::state::RollRec {
+            purpose: crate::state::RollPurpose::Ability(super::effects::COURAGEOUS_ROLLS),
+            owner: Some(owner),
+            unit: None,
+            planet: None,
+            scene: None,
+            hits_on: None,
+            faces: faces.into_iter().collect(),
+            rerolled: 0,
+        });
+    }
+    Ok(played)
 }
 
 /// The close of a window (rules version 3): the cards declared in it are announced now, once every declaration is
@@ -482,13 +509,13 @@ mod tests {
 
     /// The cards of package B6d read facts only the adapter's play window supplies (forms, roster, map, traders): from inside
     /// another window they are the string's, and the census says so (found by the first run of the slot test of Reveal
-    /// Prototype, which played with default facts). Courageous To The End and Experimental Battlestation are among them: they run
+    /// Prototype, which played with default facts). Experimental Battlestation is among them (Courageous To The End since package W15 is not): they run
     /// hit flows of the combat area as child windows through the links the play window's table carries, and the texts of their
     /// questions and events are the play window's facts (their reaction windows are the combat area's, B12).
     #[test]
     fn the_b6d_cards_are_not_played_from_inside_another_window() {
         let t = AbilityTable::default();
-        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation] {
+        for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::CrashLanding, ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule, ActionCard::ExperimentalBattlestation] {
             assert!(plays(card), "{card:?} has a window of its own");
             assert!(!plays_in(&t, card), "{card:?}");
         }
@@ -498,6 +525,8 @@ mod tests {
         // W11: Ghost Squad and Reflective Shielding are played from a window (the facts are handed in by the host; the hits of the
         // Reflective Shielding are absorbed by the window of the use).
         assert!(plays_in(&t, ActionCard::GhostSquad) && plays_in(&t, ActionCard::ReflectiveShielding));
+        // W15: Courageous To The End is played from a window (its dice are the roll of an ability, its casualty question is described by the host).
+        assert!(plays_in(&t, ActionCard::CourageousToTheEnd));
     }
 
     /// A card whose window is not played from inside another window (it reads facts only its own window supplies) but that a rules

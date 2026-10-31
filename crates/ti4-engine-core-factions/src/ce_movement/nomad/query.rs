@@ -35,6 +35,8 @@ pub fn register_borrowed(t: &mut HookTable) {
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.commander_unlocked.push(commander_unlocked);
+    t.general.leader_action.push(leader_action);
     t.cards.transaction_reach.push(transaction_reach);
     t.seam.grants_sustain.push(SOURCE, grants_sustain_rule);
     register_borrowed(t);
@@ -127,6 +129,21 @@ pub fn borrowed_stats(s: &CoreState, k: &Kernel, who: Seat, at: System) -> Optio
     })
 }
 
+// -- leader hooks (package F2) ----------------------------------------
+
+/// Navarch Feng, unlock: "Have 1 scored secret objective."
+pub fn commander_unlocked(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::NavarchFeng).then(|| s.objectives().scored[usize::from(who.0)].secret.len() >= 1)
+}
+
+/// Ahk-Syl Siven: not yet used this round and the flagship (Memoria I or II) on the board (`nomad::leader_action`).
+pub fn leader_action(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::AhkSylSiven).then(|| {
+        let active = mark(s, MarkKey::NomadHero(who)).and_then(crate::common::num) == Some(s.meta().round);
+        !active && ti4_engine_core::query::leader_reads::space_pieces(s, who).any(|(_, p)| matches!(p.kind(), Unit::MemoriaI | Unit::MemoriaII))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +229,7 @@ mod tests {
         let mut t = HookTable::new();
         register(&mut t);
         assert_eq!((t.seam.grants_sustain.len(), t.seam.borrowed_stats.len()), (1, 1));
-        assert_eq!(t.registered(), 5, "three seam providers and two direct slots, the legacy slot of cards.transaction_reach");
+        assert_eq!(t.registered(), 7, "three seam providers and two direct slots, the legacy slot of cards.transaction_reach, the two leader hooks");
+        assert_eq!((t.general.commander_unlocked.len(), t.general.leader_action.len()), (1, 1));
     }
 }

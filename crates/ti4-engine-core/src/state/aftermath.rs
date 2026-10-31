@@ -79,6 +79,8 @@ pub struct Aftermath {
     pub holds: bool,
     /// LIVE: the invasion step was opened (a fresh `Invading` stage that was not is the skip to the commit step).
     pub invaded: bool,
+    /// LIVE: the use of PRODUCTION of the `Producing` stage was opened (`Window::Production` above this entry; the string's `Producing(window)`).
+    pub produced: bool,
     /// LIVE: the plain events the steps announced (`AftermathWindow::log`), written to the queue when the step ends.
     pub log: SmallList<crate::state::PlainKind, 4>,
 }
@@ -100,6 +102,7 @@ impl Aftermath {
             outcome: None,
             holds: false,
             invaded: false,
+            produced: false,
             log: SmallList::new(),
         }
     }

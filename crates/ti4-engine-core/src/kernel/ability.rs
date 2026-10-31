@@ -80,17 +80,37 @@ pub enum Unknown {
     DataSkimmer,
     /// The play of a card needs what the adapter did not compute (`AdapterFacts::plays`).
     PlayFacts,
-    /// Reflective Shielding played inside a window: it stages hits that the string sustain step drains after the
-    /// window closes (the combat area's absorption), which the core windows do not.
-    ReflectiveShielding,
     /// A position the native tactical action does not run yet (a documented bail of `driver::windows::tactical`, named by its gap).
     UnportedTactical(TacticalGap),
-    /// A position the native invasion does not run yet (a documented bail of `driver::windows::invasion`, named by its reason).
-    Unported(Unported),
     /// A position the native aftermath chain or its space combat does not run (a documented bail of `driver::windows::{chain, combat}`).
     UnportedAftermath(AftermathGap),
+    /// A position the native invasion does not run yet (a documented bail of `driver::windows::invasion`, named by its reason).
+    Unported(Unported),
+    /// A position the native production step does not run (a documented bail of `driver::windows::production`, named by its reason).
+    UnportedProduction(ProductionGap),
     /// The live turn flow cannot follow the string here yet (lane B, `driver::turn`).
     TurnGap(super::turn_codes::TurnGap),
+    /// An ability the string registers and the core table has no rule for, held by a seat at the moment its event is announced (lane G,
+    /// `ti4_engine_core_factions::silent::gaps`): the slot of the listed gap.
+    AbilityGap(Slot),
+}
+
+/// The positions the native production step (`driver::windows::production`) does not run, each a counted bail of the live path. The words are
+/// the adapter's (`production_live::gap_text`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductionGap {
+    /// The table has no faction unit roster (`AdapterFacts::roster`): the buildable units cannot be named.
+    NoRoster,
+    /// The facts of the use cannot be read from the position (a seat that does not exist, a number beyond 32 bits).
+    NoFacts,
+    /// The table has no link to Self-Assembly Routines' window (`Spawn::SelfAssembly`).
+    NoLink,
+    /// A window a start or end effect runs asked the driver for something that is not a question (`Next::Open` / `Emit` / `Chain`).
+    ChildPassed,
+    /// A window a start or end effect runs asks something its own answer does not settle.
+    ChildStuck,
+    /// A stage that neither asks nor moves on.
+    NoProgress,
 }
 
 /// The positions the native aftermath chain and its space combat do not run, each a counted bail of the live path. The words are the adapter's
@@ -99,8 +119,6 @@ pub enum Unknown {
 pub enum AftermathGap {
     /// A stage that neither asks nor moves on.
     NoProgress,
-    /// The production step after the fight or the invasion (the production island is not native).
-    ProductionStep,
     /// A contact pause (`Aftermath::Negotiating`): structured diplomacy is dropped.
     Negotiating,
     /// A space combat whose environment cannot be built from the position (no galaxy, an unseated side).
@@ -226,6 +244,8 @@ pub struct Codes {
     pub salvage: crate::state::Code,
     /// The faction ability `indoctrination`, the source of the Yin's question.
     pub indoctrination: crate::state::Code,
+    /// The faction ability `terragenesis`, the source of the Titans' question.
+    pub terragenesis: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
     /// The subtype `assign_casualty` of a casualty question and the cause `action_card:reflective_shielding` of a loss to the hits a
@@ -243,8 +263,35 @@ pub struct Codes {
     pub activation: ActivationCodes,
     /// The texts of the events of an exploration (`rules::explore_windows::Exploring`).
     pub explore: ExploreCodes,
+    /// The texts of the events of a use of PRODUCTION (`driver::windows::production`).
+    pub production: ProductionCodes,
     /// The texts of the turn flow (lane B).
     pub turn: super::turn_codes::TurnCodes,
+    /// The texts of the formerly silent abilities (lane G).
+    pub silent: SilentCodes,
+}
+
+/// The texts of the questions and gains of the formerly silent abilities (lane G), interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SilentCodes {
+    /// The unit alias `lw2`: the source of the Letani Warrior II's landing question.
+    pub lw2: crate::state::Code,
+    /// The `source` `scavenge` of the trade good Scavenge gains.
+    pub scavenge: crate::state::Code,
+    /// The faction ability `mitosis`, the source of Arborec's question.
+    pub mitosis: crate::state::Code,
+    /// The leader `naazagent`, the source of Garv and Gunn's question.
+    pub naaz_agent: crate::state::Code,
+}
+
+/// The `source` texts of `UNITS_PRODUCED`: `ability` for the units an ability produces, `production` for the PRODUCTION of a unit (the adapter's
+/// event texts).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProductionCodes {
+    pub ability: crate::state::Code,
+    pub production: crate::state::Code,
+    /// The payload key `units` (the adapter's event text: `Key::Other`).
+    pub units: crate::state::Code,
 }
 
 /// The texts the events of an exploration carry: the source `exploration` of the trade goods it gains, the deck and the card of
@@ -259,12 +306,14 @@ pub struct ExploreCodes {
     pub decks: [crate::state::Code; crate::generated::ExploreType::COUNT],
     /// The text of each card, by `Explore` index.
     pub cards: [crate::state::Code; crate::generated::Explore::COUNT],
+    /// The printed name `Freelancers`, the source of the unit its cards produce.
+    pub freelancers: crate::state::Code,
 }
 
 impl Default for ExploreCodes {
     fn default() -> Self {
         let z = crate::state::Code(0);
-        Self { filled: false, goods: z, trade_agreement: z, decks: [z; crate::generated::ExploreType::COUNT], cards: [z; crate::generated::Explore::COUNT] }
+        Self { filled: false, goods: z, trade_agreement: z, decks: [z; crate::generated::ExploreType::COUNT], cards: [z; crate::generated::Explore::COUNT], freelancers: z }
     }
 }
 
@@ -457,7 +506,10 @@ pub struct PlayFacts {
 /// Computes the [`PlayFacts`] of a position: a function of the core position and the kernel alone (the live loop has no string state).
 /// The text tables it needs (interned codes, note order) are captured by the host that builds it.
 #[derive(Clone)]
-pub struct PlaysProvider(pub std::sync::Arc<dyn Fn(&crate::state::CoreState, &crate::kernel::Kernel) -> Option<PlayFacts> + Send + Sync>);
+pub struct PlaysProvider(pub std::sync::Arc<PlaysFn>);
+
+/// What a [`PlaysProvider`] calls.
+pub type PlaysFn = dyn Fn(&crate::state::CoreState, &crate::kernel::Kernel) -> Option<PlayFacts> + Send + Sync;
 
 impl core::fmt::Debug for PlaysProvider {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -491,11 +543,11 @@ pub struct AdapterFacts {
     /// The printed name of each action card as the index of the first card with the same name, for the windows that offer one
     /// option per name outside a card play (the hand limit, package W6). Empty: the adapter did not say, the window declines.
     pub card_groups: Vec<u8>,
+    /// The words of the log row an exploration closes (`exploration::row_words`), set by the adapter. `None`: the exploration declines.
+    pub explore_words: Option<crate::kernel::fx_explore::WordsFn>,
     /// The texts of the space combat the live loop runs (`driver::windows::combat`): unit and roll-group names, causes and phases. The
     /// core holds no text; the adapter interns them for the unit types in the fight at every call (`ti4-engine/src/combat_live.rs`).
     pub combat: CombatTexts,
-    /// The words of the log row an exploration closes (`exploration::row_words`), set by the adapter. `None`: the exploration declines.
-    pub explore_words: Option<crate::kernel::fx_explore::WordsFn>,
 }
 
 /// The texts the live space combat needs from outside: the string's `settle_run` interned them per settle, the live adapter does per call.

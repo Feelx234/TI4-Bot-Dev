@@ -31,7 +31,6 @@ mod live;
 mod tail;
 
 use crate::choice::{Choice, Pick};
-use crate::generated::System;
 use crate::ids::Seat;
 use crate::kernel::ability::{TacticalGap, Unknown};
 use crate::kernel::stage::{Held, Illegal, Sx, Window};

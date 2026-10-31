@@ -19,7 +19,7 @@ use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{Faction, Leader, Planet, System};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec, Unknown};
+use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec};
 use ti4_engine_core::kernel::read::Rd;
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::kernel::Kernel;

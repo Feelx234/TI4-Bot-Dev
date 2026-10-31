@@ -110,6 +110,8 @@ fn route_json(option_id: &str, routes: &[ti4_engine_core::rules::tactical::route
         .collect::<Vec<_>>()
         .into()
 }
+/// What a ship hull is keyed by in the `movable` count: its type, whether it is damaged, its origin, and two flags of its movement.
+type HullKey = (Unit, bool, System, bool, bool);
 
 /// `tactical::preview_moves` and the `movable` count of `movement_options`.
 fn move_details(core: &CoreState, k: &Kernel, seat: ti4_engine_core::Seat, choice: &CoreChoice, rendered: &mut Choice) {
@@ -123,7 +125,7 @@ fn move_details(core: &CoreState, k: &Kernel, seat: ti4_engine_core::Seat, choic
     // `movable`: how many hulls each option stands for.
     let mut hulls = serde_json::Map::new();
     let hull = |origin: System, index: u16| ti4_engine_core::query::board::space_units(core, origin).iter().filter(|p| p.owner() == seat).nth(usize::from(index)).copied();
-    let mut keys: Vec<((Unit, bool, System, bool, bool), String)> = Vec::new();
+    let mut keys: Vec<(HullKey, String)> = Vec::new();
     let ids: Vec<String> = rendered.options.iter().map(|o| o.id.clone()).collect();
     for (i, opt) in choice.opts.iter().enumerate() {
         if let COpt::Tactical(TOpt::Move { origin, index, kind, damaged, gd, ionian, .. }) = opt {

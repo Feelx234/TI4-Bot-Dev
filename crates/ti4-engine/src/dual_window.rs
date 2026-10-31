@@ -580,6 +580,10 @@ pub fn event_of(r: &Render, rec: &EventRec) -> Option<Event> {
                     .map(|(s, u)| Some(serde_json::json!({"player": seat(s)?, "unit": u.as_str()})))
                     .collect::<Option<_>>()?,
             ),
+            // `UNITS_PRODUCED`: the unit and where it was placed (the string's `place` text).
+            ti4_engine_core::state::List::Produced(made) => Value::Array(
+                made.iter().map(|(u, spot)| serde_json::json!({"unit_type": u.as_str(), "place": crate::render::production::spot_text(*spot)})).collect(),
+            ),
         };
         payload.insert(key_text(r, *key), v);
     }
@@ -721,11 +725,12 @@ pub fn drive_windowed<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::PendingDestructions => "an action card that staged destructions",
                 ti4_engine_core::kernel::ability::Unknown::DataSkimmer => "a discard the Data Skimmer could take",
                 ti4_engine_core::kernel::ability::Unknown::PlayFacts => "an action card the core does not play",
-                ti4_engine_core::kernel::ability::Unknown::ReflectiveShielding => "Reflective Shielding played inside a window (its hits are drained by the sustain step)",
                 ti4_engine_core::kernel::ability::Unknown::UnportedTactical(_) => "a tactical position the native action does not run",
                 ti4_engine_core::kernel::ability::Unknown::UnportedAftermath(why) => crate::combat_live::gap_text(why),
                 ti4_engine_core::kernel::ability::Unknown::Unported(why) => crate::invasion_live::unported_text(why),
+                ti4_engine_core::kernel::ability::Unknown::UnportedProduction(why) => crate::production_live::gap_text(why),
                 ti4_engine_core::kernel::ability::Unknown::TurnGap(_) => "a place the live turn flow does not follow",
+                ti4_engine_core::kernel::ability::Unknown::AbilityGap(_) => "a string ability the core table has no rule for (a listed gap)",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -761,22 +766,12 @@ pub fn drive_windowed<W: Window>(
                     if let (Some(ctx), Some(recorded)) = (rendered.context.as_mut(), script.questions.get(out.questions.len() - 1)) {
                         ctx.previews = recorded.choice.context.as_ref().map(|c| c.previews.clone()).unwrap_or_default();
                     }
-                } else if driver.nested_state().is_some() && courageous_casualty(&choice) {
-                    // The casualty the opponent of a Courageous To The End chooses: a destruction the holder produces.
-                    if let (Some(context), Some((_, attacker, defender))) = (rendered.context.take(), gs.active_space_combat.as_ref()) {
-                        let holder = if r.seat_text(choice.actor) == attacker.as_str() { defender } else { attacker };
-                        rendered.context = Some(
-                            context
-                                .with_hit(crate::decision_context::HitDetail {
-                                    cause: crate::decision_context::HitCause::CourageousToTheEnd,
-                                    destroy: true,
-                                    restriction: crate::decision_context::HitRestriction::Any,
-                                    producer: Some(holder.clone()),
-                                })
-                                .about_battle(gs)
-                                .about_invasion(gs),
-                        );
+                    // The casualty of a Courageous To The End played inside an emission (a nested play) is described like the one of its own window.
+                    if courageous_casualty(&choice) {
+                        courageous_hit(r, &choice, at, gs, &mut rendered);
                     }
+                } else if driver.nested_state().is_some() && courageous_casualty(&choice) {
+                    courageous_hit(r, &choice, driver.nested_state().unwrap_or(core), gs, &mut rendered);
                 } else if driver.nested_state().is_some() && matches!(choice.ask, ti4_engine_core::choice::Ask::Cards(_)) {
                     // A question a played card's effect asks (Reparations: the planet to exhaust, the planet to ready) belongs to no event, so
                     // it comes with no facts; the string still puts it through `Table::ask_seeing`, which names the invasion the position is in.
@@ -802,6 +797,35 @@ pub fn drive_windowed<W: Window>(
             }
         }
     }
+}
+
+/// The hit a Courageous To The End makes its opponent choose (string `courageous`: `HitCause::CourageousToTheEnd`, a destruction, no
+/// restriction, the holder producing it) described on the rendered casualty question, in the position of the battle and the invasion.
+/// The holder is the owner of the ship whose destruction the card avenges (the handoff `last_ship_destroyed` of the position the question
+/// was asked in: the card refuses any other), and else the other side of the space combat; without a holder the context stays as it is.
+fn courageous_hit(r: &Render, choice: &CoreChoice, core: &ti4_engine_core::state::CoreState, gs: &GameState, rendered: &mut Choice) {
+    let holder = core
+        .transient()
+        .combat
+        .last_ship_destroyed
+        .map(|(_, victim, _)| r.seat_text(victim).to_owned())
+        .or_else(|| {
+            let (_, attacker, defender) = gs.active_space_combat.as_ref()?;
+            Some(if r.seat_text(choice.actor) == attacker.as_str() { defender } else { attacker }.to_string())
+        });
+    let Some(holder) = holder else { return };
+    let Some(context) = rendered.context.take() else { return };
+    rendered.context = Some(
+        context
+            .with_hit(crate::decision_context::HitDetail {
+                cause: crate::decision_context::HitCause::CourageousToTheEnd,
+                destroy: true,
+                restriction: crate::decision_context::HitRestriction::Any,
+                producer: Some(PlayerId::new(holder)),
+            })
+            .about_battle(gs)
+            .about_invasion(gs),
+    );
 }
 
 /// The casualty question of a Courageous To The End played inside a window.
@@ -1019,6 +1043,7 @@ impl NestedPos {
 fn with_trigger_of(choice: &CoreChoice) -> bool {
     use ti4_engine_core::choice::reaction::Ask as RAsk;
     match choice.ask {
+        ti4_engine_core::choice::Ask::Reaction(RAsk::G(g)) => g.carries_trigger(),
         ti4_engine_core::choice::Ask::Reaction(a) => !matches!(a, RAsk::Legionnaire { .. } | RAsk::Cavalry | RAsk::Assimilate | RAsk::Watcher { .. } | RAsk::Salvage | RAsk::Indoctrination { .. } | RAsk::IcarusDrive | RAsk::AgentShip { .. } | RAsk::Edict),
         ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::PlayCard { .. }) => true,
         _ => false,
@@ -2042,10 +2067,9 @@ pub fn round_opening_why(gs: &GameState, content: &ti4_content::ContentStore, a:
     // Supercharge a Valefar Assimilator carries is offered and exhausted through the carrier since package W14
     // (`fx_strategy::text_carrier`).
     for id in [a.attacker, a.defender] {
-        match gs.player(id).map(|p| p.faction.as_str()) {
-            // (The neutral force has no seat: the core holds it as an owner without one.)
-            None if !crate::neutral_units::is_neutral(id) => return Some("a side that is not a seated player"),
-            _ => {}
+        // (The neutral force has no seat: the core holds it as an owner without one.)
+        if gs.player(id).is_none() && !crate::neutral_units::is_neutral(id) {
+            return Some("a side that is not a seated player");
         }
         // Letnev's Munitions Reserves is paid at the opening below `RULES_MUNITIONS_AFTER_ROLL` (a question and a payment: the core
         // window asks it since package W10); later it is decided after the roll (`roll_unported`). Goods a Keleres agent could turn
@@ -2104,7 +2128,7 @@ const WINDOW_ENV: &str = "the combat environment could not be built from the pos
 /// The end announcement also flips the dual-form units of the space area back to their ground form (the board).
 const END_ANNOUNCE: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
-    &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Board],
+    &[Slice::Meta, Slice::Transient, Slice::Pending, Slice::Board, Slice::Marks],
 );
 
 /// The opening of a round also flips the dual-form units (the board), repairs the Maximum and exhausts Supercharge (players, marks).
@@ -3238,7 +3262,6 @@ pub fn ground_hits(
     script: &Recording,
 ) -> Option<CoreWindow<HitsOut>> {
     use ti4_engine_core::rules::invasion::hits::{Batch, GroundHits};
-    const LABEL: &str = "invasion::ground_hits";
     let (mut cx, r) = tables_of_sides(gs, &[a.victim]).why(crate::dual::reason::NO_TABLES)?;
     nested_check(script)?;
     let seat = r.seat(a.victim.as_str()).why(crate::dual::reason::NO_SEAT)?;
@@ -3465,11 +3488,9 @@ const DEFENSE: Footprint = Footprint::new(
 /// invader, and the Keleres' Custodian's Favour (a dropped faction). (Entropic scars, L4 Disruptors and the SPACE CANNON of an attachment are the
 /// window's since package X.)
 #[must_use]
-pub fn defense_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, a: &DefenseArgs<'_>) -> Option<&'static str> {
+pub fn defense_unported(_gs: &GameState, _content: &ti4_content::ContentStore, _sources: ti4_model::content_types::SourceSet, a: &DefenseArgs<'_>) -> Option<&'static str> {
     if !a.reproducible {
         Some("irreproducible dice (test faces or a stream restore)")
-    } else if crate::neutral_units::is_neutral(a.invader) {
-        Some("neutral invader")
     } else {
         None
     }
@@ -3536,6 +3557,84 @@ pub fn space_cannon_defense(
     Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
 }
 
+// --- the reroll window of a bombardment (W15) ---------------------------------------------------------
+
+/// What the string `InvasionWindow::announce_bombard_rerolls` was called with.
+#[derive(Debug, Clone, Copy)]
+pub struct BombardRollArgs<'a> {
+    pub invader: &'a PlayerId,
+    pub system: &'a ti4_model::id::SystemId,
+    /// The resolver carries the timing machinery (`ctx.emit` announces).
+    pub announce: bool,
+    /// The dice and streams are the ones the core can reproduce (no test faces, no pending restore).
+    pub reproducible: bool,
+}
+
+/// What the window leaves besides the state: the faces of every staged entry after the event and where the streams stand.
+pub type BombardRollOut = (Vec<Vec<u32>>, crate::rng::RngPositions);
+
+const BOMBARD_ROLL: Footprint = Footprint::new(
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
+);
+
+/// Why the position holds something the core window does not carry (`None`: it is carried): test faces or a pending stream restore, a
+/// Heart of Ixth in play (it bends the faces that survive the event) and the invader's Jol-Nar commander (a question per die).
+#[must_use]
+pub fn bombard_rolled_why(gs: &GameState, a: &BombardRollArgs<'_>) -> Option<&'static str> {
+    if !a.reproducible {
+        return Some("irreproducible dice (test faces or a stream restore)");
+    }
+    let heart = ti4_model::id::RelicId::new("heartofixth");
+    if gs.players.iter().any(|p| crate::relics::holds(gs, &p.id, &heart)) {
+        return Some("the Heart of Ixth (Thunder's Edge relic)");
+    }
+    if crate::promissory::has_commander_ability(gs, a.invader, "jolnarcommander") {
+        return Some("the Jol-Nar commander (a reroll question per die)");
+    }
+    None
+}
+
+/// The core half of `InvasionWindow::announce_bombard_rerolls`' reroll windows. `None` for the positions of [`bombard_rolled_why`],
+/// nested activity the reaction table does not follow and a position the codecs refuse.
+#[must_use]
+pub fn bombard_rolled(
+    gs: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    a: &BombardRollArgs<'_>,
+    rng_before: &crate::rng::RngPositions,
+    script: &Recording,
+) -> Option<CoreWindow<BombardRollOut>> {
+    use ti4_engine_core::rules::invasion::bombard_roll::{BombardRolled, Facts};
+    let (mut cx, r) = tables_of_sides(gs, &[a.invader]).why(crate::dual::reason::NO_TABLES)?;
+    nested_check(script)?;
+    let invader = r.seat(a.invader.as_str()).why(crate::dual::reason::NO_SEAT)?;
+    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+    let before = gs.clone();
+    let env = crate::core_invasion::ground_env(&before, &cx, sources).why("the invasion environment could not be built from the position")?;
+    let facts = Facts { invader, system, announce: a.announce, kind: r.code("bombardment") };
+    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
+    let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
+    let resolver = Resolver::new(&seats, Some(invader));
+    let mut driver = Driver::new(BombardRolled::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut staged = Vec::new();
+    let mut rng_after = None;
+    let src = Sources { galaxy: None, rng: Some(rng_before) };
+    let driven = with_core(gs, &mut cx, src, nested_fp(BOMBARD_ROLL, script), |core, _| {
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        rng_after = Some(core.rng().clone());
+        driven
+    })
+    .why(crate::dual::reason::NOT_LENDABLE)?
+    .why(crate::dual::reason::DRIVER_REFUSED)?;
+    apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+    let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+    let value: BombardRollOut = (driver.window.faces.iter().map(|f| f.iter().map(|x| u32::from(*x)).collect()).collect(), positions);
+    Some(CoreWindow { run: Run::new(value).with_events_vec(events), questions: driven.rendered })
+}
+
 // --- the ground round's dice (B2) ----------------------------------------------------------------------
 
 /// What the string `roll_ground_pair` was called with.
@@ -3566,7 +3665,7 @@ const GROUND_ROLL: Footprint = Footprint::new(
 /// Why the position holds something the core window does not carry: test faces or a stream restore, a neutral
 /// side, X-89 Bacterial Weapon (the doubled hits).
 #[must_use]
-pub fn ground_roll_unported(gs: &GameState, a: &GroundRollArgs<'_>) -> Option<&'static str> {
+pub fn ground_roll_unported(_gs: &GameState, a: &GroundRollArgs<'_>) -> Option<&'static str> {
     if !a.reproducible {
         Some("irreproducible dice (test faces or a stream restore)")
     } else {
@@ -3934,7 +4033,7 @@ pub struct RollTailArgs<'a> {
 /// which the string emits after the tail (`roll_ground_step`), outside this window; its replays run the tail again from the
 /// state the step left (the replay mark is cleared before the event, so the tail never sees one).
 #[must_use]
-pub fn roll_tail_unported(gs: &GameState, a: &RollTailArgs<'_>) -> Option<&'static str> {
+pub fn roll_tail_unported(gs: &GameState, _a: &RollTailArgs<'_>) -> Option<&'static str> {
     if gs.faction_marks.contains_key(crate::combat::ROLL_REPLAY_MARK) {
         Some("roll replay mark")
     } else {
@@ -4429,7 +4528,7 @@ pub fn mahact_hero(
 /// side or a coexisting planet where the planets are fought, a Letnev rival (the Dunlain Reaper), and the effects of gaining control the
 /// window does not carry (a Minister of Exploration, the Crown of Emphidia, L1Z1X's Fealty Uplink).
 #[must_use]
-pub fn yin_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, player: &PlayerId, spots: &[(ti4_model::id::SystemId, ti4_model::id::PlanetId)]) -> Option<&'static str> {
+pub fn yin_unported(gs: &GameState, _content: &ti4_content::ContentStore, _sources: ti4_model::content_types::SourceSet, player: &PlayerId, spots: &[(ti4_model::id::SystemId, ti4_model::id::PlanetId)]) -> Option<&'static str> {
     let everyone: Vec<&PlayerId> = gs.players.iter().map(|p| &p.id).collect();
     // (The Thundarian watching the Roll Dice step is a rule of the core table, followed as nested activity, package W13.)
     // (X-89 Bacterial Weapon doubles the hits in the core fight since package W10: `FightFacts::x89`.)
@@ -4636,6 +4735,9 @@ fn with_twin_forms(present: &mut Vec<ti4_engine_core::generated::Unit>) {
     }
 }
 
+/// The environment of the machine, the fields of the window and the texts of the roll groups ([`build_settle_env`]).
+pub(crate) type BuiltEnv = (ti4_engine_core::rules::combat::machine::Env, ti4_engine_core::state::CombatFields, Vec<(ti4_engine_core::state::Code, String)>);
+
 /// The environment of the machine, the fields of the window and the texts of the roll groups, as the string `settle` hands them over
 /// (`a`: its gates and fields, `before` the position it starts from).
 #[allow(clippy::too_many_lines, reason = "one environment, built field by field")]
@@ -4643,10 +4745,10 @@ pub(crate) fn build_settle_env(
     before: &GameState,
     cx: &mut Ctx,
     r: &Render,
-    sources: ti4_model::content_types::SourceSet,
+    _sources: ti4_model::content_types::SourceSet,
     a: &SettleArgs,
     begin_occurrence: bool,
-) -> Option<(ti4_engine_core::rules::combat::machine::Env, ti4_engine_core::state::CombatFields, Vec<(ti4_engine_core::state::Code, String)>)> {
+) -> Option<BuiltEnv> {
     use ti4_engine_core::rules::combat::machine::Env;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let (attacker, defender) = (seat(&a.attacker).why(crate::dual::reason::NO_SEAT)?, seat(&a.defender).why(crate::dual::reason::NO_SEAT)?);
@@ -4792,7 +4894,8 @@ fn settle_run(
     waylay_check(gs, script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let (attacker, defender) = (seat(&a.attacker).why(crate::dual::reason::NO_SEAT)?, seat(&a.defender).why(crate::dual::reason::NO_SEAT)?);
-    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+    // (An unknown system id is the bail; the id itself is read again by the environment.)
+    let _system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources).why(WINDOW_ENV)?;
     let (menv, fields, texts) = build_settle_env(&before, &mut cx, &r, sources, &a, begin_occurrence)?;

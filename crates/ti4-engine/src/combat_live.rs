@@ -15,7 +15,6 @@ use crate::render::Render;
 pub const fn gap_text(why: AftermathGap) -> &'static str {
     match why {
         AftermathGap::NoProgress => "the aftermath made no progress (a stage that neither asks nor moves on)",
-        AftermathGap::ProductionStep => "the production step of the aftermath (the production island is not native)",
         AftermathGap::Negotiating => "the contact pause of the aftermath (structured diplomacy is dropped)",
         AftermathGap::NoCombatEnv => "a space combat whose environment cannot be built from the position",
         AftermathGap::CombatUnported => "the space combat machine reached a position it does not carry (cancelled hits, Duranium Armor, Devotion, staged destructions, a retreat the core does not move)",
@@ -128,7 +127,7 @@ const MAX_TYPES: usize = 10;
 /// types present, with the other form of each dual-form unit) their names and every roll group's. State texts go to the position's table, shown
 /// texts to the render table. A fight with more than ten types names none (the machine then stops at a roll it cannot name).
 pub fn combat_texts(core: &mut CoreState, r: &Render) -> CombatTexts {
-    let mut state_code = |core: &mut CoreState, text: &str| -> Code {
+    let state_code = |core: &mut CoreState, text: &str| -> Code {
         Code(u16::try_from(core.texts.codes.intern(text.as_bytes(), CODE_CAPACITY).expect("room for the text")).expect("a code fits"))
     };
     let mut t = CombatTexts::default();
@@ -235,6 +234,32 @@ mod tests {
         state
     }
 
+    /// The answer after the script ran out, the same on both sides: the first option; but a production question (the step after the invasion,
+    /// lane M2) is answered by the build budget: `build|destroyer|1` while the run may still buy one (paid with trade goods), then
+    /// `done_producing`.
+    fn default_answer(c: &Choice, builds: &std::cell::Cell<u32>) -> Option<String> {
+        let has = |id: &str| c.options.iter().any(|o| o.id == id);
+        if c.prompt.starts_with("produce in") {
+            if builds.get() > 0
+                && let Some(o) = c.options.iter().find(|o| o.id.starts_with("build|destroyer|"))
+            {
+                builds.set(builds.get() - 1);
+                return Some(o.id.clone());
+            }
+            if has("done_producing") {
+                return Some("done_producing".to_owned());
+            }
+        }
+        // (A carrier with nothing to carry is asked for its cargo at some tables and not at others: the default sails empty.)
+        if c.prompt.starts_with("load ") && has("done_loading") {
+            return Some("done_loading".to_owned());
+        }
+        if c.prompt.starts_with("pay ") && has("trade_good") {
+            return Some("trade_good".to_owned());
+        }
+        c.options.first().map(|o| o.id.clone())
+    }
+
     /// What one side of the lockstep leaves.
     struct Side {
         asked: Vec<Choice>,
@@ -249,12 +274,13 @@ mod tests {
     struct Recorder {
         queue: Rc<RefCell<VecDeque<String>>>,
         asked: Rc<RefCell<Vec<Choice>>>,
+        builds: std::cell::Cell<u32>,
     }
 
     impl crate::choice::Decider for Recorder {
         fn choose(&mut self, c: &Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
             self.asked.borrow_mut().push(c.clone());
-            let Some(id) = self.queue.borrow_mut().pop_front().or_else(|| c.options.first().map(|o| o.id.clone())) else {
+            let Some(id) = self.queue.borrow_mut().pop_front().or_else(|| default_answer(c, &self.builds)) else {
                 return Err(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: "<no option>".to_owned(), offered: Vec::new() });
             };
             c.options.iter().find(|o| o.id == id).cloned().ok_or(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: id, offered: c.ids().into_iter().map(str::to_owned).collect() })
@@ -262,11 +288,11 @@ mod tests {
     }
 
     /// The string run: `script[0]` answers the action menu, the rest the window's questions; steps until the action is over.
-    fn string_run(state: &GameState, galaxy: &Galaxy, script: &[&str]) -> Side {
+    fn string_run(state: &GameState, galaxy: &Galaxy, script: &[&str], builds: u32) -> Side {
         let _ = take_report();
         let queue = Rc::new(RefCell::new(script.iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
         let asked = Rc::new(RefCell::new(Vec::new()));
-        let table = crate::choice::Table::with_default(Box::new(Recorder { queue: queue.clone(), asked: asked.clone() }));
+        let table = crate::choice::Table::with_default(Box::new(Recorder { queue: queue.clone(), asked: asked.clone(), builds: std::cell::Cell::new(builds) }));
         let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table).with_galaxy(galaxy.clone());
         with_mask(AreaMask::STRING, || {
             for i in 0..80 {
@@ -292,6 +318,7 @@ mod tests {
     struct Shared {
         queue: Rc<RefCell<VecDeque<String>>>,
         seen: Rc<RefCell<Vec<Choice>>>,
+        builds: std::cell::Cell<u32>,
     }
 
     impl crate::live::Asker for Shared {
@@ -300,13 +327,13 @@ mod tests {
             if std::env::var_os("M5_DEBUG").is_some() {
                 eprintln!("NQ {} {} nested={} {:?}", q.rendered.player, q.rendered.prompt, q.asking.nested.is_some(), q.rendered.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>());
             }
-            Ok(self.queue.borrow_mut().pop_front().unwrap_or_else(|| q.rendered.options.first().map(|o| o.id.clone()).unwrap_or_default()))
+            Ok(self.queue.borrow_mut().pop_front().unwrap_or_else(|| default_answer(&q.rendered, &self.builds).unwrap_or_default()))
         }
     }
 
     /// The native run: the tactical window opens as the menu's answer does, then one `live_step` per step of the arm the position names, until the
     /// action is over.
-    fn native_run(state: &GameState, galaxy: &Galaxy, rng: &crate::rng::RngPositions, script: &[&str]) -> Side {
+    fn native_run(state: &GameState, galaxy: &Galaxy, rng: &crate::rng::RngPositions, script: &[&str], builds: u32) -> Side {
         let mut cx = Ctx::of(state).expect("owners");
         let render = Render::new(cx.owners.ids().to_vec());
         let sources = POK;
@@ -324,7 +351,7 @@ mod tests {
         let live = Cx::new(&render, &env);
         let queue = Rc::new(RefCell::new(script[1..].iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let mut asker = Shared { queue: queue.clone(), seen: seen.clone() };
+        let mut asker = Shared { queue: queue.clone(), seen: seen.clone(), builds: std::cell::Cell::new(builds) };
         let mut bail = None;
         let mut after = Vec::new();
         for _ in 0..120 {
@@ -369,6 +396,20 @@ mod tests {
         Side { asked, events, after: after_events, state: serde_json::to_value(&materialized).expect("serialises"), bail }
     }
 
+    /// The `#seen:` marks of the per-step reconcile hooks (`starting_tech::settle`, `announce_gains`: lane B's `live_reconcile`) are the string's
+    /// first step and not part of the aftermath; `leaves` already drops a difference whose PATH names them, but a map that holds nothing else is
+    /// absent on one side and present on the other (a Yssaril table), a difference at the map's own path. Both sides lose them here, and a map
+    /// left empty is no map.
+    fn without_seen_marks(mut state: Value) -> Value {
+        if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
+            marks.retain(|k, _| !k.contains("#seen:"));
+            if marks.is_empty() {
+                state.as_object_mut().map(|o| o.remove("faction_marks"));
+            }
+        }
+        state
+    }
+
     fn leaves(label: &str, left: &Value, right: &Value) -> Vec<String> {
         // `active`, `action_turn`, `turn_seq`: the string closes the action into the next turn (`finish_action`, the turn flow's, not run here).
         // `trigger.event_id`: the string's first step is the turn prelude (`TURN_BEGAN`), which numbers one event the native run does not take.
@@ -396,10 +437,15 @@ mod tests {
 
     /// Run both and report every difference of the questions, the events and the position.
     fn lockstep(state: GameState, galaxy: &Galaxy, script: &[&str]) -> Vec<String> {
+        lockstep_buying(state, galaxy, script, 0)
+    }
+
+    /// [`lockstep`] with a production step that may buy `builds` destroyers after the script ran out.
+    fn lockstep_buying(state: GameState, galaxy: &Galaxy, script: &[&str], builds: u32) -> Vec<String> {
         let _guard = crate::dual::tests::serial();
         let rng = crate::rng::GameRng::new(state.rng_seed).positions();
-        let s = string_run(&state, galaxy, script);
-        let n = native_run(&state, galaxy, &rng, script);
+        let s = string_run(&state, galaxy, script, builds);
+        let n = native_run(&state, galaxy, &rng, script, builds);
         let mut out = Vec::new();
         if let Some(why) = &n.bail {
             out.push(format!("BAIL: {why}"));
@@ -430,7 +476,7 @@ mod tests {
         if string_after.iter().map(|e| e.as_str()).ne(n_after.iter().map(String::as_str)) {
             out.push(format!("events: string {string_after:?} native {n_after:?}"));
         }
-        out.extend(leaves("state", &s.state, &n.state));
+        out.extend(leaves("state", &without_seen_marks(s.state.clone()), &without_seen_marks(n.state.clone())));
         if std::env::var_os("M5_DEBUG").is_some() {
             for (i, q) in s.asked.iter().enumerate() {
                 eprintln!("Q{i} {} {}: {:?}", q.player, q.prompt, q.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>());
@@ -651,5 +697,111 @@ mod tests {
             let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]);
             assert!(diffs.is_empty(), "seed {seed}: {diffs:#?}");
         }
+    }
+
+    /// A system of two ordinary planets as the centre of the hub (the target of the action), with the two planets: seat `a` holds the first one
+    /// and a space dock on it.
+    fn dock_hub() -> (crate::fixtures::Hub, SystemId, SystemId, ti4_model::id::PlanetId, ti4_model::id::PlanetId) {
+        let content = ContentStore::embedded();
+        let (system, planets): (String, Vec<String>) = ti4_content::galaxy::all_systems(content, POK)
+            .iter()
+            .filter(|(_, sys)| !sys.is_anomaly() && !sys.is_hyperlane())
+            .map(|(id, sys)| ((*id).to_owned(), sys.planets().into_iter().map(str::to_owned).collect::<Vec<_>>()))
+            .find(|(_, ps)| {
+                ps.len() == 2
+                    && ps.iter().all(|p| ti4_content::galaxy::planet(content, p, POK).is_some_and(|p| p.homeworld_of().is_none() && !p.is_legendary() && !p.is_space_station() && !p.is_placed_during_play()))
+            })
+            .expect("a system with two ordinary planets");
+        let target = SystemId::new(system);
+        let hub = crate::fixtures::hub_with_centre(target.as_str());
+        let origin = SystemId::new(hub.outer[0].clone());
+        (hub, origin, target, ti4_model::id::PlanetId::new(planets[0].clone()), ti4_model::id::PlanetId::new(planets[1].clone()))
+    }
+
+    /// The position of the production tests: `a` holds the first planet of the target with a space dock on it.
+    fn dock_table(mine: &str, theirs: &str, target: &SystemId, dock: &ti4_model::id::PlanetId) -> GameState {
+        let mut state = table(&[("a", mine), ("b", theirs)]);
+        state.system_mut(target).planet_control.insert(dock.clone(), a());
+        crate::fixtures::put_on_planet(&mut state, target, dock, "spacedock", &a(), 1);
+        state.player_mut(&a()).unwrap().trade_goods = 6;
+        state
+    }
+
+    /// An undefended system the active seat holds with a space dock: no fight, no invasion, and the aftermath goes on to the production step,
+    /// which the native chain hands to `Arm::Production` (lane M5 to lane M2). Several factions; a counted bail is a failure.
+    #[test]
+    fn an_undefended_system_with_a_space_dock_goes_on_to_the_production_step_in_lockstep() {
+        let (hub, origin, target, dock, _other) = dock_hub();
+        let mut failures = Vec::new();
+        for faction in ["sol", "hacan", "arborec", "letnev", "mentak", "yin", "jolnar", "naalu", "nekro", "muaat"] {
+            let other = if faction == "hacan" { "sol" } else { "hacan" };
+            for builds in [0, 1] {
+                let mut state = dock_table(faction, other, &target, &dock);
+                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0)];
+                if let Some(d) = lockstep_buying(state, &hub.galaxy, &script, builds).into_iter().next() {
+                    failures.push(format!("{faction} buying {builds}: {d}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// A won space fight in a system the winner holds a space dock in: the fight, the end of the fight, the invasion step with nothing to take, and
+    /// the production step.
+    #[test]
+    fn a_won_space_fight_over_a_space_dock_goes_on_to_the_production_step_in_lockstep() {
+        let (hub, origin, target, dock, _other) = dock_hub();
+        for seed in 1..=3_u64 {
+            for faction in ["sol", "jolnar", "xxcha"] {
+                let mut state = dock_table(faction, "hacan", &target, &dock);
+                state.rng_seed = seed;
+                crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 2);
+                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+                let (m0, done) = (mv(&origin, 0), "done_moving");
+                let diffs = lockstep_buying(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &m0, &m0, &m0, done], 1);
+                assert!(diffs.is_empty(), "{faction} seed {seed}: {diffs:#?}");
+            }
+        }
+    }
+
+    /// A won invasion with a space dock in the system: the infantry takes the other planet, the planet with the dock stays the invader's, and the
+    /// production step follows the invasion's end (`INVASION_RESOLVED`, then `PRODUCTION_USED` ... `PRODUCTION_RESOLVED`).
+    #[test]
+    fn a_won_invasion_with_a_space_dock_goes_on_to_the_production_step_in_lockstep() {
+        let (hub, origin, target, dock, other) = dock_hub();
+        for faction in ["sol", "hacan", "yssaril", "xxcha", "winnu"] {
+            let rival = if faction == "hacan" { "sol" } else { "hacan" };
+            let mut state = dock_table(faction, rival, &target, &dock);
+            state.system_mut(&target).planet_control.insert(other.clone(), b());
+            crate::fixtures::put_on_planet(&mut state, &target, &other, "infantry", &b(), 1);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &origin, "infantry", &a(), 3);
+            let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "load|0", "load|1", "load|2", "done_moving"];
+            let diffs = lockstep_buying(state, &hub.galaxy, &script, 1);
+            assert!(diffs.is_empty(), "{faction}: {diffs:#?}");
+        }
+    }
+
+    /// The live Env names the faction units of the game's own content scope. (It named the full scope, Thunder's Edge reprints included: a game
+    /// without the expansion built the Naalu `naalu_mech_te` in a production step, and an Assimilate seat placed the reprint, while the string
+    /// names `naalu_mech`. Found by lane M2, which overrode the roster in its tests.)
+    #[test]
+    fn the_live_env_names_the_faction_units_of_the_games_own_scope() {
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{Faction, Unit, UnitBaseType};
+        let state = table(&[("a", "naalu"), ("b", "hacan")]);
+        let mut cx = Ctx::of(&state).expect("owners");
+        let render = Render::new(cx.owners.ids().to_vec());
+        let rng = crate::rng::GameRng::new(state.rng_seed).positions();
+        let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+        let core = Codec::load(&mut cx, &state, Sources { galaxy: None, rng: Some(&rng) }, slices).expect("the position loads");
+        let kernel = crate::live::kernel::kernel_for(POK);
+        let env = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), POK);
+        let roster = env.table.facts.roster.expect("a roster");
+        assert_eq!(roster.get(Faction::TheNaaluCollective, UnitBaseType::Mech), Unit::from_id("naalu_mech"), "a game of the Prophecy of Kings places the printed mech");
+        let full = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), ti4_model::content_types::FULL);
+        assert_eq!(full.table.facts.roster.expect("a roster").get(Faction::TheNaaluCollective, UnitBaseType::Mech), Unit::from_id("naalu_mech_te"), "a game with Thunder's Edge its reprint");
     }
 }

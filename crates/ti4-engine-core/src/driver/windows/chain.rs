@@ -14,7 +14,7 @@
 //! | `Fighting` / `Closed`    | `settle`: the feats, the scoring pause        | none |
 //! | `Fighting` / `Announced` | `fight_over`: the win, the enforcement        | a unit to remove ([`FightOver`]) |
 //! | `Invading`               | `Aftermath::Invading(window)`                 | the invasion arm ([`super::invasion`]) |
-//! | `Producing`              | `Aftermath::Producing(window)`                | the production island (a counted gap while it has a capacity) |
+//! | `Producing`              | `Aftermath::Producing(window)`                | the production arm ([`super::production`]) while the seat has a capacity |
 //!
 //! The pause for a scoring window (`Aftermath.event_scoring`) opens [`super::scoring`] above this entry; the arm that runs it has precedence and
 //! this chain goes on when it has left the stack. The plain events the string pushes into `AftermathWindow::log` (`SPACE_COMBAT_RESOLVED`,
@@ -26,6 +26,7 @@ use super::aftermath::{FightOver, OverFacts};
 use super::combat::{advance_combat, ask_combat, open_combat, Opened};
 use super::invasion::{advance_invasion, ask_invasion, open_at_commit, open_invasion};
 use super::live_common::{advance_parkable, After};
+use super::production::{advance_production, ask_production, open_production, UseOpen};
 use super::scoring::open_event_scoring;
 use crate::choice::{Choice, Pick};
 use crate::containers::SmallList;
@@ -227,12 +228,24 @@ impl AftermathChain {
         None
     }
 
-    /// The stage `Producing` (`enter_production`): the step of a seat with no production at all asks nothing and ends the chain.
+    /// The stage `Producing` (`enter_production`): a seat with production capacity in the system gets one use of PRODUCTION (`Window::Production`
+    /// above this entry, `UseOpen::Tactical`: the hero offer, the start effects, the production window, the end effects), which the
+    /// aftermath arm hands its steps to; the step of a seat with no production at all asks nothing and ends the chain.
     fn producing(&mut self, sx: &mut Sx<'_>) -> Option<Next> {
-        let cx = crate::rules::production::Cx::new(sx.state, sx.kernel, reach::scope_of(sx.kernel), reach::blanked(sx.state));
-        if crate::rules::production::capacity(&cx, self.p.player, self.p.system) > 0 {
-            return Some(Self::bail(sx, AftermathGap::ProductionStep));
+        if sx.state.pending().window(WindowKind::Production).is_some() {
+            self.parked = true;
+            return Some(Next::Done);
         }
+        if !self.p.produced {
+            let cx = crate::rules::production::Cx::new(sx.state, sx.kernel, reach::scope_of(sx.kernel), reach::blanked(sx.state));
+            if crate::rules::production::capacity(&cx, self.p.player, self.p.system) > 0 {
+                open_production(sx.state, UseOpen::Tactical { who: self.p.player, system: self.p.system });
+                self.p.produced = true;
+                self.parked = true;
+                return Some(Next::Done);
+            }
+        }
+        // (The use left the stack, or the seat has none to make.)
         if let Some(kind) = announced(Settled::Producing, false) {
             self.p.log.push(kind);
         }
@@ -268,7 +281,7 @@ impl Window for AftermathChain {
                 self.parked = true;
                 return Next::Done;
             }
-            let before = (self.p.stage, self.p.fight, self.p.invaded, self.p.feats_noted);
+            let before = (self.p.stage, self.p.fight, self.p.invaded, self.p.produced, self.p.feats_noted);
             let stopped = match self.p.stage {
                 AStage::Fighting => self.fighting(sx),
                 AStage::Invading => self.invading(sx),
@@ -279,7 +292,7 @@ impl Window for AftermathChain {
             if let Some(next) = stopped {
                 return next;
             }
-            idle = if before == (self.p.stage, self.p.fight, self.p.invaded, self.p.feats_noted) && self.p.event_scoring.is_none() { idle + 1 } else { 0 };
+            idle = if before == (self.p.stage, self.p.fight, self.p.invaded, self.p.produced, self.p.feats_noted) && self.p.event_scoring.is_none() { idle + 1 } else { 0 };
             if idle >= 3 {
                 return Self::bail(sx, AftermathGap::NoProgress);
             }
@@ -360,6 +373,9 @@ pub fn ask_aftermath(core: &CoreState, env: &Env<'_>) -> Result<Option<Asking>, 
     if is_open(core, WindowKind::Invasion) {
         return ask_invasion(core, env);
     }
+    if is_open(core, WindowKind::Production) {
+        return ask_production(core, env);
+    }
     ask::<AftermathChain>(core, env)
 }
 
@@ -415,6 +431,8 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
             Some(advance_combat(core, env, answer.take())?)
         } else if is_open(core, WindowKind::Invasion) {
             Some(advance_invasion(core, env, answer.take())?)
+        } else if is_open(core, WindowKind::Production) {
+            Some(advance_production(core, env, answer.take())?)
         } else {
             None
         };

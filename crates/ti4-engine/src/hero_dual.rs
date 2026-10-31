@@ -19,6 +19,9 @@ pub struct FlayeshTarget {
     pub techs: Vec<ti4_model::id::TechnologyId>,
 }
 
+/// What the Winnu hero plays: the card chosen, whether its primary resolved plainly and the system of the free tactical action (Thunder's Edge Warfare).
+pub type WinnuValue = (Option<String>, bool, Option<String>);
+
 #[cfg(feature = "typed-core")]
 mod real {
     use ti4_engine_core::generated::{Planet, System, Technology};
@@ -449,7 +452,7 @@ mod real {
         sources: &SourceSet,
         galaxy: Option<&ti4_content::galaxy::Galaxy>,
         script: &Recording,
-    ) -> Option<CoreWindow<(Option<String>, bool, Option<String>)>> {
+    ) -> Option<CoreWindow<super::WinnuValue>> {
         use ti4_engine_core::generated::StrategyCard;
         if let Some(why) = crate::dual_window::outside_following(gs, script) {
             crate::dual::note_bail_here(why);
@@ -756,7 +759,7 @@ mod stub {
         _: &ti4_model::content_types::SourceSet,
         _: Option<&ti4_content::galaxy::Galaxy>,
         _: &crate::dual_window::Recording,
-    ) -> Option<crate::dual::CoreWindow<(Option<String>, bool, Option<String>)>> {
+    ) -> Option<crate::dual::CoreWindow<super::WinnuValue>> {
         None
     }
 

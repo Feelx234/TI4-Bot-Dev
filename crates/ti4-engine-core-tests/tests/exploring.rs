@@ -439,16 +439,16 @@ fn what_the_window_does_not_carry_is_named() {
     covers!("rules::explore_windows::Exploring");
     use ti4_engine_core::state::EWhy;
     let spot = planet_with(&[PlanetTrait::Cultural]);
-    // Freelancers produce a unit with influence: a child the exploration does not run.
+    // Freelancers produce a unit: a table with no faction unit roster (or no link to the production area) cannot name the units it may build.
     let (mut rig, _, _) = quick(spot, ExploreType::Cultural, &[Explore::Freelancers1]);
     rig.run();
-    assert!(rig.is_done() && rig.driver.window.unsupported() == Some(EWhy::Freelancers), "{}", rig.transcript());
-    // A Titans seat that announces: Terragenesis is not a rule of the core table.
+    assert!(rig.is_done() && rig.driver.window.unsupported() == Some(EWhy::NoLink), "{}", rig.transcript());
+    assert!(!rig.state.meta().influence_pays_for_units.contains(Seat(0)), "the permission to pay with influence is not left behind");
+    // A Titans seat that announces explores like any other: Terragenesis is a rule of the table (the registry), not of the window.
     let s = setup(spot, &[Faction::TheTitansOfUl, Faction::TheArborec]);
     let (mut rig, _, _) = build(s, ExploreType::Cultural, &[Explore::CulturalRelicFragment1], true, EDeck::Fixed(ExploreType::Cultural));
     rig.run();
-    assert!(rig.is_done() && rig.driver.window.unsupported() == Some(EWhy::Terragenesis));
-    assert!(rig.state.explore().log.is_empty(), "nothing is drawn before the window says it cannot run");
+    assert!(rig.is_done() && rig.driver.window.unsupported().is_none() && rig.driver.window.explored());
     // Without the texts of the log row (a table the adapter did not fill).
     let s = setup(spot, &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
     let (mut state, kernel) = s.scenario.build();
@@ -504,11 +504,11 @@ fn a_run_stored_after_every_question_resumes_to_the_same_end() {
 }
 
 /// A host that keeps the run in a payload rebuilds the window at every call: a child of another area started by an answer runs at once (it
-/// would be lost otherwise: the card was closed without its draw), and one that asks is a named bail.
+/// would be lost otherwise: the card was closed without its draw), and one that asks (the discard of a draw over the hand limit) puts its question
+/// to the tape: the step is replayed with the answer, and the exploration ends like any other.
 #[test]
-fn a_hosted_exploration_runs_a_child_that_does_not_ask_at_once_and_names_one_that_does() {
+fn a_hosted_exploration_runs_a_child_that_does_not_ask_at_once_and_puts_one_that_does_to_the_tape() {
     covers!("rules::explore_windows::Exploring");
-    use ti4_engine_core::state::EWhy;
     let spot = planet_with(&[PlanetTrait::Industrial]);
     let make = |hand: usize| {
         let s = setup(spot, &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
@@ -524,7 +524,7 @@ fn a_hosted_exploration_runs_a_child_that_does_not_ask_at_once_and_names_one_tha
         ti4_engine_core::driver::children::register(&mut table);
         (state, kernel, table)
     };
-    for (hand, want_why) in [(0, None), (7, Some(EWhy::LinkedAsks))] {
+    for (hand, asks) in [(0, false), (7, true)] {
         let (mut state, kernel, table) = make(hand);
         let mut driver = Driver::new(Exploring::hosted(ti4_engine_core::state::ExploreRun::new(Seat(0), ti4_engine_core::state::ETarget::Planet(spot.1), EDeck::Fixed(ExploreType::Industrial), false)), ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table.clone(), 1);
         let Status::Asking(_) = driver.run(&mut state, &kernel).unwrap() else { panic!("the base asks") };
@@ -532,11 +532,34 @@ fn a_hosted_exploration_runs_a_child_that_does_not_ask_at_once_and_names_one_tha
         let run = driver.window.run().clone();
         let mut resumed = Driver::new(Exploring::hosted(run), ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table, 1);
         assert!(resumed.restore_stage(&state, &kernel));
-        let _ = resumed.resume(&mut state, &kernel, Pick::Opt(ex(EOpt::SpendTradeGood)));
-        assert_eq!(resumed.window.unsupported(), want_why, "hand of {hand}");
+        let status = resumed.resume(&mut state, &kernel, Pick::Opt(ex(EOpt::SpendTradeGood))).unwrap();
+        assert_eq!(resumed.window.unsupported(), None, "hand of {hand}");
+        if asks {
+            // The discard is a question of the step (nested, in the journal); the draw is rolled back with the step until it is answered.
+            let Status::Asking(discard) = status else { panic!("a hand over the limit discards") };
+            assert!(!discard.opts.as_slice().is_empty());
+            assert_eq!(discard.ctx.invasion_seq, None, "outside an invasion");
+            let held = resumed.nested_journal().expect("the suspension");
+            let mut again = Driver::new(Exploring::hosted(resumed.window.run().clone()), ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), explore_table_with_links(), 1);
+            again.restore_nested(&held);
+            let Status::Asking(same) = again.reask(&mut state, &kernel).unwrap() else { panic!("asks again") };
+            assert_eq!(same, discard, "a rebuilt window asks the same question");
+            let pick = Pick::Opt(discard.opts.as_slice()[0]);
+            assert!(matches!(again.resume(&mut state, &kernel, pick).unwrap(), Status::Done), "the discard ends the exploration");
+            assert!(again.window.explored() && again.window.unsupported().is_none());
+        } else {
+            assert!(matches!(status, Status::Done));
+        }
         let held = state.players().by_seat(Seat(0)).unwrap().cards.hand.len();
-        assert_eq!(held, hand + 1, "the card is drawn before the discard question (hand of {hand})");
+        assert_eq!(held, if asks { 7 } else { 1 }, "the draw is kept, a hand over the limit gives one back (hand of {hand})");
     }
+}
+
+fn explore_table_with_links() -> ti4_engine_core::kernel::stage::AbilityTable {
+    let mut table = explore_table();
+    table.facts.card_groups = (0..ActionCard::COUNT as u8).collect();
+    ti4_engine_core::driver::children::register(&mut table);
+    table
 }
 
 /// Every question asked while an invasion is open names it, the pool question of a command token included (the string `ask_seeing`).
@@ -592,7 +615,7 @@ fn a_table_missing_the_texts_or_the_words_declines_and_the_gates_read_their_own_
         rig.run();
         assert_eq!(rig.driver.window.unsupported(), Some(EWhy::NoTexts), "filled {filled} words {words}");
     }
-    // Terragenesis only matters to a Titans seat that announces an exploration of a planet.
+    // A Titans seat explores like any other.
     let s = setup(spot, &[Faction::TheTitansOfUl, Faction::TheArborec]);
     let (mut quiet, _, _) = build(s, ExploreType::Cultural, &[Explore::CulturalRelicFragment1], false, EDeck::Fixed(ExploreType::Cultural));
     quiet.run();
@@ -762,4 +785,31 @@ fn the_last_survivors_a_table_without_unit_forms_a_one_good_conversion_and_a_gai
         rig.pick_opt(ex(EOpt::Gain));
         assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, 1, "{card:?}");
     }
+}
+
+/// The question of a linked child that asks inside a hosted exploration names the invasion the position is in, like every other question of the window.
+#[test]
+fn a_discard_put_to_the_tape_names_the_open_invasion() {
+    covers!("rules::explore_windows::Exploring");
+    use ti4_engine_core::containers::Cow;
+    use ti4_engine_core::state::{ActiveInvasion, Code};
+    let spot = planet_with(&[PlanetTrait::Industrial]);
+    let s = setup(spot, &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
+    let s = Setup { scenario: s.scenario.goods(0, 2), ..s };
+    let (system, planet) = (s.system, s.planet);
+    let (mut state, kernel) = s.scenario.build();
+    stack(&mut state, ExploreType::Industrial, &[Explore::FunctioningBase1]);
+    state.decks_mut().action.set(vec![ActionCard::Spy, ActionCard::Rout]);
+    for card in ActionCard::ALL.iter().copied().skip(10).take(7) {
+        state.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(card);
+    }
+    state.transient_mut().invasion.active = Some(Cow::new(ActiveInvasion { system, invader: Seat(0), seq: 5, phase: Code(1), planet: Some(planet), defender: None, ground_round: 0, last_step: None }));
+    let table = explore_table_with_links();
+    let mk = |run| Driver::new(Exploring::hosted(run), ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table.clone(), 1);
+    let mut driver = mk(ti4_engine_core::state::ExploreRun::new(Seat(0), ti4_engine_core::state::ETarget::Planet(planet), EDeck::Fixed(ExploreType::Industrial), false));
+    let Status::Asking(_) = driver.run(&mut state, &kernel).unwrap() else { panic!("the base asks") };
+    let mut resumed = mk(driver.window.run().clone());
+    assert!(resumed.restore_stage(&state, &kernel));
+    let Status::Asking(discard) = resumed.resume(&mut state, &kernel, Pick::Opt(ex(EOpt::SpendTradeGood))).unwrap() else { panic!("a discard") };
+    assert_eq!(discard.ctx.invasion_seq, Some(5));
 }

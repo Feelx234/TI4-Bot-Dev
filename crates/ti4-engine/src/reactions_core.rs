@@ -43,6 +43,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::INDOCTRINATION, kind: "ability", card: "indoctrination" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::GREYFIRE, kind: "promissory", card: "greyfire" },
+    Named { slot: ti4_engine_core_factions::cd_registry::titans::offer::TERRAGENESIS, kind: "ability", card: "terragenesis" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_SPACE, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_GROUND, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::magen_defense::ACTIVATION, kind: "technology", card: "md" },
@@ -91,6 +92,15 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::saar::timing::MENDOSA, kind: "leader", card: "saaragent" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::EDICT_SPACE, kind: "ability", card: "edict" },
     Named { slot: ti4_engine_core_factions::cc_ground::mahact::timing::EDICT_GROUND, kind: "ability", card: "edict" },
+    Named { slot: ti4_engine_core_factions::silent::gift::GIFT, kind: "promissory", card: "gift" },
+    Named { slot: ti4_engine_core_factions::silent::gift::GIFT_RETURN, kind: "promissory", card: "gift_return" },
+    Named { slot: ti4_engine_core_factions::silent::returns::INF2_RETURN, kind: "technology", card: "inf2_return" },
+    Named { slot: ti4_engine_core_factions::silent::returns::WARRIOR_RETURN, kind: "unit", card: "arborec_infantry2_return" },
+    Named { slot: ti4_engine_core_factions::silent::returns::LEGIONNAIRE_RETURN, kind: "unit", card: "mahact_infantry2_return" },
+    Named { slot: ti4_engine_core_factions::silent::scavenge::SCAVENGE, kind: "ability", card: "scavenge" },
+    Named { slot: ti4_engine_core_factions::silent::mitosis::MITOSIS, kind: "ability", card: "mitosis" },
+    Named { slot: ti4_engine_core_factions::silent::pillage::PILLAGE_GAINED, kind: "ability", card: "pillage" },
+    Named { slot: ti4_engine_core_factions::silent::pillage::PILLAGE_TRANSACTION, kind: "ability", card: "pillage" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
     Named { slot: cabal::DEVOUR_GROUND, kind: "ability", card: "devour" },
     Named { slot: cabal::TERROR_SHIPS, kind: "unit", card: "cabal_flagship" },
@@ -194,6 +204,9 @@ pub(crate) fn id_text(r: &Render, spec: &Spec, owner: &str, owner_seat: &str, le
     if is_reaction_slot(spec.slot) {
         return format!("reaction:{owner}:{event}:{rel}");
     }
+    if let Some(gap) = crate::ability_gaps::index_of(spec.slot) {
+        return crate::ability_gaps::display_id(gap, owner);
+    }
     let n = NAMED.iter().find(|n| n.slot == spec.slot).expect("every spec is named");
     format!("{}:{owner}:{}:{event}:{rel}", n.kind, n.card)
 }
@@ -214,6 +227,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::magen_defense::register_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
+            ti4_engine_core_factions::silent::register_before_movement(&mut t);
             ti4_engine_core_factions::ce_movement::register_abilities(&mut t);
             // The string order of the faction modules: only abilities of one window share a bucket, and Mahact's
             // Legionnaire and Yin's agent do (GROUND_FORCE_DESTROYED), Mentak's Salvage Operations and the Nomad's
@@ -224,6 +238,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::cb_economy::register_late_abilities(&mut t);
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
             ti4_engine_core_factions::activation::register(&mut t);
+            ti4_engine_core_factions::silent::register_abilities(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             ti4_engine_core_factions::cards::register(&mut t);
             // The links to the areas whose windows an action card runs as children: a play window that follows nested
@@ -555,6 +570,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.empyrean_mech = r.code("empyrean_mech");
         table.codes.salvage = r.code("so");
         table.codes.indoctrination = r.code("indoctrination");
+        table.codes.terragenesis = r.code("terragenesis");
         table.facts.pay_kernel = Some(crate::production_view::kernel);
         table.codes.mahact_infantry = r.code("mahact_infantry");
         table.codes.mahact_infantry2 = r.code("mahact_infantry2");
@@ -563,6 +579,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.assign_casualty = r.code("assign_casualty");
         table.codes.reflective_cause = r.code("action_card:reflective_shielding");
         table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
+        crate::production_live::fill_codes(table, r);
         table.codes.tactical = ti4_engine_core::kernel::ability::TacticalCodes {
             tactic: r.code("tactic"),
             space_cannon: r.code("space_cannon"),
@@ -578,6 +595,12 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         };
         table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent"), sardakk_agent: r.code("sardakkagent"), edict: r.code("edict") };
         table.codes.turn = crate::live::turn::codes(r);
+        table.codes.silent = ti4_engine_core::kernel::ability::SilentCodes {
+            lw2: r.code("lw2"),
+            scavenge: r.code("scavenge"),
+            mitosis: r.code("mitosis"),
+            naaz_agent: r.code("naazagent"),
+        };
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {
@@ -716,10 +739,13 @@ mod tests {
         let mut played = rec(&[id], &[id]);
         played.played = vec!["sh1".to_owned()];
         assert_eq!(played.unported(&t), None, "a Shields Holding is played by the core");
-        // Scramble Frequency has a window of the play (`Fx::Scramble`), not a nested one: from inside another window it is still the
-        // string's. (Fire Team is a registered card play of the core, B12: it is followed here.)
-        played.played = vec!["scramble".to_owned()];
-        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card scramble)"), "a card the core does not play");
+        // Scramble Frequency has a window of the play (`Fx::Scramble`) and, since package W15, a registered play for the windows that stage
+        // dice (the barrage and the space cannon offense) beside Fire Team's (B12): both are followed here.
+        played.played = vec!["scramble".to_owned(), "fire_team".to_owned()];
+        assert_eq!(played.unported(&t), None, "a Scramble Frequency and a Fire Team are played by the registered plays of the core");
+        // Another card the core does not play stays named.
+        played.played = vec!["upgrade".to_owned()];
+        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card upgrade)"), "a card the core does not play");
     }
 
     #[test]
@@ -733,12 +759,10 @@ mod tests {
         assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card upgrade)"));
         r.played = vec!["reveal_prototype".to_owned()];
         assert_eq!(r.unported(&t), None, "W4: Reveal Prototype is played by the core");
-        r.played = vec!["reflective".to_owned(), "ghost_squad".to_owned()];
-        assert_eq!(r.unported(&t), None, "W11: Reflective Shielding and Ghost Squad are played by the core");
-        for card in ["courageous", "scramble"] {
-            r.played = vec![card.to_owned()];
-            assert_eq!(r.unported(&t).as_deref(), Some(&*format!("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card {card})")), "{card} stays the string's");
-        }
+        r.played = vec!["reflective".to_owned(), "ghost_squad".to_owned(), "courageous".to_owned()];
+        assert_eq!(r.unported(&t), None, "W11: Reflective Shielding and Ghost Squad are played by the core, W15: Courageous To The End too");
+        r.played = vec!["scramble".to_owned()];
+        assert_eq!(r.unported(&t), None, "W15: Scramble Frequency is played by the registered play of the cards module");
         r.played = vec!["s_retreat1".to_owned(), "intercept".to_owned(), "dh2".to_owned(), "parley".to_owned()];
         assert_eq!(r.unported(&t), None, "the cards of the card module are played by the core");
     }

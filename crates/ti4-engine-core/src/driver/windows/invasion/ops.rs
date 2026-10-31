@@ -70,7 +70,7 @@ impl InvasionMachine {
             }
         }
         for c in k.hooks.ground.commit_candidates(s, k, invader, system, &self.p.extra_commits).iter() {
-            let real = c.unit.owner() == invader && is_ground_force(r, c.unit.kind()) && s.board().planet(c.planet).units.iter().any(|u| *u == c.unit);
+            let real = c.unit.owner() == invader && is_ground_force(r, c.unit.kind()) && s.board().planet(c.planet).units.contains(&c.unit);
             if real {
                 troops.push(Troop { piece: c.unit, origin: Some((c.system, c.planet)), temporary: false });
             }
@@ -119,7 +119,7 @@ impl InvasionMachine {
                 let next = remaining.first().copied()?;
                 Some(NextCombat::new(invader, system, *planet, next).question())
             }
-            IStage::Exploring { run, .. } => Exploring::hosted((**run).clone()).ask_of(s, k),
+            IStage::Exploring { run, .. } => Exploring::hosted((**run).clone()).with_one(crate::driver::children::one_link()).ask_of(s, k),
             _ => None,
         }
     }
@@ -454,7 +454,7 @@ impl InvasionMachine {
             IStage::Fighting { .. } => self.answer_fight(sx, pick),
             IStage::ChoosingNextCombat { .. } => self.answer_next_combat(sx, pick),
             IStage::Exploring { planets, index, planet, run } => {
-                let mut exploring = Exploring::hosted(*run);
+                let mut exploring = Exploring::hosted(*run).with_one(crate::driver::children::one_link());
                 exploring.answer(sx, pick)?;
                 self.p.stage = IStage::Exploring { planets, index, planet, run: Box::new(exploring.into_run()) };
                 Ok(())

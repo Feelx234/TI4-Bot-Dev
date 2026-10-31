@@ -117,6 +117,7 @@ pub fn env_of(core: &CoreState, k: &Kernel, t: &CombatTexts, fields: &Fields, oc
         end_codes: EndCodes { losers: t.end[0], retreated: t.end[1], reasons: [t.end[2], t.end[3], t.end[4], t.end[5]] },
         casualty: t.casualty,
         commander: t.commander,
+        // (The live fight is the table's: the neutral force's decision is answered by the rules and never put as a question.)
         show_neutral: false,
     })
 }
