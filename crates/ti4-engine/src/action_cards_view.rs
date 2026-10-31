@@ -481,7 +481,7 @@ fn probe_facts(gs: &GameState, cx: &mut Ctx, player: &PlayerId, galaxy: Option<&
 }
 
 /// The reward question of a Merchant Station carries the seat's commodity standing (display only, read where the string reads it).
-fn reward_details(c: &ti4_engine_core::choice::Choice, before: &GameState, player: &PlayerId, rendered: &mut crate::choice::Choice) {
+pub(crate) fn reward_details(c: &ti4_engine_core::choice::Choice, before: &GameState, player: &PlayerId, rendered: &mut crate::choice::Choice) {
     use ti4_engine_core::choice::explore::{Ask as EAsk, Step};
     if matches!(c.ask, ti4_engine_core::choice::Ask::Explore(EAsk::Reward(Step::MerchantStation))) {
         rendered.details.insert("commodities".to_owned(), crate::strategy_cards::commodity_standing(before, ti4_content::ContentStore::embedded(), player));
@@ -512,6 +512,35 @@ fn close_row(gs: &mut GameState, player: &PlayerId, row: &rules::effects::ProbeR
         .collect();
     let kept = gs.player(player).and_then(|seat| seat.exploration_cards.last().cloned());
     let words = crate::exploration::row_words(&Holdings::from_core(row.before), &Holdings::from_core(row.after), None, &outcome, tokens, kept.as_deref(), None);
+    let record = gs.exploration_log.get_mut(at)?;
+    record.outcome = words.text;
+    record.result = words.result;
+    record.gains = words.gains;
+    record.placed = words.placed;
+    Some(())
+}
+/// Conservator Procyon: the words of the log row the core opened at `at` for a frontier token (`explore_in` closes the row of the string with
+/// them, token by token). `None` when the row is not the one the core's window opened.
+pub(crate) fn close_frontier_row(gs: &mut GameState, player: &PlayerId, at: usize, row: &ti4_engine_core::rules::hero_windows::FrontierRow) -> Option<()> {
+    use crate::exploration::{Explored, Holdings};
+    use ti4_engine_core::rules::hero_windows::How;
+    let record = gs.exploration_log.get(at)?;
+    if record.player != *player || record.card != row.card.as_str() || !record.outcome.is_empty() || record.deck != "FRONTIER" || record.system.as_deref() != Some(row.system.as_str()) {
+        return None;
+    }
+    let card = record.card.clone();
+    let outcome = match row.how {
+        How::Fragment(deck) => Explored::Fragment { trait_name: crate::core_sync::conv::explore_key(deck) },
+        How::Resolved => Explored::Resolved { card: card.clone() },
+        How::Unresolved => Explored::Unresolved { card: card.clone() },
+    };
+    let tokens: Vec<String> = gs
+        .wormhole_tokens
+        .iter()
+        .filter(|(kind, system)| kind.eq_ignore_ascii_case("gamma") && Some(system.as_str()) == row.gamma.map(|g| g.as_str()))
+        .map(|(kind, system)| format!("wormhole:{kind}:{system}"))
+        .collect();
+    let words = crate::exploration::row_words(&Holdings::from_core(row.before), &Holdings::from_core(row.after), None, &outcome, tokens, Some(card.as_str()), None);
     let record = gs.exploration_log.get_mut(at)?;
     record.outcome = words.text;
     record.result = words.result;

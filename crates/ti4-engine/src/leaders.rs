@@ -2411,7 +2411,6 @@ fn dispatch_leader(
 #[must_use]
 pub(crate) fn string_only_leader(id: &str) -> Option<&'static str> {
     Some(match id {
-        "empyreanhero" => "empyreanhero: places a frontier token in every system without a planet, then explores each token that holds one of its ships. Kept in lane 8: the core has the primitives of an exploration (draw, fragment, attachment, wormhole token, the reward windows) but no window that explores a frontier token: `exploration::explore_frontier` is `explore_in` (the exploration log row opened and closed with the `Holdings` difference and `row_words`, the card's own arm, the `PLANET_EXPLORED` hooks), run once per token under a whole-state rollback of the state, the dice and the stream",
         "yinhero" => "yinhero: commits infantry to non-home planets, lands them and fights the ground combat there. Kept in lane 8: the Game path (`use_leader_timed`) fights each chosen planet with `InvasionWindow::fight_committed_planet`, the eventful ground-combat window run inside the game's timing resolver (its rounds, reactions and nested emissions), then `establish_control` runs the string `finish_control_gain` chain; the core has the ground-combat pieces but no window that fights one committed planet to its end as a child",
         "mahacthero" => "mahacthero: moves a fleet next to another player's ships and fights the space combat there with no retreat. Kept in lane 8: the pair is asked over the map and the fleet moved (the `Enforce` child exists since `Spawn::Seeing`), but the fight is `combat::resolve_resolving` inside the game's timing resolver; the core combat `Machine` settles one decision at a time for the `Game` combat driver (its `Env` is computed by `core_combat::window_env`) and is not a window that runs a whole combat as a child",
         _ => return None,
@@ -2747,13 +2746,13 @@ mod tests {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
         let content = ContentStore::embedded();
         let ids = [
-            "empyreanhero", "yinhero", "mahacthero",
+            "yinhero", "mahacthero",
         ];
         for id in ids {
             assert!(string_only_leader(id).is_some_and(|why| why.starts_with(id)), "{id}");
             assert!(kind_of(content, &LeaderId::new(id)).is_some(), "{id} is a leader of the corpus");
         }
-        for carried in ["nekrohero", "yssarilhero", "cabalhero", "naazhero", "winnuhero", "argenthero", "arborechero", "muaatagent", "arborecagent", "saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
+        for carried in ["nekrohero", "empyreanhero", "yssarilhero", "cabalhero", "naazhero", "winnuhero", "argenthero", "arborechero", "muaatagent", "arborecagent", "saarhero", "ghosthero", "nekroagent", "solagent", "letnevagent", "solhero", "xxchaagent", "hacanagent", "hacanhero", "l1z1xhero", "l1z1xagent", "jolnarhero", "letnevhero", "nomadhero", "titanshero"] {
             assert_eq!(string_only_leader(carried), None, "{carried} has a port");
         }
         let _guard = crate::dual::tests::serial();

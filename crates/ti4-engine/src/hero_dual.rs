@@ -25,7 +25,7 @@ mod real {
     use ti4_engine_core::generated::{Planet, System, Technology};
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
-    use ti4_engine_core::rules::hero_windows::{ArgentHero, CabalHero, Devourable, KyverHero, MigrationFacts, NaazHero, NekroHero, Stranded, WinnuHero};
+    use ti4_engine_core::rules::hero_windows::{ArgentHero, CabalHero, Devourable, EmpyreanHero, FrontierFacts, KyverHero, MigrationFacts, NaazHero, NekroHero, Stranded, WinnuHero};
     use ti4_engine_core::state::Slice;
     use ti4_model::content_types::SourceSet;
     use ti4_model::id::PlayerId;
@@ -397,6 +397,73 @@ mod real {
         Some(CoreWindow { run: Run::new((card, true)).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
+    /// What Conservator Procyon reads (the ships, the decks, the seat's holdings) and writes (the frontier tokens, the log, the cards, the
+    /// goods, the relic, the board for the Mirage and the staged events).
+    const FRONTIER: Footprint = Footprint::new(
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Pending, Slice::Strategy, Slice::Ledger, Slice::Objectives, Slice::Explore],
+        &[Slice::Meta, Slice::Players, Slice::Board, Slice::Decks, Slice::Cards, Slice::Marks, Slice::Pending, Slice::Ledger, Slice::Explore],
+    );
+
+    /// The core half of Empyrean's Conservator Procyon (`factions::empyrean::use_leader`; the value: the card resolved, not undone by a frontier
+    /// deck that ran out). `placed` are the planetless systems the string puts a frontier token in. The log rows the cards opened are closed with
+    /// the words of `exploration::row_words`, as the string closes them.
+    pub fn empyrean_hero(
+        gs: &mut GameState,
+        content: &ti4_content::ContentStore,
+        player: &PlayerId,
+        placed: &[ti4_model::id::SystemId],
+        sources: SourceSet,
+        script: &Recording,
+    ) -> Option<CoreWindow<bool>> {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
+            crate::dual::note_bail_here(why);
+            return None;
+        }
+        // Every system that can hold a token, in the text order of its name (the string's set).
+        let mut named: std::collections::BTreeSet<&str> = placed.iter().map(ti4_model::id::SystemId::as_str).collect();
+        named.extend(gs.frontier_tokens.iter().map(ti4_model::id::SystemId::as_str));
+        let order: Vec<System> = named.into_iter().map(typed::<System>).collect::<Option<_>>().why("a system the typed tables do not know")?;
+        let placed: Vec<System> = placed.iter().map(|id| typed::<System>(id.as_str())).collect::<Option<_>>().why("a system the typed tables do not know")?;
+        let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
+        let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
+        let facts = FrontierFacts {
+            empty: cx.texts.intern(Slice::Explore, "").ok().why("the empty text of an exploration row could not be interned")?,
+            rules_version: gs.rules_version,
+            mahact_held: gs.tokens_held_by_mahact(player),
+            agreement: crate::leaders_core::replenish_window_unported(gs).is_none().then(|| r.code("trade_agreement")),
+            draw_plain: crate::strategy_cards_core::plain_draw(gs, content, player, 2),
+        };
+        let before = gs.clone();
+        let start = gs.exploration_log.len();
+        let kernel = crate::core_adapter::kernel_for(sources);
+        let letnev = gs.player(player).why(crate::dual::reason::NO_SEAT)?.faction.as_str() == "letnev";
+        let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
+            crate::action_cards_view::reward_details(c, &before, player, rendered);
+            crate::strategy_cards_core::complete_tokens(c, core, rendered, letnev);
+        };
+        let mut staged = Vec::new();
+        let mut out = None;
+        let mut driver = Driver::new(EmpyreanHero::new(seat, placed, order, facts), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), FRONTIER, |core, _| {
+            let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
+            staged = std::mem::take(&mut core.pending_mut().staged);
+            out = Some((driver.window.used, driver.window.unsupported, driver.window.rows().to_vec()));
+            driven
+        })
+        .why(crate::dual::reason::NOT_LENDABLE)?
+        .why(crate::dual::reason::DRIVER_REFUSED)?;
+        let (used, unsupported, rows) = out?;
+        if unsupported {
+            crate::dual::note_bail_here("a frontier card the core does not carry (a card of another deck, a changed draw, a command token in a Mahact fleet pool, a replenishment with events it does not hold)");
+            return None;
+        }
+        for (at, row) in rows.iter().enumerate() {
+            crate::action_cards_view::close_frontier_row(gs, player, start + at, row).why("a log row the core did not open as the string does")?;
+        }
+        crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        Some(CoreWindow { run: Run::new(used).with_events_vec(Vec::new()), questions: driven.rendered })
+    }
+
     /// What Flock Migration reads (the ships, the tokens, the cargo) and writes (the ships and the cargo that move).
     const FLOCK: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Board]);
 
@@ -515,6 +582,17 @@ mod stub {
         _: &ti4_content::ContentStore,
         _: &PlayerId,
         _: &ti4_content::galaxy::Galaxy,
+        _: ti4_model::content_types::SourceSet,
+        _: &crate::dual_window::Recording,
+    ) -> Option<crate::dual::CoreWindow<bool>> {
+        None
+    }
+
+    pub fn empyrean_hero(
+        _: &mut GameState,
+        _: &ti4_content::ContentStore,
+        _: &PlayerId,
+        _: &[ti4_model::id::SystemId],
         _: ti4_model::content_types::SourceSet,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {
