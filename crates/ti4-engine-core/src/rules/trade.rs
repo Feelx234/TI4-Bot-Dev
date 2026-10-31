@@ -163,6 +163,29 @@ pub fn exchange(core: &mut CoreState, offer: &Offer) -> Option<()> {
     Some(())
 }
 
+/// Lie in Wait: the first two neighbours of `seat` (by the map) who resolved a transaction this round (`transactions::
+/// neighbours_who_transacted`); none when no transaction was resolved or the position has no map.
+#[must_use]
+pub fn lie_in_wait_traders(core: &CoreState, kernel: &Kernel, seat: Seat) -> [Option<Seat>; 2] {
+    let mut out = [None; 2];
+    if core.trade().this_round.is_empty() {
+        return out;
+    }
+    let Some(adj) = core.map().adjacency() else { return out };
+    let env = KernelEnv { core, kernel };
+    let cx = crate::query::trade::Cx {
+        core,
+        adj,
+        mecatol: crate::query::objectives::mecatol_in_galaxy(core),
+        limits: crate::query::trade::Limits { per_action: super::trade_window::MAX_NEGOTIATIONS_PER_ACTION, per_round: super::trade_window::MAX_NEGOTIATIONS_PER_ROUND },
+        env: &env,
+    };
+    for (slot, who) in out.iter_mut().zip(crate::query::trade::neighbours_who_transacted(&cx, seat).as_slice()) {
+        *slot = Some(*who);
+    }
+    out
+}
+
 /// `empyrean_units::dark_pact_gains`, after a transaction resolved: each side that gave the Empyrean exactly its maximum commodity value
 /// while holding a faceup Dark Pact of the Empyrean's gains 1 trade good, and so does the Empyrean. The gains are staged
 /// (`TRADE_GOODS_GAINED`, source `source`; only while `staging`, `supply::staging_enabled`), the giver's first.

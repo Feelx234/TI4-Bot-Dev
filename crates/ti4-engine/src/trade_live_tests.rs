@@ -107,15 +107,28 @@ fn native_side(t: &Table2, start: &GameState, partner: &str, ids: &[String]) -> 
     let mut asker = Scripted::new(ids[1..].iter().cloned());
     // The menu step of the string starts with the reconcile hooks, as every step does.
     reconcile(&mut core, &lcx, &mut asker);
+    // The opener announces the opening and runs the window to its first question (a window with nothing to propose is dropped there: the
+    // string drops it one step later, with the same position).
     begin(&mut core, &env, proposer, partner).unwrap_or_else(|e| panic!("the native opener stopped: {e:?}"));
     for _ in 0..40 {
+        if !ti4_engine_core::driver::live::is_open::<ti4_engine_core::rules::trade_window::TradeWindow>(&core) {
+            break;
+        }
         reconcile(&mut core, &lcx, &mut asker);
         let step = live::live_step(&mut core, Arm::Trade, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native trade arm stopped: {e:?}"));
         if step.finished {
             break;
         }
     }
-    assert_eq!(asker.left(), 0, "every answer the string was given was taken");
+    if std::env::var_os("M1_TRACE").is_some() {
+        eprintln!("registry {:?} hand {:?}", env.registry.for_event(ti4_engine_core::state::EventKind::TransactionResolved, ti4_engine_core::choice::reaction::Relation::After).count(), core.players().by_seat(proposer).map(|p| p.cards.hand.len()));
+        let ev = ti4_engine_core::kernel::fx::event(ti4_engine_core::state::EventKind::TransactionResolved, ti4_engine_core::state::Payload::new().with(ti4_engine_core::state::Key::Proposer, ti4_engine_core::state::Val::Seat(proposer)).with(ti4_engine_core::state::Key::Partner, ti4_engine_core::state::Val::Seat(partner)));
+        for seat in 0..3u8 {
+            eprintln!("playable {seat}: {:?} hand {:?}", ti4_engine_core::rules::action_cards::reaction_slot::playable(&core, kernel, &env.table.facts, false, ti4_engine_core::Seat(seat), &ev, ti4_engine_core::choice::reaction::Relation::After), core.players().by_seat(ti4_engine_core::Seat(seat)).map(|p| p.cards.hand.as_slice().to_vec()));
+        }
+        eprintln!("native events {:?}", crate::render::events::events_text(&render, &cx, &core));
+    }
+    assert_eq!(asker.left(), 0, "every answer the string was given was taken; the native side was asked {:?}", asker.seen.iter().map(|c| (&c.prompt, c.ids())).collect::<Vec<_>>());
     let questions = asker.seen.clone();
     let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
     let after = materialize::materialize(&core, &cx, start).expect("materializes");
@@ -141,6 +154,9 @@ pub(super) fn both(t: &Table2, partner: &str, faction: &str, script: &[&str]) ->
     let mut ids = vec![open.as_str()];
     ids.extend_from_slice(script);
     let (string, taken, start) = string_side(t, &ids);
+    if std::env::var_os("M1_TRACE").is_some() {
+        eprintln!("string asked {:?}", string.questions.iter().map(|c| (&c.prompt, c.ids())).collect::<Vec<_>>());
+    }
     // The string took the first option after the script: the native side takes the same.
     let native = native_side(t, &start, partner, &taken);
     (string, native)
@@ -231,4 +247,124 @@ fn a_note_is_given_to_a_partner_who_cannot_pay_like_the_string() {
     let (string, native) = both(&t, "b", "hacan", &["pnps:sol:0", "accept"]);
     assert_same(&string, &native);
     assert!(has(&string, "TRANSACTION_RESOLVED"));
+}
+
+const HACAN_SOL: [(&str, &str); 2] = [("a", "hacan"), ("b", "sol")];
+
+/// Hacan's Arbiters let action cards change hands: `a` holds cards and the first by alias is sold for a good or swapped for a note.
+#[test]
+fn the_arbiters_trade_an_action_card_for_a_good_or_a_note_like_the_string() {
+    for script in [&["acambush:1", "accept"][..], &["cnambush>cf:sol", "accept"][..]] {
+        let mut t = table(&HACAN_SOL, &[]);
+        let cards: Vec<&str> = <ti4_engine_core::generated::ActionCard as crate::generated::IdStr>::IDS.iter().copied().skip(10).take(2).collect();
+        for card in &cards {
+            t.state.player_mut(&pid("a")).unwrap().action_cards.push(ti4_model::id::ActionCardId::new(*card));
+        }
+        let script: Vec<String> = script.iter().map(|x| x.replace("ambush", cards[0])).collect();
+        let script: Vec<&str> = script.iter().map(String::as_str).collect();
+        let (string, native) = both(&t, "b", "sol", &script);
+        assert_same(&string, &native);
+        assert!(has(&string, "TRANSACTION_RESOLVED"), "{script:?}: {:?}", string.events);
+    }
+}
+
+/// Black Market Dealings marks the negotiation: secrets and relic fragments are offered for a good, and the mark dies with the window.
+#[test]
+fn the_black_market_offers_secrets_and_fragments_and_its_mark_dies_with_the_negotiation_like_the_string() {
+    for script in [&["decline"][..], &["frCULTURAL:1", "accept"][..], &["so0:1", "accept"][..]] {
+        let mut t = table(&SOL_HACAN, &[]);
+        t.state.transient_flags.set(TransientFlags::BLACK_MARKET);
+        t.state.player_mut(&pid("a")).unwrap().relic_fragments.insert("CULTURAL".to_owned(), 1);
+        let secret = t.state.player(&pid("a")).unwrap().secret_objectives.first().cloned();
+        let id = secret.map(|s| format!("so{}:1", s.as_str()));
+        let script: Vec<&str> = script.iter().map(|x| if *x == "so0:1" { id.as_deref().expect("a secret in hand") } else { *x }).collect();
+        let (string, native) = both(&t, "b", "hacan", &script);
+        assert_same(&string, &native);
+    }
+}
+
+/// The free-form deals: every kind of term, the malformed id and the deal nobody can pay.
+#[test]
+fn free_form_deals_with_every_kind_of_term_are_priced_asked_and_struck_like_the_string() {
+    let ids = [
+        "x;gt=1;rt=1;",
+        "x;gc=2;rt=1;",
+        "x;gt=1;gc=1;rc=2;",
+        "x;gn=cf:sol;rt=2;",
+        "x;gt=1;rn=ta:hacan;",
+        "x;gn=cf:sol;rn=ta:hacan;",
+        "x;gn=support:sol;rn=support:hacan;",
+        "x;rt=1;",
+        "x;gt=2;",
+    ];
+    for id in ids {
+        let t = table(&SOL_HACAN, &[]);
+        let (string, native) = both(&t, "b", "hacan", &[id, "accept"]);
+        assert_same(&string, &native);
+        assert!(has(&string, "TRANSACTION_RESOLVED"), "{id}: {:?}", string.events);
+    }
+}
+
+#[test]
+fn a_free_form_deal_that_is_malformed_or_cannot_be_paid_ends_like_the_string() {
+    for (id, want) in [("x;bogus", "TRANSACTION_ABANDONED"), ("x;gt=9;rt=1;", "TRANSACTION_REJECTED"), ("x;gn=ps:sol;gn=ps:sol;", "TRANSACTION_ABANDONED")] {
+        let t = table(&SOL_HACAN, &[]);
+        let (string, native) = both(&t, "b", "hacan", &[id]);
+        assert_same(&string, &native);
+        assert!(has(&string, want), "{id}: {:?}", string.events);
+    }
+}
+
+#[test]
+fn a_free_form_counter_is_named_from_the_other_chair_like_the_string() {
+    let t = table(&SOL_HACAN, &[]);
+    let (string, native) = both(&t, "b", "hacan", &["x;gt=2;rt=1;", "counter", "x;gt=1;rt=1;", "accept"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "COUNTEROFFER") && has(&string, "TRANSACTION_RESOLVED"), "{:?}", string.events);
+}
+
+/// Strangers cannot deal; Hacan's Guild Ships reach anyone.
+#[test]
+fn guild_ships_reach_a_stranger_and_a_stranger_is_turned_away_like_the_string() {
+    let seats = [("a", "hacan"), ("b", "sol"), ("c", "arborec")];
+    let t = table(&seats, &["b", "c"]);
+    let (string, native) = both(&t, "b", "sol", &["2:1", "accept"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "TRANSACTION_RESOLVED"), "{:?}", string.events);
+}
+
+/// A window with nothing to propose is dropped without a word (the string asks nothing and loses the window).
+#[test]
+fn a_window_with_nothing_to_propose_is_dropped_like_the_string() {
+    let mut t = table(&SOL_HACAN, &[]);
+    for p in &mut t.state.players {
+        p.trade_goods = 0;
+        p.commodities = 0;
+    }
+    t.state.support_holders.insert(pid("a"), pid("b"));
+    t.state.support_holders.insert(pid("b"), pid("a"));
+    for key in t.state.promissory_notes.keys().cloned().collect::<Vec<_>>() {
+        t.state.promissory_notes.remove(&key);
+    }
+    let (string, native) = both(&t, "b", "hacan", &[]);
+    assert_same(&string, &native);
+    assert_eq!(string.events, ["TRANSACTION_OPENED"], "the opening is announced, nothing else is said");
+}
+
+/// Lie in Wait, held by a third seat, is played after the neighbours' transaction: the core reads the neighbours who traded from the position
+/// (`lie_in_wait_traders`) and the two sides take the same cards.
+#[test]
+fn lie_in_wait_takes_a_card_from_each_neighbour_who_traded_like_the_string() {
+    let seats = [("a", "sol"), ("b", "hacan"), ("c", "arborec")];
+    let mut t = table(&seats, &[]);
+    let cards: Vec<&str> = <ti4_engine_core::generated::ActionCard as crate::generated::IdStr>::IDS.iter().copied().skip(30).take(5).collect();
+    let give = |state: &mut GameState, who: &str, card: &str| state.player_mut(&pid(who)).unwrap().action_cards.push(ti4_model::id::ActionCardId::new(card));
+    give(&mut t.state, "a", cards[0]);
+    give(&mut t.state, "b", cards[1]);
+    give(&mut t.state, "c", "lieinwait");
+    let (string, native) = both(&t, "b", "hacan", &["2:1", "accept"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "TRANSACTION_RESOLVED") && has(&string, "ACTION_CARD_PLAYED"), "{:?}", string.events);
+    let held = string.state["players"][2]["action_cards"].as_array().map_or(0, Vec::len);
+    assert_eq!(held, 2, "the holder took one card from each of the two neighbours: {:?}", string.state["players"][2]["action_cards"]);
 }

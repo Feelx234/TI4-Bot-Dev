@@ -111,6 +111,7 @@ fn sync_clock(r: &mut Resolver, core: &CoreState) {
     r.set_speaker(Some(m.speaker));
     r.set_seating_order(core.seats().seating_order());
     r.set_counters(u64::from(m.round), u64::from(m.turn_seq));
+    r.set_initiative_order(crate::query::seats::initiative_order(core).as_slice());
 }
 
 /// The ability table of one call: the game's table with the play facts of THIS position (a card played inside the window reads what a
