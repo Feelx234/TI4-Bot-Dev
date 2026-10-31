@@ -747,7 +747,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
 /// What of the legacy step is compared: all of it for a step the core owns whole, the first `native_len` of it where the legacy step goes on with a close the
 /// core does not own (`strict` false).
 fn legacy_prefix<T: Clone>(strict: bool, legacy: Vec<T>, native_len: usize) -> Vec<T> {
-    if !strict && legacy.len() > native_len { legacy[..native_len].to_vec() } else { legacy }
+    if !strict && legacy.len() > native_len { legacy[..native_len].to_vec() } else { legacy } // mutants:skip (equal lengths: the cut is the identity)
 }
 
 /// Step the legacy game once with the answers of `group` and compare.

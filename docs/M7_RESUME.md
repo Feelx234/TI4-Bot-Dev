@@ -133,6 +133,15 @@ TECH_EFFECTS, TECH_PAYMENT_CHOICE, WINNU_AGENT_PRODUCTION, `rules_at_least(1)`):
 * `ti4-engine-core-factions/src/`: `cc_ground/borrowed/{query.rs:86,91, timing.rs:40,44}`, `cd_registry/naalu/query.rs:49`, `ce_movement/saar/movement.rs:38`, `magen_defense.rs:39`, `self_assembly.rs:41`
 * the definition `state/meta.rs:112` (`Meta::rules_at_least`) and the constants themselves go last. The string engine carries many more (not listed: not the core).
 
+## Checks (cheap), `CARGO_BUILD_JOBS=2`, private target `/root/deploytmp/core-m7` (deleted at the end)
+
+* `cargo test --profile lockstep -p ti4-engine --lib` (default areas): 5021 passed, 4 ignored (after the core hand-over). The `TI4_AREAS=all=dual` whole-lib run was NOT repeated after the hand-over (F2's note: its last dual run predates a fix).
+* `ti4-engine-core-bridge --lib` `native_play:: islands:: native_subject::`: 37 passed. `ti4-engine-core-tests --test turn_jobs --test turn_jobs2`: 18 + 26 passed.
+  Not re-run: the other core crates' lib tests and the rest of `ti4-engine-core-tests` (the core change is `driver/turn/{start,ask,closing}.rs` and one `TurnGap` variant).
+* `check_layers.py core`: 484 files, 0 violations. `lint_core.sh`: 486 files, 0 hits.
+* Mutation (`tools/engine_core/mutants.sh crates/ti4-engine-core-bridge/src/native_play.rs native_play::`, single file): first run 76/131 killed; after the survivor tests 113/114 (7 points not compilable under the switch); the one left (`legacy_prefix` `>` to `>=`) is equivalent (equal lengths) and marked `// mutants:skip`. Equivalent/defensive lines carry `// mutants:skip` with the reason.
+* Gate-profile runs: `native_play --quick --twice --shadow` (fingerprint `20222ce7d67eaa15` twice, 9 legacy steps compared, 0 differences), `--factions all --players 3,4,5,6 --seeds 1` (96 games, one gap cause), `--survey` (12 games), `oracle tools/rulebot/golden.json 6 --native ask,turn_prelude,phase,strategy_announce --gaps-lent --keep-going [--closing]`.
+
 ## Not done / by decision
 
 * `EventScoring`, `Tactical`, `Aftermath` still have no `NativeSubject::open_arm` line (INTEGRATION10 section 5: the observed sub-windows of D1 would have to be typed); the native-led `--shadow` covers the arms a native game reaches.
