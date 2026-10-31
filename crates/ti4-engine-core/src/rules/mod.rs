@@ -22,6 +22,7 @@ pub mod diplomacy_window;
 pub mod explore;
 pub mod explore_windows;
 pub mod faction_component;
+pub mod hero_windows;
 pub mod invasion;
 pub mod leader_production;
 pub mod leader_windows;

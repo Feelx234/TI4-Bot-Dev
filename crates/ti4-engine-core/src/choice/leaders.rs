@@ -60,6 +60,10 @@ pub enum Ask {
     UmbatPlayer,
     /// Umbat: the chosen player's system to produce in.
     UmbatSystem,
+    /// UNIT.DSGN.FLAYESH (Nekro hero): the planet with a technology specialty that is devoured.
+    FlayeshPlanet,
+    /// UNIT.DSGN.FLAYESH: the technology of the planet's colour that is gained.
+    FlayeshTech,
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -107,6 +111,10 @@ pub enum Opt {
     OsphaReplace(crate::generated::UnitBaseType),
     /// Xxekir Grom: this planet gets the unit, with the system the map shows it in (`Shown`, B9: equal always).
     HeroPlanet(crate::generated::Planet, super::agenda::Shown),
+    /// UNIT.DSGN.FLAYESH: devour this planet of this system.
+    Devour(crate::generated::System, crate::generated::Planet),
+    /// UNIT.DSGN.FLAYESH: gain this technology.
+    Gain(crate::generated::Technology),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -130,4 +138,6 @@ pub enum Subtype {
     OsphaReplace,
     UmbatPlayer,
     UmbatSystem,
+    FlayeshPlanet,
+    FlayeshTech,
 }

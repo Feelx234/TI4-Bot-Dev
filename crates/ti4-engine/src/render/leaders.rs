@@ -99,6 +99,16 @@ const fn pool_name(pool: Pool) -> &'static str {
     }
 }
 
+/// The printed name of a technology (`technology::name`: the corpus record's name, else the alias).
+fn technology_name(tech: Technology) -> String {
+    let content = ti4_content::ContentStore::embedded();
+    content
+        .get(ti4_model::content_types::ContentType::Technologies, tech.as_str())
+        .and_then(|record| record.text("name"))
+        .unwrap_or_else(|| tech.as_str())
+        .to_owned()
+}
+
 /// The renderer of the leader questions.
 pub struct Fam;
 
@@ -128,6 +138,8 @@ impl Family for Fam {
             Ask::NekroPayment => "Nekro Malleon: discard 1 action card or spend 1 command token to gain 2 trade goods?".to_owned(),
             Ask::UmbatPlayer => "Umbat: choose a player who may produce up to 2 units costing 4 or less".to_owned(),
             Ask::UmbatSystem => "Umbat: produce in which system".to_owned(),
+            Ask::FlayeshPlanet => "UNIT.DSGN.FLAYESH: choose a planet with a technology specialty".to_owned(),
+            Ask::FlayeshTech => "UNIT.DSGN.FLAYESH: choose a technology that matches the specialty".to_owned(),
         }
     }
 
@@ -151,6 +163,8 @@ impl Family for Fam {
             Subtype::NekroPayment => "malleon_payment".to_owned(),
             Subtype::UmbatPlayer => "umbat_player".to_owned(),
             Subtype::UmbatSystem => "umbat_system".to_owned(),
+            Subtype::FlayeshPlanet => "flayesh_planet".to_owned(),
+            Subtype::FlayeshTech => "flayesh_technology".to_owned(),
         }
     }
 
@@ -185,6 +199,12 @@ impl Family for Fam {
                 let name = pool_name(*pool);
                 ChoiceOption::labelled(format!("token|{name}"), "nekro_malleon", format!("spend 1 {name} command token to gain 2 trade goods"))
             }
+            Opt::Devour(system, planet) => ChoiceOption::labelled(
+                format!("{}|{}", system.as_str(), planet.as_str()),
+                "nekro_flayesh_planet",
+                format!("devour {} in {}", planet.as_str(), system.as_str()),
+            ),
+            Opt::Gain(tech) => ChoiceOption::labelled(tech.as_str(), "nekro_flayesh_technology", technology_name(*tech)),
             Opt::Remove => ChoiceOption::labelled("remove", INFANTRY_KIND, "remove 1 infantry"),
             Opt::Keep => match a {
                 Ask::JolnarSwap { held } => {
@@ -266,6 +286,11 @@ impl Family for Fam {
                 _ => None,
             },
             Ask::XxchaHeroPlanet => Planet::from_id(id.strip_prefix("planet|")?).map(|p| Opt::HeroPlanet(p, Shown::default())),
+            Ask::FlayeshPlanet => {
+                let (system, planet) = id.split_once('|')?;
+                Some(Opt::Devour(System::from_id(system)?, Planet::from_id(planet)?))
+            }
+            Ask::FlayeshTech => Technology::from_id(id).map(Opt::Gain),
         }
     }
 }

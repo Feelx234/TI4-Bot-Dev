@@ -545,7 +545,7 @@ pub(crate) fn use_leader(
 ) -> Option<bool> {
     match leader.as_str() {
         AGENT => Some(malleon_dual(context, player)),
-        HERO => Some(flayesh(context, player).unwrap_or(false)),
+        HERO => Some(flayesh_dual(context, player)),
         _ => None,
     }
 }
@@ -742,6 +742,40 @@ fn gainable_technologies(
                 .is_none_or(|faction| faction == seat.faction.as_str())
         })
         .collect()
+}
+
+/// UNIT.DSGN.FLAYESH as a window of the core (`rules::hero_windows::NekroHero`): the choice of the planet and of the technology and what
+/// they change; the string body ([`flayesh`]) is the oracle of the dual run.
+fn flayesh_dual(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::nekro::flayesh",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            crate::dual::Run::new(flayesh(&mut inner, player).unwrap_or(false))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let playable = leader_action(s, content, player, &LeaderId::new(HERO)) == Some(true);
+            let targets: Vec<crate::hero_dual::FlayeshTarget> = if playable {
+                devourable_planets(s, content, sources, player)
+                    .into_iter()
+                    .map(|(system, planet)| {
+                        let colours = specialty_colours(s, content, sources, &planet);
+                        let goods = crate::production::planet_value_now(s, content, sources, &planet, Spend::Resources)
+                            + crate::production::planet_value_now(s, content, sources, &planet, Spend::Influence);
+                        let techs = gainable_technologies(s, content, sources, player, &colours);
+                        crate::hero_dual::FlayeshTarget { system, planet, goods, techs }
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            crate::hero_dual::nekro_hero(s, content, player, &targets, sources, script)
+        }
+    )
 }
 
 /// Polymorphic Algorithm: Devour World. Asks for the planet and the technology first, then destroys
@@ -2068,6 +2102,99 @@ mod tests {
             leader_action(&state, content, &a(), &LeaderId::new("sardakkhero")),
             None
         );
+    }
+
+
+    /// UNIT.DSGN.FLAYESH is a body of the core (`rules::hero_windows::NekroHero`): the planet and the technology are asked (a single
+    /// candidate is taken unasked), every other seat's unit on the planet leaves, the ground forces are staged as destroyed and the goods and
+    /// the technology are gained. The core half agrees with the string for a planet with one candidate or several, and ran each time.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let (system, planet, _) = specialty_planet();
+        let run = |state: &mut GameState, answers: &[&str]| -> Option<bool> {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(state, SourceSet::all(), None, &mut table, |ctx| use_leader(ctx, &a(), &hero()))
+            })
+        };
+        let stage = |state: &mut GameState| {
+            unlock_hero(state);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            crate::fixtures::put(state, &system, "cruiser", &a(), 1);
+            crate::fixtures::put_on_planet(state, &system, &planet, "infantry", &b(), 2);
+            crate::fixtures::put_on_planet(state, &system, &planet, "pds", &b(), 1);
+            crate::fixtures::put_on_planet(state, &system, &planet, "infantry", &a(), 1);
+        };
+        // The technology is asked when several match the colour: the third of the candidates.
+        let mut state = game();
+        stage(&mut state);
+        let candidates = {
+            let colours = specialty_colours(&state, ContentStore::embedded(), SourceSet::all(), &planet);
+            gainable_technologies(&state, ContentStore::embedded(), SourceSet::all(), &a(), &colours)
+        };
+        assert!(candidates.len() > 2, "{candidates:?}");
+        let goods = state.player(&a()).unwrap().trade_goods;
+        let pick = candidates[2].to_string();
+        assert_eq!(run(&mut state, &[pick.as_str()]), Some(true));
+        assert!(state.player(&a()).unwrap().technologies.contains(&candidates[2]));
+        assert!(state.player(&a()).unwrap().trade_goods > goods);
+        assert!(crate::factions::hooks_ground::has_staged_events(&state));
+        // A planet nobody else holds: the goods and the technology only.
+        let mut empty = game();
+        stage(&mut empty);
+        let others: Vec<_> = empty.system_state(&system).on_planet(&planet).iter().filter(|u| u.owner != a()).cloned().collect();
+        empty.system_mut(&system).remove_from_planet(&planet, &others);
+        assert_eq!(run(&mut empty, &[]), Some(true));
+        assert!(!crate::factions::hooks_ground::has_staged_events(&empty), "no ground force fell");
+        // The hero is not playable without a unit in a system with a specialty planet: nothing is asked.
+        let mut idle = game();
+        unlock_hero(&mut idle);
+        for (id, board) in &mut idle.board {
+            let _ = id;
+            board.units.retain(|unit| unit.owner != a());
+            for units in board.planet_units.values_mut() {
+                units.retain(|unit| unit.owner != a());
+            }
+        }
+        assert_eq!(run(&mut idle, &[]), Some(false));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::nekro::flayesh"), (3, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// A galvanized ground force that falls cannot be written as a staged row (the string row carries a `|g` tail): the adapter keeps the
+    /// string body, counted with its reason.
+    #[test]
+    fn a_galvanized_ground_force_on_the_planet_is_the_strings() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let (system, planet, _) = specialty_planet();
+        let mut state = game();
+        unlock_hero(&mut state);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        crate::fixtures::put(&mut state, &system, "cruiser", &a(), 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        for unit in &mut state.system_mut(&system).planet_units.get_mut(&planet).unwrap().iter_mut().filter(|u| u.owner == b()) {
+            unit.galvanized = true;
+        }
+        let mut table = scripted(&[]);
+        let used = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            crate::fixtures::with_context(&mut state, SourceSet::all(), None, &mut table, |ctx| use_leader(ctx, &a(), &hero()))
+        });
+        assert_eq!(used, Some(true));
+        let r = report();
+        assert_eq!(thread_window_counts("factions::nekro::flayesh"), (0, 1), "{r:?}");
+        assert!(r.windows.keys().any(|k| k.starts_with("factions::nekro::flayesh [bail: a galvanized ground force")), "{r:?}");
+        let _ = take_report();
     }
 
     // -- nekroc4y ---------------------------------------------------------------------------------
