@@ -9,7 +9,7 @@
 //! nested emission. A waiver taken (Acquiescence, Jae Mir Kan, Mindsieve, Enervate) is paid by the core step.
 
 use ti4_content::ContentStore;
-use ti4_engine_core::choice::strategy::Ask as SAsk;
+use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt};
 use ti4_engine_core::choice::Ask;
 use ti4_engine_core::generated::StrategyCard;
 use ti4_engine_core::kernel::stage::AbilityTable;
@@ -55,7 +55,7 @@ pub fn secondary_step(
             eligible: f.eligible,
             costs_token: f.costs_token,
             primary_instead: f.primary_instead,
-            waivers: f.waivers.iter().map(|w| Waiver { code: r.shape(w), effect: waiver_effect(&w.id) }).collect(),
+            waivers: f.waivers.iter().map(|w| Waiver { opt: SOpt::Waive(r.shape(w)), effect: waiver_effect(&w.id) }).collect(),
         });
     }
     // A waiver taken whose payment the tables do not carry: the string pays it.

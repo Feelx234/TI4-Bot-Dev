@@ -91,7 +91,7 @@ fn a_free_follow_costs_no_token() {
 fn a_tokenless_follower_with_a_waiver_is_offered_the_waiver_instead_of_the_follow() {
     covers!("rules::strategy_secondary::SecondaryStep");
     let mut f = follower(1, true, true);
-    f.waivers.push(Waiver { code: Code(9), effect: WaiverEffect::Free });
+    f.waivers.push(Waiver { opt: SOpt::Waive(Code(9)), effect: WaiverEffect::Free });
     let mut rig = step(&[f.clone()], 1, 0);
     rig.run();
     assert_eq!(rig.opts(), vec![strat(SOpt::Skip), strat(SOpt::Waive(Code(9)))]);
@@ -109,7 +109,7 @@ fn a_tokenless_follower_with_a_waiver_is_offered_the_waiver_instead_of_the_follo
 fn an_unported_waiver_is_refused() {
     covers!("rules::strategy_secondary::SecondaryStep");
     let mut f = follower(1, true, true);
-    f.waivers.push(Waiver { code: Code(9), effect: WaiverEffect::Unported });
+    f.waivers.push(Waiver { opt: SOpt::Waive(Code(9)), effect: WaiverEffect::Unported });
     let mut rig = step(&[f], 1, 0);
     rig.run();
     rig.expect_illegal(Pick::Opt(strat(SOpt::Waive(Code(9)))));
@@ -141,7 +141,7 @@ fn the_step_survives_every_answer_policy() {
 }
 
 fn held(followers: &[u8]) -> Secondary {
-    Secondary { primary: Seat(0), card: CARD, followers: followers.iter().map(|s| Seat(*s)).collect(), next: 0, resolved: SmallList::new(), exhausts_card: true }
+    Secondary { primary: Seat(0), card: CARD, followers: followers.iter().map(|s| Seat(*s)).collect(), next: 0, resolved: SmallList::new(), exhausts_card: true, preview: false }
 }
 
 #[test]

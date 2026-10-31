@@ -191,6 +191,12 @@ const fn test_table() -> Option<StrategyHooks> {
     None
 }
 
+/// The position of the module `alias` among the modules that have the `secondary_waivers` hook: the index that rides in the id of a waiver
+/// option (`follow|waived|<index>|<waiver id>`). `None`: the module has no such hook.
+pub(crate) fn waiver_module_index(alias: &str) -> Option<usize> {
+    MODULES.iter().filter(|module| module.hooks.strategy.secondary_waivers.is_some()).position(|module| module.alias == alias)
+}
+
 /// Every module's strategy hooks in [`MODULES`] order.
 fn tables() -> impl Iterator<Item = StrategyHooks> {
     MODULES

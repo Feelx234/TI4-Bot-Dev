@@ -22,6 +22,7 @@ pub mod kernel;
 pub mod menu;
 pub mod plays;
 pub mod trade;
+pub mod strategic;
 pub mod turn;
 
 use std::collections::VecDeque;

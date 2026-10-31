@@ -158,6 +158,12 @@ impl CoreGalaxy {
         self.coord[system.index()]
     }
 
+    /// The systems placed on the grid, in the order of their hexes (the string galaxy's `placement` map: by `q`, then `r`).
+    pub fn placed_in_hex_order(&self) -> impl Iterator<Item = SystemIx> + '_ {
+        let radius = crate::hex::GRID_RADIUS;
+        (-radius..=radius).flat_map(move |q| (-radius..=radius).filter_map(move |r| self.grid.get(Hex { q, r })))
+    }
+
     #[must_use]
     pub fn system_at(&self, hex: Hex) -> Option<SystemIx> {
         self.grid.get(hex)

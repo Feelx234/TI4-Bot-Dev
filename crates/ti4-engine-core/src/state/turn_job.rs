@@ -26,6 +26,11 @@ pub enum TurnJob {
     StatusOpen,
     /// The scoring window closed (`Game::begin_status_bookkeeping`, lane C): leaders, 81.2 reveal, 81.3 draws, 81.4 recall, the token window.
     StatusBookkeeping,
+    /// The seat chose the strategic action of this card (`Game::apply_choice`, lane E): `STRATEGIC_ACTION_BEGAN`, the primary ability, the follower window.
+    Strategic(crate::generated::StrategyCard),
+    /// The free tactical action of a strategy card's primary ended (`close_tactical`, lane E): the tokens are redistributed once more, then the hero's
+    /// followers are selected or the follower window held for the end of the action opens.
+    AfterTactical,
     /// The token gain closed (`Game::finish_status_phase`, lane C): 81.5 redistribution to 81.8 and the phase's end.
     StatusFinish,
     /// The agenda phase opens (`Game::step_agenda`, lane D): the agendas off the deck, the reveal chain, the first vote.

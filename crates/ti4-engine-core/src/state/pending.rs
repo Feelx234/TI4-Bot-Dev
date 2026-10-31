@@ -62,6 +62,9 @@ pub struct Secondary {
     pub resolved: SmallList<(Seat, SecondaryHow), 8>,
     /// Finishing the window exhausts the primary player's copy of the card.
     pub exhausts_card: bool,
+    /// A disposable one-follower window on a planning fork (`StrategySecondaryWindow::preview`): completing it announces
+    /// `SECONDARY_PREVIEW_COMPLETE` and neither finishes the action nor advances the turn.
+    pub preview: bool,
 }
 
 /// When the secrets of a scoring window may be scored (`secrets::Timing`).

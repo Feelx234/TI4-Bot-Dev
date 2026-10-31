@@ -508,6 +508,7 @@ impl StrategySecondaryWindow {
         next: usize,
         resolutions: Vec<(PlayerId, SecondaryResolution)>,
         exhausts_card: bool,
+        preview: bool,
     ) -> Self {
         Self {
             primary_player: primary,
@@ -516,7 +517,7 @@ impl StrategySecondaryWindow {
             next_follower: next,
             resolutions,
             exhausts_card,
-            preview: false,
+            preview,
         }
     }
 

@@ -237,7 +237,7 @@ mod tests {
             NativeArms::registered(),
             NativeArms::of(&[
                 Arm::Tokens, Arm::EventScoring, Arm::Scoring, Arm::Status, Arm::Trade, Arm::Voting, Arm::Agenda, Arm::Aftermath, Arm::Tactical, Arm::Invasion, Arm::Production,
-                Arm::TurnPrelude, Arm::StrategyAnnounce, Arm::Phase, Arm::Ask
+                Arm::TurnPrelude, Arm::StrategyAnnounce, Arm::Phase, Arm::Ask, Arm::Secondary, Arm::LeaderFollowers, Arm::Finished
             ])
         );
         assert_eq!(NativeArms::ALL.bits().count_ones(), 21);
