@@ -276,6 +276,8 @@ mod tests {
         }
     }
 
+    include!("invasion_live_g3_tests.rs");
+
     fn assert_same_questions(live: &[Choice], string: &[Choice]) {
         assert_eq!(live.len(), string.len(), "live {:?}\nstring {:?}", live.iter().map(|c| &c.prompt).collect::<Vec<_>>(), string.iter().map(|c| &c.prompt).collect::<Vec<_>>());
         for (i, (l, s)) in live.iter().zip(string).enumerate() {
@@ -302,6 +304,13 @@ mod tests {
 
     /// Run `state` both ways and compare the questions, the position of the planets, the points and the control.
     fn check(label: &str, state: &GameState, seed: u64, system: &SystemId, hero: bool, pick: Box<dyn FnMut(&Choice) -> usize>) -> usize {
+        check_ignoring(label, state, seed, system, hero, pick, &[])
+    }
+
+    /// [`check`] with the events named in `ignore` left out of the comparison of the announced events (the native run lists the top-level emissions only: what an
+    /// ability announced inside a window is not among them).
+    #[allow(clippy::too_many_arguments, reason = "the position, the run and the events left out")]
+    fn check_ignoring(label: &str, state: &GameState, seed: u64, system: &SystemId, hero: bool, pick: Box<dyn FnMut(&Choice) -> usize>, ignore: &[&str]) -> usize {
         let string = string_run(state.clone(), seed, system, "a", hero, pick);
         let mut padded = string.answers.clone();
         padded.extend(std::iter::repeat_n("fight".to_owned(), 6));
@@ -317,7 +326,8 @@ mod tests {
             eprintln!("QUESTIONS {label}: {:?}", string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>());
         }
         assert_same_questions(&asked, &string.asked);
-        assert_eq!(events, string.events, "{label}: the events the invasion announced");
+        let kept = |all: &[(String, std::collections::BTreeMap<String, serde_json::Value>)]| all.iter().filter(|(name, _)| !ignore.contains(&name.as_str())).cloned().collect::<Vec<_>>();
+        assert_eq!(kept(&events), kept(&string.events), "{label}: the events the invasion announced");
         assert_eq!(windows, string.scoring, "{label}: the scoring windows the invasion pauses for");
         assert_eq!(gs.feat_occurrence_seq, string.state.feat_occurrence_seq, "{label}: the feat occurrences");
         assert!(gs.active_invasion.is_none() && string.state.active_invasion.is_none());

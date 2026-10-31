@@ -18,7 +18,7 @@ pub const FIRST_SLOT: u16 = 41_000;
 
 /// Suffi An (the Mentak agent) and Ssruu's copy of it: the rows Pillage's take stops at.
 pub const SUFFI_AN: usize = 11;
-pub const SUFFI_AN_COPY: usize = 51;
+pub const SUFFI_AN_COPY: usize = 50;
 
 /// One gap: the registered ability's kind, event and relation, and who could use it.
 pub struct Gap {
@@ -132,7 +132,6 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Unit, event: EventKind::SpaceCombatStarted, relation: Relation::After, holds: |c| unit_in_play(c, Faction::TheNekroVirus, UnitBaseType::Flagship) }, // nekro_flagship
     Gap { kind: AbilityKind::Unit, event: EventKind::ActionCompleted, relation: Relation::After, holds: |c| unit_in_play(c, Faction::TheWinnu, UnitBaseType::Mech) }, // winnu_mech
     // -- ported by no lane yet
-    Gap { kind: AbilityKind::Unit, event: EventKind::PlanetControlGained, relation: Relation::After, holds: |c| unit_in_play(c, Faction::TheClanOfSaar, UnitBaseType::Mech) }, // saar_mech
     // -- the copies Ssruu makes of an agent of a seated faction
     Gap { kind: AbilityKind::Leader, event: EventKind::PillageUsed, relation: Relation::After, holds: |c| copies(c, Faction::TheMentakCoalition) }, // yssarilagent: mentakagent
     Gap { kind: AbilityKind::Leader, event: EventKind::TurnPassed, relation: Relation::After, holds: |c| copies(c, Faction::TheNaazRokhaAlliance) }, // yssarilagent: naazagent

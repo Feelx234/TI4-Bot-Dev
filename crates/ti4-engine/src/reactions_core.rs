@@ -98,6 +98,7 @@ const NAMED: &[Named] = &[
     Named { slot: cabal::CLEAR_SPACE, kind: "ability", card: "devour_clear" },
     Named { slot: cabal::MARK_GROUND, kind: "ability", card: "devour_mark" },
     Named { slot: cabal::CLEAR_GROUND, kind: "ability", card: "devour_clear" },
+    Named { slot: ti4_engine_core_factions::silent::g3::zeta::ZETA, kind: "unit", card: "saar_mech" },
 ];
 
 /// The last segment of a registered id: the relation, except for Salvage Operations' produce half, which the string
@@ -894,4 +895,6 @@ mod tests {
             }
         }
     }
+
+    include!("reactions_core_g3_tests.rs");
 }

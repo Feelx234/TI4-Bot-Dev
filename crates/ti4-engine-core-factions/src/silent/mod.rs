@@ -2,6 +2,7 @@
 //! twin for, so a native game would have lacked them without any bail. Slots `40_000..` are this module's; the ids are named in `reactions_core::NAMED`.
 
 pub mod gaps;
+pub mod g3;
 pub mod gift;
 pub mod mitosis;
 pub mod pillage;
@@ -16,6 +17,7 @@ pub fn register_abilities(t: &mut AbilityTable) {
     mitosis::register_abilities(t);
     returns::register_abilities(t);
     scavenge::register_abilities(t);
+    g3::register_abilities(t);
 }
 
 /// Pillage, before the movement package: the Nomad's Artuno shares `TRADE_GOODS_GAINED` with it and the Mentak module comes first in the string.
