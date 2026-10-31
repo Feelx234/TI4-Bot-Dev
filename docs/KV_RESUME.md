@@ -54,6 +54,35 @@ Not native by decision (the dropped content): the Executive Order, the Keleres a
 NOT done: the vote of a Valefar Assimilator carrying Genetic Recombination (the holder query of the core reads the owned technology only; the string's `mahact::recombination_holder` also reads the Valefar token): the core would
 ask the wrong seat. Not covered by a scenario either; list it with the Nekro lane.
 
-## Checks (cheap)
 
-See the end of this file.
+## Lockstep evidence (`ti4-engine/src/agenda_live_tests.rs`, in the lib)
+
+The string `Game::step` and the native arms run side by side on the same position with the same answers (`string_agenda` / `native_agenda`): questions as rendered (prompt, option ids, kinds, labels, details, context), the
+plain and typed events in order, the staged events, the position (`diff_json` of the materialized `GameState`) and the dice streams, from the first agenda step to `AGENDA_PHASE_RESOLVED`.
+
+* a For/Against law with a follow-up agenda; an empty deck; every agenda of the corpus (62 of 63; Galactic Crisis Pact is the counted gap, asserted by its own test) on a table with laws in play, a scored secret and planets, once backing the first option and once voting against;
+* voting order: Nekro (cannot vote), Argent (votes first), a silent table (the speaker decides), a tie, abstentions; Hacan's commander (trade goods as votes), Predictive Intelligence, Genetic Recombination (also carried by a Nekro's Valefar Assimilator), a Blood Pact;
+* every rider (Imperial, Trade, Politics, Leadership, Construction, Diplomacy, Warfare, Technology, Sanction, Assassin) for a plain seat and for a Yssaril seat;
+* Research Grant Reallocation (the corpus-ordered technology list).
+
+Core halves: `ti4-engine-core-tests/tests/agenda_flow.rs` (rebuild from payload, clone mid-window, close, illegal answer, silent table), `agenda_riders.rs`; `driver::agenda` has no inline tests beyond those.
+
+## Checks (cheap), `CARGO_BUILD_JOBS=2`, private target dir `/root/deploytmp/core-d`
+
+* `cargo test -p ti4-engine-core --lib`: 466 passed. `-p ti4-engine-core-tests` (the agenda_*, status_phase, turn_* binaries, incl. the new `agenda_flow` 4 and `agenda_riders` 2): all ok.
+* `cargo test -p ti4-engine --lib` (default areas, whole lib, at the end): 4977 passed, 6 ignored (the run before the last test edits: 4976 + the sweeps after skipping the Crisis gap).
+* `cargo test -p ti4-engine-core-bridge --lib`: 74 passed.
+* `tools/engine_core/check_layers.py core`: 469 files, 0 violations. `lint_core.sh`: 471 files, 0 hits.
+* `playthrough_quick.sh --maxsteps 1500`: see the next section.
+
+Tests changed because the behaviour they pinned moved (not loosened): `rules::agenda::close` (the placement riders have a window), `agenda_vote2` (a long election keeps the first eight tally entries), `status_phase` (the queue is taken, no longer a gap), the registry tests (`Agenda`, `Voting` native),
+`agenda_close_tests::riders_that_place_run_in_the_core_in_lockstep`, `agenda_effects_lockstep::the_placing_halves_have_a_window`.
+
+Not run: golden/wide dual sweeps, benches, soak, mutation ratchet, census, workspace clippy, the armed dual, the Z-gate, `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` over the whole lib (not run in this lane).
+
+## Hand-overs
+
+* **Lane E (KX)**: Galactic Crisis Pact (`NoEffect(15)`); the labels of the research options are set in `live::agenda::complete` (the same fix belongs to the Technology primary).
+* **Whoever stages ground destructions** (action cards, technologies): `driver/agenda/ground.rs::announce` only announces `DestroyReason::Agenda`; add the cause code of your reason next to `AgendaCodes::ground_cause`.
+* **The wrapper (D2-8)**: call `live_reconcile` before every `live_step`; the table of a live game must carry `plays` (`env_with_plays`) or the riders/effects that place units stop with a counted gap.
+* `fx_cards::announce_staged_cards` exists in the kernel now; lane C's private copy in `status_finish.rs` can use it.
