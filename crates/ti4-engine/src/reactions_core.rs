@@ -524,6 +524,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.galactic_threat = r.code("galactic_threat");
         table.codes.empyrean_mech = r.code("empyrean_mech");
         table.codes.salvage = r.code("so");
+        table.codes.indoctrination = r.code("indoctrination");
         table.facts.pay_kernel = Some(crate::production_view::kernel);
         table.codes.mahact_infantry = r.code("mahact_infantry");
         table.codes.mahact_infantry2 = r.code("mahact_infantry2");

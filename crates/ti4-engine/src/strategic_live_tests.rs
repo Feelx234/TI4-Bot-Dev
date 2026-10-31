@@ -476,11 +476,15 @@ fn native_action(faction: &str, others: [&str; 3], card: &str) -> usize {
     }
     ti4_engine_core::driver::turn::open_job(&mut core, ti4_engine_core::state::TurnJob::Strategic(typed_card));
     for _ in 0..60 {
-        let arm = step_arm(&Facts::of_core(&core, false), false);
-        let in_action = matches!(arm, Arm::Secondary | Arm::LeaderFollowers) || (arm == Arm::Ask && core.pending().window(WindowKind::TurnFlow).is_some());
-        if !in_action {
+        // The follower windows are arms of their own; a job of the turn flow left open (the dispatch, the end of the action) is the `Ask` arm's.
+        let chain = step_arm(&Facts::of_core(&core, false), true);
+        let arm = if matches!(chain, Arm::Secondary | Arm::LeaderFollowers) {
+            chain
+        } else if core.pending().window(WindowKind::TurnFlow).is_some() {
+            Arm::Ask
+        } else {
             break;
-        }
+        };
         match live::live_step(&mut core, arm, &lcx, &mut asker) {
             Ok(_) => steps += 1,
             Err(stop) if known(&stop) => break,

@@ -19,13 +19,20 @@ pub struct KernelEnv<'a> {
     pub kernel: &'a Kernel,
 }
 
+impl KernelEnv<'_> {
+    /// `faction_abilities::has`: the seat's faction prints the ability.
+    fn has_ability(&self, who: Seat, ability: crate::generated::Ability) -> bool {
+        self.core.players().by_seat(who).is_some_and(|p| p.faction.data().abilities.contains(&ability))
+    }
+}
+
 impl Env for KernelEnv<'_> {
     fn has_iihq(&self, _: Seat) -> bool {
         false
     }
     fn wide(&self, who: Seat) -> bool {
         // Hacan's Guild Ships, and the modules' hooks (`faction_abilities::ignores_neighbours`).
-        crate::rules::abilities::has(self.core, who, crate::generated::Ability::GuildShips) || self.kernel.hooks.general.ignores_neighbours(self.core, self.kernel, who)
+        self.has_ability(who, crate::generated::Ability::GuildShips) || self.kernel.hooks.general.ignores_neighbours(self.core, self.kernel, who)
     }
     fn transaction_reach(&self, _: Seat, _: Seat) -> bool {
         false
@@ -35,7 +42,7 @@ impl Env for KernelEnv<'_> {
     }
     fn trades_action_cards(&self, who: Seat) -> bool {
         // Hacan's Arbiters, and the modules' hooks (`faction_abilities::trades_action_cards`).
-        crate::rules::abilities::has(self.core, who, crate::generated::Ability::Arbiters) || self.kernel.hooks.general.trades_action_cards(self.core, self.kernel, who)
+        self.has_ability(who, crate::generated::Ability::Arbiters) || self.kernel.hooks.general.trades_action_cards(self.core, self.kernel, who)
     }
     fn black_market(&self) -> bool {
         self.core.transient().misc.flags.has(TransientFlags::BLACK_MARKET)
