@@ -456,6 +456,23 @@ pub fn minister_of_war(gs: &mut GameState, script: &Recording) -> Option<CoreWin
 
 const FEATS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board], &[Slice::Players]);
 
+/// What a fight started with, in the seats of the typed state (`combat::BeforeCombat`): the sides, their capital ships and the notes held.
+pub(crate) fn before_snapshot(r: &crate::render::Render, before: &crate::combat::BeforeCombat) -> Option<ti4_engine_core::state::Before> {
+    let mut snapshot = ti4_engine_core::state::Before::default();
+    for side in before.sides() {
+        snapshot.sides.push(r.seat(side.as_str())?);
+    }
+    for (player, n) in before.capitals() {
+        snapshot.capitals.push((r.seat(player.as_str())?, u16::try_from(n).ok()?));
+    }
+    for (holder, issuers) in before.notes() {
+        for issuer in issuers {
+            snapshot.notes.push((r.seat(holder.as_str())?, r.seat(issuer.as_str())?));
+        }
+    }
+    Some(snapshot)
+}
+
 /// The core half of `combat::note_combat_feats_at`: the feats the finished fight earned, recorded against `occurrence`; whether any
 /// was earned. `None` for a content store other than the embedded one, a seat the tables do not know, or neutral sides.
 #[must_use]
@@ -469,24 +486,12 @@ pub fn combat_feats(
     occurrence: ti4_model::state::FeatOccurrence,
 ) -> Option<bool> {
     use ti4_engine_core::rules::combat::feats::{feats, record, Outcome};
-    use ti4_engine_core::state::Before;
     if !content.is_embedded() {
         return None;
     }
     let (mut cx, r) = tables(gs)?;
     let sys = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str())?;
-    let mut snapshot = Before::default();
-    for side in before.sides() {
-        snapshot.sides.push(r.seat(side.as_str())?);
-    }
-    for (player, n) in before.capitals() {
-        snapshot.capitals.push((r.seat(player.as_str())?, u16::try_from(n).ok()?));
-    }
-    for (holder, issuers) in before.notes() {
-        for issuer in issuers {
-            snapshot.notes.push((r.seat(holder.as_str())?, r.seat(issuer.as_str())?));
-        }
-    }
+    let snapshot = before_snapshot(&r, before)?;
     let winner = match &outcome.winner {
         Some(w) => Some(r.seat(w.as_str())?),
         None => None,

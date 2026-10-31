@@ -143,21 +143,15 @@ pub enum TacticalGap {
 pub enum Unported {
     /// The machine made no progress: a stage that neither asks nor moves on.
     NoProgress,
-    EntropicScarDefense,
-    L4Disruptors,
-    AttachmentCannon,
     Slumberstate,
     RollCannotName,
     HitsAddedToARoll,
-    MinisterOfExploration,
-    CrownOfEmphidia,
     IntegratedEconomy,
     AssimilateRoster,
-    /// A first claim explores the planet and no native exploration window exists yet.
-    ExplorationOfAFirstClaim,
+    /// The exploration of a first claim holds something the native window does not carry (`ExploreRun::why`).
+    Exploration(crate::state::EWhy),
     BombardmentDiceMismatch,
     JolNarCommanderReroll,
-    ShipFormFlip,
     X89,
     Thundarian,
     Dacxive,
@@ -228,6 +222,8 @@ pub struct Codes {
     pub empyrean_mech: crate::state::Code,
     /// The technology alias `so`, the source of Salvage Operations' question.
     pub salvage: crate::state::Code,
+    /// The faction ability `indoctrination`, the source of the Yin's question.
+    pub indoctrination: crate::state::Code,
     pub retreat_capacity: crate::state::Code,
     pub reinforcements: crate::state::Code,
     /// The `source` texts of a gain of trade goods that is not from the supply: `transaction`, `pillage`, `extreme_duress`,
@@ -237,6 +233,29 @@ pub struct Codes {
     pub tactical: TacticalCodes,
     /// The texts of the invasion composer (`driver::windows::invasion`).
     pub invasion: InvasionCodes,
+    /// The texts of the events of an exploration (`rules::explore_windows::Exploring`).
+    pub explore: ExploreCodes,
+}
+
+/// The texts the events of an exploration carry: the source `exploration` of the trade goods it gains, the deck and the card of
+/// `PLANET_EXPLORED` and the `trade_agreement` source of a replenishment (the adapter's event texts, not the state's). Not filled
+/// (`filled` false): the exploration declines its run.
+#[derive(Debug, Clone, Copy)]
+pub struct ExploreCodes {
+    pub filled: bool,
+    pub goods: crate::state::Code,
+    pub trade_agreement: crate::state::Code,
+    /// The text of each deck, by `ExploreType` index.
+    pub decks: [crate::state::Code; crate::generated::ExploreType::COUNT],
+    /// The text of each card, by `Explore` index.
+    pub cards: [crate::state::Code; crate::generated::Explore::COUNT],
+}
+
+impl Default for ExploreCodes {
+    fn default() -> Self {
+        let z = crate::state::Code(0);
+        Self { filled: false, goods: z, trade_agreement: z, decks: [z; crate::generated::ExploreType::COUNT], cards: [z; crate::generated::Explore::COUNT] }
+    }
 }
 
 /// The texts the tactical composer puts into the position and its questions' facts: the pool of the activation token, the roll kind
@@ -273,6 +292,8 @@ pub struct InvasionCodes {
     pub planets: crate::state::Code,
     /// The source `dunlain_reaper` of the Reaper's question.
     pub dunlain_reaper: crate::state::Code,
+    /// The source `minister_exploration` of the trade good the Minister of Exploration pays for a planet taken (an event text).
+    pub minister: crate::state::Code,
     /// The phases of the public boundary `ActiveInvasion.phase`: bombardment, custodians, landing, ground_battle, planet_result,
     /// next_defender, control, complete.
     pub phases: [crate::state::Code; 8],
@@ -285,7 +306,7 @@ pub struct InvasionCodes {
 impl Default for InvasionCodes {
     fn default() -> Self {
         let z = crate::state::Code(0);
-        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, bombardment_cause: z, space_cannon_cause: z, planets: z, dunlain_reaper: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT] }
+        Self { ground: z, bombardment: z, ground_round: z, space_cannon_defense: z, bombardment_cause: z, space_cannon_cause: z, planets: z, dunlain_reaper: z, minister: z, phases: [z; 8], names: [z; 12], units: [z; crate::generated::Unit::COUNT] }
     }
 }
 
@@ -386,6 +407,8 @@ pub struct AdapterFacts {
     /// The texts of the space combat the live loop runs (`driver::windows::combat`): unit and roll-group names, causes and phases. The
     /// core holds no text; the adapter interns them for the unit types in the fight at every call (`ti4-engine/src/combat_live.rs`).
     pub combat: CombatTexts,
+    /// The words of the log row an exploration closes (`exploration::row_words`), set by the adapter. `None`: the exploration declines.
+    pub explore_words: Option<crate::kernel::fx_explore::WordsFn>,
 }
 
 /// The texts the live space combat needs from outside: the string's `settle_run` interned them per settle, the live adapter does per call.

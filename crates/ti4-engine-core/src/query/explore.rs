@@ -140,23 +140,7 @@ pub fn salvaged(core: &CoreState, seat: Seat) -> &[ActionCard] {
     if board::controls(core, seat, Planet::Garbozia) { core.cards().salvage_yard.as_slice() } else { &[] }
 }
 
-/// What a seat holds that an exploration card can change (`exploration::Holdings`); compared before and after a
-/// card to say what it did. The counts of the seat's own infantry and mechs are those on `planet`, by base type
-/// (the string engine reads `infantry` / `mech` in the unit-type id; `scratch` showed them equal on the corpus).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Holdings {
-    pub trade_goods: i32,
-    pub commodities: i32,
-    pub command_tokens: i32,
-    pub action_cards: usize,
-    pub secrets: usize,
-    pub relics: usize,
-    pub technologies: usize,
-    pub play_area: usize,
-    pub own_infantry: usize,
-    pub own_mechs: usize,
-    pub exhausted: bool,
-}
+pub use crate::state::Holdings;
 
 /// `exploration::Holdings::of`.
 #[must_use]

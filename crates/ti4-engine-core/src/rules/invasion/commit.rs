@@ -5,8 +5,7 @@
 //! puts "commit ground forces in {system}"; the answer lands the unit (`Landing`) or ends the commitment.
 //!
 //! Not covered (the adapter returns `None`, the string result stands): the Omniopiares toll, the commit
-//! candidates other than the space area (faction hooks with a galaxy), and a ship-form unit that flips on
-//! landing (Naaz Eidolon): the window sets `unsupported` and the adapter drops the comparison.
+//! candidates other than the space area (faction hooks with a galaxy). A ship-form unit (Naaz Eidolon) flips to its ground form on landing.
 
 use super::{commit_opts_with, landable, landable_planets, Rd, Troop};
 use crate::choice::generic::Rule;
@@ -132,9 +131,7 @@ impl Window for CommitGround {
             Pick::Opt(Opt::Invasion(IOpt::Commit { index, planet, .. })) => {
                 let troops = landable(Self::rd(sx.state, sx.kernel), self.invader, self.system);
                 let piece = *troops.get(usize::from(index)).ok_or(Illegal)?;
-                if Self::rd(sx.state, sx.kernel).data(piece.kind()).is_some_and(|d| d.ship) {
-                    self.unsupported = true;
-                }
+                let space_form = Self::rd(sx.state, sx.kernel).data(piece.kind()).is_some_and(|d| d.ship);
                 let units = &mut sx.state.board_mut().sys_mut(self.system).units;
                 if let Some(at) = units.iter().position(|u| *u == piece) {
                     units.remove(at);
@@ -143,6 +140,11 @@ impl Window for CommitGround {
                 let cell = sx.state.board_mut().planet_mut(planet);
                 cell.units.push(piece);
                 cell.flags.set(crate::state::PlanetFlags::UNITS_ENTRY, true);
+                // A dual-form unit that stood in space in its ship form (Naaz Eidolon) lands in its ground form (`invasion::land_unit`).
+                if space_form {
+                    let scope = crate::tables::Scope(u32::from(sx.kernel.sources.0));
+                    crate::kernel::fx_strategy::flip_form(sx.state, scope, self.invader, self.system, Some(planet), piece.kind());
+                }
                 sx.state.board_mut().sys_mut(self.system).flags.set(crate::state::SysFlags::TOUCHED, true);
                 if !self.committed.contains(&planet) {
                     self.committed.push(planet);
@@ -162,7 +164,7 @@ impl Window for CommitGround {
 /// committed unit and announces `UNITS_COMMITTED` (with the controller of the planet, when it has one).
 ///
 /// Not covered (the adapter returns `None`): a toll (Keleres), commit candidates with an origin, temporary space
-/// commits, the Crimson deploy, a ship-form unit flipping on landing, the diplomacy promises
+/// commits, the Crimson deploy, the diplomacy promises
 /// (`HostileEngagement`) and any reaction to the announcement.
 #[derive(Debug, Clone)]
 pub struct LandOne {
@@ -263,9 +265,9 @@ impl Window for LandOne {
             None => Troop::space(*landable(CommitGround::rd(sx.state, sx.kernel), self.invader, self.system).get(usize::from(index)).ok_or(Illegal)?),
         };
         let piece = troop.piece;
-        if !troop.temporary && CommitGround::rd(sx.state, sx.kernel).data(piece.kind()).is_some_and(|d| d.ship) {
-            self.unsupported = true;
-        }
+        // A dual-form unit that stood in space in its ship form (Naaz Eidolon, Z-Grav Eidolon) lands in its ground form: the ship form is never on
+        // a planet (`invasion::land_unit`; the flip is made once the piece stands on the planet, below).
+        let space_form = !troop.temporary && CommitGround::rd(sx.state, sx.kernel).data(piece.kind()).is_some_and(|d| d.ship);
         self.landed = Some(troop);
         sx.state.transient_mut().combat.last_committed_unit = Some((self.invader, self.system, planet, piece));
         match troop.origin {
@@ -286,6 +288,10 @@ impl Window for LandOne {
         let cell = sx.state.board_mut().planet_mut(planet);
         cell.units.push(piece);
         cell.flags.set(crate::state::PlanetFlags::UNITS_ENTRY, true);
+        if space_form {
+            let scope = crate::tables::Scope(u32::from(sx.kernel.sources.0));
+            crate::kernel::fx_strategy::flip_form(sx.state, scope, self.invader, self.system, Some(planet), piece.kind());
+        }
         sx.state.board_mut().sys_mut(self.system).flags.set(crate::state::SysFlags::TOUCHED, true);
         let mut payload = Payload::new()
             .with(Key::System, Val::System(self.system))

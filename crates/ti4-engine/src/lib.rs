@@ -49,6 +49,7 @@ pub mod explore_core;
 pub mod legendary_core;
 pub mod product;
 pub mod explore_write;
+pub mod exploring_dual;
 pub mod strategy_cards_core;
 pub mod strategy_core;
 #[cfg(feature = "typed-core")]

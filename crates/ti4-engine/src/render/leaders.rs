@@ -156,6 +156,8 @@ impl Family for Fam {
             Ask::FlockShip => "Flock Migration: choose a ship to move".to_owned(),
             Ask::FlockTo => "Flock Migration: choose the destination".to_owned(),
             Ask::FlockCargo => "Flock Migration: carry a unit aboard (it cannot be landed)".to_owned(),
+            Ask::MahactMove => "Airo Shir Aur: which fleet moves where".to_owned(),
+            Ask::YinCommit { n, stock } => format!("Quantum Dissemination: commit infantry {} of {stock}", u32::from(*n) + 1),
         }
     }
 
@@ -186,6 +188,8 @@ impl Family for Fam {
             Subtype::FlockShip => "flock_migration_ship".to_owned(),
             Subtype::FlockTo => "flock_migration_to".to_owned(),
             Subtype::FlockCargo => "flock_migration_cargo".to_owned(),
+            Subtype::MahactMove => "mahact_hero_move".to_owned(),
+            Subtype::YinCommit => "yin_hero_commit".to_owned(),
         }
     }
 
@@ -244,6 +248,14 @@ impl Family for Fam {
             }
             Opt::FlockTo(system) => ChoiceOption::labelled(format!("to|{}", system.as_str()), "flock_migration_to", format!("move it to {}", system.as_str())),
             Opt::FlockCargo { index, unit } => ChoiceOption::labelled(format!("cargo|{index}"), "flock_migration_cargo", format!("carry {}", unit.as_str())),
+            Opt::MahactMove(from, to) => {
+                ChoiceOption::labelled(format!("{}|{}", from.as_str(), to.as_str()), "mahact_hero", format!("move the fleet in {} to {}", from.as_str(), to.as_str()))
+            }
+            Opt::YinSpot(system, planet) => ChoiceOption::labelled(
+                format!("{}|{}", system.as_str(), planet.as_str()),
+                "commit_infantry",
+                format!("commit infantry to {} in {}", planet.as_str(), system.as_str()),
+            ),
             Opt::Remove => ChoiceOption::labelled("remove", INFANTRY_KIND, "remove 1 infantry"),
             Opt::Keep => match a {
                 Ask::JolnarSwap { held } => {
@@ -332,6 +344,14 @@ impl Family for Fam {
             Ask::FlayeshTech => Technology::from_id(id).map(Opt::Gain),
             // The numbers name a place in the list the question offered, not a unit: the id is matched against the options.
             Ask::FlockShip | Ask::FlockCargo => None,
+            Ask::MahactMove => {
+                let (from, to) = id.split_once('|')?;
+                Some(Opt::MahactMove(System::from_id(from)?, System::from_id(to)?))
+            }
+            Ask::YinCommit { .. } => {
+                let (system, planet) = id.split_once('|')?;
+                Some(Opt::YinSpot(System::from_id(system)?, Planet::from_id(planet)?))
+            }
             Ask::FlockTo => System::from_id(id.strip_prefix("to|")?).map(Opt::FlockTo),
             Ask::NaazCard | Ask::WinnuCard => ti4_engine_core::generated::StrategyCard::from_id(id).map(Opt::HeroCard),
             Ask::KyverFate { .. } => match id {

@@ -41,6 +41,8 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::WARRIOR_ROLLS, kind: "unit", card: "arborec_infantry2" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_SHIPS, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::INDOCTRINATION, kind: "ability", card: "indoctrination" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::GREYFIRE, kind: "promissory", card: "greyfire" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_SPACE, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_GROUND, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::magen_defense::ACTIVATION, kind: "technology", card: "md" },
@@ -203,6 +205,8 @@ pub fn table() -> AbilityTable {
             // The links to the areas whose windows an action card runs as children: a play window that follows nested
             // activity runs on this table (`follow`), not on `action_cards_view::play_table`.
             ti4_engine_core::driver::children::register(&mut t);
+            // The offer of Self-Assembly Routines at the end of a use of PRODUCTION a hero or a card runs (a window of the faction crate).
+            ti4_engine_core_factions::self_assembly::register_links(&mut t);
             t.facts.card_groups = card_groups();
             t
         })
@@ -482,6 +486,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.galactic_threat = r.code("galactic_threat");
         table.codes.empyrean_mech = r.code("empyrean_mech");
         table.codes.salvage = r.code("so");
+        table.codes.indoctrination = r.code("indoctrination");
         table.facts.pay_kernel = Some(crate::production_view::kernel);
         table.codes.mahact_infantry = r.code("mahact_infantry");
         table.codes.mahact_infantry2 = r.code("mahact_infantry2");

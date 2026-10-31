@@ -201,7 +201,9 @@ fn stall_tactics_with_a_single_card_discards_it_unasked_and_with_an_empty_hand_d
 // ---- Mageon Implants --------------------------------------------------------------------------
 
 fn mageon(hand0: &[ActionCard], hand1: &[ActionCard], limited: bool) -> Rig<MageonImplants> {
-    let sc = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheArborec]).tech(0, T::MageonImplants).hand(0, hand0).hand(1, hand1);
+    // (A seat that is limited is not a Yssaril one: Crafty lifts the hand limit, which `DrawCards` reads from the kernel since package W14.)
+    let faction = if limited { Faction::TheNaaluCollective } else { Faction::TheYssarilTribes };
+    let sc = Scenario::new(&[faction, Faction::TheArborec]).tech(0, T::MageonImplants).hand(0, hand0).hand(1, hand1);
     Rig::new(sc, MageonImplants::new(Seat(0), Seat(1), limited)).with_table(table_with_groups())
 }
 

@@ -56,6 +56,21 @@ pub(crate) fn unported_triggered(state: &GameState, player: &PlayerId) -> bool {
     unported_window(state, player) || state.players.iter().any(|p| keleres.contains(&p.faction.as_str()))
 }
 
+/// [`kernel`] for the sources of a game: the faction hook table with the scope of the cards in play, which the windows that place a form
+/// read (Self-Assembly Routines' mech is the one the sources name). Built once per scope and process.
+pub(crate) fn kernel_of(sources: SourceSet) -> &'static Kernel {
+    static KERNELS: [std::sync::OnceLock<Kernel>; 128] = [const { std::sync::OnceLock::new() }; 128];
+    let slot = usize::try_from(sources.as_u32()).ok().and_then(|i| KERNELS.get(i)).unwrap_or(&KERNELS[127]);
+    slot.get_or_init(|| {
+        let mut k = crate::core_adapter::kernel_for(sources).clone();
+        k.hooks = ti4_engine_core::hooks::HookTable::new();
+        ti4_engine_core_factions::register_all(&mut k.hooks);
+        ti4_engine_core::kernel::seam::providers::register_core(&mut k.hooks);
+        ti4_engine_core::kernel::seam::adapters::bridge_legacy(&mut k.hooks.seam);
+        k
+    })
+}
+
 /// The kernel of the production reads: the seams of the laws and relics, and the bridge to the legacy
 /// hook slots (empty here), then every faction hook table. Built once.
 pub(crate) fn kernel() -> &'static Kernel {

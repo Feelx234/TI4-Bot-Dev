@@ -442,7 +442,7 @@ impl Window for KyverHero {
 
 // -- It Feeds on Carrion ------------------------------------------------------------------------------
 
-use crate::kernel::children::{ErasedChild, Report, SeeingLimits, Spawn};
+use crate::kernel::children::{ErasedChild, Made, Report, SeeingLimits, Spawn};
 use crate::state::Piece;
 
 /// The suspension points of [`CabalHero`].
@@ -627,8 +627,8 @@ pub enum NStage {
 /// (the cards that are readied, or unchosen, in the order of the adapter; a card whose secondary costs a token is offered only while the
 /// seat has one in its reinforcements), declining ends the choice; then the relic is gained and each chosen secondary is performed in turn
 /// by the ability's own window as a child ([`fx_perform::begin`]). A chosen secondary that costs a token stops the run when the
-/// reinforcements ran out. [`Self::used`]: the relic was gained. `unsupported`: an ability the core does not carry (the Warfare secondary,
-/// a hook-changed draw, a research a faction waiver opens) or no link to the child: the adapter declines the run.
+/// reinforcements ran out. [`Self::used`]: the relic was gained. `unsupported`: an ability the core does not carry (the Warfare secondary at a
+/// table the production windows do not carry, a hook-changed draw, a research a faction waiver opens) or no link to the child: the adapter declines the run.
 #[derive(Debug, Clone)]
 pub struct NaazHero {
     pub who: Seat,
@@ -640,6 +640,10 @@ pub struct NaazHero {
     child: ErasedChild,
     pub used: bool,
     pub unsupported: bool,
+    /// What the home production of the Warfare secondary made, in order (the adapter announces it).
+    pub home_made: Option<Made>,
+    /// How many events were staged when the home production finished: its announcement goes after them, before what the later secondaries stage.
+    pub home_staged: usize,
 }
 
 /// "Every secondary but Leadership's (influence) costs a command token."
@@ -650,7 +654,7 @@ fn costs_token(card: StrategyCard) -> bool {
 impl NaazHero {
     #[must_use]
     pub fn new(who: Seat, facts: PerformFacts, cards: Vec<StrategyCard>) -> Self {
-        Self { who, facts, cards, stage: NStage::Start, chosen: Vec::new(), at: 0, child: ErasedChild::idle(), used: false, unsupported: false }
+        Self { who, facts, cards, stage: NStage::Start, chosen: Vec::new(), at: 0, child: ErasedChild::idle(), used: false, unsupported: false, home_made: None, home_staged: 0 }
     }
 
     fn spare(&self, core: &CoreState) -> bool {
@@ -732,6 +736,10 @@ impl Window for NaazHero {
                     Some(Err(next)) => return next,
                     Some(Ok(done)) => {
                         self.unsupported |= done.failed;
+                        if done.made.is_some() {
+                            self.home_made = done.made;
+                            self.home_staged = sx.state.pending().staged.len();
+                        }
                         self.at += 1;
                         self.stage = if done.failed { NStage::Done } else { NStage::Next };
                     }
@@ -790,8 +798,8 @@ pub enum WStage {
 /// Mathis Mathinus (Winnu hero): "ACTION: Choose 1 strategy card on the board; perform its primary ability, then each other player may
 /// follow its secondary." The seat chooses one of `cards` (a question even for one) and the primary of the card is performed by the
 /// ability's own window as a child ([`fx_perform::begin`]); who may follow is the game's (`Game::select_leader_strategy_followers`).
-/// [`Self::chosen`]: the card. `unsupported`: a primary the core does not carry (the Imperial primary, the Thunder's Edge Construction and
-/// Warfare primaries, a hook-changed draw, a research a faction waiver opens) or no link to the child.
+/// [`Self::chosen`]: the card. `unsupported`: a primary the core does not carry (the Imperial primary at a table the scoring tables do not follow, the Thunder's Edge Construction and
+/// Warfare primaries at a table whose facts the adapter could not give, a hook-changed draw, a research a faction waiver opens) or no link to the child.
 /// [`Self::tokens`]: the system the Diplomacy primary placed tokens in and the seats that got one, announced by the adapter.
 #[derive(Debug, Clone)]
 pub struct WinnuHero {
@@ -802,13 +810,19 @@ pub struct WinnuHero {
     pub chosen: Option<StrategyCard>,
     child: ErasedChild,
     pub tokens: Option<(System, SmallList<Seat, 8>)>,
+    /// The public objective the Imperial primary scored (what the score sets off is the adapter's).
+    pub scored: Option<crate::generated::PublicObjective>,
+    /// The system of the free tactical action of the Thunder's Edge Warfare primary: the game plays it next (`Ability::FreeTactical`).
+    pub free: Option<System>,
+    /// What the use of PRODUCTION of the Thunder's Edge Construction primary made, with the system it ran in (the adapter announces it).
+    pub produced: Option<(System, Made)>,
     pub unsupported: bool,
 }
 
 impl WinnuHero {
     #[must_use]
     pub fn new(who: Seat, facts: PerformFacts, cards: Vec<StrategyCard>) -> Self {
-        Self { who, facts, cards, stage: WStage::Start, chosen: None, child: ErasedChild::idle(), tokens: None, unsupported: false }
+        Self { who, facts, cards, stage: WStage::Start, chosen: None, child: ErasedChild::idle(), tokens: None, scored: None, free: None, produced: None, unsupported: false }
     }
 }
 
@@ -829,6 +843,9 @@ impl Window for WinnuHero {
                     Some(Ok(done)) => {
                         self.unsupported |= done.failed;
                         self.tokens = done.tokens;
+                        self.scored = done.scored;
+                        self.free = done.free;
+                        self.produced = done.made.zip(done.made_in).map(|(made, system)| (system, made));
                         self.stage = WStage::Done;
                     }
                     None => self.stage = WStage::Done,
@@ -1147,6 +1164,142 @@ impl Window for ArgentHero {
                 self.ask_cargo_or_move(sx);
                 Ok(())
             }
+            _ => Err(Illegal),
+        }
+    }
+}
+
+// -- Conservator Procyon -------------------------------------------------------------------------------
+
+use crate::kernel::children::ExploreEnd;
+use crate::kernel::stage::Ran;
+
+/// The suspension points of [`EmpyreanHero`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EStage {
+    Start,
+    /// The next token under a ship is explored.
+    Next,
+    /// A token is being explored (a child of the explore area, `explore_windows::Exploring`).
+    Exploring,
+    Done,
+}
+
+/// Conservator Procyon (Empyrean hero): "ACTION: Place 1 frontier token in each system that does not contain any planets and does not already
+/// have a frontier token. Then, explore each frontier token that is in a system that contains 1 or more of your ships. Then, purge this
+/// card." The tokens in `placed` (the planetless systems, the adapter's read of the map) are added, then every token under a ship of the seat
+/// is explored in `order` by the exploration window of the explore area (`Spawn::ExploreFrontier`): the token is spent, the top card of the
+/// frontier deck drawn, its log row opened and closed with the adapter's words, the card resolved with no planet.
+/// `order` lists every system that can hold a token in the text order of the system names (the core never sees the text: the adapter sorts).
+/// A frontier deck that runs out is a failed exploration: the whole run is undone (the string restores the state, the dice and the stream
+/// at the hero level) after the questions already asked, and the card is not used. [`Self::used`]: the card resolved.
+/// [`Self::unsupported`]: the exploration declined (a card the core does not carry, a table with no texts or no link to a child): the adapter
+/// declines the run.
+#[derive(Debug, Clone)]
+pub struct EmpyreanHero {
+    pub who: Seat,
+    placed: Vec<System>,
+    order: Vec<System>,
+    stage: EStage,
+    /// The position the run started from: a failed exploration restores it.
+    snapshot: Option<Box<CoreState>>,
+    targets: Vec<System>,
+    at: usize,
+    child: ErasedChild,
+    pub used: bool,
+    pub unsupported: bool,
+}
+
+impl EmpyreanHero {
+    #[must_use]
+    pub fn new(who: Seat, placed: Vec<System>, order: Vec<System>) -> Self {
+        Self { who, placed, order, stage: EStage::Start, snapshot: None, targets: Vec::new(), at: 0, child: ErasedChild::idle(), used: false, unsupported: false }
+    }
+
+    /// The run holds something the window does not carry: the adapter declines it.
+    fn decline(&mut self) {
+        self.unsupported = true;
+        self.stage = EStage::Done;
+    }
+
+    /// The frontier deck ran out: the exploration failed, so the run is undone and the card is not used.
+    fn fail(&mut self, sx: &mut Sx<'_>) {
+        if let Some(before) = self.snapshot.take() {
+            *sx.state = *before;
+        }
+        self.used = false;
+        self.stage = EStage::Done;
+    }
+}
+
+impl Window for EmpyreanHero {
+    type Stage = EStage;
+
+    fn stage(&self) -> EStage {
+        self.stage
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        loop {
+            match self.stage {
+                EStage::Start => {
+                    self.snapshot = Some(Box::new(sx.state.clone()));
+                    for system in &self.placed {
+                        sx.state.explore_mut().frontier.insert(*system);
+                    }
+                    // The string walks its set of system names: the text order, which only the adapter knows.
+                    let who = self.who;
+                    let targets: Vec<System> = self
+                        .order
+                        .iter()
+                        .copied()
+                        .filter(|system| sx.state.explore().frontier.contains(*system))
+                        .filter(|system| sx.state.board().sys(*system).units.as_slice().iter().any(|p| p.owner() == who && p.kind().data().ship))
+                        .collect();
+                    self.targets = targets;
+                    self.stage = EStage::Next;
+                }
+                EStage::Next => {
+                    let Some(system) = self.targets.get(self.at).copied() else {
+                        self.snapshot = None;
+                        self.used = true;
+                        self.stage = EStage::Done;
+                        continue;
+                    };
+                    // (The string explores with no timing handle here: nothing is announced.)
+                    match sx.table.links.start(&Spawn::ExploreFrontier { who: self.who, system }) {
+                        Some(window) => {
+                            self.child.start(window);
+                            self.stage = EStage::Exploring;
+                        }
+                        None => self.decline(),
+                    }
+                }
+                EStage::Exploring => match self.child.step(sx) {
+                    Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                    Some(Ran::Pass(next)) => return next,
+                    Some(Ran::Done(Report::Explored(ExploreEnd::Empty))) => self.fail(sx),
+                    Some(Ran::Done(Report::Explored(ExploreEnd::Unsupported))) => self.decline(),
+                    Some(Ran::Done(_)) | None => {
+                        self.at += 1;
+                        self.stage = EStage::Next;
+                    }
+                },
+                EStage::Done => return Next::Done,
+            }
+        }
+    }
+
+    fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        match self.stage {
+            EStage::Exploring => self.child.ask_of(s, k),
+            _ => None,
+        }
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match self.stage {
+            EStage::Exploring => self.child.answer(sx, pick),
             _ => Err(Illegal),
         }
     }

@@ -1426,6 +1426,54 @@ fn use_leader_timed(
     if stock == 0 || spots.is_empty() {
         return Ok(Some(false));
     }
+    hero_dual(context, resolver, player, &spots, stock).map(Some)
+}
+/// The card as a window of the core (`rules::invasion::yin_hero::YinHero`): the commitments, the landing, each planet fought to its end as a
+/// child and the control; the string body ([`hero_string`]) is the oracle of the dual run.
+fn hero_dual(
+    context: &mut TimingContext<'_>,
+    resolver: &mut crate::timing::Resolver,
+    player: &PlayerId,
+    spots: &[(SystemId, PlanetId)],
+    stock: usize,
+) -> Result<bool, TimingError> {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy } = context;
+    let (content, sources, galaxy) = (*content, *sources, *galaxy);
+    let rng_before = rng.positions();
+    // The dice of the fights: only streams the core can reproduce (no test faces, no pending restore, the state's seed).
+    let reproducible = crate::product::reproducible(dice.is_preloaded(), rng.sync_pending(), rng.seed(), state.rng_seed);
+    let result = std::cell::RefCell::new(None);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::yin::hero",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy };
+            let done = hero_string(&mut inner, &mut *resolver, player, spots, stock);
+            let value = done.as_ref().ok().copied();
+            *result.borrow_mut() = Some(done);
+            crate::dual::Run::new(value).with_rng(&*inner.rng)
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            // An answer the string refused undoes the whole card at the caller: nothing to follow.
+            if result.borrow().as_ref().is_some_and(Result::is_err) {
+                crate::dual::note_bail_here("the string refused an answer inside the card");
+                return None;
+            }
+            crate::dual_window::yin_hero(s, content, sources, player, spots, stock, &rng_before, reproducible, script)
+        }
+    );
+    result.into_inner().expect("the string side always runs")
+}
+
+/// [`use_leader_timed`] on the string engine once the hero has spots and infantry: the oracle of the dual run.
+fn hero_string(
+    context: &mut TimingContext<'_>,
+    resolver: &mut crate::timing::Resolver,
+    player: &PlayerId,
+    spots: &[(SystemId, PlanetId)],
+    stock: usize,
+) -> Result<bool, TimingError> {
     let mut chosen = Vec::new();
     while chosen.len() < stock {
         let options = spots
@@ -1459,12 +1507,12 @@ fn use_leader_timed(
             .iter()
             .find(|(system, planet)| format!("{system}|{planet}") == answer.id)
         else {
-            return Ok(Some(false));
+            return Ok(false);
         };
         chosen.push(spot.clone());
     }
     if chosen.is_empty() {
-        return Ok(Some(false));
+        return Ok(false);
     }
 
     for (system, planet) in &chosen {
@@ -1529,7 +1577,7 @@ fn use_leader_timed(
             std::slice::from_ref(planet),
         );
     }
-    Ok(Some(true))
+    Ok(true)
 }
 
 /// Land the infantry, fight every planet to its end, then establish control. `false` (state
@@ -3320,6 +3368,159 @@ mod tests {
             &LeaderId::new("yinhero"),
         );
         (done, dice)
+    }
+
+    /// The hero through the timed route with the real dice stream of `seed` (the core half draws the same dice from the lent stream).
+    fn use_hero_timed_seeded(state: &mut GameState, galaxy: &ti4_content::galaxy::Galaxy, answers: &[&str], seed: u64) -> Result<bool, TimingError> {
+        let mut resolver = armed_resolver(state);
+        let mut table = scripted(answers);
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(seed);
+        state.rng_seed = seed;
+        let mut event_sequence = crate::event::EventSequence::new();
+        let mut context = TimingContext {
+            state,
+            content: ContentStore::embedded(),
+            sources: DEFAULT,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut event_sequence,
+            galaxy: Some(galaxy),
+        };
+        crate::leaders::use_leader_timed(&mut context, &mut resolver, &a(), &LeaderId::new("yinhero"))
+    }
+
+    /// Quantum Dissemination is a body of the core (`rules::invasion::yin_hero::YinHero`): the commitments, the landing, each planet fought to
+    /// its end by `CommittedFight` (the windows of a ground round in turn, the events, the feats of a win) and the control. The core half agrees
+    /// with the string (the questions, the position, the events, the streams after) over fights of several rounds, two infantry on one planet
+    /// and on two, an empty planet and a declined card; and the window ran each time.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut ran = 0;
+        let run = |state: &mut GameState, galaxy: &ti4_content::galaxy::Galaxy, answers: &[&str], seed: u64| {
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || use_hero_timed_seeded(state, galaxy, answers, seed))
+        };
+        // Yin cannot pay for Indoctrination (an ability of the string that asks at every ground combat of the faction: nested activity the core
+        // window does not follow), so the fights are the window's own.
+        let poor = |state: &mut GameState| {
+            // (And no agent to offer when a ground force dies.)
+            state.player_mut(&a()).unwrap().leaders.insert(LeaderId::new("yinagent"), LeaderStatus::Exhausted);
+            state.player_mut(&a()).unwrap().trade_goods = 0;
+            let controlled: Vec<PlanetId> = state.board.values().flat_map(|board| board.planet_control.keys().cloned()).collect();
+            for planet in controlled {
+                state.exhaust_planet(planet);
+            }
+        };
+        for seed in 0..8_u64 {
+            let (mut state, system, planet, galaxy) = hero_state();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+            unlock_hero(&mut state);
+            poor(&mut state);
+            let spot = format!("{system}|{planet}");
+            assert_eq!(run(&mut state, &galaxy, &[&spot, &spot, &spot], seed), Ok(true), "seed {seed}");
+            ran += 1;
+        }
+        // With the means to pay, Indoctrination is offered when the combat starts: nested activity the core table follows (a rule of the core
+        // since package W13).
+        let (mut state, system, planet, galaxy) = hero_state();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+        unlock_hero(&mut state);
+        let spot = format!("{system}|{planet}");
+        assert_eq!(run(&mut state, &galaxy, &[&spot, &spot, &spot, "decline"], 2), Ok(true));
+        ran += 1;
+        // An empty planet: no combat, the control changes at once; two infantry on it, the third declined.
+        let (mut state, system, planet, galaxy) = hero_state();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        unlock_hero(&mut state);
+        let spot = format!("{system}|{planet}");
+        assert_eq!(run(&mut state, &galaxy, &[&spot, &spot, "decline"], 1), Ok(true));
+        assert_eq!(state.system_state(&system).planet_control.get(&planet), Some(&a()));
+        ran += 1;
+        // Declined: nothing happens.
+        let (mut state, system, planet, galaxy) = hero_state();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        unlock_hero(&mut state);
+        let before = state.clone();
+        assert_eq!(run(&mut state, &galaxy, &["decline"], 1), Ok(false));
+        assert_eq!(state, before);
+        let _ = (system, planet);
+        ran += 1;
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let (compared, bailed) = thread_window_counts("factions::yin::hero");
+        assert_eq!(compared + bailed, ran, "{r:?}");
+        assert!(compared >= 8, "the window ran: {r:?}");
+        assert_eq!(bailed, 0, "bail-as-failure: every run is the core's: {r:?}");
+        let _ = take_report();
+    }
+
+    /// Package W13: the effects the core fight and the hero carry that used to send the run to the string (X-89 Bacterial Weapon, Dacxive
+    /// Animators, the Minister of Exploration, the Crown of Emphidia, a Letnev rival's Dunlain Reaper, Indoctrination) agree with the string and
+    /// the window runs each time (bail-as-failure).
+    #[test]
+    fn the_effects_of_the_core_fight_run_in_lockstep_and_no_window_bails() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let poor = |state: &mut GameState| {
+            state.player_mut(&a()).unwrap().leaders.insert(LeaderId::new("yinagent"), LeaderStatus::Exhausted);
+            state.player_mut(&a()).unwrap().trade_goods = 0;
+            let controlled: Vec<PlanetId> = state.board.values().flat_map(|board| board.planet_control.keys().cloned()).collect();
+            for planet in controlled {
+                state.exhaust_planet(planet);
+            }
+        };
+        type Tweak = Box<dyn Fn(&mut GameState, &SystemId)>;
+        let cases: Vec<(&str, Tweak)> = vec![
+            ("x89", Box::new(|s, _| {
+                s.player_mut(&b()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("x89c4"));
+            })),
+            ("dacxive", Box::new(|s, _| {
+                s.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("dxa"));
+                s.player_mut(&b()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("dxa"));
+            })),
+            ("minister", Box::new(|s, _| {
+                s.laws.insert("minister_exploration".to_owned(), "a".to_owned());
+            })),
+            ("crown", Box::new(|s, system| {
+                s.laws.insert("crown_of_emphidia".to_owned(), "b".to_owned());
+                s.player_mut(&b()).unwrap().home_system = Some(system.clone());
+            })),
+        ];
+        let mut ran = 0;
+        for (what, tweak) in &cases {
+            for seed in 0..4_u64 {
+                let (mut state, system, planet, galaxy) = hero_state();
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+                unlock_hero(&mut state);
+                poor(&mut state);
+                tweak(&mut state, &system);
+                let spot = format!("{system}|{planet}");
+                let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || use_hero_timed_seeded(&mut state, &galaxy, &[&spot, &spot, &spot], seed));
+                assert_eq!(done, Ok(true), "{what} seed {seed}");
+                ran += 1;
+            }
+        }
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("yin hero effects", &r);
+        assert_eq!(thread_window_counts("factions::yin::hero"), (ran, 0), "{r:?}");
+        let _ = take_report();
     }
 
     fn unlock_hero(state: &mut GameState) {

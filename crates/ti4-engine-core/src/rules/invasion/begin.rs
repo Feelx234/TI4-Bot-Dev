@@ -52,6 +52,9 @@ pub struct Facts {
     pub numbered: bool,
     /// Per participant (invader, defender): at least 2 resources can be spent (the string's `production::available`).
     pub can_pay: [bool; 2],
+    /// A fight of many rounds reads what a seat can spend in the round (the Reaper's payment, the trade goods and the planets change
+    /// between rounds): the payment environment; `None`: [`Self::can_pay`] stands (the string asked at the start of this round).
+    pub pay_env: Option<crate::kernel::fx_pay::PayEnv>,
     /// The interned source `dunlain_reaper` of the Reaper's question.
     pub dunlain: Code,
 }
@@ -80,7 +83,11 @@ impl BeginGroundRound {
     /// Whether the Reaper is offered to participant `at`: a Letnev seat with an infantry in this combat, a mech in the reinforcements
     /// that no effect forbids placing, and 2 resources to spend.
     fn offered(&self, s: &CoreState, k: &Kernel) -> bool {
-        reaper_offered(s, k, self.f.planet, self.seat(), self.f.can_pay[self.at])
+        let can_pay = match self.f.pay_env {
+            Some(env) => crate::kernel::fx_pay::can_afford(s, k, env, self.seat(), crate::query::economy::Spend::Resources, REAPER_COST),
+            None => self.f.can_pay[self.at],
+        };
+        reaper_offered(s, k, self.f.planet, self.seat(), can_pay)
     }
 
     /// "Replace 1 of your infantry in that combat with 1 mech": the first infantry of the seat on the planet takes the mech's place.

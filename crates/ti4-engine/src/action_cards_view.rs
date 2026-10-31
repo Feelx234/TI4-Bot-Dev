@@ -477,7 +477,7 @@ fn probe_facts(gs: &GameState, cx: &mut Ctx, player: &PlayerId, galaxy: Option<&
 }
 
 /// The reward question of a Merchant Station carries the seat's commodity standing (display only, read where the string reads it).
-fn reward_details(c: &ti4_engine_core::choice::Choice, before: &GameState, player: &PlayerId, rendered: &mut crate::choice::Choice) {
+pub(crate) fn reward_details(c: &ti4_engine_core::choice::Choice, before: &GameState, player: &PlayerId, rendered: &mut crate::choice::Choice) {
     use ti4_engine_core::choice::explore::{Ask as EAsk, Step};
     if matches!(c.ask, ti4_engine_core::choice::Ask::Explore(EAsk::Reward(Step::MerchantStation))) {
         rendered.details.insert("commodities".to_owned(), crate::strategy_cards::commodity_standing(before, ti4_content::ContentStore::embedded(), player));

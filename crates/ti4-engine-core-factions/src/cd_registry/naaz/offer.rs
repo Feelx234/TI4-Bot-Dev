@@ -67,7 +67,8 @@ pub fn ground_round_started(cx: &mut Cx<'_>, who: Seat, _system: System, planet:
 fn offer_supercharge(cx: &mut Cx<'_>, who: Seat, word: Word) {
     let key = MarkKey::NaazSupercharge(who);
     cx.state.marks_mut().tail.edit().remove(&key);
-    let ready = cx.state.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(Technology::Supercharge) && !p.tech.exhausted.contains(Technology::Supercharge));
+    // (`technology::technology_text_ready`: the technology itself, or the Valefar Assimilator of a Nekro seat whose token sits on it, package W14.)
+    let ready = fx_strategy::text_carrier(cx.state, who, Technology::Supercharge).is_some_and(|card| cx.state.players().by_seat(who).is_some_and(|p| !p.tech.exhausted.contains(card)));
     if !ready {
         return;
     }
@@ -91,5 +92,5 @@ fn offer_supercharge(cx: &mut Cx<'_>, who: Seat, word: Word) {
     }
     let seq = cx.state.meta().combat_round_seq;
     cx.state.marks_mut().tail.edit().insert(key, MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(word)), MarkVal::Atom(Atom::Num(seq))]));
-    fx_strategy::exhaust_technology(cx.state, who, Technology::Supercharge);
+    fx_strategy::exhaust_technology_text(cx.state, who, Technology::Supercharge);
 }

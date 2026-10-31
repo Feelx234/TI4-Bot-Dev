@@ -20,6 +20,7 @@ pub fn fill_codes(table: &mut AbilityTable, r: &Render, state_code: &mut dyn FnM
     c.space_cannon_cause = r.code("space_cannon_defense");
     c.planets = r.code("planets");
     c.dunlain_reaper = r.code("dunlain_reaper");
+    c.minister = r.code("minister_exploration");
     for (slot, text) in c.phases.iter_mut().zip(["bombardment", "custodians", "landing", "ground_battle", "planet_result", "next_defender", "control", "complete"]) {
         *slot = state_code(text);
     }
@@ -37,20 +38,25 @@ pub const fn unported_text(why: ti4_engine_core::kernel::ability::Unported) -> &
     use ti4_engine_core::kernel::ability::Unported as U;
     match why {
         U::NoProgress => "the invasion made no progress (a stage that neither asks nor moves on)",
-        U::EntropicScarDefense => "an entropic scar in the space cannon defense",
-        U::L4Disruptors => "L4 Disruptors in the space cannon defense",
-        U::AttachmentCannon => "an attachment that grants SPACE CANNON in the space cannon defense",
         U::Slumberstate => "Slumberstate Computing (a Thunder's Edge breakthrough)",
         U::RollCannotName => "a pool or unit the ground roll cannot name",
         U::HitsAddedToARoll => "hits added to a ground roll",
-        U::MinisterOfExploration => "the Minister of Exploration's trade good for a planet taken",
-        U::CrownOfEmphidia => "the Crown of Emphidia changes hands",
         U::IntegratedEconomy => "Integrated Economy (a triggered production nested in the control gain)",
         U::AssimilateRoster => "an Assimilate seat whose unit forms the core cannot name",
-        U::ExplorationOfAFirstClaim => "the exploration of a first claim (no native exploration window yet)",
+        U::Exploration(why) => {
+            use ti4_engine_core::state::EWhy as W;
+            match why {
+                W::NoTexts => "the exploration of a first claim, in a table with no texts for its log row",
+                W::NoLink => "the exploration of a first claim, in a table with no link to a child window or no unit forms",
+                W::LinkedAsks => "the exploration of a first claim, a card whose child window of another area asks a question (the discard of a draw over the hand limit, the secret objective's hand limit)",
+                W::Freelancers => "the exploration of a first claim: Freelancers (a unit produced with influence)",
+                W::Terragenesis => "the exploration of a first claim by the Titans (Terragenesis is not a rule of the core table)",
+                W::Replenish => "the exploration of a first claim: a replenishment the core does not follow (two seats of one faction)",
+                W::Draw => "the exploration of a first claim: a draw the core does not carry",
+            }
+        }
         U::BombardmentDiceMismatch => "the bombardment dice do not match the plan",
         U::JolNarCommanderReroll => "the Jol-Nar commander's reroll of the bombardment dice",
-        U::ShipFormFlip => "a ship-form unit flipping on landing (Naaz Eidolon)",
         U::X89 => "X-89 Bacterial Weapon in a ground round",
         U::Thundarian => "The Thundarian watching the roll step",
         U::Dacxive => "Dacxive Animators in a ground combat",
@@ -183,7 +189,7 @@ mod tests {
 
     const FP: Footprint = Footprint::new(
         &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Strategy, Slice::Trade, Slice::Explore, Slice::Decks, Slice::Objectives],
-        &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Objectives],
+        &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Objectives, Slice::Decks, Slice::Explore, Slice::Agenda],
     );
 
     /// The native run of the same invasion: the arm `Arm::Invasion` through `live_step`, answered by `answers` in order.
@@ -316,7 +322,19 @@ mod tests {
             let (l, s) = (gs.player(id).unwrap(), string.state.player(id).unwrap());
             assert_eq!((l.victory_points, l.trade_goods), (s.victory_points, s.trade_goods), "{label} {id}");
             assert_eq!(l.event_feats, s.event_feats, "{label} {id}: the feats");
+            // What an exploration card can change: commodities, command tokens, cards, fragments, relics, the play area.
+            assert_eq!(
+                (l.commodities, l.tactic_tokens, l.fleet_tokens, l.strategic_tokens, &l.action_cards, &l.secret_objectives, &l.relics, &l.exploration_cards, &l.relic_fragments),
+                (s.commodities, s.tactic_tokens, s.fleet_tokens, s.strategic_tokens, &s.action_cards, &s.secret_objectives, &s.relics, &s.exploration_cards, &s.relic_fragments),
+                "{label} {id}: what the exploration gave"
+            );
         }
+        assert_eq!(gs.laws, string.state.laws, "{label}: the laws (the Crown of Emphidia changes hands)");
+        assert_eq!(gs.exploration_log, string.state.exploration_log, "{label}: the exploration log");
+        assert_eq!(gs.exploration_decks, string.state.exploration_decks, "{label}: the exploration decks");
+        assert_eq!(gs.planet_attachments, string.state.planet_attachments, "{label}: the attachments");
+        assert_eq!((&gs.wormhole_tokens, &gs.ion_storm), (&string.state.wormhole_tokens, &string.state.ion_storm), "{label}: the tokens an exploration placed");
+        assert_eq!(gs.exhausted_planets, string.state.exhausted_planets, "{label}: the exhausted planets");
         assert_eq!(gs.system_state(system).planet_units, string.state.system_state(system).planet_units, "{label}: the units on the planets");
         assert_eq!(gs.system_state(system).units, string.state.system_state(system).units, "{label}: the units in space");
         assert_eq!(gs.system_state(system).planet_control, string.state.system_state(system).planet_control, "{label}: the control");
@@ -360,6 +378,35 @@ mod tests {
             asked += check(defender, &state, seed, &system, false, prefer(&[]));
         }
         assert!(asked > 6);
+    }
+
+    /// L4 Disruptors silence the PDS against their owner, and an attachment that gives its planet SPACE CANNON (Titans' Geoform) rolls for the
+    /// planet's controller: both in lockstep with the string window (the native defense bailed on them before).
+    #[test]
+    fn the_space_cannon_defense_follows_l4_disruptors_and_attachment_cannons_natively() {
+        use crate::dual::{take_report, with_bail_is_failure};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut with_cannon = 0;
+        for seed in 1..=10_u64 {
+            let (mut state, system, planet) = game(&[("a", if seed % 2 == 0 { "letnev" } else { "naalu" }), ("b", "hacan")], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 6);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &b, 2);
+            if seed % 2 == 0 {
+                state.player_mut(&a).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("l4"));
+            }
+            if seed % 3 != 0 {
+                state.planet_attachments.entry(planet.clone()).or_default().push("titanshero".to_owned());
+                with_cannon += 1;
+            }
+            with_bail_is_failure(true, || check("defense", &state, seed, &system, false, prefer(&[])));
+        }
+        assert!(with_cannon > 5);
+        let _ = take_report();
     }
 
     /// The custodians offer on Mecatol Rex: declined, paid (the payment asks which planets), and the hero's opening at the commit step.
@@ -439,28 +486,130 @@ mod tests {
         }
     }
 
-    /// A first claim explores the planet, which the core cannot do yet: the arm stops with a counted bail, and with the acceptance switch on the
-    /// bail is a failure of the run (`bail::live::invasion`).
+    /// A Naaz mech that stands in space in its ship form lands in its ground form (the Z-Grav Eidolon flips as it is committed).
     #[test]
-    fn a_first_claim_is_a_bail_and_with_the_switch_on_a_failure() {
+    fn a_ship_form_unit_flips_to_its_ground_form_as_it_lands() {
+        use crate::dual::{take_report, with_bail_is_failure};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        for seed in 1..=4_u64 {
+            let (mut state, system, planet) = game(&[("a", "naaz"), ("b", "jolnar")], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &system, "naaz_mech_space", &a, 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 3);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            with_bail_is_failure(true, || check("naaz eidolon", &state, seed, &system, false, prefer(&[])));
+        }
+        let _ = take_report();
+    }
+
+    /// A planet taken pays the Minister of Exploration a trade good, and the Crown of Emphidia changes hands when the planet is in its owner's
+    /// home system (the owner loses the point, the taker gains it).
+    #[test]
+    fn a_planet_taken_pays_the_minister_of_exploration_and_the_crown_of_emphidia_changes_hands() {
+        use crate::dual::{take_report, with_bail_is_failure};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        for (seed, defender) in (1..=4_u64).zip(["hacan", "letnev", "sol", "mentak"]) {
+            let (mut state, _, _) = game(&[("a", "naalu"), ("b", defender)], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            let home = state.player(&b).unwrap().home_system.clone().unwrap();
+            crate::fixtures::put(&mut state, &home, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &home, "infantry", &a, 9);
+            state.laws.insert("minister_exploration".to_owned(), "a".to_owned());
+            if seed % 2 == 1 {
+                state.laws.insert("crown_of_emphidia".to_owned(), "b".to_owned());
+                state.player_mut(&b).unwrap().victory_points = 2;
+            }
+            with_bail_is_failure(true, || check(defender, &state, seed, &home, false, prefer(&[])));
+            let (string_goods, _) = (state.player(&a).unwrap().trade_goods, ());
+            let _ = string_goods;
+        }
+        let _ = take_report();
+    }
+
+    /// A planet nobody holds whose printed traits are exactly `wanted` (lower case), with its system.
+    fn free_planet(wanted: &[&str]) -> (SystemId, ti4_model::id::PlanetId) {
+        let mut found: Vec<_> = ti4_content::galaxy::all_planets(ti4_content::ContentStore::embedded(), POK)
+            .iter()
+            .filter(|(id, p)| {
+                p.system_id().is_some() && !p.is_placed_during_play() && p.homeworld_of().is_none() && **id != "mr" && !p.is_legendary() && p.planet_types().iter().map(|t| t.to_ascii_lowercase()).collect::<Vec<_>>() == wanted
+            })
+            .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), ti4_model::id::PlanetId::new(*id)))
+            .collect();
+        found.sort();
+        found.into_iter().next().unwrap_or_else(|| panic!("a free planet of {wanted:?}"))
+    }
+
+    /// A chooser that varies the answers with the seed and the question, so the options of the exploration cards are all taken somewhere.
+    fn varied(seed: u64) -> Box<dyn FnMut(&Choice) -> usize> {
+        let mut n = seed;
+        Box::new(move |c| {
+            n = n.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            // The fight itself and the commitment are answered with the first option (they decide nothing the exploration reads).
+            if c.prompt.starts_with("Fight a round") || c.options.iter().any(|o| o.id.starts_with("commit")) {
+                return 0;
+            }
+            usize::try_from(n >> 33).unwrap_or(0) % c.options.len().max(1)
+        })
+    }
+
+    /// Put the exploration deck of `trait` in the order of `seed` (the top card varies) and a fleet with ground forces beside the free planet.
+    fn first_claim(invader: &str, wanted: &[&str], seed: u64) -> (GameState, SystemId) {
+        let (mut state, _, _) = game(&[("a", invader), ("b", "jolnar")], seed);
+        let (system, _planet) = free_planet(wanted);
+        let a = PlayerId::new("a");
+        crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+        crate::fixtures::put(&mut state, &system, "infantry", &a, 2);
+        for deck in state.exploration_decks.values_mut() {
+            // (Freelancers produce a unit with influence: a child window the native exploration does not keep between two questions yet,
+            // a counted bail covered by its own test.)
+            deck.retain(|card| !card.starts_with("frln"));
+            let n = deck.len().max(1);
+            deck.rotate_left(usize::try_from(seed).unwrap_or(0) % n);
+        }
+        state.player_mut(&a).unwrap().commodities = i32::try_from(seed % 3).unwrap_or(0);
+        state.player_mut(&a).unwrap().trade_goods = i32::try_from(seed % 4).unwrap_or(0);
+        (state, system)
+    }
+
+    /// The first claim of a planet with a trait to explore into: the exploration is native (the deck, the card, its questions and rewards, the log
+    /// row, the holdings), the questions and the position agree with the string window's, for the three traits and several invader factions. The
+    /// acceptance switch is on: any bail is a failure of the run.
+    #[test]
+    fn a_first_claim_explores_natively_in_lockstep_with_the_string_window() {
         use crate::dual::{report, take_report, with_bail_is_failure};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
-        let (mut state, system, _planet) = game(&[("a", "hacan"), ("b", "jolnar")], 1);
-        let a = PlayerId::new("a");
-        // A planet nobody holds, with a trait to explore into.
-        let free = ti4_content::galaxy::all_planets(ti4_content::ContentStore::embedded(), POK)
-            .iter()
-            .find(|(id, p)| p.system_id().is_some() && !p.is_placed_during_play() && p.homeworld_of().is_none() && !p.planet_types().is_empty() && **id != "mr")
-            .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), ti4_model::id::PlanetId::new(*id)))
-            .expect("a free planet");
-        let _ = system;
-        crate::fixtures::put(&mut state, &free.0, "carrier", &a, 1);
-        crate::fixtures::put(&mut state, &free.0, "infantry", &a, 2);
-        let string = string_run(state.clone(), 1, &free.0, "a", false, prefer(&[]));
-        let out = with_bail_is_failure(true, || live_run(state.clone(), 1, &free.0, "a", &string.answers, false));
-        let Err((Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(why)), _)) = out else { panic!("a first claim bails: {:?}", out.map(|_| ())) };
-        assert!(format!("{why:?}").contains("ExplorationOfAFirstClaim"), "{why:?}");
+        let factions = ["hacan", "sol", "jolnar", "naalu", "letnev", "sardakk", "mentak", "mahact", "yssaril", "arborec", "ghost", "nekro"];
+        let traits: [&[&str]; 3] = [&["cultural"], &["hazardous"], &["industrial"]];
+        let mut asked = 0;
+        for seed in 1..=36_u64 {
+            let invader = factions[usize::try_from(seed).unwrap() % factions.len()];
+            let wanted = traits[usize::try_from(seed).unwrap() % 3];
+            let (state, system) = first_claim(invader, wanted, seed);
+            asked += with_bail_is_failure(true, || check(&format!("first claim {invader} {wanted:?} {seed}"), &state, seed, &system, false, varied(seed)));
+        }
+        assert!(asked > 36);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let _ = take_report();
+    }
+
+    /// A first claim whose exploration the native window does not carry is a counted bail naming it (Freelancers, Terragenesis), and with the
+    /// acceptance switch on the bail is a failure of the run (`bail::live::invasion`).
+    #[test]
+    fn a_first_claim_the_window_does_not_carry_is_a_bail_and_with_the_switch_on_a_failure() {
+        use crate::dual::{report, take_report, with_bail_is_failure};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let (state, system) = first_claim("titans", &["cultural"], 1);
+        let string = string_run(state.clone(), 1, &system, "a", false, prefer(&[]));
+        let out = with_bail_is_failure(true, || live_run(state.clone(), 1, &system, "a", &string.answers, false));
+        let Err((Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(why)), _)) = out else { panic!("a Titans first claim bails: {:?}", out.map(|_| ())) };
+        assert!(format!("{why:?}").contains("Exploration(Terragenesis)"), "{why:?}");
         let r = report();
         assert!(r.differences.iter().any(|d| d.label.contains("bail::live::invasion")), "{:?}", r.differences);
         let _ = take_report();

@@ -18,6 +18,7 @@ use crate::rules::invasion::stages::{self, Custodians, FightRound, NextCombat};
 use crate::rules::invasion::{
     bombard_plan, commit::LandOne, custodians_cost, custodians_gate, is_ground_force, landable, roll_bombard, Rd, Troop,
 };
+use crate::rules::explore_windows::Exploring;
 use crate::rules::invasion::commit::CommitGround;
 use crate::rules::production::pay::PayBill;
 use crate::state::{
@@ -118,6 +119,7 @@ impl InvasionMachine {
                 let next = remaining.first().copied()?;
                 Some(NextCombat::new(invader, system, *planet, next).question())
             }
+            IStage::Exploring { run, .. } => Exploring::hosted((**run).clone()).ask_of(s, k),
             _ => None,
         }
     }
@@ -413,12 +415,6 @@ impl InvasionMachine {
         let mut w = LandOne::new(self.p.invader, self.p.system, true).with_pool(pool);
         let _ = w.step(sx);
         w.answer(sx, pick)?;
-        if w.unsupported {
-            return {
-                crate::driver::windows::invasion::InvasionMachine::bail_flag(sx, Why::ShipFormFlip);
-                Ok(())
-            };
-        }
         if let Some(t) = w.landed {
             if let Pick::Opt(Opt::Invasion(IOpt::Commit { planet, .. })) = pick {
                 if t.temporary {
@@ -457,6 +453,12 @@ impl InvasionMachine {
             IStage::Committing => self.answer_commit(sx, pick),
             IStage::Fighting { .. } => self.answer_fight(sx, pick),
             IStage::ChoosingNextCombat { .. } => self.answer_next_combat(sx, pick),
+            IStage::Exploring { planets, index, planet, run } => {
+                let mut exploring = Exploring::hosted(*run);
+                exploring.answer(sx, pick)?;
+                self.p.stage = IStage::Exploring { planets, index, planet, run: Box::new(exploring.into_run()) };
+                Ok(())
+            }
             _ => Err(Illegal),
         }
     }
@@ -487,8 +489,15 @@ impl InvasionMachine {
                     self.p.stage = IStage::Advancing { planets, index: index.saturating_add(1) };
                 }
                 IStage::FinalizingControl { planets, index, planet, previous } => {
-                    self.finish_control_gain(sx, planet, previous)?;
+                    if let Some(run) = self.finish_control_gain(sx, planet, previous)? {
+                        self.p.stage = IStage::Exploring { planets, index, planet, run: Box::new(run) };
+                        return Ok(());
+                    }
                     self.advance_control(sx, &planets, usize::from(index))?;
+                    return Ok(());
+                }
+                IStage::Exploring { planets, index, planet, run } => {
+                    self.explore_first_claim(sx, planets, index, planet, *run)?;
                     return Ok(());
                 }
                 IStage::Custodians(ICustodians::Check | ICustodians::Asking) => {
@@ -529,7 +538,7 @@ impl InvasionMachine {
             IStage::Fighting { planets, index, defender, .. } => (3, planets.get(usize::from(*index)).copied(), Some(*defender)),
             IStage::Advancing { planets, index } => (4, planets.get(usize::from(*index)).copied(), None),
             IStage::ChoosingNextCombat { planet, .. } => (5, Some(*planet), None),
-            IStage::FinalizingControl { planet, .. } => (6, Some(*planet), None),
+            IStage::FinalizingControl { planet, .. } | IStage::Exploring { planet, .. } => (6, Some(*planet), None),
             IStage::Done => (7, None, None),
         };
         let active = active.edit();
