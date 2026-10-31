@@ -688,7 +688,7 @@ mod tests {
     fn an_undefended_system_with_a_space_dock_goes_on_to_the_production_step_in_lockstep() {
         let (hub, origin, target, dock, _other) = dock_hub();
         let mut failures = Vec::new();
-        for faction in ["sol", "hacan", "arborec", "letnev", "mentak", "yin", "titans", "naalu", "nekro", "muaat"] {
+        for faction in ["sol", "hacan", "arborec", "letnev", "mentak", "yin", "jolnar", "naalu", "nekro", "muaat"] {
             let other = if faction == "hacan" { "sol" } else { "hacan" };
             for builds in [0, 1] {
                 let mut state = dock_table(faction, other, &target, &dock);
@@ -737,5 +737,26 @@ mod tests {
             let diffs = lockstep_buying(state, &hub.galaxy, &script, 1);
             assert!(diffs.is_empty(), "{faction}: {diffs:#?}");
         }
+    }
+
+    /// The live Env names the faction units of the game's own content scope. (It named the full scope, Thunder's Edge reprints included: a game
+    /// without the expansion built the Naalu `naalu_mech_te` in a production step, and an Assimilate seat placed the reprint, while the string
+    /// names `naalu_mech`. Found by lane M2, which overrode the roster in its tests.)
+    #[test]
+    fn the_live_env_names_the_faction_units_of_the_games_own_scope() {
+        use crate::generated::IdStr;
+        use ti4_engine_core::generated::{Faction, Unit, UnitBaseType};
+        let state = table(&[("a", "naalu"), ("b", "hacan")]);
+        let mut cx = Ctx::of(&state).expect("owners");
+        let render = Render::new(cx.owners.ids().to_vec());
+        let rng = crate::rng::GameRng::new(state.rng_seed).positions();
+        let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+        let core = Codec::load(&mut cx, &state, Sources { galaxy: None, rng: Some(&rng) }, slices).expect("the position loads");
+        let kernel = crate::live::kernel::kernel_for(POK);
+        let env = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), POK);
+        let roster = env.table.facts.roster.expect("a roster");
+        assert_eq!(roster.get(Faction::TheNaaluCollective, UnitBaseType::Mech), Unit::from_id("naalu_mech"), "a game of the Prophecy of Kings places the printed mech");
+        let full = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), ti4_model::content_types::FULL);
+        assert_eq!(full.table.facts.roster.expect("a roster").get(Faction::TheNaaluCollective, UnitBaseType::Mech), Unit::from_id("naalu_mech_te"), "a game with Thunder's Edge its reprint");
     }
 }
