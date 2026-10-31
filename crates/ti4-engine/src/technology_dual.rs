@@ -673,12 +673,21 @@ mod tests {
     }
 
     #[test]
-    fn a_nekro_seat_that_does_not_own_the_card_may_carry_its_text_on_a_valefar_assimilator_so_the_string_decides() {
+    fn a_nekro_seat_that_does_not_own_the_card_may_carry_its_text_on_a_valefar_assimilator_and_the_core_exhausts_the_carrier() {
         let mut state = crate::fixtures::seated_game(&[("a", "nekro"), ("b", "hacan")], POK);
         crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+        // No assimilator carries it: nothing is exhausted (the string says false too).
         let mut probe = state.clone();
-        assert_eq!(super::exhaust_text(&mut probe, &a(), "pi"), None, "the core does not decide for a Nekro");
+        assert_eq!(super::exhaust_text(&mut probe, &a(), "pi"), Some(false));
         assert_eq!(probe, state, "and writes nothing");
+        // The assimilator X stands for it while another seat owns it (package W10): the carrier is the card exhausted.
+        let mut carried = state.clone();
+        carried.player_mut(&PlayerId::new("b")).unwrap().technologies.insert(TechnologyId::new("pi"));
+        carried.player_mut(&a()).unwrap().technologies.insert(TechnologyId::new("vax"));
+        carried.player_mut(&a()).unwrap().assimilated_technologies.insert("vax".to_owned(), TechnologyId::new("pi"));
+        assert_eq!(super::exhaust_text(&mut carried, &a(), "pi"), Some(true));
+        let exhausted = &carried.player(&a()).unwrap().exhausted_technologies;
+        assert!(exhausted.contains(ti4_model::id::text(&"vax")) && !exhausted.contains(ti4_model::id::text(&"pi")));
         // Any other faction: a card it does not own is simply not exhausted.
         let mut other = game(&[], &[]);
         assert_eq!(super::exhaust_text(&mut other, &a(), "pi"), Some(false));

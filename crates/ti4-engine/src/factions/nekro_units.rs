@@ -2303,6 +2303,17 @@ mod tests {
         crate::technology::grant(state, &a(), &TechnologyId::new(ERROR_ERROR));
     }
 
+    /// The card on a Valefar Assimilator: `a` (the Nekro) owns `vax` whose token sits on `nekroc4r`, which `b` owns (package W10).
+    fn with_error_error_on_an_assimilator(state: &mut GameState) {
+        state.player_mut(&a()).unwrap().technologies.insert(TechnologyId::new("vax"));
+        state.player_mut(&a()).unwrap().assimilated_technologies.insert("vax".to_owned(), TechnologyId::new(ERROR_ERROR));
+        state.player_mut(&b()).unwrap().technologies.insert(TechnologyId::new(ERROR_ERROR));
+    }
+
+    fn carrier_exhausted(state: &GameState) -> bool {
+        state.player(&a()).unwrap().exhausted_technologies.contains(ti4_model::id::text(&"vax"))
+    }
+
     fn perform(state: &mut GameState, option: &str, answers: &[&str]) -> bool {
         let option = ChoiceOption::labelled(option, "component", option);
         crate::fixtures::with_context(state, DEFAULT, None, &mut scripted(answers), |ctx| {
@@ -2408,15 +2419,15 @@ mod tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert_eq!(crate::dual::thread_window_counts("factions::nekro::c4r_place_pds"), (2, 0), "{r:?}");
-        // Not the seat's own card: the core half bows out and says why.
+        // The card on a Valefar Assimilator (package W10; before it a counted bail): the core window exhausts the carrier.
         let mut carried = game();
+        with_error_error_on_an_assimilator(&mut carried);
         carried.system_mut(&system()).set_control(planet(), a());
-        let seen = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
-            crate::dual::run_dual_window(Area::Factions, "factions::nekro::c4r_place_pds", &mut carried, |_| crate::dual::Run::new(false), |s, script| crate::faction_dual::c4r_place_pds(s, &a(), None, false, DEFAULT, script))
-        });
-        assert!(!seen);
+        let done = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || perform(&mut carried, C4R_PLACE, &["18|mr"]));
+        assert!(done && carrier_exhausted(&carried) && !exhausted(&carried), "the assimilator is the card exhausted");
         let r = report();
-        assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::c4r_place_pds [") && label.contains("Valefar Assimilator")), "{r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::nekro::c4r_place_pds"), (3, 0), "{r:?}");
         let _ = take_report();
     }
 
@@ -2484,15 +2495,19 @@ mod tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert_eq!(crate::dual::thread_window_counts("factions::nekro::c4r_repair"), (1, 0), "{r:?}");
-        // Not the seat's own card: the core half bows out and says why.
+        // The card on a Valefar Assimilator (package W10; before it a counted bail): the core window exhausts the carrier.
         let mut carried = state.clone();
         carried.player_mut(&a()).unwrap().technologies.remove(ti4_model::id::text(&ERROR_ERROR));
+        carried.player_mut(&a()).unwrap().exhausted_technologies.remove(ti4_model::id::text(&ERROR_ERROR));
+        with_error_error_on_an_assimilator(&mut carried);
         let seen = with_mask(AreaMask::STRING.with(Area::Factions, Backend::Dual), || {
             crate::dual::run_dual_window(Area::Factions, "factions::nekro::c4r_repair", &mut carried, |s| crate::dual::Run::new(c4r_repair_string(s, &a())), |s, script| crate::faction_dual::c4r_repair(s, &a(), script))
         });
         assert!(seen);
+        assert!(carrier_exhausted(&carried), "the assimilator is the card exhausted");
         let r = report();
-        assert!(r.windows.keys().any(|label| label.starts_with("factions::nekro::c4r_repair [") && label.contains("Valefar Assimilator")), "{r:?}");
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(crate::dual::thread_window_counts("factions::nekro::c4r_repair"), (2, 0), "{r:?}");
         let _ = take_report();
     }
 
