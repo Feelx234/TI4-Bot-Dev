@@ -2576,7 +2576,8 @@ pub type FlowOut = (StepS, bool, u8, bool, Vec<PlayerId>, bool);
 
 const FLOW_STEP: Footprint = Footprint::new(
     &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
-    &[Slice::Pending],
+    // The players: the pool of cancelled hits the queue head spends (`card_timers.cancel_hits_round`).
+    &[Slice::Players, Slice::Pending],
 );
 
 /// The core half of one stage transition (`announcing_step`, `retreating_step`, `hit_queue_head`). `None` for

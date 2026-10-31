@@ -13,7 +13,7 @@
 //! The machine stops (the adapter returns `None`, the string result stands) at a position it does not carry:
 //! [`Machine::bailed`] names the reason. They are all string-only on purpose and have a test each
 //! (`combat.rs`, `the_composed_combat_*`): a Naaz or Letnev round opening, diplomacy, Assault Cannon or other
-//! hits at the start of a combat, hits cancelled in a window, a neutral side,
+//! hits at the start of a combat, a neutral side,
 //! Duranium Armor, Devotion, a retreat that moves a flipping unit or a Floating Factory or a Last Bastion
 //! seat's fleet, a roll that ends the fight, destructions waiting for their announcement, reactions.
 //!
@@ -328,12 +328,9 @@ impl Machine {
                     offered_before = self.fields.offered.contains(&(*round, front.player));
                     sustainers = !sustain_candidates(rd, front.player, env.system, true, false, env.staging).is_empty();
                     let producer_picks = front.producer_assigns && *assigning;
-                    if front.hits > 0 && front_alive > 0 {
-                        let cancel = sx.state.players().by_seat(front.player).and_then(|p| p.card_timers.cancel_hits_round);
-                        let cancelled = cancel.is_some_and(|(r, h)| r == sx.state.meta().combat_round_seq && h > 0);
-                        if cancelled || (super::is_neutral(sx.state, front.player) && !producer_picks) {
-                            return None;
-                        }
+                    // (Hits the round's pool cancels are spent by the flow window itself, before anything else is asked.)
+                    if front.hits > 0 && front_alive > 0 && super::is_neutral(sx.state, front.player) && !producer_picks {
+                        return None;
                     }
                 }
             }
@@ -665,9 +662,15 @@ impl Machine {
         }
     }
 
-    /// The roll finished: its queue is the round's, and a roll that ended the fight is the string's.
-    fn finish_roll(&mut self, sx: &mut Sx<'_>) -> Option<()> {
+    /// The roll finished: its queue is the round's. `Some(true)`: a side's window ended the fight (the step queued nothing; the
+    /// fight concludes with the round count of the roll).
+    fn finish_roll(&mut self, sx: &mut Sx<'_>) -> Option<bool> {
         let w = self.roll.take()?;
+        if w.ended {
+            self.drawn.extend(w.drawn.iter().cloned());
+            self.conclude(sx, self.roll_round);
+            return Some(true);
+        }
         if self.over(sx) {
             return None;
         }
@@ -675,7 +678,7 @@ impl Machine {
         let queue: Vec<Pend> = w.queue.iter().map(|q| Pend { player: q.player, hits: q.hits, producer: q.producer, non_fighters_only: q.non_fighters_only, producer_assigns: false }).collect();
         self.fields.damaged = w.damaged.clone();
         self.fields.step = Step::Queue { assigning: false, round: self.roll_round, queue };
-        Some(())
+        Some(false)
     }
 
     fn retreat_fleet(&mut self, sx: &mut Sx<'_>, round: u32, leaving: &[Seat], destination: System) -> Option<()> {
@@ -689,9 +692,8 @@ impl Machine {
         let facts = RetreatFacts { player, system: e.system, destination, staging: e.staging, cause: e.retreat_cause, pool: e.retreat_pool };
         let mut w = Retreat::new(facts);
         let _ = w.step(sx);
-        if !sx.state.transient().combat.pending_destructions.is_empty() {
-            return None;
-        }
+        // The ships the destination could not hold are lost and announced at once (string `retreat`: `announce_staged_destructions`).
+        self.announce_staged(sx);
         let mut now = there(self, sx);
         for kind in before {
             if let Some(at) = now.iter().position(|k| *k == kind) {
@@ -701,6 +703,17 @@ impl Machine {
         self.fields.fled.push((player, now));
         self.fields.step = Step::Retreating { round, leaving: leaving[1..].to_vec() };
         Some(())
+    }
+
+    /// `announce_staged_destructions`: every destruction an effect staged is announced as `SHIP_DESTROYED`, in staging order, until
+    /// nothing is left (an announcement can stage more).
+    fn announce_staged(&self, sx: &mut Sx<'_>) {
+        while !sx.state.transient().combat.pending_destructions.is_empty() {
+            let staged = std::mem::take(&mut sx.state.transient_mut().combat.pending_destructions).as_slice().to_vec();
+            for d in staged {
+                announce_loss(sx, d.system, d.owner, d.unit, d.reason, d.during_space_combat, self.env.announce);
+            }
+        }
     }
 
     fn end_announce(&mut self, sx: &mut Sx<'_>) {
@@ -782,10 +795,17 @@ impl Machine {
                     }
                     _ => {
                         self.stage = Stage::Running;
-                        self.finish_roll(sx).or_else(|| {
+                        let ended = self.finish_roll(sx).or_else(|| {
                             self.stop = Some(Stop::Bailed(Bail::RollEndsFight));
                             None
                         })?;
+                        if ended {
+                            // A roll that ended the fight: the string concludes it in the roll step and returns, without another turn of
+                            // the loop (no presentation), then announces the end.
+                            self.end_announce(sx);
+                            self.stop = Some(Stop::Over);
+                            return Some(Next::Done);
+                        }
                         continue;
                     }
                 }

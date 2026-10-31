@@ -6420,7 +6420,7 @@ impl CombatWindow {
                         .collect(),
                     _ => Vec::new(),
                 };
-                failed.set(result.as_ref().map_or(true, |end| end.produced) || !matches!(self.stage, Stage::Sustaining { .. }));
+                failed.set(result.as_ref().map_or(true, |end| end.produced) || !matches!(self.stage, Stage::Sustaining { .. } | Stage::Done(_)));
                 let mut damaged: Vec<(PlayerId, Vec<String>)> = self
                     .damaged_before_round
                     .iter()
@@ -6507,7 +6507,7 @@ impl CombatWindow {
         let Some((attacker_hits, attacker_dice, defender_hits, defender_dice)) =
             self.roll_both_sides(state, ctx, round)
         else {
-            self.bail_machine("a roll that ends the fight inside the roll step");
+            // (The fight ended inside the roll step: the stage is `Done` and nothing is queued.)
             return Ok(RollEnd { settle: false, produced: false });
         };
         let mut sets = [attacker_dice, defender_dice];
@@ -7196,10 +7196,10 @@ impl CombatWindow {
                     offered_before = self.hit_reaction_offered.contains(&(*round, front.player.clone()));
                     sustainers = !self.sustainers(state, content, sources, &front.player).is_empty();
                     let producer_picks = front.producer_assigns && assigning;
+                    // (A pool of cancelled hits is spent by the core flow window itself.)
                     bare |= front.hits > 0
                         && front_alive > 0
-                        && (cancellable_hits(state, &front.player) > 0
-                            || (assigning && self.casualty_candidates(state, content, sources, front).len() == 1)
+                        && ((assigning && self.casualty_candidates(state, content, sources, front).len() == 1)
                             || (crate::neutral_units::is_neutral(&front.player) && !producer_picks));
                 } else if self.hit_phase == HitPhase::Round {
                     bare |= [&self.attacker, &self.defender].into_iter().any(|side| {
@@ -11919,10 +11919,10 @@ mod tests {
     }
 
     #[test]
-    fn a_roll_that_ends_the_fight_stays_string() {
-        // A reroll of the Crown of Thalnos destroys the lone ship of a fleet whose die missed again: the fight is
-        // over inside the roll step, which the core window does not follow. The string result stands (counted as a
-        // bail-out, nothing compared) and the other seeds still run in the window.
+    fn a_roll_that_ends_the_fight_runs_in_the_core_window_and_the_machine() {
+        // A reroll of the Crown of Thalnos destroys the lone ship of a fleet whose die missed again: the fight is over inside the
+        // roll step (the other side does not roll, nothing is queued, no war funding, no step-ended event). The core roll window and
+        // the composed machine follow it since package W10 (before it: a counted bail "a roll that ends the fight").
         let (_, compared, bailed) = roll_step_counts(
             &|state, _| {
                 let system = SystemId::new("18");
@@ -11934,8 +11934,31 @@ mod tests {
             },
             0,
         );
-        assert!(bailed > 0, "some roll ended the fight: compared {compared}, bailed {bailed}");
-        assert!(compared > 0, "the others ran in the window");
+        assert_eq!(bailed, 0, "no roll bails: compared {compared}");
+        assert!(compared > 0, "the rolls ran in the window");
+        let (settle_compared, settle_bailed) = SETTLE_COUNTS.with(std::cell::Cell::get);
+        assert_eq!(settle_bailed, 0, "the machine carries the roll that ends the fight: {settle_compared} compared");
+        assert!(settle_compared > 0);
+    }
+
+    #[test]
+    fn hits_a_card_cancelled_earlier_in_the_round_run_in_the_core_flow_and_the_machine() {
+        // Shields Holding played before the hits are assigned leaves a pool of cancelled hits in the round (`cancel_hits_round`): the
+        // queue head spends it before anything is asked. The core flow window and the machine do the same since package W10 (before
+        // it: the flow ran bare and the machine bailed "cancelled hits").
+        let (_, compared, bailed) = roll_step_counts(
+            &|state, _| {
+                // The first round of the fight is round 1 of the sequence (the window begins it).
+                for who in [attacker(), defender()] {
+                    state.player_mut(&who).unwrap().cancel_hits_round = Some((1, 2));
+                }
+            },
+            0,
+        );
+        assert!(compared > 0, "rolls ran in the window: {compared} compared, {bailed} bailed");
+        let (settle_compared, settle_bailed) = SETTLE_COUNTS.with(std::cell::Cell::get);
+        assert_eq!(settle_bailed, 0, "the machine carries a pool of cancelled hits: {settle_compared} compared");
+        assert!(settle_compared > 0);
     }
 
     #[test]
