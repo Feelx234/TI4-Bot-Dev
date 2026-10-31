@@ -81,3 +81,40 @@ fn lazax_gate_folding_chosen_from_the_menu_places_the_infantry_like_the_string()
     assert_same(&string, &native);
     assert!(has(&string, "COMPONENT_ACTION_RESOLVED"), "{:?}", string.events);
 }
+
+fn fragments_table(deck: &[&str]) -> GameState {
+    let mut state = action_table(&THREE);
+    state.player_mut(&pid("a")).unwrap().relic_fragments.insert("CULTURAL".to_owned(), 3);
+    state.relic_deck = deck.iter().map(|r| ti4_model::id::RelicId::new(*r)).collect();
+    super::turn_live_tests::based(state)
+}
+
+#[test]
+fn purging_three_fragments_for_a_relic_chosen_from_the_menu_gains_it_like_the_string() {
+    let state = fragments_table(&["codex", "shard"]);
+    let (string, native) = both(&state, &["purge|CULTURAL"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "COMPONENT_ACTION_RESOLVED"), "{:?}", string.events);
+}
+
+#[test]
+fn the_shard_of_the_throne_scores_at_once_when_purged_for_like_the_string() {
+    let state = fragments_table(&["shard", "codex"]);
+    let (string, native) = both(&state, &["purge|CULTURAL"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "COMPONENT_ACTION_RESOLVED"), "{:?}", string.events);
+}
+
+#[test]
+fn a_purge_that_cannot_resolve_fails_and_the_menu_withholds_it_this_turn_like_the_string() {
+    let state = fragments_table(&[]);
+    let (string, taken) = string_run_first(&state, &["purge|CULTURAL"], |g| {
+        let _ = g.step();
+        let _ = g.step();
+    });
+    let native = native_marked(&state, &[(true, Arm::TurnPrelude, None), (false, Arm::Ask, None), (true, Arm::Ask, None)], &taken.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_same(&string, &native);
+    assert!(has(&string, "COMPONENT_ACTION_FAILED"), "{:?}", string.events);
+    let second = string.questions.last().expect("the menu again");
+    assert!(!second.options.iter().any(|o| o.id.starts_with("purge|")), "the failed purge is withheld: {:?}", second.ids());
+}

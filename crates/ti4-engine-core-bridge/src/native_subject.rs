@@ -467,12 +467,11 @@ fn without_staged_marks(mut state: Value) -> Value {
 // close is the core's too (KS5).
 
 /// Whether an option id of the action menu names a body the core does not run yet (`driver::turn::action::unrouted`): the component actions of
-/// the leaders, technologies, relics, exploration cards and factions. The pass, the opening of a transaction (`component|trade|<faction>`), the
+/// the leaders, technologies, relics in use, exploration cards and factions. The pass, the opening of a transaction (`component|trade|<faction>`), the
 /// tactical and strategic actions and the action cards are the core's (lane F2b).
 fn menu_body_is_lent(id: &str) -> bool {
-    id.starts_with("faction|")
+    id.starts_with("faction|") && id != "faction|winnu|lgf"
         || (id.starts_with("component|") && !id.starts_with("component|trade|"))
-        || id.starts_with("purge|")
         || id.starts_with("relic|")
         || id.starts_with("play_area:")
 }

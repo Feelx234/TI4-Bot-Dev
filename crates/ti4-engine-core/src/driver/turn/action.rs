@@ -54,6 +54,10 @@ pub fn run_action(sx: &mut Sx<'_>, key: u32) -> Flow {
         Dispatch::Tactical => tactical(sx, active),
         Dispatch::Strategic(card) => crate::driver::windows::strategic::begin::run_begin(sx, card),
         Dispatch::Transaction(with) => transaction(sx, active, with),
+        Dispatch::Relic => match opt {
+            Opt::Purge(kind) => super::relic::purge(sx, active, key, kind),
+            _ => unrouted(sx, opt),
+        },
         Dispatch::Faction(action) => super::faction::run(sx, active, key, action),
         Dispatch::ActionCard => match opt {
             Opt::Play { index, card } => component::play_card(sx, active, key, card, Some(index)),

@@ -33,6 +33,16 @@ fn log_relic(core: &mut CoreState, who: Seat, relic: Relic, points: i32) {
 /// matching ones) for the top relic. `None`: not enough fragments, or the relic deck is empty (the
 /// fragments stay).
 pub fn purge_for_relic(core: &mut CoreState, who: Seat, kind: ExploreType) -> Option<Relic> {
+    purge_inner(core, who, kind, false)
+}
+
+/// [`purge_for_relic`] as the relic component action runs it (`relics::perform`): the Shard of the Throne scores its point at once and its record
+/// in the relic log says so.
+pub fn purge_for_relic_scored(core: &mut CoreState, who: Seat, kind: ExploreType) -> Option<Relic> {
+    purge_inner(core, who, kind, true)
+}
+
+fn purge_inner(core: &mut CoreState, who: Seat, kind: ExploreType, score_shard: bool) -> Option<Relic> {
     let p = core.players().by_seat(who)?;
     let matching = i32::from(p.cards.fragments.get(kind).unwrap_or(0));
     let frontier = i32::from(p.cards.fragments.get(ExploreType::Frontier).unwrap_or(0));
@@ -50,7 +60,11 @@ pub fn purge_for_relic(core: &mut CoreState, who: Seat, kind: ExploreType) -> Op
         p.cards.fragments.set(ExploreType::Frontier, have - i16::try_from(from_frontier).ok()?);
     }
     p.cards.relics.push(relic);
-    log_relic(core, who, relic, 0);
+    let points = if score_shard && relic == SHARD { 1 } else { 0 };
+    if points > 0 {
+        crate::kernel::fx::adjust_victory_points(core, who, points, crate::keys::LedgerReason::Relic(relic));
+    }
+    log_relic(core, who, relic, points);
     Some(relic)
 }
 
