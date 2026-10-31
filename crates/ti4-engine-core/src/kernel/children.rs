@@ -333,6 +333,7 @@ impl ErasedChild {
 }
 
 /// A child window of another area, asked for by its parent (the arguments of the window's constructor, as data).
+#[allow(clippy::large_enum_variant, reason = "a request is built once per child window and moved to the table; boxing the facts of the largest variant (the Thunder's Edge Construction uses) would cost an allocation per start")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Spawn {
     /// `production::pay::PayBill`: `who` pays `cost` of `kind`; reports [`Report::Paid`].

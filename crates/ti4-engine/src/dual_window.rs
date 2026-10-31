@@ -3476,7 +3476,7 @@ const GROUND_ROLL: Footprint = Footprint::new(
 /// Why the position holds something the core window does not carry: test faces or a stream restore, a neutral
 /// side, X-89 Bacterial Weapon (the doubled hits).
 #[must_use]
-pub fn ground_roll_unported(gs: &GameState, a: &GroundRollArgs<'_>) -> Option<&'static str> {
+pub fn ground_roll_unported(_gs: &GameState, a: &GroundRollArgs<'_>) -> Option<&'static str> {
     if !a.reproducible {
         Some("irreproducible dice (test faces or a stream restore)")
     } else if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
@@ -4349,7 +4349,7 @@ pub fn mahact_hero(
 /// side or a coexisting planet where the planets are fought, a Letnev rival (the Dunlain Reaper), and the effects of gaining control the
 /// window does not carry (a Minister of Exploration, the Crown of Emphidia, L1Z1X's Fealty Uplink).
 #[must_use]
-pub fn yin_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, player: &PlayerId, spots: &[(ti4_model::id::SystemId, ti4_model::id::PlanetId)]) -> Option<&'static str> {
+pub fn yin_unported(gs: &GameState, _content: &ti4_content::ContentStore, _sources: ti4_model::content_types::SourceSet, player: &PlayerId, spots: &[(ti4_model::id::SystemId, ti4_model::id::PlanetId)]) -> Option<&'static str> {
     let everyone: Vec<&PlayerId> = gs.players.iter().map(|p| &p.id).collect();
     // (The Thundarian watching the Roll Dice step is a rule of the core table, followed as nested activity, package W13.)
     // (X-89 Bacterial Weapon doubles the hits in the core fight since package W10: `FightFacts::x89`.)
@@ -4556,6 +4556,9 @@ fn with_twin_forms(present: &mut Vec<ti4_engine_core::generated::Unit>) {
     }
 }
 
+/// The environment of the machine, the fields of the window and the texts of the roll groups ([`build_settle_env`]).
+pub(crate) type BuiltEnv = (ti4_engine_core::rules::combat::machine::Env, ti4_engine_core::state::CombatFields, Vec<(ti4_engine_core::state::Code, String)>);
+
 /// The environment of the machine, the fields of the window and the texts of the roll groups, as the string `settle` hands them over
 /// (`a`: its gates and fields, `before` the position it starts from).
 #[allow(clippy::too_many_lines, reason = "one environment, built field by field")]
@@ -4563,10 +4566,10 @@ pub(crate) fn build_settle_env(
     before: &GameState,
     cx: &mut Ctx,
     r: &Render,
-    sources: ti4_model::content_types::SourceSet,
+    _sources: ti4_model::content_types::SourceSet,
     a: &SettleArgs,
     begin_occurrence: bool,
-) -> Option<(ti4_engine_core::rules::combat::machine::Env, ti4_engine_core::state::CombatFields, Vec<(ti4_engine_core::state::Code, String)>)> {
+) -> Option<BuiltEnv> {
     use ti4_engine_core::rules::combat::machine::Env;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let (attacker, defender) = (seat(&a.attacker).why(crate::dual::reason::NO_SEAT)?, seat(&a.defender).why(crate::dual::reason::NO_SEAT)?);
@@ -4715,7 +4718,8 @@ fn settle_run(
     waylay_check(gs, script)?;
     let seat = |p: &PlayerId| r.seat(p.as_str());
     let (attacker, defender) = (seat(&a.attacker).why(crate::dual::reason::NO_SEAT)?, seat(&a.defender).why(crate::dual::reason::NO_SEAT)?);
-    let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
+    // (An unknown system id is the bail; the id itself is read again by the environment.)
+    let _system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources).why(WINDOW_ENV)?;
     let (menv, fields, texts) = build_settle_env(&before, &mut cx, &r, sources, &a, begin_occurrence)?;

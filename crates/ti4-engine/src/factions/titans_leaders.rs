@@ -1004,7 +1004,7 @@ mod tests {
         assert!(run(&|_, _, _| {}, false));
         assert!(run(&|_, _, _| {}, true));
         assert!(!run(&|s, first, _| { s.planet_attachments.entry(first.clone()).or_default().push(TERRAFORM_ATTACHMENT.to_owned()); }, true), "already in play");
-        assert!(!run(&|s, first, _| { s.system_state(&SystemId::new("18")); let _ = first; s.promissory_notes.clear(); }, false), "no note");
+        assert!(!run(&|s, first, _| { let _ = s.system_state(&SystemId::new("18")); let _ = first; s.promissory_notes.clear(); }, false), "no note");
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert_eq!(crate::dual::thread_window_counts("factions::titans::terraform"), (4, 0), "{r:?}");
