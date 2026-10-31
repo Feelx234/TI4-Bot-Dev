@@ -636,12 +636,16 @@ pub fn take_report() -> DualReport {
 
 /// The first difference panics (the engine's own test suite runs this way).
 pub fn set_fail_fast(on: bool) {
+    // The environment (`TI4_DUAL_FAIL_FAST`) is read lazily with the default mask; read it BEFORE this store, or the first mask lookup
+    // afterwards would turn fail-fast back on over an explicit `false` (`serial()`, the playthrough).
+    init_default();
     FAIL_FAST.store(on, Ordering::Relaxed);
 }
 
 /// Whether the first difference panics.
 #[must_use]
 pub fn fail_fast() -> bool {
+    init_default();
     FAIL_FAST.load(Ordering::Relaxed)
 }
 
@@ -661,7 +665,7 @@ fn note_call(area: Area) {
 }
 
 fn tally(area: Area, category: Category, label: &str, found: Vec<(String, String, String)>) -> bool {
-    let fail = FAIL_FAST.load(Ordering::Relaxed);
+    let fail = fail_fast();
     let mut first = None;
     with_report(|r| {
         let c = r.areas.entry(area).or_default();
@@ -1733,6 +1737,31 @@ pub(crate) mod tests {
 
     fn event(payload: i64) -> Event {
         Event::new(1, "T", BTreeMap::from([("n".to_owned(), json!(payload))]))
+    }
+
+    /// `TI4_DUAL_FAIL_FAST=1` is read lazily, with the default mask; `serial()` turned fail-fast off BEFORE that read, so the first
+    /// comparison of a test running alone turned it back on and the injected differences panicked. Only a fresh process shows it (the
+    /// read happens once per process), so this test runs the injecting test alone in a child with the variable set.
+    #[test]
+    fn the_injecting_tests_pass_alone_under_the_fail_fast_environment() {
+        const CHILD: &str = "TI4_DUAL_FAIL_FAST_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            return;
+        }
+        let exe = std::env::current_exe().expect("the test binary");
+        let out = std::process::Command::new(exe)
+            .args(["--exact", "dual::tests::detects_an_injected_difference_in_each_category", "--test-threads=1"])
+            .env("TI4_DUAL_FAIL_FAST", "1")
+            .env(CHILD, "1")
+            .output()
+            .expect("run the child");
+        assert!(
+            out.status.success(),
+            "the injecting test fails alone under TI4_DUAL_FAIL_FAST=1:\n{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(String::from_utf8_lossy(&out.stdout).contains("1 passed"), "the child did not run the test");
     }
 
     /// Identical sides compare clean; one injected difference per category is caught.
