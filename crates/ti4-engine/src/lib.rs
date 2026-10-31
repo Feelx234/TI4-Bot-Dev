@@ -242,6 +242,7 @@ mod diplomacy_book_tests;
 mod diplomacy_window_tests;
 pub mod trade_core;
 pub mod tactical_dual;
+pub mod tactical_live;
 #[cfg(all(test, feature = "typed-core"))]
 mod tactical_dual_tests;
 pub mod trade_window_dual;

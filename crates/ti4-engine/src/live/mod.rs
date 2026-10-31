@@ -25,6 +25,7 @@ use std::collections::VecDeque;
 use ti4_engine_core::choice::Choice as CoreChoice;
 use ti4_engine_core::driver::live::{ask_arm_fn, live_arm, Asking, Env, Live, LiveError, Out};
 use ti4_engine_core::driver::session::Arm;
+use ti4_engine_core::kernel::Kernel;
 use ti4_engine_core::state::CoreState;
 
 use crate::choice::Choice;
@@ -104,7 +105,7 @@ pub struct Cx<'a> {
     pub render: &'a Render,
     pub env: &'a Env<'a>,
     /// The display facts only the state knows (`Choice.details`), given the core question and the position it is asked in.
-    pub complete: &'a dyn Fn(&CoreState, &CoreChoice, &mut Choice),
+    pub complete: &'a dyn Fn(&CoreState, &Kernel, &CoreChoice, &mut Choice),
 }
 
 impl<'a> Cx<'a> {
@@ -134,7 +135,7 @@ pub struct StepOut {
 pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let (phase, round) = (core.meta().phase, core.meta().round);
     let mut rendered = Typed::new(cx.render, asking.choice.clone(), phase, round).rendered;
-    (cx.complete)(core, &asking.choice, &mut rendered);
+    (cx.complete)(core, cx.env.kernel, &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
     if let Some((facts, at)) = &asking.nested {

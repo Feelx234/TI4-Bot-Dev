@@ -10,7 +10,10 @@ use ti4_engine_core::state::CoreState;
 use crate::choice::Choice;
 
 /// Complete the rendered `rendered` of `choice`, asked in `core`.
-pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
+pub fn complete(core: &CoreState, k: &ti4_engine_core::kernel::Kernel, choice: &CoreChoice, rendered: &mut Choice) {
+    if let Ask::Tactical(_) = choice.ask {
+        crate::tactical_live::complete(core, k, choice, rendered);
+    }
     if let Ask::Strategy(SAsk::GainPool { left }) = choice.ask {
         pool_details(core, choice, usize::from(left), rendered);
     }
