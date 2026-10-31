@@ -521,6 +521,41 @@ mod tests {
     }
 
     #[test]
+    fn the_forge_places_only_as_many_fighters_as_the_capacity_holds() {
+        let [(a, _), _, _] = systems();
+        let mut s = table();
+        tokens(&mut s, 1);
+        with_war_sun(&mut s, a);
+        // The war sun carries six: five fighters stand, so one of the two fits.
+        for _ in 0..5 {
+            fx::place_unit(&mut s, A, a, None, plain(UnitBaseType::Fighter));
+        }
+        let mut d = driver(Mode::StarForge, facts());
+        asked(d.run(&mut s, &kernel()).unwrap());
+        assert_eq!(pick(&mut d, &mut s, Opt::Promissory(POpt::Forge { system: a, fighters: true })), Status::Done);
+        assert_eq!(count(&s, a, UnitBaseType::Fighter), 6, "one more, not two");
+        assert!(d.window.done);
+        assert_eq!(s.players().by_seat(A).unwrap().econ.strategic_tokens, 0);
+    }
+
+    #[test]
+    fn a_unit_whose_box_is_empty_is_not_offered() {
+        let [(a, _), (b, _), _] = systems();
+        let mut s = table();
+        tokens(&mut s, 1);
+        with_war_sun(&mut s, a);
+        // All eight destroyers stand elsewhere.
+        for _ in 0..8 {
+            fx::place_unit(&mut s, A, b, None, plain(UnitBaseType::Destroyer));
+        }
+        let mut f = facts();
+        f.fleet_limit = 99;
+        let mut d = driver(Mode::StarForge, f);
+        let q = asked(d.run(&mut s, &kernel()).unwrap());
+        assert_eq!(q.opts.as_slice(), &[Opt::Promissory(POpt::Forge { system: a, fighters: true }), Opt::Decline], "the fighters only");
+    }
+
+    #[test]
     fn the_nucleus_costs_no_token_and_exhausts_the_planet_card_after_the_units_stand() {
         let [(a, _), _, _] = systems();
         let mut s = table();
