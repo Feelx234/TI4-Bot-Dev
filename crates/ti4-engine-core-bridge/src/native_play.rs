@@ -61,7 +61,7 @@ pub fn maps_for(players: usize) -> &'static [&'static str] {
 pub fn table(faction: &str, players: usize, seed: u64) -> Vec<String> {
     let lobby = ti4_engine::seating::LOBBY_FACTIONS;
     let mut out = vec![faction.to_owned()];
-    let mut at = usize::try_from(seed).unwrap_or(0) % lobby.len();
+    let mut at = usize::try_from(seed).unwrap_or(0) % lobby.len();  // mutants:skip (the fallback of a seed that does not fit usize)
     while out.len() < players {
         at = (at + 1) % lobby.len();
         let candidate = lobby[at];
@@ -80,7 +80,7 @@ pub fn lobby_spec(faction: &str, players: usize, seed: u64) -> GameSpec {
         setup: format!("native-{faction}"),
         seed,
         players,
-        map: maps[usize::try_from(seed).unwrap_or(0) % maps.len()].to_owned(),
+        map: maps[usize::try_from(seed).unwrap_or(0) % maps.len()].to_owned(),  // mutants:skip (the same fallback)
         factions: table(faction, players, seed),
         speaker: "random".to_owned(),
         card_set: Some("te".to_owned()),
@@ -195,10 +195,10 @@ impl Asker for Bot<'_> {
         if rendered.options.is_empty() {
             return Err(Stop::Blocked);
         }
-        let place = self.seats.iter().position(|s| s == rendered.player.as_str()).unwrap_or(0);
+        let place = self.seats.iter().position(|s| s == rendered.player.as_str()).unwrap_or(0);  // mutants:skip (a seat text always found; the fallback place)
         let (picked, _, _) = ti4_rule_bot::choose_explained(rendered, None, self.seed, place, self.index);
         self.index += 1;
-        let chosen = rendered.options[picked.min(rendered.options.len() - 1)].id.clone();
+        let chosen = rendered.options[picked.min(rendered.options.len() - 1)].id.clone();  // mutants:skip (picked is always below the length: the clamp is defensive)
         self.asked.push(Asked {
             player: rendered.player.as_str().to_owned(),
             prompt: rendered.prompt.clone(),
@@ -382,10 +382,10 @@ impl NativeGame {
         let mut bot = Bot { seed: self.seed, seats: &self.seats, index: self.decided, asked: Vec::new() };
         let from = self.core.ledger.events.len();
         // 1. The reconcile hooks every step starts with.
-        for _ in 0..8 {
+        for _ in 0..8 {  // mutants:skip (the reconcile job is one window; the bound is defensive)
             let mut lone = live::LoneCard(&mut bot);
             match live::live_reconcile(&mut self.core, &lcx, &mut lone) {
-                Ok(step) if step.finished => break,
+                Ok(step) if step.finished => break,  // mutants:skip (the reconcile job is one window; the loop ends on its first call)
                 Ok(_) => {}
                 Err(stop) => return stop_to_step("reconcile", stop),
             }
@@ -427,7 +427,7 @@ impl NativeGame {
             return Step::Gap(Gap { arm: arm_label, kind: GapKind::LentClose, cause: part.to_owned() });
         }
         // 4. The hand-overs between the arms.
-        if out.finished {
+        if out.finished {  // mutants:skip (after_arm does nothing for an unfinished window of another arm)
             after_arm(&mut self.core, arm);
         }
         // 5. Commit: the decisions, the events, the code table.
@@ -508,7 +508,7 @@ fn stop_to_step(arm: &str, stop: Stop) -> Step {
     match stop {
         Stop::Live(LiveError::Unknown(why)) => {
             let mut cause = format!("{why:?}");
-            cause.truncate(120);
+            cause.truncate(120);  // mutants:skip (a cause is a short Debug text; the truncation is defensive)
             Step::Gap(Gap { arm: arm.to_owned(), kind: GapKind::Bail, cause })
         }
         Stop::NoLiveFn(a) => Step::Gap(Gap { arm: arms::name(a).to_owned(), kind: GapKind::ArmNotNative, cause: "no live function".to_owned() }),
@@ -862,6 +862,7 @@ mod tests {
     use ti4_engine_core::ids::Seat;
     use ti4_engine_core::rules::token_gain::TokenGain;
     use ti4_engine_core::state::{StatusReport, Tokens, TurnJob};
+    use ti4_engine::live::Question;
 
     use super::*;
 
@@ -959,6 +960,199 @@ mod tests {
         g.core.pending_mut().open(ti4_engine_core::state::Window::Untyped { kind: WindowKind::Aftermath, actor: None, data: [0; 3] });
         after_arm(&mut g.core, Arm::Tactical);
         assert_eq!(turn::open_job_of(&g.core), None, "an aftermath still open: the action goes on");
+    }
+
+    #[test]
+    fn the_table_rotates_from_the_seed_and_never_seats_a_faction_twice() {
+        let lobby = LOBBY_FACTIONS;
+        let t = table("sol", 3, 5);
+        assert_eq!(t, ["sol".to_owned(), lobby[6].to_owned(), lobby[7].to_owned()], "the next lobby factions after the seed's place");
+        let from_sol = table("sol", 4, lobby.iter().position(|f| *f == "sol").unwrap() as u64 - 1);
+        assert_eq!(from_sol.len(), 4);
+        assert!(!from_sol[1..].contains(&"sol".to_owned()), "seat a's faction is skipped: {from_sol:?}");
+    }
+
+    #[test]
+    fn a_new_game_has_played_nothing_and_loads_the_map() {
+        let g = game("sol", 4, 1);
+        assert_eq!((g.steps, g.decided, g.round(), g.finished()), (0, 0, 1, false));
+        assert!(g.core.loaded.has(Slice::Map), "the board is the core's");
+        assert!(slices_for(true).has(Slice::Map) && !slices_for(false).has(Slice::Map));
+        assert!(slices_for(false).has(Slice::Players), "only the map is left out");
+        assert_eq!(g.scores().len(), 4);
+        assert!(g.scores().iter().all(|(faction, vp)| !faction.is_empty() && *vp == 0));
+    }
+
+    #[test]
+    fn the_scores_are_the_victory_points_and_the_fingerprint_is_sixteen_digits_that_follow_the_position() {
+        let mut g = game("sol", 4, 1);
+        let before = g.fingerprint();
+        assert_eq!(before.len(), 16);
+        g.core.players_mut().edit(2).econ.victory_points = 7;
+        assert_eq!(g.scores()[2].1, 7);
+        assert_ne!(g.fingerprint(), before, "a point is in the fingerprint");
+        g.core.meta_mut().finished = true;
+        assert!(g.finished());
+        assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
+    }
+
+    #[test]
+    fn the_budgets_end_a_game_and_count_the_steps_played() {
+        let mut g = game("sol", 4, 1);
+        let p = play_game(&mut g, 3, 50);
+        assert_eq!((p.end, p.steps), (End::StepLimit, 3));
+        assert_eq!(p.matrix.native.values().sum::<u64>(), 3, "every step played is counted once");
+        assert_eq!(g.decided, g.events.len().min(g.decided), "the decisions are counted");
+        let mut g = game("sol", 4, 1);
+        assert_eq!(play_game(&mut g, 100, 0).end, End::RoundLimit, "round 1 is beyond a budget of none");
+        let mut g = game("sol", 4, 1);
+        assert!(matches!(play_game(&mut g, 100, 1).end, End::Gap(_)), "round 1 is within a budget of one");
+        let mut g = game("sol", 4, 1);
+        let p = play_game(&mut g, 100, 50);
+        assert_eq!(p.steps, 11);
+        assert_eq!(g.decided, p.matrix.native.get("ask.draft").copied().unwrap_or(0) as usize - 1 + p.matrix.native.get("ask.starting_tech").copied().unwrap_or(0) as usize, "the last card of the draft is not asked");
+        // The shadow and the survey keep the same budgets.
+        let s = shadow_play(&lobby_spec("sol", 4, 1), 3, 50).unwrap();
+        assert_eq!((s.played.end, s.played.steps), (End::StepLimit, 3));
+        assert_eq!(shadow_play(&lobby_spec("sol", 4, 1), 100, 0).unwrap().played.end, End::RoundLimit);
+        assert_eq!(survey(&lobby_spec("sol", 4, 1), 5, 50).unwrap().steps, 5);
+        assert!(survey(&lobby_spec("sol", 4, 1), 100, 1).unwrap().steps > 5, "round 1 is within a budget of one");
+        assert_eq!(survey(&lobby_spec("sol", 4, 1), 100, 0).unwrap().steps, 0);
+    }
+
+    #[test]
+    fn the_bot_is_the_rule_bots_random_pick_of_the_seat_place_and_the_decision_index() {
+        let g = game("sol", 4, 1);
+        let render = Render::new(g.cx.owners.ids().to_vec());
+        let core = turn::draft::question(&g.core).expect("the draft is asked");
+        let asking = ti4_engine_core::driver::live::Asking { choice: core.clone(), nested: None, at: None };
+        let rendered = live::render_asking(&live::Cx::new(&render, &live::env::env_with_plays(&render, &g.core, g.kernel, g.seeds.clone(), g.sources)), &g.core, &asking);
+        let seats = g.seats.clone();
+        for place in 0..seats.len() {
+            let mut choice = rendered.clone();
+            choice.player = ti4_model::id::PlayerId::new(&seats[place]);
+            for index in 0..6 {
+                let mut bot = Bot { seed: 9, seats: &seats, index, asked: Vec::new() };
+                let id = bot.ask(&Question { asking: &asking, rendered: choice.clone() }).unwrap();
+                let (picked, _, _) = ti4_rule_bot::choose_explained(&choice, None, 9, place, index);
+                assert_eq!(id, choice.options[picked].id, "place {place}, index {index}");
+                assert_eq!(bot.index, index + 1, "one decision more");
+                assert_eq!(bot.asked.len(), 1);
+                assert_eq!((bot.asked[0].chosen.as_str(), bot.asked[0].player.as_str()), (id.as_str(), seats[place].as_str()));
+            }
+        }
+        let mut empty = rendered.clone();
+        empty.options.clear();
+        let mut bot = Bot { seed: 9, seats: &seats, index: 0, asked: Vec::new() };
+        assert_eq!(bot.ask(&Question { asking: &asking, rendered: empty }), Err(Stop::Blocked), "a question without options is not answered");
+    }
+
+    #[test]
+    fn a_closing_menu_the_core_does_not_assemble_is_a_gap_named_by_its_source_and_the_position_is_kept() {
+        use ti4_engine_core::generated::Technology;
+        let mut g = game("sol", 4, 1);
+        g.core.transient_mut().misc.starting_tech_picks.clear();
+        let turn_seq = g.core.meta().turn_seq;
+        g.core.meta_mut().phase = ti4_engine_core::state::Phase::Action;
+        g.core.meta_mut().active = Some(Seat(0));
+        g.core.players_mut().edit(0).tech.owned.insert(Technology::FleetLogistics);
+        g.core.pending_mut().prepared_turn_seq = Some(turn_seq);
+        g.core.pending_mut().turn_closing = Some(Seat(0));
+        g.core.pending_mut().actions_this_turn = 1;
+        let held = g.core.clone();
+        let Step::Gap(gap) = g.step() else { panic!("a second action is offered, which the core does not assemble") };
+        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("ask.closing", GapKind::Bail, "TurnGap(MenuSources)"), "{gap:?}");
+        assert_eq!(gap.island(), Island::TurnFlow);
+        assert_eq!(g.core, held);
+    }
+
+    #[test]
+    fn a_pending_window_of_any_kind_means_the_table_is_asked() {
+        for kind in [WindowKind::LeaderFollowers, WindowKind::EventScoring, WindowKind::Scoring, WindowKind::Tokens, WindowKind::Voting, WindowKind::Diplomacy, WindowKind::Aftermath, WindowKind::AgendaTalks, WindowKind::Tactical] {
+            let mut g = game("sol", 4, 1);
+            g.core.transient_mut().misc.starting_tech_picks.clear();
+            g.core.meta_mut().phase = ti4_engine_core::state::Phase::Status;
+            g.core.pending_mut().open(ti4_engine_core::state::Window::Untyped { kind, actor: None, data: [0; 3] });
+            assert!(g.asks(), "{kind:?}");
+        }
+        let mut g = game("sol", 4, 1);
+        g.core.transient_mut().misc.starting_tech_picks.clear();
+        g.core.meta_mut().phase = ti4_engine_core::state::Phase::Action;
+        g.core.meta_mut().active = None;
+        assert!(!g.asks(), "nobody in turn: the phase moves on");
+        g.core.meta_mut().active = Some(Seat(0));
+        assert!(g.asks());
+        let mut g = game("sol", 4, 1);
+        let picks = !g.core.transient().misc.starting_tech_picks.is_empty();
+        assert_eq!(live_ask_arm(&Facts::of_core(&g.core, false)) == AskArm::StartingTech, picks);
+        if picks {
+            assert!(g.asks(), "a pick is asked");
+        }
+    }
+
+    /// `compare_group` finds a perturbed event, question or position, and compares only the prefix where the arm's close is the string's.
+    #[test]
+    fn the_shadow_compare_finds_each_kind_of_difference_and_compares_a_prefix_where_the_close_is_the_strings() {
+        let setup = || {
+            let spec = lobby_spec("sol", 4, 1);
+            let mut legacy = MaskSubject::<LegacyMask>::new(&spec, Pilot::Script).unwrap();
+            let mut native = NativeGame::from_game(legacy.game(), spec.seed).unwrap();
+            let base = legacy.game().state.clone();
+            let mut group: Vec<Played> = Vec::new();
+            loop {
+                let Step::Played(played) = native.step() else { panic!("the first steps are played") };
+                let is_glued = glued(played.arm);
+                group.push(played);
+                if !is_glued {
+                    break;
+                }
+            }
+            let last = group.last().unwrap();
+            assert_eq!(last.arm, Arm::Ask);
+            assert!(!last.events.is_empty() && last.asked.len() == 1, "{last:?}");
+            (legacy, native, base, group)
+        };
+        let (mut legacy, native, base, group) = setup();
+        assert_eq!(compare_group(&mut legacy, &native, &base, &group), None, "untouched, native and legacy agree");
+        let (mut legacy, native, base, mut group) = setup();
+        group.last_mut().unwrap().events.push("INVENTED".to_owned());
+        let d = compare_group(&mut legacy, &native, &base, &group).expect("an extra event");
+        assert_eq!(d.what, "events");
+        let (mut legacy, native, base, mut group) = setup();
+        group.last_mut().unwrap().events[0] = "OTHER".to_owned();
+        assert_eq!(compare_group(&mut legacy, &native, &base, &group).map(|d| (d.what, d.native)), Some(("events", "OTHER".to_owned())));
+        let (mut legacy, native, base, mut group) = setup();
+        group.last_mut().unwrap().asked[0].prompt = "another prompt".to_owned();
+        assert_eq!(compare_group(&mut legacy, &native, &base, &group).map(|d| d.what), Some("questions"));
+        let (mut legacy, mut native, base, group) = setup();
+        native.core.players_mut().edit(0).econ.trade_goods += 1;
+        let d = compare_group(&mut legacy, &native, &base, &group).expect("a perturbed position");
+        assert_eq!(d.what, "state");
+        assert!(d.path.contains("trade_goods"), "{d}");
+        // An arm whose close is the string's: the position is not compared, and a legacy step that went on asks and pushes more than the arm did.
+        let (mut legacy, mut native, base, mut group) = setup();
+        native.core.players_mut().edit(0).econ.trade_goods += 1;
+        group.last_mut().unwrap().arm = Arm::Tokens;
+        group.last_mut().unwrap().events.clear();
+        assert_eq!(compare_group(&mut legacy, &native, &base, &group), None, "only the (empty) prefix of the events is compared, and no position");
+        let (mut legacy, native, base, mut group) = setup();
+        group.last_mut().unwrap().events.clear();
+        assert_eq!(compare_group(&mut legacy, &native, &base, &group).map(|d| d.what), Some("events"), "a whole step must push what the legacy step pushed");
+    }
+
+    #[test]
+    fn the_matrix_counts_defects_apart_and_prints_them() {
+        let mut m = Matrix::default();
+        let d = Defect { arm: "tactical".to_owned(), what: "Illegal".to_owned() };
+        m.note_defect(&d);
+        m.note_defect(&d);
+        assert_eq!(m.defects["tactical: Illegal"], 2);
+        let mut other = Matrix::default();
+        other.merge(&m);
+        other.merge(&m);
+        assert_eq!(other.defects["tactical: Illegal"], 4);
+        assert!(other.render(3).iter().any(|l| l.contains("DEFECTS")));
+        assert!(!Matrix::default().render(3).iter().any(|l| l.contains("DEFECTS")), "no defect, no section");
     }
 
     #[test]
