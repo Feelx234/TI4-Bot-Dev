@@ -413,6 +413,39 @@ fn assault_cannon_of_both_sides_fires_in_attacker_defender_order_with_eligibilit
     assert_eq!(count(&rig, 1, |_| true), 2);
 }
 
+// ---- Raid Formation inside the step (D4A4) ----------------------------------------------------------------------------------------------
+
+#[test]
+fn hits_beyond_the_fighters_are_asked_about_as_raid_formation_damage_inside_the_barrage_step() {
+    covers!("rules::combat::barrage::BarrageStep");
+    let sc = || {
+        arena(Faction::TheArgentFlight, Faction::TheEmbersOfMuaat)
+            .unit(sys(), None, Unit::DestroyerII, 0, 6)
+            .unit(sys(), None, Unit::DreadnoughtI, 1, 1)
+            .unit(sys(), None, Unit::WarSun, 1, 1)
+            .unit(sys(), None, Unit::FighterI, 1, 1)
+    };
+    let mut f = facts(false, false);
+    f.raid = Some(Code(8));
+    let mut asked = 0;
+    for seed in 0..60u64 {
+        let mut rig = Rig::new(sc(), BarrageStep::new(f.clone())).seeded(seed);
+        rig.run();
+        if matches!(rig.status(), Some(ti4_engine_core::driver::Status::Asking(_))) {
+            asked += 1;
+            assert!(matches!(rig.asked().ask, Ask::Combat(CAsk::RaidDamage { target: Seat(1) })));
+            assert_eq!(rig.asked().actor, Seat(0));
+            assert_eq!(rig.stages.last().map(String::as_str), Some("Applying"));
+            if asked == 1 {
+                rig.assert_options_sound();
+            }
+            rig.pick(0);
+            assert_eq!(count(&rig, 1, fighters), 0, "the fighter is destroyed first");
+        }
+    }
+    assert!(asked > 0, "some seed rolls more hits than the one fighter");
+}
+
 // ---- the Jol-Nar commander and Waylay (package W10) ----------------------------------------------------
 
 fn jolnar_facts(commander: [bool; 2]) -> BarrageFacts {

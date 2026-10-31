@@ -1,6 +1,6 @@
 //! `Rig<W>`: runs one [`Window`] through the real [`Driver`] and keeps everything a test (and the properties) needs.
 //!
-//! * the question log and the answers given (`transcript()`), the stage trace (every `window.stage()` is registered in the covers
+//! * the question log and the answers given (`transcript()`), the stage trace (the stage the window is in when first stepped, and every `window.stage()` after a step, is registered in the covers
 //!   registry as `stage Type::Stage`),
 //! * `replay()`: the same window rebuilt from the recorded start and answered again (a window is deterministic over its start and answers),
 //! * `assert_options_sound()`: P4, every offered option is accepted on a replayed copy, none is repeated, the actor is seated, a foreign pick
@@ -163,6 +163,13 @@ impl<W: Window> Rig<W> {
         &self.picks
     }
 
+    /// The stage the window is in when the driver first steps it (`Start` of most windows): a stage the run visits although the
+    /// trace after each step never shows it (the first step leaves it).
+    fn note_entry(&self) {
+        let stage = format!("{:?}", self.driver.window.stage());
+        covers::register("stage", &format!("{}::{stage}", std::any::type_name::<W>()), std::thread::current().name().unwrap_or("?"));
+    }
+
     fn note(&mut self, status: Status) {
         let stage = format!("{:?}", self.driver.window.stage());
         covers::register("stage", &format!("{}::{stage}", std::any::type_name::<W>()), std::thread::current().name().unwrap_or("?"));
@@ -179,6 +186,9 @@ impl<W: Window> Rig<W> {
     /// # Errors
     /// What the driver refuses with.
     pub fn try_run(&mut self) -> Result<&Status, DriverError> {
+        if self.status.is_none() {
+            self.note_entry();
+        }
         let st = self.driver.run(&mut self.state, &self.kernel)?;
         self.note(st);
         Ok(self.status.as_ref().expect("status"))

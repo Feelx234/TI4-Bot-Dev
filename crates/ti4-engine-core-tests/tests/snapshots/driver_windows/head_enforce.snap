@@ -1,0 +1,13 @@
+Q0 seat 0 Tactical(Remove { seat: Seat(0), system: Tempesta, over: Supply, charged: 3, limit: 1, consumed: 0, transport: 0 })
+  >0: Tactical(Remove { index: 0, kind: CruiserI })
+Q1 seat 0 Tactical(Remove { seat: Seat(0), system: Tempesta, over: Supply, charged: 2, limit: 1, consumed: 0, transport: 0 })
+  >0: Tactical(Remove { index: 0, kind: CruiserI })
+done
+--- delta ---
+sys[Tempesta]: units [3xCruiserI/s0, 1xDestroyerI/s1] tokens {} flags 0 -> units [1xCruiserI/s0, 1xDestroyerI/s1] tokens {} flags 1
+transient.combat.active_space_combat: None -> -
+transient.combat.active_space_combat.[0].[0]: - -> Tempesta
+transient.combat.active_space_combat.[0].[1].[0]: - -> 0
+transient.combat.active_space_combat.[0].[2].[0]: - -> 1
+transient.combat.presentation.[0].battle_seq: 0 -> 1
+transient.combat.presentation.[0].phase.[0]: 0 -> 77

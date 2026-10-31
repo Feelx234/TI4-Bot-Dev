@@ -458,6 +458,9 @@ fn watchful_ojz_unlocks_only_for_the_last_to_pass_and_only_once() {
 
 fn farran_gain(version: u32, answers: &[&str]) -> i32 {
     let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+    // (The typed cards slice has no generic faction: a position with promissory notes is not lent to the core.)
+    state.promissory_notes.clear();
+    state.promissory_faceup.clear();
     state.rules_version = version;
     let system = SystemId::new("27");
     put(&mut state, &system, "dreadnought", &a(), 1);
@@ -485,6 +488,28 @@ fn farran_gain(version: u32, answers: &[&str]) -> i32 {
 #[test]
 fn farran_pays_automatically_below_version_16() {
     assert_eq!(farran_gain(OLD, &["sustain|space:0"]), 1);
+}
+
+/// W12: the same sustain below version 16 runs as the core's `SustainOffer` window (the standalone offer no longer bails "a game
+/// below the faction effects"): the holder's trade good is paid without a question, and the staged event agrees with the string's.
+#[test]
+fn farran_pays_automatically_below_version_16_in_the_core_window_in_lockstep() {
+    use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, reset_thread_windows, with_mask};
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    reset_thread_windows();
+    let gain = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || farran_gain(OLD, &["sustain|space:0"]));
+    assert_eq!(gain, 1, "paid without a question");
+    let r = report();
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+    assert_eq!(thread_window_counts("combat::offer_sustain"), (1, 0), "the core window ran (it bailed below the faction effects before): {:?}", r.windows);
+    let _ = take_report();
+    // From 16 the holder is asked and the same window follows.
+    reset_thread_windows();
+    let asked = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || farran_gain(RULES_FACTION_EFFECTS, &["sustain|space:0", "gain"]));
+    assert_eq!(asked, 1);
+    assert_eq!(thread_window_counts("combat::offer_sustain"), (1, 0));
+    let _ = take_report();
 }
 
 #[test]

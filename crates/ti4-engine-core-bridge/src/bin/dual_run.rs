@@ -141,7 +141,7 @@ fn run_shard(config: &str, games: usize, spec: &str, mask: AreaMask, on_dual: &[
     dual::set_default_mask(mask);
     golden_games(config, games, usize::MAX, &include, &mut |index, hash| {
         // One report per game: the merge folds them in game order.
-        records.push(GameRecord { index, dual_hash: hash.to_owned(), string_hash: String::new(), report: dual::take_report() });
+        records.push(GameRecord { index, dual_hash: hash.to_owned(), string_hash: String::new(), report: dual::take_report(), skipped: None });
     })
     .expect("dual games");
 

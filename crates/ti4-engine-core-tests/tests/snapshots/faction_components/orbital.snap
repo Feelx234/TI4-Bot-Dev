@@ -1,0 +1,25 @@
+Q0 seat 0 Promissory(OrbitalPlanet)
+  >0: Promissory(Spot(VefutII, VefutII))
+   1: Promissory(Spot(Saudor, Saudor))
+Q1 seat 0 Promissory(OrbitalDeploy { system: VefutII, planet: VefutII, mech: FactionlessMech })
+  >0: Promissory(Deploy)
+   1: Decline
+Q2 seat 0 Production(Pay(PayAsk { kind: Resources, owed: 3, pool: 4, goods: 0 }))
+  >0: Production(Exhaust { planet: VefutII, source: Resources, shown: Shown { worth: 2, pool_after: 2 } })
+   1: Production(Exhaust { planet: Saudor, source: Resources, shown: Shown { worth: 2, pool_after: 2 } })
+done
+--- delta ---
+player0.econ.strategic_tokens: 2 -> 1
+sys[VefutII]: units [] tokens {} flags 0 -> units [] tokens {} flags 1
+planet[Saudor]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [] attach [] coexist {} placed_in None flags 1
+planet[VefutII]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [1xFactionlessMech/s0, 2xInfantryI/s0] attach [] coexist {} placed_in None flags 5
+pending.staged: [] -> -
+pending.staged.[0].cancelled: - -> false
+pending.staged.[0].id: - -> 0
+pending.staged.[0].kind: - -> StrategyTokenSpent
+pending.staged.[0].payload.items.[0].[0]: - -> Player
+pending.staged.[0].payload.items.[0].[1].[0].[0]: - -> 0
+pending.staged.[0].payload.items.[1].[0]: - -> Reason
+pending.staged.[0].payload.items.[1].[1].[0].[0]: - -> 31
+pending.staged.[0].payload.lists: - -> []
+pending.staged.[0].payload.units: - -> []

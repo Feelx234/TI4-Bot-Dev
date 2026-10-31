@@ -413,6 +413,58 @@ fn every_gate_the_string_side_closes_is_a_documented_bail() {
     assert_eq!(fight.settle(Policy::First), Some(Stop::Bailed(Bail::Unported)), "no text for the roll group");
 }
 
+/// Found by the end-of-D1 gate (`dual_run ... driver=dual --game 3`, shard 0 of the dual-drv step): `round_seq` on `COMBAT_ROUND_STARTED` is
+/// stamped only while a Letnev round agent (the owner's, or a Yssaril copy) is usable. The string asks at each announcement; the fact in
+/// the `Env` is the answer taken when the settle began, and using the agent in one round (it is exhausted, or the Ssruu that copies it)
+/// ends it for the later rounds of the same settle. The machine reads the state for every round, the fact is only the upper bound.
+#[test]
+fn the_round_seq_is_stamped_only_while_a_round_agent_is_usable_in_the_state() {
+    covers!("rules::combat::machine::Machine");
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let stamps = |fight: &Fight| -> Vec<Option<i64>> { fight.events.iter().filter(|(k, _)| *k == EventKind::CombatRoundStarted).map(|(_, p)| p.int(Key::RoundSeq)).collect() };
+    let sc = |a: Faction| arena(a, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 3).unit(sys(), None, Unit::CruiserI, 1, 3);
+    let mut e = env();
+    e.round_seq_listens = true;
+    let (mut long_plain, mut long_agent) = (0, 0);
+    for seed in 0..12u64 {
+        // The fact says an agent listens, the state holds none: no round carries the number.
+        let mut plain = Fight::new(sc(Faction::TheEmbersOfMuaat), e.clone(), seed);
+        assert_eq!(plain.settle(Policy::First), Some(Stop::Over));
+        let seen = stamps(&plain);
+        assert!(seen.iter().all(Option::is_none), "seed {seed}: {seen:?}");
+        long_plain += usize::from(seen.len() >= 2);
+        // The Letnev agent readied: every round of the settle carries its number.
+        let mut agent = Fight::new(sc(Faction::TheBaronyOfLetnev), e.clone(), seed);
+        agent.state.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::ViscountUnlenn, LeaderStatus::Readied);
+        assert_eq!(agent.settle(Policy::First), Some(Stop::Over));
+        let seen = stamps(&agent);
+        assert!(seen.iter().enumerate().all(|(i, v)| *v == Some(i as i64 + 1)), "seed {seed}: {seen:?}");
+        long_agent += usize::from(seen.len() >= 2);
+    }
+    assert!(long_plain > 0 && long_agent > 0, "some fights went on for more than one round: {long_plain} {long_agent}");
+}
+
+/// Found by the end-of-D1 gate (`dual_run ... driver=dual --game 18`): a technology gained at the start of the combat swaps the owner's
+/// Destroyer I to a Destroyer II; the settle's unit texts were interned for the board as it stood when the settle began, so the
+/// barrage dice of the new type were labelled `extra barrage` (the relic's label) where the string names `destroyer2`.
+#[test]
+fn a_barrage_by_a_unit_type_the_settle_has_no_text_for_is_a_bail_not_an_extra_barrage_label() {
+    covers!("rules::combat::machine::Machine");
+    let sc = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerII, 0, 1).unit(sys(), None, Unit::CruiserI, 1, 2);
+    // The texts of the board the settle began on: no Destroyer II among them.
+    let mut e = env();
+    e.unit_codes.retain(|(u, _)| *u != Unit::DestroyerII);
+    let mut fight = Fight::new(sc(), e, 1);
+    assert_eq!(fight.settle(Policy::First), Some(Stop::Bailed(Bail::Unported)));
+    assert_eq!(fight.count(EventKind::UnitAbilityRolled), 0, "no barrage was played under a wrong label");
+    // With the text the same position is fought (and the dice carry the unit's own label).
+    let mut fight = Fight::new(sc(), env(), 1);
+    assert_eq!(fight.settle(Policy::First), Some(Stop::Over));
+    let dice = &fight.state.transient().combat.presentation.barrage_dice;
+    assert!(!dice.is_empty() && dice.iter().all(|d| d.unit != Code(8)), "{dice:?}");
+}
+
 #[test]
 fn staged_destructions_and_cancellations_and_duranium_armor_and_devotion_are_bails_too() {
     covers!("rules::combat::machine::Machine");
@@ -544,4 +596,82 @@ fn the_round_seq_is_stamped_only_while_a_letnev_round_agent_is_still_usable() {
     assert_eq!(fight.settle(Policy::First), Some(Stop::Over));
     assert_eq!(seqs(&fight), rounds(&fight), "a readied owner agent listens in every round");
     assert!(rounds(&fight) >= 1);
+}
+
+// ---- the stages a settle can stop in (D4A4) -------------------------------------------------------------------------------------------
+
+/// Settle once from the opening of round 1 and say which stage each question was asked in.
+fn first_question(sc: Scenario, env: Env, seed: u64) -> (Rig<Machine>, Option<Ask>) {
+    let (state, kernel) = sc.build();
+    let fields = fields(&state);
+    let mut rig = Rig::from_parts(state, kernel, Machine::new(env, fields)).seeded(seed);
+    rig.run();
+    let ask = match rig.status() {
+        Some(ti4_engine_core::driver::Status::Asking(c)) => Some(c.ask.clone()),
+        _ => None,
+    };
+    (rig, ask)
+}
+
+#[test]
+fn the_machine_waits_in_the_rolling_stage_when_the_roll_asks_about_munitions_reserves() {
+    covers!("rules::combat::machine::Machine");
+    let sc = || arena(Faction::TheBaronyOfLetnev, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 4).unit(sys(), None, Unit::CruiserI, 1, 1).goods(0, 3);
+    let mut found = false;
+    for seed in 0..40u64 {
+        let mut e = env();
+        e.munitions_after = [true, false];
+        let (rig, ask) = first_question(sc(), e, seed);
+        if ask == Some(Ask::Combat(CAsk::MunitionsRoll)) {
+            assert_eq!(rig.asked().actor, Seat(0));
+            assert_eq!(rig.stages.last().map(String::as_str), Some("Rolling"), "{:?}", rig.stages);
+            rig.assert_options_sound();
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "a roll with misses was found among 40 seeds");
+}
+
+#[test]
+fn the_machine_waits_in_the_producing_stage_while_the_opponent_picks_the_ship_assault_cannon_destroys() {
+    covers!("rules::combat::machine::Machine");
+    let sc = || {
+        arena(Faction::TheEmbersOfMuaat, Faction::TheArborec)
+            .tech(0, ti4_engine_core::generated::Technology::AssaultCannon)
+            .unit(sys(), None, Unit::CruiserI, 0, 3)
+            .unit(sys(), None, Unit::CruiserI, 1, 1)
+            .unit(sys(), None, Unit::DestroyerI, 1, 2)
+    };
+    let mut e = env();
+    e.ac = true;
+    let (rig, ask) = first_question(sc(), e, 1);
+    assert_eq!(ask, Some(Ask::Combat(CAsk::AssignHit)));
+    assert_eq!(rig.asked().actor, Seat(1), "the victim chooses which of their non-fighter ships is destroyed");
+    assert_eq!(rig.stages.last().map(String::as_str), Some("Producing"), "{:?}", rig.stages);
+    rig.assert_options_sound();
+}
+
+#[test]
+fn the_machine_waits_in_the_barraging_stage_while_raid_formation_picks_the_ship_to_damage() {
+    covers!("rules::combat::machine::Machine");
+    let sc = || {
+        arena(Faction::TheArgentFlight, Faction::TheArborec)
+            .unit(sys(), None, Unit::DestroyerII, 0, 6)
+            .unit(sys(), None, Unit::DreadnoughtI, 1, 1)
+            .unit(sys(), None, Unit::WarSun, 1, 1)
+            .unit(sys(), None, Unit::FighterI, 1, 1)
+    };
+    let mut found = false;
+    for seed in 0..60u64 {
+        let (rig, ask) = first_question(sc(), env(), seed);
+        if matches!(ask, Some(Ask::Combat(CAsk::RaidDamage { .. }))) {
+            assert_eq!(rig.asked().actor, Seat(0), "the Argent player picks the type to damage");
+            assert_eq!(rig.stages.last().map(String::as_str), Some("Barraging"), "{:?}", rig.stages);
+            rig.assert_options_sound();
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "a barrage with more hits than fighters was found among 60 seeds");
 }

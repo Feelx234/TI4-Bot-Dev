@@ -33,7 +33,6 @@ pub type ScoreValue = (bool, Option<ti4_model::id::ObjectiveId>, crate::objectiv
 
 #[cfg(feature = "typed-core")]
 mod real {
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::{PublicObjective, SecretObjective};
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::driver::DriverError;
@@ -352,7 +351,7 @@ mod real {
             Step::Card { owner, token } => {
                 let source = r.code(crate::factions::firmament::PLOTS);
                 let kernel = Kernel::plain();
-                let mut driver = Driver::new(PlaceCard::new(*owner, *token, source), Resolver::new(&[*owner], Some(*owner)), AbilityTable::default(), 1);
+                let mut driver = crate::window_driver::driver_for(PlaceCard::new(*owner, *token, source), Resolver::new(&[*owner], Some(*owner)), AbilityTable::default(), 1);
                 let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLOT_WINDOW, |core, _| {
                     crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &complete(&before))
                 })
@@ -375,7 +374,7 @@ mod real {
                 // may spend and the ocean cards (`fx_pay::pay_facts`).
                 let kernel = crate::production_view::kernel();
                 let env = PayEnv { scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) };
-                let mut driver = Driver::new(
+                let mut driver = crate::window_driver::driver_for(
                     ScoreOne::new(next.seat, args.status, &offers, args.occurrence).with_price(env),
                     Resolver::new(&[next.seat], Some(next.seat)),
                     AbilityTable::default(),
@@ -471,7 +470,7 @@ mod real {
         let seat = r.seat(player.as_str())?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(HandLimit::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(HandLimit::new(seat), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), HAND_WINDOW, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &complete(&before))
         })

@@ -60,6 +60,16 @@ impl Facts {
         }
     }
 
+    /// The facts of a core position, all of them (package KF1): the prepared turn, the closing menu and the starting
+    /// technology picks left are the position's own (`Pending::prepared_turn_seq`, `Pending::turn_closing`,
+    /// `Transient::misc.starting_tech_picks`); only `blocked` (an error report of the wrapper) is the caller's. [`Self::of`] stays
+    /// for the dual, which takes those three from the string engine.
+    #[must_use]
+    pub fn of_core(core: &CoreState, blocked: bool) -> Self {
+        let p = core.pending();
+        Self::of(core, blocked, p.prepared_turn_seq == Some(core.meta().turn_seq), p.turn_closing.is_some(), core.transient().misc.starting_tech_picks.is_empty())
+    }
+
     fn is_open(&self, kind: WindowKind) -> bool {
         self.open & bit(kind) != 0
     }
@@ -79,6 +89,9 @@ pub enum Arm {
     Voting,
     Diplomacy,
     Aftermath,
+    /// The invasion an aftermath holds (`Window::Invasion` above the aftermath's entry): run by `driver::windows::invasion`. `step_arm` does not
+    /// choose it; the aftermath arm hands its steps to it while the invasion is the top sub-window (lane M5), and `live_step` runs it by name.
+    Invasion,
     AgendaTalks,
     Trade,
     Tactical,
@@ -163,6 +176,8 @@ pub enum AskArm {
     Secondary,
     /// The closing menu of the turn.
     Closing,
+    /// An open transaction (only [`live_ask_arm`]: the dual's [`ask_arm`] has no Trade arm, the string asks it through its own step).
+    Trade,
     /// The action menu.
     ActionMenu,
     /// The status and agenda phases ask nothing of their own.
@@ -206,6 +221,42 @@ pub fn ask_arm(f: &Facts) -> AskArm {
     }
 }
 
+/// [`ask_arm`] for the live loop: an open transaction asks its own question. (The dual keeps [`ask_arm`], which compares the
+/// string's source name; the two merge when the trade island is native.)
+#[must_use]
+pub fn live_ask_arm(f: &Facts) -> AskArm {
+    if !f.finished && !f.blocked && f.is_open(WindowKind::Trade) && ask_arm(f) == AskArm::ActionMenu {
+        return AskArm::Trade;
+    }
+    ask_arm(f)
+}
+
+impl Arm {
+    /// Every arm, in declaration order.
+    pub const ALL: [Self; 20] = [
+        Self::Finished,
+        Self::Blocked,
+        Self::LeaderFollowers,
+        Self::Secondary,
+        Self::EventScoring,
+        Self::Scoring,
+        Self::Tokens,
+        Self::Voting,
+        Self::Diplomacy,
+        Self::Aftermath,
+        Self::Invasion,
+        Self::AgendaTalks,
+        Self::Trade,
+        Self::Tactical,
+        Self::TurnPrelude,
+        Self::Status,
+        Self::Agenda,
+        Self::StrategyAnnounce,
+        Self::Ask,
+        Self::Phase,
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +280,31 @@ mod tests {
 
     fn with(kinds: &[WindowKind]) -> Facts {
         Facts { open: kinds.iter().fold(0, |a, k| a | bit(*k)), ..quiet() }
+    }
+
+    #[test]
+    fn the_arm_list_is_complete_and_in_declaration_order() {
+        assert_eq!(Arm::ALL.len(), 20);
+        for (i, a) in Arm::ALL.iter().enumerate() {
+            assert_eq!(*a as usize, i, "the bit of an arm is its index");
+        }
+    }
+
+    #[test]
+    fn facts_of_core_take_the_prepared_turn_the_closing_menu_and_the_picks_from_the_position() {
+        use crate::ids::Seat;
+        let mut s = CoreState::all_loaded();
+        s.meta.turn_seq = 3;
+        let f = Facts::of_core(&s, false);
+        assert_eq!((f.turn_prepared, f.turn_closing, f.starting_picks_done), (false, false, true));
+        s.pending.prepared_turn_seq = Some(3);
+        s.pending.turn_closing = Some(Seat(1));
+        s.transient.misc.starting_tech_picks.push(crate::state::StartingTechPick { player: Seat(0), of: 1, remaining: 1, source: crate::state::StartingTechSource::OwnedByOthers });
+        let f = Facts::of_core(&s, true);
+        assert_eq!((f.turn_prepared, f.turn_closing, f.starting_picks_done, f.blocked), (true, true, false, true));
+        assert_eq!(f, Facts::of(&s, true, true, true, false), "the same as the dual's facts with the position's own values");
+        s.meta.turn_seq = 4;
+        assert!(!Facts::of_core(&s, false).turn_prepared, "a later turn is not the prepared one");
     }
 
     #[test]
@@ -336,6 +412,8 @@ mod tests {
     fn the_question_follows_the_same_chain_without_trade_and_the_follower_window_waits_for_the_action_phase() {
         use WindowKind as K;
         assert_eq!(ask_arm(&with(&[K::Trade])), AskArm::ActionMenu, "trade asks through its own step");
+        assert_eq!(live_ask_arm(&with(&[K::Trade])), AskArm::Trade, "the live loop names it");
+        assert_eq!(live_ask_arm(&with(&[K::Tactical, K::Trade])), AskArm::Tactical, "only where the menu would have asked");
         assert_eq!(ask_arm(&with(&[K::Tactical, K::Aftermath])), AskArm::Aftermath);
         assert_eq!(ask_arm(&with(&[K::StrategySecondary, K::Tactical])), AskArm::Tactical);
         assert_eq!(ask_arm(&with(&[K::StrategySecondary])), AskArm::Secondary);

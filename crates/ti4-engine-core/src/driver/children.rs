@@ -175,7 +175,7 @@ mod tests {
             Spawn::Research { who, primary: false, cost: 4, scope: crate::tables::Scope(u32::MAX), roster: Box::leak(Box::default()) },
             Spawn::RiderResearch { who, scope: crate::tables::Scope(u32::MAX), roster: Box::leak(Box::default()) },
             Spawn::Leadership { who, primary: true },
-            Spawn::Construction { who, primary: false, facts: crate::kernel::children::StructureFacts { pds: None, dock: None, source: crate::state::Code(0) } },
+            Spawn::Construction { who, primary: false, facts: crate::kernel::children::StructureFacts { pds: None, dock: None, source: crate::state::Code(0), alt: None } },
             Spawn::Politics { who, primary: true, official: true },
             Spawn::Warfare { who, letnev_pool: false },
             Spawn::Diplomacy { who, card: crate::generated::StrategyCard::DiplomacyBase, primary: false, base_printing: false },

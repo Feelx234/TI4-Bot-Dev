@@ -61,6 +61,24 @@ pub trait Window: Clone {
     }
 }
 
+/// What a window adds to [`Window`] to be HELD on the `Pending` stack between steps (package M0, `driver::live`): the machine is
+/// rebuilt from `(payload, position)` at every call and written back when it asks; nothing else holds it.
+pub trait Held: Window {
+    /// The kind of the stack entry this machine is the payload of.
+    const KIND: crate::state::WindowKind;
+
+    /// The machine as the payload and the position make it (`None`: no window of this kind is open). Pure, and a function of
+    /// `(core, payload)` only: a payload field exists for what the position cannot re-derive.
+    fn from_pending(core: &CoreState, k: &Kernel) -> Option<Self>;
+
+    /// Write the payload of the machine to the stack (`Pending::open(Window::..)`), replacing the entry of its kind.
+    fn to_pending(&self, core: &mut CoreState);
+
+    /// The window ended: the closing writes of the composer, before its entry leaves the stack. Default: none (a window's last
+    /// `step` normally does them).
+    fn closed(&self, _core: &mut CoreState, _k: &Kernel) {}
+}
+
 pub use super::ability::{Runner, AbilityTable, Applies, CondCx, Codes, Condition, Eff, Effect, Forbids, NestedFacts, RulesHost, Slot, Spec, Tape};
 
 /// The services of a window's `step` and `answer` (the string `Resolving` + `TimingContext`).

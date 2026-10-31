@@ -523,6 +523,11 @@ impl Machine {
                 self.env.occurrence = meta.feat_occurrence_seq;
             }
             if !self.barrage_done {
+                // A roller the settle's unit texts do not name (an upgrade gained at the start of the combat): the string stands.
+                let rd = Self::rd(sx.state, sx.kernel);
+                if !super::barrage::every_roller_is_named(rd, [self.env.attacker, self.env.defender], self.env.system, &self.env.unit_codes) {
+                    return None;
+                }
                 self.start_barrage(round);
                 // The round resumes here once the barrage is played.
                 self.fields.resuming = true;

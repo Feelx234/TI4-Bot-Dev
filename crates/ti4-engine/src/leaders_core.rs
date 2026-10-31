@@ -19,7 +19,6 @@ mod real {
     use ti4_model::id::{LeaderId, PlayerId};
     use ti4_model::state::GameState;
 
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
     use ti4_engine_core::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, LetaniOspha, NekroMalleon, RinHero, XxchaAgent};
@@ -221,7 +220,7 @@ mod real {
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let has_map = galaxy.is_some();
-        let mut driver = Driver::new(XxchaAgent::new(seat, has_map), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(XxchaAgent::new(seat, has_map), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy, rng: None }, if has_map { XXCHA } else { XXCHA_NO_MAP }, |core, _| {
             if has_map && core.galaxy().is_none() {
                 return None;
@@ -261,7 +260,7 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = Kernel::plain();
         let before = gs.clone();
-        let mut driver = Driver::new(XxchaHeroTe::new(seat, &planets, pds, mech), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(XxchaHeroTe::new(seat, &planets, pds, mech), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let mut staged = Vec::new();
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), XXCHA_HERO, |core, _| {
             let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
@@ -286,7 +285,7 @@ mod real {
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let has_map = galaxy.is_some();
-        let mut driver = Driver::new(Helmsman::new(seat, has_map), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(Helmsman::new(seat, has_map), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy, rng: None }, if has_map { XXCHA } else { XXCHA_NO_MAP }, |core, _| {
             if has_map && core.galaxy().is_none() {
                 return None;
@@ -316,7 +315,7 @@ mod real {
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let has_map = galaxy.is_some();
-        let mut driver = Driver::new(ArmageddonRelay::new(seat, has_map), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(ArmageddonRelay::new(seat, has_map), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy, rng: None }, if has_map { XXCHA } else { XXCHA_NO_MAP }, |core, _| {
             if has_map && core.galaxy().is_none() {
                 return None;
@@ -360,7 +359,7 @@ mod real {
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let has_map = galaxy.is_some();
-        let mut driver = Driver::new(RiftwalkerMeian::new(seat, has_map, facts), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(RiftwalkerMeian::new(seat, has_map, facts), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy, rng: None }, if has_map { GHOST_HERO } else { XXCHA_NO_MAP }, |core, _| {
             if has_map && core.galaxy().is_none() {
                 return None;
@@ -403,7 +402,7 @@ mod real {
         let mut table = AbilityTable::default();
         table.facts.card_groups = crate::reactions_core::card_groups();
         let mut staged = Vec::new();
-        let mut driver = Driver::new(NekroMalleon::new(seat, r.code("nekroagent")), Resolver::new(&seats, Some(seat)), table, 1);
+        let mut driver = crate::window_driver::driver_for(NekroMalleon::new(seat, r.code("nekroagent")), Resolver::new(&seats, Some(seat)), table, 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), MALLEON, |core, _| {
             let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
             staged = std::mem::take(&mut core.pending_mut().staged);
@@ -436,7 +435,7 @@ mod real {
             .why("a unit form the typed tables do not know")?;
         let kernel = kernel(sources)?;
         let before = gs.clone();
-        let mut driver = Driver::new(LetaniOspha::new(seat, forms), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(LetaniOspha::new(seat, forms), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), OSPHA, |core, _| crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, _| {}))
             .why(crate::dual::reason::NOT_LENDABLE)?
             .why(crate::dual::reason::DRIVER_REFUSED)?;
@@ -582,7 +581,7 @@ mod real {
         let mut table = AbilityTable::default();
         ti4_engine_core::driver::children::register(&mut table);
         let kernel = crate::production_view::kernel();
-        let mut driver = Driver::new(ArborecHero::new(seat, facts), Resolver::new(&seats, Some(seat)), table, 1);
+        let mut driver = crate::window_driver::driver_for(ArborecHero::new(seat, facts), Resolver::new(&seats, Some(seat)), table, 1);
         let mut staged = Vec::new();
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PRODUCE, |core, _| {
             let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &|_, _, _| {});
@@ -635,7 +634,7 @@ mod real {
         let mut table = AbilityTable::default();
         ti4_engine_core::driver::children::register(&mut table);
         let kernel = crate::production_view::kernel();
-        let mut driver = Driver::new(Umbat::new(seat, facts), Resolver::new(&seats, Some(seat)), table, 1);
+        let mut driver = crate::window_driver::driver_for(Umbat::new(seat, facts), Resolver::new(&seats, Some(seat)), table, 1);
         let mut staged = Vec::new();
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PRODUCE, |core, _| {
             let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &|_, _, _| {});
@@ -647,6 +646,12 @@ mod real {
         if driver.window.unsupported {
             crate::dual::note_bail_here("the table has no link to the production window, or a use has no facts");
             return None;
+        }
+        // A copy through Ssruu is atomic (`umbat_string`): a decision that fails part-way (an answer that is no option) leaves the position as
+        // it was and the agent unspent. The recorded decisions stop before the window is over; the position is the one before.
+        if driver.window.copied && !driven.finished {
+            *gs = before;
+            return Some(CoreWindow { run: Run::new(false).with_events_vec(Vec::new()), questions: driven.rendered });
         }
         let made_any = driver.window.made.as_ref().is_some_and(|(_, made)| !made.as_slice().is_empty());
         if !staged.is_empty() && made_any {
@@ -687,7 +692,7 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = kernel(sources)?;
         let before = gs.clone();
-        let mut driver = Driver::new(RinHero::new(seat, order, by_alias), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(RinHero::new(seat, order, by_alias), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLAYERS, |core, _| {
             crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
         })
@@ -712,7 +717,7 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(HacanAgent::with_source(seat, r.code("trade_agreement")), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(HacanAgent::with_source(seat, r.code("trade_agreement")), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let mut staged = Vec::new();
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), HACAN, |core, _| {
             let driven = crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &|_, _, rendered| {

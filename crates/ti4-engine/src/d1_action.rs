@@ -10,7 +10,7 @@
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{System, Unit as CUnit};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::state::{AStage, Aftermath, Before, NoteHold, PauseLimit, Piece, TStage, Tactical, Window, WindowKind};
+use ti4_engine_core::state::{AStage, Aftermath, Before, NoteHold, PauseLimit, Piece, TStage, Tactical, Window};
 
 use super::super::{Aftermath as AStr, AftermathWindow, Game, TacticalStage, TacticalWindow};
 use crate::combat::NoteHoldings;
@@ -256,7 +256,7 @@ pub(in super::super) fn transition(ended: Ended, to: &AStr) {
 }
 
 /// The sub-window of an aftermath, above its own entry (package D1b2): the space combat as the fields of its machine
-/// (`Window::Combat`), the invasion and the production step as untyped placeholders (no machine state exists for them: the
+/// (`Window::Combat`), the invasion and the production step as stub payloads (`Window::Invasion`/`Window::Production`, lanes M3/M2 type them: the
 /// string drives both; documented bail D1b2-bail-02).
 pub(super) fn sub_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
     let Some(w) = &g.aftermath else { return Ok(None) };
@@ -264,8 +264,11 @@ pub(super) fn sub_of(g: &Game<'_>, r: &Render) -> Res<Option<Window>> {
         AStr::Fighting(window) => {
             Some(Window::Combat(Box::new(crate::dual_window::fields_of(&window.fields_in(), r).ok_or("a seat or unit the table does not know")?)))
         }
-        AStr::Invading(_) => Some(Window::Untyped { kind: WindowKind::Invasion, actor: Some(seat(r, &w.player)?), data: [0; 3] }),
-        AStr::Producing(_) => Some(Window::Untyped { kind: WindowKind::Production, actor: Some(seat(r, &w.player)?), data: [0; 3] }),
+        AStr::Invading(_) => {
+            let system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(w.system.as_str()).ok_or("a system the table does not know")?;
+            Some(Window::Invasion(Box::new(ti4_engine_core::state::Invasion::observed(seat(r, &w.player)?, system))))
+        }
+        AStr::Producing(_) => Some(Window::Production(Box::new(ti4_engine_core::state::ProductionUse { actor: Some(seat(r, &w.player)?), data: [0; 3] }))),
         AStr::Negotiating { .. } | AStr::Done => None,
     })
 }

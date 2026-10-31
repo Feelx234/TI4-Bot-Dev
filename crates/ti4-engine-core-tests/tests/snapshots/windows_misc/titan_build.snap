@@ -1,0 +1,8 @@
+Q0 seat 0 Strategy(PlaceStructure { step: 0, only_pds: false })
+  >0: Strategy(Structure { pds: true, system: KostbothCapha, planet: Capha })
+   1: Strategy(Structure { pds: false, system: KostbothCapha, planet: Capha })
+   2: Decline
+done
+--- delta ---
+sys[KostbothCapha]: units [] tokens {} flags 0 -> units [] tokens {} flags 1
+planet[Capha]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [1xPDSI/s0] attach [] coexist {} placed_in None flags 5

@@ -1,0 +1,16 @@
+Q0 seat 0 Leaders(GhostSwapFirst)
+  >0: Leaders(System(Andeara))
+   1: Leaders(System(ViraPicsIII))
+   2: Leaders(System(Tempesta))
+   3: Decline
+Q1 seat 0 Leaders(GhostSwapSecond)
+  >0: Leaders(System(ViraPicsIII))
+   1: Leaders(System(Tempesta))
+   2: Decline
+done
+--- delta ---
+marks.tail.[0].entries: [] -> -
+marks.tail.[0].entries.[0].[0].[0]: - -> 0
+marks.tail.[0].entries.[0].[1].[0].[0].[0].[0]: - -> Swap
+marks.tail.[0].entries.[0].[1].[0].[1].[0].[0]: - -> Andeara
+marks.tail.[0].entries.[0].[1].[0].[2].[0].[0]: - -> ViraPicsIII

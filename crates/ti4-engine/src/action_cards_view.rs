@@ -400,13 +400,9 @@ fn hit_facts(
                 casualty: r.code("assign_casualty"),
                 effect_hit: r.code("effect_hit"),
             };
-            // The sustain offer of the core is the string's from `RULES_FACTION_EFFECTS`, and pays the Letnev commander's offer only for an
-            // unlocked commander (`dual_window::sustain_offer`): the seat that takes the hits is the active one.
+            // The sustain offer of the core pays the Letnev commander's offer only for an unlocked commander
+            // (`dual_window::sustain_offer`): the seat that takes the hits is the active one.
             let label = if announce { "action_cards::announce" } else { "action_cards::play" };
-            if gs.rules_version < ti4_model::state::RULES_FACTION_EFFECTS {
-                crate::dual::note_bail(label, "hits absorbed in a game below the faction effects");
-                return None;
-            }
             if let Some(target) = gs.active.as_ref() {
                 let unlocked = gs
                     .player(target)
@@ -582,7 +578,6 @@ pub fn play_window(
     before_rolls: Option<&crate::rng::RngPositions>,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<crate::action_cards_typed::Rolled>> {
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::kernel::Kernel;
     let card = ActionCard::from_id(alias.as_str())?;
     let (mut cx, r) = tables_of(gs, card)?;
@@ -680,7 +675,7 @@ pub fn play_window(
             env.facts.carried = carried_of(core, &before, sources, player, seat, &r);
         }
         let play = rules::effects::Play::of(core, card, seat, env)?;
-        let mut driver = Driver::new(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
+        let mut driver = crate::window_driver::driver_for(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
         if let Some(seeds) = driver_seeds {
             driver = driver.with_seeds(seeds);
         }
@@ -770,7 +765,6 @@ pub fn announce_window(
     before_rolls: Option<&crate::rng::RngPositions>,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<crate::dual::CoreWindow<(Option<bool>, crate::action_cards_typed::Rolled)>> {
-    use ti4_engine_core::driver::Driver;
     let card = ActionCard::from_id(alias.as_str()).why("an action card the core tables do not know")?;
     if !rules::announce::plays(card) && crate::action_cards::effect_for(alias).is_some() {
         crate::dual::note_bail_here("a card the announce window does not play (it has no core effect, or the table plays it inside a window)");
@@ -871,7 +865,7 @@ pub fn announce_window(
             crate::dual::note_bail_here("a card the core announce window does not play");
         }
         let announce = announce?;
-        let mut driver = Driver::new(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
+        let mut driver = crate::window_driver::driver_for(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), play_table(), 1);
         if let Some(seeds) = seeds {
             driver = driver.with_seeds(seeds);
         }
@@ -967,8 +961,7 @@ pub(crate) fn carried_of(
     let content = ti4_content::ContentStore::embedded();
     rules::perform::Carried {
         plain_draw: crate::strategy_cards_core::plain_draw(gs, content, player, 2),
-        research: gs.rules_version >= ti4_model::state::RULES_TECH_PAYMENT_CHOICE
-            && !technology_unported(gs, sources, player)
+        research: !technology_unported(gs, sources, player)
             && crate::strategy_cards_core::research_hooks_agree(core, gs, content, sources.clone(), player, seat),
         payments: !crate::production_view::unported_window(gs, player),
         structures: crate::strategy_cards_core::structure_facts(gs, content, sources.clone(), player, r),
@@ -1051,8 +1044,8 @@ mod hit_facts_tests {
     use super::*;
     use crate::action_cards::tests::closing_position;
 
-    /// The guards of Experimental Battlestation's hit flow (`hit_facts`): below `RULES_FACTION_EFFECTS` and against a seat that pays on a
-    /// sustain without an unlocked commander the string plays the card; the contrast cases are carried.
+    /// The guards of Experimental Battlestation's hit flow (`hit_facts`): against a seat that pays on a sustain without an unlocked
+    /// commander the string plays the card; the contrast cases (a game below `RULES_FACTION_EFFECTS` too, since W12) are carried.
     #[test]
     fn the_sustain_guards_of_experimental_battlestation_decline_only_what_the_core_window_does_not_follow() {
         let _serial = crate::dual::tests::serial();
@@ -1072,7 +1065,7 @@ mod hit_facts_tests {
         assert_eq!(facts.hits.staging, crate::supply::staging_enabled(&plain));
         let mut old = plain.clone();
         old.rules_version = ti4_model::state::RULES_FACTION_EFFECTS - 1;
-        assert!(!run(&old).0, "below the faction effects");
+        assert!(run(&old).0, "below the faction effects the core window pays unasked and is followed");
         // Held another way than as an unlocked leader: the string pays, the core window would not.
         let mut held = plain.clone();
         held.faction_marks.insert("commander_ability:b:letnevcommander".to_owned(), "1".to_owned());
