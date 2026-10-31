@@ -26,6 +26,7 @@ pub mod kernel_env;
 pub mod live;
 pub mod menu;
 pub mod menu_cards;
+pub mod menu_faction;
 pub mod menu_sources;
 pub mod session;
 pub mod step;

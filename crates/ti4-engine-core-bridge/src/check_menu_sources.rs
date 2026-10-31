@@ -30,6 +30,8 @@ pub struct MenuReport {
     pub listed: std::collections::BTreeMap<&'static str, usize>,
     /// Seats whose action cards the core could not list (a counted gap).
     pub gaps: usize,
+    /// Every id the core listed for the faction source, so a test can demand that each action was reached.
+    pub faction_ids: std::collections::BTreeSet<String>,
     /// The first positions the core could not hold.
     pub unmapped_at: Vec<String>,
 }
@@ -53,6 +55,7 @@ impl MenuReport {
         self.borrowed += o.borrowed;
         self.sling += o.sling;
         self.gaps += o.gaps;
+        self.faction_ids.extend(o.faction_ids.iter().cloned());
         self.unmapped_at.extend(o.unmapped_at.iter().take(8).cloned());
         for (k, n) in &o.listed {
             *self.listed.entry(k).or_default() += n;
@@ -67,6 +70,8 @@ fn key(o: &ChoiceOption) -> (String, String, String) {
 /// Deal strategy cards: seat `i` gets `per_seat` cards, the first of each spent when `spend`.
 fn dealt(base: &GameState, per_seat: usize, spend: bool) -> GameState {
     let mut g = base.clone();
+    // Only the latest rules version is supported by the core.
+    g.rules_version = ti4_model::state::RULES_VERSION;
     let mut next = 0;
     for seat in &mut g.players {
         seat.strategy_cards.clear();
@@ -93,6 +98,7 @@ fn string_lists(g: &GameState, p: &Position, pid: &PlayerId) -> Vec<(&'static st
         ("exploration", ti4_engine::exploration::available_actions(g, content, p.sources, pid)),
         ("transactions", ti4_engine::transactions::available_actions(g, content, &p.galaxy, pid)),
         ("cards", ti4_engine::action_cards::available_actions(g, content, p.sources, Some(&p.galaxy), pid)),
+        ("faction", ti4_engine::faction_abilities::component_actions(g, content, pid)),
     ]
 }
 
@@ -168,6 +174,131 @@ pub fn card_variants(base: &GameState) -> Vec<(&'static str, GameState)> {
     out
 }
 
+/// Variants that exercise the faction component actions: notes held (Promise of Protection, Trade Convoys, the pacts, Black Market Forgery,
+/// Fires of the Gashlai), technologies ready or spent (Production Biomes, Lazax Gate Folding, Wormhole Generator, Mageon Implants), war suns and
+/// a flagship for the Muaat, fragments for the Naaz, hands for the Yssaril, and the cases the core counts as gaps.
+#[must_use]
+pub fn faction_variants(base: &GameState) -> Vec<(&'static str, GameState)> {
+    use crate::check_hooks::{add_space, home, ids};
+    use ti4_engine_core::generated::Technology;
+    use ti4_model::id::{ActionCardId, PlanetId, SystemId, TechnologyId};
+    let mut out: Vec<(&'static str, GameState)> = vec![];
+    let mut push = |label: &'static str, build: &dyn Fn(&mut GameState)| {
+        let mut g = base.clone();
+        build(&mut g);
+        out.push((label, g));
+    };
+    let hold = |g: &mut GameState, note: &str, owner: &str, by: usize| {
+        let holder = g.players[by % g.players.len()].id.clone();
+        g.promissory_notes.insert(format!("{note}:{owner}"), holder);
+    };
+    push("faction notes", &|g| {
+        for (i, (note, owner)) in [("pop", "mentak"), ("convoys", "hacan"), ("blood_pact", "empyrean"), ("dark_pact", "empyrean"), ("bmf", "naaz"), ("fires", "muaat")].into_iter().enumerate() {
+            hold(g, note, owner, i);
+            hold(g, note, owner, i + 3);
+        }
+        for seat in &mut g.players {
+            seat.relic_fragments.insert("CULTURAL".to_owned(), 2);
+        }
+    });
+    push("terraform held", &|g| hold(g, "terraform", "titans", 0));
+    push("faction notes, spent faceup", &|g| {
+        for (i, (note, owner)) in [("pop", "mentak"), ("convoys", "hacan"), ("blood_pact", "empyrean")].into_iter().enumerate() {
+            hold(g, note, owner, i);
+            g.promissory_faceup.insert(format!("{note}:{owner}"));
+        }
+    });
+    push("faction techs", &|g| {
+        for seat in &mut g.players {
+            for t in [Technology::ProductionBiomes, Technology::LazaxGateFolding, Technology::WormholeGenerator, Technology::MageonImplants].map(|t| t.as_str()) {
+                seat.technologies.insert(TechnologyId::new(t));
+            }
+            seat.strategic_tokens = 2;
+            seat.action_cards = vec![ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[0].as_str())];
+        }
+        let mecatol = SystemId::new("18");
+        for (i, id) in ids(g).into_iter().enumerate().take(1) {
+            let _ = i;
+            g.system_mut(&mecatol).planet_control.insert(PlanetId::new(ti4_engine_core::generated::Planet::MecatolRex.as_str()), id);
+        }
+    });
+    push("faction techs, spent and no tokens", &|g| {
+        for seat in &mut g.players {
+            for t in [Technology::ProductionBiomes, Technology::LazaxGateFolding, Technology::WormholeGenerator, Technology::MageonImplants].map(|t| t.as_str()) {
+                seat.technologies.insert(TechnologyId::new(t));
+                seat.exhausted_technologies.insert(TechnologyId::new(t));
+            }
+            seat.strategic_tokens = 0;
+        }
+    });
+    push("muaat war suns", &|g| {
+        for (i, id) in ids(g).iter().enumerate() {
+            if let Some(h) = home(g, i) {
+                add_space(g, &h, "warsun", id, 1);
+                add_space(g, &h, "muaat_flagship", id, 1);
+            }
+            if let Some(seat) = g.player_mut(id) {
+                seat.strategic_tokens = 3;
+                seat.fleet_tokens = 3;
+            }
+        }
+    });
+    push("muaat flagship, avernus", &|g| {
+        for (i, id) in ids(g).iter().enumerate() {
+            if let Some(h) = home(g, i) {
+                add_space(g, &h, "muaat_flagship", id, 1);
+            }
+            if let Some(seat) = g.player_mut(id) {
+                seat.strategic_tokens = 3;
+                seat.fleet_tokens = 3;
+            }
+        }
+        if let Some(seat) = g.players.first() {
+            let id = seat.id.clone();
+            let system = SystemId::new("18");
+            g.board.entry(system.clone()).or_default();
+            assert!(ti4_engine::planets::place(g, &system, &PlanetId::new("avernus"), &id));
+            for (i, id) in ids(g).iter().enumerate() {
+                if i > 0 {
+                    if let Some(h) = home(g, i) {
+                        add_space(g, &h, "warsun", id, 1);
+                    }
+                }
+            }
+        }
+    });
+    push("muaat war suns, no tokens", &|g| {
+        for (i, id) in ids(g).iter().enumerate() {
+            if let Some(h) = home(g, i) {
+                add_space(g, &h, "warsun", id, 1);
+            }
+            if let Some(seat) = g.player_mut(id) {
+                seat.strategic_tokens = 0;
+                seat.fleet_tokens = 0;
+            }
+        }
+        hold(g, "fires", "muaat", 0);
+    });
+    push("naaz fragments", &|g| {
+        let tables: [&[(&str, i32)]; 4] = [&[("CULTURAL", 2)], &[("FRONTIER", 2)], &[("HAZARDOUS", 1)], &[("INDUSTRIAL", 1), ("FRONTIER", 1)]];
+        for (i, seat) in g.players.iter_mut().enumerate() {
+            seat.relic_fragments = tables[i % 4].iter().map(|(k, n)| ((*k).to_owned(), *n)).collect();
+        }
+    });
+    push("yssaril hands", &|g| {
+        for (i, seat) in g.players.iter_mut().enumerate() {
+            seat.action_cards = if i % 2 == 0 { vec![ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[0].as_str()), ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[3].as_str())] } else { vec![] };
+        }
+    });
+    push("nekro c4r and vortex ready", &|g| {
+        for seat in &mut g.players {
+            seat.technologies.insert(TechnologyId::new(Technology::ERRORERROR.as_str()));
+            seat.technologies.insert(TechnologyId::new(Technology::Vortex.as_str()));
+        }
+    });
+    out
+}
+
 /// Compare the sources on one position's variants.
 pub fn check_variants(p: &Position, variants: Vec<(&'static str, GameState)>, report: &mut MenuReport) {
     let content = ContentStore::embedded();
@@ -206,6 +337,9 @@ pub fn check_variants(p: &Position, variants: Vec<(&'static str, GameState)>, re
                     match by_name(what) {
                         Some(core) => {
                             report.count(what, core.len());
+                            if what == "faction" {
+                                report.faction_ids.extend(core.iter().map(|o| o.id.clone()));
+                            }
                             pairs.push((what, string, core));
                         }
                         None => report.gaps += 1,

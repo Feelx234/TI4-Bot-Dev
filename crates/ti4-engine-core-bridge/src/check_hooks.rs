@@ -70,11 +70,11 @@ fn elysium() -> SystemId {
     SystemId::new(Planet::Elysium.data().system.map_or("24", |s| s.as_str()))
 }
 
-fn ids(g: &GameState) -> Vec<PlayerId> {
+pub(crate) fn ids(g: &GameState) -> Vec<PlayerId> {
     g.players.iter().map(|p| p.id.clone()).collect()
 }
 
-fn unit(kind: &str, owner: &PlayerId) -> Unit {
+pub(crate) fn unit(kind: &str, owner: &PlayerId) -> Unit {
     Unit::new(UnitTypeId::new(kind), owner.clone())
 }
 
@@ -97,7 +97,7 @@ fn mixed(g: &mut GameState) {
     statuses(g, LeaderStatus::Readied, LeaderStatus::Unlocked, LeaderStatus::Locked);
 }
 
-fn home(g: &GameState, i: usize) -> Option<SystemId> {
+pub(crate) fn home(g: &GameState, i: usize) -> Option<SystemId> {
     g.players.get(i).and_then(|p| p.home_system.clone())
 }
 
@@ -215,7 +215,7 @@ fn no_ships(g: &mut GameState) {
     }
 }
 
-fn add_space(g: &mut GameState, system: &SystemId, kind: &str, owner: &PlayerId, n: usize) {
+pub(crate) fn add_space(g: &mut GameState, system: &SystemId, kind: &str, owner: &PlayerId, n: usize) {
     for _ in 0..n {
         g.system_mut(system).units.push(unit(kind, owner));
     }

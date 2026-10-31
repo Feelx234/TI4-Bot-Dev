@@ -5,7 +5,7 @@
 //! (`check_menu_sources`).
 
 use ti4_engine_core::choice::turn::Opt as TOpt;
-use ti4_engine_core::driver::{menu_cards, menu_sources};
+use ti4_engine_core::driver::{menu_cards, menu_faction, menu_sources};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::state::{Slice, SliceSet};
 use ti4_model::content_types::SourceSet;
@@ -30,6 +30,8 @@ pub struct Native {
     pub transactions: Vec<TOpt>,
     /// The action cards that can be played as component actions; `None`: a card the core cannot judge (a counted gap).
     pub cards: Option<Vec<TOpt>>,
+    /// The faction component actions; `None`: a seat the core cannot list them for (a counted gap).
+    pub faction: Option<Vec<TOpt>>,
 }
 
 /// Every slice but the random streams, and the map when no galaxy is at hand (the hooks the sources ask read most of the position; the
@@ -57,6 +59,7 @@ pub fn native(gs: &GameState, cx: &mut Ctx, sources: SourceSet, seat: Seat, gala
         exploration: menu_cards::exploration(&view, kernel, seat),
         transactions: menu_cards::transactions(&view, kernel, seat),
         cards: menu_cards::action_cards(&view, kernel, seat).ok(),
+        faction: menu_faction::faction(&view, kernel, &roster, seat).ok(),
     })
 }
 
@@ -89,6 +92,9 @@ pub fn rendered(
     ];
     if let Some(cards) = found.cards {
         out.push(("cards", render(cards, Source::ActionCards)));
+    }
+    if let Some(faction) = found.faction {
+        out.push(("faction", render(faction, Source::Faction)));
     }
     Some(out)
 }

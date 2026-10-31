@@ -140,10 +140,7 @@ mod real {
                     (Some(native), Source::Relics) => native.relics.clone(),
                     (Some(native), Source::Exploration) => native.exploration.clone(),
                     (Some(native), Source::Transactions) => native.transactions.clone(),
-                    (Some(native), Source::ActionCards) if native.cards.is_some() => native.cards.clone().unwrap_or_default(),
-                    (Some(native), Source::Relics) => native.relics.clone(),
-                    (Some(native), Source::Exploration) => native.exploration.clone(),
-                    (Some(native), Source::Transactions) => native.transactions.clone(),
+                    (Some(native), Source::Faction) if native.faction.is_some() => native.faction.clone().unwrap_or_default(),
                     (Some(native), Source::ActionCards) if native.cards.is_some() => native.cards.clone().unwrap_or_default(),
                     _ => ids.iter().map(|id| lent.typed(state, &active, id)).collect(),
                 };
