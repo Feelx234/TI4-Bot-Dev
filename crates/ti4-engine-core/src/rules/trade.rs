@@ -8,45 +8,11 @@
 use crate::generated::{ExploreType, Faction, Planet, PromissoryNote};
 use crate::ids::Seat;
 use crate::kernel::fx;
-use crate::kernel::Kernel;
 use crate::query::promissory as qn;
-use crate::query::trade::{Env, NoteMove, Offer, Terms};
-use crate::state::{CoreState, LedgerReason, NoteKey, TransientFlags, VpRec};
+use crate::query::trade::{NoteMove, Offer, Terms};
+use crate::state::{CoreState, LedgerReason, NoteKey, VpRec};
 
-/// The hooks of the A5 table and the abilities of the factions answer what the rules cannot read in the typed state
-/// (`transactions::may_transact`'s `Env` on the live loop's side).
-pub struct KernelEnv<'a> {
-    pub core: &'a CoreState,
-    pub kernel: &'a Kernel,
-}
-
-impl Env for KernelEnv<'_> {
-    /// I.I.H.Q. Modernization is a Keleres card: the faction is dropped.
-    fn has_iihq(&self, _: Seat) -> bool {
-        false
-    }
-    /// `faction_abilities::ignores_neighbours || promissory::reaches_anyone`: Guild Ships, the module hook, a faceup Trade Convoys.
-    fn wide(&self, who: Seat) -> bool {
-        crate::rules::abilities::has(self.core, who, crate::generated::Ability::GuildShips)
-            || self.kernel.hooks.general.ignores_neighbours(self.core, self.kernel, who)
-            || qn::reaches_anyone(self.core, who)
-    }
-    /// `hooks_cards::transaction_reach`: Temporal Command Suite's transaction, Deepgloom Executable.
-    fn transaction_reach(&self, a: Seat, b: Seat) -> bool {
-        self.kernel.hooks.cards.transaction_reach(self.core, self.kernel, a, b)
-    }
-    /// `hooks_cards::transaction_exempt_from_limit`.
-    fn exempt_from_limit(&self, a: Seat, b: Seat) -> bool {
-        self.kernel.hooks.cards.transaction_limit_exempt(self.core, self.kernel, a, b)
-    }
-    /// `faction_abilities::trades_action_cards`: Arbiters, or a module hook.
-    fn trades_action_cards(&self, who: Seat) -> bool {
-        crate::rules::abilities::has(self.core, who, crate::generated::Ability::Arbiters) || self.kernel.hooks.general.trades_action_cards(self.core, self.kernel, who)
-    }
-    fn black_market(&self) -> bool {
-        self.core.transient().misc.flags.has(TransientFlags::BLACK_MARKET)
-    }
-}
+pub use crate::kernel::trade_env::{lie_in_wait_traders, open_partners_live, with_cx, KernelEnv};
 
 /// `transactions::take`: remove what a seat gives away (goods, commodities, fragments, the first
 /// matching action card and secret).
@@ -161,43 +127,6 @@ pub fn exchange(core: &mut CoreState, offer: &Offer) -> Option<()> {
     give(core, offer.partner, &offer.given);
     give(core, offer.proposer, &offer.received);
     Some(())
-}
-
-/// Run `f` with the trade queries' [`Cx`](crate::query::trade::Cx) of this position: the map's adjacency, the Mecatol Rex system, the
-/// negotiation limits and the hooks of the kernel. `None`: the position has no map (the string answers with no galaxy then).
-pub fn with_cx<T>(core: &CoreState, kernel: &Kernel, f: impl FnOnce(&crate::query::trade::Cx<'_>) -> T) -> Option<T> {
-    let adj = core.map().adjacency()?;
-    let env = KernelEnv { core, kernel };
-    let cx = crate::query::trade::Cx {
-        core,
-        adj,
-        mecatol: crate::query::objectives::mecatol_in_galaxy(core),
-        limits: crate::query::trade::Limits { per_action: super::trade_window::MAX_NEGOTIATIONS_PER_ACTION, per_round: super::trade_window::MAX_NEGOTIATIONS_PER_ROUND },
-        env: &env,
-    };
-    Some(f(&cx))
-}
-
-/// The seats `seat` may open a transaction with now (`transactions::open_partners`, the menu source of the action menu), in seating order;
-/// none without a map.
-#[must_use]
-pub fn open_partners(core: &CoreState, kernel: &Kernel, seat: Seat) -> crate::query::trade::SeatList {
-    with_cx(core, kernel, |cx| crate::query::trade::open_partners(cx, seat)).unwrap_or_default()
-}
-
-/// Lie in Wait: the first two neighbours of `seat` (by the map) who resolved a transaction this round (`transactions::
-/// neighbours_who_transacted`); none when no transaction was resolved or the position has no map.
-#[must_use]
-pub fn lie_in_wait_traders(core: &CoreState, kernel: &Kernel, seat: Seat) -> [Option<Seat>; 2] {
-    let mut out = [None; 2];
-    if core.trade().this_round.is_empty() {
-        return out;
-    }
-    let seats = with_cx(core, kernel, |cx| crate::query::trade::neighbours_who_transacted(cx, seat)).unwrap_or_default();
-    for (slot, who) in out.iter_mut().zip(seats.as_slice()) {
-        *slot = Some(*who);
-    }
-    out
 }
 
 /// `empyrean_units::dark_pact_gains`, after a transaction resolved: each side that gave the Empyrean exactly its maximum commodity value

@@ -398,3 +398,10 @@ pub fn why_illegal_with(
     }
     None
 }
+
+// -- the negotiation limits ---------------------------------------------------------------------
+
+/// `ti4_model::state::MAX_NEGOTIATIONS_PER_ACTION`: the negotiations a seat may open per action (the engine's test pins the two together).
+pub const MAX_NEGOTIATIONS_PER_ACTION: u8 = 2;
+/// `ti4_model::state::MAX_NEGOTIATIONS_PER_ROUND`.
+pub const MAX_NEGOTIATIONS_PER_ROUND: u8 = 6;

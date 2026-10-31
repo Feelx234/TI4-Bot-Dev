@@ -489,7 +489,7 @@ fn the_partners_the_menu_offers_are_the_strings_over_strangers_limits_and_reach(
                 let core = Codec::load(&mut cx, &t.state, Sources { galaxy: Some(&t.hub.galaxy), rng: Some(&game.rng_positions()) }, SliceSet::ALL).expect("loads");
                 let kernel = live::kernel::kernel_for(DEFAULT);
                 let who = cx.owners.seat(proposer).expect("seated");
-                let native: Vec<PlayerId> = ti4_engine_core::rules::trade::open_partners(&core, kernel, who).as_slice().iter().map(|s| pid(cx.owners.id(*s).expect("id"))).collect();
+                let native: Vec<PlayerId> = ti4_engine_core::rules::trade::open_partners_live(&core, kernel, who).as_slice().iter().map(|s| pid(cx.owners.id(*s).expect("id"))).collect();
                 let string = crate::transactions::open_partners_text(&t.state, content, &t.hub.galaxy, &pid(proposer));
                 assert_eq!(native, string, "{label}, far {far:?}, proposer {proposer}");
             }

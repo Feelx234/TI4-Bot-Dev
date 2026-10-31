@@ -386,10 +386,7 @@ pub fn live_facts(core: &CoreState, k: &Kernel, t: &Trade) -> Option<DealFacts> 
     Some(facts)
 }
 
-/// `ti4_model::state::MAX_NEGOTIATIONS_PER_ACTION`: the negotiations a seat may open per action (the engine's test pins the two together).
-pub const MAX_NEGOTIATIONS_PER_ACTION: u8 = 2;
-/// `ti4_model::state::MAX_NEGOTIATIONS_PER_ROUND`.
-pub const MAX_NEGOTIATIONS_PER_ROUND: u8 = 6;
+pub use crate::query::trade::{MAX_NEGOTIATIONS_PER_ACTION, MAX_NEGOTIATIONS_PER_ROUND};
 
 /// The payload's form of a free-form deal the window holds: the terms without the facts of the position.
 fn spec_of(deal: &deals_q::FreeDeal) -> crate::state::FreeSpec {
