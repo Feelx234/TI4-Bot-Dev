@@ -290,14 +290,10 @@ mod real {
     );
 
     /// The core half of the Muaat promissory note Fires of the Gashlai (`factions::muaat::fires`; the value: the action resolved). `owner`
-    /// is the Muaat seat the string found. A holder that is a Nekro (a technology carried by a Valefar Assimilator) is the string's.
+    /// is the Muaat seat the string found. A Nekro holder whose war sun technology is carried by a Valefar Assimilator holds its text: nothing happens.
     pub fn fires_of_the_gashlai(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, owner: &PlayerId, sources: ti4_model::content_types::SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
         if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
-            return None;
-        }
-        if gs.player(player).is_some_and(|p| p.faction.as_str() == "nekro") {
-            crate::dual::note_bail_here("a Nekro holder (the war sun technology may be carried by a Valefar Assimilator)");
             return None;
         }
         let scope = scope(sources)?;

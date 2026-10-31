@@ -799,7 +799,7 @@ pub fn reaction_can_matter(
     crate::dual_typed!(
         crate::dual::Area::ActionCards,
         "action_cards::reaction_can_matter",
-        crate::action_cards_typed::reaction_can_matter(state, player, alias, system.as_str(), actor),
+        crate::action_cards_typed::reaction_can_matter(state, player, alias, system.as_str(), actor, event.text("planet")),
         reaction_window_text(state, content, player, alias, event, &system)
     )
 }

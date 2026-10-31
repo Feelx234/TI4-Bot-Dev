@@ -90,20 +90,30 @@ impl<'a> ActionView<'a> {
         alias: &ActionCardId,
         system: &str,
         actor: Option<&str>,
+        planet: Option<&str>,
     ) -> Option<bool> {
         let seat = self.cx.owners.seat(player.as_str())?;
         let actor = match actor {
             None => None,
             Some(a) => Some(self.cx.owners.seat(a)?),
         };
-        let window = Window { system: System::from_id(system)?, actor };
-        rules::reaction_can_matter(
-            &self.view,
-            crate::core_adapter::scope(ti4_model::content_types::SourceSet::all()),
-            seat,
-            ActionCard::from_id(alias.as_str())?,
-            window,
-        )
+        let window = Window { system: System::from_id(system)?, actor, planet: match planet {
+            None => None,
+            Some(p) => Some(<ti4_engine_core::generated::Planet as IdStr>::from_id(p)?),
+        } };
+        let scope = crate::core_adapter::scope(ti4_model::content_types::SourceSet::all());
+        let card = ActionCard::from_id(alias.as_str())?;
+        // Harness Energy and Infiltrate read the tile catalogue, the reinforcements and two faction answers (the string modules').
+        if matches!(card, ActionCard::HarnessEnergy | ActionCard::Infiltrate) {
+            let rifts: Vec<System> = crate::factions::hooks_movement::extra_gravity_rifts(self.state).iter().filter_map(|s| System::from_id(s)).collect();
+            let content = ti4_content::ContentStore::embedded();
+            let forbidden = |unit: ti4_engine_core::generated::Unit| {
+                crate::factions::hooks_economy::effect_placement_forbidden(self.state, content, ti4_model::content_types::SourceSet::all(), player, &ti4_model::id::UnitTypeId::new(IdStr::as_str(unit)))
+            };
+            let hooks = rules::Hooks { rifts: &rifts, forbidden: &forbidden };
+            return Some(rules::reaction_can_matter_with(&self.view, scope, seat, card, window, &hooks, (None, None)));
+        }
+        rules::reaction_can_matter(&self.view, scope, seat, card, window)
     }
 
     /// The hand positions `action_cards::available_actions` offers; `None` is the documented bail.
@@ -400,13 +410,9 @@ fn hit_facts(
                 casualty: r.code("assign_casualty"),
                 effect_hit: r.code("effect_hit"),
             };
-            // The sustain offer of the core is the string's from `RULES_FACTION_EFFECTS`, and pays the Letnev commander's offer only for an
-            // unlocked commander (`dual_window::sustain_offer`): the seat that takes the hits is the active one.
+            // The sustain offer of the core pays the Letnev commander's offer only for an unlocked commander
+            // (`dual_window::sustain_offer`): the seat that takes the hits is the active one.
             let label = if announce { "action_cards::announce" } else { "action_cards::play" };
-            if gs.rules_version < ti4_model::state::RULES_FACTION_EFFECTS {
-                crate::dual::note_bail(label, "hits absorbed in a game below the faction effects");
-                return None;
-            }
             if let Some(target) = gs.active.as_ref() {
                 let unlocked = gs
                     .player(target)
@@ -481,7 +487,7 @@ fn probe_facts(gs: &GameState, cx: &mut Ctx, player: &PlayerId, galaxy: Option<&
 }
 
 /// The reward question of a Merchant Station carries the seat's commodity standing (display only, read where the string reads it).
-fn reward_details(c: &ti4_engine_core::choice::Choice, before: &GameState, player: &PlayerId, rendered: &mut crate::choice::Choice) {
+pub(crate) fn reward_details(c: &ti4_engine_core::choice::Choice, before: &GameState, player: &PlayerId, rendered: &mut crate::choice::Choice) {
     use ti4_engine_core::choice::explore::{Ask as EAsk, Step};
     if matches!(c.ask, ti4_engine_core::choice::Ask::Explore(EAsk::Reward(Step::MerchantStation))) {
         rendered.details.insert("commodities".to_owned(), crate::strategy_cards::commodity_standing(before, ti4_content::ContentStore::embedded(), player));
@@ -936,8 +942,7 @@ pub(crate) fn carried_of(
     let content = ti4_content::ContentStore::embedded();
     rules::perform::Carried {
         plain_draw: crate::strategy_cards_core::plain_draw(gs, content, player, 2),
-        research: gs.rules_version >= ti4_model::state::RULES_TECH_PAYMENT_CHOICE
-            && !technology_unported(gs, sources, player)
+        research: !technology_unported(gs, sources, player)
             && crate::strategy_cards_core::research_hooks_agree(core, gs, content, sources.clone(), player, seat),
         payments: !crate::production_view::unported_window(gs, player),
         structures: crate::strategy_cards_core::structure_facts(gs, content, sources.clone(), player, r),
@@ -1030,8 +1035,8 @@ mod hit_facts_tests {
     use super::*;
     use crate::action_cards::tests::closing_position;
 
-    /// The guards of Experimental Battlestation's hit flow (`hit_facts`): below `RULES_FACTION_EFFECTS` and against a seat that pays on a
-    /// sustain without an unlocked commander the string plays the card; the contrast cases are carried.
+    /// The guards of Experimental Battlestation's hit flow (`hit_facts`): against a seat that pays on a sustain without an unlocked
+    /// commander the string plays the card; the contrast cases (a game below `RULES_FACTION_EFFECTS` too, since W12) are carried.
     #[test]
     fn the_sustain_guards_of_experimental_battlestation_decline_only_what_the_core_window_does_not_follow() {
         let _serial = crate::dual::tests::serial();
@@ -1051,7 +1056,7 @@ mod hit_facts_tests {
         assert_eq!(facts.hits.staging, crate::supply::staging_enabled(&plain));
         let mut old = plain.clone();
         old.rules_version = ti4_model::state::RULES_FACTION_EFFECTS - 1;
-        assert!(!run(&old).0, "below the faction effects");
+        assert!(run(&old).0, "below the faction effects the core window pays unasked and is followed");
         // Held another way than as an unlocked leader: the string pays, the core window would not.
         let mut held = plain.clone();
         held.faction_marks.insert("commander_ability:b:letnevcommander".to_owned(), "1".to_owned());

@@ -96,7 +96,7 @@ fn psychoarchaeology_asks_for_a_ready_specialty_planet_and_a_clone_continues_ide
 }
 
 #[test]
-fn a_start_of_turn_the_core_cannot_follow_is_a_counted_gap_and_leaves_the_position_alone() {
+fn a_start_of_turn_the_core_cannot_follow_is_a_counted_gap_and_leaves_the_position_alone_and_a_locked_commander_is_judged() {
     // Chaos Mapping needs the production facts.
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::ChaosMapping).build();
     let held = s.clone();

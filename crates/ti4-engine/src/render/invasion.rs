@@ -37,6 +37,7 @@ impl Family for Fam {
             Ask::BombardTarget { planet, hits, .. } => {
                 format!("whose units on {} take the bombardment's next hits ({hits} hits)", planet.as_str())
             }
+            Ask::CoexistInstead { planet, .. } => format!("Slumberstate Computing: coexist on {} instead of fighting", planet.as_str()),
         }
     }
 
@@ -48,6 +49,7 @@ impl Family for Fam {
             Subtype::FightGroundCombatRound => "fight_ground_combat_round".to_owned(),
             Subtype::StartNextGroundCombat => "start_next_ground_combat".to_owned(),
             Subtype::BombardmentTarget => "bombardment_target".to_owned(),
+            Subtype::CoalescenceCoexist => "coalescence_coexist".to_owned(),
         }
     }
 
@@ -98,6 +100,14 @@ impl Family for Fam {
                 }
                 o
             }
+            Opt::CoexistFight => {
+                let planet = if let Ask::CoexistInstead { planet, .. } = ask { planet.as_str() } else { "" };
+                ChoiceOption::labelled("fight", "coalescence", format!("fight for {planet}"))
+            }
+            Opt::CoexistInstead => {
+                let planet = if let Ask::CoexistInstead { planet, .. } = ask { planet.as_str() } else { "" };
+                ChoiceOption::labelled("coexist", "coalescence", format!("coexist on {planet}"))
+            }
             Opt::KeepCustodians => ChoiceOption::labelled("no", crate::choice::DECLINE_KIND, "leave it"),
             Opt::RemoveCustodians => ChoiceOption::labelled("yes", "custodians", "remove it for a victory point"),
             Opt::FightRound { planet } => {
@@ -122,6 +132,13 @@ impl Family for Fam {
         if let Ask::BombardTarget { .. } = ask {
             return r.seat(id).map(|seat| Opt::BombardTarget { seat });
         }
+        if let Ask::CoexistInstead { .. } = ask {
+            return match id {
+                "fight" => Some(Opt::CoexistFight),
+                "coexist" => Some(Opt::CoexistInstead),
+                _ => None,
+            };
+        }
         if let Ask::StartNextCombat { next, .. } = ask {
             return match id {
                 "decline" => Some(Opt::LeaveCoexisting { next: *next }),
@@ -138,5 +155,23 @@ impl Family for Fam {
         }
         // The unit type and its damage are not in the id; the typed side answers by index.
         None
+    }
+
+    fn details(r: &Render, ask: &Ask) -> serde_json::Map<String, serde_json::Value> {
+        match ask {
+            // `InvasionWindow::coexist_instead`: the offer card of Slumberstate Computing.
+            Ask::CoexistInstead { system, planet, holder } => crate::choice::offer_details(
+                crate::invasion::breakthrough_card(ti4_content::ContentStore::embedded(), "titansbt"),
+                vec![
+                    crate::choice::offer_fact_planet("Planet", planet.as_str(), system.as_str()),
+                    crate::choice::offer_fact_seat("Controlled by", r.seat_text(*holder)),
+                ],
+                &[
+                    ("fight", crate::choice::offer_caption("Fight for the planet", Some("Ground combat decides who controls it"))),
+                    ("coexist", crate::choice::offer_caption("Coexist", Some("No combat; the controller keeps the planet"))),
+                ],
+            ),
+            _ => serde_json::Map::new(),
+        }
     }
 }

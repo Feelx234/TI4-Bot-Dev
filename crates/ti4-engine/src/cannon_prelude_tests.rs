@@ -41,8 +41,14 @@ fn position(seed: u64, seats: &[(&str, &str)], setup: impl Fn(&mut GameState, &S
     (state, system)
 }
 
-fn run(mut state: GameState, system: &SystemId, seed: u64) -> Ran {
-    let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+fn run(state: GameState, system: &SystemId, seed: u64) -> Ran {
+    run_deciding(state, system, seed, Box::new(crate::choice::FirstOption)).0
+}
+
+/// [`run`] with a decider; the questions it was asked come back too.
+fn run_deciding(mut state: GameState, system: &SystemId, seed: u64, decider: Box<dyn crate::choice::Decider>) -> (Ran, Vec<crate::choice::Choice>) {
+    let (decider, seen) = crate::choice::Capturing::new(decider);
+    let mut table = Table::with_default(Box::new(decider));
     let (mut dice, mut rng) = (Dice::new(), GameRng::new(seed));
     let mut resolver = crate::fixtures::armed_resolver(&state);
     let mut sequence = crate::event::EventSequence::new();
@@ -56,7 +62,8 @@ fn run(mut state: GameState, system: &SystemId, seed: u64) -> Ran {
     };
     let result = AftermathWindow::cannon_prelude(&mut state, &mut ctx, &a(), system, None);
     let rolled = dice.history().iter().filter(|r| r.reason == "space cannon").count();
-    Ran { state, result, dice: rolled }
+    let asked = seen.borrow().clone();
+    (Ran { state, result, dice: rolled }, asked)
 }
 
 /// Runs `seeds` positions on `driver=dual`; returns the runs and the report (taken).
@@ -97,6 +104,44 @@ fn ran_system(x: &Ran) -> String {
     x.state.active_system.as_ref().map(ToString::to_string).unwrap_or_default()
 }
 
+/// Scramble Frequency (package W15): the active seat holds it and the gunners' roll is drawn again whole. The offense stages the
+/// gunner's dice for the event `UNIT_ABILITY_ROLLED` and takes the hits from the faces that remain; the redraws are the ledger's and
+/// the window's `drawn` beside the string's dice history. Fails on the pre-W15 window, which staged nothing for the card (the play was
+/// followed by nobody: the window bailed, named) -- here bail-as-failure: the window is compared on every seed.
+#[test]
+fn scramble_frequency_played_against_the_guns_draws_their_dice_again_in_the_core_in_lockstep() {
+    let scramble = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        pds_at_b(s, system, planet);
+        s.player_mut(&a()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("scramble")];
+    };
+    let (ran, r) = lockstep(0..24, &[("a", "sol"), ("b", "hacan")], scramble);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(compared(&r) >= 18, "the core window ran: {:?}", r.windows);
+    assert!(r.windows.iter().all(|(label, w)| w.bailed == 0 || !label.contains("scramble")), "no window bailed on the card: {:?}", r.windows);
+    let played = ran.iter().filter(|x| x.state.action_card_plays.iter().any(|(_, c)| c.as_str() == "scramble")).count();
+    assert!(played > 10, "Scramble Frequency was played on {played} of the runs");
+    assert!(ran.iter().all(|x| x.dice > 0), "the guns rolled");
+}
+
+/// Two gunners: the card is played against the first gunner's roll (the one who holds it is not the roller), the second gunner's dice are
+/// staged for their own event; hits are read from the faces that remain for each. Three seats, so the holder may be a gunner itself.
+#[test]
+fn scramble_frequency_against_two_gunners_agrees_for_each_in_lockstep() {
+    let two = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        crate::fixtures::put_on_planet(s, system, planet, "pds", &b(), 3);
+        crate::fixtures::put_on_planet(s, system, planet, "pds", &PlayerId::new("c"), 3);
+        crate::fixtures::put(s, system, "cruiser", &a(), 6);
+        for who in ["a", "b", "c"] {
+            s.player_mut(&PlayerId::new(who)).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("scramble")];
+        }
+    };
+    let (ran, r) = lockstep(0..30, &[("a", "sol"), ("b", "hacan"), ("c", "letnev")], two);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(compared(&r) >= 25, "the core window ran: {:?}", r.windows);
+    let plays: usize = ran.iter().map(|x| x.state.action_card_plays.iter().filter(|(_, c)| c.as_str() == "scramble").count()).sum();
+    assert!(plays > 10, "Scramble Frequency was played {plays} times");
+}
+
 #[test]
 fn a_dreadnought_is_offered_its_sustain_and_graviton_binds_the_loss_in_lockstep() {
     let gls = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
@@ -110,6 +155,27 @@ fn a_dreadnought_is_offered_its_sustain_and_graviton_binds_the_loss_in_lockstep(
     assert!(compared(&r) >= 10, "the core window ran: {:?}", r.windows);
     let bound = ran.iter().filter(|x| x.state.player(&b()).unwrap().exhausted_technologies.contains(&ti4_model::id::TechnologyId::new("gls"))).count();
     assert!(bound > 0, "Graviton Laser System was exhausted to bind a loss");
+}
+
+/// W12: a game below `RULES_FACTION_EFFECTS` is carried (the guard "rules version below the faction effects" is gone): the victim's
+/// sustain is answered by the same window, and an unlocked Letnev commander is paid his trade good without a question.
+#[test]
+fn a_game_below_the_faction_effects_fires_the_guns_in_the_core_window_and_pays_the_commander_unasked() {
+    let old = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        s.rules_version = ti4_model::state::RULES_FACTION_EFFECTS - 1;
+        crate::fixtures::put_on_planet(s, system, planet, "pds", &a(), 4);
+        s.system_mut(system).set_control(planet.clone(), a());
+        crate::fixtures::put(s, system, "dreadnought", &b(), 3);
+        s.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("letnevcommander"), ti4_model::state::LeaderStatus::Unlocked);
+    };
+    let (ran, r) = lockstep(0..20, &[("a", "sol"), ("b", "letnev")], old);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(compared(&r) >= 15, "the core window ran: {:?}", r.windows);
+    let before = {
+        let (s, _) = position(0, &[("a", "sol"), ("b", "letnev")], old);
+        s.player(&b()).unwrap().trade_goods
+    };
+    assert!(ran.iter().any(|x| x.state.player(&b()).unwrap().trade_goods > before), "a sustain paid the commander's trade good in some run");
 }
 
 #[test]
@@ -199,7 +265,7 @@ fn an_attachment_with_space_cannon_fires_at_the_arriving_fleet_in_lockstep() {
 }
 
 #[test]
-fn a_heart_of_ixth_or_a_jolnar_commander_keeps_the_offense_on_the_string() {
+fn a_heart_of_ixth_keeps_the_offense_on_the_string() {
     let heart = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
         pds_at_b(s, system, planet);
         s.player_mut(&b()).unwrap().relics.push(ti4_model::id::RelicId::new("heartofixth"));
@@ -212,6 +278,68 @@ fn a_heart_of_ixth_or_a_jolnar_commander_keeps_the_offense_on_the_string() {
     let (state, _) = position(0, &[("a", "sol"), ("b", "hacan")], heart);
     let args = crate::cannon_dual::Args { active: &who, system: &sys, announce: true, reproducible: true };
     assert!(crate::cannon_dual::unported(&state, &args).is_some_and(|why| why.contains("reroll question")));
+}
+
+/// The Jol-Nar commander (package W16): the gunner is asked about each die of its roll in the core window, in the string's order and
+/// words (the question of each die with every die of the roll and the one asked, the unit's text, the system), and the hits that remain
+/// are absorbed. A random decider rerolls some dice and keeps others; the window is compared on every seed with no bail. Fails on the
+/// pre-W16 gate (a "reroll question" bail: `compared == 0`).
+#[test]
+fn a_jolnar_commander_rerolls_the_guns_in_the_core_in_lockstep() {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let mut walks = 0;
+    let mut seen_hits_change = false;
+    for seed in 0..28_u64 {
+        let (mut state, system) = position(seed, &[("a", "sol"), ("b", "jolnar")], |s, system, planet| {
+            pds_at_b(s, system, planet);
+            s.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        });
+        state.rng_seed = seed;
+        let decider: Box<dyn crate::choice::Decider> = Box::new(crate::choice::SeededRandom::new(seed));
+        let before = state.system_state(&system).units.len();
+        let (ran, asked) = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || run_deciding(state, &system, seed, decider));
+        let per_die = asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == "jolnar_commander_reroll")).count();
+        assert!(asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == "jolnar_commander_reroll")).all(|c| c.player == b()), "only the holder is asked");
+        walks += per_die;
+        seen_hits_change |= ran.state.system_state(&system).units.len() < before;
+    }
+    let r = report();
+    let _ = take_report();
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    let w = r.windows.get(LABEL).cloned().unwrap_or_default();
+    assert!(w.compared >= 20 && w.bailed == 0, "the core window ran on the seeds: {:?}", r.windows);
+    assert!(walks >= 10, "the holder was asked about dice: {walks}");
+    assert!(seen_hits_change, "some hit landed");
+}
+
+/// Two gunners with the commander and a Scramble Frequency in the active seat's hand: the walk of each gunner comes before its event, the
+/// card then draws the dice that remain; the order and the hits agree with the string for each.
+#[test]
+fn the_jolnar_commander_of_two_gunners_and_a_scramble_frequency_agree_in_lockstep() {
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let mut walks = 0;
+    for seed in 0..24_u64 {
+        let (state, system) = position(seed, &[("a", "sol"), ("b", "jolnar"), ("c", "jolnar")], |s, system, planet| {
+            crate::fixtures::put_on_planet(s, system, planet, "pds", &b(), 2);
+            crate::fixtures::put_on_planet(s, system, planet, "pds", &PlayerId::new("c"), 2);
+            crate::fixtures::put(s, system, "cruiser", &a(), 6);
+            for who in ["b", "c"] {
+                s.player_mut(&PlayerId::new(who)).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            }
+            s.player_mut(&a()).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("scramble")];
+        });
+        let decider: Box<dyn crate::choice::Decider> = Box::new(crate::choice::SeededRandom::new(seed + 100));
+        let (_, asked) = with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || run_deciding(state, &system, seed, decider));
+        walks += asked.iter().filter(|c| c.context.as_ref().is_some_and(|x| x.subtype == "jolnar_commander_reroll")).count();
+    }
+    let r = report();
+    let _ = take_report();
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    let w = r.windows.get(LABEL).cloned().unwrap_or_default();
+    assert!(w.compared >= 18 && w.bailed == 0, "the core window ran: {:?}", r.windows);
+    assert!(walks >= 20, "both holders were asked: {walks}");
 }
 
 #[test]
@@ -300,6 +428,20 @@ fn a_head_with_a_heart_of_ixth_keeps_the_string_and_says_why() {
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     assert_eq!(r.windows.get(HEAD).map_or(0, |w| w.compared), 0, "{:?}", r.windows);
     assert!(r.windows.iter().any(|(k, w)| k.starts_with(HEAD) && k.contains("[bail: a reroll question") && w.bailed > 0), "{:?}", r.windows);
+}
+
+/// The head of the aftermath runs the space cannon offense too: the Jol-Nar commander's walk is the head's question there (package W16),
+/// compared with the string's on every seed with no bail.
+#[test]
+fn a_head_with_the_jolnar_commander_asks_the_gunner_in_the_core_in_lockstep() {
+    let commander = |s: &mut GameState, system: &SystemId, planet: &PlanetId| {
+        pds_at_b(s, system, planet);
+        s.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+    };
+    let (_, r) = head_lockstep(0..10, false, commander);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    let w = r.windows.get(HEAD).cloned().unwrap_or_default();
+    assert!(w.compared >= 8 && w.bailed == 0, "the head ran in the core with the commander: {:?}", r.windows);
 }
 
 const ALL: &str = "fleet::enforce_everywhere";

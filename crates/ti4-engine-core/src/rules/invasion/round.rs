@@ -7,8 +7,8 @@
 //! after the round, as the string collects them in its log and emits them in `end_ground_round`; between the
 //! removals and that announcement the `InvasionStep` of the round is recorded in `active_invasion.last_step`.
 //!
-//! Not covered (the adapter returns `None`, the string result stands): hits a faction adds to a roll (Valkyrie
-//! Particle Weave), Proxima Targeting VI, Alarum (a Ral Nel mech on the planet), neutral sides, nested activity.
+//! The hits a faction adds to its own roll (Valkyrie Particle Weave) are the kernel's hook (package W13). Not covered (the adapter returns
+//! `None`, the string result stands): Proxima Targeting VI, Alarum (a Ral Nel mech on the planet), neutral sides, nested activity.
 
 use super::hits::{self as step, Batch};
 use crate::choice::{Choice, Pick};
@@ -78,8 +78,16 @@ impl Window for GroundRoundHits {
         }
         let (invader, defender) = (self.f.invader, self.f.defender);
         let (db, ib) = (self.batch(defender), self.batch(invader));
-        let to_defender = step::open(sx, &db, self.f.hits.0);
-        let to_invader = step::open(sx, &ib, self.f.hits.1);
+        // Hits a faction adds to its own roll once the dice are final (Valkyrie Particle Weave): both sides' final dice are read before either side
+        // adds anything, and the added hits are assigned by the opponent like any other.
+        let (rolled_invader, rolled_defender) = (self.f.hits.0 as usize, self.f.hits.1 as usize);
+        let added = |sx: &Sx<'_>, who: Seat, own: usize, opponent: usize| {
+            let extra = sx.kernel.hooks.ground.ground_rolls_extra_hits(sx.state, sx.kernel, who, self.f.system, self.f.planet, own, opponent);
+            u32::try_from(own + extra).unwrap_or(u32::MAX)
+        };
+        let (invader_hits, defender_hits) = (added(sx, invader, rolled_invader, rolled_defender), added(sx, defender, rolled_defender, rolled_invader));
+        let to_defender = step::open(sx, &db, invader_hits);
+        let to_invader = step::open(sx, &ib, defender_hits);
         step::apply(sx.state, sx.kernel, &db, to_defender);
         step::apply(sx.state, sx.kernel, &ib, to_invader);
         self.assigned = (to_defender, to_invader);

@@ -174,6 +174,12 @@ fn the_closing_menu_holds_only_the_end_of_the_turn_when_no_source_can_offer_a_fr
     assert_eq!(closing::options(&s, &k, roster(), Seat(0)), Ok(vec![TuOpt::EndTurn]), "the second action is the last");
 }
 
+/// The position as a lend without its map leaves it: Hacan's Guild Ships reach every seat only over a map, so no transaction partner is a source of
+/// the closing menu (with one, the menu stops with `TurnGap::MenuSources`: the typed partner options are lane F's).
+fn without_map(s: &mut ti4_engine_core::state::CoreState) {
+    s.loaded = ti4_engine_core::state::SliceSet(ti4_engine_core::state::SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+}
+
 #[test]
 fn a_leader_printed_during_the_action_phase_is_a_free_option_of_the_closing_menu() {
     let agent = Leader::CarthOfGoldenSands;

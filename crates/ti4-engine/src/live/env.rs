@@ -31,6 +31,11 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
     let mut table = table();
     set_table_codes(&mut table, r);
     table.facts.staging = false;
+    // The faction units (the form an Assimilate seat places on a planet it takes).
+    table.facts.roster = crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), ti4_model::content_types::FULL);
+    // An exploration (the invasion's first claim): the event texts, the words of its log row and the printed names of the action cards.
+    table.codes.explore = crate::exploring_dual::codes(r);
+    table.facts.explore_words = Some(crate::exploring_dual::words);
     let mut name = |spec: &Spec, who: Seat, lender: Option<Seat>| {
         ability_id(r, &id_text(r, spec, &faction(who), r.seat_text(who), lender.map(|l| (faction(l), r.seat_text(l).to_owned())).as_ref()))
     };
@@ -46,6 +51,9 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
 pub fn env_with_plays<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<dyn SeedSource>, sources: ti4_model::content_types::SourceSet) -> Env<'a> {
     let mut env = env_for(r, core, kernel, seeds);
     env.table.facts.plays_provider = Some(super::plays::provider(r, sources));
+    // The faction units of the game's own scope: a game without Thunder's Edge places the Naalu mech, not its reprint (`env_for` names the full scope,
+    // which the buildable units of a production step and the form an Assimilate seat places would follow).
+    env.table.facts.roster = crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), sources);
     // Losses are announced when some seat's faction has a module (`supply::staging_enabled`): fixed by the seating, set once.
     env.table.facts.staging = super::plays::staging_enabled(core);
     env

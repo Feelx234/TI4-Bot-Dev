@@ -18,6 +18,8 @@ pub const fn name(arm: Arm) -> &'static str {
         Arm::Voting => "voting",
         Arm::Diplomacy => "diplomacy",
         Arm::Aftermath => "aftermath",
+        Arm::Invasion => "invasion",
+        Arm::Production => "production",
         Arm::AgendaTalks => "agenda_talks",
         Arm::Trade => "trade",
         Arm::Tactical => "tactical",
@@ -77,7 +79,7 @@ mod tests {
         let mut seen: Vec<_> = Arm::ALL.iter().map(|a| name(*a)).collect();
         seen.sort_unstable();
         seen.dedup();
-        assert_eq!(seen.len(), 19);
+        assert_eq!(seen.len(), 21);
         for a in Arm::ALL {
             assert_eq!(parse(name(a)).unwrap(), NativeArms::of(&[a]));
         }

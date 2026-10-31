@@ -249,6 +249,23 @@ pub fn gain_victory_points(s: &mut CoreState, who: Seat, delta: i32, reason: Led
     total
 }
 
+/// `laws::steal_throne_card`: the elected owner of a throne card (the Crown of Emphidia) loses its point (no floor at zero: the string takes it
+/// away as it holds it) and the taker gains one; the card is elected onto the taker. `false` when nobody holds it or the taker already does.
+pub fn steal_throne_card(s: &mut CoreState, law: crate::generated::Agenda, taker: Seat) -> bool {
+    use crate::keys::Outcome;
+    let Some(Outcome::Seat(owner)) = s.agenda().laws.get(&law).copied() else { return false };
+    if owner == taker {
+        return false;
+    }
+    if let Some(p) = s.players_mut().by_seat_mut(owner) {
+        p.econ.victory_points = p.econ.victory_points.saturating_sub(1);
+    }
+    s.ledger_mut().vp.push(VpRec { player: owner, delta: -1, reason: LedgerReason::Agenda(law) });
+    adjust_victory_points(s, taker, 1, LedgerReason::Agenda(law));
+    s.agenda_mut().laws.insert(law, Outcome::Seat(taker));
+    true
+}
+
 /// `objectives::reveal_stage` (61.13, 61.14a): the first facedown public objective of this stage turns faceup,
 /// wherever it is in the deck. Shared with the agenda effects (Incentive Program); areas do not import each other.
 pub fn reveal_stage(s: &mut CoreState, stage: u8) -> Option<crate::generated::PublicObjective> {
@@ -605,6 +622,17 @@ pub fn max_fit(core: &CoreState, k: &crate::kernel::Kernel, scope: crate::tables
             after.fleet_excess() <= before.fleet_excess() && after.capacity_excess <= before.capacity_excess
         })
         .unwrap_or(0)
+}
+
+/// `supply::potential_goods`: the trade goods the seat can spend (the commodities an open Keleres agent window lets it spend as goods
+/// included) plus what a readied Keleres agent could still grant: the up-front gate of an option that costs trade goods (Bribery, a vote
+/// spend, Munitions Reserves).
+#[must_use]
+pub fn potential_goods(core: &CoreState, k: &crate::kernel::Kernel, who: Seat) -> i64 {
+    // (The Keleres terms are dropped content: no table seats the faction, so the lockstep and the unit tests see them as 0.)
+    let goods = core.players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods.max(0))); // mutants:skip: a seat of the list exists
+    let granted = if k.hooks.direct.keleres_agent_could_grant(core, who) { core.players().by_seat(who).map_or(0, |p| i64::from(p.econ.commodities.max(0))) } else { 0 }; // mutants:skip: Keleres is dropped
+    goods + k.hooks.direct.keleres_spendable_commodities(core, who) + granted // mutants:skip: Keleres is dropped
 }
 
 /// Whether the seat's box holds a piece of `unit` it may put on the board by an effect (`supply::allowed(.., 1) > 0`: a faction rule that

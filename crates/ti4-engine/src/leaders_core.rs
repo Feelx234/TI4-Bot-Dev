@@ -463,6 +463,45 @@ mod real {
         None
     }
 
+    /// Why the core cannot follow a use of PRODUCTION at a home system for these seats: [`production_declined`], except for what the home
+    /// production runs itself (Hacan's breakthrough on three ships).
+    pub(crate) fn home_declined(gs: &GameState, producer: &PlayerId) -> Option<&'static str> {
+        if gs.players.iter().any(|p| [crate::factions::bastion::MODULE.alias, crate::factions::crimson::MODULE.alias].contains(&p.faction.as_str())) {
+            return Some("the Last Bastion or the Crimson Rebellion at the table (units placed away from the producing system)");
+        }
+        if crate::production_view::unported_triggered(gs, producer) {
+            return Some("a table whose seats the production windows do not carry (Keleres, Deepwrought)");
+        }
+        // (The Prophecy of Ixth is discarded by the core window at the end of the use, package W13. A planet value swapped by Hegemonic Trade
+        // Policy is declared in the tactical action's production and ends with it: none lingers into a use outside it.)
+        None
+    }
+
+    /// The facts of the use of PRODUCTION `player` would open in `system` outside a tactical action (`ProductionWindow::new`: the Warfare
+    /// secondary's home production), `Err` with the census reason where the core cannot follow it.
+    pub(crate) fn home_facts(gs: &GameState, content: &ti4_content::ContentStore, sources: SourceSet, seat: Seat, player: &PlayerId, system: &ti4_model::id::SystemId) -> Result<ti4_engine_core::kernel::children::HomeFacts, &'static str> {
+        if let Some(why) = home_declined(gs, player) {
+            return Err(why);
+        }
+        let window = crate::production::ProductionWindow::new(gs, content, sources.clone(), player, system);
+        let core = window.to_core(gs, content, sources, seat, false)?;
+        Ok(ti4_engine_core::kernel::children::HomeFacts {
+            produce: ti4_engine_core::kernel::children::ProduceFacts {
+                who: seat,
+                system: core.system,
+                limit: core.limit,
+                max_unit_cost: core.max_unit_cost,
+                small_exemptions: core.small_exemptions,
+                discount: core.discount_remaining,
+                fleet_limit: core.fleet_limit,
+                armada: core.armada,
+                flagship_free: core.flagship_free,
+                buildable: core.buildable,
+            },
+            agent_rules: core.agent_rules,
+        })
+    }
+
     /// The facts of the use `player` would open in `system` with `limit` units, as the string window opens it (`for_ability`).
     #[allow(clippy::too_many_arguments, reason = "the position, the seat, the system, the limit and the cost ceiling")]
     fn produce_facts(gs: &GameState, content: &ti4_content::ContentStore, sources: SourceSet, seat: Seat, player: &PlayerId, system: &ti4_model::id::SystemId, limit: i64, cap: Option<i64>) -> Option<ti4_engine_core::kernel::children::ProduceFacts> {
@@ -607,6 +646,12 @@ mod real {
         if driver.window.unsupported {
             crate::dual::note_bail_here("the table has no link to the production window, or a use has no facts");
             return None;
+        }
+        // A copy through Ssruu is atomic (`umbat_string`): a decision that fails part-way (an answer that is no option) leaves the position as
+        // it was and the agent unspent. The recorded decisions stop before the window is over; the position is the one before.
+        if driver.window.copied && !driven.finished {
+            *gs = before;
+            return Some(CoreWindow { run: Run::new(false).with_events_vec(Vec::new()), questions: driven.rendered });
         }
         let made_any = driver.window.made.as_ref().is_some_and(|(_, made)| !made.as_slice().is_empty());
         if !staged.is_empty() && made_any {

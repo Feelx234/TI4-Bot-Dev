@@ -323,7 +323,7 @@ fn psychoarchaeology_and_the_commander_unlock_start_the_turn_like_the_string() {
     state.active = Some(pid("a"));
     let content = ContentStore::embedded();
     let planet = ti4_content::galaxy::planet(content, "cealdri", DEFAULT).expect("a specialty planet");
-    let system = SystemId::new(planet.system_id().expect("placed"));
+    let system = SystemId::new(planet.system_id().expect("a placed planet"));
     state.system_mut(&system).set_control(ti4_model::id::PlanetId::new("cealdri"), pid("a"));
     state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("pa"));
     // Four dreadnoughts: the L1Z1X commander unlocks.
@@ -598,7 +598,7 @@ fn the_nexus_latch_and_styxs_victory_point_are_reconciled_like_the_string() {
     crate::fixtures::put(&mut state, &SystemId::new("82a"), "cruiser", &pid("b"), 1);
     let content = ContentStore::embedded();
     let styx = ti4_content::galaxy::planet(content, "styx", DEFAULT).expect("Styx is in the corpus");
-    state.system_mut(&SystemId::new(styx.system_id().expect("placed"))).set_control(ti4_model::id::PlanetId::new("styx"), pid("c"));
+    state.system_mut(&SystemId::new(styx.system_id().expect("a placed planet"))).set_control(ti4_model::id::PlanetId::new("styx"), pid("c"));
     let (string, native) = reconcile_both(&state, &[]);
     assert_same(&string, &native);
     assert!(string.state["nexus_unlocked"].as_bool().unwrap_or(false), "the latch is set");
@@ -621,7 +621,7 @@ fn bio_stims_readies_a_specialty_planet_at_the_end_of_a_turn_like_the_string() {
     let mut state = action_table(&THREE);
     let content = ContentStore::embedded();
     let planet = ti4_content::galaxy::planet(content, "cealdri", DEFAULT).expect("a specialty planet");
-    let system = SystemId::new(planet.system_id().expect("placed"));
+    let system = SystemId::new(planet.system_id().expect("a placed planet"));
     state.system_mut(&system).set_control(ti4_model::id::PlanetId::new("cealdri"), pid("a"));
     state.exhausted_planets.insert(ti4_model::id::PlanetId::new("cealdri"));
     state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("bs"));

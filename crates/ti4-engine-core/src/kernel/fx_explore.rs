@@ -8,7 +8,7 @@
 
 use crate::generated::{Explore, ExploreType, Planet, System, Wormhole};
 use crate::ids::Seat;
-use crate::state::CoreState;
+use crate::state::{CoreState, PlanetFlags};
 
 /// `exploration::draw` on a position without a deck reserve: the top card of one deck. `None` when the
 /// string map has no such key or the deck is empty.
@@ -90,4 +90,69 @@ pub fn open_record(
         gains: Default::default(),
         placed: Default::default(),
     });
+}
+
+/// `planets::place` as Mirage uses it ("place the Mirage planet token in this system, gain the planet card and
+/// ready it"): the planet is put into `system` under the seat's control, readied. `false` when the planet is
+/// already on the board (a card cannot place it twice); a planet that was destroyed keeps no controller.
+pub fn place_planet(core: &mut CoreState, who: Seat, system: System, planet: Planet) -> bool {
+    let cell = core.board_mut().planet_mut(planet);
+    if cell.placed_in.is_some() {
+        return false;
+    }
+    cell.placed_in = Some(system);
+    if !cell.flags.has(PlanetFlags::PURGED) {
+        cell.control = Some(who);
+    }
+    cell.flags.set(PlanetFlags::EXHAUSTED, false);
+    core.board_mut().sys_mut(system).flags.set(crate::state::SysFlags::TOUCHED, true);
+    true
+}
+
+// -- the words of a log row (the adapter's) --------------------------------------------------------------
+
+/// What the adapter needs to write the words of the log row of a card the seat resolved (`exploration::row_words`): the planet (if
+/// any), the card, how it resolved, what the seat held before the draw and after the last effect, the gamma token newly placed, the ion
+/// storm token placed, the last card kept in the seat's play area and the attachment last put on the planet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowIn {
+    pub planet: Option<Planet>,
+    pub card: Explore,
+    pub how: crate::state::EHow,
+    pub before: crate::state::Holdings,
+    pub after: crate::state::Holdings,
+    pub gamma: Option<System>,
+    pub ion: Option<(System, Wormhole)>,
+    pub kept: Option<Explore>,
+    pub attached: Option<crate::generated::Attachment>,
+}
+
+/// The texts a log row is closed with (`ExploreRec::{outcome, result, gains, placed}`), already interned in the position's text table by the
+/// adapter's words function (the core never sees a text).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RowOut {
+    pub outcome: crate::state::Code,
+    /// `None`: the empty text, which is not written.
+    pub result: Option<crate::state::Code>,
+    pub gains: Vec<(crate::state::Code, i32)>,
+    pub placed: Vec<crate::state::Code>,
+}
+
+/// The adapter's `row_words`: the words of the row, minted in the text table of `core` (`None`: the table is full).
+pub type WordsFn = fn(&mut CoreState, &RowIn) -> Option<RowOut>;
+
+/// Close the log row at `index` with the words.
+pub fn close_row(core: &mut CoreState, index: usize, words: RowOut) -> Option<()> {
+    let rec = core.explore_mut().log.get_mut(index)?;
+    rec.outcome = words.outcome;
+    rec.result = words.result;
+    rec.gains = words.gains.into_iter().collect();
+    rec.placed = words.placed.into_iter().collect();
+    Some(())
+}
+
+/// The empty text of an open log row.
+pub fn empty_text(core: &mut CoreState) -> Option<crate::state::Code> {
+    use crate::state::{Code, CODE_CAPACITY};
+    core.texts.codes.intern(b"", CODE_CAPACITY).and_then(|i| u16::try_from(i).ok()).map(Code)
 }

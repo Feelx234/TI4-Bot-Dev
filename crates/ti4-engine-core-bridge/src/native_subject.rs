@@ -47,7 +47,9 @@ use ti4_engine::core_sync::codec::rng::TextSeeds;
 use ti4_engine::core_sync::{materialize, Codec, Ctx, Sources};
 use ti4_engine::live::{self, arms, Scripted};
 use ti4_engine::render::Render;
-use ti4_engine_core::driver::live::{live_arm, open};
+use ti4_engine_core::driver::live::{live_arm, open, LiveError};
+use ti4_engine_core::kernel::ability::Unknown;
+use ti4_engine_core::kernel::turn_codes::TurnGap;
 use ti4_engine_core::driver::session::{bit, live_ask_arm, step_arm, Arm, AskArm};
 use ti4_engine_core::driver::step::NativeArms;
 use ti4_engine_core::rules::token_gain::TokenGain;
@@ -62,12 +64,68 @@ use ti4_engine::rng::RngPositions;
 const LEAVES: usize = 8;
 
 static NATIVE: Mutex<NativeArms> = Mutex::new(NativeArms::NONE);
+static GAPS_LENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static KEEP_GOING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static KEPT: Mutex<BTreeMap<String, (u64, String)>> = Mutex::new(BTreeMap::new());
 static LENT: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
 static RAN: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
 
 /// The arms the next `NativeSubject`s run natively (default: none, i.e. every step is lent).
 pub fn set_native_arms(arms: NativeArms) {
     *NATIVE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = arms;
+}
+
+/// Count a live window's refusal of a position (`LiveError::Unknown`, the gap of the native playthrough) as a LENT step, with its cause, instead of a
+/// difference (`oracle --gaps-lent`): the legacy-led survey of the gaps of whole games. Default off: a bail is a failure.
+pub fn set_gaps_are_lent(on: bool) {
+    GAPS_LENT.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Shadow the closing menu too (`oracle --closing`): the `Ask` arm is native for the closing menu of a turn (`driver::turn::ask`), but the menu lists
+/// the free options of sources the core does not assemble completely yet (a trade partner of a seat that reaches past adjacency: M1), so the
+/// comparison is opt-in and reports a difference where the core's menu is shorter than the legacy one. Default off.
+pub fn set_shadow_closing(on: bool) {
+    CLOSING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn shadow_closing() -> bool {
+    CLOSING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Do not stop a scenario at the first difference: the follower of a `NativeSubject` is a legacy game, so a difference never makes the two games diverge, and
+/// the whole game can be surveyed (`oracle --keep-going`). The differences are collected by kind in [`kept_differences`] instead of being returned to the
+/// harness (which would stop at the first).
+pub fn set_keep_going(on: bool) {
+    KEEP_GOING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The differences collected under [`set_keep_going`], by `<arm> <category> <path with the indices blanked>`: how many, and the first one's two sides (taken).
+#[must_use]
+pub fn kept_differences() -> BTreeMap<String, (u64, String)> {
+    std::mem::take(&mut *KEPT.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+}
+
+/// `[12]` and `.12.` of a path to `[]` and `.#.`: the same difference at another place of the board is one kind.
+fn blank_indices(path: &str) -> String {
+    let mut out = String::new();
+    let mut digits = false;
+    for c in path.chars() {
+        if c.is_ascii_digit() {
+            if !digits {
+                out.push('#');
+            }
+            digits = true;
+        } else {
+            digits = false;
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn gaps_are_lent() -> bool {
+    GAPS_LENT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 fn native_arms() -> NativeArms {
@@ -130,16 +188,36 @@ fn open_observed(windows: &[Window], core: &mut CoreState, kind: WindowKind) -> 
 }
 
 /// Whether the arm's step ends where the legacy step does: its close is the core's too, so the end of the step is compared on everything
-/// (the questions, the events and the position), not on the prefix. `Phase` is the whole of `step_phase`; the prelude and the
+/// (the questions, the events and the position), not on the prefix. `Phase` is the whole of `step_phase`, and `Ask` (the draft, the starting technology, the closing menu) is the whole of its step; the prelude and the
 /// announcement go on into the question of the same legacy step (the action menu, the draft), which the arm does not own.
 const fn close_is_native(arm: Arm) -> bool {
-    matches!(arm, Arm::Phase | Arm::Status | Arm::Tokens | Arm::Scoring | Arm::EventScoring | Arm::Trade)
+    matches!(arm, Arm::Phase | Arm::Ask | Arm::Status | Arm::Tokens | Arm::Scoring | Arm::EventScoring | Arm::Trade)
 }
+
 
 /// The arms whose native step also runs the close when it applies the LAST answer, where the legacy game closes in its NEXT step (a step
 /// that finds nothing to ask): the legacy answer step is compared on the prefix, the legacy close step on everything.
 const fn closes_one_step_early(arm: Arm) -> bool {
     matches!(arm, Arm::Scoring | Arm::EventScoring)
+}
+
+/// The `private:#staged:event:*` marks of a string position (events staged for the next step's announcement).
+fn staged_marks(gs: &ti4_model::state::GameState) -> Vec<&String> {
+    gs.faction_marks.keys().filter(|k| k.starts_with("private:#staged:event:")).collect()
+}
+
+/// What the legacy game keeps outside its `GameState` and the core keeps in `Pending` (the driver flags, the prepared turn, the closing menu, the
+/// actions of the turn): primed from the legacy facts, so the core's own `Facts` and the questions that read them agree with the legacy step's.
+fn prime(core: &mut CoreState, facts: &ti4_engine_core::driver::session::Facts, actions_this_turn: u8) {
+    use ti4_engine_core::state::DriverFlags as F;
+    let (turn_seq, active) = (core.meta().turn_seq, core.meta().active);
+    let p = core.pending_mut();
+    p.driver.set(F::STATUS_RESOLVED, facts.status_resolved);
+    p.driver.set(F::AGENDA_RESOLVED, facts.agenda_resolved);
+    p.driver.set(F::STRATEGY_PHASE_ANNOUNCED, facts.strategy_announced);
+    p.prepared_turn_seq = facts.turn_prepared.then_some(turn_seq);
+    p.turn_closing = if facts.turn_closing { active } else { None };
+    p.actions_this_turn = actions_this_turn;
 }
 
 /// The slices a position loads: all, and the map only when the game has a string galaxy (as `Game::churn_state`).
@@ -188,8 +266,9 @@ impl NativeSubject {
             lend(arm, "not native");
             return None;
         }
-        // The `Ask` arm is native for the sources of question the turn flow owns (the draft, the starting technology); the others are lent.
-        if arm == Arm::Ask && !matches!(live_ask_arm(&facts), AskArm::Draft | AskArm::StartingTech) {
+        // The `Ask` arm is native for the sources of question the turn flow owns (the draft, the starting technology; the closing menu with
+        // [`set_shadow_closing`]); the others are lent.
+        if arm == Arm::Ask && !matches!(live_ask_arm(&facts), AskArm::Draft | AskArm::StartingTech) && !(shadow_closing() && live_ask_arm(&facts) == AskArm::Closing) {
             lend(arm, "question source not native");
             return None;
         }
@@ -212,10 +291,11 @@ impl NativeSubject {
             lend(arm, "the position does not load");
             return None;
         };
-        // An event the legacy engine staged is a blob of JSON in a mark the core does not read (the core stages its own in `Pending::staged`): the
-        // legacy step announces it first thing, the shadow cannot. Counted lent, never skipped silently.
-        if core.marks().tail.iter().any(|(k, _)| matches!(k, ti4_engine_core::keys::MarkKey::PrivateStagedEvent(_))) {
-            lend(arm, "an event staged by the legacy engine");
+        prime(&mut core, &facts, g.actions_this_turn());
+        if !staged_marks(&g.state).is_empty() {
+            // The string keeps the events its effects staged as `private:#staged:event:*` marks; the core announces them from `Pending::staged`, which a
+            // loaded position does not fill. A step that would announce them is the string's.
+            lend(arm, "staged events (string marks)");
             return None;
         }
         if !open_arm(arm, &windows, &mut core) {
@@ -223,6 +303,20 @@ impl NativeSubject {
             return None;
         }
         Some(Shadow { arm, core, cx, render, base: g.state.clone(), sources: g.content_sources() })
+    }
+
+    /// Hand the differences of the step to the harness, or collect them under [`set_keep_going`].
+    fn report(&mut self, arm: Arm, out: Vec<Raw>) {
+        if !KEEP_GOING.load(std::sync::atomic::Ordering::Relaxed) {
+            self.extra.extend(out);
+            return;
+        }
+        let mut kept = KEPT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for r in out {
+            let key = format!("{} {:?} {}", arms::name(arm), r.category, blank_indices(&r.path));
+            let entry = kept.entry(key).or_insert_with(|| (0, format!("string {} | core {}", r.left, r.right)));
+            entry.0 += 1;
+        }
     }
 
     /// Run the arm on the materialized position with the answers of the legacy step and compare with what the legacy step did.
@@ -251,7 +345,7 @@ impl NativeSubject {
                 Err(stop) => {
                     let mut out = Vec::new();
                     leaves(Category::Value, "native.stop", &json!("reconciled"), &json!(format!("{stop:?}")), &mut out);
-                    self.extra.extend(out);
+                    self.report(shadow.arm, out);
                     return;
                 }
             }
@@ -259,10 +353,19 @@ impl NativeSubject {
         let result = live::live_step(&mut shadow.core, shadow.arm, &cx, &mut lone);
         #[cfg(test)]
         tests::tamper(&mut shadow.core);
-        count(&RAN, name.to_owned());
         let mut out = Vec::new();
         let step = match result {
             Ok(step) => step,
+            // The closing menu offers a free option of a source of the action menu the core does not assemble yet (lane F): counted lent, as an
+            // arm without an opener is, not a difference of the line.
+            Err(live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources)))) => {
+                lend(shadow.arm, "closing menu sources");
+                return;
+            }
+            Err(live::Stop::Live(LiveError::Unknown(why))) if gaps_are_lent() => {
+                lend(shadow.arm, &format!("gap {why:?}"));
+                return;
+            }
             // The arm closed one legacy step early and the close asks something: the answers are the next legacy step's (the close step),
             // where the arm is run again from the legacy position and compared in full.
             Err(live::Stop::Exhausted) if closes_one_step_early(shadow.arm) => {
@@ -270,11 +373,13 @@ impl NativeSubject {
                 return;
             }
             Err(stop) => {
+                count(&RAN, name.to_owned());
                 leaves(Category::Value, "native.stop", &json!("ran"), &json!(format!("{stop:?}")), &mut out);
-                self.extra.extend(out);
+                self.report(shadow.arm, out);
                 return;
             }
         };
+        count(&RAN, name.to_owned());
         let finished = step.finished;
         let open_after = window_of(shadow.arm).map(|kind| self.inner.game().step_facts().open & bit(kind) != 0);
         // A step whose close is the legacy's is compared on the prefix once the window ended; so is a step that closed one legacy step early.
@@ -317,7 +422,7 @@ impl NativeSubject {
         if !out.is_empty() && std::env::var_os("TI4_NATIVE_TRACE").is_some() {
             eprintln!("native difference in arm {name}: answers {answers_taken:?}, legacy events {events:?}");
         }
-        self.extra.extend(out);
+        self.report(shadow.arm, out);
     }
 }
 
@@ -386,6 +491,11 @@ fn compare_state(finished: bool, legacy: &Value, native: &Value) -> Vec<Raw> {
         leaves(Category::State, "native.state", legacy, native, &mut out);
     }
     out
+}
+
+/// The first leaf where `left` and `right` differ (`native_play`'s shadow compare), `None` when they agree.
+pub(crate) fn first_leaf(left: &Value, right: &Value) -> Option<ti4_engine::dual::JsonDiff> {
+    diff_json(left, right, 1).into_iter().next()
 }
 
 fn leaves(category: Category, prefix: &str, left: &Value, right: &Value, out: &mut Vec<Raw>) {
@@ -603,26 +713,48 @@ mod tests {
         }
     }
 
-    /// Round one of a real game with every lobby faction in turn (six tables of four), the turn-flow arms in shadow and a counted bail a
-    /// failure: no difference but the counted gap of a commander whose unlock condition no hook states yet (`TurnGap::CommanderUnlock`,
-    /// the 12 factions of `docs/D2_LF2_RESUME.md`: delete the allowance when the hook slots are filled), and the arms ran.
+    /// The silent differences the turn-flow arms are known to have against the legacy game (`docs/M7_RESUME.md`): an ability the string registers and the core
+    /// registry lacks, so the core does not ask the question the string asks. The text is a part of the string side of the first example. A difference that
+    /// is not one of these fails the test; when one is fixed its line must be deleted (the test also demands that every listed one is still seen). Each line is
+    /// the words that identify the difference and its consequences in the position.
+    ///
+    /// * Arborec's Mitosis ("at the start of the status phase, place 1 infantry from your reinforcements on a planet you control", `arborec/offer.rs` lists it as
+    ///   "points left"): the string asks where, the core asks nothing and the infantry is missing from the board.
+    const KNOWN_SILENT: [&[&str]; 1] = [&["Mitosis", "arborec_infantry"]];
+
+    /// Whole games with every lobby faction in turn (six tables of four), the turn-flow arms in shadow and a counted bail a failure: no difference but the
+    /// known silent ones (kept going: a difference never makes the follower diverge, the follower is a legacy game), and the arms ran.
     #[test]
     fn the_turn_flow_arms_agree_with_the_legacy_game_for_every_lobby_faction() {
         let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         TAMPER.with(|t| t.set(0));
-        let mut gaps = 0;
+        set_keep_going(true);
+        let _ = kept_differences();
+        let mut seen = vec![false; KNOWN_SILENT.len()];
         for group in LOBBY_FACTIONS.chunks(4) {
             set_native_arms(NativeArms::of(&[Arm::TurnPrelude, Arm::Phase, Arm::StrategyAnnounce, Arm::Ask]));
             let _ = (lent_counts(), ran_counts());
             let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
             let ran = ran_counts();
-            let other: Vec<_> = played.report.differences.iter().filter(|d| !d.core_side.contains("CommanderUnlock")).collect();
-            gaps += played.report.differences.len() - other.len();
-            assert!(other.is_empty(), "{group:?}: {:#?}", other.iter().take(5).collect::<Vec<_>>());
+            assert!(played.report.differences.is_empty(), "{group:?}: kept going, nothing is returned to the harness: {:#?}", played.report.differences.iter().take(5).collect::<Vec<_>>());
             assert!(ran.keys().any(|k| k.starts_with("turn_prelude")), "{group:?}: the prelude ran in shadow: {ran:?}");
+            let unknown: Vec<String> = kept_differences()
+                .into_iter()
+                // The count of answers the core did not take is the other face of a question it did not ask.
+                .filter(|(kind, _)| !kind.ends_with("native.questions.unconsumed"))
+                .filter(|(kind, (_, example))| match KNOWN_SILENT.iter().position(|known| known.iter().any(|w| example.contains(w) || kind.contains(w))) {
+                    Some(at) => {
+                        seen[at] = true;
+                        false
+                    }
+                    None => true,
+                })
+                .map(|(kind, (n, example))| format!("{n}x {kind}: {example}"))
+                .collect();
+            assert!(unknown.is_empty(), "{group:?}: differences nobody knows: {unknown:#?}");
         }
-        assert_eq!(gaps, 0, "every commander has its hook now: no counted gap");
-        let _ = lent_counts();
+        set_keep_going(false);
+        assert!(seen.iter().all(|s| *s), "a known silent difference is gone: delete its line from KNOWN_SILENT ({seen:?})");
     }
 
     /// Round one with every lobby faction in turn (six tables of four), the status phase's arms in shadow and a counted bail a failure: no

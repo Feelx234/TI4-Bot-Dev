@@ -146,7 +146,7 @@ fn pds_two_reaches_into_an_adjacent_system_when_the_card_says_so() {
 // ---- the offense -------------------------------------------------------------------------------
 
 fn facts() -> Facts {
-    Facts { active: Seat(0), system: sys(), announce: true, staging: false, reaching: vec![], mapped: false, kind: Code(1), cause: Code(2), casualty: Code(3), commander: Code(4) }
+    Facts { active: Seat(0), system: sys(), announce: true, staging: false, reaching: vec![], mapped: false, kind: Code(1), cause: Code(2), casualty: Code(3), commander: Code(4), jolnar: vec![], unit_texts: vec![], planet_texts: vec![] }
 }
 
 fn hits_of(rig: &Rig<SpaceCannonOffense>) -> usize {

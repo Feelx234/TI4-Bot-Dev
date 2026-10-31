@@ -19,7 +19,7 @@ use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{Faction, Leader, Planet, System};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec, Unknown};
+use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec};
 use ti4_engine_core::kernel::read::Rd;
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::kernel::Kernel;
@@ -123,19 +123,7 @@ pub(crate) fn plan_of(s: &CoreState, k: &Kernel, event: &EventRec, ground: bool)
 }
 
 fn condition(c: &CondCx<'_>, ground: bool) -> bool {
-    if plan(c.state, c.kernel, c.event, c.def.owner, ground).is_none() {
-        return false;
-    }
-    nomad_quiet(c)
-}
-
-/// `leaders::exhaust` announces the exhaustion to a watching Nomad; the core does not.
-pub(crate) fn nomad_quiet(c: &CondCx<'_>) -> bool {
-    // `leaders::exhaust` announces the exhaustion to a watching Nomad; the core does not.
-    if c.kernel.hooks.direct.nomad_watches_agent_exhaustion(c.state) {
-        return c.unknown(Unknown::NomadAgentExhaustion);
-    }
-    true
+    plan(c.state, c.kernel, c.event, c.def.owner, ground).is_some()
 }
 
 /// The value of the mark (`RoundBonus`): borrower, source owner, agent, system, combat planet, unit planet, unit
@@ -215,9 +203,8 @@ fn choose(eff: &mut Eff<'_, '_>, _ground: bool, plan: Option<Plan>, source: Seat
         marks.remove(&key);
     }
     marks.insert(MarkKey::YssarilSsruuRoundAgent(owner, agent, DecimalTextOrd(plan.round_seq)), value);
-    if let Some(p) = eff.state().players_mut().by_seat_mut(owner) {
-        p.leaders.status.insert(if copied { Leader::Ssruu } else { agent }, LeaderStatus::Exhausted);
-    }
+    let (state, kernel) = eff.state_and_kernel();
+    ti4_engine_core::kernel::fx_strategy::exhaust_agent(state, kernel, owner, if copied { Leader::Ssruu } else { agent });
     Ok(())
 }
 

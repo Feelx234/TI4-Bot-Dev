@@ -50,6 +50,9 @@ pub enum Ask {
     /// Construction: "place a structure" (`step` of 2 for the primary's two placements, 0 for the secondary's
     /// one; `only_pds`: the placement may only be a PDS).
     PlaceStructure { step: u8, only_pds: bool },
+    /// Construction, a PDS picked on a planet where a faction offers something else instead (Titans' Hecatoncheires): "place a PDS or an
+    /// alternative" (no decline; the answers are the PDS or the alternative).
+    PdsAlternative { system: System, planet: Planet },
     /// Imperial primary: "score a public objective with Imperial".
     ImperialScore,
     /// Thunder's Edge Construction: "a structure or a production" (the first of its two abilities).
@@ -92,6 +95,10 @@ pub enum Opt {
     Buy(bool),
     /// Construction: this structure on this planet of this system.
     Structure { pds: bool, system: System, planet: Planet },
+    /// Construction: the PDS as planned (the answer `pds`).
+    PlacePds,
+    /// Construction: the faction's alternative to the PDS, Hecatoncheires (the answer `titans|hecatoncheires`).
+    Alternative,
     /// Imperial: score this public objective.
     Objective(PublicObjective),
     /// Thunder's Edge Construction: place a structure (the answer `structure`).
@@ -128,6 +135,8 @@ pub enum Subtype {
     PoliticsPlaceAgenda,
     BuyTokenWithInfluence,
     PlaceStructure,
+    /// `place_structure_pds_alternative`.
+    PlaceStructurePdsAlternative,
     ImperialScoreObjective,
     ResearchTechnology,
     /// A follower's question (Leadership's is `BuyTokenWithInfluence`).

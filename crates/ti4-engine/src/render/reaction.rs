@@ -37,6 +37,8 @@ impl Family for Fam {
             Ask::Cavalry => "The Cavalry: which non-fighter ship takes the Nomad flagship's abilities".to_owned(),
             Ask::Assimilate => "gain a technology, or assimilate instead".to_owned(),
             Ask::Salvage => "Salvage Operations: produce 1 ship of a type destroyed in the combat".to_owned(),
+            Ask::Indoctrination { planet } => format!("Indoctrination on {}: replace an enemy infantry", planet.as_str()),
+            Ask::Terragenesis { planet } => format!("Terragenesis: sleeper token for {}", planet.as_str()),
             Ask::Watcher { actor } => format!("Watcher: which mech cancels {}'s action card", r.seat_text(*actor)),
             Ask::AgentSwap { target } => format!(
                 "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
@@ -56,6 +58,8 @@ impl Family for Fam {
             Subtype::Assimilate => "assimilate".to_owned(),
             Subtype::Watcher => "watcher_remove".to_owned(),
             Subtype::Salvage => "salvage_produce".to_owned(),
+            Subtype::Indoctrination => "indoctrination_replace".to_owned(),
+            Subtype::Terragenesis => "terragenesis_token".to_owned(),
         }
     }
 
@@ -94,6 +98,14 @@ impl Family for Fam {
                 let base = <ti4_engine_core::generated::UnitBaseType as IdStr>::as_str(unit.data().base_type);
                 ChoiceOption::labelled(base, "salvage", format!("produce 1 {} for {cost} resources", unit.as_str())).with("cost", i64::from(*cost))
             }
+            (Ask::Indoctrination { .. }, Opt::Indoctrinate { base, cost, opponent }) => {
+                let base = <ti4_engine_core::generated::UnitBaseType as IdStr>::as_str(*base);
+                ChoiceOption::labelled(base, "indoctrination", format!("spend {cost} influence to replace 1 infantry of {} with a {base}", r.seat_text(*opponent))).with("cost", i64::from(*cost))
+            }
+            (Ask::Terragenesis { planet }, Opt::Sleeper { from: None }) => ChoiceOption::labelled("place", "sleeper", format!("place a sleeper token on {}", planet.as_str())),
+            (Ask::Terragenesis { planet }, Opt::Sleeper { from: Some(from) }) => {
+                ChoiceOption::labelled(format!("move|{}", from.as_str()), "sleeper", format!("move the sleeper token on {} to {}", from.as_str(), planet.as_str()))
+            }
             (Ask::Watcher { .. }, Opt::Site { system, planet }) => {
                 let system = system.as_str();
                 let place = planet.map_or_else(|| "space".to_owned(), |p| p.as_str().to_owned());
@@ -110,9 +122,15 @@ impl Family for Fam {
         if let Ask::Cavalry = a {
             return <ti4_engine_core::generated::Unit as IdStr>::from_id(id).map(Opt::Ship);
         }
-        if let Ask::Salvage = a {
+        if let Ask::Salvage | Ask::Indoctrination { .. } = a {
             // The id is the base type: the option is matched against the rendered ones of its question.
             return None;
+        }
+        if let Ask::Terragenesis { .. } = a {
+            return match id.strip_prefix("move|") {
+                Some(from) => Some(Opt::Sleeper { from: Some(<ti4_engine_core::generated::Planet as IdStr>::from_id(from)?) }),
+                None => (id == "place").then_some(Opt::Sleeper { from: None }),
+            };
         }
         if let Ask::Watcher { .. } = a {
             let mut parts = id.splitn(3, '|');

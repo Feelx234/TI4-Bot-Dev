@@ -115,6 +115,11 @@ step census   "golden lent census: the labels the core bails at (bail probe merg
   "if [[ ! -s $out/bail-probe.tsv ]]; then echo \"census: $out/bail-probe.tsv is missing or empty: it is written by the step dual-all (TI4_BAIL_PROBE); run dual-all first (same --out), or --from dual-all\"; exit 1; fi \
    && $T/gate/bail_table $out/bail-probe.tsv \$( [[ -s $out/bail-probe-lent.tsv ]] && echo $out/bail-probe-lent.tsv ) > $out/bails.rs.txt \
    && $T/gate/golden check --mask all=core && $T/gate/golden check --mask all=string"
+# The recorded decision corpus (X2): the sources are played again with the current engine and compared line by line (state hash, the
+# Choice, V1/V2 hashes of every decision). The golden check above replays the same games from the golden sets; this is the old
+# corpus the D4 golden sets were imported from, kept until D4-8 removes it.
+step corpus "decision_corpus verify: the recorded corpus (golden20, benches, templates, TE tables, fixtures) played again" \
+  "$T/gate/decision_corpus verify tools/engine_core/decision_corpus --workers 4"
 # The zero-bail acceptance (user rule: a whole game plays in the new engine without a bail, on the agreed content: everything except
 # Thunder's Edge and the dropped factions). Counts every bail and gate by cause in the reports of dual-all and dual-lent (every area on
 # Dual, gate binaries under unsupported::Policy::Panic and strict unmapped mode). ZERO_BAIL=report (default for now: the starting list of

@@ -332,9 +332,9 @@ fn riders_that_place_run_in_the_core_in_lockstep() {
 }
 
 #[test]
-fn a_draw_a_faction_hook_changes_has_no_window() {
-    // The drawer is the Yssaril: its Scheming changes the draw. A Yssaril beside the drawer does not (W6: every seat was hooked).
-    for (drawer, bail) in [("b", true), ("a", false)] {
+fn a_draw_a_faction_hook_changes_is_followed_by_the_core() {
+    // The drawer is the Yssaril: its Scheming changes the draw (W14: the child draw window follows it). A Yssaril beside the drawer does not.
+    for drawer in ["b", "a"] {
         let (_, compared, bailed, _) = lockstep(|| {
             let content = ContentStore::embedded();
             let mut s = crate::fixtures::seated_game(&[("a", "hacan"), ("b", "yssaril"), ("c", "arborec")], DEFAULT);
@@ -345,7 +345,7 @@ fn a_draw_a_faction_hook_changes_has_no_window() {
             g.put_vote(law_vote("checks", Some("for")));
             let _ = g.close_vote();
         });
-        assert_eq!((compared, bailed), if bail { (0, 1) } else { (1, 0) }, "drawer {drawer}");
+        assert_eq!((compared, bailed), (1, 0), "drawer {drawer}");
     }
 }
 
@@ -427,7 +427,7 @@ fn a_hook_leaves_the_rider_to_the_string_and_a_full_hand_is_the_cores() {
         assert_eq!(g.state.player(&p("b")).unwrap().action_cards.len(), 7);
     });
     assert_eq!((compared, bailed), (1, 0));
-    // The drawer's own Scheming is the string's.
+    // The drawer's own Scheming is the core's since W14.
     let (_, compared, bailed, _) = lockstep(|| {
         let mut s = position();
         s.player_mut(&p("b")).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
@@ -437,7 +437,7 @@ fn a_hook_leaves_the_rider_to_the_string_and_a_full_hand_is_the_cores() {
         g.put_vote(law_vote("checks", Some("for")));
         let _ = g.close_vote();
     });
-    assert_eq!((compared, bailed), (0, 1));
+    assert_eq!((compared, bailed), (1, 0));
 }
 
 #[test]

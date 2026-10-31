@@ -29,6 +29,7 @@ use std::collections::VecDeque;
 use ti4_engine_core::choice::Choice as CoreChoice;
 use ti4_engine_core::driver::live::{ask_arm_fn, live_arm, Asking, AskFn, Env, Live, LiveError, LiveFn, Out};
 use ti4_engine_core::driver::session::Arm;
+use ti4_engine_core::kernel::Kernel;
 use ti4_engine_core::state::CoreState;
 
 use crate::choice::Choice;
@@ -122,14 +123,16 @@ pub struct Cx<'a> {
     pub render: &'a Render,
     pub env: &'a Env<'a>,
     /// The display facts only the state knows (`Choice.details`), given the core question and the position it is asked in.
-    pub complete: &'a dyn Fn(&CoreState, &CoreChoice, &mut Choice),
+    pub complete: &'a dyn Fn(&CoreState, &Kernel, &CoreChoice, &mut Choice),
+    /// The texts of the space combat at the position (`combat_live::combat_texts`), minted before every call: the core holds no text.
+    pub texts: fn(&mut CoreState, &Render) -> ti4_engine_core::kernel::ability::CombatTexts,
 }
 
 impl<'a> Cx<'a> {
     /// The context with the display facts of [`details::complete`] (everything the core can say about its own questions).
     #[must_use]
     pub const fn new(render: &'a Render, env: &'a Env<'a>) -> Self {
-        Self { render, env, complete: &details::complete }
+        Self { render, env, complete: &details::complete, texts: crate::combat_live::combat_texts }
     }
 }
 
@@ -151,17 +154,22 @@ pub struct StepOut {
 #[must_use]
 pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let (phase, round) = (core.meta().phase, core.meta().round);
+    // The position the question is asked in: the options of a production question carry numbers only the position gives (`Render::position`). The
+    // display facts read the position the question was put in: a question asked from inside a step (an emission, a job of the turn flow) was
+    // put in a position the driver has rolled back since.
+    let at = asking.at.as_deref().or(asking.nested.as_ref().map(|(_, at)| &**at)).unwrap_or(core);
     if matches!(asking.choice.ask, ti4_engine_core::choice::Ask::Trade(_)) {
-        trade::sync(cx.render, asking.at.as_deref().unwrap_or(core));
+        trade::sync(cx.render, at);
     }
-    let mut rendered = Typed::new(cx.render, asking.choice.clone(), phase, round).rendered;
-    // The display facts read the position the question was put in: a question asked from inside a step (an emission, a job of the turn
-    // flow) was put in a position the driver has rolled back since.
-    (cx.complete)(asking.at.as_deref().unwrap_or(core), &asking.choice, &mut rendered);
+    let position = render::Position { state: std::rc::Rc::new(at.clone()), kernel: kernel::static_of(cx.env.kernel) };
+    let mut rendered = Typed::new_at(cx.render, position, asking.choice.clone(), phase, round).rendered;
+    (cx.complete)(at, cx.env.kernel, &asking.choice, &mut rendered);
+    details::infiltrate_preview(cx.render, at, cx.env.kernel, cx.env.table.facts.plays_provider.as_ref(), &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
     if let Some((facts, at)) = &asking.nested {
         crate::dual_window::complete_nested(cx.render, &asking.choice, facts, &crate::dual_window::NestedPos::of_core(cx.render, at), at, &mut rendered);
+        crate::combat_live::after_nested(&asking.choice, &mut rendered);
     }
     rendered
 }
@@ -216,17 +224,21 @@ fn run_live(core: &mut CoreState, name: &'static str, advance: LiveFn, ask: AskF
 }
 
 fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
+    // The environment of this call: the game's, with the texts of the space combat at the position.
+    let mut prepared = cx.env.clone();
+    prepared.table.facts.combat = (cx.texts)(core, cx.render);
+    let env = &prepared;
     let events_from = core.ledger.events.len();
     let mut step = StepOut { finished: false, asked: Vec::new(), out: Out::default(), events_from };
-    let mut merge = |step: &mut StepOut, out: Out| {
+    let merge = |step: &mut StepOut, out: Out| {
         step.out.emitted.extend(out.emitted);
         step.out.opened.extend(out.opened);
     };
     // The arm's pending question; a fresh window (or one about to end) asks nothing yet: run it.
-    let mut asking = match ask(core, cx.env)? {
+    let mut asking = match ask(core, env)? {
         Some(a) => a,
         None => {
-            let (live, out) = advance(core, cx.env, None)?;
+            let (live, out) = advance(core, env, None)?;
             merge(&mut step, out);
             match live {
                 Live::Done => {
@@ -251,7 +263,7 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
                 None => return Err(Stop::Illegal),
             },
         };
-        let (live, out) = advance(core, cx.env, Some(pick))?;
+        let (live, out) = advance(core, env, Some(pick))?;
         merge(&mut step, out);
         match live {
             Live::Done => {

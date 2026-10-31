@@ -219,6 +219,7 @@ pub fn structure_allowed(cx: &Cx<'_>, who: Seat, planet: Planet, base: UnitBaseT
     laws::structure_allowed(cx.core(), cx.blanked, who, planet, base)
 }
 
+pub mod home;
 pub mod offers;
 pub mod one;
 pub mod pay;

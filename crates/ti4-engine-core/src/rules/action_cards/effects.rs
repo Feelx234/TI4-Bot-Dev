@@ -196,7 +196,7 @@ impl Fx {
     /// with the other facts of a play ([`crate::kernel::ability::PlayFacts`]: `SeatPlayMore`, `SharedPlay`), so a card is nested when
     /// everything it reads is in them. Not nested: the cards of an Action timing (a component action is never played from a window), the
     /// cards that read the map (Experimental Battlestation, Exploration Probe: the host would have to lend the galaxy), Lie in Wait (the
-    /// neighbours who traded come from the map), Courageous To The End (its dice are not recorded as the ledger rows of an ability and its casualty question lacks the display context of the string's, see docs/W_L11_RESUME.md), Crash Landing (no host of the ported areas places the units it saves), Harness Energy, Infiltrate, Bribery and Upgrade and Decoy Operation (windows of the
+    /// neighbours who traded come from the map), Crash Landing (no host of the ported areas places the units it saves), Harness Energy, Infiltrate, Bribery and Upgrade and Decoy Operation (windows of the
     /// tactical action, whose hosts are not ported), and Fire Team and Scramble Frequency, which read the dice a roll staged and are played
     /// by the window that stages them (`core-b12` registers Fire Team for the ground roll's tail).
     #[must_use]
@@ -221,7 +221,6 @@ impl Fx {
                 | Self::Bribery
                 | Self::Infiltrate
                 | Self::Crash
-                | Self::Courageous
                 | Self::Probe
                 | Self::Perform { .. }
                 | Self::Reroll
@@ -517,6 +516,9 @@ const DIE_SIDES: u32 = 10;
 const PLAGUE_KILLS_ON: u32 = 6;
 /// Courageous To The End rolls two dice; Experimental Battlestation's space dock rolls three, hitting on a five or better.
 const COURAGEOUS_DICE: u8 = 2;
+/// The ledger purpose of Courageous To The End's two dice (`RollPurpose::Ability`: an action card is not a slot of the ability table,
+/// so the number lies beyond every slot of the packages).
+pub const COURAGEOUS_ROLLS: u16 = 30_001;
 const BATTLESTATION_DICE: u8 = 3;
 const BATTLESTATION_HITS_ON: u32 = 5;
 
@@ -1424,27 +1426,10 @@ impl Play {
             }
             Fx::Infiltrate => {
                 let Some((_, planet, _, _)) = core.transient().combat.last_control_gained else { return };
-                let scope = self.env.scope;
                 let who = self.who;
-                let mut used = [0_i64; 2];
-                let mut swaps: SmallList<(Piece, crate::generated::Unit), 8> = SmallList::new();
-                for piece in core.board().planet(planet).units.as_slice() {
-                    if piece.owner() == who {
-                        continue;
-                    }
-                    let (slot, plain, own) = match scope.unit(piece.kind()).map(|d| d.base_type) {
-                        Some(UnitBaseType::Pds) => (0, crate::generated::Unit::PDSI, self.env.facts.pds),
-                        Some(UnitBaseType::Spacedock) => (1, crate::generated::Unit::SpaceDockI, self.env.facts.spacedock),
-                        _ => continue,
-                    };
-                    // "From your reinforcements": the box still holds that kind, counting the swaps already planned.
-                    let left = crate::query::fleet::remaining(core, scope, who, plain, 0);
-                    if left <= 0 || left - used[slot] <= 0 {
-                        continue;
-                    }
-                    used[slot] += 1;
-                    swaps.push((*piece, own.unit.unwrap_or(plain)));
-                }
+                // (The judge `super::infiltrate_swaps` is the one source of the swaps; the effect has no kernel, and the form bar of a
+                // faction rule never touches the plain PDS and space dock.)
+                let swaps = super::infiltrate_swaps(core, self.env.scope, who, planet, (self.env.facts.pds.unit, self.env.facts.spacedock.unit), &|_| false);
                 for (old, new) in swaps.as_slice() {
                     let list = &mut core.board_mut().planet_mut(planet).units;
                     if let Some(at) = list.as_slice().iter().position(|p| p == old) {
@@ -2034,7 +2019,7 @@ impl Play {
                 self.victim = None;
                 // The neighbours who traded: the adapter's fact when it gave one (the string's play window), else read from the position as
                 // it stands NOW (a live window: the deal that opened this window was struck in the very call that plays the card).
-                let traders = if self.env.facts.traders.iter().any(Option::is_some) { self.env.facts.traders } else { crate::kernel::trade_env::lie_in_wait_traders(core, k, self.who) };
+                let traders = if self.env.facts.traders.iter().any(Option::is_some) || !core.loaded.has(crate::state::Slice::Trade) { self.env.facts.traders } else { crate::kernel::trade_env::lie_in_wait_traders(core, k, self.who) };
                 while usize::from(self.step) < traders.len() {
                     let held = traders[usize::from(self.step)]
                         .filter(|v| core.players().by_seat(*v).is_some_and(|p| !p.cards.hand.is_empty()));
@@ -2710,6 +2695,14 @@ impl Play {
     #[must_use]
     pub fn faces(&self) -> &[u32] {
         self.faces.as_slice()
+    }
+
+    /// The dice the card's effect rolled as an ability does (the string `Dice::roll_by` inside the effect of a played card is noted as
+    /// the roll of an ability): the holder and the faces, no hit number. Only Courageous To The End, the one card of a reaction slot that
+    /// rolls (Spy, Plague and Brilliance are component actions, Experimental Battlestation is not played from a window).
+    #[must_use]
+    pub fn ability_roll(&self) -> Option<(Seat, Vec<u8>)> {
+        (self.fx == Fx::Courageous && !self.faces.as_slice().is_empty()).then(|| (self.who, self.faces.as_slice().iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect()))
     }
 
     /// Exploration Probe: the card the frontier deck gave, how it resolved and what the seat held around it (`None`: no card was
@@ -3444,7 +3437,7 @@ mod tests {
     fn bail_the_thunders_edge_primaries_are_the_strings() {
         let everything = carried(|c| {
             c.payments = true;
-            c.structures = Some(crate::rules::production::strategy_cards::StructureFacts { pds: None, dock: None, source: crate::state::Code(0) });
+            c.structures = Some(crate::rules::production::strategy_cards::StructureFacts { pds: None, dock: None, source: crate::state::Code(0), alt: None });
         });
         for printing in [StrategyCard::WarfareThundersEdge, StrategyCard::ConstructionThundersEdge] {
             let (unsupported, _, asked) = performs(ActionCard::Overrule, printing, everything, &Kernel::plain());
@@ -3527,9 +3520,10 @@ mod tests {
         assert!(matches!(status, Status::Done) && d.window.unsupported(), "the waiver is a question: the string plays it");
     }
 
-    /// Bail: Leadership with a payment the production rules do not follow, or with a command token in a Mahact pool, is the string's.
+    /// Bail: Leadership with a payment the production rules do not follow is the string's (a command token in a Mahact pool is not: the core reads
+    /// the pool from the marks, package W13).
     #[test]
-    fn bail_leadership_declines_without_followed_payments_and_with_a_mahact_token() {
+    fn bail_leadership_declines_without_followed_payments() {
         for card in [ActionCard::Strategize1, ActionCard::Overrule] {
             let (unsupported, _, asked) = performs(card, StrategyCard::Leadership, super::super::Facts::default(), &Kernel::plain());
             assert!(unsupported && !asked, "{card:?}: payments the production rules do not follow");
@@ -3539,13 +3533,13 @@ mod tests {
         }
     }
 
-    /// Bail: the Warfare primary with a command token in a Mahact pool (the reinforcements it previews differ) is the string's.
+    /// Package W13: the Warfare primary with a command token in a Mahact pool is carried (the reinforcements it previews are read from the marks).
     #[test]
-    fn bail_the_warfare_primary_declines_with_a_mahact_token() {
+    fn the_warfare_primary_is_carried_with_a_mahact_token() {
         use crate::driver::{Driver, Status};
         use crate::kernel::Resolver;
         use crate::state::{Player, Players};
-        for (held, bails) in [(0, false), (1, true)] {
+        for (held, bails) in [(0, false), (1, false)] {
             let mut s = CoreState::all_loaded();
             s.players = Players::from_vec(vec![Player::new(Seat(0), crate::generated::Faction::TheArborec), Player::new(Seat(1), crate::generated::Faction::TheEmiratesOfHacan)]);
             s.seats = crate::state::Seats::new(&[Seat(0), Seat(1)], &[Seat(0), Seat(1)], 2);
@@ -3895,13 +3889,14 @@ mod tests {
         assert!(!unsupported);
     }
 
-    /// A card that needs a link is never played from inside a reaction window (the reactions table carries no links): the
-    /// nested plays are exactly the ones that need none.
+    /// A card that needs a link is not played from inside a reaction window by default (the bare reactions table carries no links): the
+    /// nested plays are the ones that need none, and Reveal Prototype (W4) and Courageous To The End (W15), whose table is the adapter's
+    /// reactions table with the links of the areas (`driver::children::register`; a table without them declines the play at its start).
     #[test]
     fn a_card_that_needs_a_link_is_not_played_in_a_reaction_window() {
         for card in ActionCard::ALL {
             if let Some(fx) = Fx::of(card) {
-                assert!(!(fx.links() && fx.nested()) || fx == Fx::Reveal, "{card:?} needs the links and is nested");
+                assert!(!(fx.links() && fx.nested()) || matches!(fx, Fx::Reveal | Fx::Courageous), "{card:?} needs the links and is nested");
             }
         }
     }

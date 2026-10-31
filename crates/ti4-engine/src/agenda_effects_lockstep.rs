@@ -284,8 +284,9 @@ fn the_draw_and_relic_effects_run_as_core_windows_in_lockstep() {
     assert!(compared >= 4 && bailed == 0, "{compared} compared, {bailed} bailed");
 }
 
-/// A draw that a faction hook changes (Yssaril's Scheming) asks questions of its own: the Unconventional Measures window is
-/// dropped (B9c-2). A draw that leaves the hand over its limit is the core's since W6 (the child draw window asks the discard).
+/// A draw that a faction hook changes (Yssaril's Scheming) asks questions of its own: the Unconventional Measures effect window runs on the
+/// plain kernel, which reads no hook of the faction modules, so it is dropped (B9c-2; the close of the vote, on the full kernel, follows the hooks
+/// since W14). A draw that leaves the hand over its limit is the core's since W6 (the child draw window asks the discard).
 #[test]
 fn a_hooked_unconventional_draw_has_no_window() {
     let mut state = table();

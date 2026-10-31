@@ -8,7 +8,7 @@
 //!                                                                           writes FILE (shard file) and FILE.hits (allow-list hits)
 //! oracle CONFIG GAMES [--core MASK] [--allow FILE] --game I | --seed S      one game (a repro; no stale check)
 //! oracle --merge [--allow FILE] [--rules-version N] FILE...                 merge the shard files of one run (needs FILE.hits)
-//! oracle CONFIG GAMES --native ARMS [...]                                   the NATIVE oracle: a legacy game leads, a second legacy game
+//! oracle CONFIG GAMES --native ARMS [--gaps-lent] [--closing] [--keep-going] [...]                                   the NATIVE oracle: a legacy game leads, a second legacy game
 //!                                                                           follows and shadow-runs the named native arms (`tokens`, `all`):
 //!                                                                           questions, events and positions of the live arm against the
 //!                                                                           legacy step (`ti4_engine_core_bridge::native_subject`)
@@ -62,6 +62,21 @@ fn main() {
     let native = take_flag(&mut args, "--native").map(|text| ti4_engine::live::arms::parse(&text).unwrap_or_else(|e| fail(&e)));
     if let Some(arms) = native {
         native_subject::set_native_arms(arms);
+    }
+    let keep_going = if let Some(at) = args.iter().position(|a| a == "--keep-going") {
+        args.remove(at);
+        native_subject::set_keep_going(true);
+        true
+    } else {
+        false
+    };
+    if let Some(at) = args.iter().position(|a| a == "--closing") {
+        args.remove(at);
+        native_subject::set_shadow_closing(true);
+    }
+    if let Some(at) = args.iter().position(|a| a == "--gaps-lent") {
+        args.remove(at);
+        native_subject::set_gaps_are_lent(true);
     }
     let shard = take_flag(&mut args, "--shard").map(|t| Shard::parse(&t).unwrap_or_else(|e| fail(&e)));
     let out = take_flag(&mut args, "--out");
@@ -134,6 +149,13 @@ fn main() {
         // What the native oracle ran and what it left to the legacy engine: a clean run that ran nothing proves nothing.
         println!("native arms ran in shadow: {:?}", native_subject::ran_counts());
         println!("steps left to the legacy engine (lent): {:?}", native_subject::lent_counts());
+        if keep_going {
+            let kept = native_subject::kept_differences();
+            println!("---- native differences kept (--keep-going): {} kinds ----", kept.len());
+            for (kind, (n, first)) in kept {
+                println!("{n:>7}  {kind}  e.g. {first}");
+            }
+        }
     }
     if shard.is_none() && only.is_none() {
         finish_full(&[file], &list, &tally, ti4_model::state::RULES_VERSION);

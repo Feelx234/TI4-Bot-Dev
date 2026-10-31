@@ -27,7 +27,7 @@ use crate::rules::leaders;
 use crate::rules::objective_windows::ScoreOne;
 use crate::rules::scoring_book::{Asked, Offers, Outcome, ScoringBook};
 use crate::seen::Seen;
-use crate::state::{CoreState, ObjectiveRef, PlainArg, PlainKind, PlainRec, Scoring, ScoringTiming, Window as OpenWindow, WindowKind};
+use crate::state::{CoreState, Feat, ObjectiveRef, PlainArg, PlainKind, PlainRec, Scoring, ScoringTiming, Window as OpenWindow, WindowKind};
 
 use super::super::turn::inline::gap;
 
@@ -223,7 +223,7 @@ impl<const EVENT: bool> Window for ScoringWin<EVENT> {
         if let Some(o) = one.scored
             && (revealed_before.contains(&o) || matches!(o, ObjectiveRef::Public(_)))
         {
-            let Some(unlocking) = super::super::turn::start::unlockable(sx, asked.seat, true) else { return Ok(()) };
+            let unlocking = super::super::turn::start::unlockable(sx, asked.seat, true);
             leaders::unlock(sx.state, asked.seat, unlocking.as_slice());
         }
         if let Some(o) = one.scored {
@@ -278,4 +278,40 @@ impl Held for ScoringWin<true> {
 pub fn open_event(core: &mut CoreState, timing: ScoringTiming, occurrence: u64, one_per_player: bool) {
     let order: Vec<Seat> = crate::query::seats::initiative_order(core).iter().copied().collect();
     EventScoring::event(&order, timing, occurrence, one_per_player).to_pending(core);
+}
+
+/// The window an action-timed event occurrence opens (`ScoringWindow::for_occurrence` over `initiative_order`): every seat in initiative order, a
+/// combat's occurrence capped at one scoring per player (lane M5's entry; the tactical windows open it).
+#[must_use]
+pub fn event_scoring_window(core: &CoreState, occurrence: u64, one_per_player: bool) -> OpenWindow {
+    let order: Vec<Seat> = crate::query::seats::initiative_order(core).iter().copied().collect();
+    OpenWindow::EventScoring(EventScoring::event(&order, ScoringTiming::Action, occurrence, one_per_player).payload())
+}
+
+/// Open the window of `occurrence` on the stack (`open_occurrence_event_scoring`). Returns the window opened.
+pub fn open_event_scoring(core: &mut CoreState, occurrence: u64, one_per_player: bool) -> OpenWindow {
+    let w = event_scoring_window(core, occurrence, one_per_player);
+    core.pending_mut().open(w.clone());
+    w
+}
+
+/// The feat that unlocks an event-timed secret objective (`secrets::feat_for`, by the card instead of its alias).
+#[must_use]
+pub const fn feat_of(secret: SecretObjective) -> Option<Feat> {
+    Some(match secret {
+        SecretObjective::DestroyTheirGreatestShip => Feat::DestroyedACapitalShip,
+        SecretObjective::MakeAnExampleOfTheirWorld => Feat::BombardedOutTheLastGroundForces,
+        SecretObjective::TurnTheirFleetsToDust => Feat::SpaceCannonTookTheLastNonFighters,
+        SecretObjective::FightWithPrecision => Feat::BarrageTookTheLastFighters,
+        SecretObjective::SparkARebellion => Feat::WonAgainstThePointsLeader,
+        SecretObjective::UnveilFlagship => Feat::WonBesideASurvivingFlagship,
+        SecretObjective::BetrayAFriend => Feat::WonAgainstANoteHolder,
+        SecretObjective::BraveTheVoid => Feat::WonInAnAnomaly,
+        SecretObjective::DarkenTheSkies => Feat::WonInARivalHome,
+        SecretObjective::DemonstrateYourPower => Feat::HeldThreeShipsAfterASpaceCombat,
+        SecretObjective::DriveTheDebate => Feat::ElectedByAnAgenda,
+        SecretObjective::ProveEndurance => Feat::LastToPass,
+        SecretObjective::BecomeAMartyr => Feat::LostAHomePlanet,
+        _ => return None,
+    })
 }

@@ -244,17 +244,29 @@ impl BarrageStep {
     }
 
     /// The side's roll is final: its hits, the event and the presentation. The hits are returned.
+    ///
+    /// The dice are staged for the event (`mirror`, `last_reroll_player`: the string `roll_barrage_side` stages them and
+    /// `open_reroll_windows` emits), a card played in its windows may draw them again (Scramble Frequency), and the hits are read from
+    /// the faces that remain (`read_back`).
     fn finish_side(&mut self, sx: &mut Sx<'_>, side: Seat) -> usize {
-        let hits: usize = self.entries.iter().map(Self::entry_hits).sum();
         if self.entries.iter().any(|e| !e.faces.is_empty()) {
+            self.mirror(sx, side);
+            sx.state.transient_mut().combat.last_reroll_player = Some(side);
             if self.f.announce {
+                let hits: usize = self.entries.iter().map(Self::entry_hits).sum();
                 let payload = Payload::new()
                     .with(Key::Kind, Val::Code(self.f.kind))
                     .with(Key::Player, Val::Seat(side))
                     .with(Key::System, Val::System(self.f.system))
                     .with(Key::Hits, Val::Int(i64::try_from(hits).unwrap_or(0)));
+                let mark = Self::ledger_mark(sx);
                 let _ = sx.emit(fx::event(EventKind::UnitAbilityRolled, payload));
+                self.read_back(sx, side, mark);
             }
+            Self::unmirror(sx, side);
+        }
+        let hits: usize = self.entries.iter().map(Self::entry_hits).sum();
+        if self.entries.iter().any(|e| !e.faces.is_empty()) {
             let dice: Vec<CombatDie> = self
                 .entries
                 .iter()
@@ -268,6 +280,38 @@ impl BarrageStep {
             p.barrage_dice.extend(dice);
         }
         hits
+    }
+
+    /// How many rolls the ledger holds (a window lent none has no mark to take).
+    fn ledger_mark(sx: &Sx<'_>) -> usize {
+        if sx.state.loaded.has(crate::state::Slice::Ledger) { sx.state.ledger().dice.len() } else { 0 }
+    }
+
+    /// After the event: the staged faces are the side's roll now (a card drew dice again), and the redraws the cards recorded in the
+    /// ledger since `mark` are the window's own, recorded in `drawn` as the string's dice history records them.
+    // (The rows after `mark` are the redraws of this event's cards: the roller's, nothing else is recorded between the mark and the read.)
+    fn read_back(&mut self, sx: &mut Sx<'_>, side: Seat, mark: usize) {
+        let staged = sx.state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == side).map(|(_, set)| set.clone());
+        if let Some(set) = staged {
+            for (entry, now) in self.entries.iter_mut().zip(set.rolls.iter()) {
+                entry.faces = now.faces.iter().map(|f| u32::from(*f)).collect();
+            }
+        }
+        if sx.state.loaded.has(crate::state::Slice::Ledger) {
+            let redraws: Vec<(u32, Vec<u32>)> = sx
+                .state
+                .ledger()
+                .dice
+                .iter()
+                .skip(mark)
+                .filter(|r| r.purpose == RollPurpose::Reroll)
+                .map(|r| (u32::from(r.hits_on.unwrap_or(0)), r.faces.iter().map(|f| u32::from(*f)).collect()))
+                .collect();
+            for redraw in redraws {
+                self.drawn.push(redraw);
+                self.redraws.push(self.drawn.len() - 1);
+            }
+        }
     }
 }
 

@@ -138,8 +138,7 @@ pub fn dark_pact_gains(core: &mut CoreState, offer: &Offer, source: crate::state
     for (giver, receiver, terms) in sides {
         let (Some(giver_faction), Some(receiver_faction)) = (qn::faction_of(core, giver), qn::faction_of(core, receiver)) else { continue };
         let key = NoteKey { note: PromissoryNote::DarkPact, faction: receiver_faction };
-        // mutants:skip (the maximum value is never 0 and a seat does not deal with itself: the two tests are guards)
-        if terms.commodities > 0
+        if terms.commodities > 0 // mutants:skip (the maximum value is never 0 and a seat does not deal with itself: guards)
             && giver != receiver
             && core.cards().promissory.get(&key) == Some(&giver)
             && core.cards().promissory_faceup.contains_key(&key)

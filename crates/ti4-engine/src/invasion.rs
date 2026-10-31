@@ -2703,7 +2703,7 @@ pub fn ground_force_owners_for_test(
 
 /// Display only: a breakthrough as an offer-card header: its name and the first sentence of its
 /// printed text (the ability that is being offered).
-fn breakthrough_card(content: &ContentStore, card: &str) -> serde_json::Value {
+pub(crate) fn breakthrough_card(content: &ContentStore, card: &str) -> serde_json::Value {
     let record = content.get(ti4_model::content_types::ContentType::Breakthroughs, card);
     let field = |key: &str| record.as_ref().and_then(|record| record.text(key));
     let first_sentence = field("text").map(|text| match text.find(". ") {
@@ -3315,8 +3315,7 @@ impl InvasionWindow {
         if !state.reroll_staging.contains_key(&self.invader) {
             return;
         }
-        crate::combat::open_reroll_windows(state, ctx, &self.invader);
-        if let Some(set) = state.reroll_staging.get(&self.invader).cloned() {
+        if let Some(set) = self.open_bombard_rerolls(state, ctx) {
             let multiplier = x89_multiplier(state, &self.invader);
             for entry in &mut self.bombard_plan {
                 entry.dice = set
@@ -3352,6 +3351,57 @@ impl InvasionWindow {
         }
         state.reroll_staging.remove(&self.invader);
         state.last_reroll_player = None;
+    }
+
+    /// The reroll windows of the bombardment (`combat::open_reroll_windows` for the invader) and the staged set they leave, the staging
+    /// spent. On `invasion=dual` they also run as the core window `rules::invasion::bombard_roll` for the positions
+    /// `dual_window::bombard_rolled_why` does not exclude: the event, a card played in its windows (Scramble Frequency), the faces that
+    /// remain and the stream positions are compared.
+    fn open_bombard_rerolls(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>) -> Option<ti4_model::state::RerollSet> {
+        let invader = self.invader.clone();
+        let spend = |s: &mut GameState, invader: &PlayerId| {
+            let set = s.reroll_staging.get(invader).cloned();
+            s.reroll_staging.remove(invader);
+            s.last_reroll_player = None;
+            set
+        };
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let sources = ctx.sources;
+                let announce = ctx.timing.is_some();
+                let reproducible = crate::product::reproducible(ctx.dice.is_preloaded(), ctx.rng.sync_pending(), ctx.rng.seed(), state.rng_seed);
+                let system = self.system.clone();
+                let args = crate::dual_window::BombardRollArgs { invader: &invader, system: &system, announce, reproducible };
+                if let Some(why) = crate::dual_window::bombard_rolled_why(state, &args) {
+                    crate::dual::note_gate(crate::dual::Area::Invasion, "invasion::bombard_rerolls", why);
+                    crate::combat::open_reroll_windows(state, ctx, &invader);
+                    return spend(state, &invader);
+                }
+                let rng_before = ctx.rng.positions();
+                let kept = std::cell::RefCell::new(None);
+                let ctx = std::cell::RefCell::new(ctx);
+                crate::dual_window!(
+                    crate::dual::Area::Invasion,
+                    "invasion::bombard_rerolls",
+                    state,
+                    |s: &mut GameState| {
+                        let mut ctx = ctx.borrow_mut();
+                        crate::combat::open_reroll_windows(s, &mut **ctx, &invader);
+                        let set = spend(s, &invader);
+                        let faces: Vec<Vec<u32>> = set.iter().flat_map(|set| set.rolls.iter().map(|roll| roll.faces.clone())).collect();
+                        *kept.borrow_mut() = set;
+                        crate::dual::Run::new((faces, ctx.rng.positions()))
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| {
+                        crate::dual_window::bombard_rolled(s, sources, &args, &rng_before, script)
+                    }
+                );
+                return kept.into_inner();
+            }
+        }
+        crate::combat::open_reroll_windows(state, ctx, &invader);
+        spend(state, &invader)
     }
 
     /// The error [`Self::settle`] could not return (it returns nothing): a question the decider
@@ -3421,7 +3471,7 @@ impl InvasionWindow {
                         .landing_options(state, ctx.content, ctx.sources)
                         .is_empty() =>
                 {
-                    if let Err(error) = self.add_forced_combats(state, ctx) {
+                    if let Err(error) = self.add_forced_combats_windowed(state, ctx) {
                         self.strict_timing_error =
                             Some(crate::timing::TimingError::IllegalChoice(error));
                         return;
@@ -3609,7 +3659,7 @@ impl InvasionWindow {
         // Research Team: "When ground forces are committed", before anything else follows.
         self.offer_research_team(state, ctx, &planets)?;
         self.announce_and_defend_windowed(state, ctx, &planets);
-        self.add_forced_combats(state, ctx)?;
+        self.add_forced_combats_windowed(state, ctx)?;
         let planets = self.report.committed.clone();
         if planets.is_empty() {
             self.stage = Stage::Done;
@@ -3620,19 +3670,56 @@ impl InvasionWindow {
     }
 
     /// What the tail of a commitment hands to the string bare: the coexistence offers of Research Team and Viper EX-23 on a committed
-    /// planet, and the planets a faction rule forces the invader to fight on.
+    /// planet (Deepwrought and Firmament: dropped by decision). The combats a faction rule forces (Titans' Coalescence, with
+    /// Slumberstate Computing's question) are the core window `rules::invasion::forced` since W12.
     fn commit_tail_unported(&self, state: &GameState, ctx: &Resolving<'_>, planets: &[PlanetId]) -> Option<&'static str> {
-        let (content, sources) = (ctx.content, ctx.sources);
-        if planets.iter().any(|planet| {
-            crate::factions::deepwrought::research_team_open(state, content, &self.invader, &self.system, planet)
-                || crate::factions::firmament::viper_open(state, &self.invader, &self.system, planet)
-        }) {
-            Some("the Research Team / Viper EX-23 offer of a committed planet (Deepwrought, Firmament: not seatable)")
-        } else if !crate::factions::hooks_ground::forced_combat_planets(state, content, sources, &self.invader, &self.system).is_empty() {
-            Some("a combat a faction rule forces (Titans' Coalescence)")
-        } else {
-            None
+        let content = ctx.content;
+        planets
+            .iter()
+            .any(|planet| {
+                crate::factions::deepwrought::research_team_open(state, content, &self.invader, &self.system, planet)
+                    || crate::factions::firmament::viper_open(state, &self.invader, &self.system, planet)
+            })
+            .then_some("the Research Team / Viper EX-23 offer of a committed planet (Deepwrought, Firmament: dropped by decision)")
+    }
+
+    /// [`Self::add_forced_combats`] as a core window on `driver=dual` (`rules::invasion::forced`): the planets a faction rule forces the
+    /// invader to fight on, with Slumberstate Computing's coexist question. The compared value is the planets added to the commitment.
+    fn add_forced_combats_windowed(&mut self, state: &mut GameState, ctx: &mut Resolving<'_>) -> Result<(), IllegalChoice> {
+        #[cfg(feature = "typed-core")]
+        {
+            if crate::dual::backend(crate::dual::Area::Invasion) == crate::dual::Backend::Dual {
+                let sources = ctx.sources;
+                let committed = self.report.committed.clone();
+                let (invader, system) = (self.invader.clone(), self.system.clone());
+                let outcome = std::cell::RefCell::new(Ok(()));
+                let failed = std::cell::Cell::new(false);
+                let cell = std::cell::RefCell::new(&mut *self);
+                let ctx = std::cell::RefCell::new(ctx);
+                crate::dual_window!(
+                    crate::dual::Area::Invasion,
+                    "invasion::forced_combats",
+                    state,
+                    |s: &mut GameState| {
+                        let mut ctx = ctx.borrow_mut();
+                        let mut me = cell.borrow_mut();
+                        let result = me.add_forced_combats(s, &mut **ctx);
+                        failed.set(result.is_err());
+                        let added: Vec<String> = me.report.committed.iter().skip(committed.len()).map(ToString::to_string).collect();
+                        *outcome.borrow_mut() = result;
+                        crate::dual::Run::new(added)
+                    },
+                    |s: &mut GameState, script: &crate::dual_window::Recording| {
+                        if failed.get() {
+                            return None;
+                        }
+                        crate::dual_window::forced_combats(s, sources, &invader, &system, &committed, script)
+                    }
+                );
+                return outcome.into_inner();
+            }
         }
+        self.add_forced_combats(state, ctx)
     }
 
     /// The commitment announcement and the space cannon defense of every committed planet, which on
@@ -5185,14 +5272,7 @@ impl InvasionWindow {
         //
         // `choose_deck` rather than `trait_of`: a planet with two printed traits (several
         // Thunder's Edge worlds do) is the invader's choice of deck, not a fixed pick of
-        // whichever trait happens to sort first.
-        if previous.is_none() {
-            crate::dual::note_gate(
-                crate::dual::Area::Invasion,
-                "invasion::control_gain_exploration",
-                "the exploration of a first claim is the string's (its steps are dual writes of the exploration area; the reveal and its rewards are W13)",
-            );
-        }
+        // whichever trait happens to sort first. The exploration itself is one core window (`exploration::explore_with`, lockstep on `Dual`).
         if previous.is_none()
             && let Some(deck) = crate::exploration::choose_deck(ctx, state, &self.invader, planet)
             && let Some(outcome) =
@@ -7214,11 +7294,11 @@ mod tests {
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     }
 
-    /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite) hears the Sol agent's exhaustion; the
-    /// core does not announce it, so the window that follows the agent is the string's (`Unknown`), counted under the
-    /// window's label with the Nomad as the reason.
+    /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite) hears the Sol agent's exhaustion; since W12 the core
+    /// announces it by a staged `AGENT_EXHAUSTED` like `leaders::exhaust` (the Nomad's card answers at the next flush, the string's), so
+    /// the window that follows the agent is compared, not bailed.
     #[test]
-    fn bail_the_sol_agent_with_a_listening_nomad_is_counted() {
+    fn the_sol_agent_with_a_listening_nomad_is_announced_by_the_core_in_lockstep() {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
@@ -7237,7 +7317,8 @@ mod tests {
             run_invasion_first_option(&mut state, 2, &system);
         });
         let r = report();
-        assert!(r.windows.keys().any(|k| k.contains("invasion::begin_ground_round") && k.contains("Nomad Temporal Command Suite")), "{:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("Temporal Command Suite")), "{:?}", r.windows);
+        assert!(r.windows.get("invasion::begin_ground_round").is_some_and(|w| w.compared >= 1), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
@@ -11572,6 +11653,153 @@ mod tests {
             assert_eq!(dice.rolled("scramble frequency").len(), if play { 2 } else { 0 }, "play {play}: both dreadnoughts' dice were drawn again");
             let _ = crate::dual::take_report();
         }
+    }
+
+    /// Package W15: the reroll window of a real bombardment runs as the core window `rules::invasion::bombard_roll` (the event
+    /// `UNIT_ABILITY_ROLLED`, a Scramble Frequency played in its windows, the faces that remain, the streams) in lockstep, for the holder who
+    /// plays it and for the one who declines, under several seeds; the Jol-Nar commander is the string's, counted as a gate.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_reroll_window_of_a_bombardment_runs_in_the_core_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        for (seed, play) in [(1_u64, true), (2, true), (3, true), (4, true), (5, true), (6, false), (7, true)] {
+            let mut state = start_game(ContentStore::embedded(), &[a.clone(), b.clone(), c.clone()], POK, None).unwrap();
+            for (seat, faction) in state.players.iter_mut().zip(["arborec", "hacan", "sol"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+                .iter()
+                .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+                .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+                .expect("the corpus has a placed planet");
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &b, 4);
+            in_space(&mut state, &system, "dreadnought", &a, 3);
+            state.player_mut(&c).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("scramble")];
+            state.rng_seed = seed;
+            let content = ContentStore::embedded();
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            let slot = format!("reaction:{}:UNIT_ABILITY_ROLLED:after", crate::promissory::faction_name(&state, &c));
+            let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let decider = RecordingScripted { inner: crate::choice::Scripted::new(vec![if play { slot } else { "decline".to_owned() }]), seen: seen.clone() };
+            let mut table = Table::with_default(Box::new(decider));
+            let mut resolver = armed_resolver(&state, vec![a.clone(), b.clone(), c.clone()]);
+            let mut event_sequence = crate::event::EventSequence::new();
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+            crate::dual::with_mask(mask, || {
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &a, &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut event_sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap_or_else(|e| panic!("the script only picks what is offered: {e:?}; {:?}", seen.borrow()));
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+            });
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+            assert!(report.differences.is_empty(), "seed {seed} play {play}: {shown}");
+            let w = report.windows.get("invasion::bombard_rerolls").cloned().unwrap_or_default();
+            assert_eq!((w.compared, w.bailed), (1, 0), "seed {seed} play {play}: {:?}", report.windows);
+            assert_eq!(dice.rolled("scramble frequency").len(), if play { 3 } else { 0 }, "seed {seed} play {play}: the three dreadnoughts' dice were drawn again");
+            let _ = crate::dual::take_report();
+        }
+    }
+
+    /// Package W16: the reroll window of a bombardment of the Jol-Nar commander runs as the core window (the invader is asked about each die
+    /// before the event, the picked dice are drawn again, the event shows the hits that remain) in lockstep: the questions (prompt, options,
+    /// details with every die and the one asked, context), the event, the faces and the streams, with and without a Scramble Frequency played
+    /// afterwards. Fails on the pre-W16 gate "the Jol-Nar commander (a reroll question per die)": the window did not run (`compared == 0`).
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn the_jolnar_commander_rerolls_the_dice_of_a_bombardment_in_the_core_in_lockstep() {
+        let _serial = crate::dual::tests::serial();
+        let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        let (mut asked_total, mut rerolled_total) = (0, 0);
+        for (seed, scramble) in (1..=14_u64).map(|s| (s, s % 3 == 0)) {
+            let mut state = start_game(ContentStore::embedded(), &[a.clone(), b.clone(), c.clone()], POK, None).unwrap();
+            for (seat, faction) in state.players.iter_mut().zip(["jolnar", "hacan", "sol"]) {
+                seat.faction = ti4_model::id::FactionId::new(faction);
+            }
+            state.promissory_notes.clear();
+            state.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            let (system, planet) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+                .iter()
+                .find(|(_, p)| p.system_id().is_some() && !p.is_placed_during_play())
+                .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+                .expect("the corpus has a placed planet");
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &b, 4);
+            in_space(&mut state, &system, "dreadnought", &a, 3);
+            if scramble {
+                state.player_mut(&c).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("scramble")];
+            }
+            state.rng_seed = seed;
+            let content = ContentStore::embedded();
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::SeededRandom::new(seed)));
+            let mut table = Table::with_default(Box::new(decider));
+            let mut resolver = armed_resolver(&state, vec![a.clone(), b.clone(), c.clone()]);
+            let mut event_sequence = crate::event::EventSequence::new();
+            let _ = crate::dual::take_report();
+            let mask = crate::dual::AreaMask::STRING.with(crate::dual::Area::Invasion, crate::dual::Backend::Dual);
+            crate::dual::with_mask(mask, || {
+                let mut window = InvasionWindow::new(&mut state, content, POK, &mut dice, &mut rng, &a, &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: POK,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle { resolver: &mut resolver, sequence: &mut event_sequence, galaxy: None }),
+                };
+                while !window.is_done() {
+                    window.drive(&mut state, &mut ctx).unwrap_or_else(|e| panic!("the decider picks what is offered: {e:?}"));
+                    while window.take_scoring_occurrence().is_some() {}
+                    window.settle(&mut state, &mut ctx);
+                }
+            });
+            let report = crate::dual::report();
+            let shown: String = format!("{:?}", report.differences).chars().take(1500).collect();
+            assert!(report.differences.is_empty(), "seed {seed} scramble {scramble}: {shown}");
+            let w = report.windows.get("invasion::bombard_rerolls").cloned().unwrap_or_default();
+            assert_eq!((w.compared, w.bailed), (1, 0), "seed {seed}: the window ran in the core and did not bail: {:?}", report.windows);
+            let walk = seen.borrow().iter().filter(|q| q.context.as_ref().is_some_and(|x| x.subtype == "jolnar_commander_reroll")).count();
+            assert_eq!(walk, 3, "seed {seed}: one question for each of the three dreadnoughts' dice");
+            asked_total += walk;
+            rerolled_total += dice.rolled("jolnar commander").len();
+            let _ = crate::dual::take_report();
+        }
+        assert!(asked_total >= 40 && rerolled_total > 5, "the seeds cover the walk: {asked_total} asked, {rerolled_total} drawn again");
+    }
+
+    /// The Heart of Ixth and irreproducible dice keep the reroll window of a bombardment on the string and say why.
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn a_bombardment_of_a_heart_of_ixth_or_irreproducible_dice_keeps_the_reroll_window_on_the_string_and_says_why() {
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let (system, _) = crate::fixtures::a_placed_planet();
+        let args = |reproducible: bool| crate::dual_window::BombardRollArgs { invader: &a, system: &system, announce: true, reproducible };
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(true)), None);
+        // (The Jol-Nar commander is the core window's since W16: `the_jolnar_commander_rerolls_the_dice_of_a_bombardment_in_the_core_in_lockstep`.)
+        state.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(true)), None);
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(false)), Some("irreproducible dice (test faces or a stream restore)"));
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &crate::dual_window::BombardRollArgs { invader: &b, ..args(true) }), None);
+        state.player_mut(&b).unwrap().relics.push(ti4_model::id::RelicId::new("heartofixth"));
+        assert_eq!(crate::dual_window::bombard_rolled_why(&state, &args(true)), Some("the Heart of Ixth (Thunder's Edge relic)"));
     }
 
     #[test]

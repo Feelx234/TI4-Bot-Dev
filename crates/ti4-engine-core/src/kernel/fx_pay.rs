@@ -50,6 +50,13 @@ pub fn pay_facts(core: &CoreState, k: &Kernel, env: PayEnv, seat: Seat) -> SeatF
     SeatFacts::of(core, env.scope, seat, terms)
 }
 
+/// Whether `amount` resources or influence can be paid now (`production::available` at least `amount`): a plan of `payment::plans` exists.
+#[must_use]
+pub fn can_afford(core: &CoreState, k: &Kernel, env: PayEnv, seat: Seat, kind: Spend, amount: i64) -> bool {
+    let f = pay_facts(core, k, env, seat);
+    q::first_plan(core, &f, kind, amount).is_some()
+}
+
 /// `payment::apply` of a plan: commodities first, then trade goods, then the planets are exhausted. `false`,
 /// changing nothing, when the seat cannot cover the goods or a planet of the plan is already exhausted.
 fn apply_plan(core: &mut CoreState, f: &SeatFacts, plan: &PlanC) -> bool {

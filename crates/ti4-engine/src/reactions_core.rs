@@ -41,6 +41,9 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::arborec::timing::WARRIOR_ROLLS, kind: "unit", card: "arborec_infantry2" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_SHIPS, kind: "leader", card: "yinagent" },
     Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::MILOR_GROUND, kind: "leader", card: "yinagent" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::INDOCTRINATION, kind: "ability", card: "indoctrination" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::GREYFIRE, kind: "promissory", card: "greyfire" },
+    Named { slot: ti4_engine_core_factions::cd_registry::titans::offer::TERRAGENESIS, kind: "ability", card: "terragenesis" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_SPACE, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::ca_combat::nekro::timing::ANTIVIRUS_GROUND, kind: "promissory", card: "antivirus" },
     Named { slot: ti4_engine_core_factions::magen_defense::ACTIVATION, kind: "technology", card: "md" },
@@ -74,6 +77,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core::rules::reactions::saar::SAAR_TRADE_GOOD, kind: "tech", card: "sar" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::THUNDARIAN_SPACE, kind: "leader", card: "nomadagentthundarian" },
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::THUNDARIAN_GROUND, kind: "leader", card: "nomadagentthundarian" },
+    Named { slot: ti4_engine_core_factions::cd_registry::yin::timing::VAN_HAUGE, kind: "unit", card: "yin_flagship" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::SOL_AGENT, kind: "leader", card: "solagent" },
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
@@ -203,6 +207,8 @@ pub fn table() -> AbilityTable {
             // The links to the areas whose windows an action card runs as children: a play window that follows nested
             // activity runs on this table (`follow`), not on `action_cards_view::play_table`.
             ti4_engine_core::driver::children::register(&mut t);
+            // The offer of Self-Assembly Routines at the end of a use of PRODUCTION a hero or a card runs (a window of the faction crate).
+            ti4_engine_core_factions::self_assembly::register_links(&mut t);
             t.facts.card_groups = card_groups();
             t
         })
@@ -435,7 +441,7 @@ fn play_facts(r: &Render, gs: &GameState, sources: &ti4_model::content_types::So
         // Reveal Prototype (package W4): carried for a seat whose research the core window carries (the hooks of the string modules and
         // the core are compared in `Follow::arm`, which has the core state).
         let content = ti4_content::ContentStore::embedded();
-        let researches = gs.rules_version >= ti4_model::state::RULES_TECH_PAYMENT_CHOICE && !crate::action_cards_view::technology_unported(gs, sources, &player);
+        let researches = !crate::action_cards_view::technology_unported(gs, sources, &player);
         seats.push(SeatPlay {
             who,
             mahact_held: gs.tokens_held_by_mahact(&player),
@@ -510,6 +516,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.ground_combat = r.code("ground_combat");
         table.codes.harrow = r.code("harrow");
         table.codes.self_assembly = r.code("self_assembly_routines");
+        table.codes.van_hauge = r.code("unit_ability:yin_flagship");
         table.codes.action_card = r.code("action_card");
         table.codes.supply_base = r.code("forward_supply_base");
         table.codes.mentak = r.code("mentak");
@@ -521,6 +528,8 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.galactic_threat = r.code("galactic_threat");
         table.codes.empyrean_mech = r.code("empyrean_mech");
         table.codes.salvage = r.code("so");
+        table.codes.indoctrination = r.code("indoctrination");
+        table.codes.terragenesis = r.code("terragenesis");
         table.facts.pay_kernel = Some(crate::production_view::kernel);
         table.codes.mahact_infantry = r.code("mahact_infantry");
         table.codes.mahact_infantry2 = r.code("mahact_infantry2");
@@ -529,6 +538,16 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.assign_casualty = r.code("assign_casualty");
         table.codes.reflective_cause = r.code("action_card:reflective_shielding");
         table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
+        crate::production_live::fill_codes(table, r);
+        table.codes.tactical = ti4_engine_core::kernel::ability::TacticalCodes {
+            tactic: r.code("tactic"),
+            space_cannon: r.code("space_cannon"),
+            space_cannon_cause: r.code("unit_ability:space_cannon"),
+            casualty: r.code("assign_casualty"),
+            commander: r.code("letnevcommander"),
+            pre_roll: r.code("pre_roll"),
+            faction_technology: r.code("faction_technology"),
+        };
         table.codes.turn = crate::live::turn::codes(r);
         table.codes.agenda = crate::live::agenda::codes(r);
 }
@@ -674,10 +693,13 @@ mod tests {
         let mut played = rec(&[id], &[id]);
         played.played = vec!["sh1".to_owned()];
         assert_eq!(played.unported(&t), None, "a Shields Holding is played by the core");
-        // Scramble Frequency has a window of the play (`Fx::Scramble`), not a nested one: from inside another window it is still the
-        // string's. (Fire Team is a registered card play of the core, B12: it is followed here.)
-        played.played = vec!["scramble".to_owned()];
-        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card scramble)"), "a card the core does not play");
+        // Scramble Frequency has a window of the play (`Fx::Scramble`) and, since package W15, a registered play for the windows that stage
+        // dice (the barrage and the space cannon offense) beside Fire Team's (B12): both are followed here.
+        played.played = vec!["scramble".to_owned(), "fire_team".to_owned()];
+        assert_eq!(played.unported(&t), None, "a Scramble Frequency and a Fire Team are played by the registered plays of the core");
+        // Another card the core does not play stays named.
+        played.played = vec!["upgrade".to_owned()];
+        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card upgrade)"), "a card the core does not play");
     }
 
     #[test]
@@ -691,12 +713,10 @@ mod tests {
         assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card upgrade)"));
         r.played = vec!["reveal_prototype".to_owned()];
         assert_eq!(r.unported(&t), None, "W4: Reveal Prototype is played by the core");
-        r.played = vec!["reflective".to_owned(), "ghost_squad".to_owned()];
-        assert_eq!(r.unported(&t), None, "W11: Reflective Shielding and Ghost Squad are played by the core");
-        for card in ["courageous", "scramble"] {
-            r.played = vec![card.to_owned()];
-            assert_eq!(r.unported(&t).as_deref(), Some(&*format!("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card {card})")), "{card} stays the string's");
-        }
+        r.played = vec!["reflective".to_owned(), "ghost_squad".to_owned(), "courageous".to_owned()];
+        assert_eq!(r.unported(&t), None, "W11: Reflective Shielding and Ghost Squad are played by the core, W15: Courageous To The End too");
+        r.played = vec!["scramble".to_owned()];
+        assert_eq!(r.unported(&t), None, "W15: Scramble Frequency is played by the registered play of the cards module");
         r.played = vec!["s_retreat1".to_owned(), "intercept".to_owned(), "dh2".to_owned(), "parley".to_owned()];
         assert_eq!(r.unported(&t), None, "the cards of the card module are played by the core");
     }

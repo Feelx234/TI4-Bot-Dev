@@ -80,6 +80,11 @@ pub enum Ask {
     Watcher { actor: Seat },
     /// Salvage Operations (Mentak): produce one ship of a type destroyed in the combat.
     Salvage,
+    /// Indoctrination (Yin), at the start of a ground combat on `planet`: spend influence to replace 1 of the opponent's infantry with 1 infantry
+    /// (or, with Moyin's Ashes, a mech) of the Yin.
+    Indoctrination { planet: crate::generated::Planet },
+    /// Terragenesis (Titans), after `planet` was explored: place a sleeper token on it, or move one there.
+    Terragenesis { planet: crate::generated::Planet },
 }
 
 /// What a Nekro takes of an opponent's technology through an ability.
@@ -114,6 +119,11 @@ pub enum Opt {
     Site { system: crate::generated::System, planet: Option<crate::generated::Planet> },
     /// A ship to produce for `cost` resources (Salvage Operations); the option id is the unit's base type.
     Produce { unit: crate::generated::Unit, cost: i16 },
+    /// Replace an infantry of `opponent` with a unit of `base` (the infantry or the mech) for `cost` influence (Indoctrination); the option id is
+    /// the base type.
+    Indoctrinate { base: crate::generated::UnitBaseType, cost: i16, opponent: crate::ids::Seat },
+    /// A sleeper token from the supply (`place`), or the one on the planet `from` (`move|{from}`) (Terragenesis).
+    Sleeper { from: Option<crate::generated::Planet> },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -133,4 +143,8 @@ pub enum Subtype {
     Watcher,
     /// `salvage_produce`.
     Salvage,
+    /// `indoctrination_replace`.
+    Indoctrination,
+    /// `terragenesis_token`.
+    Terragenesis,
 }

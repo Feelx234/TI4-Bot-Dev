@@ -18,7 +18,6 @@ crates/ti4-engine/src/factions/saar.rs	unnecessary use of `to_owned`
 crates/ti4-engine/src/factions/saar.rs	unnecessary use of `to_owned`
 crates/ti4-engine/src/factions/saar.rs	unnecessary use of `to_owned`
 crates/ti4-engine/src/factions/saar.rs	unnecessary use of `to_owned`: help: use: `unit.id()`
-crates/ti4-engine/src/factions/titans_leaders.rs	unused return value of `ti4_model::GameState::system_state` that must be used
 crates/ti4-engine/src/factions/titans.rs	unnecessary use of `to_owned`: help: use: `kind.id()`
 crates/ti4-engine/src/factions/titans.rs	unnecessary use of `to_owned`: help: use: `kind.id()`
 crates/ti4-engine/src/factions/winnu.rs	unnecessary use of `to_owned`: help: use: `kind.id()`

@@ -206,7 +206,9 @@ fn artuno(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         let Some(amount) = p.int(Key::Amount).and_then(|n| u32::try_from(n).ok()) else { return Ok(()) };
         amount
     };
-    if !ti4_engine_core::rules::leaders::exhaust(eff.state(), me, Leader::ArtunoTheBetrayer) {
+    // (`leaders::exhaust`: Artuno is an agent, so a Nomad holding Temporal Command Suite hears this exhaustion too: a staged `AGENT_EXHAUSTED`.)
+    let (state, kernel) = eff.state_and_kernel();
+    if !fx_strategy::exhaust_ready_agent(state, kernel, me, Leader::ArtunoTheBetrayer) {
         return Ok(());
     }
     add_to_pile(eff.state(), me, amount);
@@ -225,14 +227,12 @@ fn thundarian_condition(c: &CondCx<'_>) -> bool {
 }
 
 /// Exhaust the card and ask for the step to be played again (`combat::request_roll_replay`). A Nomad that hears every agent exhausted
-/// (Temporal Command Suite) is told by an event the core does not emit: that position is the string's.
+/// (Temporal Command Suite) is told by the staged `AGENT_EXHAUSTED` of the exhaustion (`fx_strategy::exhaust_agent`).
 fn thundarian(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let owner = eff.owner();
-    let (s, k) = eff.read();
-    if k.hooks.direct.nomad_watches_agent_exhaustion(s) {
-        eff.unknown(ti4_engine_core::kernel::ability::Unknown::NomadAgentExhaustion);
-    }
-    if fx_strategy::exhaust_leader(eff.state(), owner, Leader::TheThundarian) {
+    let (state, kernel) = eff.state_and_kernel();
+    let ready = state.players().by_seat(owner).is_some_and(|p| p.leaders.status.get(&Leader::TheThundarian) == Some(&LeaderStatus::Readied));
+    if ready && fx_strategy::exhaust_agent(state, kernel, owner, Leader::TheThundarian) {
         eff.state().marks_mut().tail.edit().insert(MarkKey::PrivateCombatReplayRoll(), MarkVal::Atom(Atom::Absent));
     }
     Ok(())
@@ -297,8 +297,7 @@ fn tcs(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         return Ok(());
     }
     let key = MarkKey::NomadTcsNegotiating(me, agent_owner);
-    // mutants:skip (the mark's value is never read, only its presence)
-    eff.state().marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(1)));
+    eff.state().marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(1))); // mutants:skip (the mark's value is never read, only its presence)
     // The window opens with the pair's one transaction spent unless a module exempts it, and runs to its end through the questions of this effect.
     let facts = {
         let (s, k) = eff.read();

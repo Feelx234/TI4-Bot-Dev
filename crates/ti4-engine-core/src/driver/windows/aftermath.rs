@@ -72,6 +72,14 @@ impl Head {
         Self { f, stage: Stage::Enforcing, enforce: Child::idle(), cannon: Child::idle(), before: None, scoring: None, drawn: Vec::new() }
     }
 
+    /// A head whose enforcement is already running (the live path rebuilds a held head at its question).
+    #[must_use]
+    pub fn enforcing(f: Facts, enforce: Enforce) -> Self {
+        let mut head = Self::new(f);
+        head.enforce.start(enforce);
+        head
+    }
+
     /// `combat::before_combat_with_notes`: the sides in seating order and what each had in war suns and flagships.
     fn snapshot(&self, s: &CoreState, k: &Kernel) -> Before {
         let rd = Rd::new(s, k).with_blanked(reach::blanked(s));
@@ -144,7 +152,7 @@ impl Window for Head {
                     Some(Ran::Pass(next)) => return next,
                     Some(Ran::Done(c)) => {
                         self.scoring = c.scoring;
-                        self.drawn = c.drawn.clone();
+                        self.drawn = c.first_draws();
                         self.stage = Stage::Opening;
                     }
                     None => self.stage = Stage::Opening,
@@ -225,6 +233,18 @@ pub struct FightOver {
 }
 
 impl FightOver {
+    /// A fight over whose announcement was made and whose enforcement is under way (the live path rebuilds a held window at its question):
+    /// the enforcement resumes from the position.
+    #[must_use]
+    pub fn enforcing(f: OverFacts, holds: bool, core: &CoreState, k: &Kernel) -> Self {
+        let mut over = Self::new(f);
+        over.holds = holds;
+        over.stage = OverStage::Enforcing;
+        let all = EnforceAll::new(over.f.pairs.clone()).resumed(core, k);
+        over.enforce.start(all);
+        over
+    }
+
     #[must_use]
     pub fn new(f: OverFacts) -> Self {
         Self { f, stage: OverStage::Announcing, enforce: Child::idle(), holds: false } // mutants:skip: `holds` is set by the first step

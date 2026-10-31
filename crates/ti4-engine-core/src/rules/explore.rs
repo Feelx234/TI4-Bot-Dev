@@ -19,7 +19,7 @@ use crate::state::{CoreState, PlanetFlags, RelicRec};
 
 pub use crate::kernel::fx::VICTORY_TARGET;
 // The primitives an action card plays in its own window live in the kernel (areas do not import each other).
-pub use crate::kernel::fx_explore::{draw, gain_commodities, gain_fragment, open_record, place_wormhole_token, play_area_card, spend_commodities, take_frontier};
+pub use crate::kernel::fx_explore::{draw, gain_commodities, gain_fragment, open_record, place_planet, place_wormhole_token, play_area_card, spend_commodities, take_frontier};
 
 /// `relics::SHARD`.
 pub const SHARD: Relic = Relic::ShardOfTheThrone;
@@ -260,23 +260,6 @@ pub fn set_record_system(core: &mut CoreState, index: usize, system: System) {
     if let Some(rec) = core.explore_mut().log.get_mut(index) {
         rec.system = Some(system);
     }
-}
-
-/// `planets::place` as Mirage uses it ("place the Mirage planet token in this system, gain the planet card and
-/// ready it"): the planet is put into `system` under the seat's control, readied. `false` when the planet is
-/// already on the board (a card cannot place it twice); a planet that was destroyed keeps no controller.
-pub fn place_planet(core: &mut CoreState, who: Seat, system: System, planet: Planet) -> bool {
-    let cell = core.board_mut().planet_mut(planet);
-    if cell.placed_in.is_some() {
-        return false;
-    }
-    cell.placed_in = Some(system);
-    if !cell.flags.has(PlanetFlags::PURGED) {
-        cell.control = Some(who);
-    }
-    cell.flags.set(PlanetFlags::EXHAUSTED, false);
-    core.board_mut().sys_mut(system).flags.set(crate::state::SysFlags::TOUCHED, true);
-    true
 }
 
 /// `exploration::demilitarize` (Demilitarized Zone): the structures on the planet go back to their owners'

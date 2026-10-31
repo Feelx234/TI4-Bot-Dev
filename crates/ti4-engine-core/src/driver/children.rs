@@ -7,29 +7,66 @@
 //! and [`register`] fills the table. Whoever builds the [`AbilityTable`] of a play window installs it (the adapter's
 //! `action_cards_view`); a play window built without it declines its run (`unsupported`: a counted bail, never a panic).
 
-use crate::kernel::children::{AreaLinks, Erased, ErasedWindow, Report, Spawn};
+use crate::kernel::children::{AreaLinks, Erased, ErasedWindow, OneLink, Report, Spawn};
 use crate::kernel::stage::AbilityTable;
 use crate::driver::windows::hooked_draw::HookedDraw;
 use crate::rules::combat::effect_hits::{Absorb, Destroy};
-use crate::rules::explore_windows::Reward;
+use crate::kernel::children::ExploreEnd;
+use crate::rules::explore_windows::{Exploring, Reward};
 use crate::rules::objective_windows::HandLimit;
 use crate::rules::production::pay::PayBill;
 use crate::rules::production::strategy_cards::{Construction, Leadership, Research, TitanBuild};
+use crate::rules::production::home::HomeProduction;
 use crate::rules::production::one::ProduceOne;
 use crate::rules::production::window::ProductionWindow;
 use crate::rules::tactical::fleet::{Enforce, Limits};
-use crate::rules::strategy_primaries::{DMode, Diplomacy, Politics, WarfarePrimary};
+use crate::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, Politics, TeWarfare, WarfarePrimary};
 use crate::rules::strategy_windows::{TradePrimary, TRADE_PRIMARY_GOODS};
 
 /// Install the links of the areas whose windows an action card runs as children.
 pub fn register(t: &mut AbilityTable) {
-    t.links = AreaLinks { spawn: Some(spawn), researchable: Some(Research::researchable_for), research: Some(Research::research_chosen) };
+    // The extra link (a window of the faction crate) is the factions' to fill: it survives a registration of these.
+    t.links = AreaLinks { spawn: Some(spawn), researchable: Some(Research::researchable_for), research: Some(Research::research_chosen), spawn_extra: t.links.spawn_extra, one: Some(one_link()) };
+}
+
+/// `ProduceOne` rebuilt from its plain state at every call (a host that keeps it in its payload: Freelancers inside an exploration).
+pub fn one_link() -> OneLink {
+    use crate::kernel::stage::Window as _;
+    OneLink {
+        facts: |core, k, roster, who| {
+            let scope = crate::tables::Scope(u32::from(k.sources.0));
+            let blanked = crate::query::reach::blanked(core);
+            let buildable = crate::rules::production::home::buildable_for(core, k, scope, roster, who)?;
+            let limit = i32::try_from(crate::rules::production::home::fleet_limit(core, k, blanked, who)).ok()?;
+            Some((buildable, limit))
+        },
+        step: |run, sx| {
+            let mut window = ProduceOne::resume(run);
+            let next = window.step(sx);
+            (window.run(), next)
+        },
+        ask: |run, s, k| ProduceOne::resume(*run).ask_of(s, k),
+        answer: |run, sx, pick| {
+            let mut window = ProduceOne::resume(run);
+            window.answer(sx, pick)?;
+            Ok(window.run())
+        },
+    }
 }
 
 /// The window a [`Spawn`] names, erased, with the function that reads what it did.
 fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
     Some(match request {
         Spawn::Bill { who, kind, cost } => Erased::boxed(PayBill::new(*who, *kind, *cost), |w| Report::Paid(w.outcome == Some(true))),
+        Spawn::ExploreFrontier { who, system } => Erased::boxed(Exploring::frontier(*who, *system, false, true), |w| {
+            Report::Explored(if w.unsupported().is_some() {
+                ExploreEnd::Unsupported
+            } else if w.empty() {
+                ExploreEnd::Empty
+            } else {
+                ExploreEnd::Explored
+            })
+        }),
         Spawn::HandLimit { who } => Erased::boxed(HandLimit::new(*who), |_| Report::Nothing),
         Spawn::DrawCards { who, count, drop_unofficial } => Erased::boxed(HookedDraw::new(*who, *count, *drop_unofficial), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
         Spawn::Reward { who, step, options, skip_single } => Erased::boxed(Reward::new(*who, *step, options.as_slice(), *skip_single), |w| Report::Chose(w.chosen)),
@@ -43,6 +80,11 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
         Spawn::Construction { who, primary, facts } => Erased::boxed(Construction::new(*who, *primary, *facts), |_| Report::Nothing),
         Spawn::TitanBuild { who, facts, goods } => Erased::boxed(TitanBuild::new(*who, *facts, *goods), |w| Report::Built(w.built)),
         Spawn::Politics { who, primary, official } => Erased::boxed(Politics::new(*who, *primary, *official), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
+        Spawn::ConstructionTe { who, facts, uses: te } => {
+            let uses: Vec<_> = te.uses().collect();
+            Erased::boxed(Construction::new_te_producing(*who, *facts, te.source, &uses), |w| if w.unsupported { Report::Left } else { Report::Produced(w.produced.clone()) })
+        }
+        Spawn::TeWarfare { who, letnev_pool, free } => Erased::boxed(TeWarfare::new(*who, free.systems(), *letnev_pool, free.source), |w| Report::Free(w.chosen)),
         Spawn::Warfare { who, letnev_pool } => Erased::boxed(WarfarePrimary::new(*who, *letnev_pool), |_| Report::Nothing),
         Spawn::Diplomacy { who, card, primary, base_printing } => {
             let mode = if *primary { DMode::Primary { base_printing: *base_printing } } else { DMode::Secondary };
@@ -57,6 +99,14 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
             Erased::boxed(Enforce::new(*who, *system, limits), |w| Report::Removed(w.removed))
         }
         Spawn::ProduceOne { who, system, facts } => Erased::boxed(ProduceOne::new(*who, *system, *facts), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
+        Spawn::Home { facts } => Erased::boxed(HomeProduction::new(*facts), |w| if w.unsupported { Report::Left } else { Report::Made(w.made()) }),
+        Spawn::HomeAt { who, system, roster, agent_rules } => Erased::boxed(HomeProduction::at(*who, *system, roster, *agent_rules), |w| if w.unsupported { Report::Left } else { Report::Made(w.made()) }),
+        Spawn::Imperial { who, facts } => {
+            let scoreable = facts.scoreable.iter().flatten().copied().collect();
+            Erased::boxed(ImperialPrimary::new(*who, scoreable).with_price(facts.env), |w| if w.unsupported { Report::Left } else { Report::Scored(w.scored) })
+        }
+        // A window of the faction crate: the table's extra link starts it.
+        Spawn::SelfAssembly { .. } => return None,
     })
 }
 
@@ -160,7 +210,7 @@ mod tests {
             Spawn::Research { who, primary: false, cost: 4, scope: crate::tables::Scope(u32::MAX), roster: Box::leak(Box::default()) },
             Spawn::RiderResearch { who, scope: crate::tables::Scope(u32::MAX), roster: Box::leak(Box::default()) },
             Spawn::Leadership { who, primary: true },
-            Spawn::Construction { who, primary: false, facts: crate::kernel::children::StructureFacts { pds: None, dock: None, source: crate::state::Code(0) } },
+            Spawn::Construction { who, primary: false, facts: crate::kernel::children::StructureFacts { pds: None, dock: None, source: crate::state::Code(0), alt: None } },
             Spawn::Politics { who, primary: true, official: true },
             Spawn::Warfare { who, letnev_pool: false },
             Spawn::Diplomacy { who, card: crate::generated::StrategyCard::DiplomacyBase, primary: false, base_printing: false },

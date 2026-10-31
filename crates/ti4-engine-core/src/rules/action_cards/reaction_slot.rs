@@ -28,7 +28,7 @@ use crate::kernel::Kernel;
 use crate::state::{CoreState, EventKind, EventRec, Key, ReactionMode};
 use crate::tables::Scope;
 
-use super::{cost_is_payable, reaction_can_matter, Window, RULES_ACTION_CARD_COSTS};
+use super::{cost_is_payable, reaction_can_matter_with, Hooks, Window, RULES_ACTION_CARD_COSTS};
 
 /// The first slot number of the reaction-card slots.
 pub const SLOT_BASE: u16 = 100;
@@ -71,7 +71,7 @@ pub fn playable(s: &CoreState, k: &Kernel, facts: &AdapterFacts, barred: bool, w
         if spec.event != event.kind || spec.relation != relation || !spec.guard.holds(event, who, s, k) {
             continue;
         }
-        if !can_matter(s, scope, who, *card, event, facts)? {
+        if !can_matter(s, k, scope, who, *card, event, facts)? {
             continue;
         }
         out.push(*card);
@@ -81,16 +81,15 @@ pub fn playable(s: &CoreState, k: &Kernel, facts: &AdapterFacts, barred: bool, w
 
 /// `action_cards::reaction_can_matter`: the printed cost first (rules version 23), then the per-card requirement
 /// for a window that names a system.
-fn can_matter(s: &CoreState, scope: Scope, who: Seat, card: ActionCard, event: &EventRec, facts: &AdapterFacts) -> Result<bool, Unknown> {
+fn can_matter(s: &CoreState, k: &Kernel, scope: Scope, who: Seat, card: ActionCard, event: &EventRec, facts: &AdapterFacts) -> Result<bool, Unknown> {
     // Reveal Prototype is played by the core only for a seat the adapter vouches for (its research and its unit upgrades).
     if card == ActionCard::RevealPrototype && !facts.plays.as_ref().and_then(|f| f.seats.iter().find(|p| p.who == who)).is_some_and(|p| p.reveal.is_some()) {
         return Err(Unknown::CardCost);
     }
     if s.meta().rules_at_least(RULES_ACTION_CARD_COSTS) {
-        if card == ActionCard::Bribery {
-            return Err(Unknown::BriberyGoods);
-        }
-        let payable = match cost_is_payable(s, who, card, 0) {
+        // Bribery's bill is a trade good: the goods the seat could spend, a readied Keleres agent's commodities included.
+        let goods = if card == ActionCard::Bribery { crate::kernel::fx::potential_goods(s, k, who) } else { 0 };
+        let payable = match cost_is_payable(s, who, card, goods) {
             Some(payable) => payable,
             // Reveal Prototype's four resources and its unit upgrade: the adapter vouches for the seat (`SeatPlay::reveal`).
             None if card == ActionCard::RevealPrototype => {
@@ -105,7 +104,12 @@ fn can_matter(s: &CoreState, scope: Scope, who: Seat, card: ActionCard, event: &
     }
     let Some(system) = event.payload.system(Key::System) else { return Ok(true) };
     let actor = event.payload.seat(Key::Player);
-    reaction_can_matter(s, scope, who, card, Window { system, actor }).ok_or(Unknown::HarnessOrInfiltrate)
+    let rifts = k.hooks.movement.gravity_rifts(s);
+    let forbidden = |unit| k.hooks.economy.effect_placement_forbidden(s, k, who, unit);
+    let hooks = Hooks { rifts: rifts.as_slice(), forbidden: &forbidden };
+    // The PDS and the space dock the seat would place (the form is the host's fact; only whether a swap exists is judged here).
+    let own = facts.plays.as_ref().and_then(|f| f.seats.iter().find(|p| p.who == who)).map_or((None, None), |p| (p.more.pds.0, p.more.spacedock.0));
+    Ok(reaction_can_matter_with(s, scope, who, card, Window { system, actor, planet: event.payload.planet(Key::Planet) }, &hooks, own))
 }
 
 fn condition(c: &CondCx<'_>) -> bool {
@@ -266,9 +270,12 @@ mod tests {
         let e = EventRec { id: 1, kind: EventKind::HitsToAssign, payload: Payload::new().with(Key::Player, crate::state::Val::Seat(Seat(0))), cancelled: false };
         // Transparasteel Plating is the kernel's hook (`economy.action_cards_forbidden`), not a bail of the seat.
         assert_eq!(playable(&s, &k, &AdapterFacts::default(), false, Seat(0), &e, Relation::When).unwrap().as_slice(), &[ActionCard::ShieldsHolding1]);
-        // Bribery's goods are the Keleres agent's commodities: a documented bail of the cost check.
+        // Bribery's bill is a trade good: not payable with none, payable with one (the goods the seat could spend).
         s.meta_mut().rules_version = RULES_ACTION_CARD_COSTS;
-        assert_eq!(can_matter(&s, Scope(u32::MAX), Seat(1), ActionCard::Bribery, &e, &AdapterFacts::default()), Err(Unknown::BriberyGoods));
+        assert_eq!(can_matter(&s, &k, Scope(u32::MAX), Seat(1), ActionCard::Bribery, &e, &AdapterFacts::default()), Ok(false));
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.trade_goods = 1;
+        assert_eq!(can_matter(&s, &k, Scope(u32::MAX), Seat(1), ActionCard::Bribery, &e, &AdapterFacts::default()), Ok(true));
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.trade_goods = 0;
         s.meta_mut().rules_version = 0;
         // Another faction with the card in hand: Shields Holding listens to the hits before they are assigned.
         s.players_mut().by_seat_mut(Seat(1)).unwrap().cards.hand.push(ActionCard::ShieldsHolding1);

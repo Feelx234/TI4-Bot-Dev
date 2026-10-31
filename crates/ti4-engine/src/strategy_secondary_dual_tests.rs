@@ -200,10 +200,10 @@ fn jae_mir_kan_is_paid_by_the_core_step_in_lockstep() {
     }
 }
 
-/// Bail: while the Nomad's suite watches agents exhaust, Jae Mir Kan's waiver is paid by the string (a staged event the
-/// core does not make).
+/// While the Nomad's suite watches agents exhaust, Jae Mir Kan's waiver is paid by the core step as well, which stages the `AGENT_EXHAUSTED` the string
+/// stages (it was the counted bail "a waiver taken whose payment the core tables do not carry"): compared, no bail, the event written to the position.
 #[test]
-fn bail_jae_mir_kan_while_the_nomad_watches_keeps_the_string_payment() {
+fn jae_mir_kan_while_the_nomad_watches_is_paid_by_the_core_step_and_the_nomad_is_told() {
     let table = [("a", "sol"), ("b", "mahact"), ("c", "nomad")];
     let system = ti4_model::id::SystemId::new("18");
     let mut state = dealt(&table, "Politics");
@@ -213,9 +213,10 @@ fn bail_jae_mir_kan_while_the_nomad_watches_keeps_the_string_payment() {
     state.system_mut(&system).command_tokens.insert(pid("a"));
     state.player_mut(&pid("c")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("tcs"));
     assert!(crate::factions::nomad::watches_agent_exhaustion(&state), "the Temporal Command Suite is watching");
-    let (_, bails, game) = play(state, "follow|waived|");
-    assert!(bails.iter().any(|k| k.contains("payment the core tables do not carry")), "{bails:?}");
-    assert_eq!(game.state.player(&pid("b")).unwrap().leaders.get(&agent), Some(&ti4_model::state::LeaderStatus::Exhausted), "the string paid");
+    let (counts, bails, game) = play(state, "follow|waived|");
+    assert!(bails.is_empty(), "no bail: {bails:?}");
+    assert!(counts.0 >= 2, "{counts:?}");
+    assert_eq!(game.state.player(&pid("b")).unwrap().leaders.get(&agent), Some(&ti4_model::state::LeaderStatus::Exhausted), "the core paid");
 }
 
 /// Mindsieve: the Naalu follower hands the primary player a promissory note instead of a token.

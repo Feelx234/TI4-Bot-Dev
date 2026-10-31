@@ -89,6 +89,12 @@ pub enum Arm {
     Voting,
     Diplomacy,
     Aftermath,
+    /// The invasion an aftermath holds (`Window::Invasion` above the aftermath's entry): run by `driver::windows::invasion`. `step_arm` does not
+    /// choose it; the aftermath arm hands its steps to it while the invasion is the top sub-window (lane M5), and `live_step` runs it by name.
+    Invasion,
+    /// One use of PRODUCTION (`Window::Production`): run by `driver::windows::production`. `step_arm` does not choose it; the callers that hand a use
+    /// of PRODUCTION over (the aftermath's `Producing`, the strategy cards, the leaders) run it by name, as the aftermath runs the invasion.
+    Production,
     AgendaTalks,
     Trade,
     Tactical,
@@ -230,7 +236,7 @@ pub fn live_ask_arm(f: &Facts) -> AskArm {
 
 impl Arm {
     /// Every arm, in declaration order.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 21] = [
         Self::Finished,
         Self::Blocked,
         Self::LeaderFollowers,
@@ -241,6 +247,8 @@ impl Arm {
         Self::Voting,
         Self::Diplomacy,
         Self::Aftermath,
+        Self::Invasion,
+        Self::Production,
         Self::AgendaTalks,
         Self::Trade,
         Self::Tactical,
@@ -280,7 +288,7 @@ mod tests {
 
     #[test]
     fn the_arm_list_is_complete_and_in_declaration_order() {
-        assert_eq!(Arm::ALL.len(), 19);
+        assert_eq!(Arm::ALL.len(), 21);
         for (i, a) in Arm::ALL.iter().enumerate() {
             assert_eq!(*a as usize, i, "the bit of an arm is its index");
         }

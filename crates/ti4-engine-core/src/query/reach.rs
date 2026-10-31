@@ -68,6 +68,28 @@ pub fn technology_text(core: &CoreState, seat: Seat, tech: Technology) -> bool {
         || ASSIMILATORS.iter().any(|card| live_token(core, seat, *card) == Some(tech))
 }
 
+/// `factions::flagship_has_text`: the unit is that flagship, or it is the Nekro flagship (the Alastor) of a Nekro seat holding Valefar
+/// Assimilator Z whose Z token sits on the faction that owns `flagship`. Only text abilities follow; stats never do.
+#[must_use]
+pub fn flagship_text(core: &CoreState, owner: Seat, unit: Unit, flagship: Unit) -> bool {
+    use crate::keys::{Atom, MarkVal};
+    if unit == flagship {
+        return true;
+    }
+    if unit != Unit::TheAlastor {
+        return false;
+    }
+    let Some(p) = core.players().by_seat(owner) else { return false };
+    if p.faction != Faction::TheNekroVirus || p.cards.breakthrough != Some(Breakthrough::ValefarAssimilatorZ) {
+        return false;
+    }
+    let Some(MarkVal::List(items)) = core.marks().tail.get(&MarkKey::NekroToken(owner)) else { return false };
+    items.iter().any(|i| match i {
+        MarkVal::Atom(Atom::Faction(f)) => f.data().units.iter().copied().find(|u| u.data().base_type == crate::generated::UnitBaseType::Flagship) == Some(flagship),
+        _ => false,
+    })
+}
+
 /// `technology::technology_text_ready`: the text of `tech` is usable by `seat` now: the technology owned and ready, or the Valefar
 /// Assimilator carrying it ready (the exhaustion is the carrier's, not the owner's).
 #[must_use]

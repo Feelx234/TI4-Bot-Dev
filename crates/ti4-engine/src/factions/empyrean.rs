@@ -829,6 +829,31 @@ fn use_leader(
     if !is_empyrean(context.state, player) {
         return Some(false);
     }
+    Some(hero_dual(context, galaxy, player))
+}
+
+/// The card as a window of the core (`rules::hero_windows::EmpyreanHero`): the tokens placed, each token under a ship explored with the
+/// frontier deck, the log rows closed; the string body ([`hero_string`]) is the oracle of the dual run.
+fn hero_dual(context: &mut TimingContext<'_>, galaxy: &ti4_content::galaxy::Galaxy, player: &PlayerId) -> bool {
+    let TimingContext { state, content, sources, table, dice, rng, event_sequence, galaxy: map } = context;
+    let (content, sources, map) = (*content, *sources, *map);
+    crate::dual_window!(
+        crate::dual::Area::LeadersAbilities,
+        "factions::empyrean::hero",
+        state,
+        |s: &mut GameState| {
+            let mut inner = TimingContext { state: s, content, sources, table: &mut *table, dice: &mut *dice, rng: &mut *rng, event_sequence: &mut *event_sequence, galaxy: map };
+            crate::dual::Run::new(hero_string(&mut inner, galaxy, player))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            let placed = crate::exploration::frontier_systems(content, sources, galaxy);
+            crate::hero_dual::empyrean_hero(s, content, player, &placed, sources, script)
+        }
+    )
+}
+
+/// [`use_leader`] on the string engine once the card is playable.
+fn hero_string(context: &mut TimingContext<'_>, galaxy: &ti4_content::galaxy::Galaxy, player: &PlayerId) -> bool {
     // A failed exploration must not count as a use (and so must not purge the card): keep what is
     // needed to put everything back, as the shared hero path does.
     let before = context.state.clone();
@@ -874,9 +899,9 @@ fn use_leader(
         *context.state = before;
         *context.dice = before_dice;
         *context.rng = before_rng;
-        return Some(false);
+        return false;
     }
-    Some(true)
+    true
 }
 
 #[cfg(test)]
@@ -1514,6 +1539,132 @@ mod tests {
         );
         assert_eq!(used, Some(false), "the hero did not resolve");
         assert_eq!(state, before, "no token placed, nothing explored");
+    }
+
+    // -- the hero as a window of the core ----------------------------------------------------------
+
+    /// The staged game of the lockstep tests: a frontier token and a cruiser of the Empyrean in `tokens` systems of the ring, the frontier
+    /// deck set to `deck`.
+    fn frontier_game(deck: &[&str], tokens: usize) -> (GameState, crate::fixtures::Hub) {
+        let mut state = blank(game());
+        let hub = crate::fixtures::plain_hub();
+        state.frontier_tokens.clear();
+        for system in hub.outer.iter().take(tokens) {
+            let id = SystemId::new(system.as_str());
+            crate::fixtures::put(&mut state, &id, "cruiser", &a(), 1);
+            state.frontier_tokens.insert(id);
+        }
+        state
+            .exploration_decks
+            .insert("FRONTIER".to_owned(), deck.iter().map(|card| (*card).to_owned()).collect());
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        (state, hub)
+    }
+
+    /// Use the hero on `Area::LeadersAbilities=dual`; `answers` are the option ids the decider gives in order, the first option after them.
+    fn play_dual(state: &mut GameState, hub: &crate::fixtures::Hub, answers: &[&str]) -> Option<bool> {
+        use crate::dual::{Area, AreaMask, Backend, with_mask};
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(answers.iter().copied())));
+        with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            crate::fixtures::with_context(state, DEFAULT, Some(&hub.galaxy), &mut table, |ctx| use_leader(ctx, &a(), &LeaderId::new(HERO)))
+        })
+    }
+
+    /// Conservator Procyon runs as a window of the core beside the string body, in lockstep: the questions, the position, the log rows
+    /// closed with the words of `row_words`. Every kind of card of the frontier deck is drawn: a fragment, the three entropic fields and
+    /// the Keleres ships (a pool question per command token), a Merchant Station (replenished and converted), a Derelict Vessel over the
+    /// secret objective limit, a Lost Crew over the action card limit, an Enigmatic Device, the Dead Worlds relic, a gamma token with and
+    /// without an active system, the Mirage in the system of the token and the ion storm that needs a planet.
+    #[test]
+    fn the_hero_runs_in_lockstep_with_the_core() {
+        use crate::dual::{report, take_report, thread_window_counts};
+        let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        // A fragment, an entropic field, a Merchant Station replenished, a Derelict Vessel, an Enigmatic Device and the Mirage.
+        let (mut state, hub) = frontier_game(&["urf1", "ent", "ms1", "dv1", "ed1", "mirage"], 6);
+        let secrets: Vec<_> = state.secret_deck.iter().take(3).cloned().collect();
+        if let Some(seat) = state.player_mut(&a()) {
+            seat.commodities = 0;
+            seat.secret_objectives = secrets;
+        }
+        assert_eq!(play_dual(&mut state, &hub, &[]), Some(true));
+        assert!(state.frontier_tokens.is_empty(), "every token under a ship was explored");
+        assert_eq!(state.exploration_log.len(), 6);
+        assert!(state.exploration_log.iter().all(|row| !row.outcome.is_empty() && row.system.is_some()), "{:?}", state.exploration_log);
+        assert!(state.placed_planets.contains_key(&ti4_model::id::PlanetId::new("mirage")));
+        // The other entropic fields, the Keleres ships, a Dead World, a Lost Crew over the limit and the gamma token with an active system.
+        let (mut state, hub) = frontier_game(&["minent", "majent", "kel1", "dw", "lc1", "gamma"], 6);
+        let hand: Vec<_> = state.action_card_deck.iter().take(7).cloned().collect();
+        if let Some(seat) = state.player_mut(&a()) {
+            seat.action_cards = hand;
+        }
+        state.active_system = Some(SystemId::new(hub.centre.as_str()));
+        assert_eq!(play_dual(&mut state, &hub, &[]), Some(true));
+        assert_eq!(state.wormhole_tokens.get("GAMMA"), Some(&SystemId::new(hub.centre.as_str())));
+        // The ion storm and the gamma token without an active system do nothing; a Merchant Station converts.
+        let (mut state, hub) = frontier_game(&["ion", "gw", "ms2", "ed2"], 4);
+        state.active_system = None;
+        if let Some(seat) = state.player_mut(&a()) {
+            seat.commodities = 2;
+        }
+        assert_eq!(play_dual(&mut state, &hub, &["convert"]), Some(true));
+        assert!(state.wormhole_tokens.is_empty() && state.ion_storm.is_none());
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("empyrean hero", &r);
+        assert_eq!(thread_window_counts("factions::empyrean::hero"), (3, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The tokens are placed in the planetless systems and explored in the text order of the system names, with the questions of the first
+    /// cards asked before a deck that runs out undoes the whole run (the card is not used, nothing changes).
+    #[test]
+    fn a_frontier_deck_that_runs_out_undoes_the_run_after_its_questions_in_lockstep() {
+        use crate::dual::{report, take_report, thread_window_counts};
+        let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        // Three tokens and two cards: the entropic field asks for its pool, then the third token finds no card.
+        let (mut state, hub) = frontier_game(&["ent", "urf1"], 3);
+        let before = state.clone();
+        assert_eq!(play_dual(&mut state, &hub, &["strategic_tokens"]), Some(false));
+        assert_eq!(state, before, "the failed run changed nothing");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("empyrean hero (2)", &r);
+        assert_eq!(thread_window_counts("factions::empyrean::hero"), (1, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The planetless systems get their token too: a nebula of the ring holds a ship and is explored with the rest.
+    #[test]
+    fn the_planetless_systems_are_placed_and_explored_in_lockstep() {
+        use crate::dual::{report, take_report, thread_window_counts};
+        let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut state = blank(game());
+        let nebula = crate::fixtures::a_system_where("nebula");
+        let ring = crate::fixtures::hub_with_outer(&nebula);
+        state.frontier_tokens.clear();
+        crate::fixtures::put(&mut state, &SystemId::new(nebula.as_str()), "cruiser", &a(), 1);
+        state.exploration_decks.insert("FRONTIER".to_owned(), vec!["urf2".to_owned(), "urf3".to_owned()]);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        assert_eq!(play_dual(&mut state, &ring, &[]), Some(true));
+        assert!(!state.frontier_tokens.contains(ti4_model::id::text(&nebula.as_str())), "the explored token is gone");
+        assert_eq!(state.exploration_log.len(), 1);
+        assert_eq!(state.exploration_log[0].outcome, "fragment");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("empyrean hero planetless", &r);
+        assert_eq!(thread_window_counts("factions::empyrean::hero"), (1, 0), "{r:?}");
+        let _ = take_report();
     }
 
     #[test]

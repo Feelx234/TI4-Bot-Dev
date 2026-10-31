@@ -8,8 +8,9 @@ use crate::choice::generic::{Content, Rule};
 use crate::choice::strategy::{gain_pool_choice, rule_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{System, UnitBaseType};
+use crate::generated::{Planet, System, UnitBaseType};
 use crate::ids::Seat;
+use crate::kernel::children::{HomeFacts, Made};
 use crate::kernel::fx;
 use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -19,6 +20,7 @@ use crate::state::{Code, CoreState};
 use crate::tables::Scope;
 
 use crate::rules::production as prod;
+use super::home::HomeProduction;
 use super::pay::{PayBill, PayStep, Stage as PayStage};
 use super::{Cx as ProdCx, Extras};
 
@@ -232,10 +234,14 @@ pub enum CStage {
     Start,
     /// The Thunder's Edge printing: a structure or a production?
     Ability,
+    /// The use of PRODUCTION the Thunder's Edge primary chose (a child window of the production area).
+    Producing,
     /// The first (or only) structure.
     First,
     /// The primary's second structure (a PDS).
     Second,
+    /// A PDS was picked where the seat may place something else instead (Hecatoncheires): waiting on which.
+    Alternative,
     Done,
 }
 
@@ -243,7 +249,7 @@ pub enum CStage {
 /// secondary (one PDS or space dock). The Titans' alternative to a PDS, the production Minister of Industry
 /// grants after a space dock and a unit form the unit tables do not name stay with the string caller (the
 /// adapter bails).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Construction {
     pub who: Seat,
     primary: bool,
@@ -251,16 +257,25 @@ pub struct Construction {
     stage: CStage,
     /// The Thunder's Edge primary: the interned `te4construction` and the systems that can produce.
     te: Option<(Code, Vec<System>)>,
-    /// The holder chose the production of the Thunder's Edge primary (a whole production window, the string's).
+    /// The facts of the use of PRODUCTION in each of those systems ([`Self::with_uses`]); empty: the production is not carried.
+    uses: Vec<HomeFacts>,
+    using: Child<HomeProduction>,
+    /// The holder chose the production of the Thunder's Edge primary and the window does not carry it (no facts for the use): the window ends.
     pub produces: bool,
+    /// The use of PRODUCTION the Thunder's Edge primary ran: the system and what it made.
+    pub produced: Option<(System, Made)>,
+    /// The use of PRODUCTION held something the core does not carry (a Self-Assembly Routines window the table has no link to).
+    pub unsupported: bool,
     /// A structure was placed (the Titan Prototype reads it: "if they do not").
     pub placed: bool,
+    /// The planet a PDS was picked for and the step it was picked in, until the alternative is answered.
+    alt_at: Option<(System, Planet, CStage)>,
 }
 
 impl Construction {
     #[must_use]
     pub const fn new(who: Seat, primary: bool, facts: StructureFacts) -> Self {
-        Self { who, primary, facts, stage: CStage::Start, te: None, produces: false, placed: false }
+        Self { who, primary, facts, stage: CStage::Start, te: None, uses: Vec::new(), using: Child::idle(), produces: false, produced: None, unsupported: false, placed: false, alt_at: None }
     }
 
     /// The primary of the Thunder's Edge Construction: one of a structure or a use of PRODUCTION (`systems` can produce,
@@ -268,7 +283,18 @@ impl Construction {
     /// production is not carried: choosing it sets [`Construction::produces`] and ends the window.
     #[must_use]
     pub fn new_te(who: Seat, facts: StructureFacts, source: Code, systems: &[System]) -> Self {
-        Self { who, primary: true, facts, stage: CStage::Start, te: Some((source, systems.to_vec())), produces: false, placed: false }
+        Self { who, primary: true, facts, stage: CStage::Start, te: Some((source, systems.to_vec())), uses: Vec::new(), using: Child::idle(), produces: false, produced: None, unsupported: false, placed: false, alt_at: None }
+    }
+
+    /// The Thunder's Edge primary with its production carried: `uses` are the facts of the use of PRODUCTION in each system that can produce, in
+    /// the order the choice offers them (`source` is the interned `te4construction`). A use is the window of the production area
+    /// ([`HomeProduction`]: the Hacan hero's offer, the production, the effects at the end of the use), then the second structure.
+    #[must_use]
+    pub fn new_te_producing(who: Seat, facts: StructureFacts, source: Code, uses: &[HomeFacts]) -> Self {
+        let systems: Vec<System> = uses.iter().map(|u| u.produce.system).collect();
+        let mut window = Self::new_te(who, facts, source, &systems);
+        window.uses = uses.to_vec();
+        window
     }
 
     fn only_pds(&self) -> bool {
@@ -315,9 +341,19 @@ impl Construction {
         out
     }
 
+    /// Hecatoncheires is on offer on `planet`: the seat has the alternative and both units fit in the reinforcements
+    /// (`hecatoncheires_offer`: `supply::allowed` of each, effect bans having been read into the facts).
+    fn alternative_offered(&self, s: &CoreState, k: &Kernel) -> bool {
+        let Some((mech, infantry)) = self.facts.alt else { return false };
+        let scope = Scope(u32::from(k.sources.0));
+        crate::query::fleet::remaining_all(s, scope, self.who, mech) >= 1 && crate::query::fleet::remaining_all(s, scope, self.who, infantry) >= 1
+    }
+
     fn ask_now(&self) -> Option<SAsk> {
         match self.stage {
+            CStage::Alternative => self.alt_at.map(|(system, planet, _)| SAsk::PdsAlternative { system, planet }),
             CStage::Ability => Some(SAsk::ConstructionAbility),
+            CStage::Producing => None,
             CStage::First | CStage::Second => Some(SAsk::PlaceStructure { step: self.step_no(), only_pds: self.only_pds() }),
             CStage::Start | CStage::Done => None,
         }
@@ -340,6 +376,20 @@ impl Window for Construction {
         if self.stage == CStage::Start {
             self.stage = if self.te.is_some() { CStage::Ability } else { CStage::First };
         }
+        if self.stage == CStage::Producing {
+            match self.using.step(sx) {
+                Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                Some(Ran::Pass(next)) => return next,
+                Some(Ran::Done(used)) => {
+                    self.unsupported |= used.unsupported;
+                    if let Some((_, made)) = &mut self.produced {
+                        *made = used.made();
+                    }
+                    self.stage = if self.unsupported { CStage::Done } else { CStage::Second };
+                }
+                None => self.stage = CStage::Second,
+            }
+        }
         // A step with no structure to place asks nothing and passes on.
         while matches!(self.stage, CStage::First | CStage::Second) && self.options(sx.state, sx.kernel).is_empty() {
             self.advance();
@@ -351,6 +401,9 @@ impl Window for Construction {
     }
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.stage == CStage::Producing {
+            return self.using.ask_of(s, k);
+        }
         let a = self.ask_now()?;
         if let (CStage::Ability, Some((source, systems))) = (self.stage, &self.te) {
             let options = opts(std::iter::once(SOpt::Build).chain(systems.iter().map(|system| SOpt::Produce(*system))));
@@ -367,6 +420,22 @@ impl Window for Construction {
                     invasion_seq: None,
                 },
                 opts: options,
+            });
+        }
+        if self.stage == CStage::Alternative {
+            return Some(Choice {
+                actor: self.who,
+                ask: ask(a),
+                ctx: Ctx {
+                    origin: Origin::Content(Content::Other(self.facts.source)),
+                    subtype: Subtype::Strategy(SSub::PlaceStructurePdsAlternative),
+                    optional: false,
+                    target: None,
+                    outstanding: SmallList::new(),
+                    space_battle: false,
+                    invasion_seq: None,
+                },
+                opts: opts([SOpt::PlacePds, SOpt::Alternative].into_iter()),
             });
         }
         let mut options = opts(self.options(s, k).as_slice().iter().copied());
@@ -388,6 +457,9 @@ impl Window for Construction {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.stage == CStage::Producing {
+            return self.using.answer(sx, pick);
+        }
         let offered = self.ask_of(sx.state, sx.kernel).ok_or(Illegal)?;
         let Pick::Opt(chosen) = pick else { return Err(Illegal) };
         if !offered.opts.as_slice().contains(&chosen) {
@@ -398,16 +470,46 @@ impl Window for Construction {
                 self.stage = CStage::First;
                 return Ok(());
             }
-            Opt::Strategy(SOpt::Produce(_)) if self.stage == CStage::Ability => {
-                self.produces = true;
-                self.stage = CStage::Done;
+            Opt::Strategy(SOpt::Produce(system)) if self.stage == CStage::Ability => {
+                match self.uses.iter().find(|u| u.produce.system == system) {
+                    Some(facts) => {
+                        self.using.start(HomeProduction::new(*facts));
+                        self.produced = Some((system, Made::new()));
+                        self.stage = CStage::Producing;
+                    }
+                    None => {
+                        self.produces = true;
+                        self.stage = CStage::Done;
+                    }
+                }
                 return Ok(());
             }
-            Opt::Decline if self.stage != CStage::Ability => {}
-            Opt::Strategy(SOpt::Structure { pds, system, planet }) if self.stage != CStage::Ability => {
+            Opt::Decline if !matches!(self.stage, CStage::Ability | CStage::Alternative) => {}
+            // "When you would place a PDS on a planet, you may ... instead": the alternatives are asked before anything is placed.
+            Opt::Strategy(SOpt::Structure { pds: true, system, planet }) if !matches!(self.stage, CStage::Ability | CStage::Alternative) && self.alternative_offered(sx.state, sx.kernel) => {
+                self.alt_at = Some((system, planet, self.stage));
+                self.stage = CStage::Alternative;
+                return Ok(());
+            }
+            Opt::Strategy(SOpt::Structure { pds, system, planet }) if !matches!(self.stage, CStage::Ability | CStage::Alternative) => {
                 let (unit, in_space) = self.placement(pds).ok_or(Illegal)?;
                 fx::place_unit(sx.state, self.who, system, (!in_space).then_some(planet), unit);
                 self.placed = true;
+            }
+            Opt::Strategy(SOpt::PlacePds) if self.stage == CStage::Alternative => {
+                let (system, planet, from) = self.alt_at.take().ok_or(Illegal)?;
+                let (unit, in_space) = self.placement(true).ok_or(Illegal)?;
+                fx::place_unit(sx.state, self.who, system, (!in_space).then_some(planet), unit);
+                self.placed = true;
+                self.stage = from;
+            }
+            Opt::Strategy(SOpt::Alternative) if self.stage == CStage::Alternative => {
+                let (system, planet, from) = self.alt_at.take().ok_or(Illegal)?;
+                let (mech, infantry) = self.facts.alt.ok_or(Illegal)?;
+                fx::place_unit(sx.state, self.who, system, Some(planet), mech);
+                fx::place_unit(sx.state, self.who, system, Some(planet), infantry);
+                self.placed = true;
+                self.stage = from;
             }
             _ => return Err(Illegal),
         }
@@ -583,6 +685,9 @@ impl ResearchHooks for KernelHooks<'_> {
         self.k.hooks.strategy.research_waiver_offer(self.s, self.k, self.who, t).is_some()
     }
 }
+
+/// `ti4_model::state::RULES_TECH_PAYMENT_CHOICE`: from it a paid research asks the researcher which planets and trade goods pay.
+pub const RULES_TECH_PAYMENT_CHOICE: u32 = 6;
 
 /// The suspension points of [`Research`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -924,7 +1029,16 @@ impl Window for Research {
                 }
             }
             (RStage::Choose, Opt::Strategy(SOpt::Research(t))) => {
-                if self.cost > 0 {
+                if self.cost > 0 && !sx.state.meta().rules_at_least(RULES_TECH_PAYMENT_CHOICE) {
+                    // Below `RULES_TECH_PAYMENT_CHOICE` the cheapest plan is spent without asking (`payment::plans`'s first); a bill no plan
+                    // pays ends the research with nothing changed.
+                    let env = fx_pay::PayEnv { scope: self.scope, blanked: reach::blanked(sx.state) };
+                    if fx_pay::pay_first_plan(sx.state, sx.kernel, env, self.who, Spend::Resources, self.cost) {
+                        self.land(sx.state, sx.kernel, t);
+                    } else {
+                        self.stage = RStage::Done;
+                    }
+                } else if self.cost > 0 {
                     self.chosen = Some(t);
                     self.pay = Some(self.pay_step(0));
                     self.stage = RStage::Pay;

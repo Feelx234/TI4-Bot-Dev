@@ -125,6 +125,7 @@ pub fn ask_scoring(core: &CoreState, env: &Env<'_>) -> Result<Option<Asking>, Li
 /// # Errors
 /// As [`advance_scoring`].
 pub fn advance_event_scoring(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
+    super::chain::sync_initiative(core);
     // The agendas an agenda window held back while its scoring occurrence was open (`agenda_queue_after_event_scoring`) go to a vote next.
     let queued = core.pending().window(WindowKind::AgendaQueueAfterEventScoring).is_some();
     advance_window::<EventScoring>(core, env, answer, queued.then_some(TurnJob::AgendaNext))

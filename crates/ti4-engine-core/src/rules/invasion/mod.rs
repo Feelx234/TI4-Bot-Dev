@@ -15,14 +15,18 @@ pub mod absorb;
 pub mod advance;
 pub mod begin;
 pub mod bombard;
+pub mod bombard_roll;
 pub mod commit;
 pub mod control;
 pub mod defense;
+pub mod fight;
+pub mod forced;
 pub mod harrow;
 pub mod hits;
 pub mod roll;
 pub mod round;
 pub mod stages;
+pub mod yin_hero;
 pub mod tail;
 
 use crate::containers::SeatSet;

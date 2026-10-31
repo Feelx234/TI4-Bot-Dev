@@ -40,6 +40,23 @@ pub struct Before {
     pub notes: NoteHold,
 }
 
+/// Where the space combat of the `Fighting` stage stands. LIVE only: the string keeps the window itself (`Aftermath::Fighting(CombatWindow)`),
+/// the live chain keeps the combat as a window of its own (`Window::Combat`) and remembers how far it got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AFight {
+    /// The combat has not been opened (the chain opens it, or finds fewer than two sides and goes on with no fight).
+    #[default]
+    Opening,
+    /// `Window::Combat` is on the stack above this entry.
+    Fighting,
+    /// The combat has left the stack: its outcome is in [`Aftermath::outcome`]; the feats are noted next.
+    Closed,
+    /// The end of the fight was announced and the enforcement of every fleet in the system is under way ([`Aftermath::holds`] is known).
+    Announced,
+    /// The fight is over, or there never was one (the skip to the commit step).
+    Over,
+}
+
 /// An open aftermath (`AftermathWindow`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Aftermath {
@@ -52,6 +69,43 @@ pub struct Aftermath {
     /// A scoring pause emitted by a concrete tactical event: the feat occurrence and its limit.
     pub event_scoring: Option<(u64, PauseLimit)>,
     pub notes_at_start: NoteHold,
+    /// LIVE: where the combat of the `Fighting` stage stands.
+    pub fight: AFight,
+    /// LIVE: the feat occurrence of the combat (`CombatWindow::combat_occurrence`), 0 while it has none.
+    pub occurrence: u64,
+    /// LIVE: the winner and the rounds fought, once the combat has left the stack (`Stage::Done`).
+    pub outcome: Option<(Option<Seat>, u32)>,
+    /// LIVE: an invasion step follows the fight (the active seat holds the space, or Coalescence forces a ground combat).
+    pub holds: bool,
+    /// LIVE: the invasion step was opened (a fresh `Invading` stage that was not is the skip to the commit step).
+    pub invaded: bool,
+    /// LIVE: the use of PRODUCTION of the `Producing` stage was opened (`Window::Production` above this entry; the string's `Producing(window)`).
+    pub produced: bool,
+    /// LIVE: the plain events the steps announced (`AftermathWindow::log`), written to the queue when the step ends.
+    pub log: SmallList<crate::state::PlainKind, 4>,
+}
+
+impl Aftermath {
+    /// An aftermath at its first stage: nothing fought, noted or announced yet.
+    #[must_use]
+    pub fn new(player: Seat, system: System, stage: AStage, before_combat: Before, notes_at_start: NoteHold) -> Self {
+        Self {
+            player,
+            system,
+            stage,
+            before_combat,
+            feats_noted: false,
+            event_scoring: None,
+            notes_at_start,
+            fight: AFight::Opening,
+            occurrence: 0,
+            outcome: None,
+            holds: false,
+            invaded: false,
+            produced: false,
+            log: SmallList::new(),
+        }
+    }
 }
 
 /// One queued hit of a space combat (string `Pending`).

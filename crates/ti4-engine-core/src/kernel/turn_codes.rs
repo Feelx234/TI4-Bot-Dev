@@ -64,10 +64,14 @@ pub enum TurnGap {
     EmissionRefused,
     /// A replayed answer was refused by the window it was given to (the question changed between the replays).
     ReplayDiverged,
+    /// A commander of a faction whose unlock condition no hook states could unlock. Never raised since lane F2 filled the hook slots of every in-scope
+    /// faction (`driver::turn::start` judges every locked commander); kept for the dropped factions' hook-less commanders.
+    CommanderUnlock,
+    /// The seat chose an option of the closing menu that is not "end your turn" (a free leader's component action): the dispatch of a menu option is the
+    /// string's (`Dispatch::Lend`, KM2).
+    MenuDispatch,
     /// A free-form deal names a card, note, planet or fragment kind the typed tables do not know (the string answers with a rejection).
     TradeTerms,
-    /// A commander of a faction whose unlock condition no hook states yet (`commander_unlocked`) could unlock.
-    CommanderUnlock,
     /// Plots Within Plots left a plot card to place (the Firmament, a dropped faction).
     PlotCard,
     /// A ship stands in an Entropic Scar (Thunder's Edge: the faction technologies of the status phase).

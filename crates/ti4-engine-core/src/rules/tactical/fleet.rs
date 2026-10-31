@@ -50,6 +50,14 @@ impl Enforce {
         Self { seat, system, limits, stage: EStage::Supply, removed: 0 }
     }
 
+    /// The enforcement as the position calls for it now: the stage with something to remove, or the end. A held window is rebuilt this
+    /// way from `(seat, system, limits)` alone (`settle` is a function of the position, the units removed so far need no memory).
+    #[must_use]
+    pub fn resumed(mut self, core: &CoreState, k: &Kernel) -> Self {
+        self.settle(core, k);
+        self
+    }
+
     fn half(&self, unit: Unit) -> bool {
         self.limits.halves.contains(&Some(unit))
     }

@@ -14,7 +14,7 @@
 //! [`Machine::bailed`] names the reason. They are all string-only on purpose and have a test each
 //! (`combat.rs`, `the_composed_combat_*`): a Naaz or Letnev round opening, diplomacy, Assault Cannon or other
 //! hits at the start of a combat, a neutral side,
-//! Duranium Armor, Devotion, a retreat that moves a flipping unit or a Floating Factory or a Last Bastion
+//! Duranium Armor, a retreat that moves a flipping unit or a Floating Factory or a Last Bastion
 //! seat's fleet, a roll that ends the fight, destructions waiting for their announcement, reactions.
 //!
 //! A decision that is pending when the machine stops (`Stop::Pending`) is the string's `pending_choice`; the
@@ -138,7 +138,7 @@ pub use crate::state::CombatFields as Fields;
 pub enum Bail {
     /// A roll that emptied a fleet mid-way (the fight ends inside the roll step).
     RollEndsFight,
-    /// A position outside what the machine carries (a gate of the `Env`, a cancellation, Duranium Armor, Devotion, staged destructions, a retreat the core does not move).
+    /// A position outside what the machine carries (a gate of the `Env`, a cancellation, Duranium Armor, staged destructions, a retreat the core does not move).
     Unported,
 }
 
@@ -221,6 +221,10 @@ pub struct Machine {
     reflecting: Option<Box<Absorb>>,
     /// The last unit that sustained: where it stood and how it stands now.
     pub last_sustain: Option<(crate::choice::combat::SustainSite, Piece)>,
+    /// LIVE (`driver::windows::combat`): the machine is rebuilt from `(fields, position)` at every call, so a question of a child window
+    /// (a reroll, Raid Formation, an Ambush hit, the Letnev commander's payment) cannot wait inside the object: it goes to the table through
+    /// the tape and the driver replays the step with the answer. The only questions the machine stops at are its pending decisions.
+    pub live: bool,
 }
 
 impl Machine {
@@ -247,7 +251,24 @@ impl Machine {
             auto: None,
             reflecting: None,
             last_sustain: None,
+            live: false,
         }
+    }
+
+    /// The machine of the live loop (see [`Self::live`]).
+    #[must_use]
+    pub fn live(mut self) -> Self {
+        self.live = true;
+        self
+    }
+
+    /// LIVE: put a child window's question to the table through the tape. `None` while the tape is dry (the question is reported and the
+    /// step replayed with the answer: the caller returns at once).
+    fn ask_tape(sx: &mut Sx<'_>, choice: &Choice) -> Option<Pick> {
+        let event = crate::state::EventRec { id: 0, kind: EventKind::ActionCardPlayed, payload: Payload::new(), cancelled: false };
+        let facts = crate::kernel::NestedFacts { event, relation: crate::choice::reaction::Relation::When, chain: Vec::new(), offered: Vec::new() };
+        let pick = sx.tape.pick_with(sx.state, choice, Some(facts));
+        if sx.tape.needed().is_some() { None } else { Some(pick) }
     }
 
     /// A machine that puts the decision the settle stopped at (`fields.step`) and applies the answer to it,
@@ -385,7 +406,9 @@ impl Machine {
     /// One transition of the flow (announcing, retreating, the hit queue), applied to the fields. `true`: the
     /// loop stops (a decision is pending or the fight is over).
     fn transition(&mut self, sx: &mut Sx<'_>) -> Option<bool> {
-        if !sx.state.transient().combat.pending_destructions.is_empty() {
+        // (The string leaves the destructions an effect staged pending across the windows of a round and announces them at its four fixed
+        // points: the live machine drains at the same ones, so it goes on with them pending.)
+        if !self.live && !sx.state.transient().combat.pending_destructions.is_empty() {
             return None;
         }
         if self.lone_casualty(sx) {
@@ -407,6 +430,9 @@ impl Machine {
         let facts = self.flow_facts(sx, over)?;
         let before = self.fields.step.clone();
         let mut flow = Flow::new(facts, before.clone());
+        if self.live {
+            flow = flow.with_drain((self.env.retreat_cause, self.env.retreat_event));
+        }
         let _ = flow.step(sx);
         let out: Out = flow.out.clone()?;
         if let Step::Queue { round, queue, .. } = &before {
@@ -773,8 +799,12 @@ impl Machine {
     }
 
     /// The window finished: its hits are the queue of the moment (`open_start_hits`, `open_round_end_hits`), or the round goes on.
-    fn finish_produce(&mut self) {
+    fn finish_produce(&mut self, sx: &mut Sx<'_>) {
         let Some((w, moment, round)) = self.produce.take() else { return };
+        if self.live {
+            // Whatever the hook staged is announced before the hits are queued (`produce_hits`).
+            self.announce_staged(sx);
+        }
         self.drawn.extend(w.drawn.iter().cloned());
         let queue = self.produced_queue(&w.produced);
         match moment {
@@ -846,13 +876,7 @@ impl Machine {
     /// `announce_staged_destructions`: every destruction an effect staged is announced as `SHIP_DESTROYED`, in staging order, until
     /// nothing is left (an announcement can stage more).
     fn announce_staged(&self, sx: &mut Sx<'_>) {
-        while !sx.state.transient().combat.pending_destructions.is_empty() {
-            let staged = std::mem::take(&mut sx.state.transient_mut().combat.pending_destructions).as_slice().to_vec();
-            for d in staged {
-                let cause = if d.reason == self.env.retreat_cause { self.env.retreat_event } else { d.reason };
-                announce_loss(sx, d.system, d.owner, d.unit, cause, d.during_space_combat, self.env.announce);
-            }
-        }
+        super::assign::drain_staged(sx, self.env.announce, (self.env.retreat_cause, self.env.retreat_event));
     }
 
     fn end_announce(&mut self, sx: &mut Sx<'_>) {
@@ -875,6 +899,9 @@ impl Machine {
             announce: e.announce,
         };
         let mut w = EndAnnounce::new(facts);
+        if self.live {
+            w = w.with_drain((self.env.retreat_cause, self.env.retreat_event));
+        }
         let _ = w.step(sx);
     }
 
@@ -888,6 +915,12 @@ impl Machine {
             if let Some(ac) = &mut self.ac_w {
                 match ac.step(sx) {
                     Next::Continue(ask) => {
+                        if self.live {
+                            let choice = ac.ask_of(sx.state, sx.kernel)?;
+                            let Some(pick) = Self::ask_tape(sx, &choice) else { return Some(Next::Done) };
+                            ac.answer(sx, pick).ok()?;
+                            continue;
+                        }
                         self.stage = Stage::Producing;
                         return Some(Next::Continue(ask));
                     }
@@ -902,6 +935,12 @@ impl Machine {
             if let Some(barrage) = &mut self.barrage_w {
                 match barrage.step(sx) {
                     Next::Continue(ask) => {
+                        if self.live {
+                            let choice = barrage.ask_of(sx.state, sx.kernel)?;
+                            let Some(pick) = Self::ask_tape(sx, &choice) else { return Some(Next::Done) };
+                            barrage.answer(sx, pick).ok()?;
+                            continue;
+                        }
                         self.stage = Stage::Barraging;
                         return Some(Next::Continue(ask));
                     }
@@ -920,12 +959,18 @@ impl Machine {
             if let Some((produce, _, _)) = &mut self.produce {
                 match produce.step(sx) {
                     Next::Continue(ask) => {
+                        if self.live {
+                            let choice = produce.ask_of(sx.state, sx.kernel)?;
+                            let Some(pick) = Self::ask_tape(sx, &choice) else { return Some(Next::Done) };
+                            produce.answer(sx, pick).ok()?;
+                            continue;
+                        }
                         self.stage = Stage::Producing;
                         return Some(Next::Continue(ask));
                     }
                     _ => {
                         self.stage = Stage::Running;
-                        self.finish_produce();
+                        self.finish_produce(sx);
                         continue;
                     }
                 }
@@ -933,6 +978,12 @@ impl Machine {
             if let Some(roll) = &mut self.roll {
                 match roll.step(sx) {
                     Next::Continue(ask) => {
+                        if self.live {
+                            let choice = roll.ask_of(sx.state, sx.kernel)?;
+                            let Some(pick) = Self::ask_tape(sx, &choice) else { return Some(Next::Done) };
+                            roll.answer(sx, pick).ok()?;
+                            continue;
+                        }
                         self.stage = Stage::Rolling;
                         return Some(Next::Continue(ask));
                     }
@@ -1037,6 +1088,9 @@ impl Window for Machine {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        if self.live {
+            return self.step_live(sx);
+        }
         if self.stage == Stage::Done {
             return Next::Done;
         }
@@ -1061,6 +1115,9 @@ impl Window for Machine {
     }
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        if self.live {
+            return self.pending_choice(s, k);
+        }
         if self.awaiting {
             if let Some(reflecting) = &self.reflecting {
                 return reflecting.ask_of(s, k);
@@ -1086,6 +1143,9 @@ impl Window for Machine {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        if self.live {
+            return self.answer_live(sx, pick);
+        }
         if self.awaiting {
             if let Some(reflecting) = self.reflecting.as_mut() {
                 return reflecting.answer(sx, pick);
@@ -1129,6 +1189,56 @@ impl Window for Machine {
 }
 
 impl Machine {
+    /// LIVE: the settle from `fields.step` to the next decision, the end of the fight or the pause for the barrage's scoring window. A
+    /// position the machine does not carry stops it with [`Stop::Bailed`]; a child's question the tape could not answer returns at once
+    /// (the driver replays the step).
+    fn step_live(&mut self, sx: &mut Sx<'_>) -> Next {
+        self.stop = None;
+        match self.run(sx) {
+            Some(_) => {}
+            None => {
+                if self.stop.is_none() {
+                    self.stop = Some(Stop::Bailed(Bail::Unported));
+                }
+                return Next::Done;
+            }
+        }
+        if self.stop == Some(Stop::Pending) {
+            return match self.pending_choice(sx.state, sx.kernel) {
+                Some(choice) => Next::Continue(choice.ask),
+                None => {
+                    self.stop = Some(Stop::Bailed(Bail::Unported));
+                    Next::Done
+                }
+            };
+        }
+        Next::Done
+    }
+
+    /// LIVE: the answer to the decision the settle stopped at, with the Letnev commander's payment of a sustain asked through the tape. The
+    /// settle that follows is the next `step`.
+    fn answer_live(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        self.answer_pending(sx, pick)?;
+        if let Some(mut sus) = self.sustaining.take() {
+            if let Some(commander) = sus.commander.as_mut() {
+                while let Next::Continue(_) = commander.step(sx) {
+                    let choice = commander.ask_of(sx.state, sx.kernel).ok_or(Illegal)?;
+                    let Some(p) = Self::ask_tape(sx, &choice) else { return Ok(()) };
+                    commander.answer(sx, p)?;
+                }
+            }
+            let _ = emit_used(sx, &sus.offer, sus.unit);
+            let cancels = Self::cancels(sx.state, Self::rd(sx.state, sx.kernel), sus.offer.player);
+            let mut queue = sus.queue;
+            if let Some(front) = queue.first_mut() {
+                front.hits = front.hits.saturating_sub(u32::try_from(cancels).unwrap_or(u32::MAX));
+            }
+            self.fields.step = Step::Queue { assigning: false, round: sus.round, queue };
+        }
+        self.answered = false;
+        Ok(())
+    }
+
     #[must_use]
     pub fn bailed(&self) -> Option<Bail> {
         match self.stop {
@@ -1296,9 +1406,6 @@ impl Machine {
             }
             Step::Queue { assigning: true, queue, .. } => {
                 let front = queue.first()?;
-                if front.producer_assigns {
-                    return None;
-                }
                 let candidates = Self::candidates(rd, front, env.system);
                 if candidates.len() < 2 {
                     return None;
@@ -1313,8 +1420,9 @@ impl Machine {
                     seen.push(key);
                     opts.push(Opt::Combat(COpt::Destroy { index, unit: key.0, damaged: key.1 }));
                 }
+                // A producer-assigned hit (Devotion) is the producer's choice of the victim's ship.
                 Some(Choice {
-                    actor: front.player,
+                    actor: if front.producer_assigns { front.producer } else { front.player },
                     ask: Ask::Combat(CAsk::AssignHit),
                     ctx: self.ctx(Rule::R78_4, Subtype::Combat(CSub::Casualty(env.casualty)), Some(front.hits)),
                     opts,

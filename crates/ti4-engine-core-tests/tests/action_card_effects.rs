@@ -299,6 +299,7 @@ fn plague_destroys_one_infantry_for_each_die_that_shows_six_or_more() {
         let faces = rig.driver.window.faces().to_vec();
         assert_eq!(faces.len(), 2, "one die for each infantry on the planet");
         assert!(faces.iter().all(|f| (1..=10).contains(f)));
+        assert_eq!(rig.driver.window.ability_roll(), None, "W15: only Courageous To The End's dice are noted as the roll of an ability");
         let killed = faces.iter().filter(|f| **f >= 6).count();
         assert_eq!(units_on(&rig.state, target, 2).len(), 2 - killed, "seed {seed}");
         some |= killed > 0;
@@ -435,6 +436,28 @@ fn courageous_to_the_end_rolls_two_dice_and_costs_the_opponent_a_ship_for_each_d
     let mut rig = solo(ActionCard::CourageousToTheEnd, alone, 1).expect("a play");
     rig.run();
     assert!(rig.is_done() && rig.driver.window.faces().is_empty(), "no opponent ship left");
+}
+
+/// W15: the two dice of Courageous To The End are the roll of an ability (the host keeps them in the ledger as the string notes them,
+/// the holder's, no hit number); a play that rolled nothing (someone else's ship, no opponent left) has no roll to keep, and neither has
+/// a card that rolls no ability dice.
+#[test]
+fn courageous_to_the_end_hands_its_two_dice_to_the_host_as_the_roll_of_an_ability() {
+    covers_card!(ActionCard::CourageousToTheEnd);
+    for seed in 0..6u64 {
+        let mut st = four().map_ring(4).unit(sys_of(1), None, Unit::CruiserI, 1, 3).state();
+        st.transient_mut().combat.last_ship_destroyed = Some((sys_of(1), Seat(0), Unit::DreadnoughtI));
+        let mut rig = solo(ActionCard::CourageousToTheEnd, st, seed).expect("a play");
+        rig.run();
+        rig.auto(ti4_engine_core_tests::rig::Policy::First);
+        let faces: Vec<u8> = rig.driver.window.faces().iter().map(|f| u8::try_from(*f).unwrap()).collect();
+        assert_eq!(rig.driver.window.ability_roll(), Some((Seat(0), faces)), "seed {seed}");
+    }
+    let mut other = four().map_ring(4).unit(sys_of(1), None, Unit::CruiserI, 1, 2).state();
+    other.transient_mut().combat.last_ship_destroyed = Some((sys_of(1), Seat(2), Unit::DreadnoughtI));
+    let mut rig = solo(ActionCard::CourageousToTheEnd, other, 1).expect("a play");
+    rig.run();
+    assert_eq!(rig.driver.window.ability_roll(), None, "nothing was rolled");
 }
 
 #[test]

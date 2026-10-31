@@ -163,6 +163,33 @@ the label), or is owned by another package:
 
 Not re-counted (no census before the end-of-D1 run). Gates of the sections above that are now core halves: the Jol-Nar commander in the barrage (`gate: the Jol-Nar commander`), Waylay in the barrage, `a Letnev side (Munitions ...)` below rules version 8 (the payment at the opening), the machine bails "cancelled hits" and "a roll that ends the fight" and the stranded ships of a retreat, X-89 in the ground roll / tail / bombardment, a command token in a Mahact fleet pool (Leadership, Warfare, TE Warfare, Fabrication, Leadership Rider), the end-of-use effects of a production by an ability (Hacan breakthrough, Prophecy of Ixth, swapped value), a galvanized ground force that falls (`|g`), and the Valefar-carried Production Biomes / Vortex / Chaos Mapping / C4R. See `docs/W_L10_RESUME.md` for the gates that stay and why.
 
+## Package W13 (lane 13): what the lines above no longer say
+
+Not re-counted (no census before the end-of-D1 run). Now core halves: the Thunder's Edge Warfare and Construction primaries inside the Winnu hero (and the Construction
+primary played by its holder, with the use of PRODUCTION as a child window), the Mahact-pool gates of the Leadership / Warfare abilities performed by a hero or an
+action card and of the Empyrean command token, the Imperial primary's point past the victory target, the Prophecy of Ixth in a home production, and for the Yin hero
+X-89, Dacxive Animators, the Letnev Dunlain Reaper (read in each round), the hits a faction adds to a roll, the Minister of Exploration and the Crown of Emphidia on the
+control gained, the Thundarian and Indoctrination (nested activity, followed on the core table). The Naaz / Winnu / Empyrean / Mahact / Yin / TE Construction windows follow
+nested reaction windows (`outside_following`). See `docs/W_L13_RESUME.md` for what stays.
+
+## Package W12 (lane 12): what the lines above no longer say
+
+Not re-counted (no census). Bails and gates of the sections above that are now core halves: `combat::offer_sustain` / `combat::space_cannon_offense` / the Experimental Battlestation hit flow in a game below `RULES_FACTION_EFFECTS` ("a game below the faction effects"), the Technology research below `RULES_TECH_PAYMENT_CHOICE` (`strategy_cards::technology_*`, the Technology Rider, Strategize / Overrule, Reveal Prototype), `nested (Nomad Temporal Command Suite (agent exhaustion))` at Tellurian, the L1Z1X agent, Brother Milor, Trilossa, the Sol / Letnev round agents, Ssruu copies and The Thundarian (a staged `AGENT_EXHAUSTED` as `leaders::exhaust` stages it), `factions::muaat::agent` for a copy through Ssruu, `factions::muaat::inferno` for a Nekro Z-token flagship, `factions::muaat::fires` for a Nekro holder, `a structure the seat may place instead of a PDS (Titans' Hecatoncheires)` (`strategy_cards::construction_*`, `te4_construction`), and the gate "a combat a faction rule forces (Titans' Coalescence)" of `invasion::finish_committing` (the window `invasion::forced_combats`). See `docs/W_L12_RESUME.md` for what stays.
+
+## Package X (lane X, `core-x-explore`): what the lines above no longer say
+
+Not re-counted (no census). The exploration is one core window now (`rules::explore_windows::Exploring`, lockstep behind `exploration::explore_with` / `explore_frontier`, labels
+`exploration::explore` / `exploration::explore_frontier`): gone from the gates above are `invasion::control_gain_exploration` (the `note_gate` was removed; the first-claim exploration of
+the string invasion is a compared window), the string-run explorations of the Crown of Emphidia and Dark Energy Tap tail, of the Naaz / Titans / Cabal / legendary / action-card callers, and the
+card arms of the Empyrean hero (it explores through the same window). Gates of the native invasion that are now core: the exploration of a first claim (`IStage::Exploring`), the Minister of Exploration and the
+Crown of Emphidia on the control gain, a ship-form unit flipping on landing, and in the space cannon defense an entropic scar, L4 Disruptors and an attachment that gives SPACE CANNON
+(`dual_window::defense_unported` keeps only irreproducible dice and a neutral invader). What stays (counted bails, label `exploration::explore [bail: ..]`): Freelancers, Titans' Terragenesis,
+a replenishment of two seats of one faction, a draw a faction hook changes; in the native first claim also a card whose child window of another area asks a question inside the exploration (`LinkedAsks`).
+See `docs/X_EXPLORE_RESUME.md`.
 ## Package W11 (lane 11): what the lines above no longer say
 
 Not re-counted (no census before the end-of-D1 run). Gates of the sections above that are now core halves: every `a neutral side` gate (`dual::reason::NEUTRAL`: the barrage, roll, flow, round-opening, retreat, announce-end, Assault Cannon and ground windows, `Assault Cannon at a neutral side` and `a side that is not a seated player` of `opening_why`, `neutral units in the system` and `a neutral side` of the space cannon offense and the end of the fight in `cannon_dual`), and the nested bails `unported ability reaction:*:SUSTAIN_DAMAGE_USED:when (card reflective)`, `reaction:*:SHIP_DESTROYED:after (card courageous)` and `reaction:*:UNITS_COMMITTED:after (card ghost_squad)`. The bails that stay for the cards played inside a window, with the reason, are in `docs/W_L11_RESUME.md`.
+
+## Package W16 (lane 16): what the lines above no longer say
+
+Not re-counted (no census). Gates and bails of the sections above that are now core halves: `combat::space_cannon_offense` and `aftermath::head` "a reroll question (Jol-Nar commander, Heart of Ixth)" for the Jol-Nar commander (the Heart of Ixth stays a gate), `invasion::bombard_rerolls` "the Jol-Nar commander (a reroll question per die)", the composed machine's "a position it does not carry (... Devotion ...)" for a hit the producer assigns, and `Unknown::BriberyGoods` / `Unknown::HarnessOrInfiltrate` of the reaction slot (windows where a seat held Bribery, Harness Energy or Infiltrate).

@@ -5,17 +5,19 @@
 //!
 //! Carried: the secondaries of Trade (the replenishment), Imperial (the draw of a secret objective and the hand limit), Politics (the draw of
 //! two action cards), Technology (the paid research), Leadership, Construction and Diplomacy, and the primaries of Trade, Politics, Technology,
-//! Leadership, Construction and Warfare, and Diplomacy. Not carried ([`Began::Unsupported`]: the adapter declines the run and the string
-//! performs the ability):
-//! * the Warfare secondary (`home_production`: a whole production window at the home system, with the hero offers, the Keleres agent window
-//!   and the use counters of `production::resolve_timed` around it);
-//! * the Imperial primary (the scoreable objectives, the award tail and the winner are the string's);
-//! * the Thunder's Edge Construction and Warfare primaries (the choice of a production, the free tactical action).
+//! Leadership, Construction and Warfare, and Diplomacy; the Warfare secondary (`home_production`: the hero offer, the production at the home
+//! system and the end of the use, `Spawn::Home`) and the Imperial primary (`Spawn::Imperial`) when the adapter vouches for them
+//! ([`Facts::home`], [`Facts::imperial`]). Not carried ([`Began::Unsupported`]: the adapter declines the run and the string performs the
+//! ability):
+//! * the Warfare secondary at a table the production windows do not carry (the adapter gave no facts);
+//! * the Imperial primary where the scoring tables do not follow the position (the adapter gave no facts);
+//! * the Thunder's Edge Construction and Warfare primaries at a table whose facts the adapter could not give ([`Facts::free`],
+//!   [`Facts::te_uses`]: more systems than the facts hold, a use of PRODUCTION the production windows do not carry).
 
 use crate::containers::SmallList;
-use crate::generated::{StrategyCard, StrategyCardKind, System};
+use crate::generated::{PublicObjective, StrategyCard, StrategyCardKind, System};
 use crate::ids::Seat;
-use crate::kernel::children::{Report, Spawn, StructureFacts};
+use crate::kernel::children::{FreeSystems, ImperialFacts, Made, Report, Spawn, StructureFacts, TeUses};
 use crate::kernel::fx;
 use crate::kernel::stage::Sx;
 use crate::query::tech::UnitRoster;
@@ -29,6 +31,8 @@ const TECHNOLOGY_SECONDARY_COST: i64 = 4;
 const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
 /// `ti4_model::state::RULES_LETNEV_FLEET_POOL`: from this version the Letnev fleet pool may be emptied.
 const RULES_LETNEV_FLEET_POOL: u32 = 4;
+/// `ti4_model::state::RULES_WINNU_AGENT_PRODUCTION`: from this version Berekar Berekon is offered to a use of PRODUCTION.
+const RULES_WINNU_AGENT_PRODUCTION: u32 = 26;
 /// `ti4_model::state::RULES_BASE_DIPLOMACY`: from this version the base printing of Diplomacy readies a whole system.
 const RULES_BASE_DIPLOMACY: u32 = 35;
 
@@ -50,6 +54,19 @@ pub struct Carried {
     pub trade_source: Code,
 }
 
+/// What the Warfare secondary finds at the seat's home system (the string `home_production`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Home {
+    /// The seat has no home system: the ability does nothing.
+    Nothing,
+    /// A use of PRODUCTION in the home system, with the facts read from the position when it starts (`rules::production::home::home_facts`,
+    /// so an ability performed before it that changed them is seen); a system with no PRODUCTION to use does nothing.
+    At(System),
+    /// The table is one the production windows do not carry (a Keleres or Deepwrought seat, the dropped factions, a rule of an end-of-use
+    /// effect the child does not run): the string performs the ability.
+    Unsupported,
+}
+
 /// Everything [`begin`] reads besides the position.
 #[derive(Debug, Clone, Copy)]
 pub struct Facts {
@@ -65,9 +82,19 @@ pub struct Facts {
     pub scope: Scope,
     /// `GameState::tokens_held_by_mahact` of the performing seat.
     pub mahact_held: i32,
+    /// The Warfare secondary's home production.
+    pub home: Home,
+    /// The Imperial primary's scoring facts (`None`: the primary is the string's).
+    pub imperial: Option<ImperialFacts>,
+    /// The systems of the free tactical action of the Thunder's Edge Warfare primary (an empty list: the string resolves it with no question;
+    /// `None`: the primary is the string's).
+    pub free: Option<FreeSystems>,
+    /// The uses of PRODUCTION the Thunder's Edge Construction primary may choose (`None`: the primary is the string's).
+    pub te_uses: Option<TeUses>,
 }
 
 /// How an ability began.
+#[allow(clippy::large_enum_variant, reason = "one value per performed ability, moved straight to the table; boxing the spawn request would cost an allocation per start")]
 pub enum Began {
     /// Performed, with nothing to ask.
     Done,
@@ -115,31 +142,51 @@ pub fn begin(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, f: F
             Began::Run(Spawn::Research { who, primary, cost, scope: f.scope, roster })
         }
         (StrategyCardKind::Leadership, primary) => {
-            // A command token held in a Mahact pool changes the reinforcements the pool questions preview.
-            if !carried.payments || f.mahact_held > 0 {
+            // (A command token held in a Mahact pool is not in the reinforcements: `fx::tokens_in_reinforcements` reads the marks.)
+            if !carried.payments {
                 return Began::Unsupported;
             }
             Began::Run(Spawn::Leadership { who, primary })
         }
         (StrategyCardKind::Construction, primary) => {
-            // The Thunder's Edge primary asks a structure or a production first (the production is the string's).
-            let (Some(facts), false) = (carried.structures, primary && card == StrategyCard::ConstructionThundersEdge) else {
-                return Began::Unsupported;
-            };
+            let Some(facts) = carried.structures else { return Began::Unsupported };
+            // The Thunder's Edge primary asks a structure or a use of PRODUCTION first.
+            if primary && card == StrategyCard::ConstructionThundersEdge {
+                return match f.te_uses {
+                    Some(uses) => Began::Run(Spawn::ConstructionTe { who, facts, uses }),
+                    None => Began::Unsupported,
+                };
+            }
             Began::Run(Spawn::Construction { who, primary, facts })
         }
         (StrategyCardKind::Warfare, true) => {
-            // The Thunder's Edge primary is a free tactical action (the string's).
-            if f.mahact_held > 0 || card == StrategyCard::WarfareThundersEdge {
-                return Began::Unsupported;
+            let letnev_pool = f.rules_version >= RULES_LETNEV_FLEET_POOL;
+            // The Thunder's Edge primary: the redistribution, then a tactical action without a command token (the game's).
+            if card == StrategyCard::WarfareThundersEdge {
+                return match f.free {
+                    Some(free) if free.systems().is_empty() => Began::Done,
+                    Some(free) => Began::Run(Spawn::TeWarfare { who, letnev_pool, free }),
+                    None => Began::Unsupported,
+                };
             }
-            Began::Run(Spawn::Warfare { who, letnev_pool: f.rules_version >= RULES_LETNEV_FLEET_POOL })
+            Began::Run(Spawn::Warfare { who, letnev_pool })
         }
         (StrategyCardKind::Diplomacy, primary) => {
             let base_printing = primary && card == StrategyCard::DiplomacyBase && f.rules_version >= RULES_BASE_DIPLOMACY;
             Began::Run(Spawn::Diplomacy { who, card, primary, base_printing })
         }
-        (StrategyCardKind::Warfare, false) | (StrategyCardKind::Imperial, true) => Began::Unsupported,
+        (StrategyCardKind::Warfare, false) => match f.home {
+            Home::Nothing => Began::Done,
+            Home::At(system) => match f.roster {
+                Some(roster) => Began::Run(Spawn::HomeAt { who, system, roster, agent_rules: f.rules_version >= RULES_WINNU_AGENT_PRODUCTION }),
+                None => Began::Unsupported,
+            },
+            Home::Unsupported => Began::Unsupported,
+        },
+        (StrategyCardKind::Imperial, true) => match f.imperial {
+            Some(facts) => Began::Run(Spawn::Imperial { who, facts }),
+            None => Began::Unsupported,
+        },
     }
 }
 
@@ -149,18 +196,32 @@ pub struct Finished {
     pub failed: bool,
     /// The system the Diplomacy primary placed tokens in and the seats that got one (in seating order): the adapter announces them.
     pub tokens: Option<(System, SmallList<Seat, 8>)>,
+    /// What the Warfare secondary's home production made, in order, with the system it ran in: the adapter announces it (`UNITS_PRODUCED`).
+    pub made: Option<Made>,
+    /// The public objective the Imperial primary scored (what the score sets off is the adapter's).
+    pub scored: Option<PublicObjective>,
+    /// The system of the free tactical action of the Thunder's Edge Warfare primary: the game plays it next (`Ability::FreeTactical`).
+    pub free: Option<System>,
+    /// The system of the use of PRODUCTION the Thunder's Edge Construction primary ran, when it ran one (`made` is what it made).
+    pub made_in: Option<System>,
 }
 
 /// What the ability announces when it is done, from the [`Report`] of its window: the three trade goods of the Trade primary
 /// (staged, as the string stages them after its window). `trade_source` is the interned `trade_primary`.
 pub fn finish(report: Report, s: &mut CoreState, trade_source: Code) -> Finished {
+    let none = Finished { failed: false, tokens: None, made: None, scored: None, free: None, made_in: None };
     match report {
-        Report::Left => Finished { failed: true, tokens: None },
-        Report::Placed(system, seats) => Finished { failed: false, tokens: Some((system, seats)) },
+        Report::Left => Finished { failed: true, ..none },
+        Report::Placed(system, seats) => Finished { tokens: Some((system, seats)), ..none },
         Report::Goods(who, goods) => {
             fx::stage(s, fx::trade_goods_gained(who, goods, trade_source));
-            Finished { failed: false, tokens: None }
+            none
         }
-        Report::Nothing | Report::Paid(_) | Report::Chose(_) | Report::Destroyed(_) | Report::Built(_) | Report::Made(_) | Report::Removed(_) => Finished { failed: false, tokens: None },
+        Report::Made(made) => Finished { made: Some(made), ..none },
+        Report::Scored(scored) => Finished { scored, ..none },
+        Report::Free(free) => Finished { free, ..none },
+        Report::Produced(Some((system, made))) => Finished { made: Some(made), made_in: Some(system), ..none },
+        Report::Produced(None) => none,
+        Report::Nothing | Report::Paid(_) | Report::Chose(_) | Report::Destroyed(_) | Report::Built(_) | Report::Removed(_) | Report::Explored(_) => none,
     }
 }

@@ -1,0 +1,119 @@
+zero-bail: 41113 bails/gates in 118 causes over 20 report(s)
+     7815  bail  d1::step  --  tactical
+     5438  bail  d1::step  --  aftermath
+     3344  bail  d1::step  --  turn_prelude
+     3344  bail  turn::hooks  --  minister_of_war
+     3339  bail  turn::hooks  --  legendary::end_turn
+     3339  bail  turn::hooks  --  technology::end_turn
+     3137  bail  d1::step  --  ask.closing
+     2380  bail  d1::step  --  voting
+     1996  bail  d1::reconcile  --  announce_staged_ground_events
+     1293  bail  d1::step  --  trade
+     1142  bail  d1::step  --  tokens
+      863  bail  d1::step  --  ask.draft
+      697  gate  invasion::control_gain_exploration  --  the exploration of a first claim is the string's (its steps are dual writes of the exploration area; the reveal and its rewards are W13)
+      558  bail  aftermath::fight_over  --  Titans of Ul at the table (Coalescence)
+      359  bail  tactical::activate  --  nested (unported ability leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after)
+      357  bail  tactical::activate  --  Scanlink Drone Network held
+      332  bail  d1::reconcile  --  announce_gains
+      165  bail  d1::step  --  ask.action_menu
+      124  bail  tactical::activate  --  nested (unported ability ability:*:aetherpassage:SYSTEM_ACTIVATED:after)
+      123  bail  d1::step  --  status
+       89  bail  tactical::activate  --  nested (unported ability ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after)
+       71  bail  d1::step  --  agenda
+       64  bail  invasion::finish_control_gain  --  nested (unported ability ability:*:reclamation_mark:PLANET_CONTROL_GAINED:after)
+       61  bail  combat::settle  --  notes of the end announcement (Cabal marks, a staged event) written by the string
+       48  bail  tactical::finish  --  the Sardakk hero is unlocked
+       31  bail  tactical::free  --  nested (unported ability leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after)
+       30  bail  tactical::activate  --  nested (unported ability unit:*:ghost_mech:SYSTEM_ACTIVATED:after)
+       26  bail  aftermath::head  --  a reroll question (Jol-Nar commander, Heart of Ixth) or a commander payment not held as unlocked
+       25  bail  tactical::finish  --  map edits (Nova Seed)
+       25  bail  combat::space_cannon_offense  --  a reroll question (Jol-Nar commander, Heart of Ixth) or a commander payment not held as unlocked
+       23  bail  tactical::activate  --  nested (unported ability leader:*:ghostagent:SYSTEM_ACTIVATED:after)
+       23  bail  strategy_cards::technology_primary  --  a seat whose own effects on a research are questions or forms (Deepwrought, Keleres, a Mentak with The Table's Grace, Last Bastion, Crimson) or a purged technology
+       22  bail  production::produce_one  --  a question asked inside a battle or an invasion
+       20  bail  d1::step  --  strategy_announce
+       18  bail  tactical::free  --  nested (unported ability ability:*:aetherpassage:SYSTEM_ACTIVATED:after)
+       18  bail  tactical::activate  --  Ceasefire denies the move
+       18  bail  tactical::activate  --  Nullification Field held
+       18  bail  d1::step  --  leader_followers
+       16  gate  combat::settle  --  the Jol-Nar commander (a reroll question in the barrage)
+       15  bail  tactical::activate  --  a hook of the activation asked a question
+       15  bail  d1::step  --  ask.starting_tech
+       14  bail  strategy_cards::te4_construction  --  the production of the Thunder's Edge Construction (a production window nested in the card)
+       14  gate  combat::settle  --  Waylay played in this barrage
+       12  bail  tactical::finish  --  nested (unported ability ability:*:foresight:MOVEMENT_FINISHED:after)
+       12  bail  tactical::activate  --  Mahact at the table (Starlancer, the commander's re-activation)
+       11  bail  tactical::finish  --  nested (unported ability leader:*:empyreanagent:MOVEMENT_FINISHED:after)
+       11  gate  invasion::finish_control_gain  --  Integrated Economy (a triggered production nested in the chain)
+        8  bail  strategy_cards::technology_primary  --  the research hooks of the string and the core disagree (a hook the core does not carry)
+        8  bail  tactical::load  --  nested (unported ability leader:*:empyreancommander:SHIP_MOVED:after)
+        8  bail  strategy_cards::leadership_secondary  --  a command token in a Mahact fleet pool (the reinforcements differ)
+        8  bail  strategy_cards::technology_secondary  --  a seat whose own effects on a research are questions or forms (Deepwrought, Keleres, a Mentak with The Table's Grace, Last Bastion, Crimson) or a purged technology
+        7  bail  tactical::activate  --  nested (unported ability technology:*:as:SYSTEM_ACTIVATED:after)
+        7  bail  tactical::load  --  nested (unported ability reaction:*:SHIP_MOVED:after (card experimental))
+        7  bail  strategy_cards::politics_secondary  --  Yssaril's Scheming and Crafty change the draw and the limit
+        7  bail  tactical::activate  --  nested (unported ability leader:*:yssarilcommander:SYSTEM_ACTIVATED:after)
+        7  bail  aftermath::head  --  nested (unported ability leader:*:argentcommander:UNIT_ABILITY_ROLLED:when)
+        7  bail  game::close_vote  --  a rider or draw the core does not pay
+        7  bail  aftermath::fight_over  --  nested (unported ability ability:*:edict:SPACE_COMBAT_WON:when)
+        6  bail  tactical::activate  --  nested (unported ability promissory:*:crucible:SYSTEM_ACTIVATED:after)
+        6  bail  strategy::secondary  --  a preview window or a card nobody holds
+        5  bail  d1::reconcile  --  nexus_unlocked
+        5  bail  combat::settle  --  Waylay played in the barrage (the hits go to every ship)
+        5  bail  strategy_cards::te4_construction  --  a structure the seat may place instead of a PDS (Titans' Hecatoncheires)
+        5  bail  tactical::activate  --  nested (unported ability promissory:*:pop:SYSTEM_ACTIVATED:after)
+        5  bail  tactical::load  --  nested (unported ability leader:*:muaathero_moved:SHIP_MOVED:after)
+        5  gate  combat::barrage_step  --  the Jol-Nar commander (a reroll question in the barrage)
+        4  bail  strategy_cards::politics_primary  --  Yssaril's Scheming and Crafty change the draw and the limit
+        3  bail  combat::settle  --  the machine: a position it does not carry (cancelled hits, Duranium, staged destructions, Devotion, a retreat the core does not move)
+        3  bail  action_cards::announce  --  the typed state could not be lent (a value the codecs refuse)
+        3  bail  combat::settle  --  nested (unported ability leader:*:argentcommander:UNIT_ABILITY_ROLLED:when)
+        3  bail  tactical::activate  --  nested (unported ability ability:*:terragenesis:PLANET_EXPLORED:after)
+        3  bail  tactical::free  --  nested (unported ability ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after)
+        3  bail  aftermath::head  --  nested (unported ability reaction:*:UNIT_ABILITY_ROLLED:after (card scramble))
+        3  bail  factions::winnu::hero  --  an ability the core does not carry (the Imperial primary, a Thunder's Edge primary, a changed draw, a research a waiver opens)
+        3  bail  strategy_cards::leadership_primary  --  a command token in a Mahact fleet pool (the reinforcements differ)
+        3  bail  combat::answer  --  the machine: a position it does not carry (cancelled hits, Duranium, staged destructions, Devotion, a retreat the core does not move)
+        3  bail  invasion::finish_control_gain  --  nested (unported ability leader:*:naazcommander:PLANET_CONTROL_GAINED:after)
+        3  bail  tactical::activate  --  nested (unported ability ability:*:awaken:SYSTEM_ACTIVATED:after)
+        2  bail  agenda_effects::resolve_with  --  an agenda whose effect the core has no window for
+        2  bail  action_cards::announce  --  a card the core announce window does not play
+        2  bail  tactical::move  --  nested (unported ability reaction:*:SHIP_MOVED:after (card experimental))
+        2  bail  strategy_cards::technology_secondary  --  the research window left the path the core carries (a research only a faction waiver opens)
+        2  bail  tactical::free  --  nested (unported ability unit:*:ghost_mech:SYSTEM_ACTIVATED:after)
+        2  bail  tactical::free  --  nested (unported ability leader:*:yssarilcommander:SYSTEM_ACTIVATED:after)
+        2  bail  tactical::activate  --  nested (unported ability leader:*:b:l1z1xagent:c:SYSTEM_ACTIVATED:after)
+        2  bail  invasion::commit_one  --  nested (unported ability reaction:*:UNITS_COMMITTED:after (card ghost_squad))
+        2  gate  leaders::use_leader  --  empyreanhero: places a frontier token in every system without a planet, then explores each token that holds one of its ships. Kept in lane 8: the core has the primitives of an exploration (draw, fragment, attachment, wormhole token, the reward windows) but no window that explores a frontier token: `exploration::explore_frontier` is `explore_in` (the exploration log row opened and closed with the `Holdings` difference and `row_words`, the card's own arm, the `PLANET_EXPLORED` hooks), run once per token under a whole-state rollback of the state, the dice and the stream
+        2  bail  strategy_cards::technology_secondary  --  the research hooks of the string and the core disagree (a hook the core does not carry)
+        2  bail  aftermath::fight_over  --  nested (unported ability leader:*:mentakcommander:SPACE_COMBAT_WON:after)
+        2  bail  combat::answer  --  nested (an action card the core does not play)
+        2  bail  combat::answer  --  the core window refused the recorded answer or stage
+        2  bail  tactical::activate  --  nested (unported ability leader:*:e:yssarilagent:ghostagent:SYSTEM_ACTIVATED:after)
+        2  bail  combat::answer  --  nested (unported ability reaction:*:SUSTAIN_DAMAGE_USED:when (card reflective))
+        2  bail  tactical::activate  --  nested (unported ability leader:*:arboreccommander:SYSTEM_ACTIVATED:after)
+        2  bail  tactical::load  --  nested (unported ability promissory:*:stymie:SHIP_MOVED:after)
+        2  bail  tactical::finish  --  nested (unported ability leader:*:muaathero:MOVEMENT_FINISHED:after)
+        1  bail  tactical::move  --  nested (unported ability leader:*:empyreancommander:SHIP_MOVED:after)
+        1  bail  strategy_cards::construction_secondary  --  a seat the production windows do not carry, or Minister of Industry (a production after the dock)
+        1  bail  tactical::activate  --  nested (unported ability leader:*:naazagent:TURN_PASSED:after)
+        1  bail  action_cards::announce  --  the research hooks of the string and the core disagree (a hook the core does not carry)
+        1  bail  combat::settle  --  nested (unported ability promissory:*:ambuscade:UNIT_ABILITY_ROLLED:when)
+        1  bail  aftermath::head  --  nested (unported ability promissory:*:ambuscade:UNIT_ABILITY_ROLLED:when)
+        1  bail  combat::settle  --  nested (unported ability reaction:*:UNIT_ABILITY_ROLLED:after (card scramble))
+        1  bail  combat::settle  --  nested (unported ability reaction:*:SHIP_DESTROYED:after (card courageous))
+        1  bail  invasion::finish_control_gain  --  nested (Harness Energy / Infiltrate)
+        1  bail  invasion::finish_control_gain  --  the core window refused the recorded answer or stage
+        1  bail  combat::settle  --  nested (unported ability reaction:*:COMBAT_ROUND_STARTED:after (card scramble))
+        1  bail  combat::answer  --  nested (unported ability reaction:*:SHIP_DESTROYED:after (card courageous))
+        1  bail  aftermath::head  --  nested (unported ability reaction:*:SUSTAIN_DAMAGE_USED:when (card reflective))
+        1  bail  tactical::activate  --  nested (unported ability reaction:*:SYSTEM_ACTIVATED:after (card harness))
+        1  bail  strategy_cards::imperial_primary  --  a scoreable objective the tables do not know
+        1  bail  tactical::activate  --  nested (unported ability reaction:*:SYSTEM_ACTIVATED:after (card upgrade))
+        1  bail  invasion::bombard_step  --  nested (dice rolled by an ability in a window lent no stream)
+        1  bail  invasion::bombard_step  --  the core window refused the recorded answer or stage
+        1  gate  invasion::finish_committing  --  a combat a faction rule forces (Titans' Coalescence)
+        1  bail  strategy_cards::construction_secondary  --  a structure the seat may place instead of a PDS (Titans' Hecatoncheires)
+        1  bail  strategy_cards::te4_construction  --  a seat the production windows do not carry, or Minister of Industry (a production after the dock)
+        1  bail  factions::naaz::hero  --  an ability the core does not carry (the Warfare secondary, a changed draw, a research a waiver opens)

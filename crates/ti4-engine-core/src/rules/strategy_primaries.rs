@@ -550,7 +550,7 @@ impl ImperialPrimary {
     fn finish(&mut self, sx: &mut Sx<'_>) {
         self.stage = IStage::Done;
         if Self::controls_mecatol(sx.state, self.who) {
-            fx::gain_victory_points(sx.state, self.who, 1, crate::state::LedgerReason::ImperialPrimary);
+            fx::adjust_victory_points(sx.state, self.who, 1, crate::state::LedgerReason::ImperialPrimary);
         } else if fx::draw_secret(sx.state, self.who).is_some() {
             match sx.table.links.start(&Spawn::HandLimit { who: self.who }) {
                 Some(window) => {
@@ -921,6 +921,23 @@ mod tests {
         assert!(matches!(status, Status::Done), "a point for Mecatol Rex, no draw");
         assert_eq!(s.decks().secret.len(), 1);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.victory_points, 1, "exactly one point");
+    }
+
+    /// Package W13: the point for Mecatol Rex stops at the victory target, and the ledger row records the change that happened.
+    #[test]
+    fn imperial_primarys_point_for_mecatol_stops_at_the_victory_target() {
+        let mut s = drawing(&FULL, &[]);
+        s.board_mut().planet_mut(crate::generated::Planet::MecatolRex).control = Some(Seat(0));
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.victory_points = 10;
+        let (status, _) = start(ImperialPrimary::new(Seat(0), SmallList::new()), &mut s, true);
+        assert!(matches!(status, Status::Done));
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.victory_points, 10, "no seat holds more than the target");
+        assert_eq!(s.ledger().vp.last().map(|r| r.delta), Some(0), "the row is the change that happened");
+        let mut s = drawing(&FULL, &[]);
+        s.board_mut().planet_mut(crate::generated::Planet::MecatolRex).control = Some(Seat(0));
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.victory_points = 9;
+        let _ = start(ImperialPrimary::new(Seat(0), SmallList::new()), &mut s, true);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.victory_points, 10);
     }
 
     // -- Politics: the draw is a child window (package W6) -----------------------------------------------------------

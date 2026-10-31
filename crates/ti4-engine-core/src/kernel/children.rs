@@ -13,7 +13,7 @@
 use crate::choice::explore::{Opt as EOpt, Step as EStep};
 use crate::choice::{Choice, Pick};
 use crate::containers::SmallList;
-use crate::generated::{ActionCard, Planet, StrategyCard, System, Technology, Unit};
+use crate::generated::{ActionCard, Planet, PublicObjective, StrategyCard, System, Technology, Unit};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -36,6 +36,10 @@ pub struct StructureFacts {
     pub dock: Placement,
     /// The code of the source `place_structure` (the adapter's text table).
     pub source: Code,
+    /// Titans' Hecatoncheires, an alternative to a PDS: the mech and the infantry the seat places instead ("When you would place a PDS on a
+    /// planet, you may place 1 mech and 1 infantry on that planet instead"); `None`: the seat has no such alternative (or a faction effect
+    /// forbids one of the two). It is offered only while both fit in the reinforcements.
+    pub alt: Option<(Unit, Unit)>,
 }
 
 /// What a production by an ability (`Spawn::Produce`) needs of the position that the core does not hold: the numbers the string
@@ -61,17 +65,8 @@ pub struct ProduceFacts {
 }
 
 /// What `Spawn::ProduceOne` (one unit outside a use of PRODUCTION: Chaos Mapping, Freelancers) needs of the position that the core does not
-/// hold.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OneFacts {
-    /// What the seat may produce at all (`buildable_for`), in option order.
-    pub buildable: [Option<Unit>; 9],
-    /// The fleet limit as the enforcement works it out (`fleet::over_supply`: the unlimited bill, else the limit).
-    pub fleet_limit: i32,
-    /// The interned printed name of the effect and its content alias (`None`: it names itself nowhere).
-    pub name: Option<Code>,
-    pub alias: Option<Code>,
-}
+/// hold. Plain data of the state layer (a hosted run keeps it between two questions).
+pub use crate::state::OneFacts;
 
 /// What `Spawn::Seeing` (the enforcement of the fleet supply and the capacity of one seat in one system, `fleet::enforce_seeing`) needs of the
 /// position that the core does not hold: the fleet limit as the string works it out (pool, laws, abilities), the one the question shows
@@ -84,6 +79,90 @@ pub struct SeeingLimits {
     pub shown: i64,
     /// The fighter types counted as half (Naalu Hybrid Crystal Fighter II), at most one per unit form.
     pub halves: [Option<Unit>; 2],
+}
+
+/// What `Spawn::Home` (a use of PRODUCTION at a seat's home system outside a tactical action: the Warfare secondary) needs of the position
+/// that the core does not hold: the numbers the string window opens with (`ProductionWindow::new`, the facts of the seat) and the one
+/// rule of the version that decides whether the window resets the discount a tactical action left unspent. The adapter computes them on
+/// the position the ability starts from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HomeFacts {
+    /// The use: `limit` is the PRODUCTION total of the system (the capacity), `discount` the cost reduction of the faction hooks there.
+    pub produce: ProduceFacts,
+    /// `rules_version >= RULES_WINNU_AGENT_PRODUCTION`: Berekar Berekon is offered to the use, and the discount an earlier tactical
+    /// action left unspent is not read.
+    pub agent_rules: bool,
+}
+
+/// How many systems the free tactical action of the Thunder's Edge Warfare primary can name (the map, the systems in play beside it).
+pub const FREE_SYSTEMS: usize = 96;
+/// How many systems the production of the Thunder's Edge Construction primary can name.
+pub const TE_USES: usize = 12;
+
+/// The systems the free tactical action of the Thunder's Edge Warfare primary may be played in ("any system": the printed map and every
+/// system in play beside it), in the order the string offers them, and the interned source `te6warfare` of the question
+/// (`Spawn::TeWarfare`). `None` from [`Self::new`]: more systems than the facts hold, the adapter declines the run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FreeSystems {
+    pub source: Code,
+    len: u8,
+    ids: [System; FREE_SYSTEMS],
+}
+
+impl FreeSystems {
+    #[must_use]
+    pub fn new(source: Code, systems: &[System]) -> Option<Self> {
+        if systems.len() > FREE_SYSTEMS {
+            return None;
+        }
+        let mut ids = [System::ALL[0]; FREE_SYSTEMS];
+        ids[..systems.len()].copy_from_slice(systems);
+        Some(Self { source, len: u8::try_from(systems.len()).ok()?, ids })
+    }
+
+    /// The systems, in the order of the question.
+    #[must_use]
+    pub fn systems(&self) -> &[System] {
+        &self.ids[..usize::from(self.len)]
+    }
+}
+
+/// What `Spawn::ConstructionTe` (the Thunder's Edge Construction primary) needs of the position that the core does not hold beyond the
+/// structures: the interned source `te4construction` of the choice and the facts of the use of PRODUCTION in each system that can produce,
+/// in the order the string offers them (`HomeFacts`: the same use as the Warfare secondary's, in another system). `None` from [`Self::new`]:
+/// more systems than the facts hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TeUses {
+    pub source: Code,
+    len: u8,
+    uses: [Option<HomeFacts>; TE_USES],
+}
+
+impl TeUses {
+    #[must_use]
+    pub fn new(source: Code, uses: &[HomeFacts]) -> Option<Self> {
+        if uses.len() > TE_USES {
+            return None;
+        }
+        let mut held = [None; TE_USES];
+        for (slot, facts) in held.iter_mut().zip(uses) {
+            *slot = Some(*facts);
+        }
+        Some(Self { source, len: u8::try_from(uses.len()).ok()?, uses: held })
+    }
+
+    /// The uses, in the order of the question.
+    pub fn uses(&self) -> impl Iterator<Item = HomeFacts> + '_ {
+        self.uses[..usize::from(self.len)].iter().filter_map(|u| *u)
+    }
+}
+
+/// What `Spawn::Imperial` (the Imperial primary) needs of the position that the core does not hold: the public objectives the seat could
+/// score (the string's `objectives::scoreable_on`), up to sixteen, and the environment of the payment of a bought objective.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImperialFacts {
+    pub scoreable: [Option<PublicObjective>; 16],
+    pub env: crate::kernel::fx_pay::PayEnv,
 }
 
 /// The units a finished production made, in order: the unit and the planet it stands on (`None`: the space area).
@@ -128,6 +207,25 @@ pub enum Report {
     Made(Made),
     /// An enforcement finished: how many units it removed.
     Removed(u32),
+    /// The Imperial primary finished: the public objective the holder scored, if any (what the score sets off is the adapter's).
+    Scored(Option<PublicObjective>),
+    /// The Thunder's Edge Warfare primary finished: the system of the free tactical action the game plays next (`None`: no system to offer).
+    Free(Option<System>),
+    /// The Thunder's Edge Construction primary finished: the use of PRODUCTION it ran, the system and what it made (`None`: a structure was chosen).
+    Produced(Option<(System, Made)>),
+    /// An exploration finished: how it ended.
+    Explored(ExploreEnd),
+}
+
+/// How an exploration ended (`Report::Explored`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExploreEnd {
+    /// The card was resolved and its row closed.
+    Explored,
+    /// The deck ran out.
+    Empty,
+    /// The exploration declined its run (a card the core does not carry, no texts, no link to a child).
+    Unsupported,
 }
 
 /// A window of another area, run as a child: the object-safe face of [`Window`] plus what the finished window reports.
@@ -243,6 +341,7 @@ impl ErasedChild {
 }
 
 /// A child window of another area, asked for by its parent (the arguments of the window's constructor, as data).
+#[allow(clippy::large_enum_variant, reason = "a request is built once per child window and moved to the table; boxing the facts of the largest variant (the Thunder's Edge Construction uses) would cost an allocation per start")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Spawn {
     /// `production::pay::PayBill`: `who` pays `cost` of `kind`; reports [`Report::Paid`].
@@ -260,6 +359,9 @@ pub enum Spawn {
     Leadership { who: Seat, primary: bool },
     /// The Construction ability.
     Construction { who: Seat, primary: bool, facts: StructureFacts },
+    /// The primary of the Thunder's Edge Construction: a structure or a use of PRODUCTION in one of `uses`, then another structure; reports
+    /// [`Report::Produced`] (or [`Report::Left`] when the use holds something the core does not carry).
+    ConstructionTe { who: Seat, facts: StructureFacts, uses: TeUses },
     /// The Titan Prototype's build for `who`: three resources for a structure, else a trade good (`goods` is the interned
     /// source `relic`); reports [`Report::Built`].
     TitanBuild { who: Seat, facts: StructureFacts, goods: Code },
@@ -270,6 +372,9 @@ pub enum Spawn {
     Politics { who: Seat, primary: bool, official: bool },
     /// The Warfare primary; `letnev_pool`: the Letnev fleet pool may be emptied.
     Warfare { who: Seat, letnev_pool: bool },
+    /// The primary of the Thunder's Edge Warfare (`strategy_primaries::TeWarfare`): the redistribution before the action and the system of the
+    /// free tactical action; reports [`Report::Free`] (the tactical action and the redistribution after it are the game's).
+    TeWarfare { who: Seat, letnev_pool: bool, free: FreeSystems },
     /// The Diplomacy ability of `card`; the primary readies every planet of the system when `base_printing`.
     Diplomacy { who: Seat, card: StrategyCard, primary: bool, base_printing: bool },
     /// The Trade primary; reports [`Report::Goods`].
@@ -288,6 +393,21 @@ pub enum Spawn {
     /// `tactical::fleet::Enforce`: `who` removes the units over the fleet supply, then over capacity, in `system`, one question each;
     /// reports [`Report::Removed`].
     Seeing { who: Seat, system: System, limits: SeeingLimits },
+    /// `production::home::HomeProduction`: a use of PRODUCTION at the home system of `facts.produce.who` outside a tactical action (the Warfare
+    /// secondary): the Hacan hero's offer, the production, the effects at the end of the use, the Self-Assembly Routines offer; reports
+    /// [`Report::Made`], or [`Report::Left`] when the run holds something the core does not carry.
+    Home { facts: HomeFacts },
+    /// [`Self::Home`] with the facts read from the position when the use starts (`home_facts`): the Warfare secondary performed after an
+    /// ability that changed what a production reads (tokens, a unit upgrade, a space dock). Reports as [`Self::Home`].
+    HomeAt { who: Seat, system: System, roster: &'static UnitRoster, agent_rules: bool },
+    /// `strategy_primaries::ImperialPrimary`: score a public objective, then a point for Mecatol Rex or a secret objective; reports
+    /// [`Report::Scored`], or [`Report::Left`] when the table has no link to the hand limit window.
+    Imperial { who: Seat, facts: ImperialFacts },
+    /// Self-Assembly Routines' offer at the end of a use of PRODUCTION in `system` (a window of the faction crate: the table's extra link).
+    SelfAssembly { who: Seat, system: System },
+    /// `explore_windows::Exploring` of the frontier token in `system`, spent first and announced to nobody (the string explores it with no
+    /// timing handle); reports [`Report::Explored`].
+    ExploreFrontier { who: Seat, system: System },
 }
 
 /// Starts the child window a [`Spawn`] names; `None` for a request the table does not know.
@@ -299,6 +419,29 @@ pub type ResearchableFn = fn(&CoreState, &Kernel, Scope, Seat) -> SmallList<Tech
 /// `technology::research` of a technology a card chose, the bill (if any) already paid; whether it was researched.
 pub type ResearchFn = fn(&mut CoreState, &Kernel, Scope, UnitRoster, Seat, Technology) -> bool;
 
+/// What a window that hosts `ProduceOne` in its own payload calls (the state is [`crate::state::OneRun`]; the window object is rebuilt from it at
+/// every call by the production area): the facts the seat produces with, one step, the question, one answer.
+/// The units a seat may produce (nine forms) and the fleet limit they are judged by.
+pub type BuildableFacts = ([Option<Unit>; 9], i32);
+
+#[derive(Clone, Copy)]
+pub struct OneLink {
+    /// What the seat may produce and the fleet limit it is judged by (`production::home::{buildable_for, fleet_limit}`).
+    pub facts: fn(&CoreState, &Kernel, &UnitRoster, Seat) -> Option<BuildableFacts>,
+    /// Run the unit to its next question or its end (`Next::Done`).
+    pub step: fn(crate::state::OneRun, &mut Sx<'_>) -> (crate::state::OneRun, Next),
+    /// The question it waits on.
+    pub ask: fn(&crate::state::OneRun, &CoreState, &Kernel) -> Option<Choice>,
+    /// Apply an answer.
+    pub answer: fn(crate::state::OneRun, &mut Sx<'_>, Pick) -> Result<crate::state::OneRun, Illegal>,
+}
+
+impl std::fmt::Debug for OneLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OneLink")
+    }
+}
+
 /// The calls a window makes into other areas, by function pointer. Filled by `crate::driver::children::register`; empty by
 /// default (a window that needs a link then declines its run).
 #[derive(Clone, Copy, Default)]
@@ -309,11 +452,15 @@ pub struct AreaLinks {
     pub researchable: Option<ResearchableFn>,
     /// Research a technology.
     pub research: Option<ResearchFn>,
+    /// Start a child window the faction crate owns (Self-Assembly Routines): consulted when [`Self::spawn`] does not know the request.
+    pub spawn_extra: Option<SpawnFn>,
+    /// `ProduceOne` kept by its host's payload (Freelancers inside an exploration).
+    pub one: Option<OneLink>,
 }
 
 impl std::fmt::Debug for AreaLinks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AreaLinks").field("spawn", &self.spawn.is_some()).field("researchable", &self.researchable.is_some()).field("research", &self.research.is_some()).finish()
+        f.debug_struct("AreaLinks").field("spawn", &self.spawn.is_some()).field("researchable", &self.researchable.is_some()).field("research", &self.research.is_some()).field("spawn_extra", &self.spawn_extra.is_some()).field("one", &self.one.is_some()).finish()
     }
 }
 
@@ -327,7 +474,7 @@ impl AreaLinks {
     /// Start the child window `request` names. `None`: no link, or a request the link does not know.
     #[must_use]
     pub fn start(&self, request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
-        (self.spawn?)(request)
+        (self.spawn?)(request).or_else(|| (self.spawn_extra?)(request))
     }
 }
 

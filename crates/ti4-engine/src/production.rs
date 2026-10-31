@@ -7421,11 +7421,11 @@ mod tests {
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     }
 
-    /// A Nomad that hears the exhaustion of an agent (Temporal Command Suite) is told by the string; the core window does
-    /// not tell it, so the offer bails (the window is counted, nothing differs).
+    /// A Nomad that hears the exhaustion of an agent (Temporal Command Suite) is told by the string, and by the core window as well (it was the counted bail
+    /// `NomadAgentExhaustion`): the offer is compared, nothing differs, and the Nomad's `AGENT_EXHAUSTED` is staged.
     #[test]
-    fn bail_the_keleres_agent_with_a_listening_nomad_is_counted() {
-        let (_, r) = offered_use(
+    fn the_keleres_agent_exhaustion_is_staged_for_a_nomad_that_listens_in_lockstep() {
+        let (state, r) = offered_use(
             ["hacan", "keleresm", "nomad"],
             1,
             |s| {
@@ -7436,9 +7436,9 @@ mod tests {
             &["use"],
         );
         let w = r.windows.get("production::agent_offer").copied().unwrap_or_default();
-        assert_eq!(w.compared, 0, "{:?}", r.windows);
-        assert!(w.bailed >= 1 || r.windows.keys().any(|k| k.contains("production::agent_offer") && k.contains("Nomad")), "{:?}", r.windows);
+        assert!(w.compared >= 1 && w.bailed == 0, "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        assert!(crate::supply::staged_event_types(&state).iter().any(|t| t == "AGENT_EXHAUSTED"), "the Nomad was told: {:?}", state.faction_marks);
     }
 
     #[test]

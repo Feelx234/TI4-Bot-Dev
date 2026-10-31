@@ -111,3 +111,18 @@ impl Window for SelfAssembly {
         Ok(())
     }
 }
+
+/// The child windows of this crate that an area of the core runs (`Spawn::SelfAssembly`, the offer at the end of a use of PRODUCTION): the
+/// core cannot name a window of this crate, so the table's extra link starts it.
+fn spawn_extra(request: &ti4_engine_core::kernel::children::Spawn) -> Option<Box<dyn ti4_engine_core::kernel::children::ErasedWindow>> {
+    use ti4_engine_core::kernel::children::{Erased, Report, Spawn};
+    match request {
+        Spawn::SelfAssembly { who, system } => Some(Erased::boxed(SelfAssembly::new(*who, *system), |_| Report::Nothing)),
+        _ => None,
+    }
+}
+
+/// Fill the table's extra link with the windows of this crate (`Spawn::SelfAssembly`); the links of the areas are `driver::children::register`'s.
+pub fn register_links(t: &mut ti4_engine_core::kernel::stage::AbilityTable) {
+    t.links.spawn_extra = Some(spawn_extra);
+}

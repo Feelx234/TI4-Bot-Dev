@@ -54,7 +54,7 @@ pub struct NativeArms(u32);
 
 impl NativeArms {
     pub const NONE: Self = Self(0);
-    pub const ALL: Self = Self((1 << 19) - 1);
+    pub const ALL: Self = Self((1 << 21) - 1);
 
     /// The set of exactly `arms`.
     #[must_use]
@@ -235,9 +235,12 @@ mod tests {
         assert_eq!(step(&mut s, &f, needs(), NativeArms::ALL), Step::Lend(Lent::Arm(Arm::Diplomacy)));
         assert_eq!(
             NativeArms::registered(),
-            NativeArms::of(&[Arm::EventScoring, Arm::Scoring, Arm::Tokens, Arm::Voting, Arm::Trade, Arm::TurnPrelude, Arm::Status, Arm::Agenda, Arm::StrategyAnnounce, Arm::Ask, Arm::Phase])
+            NativeArms::of(&[
+                Arm::Tokens, Arm::EventScoring, Arm::Scoring, Arm::Status, Arm::Trade, Arm::Voting, Arm::Agenda, Arm::Aftermath, Arm::Tactical, Arm::Invasion, Arm::Production,
+                Arm::TurnPrelude, Arm::StrategyAnnounce, Arm::Phase, Arm::Ask
+            ])
         );
-        assert_eq!(NativeArms::ALL.bits().count_ones(), 19);
+        assert_eq!(NativeArms::ALL.bits().count_ones(), 21);
         assert!(NativeArms::NONE.bits() == 0 && !NativeArms::NONE.has(Arm::Tokens));
     }
 

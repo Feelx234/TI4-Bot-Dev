@@ -41,7 +41,8 @@ const CLOSE: Footprint = Footprint::new(
         Slice::Ledger,
         Slice::Pending,
     ],
-    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Agenda, Slice::Transient, Slice::Ledger, Slice::Pending],
+    // (Marks: the discard Scheming asks of a Yssaril voter after its draw is staged as a mark, package W14.)
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Objectives, Slice::Decks, Slice::Agenda, Slice::Marks, Slice::Transient, Slice::Ledger, Slice::Pending],
 );
 
 /// The core half of `Game::close_vote`.
@@ -176,9 +177,6 @@ fn rider_research(
     let holders: Vec<&ti4_model::id::PlayerId> = gs.agenda_predictions.iter().filter(|(_, p)| **p == correct).map(|(who, _)| who).collect();
     if holders.is_empty() {
         return Some((scope, roster));
-    }
-    if gs.rules_version < ti4_model::state::RULES_TECH_PAYMENT_CHOICE {
-        return None;
     }
     let before = gs.clone();
     for who in holders {

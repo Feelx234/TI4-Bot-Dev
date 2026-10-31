@@ -56,6 +56,13 @@ impl SustainCommander {
     }
 
     const ASK: Ask = Ask::Leaders(LAsk::SustainCommander);
+
+    /// The offer already answered (below `RULES_FACTION_EFFECTS` the trade good is paid without a question, by the
+    /// window that hosts this one): it asks nothing and ends at once.
+    #[must_use]
+    pub const fn settled(player: Seat, source: Code) -> Self {
+        Self { player, source, stage: Stage::Done }
+    }
 }
 
 impl Window for SustainCommander {

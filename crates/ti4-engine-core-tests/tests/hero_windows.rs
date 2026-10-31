@@ -194,7 +194,9 @@ fn groups() -> AbilityTable {
 }
 
 fn kyver(hands: [&[ActionCard]; 3], limited: bool) -> Rig<KyverHero> {
+    // (The hand limit is the hook table's: a seat that is limited at this table is one whose faction hooks do not lift it, so the plain table.)
     let sc = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheArborec, Faction::TheEmbersOfMuaat])
+        .kernel(if limited { kernel_plain() } else { kernel_all() })
         .hand(0, hands[0])
         .hand(1, hands[1])
         .hand(2, hands[2]);
@@ -496,12 +498,12 @@ fn owners_and_systems_are_enforced_in_the_order_the_adapter_gives() {
 
 // -- Hesh and Prit, Mathis Mathinus ------------------------------------------------------------------
 
-use ti4_engine_core::kernel::fx_perform::{Carried, Facts as PerformFacts};
+use ti4_engine_core::kernel::fx_perform::{Carried, Facts as PerformFacts, Home};
 use ti4_engine_core::rules::hero_windows::{NaazHero, WinnuHero};
 use ti4_engine_core::tables::Scope;
 
 fn perform_facts(carried: Carried) -> PerformFacts {
-    PerformFacts { carried, replenish_events: false, rules_version: LATEST_RULES, roster: None, scope: Scope(u32::from(kernel_all().sources.0)), mahact_held: 0 }
+    PerformFacts { carried, replenish_events: false, rules_version: LATEST_RULES, roster: None, scope: Scope(u32::from(kernel_all().sources.0)), mahact_held: 0, home: Home::Unsupported, imperial: None, free: None, te_uses: None }
 }
 
 fn naaz(cards: &[StrategyCard], relics: &[Relic], tokens: (i16, i16, i16)) -> Rig<NaazHero> {
@@ -853,7 +855,14 @@ fn a_table_where_a_replenishment_causes_events_leaves_the_trade_secondary_to_the
     rig.run();
     rig.pick(0);
     assert!(rig.is_done() && rig.driver.window.unsupported);
-    // A command token in a Mahact pool changes what the Leadership questions preview.
+}
+
+/// A command token in a Mahact fleet pool is not in the reinforcements, which the core reads from the marks (`fx::tokens_held_by_mahact`):
+/// the Leadership secondary is the core's at such a table since package W13 (it was the string's before).
+#[test]
+fn a_command_token_in_a_mahact_pool_does_not_make_the_leadership_secondary_the_strings() {
+    covers!("rules::hero_windows::NaazHero");
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
     let sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheArborec]).kernel(kernel_all()).tokens(0, 3, 3, 2);
     let mut facts = perform_facts(Carried { payments: true, ..Carried::default() });
     facts.mahact_held = 1;
@@ -861,7 +870,7 @@ fn a_table_where_a_replenishment_causes_events_leaves_the_trade_secondary_to_the
     rig.state.decks_mut().relic.set(vec![relic]);
     rig.run();
     rig.pick(0);
-    assert!(rig.is_done() && rig.driver.window.unsupported);
+    assert!(!rig.driver.window.unsupported, "{}", rig.transcript());
 }
 
 #[test]
@@ -940,4 +949,630 @@ fn a_destination_off_the_map_is_refused_though_the_seat_could_enter_it() {
     rig.pick(0);
     assert!(rig.is_done() && !rig.driver.window.moved);
     assert_eq!(delta(rig.start_state(), &rig.state), "");
+}
+
+// -- Conservator Procyon ---------------------------------------------------------------------------------------
+
+use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
+use ti4_engine_core::rules::hero_windows::EmpyreanHero;
+use ti4_engine_core::state::EHow;
+use ti4_engine_core_tests::windows::{explore_table, text_of};
+
+/// Seat 0 (an Empyrean) holds a cruiser and a frontier token in each of `tokens` systems; the frontier deck is `deck`; the window explores
+/// them in the order of the systems returned.
+fn empyrean(deck: &[Explore], tokens: usize, version: u32) -> (Rig<EmpyreanHero>, Vec<System>) {
+    let (state, kernel, systems) = empyrean_parts(deck, tokens, version);
+    let window = EmpyreanHero::new(Seat(0), Vec::new(), systems.clone());
+    (Rig::from_parts(state, kernel, window).with_table(explore_table()), systems)
+}
+
+fn empyrean_parts(deck: &[Explore], tokens: usize, version: u32) -> (CoreState, Kernel, Vec<System>) {
+    let systems: Vec<System> = plain_systems().into_iter().take(tokens.max(1)).collect();
+    let mut sc = Scenario::new(&[Faction::TheEmpyrean, Faction::TheArborec]).map_from(&systems).rules(version).commodities(0, 0);
+    for system in &systems {
+        sc = sc.unit(*system, None, Unit::CruiserI, 0, 1);
+    }
+    let (mut state, kernel) = sc.build();
+    for system in systems.iter().take(tokens) {
+        state.explore_mut().frontier.insert(*system);
+    }
+    state.decks_mut().explore[ExploreType::Frontier as usize].set(deck.to_vec());
+    state.decks_mut().explore_present |= 1 << ExploreType::Frontier as u8;
+    (state, kernel, systems)
+}
+
+fn goods_of(rig: &Rig<EmpyreanHero>) -> i16 {
+    rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods
+}
+
+/// The (how, result) texts of the log rows the run closed.
+fn rows(rig: &Rig<EmpyreanHero>) -> Vec<(String, String)> {
+    rig.state.explore().log.iter().map(|r| (text_of(&rig.state, r.outcome), r.result.map(|c| text_of(&rig.state, c)).unwrap_or_default())).collect()
+}
+
+#[test]
+fn a_fragment_and_an_entropic_field_are_explored_in_order_and_the_pool_is_asked() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut rig, systems) = empyrean(&[Explore::UnknownRelicFragment1, Explore::EntropicField], 2, LATEST_RULES);
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 })), "{}", rig.transcript());
+    assert_eq!(rig.opts().len(), 3);
+    rig.assert_options_sound();
+    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Strategic)));
+    assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
+    let p = rig.state.players().by_seat(Seat(0)).unwrap();
+    assert_eq!(p.cards.fragments.get(ExploreType::Frontier), Some(1));
+    assert_eq!(goods_of(&rig), 2);
+    assert!(rig.state.explore().frontier.is_empty(), "both tokens are spent");
+    let log: Vec<_> = rig.state.explore().log.iter().map(|r| (r.card, r.system, r.deck, r.planet)).collect();
+    assert_eq!(
+        log,
+        vec![(Explore::UnknownRelicFragment1, Some(systems[0]), ExploreType::Frontier, None), (Explore::EntropicField, Some(systems[1]), ExploreType::Frontier, None)],
+        "the rows are opened with the token's system, in the order of the systems"
+    );
+    let words = rows(&rig);
+    assert_eq!(words.len(), 2);
+    assert_eq!(words[0].0, format!("{:?}", EHow::Fragment(ExploreType::Frontier)), "the words of a row are the adapter's");
+    assert!(words[0].1.starts_with("goods 0>0"), "the fragment gives no goods: {}", words[0].1);
+    assert_eq!(words[1].0, "Resolved");
+    assert!(words[1].1.starts_with("goods 0>2"), "the holdings are read around each card: {}", words[1].1);
+}
+
+#[test]
+fn the_tokens_are_explored_in_the_order_the_adapter_gives_and_a_token_without_a_ship_is_left() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1, Explore::UnknownRelicFragment2, Explore::UnknownRelicFragment3], 3, LATEST_RULES);
+    // The order reversed and the middle system without a ship.
+    state.board_mut().sys_mut(systems[1]).units.clear();
+    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), vec![systems[2], systems[1], systems[0]])).with_table(explore_table());
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.used);
+    let log: Vec<_> = rig.state.explore().log.iter().map(|r| (r.card, r.system)).collect();
+    assert_eq!(log, vec![(Explore::UnknownRelicFragment1, Some(systems[2])), (Explore::UnknownRelicFragment2, Some(systems[0]))]);
+    assert!(rig.state.explore().frontier.contains(systems[1]), "the token with no ship of the seat stays");
+}
+
+#[test]
+fn the_placed_tokens_join_the_ones_on_the_board() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1, Explore::UnknownRelicFragment2], 2, LATEST_RULES);
+    state.explore_mut().frontier.remove(systems[1]);
+    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), vec![systems[1]], vec![systems[0], systems[1]])).with_table(explore_table());
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.used);
+    assert_eq!(rig.state.explore().log.len(), 2, "the placed token under a ship is explored too");
+    assert_eq!(rig.state.explore().log.iter().map(|r| r.system).collect::<Vec<_>>(), vec![Some(systems[0]), Some(systems[1])]);
+    assert!(rig.state.explore().frontier.is_empty());
+}
+
+#[test]
+fn a_merchant_station_replenishes_or_converts() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    // Nothing to convert: the lone option is taken unasked and the commodities come to the printed value.
+    let (mut rig, _) = empyrean(&[Explore::MerchantStation1], 1, LATEST_RULES);
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
+    let limit = i16::from(Faction::TheEmpyrean.data().commodities);
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, limit);
+    // Commodities in hand: asked; converted they become trade goods.
+    let (mut rig, _) = empyrean(&[Explore::MerchantStation2], 1, LATEST_RULES);
+    rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.commodities = 2;
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Explore(_)), "{}", rig.transcript());
+    rig.pick_where(|o| matches!(o, Opt::Explore(ti4_engine_core::choice::explore::Opt::Convert)));
+    assert!(rig.is_done() && rig.driver.window.used);
+    assert_eq!((goods_of(&rig), rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities), (2, 0));
+    // Replenished with commodities in hand.
+    let (mut rig, _) = empyrean(&[Explore::MerchantStation2], 1, LATEST_RULES);
+    rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.commodities = 1;
+    rig.run();
+    rig.pick_where(|o| matches!(o, Opt::Explore(ti4_engine_core::choice::explore::Opt::Replenish)));
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, limit);
+}
+
+#[test]
+fn a_replenish_the_core_does_not_follow_declines_the_run_but_the_conversion_is_carried() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    // Two seats of one faction: the Trade Agreement note and the option ids are keyed by faction, so the core does not follow a replenish.
+    let twins = |commodities: i16| {
+        let (state, kernel, systems) = empyrean_parts(&[Explore::MerchantStation1], 1, LATEST_RULES);
+        let mut state = state;
+        state.players_mut().by_seat_mut(Seat(1)).unwrap().faction = Faction::TheEmpyrean;
+        state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.commodities = commodities;
+        Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), systems)).with_table(explore_table())
+    };
+    let mut rig = twins(0);
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.unsupported && !rig.driver.window.used, "{}", rig.transcript());
+    let mut rig = twins(1);
+    rig.run();
+    rig.pick_where(|o| matches!(o, Opt::Explore(ti4_engine_core::choice::explore::Opt::Convert)));
+    assert!(rig.is_done() && !rig.driver.window.unsupported);
+}
+
+#[test]
+fn a_deck_that_runs_out_undoes_the_run_after_the_questions_already_asked() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    // The first token draws an entropic field (a pool question), the second finds the deck empty: everything is undone.
+    let (mut rig, _) = empyrean(&[Explore::EntropicField], 2, LATEST_RULES);
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { .. })), "the first card's question is asked before the failure");
+    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
+    assert!(rig.is_done());
+    assert!(!rig.driver.window.used && !rig.driver.window.unsupported);
+    assert!(rig.state.explore().log.is_empty() || rig.start_state().explore().log.len() == rig.state.explore().log.len());
+    assert_eq!(delta(rig.start_state(), &rig.state), "", "the failed exploration is not a use and changes nothing");
+    // No card at all.
+    let (mut rig, _) = empyrean(&[], 1, LATEST_RULES);
+    rig.run();
+    assert!(rig.is_done() && !rig.driver.window.used);
+    assert_eq!(delta(rig.start_state(), &rig.state), "");
+}
+
+#[test]
+fn the_gamma_token_needs_an_active_system_and_the_ion_storm_a_planet() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut rig, systems) = empyrean(&[Explore::GammaRelay, Explore::GammaWormhole, Explore::IonStorm], 3, LATEST_RULES);
+    rig.state.meta_mut().active_system = Some(systems[2]);
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.used);
+    assert_eq!(rig.state.explore().wormhole_tokens.get(&Wormhole::Gamma), Some(&systems[2]));
+    let words = rows(&rig);
+    assert!(words[0].0 == "Resolved" && words[0].1.contains(&format!("gamma Some({:?})", systems[2])), "the first card places the token: {words:?}");
+    assert!(words[1].0 == "Resolved" && words[1].1.contains("gamma None"), "the second finds it in place: {words:?}");
+    assert_eq!(words[2].0, "Unresolved", "the ion storm names its system through a planet");
+    assert!(rig.state.meta().ion_storm.is_none());
+    // Without an active system the card has nowhere to act.
+    let (mut rig, _) = empyrean(&[Explore::GammaRelay], 1, LATEST_RULES);
+    rig.state.meta_mut().active_system = None;
+    rig.run();
+    assert_eq!(rows(&rig)[0].0, "Unresolved");
+    assert!(rig.state.explore().wormhole_tokens.is_empty());
+}
+
+#[test]
+fn the_mirage_is_placed_in_the_system_of_the_token_from_the_fix_on() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut rig, systems) = empyrean(&[Explore::Mirage], 1, LATEST_RULES);
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.used);
+    assert_eq!(rows(&rig)[0].0, "Resolved");
+    let cell = rig.state.board().planet(Planet::Mirage);
+    assert_eq!((cell.placed_in, cell.control), (Some(systems[0]), Some(Seat(0))));
+    // Before the fix the card named no system.
+    let old = 26;
+    let (mut rig, _) = empyrean(&[Explore::Mirage], 1, old);
+    rig.run();
+    assert_eq!(rows(&rig)[0].0, "Unresolved");
+    assert!(rig.state.board().planet(Planet::Mirage).placed_in.is_none());
+}
+
+#[test]
+fn a_relic_a_secret_a_device_and_command_tokens_without_a_pool_are_gained() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+    let secret = SecretObjective::ALL[0];
+    let (mut rig, _) = empyrean(&[Explore::DeadWorld, Explore::DerelictVessel1, Explore::EnigmaticDevice1, Explore::KeleresShip1], 4, 11);
+    rig.state.decks_mut().relic.set(vec![relic]);
+    rig.state.decks_mut().secret.set(vec![secret]);
+    let tokens = rig.state.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens;
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
+    let p = rig.state.players().by_seat(Seat(0)).unwrap();
+    assert_eq!(p.cards.relics.as_slice(), &[relic]);
+    assert!(p.cards.secrets.as_slice().contains(&secret));
+    assert_eq!(p.cards.explore.as_slice(), &[Explore::EnigmaticDevice1]);
+    assert_eq!(p.econ.strategic_tokens, tokens + 2, "before version 12 the tokens go to the strategy pool unasked");
+}
+
+#[test]
+fn a_secret_over_the_limit_asks_which_to_return() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut rig, _) = empyrean(&[Explore::DerelictVessel1], 1, LATEST_RULES);
+    let held: Vec<SecretObjective> = SecretObjective::ALL.iter().copied().take(3).collect();
+    let next = SecretObjective::ALL[3];
+    rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().cards.secrets.extend(held);
+    rig.state.decks_mut().secret.set(vec![next]);
+    rig.run();
+    assert!(!rig.is_done(), "a fourth secret is over the limit: the seat is asked");
+    rig.pick(0);
+    assert!(rig.is_done() && rig.driver.window.used);
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().cards.secrets.len(), 3);
+}
+
+#[test]
+fn what_the_core_does_not_carry_declines_the_run() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    // An attachment drawn with no planet to attach to is discarded, as the string does (the row says so), and the card is used.
+    let (mut rig, _) = empyrean(&[Explore::DysonSphere], 1, LATEST_RULES);
+    rig.run();
+    assert!(rig.is_done() && !rig.driver.window.unsupported && rig.driver.window.used);
+    assert_eq!(rows(&rig)[0].0, "Discarded");
+    // A table without the texts of the log row declines every card.
+    let (state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1], 1, LATEST_RULES);
+    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), systems));
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.unsupported && !rig.driver.window.used, "no texts: {}", rig.transcript());
+    // The Lost Crew's draw goes through the hand-limit window, which needs the printed names: a table without them declines.
+    let (mut rig, _) = empyrean(&[Explore::LostCrew2], 1, LATEST_RULES);
+    rig.state.decks_mut().action.set(vec![ActionCard::Spy, ActionCard::Rout]);
+    for card in ActionCard::ALL.iter().copied().take(7) {
+        rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(card);
+    }
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.unsupported, "{}", rig.transcript());
+}
+
+#[test]
+fn an_answer_outside_the_pool_question_is_refused() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut rig, _) = empyrean(&[Explore::MajorEntropicField], 1, LATEST_RULES);
+    rig.run();
+    rig.expect_illegal(Pick::Opt(Opt::Decline));
+}
+
+// -- The Warfare secondary and the Imperial primary as children -------------------------------------------------
+
+use ti4_engine_core::choice::production::Ask as ProdAsk;
+use ti4_engine_core::kernel::children::{HomeFacts, ImperialFacts, ProduceFacts};
+use ti4_engine_core::kernel::fx_pay::PayEnv;
+use ti4_engine_core_tests::scenario::plain_systems as plain;
+
+fn with_home(home: Home) -> PerformFacts {
+    PerformFacts { home, roster: Some(roster()), ..perform_facts(Carried { payments: true, structures: None, ..Carried::default() }) }
+}
+
+/// Seat 0 (a Naaz) holds a space dock on the first planet of the first plain system and `goods` trade goods; the home use is limited to
+/// capacity of the dock.
+fn naaz_home(cards: &[StrategyCard], goods: i16, home: impl Fn(System) -> Home) -> (Rig<NaazHero>, System) {
+    let system = plain()[0];
+    let planet = system.data().planets[0];
+    let sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheArborec])
+        .kernel(kernel_all())
+        .map_from(&[system])
+        .control(planet, 0)
+        .unit(system, Some(planet), Unit::SpaceDockI, 0, 1)
+        .goods(0, goods)
+        .tokens(0, 3, 3, 2)
+        .commodities(0, 0);
+    let (mut state, kernel) = sc.build();
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+    state.decks_mut().relic.set(vec![relic]);
+    let window = NaazHero::new(Seat(0), with_home(home(system)), cards.to_vec());
+    (Rig::from_parts(state, kernel, window), system)
+}
+
+fn use_at(system: System) -> Home {
+    Home::At(system)
+}
+
+#[test]
+fn the_warfare_secondary_is_a_use_of_production_run_as_a_child_and_reports_what_it_made() {
+    covers!("rules::hero_windows::NaazHero");
+    let (mut rig, system) = naaz_home(&[StrategyCard::Warfare], 6, use_at);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    assert!(matches!(rig.asked().ask, Ask::Production(_)), "{}", rig.transcript());
+    rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Build { unit: Unit::DestroyerI, .. })));
+    while !rig.is_done() {
+        if matches!(rig.asked().ask, Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::TradeGood { .. })));
+        } else {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Stop)));
+        }
+    }
+    assert!(rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
+    let made = rig.driver.window.home_made.clone().expect("the use reports what it made");
+    assert_eq!(made.as_slice().len(), 1);
+    assert_eq!(made.as_slice()[0].0, Unit::DestroyerI);
+    assert_eq!(rig.state.board().sys(system).units.as_slice().iter().filter(|p| p.kind() == Unit::DestroyerI).count(), 1);
+}
+
+#[test]
+fn a_home_system_with_nothing_to_produce_with_does_nothing_and_a_table_the_core_does_not_carry_declines() {
+    covers!("rules::hero_windows::NaazHero");
+    let (mut rig, _) = naaz_home(&[StrategyCard::Warfare], 6, |_| Home::Nothing);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported && rig.driver.window.home_made.is_none());
+    let (mut rig, _) = naaz_home(&[StrategyCard::Warfare], 6, |_| Home::Unsupported);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    assert!(rig.is_done() && rig.driver.window.unsupported);
+}
+
+/// The roster of the faction units: none printed (the plain forms are built).
+fn roster() -> &'static ti4_engine_core::query::tech::UnitRoster {
+    Box::leak(Box::new(ti4_engine_core::query::tech::UnitRoster::default()))
+}
+
+fn structure_facts() -> ti4_engine_core::kernel::children::StructureFacts {
+    ti4_engine_core::kernel::children::StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::SpaceDockI, false)), source: Code(3), alt: None }
+}
+
+fn capacity_of(state: &ti4_engine_core::state::CoreState, kernel: &ti4_engine_core::kernel::Kernel, system: System) -> i64 {
+    let cx = ti4_engine_core::rules::production::Cx::new(state, kernel, Scope(u32::from(kernel.sources.0)), false);
+    ti4_engine_core::rules::production::capacity(&cx, Seat(0), system)
+}
+
+#[test]
+fn the_home_production_reads_the_position_when_it_starts_not_where_the_card_started() {
+    covers!("rules::hero_windows::NaazHero");
+    // A system with two planets: a dock on the first, the second controlled; the Construction secondary puts a second dock there, so the
+    // production of the home system grows from the first dock's to both.
+    let system = System::ALL.iter().copied().find(|s| plain().contains(s) && s.data().planets.len() >= 2).expect("a plain system with two planets");
+    let (first, second) = (system.data().planets[0], system.data().planets[1]);
+    let sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheArborec])
+        .kernel(kernel_all())
+        .map_from(&[system])
+        .control(first, 0)
+        .control(second, 0)
+        .unit(system, Some(first), Unit::SpaceDockI, 0, 1)
+        .goods(0, 9)
+        .tokens(0, 3, 3, 2)
+        .commodities(0, 0);
+    let (mut state, kernel) = sc.build();
+    state.decks_mut().relic.set(vec![Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap()]);
+    let before = capacity_of(&state, &kernel, system);
+    let facts = PerformFacts { home: Home::At(system), roster: Some(roster()), carried: Carried { payments: true, structures: Some(structure_facts()), ..Carried::default() }, ..perform_facts(Carried::default()) };
+    let mut rig = Rig::from_parts(state, kernel, NaazHero::new(Seat(0), facts, vec![StrategyCard::Construction, StrategyCard::Warfare]));
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Construction)));
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    rig.pick_where(|o| matches!(o, Opt::Strategy(SOpt::Structure { pds: false, planet, .. }) if *planet == second));
+    let after = capacity_of(&rig.state, &rig.kernel, system);
+    assert!(after > before, "the second dock adds its PRODUCTION: {before} then {after}");
+    let Ask::Production(ProdAsk::Choose(choose)) = rig.asked().ask else { panic!("{}", rig.transcript()) };
+    assert_eq!(i64::from(choose.limit), after, "the limit of the home production is the capacity after the Construction secondary, not before it: {}", rig.transcript());
+    while !rig.is_done() {
+        answer_somehow(&mut rig);
+    }
+    assert!(!rig.driver.window.unsupported, "{}", rig.transcript());
+}
+
+#[test]
+fn the_announcement_of_the_home_production_goes_after_the_events_staged_before_it() {
+    covers!("rules::hero_windows::NaazHero");
+    // An event a secondary before the Warfare secondary staged: the units made are announced after it, so the adapter needs to know where.
+    let (mut rig, _) = naaz_home(&[StrategyCard::Warfare], 6, use_at);
+    ti4_engine_core::kernel::fx::stage(&mut rig.state, ti4_engine_core::kernel::fx::trade_goods_gained(Seat(0), 1, Code(1)));
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Build { unit: Unit::DestroyerI, .. })));
+    while !rig.is_done() {
+        if matches!(rig.asked().ask, Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::TradeGood { .. })));
+        } else {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Stop)));
+        }
+    }
+    assert!(rig.driver.window.home_made.is_some());
+    assert_eq!(rig.driver.window.home_staged, 1, "one event was staged when the home production finished");
+}
+
+#[test]
+fn a_home_use_needs_the_roster_of_the_faction_units_and_the_rules_version_decides_the_agent() {
+    covers!("rules::hero_windows::NaazHero");
+    // No roster: the forms that may be built cannot be read, the string performs the ability.
+    let (mut rig, _) = naaz_home(&[StrategyCard::Warfare], 6, use_at);
+    rig.driver.window = NaazHero::new(Seat(0), PerformFacts { roster: None, ..with_home(Home::At(plain()[0])) }, vec![StrategyCard::Warfare]);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    assert!(rig.is_done() && rig.driver.window.unsupported);
+    // Below the rules version of Berekar Berekon the use leaves the discount an earlier tactical action left unspent in the position.
+    for (version, left) in [(LATEST_RULES, 0), (20, 5)] {
+        let (mut rig, _) = naaz_home(&[StrategyCard::Warfare], 6, use_at);
+        rig.driver.window = NaazHero::new(Seat(0), PerformFacts { rules_version: version, ..with_home(Home::At(plain()[0])) }, vec![StrategyCard::Warfare]);
+        rig.state.transient_mut().production.discount_remaining = 5;
+        rig.run();
+        rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+        assert_eq!(rig.state.transient().production.discount_remaining, left, "rules version {version}");
+    }
+}
+
+/// Decline the question, or take its first option where it cannot be declined.
+fn answer_somehow<W: Window>(rig: &mut Rig<W>) {
+    if rig.try_answer(Pick::Opt(Opt::Decline)).is_err() {
+        rig.pick(0);
+    }
+}
+
+fn imperial_facts(options: &[PublicObjective]) -> ImperialFacts {
+    let mut scoreable = [None; 16];
+    for (slot, o) in scoreable.iter_mut().zip(options) {
+        *slot = Some(*o);
+    }
+    ImperialFacts { scoreable, env: PayEnv { scope: Scope(u32::from(kernel_all().sources.0)), blanked: false } }
+}
+
+#[test]
+fn the_imperial_primary_is_a_child_that_reports_the_objective_scored() {
+    covers!("rules::hero_windows::WinnuHero");
+    let free = PublicObjective::ALL.iter().copied().find(|o| ti4_engine_core::query::objectives::cost_of(*o).is_none()).unwrap();
+    let facts = PerformFacts { imperial: Some(imperial_facts(&[free])), ..perform_facts(Carried { payments: true, ..Carried::default() }) };
+    let sc = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec]).kernel(kernel_all()).commodities(0, 0);
+    let mut rig = Rig::new(sc, WinnuHero::new(Seat(0), facts, vec![StrategyCard::Imperial]));
+    rig.run();
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(_)), "{}", rig.transcript());
+    rig.pick_where(|o| matches!(o, Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Objective(o)) if *o == free));
+    while !rig.is_done() {
+        rig.pick(0);
+    }
+    assert!(!rig.driver.window.unsupported && rig.driver.window.scored == Some(free), "{}", rig.transcript());
+    // Declined: nothing scored; a secret objective instead of the Mecatol point.
+    let facts = PerformFacts { imperial: Some(imperial_facts(&[free])), ..perform_facts(Carried { payments: true, ..Carried::default() }) };
+    let sc = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec]).kernel(kernel_all()).commodities(0, 0);
+    let mut rig = Rig::new(sc, WinnuHero::new(Seat(0), facts, vec![StrategyCard::Imperial]));
+    rig.run();
+    rig.pick(0);
+    rig.decline();
+    while !rig.is_done() {
+        rig.pick(0);
+    }
+    assert!(!rig.driver.window.unsupported && rig.driver.window.scored.is_none());
+}
+
+#[test]
+fn the_pool_is_asked_from_version_twelve_and_a_minor_field_gives_one_good() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut rig, _) = empyrean(&[Explore::MinorEntropicField], 1, 12);
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { .. })), "version 12 asks");
+    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
+    assert_eq!(goods_of(&rig), 1, "a minor entropic field: one command token and one trade good");
+}
+
+#[test]
+fn an_empty_secret_deck_draws_nothing_and_the_card_still_resolves() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut rig, _) = empyrean(&[Explore::DerelictVessel1], 1, LATEST_RULES);
+    rig.state.decks_mut().secret.set(vec![]);
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
+    assert_eq!(rows(&rig)[0].0, "Resolved");
+}
+
+#[test]
+fn a_token_under_a_ground_force_alone_is_not_explored() {
+    covers!("rules::hero_windows::EmpyreanHero");
+    let (mut state, kernel, systems) = empyrean_parts(&[Explore::UnknownRelicFragment1], 1, LATEST_RULES);
+    state.board_mut().sys_mut(systems[0]).units.clear();
+    state.board_mut().sys_mut(systems[0]).units.push(Piece::new(Unit::InfantryI, Seat(0)));
+    let mut rig = Rig::from_parts(state, kernel, EmpyreanHero::new(Seat(0), Vec::new(), systems.clone())).with_table(explore_table());
+    rig.run();
+    assert!(rig.is_done() && rig.state.explore().log.is_empty() && rig.state.explore().frontier.contains(systems[0]));
+}
+
+// -- The Thunder's Edge primaries as children of Mathis Mathinus (package W13) ---------------------------------------
+
+use ti4_engine_core::kernel::children::{FreeSystems, TeUses};
+
+fn winnu_te(card: StrategyCard, facts: PerformFacts) -> (Rig<WinnuHero>, System, Planet) {
+    let system = plain()[0];
+    let planet = system.data().planets[0];
+    let sc = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec])
+        .kernel(kernel_all())
+        .map_from(&[system, plain()[1]])
+        .control(planet, 0)
+        .unit(system, Some(planet), Unit::SpaceDockI, 0, 1)
+        .goods(0, 6)
+        .tokens(0, 3, 3, 2);
+    (Rig::new(sc, WinnuHero::new(Seat(0), facts, vec![card])), system, planet)
+}
+
+#[test]
+fn the_te_warfare_primary_redistributes_then_names_the_system_of_the_free_tactical_action() {
+    covers!("rules::hero_windows::WinnuHero");
+    let systems = [plain()[0], plain()[1]];
+    let free = FreeSystems::new(Code(9), &systems).unwrap();
+    let facts = PerformFacts { free: Some(free), ..perform_facts(Carried::default()) };
+    let (mut rig, _, _) = winnu_te(StrategyCard::WarfareThundersEdge, facts);
+    rig.run();
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareRedistribute { .. })), "{}", rig.transcript());
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareTactical)), "{}", rig.transcript());
+    rig.pick_opt(Opt::Strategy(SOpt::System(systems[1])));
+    assert!(rig.is_done() && !rig.driver.window.unsupported, "{}", rig.transcript());
+    assert_eq!(rig.driver.window.free, Some(systems[1]), "the game plays the free action in the system chosen");
+}
+
+#[test]
+fn the_te_warfare_primary_without_systems_resolves_and_without_facts_is_the_strings() {
+    covers!("rules::hero_windows::WinnuHero");
+    let none = FreeSystems::new(Code(9), &[]).unwrap();
+    let (mut rig, _, _) = winnu_te(StrategyCard::WarfareThundersEdge, PerformFacts { free: Some(none), ..perform_facts(Carried::default()) });
+    rig.run();
+    rig.pick(0);
+    assert!(rig.is_done() && !rig.driver.window.unsupported && rig.driver.window.free.is_none(), "{}", rig.transcript());
+    let (mut rig, _, _) = winnu_te(StrategyCard::WarfareThundersEdge, perform_facts(Carried::default()));
+    rig.run();
+    rig.pick(0);
+    assert!(rig.is_done() && rig.driver.window.unsupported, "a table whose systems the adapter could not give");
+}
+
+#[test]
+fn too_many_systems_for_the_facts_are_refused() {
+    covers!("rules::hero_windows::WinnuHero");
+    let many = vec![plain()[0]; ti4_engine_core::kernel::children::FREE_SYSTEMS + 1];
+    assert!(FreeSystems::new(Code(9), &many).is_none());
+    assert_eq!(FreeSystems::new(Code(9), &many[..3]).unwrap().systems().len(), 3);
+}
+
+fn te_construction_facts(system: System, structures: bool) -> PerformFacts {
+    let mut buildable = [None; 9];
+    buildable[0] = Some(Unit::DestroyerI);
+    let uses = [HomeFacts {
+        produce: ProduceFacts { who: Seat(0), system, limit: 3, max_unit_cost: None, small_exemptions: 0, discount: 0, fleet_limit: 8, armada: 0, flagship_free: false, buildable },
+        agent_rules: true,
+    }];
+    let place = Some((Unit::PDSI, false));
+    let dock = Some((Unit::SpaceDockI, false));
+    let structures = structures.then_some(ti4_engine_core::kernel::children::StructureFacts { pds: place, dock, source: Code(5), alt: None });
+    PerformFacts { te_uses: TeUses::new(Code(8), &uses), ..perform_facts(Carried { structures, ..Carried::default() }) }
+}
+
+#[test]
+fn the_te_construction_primary_runs_the_use_of_production_as_a_child_then_the_second_structure() {
+    covers!("rules::hero_windows::WinnuHero");
+    let system = plain()[0];
+    let (mut rig, system, _) = winnu_te(StrategyCard::ConstructionThundersEdge, te_construction_facts(system, true));
+    rig.run();
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(ti4_engine_core::choice::strategy::Ask::ConstructionAbility)), "{}", rig.transcript());
+    rig.pick_opt(Opt::Strategy(SOpt::Produce(system)));
+    assert!(matches!(rig.asked().ask, Ask::Production(_)), "{}", rig.transcript());
+    rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Build { unit: Unit::DestroyerI, .. })));
+    while matches!(rig.asked().ask, Ask::Production(_)) {
+        if matches!(rig.asked().ask, Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::TradeGood { .. })));
+        } else {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Stop)));
+        }
+    }
+    assert!(matches!(rig.asked().ask, Ask::Strategy(ti4_engine_core::choice::strategy::Ask::PlaceStructure { step: 2, .. })), "the second structure follows the use: {}", rig.transcript());
+    rig.pick_opt(Opt::Decline);
+    assert!(rig.is_done() && !rig.driver.window.unsupported, "{}", rig.transcript());
+    let (made_in, made) = rig.driver.window.produced.clone().expect("the use is reported");
+    assert_eq!(made_in, system);
+    assert_eq!(made.as_slice().len(), 1);
+    assert_eq!(made.as_slice()[0].0, Unit::DestroyerI);
+}
+
+#[test]
+fn the_te_construction_primary_chooses_a_structure_without_a_report_and_without_facts_is_the_strings() {
+    covers!("rules::hero_windows::WinnuHero");
+    let system = plain()[0];
+    let (mut rig, _, _) = winnu_te(StrategyCard::ConstructionThundersEdge, te_construction_facts(system, true));
+    rig.run();
+    rig.pick(0);
+    rig.pick_opt(Opt::Strategy(SOpt::Build));
+    rig.pick_opt(Opt::Decline);
+    rig.pick_opt(Opt::Decline);
+    assert!(rig.is_done() && rig.driver.window.produced.is_none() && !rig.driver.window.unsupported, "{}", rig.transcript());
+    let (mut rig, _, _) = winnu_te(StrategyCard::ConstructionThundersEdge, PerformFacts { te_uses: None, ..te_construction_facts(system, true) });
+    rig.run();
+    rig.pick(0);
+    assert!(rig.is_done() && rig.driver.window.unsupported);
+}
+
+#[test]
+fn a_use_of_production_that_needs_the_factions_link_declines_the_run_of_the_te_construction() {
+    covers!("rules::hero_windows::WinnuHero");
+    let system = plain()[0];
+    let (mut rig, system, _) = winnu_te(StrategyCard::ConstructionThundersEdge, te_construction_facts(system, true));
+    rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::SelfAssemblyRoutines);
+    rig.run();
+    rig.pick(0);
+    rig.pick_opt(Opt::Strategy(SOpt::Produce(system)));
+    rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Build { unit: Unit::DestroyerI, .. })));
+    while !rig.is_done() {
+        if matches!(rig.asked().ask, Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::TradeGood { .. })));
+        } else {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Stop)));
+        }
+    }
+    assert!(rig.driver.window.unsupported, "Self-Assembly Routines is owned and the table has no link to its window: the string plays the card");
 }

@@ -63,6 +63,30 @@ pub fn exhaust_leader(core: &mut CoreState, who: Seat, leader: Leader) -> bool {
     }
 }
 
+/// `leaders::exhaust` of an agent card (the status, then the announcement): `card` of `who` becomes exhausted, and a Nomad that hears every
+/// agent exhausted (it holds Temporal Command Suite: `direct.nomad_watches_agent_exhaustion`) is told by a staged `AGENT_EXHAUSTED`
+/// (`player` = the agent's owner, `leader` = the card exhausted: Ssruu for a copy). The staged event is announced by whoever flushes the
+/// staged events, where Temporal Command Suite asks its holder. `card` need not be readied (the caller checked); `false`, changing
+/// nothing, when the seat does not hold the card.
+pub fn exhaust_agent(core: &mut CoreState, k: &Kernel, who: Seat, card: Leader) -> bool {
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return false };
+    let Some(status) = p.leaders.status.get_mut(&card) else { return false };
+    *status = LeaderStatus::Exhausted;
+    if k.hooks.direct.nomad_watches_agent_exhaustion(core) {
+        let payload = crate::state::Payload::new().with(crate::state::Key::Player, crate::state::Val::Seat(who)).with(crate::state::Key::Leader, crate::state::Val::Leader(card));
+        super::fx::stage(core, super::fx::event(crate::state::EventKind::AgentExhausted, payload));
+    }
+    true
+}
+
+/// `leaders::exhaust` of an agent (the string's `leaders::exhaust`: the status only if the card is readied, then the announcement): a readied `card` of
+/// `who` is exhausted and announced as [`exhaust_agent`] does; `false`, changing nothing, when the seat does not hold it readied. Every site that
+/// exhausts an agent goes through this or [`exhaust_agent`], so a Nomad that holds Temporal Command Suite is told by a staged `AGENT_EXHAUSTED`.
+pub fn exhaust_ready_agent(core: &mut CoreState, k: &Kernel, who: Seat, card: Leader) -> bool {
+    let ready = core.players().by_seat(who).is_some_and(|p| p.leaders.status.get(&card) == Some(&LeaderStatus::Readied));
+    ready && exhaust_agent(core, k, who, card)
+}
+
 // -- research ---------------------------------------------------------------------------------------------
 
 /// `technology::exhaust` of an owned technology card (Inheritance Systems, AI Development Algorithm): whether it was

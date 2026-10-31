@@ -42,6 +42,10 @@ mod d1_pending;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "cannon_prelude_tests.rs"]
 mod cannon_prelude_tests;
+// The lockstep of the native production step against `AftermathWindow::enter_production` (lane M2): it calls the private method.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "production_step_tests.rs"]
+mod production_step_tests;
 // The lockstep of the native turn-flow jobs (lane B) against the string bodies they replace; a child of `game` to call the private ones.
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "turn_live_tests.rs"]
@@ -2145,6 +2149,15 @@ impl<'a> Game<'a> {
     #[must_use]
     pub fn step_facts(&self) -> ti4_engine_core::driver::session::Facts {
         d1_pending::facts_of(self)
+    }
+
+    /// The actions the active seat has taken this turn (`Pending::actions_this_turn` of the core). For the oracle's `NativeSubject`, which primes the
+    /// core with the driver fields the string keeps outside its `GameState` (bridge only, feature `native-subject`).
+    #[cfg(all(feature = "typed-core", feature = "native-subject"))]
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn actions_this_turn(&self) -> u8 {
+        self.actions_this_turn
     }
 
     /// The content scope of this game. For the oracle's `NativeSubject` (bridge only, feature `native-subject`).
