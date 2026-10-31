@@ -38,9 +38,15 @@ thread_local! {
     static OVERRIDE: Cell<Option<bool>> = const { Cell::new(None) };
 }
 
+/// What `TI4_DRIVER_ARMED` says: only `1` arms.
+fn flag_of(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
 /// Whether the drivers are armed: [`with_armed`] on this thread, else the process flag ([`set_armed`], else
 /// `TI4_DRIVER_ARMED=1`, else off).
 #[must_use]
+// mutants:skip (the first read caches the environment in a process-wide cell; the decision is `flag_of`, tested)
 pub fn armed() -> bool {
     if let Some(on) = OVERRIDE.with(Cell::get) {
         return on;
@@ -50,7 +56,7 @@ pub fn armed() -> bool {
         2 => true,
         _ => {
             #[cfg(not(target_arch = "wasm32"))]
-            let on = std::env::var("TI4_DRIVER_ARMED").is_ok_and(|v| v == "1");
+            let on = flag_of(std::env::var("TI4_DRIVER_ARMED").ok().as_deref());
             #[cfg(target_arch = "wasm32")]
             let on = false;
             ARMED.store(if on { 2 } else { 1 }, Ordering::Relaxed);
@@ -247,5 +253,28 @@ mod tests {
         let mut hits = Vec::new();
         walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut hits);
         assert!(hits.is_empty(), "build the driver with window_driver::driver_for: {hits:?}");
+    }
+
+    #[test]
+    fn only_a_one_arms_the_environment_flag() {
+        assert!(flag_of(Some("1")));
+        for off in [None, Some(""), Some("0"), Some("true"), Some("11")] {
+            assert!(!flag_of(off), "{off:?}");
+        }
+    }
+
+    #[test]
+    fn the_armed_table_keeps_the_core_rules_and_takes_the_hooks_the_window_set() {
+        fn bars(_: &CoreState, _: Seat) -> bool {
+            true
+        }
+        let mut core_table = AbilityTable::default();
+        core_table.card_name = Some(|_| 7);
+        let mut own = AbilityTable::default();
+        own.bars = Some(bars);
+        own.card_name = Some(|_| 9);
+        let merged = merge_tables(core_table, own);
+        assert!(merged.bars.is_some(), "the window's own hook fills the gap");
+        assert_eq!(merged.card_name.map(|f| f(ti4_engine_core::generated::ActionCard::ALL[0])), Some(7), "the core table's own hook wins");
     }
 }

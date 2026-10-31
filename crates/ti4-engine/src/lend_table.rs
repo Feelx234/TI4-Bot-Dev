@@ -602,4 +602,40 @@ mod tests {
         labels.dedup();
         assert_eq!(n, labels.len());
     }
+
+    #[test]
+    fn rows_cover_only_labels_that_bailed_or_were_gated_and_say_start_for_a_start_reason() {
+        let report = parse_report(
+            "    w::quiet: 4 compared, 0 bailed\n    w::zerogate: 3 compared, 0 bailed\n    w::zerogate [gate: nothing]: 0 compared, 0 bailed\n    w::start: 2 compared, 1 bailed\n    w::start [bail: a seat the production windows do not carry]: 0 compared, 1 bailed\n    w::gated [gate: a forced combat]: 0 compared, 3 bailed\n",
+        );
+        let c = check(&report, &probe_of(&["w::start\tPlayers"]), &[]);
+        let labels: Vec<&str> = c.rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(labels, vec!["w::gated", "w::start"], "no row for a quiet window or a gate row of 0 runs");
+        let start = c.rows.iter().find(|r| r.label == "w::start").unwrap();
+        assert_eq!((start.when, start.nested_only, start.gate_runs), (When::Start, false, 0));
+        let gated = c.rows.iter().find(|r| r.label == "w::gated").unwrap();
+        assert!(!gated.nested_only, "no bail at all is not nested-only");
+        assert!(c.problems.is_empty(), "{:?}", c.problems);
+    }
+
+    #[test]
+    fn the_check_table_and_the_problems_are_rendered() {
+        let report = parse_report(REPORT);
+        let c = check(&report, &probe_of(&["combat::roll\tPlayers,Board"]), &[]);
+        let text = render_check(&c);
+        let line = |label: &str| text.lines().find(|l| l.starts_with(label)).unwrap_or_else(|| panic!("no line for {label} in\n{text}")).to_owned();
+        let roll = line("combat::roll");
+        assert!(roll.contains("7") && roll.contains("28.6%") && roll.contains("Mid") && roll.contains("Players,Board"), "{roll}");
+        assert!(line("trade::deal").contains("(nested only)"), "{}", line("trade::deal"));
+        assert!(line("invasion::finish_committing").contains("(gate)"), "{}", line("invasion::finish_committing"));
+        assert!(line("invasion::finish_committing").contains("Start"));
+        let none = render_check(&check(&report, &probe_of(&[]), &[]));
+        assert!(none.contains("NO PROBE"), "{none}");
+        assert!(none.contains("BAIL WITHOUT A PROBE LINE: combat::roll") && none.contains("1x nested (x); 1x a gate of the roll"), "{none}");
+        let quiet = render_check(&check(&parse_report("    w::q: 0 compared, 0 bailed\n"), &probe_of(&["w::q\t-"]), &[]));
+        assert!(quiet.contains("PROBE LINE WITHOUT A BAIL: w::q"), "{quiet}");
+        let empty_writes = render_check(&check(&parse_report("    w::e: 1 compared, 1 bailed\n    w::e [bail: x]: 0 compared, 1 bailed\n"), &probe_of(&["w::e\t-"]), &[]));
+        assert!(empty_writes.lines().any(|l| l.starts_with("w::e") && l.trim_end().ends_with(" -")), "{empty_writes}");
+        assert!(why_list(&[]) == "none counted");
+    }
 }
