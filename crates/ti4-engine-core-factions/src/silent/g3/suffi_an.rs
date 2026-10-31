@@ -35,6 +35,7 @@ fn status(s: &CoreState, who: Seat, card: Leader) -> Option<LeaderStatus> {
 }
 
 /// `has_copy`: some seat could copy Suffi An through its Ssruu.
+// mutants:skip (only the event journal differs from announcing the use always: the owner's window asks the same question; the lockstep and the dual see the stream)
 fn has_copy(s: &CoreState) -> bool {
     s.players().iter().any(|borrower| s.players().iter().any(|lender| borrowable(s, borrower.seat, Some(lender.seat), AGENT)))
 }

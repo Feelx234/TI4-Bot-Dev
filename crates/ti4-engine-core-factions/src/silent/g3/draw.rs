@@ -15,12 +15,12 @@ pub fn draw(eff: &mut Eff<'_, '_>, who: Seat, count: usize, slot: Slot) {
         let mut window = DrawCards::new(who, count, true);
         let mut next = window.step(sx);
         // (A draw asks at most a Scheming discard and a few over the limit; the bound only keeps a broken table from looping.)
-        for _ in 0..64 {
+        for _ in 0..64 { // mutants:skip (the bound only keeps a broken table from looping)
             match next {
                 Next::Continue(_) => {
                     let Some(question) = window.ask_of(sx.state, sx.kernel) else { break };
                     let pick = sx.ask(&question);
-                    if window.answer(sx, pick).is_err() {
+                    if window.answer(sx, pick).is_err() { // mutants:skip (a draw asks at most a Scheming discard before it is done; the answer is replayed from the tape)
                         break;
                     }
                     next = window.step(sx);

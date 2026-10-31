@@ -750,3 +750,190 @@ mod sula {
         assert!(rig(Scenario::new(&FACTIONS), edit(&[]), other).is_done());
     }
 }
+
+// -- the edges the first mutation run found ---------------------------------------------------------------------------------------
+
+mod edges {
+    use super::*;
+    use ti4_engine_core::generated::{ActionCard, Leader, Technology};
+    use ti4_engine_core::kernel::ability::Unknown;
+    use ti4_engine_core::state::{LeaderStatus, PlanetFlags};
+
+    fn rig_without_groups(scenario: Scenario, state_edit: impl FnOnce(&mut CoreState), event: ti4_engine_core::state::EventRec) -> Rig<EmitEvent> {
+        let (mut state, kernel) = scenario.build();
+        state_edit(&mut state);
+        let mut t = AbilityTable::default();
+        ti4_engine_core_factions::silent::register_before_movement(&mut t);
+        ti4_engine_core_factions::silent::g3::register_after_ca_combat(&mut t);
+        ti4_engine_core_factions::silent::register_abilities(&mut t);
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(event)).with_abilities(t);
+        r.run();
+        r
+    }
+
+    #[test]
+    fn scavenger_zeta_is_possible_with_exactly_the_one_good_scavenge_paid() {
+        covers!("silent::g3::zeta::ZETA");
+        let (system, planets) = two_planet_system();
+        let mut r = rig(Scenario::new(&[Faction::TheClanOfSaar, Faction::TheEmiratesOfHacan]).control(planets[0], 0), |_| {}, gained(0, system, planets[0]));
+        // (No good in hand: Scavenge pays one first, so the deploy is possible with exactly one and leaves none.)
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the deploy");
+        r.pick(use_it);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!((units_of(&r, planets[0], 0, UnitBaseType::Mech), goods(&r, 0)), (1, 0));
+    }
+
+    #[test]
+    fn the_alastor_counts_only_the_owners_ground_forces_and_only_its_owners_flagship() {
+        covers!("silent::g3::alastor::ALASTOR");
+        use ti4_engine_core::choice::reaction::Ask as RAsk;
+        use ti4_engine_core::choice::silent::Ask as GAsk;
+        use ti4_engine_core::choice::silent3::Ask as TAsk;
+        let (system, planets) = two_planet_system();
+        let started = fx::event(EventKind::SpaceCombatStarted, Payload::new().with(Key::System, Val::System(system)).with(Key::Attacker, Val::Seat(Seat(0))).with(Key::Defender, Val::Seat(Seat(1))));
+        // A structure of the owner and a ground force of the other player are no choice.
+        let scenario = Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan])
+            .unit(system, None, Unit::TheAlastor, 0, 1)
+            .unit(system, Some(planets[0]), Unit::InfantryI, 0, 1)
+            .unit(system, Some(planets[0]), Unit::PDSI, 0, 1)
+            .unit(system, Some(planets[0]), Unit::InfantryI, 1, 3)
+            .unit(system, Some(planets[1]), Unit::InfantryI, 1, 1);
+        let mut r = rig(scenario, |_| {}, started.clone());
+        let mut asked = 0;
+        while !r.is_done() {
+            assert!(matches!(r.asked().ask, Ask::Reaction(RAsk::G(GAsk::T(TAsk::Alastor { planet, unit: Unit::InfantryI }))) if planet == planets[0]), "{}", r.transcript());
+            assert_eq!(r.opts().len(), 2, "one infantry: 'one' or none");
+            asked += 1;
+            r.pick(0);
+        }
+        assert_eq!(asked, 1);
+        // Another player's Alastor in the system is no flagship of the owner's.
+        let theirs = Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]).unit(system, None, Unit::TheAlastor, 1, 1).unit(system, None, Unit::CruiserI, 0, 1).unit(system, Some(planets[0]), Unit::InfantryI, 0, 1);
+        assert!(rig(theirs, |_| {}, started.clone()).is_done());
+        // No system in the event.
+        let nowhere = fx::event(EventKind::SpaceCombatStarted, Payload::new().with(Key::Attacker, Val::Seat(Seat(0))).with(Key::Defender, Val::Seat(Seat(1))));
+        let own = Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]).unit(system, None, Unit::TheAlastor, 0, 1).unit(system, Some(planets[0]), Unit::InfantryI, 0, 1);
+        assert!(rig(own, |_| {}, nowhere).is_done());
+    }
+
+    #[test]
+    fn exotrireme_ii_needs_the_unit_itself_exactly_one_other_ship_is_enough_and_the_destruction_is_a_combat_one() {
+        covers!("silent::g3::exo2::EXO2");
+        let (system, _) = two_planet_system();
+        let ended = fx::event(EventKind::SpaceCombatRoundEnded, Payload::new().with(Key::System, Val::System(system)).with(Key::Round, Val::Int(1)).with(Key::Attacker, Val::Seat(Seat(0))).with(Key::Defender, Val::Seat(Seat(1))));
+        // The technology and a cruiser of the owner, but no Exotrireme II: nothing.
+        let no_unit = Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan]).tech(0, Technology::ExotriremeII).unit(system, None, Unit::CruiserI, 0, 2).unit(system, None, Unit::CruiserI, 1, 1);
+        assert!(rig(no_unit, |_| {}, ended.clone()).is_done());
+        // The unit and exactly one other ship (an enemy's): the ability is there.
+        let two = Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan]).tech(0, Technology::ExotriremeII).unit(system, None, Unit::ExotriremeII, 0, 1).unit(system, None, Unit::CruiserI, 1, 1);
+        let mut r = rig(two, |_| {}, ended);
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("exactly two ships are enough");
+        r.pick(use_it);
+        r.pick(0);
+        assert!(r.is_done(), "{}", r.transcript());
+        let staged = &r.state.transient().combat.pending_destructions;
+        assert_eq!(staged.len(), 2);
+        assert!(staged.iter().all(|d| d.during_space_combat && d.system == system), "destroyed during the space combat");
+    }
+
+    #[test]
+    fn ragh_s_call_leaves_the_other_players_ground_forces_and_marks_the_destination_entered() {
+        covers!("silent::g3::ragh::RAGH");
+        let (system, planets) = two_planet_system();
+        let committed = fx::event(EventKind::UnitsCommitted, Payload::new().with(Key::Player, Val::Seat(Seat(0))).with(Key::Planet, Val::Planet(planets[0])).with(Key::System, Val::System(system)));
+        let scenario = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheClanOfSaar, Faction::TheFederationOfSol])
+            .control(planets[0], 1)
+            .control(planets[1], 1)
+            .unit(system, Some(planets[0]), Unit::InfantryI, 1, 2)
+            .unit(system, Some(planets[0]), Unit::InfantryI, 2, 1);
+        let mut r = rig(scenario, |s| { s.cards_mut().promissory.edit().insert(ti4_engine_core::state::NoteKey { note: ti4_engine_core::generated::PromissoryNote::RaghsCall, faction: Faction::TheClanOfSaar }, Seat(0)); }, committed);
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        r.pick(use_it);
+        r.pick(0);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!((units_of(&r, planets[0], 1, UnitBaseType::Infantry), units_of(&r, planets[0], 2, UnitBaseType::Infantry)), (0, 1), "only the Saar's forces left");
+        assert_eq!(units_of(&r, planets[1], 1, UnitBaseType::Infantry), 2);
+        assert!(r.state.board().planet(planets[1]).flags.has(PlanetFlags::UNITS_ENTRY), "the destination has a unit entry now");
+    }
+
+    fn suffi_scenario(system: System, planets: &[Planet]) -> Scenario {
+        Scenario::new(&[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan, Faction::TheYssarilTribes]).map_from(&[system]).unit(system, Some(planets[0]), Unit::InfantryI, 0, 1).unit(system, Some(planets[1]), Unit::InfantryI, 1, 1).goods(1, 3)
+    }
+
+    fn set_up(agent: Option<LeaderStatus>, ssruu: Option<LeaderStatus>, deck: bool) -> impl FnOnce(&mut CoreState) {
+        move |s| {
+            if let Some(status) = agent {
+                s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::SuffiAnMentakagent, status);
+            }
+            if let Some(status) = ssruu {
+                s.players_mut().by_seat_mut(Seat(2)).unwrap().leaders.status.insert(Leader::Ssruu, status);
+            }
+            s.decks_mut().action.set(if deck { vec![ActionCard::ALL[0], ActionCard::ALL[1], ActionCard::ALL[2]] } else { vec![] });
+        }
+    }
+
+    fn pillaged(r: &mut Rig<EmitEvent>) {
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("pillage");
+        r.pick(use_it);
+    }
+
+    #[test]
+    fn suffi_an_is_announced_only_where_a_copy_could_answer_and_the_copy_needs_a_lender_a_borrower_and_a_deck() {
+        covers!("silent::g3::suffi_an::SUFFI_AN");
+        covers!("silent::g3::suffi_an::SUFFI_AN_COPY");
+        let (system, planets) = two_planet_system();
+        let gained = fx::event(EventKind::TradeGoodsGained, Payload::new().with(Key::Player, Val::Seat(Seat(1))));
+        // Both a ready agent and a ready Ssruu: the use is announced, the owner is asked first.
+        let mut r = rig(suffi_scenario(system, &planets), set_up(Some(LeaderStatus::Readied), Some(LeaderStatus::Readied), true), gained.clone());
+        pillaged(&mut r);
+        assert_eq!(r.asked().actor, Seat(0), "{}", r.transcript());
+        r.decline();
+        assert_eq!(r.asked().actor, Seat(2), "the copy answers the announced use: {}", r.transcript());
+        // No Ssruu in hand: the owner is asked and that is all.
+        let mut alone = rig(suffi_scenario(system, &planets), set_up(Some(LeaderStatus::Readied), None, true), gained.clone());
+        pillaged(&mut alone);
+        assert_eq!(alone.asked().actor, Seat(0), "{}", alone.transcript());
+        alone.decline();
+        assert!(alone.is_done(), "{}", alone.transcript());
+        // An exhausted agent is lent all the same: the copy is asked, the owner is not.
+        let mut lent = rig(suffi_scenario(system, &planets), set_up(Some(LeaderStatus::Exhausted), Some(LeaderStatus::Readied), true), gained.clone());
+        pillaged(&mut lent);
+        assert_eq!(lent.asked().actor, Seat(2), "{}", lent.transcript());
+        // A locked agent, an exhausted agent beside an exhausted Ssruu, an empty deck: nothing to ask.
+        for (agent, ssruu, deck) in [(LeaderStatus::Locked, LeaderStatus::Readied, true), (LeaderStatus::Exhausted, LeaderStatus::Exhausted, true), (LeaderStatus::Readied, LeaderStatus::Readied, false)] {
+            let mut none = rig(suffi_scenario(system, &planets), set_up(Some(agent), Some(ssruu), deck), gained.clone());
+            pillaged(&mut none);
+            assert!(none.is_done(), "{agent:?} {ssruu:?} {deck}: {}", none.transcript());
+        }
+    }
+
+    #[test]
+    fn a_draw_leaves_the_unofficial_cards_in_the_deck_and_a_table_without_groups_is_a_loud_gap() {
+        covers!("silent::g3::nekro_commander::ACIDOS");
+        covers!("silent::g3::draw::draw");
+        let gained = fx::event(EventKind::TechnologyGained, Payload::new().with(Key::Player, Val::Seat(Seat(0))));
+        let edit = |s: &mut CoreState| {
+            s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::NekroAcidos, LeaderStatus::Unlocked);
+            s.decks_mut().action.set(vec![ActionCard::Veto3, ActionCard::ALL[0]]);
+        };
+        let mut r = rig(Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]), edit, gained.clone());
+        r.pick(0);
+        assert_eq!(r.state.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice(), &[ActionCard::ALL[0]], "the unofficial card did not come");
+        // A Yssaril copy draws with Scheming: its discard needs the printed-name groups; without them the draw is a gap (and nothing is drawn).
+        let (system, planets) = two_planet_system();
+        let pillage = fx::event(EventKind::TradeGoodsGained, Payload::new().with(Key::Player, Val::Seat(Seat(1))));
+        let mut r = rig_without_groups(suffi_scenario(system, &planets), set_up(Some(LeaderStatus::Exhausted), Some(LeaderStatus::Readied), true), pillage);
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("pillage");
+        r.pick(use_it);
+        let copy = r.opts().iter().position(|o| *o != Opt::Decline).expect("the copy");
+        r.pick(copy);
+        assert_eq!(r.driver.unknown(), Some(Unknown::AbilityGap(ti4_engine_core_factions::silent::g3::suffi_an::SUFFI_AN_COPY)));
+        // The fine path: with the groups the same draw is asked, not a gap.
+        let mut ok = rig(suffi_scenario(system, &planets), set_up(Some(LeaderStatus::Exhausted), Some(LeaderStatus::Readied), true), fx::event(EventKind::TradeGoodsGained, Payload::new().with(Key::Player, Val::Seat(Seat(1)))));
+        let use_it = ok.opts().iter().position(|o| *o != Opt::Decline).expect("pillage");
+        ok.pick(use_it);
+        let copy = ok.opts().iter().position(|o| *o != Opt::Decline).expect("the copy");
+        ok.pick(copy);
+        assert_eq!(ok.driver.unknown(), None);
+    }
+}
