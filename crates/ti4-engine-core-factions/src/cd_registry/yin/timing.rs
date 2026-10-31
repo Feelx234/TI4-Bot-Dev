@@ -46,17 +46,27 @@ pub fn roster(scope: Scope) -> tech::UnitRoster {
 fn build_roster(scope: Scope) -> tech::UnitRoster {
     let mut roster = tech::UnitRoster::default();
     for faction in Faction::ALL {
+        let own_units = faction.data().units;
         for base in UnitBaseType::ALL {
-            let own = Unit::ALL.into_iter().find(|u| {
-                let d = u.data();
-                // The Corsair (Mentak, Thunder's Edge) is no unit of the faction sheet: The Table's Grace puts it over a Cruiser II
-                // (`unit_form_override`); the content record of the faction lists the plain cruiser (`ti4_content::units::faction_unit`).
-                *u != Unit::Corsair && d.base_type == base && d.upgrades_from.is_none() && d.faction.is_some_and(|tag| tech::tag_is(tag, faction)) && scope.unit(*u).is_some()
-            });
-            roster.set(faction, base, own);
+            // The first unit of the faction's own roster with this base type, as the content names it (`ti4_content::units::faction_unit`): a
+            // newer printing in scope (the Thunder's Edge or Omega version) is the card in the box, an original out of scope is not.
+            let own = own_units.iter().copied().filter_map(|unit| printing_in_scope(scope, unit)).find(|unit| unit.data().base_type == base);
+            // The Corsair (Mentak, Thunder's Edge) is no unit of the faction sheet: The Table's Grace puts it over a Cruiser II
+            // (`unit_form_override`); the content record of the faction lists the plain cruiser.
+            roster.set(faction, base, own.filter(|unit| *unit != Unit::Corsair));
         }
     }
     roster
+}
+
+/// The printing of `unit` that is in the box: the newest one in scope that replaces it (and so on up the chain), else `unit` itself when
+/// it is in scope (`ContentStore::resolve_id`).
+fn printing_in_scope(scope: Scope, unit: Unit) -> Option<Unit> {
+    let mut current = unit;
+    while let Some(newer) = Unit::ALL.into_iter().find(|candidate| candidate.data().replaces == Some(current) && scope.unit(*candidate).is_some()) {
+        current = newer;
+    }
+    scope.unit(current).map(|_| current)
 }
 
 /// `placed_unit_id` of a seat for a base type: the upgrade it owns, else its faction's own unit, else the plain one.

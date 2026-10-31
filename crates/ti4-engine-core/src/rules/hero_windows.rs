@@ -445,7 +445,7 @@ impl Window for KyverHero {
 
 // -- It Feeds on Carrion ------------------------------------------------------------------------------
 
-use crate::kernel::children::{ErasedChild, Report, SeeingLimits, Spawn};
+use crate::kernel::children::{ErasedChild, Made, Report, SeeingLimits, Spawn};
 use crate::state::Piece;
 
 /// The suspension points of [`CabalHero`].
@@ -630,8 +630,8 @@ pub enum NStage {
 /// (the cards that are readied, or unchosen, in the order of the adapter; a card whose secondary costs a token is offered only while the
 /// seat has one in its reinforcements), declining ends the choice; then the relic is gained and each chosen secondary is performed in turn
 /// by the ability's own window as a child ([`fx_perform::begin`]). A chosen secondary that costs a token stops the run when the
-/// reinforcements ran out. [`Self::used`]: the relic was gained. `unsupported`: an ability the core does not carry (the Warfare secondary,
-/// a hook-changed draw, a research a faction waiver opens) or no link to the child: the adapter declines the run.
+/// reinforcements ran out. [`Self::used`]: the relic was gained. `unsupported`: an ability the core does not carry (the Warfare secondary at a
+/// table the production windows do not carry or after a secondary that changes what a production reads, a hook-changed draw, a research a faction waiver opens) or no link to the child: the adapter declines the run.
 #[derive(Debug, Clone)]
 pub struct NaazHero {
     pub who: Seat,
@@ -643,6 +643,14 @@ pub struct NaazHero {
     child: ErasedChild,
     pub used: bool,
     pub unsupported: bool,
+    /// What the home production of the Warfare secondary made, in order (the adapter announces it).
+    pub home_made: Option<Made>,
+}
+
+/// Whether the secondary of `card` changes what a production reads: Leadership gains command tokens (the fleet pool), Technology may
+/// research a unit upgrade, Construction places a space dock.
+fn changes_production(card: StrategyCard) -> bool {
+    matches!(card.data().kind, StrategyCardKind::Leadership | StrategyCardKind::Technology | StrategyCardKind::Construction)
 }
 
 /// "Every secondary but Leadership's (influence) costs a command token."
@@ -653,7 +661,7 @@ fn costs_token(card: StrategyCard) -> bool {
 impl NaazHero {
     #[must_use]
     pub fn new(who: Seat, facts: PerformFacts, cards: Vec<StrategyCard>) -> Self {
-        Self { who, facts, cards, stage: NStage::Start, chosen: Vec::new(), at: 0, child: ErasedChild::idle(), used: false, unsupported: false }
+        Self { who, facts, cards, stage: NStage::Start, chosen: Vec::new(), at: 0, child: ErasedChild::idle(), used: false, unsupported: false, home_made: None }
     }
 
     fn spare(&self, core: &CoreState) -> bool {
@@ -713,6 +721,13 @@ impl Window for NaazHero {
                         self.stage = NStage::Done;
                         continue;
                     }
+                    // The facts of the home production were read where the card started: a secondary performed before it that changes what the
+                    // production reads (the fleet pool, the units that may be built, the capacity of the home system) makes them stale.
+                    if card.data().kind == StrategyCardKind::Warfare && self.chosen[..self.at].iter().any(|before| changes_production(*before)) {
+                        self.unsupported = true;
+                        self.stage = NStage::Done;
+                        continue;
+                    }
                     match fx_perform::begin(sx, self.who, card, false, self.facts) {
                         Began::Done => self.at += 1,
                         Began::Unsupported => {
@@ -735,6 +750,9 @@ impl Window for NaazHero {
                     Some(Err(next)) => return next,
                     Some(Ok(done)) => {
                         self.unsupported |= done.failed;
+                        if done.made.is_some() {
+                            self.home_made = done.made;
+                        }
                         self.at += 1;
                         self.stage = if done.failed { NStage::Done } else { NStage::Next };
                     }
@@ -793,7 +811,7 @@ pub enum WStage {
 /// Mathis Mathinus (Winnu hero): "ACTION: Choose 1 strategy card on the board; perform its primary ability, then each other player may
 /// follow its secondary." The seat chooses one of `cards` (a question even for one) and the primary of the card is performed by the
 /// ability's own window as a child ([`fx_perform::begin`]); who may follow is the game's (`Game::select_leader_strategy_followers`).
-/// [`Self::chosen`]: the card. `unsupported`: a primary the core does not carry (the Imperial primary, the Thunder's Edge Construction and
+/// [`Self::chosen`]: the card. `unsupported`: a primary the core does not carry (the Imperial primary at a table the scoring tables do not follow, the Thunder's Edge Construction and
 /// Warfare primaries, a hook-changed draw, a research a faction waiver opens) or no link to the child.
 /// [`Self::tokens`]: the system the Diplomacy primary placed tokens in and the seats that got one, announced by the adapter.
 #[derive(Debug, Clone)]
@@ -805,13 +823,15 @@ pub struct WinnuHero {
     pub chosen: Option<StrategyCard>,
     child: ErasedChild,
     pub tokens: Option<(System, SmallList<Seat, 8>)>,
+    /// The public objective the Imperial primary scored (what the score sets off is the adapter's).
+    pub scored: Option<crate::generated::PublicObjective>,
     pub unsupported: bool,
 }
 
 impl WinnuHero {
     #[must_use]
     pub fn new(who: Seat, facts: PerformFacts, cards: Vec<StrategyCard>) -> Self {
-        Self { who, facts, cards, stage: WStage::Start, chosen: None, child: ErasedChild::idle(), tokens: None, unsupported: false }
+        Self { who, facts, cards, stage: WStage::Start, chosen: None, child: ErasedChild::idle(), tokens: None, scored: None, unsupported: false }
     }
 }
 
@@ -832,6 +852,7 @@ impl Window for WinnuHero {
                     Some(Ok(done)) => {
                         self.unsupported |= done.failed;
                         self.tokens = done.tokens;
+                        self.scored = done.scored;
                         self.stage = WStage::Done;
                     }
                     None => self.stage = WStage::Done,

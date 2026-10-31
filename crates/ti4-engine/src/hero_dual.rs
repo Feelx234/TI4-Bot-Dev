@@ -32,6 +32,7 @@ mod real {
     use ti4_model::state::GameState;
 
     use super::FlayeshTarget;
+    use crate::generated::IdStr;
     use crate::core_adapter::typed;
     use crate::core_sync::{Footprint, Sources};
     use crate::dual::{CoreWindow, Run, Why};
@@ -245,22 +246,60 @@ mod real {
         Some(CoreWindow { run, questions: driven.rendered })
     }
 
+    /// Stage the announcement the string stages at the end of the use of PRODUCTION at `system` when it made something (`UNITS_PRODUCED`, no
+    /// timing handle).
+    fn announce_use(gs: &mut GameState, player: &PlayerId, system: System, made: &ti4_engine_core::kernel::children::Made) {
+        if made.as_slice().is_empty() {
+            return;
+        }
+        let units: Vec<serde_json::Value> = made
+            .as_slice()
+            .iter()
+            .map(|(unit, planet)| serde_json::json!({ "unit_type": unit.as_str(), "place": planet.map_or(crate::production::SPACE, |p| p.as_str()) }))
+            .collect();
+        let mut payload = std::collections::BTreeMap::new();
+        payload.insert("player".to_owned(), player.to_string().into());
+        payload.insert("system".to_owned(), system.as_str().into());
+        payload.insert("source".to_owned(), "production".into());
+        payload.insert("count".to_owned(), made.as_slice().len().into());
+        payload.insert("units".to_owned(), serde_json::Value::Array(units));
+        crate::supply::stage_event(gs, "UNITS_PRODUCED", &payload);
+    }
+
     /// The facts of the ability a hero performs for a strategy card (`kernel::fx_perform`), on the lent position.
     fn perform_facts(
         core: &ti4_engine_core::state::CoreState,
         gs: &GameState,
         sources: &SourceSet,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
         player: &PlayerId,
         seat: ti4_engine_core::ids::Seat,
         r: &crate::render::Render,
     ) -> ti4_engine_core::kernel::fx_perform::Facts {
+        let content = ti4_content::ContentStore::embedded();
         ti4_engine_core::kernel::fx_perform::Facts {
             carried: crate::action_cards_view::carried_of(core, gs, sources, player, seat, r),
             replenish_events: crate::leaders_core::replenish_causes_events(gs),
             rules_version: gs.rules_version,
-            roster: crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), sources.clone()),
+            roster: crate::technology_core::roster_for(content, sources.clone()),
             scope: crate::core_adapter::scope(sources.clone()),
             mahact_held: gs.tokens_held_by_mahact(player),
+            home: home_of(gs, content, sources, player, seat),
+            imperial: crate::strategy_cards_core::imperial_facts(gs, content, sources.clone(), galaxy, player).ok().map(|(facts, _)| facts),
+        }
+    }
+
+    /// What the Warfare secondary finds at the seat's home system (`strategy_cards::home_production`): nothing without a home system or
+    /// capacity, a use of PRODUCTION with the facts the string window opens with, or a table the production windows do not carry.
+    fn home_of(gs: &GameState, content: &ti4_content::ContentStore, sources: &SourceSet, player: &PlayerId, seat: ti4_engine_core::ids::Seat) -> ti4_engine_core::kernel::fx_perform::Home {
+        use ti4_engine_core::kernel::fx_perform::Home;
+        let Some(home) = gs.player(player).and_then(|p| p.home_system.clone()) else { return Home::Nothing };
+        if crate::production::capacity(gs, content, sources.clone(), player, &home) <= 0 {
+            return Home::Nothing;
+        }
+        match crate::leaders_core::home_facts(gs, content, sources.clone(), seat, player, &home) {
+            Ok(facts) => Home::Use(facts),
+            Err(_) => Home::Unsupported,
         }
     }
 
@@ -268,6 +307,7 @@ mod real {
     fn performing_table() -> AbilityTable {
         let mut table = AbilityTable::default();
         ti4_engine_core::driver::children::register(&mut table);
+        ti4_engine_core_factions::self_assembly::register_links(&mut table);
         table.facts.card_groups = crate::reactions_core::card_groups();
         table
     }
@@ -279,6 +319,7 @@ mod real {
         player: &PlayerId,
         cards: &[ti4_model::id::StrategyCardId],
         sources: &SourceSet,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
         use ti4_engine_core::generated::StrategyCard;
@@ -290,7 +331,7 @@ mod real {
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
-        let kernel = crate::production_view::kernel();
+        let kernel = crate::production_view::kernel_of(sources.clone());
         let performing = crate::strategy_cards_core::Performing {
             before: &before,
             content: ti4_content::ContentStore::embedded(),
@@ -308,28 +349,41 @@ mod real {
         };
         let mut staged = Vec::new();
         let mut out = None;
+        let mut home_system = None;
         let driven = crate::core_sync::with_core(
             gs,
             &mut cx,
             Sources::default(),
-            crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM),
+            crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM).union(Footprint::new(&[Slice::Objectives], &[Slice::Objectives])),
             |core, _| {
-                let facts = perform_facts(core, &before, sources, player, seat, &r);
+                let facts = perform_facts(core, &before, sources, galaxy, player, seat, &r);
+                home_system = match facts.home {
+                    ti4_engine_core::kernel::fx_perform::Home::Use(home) => Some(home.produce.system),
+                    _ => None,
+                };
                 let mut driver = Driver::new(NaazHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
-                let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
+                let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before, script, &details);
                 staged = std::mem::take(&mut core.pending_mut().staged);
-                out = Some((driver.window.used, driver.window.unsupported));
+                out = Some((driver.window.used, driver.window.unsupported, driver.window.home_made.clone()));
                 driven
             },
         )
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        let (used, unsupported) = out?;
+        let (used, unsupported, home_made) = out?;
         if unsupported {
-            crate::dual::note_bail_here("an ability the core does not carry (the Warfare secondary, a changed draw, a research a waiver opens)");
+            crate::dual::note_bail_here("an ability the core does not carry (the Warfare secondary at a table the production windows do not carry or after a secondary that changes what a production reads, a changed draw, a research a waiver opens)");
+            return None;
+        }
+        let announced = home_made.as_ref().is_some_and(|made| !made.as_slice().is_empty());
+        if announced && !staged.is_empty() {
+            crate::dual::note_bail_here("staged events of the secondaries would interleave with the announcement of the home production");
             return None;
         }
         crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
+        if let (Some(made), Some(system)) = (home_made, home_system) {
+            announce_use(gs, player, system, &made);
+        }
         Some(CoreWindow { run: Run::new(used).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
@@ -340,6 +394,7 @@ mod real {
         player: &PlayerId,
         cards: &[ti4_model::id::StrategyCardId],
         sources: &SourceSet,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
         script: &Recording,
     ) -> Option<CoreWindow<(Option<String>, bool)>> {
         use ti4_engine_core::generated::StrategyCard;
@@ -352,7 +407,7 @@ mod real {
         let (mut cx, r) = crate::strategy_core::named_tables(gs)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
-        let kernel = crate::production_view::kernel();
+        let kernel = crate::production_view::kernel_of(sources.clone());
         let performing = crate::strategy_cards_core::Performing {
             before: &before,
             content: ti4_content::ContentStore::embedded(),
@@ -374,25 +429,32 @@ mod real {
             gs,
             &mut cx,
             Sources::default(),
-            crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM),
+            crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM).union(Footprint::new(&[Slice::Objectives], &[Slice::Objectives])),
             |core, _| {
-                let facts = perform_facts(core, &before, sources, player, seat, &r);
+                let facts = perform_facts(core, &before, sources, galaxy, player, seat, &r);
                 let mut driver = Driver::new(WinnuHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
                 let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
                 staged = std::mem::take(&mut core.pending_mut().staged);
-                out = Some((driver.window.chosen, driver.window.tokens.clone(), driver.window.unsupported));
+                out = Some((driver.window.chosen, driver.window.tokens.clone(), driver.window.scored, driver.window.unsupported));
                 driven
             },
         )
         .why(crate::dual::reason::NOT_LENDABLE)?
         .why(crate::dual::reason::DRIVER_REFUSED)?;
-        let (chosen, tokens, unsupported) = out?;
+        let (chosen, tokens, scored, unsupported) = out?;
         if unsupported {
-            crate::dual::note_bail_here("an ability the core does not carry (the Imperial primary, a Thunder's Edge primary, a changed draw, a research a waiver opens)");
+            crate::dual::note_bail_here("an ability the core does not carry (the Imperial primary at a table the scoring tables do not follow, a Thunder's Edge primary, a changed draw, a research a waiver opens)");
             return None;
         }
         crate::dual_window::apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
         crate::action_cards_view::stage_placed_tokens(gs, &r, tokens.map(|(system, seats)| (system, seats.as_slice().to_vec())));
+        // What a public score sets off (leaders unlocking, Yin's breakthrough) and the winner are the string's tail of the primary.
+        if let Some(objective) = scored {
+            crate::objectives::award_tail(gs, ti4_content::ContentStore::embedded(), sources.clone(), player.clone(), &ti4_model::id::ObjectiveId::new(objective.as_str()));
+        }
+        if chosen.is_some_and(|card| card.data().kind == ti4_engine_core::generated::StrategyCardKind::Imperial) {
+            gs.finished = crate::objectives::winner(gs).is_some();
+        }
         let card = chosen.map(|card| crate::generated::IdStr::as_str(card).to_owned());
         Some(CoreWindow { run: Run::new((card, true)).with_events_vec(Vec::new()), questions: driven.rendered })
     }
@@ -562,6 +624,7 @@ mod stub {
         _: &PlayerId,
         _: &[ti4_model::id::StrategyCardId],
         _: &ti4_model::content_types::SourceSet,
+        _: Option<&ti4_content::galaxy::Galaxy>,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<bool>> {
         None
@@ -572,6 +635,7 @@ mod stub {
         _: &PlayerId,
         _: &[ti4_model::id::StrategyCardId],
         _: &ti4_model::content_types::SourceSet,
+        _: Option<&ti4_content::galaxy::Galaxy>,
         _: &crate::dual_window::Recording,
     ) -> Option<crate::dual::CoreWindow<(Option<String>, bool)>> {
         None

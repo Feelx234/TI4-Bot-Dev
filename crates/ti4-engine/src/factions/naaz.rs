@@ -984,7 +984,7 @@ fn hero_dual(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
         },
         |s: &mut GameState, script: &crate::dual_window::Recording| {
             let cards = hero_cards(s);
-            crate::hero_dual::naaz_hero(s, player, &cards, &sources, script)
+            crate::hero_dual::naaz_hero(s, player, &cards, &sources, galaxy, script)
         }
     )
 }
@@ -2765,7 +2765,7 @@ mod tests {
 
     /// Hesh and Prit is a body of the core (`rules::hero_windows::NaazHero`): the cards are asked, the relic is gained and each secondary is
     /// performed by the ability's own window as a child. The core half agrees with the string for every card of the board alone, for two cards,
-    /// and for a decline at once; the Warfare secondary (the home production) is the string's, counted with its reason.
+    /// and for a decline at once; the Warfare secondary (the home production) is a child window of the hero (`the_warfare_secondary_*`).
     #[test]
     fn the_hero_runs_in_lockstep_with_the_core() {
         use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
@@ -2781,13 +2781,11 @@ mod tests {
         };
         let cards = hero_cards(&game());
         assert!(cards.len() >= 4, "{cards:?}");
-        let mut warfare = 0;
         for card in &cards {
             let mut state = game();
             state.promissory_notes.clear();
             state.promissory_faceup.clear();
             assert_eq!(run(&mut state, &[card.as_str(), "decline"]), Some(true), "{card}");
-            warfare += usize::from(card.as_str().contains("warfare"));
         }
         let mut state = game();
         state.promissory_notes.clear();
@@ -2800,7 +2798,85 @@ mod tests {
         let (compared, bailed) = thread_window_counts("factions::naaz::hero");
         assert_eq!(compared + bailed, cards.len() as u64 + 2, "{r:?}");
         assert!(compared >= 2, "{r:?}");
-        assert!(bailed >= warfare as u64, "{r:?}");
+        assert!(bailed <= 1, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// The Warfare secondary of Hesh and Prit is a use of PRODUCTION at the home system (`production::resolve`), a child window of the
+    /// hero (`Spawn::Home`): the questions of the production, the units made, their announcement and Self-Assembly Routines' offer agree
+    /// with the string; the secondaries that change what a production reads, performed before it, are the string's (counted).
+    #[test]
+    fn the_warfare_secondary_runs_the_home_production_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let hero = LeaderId::new(HERO);
+        let run = |state: &mut GameState, answers: &[&str]| -> Option<bool> {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(state, DEFAULT, None, &mut table, |ctx| use_leader(ctx, &a(), &hero))
+            })
+        };
+        let staged = || {
+            let mut state = game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let (home, planet) = crate::fixtures::a_placed_planet();
+            state.player_mut(&a()).unwrap().home_system = Some(home.clone());
+            state.player_mut(&a()).unwrap().trade_goods = 10;
+            state.system_mut(&home).set_control(planet.clone(), a());
+            crate::fixtures::put_on_planet(&mut state, &home, &planet, "spacedock", &a(), 1);
+            (state, home, planet)
+        };
+        let warfare = hero_cards(&game()).into_iter().find(|card| card.as_str().contains("warfare")).expect("the board has Warfare");
+        // The home production: builds are paid and placed (the first option of each question) and announced.
+        let (mut state, home, _) = staged();
+        let units = state.system_state(&home).units.len() + state.system_state(&home).planet_units.values().map(Vec::len).sum::<usize>();
+        assert_eq!(run(&mut state, &[warfare.as_str(), "decline"]), Some(true));
+        let after = state.system_state(&home).units.len() + state.system_state(&home).planet_units.values().map(Vec::len).sum::<usize>();
+        assert!(after > units, "the production made units: {units} -> {after}");
+        // Nothing to pay with: a use that asks nothing.
+        let (mut state, _, planet) = staged();
+        state.player_mut(&a()).unwrap().trade_goods = 0;
+        state.exhausted_planets.insert(planet);
+        assert_eq!(run(&mut state, &[warfare.as_str(), "decline"]), Some(true));
+        // Self-Assembly Routines offers a mech after a use that made something.
+        let (mut state, _, _) = staged();
+        state.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("sar"));
+        assert_eq!(run(&mut state, &[warfare.as_str(), "decline"]), Some(true));
+        // Without a home system the ability does nothing.
+        let (mut state, _, _) = staged();
+        state.player_mut(&a()).unwrap().home_system = None;
+        assert_eq!(run(&mut state, &[warfare.as_str(), "decline"]), Some(true));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::naaz::hero"), (4, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// A secondary performed before the home production that changes what a production reads (the fleet pool, the units that may be
+    /// built, the capacity) makes the facts of the production stale: the window declines the run, counted with its reason.
+    #[test]
+    fn a_warfare_secondary_after_a_secondary_that_changes_the_production_is_the_strings() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let hero = LeaderId::new(HERO);
+        let cards = hero_cards(&game());
+        let find = |id: &str| cards.iter().find(|card| card.as_str().contains(id)).cloned().expect("on the board");
+        let mut state = game();
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let mut table = scripted(&[find("leadership").as_str(), find("warfare").as_str()]);
+        let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+            crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |ctx| use_leader(ctx, &a(), &hero))
+        });
+        assert_eq!(done, Some(true));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::naaz::hero"), (0, 1), "{r:?}");
         let _ = take_report();
     }
 

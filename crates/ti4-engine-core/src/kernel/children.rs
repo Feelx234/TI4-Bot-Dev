@@ -13,7 +13,7 @@
 use crate::choice::explore::{Opt as EOpt, Step as EStep};
 use crate::choice::{Choice, Pick};
 use crate::containers::SmallList;
-use crate::generated::{ActionCard, Planet, StrategyCard, System, Technology, Unit};
+use crate::generated::{ActionCard, Planet, PublicObjective, StrategyCard, System, Technology, Unit};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -86,6 +86,27 @@ pub struct SeeingLimits {
     pub halves: [Option<Unit>; 2],
 }
 
+/// What `Spawn::Home` (a use of PRODUCTION at a seat's home system outside a tactical action: the Warfare secondary) needs of the position
+/// that the core does not hold: the numbers the string window opens with (`ProductionWindow::new`, the facts of the seat) and the one
+/// rule of the version that decides whether the window resets the discount a tactical action left unspent. The adapter computes them on
+/// the position the ability starts from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HomeFacts {
+    /// The use: `limit` is the PRODUCTION total of the system (the capacity), `discount` the cost reduction of the faction hooks there.
+    pub produce: ProduceFacts,
+    /// `rules_version >= RULES_WINNU_AGENT_PRODUCTION`: Berekar Berekon is offered to the use, and the discount an earlier tactical
+    /// action left unspent is not read.
+    pub agent_rules: bool,
+}
+
+/// What `Spawn::Imperial` (the Imperial primary) needs of the position that the core does not hold: the public objectives the seat could
+/// score (the string's `objectives::scoreable_on`), up to sixteen, and the environment of the payment of a bought objective.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImperialFacts {
+    pub scoreable: [Option<PublicObjective>; 16],
+    pub env: crate::kernel::fx_pay::PayEnv,
+}
+
 /// The units a finished production made, in order: the unit and the planet it stands on (`None`: the space area).
 pub type Made = SmallList<(Unit, Option<Planet>), 12>;
 
@@ -128,6 +149,8 @@ pub enum Report {
     Made(Made),
     /// An enforcement finished: how many units it removed.
     Removed(u32),
+    /// The Imperial primary finished: the public objective the holder scored, if any (what the score sets off is the adapter's).
+    Scored(Option<PublicObjective>),
 }
 
 /// A window of another area, run as a child: the object-safe face of [`Window`] plus what the finished window reports.
@@ -288,6 +311,15 @@ pub enum Spawn {
     /// `tactical::fleet::Enforce`: `who` removes the units over the fleet supply, then over capacity, in `system`, one question each;
     /// reports [`Report::Removed`].
     Seeing { who: Seat, system: System, limits: SeeingLimits },
+    /// `production::home::HomeProduction`: a use of PRODUCTION at the home system of `facts.produce.who` outside a tactical action (the Warfare
+    /// secondary): the Hacan hero's offer, the production, the effects at the end of the use, the Self-Assembly Routines offer; reports
+    /// [`Report::Made`], or [`Report::Left`] when the run holds something the core does not carry.
+    Home { facts: HomeFacts },
+    /// `strategy_primaries::ImperialPrimary`: score a public objective, then a point for Mecatol Rex or a secret objective; reports
+    /// [`Report::Scored`], or [`Report::Left`] when the table has no link to the hand limit window.
+    Imperial { who: Seat, facts: ImperialFacts },
+    /// Self-Assembly Routines' offer at the end of a use of PRODUCTION in `system` (a window of the faction crate: the table's extra link).
+    SelfAssembly { who: Seat, system: System },
 }
 
 /// Starts the child window a [`Spawn`] names; `None` for a request the table does not know.
@@ -309,11 +341,13 @@ pub struct AreaLinks {
     pub researchable: Option<ResearchableFn>,
     /// Research a technology.
     pub research: Option<ResearchFn>,
+    /// Start a child window the faction crate owns (Self-Assembly Routines): consulted when [`Self::spawn`] does not know the request.
+    pub spawn_extra: Option<SpawnFn>,
 }
 
 impl std::fmt::Debug for AreaLinks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AreaLinks").field("spawn", &self.spawn.is_some()).field("researchable", &self.researchable.is_some()).field("research", &self.research.is_some()).finish()
+        f.debug_struct("AreaLinks").field("spawn", &self.spawn.is_some()).field("researchable", &self.researchable.is_some()).field("research", &self.research.is_some()).field("spawn_extra", &self.spawn_extra.is_some()).finish()
     }
 }
 
@@ -327,7 +361,7 @@ impl AreaLinks {
     /// Start the child window `request` names. `None`: no link, or a request the link does not know.
     #[must_use]
     pub fn start(&self, request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
-        (self.spawn?)(request)
+        (self.spawn?)(request).or_else(|| (self.spawn_extra?)(request))
     }
 }
 

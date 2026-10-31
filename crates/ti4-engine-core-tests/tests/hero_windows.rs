@@ -483,12 +483,12 @@ fn owners_and_systems_are_enforced_in_the_order_the_adapter_gives() {
 
 // -- Hesh and Prit, Mathis Mathinus ------------------------------------------------------------------
 
-use ti4_engine_core::kernel::fx_perform::{Carried, Facts as PerformFacts};
+use ti4_engine_core::kernel::fx_perform::{Carried, Facts as PerformFacts, Home};
 use ti4_engine_core::rules::hero_windows::{NaazHero, WinnuHero};
 use ti4_engine_core::tables::Scope;
 
 fn perform_facts(carried: Carried) -> PerformFacts {
-    PerformFacts { carried, replenish_events: false, rules_version: LATEST_RULES, roster: None, scope: Scope(u32::from(kernel_all().sources.0)), mahact_held: 0 }
+    PerformFacts { carried, replenish_events: false, rules_version: LATEST_RULES, roster: None, scope: Scope(u32::from(kernel_all().sources.0)), mahact_held: 0, home: Home::Unsupported, imperial: None }
 }
 
 fn naaz(cards: &[StrategyCard], relics: &[Relic], tokens: (i16, i16, i16)) -> Rig<NaazHero> {
@@ -1185,4 +1185,155 @@ fn an_answer_outside_the_pool_question_is_refused() {
     let (mut rig, _) = empyrean(&[Explore::MajorEntropicField], 1, frontier_facts());
     rig.run();
     rig.expect_illegal(Pick::Opt(Opt::Decline));
+}
+
+// -- The Warfare secondary and the Imperial primary as children -------------------------------------------------
+
+use ti4_engine_core::kernel::children::{HomeFacts, ImperialFacts, ProduceFacts};
+use ti4_engine_core::kernel::fx_pay::PayEnv;
+use ti4_engine_core_tests::scenario::plain_systems as plain;
+
+fn with_home(home: Home) -> PerformFacts {
+    PerformFacts { home, ..perform_facts(Carried { payments: true, structures: None, ..Carried::default() }) }
+}
+
+/// Seat 0 (a Naaz) holds a space dock on the first planet of the first plain system and `goods` trade goods; the home use is limited to
+/// three units of destroyers and infantry.
+fn naaz_home(cards: &[StrategyCard], goods: i16, home: impl Fn(System) -> Home) -> (Rig<NaazHero>, System) {
+    let system = plain()[0];
+    let planet = system.data().planets[0];
+    let sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheArborec])
+        .kernel(kernel_all())
+        .map_from(&[system])
+        .control(planet, 0)
+        .unit(system, Some(planet), Unit::SpaceDockI, 0, 1)
+        .goods(0, goods)
+        .tokens(0, 3, 3, 2)
+        .commodities(0, 0);
+    let (mut state, kernel) = sc.build();
+    let relic = Relic::ALL.iter().copied().find(|r| *r != Relic::ShardOfTheThrone).unwrap();
+    state.decks_mut().relic.set(vec![relic]);
+    let mut buildable = [None; 9];
+    buildable[0] = Some(Unit::DestroyerI);
+    buildable[1] = Some(Unit::InfantryI);
+    let window = NaazHero::new(Seat(0), with_home(home(system)), cards.to_vec());
+    let _ = buildable;
+    (Rig::from_parts(state, kernel, window), system)
+}
+
+fn use_at(system: System) -> Home {
+    let mut buildable = [None; 9];
+    buildable[0] = Some(Unit::DestroyerI);
+    buildable[1] = Some(Unit::InfantryI);
+    Home::Use(HomeFacts {
+        produce: ProduceFacts { who: Seat(0), system, limit: 3, max_unit_cost: None, small_exemptions: 0, discount: 0, fleet_limit: 8, armada: 0, flagship_free: false, buildable },
+        agent_rules: true,
+    })
+}
+
+#[test]
+fn the_warfare_secondary_is_a_use_of_production_run_as_a_child_and_reports_what_it_made() {
+    covers!("rules::hero_windows::NaazHero");
+    let (mut rig, system) = naaz_home(&[StrategyCard::Warfare], 6, use_at);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    assert!(matches!(rig.asked().ask, Ask::Production(_)), "{}", rig.transcript());
+    rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Build { unit: Unit::DestroyerI, .. })));
+    while !rig.is_done() {
+        if matches!(rig.asked().ask, Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::TradeGood { .. })));
+        } else {
+            rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Stop)));
+        }
+    }
+    assert!(rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
+    let made = rig.driver.window.home_made.clone().expect("the use reports what it made");
+    assert_eq!(made.as_slice().len(), 1);
+    assert_eq!(made.as_slice()[0].0, Unit::DestroyerI);
+    assert_eq!(rig.state.board().sys(system).units.as_slice().iter().filter(|p| p.kind() == Unit::DestroyerI).count(), 1);
+}
+
+#[test]
+fn a_home_system_with_nothing_to_produce_with_does_nothing_and_a_table_the_core_does_not_carry_declines() {
+    covers!("rules::hero_windows::NaazHero");
+    let (mut rig, _) = naaz_home(&[StrategyCard::Warfare], 6, |_| Home::Nothing);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported && rig.driver.window.home_made.is_none());
+    let (mut rig, _) = naaz_home(&[StrategyCard::Warfare], 6, |_| Home::Unsupported);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    assert!(rig.is_done() && rig.driver.window.unsupported);
+}
+
+#[test]
+fn the_facts_of_the_home_production_are_stale_after_a_secondary_that_changes_what_a_production_reads() {
+    covers!("rules::hero_windows::NaazHero");
+    for first in [StrategyCard::Leadership, StrategyCard::Technology, StrategyCard::Construction] {
+        let (mut rig, _) = naaz_home(&[first, StrategyCard::Warfare], 6, use_at);
+        rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 0;
+        rig.run();
+        rig.pick_opt(Opt::Leaders(LOpt::HeroCard(first)));
+        rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+        // The first secondary may ask; answer by declining until the window ends.
+        let mut guard = 0;
+        while !rig.is_done() && guard < 12 {
+            guard += 1;
+            answer_somehow(&mut rig);
+        }
+        assert!(rig.is_done(), "{first:?}: {}", rig.transcript());
+        assert!(rig.driver.window.unsupported, "{first:?}: the production reads what the first secondary may have changed");
+    }
+    // Warfare first (or after a secondary that changes nothing): carried.
+    let (mut rig, _) = naaz_home(&[StrategyCard::Trade, StrategyCard::Warfare], 6, use_at);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Trade)));
+    rig.pick_opt(Opt::Leaders(LOpt::HeroCard(StrategyCard::Warfare)));
+    while !rig.is_done() {
+        answer_somehow(&mut rig);
+    }
+    assert!(!rig.driver.window.unsupported, "{}", rig.transcript());
+}
+
+/// Decline the question, or take its first option where it cannot be declined.
+fn answer_somehow<W: Window>(rig: &mut Rig<W>) {
+    if rig.try_answer(Pick::Opt(Opt::Decline)).is_err() {
+        rig.pick(0);
+    }
+}
+
+fn imperial_facts(options: &[PublicObjective]) -> ImperialFacts {
+    let mut scoreable = [None; 16];
+    for (slot, o) in scoreable.iter_mut().zip(options) {
+        *slot = Some(*o);
+    }
+    ImperialFacts { scoreable, env: PayEnv { scope: Scope(u32::from(kernel_all().sources.0)), blanked: false } }
+}
+
+#[test]
+fn the_imperial_primary_is_a_child_that_reports_the_objective_scored() {
+    covers!("rules::hero_windows::WinnuHero");
+    let free = PublicObjective::ALL.iter().copied().find(|o| ti4_engine_core::query::objectives::cost_of(*o).is_none()).unwrap();
+    let facts = PerformFacts { imperial: Some(imperial_facts(&[free])), ..perform_facts(Carried { payments: true, ..Carried::default() }) };
+    let sc = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec]).kernel(kernel_all()).commodities(0, 0);
+    let mut rig = Rig::new(sc, WinnuHero::new(Seat(0), facts, vec![StrategyCard::Imperial]));
+    rig.run();
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(_)), "{}", rig.transcript());
+    rig.pick_where(|o| matches!(o, Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Objective(o)) if *o == free));
+    while !rig.is_done() {
+        rig.pick(0);
+    }
+    assert!(!rig.driver.window.unsupported && rig.driver.window.scored == Some(free), "{}", rig.transcript());
+    // Declined: nothing scored; a secret objective instead of the Mecatol point.
+    let facts = PerformFacts { imperial: Some(imperial_facts(&[free])), ..perform_facts(Carried { payments: true, ..Carried::default() }) };
+    let sc = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec]).kernel(kernel_all()).commodities(0, 0);
+    let mut rig = Rig::new(sc, WinnuHero::new(Seat(0), facts, vec![StrategyCard::Imperial]));
+    rig.run();
+    rig.pick(0);
+    rig.decline();
+    while !rig.is_done() {
+        rig.pick(0);
+    }
+    assert!(!rig.driver.window.unsupported && rig.driver.window.scored.is_none());
 }

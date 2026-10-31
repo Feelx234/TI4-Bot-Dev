@@ -15,15 +15,17 @@ use crate::rules::explore_windows::Reward;
 use crate::rules::objective_windows::HandLimit;
 use crate::rules::production::pay::PayBill;
 use crate::rules::production::strategy_cards::{Construction, Leadership, Research, TitanBuild};
+use crate::rules::production::home::HomeProduction;
 use crate::rules::production::one::ProduceOne;
 use crate::rules::production::window::ProductionWindow;
 use crate::rules::tactical::fleet::{Enforce, Limits};
-use crate::rules::strategy_primaries::{DMode, Diplomacy, Politics, WarfarePrimary};
+use crate::rules::strategy_primaries::{DMode, Diplomacy, ImperialPrimary, Politics, WarfarePrimary};
 use crate::rules::strategy_windows::{TradePrimary, TRADE_PRIMARY_GOODS};
 
 /// Install the links of the areas whose windows an action card runs as children.
 pub fn register(t: &mut AbilityTable) {
-    t.links = AreaLinks { spawn: Some(spawn), researchable: Some(Research::researchable_for), research: Some(Research::research_chosen) };
+    // The extra link (a window of the faction crate) is the factions' to fill: it survives a registration of these.
+    t.links = AreaLinks { spawn: Some(spawn), researchable: Some(Research::researchable_for), research: Some(Research::research_chosen), spawn_extra: t.links.spawn_extra };
 }
 
 /// The window a [`Spawn`] names, erased, with the function that reads what it did.
@@ -57,6 +59,13 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
             Erased::boxed(Enforce::new(*who, *system, limits), |w| Report::Removed(w.removed))
         }
         Spawn::ProduceOne { who, system, facts } => Erased::boxed(ProduceOne::new(*who, *system, *facts), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
+        Spawn::Home { facts } => Erased::boxed(HomeProduction::new(*facts), |w| if w.unsupported { Report::Left } else { Report::Made(w.made()) }),
+        Spawn::Imperial { who, facts } => {
+            let scoreable = facts.scoreable.iter().flatten().copied().collect();
+            Erased::boxed(ImperialPrimary::new(*who, scoreable).with_price(facts.env), |w| if w.unsupported { Report::Left } else { Report::Scored(w.scored) })
+        }
+        // A window of the faction crate: the table's extra link starts it.
+        Spawn::SelfAssembly { .. } => return None,
     })
 }
 

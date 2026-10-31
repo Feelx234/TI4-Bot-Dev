@@ -666,52 +666,23 @@ mod real {
         player: &PlayerId,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        use ti4_engine_core::generated::PublicObjective;
-        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.deck_reserve.is_some()).then_some("deck reserve (a turn redo replays the draws)")).or_else(|| (gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres"))).then_some("a Keleres seat (non-lobby)")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }
-        let scoreable = crate::objectives::scoreable_on(gs, content, sources, player, galaxy);
-        let typed: Vec<PublicObjective> = scoreable
-            .iter()
-            .map(|o| crate::core_adapter::typed::<PublicObjective>(o.as_str()))
-            .collect::<Option<_>>()
-            .why("a scoreable objective the tables do not know")?;
-        let mut most = 0;
-        let mut priced = false;
-        for (alias, objective) in scoreable.iter().zip(&typed) {
-            let points = i32::from(ti4_engine_core::query::objectives::points_of(*objective));
-            if crate::objectives::points_for(content, alias) != Some(points) {
-                crate::dual::note_bail_here("an objective whose points the tables read otherwise");
+        let (facts, controls) = match imperial_facts(gs, content, sources.clone(), galaxy, player) {
+            Ok(found) => found,
+            Err(why) => {
+                crate::dual::note_bail_here(why);
                 return None;
             }
-            most = most.max(points);
-            priced |= ti4_engine_core::query::objectives::cost_of(*objective).is_some();
-        }
-        if priced && price_is_string(gs, player) {
-            crate::dual::note_bail_here("a bought objective at a table whose payment the production kernel does not follow (ocean cards)");
-            return None;
-        }
-        let controls = gs.controlled_planets(player).into_iter().any(|(system, _)| crate::seating::is_mecatol(system.as_str()));
-        if controls {
-            if gs.player(player).why(crate::dual::reason::NO_SEAT)?.victory_points + most + 1 > crate::objectives::VICTORY_TARGET {
-                crate::dual::note_bail_here("a point that would pass the victory target");
-                return None;
-            }
-        } else {
-            if gs.player(player).why(crate::dual::reason::NO_SEAT)?.victory_points + most > crate::objectives::VICTORY_TARGET {
-                crate::dual::note_bail_here("a point that would pass the victory target");
-                return None;
-            }
-        }
+        };
         let (mut cx, r) = crate::dual_window::tables(gs).why(crate::dual::reason::NO_TABLES)?;
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let held = crate::secrets::held_count(gs, content, player);
         let max = crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(gs, player);
-        // The production kernel answers what a trade good pays and which commodities a payment may spend.
-        let env = ti4_engine_core::kernel::fx_pay::PayEnv { scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) };
-        let window = ImperialPrimary::new(seat, typed.into_iter().collect()).with_price(env);
+        let window = ImperialPrimary::new(seat, facts.scoreable.iter().flatten().copied().collect()).with_price(facts.env);
         let mut driver = Driver::new(window, Resolver::new(&[seat], Some(seat)), linked(), 1);
         let kernel = crate::production_view::kernel();
         let fp = Footprint::new(
@@ -742,6 +713,61 @@ mod real {
         }
         gs.finished = crate::objectives::winner(gs).is_some();
         Some(finish(&driven, &driver.window))
+    }
+
+    /// The facts of Imperial's primary on a position (`Err`: why the core cannot follow it, the census reason): the scoreable objectives
+    /// are the string's (`objectives::scoreable_on`), the payment environment is the production kernel's. Also whether the seat controls
+    /// Mecatol Rex. Declined: a deck reserve, a Keleres seat (Custodian's Favour asks), a point that would pass the target, an objective
+    /// that is no public objective of the tables or whose points the tables read otherwise, a bought objective at a table whose payment the
+    /// production kernel does not follow, and more than sixteen objectives.
+    pub(crate) fn imperial_facts(
+        gs: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        player: &PlayerId,
+    ) -> Result<(ti4_engine_core::kernel::children::ImperialFacts, bool), &'static str> {
+        use ti4_engine_core::generated::PublicObjective;
+        if gs.deck_reserve.is_some() {
+            return Err("deck reserve (a turn redo replays the draws)");
+        }
+        if gs.players.iter().any(|p| p.faction.as_str().starts_with("keleres")) {
+            return Err("a Keleres seat (non-lobby)");
+        }
+        let scoreable = crate::objectives::scoreable_on(gs, content, sources.clone(), player, galaxy);
+        let typed: Vec<PublicObjective> = scoreable
+            .iter()
+            .map(|o| crate::core_adapter::typed::<PublicObjective>(o.as_str()))
+            .collect::<Option<_>>()
+            .ok_or("a scoreable objective the tables do not know")?;
+        let mut most = 0;
+        let mut priced = false;
+        for (alias, objective) in scoreable.iter().zip(&typed) {
+            let points = i32::from(ti4_engine_core::query::objectives::points_of(*objective));
+            if crate::objectives::points_for(content, alias) != Some(points) {
+                return Err("an objective whose points the tables read otherwise");
+            }
+            most = most.max(points);
+            priced |= ti4_engine_core::query::objectives::cost_of(*objective).is_some();
+        }
+        if priced && price_is_string(gs, player) {
+            return Err("a bought objective at a table whose payment the production kernel does not follow (ocean cards)");
+        }
+        let controls = gs.controlled_planets(player).into_iter().any(|(system, _)| crate::seating::is_mecatol(system.as_str()));
+        let held = gs.player(player).ok_or(crate::dual::reason::NO_SEAT)?.victory_points;
+        if held + most + i32::from(controls) > crate::objectives::VICTORY_TARGET {
+            return Err("a point that would pass the victory target");
+        }
+        if typed.len() > 16 {
+            return Err("more than sixteen scoreable objectives");
+        }
+        let mut options = [None; 16];
+        for (slot, objective) in options.iter_mut().zip(typed) {
+            *slot = Some(objective);
+        }
+        // The production kernel answers what a trade good pays and which commodities a payment may spend.
+        let env = ti4_engine_core::kernel::fx_pay::PayEnv { scope: crate::core_adapter::scope(sources), blanked: crate::laws::blanked(gs) };
+        Ok((ti4_engine_core::kernel::children::ImperialFacts { scoreable: options, env }, controls))
     }
 
     /// Where the price of a bought objective stays with the string: a table with a Last Bastion or a Crimson seat
@@ -881,6 +907,13 @@ mod real {
                         rendered.details.extend(pool_details(core, c.actor, letnev, "buy", Some(0)));
                         rendered.details.insert("purchase".to_owned(), purchase);
                     }
+                }
+                Ask::Strategy(SAsk::ImperialScore) => {
+                    let controls = self.before.controlled_planets(self.player).into_iter().any(|(system, _)| crate::seating::is_mecatol(system.as_str()));
+                    rendered.details.insert("kind".to_owned(), "imperial".into());
+                    rendered.details.insert("controls_mecatol".to_owned(), controls.into());
+                    rendered.details.insert("secrets_held".to_owned(), crate::secrets::held_count(self.before, self.content, self.player).into());
+                    rendered.details.insert("secrets_max".to_owned(), (crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(self.before, self.player)).into());
                 }
                 Ask::Strategy(SAsk::ReadyPlanet) => {
                     rendered.details.insert("ready_hints".to_owned(), ready_hints_now(self.before, core, self.content, self.sources.clone(), self.player));

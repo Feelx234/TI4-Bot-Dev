@@ -1353,7 +1353,7 @@ fn use_leader_strategy_primary(
         },
         |s: &mut GameState, script: &crate::dual_window::Recording| {
             let cards = hero_cards(s);
-            crate::hero_dual::winnu_hero(s, player, &cards, &sources, script)
+            crate::hero_dual::winnu_hero(s, player, &cards, &sources, galaxy, script)
         }
     );
     result.expect("the string side always runs").map(Some)
@@ -2763,6 +2763,54 @@ mod tests {
         let (compared, bailed) = thread_window_counts("factions::winnu::hero");
         assert_eq!(compared + bailed, cards.len() as u64, "{r:?}");
         assert!(compared >= 3, "{r:?}");
+        let _ = take_report();
+    }
+
+    /// Mathis Mathinus performs the Imperial primary as a child window of the hero (`Spawn::Imperial`): the objective scored (and what the
+    /// score sets off, the string's tail), a point for Mecatol Rex, a secret objective for a seat without it, and the winner; a Keleres
+    /// seat or a point past the target is the string's, counted.
+    #[test]
+    fn the_imperial_primary_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |state: &mut GameState, answers: &[&str]| {
+            let mut table = scripted(answers);
+            with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || {
+                crate::fixtures::with_context(state, DEFAULT, None, &mut table, |context| use_leader_strategy_primary(context, &a(), &LeaderId::new("winnuhero")))
+            })
+        };
+        let staged = || {
+            let mut state = game();
+            state.phase = ti4_model::state::Phase::Action;
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state
+        };
+        let imperial = hero_cards(&game()).into_iter().find(|card| card.as_str().contains("imperial")).expect("the board has Imperial");
+        let id = imperial.as_str();
+        // An objective the seat can score: scored, then a secret objective (no Mecatol).
+        let mut state = staged();
+        state.revealed_objectives.push(ti4_model::id::ObjectiveId::new("lead"));
+        let _ = run(&mut state, &[id, "lead"]);
+        assert!(state.scored_objectives.get(&a()).is_some_and(|scored| scored.iter().any(|o| o.as_str() == "lead")), "{:?}", state.scored_objectives);
+        // The same declined.
+        let mut state = staged();
+        state.revealed_objectives.push(ti4_model::id::ObjectiveId::new("lead"));
+        let _ = run(&mut state, &[id, "decline"]);
+        // Mecatol Rex: a point instead of the secret.
+        let mut state = staged();
+        state.system_mut(&SystemId::new("18")).set_control(PlanetId::new("mr"), a());
+        let points = state.player(&a()).unwrap().victory_points;
+        let _ = run(&mut state, &[id]);
+        assert_eq!(state.player(&a()).unwrap().victory_points, points + 1);
+        // Nothing to score and no Mecatol: the secret objective.
+        let mut state = staged();
+        let _ = run(&mut state, &[id]);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("factions::winnu::hero"), (4, 0), "{r:?}");
         let _ = take_report();
     }
 

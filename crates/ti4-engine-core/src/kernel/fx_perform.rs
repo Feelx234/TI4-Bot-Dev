@@ -5,17 +5,18 @@
 //!
 //! Carried: the secondaries of Trade (the replenishment), Imperial (the draw of a secret objective and the hand limit), Politics (the draw of
 //! two action cards), Technology (the paid research), Leadership, Construction and Diplomacy, and the primaries of Trade, Politics, Technology,
-//! Leadership, Construction and Warfare, and Diplomacy. Not carried ([`Began::Unsupported`]: the adapter declines the run and the string
-//! performs the ability):
-//! * the Warfare secondary (`home_production`: a whole production window at the home system, with the hero offers, the Keleres agent window
-//!   and the use counters of `production::resolve_timed` around it);
-//! * the Imperial primary (the scoreable objectives, the award tail and the winner are the string's);
+//! Leadership, Construction and Warfare, and Diplomacy; the Warfare secondary (`home_production`: the hero offer, the production at the home
+//! system and the end of the use, `Spawn::Home`) and the Imperial primary (`Spawn::Imperial`) when the adapter vouches for them
+//! ([`Facts::home`], [`Facts::imperial`]). Not carried ([`Began::Unsupported`]: the adapter declines the run and the string performs the
+//! ability):
+//! * the Warfare secondary at a table the production windows do not carry (the adapter gave no facts);
+//! * the Imperial primary where the scoring tables do not follow the position (the adapter gave no facts);
 //! * the Thunder's Edge Construction and Warfare primaries (the choice of a production, the free tactical action).
 
 use crate::containers::SmallList;
-use crate::generated::{StrategyCard, StrategyCardKind, System};
+use crate::generated::{PublicObjective, StrategyCard, StrategyCardKind, System};
 use crate::ids::Seat;
-use crate::kernel::children::{Report, Spawn, StructureFacts};
+use crate::kernel::children::{HomeFacts, ImperialFacts, Made, Report, Spawn, StructureFacts};
 use crate::kernel::fx;
 use crate::kernel::stage::Sx;
 use crate::query::tech::UnitRoster;
@@ -50,6 +51,18 @@ pub struct Carried {
     pub trade_source: Code,
 }
 
+/// What the Warfare secondary finds at the seat's home system (the string `home_production`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Home {
+    /// The seat has no home system or nothing to produce with there: the ability does nothing.
+    Nothing,
+    /// A use of PRODUCTION there, with the facts the string window opens with.
+    Use(HomeFacts),
+    /// The table is one the production windows do not carry (a Keleres or Deepwrought seat, the dropped factions, a rule of an end-of-use
+    /// effect the child does not run): the string performs the ability.
+    Unsupported,
+}
+
 /// Everything [`begin`] reads besides the position.
 #[derive(Debug, Clone, Copy)]
 pub struct Facts {
@@ -65,6 +78,10 @@ pub struct Facts {
     pub scope: Scope,
     /// `GameState::tokens_held_by_mahact` of the performing seat.
     pub mahact_held: i32,
+    /// The Warfare secondary's home production.
+    pub home: Home,
+    /// The Imperial primary's scoring facts (`None`: the primary is the string's).
+    pub imperial: Option<ImperialFacts>,
 }
 
 /// How an ability began.
@@ -139,7 +156,15 @@ pub fn begin(sx: &mut Sx<'_>, who: Seat, card: StrategyCard, primary: bool, f: F
             let base_printing = primary && card == StrategyCard::DiplomacyBase && f.rules_version >= RULES_BASE_DIPLOMACY;
             Began::Run(Spawn::Diplomacy { who, card, primary, base_printing })
         }
-        (StrategyCardKind::Warfare, false) | (StrategyCardKind::Imperial, true) => Began::Unsupported,
+        (StrategyCardKind::Warfare, false) => match f.home {
+            Home::Nothing => Began::Done,
+            Home::Use(facts) => Began::Run(Spawn::Home { facts }),
+            Home::Unsupported => Began::Unsupported,
+        },
+        (StrategyCardKind::Imperial, true) => match f.imperial {
+            Some(facts) => Began::Run(Spawn::Imperial { who, facts }),
+            None => Began::Unsupported,
+        },
     }
 }
 
@@ -149,18 +174,25 @@ pub struct Finished {
     pub failed: bool,
     /// The system the Diplomacy primary placed tokens in and the seats that got one (in seating order): the adapter announces them.
     pub tokens: Option<(System, SmallList<Seat, 8>)>,
+    /// What the Warfare secondary's home production made, in order, with the system it ran in: the adapter announces it (`UNITS_PRODUCED`).
+    pub made: Option<Made>,
+    /// The public objective the Imperial primary scored (what the score sets off is the adapter's).
+    pub scored: Option<PublicObjective>,
 }
 
 /// What the ability announces when it is done, from the [`Report`] of its window: the three trade goods of the Trade primary
 /// (staged, as the string stages them after its window). `trade_source` is the interned `trade_primary`.
 pub fn finish(report: Report, s: &mut CoreState, trade_source: Code) -> Finished {
+    let none = Finished { failed: false, tokens: None, made: None, scored: None };
     match report {
-        Report::Left => Finished { failed: true, tokens: None },
-        Report::Placed(system, seats) => Finished { failed: false, tokens: Some((system, seats)) },
+        Report::Left => Finished { failed: true, ..none },
+        Report::Placed(system, seats) => Finished { tokens: Some((system, seats)), ..none },
         Report::Goods(who, goods) => {
             fx::stage(s, fx::trade_goods_gained(who, goods, trade_source));
-            Finished { failed: false, tokens: None }
+            none
         }
-        Report::Nothing | Report::Paid(_) | Report::Chose(_) | Report::Destroyed(_) | Report::Built(_) | Report::Made(_) | Report::Removed(_) => Finished { failed: false, tokens: None },
+        Report::Made(made) => Finished { made: Some(made), ..none },
+        Report::Scored(scored) => Finished { scored, ..none },
+        Report::Nothing | Report::Paid(_) | Report::Chose(_) | Report::Destroyed(_) | Report::Built(_) | Report::Removed(_) => none,
     }
 }
