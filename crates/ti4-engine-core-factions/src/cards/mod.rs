@@ -25,6 +25,7 @@ pub fn register(t: &mut AbilityTable) {
     t.add_card_play(CardPlay { covers: direct_hit_covers, effect: direct_hit });
     t.add_card_play(CardPlay { covers: skilled_retreat_covers, effect: skilled_retreat });
     t.add_card_play(CardPlay { covers: |c| c == ActionCard::FireTeam, effect: fire_team });
+    t.add_card_play(CardPlay { covers: |c| c == ActionCard::ScrambleFrequency, effect: scramble });
     register_after_play(t);
 }
 
@@ -36,12 +37,16 @@ pub fn register_after_play(t: &mut AbilityTable) {
 
 /// Draw the dice at `picks` (`(entry, die)`) of the staged set of `roller` again from the dice stream, in order
 /// (`combat::apply_reroll_dice`): the face is replaced, the die is marked rerolled and the adjustment it carried dies with it.
-fn redraw(host: &mut RulesHost<'_>, roller: Seat, picks: &[(usize, usize)]) {
+/// `record`: each draw is also kept in the ledger as the string's dice history keeps it (the faces of the whole group after the draw,
+/// the die that was drawn again marked), for the host to put into its own record of the roll (Scramble Frequency; the ground roll
+/// of Fire Team is not kept).
+fn redraw(host: &mut RulesHost<'_>, roller: Seat, picks: &[(usize, usize)], record: bool) {
     use ti4_engine_core::state::RngDomain;
     for (e, d) in picks {
         let face = host.state.rng_mut().die(RngDomain::Dice, host.seeds, 10);
         let staging = host.state.transient_mut().combat.reroll_staging.edit();
         let Some((_, set)) = staging.iter_mut().find(|(s, _)| *s == roller) else { continue };
+        let system = set.system;
         let Some(entry) = set.rolls.get_mut(*e) else { continue };
         if *d >= entry.faces.len() {
             continue;
@@ -51,7 +56,25 @@ fn redraw(host: &mut RulesHost<'_>, roller: Seat, picks: &[(usize, usize)]) {
             entry.rerolled |= 1 << *d;
         }
         entry.deltas.remove(&u8::try_from(*d).unwrap_or(u8::MAX));
+        let group = combat::FleetRoll { hits_on: entry.hits_on.map_or(0, u32::from), faces: entry.faces.iter().map(|f| u32::from(*f)).collect(), rerolled: vec![u32::try_from(*d).unwrap_or(u32::MAX)] };
+        if record && host.state.loaded.has(ti4_engine_core::state::Slice::Ledger) {
+            combat::record_rolls(host.state.ledger_mut(), roller, Some(system), &[group], ti4_engine_core::state::RollPurpose::Reroll);
+        }
     }
+}
+
+/// Scramble Frequency: "after another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll: that player rerolls all of
+/// their dice." Forced, no question: every die of the set the roller staged is drawn again, entry by entry, die by die
+/// (`action_cards::scramble`). The roller is the seat that staged the roll (`last_reroll_player`); the kind check of the string is
+/// redundant here, because the only events this reaction answers (`UNIT_ABILITY_ROLLED`) are emitted by the windows of those three rolls.
+/// The host reads the faces back after the event and takes the hits from them.
+#[allow(clippy::unnecessary_wraps)]
+fn scramble(host: &mut RulesHost<'_>, _: &mut Resolver, _: Seat, _: ActionCard) -> Result<(), TimingError> {
+    let Some(roller) = host.state.transient().combat.last_reroll_player else { return Ok(()) };
+    let Some(set) = host.state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == roller).map(|(_, set)| set.clone()) else { return Ok(()) };
+    let picks: Vec<(usize, usize)> = set.rolls.iter().enumerate().flat_map(|(e, entry)| (0..entry.faces.len()).map(move |d| (e, d))).collect();
+    redraw(host, roller, &picks, true);
+    Ok(())
 }
 
 /// Fire Team: "after your ground forces make combat rolls during a round of ground combat: reroll any number of your dice."
@@ -95,7 +118,7 @@ fn fire_team(host: &mut RulesHost<'_>, _: &mut Resolver, who: Seat, card: Action
             }
         }
     }
-    redraw(host, who, &picks);
+    redraw(host, who, &picks, false);
     Ok(())
 }
 
@@ -339,10 +362,10 @@ mod tests {
     #[test]
     fn the_registered_cards_are_the_ones_named() {
         let t = registered();
-        for card in [ActionCard::FireTeam, ActionCard::Sabotage1, ActionCard::Sabotage4, ActionCard::Intercept, ActionCard::Parley, ActionCard::DirectHit1, ActionCard::DirectHit4, ActionCard::SkilledRetreat1, ActionCard::SkilledRetreat4] {
+        for card in [ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::Sabotage1, ActionCard::Sabotage4, ActionCard::Intercept, ActionCard::Parley, ActionCard::DirectHit1, ActionCard::DirectHit4, ActionCard::SkilledRetreat1, ActionCard::SkilledRetreat4] {
             assert!(t.card_play(card).is_some(), "{card:?}");
         }
-        for card in [ActionCard::ScrambleFrequency, ActionCard::MoraleBoost1] {
+        for card in [ActionCard::MoraleBoost1, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation] {
             assert!(t.card_play(card).is_none(), "{card:?}");
         }
     }
@@ -506,22 +529,29 @@ mod tests {
         assert!(s.transient().combat.pending_destructions.is_empty());
     }
 
-    /// Integration of B6d and B12: ONE owner per window for each of the three cards that both lines touched
-    /// (`docs/INTEGRATION5.md`). Inside another window (the reactions table, where the facts of the play window are not lent)
-    /// the registered play is Fire Team's; Scramble Frequency and Courageous To The End are not played there (the census names
-    /// them, B6d owns their play window) and a table that registers Fire Team must not make them registered plays.
+    /// Integration of B6d, B12 and W15: ONE owner per card (`docs/INTEGRATION5.md`). A card the action-card area plays nested
+    /// (`Fx::nested`: its facts are handed in by the host, Courageous To The End) is never also a registered play; a card the area does
+    /// not play from a window but that reads the dice a roll staged (Fire Team, Scramble Frequency) is the registered play of this
+    /// module there, and its play window stays the area's for the component action; Experimental Battlestation is neither.
     #[test]
-    fn one_owner_per_card_fire_team_is_registered_and_scramble_and_courageous_are_not() {
+    fn one_owner_per_card_the_registered_plays_are_never_cards_the_area_plays_nested() {
         use ti4_engine_core::rules::action_cards::announce::{Announce, plays_in};
+        use ti4_engine_core::rules::action_cards::effects::Fx;
         use ti4_engine_core::rules::action_cards::{Env, Facts, Placed};
         use ti4_engine_core::state::Code;
         let t = registered();
-        assert!(plays_in(&t, ActionCard::FireTeam), "Fire Team is played inside the windows by the registration");
-        assert!(!plays_in(&AbilityTable::default(), ActionCard::FireTeam), "without the registration it is the play window's alone");
-        for card in [ActionCard::ScrambleFrequency, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation] {
-            assert!(t.card_play(card).is_none(), "{card:?} is not registered");
-            assert!(!plays_in(&t, card), "{card:?} stays out of the windows (its play window is the action-card area's)");
+        // (A card both nested and registered would be played by the area's effect: `Announce::of` takes the registration only for a card
+        // the area does not play nested. The cards of this test are the ones the two lines both touched.)
+        for card in [ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::CourageousToTheEnd, ActionCard::ExperimentalBattlestation] {
+            assert!(!(t.card_play(card).is_some() && Fx::of(card).is_some_and(Fx::nested)), "{card:?} has two owners inside a window");
         }
+        for card in [ActionCard::FireTeam, ActionCard::ScrambleFrequency] {
+            assert!(plays_in(&t, card), "{card:?} is played inside the windows by the registration");
+            assert!(!plays_in(&AbilityTable::default(), card), "without the registration it is the play window's alone");
+        }
+        assert!(plays_in(&AbilityTable::default(), ActionCard::CourageousToTheEnd) && t.card_play(ActionCard::CourageousToTheEnd).is_none(), "the area plays Courageous To The End");
+        assert!(t.card_play(ActionCard::ExperimentalBattlestation).is_none());
+        assert!(!plays_in(&t, ActionCard::ExperimentalBattlestation), "its play window is the action-card area's");
         let env = Env {
             mahact_held: 0,
             scope: ti4_engine_core::tables::Scope(u32::MAX),
@@ -535,11 +565,13 @@ mod tests {
             facts: Facts::default(),
         };
         let (s, _) = table(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]);
-        // The announcement of the window: the registration for Fire Team (no facts of the play window), nothing for the others.
+        // The announcement of the window: the registration for Fire Team and Scramble Frequency (no facts of the play window).
         // (`registered` is what the inline runner passes: `rt.has_registered_play(card)`.)
         let registered_in = |card: ActionCard| t.card_play(card).is_some();
         assert!(Announce::of(&s, ActionCard::FireTeam, Seat(0), env, true, registered_in(ActionCard::FireTeam)).is_some());
         assert!(Announce::of(&s, ActionCard::FireTeam, Seat(0), env, true, false).is_none(), "nothing registered, no facts of the play window");
+        assert!(Announce::of(&s, ActionCard::ScrambleFrequency, Seat(0), env, true, registered_in(ActionCard::ScrambleFrequency)).is_some());
+        assert!(Announce::of(&s, ActionCard::ScrambleFrequency, Seat(0), env, true, false).is_none(), "nothing registered, no facts of the play window");
         // The others never get this far inside a window: `plays_in` (above) is the gate of the slot, and the census names them.
     }
 

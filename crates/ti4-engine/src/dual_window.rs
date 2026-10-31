@@ -755,22 +755,12 @@ pub fn drive_windowed<W: Window>(
                     if let (Some(ctx), Some(recorded)) = (rendered.context.as_mut(), script.questions.get(out.questions.len() - 1)) {
                         ctx.previews = recorded.choice.context.as_ref().map(|c| c.previews.clone()).unwrap_or_default();
                     }
-                } else if driver.nested_state().is_some() && courageous_casualty(&choice) {
-                    // The casualty the opponent of a Courageous To The End chooses: a destruction the holder produces.
-                    if let (Some(context), Some((_, attacker, defender))) = (rendered.context.take(), gs.active_space_combat.as_ref()) {
-                        let holder = if r.seat_text(choice.actor) == attacker.as_str() { defender } else { attacker };
-                        rendered.context = Some(
-                            context
-                                .with_hit(crate::decision_context::HitDetail {
-                                    cause: crate::decision_context::HitCause::CourageousToTheEnd,
-                                    destroy: true,
-                                    restriction: crate::decision_context::HitRestriction::Any,
-                                    producer: Some(holder.clone()),
-                                })
-                                .about_battle(gs)
-                                .about_invasion(gs),
-                        );
+                    // The casualty of a Courageous To The End played inside an emission (a nested play) is described like the one of its own window.
+                    if courageous_casualty(&choice) {
+                        courageous_hit(r, &choice, at, gs, &mut rendered);
                     }
+                } else if driver.nested_state().is_some() && courageous_casualty(&choice) {
+                    courageous_hit(r, &choice, driver.nested_state().unwrap_or(core), gs, &mut rendered);
                 } else if driver.nested_state().is_some() && matches!(choice.ask, ti4_engine_core::choice::Ask::Cards(_)) {
                     // A question a played card's effect asks (Reparations: the planet to exhaust, the planet to ready) belongs to no event, so
                     // it comes with no facts; the string still puts it through `Table::ask_seeing`, which names the invasion the position is in.
@@ -796,6 +786,35 @@ pub fn drive_windowed<W: Window>(
             }
         }
     }
+}
+
+/// The hit a Courageous To The End makes its opponent choose (string `courageous`: `HitCause::CourageousToTheEnd`, a destruction, no
+/// restriction, the holder producing it) described on the rendered casualty question, in the position of the battle and the invasion.
+/// The holder is the owner of the ship whose destruction the card avenges (the handoff `last_ship_destroyed` of the position the question
+/// was asked in: the card refuses any other), and else the other side of the space combat; without a holder the context stays as it is.
+fn courageous_hit(r: &Render, choice: &CoreChoice, core: &ti4_engine_core::state::CoreState, gs: &GameState, rendered: &mut Choice) {
+    let holder = core
+        .transient()
+        .combat
+        .last_ship_destroyed
+        .map(|(_, victim, _)| r.seat_text(victim).to_owned())
+        .or_else(|| {
+            let (_, attacker, defender) = gs.active_space_combat.as_ref()?;
+            Some(if r.seat_text(choice.actor) == attacker.as_str() { defender } else { attacker }.to_string())
+        });
+    let Some(holder) = holder else { return };
+    let Some(context) = rendered.context.take() else { return };
+    rendered.context = Some(
+        context
+            .with_hit(crate::decision_context::HitDetail {
+                cause: crate::decision_context::HitCause::CourageousToTheEnd,
+                destroy: true,
+                restriction: crate::decision_context::HitRestriction::Any,
+                producer: Some(PlayerId::new(holder)),
+            })
+            .about_battle(gs)
+            .about_invasion(gs),
+    );
 }
 
 /// The casualty question of a Courageous To The End played inside a window.

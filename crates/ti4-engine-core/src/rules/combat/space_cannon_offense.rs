@@ -22,7 +22,7 @@ use crate::kernel::fx;
 use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::{board as qboard, reach};
-use crate::state::{Code, CoreState, EventKind, Feat, Key, Payload, RngDomain, RollPurpose, RollRec, Val};
+use crate::state::{Code, CoreState, EventKind, Feat, Key, Payload, RerollEntry, RerollSet, RngDomain, RollPurpose, RollRec, Slice, Val};
 
 use super::effect_hits::Absorb;
 
@@ -65,11 +65,31 @@ pub struct Facts {
     pub commander: Code,
 }
 
+/// One staged roll of a gunner: the hit number, the faces and the dice drawn again (a bit mask).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Entry {
+    hits_on: u32,
+    faces: Vec<u32>,
+    rerolled: u64,
+}
+
+impl Entry {
+    fn hits(&self) -> u32 {
+        u32::try_from(self.faces.iter().filter(|f| **f >= self.hits_on).count()).unwrap_or(u32::MAX)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SpaceCannonOffense {
     pub f: Facts,
-    /// The rolls of the window in order: (hit number, faces), for the dual to compare with the string dice.
+    /// The rolls of the window in order: (hit number, faces), for the dual to compare with the string dice. A redraw a card made
+    /// (Scramble Frequency) is one of them, as in the string's dice history; [`Self::first_draws`] leaves them out (the string's rolls of
+    /// the cannon's own reason).
     pub drawn: Vec<(u32, Vec<u32>)>,
+    redraws: Vec<usize>,
+    /// The rolls of each gunner, in the order the string stages them (its units' rolls, then the attachments'): what the event shows the
+    /// reactions and what they leave after drawing dice again.
+    sets: Vec<(Seat, Vec<Entry>)>,
     /// The feat occurrence the window opened (the active seat lost its last non-fighter ship to the guns): the caller's
     /// event-scoring pause.
     pub scoring: Option<u64>,
@@ -87,7 +107,7 @@ pub struct SpaceCannonOffense {
 impl SpaceCannonOffense {
     #[must_use]
     pub fn new(f: Facts) -> Self {
-        Self { f, drawn: Vec::new(), scoring: None, stage: Stage::Rolling, gunners: Vec::new(), at: 0, before: 0, bound: false, absorb: Child::idle() } // mutants:skip: `at`, `before` and `bound` are set before they are read
+        Self { f, drawn: Vec::new(), redraws: Vec::new(), sets: Vec::new(), scoring: None, stage: Stage::Rolling, gunners: Vec::new(), at: 0, before: 0, bound: false, absorb: Child::idle() } // mutants:skip: `at`, `before` and `bound` are set before they are read
     }
 
     /// The gunner whose hits are being absorbed and whether their loss is bound to non-fighters (the facts of the casualty
@@ -119,11 +139,17 @@ impl SpaceCannonOffense {
         let plan = cannon_plan(rd, system, active, opponent, &list);
         let attachments = attachment_guns(rd, system, active);
         let mut hits: Vec<(Seat, u32)> = Vec::new();
+        let mut sets: Vec<(Seat, Vec<Entry>)> = Vec::new();
         let mut note = |owner: Seat, on: u32, faces: &[u32]| {
             let got = u32::try_from(faces.iter().filter(|f| **f >= on).count()).unwrap_or(u32::MAX);
             match hits.iter_mut().find(|(s, _)| *s == owner) {
                 Some((_, n)) => *n += got,
                 None => hits.push((owner, got)),
+            }
+            let entry = Entry { hits_on: on, faces: faces.to_vec(), rerolled: 0 };
+            match sets.iter_mut().find(|(s, _)| *s == owner) {
+                Some((_, list)) => list.push(entry),
+                None => sets.push((owner, vec![entry])),
             }
         };
         let mut drawn = Vec::new();
@@ -141,6 +167,8 @@ impl SpaceCannonOffense {
             drawn.push((on, faces));
         }
         self.drawn = drawn;
+        sets.sort_by_key(|(s, _)| s.0);
+        self.sets = sets;
         hits.sort_by_key(|(s, _)| s.0);
         self.gunners = hits.into_iter().filter(|(_, n)| *n > 0).collect();
     }
@@ -159,21 +187,86 @@ impl SpaceCannonOffense {
         });
     }
 
-    /// The reroll window of each gunner with hits (`open_reroll_windows`: nothing to ask here, the event other seats react
-    /// to).
+    /// The rolls of the window that are its own, without the redraws a card made.
+    #[must_use]
+    pub fn first_draws(&self) -> Vec<(u32, Vec<u32>)> {
+        self.drawn.iter().enumerate().filter(|(i, _)| !self.redraws.contains(i)).map(|(_, d)| d.clone()).collect()
+    }
+
+    /// The gunner's rolls as the set the reactions see (`transient.combat.reroll_staging`, staged for the event).
+    fn mirror(&self, sx: &mut Sx<'_>, gunner: Seat) {
+        let Some((_, entries)) = self.sets.iter().find(|(s, _)| *s == gunner) else { return };
+        let rolls: Vec<RerollEntry> = entries
+            .iter()
+            .map(|e| RerollEntry {
+                unit: self.f.kind,
+                planet: None,
+                hits_on: Some(u8::try_from(e.hits_on).unwrap_or(u8::MAX)),
+                faces: e.faces.iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect(),
+                rerolled: e.rerolled,
+                deltas: crate::containers::SortedMap::default(),
+                unit_types: crate::containers::SortedMap::default(),
+            })
+            .collect();
+        let set = RerollSet { kind: self.f.kind, system: self.f.system, rolls };
+        let list = sx.state.transient_mut().combat.reroll_staging.edit();
+        list.retain(|(s, _)| *s != gunner);
+        let at = list.partition_point(|(s, _)| *s < gunner);
+        list.insert(at, (gunner, set));
+    }
+
+    /// After the event: the faces the staged set shows are the gunner's roll now, and the redraws the cards recorded in the ledger since
+    /// `mark` are the window's own, in `drawn`.
+    fn read_back(&mut self, sx: &mut Sx<'_>, gunner: Seat, mark: usize) {
+        let staged = sx.state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == gunner).map(|(_, set)| set.clone());
+        if let (Some(set), Some((_, entries))) = (staged, self.sets.iter_mut().find(|(s, _)| *s == gunner)) {
+            for (entry, now) in entries.iter_mut().zip(set.rolls.iter()) {
+                entry.faces = now.faces.iter().map(|f| u32::from(*f)).collect();
+                entry.rerolled = now.rerolled;
+            }
+        }
+        if sx.state.loaded.has(Slice::Ledger) {
+            let redraws: Vec<(u32, Vec<u32>)> = sx
+                .state
+                .ledger()
+                .dice
+                .iter()
+                .skip(mark)
+                .filter(|r| r.purpose == RollPurpose::Reroll && r.owner == Some(gunner))
+                .map(|r| (u32::from(r.hits_on.unwrap_or(0)), r.faces.iter().map(|f| u32::from(*f)).collect()))
+                .collect();
+            for redraw in redraws {
+                self.drawn.push(redraw);
+                self.redraws.push(self.drawn.len() - 1);
+            }
+        }
+    }
+
+    /// The reroll window of each gunner with hits (`open_reroll_windows`): the gunner's dice are staged, the event other seats react to
+    /// goes out (nothing to ask here), and a card played in its windows may draw the dice again. Last, the hits of every gunner are read
+    /// from the faces that remain (the string takes them from the staged sets), a gunner left with none keeps its place.
     fn reroll_windows(&mut self, sx: &mut Sx<'_>) {
         for (gunner, hits) in self.gunners.clone() {
             sx.state.transient_mut().combat.last_reroll_player = Some(gunner);
             if self.f.announce {
+                self.mirror(sx, gunner);
                 let payload = Payload::new()
                     .with(Key::Kind, Val::Code(self.f.kind))
                     .with(Key::Player, Val::Seat(gunner))
                     .with(Key::System, Val::System(self.f.system))
                     .with(Key::Hits, Val::Int(i64::from(hits)));
+                let mark = if sx.state.loaded.has(Slice::Ledger) { sx.state.ledger().dice.len() } else { 0 };
                 let _ = sx.emit(fx::event(EventKind::UnitAbilityRolled, payload));
+                self.read_back(sx, gunner, mark);
+                sx.state.transient_mut().combat.reroll_staging.edit().retain(|(s, _)| *s != gunner);
             }
         }
         sx.state.transient_mut().combat.last_reroll_player = None;
+        for (gunner, hits) in &mut self.gunners {
+            if let Some((_, entries)) = self.sets.iter().find(|(s, _)| s == gunner) {
+                *hits = entries.iter().map(Entry::hits).sum();
+            }
+        }
     }
 
     /// `use_graviton`: the gunner exhausts the card when the loss can be bound to non-fighters and it changes something (the string

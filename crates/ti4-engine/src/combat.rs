@@ -11037,17 +11037,24 @@ mod tests {
         }
     }
 
-    /// Courageous to the End stays the string's when played from a window: its dice are not recorded as the ledger rows of an ability
-    /// (`nested.ability_dice` differs) and the casualty question of the opponent lacks the string's display context. The window that meets
-    /// the card bails, named (the facts handover of a nested play, `SharedPlay`, is in place for it; see `docs/W_L11_RESUME.md`).
+    /// Courageous to the End played from a window of the fight is followed by the core since package W15: its two dice are recorded as the
+    /// ledger rows of an ability (the string compares them as `nested.ability_dice`) and the casualty question of the opponent comes with
+    /// the string's display context (the hit of the card, the holder producing it). Every window of the fight is compared (the helper fails
+    /// on a difference) and none bails (bail-as-failure).
     #[test]
-    fn bail_courageous_to_the_end_is_counted() {
-        let mut named = 0;
+    fn courageous_to_the_end_played_in_a_window_of_the_fight_runs_in_the_core_in_lockstep() {
+        let mut played = 0;
         for seed in 1..=10_u64 {
-            let (_, _, bails) = declared_cards_fight(seed, &["courageous"], true);
-            named += bails.iter().filter(|k| k.contains("(card courageous)")).count();
+            for damaged in [true, false] {
+                // The defender holds it, the attacker holds it (two different holders and opponents), a table with faction modules (staging).
+                for (factions, attacker_hand, hand) in [(["sol", "hacan"], &[][..], &["courageous"][..]), (["sol", "hacan"], &["courageous"][..], &[][..]), (["mentak", "hacan"], &[][..], &["courageous"][..])] {
+                    let (_, _, bails, plays) = cards_fight(seed, factions, attacker_hand, hand, damaged);
+                    assert!(bails.iter().all(|k| !k.contains("(card courageous)")), "seed {seed}: {bails:?}");
+                    played += usize::from(plays.iter().any(|c| c == "courageous"));
+                }
+            }
         }
-        assert!(named > 0, "a Courageous to the End was played and named");
+        assert!(played > 0, "a Courageous to the End was played");
     }
 
     /// Direct Hit: the attacker's hit is sustained by a dreadnought, the attacker destroys that ship from the slot of

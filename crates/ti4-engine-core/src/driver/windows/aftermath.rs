@@ -144,7 +144,7 @@ impl Window for Head {
                     Some(Ran::Pass(next)) => return next,
                     Some(Ran::Done(c)) => {
                         self.scoring = c.scoring;
-                        self.drawn = c.drawn.clone();
+                        self.drawn = c.first_draws();
                         self.stage = Stage::Opening;
                     }
                     None => self.stage = Stage::Opening,
