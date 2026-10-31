@@ -519,6 +519,7 @@ fn a_roll_that_empties_a_fleet_concludes_the_fight_with_the_round_of_the_roll_an
         }
     }
     assert!(ended > 0 && went_on > 0, "the seeds cover both: {ended} ended inside the roll, {went_on} went on");
+}
 
 /// Found by the end-of-D1 gate run (golden game 3): the string asks at every announcement whether a Letnev round agent is still usable
 /// (the owner's readied one, or Ssruu copying it); using it exhausts it. The machine used to keep the fact it was built with for all
