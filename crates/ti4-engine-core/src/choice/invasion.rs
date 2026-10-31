@@ -27,6 +27,9 @@ pub enum Ask {
     /// "whose units on {planet} take the bombardment's next hits ({hits} hits)": the invader picks, per
     /// bombarding unit, the coexisting player whose ground forces take them (coexistence 7, 7.1).
     BombardTarget { system: System, planet: Planet, hits: u16 },
+    /// Titans' Slumberstate Computing: "coexist on {planet} instead of fighting" where Coalescence forces a ground combat and the
+    /// invader commits no other units; `holder` controls the planet.
+    CoexistInstead { system: System, planet: Planet, holder: Seat },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -54,6 +57,10 @@ pub enum Opt {
     LeaveCoexisting { next: Seat },
     /// The units of `seat` take the hits.
     BombardTarget { seat: Seat },
+    /// Slumberstate Computing: fight for the planet (the answer `fight`).
+    CoexistFight,
+    /// Slumberstate Computing: coexist on the planet instead (the answer `coexist`).
+    CoexistInstead,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -65,4 +72,5 @@ pub enum Subtype {
     FightGroundCombatRound,
     StartNextGroundCombat,
     BombardmentTarget,
+    CoalescenceCoexist,
 }

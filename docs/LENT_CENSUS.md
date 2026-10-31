@@ -158,3 +158,11 @@ the label), or is owned by another package:
   (the composed machine): documented bails.
 * Dropped by decision, no port planned: deck reserve and turn redo, structured diplomacy, Last Bastion, Crimson, Keleres, Deepwrought,
   Firmament, Obsidian, Ral Nel.
+
+## Package W10 (lane 10): what the lines above no longer say
+
+Not re-counted (no census before the end-of-D1 run). Gates of the sections above that are now core halves: the Jol-Nar commander in the barrage (`gate: the Jol-Nar commander`), Waylay in the barrage, `a Letnev side (Munitions ...)` below rules version 8 (the payment at the opening), the machine bails "cancelled hits" and "a roll that ends the fight" and the stranded ships of a retreat, X-89 in the ground roll / tail / bombardment, a command token in a Mahact fleet pool (Leadership, Warfare, TE Warfare, Fabrication, Leadership Rider), the end-of-use effects of a production by an ability (Hacan breakthrough, Prophecy of Ixth, swapped value), a galvanized ground force that falls (`|g`), and the Valefar-carried Production Biomes / Vortex / Chaos Mapping / C4R. See `docs/W_L10_RESUME.md` for the gates that stay and why.
+
+## Package W12 (lane 12): what the lines above no longer say
+
+Not re-counted (no census). Bails and gates of the sections above that are now core halves: `combat::offer_sustain` / `combat::space_cannon_offense` / the Experimental Battlestation hit flow in a game below `RULES_FACTION_EFFECTS` ("a game below the faction effects"), the Technology research below `RULES_TECH_PAYMENT_CHOICE` (`strategy_cards::technology_*`, the Technology Rider, Strategize / Overrule, Reveal Prototype), `nested (Nomad Temporal Command Suite (agent exhaustion))` at Tellurian, the L1Z1X agent, Brother Milor, Trilossa, the Sol / Letnev round agents, Ssruu copies and The Thundarian (a staged `AGENT_EXHAUSTED` as `leaders::exhaust` stages it), `factions::muaat::agent` for a copy through Ssruu, `factions::muaat::inferno` for a Nekro Z-token flagship, `factions::muaat::fires` for a Nekro holder, `a structure the seat may place instead of a PDS (Titans' Hecatoncheires)` (`strategy_cards::construction_*`, `te4_construction`), and the gate "a combat a faction rule forces (Titans' Coalescence)" of `invasion::finish_committing` (the window `invasion::forced_combats`). See `docs/W_L12_RESUME.md` for what stays.

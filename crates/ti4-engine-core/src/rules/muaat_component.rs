@@ -289,7 +289,7 @@ pub struct InfernoFacts {
     pub source: Code,
 }
 
-/// The system holding The Inferno (the Muaat flagship) of the seat, in system order, if the cruiser can be placed there and the pool
+/// The system holding The Inferno (the Muaat flagship, or a Nekro flagship lent its text by the Z token) of the seat, in system order, if the cruiser can be placed there and the pool
 /// holds a token (`inferno_system`).
 #[must_use]
 pub fn inferno_system(core: &CoreState, k: &Kernel, who: Seat, facts: &InfernoFacts) -> Option<System> {
@@ -301,7 +301,7 @@ pub fn inferno_system(core: &CoreState, k: &Kernel, who: Seat, facts: &InfernoFa
     let mut homes: Vec<System> = core
         .board()
         .systems()
-        .filter(|(_, cell)| cell.units.as_slice().iter().any(|p| p.owner() == who && p.kind() == Unit::TheInferno))
+        .filter(|(_, cell)| cell.units.as_slice().iter().any(|p| p.owner() == who && crate::query::reach::flagship_text(core, who, p.kind(), Unit::TheInferno)))
         .map(|(system, _)| system)
         .collect();
     homes.sort_unstable();
@@ -323,7 +323,8 @@ pub fn inferno(core: &mut CoreState, k: &Kernel, who: Seat, facts: &InfernoFacts
 /// Fires of the Gashlai (the Muaat promissory note, a component action of its holder): "Remove 1 token from the Muaat player's fleet pool
 /// and return it to their reinforcements. Then, gain your war sun unit upgrade technology card. Then, return this card to the Muaat
 /// player." `owner` is the Muaat seat (the first in seating order). No question: every condition is read again and nothing is written
-/// unless all hold: the holder has the note of a Muaat seat's faction, plays another faction, does not own the technology, and the owner's
+/// unless all hold: the holder has the note of a Muaat seat's faction, plays another faction, has not the technology's text (owned, or carried by a
+/// Valefar Assimilator), and the owner's
 /// fleet pool holds a token. The units re-form to the upgrade (90.8). Whether the action resolved.
 pub fn fires_of_the_gashlai(core: &mut CoreState, k: &Kernel, scope: Scope, roster: &UnitRoster, who: Seat, owner: Seat) -> bool {
     use crate::generated::PromissoryNote;
@@ -337,7 +338,7 @@ pub fn fires_of_the_gashlai(core: &mut CoreState, k: &Kernel, scope: Scope, rost
     else {
         return false;
     };
-    if p.faction == Faction::TheEmbersOfMuaat || p.tech.owned.contains(Technology::WarSun) {
+    if p.faction == Faction::TheEmbersOfMuaat || crate::query::reach::technology_text(core, who, Technology::WarSun) {
         return false;
     }
     if core.players().by_seat(owner).is_none_or(|o| o.faction != Faction::TheEmbersOfMuaat || o.econ.fleet_tokens <= 0) {

@@ -4,8 +4,9 @@
 //!
 //! What stays with the string (bails, each counted under the label with its reason): irreproducible dice, a seat of a faction
 //! dropped by decision, seats not in id order (the string iterates its gunners by player id), a Jol-Nar commander or a Heart of
-//! Ixth (their reroll windows ask), a Letnev commander that pays on a sustain without being unlocked, games below the rules
-//! version of the faction effects, neutral units in the system, nested activity the reaction table does not follow.
+//! Ixth (their reroll windows ask), a Letnev commander that pays on a sustain without being unlocked, neutral units in the
+//! system, nested activity the reaction table does not follow. (A game below the rules version of the faction effects is carried
+//! since W12: the sustain offer of the absorbing window pays the commander unasked there.)
 
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
@@ -62,9 +63,6 @@ pub fn unported(gs: &GameState, a: &Args<'_>) -> Option<&'static str> {
     }
     if crate::tactical_dual::dropped_faction_at_the_table(gs) {
         return Some("a faction dropped by decision at the table");
-    }
-    if gs.rules_version < ti4_model::state::RULES_FACTION_EFFECTS {
-        return Some("rules version below the faction effects");
     }
     let heart = ti4_model::id::RelicId::new("heartofixth");
     if gs.players.iter().any(|p| {

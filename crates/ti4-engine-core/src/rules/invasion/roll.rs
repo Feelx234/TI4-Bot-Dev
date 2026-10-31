@@ -6,7 +6,10 @@
 //! (`reroll_staging`, kind `ground`, one entry per pool named `combat value N`) and `last_reroll_player` are set
 //! for the reroll windows that follow; the hits are the dice at or above the value.
 //!
-//! Not covered (the adapter returns `None`, the string result stands): X-89 Bacterial Weapon (doubled hits), a
+//! X-89 Bacterial Weapon (`Facts::x89`, package W10): "double the hits produced by your units' BOMBARDMENT and ground combat rolls" -- the
+//! hits of that side are twice the dice at or above the value (the staged dice stay raw faces).
+//!
+//! Not covered (the adapter returns `None`, the string result stands): a
 //! combat value outside `1..=NAMED`, test faces or a pending stream restore, nested activity.
 
 use super::{ground_pools, Rd};
@@ -42,12 +45,14 @@ pub struct Facts {
     pub names: Vec<Code>,
     /// The interned unit-type text of every unit type that may roll (`RerollEntry.unit_types`).
     pub unit_codes: Vec<(Unit, Code)>,
+    /// Per side (attacker, defender): X-89 Bacterial Weapon doubles its hits.
+    pub x89: [bool; 2],
 }
 
 #[derive(Debug, Clone)]
 pub struct GroundRoll {
     pub f: Facts,
-    /// The hits of the attacker and the defender (before X-89, which the adapter excludes).
+    /// The hits of the attacker and the defender (X-89 doubled).
     pub hits: (u32, u32),
     /// The rolls in order: (hit number, faces), for the dual to compare with the string dice.
     pub drawn: Vec<(u32, Vec<u32>)>,
@@ -133,7 +138,7 @@ impl Window for GroundRoll {
         }
         let a = self.roll_side(sx, self.f.attacker);
         let d = self.roll_side(sx, self.f.defender);
-        self.hits = (a, d);
+        self.hits = (a * if self.f.x89[0] { 2 } else { 1 }, d * if self.f.x89[1] { 2 } else { 1 });
         self.stage = Stage::Done;
         Next::Done
     }

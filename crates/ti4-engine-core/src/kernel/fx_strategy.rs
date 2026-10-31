@@ -12,6 +12,32 @@ use crate::query::{laws, promissory as qn, tech};
 use crate::state::{CoreState, LeaderStatus, NoteKey, Piece};
 use crate::tables::Scope;
 
+/// The technology card that carries `tech`'s text for `who` (`technology::exhaust_technology_text`'s carrier): the technology itself, or
+/// the Valefar Assimilator (X before Y) of a Nekro whose token sits on it while another seat still owns it.
+#[must_use]
+pub fn text_carrier(core: &CoreState, who: Seat, tech: Technology) -> Option<Technology> {
+    let p = core.players().by_seat(who)?;
+    if p.tech.owned.contains(tech) {
+        return Some(tech);
+    }
+    if p.faction != crate::generated::Faction::TheNekroVirus {
+        return None;
+    }
+    [Technology::ValefarAssimilatorX, Technology::ValefarAssimilatorY].into_iter().find(|card| {
+        p.tech.owned.contains(*card) && p.tech.assimilated.get(card) == Some(&tech) && core.players().iter().any(|o| o.seat != who && o.tech.owned.contains(tech))
+    })
+}
+
+/// `technology::exhaust_technology_text`: exhaust the card that carries `tech`'s text for `who` ([`text_carrier`]); `false`, changing
+/// nothing, when the seat has neither the technology nor an assimilator carrying it.
+pub fn exhaust_technology_text(core: &mut CoreState, who: Seat, tech: Technology) -> bool {
+    let Some(carrier) = text_carrier(core, who, tech) else { return false };
+    if let Some(p) = core.players_mut().by_seat_mut(who) {
+        p.tech.exhausted.insert(carrier);
+    }
+    true
+}
+
 /// `promissory::take`: `holder` gets the note, faceup if that is where the card lives (69.3). The same write as
 /// `rules::trade::take_note`.
 pub fn take_note(core: &mut CoreState, holder: Seat, key: NoteKey) {
@@ -35,6 +61,22 @@ pub fn exhaust_leader(core: &mut CoreState, who: Seat, leader: Leader) -> bool {
         }
         _ => false,
     }
+}
+
+/// `leaders::exhaust` of an agent card (the status, then the announcement): `card` of `who` becomes exhausted, and a Nomad that hears every
+/// agent exhausted (it holds Temporal Command Suite: `direct.nomad_watches_agent_exhaustion`) is told by a staged `AGENT_EXHAUSTED`
+/// (`player` = the agent's owner, `leader` = the card exhausted: Ssruu for a copy). The staged event is announced by whoever flushes the
+/// staged events, where Temporal Command Suite asks its holder. `card` need not be readied (the caller checked); `false`, changing
+/// nothing, when the seat does not hold the card.
+pub fn exhaust_agent(core: &mut CoreState, k: &Kernel, who: Seat, card: Leader) -> bool {
+    let Some(p) = core.players_mut().by_seat_mut(who) else { return false };
+    let Some(status) = p.leaders.status.get_mut(&card) else { return false };
+    *status = LeaderStatus::Exhausted;
+    if k.hooks.direct.nomad_watches_agent_exhaustion(core) {
+        let payload = crate::state::Payload::new().with(crate::state::Key::Player, crate::state::Val::Seat(who)).with(crate::state::Key::Leader, crate::state::Val::Leader(card));
+        super::fx::stage(core, super::fx::event(crate::state::EventKind::AgentExhausted, payload));
+    }
+    true
 }
 
 // -- research ---------------------------------------------------------------------------------------------
@@ -188,6 +230,47 @@ mod tests {
 
     fn scope() -> Scope {
         Scope(u32::MAX)
+    }
+
+    /// The card that carries a technology's text (`technology::exhaust_technology_text`): the technology itself, else the Valefar
+    /// Assimilator of a Nekro whose token sits on it while another seat owns it (X before Y); the carrier is the card exhausted.
+    #[test]
+    fn the_text_of_a_technology_is_carried_by_the_card_or_by_the_assimilator_with_its_token() {
+        let mut s = game();
+        let nekro = Seat(0);
+        s.players_mut().by_seat_mut(nekro).unwrap().faction = Faction::TheNekroVirus;
+        let tech = Technology::Vortex;
+        // Nobody has it: no carrier.
+        assert_eq!(text_carrier(&s, nekro, tech), None);
+        assert!(!exhaust_technology_text(&mut s, nekro, tech));
+        // The assimilator stands for it, but no other seat owns it any more: the token is not live.
+        {
+            let p = s.players_mut().by_seat_mut(nekro).unwrap();
+            p.tech.owned.insert(Technology::ValefarAssimilatorX);
+            p.tech.assimilated.insert(Technology::ValefarAssimilatorX, tech);
+        }
+        assert_eq!(text_carrier(&s, nekro, tech), None);
+        // Another seat owns it: the assimilator carries it and is the card exhausted.
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().tech.owned.insert(tech);
+        assert_eq!(text_carrier(&s, nekro, tech), Some(Technology::ValefarAssimilatorX));
+        assert!(exhaust_technology_text(&mut s, nekro, tech));
+        let p = s.players().by_seat(nekro).unwrap();
+        assert!(p.tech.exhausted.contains(Technology::ValefarAssimilatorX) && !p.tech.exhausted.contains(tech));
+        // X is preferred to Y, and the own card to both.
+        {
+            let p = s.players_mut().by_seat_mut(nekro).unwrap();
+            p.tech.owned.insert(Technology::ValefarAssimilatorY);
+            p.tech.assimilated.insert(Technology::ValefarAssimilatorY, tech);
+        }
+        assert_eq!(text_carrier(&s, nekro, tech), Some(Technology::ValefarAssimilatorX));
+        s.players_mut().by_seat_mut(nekro).unwrap().tech.owned.insert(tech);
+        assert_eq!(text_carrier(&s, nekro, tech), Some(tech));
+        // Only a Nekro carries a text on an assimilator.
+        let other = Seat(2);
+        let p = s.players_mut().by_seat_mut(other).unwrap();
+        p.tech.owned.insert(Technology::ValefarAssimilatorX);
+        p.tech.assimilated.insert(Technology::ValefarAssimilatorX, tech);
+        assert_eq!(text_carrier(&s, other, tech), None);
     }
 
     /// Regression (mutation `revolution taxes fighters`): the fighters come first in the list and cost as little as the

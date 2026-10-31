@@ -5688,10 +5688,11 @@ mod tests {
 
     /// Found by the census of `tools/rulebot/golden-lent.json` (a Mahact at the table): the Thunder's Edge Warfare asks the user the
     /// reinforcements, which the core counted without the tokens in a Mahact fleet pool (one too many). Like the Warfare primary,
-    /// the core window declines with such a token, counted.
+    /// the core window counts such a token out of the reinforcements since package W10 (`kernel::fx::tokens_held_by_mahact`, read from the
+    /// marks), and the window is compared; before it the window declined with such a token, counted.
     #[cfg(feature = "typed-core")]
     #[test]
-    fn thunders_edge_warfare_declines_with_a_token_in_a_mahact_pool() {
+    fn thunders_edge_warfare_follows_a_token_in_a_mahact_pool() {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
@@ -5714,7 +5715,7 @@ mod tests {
         let r = report();
         let _ = take_report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
-        assert_eq!(crate::dual::local_windows("strategy_cards::te6_warfare"), (0, 1), "{:?}", r.windows);
+        assert_eq!(crate::dual::local_windows("strategy_cards::te6_warfare"), (1, 0), "{:?}", r.windows);
     }
 
     /// The tactic/fleet/strategy distribution the player holds, as a redistribution answer id.

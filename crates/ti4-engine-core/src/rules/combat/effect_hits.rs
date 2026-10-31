@@ -196,6 +196,14 @@ impl Absorb {
         Self { offer, assign, hits, stage: AbsorbStage::Spending, sustain: Child::idle(), assigning: Child::idle() }
     }
 
+    /// The hits are part of a space combat (a Waylay's barrage): the sustain offer and the loss say so.
+    #[must_use]
+    pub fn in_space_combat(mut self) -> Self {
+        self.offer.in_combat = true;
+        self.assign.during_space_combat = true;
+        self
+    }
+
     /// The hits of a unit ability's roll (the space cannon offense: `absorb_hits_seeing_with` with `HitOrigin::UnitAbility`):
     /// like [`Self::new`], but a Maximum cannot be assigned them, they are not part of a combat, `bound` binds the loss to
     /// non-fighter ships while one is left (Graviton Laser System; `non_fighter_left` is the display flag of the decline), the

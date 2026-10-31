@@ -340,18 +340,16 @@ fn bail_a_card_with_an_unported_effect_keeps_the_string_announcement() {
     let _ = crate::dual::take_report();
 }
 
-/// Bail: a card the core does not carry (Reveal Prototype below the technology payment choice, a version whose research the core window does not follow) played from the slot of a fight: the combat window that
-/// followed the offer bails with the reason, instead of comparing a play the core cannot make. (Skilled Retreat was this
-/// test's card until the reactions line registered its effect in the table; the census now names the card.)
+/// Reveal Prototype played from the slot of a fight in a game below the technology payment choice (version 5): the research window
+/// spends the cheapest plan unasked since W12, so the combat window that followed the offer is compared, not bailed
+/// ("a card cost the core does not judge" before). (Skilled Retreat was this test's card until the reactions line registered its effect.)
 #[test]
-fn bail_an_unported_card_played_in_a_fight_bails_the_window_with_its_reason() {
+fn a_reveal_prototype_below_the_technology_payment_choice_is_played_by_the_core_in_a_fight() {
     let _serial = crate::dual::tests::serial();
     let (_, played, windows) = fights_naming(&["reveal_prototype"], &[], Some(5), &|| Box::new(PlaySlots), true);
     assert!(played > 0, "the card was played");
-    assert!(
-        windows.keys().any(|k| k.starts_with("combat::begin_round [bail: nested (a card cost the core does not judge)]")),
-        "{windows:?}"
-    );
+    assert!(windows.keys().all(|k| !k.contains("[bail:")), "{windows:?}");
+    assert!(windows.get("combat::begin_round").is_some_and(|w| w.compared > 0), "{windows:?}");
 }
 
 fn unit(kind: &str, owner: &PlayerId) -> ti4_model::units::Unit {
