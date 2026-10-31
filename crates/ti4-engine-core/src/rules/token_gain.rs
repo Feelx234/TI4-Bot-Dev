@@ -162,6 +162,13 @@ mod tests {
     }
 
     #[test]
+    fn the_stage_follows_the_tokens_still_owed() {
+        assert_eq!(owed(&[0]).stage(), Stage::Owed);
+        assert_eq!(owed(&[]).stage(), Stage::Complete);
+        assert!(owed(&[]).is_complete() && !owed(&[1]).is_complete());
+    }
+
+    #[test]
     fn the_question_is_a_pure_read_of_the_stack_and_a_clone_continues_identically() {
         let (k, mut s) = (Kernel::plain(), position());
         let env = env(&k);

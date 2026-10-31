@@ -378,6 +378,21 @@ mod tests {
     }
 
     #[test]
+    fn a_nested_pick_that_is_no_option_is_refused_and_the_registry_names_the_native_arms() {
+        let k = Kernel::plain();
+        let env = env(&k);
+        let mut s = position();
+        open(&mut s, &Toy { emitted: false });
+        assert!(is_open::<Toy>(&s), "an opened window is on the stack");
+        advance::<Toy>(&mut s, &env, None).unwrap();
+        let held = s.clone();
+        assert_eq!(advance::<Toy>(&mut s, &env, Some(pick(9))), Err(LiveError::Illegal), "an ability the window does not offer");
+        assert_eq!(s, held);
+        assert!(live_arm(Arm::Tokens).is_some() && ask_arm_fn(Arm::Tokens).is_some());
+        assert!(live_arm(Arm::Voting).is_none() && ask_arm_fn(Arm::Voting).is_none(), "an arm no lane has ported stays lent");
+    }
+
+    #[test]
     fn a_window_that_asks_nothing_runs_to_its_end_and_refuses_an_answer() {
         let k = Kernel::plain();
         let mut env = env(&k);
