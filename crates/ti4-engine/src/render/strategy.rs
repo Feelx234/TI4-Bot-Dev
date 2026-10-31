@@ -86,6 +86,7 @@ impl Family for Fam {
             Ask::TeWarfareTactical => "Warfare: a tactical action without a command token".to_owned(),
             Ask::ResearchTechnology { .. } => "research a technology".to_owned(),
             Ask::Follow { card, .. } => follow_words(*card).0.to_owned(),
+            Ask::Draft => "choose a strategy card".to_owned(),
         }
     }
 
@@ -106,6 +107,7 @@ impl Family for Fam {
             Subtype::FollowSecondary => "strategy_secondary",
             Subtype::ConstructionChooseAbility => "construction_choose_ability",
             Subtype::WarfareFreeTactical => "warfare_free_tactical",
+            Subtype::Draft => "draft_strategy_card",
         }
         .to_owned()
     }
@@ -167,6 +169,7 @@ impl Family for Fam {
                 option
             }
             Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
+            Opt::Card(card) => ChoiceOption::labelled(card.as_str(), crate::draft::STRATEGY_CARD_KIND, crate::draft::strategy_card_label(ti4_content::ContentStore::embedded(), card.as_str())),
             Opt::Build => ChoiceOption::labelled("structure", "build", "place a structure"),
             Opt::Produce(system) => ChoiceOption::labelled(format!("produce|{}", system.as_str()), "build", format!("use PRODUCTION in {}", system.as_str())),
             Opt::Skip => ChoiceOption::labelled("no", crate::strategy::STRATEGY_KIND, follow_words(follow_card(a)).1),
@@ -221,6 +224,7 @@ impl Family for Fam {
                 rest.is_none().then_some(())?;
                 Some(Opt::Structure { pds, system: System::from_id(system)?, planet: Planet::from_id(planet)? })
             }
+            Ask::Draft => StrategyCard::from_id(id).map(Opt::Card),
             Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
             Ask::ResearchTechnology { .. } => Technology::from_id(id).map(Opt::Research),
             Ask::Follow { .. } => match id {

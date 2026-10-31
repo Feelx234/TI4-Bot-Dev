@@ -18,6 +18,10 @@ pub struct TurnCodes {
     pub military_support_reason: Code,
     /// `spec ops II`: the purpose of the survival roll.
     pub spec_ops: Code,
+    /// `strategy_card`: the source of the trade goods a card gathered on the mat.
+    pub strategy_card: Code,
+    /// `starting_technology`: the source of a starting technology question.
+    pub starting_technology: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.
@@ -44,6 +48,12 @@ pub enum TurnGap {
     Propagation,
     /// A tile a faction effect replaced or swapped has to be replayed onto the map.
     MapEdits,
+    /// Imperial Arbiter (a ministry law) could swap strategy cards at the end of the draft.
+    ImperialArbiter,
+    /// Quantum Datahub Node could swap strategy cards at the end of the draft.
+    QuantumDatahub,
+    /// The event of a strategy card chosen was cancelled in its window (the string reports `TimingEventCancelled`).
+    EventCancelled,
     /// The resolver refused an emission (a defect of the position, never a rule).
     EmissionRefused,
     /// A replayed answer was refused by the window it was given to (the question changed between the replays).

@@ -91,6 +91,12 @@ fn native_run(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&str]) -
 
 /// The native steps in order (`reconcile` first when asked, as a step does), one asker for all of them.
 fn native_steps(state: &GameState, steps: &[(Arm, Option<TurnJob>)], reconcile: bool, ids: &[&str]) -> Run {
+    let marked: Vec<(bool, Arm, Option<TurnJob>)> = steps.iter().enumerate().map(|(i, (arm, job))| (reconcile && i == 0, *arm, *job)).collect();
+    native_marked(state, &marked, ids)
+}
+
+/// Like [`native_steps`], each step saying whether the reconcile hooks run before it (a string step starts with them).
+fn native_marked(state: &GameState, steps: &[(bool, Arm, Option<TurnJob>)], ids: &[&str]) -> Run {
     let mut cx = Ctx::of(state).expect("a table the codecs carry");
     let render = Render::new(cx.owners.ids().to_vec());
     let game = super::Game::with_table(state.clone(), ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption)));
@@ -102,15 +108,15 @@ fn native_steps(state: &GameState, steps: &[(Arm, Option<TurnJob>)], reconcile: 
     let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
     let lcx = live::Cx::new(&render, &env);
     let mut asker = Scripted::new(ids.iter().copied());
-    if reconcile {
-        loop {
-            let step = live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native reconcile stopped: {e:?}"));
-            if step.finished {
-                break;
+    for (reconcile, arm, job) in steps {
+        if *reconcile {
+            loop {
+                let step = live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native reconcile stopped: {e:?}"));
+                if step.finished {
+                    break;
+                }
             }
         }
-    }
-    for (arm, job) in steps {
         if let Some(job) = job {
             open_job(&mut core, *job);
         }
@@ -399,4 +405,67 @@ fn the_first_strategy_phase_announces_itself_like_the_string() {
     let native = native_steps(&state, &[(Arm::StrategyAnnounce, None)], true, &[]);
     assert_same(&string, &native);
     assert!(string.events.iter().any(|e| e == "STRATEGY_PHASE_BEGAN"), "{:?}", string.events);
+}
+
+// -- the draft and the starting technology ---------------------------------------------------------------------------------------
+
+/// The first pick of round 1: the step announces the strategy phase and asks the speaker to choose a card.
+#[test]
+fn the_first_pick_of_the_draft_announces_the_phase_and_takes_the_card_like_the_string() {
+    let state = based(crate::fixtures::seated_dealt(&THREE, DEFAULT));
+    let card = state.unclaimed_strategy_cards[2].to_string();
+    let string = string_run(&state, &[card.as_str()], |g| {
+        let r = g.step();
+        assert!(r.error.is_none(), "the step runs: {:?}", r.error);
+    });
+    let native = native_steps(&state, &[(Arm::StrategyAnnounce, None), (Arm::Ask, None)], true, &[card.as_str()]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.len(), 1);
+    assert!(string.events.iter().any(|e| e == "STRATEGY_CARD_CHOSEN"), "{:?}", string.events);
+}
+
+#[test]
+fn a_card_with_trade_goods_on_it_pays_them_to_the_picker_like_the_string() {
+    let mut state = crate::fixtures::seated_dealt(&THREE, DEFAULT);
+    let card = state.unclaimed_strategy_cards[4].clone();
+    state.strategy_card_goods.insert(card.clone(), 3);
+    let state = based(state);
+    let string = string_run(&state, &[card.as_str()], |g| {
+        assert!(g.step().error.is_none());
+    });
+    let native = native_steps(&state, &[(Arm::StrategyAnnounce, None), (Arm::Ask, None)], true, &[card.as_str()]);
+    assert_same(&string, &native);
+    // The gain is announced at the next step (staged).
+    assert_eq!(string.staged, ["TRADE_GOODS_GAINED"]);
+}
+
+fn starting_table(seats: &[(&str, &str)]) -> GameState {
+    let mut state = crate::fixtures::seated_dealt(seats, DEFAULT);
+    crate::starting_tech::open(&mut state, ContentStore::embedded(), DEFAULT);
+    based(state)
+}
+
+#[test]
+fn the_winnu_choose_a_starting_technology_like_the_string() {
+    let state = starting_table(&[("a", "winnu"), ("b", "sol"), ("c", "hacan")]);
+    assert!(!state.starting_tech_picks.is_empty(), "the Winnu owe a pick");
+    let string = string_run(&state, &["st"], |g| {
+        assert!(g.step().error.is_none());
+    });
+    let native = native_steps(&state, &[(Arm::Ask, None)], true, &["st"]);
+    assert_same(&string, &native);
+    assert!(string.events.iter().any(|e| e == "STARTING_TECHNOLOGY_CHOSEN"), "{:?}", string.events);
+}
+
+#[test]
+fn argent_flight_chooses_two_of_three_starting_technologies_like_the_string() {
+    let state = starting_table(&[("a", "argent"), ("b", "sol"), ("c", "hacan")]);
+    let string = string_run(&state, &["nm", "ps"], |g| {
+        assert!(g.step().error.is_none());
+        assert!(g.step().error.is_none());
+    });
+    let native = native_marked(&state, &[(true, Arm::Ask, None), (true, Arm::Ask, None)], &["nm", "ps"]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.len(), 2);
+    assert!(string.questions[0].prompt.contains("1 of 2"), "{}", string.questions[0].prompt);
 }

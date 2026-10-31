@@ -30,6 +30,19 @@ pub enum Ask {
     WormholeGenerator,
     /// "Chaos Mapping": in which system to produce one unit (at the start of a turn).
     ChaosMapping,
+    /// "choose a starting technology" (`number` of `of` when the seat picks several), drawn by `rule` (setup, before the first card is drafted).
+    StartingTech { number: u8, of: u8, rule: StartRule },
+}
+
+/// Where a starting technology pick draws from (`ti4_model::state::StartingTechSource`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StartRule {
+    /// A list on the faction card (Argent Flight).
+    Listed,
+    /// The technologies other seats own, none of a faction (Council Keleres).
+    OwnedByOthers,
+    /// Any technology the seat could research now by its prerequisites (Winnu).
+    Researchable,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -54,6 +67,8 @@ pub enum Opt {
     Token(crate::generated::Wormhole, System),
     /// Chaos Mapping: produce one unit in this system.
     System(System),
+    /// A starting technology.
+    Tech(Technology),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -71,4 +86,6 @@ pub enum Subtype {
     CreussToken,
     /// `chaos_mapping_choose_system`.
     ChaosMappingChooseSystem,
+    /// `starting_technology`.
+    StartingTechnology,
 }

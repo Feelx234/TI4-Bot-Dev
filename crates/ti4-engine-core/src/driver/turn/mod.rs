@@ -13,6 +13,7 @@
 
 pub mod ask;
 pub mod closing;
+pub mod draft;
 pub mod end;
 pub mod facts;
 pub mod inline;
@@ -51,6 +52,7 @@ impl Window for TurnFlowWin {
             TurnJob::Phase => phase::run_phase(sx),
             TurnJob::Announce => phase::run_announce(sx),
             TurnJob::Reconcile => prelude::run_reconcile(sx),
+            TurnJob::Draft(card) => draft::run_draft(sx, card),
         };
         Next::Done
     }

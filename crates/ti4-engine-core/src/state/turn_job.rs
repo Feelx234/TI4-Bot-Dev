@@ -20,4 +20,6 @@ pub enum TurnJob {
     Phase,
     /// The first strategy phase announces itself (`STRATEGY_PHASE_BEGAN`).
     Announce,
+    /// A strategy card is taken off the mat at the draft (`take_timed_strategy_card`): `STRATEGY_CARD_CHOSEN` with its reaction windows.
+    Draft(crate::generated::StrategyCard),
 }
