@@ -670,4 +670,24 @@ mod tests {
         let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], false);
         assert!(diffs.is_empty(), "{diffs:#?}");
     }
+
+    /// Promise of Protection: "If you activate a system that contains 1 or more of the Mentak player's units, return this card to the Mentak
+    /// player." Mandatory, no question: the note goes home when the Mentak has a unit in the system, stays when it has none.
+    #[test]
+    fn promise_of_protection_returns_to_the_mentak_in_lockstep() {
+        let (hub, origin, target) = hub();
+        for mentak_at in [Some(&target), Some(&origin), None] {
+            let mut state = table(&[("a", "sol"), ("b", "mentak")]);
+            let note = crate::promissory::note_id("pop", &crate::promissory::faction_name(&state, &b()));
+            state.promissory_notes.insert(note.clone(), a());
+            state.promissory_faceup.insert(note);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            if let Some(at) = mentak_at {
+                crate::fixtures::put(&mut state, at, "cruiser", &b(), 1);
+            }
+            let mv = id(&origin, 0);
+            let diffs = lockstep(state.clone(), &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv], false);
+            assert!(diffs.is_empty(), "{mentak_at:?}: {diffs:#?}");
+        }
+    }
 }
