@@ -1800,7 +1800,11 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("timing.rs", "pick_with_context", 1),
 ];
 
-const VIEWLESS_ASKS: &[(&str, &str, usize)] = &[("timing.rs", "pick", 1)];
+/// `live/mod.rs` (lane F, the live loop) asks an `Asker` with the rendered question and no view: `live_step_inner` puts the question, `LoneCard::ask` forwards it.
+/// The `Asker` is the host's seam (a script, the oracle, and the product wrapper of D2-8, which routes the question to the table with the view of the asking
+/// seat): the delivery with a view is that wrapper's, so these two are explicit migration work like the one in `timing.rs`. They were found unreviewed
+/// when the live loop met this registry (integration 10; `core-d2-f-live2` had never run this test).
+const VIEWLESS_ASKS: &[(&str, &str, usize)] = &[("mod.rs", "ask", 1), ("mod.rs", "live_step_inner", 1), ("timing.rs", "pick", 1)];
 
 fn expected_sites() -> BTreeMap<Site, usize> {
     let mut expected = BTreeMap::new();
@@ -1915,15 +1919,15 @@ fn the_remaining_viewless_asks_stay_explicit_migration_work() {
     // registry must then be edited to restore it, and that edit trips this. But a reader could
     // easily mistake it for a check on the engine, so the scanned total is asserted too.
     let count: usize = VIEWLESS_ASKS.iter().map(|(_, _, count)| count).sum();
-    assert_eq!(count, 1, "the reviewed registry still names one");
+    assert_eq!(count, 3, "the reviewed registry names three: the timing pick and the two of the live loop's Asker seam");
     let scanned: usize = scan()
         .iter()
         .filter(|(site, _)| site.operation == Operation::AskViewless)
         .map(|(_, count)| count)
         .sum();
     assert_eq!(
-        scanned, 1,
-        "production still contains one viewless ask; the registry and the source agree"
+        scanned, 3,
+        "production still contains three viewless asks; the registry and the source agree"
     );
     assert!(PRODUCERS.iter().all(|producer| !matches!(
         producer.delivery,
