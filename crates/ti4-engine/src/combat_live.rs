@@ -759,4 +759,69 @@ mod tests {
         let full = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), ti4_model::content_types::FULL);
         assert_eq!(full.table.facts.roster.expect("a roster").get(Faction::TheNaaluCollective, UnitBaseType::Mech), Unit::from_id("naalu_mech_te"), "a game with Thunder's Edge its reprint");
     }
+
+    // -- lane G2: the abilities of the PRODUCTION_USED window the Winnu hold ---------------------------------------------------------------
+
+    /// Whether the string asked a question with an option whose id contains `needle`.
+    fn string_offered(state: &GameState, galaxy: &Galaxy, script: &[&str], builds: u32, needle: &str) -> bool {
+        string_run(state, galaxy, script, builds).asked.iter().any(|q| q.options.iter().any(|o| o.id.contains(needle)))
+    }
+
+    /// Berekar Berekon (another seat's use of PRODUCTION), Hegemonic Trade Policy and Ssruu's copy of the agent, in lockstep with the string.
+    #[test]
+    fn the_winnu_abilities_of_the_production_window_run_in_lockstep_with_the_string() {
+        use ti4_model::id::{LeaderId, TechnologyId};
+        use ti4_model::state::LeaderStatus;
+        let (hub, origin, target, dock, _other) = dock_hub();
+        for (label, setup, needle) in [
+            ("agent", 0, "winnuagent:PRODUCTION_USED"),
+            ("htp", 1, "htp:PRODUCTION_USED"),
+            ("ssruu", 2, "yssarilagent:winnuagent:PRODUCTION_USED"),
+        ] {
+            for builds in [0, 1] {
+                let mut state = match setup {
+                    0 => dock_table("hacan", "winnu", &target, &dock),
+                    1 => dock_table("winnu", "hacan", &target, &dock),
+                    _ => {
+                        let mut s = table(&[("a", "hacan"), ("b", "yssaril"), ("c", "winnu")]);
+                        s.system_mut(&target).planet_control.insert(dock.clone(), a());
+                        crate::fixtures::put_on_planet(&mut s, &target, &dock, "spacedock", &a(), 1);
+                        s.player_mut(&a()).unwrap().trade_goods = 6;
+                        s
+                    }
+                };
+                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                match setup {
+                    0 => {
+                        state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("winnuagent"), LeaderStatus::Readied);
+                    }
+                    1 => crate::technology::grant(&mut state, &a(), &TechnologyId::new("htp")),
+                    _ => {
+                        state.player_mut(&b()).unwrap().leaders.insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+                        state.player_mut(&PlayerId::new("c")).unwrap().leaders.insert(LeaderId::new("winnuagent"), LeaderStatus::Readied);
+                    }
+                }
+                let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0)];
+                assert!(string_offered(&state, &hub.galaxy, &script, builds, needle), "{label}: the string offers the ability");
+                let diffs = lockstep_buying(state, &hub.galaxy, &script, builds);
+                assert!(diffs.is_empty(), "{label} buying {builds}: {diffs:#?}");
+            }
+        }
+    }
+
+    /// The Winnu note the planets they take during their own tactical action (the marks Reclamation and the Reclaimer read).
+    #[test]
+    fn the_winnu_note_the_planet_they_take_in_their_tactical_action_in_lockstep_with_the_string() {
+        let (hub, origin, target, _dock, _other) = dock_hub();
+        for faction in ["winnu", "hacan"] {
+            let mut state = table(&[("a", faction), ("b", "sol")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &origin, "infantry", &a(), 3);
+            let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "load|0", "load|1", "load|2", "done_moving"];
+            let diffs = lockstep_buying(state.clone(), &hub.galaxy, &script, 0);
+            assert!(diffs.is_empty(), "{faction}: {diffs:#?}");
+            let marks = string_run(&state, &hub.galaxy, &script, 0).state["faction_marks"].clone();
+            assert_eq!(marks.get("private:a:winnu:gained").is_some(), faction == "winnu", "{faction}: {marks}");
+        }
+    }
 }

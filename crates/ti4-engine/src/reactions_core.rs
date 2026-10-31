@@ -90,6 +90,12 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::mitosis::MITOSIS, kind: "ability", card: "mitosis" },
     Named { slot: ti4_engine_core_factions::silent::pillage::PILLAGE_GAINED, kind: "ability", card: "pillage" },
     Named { slot: ti4_engine_core_factions::silent::pillage::PILLAGE_TRANSACTION, kind: "ability", card: "pillage" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::RECLAMATION_MARK, kind: "ability", card: "reclamation_mark" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::RECLAMATION_CLEAR, kind: "ability", card: "reclamation_clear" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::RECLAMATION, kind: "ability", card: "reclamation" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::RECLAIMER, kind: "unit", card: "winnu_mech" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::HTP, kind: "technology", card: "htp" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::AGENT, kind: "leader", card: "winnuagent" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
     Named { slot: cabal::DEVOUR_GROUND, kind: "ability", card: "devour" },
     Named { slot: cabal::TERROR_SHIPS, kind: "unit", card: "cabal_flagship" },
@@ -120,6 +126,7 @@ const PAIRS: &[(Slot, &str, PairStyle)] = &[
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::SOL, "solagent", PairStyle::B),
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::LETNEV, "letnevagent", PairStyle::B),
     (ti4_engine_core_factions::cd_registry::yssaril::ssruu::ARGENT, "argentagent", PairStyle::A),
+    (ti4_engine_core_factions::silent::winnu::AGENT_COPY, "winnuagent", PairStyle::A),
 ];
 
 fn is_reaction_slot(slot: Slot) -> bool {
@@ -562,6 +569,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             faction_technology: r.code("faction_technology"),
         };
         table.codes.turn = crate::live::turn::codes(r);
+        table.codes.g2 = ti4_engine_core::kernel::ability::G2Codes { winnu_mech: r.code("winnu_mech") };
         table.codes.silent = ti4_engine_core::kernel::ability::SilentCodes {
             lw2: r.code("lw2"),
             scavenge: r.code("scavenge"),
@@ -828,7 +836,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "yssaril"), ("b", "winnu")], [("a", "winnu"), ("b", "yssaril")], [("a", "winnu"), ("b", "hacan")], [("a", "hacan"), ("b", "winnu")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();

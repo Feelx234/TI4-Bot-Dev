@@ -142,3 +142,79 @@ fn mitosis_asks_where_the_infantry_goes_at_the_start_of_the_status_phase_like_th
         assert_eq!(string.questions.len(), 1, "{answer}");
     }
 }
+
+// -- Winnu (lane G2): Reclamation, the Reclaimer, the marks, Hegemonic Trade Policy and Berekar Berekon -----------------------------------------
+
+use ti4_engine_core::driver::turn::open_job;
+use ti4_engine_core::state::TurnJob;
+
+/// A table in the action phase where seat `a` (Winnu) took Mecatol Rex this turn: it controls the planet and the notes name it.
+fn winnu_took_mecatol() -> GameState {
+    let mut state = crate::fixtures::seated_dealt(&[("a", "winnu"), ("b", "hacan"), ("c", "sol")], ti4_model::content_types::DEFAULT);
+    state.phase = StringPhase::Action;
+    state.active = Some(pid("a"));
+    let mecatol = SystemId::new(crate::seating::MECATOL);
+    state.system_mut(&mecatol).set_control(PlanetId::new("mr"), pid("a"));
+    state.faction_marks.insert("private:a:winnu:gained".to_owned(), format!("{}|mr", crate::seating::MECATOL));
+    state.faction_marks.insert("private:a:winnu:tactical".to_owned(), "1".to_owned());
+    based(state)
+}
+
+/// The end of the action in both engines with scripted answers.
+fn finish_with(state: &GameState, ids: &[&str]) -> (super::turn_live_tests::Run, super::turn_live_tests::Run) {
+    let string = super::turn_live_tests::string_run(state, ids, |g| g.finish_action().expect("the action finishes"));
+    let native = super::turn_live_tests::native_run(state, ti4_engine_core::driver::session::Arm::Ask, Some(TurnJob::Finish), ids);
+    (string, native)
+}
+
+#[test]
+fn reclamation_places_a_pds_and_a_space_dock_on_mecatol_rex_like_the_string() {
+    let _ = open_job;
+    for answer in ["ability:winnu:reclamation:ACTION_COMPLETED:after", "decline"] {
+        let state = winnu_took_mecatol();
+        let (string, native) = finish_with(&state, &[answer]);
+        assert_same(&string, &native);
+        assert_eq!(string.questions.len(), 1, "{answer}");
+        let placed = answer != "decline";
+        assert_eq!(string.state["board"][crate::seating::MECATOL]["planet_units"].get("mr").is_some(), placed, "{answer}: {}", string.state["board"][crate::seating::MECATOL]);
+    }
+}
+
+#[test]
+fn reclamation_needs_a_pds_and_a_space_dock_in_the_box_and_room_on_the_planet_like_the_string() {
+    // A planet that already holds a space dock of the seat takes no second one: both structures or nothing, so no window opens.
+    let mut state = winnu_took_mecatol();
+    crate::fixtures::put_on_planet(&mut state, &SystemId::new(crate::seating::MECATOL), &PlanetId::new("mr"), "spacedock", &pid("a"), 1);
+    let (string, native) = finish_with(&state, &[]);
+    assert_same(&string, &native);
+    assert!(string.questions.is_empty(), "{:?}", string.questions.iter().map(|q| q.prompt.clone()).collect::<Vec<_>>());
+}
+
+#[test]
+fn the_turn_marks_of_the_winnu_are_cleared_at_the_next_turn_like_the_string() {
+    let state = winnu_took_mecatol();
+    let (string, native) = prelude_both(&state, &[]);
+    assert_same(&string, &native);
+    assert!(string.state["faction_marks"].get("private:a:winnu:gained").is_none(), "{}", string.state["faction_marks"]);
+}
+
+/// [`finish_with`] where every question after the scripted answers takes its first option (and the native run is given the same answers).
+fn finish_first(state: &GameState, ids: &[&str]) -> (super::turn_live_tests::Run, super::turn_live_tests::Run) {
+    let (string, all) = super::turn_live_tests::string_run_first(state, ids, |g| g.finish_action().expect("the action finishes"));
+    let all: Vec<&str> = all.iter().map(String::as_str).collect();
+    let native = super::turn_live_tests::native_run(state, ti4_engine_core::driver::session::Arm::Ask, Some(TurnJob::Finish), &all);
+    (string, native)
+}
+
+#[test]
+fn the_reclaimer_places_one_structure_on_a_planet_it_stands_on_like_the_string() {
+    for (answers, owns_mech) in [(vec!["unit:winnu:winnu_mech:ACTION_COMPLETED:after", "spacedock|18|mr"], true), (vec!["unit:winnu:winnu_mech:ACTION_COMPLETED:after", "pds|18|mr"], true), (vec!["decline"], true), (vec![], false)] {
+        let mut state = winnu_took_mecatol();
+        if owns_mech {
+            crate::fixtures::put_on_planet(&mut state, &SystemId::new(crate::seating::MECATOL), &PlanetId::new("mr"), "winnu_mech", &pid("a"), 1);
+        }
+        let (string, native) = finish_first(&state, &answers);
+        assert_same(&string, &native);
+        assert!(!string.questions.is_empty());
+    }
+}
