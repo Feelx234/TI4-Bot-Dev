@@ -88,7 +88,7 @@ fn can_matter(s: &CoreState, k: &Kernel, scope: Scope, who: Seat, card: ActionCa
     }
     if s.meta().rules_at_least(RULES_ACTION_CARD_COSTS) {
         // Bribery's bill is a trade good: the goods the seat could spend, a readied Keleres agent's commodities included.
-        let goods = if card == ActionCard::Bribery { crate::rules::production::supply::potential_goods(s, k, who) } else { 0 };
+        let goods = if card == ActionCard::Bribery { crate::kernel::fx::potential_goods(s, k, who) } else { 0 };
         let payable = match cost_is_payable(s, who, card, goods) {
             Some(payable) => payable,
             // Reveal Prototype's four resources and its unit upgrade: the adapter vouches for the seat (`SeatPlay::reveal`).

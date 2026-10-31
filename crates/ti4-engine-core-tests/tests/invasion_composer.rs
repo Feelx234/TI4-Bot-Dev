@@ -300,7 +300,7 @@ fn the_public_boundary_follows_the_stage_the_question_is_asked_in() {
 #[test]
 fn the_commander_of_the_invader_is_asked_about_each_die_of_the_bombardment_and_the_walk_survives_a_clone() {
     covers!("driver::windows::invasion::InvasionMachine");
-    covers!("rules::combat::commander_walk::Walk");
+    covers!("kernel::commander_walk::Walk");
     use ti4_engine_core::choice::combat::{Ask as CAsk, RerollSource};
     let (p1, _) = planets();
     let mut walked = 0;

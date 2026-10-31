@@ -13,7 +13,7 @@
 //! Not covered (the adapter returns `None`, the string result stands): the Heart of Ixth (questions of the roller), irreproducible dice.
 
 use crate::choice::{Choice, Pick};
-use crate::rules::combat::commander_walk::Walk;
+use crate::kernel::commander_walk::Walk;
 use crate::generated::System;
 use crate::ids::Seat;
 use crate::kernel::fx;

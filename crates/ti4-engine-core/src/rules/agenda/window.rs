@@ -191,7 +191,7 @@ impl Vote {
 
     /// `supply::potential_goods`.
     fn potential_goods(core: &CoreState, k: &Kernel, seat: Seat) -> i64 {
-        crate::rules::production::supply::potential_goods(core, k, seat)
+        crate::kernel::fx::potential_goods(core, k, seat)
     }
 
     /// `supply::spend_goods`: commodities first (those the agent made spendable), then trade goods.

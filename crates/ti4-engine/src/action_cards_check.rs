@@ -183,4 +183,40 @@ mod tests {
         assert!(out.mismatches.is_empty(), "{:?}", out.mismatches);
         assert!(out.judged > 3_000, "both judges were compared: {}", out.judged);
     }
+
+    /// Package W16 (Bribery's bill): the potential goods of a seat, as the core computes them from the position and the kernel's Keleres
+    /// hooks (`rules::production::supply::potential_goods`), are the string's `supply::potential_goods` for every seat of random tables, and
+    /// Bribery is judged payable by the core exactly when the string says it is (`cost_is_payable` at rules version 23, goods taken from
+    /// the core). Keleres is dropped by decision: its hooks answer nothing here, which the lockstep also shows.
+    #[test]
+    fn the_potential_goods_of_a_seat_are_the_strings_over_many_positions() {
+        use crate::core_sync::{CoreView, Ctx, Sources};
+        let mut rng = Lcg(99);
+        let mut payable = [0_u64; 2];
+        for seed in 0..40_u64 {
+            let count = 3 + rng.next(4) as usize;
+            let seats: Vec<(&str, &str)> = ["a", "b", "c", "d", "e", "f"].iter().copied().zip(["sol", "hacan", "letnev", "xxcha", "yssaril", "naalu"]).take(count).collect();
+            let mut state = crate::fixtures::seated_game(&seats, ti4_model::content_types::POK);
+            state.rules_version = [22, 23, 24][rng.next(3) as usize];
+            for p in &mut state.players {
+                p.trade_goods = i32::try_from(rng.next(5)).unwrap() - i32::from(rng.next(6) == 0);
+                p.commodities = i32::try_from(rng.next(4)).unwrap();
+            }
+            let mut cx = Ctx::of(&state).expect("mapped");
+            let view = CoreView::of(&state, &mut cx, Sources { galaxy: None, rng: None }, ti4_engine_core::state::SliceSet::of(&[ti4_engine_core::state::Slice::Meta, ti4_engine_core::state::Slice::Seats, ti4_engine_core::state::Slice::Players, ti4_engine_core::state::Slice::Board, ti4_engine_core::state::Slice::Marks])).expect("loaded");
+            for p in &state.players {
+                let seat = cx.owners.seat(p.id.as_str()).expect("a seat");
+                let core = ti4_engine_core::rules::production::supply::potential_goods(&view, crate::production_view::kernel(), seat);
+                assert_eq!(core, crate::supply::potential_goods(&state, &p.id), "seed {seed} {}", p.id);
+                let bribery = ti4_engine_core::generated::ActionCard::Bribery;
+                let core_ok = ti4_engine_core::rules::action_cards::cost_is_payable(&view, seat, bribery, core);
+                let string_ok = crate::action_cards::cost_is_payable_text(&state, ContentStore::embedded(), ti4_model::content_types::FULL, &p.id, &ActionCardId::new("bribery"));
+                if state.rules_version >= ti4_model::state::RULES_ACTION_CARD_COSTS {
+                    assert_eq!(core_ok, Some(string_ok), "seed {seed} {}: Bribery payable", p.id);
+                }
+                payable[usize::from(string_ok)] += 1;
+            }
+        }
+        assert!(payable[0] > 10 && payable[1] > 10, "the tables cover seats with and without a good: {payable:?}");
+    }
 }

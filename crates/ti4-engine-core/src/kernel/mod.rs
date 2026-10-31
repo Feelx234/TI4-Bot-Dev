@@ -19,6 +19,7 @@
 
 pub mod ability;
 pub mod children;
+pub mod commander_walk;
 pub mod fx;
 pub mod fx_agenda;
 pub mod fx_explore;

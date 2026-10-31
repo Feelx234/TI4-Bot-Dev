@@ -13,7 +13,7 @@
 //! irreproducible dice, a Last Bastion, Crimson, Ral Nel or Firmament seat.
 
 use super::cannon_guns::{attachment_guns, opponent_with_ships, unit_guns};
-use super::commander_walk::Walk;
+use crate::kernel::commander_walk::Walk;
 use super::{cannon_plan, ships_of, Rd};
 use crate::choice::{Choice, Pick};
 use crate::generated::{Planet, System, Technology, Unit};

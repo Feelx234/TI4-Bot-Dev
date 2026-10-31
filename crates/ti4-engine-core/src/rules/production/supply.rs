@@ -20,13 +20,7 @@ pub fn spendable_goods(s: &CoreState, k: &Kernel, who: Seat) -> i64 {
     goods + k.hooks.direct.keleres_spendable_commodities(s, who)
 }
 
-/// `supply::potential_goods`: [`spendable_goods`] plus what a readied Keleres agent could still grant (the up-front gate of an option that
-/// costs trade goods: Bribery, Focused Research, Munitions Reserves, a vote spend).
-#[must_use]
-pub fn potential_goods(s: &CoreState, k: &Kernel, who: Seat) -> i64 {
-    let granted = if k.hooks.direct.keleres_agent_could_grant(s, who) { s.players().by_seat(who).map_or(0, |p| i64::from(p.econ.commodities.max(0))) } else { 0 };
-    spendable_goods(s, k, who) + granted
-}
+pub use crate::kernel::fx::potential_goods;
 
 /// `supply::spend_goods`: spend `amount` trade goods, commodities an open agent window allows first. All of it or
 /// none: `false`, state untouched, when [`spendable_goods`] falls short.

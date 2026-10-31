@@ -1,14 +1,13 @@
 //! The Jol-Nar commander's walk over a staged roll (Agnlan Oln: "after you roll dice for a unit ability: you may reroll any of those
 //! dice"; the string `combat::reroll_window`, `choose_reroll_dice` and `apply_reroll_dice`), for the hosts that stage their dice in
 //! `transient.combat.reroll_staging` and let the window of the roll run on them: the bombardment ([`crate::rules::invasion::bombard_roll`])
-//! and the space cannon offense ([`super::space_cannon_offense`]). The anti-fighter barrage keeps its own walk over its entries.
+//! and the space cannon offense ([`crate::rules::combat::space_cannon_offense`]), and for the native invasion window. The anti-fighter barrage keeps its own walk over its entries.
 //!
 //! One optional question per die, in the order of the staged entries (every die of every entry, the ones that hit too); the answers are
 //! collected and only then are the picked dice drawn again, in order, from the dice stream. A redraw replaces the face and the adjustment
 //! the die carried, marks it rerolled, and is kept in the ledger as the string's dice history keeps it (the faces of the whole entry after
 //! the draw, the die drawn again marked: a `Reroll` row). The host reads the faces back from the staged set.
 
-use super::{record_rolls, FleetRoll, DIE_SIDES};
 use crate::choice::combat::{Ask as CAsk, Opt as COpt, RerollSource, Subtype as CSub};
 use crate::choice::generic::Content;
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype, Target};
@@ -16,7 +15,10 @@ use crate::containers::SmallList;
 use crate::generated::{Leader, System};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx};
-use crate::state::{Code, CoreState, RerollSet, RngDomain};
+use crate::state::{Code, CoreState, RerollSet, RngDomain, RollPurpose, RollRec};
+
+/// The ten-sided die (`rules::combat::DIE_SIDES`).
+const DIE_SIDES: u32 = 10;
 
 /// The walk of one roller over the set it staged.
 #[derive(Debug, Clone)]
@@ -148,9 +150,10 @@ impl Walk {
                 entry.rerolled |= 1 << d;
             }
             entry.deltas.remove(&u8::try_from(d).unwrap_or(u8::MAX));
-            let group = FleetRoll { hits_on: entry.hits_on.map_or(0, u32::from), faces: entry.faces.iter().map(|f| u32::from(*f)).collect(), rerolled: vec![u32::from(d)] };
+            // The string's dice history keeps the faces of the whole entry after the draw, the die drawn again marked.
+            let row = RollRec { purpose: RollPurpose::Reroll, owner: Some(self.who), unit: None, planet: None, scene: Some(system), hits_on: Some(entry.hits_on.unwrap_or(0)), faces: entry.faces.iter().copied().collect(), rerolled: if d < 64 { 1 << d } else { 0 } };
             if sx.state.loaded.has(crate::state::Slice::Ledger) {
-                record_rolls(sx.state.ledger_mut(), self.who, Some(system), &[group], crate::state::RollPurpose::Reroll);
+                sx.state.ledger_mut().dice.push(row);
             }
             drawn += 1;
         }

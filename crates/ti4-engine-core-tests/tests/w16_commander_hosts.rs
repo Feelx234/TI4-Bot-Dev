@@ -1,5 +1,5 @@
 //! W16: the Jol-Nar commander ("after you roll dice for a unit ability: you may reroll any of those dice") asks its holder about each die of
-//! a bombardment and of the space cannon offense before the event `UNIT_ABILITY_ROLLED` goes out (`rules::combat::commander_walk::Walk`).
+//! a bombardment and of the space cannon offense before the event `UNIT_ABILITY_ROLLED` goes out (`kernel::commander_walk::Walk`).
 //! One optional question per die in the order of the staged entries, the picked dice drawn again afterwards, the event and the hits read
 //! the faces that remain. The whole play against the string engine is the lockstep tests of `ti4-engine`.
 
@@ -48,7 +48,7 @@ fn bombard_rig(seed: u64, commander: bool, set: RerollSet) -> Rig<BombardRolled>
 #[test]
 fn the_invader_with_the_commander_is_asked_about_each_die_of_the_bombardment_and_the_event_shows_the_final_hits() {
     covers!("rules::invasion::bombard_roll::BombardRolled");
-    covers!("rules::combat::commander_walk::Walk");
+    covers!("kernel::commander_walk::Walk");
     let (mut redrawn_any, mut kept_any) = (false, false);
     for seed in 0..40u64 {
         let before: [&[u8]; 3] = [&[2, 6], &[1], &[4, 9, 3]];
@@ -115,7 +115,7 @@ fn bomb_rig_run(seed: u64, before: &[&[u8]; 3]) -> Rig<BombardRolled> {
 
 #[test]
 fn a_redraw_drops_the_adjustment_the_die_carried_and_a_declined_walk_changes_nothing() {
-    covers!("rules::combat::commander_walk::Walk");
+    covers!("kernel::commander_walk::Walk");
     // A +3 on the 2 makes it hit on 5; drawn again it is a plain 1..=10, so the hits follow the new face.
     let mut set = staged(&[&[2, 1]], 5);
     set.rolls[0].deltas.insert(0, 3);
@@ -200,7 +200,7 @@ fn guns(owners: &[(u8, usize)]) -> Scenario {
 #[test]
 fn the_gunner_with_the_commander_is_asked_about_each_die_before_the_event_and_the_hits_follow_the_faces_that_remain() {
     covers!("rules::combat::space_cannon_offense::SpaceCannonOffense");
-    covers!("rules::combat::commander_walk::Walk");
+    covers!("kernel::commander_walk::Walk");
     let (mut asked_seeds, mut changed) = (0, 0);
     for seed in 0..60u64 {
         let mut plain = Rig::new(guns(&[(1, 3)]), SpaceCannonOffense::new(cannon_facts(vec![]))).seeded(seed);

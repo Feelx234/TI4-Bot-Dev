@@ -13,7 +13,7 @@ use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
 use crate::query::reach;
-use crate::rules::combat::commander_walk::Walk;
+use crate::kernel::commander_walk::Walk;
 use crate::rules::invasion::bombard::{Bombardment, Cursor, Entry};
 use crate::rules::invasion::stages::{self, Custodians, FightRound, NextCombat};
 use crate::rules::invasion::{

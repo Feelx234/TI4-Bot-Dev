@@ -599,6 +599,16 @@ pub fn max_fit(core: &CoreState, k: &crate::kernel::Kernel, scope: crate::tables
         .unwrap_or(0)
 }
 
+/// `supply::potential_goods`: the trade goods the seat can spend (the commodities an open Keleres agent window lets it spend as goods
+/// included) plus what a readied Keleres agent could still grant: the up-front gate of an option that costs trade goods (Bribery, a vote
+/// spend, Munitions Reserves).
+#[must_use]
+pub fn potential_goods(core: &CoreState, k: &crate::kernel::Kernel, who: Seat) -> i64 {
+    let goods = core.players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods.max(0)));
+    let granted = if k.hooks.direct.keleres_agent_could_grant(core, who) { core.players().by_seat(who).map_or(0, |p| i64::from(p.econ.commodities.max(0))) } else { 0 };
+    goods + k.hooks.direct.keleres_spendable_commodities(core, who) + granted
+}
+
 /// Whether the seat's box holds a piece of `unit` it may put on the board by an effect (`supply::allowed(.., 1) > 0`: a faction rule that
 /// forbids the form places none, and an exhausted plastic limit too).
 #[must_use]
