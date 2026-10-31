@@ -111,6 +111,11 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
     }
 }
 
+/// The slices a position loads: all, and the map only when the game has a string galaxy (as `Game::churn_state`).
+fn slices_for(has_galaxy: bool) -> SliceSet {
+    if has_galaxy { SliceSet::ALL } else { SliceSet(SliceSet::ALL.0 & !(1 << Slice::Map as u32)) }
+}
+
 /// The window kind whose closing is the end of `arm`'s step (`None`: the arm has no window of its own to compare).
 const fn window_of(arm: Arm) -> Option<WindowKind> {
     match arm {
@@ -142,7 +147,7 @@ impl NativeSubject {
     /// Materialize the position and open the arm's window, or count the step as lent.
     fn prepare(&self) -> Option<Shadow> {
         let g = self.inner.game();
-        let arm = step_arm(&g.step_facts(), false);
+        let arm = step_arm(&g.step_facts(), false); // mutants:skip (`asks` only matters to the question arms, which are never native)
         if !self.arms.has(arm) || live_arm(arm).is_none() {
             lend(arm, "not native");
             return None;
@@ -159,10 +164,7 @@ impl NativeSubject {
                 return None;
             }
         };
-        let mut slices = SliceSet::ALL;
-        if g.galaxy().is_none() {
-            slices = SliceSet(slices.0 & !(1 << Slice::Map as u32));
-        }
+        let slices = slices_for(g.galaxy().is_some());
         let positions = g.rng_positions();
         let loaded = Codec::load(&mut cx, &g.state, Sources { galaxy: g.galaxy(), rng: Some(&positions) }, slices);
         let Ok(mut core) = loaded else {
@@ -196,46 +198,25 @@ impl NativeSubject {
                 return;
             }
         };
-        // A step that ends the window ALSO runs the close the core does not own yet (the string's remainder of the step: steps 81.6-81.8
-        // after the last token): the legacy step then asked, answered and emitted more than the arm, and changed the position beyond it
-        // (the remainder moves the very pools the last token filled). So a step that ends the window is compared on the prefix of the
-        // questions and the events only; a step that leaves it open must agree on everything, the position included. The position at
-        // the end of a window is compared when the close is the core's too (KS5).
         let finished = step.finished;
         if finished {
             count(&RAN, format!("{name} (window ended; the close is the legacy's)"));
         }
-        // The questions.
         let native: Vec<Value> = step.asked.iter().map(|c| json!({ "player": c.player.as_str(), "prompt": c.prompt, "options": c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>() })).collect();
-        let mut legacy: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
-        if finished && legacy.len() >= native.len() {
-            legacy.truncate(native.len());
-        }
-        leaves(Category::Decision, "native.questions", &Value::Array(legacy), &Value::Array(native), &mut out);
-        if asker.left() > 0 && !finished {
-            leaves(Category::Decision, "native.questions.unconsumed", &json!(0), &json!(asker.left()), &mut out);
-        }
-        // The plain events.
+        let legacy: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
+        out.extend(compare_questions(finished, &legacy, &native, asker.left()));
         let pushed = ti4_engine::render::events::pushed_since(&shadow.render, &shadow.cx, &shadow.core, step.events_from);
         match pushed {
             Some(lines) => {
-                let texts: Vec<&str> = lines.iter().map(|p| p.text()).collect();
-                let mut legacy_events = events.to_vec();
-                if finished && legacy_events.len() >= texts.len() {
-                    legacy_events.truncate(texts.len());
-                }
-                leaves(Category::Event, "native.events", &json!(legacy_events), &json!(texts), &mut out);
+                let texts: Vec<String> = lines.iter().map(|p| p.text().to_owned()).collect();
+                out.extend(compare_events(finished, events, &texts));
             }
             None => leaves(Category::Event, "native.events", &json!(events), &json!("a line the tables cannot name"), &mut out),
         }
-        // The position.
         match materialize::materialize(&shadow.core, &shadow.cx, &shadow.base) {
             Ok(after) => {
                 let native_state = serde_json::to_value(&after).unwrap_or(Value::Null);
-                let legacy_state = self.inner.state_json();
-                if !finished {
-                    leaves(Category::State, "native.state", &legacy_state, &native_state, &mut out);
-                }
+                out.extend(compare_state(finished, &self.inner.state_json(), &native_state));
             }
             Err(e) => leaves(Category::State, "native.state", &json!("materializes"), &json!(e.to_string()), &mut out),
         }
@@ -246,6 +227,41 @@ impl NativeSubject {
         }
         self.extra.extend(out);
     }
+}
+
+// A step that ends the window ALSO runs the close the core does not own yet (the string's remainder of the step: steps 81.6-81.8 after the
+// last token): the legacy step then asked, answered and emitted more than the arm, and changed the position beyond it (the remainder moves
+// the very pools the last token filled). So a step that ends the window is compared on the prefix of the questions and the events only; a
+// step that leaves it open must agree on everything, the position included. The position at the end of a window is compared when the
+// close is the core's too (KS5).
+
+/// The questions of the step: the legacy step's against the arm's (`native.questions...`); the answers the arm did not take are a
+/// difference unless the window ended (the remainder takes them).
+fn compare_questions(finished: bool, legacy: &[Value], native: &[Value], unconsumed: usize) -> Vec<Raw> {
+    let mut out = Vec::new();
+    let legacy = if finished && legacy.len() >= native.len() { &legacy[..native.len()] } else { legacy };
+    leaves(Category::Decision, "native.questions", &Value::Array(legacy.to_vec()), &Value::Array(native.to_vec()), &mut out);
+    if unconsumed > 0 && !finished {
+        leaves(Category::Decision, "native.questions.unconsumed", &json!(0), &json!(unconsumed), &mut out);
+    }
+    out
+}
+
+/// The plain events of the step (`native.events...`).
+fn compare_events(finished: bool, legacy: &[String], native: &[String]) -> Vec<Raw> {
+    let mut out = Vec::new();
+    let legacy = if finished && legacy.len() >= native.len() { &legacy[..native.len()] } else { legacy };
+    leaves(Category::Event, "native.events", &json!(legacy), &json!(native), &mut out);
+    out
+}
+
+/// The position after the step (`native.state...`); not compared when the window ended.
+fn compare_state(finished: bool, legacy: &Value, native: &Value) -> Vec<Raw> {
+    let mut out = Vec::new();
+    if !finished {
+        leaves(Category::State, "native.state", legacy, native, &mut out);
+    }
+    out
 }
 
 fn leaves(category: Category, prefix: &str, left: &Value, right: &Value, out: &mut Vec<Raw>) {
@@ -302,6 +318,7 @@ impl Subject for NativeSubject {
         self.inner.rng_positions()
     }
 
+    // mutants:skip (delegation to the legacy subject)
     fn finished(&self) -> bool {
         self.inner.finished()
     }
@@ -314,6 +331,7 @@ impl Subject for NativeSubject {
         self.inner.rules_version()
     }
 
+    // mutants:skip (delegation to the legacy subject)
     fn disabled(&self) -> Option<String> {
         self.inner.disabled()
     }
@@ -422,6 +440,109 @@ mod tests {
             assert!(hit.is_some(), "knob {knob}: {:#?}", played.report.differences);
             assert_eq!(hit.map(|d| d.label.starts_with("oracle::")), Some(true));
         }
+    }
+
+    fn q(prompt: &str) -> Value {
+        json!({ "player": "a", "prompt": prompt, "options": ["x"] })
+    }
+
+    /// A step that leaves the window open must agree on everything; one that ends it is compared on the prefix (the legacy remainder is the
+    /// close the core does not own yet).
+    #[test]
+    fn a_step_that_ends_the_window_is_compared_on_the_prefix_and_one_that_leaves_it_open_on_everything() {
+        let (one, two) = (vec![q("p1")], vec![q("p1"), q("p2")]);
+        // The legacy step asked more than the arm.
+        assert!(compare_questions(true, &two, &one, 0).is_empty(), "the remainder's question is not a difference when the window ended");
+        let open = compare_questions(false, &two, &one, 0);
+        assert_eq!(open.len(), 1, "{open:?}");
+        assert_eq!((open[0].category, open[0].path.as_str()), (Category::Decision, "native.questions[1]"));
+        // The arm asked more than the legacy step: a difference either way.
+        assert_eq!(compare_questions(true, &one, &two, 0).len(), 1);
+        assert_eq!(compare_questions(false, &one, &two, 0).len(), 1);
+        // A different question in the shared prefix is a difference either way.
+        assert_eq!(compare_questions(true, &[q("p1")], &[q("other")], 0).len(), 1);
+        // The answers the arm did not take: the remainder takes them when the window ended.
+        assert!(compare_questions(true, &one, &one, 3).is_empty());
+        let left = compare_questions(false, &one, &one, 3);
+        assert_eq!((left.len(), left[0].path.as_str(), left[0].right.as_str()), (1, "native.questions.unconsumed", "3"));
+        assert!(compare_questions(false, &one, &one, 0).is_empty(), "none left is no difference");
+        // The same shape for the events.
+        let (e1, e2) = (vec!["A".to_owned()], vec!["A".to_owned(), "B".to_owned()]);
+        assert!(compare_events(true, &e2, &e1).is_empty());
+        assert_eq!(compare_events(false, &e2, &e1).len(), 1);
+        assert_eq!(compare_events(true, &e1, &e2).len(), 1);
+        assert_eq!(compare_events(true, &["A".to_owned()], &["Z".to_owned()]).len(), 1);
+        // The position: not compared when the window ended, leaf by leaf when it did not, with the path of the leaf.
+        let (l, r) = (json!({ "players": [{ "trade_goods": 1 }], "round": 2 }), json!({ "players": [{ "trade_goods": 2 }], "round": 2 }));
+        assert!(compare_state(true, &l, &r).is_empty());
+        let diff = compare_state(false, &l, &r);
+        assert_eq!(diff.len(), 1);
+        assert_eq!((diff[0].category, diff[0].path.as_str()), (Category::State, "native.state.players[0].trade_goods"));
+        assert!(compare_state(false, &l, &l).is_empty());
+    }
+
+    /// The path of a difference joins the prefix with a dot before a key and none before an index.
+    #[test]
+    fn the_path_of_a_difference_joins_the_prefix_by_key_or_index() {
+        let mut out = Vec::new();
+        leaves(Category::Value, "p", &json!([1]), &json!([2]), &mut out);
+        leaves(Category::Value, "p", &json!({ "k": 1 }), &json!({ "k": 2 }), &mut out);
+        leaves(Category::Value, "p", &json!(1), &json!(2), &mut out);
+        let paths: Vec<_> = out.iter().map(|r| r.path.as_str()).collect();
+        assert_eq!(paths, ["p[0]", "p.k", "p"]);
+    }
+
+    /// The opener of an arm: the tokens arm opens its window from the observed one, an arm without an opener (or without the window) does not.
+    #[test]
+    fn the_opener_of_an_arm_opens_its_window_from_the_observed_one_and_refuses_the_rest() {
+        use ti4_engine_core::containers::SmallList;
+        use ti4_engine_core::driver::live::is_open;
+        use ti4_engine_core::state::{StatusReport, Tokens};
+        let observed = [Window::Tokens(Box::new(Tokens { pending: SmallList::from_slice(&[ti4_engine_core::Seat(0)]), placed: SmallList::new(), report: StatusReport::default() }))];
+        let mut core = CoreState::all_loaded();
+        assert!(!open_arm(Arm::Voting, &observed, &mut core), "no opener for the arm");
+        assert!(!is_open::<TokenGain>(&core));
+        assert!(!open_arm(Arm::Tokens, &[], &mut core), "the window was not observed");
+        assert!(!is_open::<TokenGain>(&core));
+        assert!(open_arm(Arm::Tokens, &observed, &mut core));
+        assert!(is_open::<TokenGain>(&core), "the window is open on the position");
+        assert_eq!(window_of(Arm::Tokens), Some(WindowKind::Tokens));
+        assert_eq!(window_of(Arm::Voting), None);
+    }
+
+    /// The counters count one per call, and the slices of a position keep the map only when the game has one.
+    #[test]
+    fn the_counters_count_one_per_call_and_a_game_without_a_map_loads_no_map_slice() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _ = (lent_counts(), ran_counts());
+        count(&RAN, "unit-test".to_owned());
+        count(&RAN, "unit-test".to_owned());
+        lend(Arm::Voting, "unit-test");
+        assert_eq!(ran_counts().get("unit-test"), Some(&2));
+        assert_eq!(lent_counts().get("voting: unit-test"), Some(&1));
+        let (with, without) = (slices_for(true), slices_for(false));
+        assert_eq!(with, SliceSet::ALL);
+        assert!(!without.has(Slice::Map) && with.has(Slice::Map));
+        assert!(Slice::ALL.iter().filter(|s| **s != Slice::Map).all(|s| without.has(*s)), "every other slice stays");
+    }
+
+    /// The accessors of the subject are the legacy game's.
+    #[test]
+    fn a_fresh_subject_reports_the_legacy_games_round_version_and_hash() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        set_native_arms(NativeArms::NONE);
+        let mut subject = NativeSubject::new(&spec(), Pilot::Bot).expect("builds");
+        let plain = <MaskSubject<LegacyMask> as Subject>::new(&spec(), Pilot::Bot).expect("builds");
+        assert_eq!(subject.round(), 1);
+        assert_eq!(subject.rules_version(), ti4_model::state::RULES_VERSION);
+        assert!(!subject.finished());
+        assert_eq!(subject.decisions_hash(), plain.decisions_hash());
+        for _ in 0..3 {
+            let _ = subject.step();
+        }
+        assert!(!subject.state_json().is_null() && !subject.decisions_hash().is_empty());
+        let _ = subject.take_extra();
+        let _ = lent_counts();
     }
 
     /// Without native arms nothing is shadowed and every step is lent (the scaffold's whole point: the count says how much is left).

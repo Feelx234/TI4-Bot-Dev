@@ -382,4 +382,106 @@ mod tests {
         assert!(reveal_set(&core, Seat(1), &POK).iter().next().is_none());
         assert!(!reveal_payable(&core, kernel, Seat(0)), "the card is not in hand");
     }
+
+    fn two_seats(a: Faction, b: Faction) -> (CoreState, Render) {
+        let (mut core, r) = position();
+        use ti4_engine_core::state::{Player, Players};
+        core.players = Players::from_vec(vec![Player::new(Seat(0), a), Player::new(Seat(1), b)]);
+        (core, r)
+    }
+
+    /// The forms a seat places: the plain unit, nothing where a faction effect forbids it or the scope has no roster, never a card ship.
+    #[test]
+    fn the_unit_a_seat_places_is_the_plain_form_unless_forbidden_or_without_a_roster() {
+        let (core, r) = two_seats(Faction::TheNaazRokhaAlliance, Faction::TheEmbersOfMuaat);
+        let texts = Texts::new(&r, POK);
+        let kernel = crate::live::kernel::kernel_for(POK);
+        assert_eq!(placed(&core, kernel, &texts, Seat(1), UnitBaseType::Infantry), (Some(Unit::InfantryI), 0));
+        let mut banned = Kernel::plain();
+        banned.hooks.economy.effect_placement_forbidden.push(|_, _, _, _| true);
+        assert_eq!(placed(&core, &banned, &texts, Seat(1), UnitBaseType::Infantry), (None, 0), "forbidden: no unit");
+        let bare = Texts { roster: None, ..texts };
+        assert_eq!(placed(&core, kernel, &bare, Seat(1), UnitBaseType::Infantry), (None, 0), "no roster for the scope");
+        assert!(play_facts(&core, kernel, &bare).is_none());
+    }
+
+    /// What a card reads of a seat beyond infantry and cruiser: the Naaz mech is a unit the card declines, the others place the plain mech.
+    #[test]
+    fn the_extra_facts_of_a_seat_name_its_forms_and_the_naaz_mech_is_declined() {
+        let (core, r) = two_seats(Faction::TheNaazRokhaAlliance, Faction::TheEmbersOfMuaat);
+        let texts = Texts::new(&r, POK);
+        let kernel = crate::live::kernel::kernel_for(POK);
+        let naaz = seat_more(&core, kernel, &texts, Seat(0));
+        let muaat = seat_more(&core, kernel, &texts, Seat(1));
+        assert_eq!(naaz.mech, (None, 0));
+        assert_eq!(muaat.mech, (Some(Unit::FactionlessMech), 0));
+        for more in [naaz, muaat] {
+            assert_eq!(more.dreadnought, (Some(Unit::DreadnoughtI), 0));
+            assert_eq!(more.destroyer.0, Some(Unit::DestroyerI));
+            assert_eq!(more.pds.0, Some(Unit::PDSI));
+            assert_eq!(more.spacedock.0, Some(Unit::SpaceDockI));
+            assert!(!more.agent_offered && !more.holder_deepwrought);
+            assert_eq!((more.destroyer.1, more.pds.1, more.spacedock.1), (0, 0, 0));
+        }
+    }
+
+    /// The table-wide facts: the breakthrough of each seat's faction, the neutral owner, the texts, and nothing the core does not hold.
+    #[test]
+    fn the_table_wide_facts_carry_the_texts_the_breakthroughs_and_no_unheld_events() {
+        let (core, r) = two_seats(Faction::TheNaazRokhaAlliance, Faction::TheEmbersOfMuaat);
+        let texts = Texts::new(&r, POK);
+        let shared = shared(&core, &texts);
+        assert_eq!(shared.neutral, texts.neutral);
+        assert_eq!(r.code_text(shared.courageous_subtype), "courageous_to_the_end_assign_casualty");
+        assert_eq!(r.code_text(shared.courageous_cause), "action_card:courageous");
+        assert_eq!(r.code_text(shared.hits.commander), "letnevcommander");
+        assert_eq!(r.code_text(shared.hits.casualty), "assign_casualty");
+        assert_eq!(r.code_text(shared.hits.effect_hit), "effect_hit");
+        assert!(!shared.replenish_events && !shared.fracture_in_play);
+        assert!(shared.own_breakthrough[2..].iter().all(Option::is_none), "no seat, no breakthrough");
+        let expect = |f: Faction| crate::breakthroughs::for_faction(ti4_content::ContentStore::embedded(), crate::generated::IdStr::as_str(f)).and_then(|b| <Breakthrough as crate::generated::IdStr>::from_id(b.as_str()));
+        assert_eq!(shared.own_breakthrough[0], expect(Faction::TheNaazRokhaAlliance));
+        assert_eq!(shared.own_breakthrough[1], expect(Faction::TheEmbersOfMuaat));
+        assert!(shared.own_breakthrough[0].is_some() && shared.own_breakthrough[1].is_some(), "both factions have a breakthrough");
+        assert_ne!(shared.own_breakthrough[0], shared.own_breakthrough[1]);
+    }
+
+    /// Staging follows the seating: a faction with a string module turns it on, a table of factions without one does not.
+    #[test]
+    fn staging_is_on_exactly_when_a_seated_faction_has_a_module() {
+        let without = Faction::ALL.iter().copied().find(|f| !crate::factions::MODULES.iter().any(|m| m.alias == crate::generated::IdStr::as_str(*f))).expect("a faction without a module");
+        let with = Faction::ALL.iter().copied().find(|f| crate::factions::MODULES.iter().any(|m| m.alias == crate::generated::IdStr::as_str(*f))).expect("a faction with a module");
+        assert!(staging_enabled(&two_seats(without, without).0) == false);
+        assert!(staging_enabled(&two_seats(without, with).0));
+        assert!(staging_enabled(&two_seats(with, without).0));
+    }
+
+    /// The tokens of a seat sitting in a Mahact seat's fleet pool, counted per owner.
+    #[test]
+    fn the_command_tokens_in_a_mahact_fleet_pool_are_counted_per_owner() {
+        use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+        let (mut core, _) = two_seats(Faction::TheMahactGeneSorcerers, Faction::TheEmbersOfMuaat);
+        let kernel = crate::live::kernel::kernel_for(POK);
+        let pool = MarkVal::List(vec![MarkVal::Atom(Atom::Seat(Seat(1))), MarkVal::Atom(Atom::Seat(Seat(1)))].into());
+        core.marks_mut().tail.edit().insert(MarkKey::MahactFleet(Seat(0)), pool);
+        assert_eq!(mahact_held(&core, kernel, Seat(1)), 2);
+        assert_eq!(mahact_held(&core, kernel, Seat(0)), 0, "the Mahact's own tokens are not in its pool");
+    }
+
+    /// Reveal Prototype is the facts of a game from the technology payment choice on; below it nothing is carried, whatever the cards say.
+    #[test]
+    fn reveal_prototype_is_carried_only_from_the_technology_payment_choice() {
+        let (mut core, r) = two_seats(Faction::TheEmbersOfMuaat, Faction::TheNaazRokhaAlliance);
+        let texts = Texts::new(&r, POK);
+        let kernel = crate::live::kernel::kernel_for(POK);
+        core.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(ActionCard::RevealPrototype);
+        core.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 12;
+        core.meta_mut().rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE - 1;
+        let old = play_facts(&core, kernel, &texts).unwrap();
+        assert!(old.seats.iter().all(|s| s.reveal.is_none() && !s.reveal_payable));
+        core.meta_mut().rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE;
+        let new = play_facts(&core, kernel, &texts).unwrap();
+        assert!(new.seats.iter().all(|s| s.reveal.is_some()));
+        assert!(new.seats.iter().all(|s| s.fighter_on_card == 0));
+    }
 }

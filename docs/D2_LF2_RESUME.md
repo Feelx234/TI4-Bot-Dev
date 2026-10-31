@@ -69,6 +69,35 @@ The commanders are 3-12 lines each in the pattern of `ti4-engine-core-factions/s
 bodies are in `ti4-engine/src/factions/<faction>*.rs` (`fn commander_unlocked`, `fn leader_action`). The variants of `check_leaders` do not reach most conditions (six dreadnoughts...): add
 variants that satisfy and miss each condition, or the comparison proves nothing.
 
+## Findings worth a decision
+
+* **Reveal Prototype's candidate set in the string engine** (`action_cards::reveal_prototype`, shared as `reveal_set_of_lines`) lists only the generic second-generation upgrades of the lines of the seat's
+  units in the active system: it omits faction unit upgrades (Exile II, Linkship II, Strike Wing Alpha II ...) and the War Sun, because their `baseUpgrade` names a technology id that is no unit type and
+  the unnamed-line test compares `war_sun` with `warsun`. The core's play of the card reads the same set (parity, by decision); if the rules owner wants "of the same type" to include faction upgrades
+  that is a rules fix with a `RULES_VERSION` bump, not part of this refactor. Found by `check_play_facts` before the matching was shared.
+* **A step that ends a window is not comparable in the shadow oracle** (see `native_subject`): the legacy step continues with the close. It becomes comparable lane by lane as the closes are ported.
+* **The first `playthrough --quick` run** (gate build, seed 1, sol, 4 players, `4pHyperlanes`): 600 steps in 47 s, 1500 steps (round 7) in 291 s, no panic, 56 causes, 2772 counted bails
+  (the per-island table: M6 tactical 631, B turn flow 865, M5 aftermath 482, C status 192, M3 invasion 146, E strategic 121, D agenda 114, M1 trade 108, M4 combat 71, M2 production 27, F menu 8, other 7).
+  "coverage of the live path" is empty: `playthrough` still plays the string `Game` under `all=dual`, and `Game::step` does not call `live_step` until the wrapper (D2-8) exists, so the bails
+  counted are the dual's windows the core cannot follow yet, and the native arms are exercised by the oracle (`oracle --native`) and the engine tests, not by this bin.
+  A debug build of the same game is more than 17 CPU minutes for 2500 steps.
+
 ## Checks run (cheap) and results
 
-See the end of this file (filled in at the end of the lane).
+All with `CARGO_BUILD_JOBS=2`, a private `CARGO_TARGET_DIR=/root/deploytmp/core-d2-f2` (no incremental; the test targets deleted before the mutation runs; the whole directory is deleted at the end).
+
+* `cargo test -p ti4-engine --lib` (default areas): 4914 passed, 4 ignored. `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine --lib`: 4914 passed (519 s).
+* `cargo test -p ti4-engine-core --lib`: 466 passed. `-p ti4-engine-core-factions`: 126 passed. `-p ti4-engine-core-bridge` (lib + all integration tests, incl. `kernel_env`, `play_facts`, `native_subject`, `islands`): all ok.
+  `-p ti4-engine-core-tests` (141 test binaries, incl. the merged `combat_machine`, `combat_barrage`, `w11_neutral`): all ok.
+* `tools/engine_core/check_layers.py core`: 443 files, 0 violations. `tools/engine_core/lint_core.sh`: 445 files, 0 hits.
+* `playthrough --quick` on the gate profile (above); gate build 4.5-7 min at 2 jobs.
+* Pre-fix checks: the fail-fast regression test and the original test both FAIL on the pre-fix `dual.rs` (verified by reverting the three lines and rebuilding); the bare-`env_for` half of
+  `a_card_played_inside_a_live_window_is_played_and_without_the_facts_stops_the_step` is the pre-fix behaviour (`Unknown(PlayFacts)`).
+* Mutation checks (single file, Haiku runner on the committed snapshot `ae92c018` in a scratch worktree): see "Mutation results" below.
+
+Not run (by the standing rule, no full zero-bail playthrough exists yet): golden/wide dual sweeps, benches, soak, mutation ratchet, census, workspace clippy, the armed dual, the Z-gate.
+Not merged: `disable-xf123` (already inside `core-w-l11`'s base; KQ owns the refusals).
+
+## Mutation results
+
+(filled in below by the runner's report)

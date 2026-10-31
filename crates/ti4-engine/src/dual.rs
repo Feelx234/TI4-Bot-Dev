@@ -1739,6 +1739,16 @@ pub(crate) mod tests {
         Event::new(1, "T", BTreeMap::from([("n".to_owned(), json!(payload))]))
     }
 
+    /// `fail_fast` reads back what `set_fail_fast` stored.
+    #[test]
+    fn fail_fast_reads_back_what_was_set() {
+        let _guard = serial();
+        set_fail_fast(true);
+        assert!(fail_fast());
+        set_fail_fast(false);
+        assert!(!fail_fast());
+    }
+
     /// `TI4_DUAL_FAIL_FAST=1` is read lazily, with the default mask; `serial()` turned fail-fast off BEFORE that read, so the first
     /// comparison of a test running alone turned it back on and the injected differences panicked. Only a fresh process shows it (the
     /// read happens once per process), so this test runs the injecting test alone in a child with the variable set.
