@@ -6,7 +6,7 @@
 //! option previews and the question details (`routes`, `fleet_supply`, `movable`, `rift_exits`); the dual run
 //! takes them from the recorded string question (item A2b-12 of docs/todo/A2b.md produces them from the core).
 
-use ti4_engine_core::choice::tactical::{Ask, Opt, Over, Subtype};
+use ti4_engine_core::choice::tactical::{Ask, Hook, Opt, Over, Subtype};
 use ti4_engine_core::generated::{Planet, System, Unit};
 
 use super::{Family, Render};
@@ -63,12 +63,16 @@ impl Family for Fam {
     type Opt = Opt;
     type Subtype = Subtype;
 
-    fn prompt(_: &Render, a: &Ask) -> String {
+    fn prompt(r: &Render, a: &Ask) -> String {
         match a {
             Ask::Activate { .. } => "activate a system".to_owned(),
             Ask::Move { .. } => "movement".to_owned(),
             Ask::Load { ship, free, .. } => format!("load {} ({free} free)", unit_id(*ship)),
             Ask::Remove { system, over, .. } => format!("remove a unit: over {} in {}", reason(*over), system_id(*system)),
+            Ask::Hook { hook: Hook::SpatialConduit, system, .. } => format!("Spatial Conduit Cylinders: make {} adjacent to every system with your units", system_id(*system)),
+            Ask::Hook { hook: Hook::NullificationField, active, .. } => format!("Nullification Field: exhaust and spend a strategy token to end {}'s turn", r.seat_text(*active)),
+            Ask::Hook { hook: Hook::Starlancer, active, .. } => format!("Starlancer: spend {}'s command token to end their turn", r.seat_text(*active)),
+            Ask::Scanlink { .. } => "Scanlink Drone Network: explore a planet here with your units on it".to_owned(),
         }
     }
 
@@ -78,6 +82,10 @@ impl Family for Fam {
             Subtype::MovementStep => "movement_step",
             Subtype::LoadCargo => "load_cargo",
             Subtype::RemoveUnit => "remove_unit",
+            Subtype::Hook(Hook::SpatialConduit) => "spatial_conduit_link",
+            Subtype::Hook(Hook::NullificationField) => "nullification_field_end_turn",
+            Subtype::Hook(Hook::Starlancer) => "starlancer_end_turn",
+            Subtype::ScanlinkExplore => "scanlink_explore",
         }
         .to_owned()
     }
@@ -129,6 +137,17 @@ impl Family for Fam {
                     .with("system", system_id(*origin))
             }
             Opt::Remove { index, kind } => ChoiceOption::labelled(format!("remove|{index}"), REMOVE_KIND, format!("remove {}", unit_id(*kind))),
+            Opt::Use => match a {
+                Ask::Hook { hook: Hook::SpatialConduit, .. } => ChoiceOption::labelled("use", "technology", "exhaust it"),
+                Ask::Hook { hook: Hook::NullificationField, .. } => ChoiceOption::labelled("use", "technology", "end their turn"),
+                Ask::Hook { hook: Hook::Starlancer, .. } => ChoiceOption::labelled("use", "unit", "end their turn"),
+                _ => panic!("a use in a question that is no hook"),
+            },
+            Opt::Explore(planet) => {
+                let Ask::Scanlink { system, .. } = a else { panic!("an exploration in a question that is no Scanlink") };
+                let id = <Planet as IdStr>::as_str(*planet);
+                ChoiceOption::labelled(id, "planet", format!("explore {id}")).with_planet(id, Some(system_id(*system)))
+            }
             Opt::DoneLoading { ground, fighters, available } => {
                 let Ask::Load { origin, .. } = a else { panic!("a pickup in a question of another kind") };
                 ChoiceOption::labelled("done_loading", DECLINE_KIND, "carry nothing further")
@@ -146,6 +165,8 @@ impl Family for Fam {
             // A hull, a pickup and a close of the hold carry facts of the position: the dual matches the id against
             // the rendered options of the very question (`dual_window::drive_positioned`).
             Ask::Move { .. } => (id == "done_moving").then_some(Opt::DoneMoving),
+            Ask::Hook { .. } => (id == "use").then_some(Opt::Use),
+            Ask::Scanlink { .. } => <Planet as IdStr>::from_id(id).map(Opt::Explore),
             Ask::Load { .. } | Ask::Remove { .. } => None,
         }
     }

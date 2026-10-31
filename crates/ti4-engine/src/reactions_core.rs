@@ -543,6 +543,10 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             commander: r.code("letnevcommander"),
             pre_roll: r.code("pre_roll"),
             faction_technology: r.code("faction_technology"),
+            nullification_field: r.code("nullification_field"),
+            starlancer: r.code("mahact_mech"),
+            peace_prompt: r.code(crate::tactical_live::PEACE_PROMPT),
+            peace_source: r.code("minister_peace"),
         };
         table.codes.turn = crate::live::turn::codes(r);
 }
@@ -870,4 +874,27 @@ mod tests {
             }
         }
     }
+
+    /// The silent-gap class: an ability the string registers on `SYSTEM_ACTIVATED` and the core table has no slot for would be MISSING from a
+    /// live (native) activation without a bail (the dual bailed on it through `nested_check`). Every such ability is either carried by the
+    /// native hook chain (`driver::windows::tactical::hooks`, named below), or dropped content (Thunder's Edge, the dropped factions), or the test
+    /// fails: a new string ability must be ported or listed, with its reason.
+    #[test]
+    fn every_system_activated_ability_the_string_registers_is_ported_or_accounted_for() {
+        let lobby = ["arborec", "argent", "cabal", "empyrean", "ghost", "hacan", "jolnar", "l1z1x", "letnev", "mahact", "mentak", "muaat", "naalu", "naaz", "nekro", "nomad", "saar", "sardakk", "sol", "titans", "winnu", "xxcha", "yin", "yssaril"];
+        let mut missing = std::collections::BTreeSet::new();
+        for faction in lobby {
+            let other = if faction == "sol" { "hacan" } else { "sol" };
+            let gs = crate::fixtures::seated_game(&[("a", faction), ("b", other)], ti4_model::content_types::POK);
+            let resolver = crate::fixtures::armed_resolver(&gs);
+            for a in resolver.kernel_view().abilities.iter().filter(|a| a.event == "SYSTEM_ACTIVATED" && slot_of(&a.id).is_none()) {
+                missing.insert(anonymous(&a.id));
+            }
+        }
+        let missing: Vec<String> = missing.into_iter().collect();
+        assert_eq!(missing, ACTIVATION_ACCOUNTED.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(), "string-registered SYSTEM_ACTIVATED abilities without a core slot");
+    }
+
+    /// The string abilities of `SYSTEM_ACTIVATED` the core table has no slot for, each with what carries it. (Filled by the first run.)
+    const ACTIVATION_ACCOUNTED: &[&str] = &[];
 }

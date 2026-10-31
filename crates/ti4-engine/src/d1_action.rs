@@ -124,7 +124,7 @@ pub(super) fn tactical_back(t: &Tactical, r: &Render) -> TKey {
             loaded: loaded.as_slice().iter().map(|i| usize::from(*i)).collect(),
             closed: *closed,
         },
-        TStage::Free(_) | TStage::Hooks | TStage::Closing | TStage::Heading(_) | TStage::Aftermath | TStage::Tail => TStageKey::Live,
+        TStage::Free(_) | TStage::Hooks(_) | TStage::Closing | TStage::Heading(_) | TStage::Aftermath | TStage::Tail => TStageKey::Live,
     };
     TKey { player: r.player(t.player).to_string(), stage, notes: nonempty(&notes_back(&t.notes_at_start, r)) }
 }

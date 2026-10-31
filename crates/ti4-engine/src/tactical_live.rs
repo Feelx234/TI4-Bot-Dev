@@ -4,12 +4,15 @@
 
 use ti4_engine_core::kernel::ability::TacticalGap;
 
+/// The prompt of the Minister of Peace's offer to discard its law (`Game::minister_of_peace`).
+pub const PEACE_PROMPT: &str = "Minister of Peace: discard to end the active player's turn";
+
 /// The words of a position the native tactical action does not run (`Unknown::UnportedTactical`).
 #[must_use]
 pub const fn gap_text(gap: TacticalGap) -> &'static str {
     match gap {
         TacticalGap::NoProgress => "the tactical action made no progress (a stage that neither asks nor moves on)",
-        TacticalGap::ActivationHook => "a hook of the activation (Spatial Conduit Cylinders, Scanlink Drone Network, E-Res Siphons, Nullification Field, Mahact, Minister of Peace, the Dominus Orb, Ceasefire)",
+        TacticalGap::ActivationHook => "a hook of the activation that the native chain does not carry",
         TacticalGap::NovaSeed => "Nova Seed replaced a tile while the movement step closed",
         TacticalGap::CannonHits => "a hit of the space cannon offense that needs a question",
         TacticalGap::ExplorationAtTheEnd => "the Crown of Emphidia or Dark Energy Tap explores at the end of the action (no native planet exploration window yet)",
@@ -56,6 +59,8 @@ pub fn complete(core: &CoreState, k: &Kernel, choice: &CoreChoice, rendered: &mu
         }
         // The string's removal question carries no context (`render::tactical`).
         TAsk::Remove { .. } => rendered.context = None,
+        // The hooks of the activation carry no display facts of their own.
+        TAsk::Hook { .. } | TAsk::Scanlink { .. } => {}
     }
 }
 
@@ -398,7 +403,7 @@ mod tests {
     fn a_tactical_action_of_each_faction_runs_native_without_a_bail_and_as_the_string_does() {
         let (hub, origin, target) = hub();
         let mut failures = Vec::new();
-        for faction in ["mentak", "argent", "ghost", "naalu", "sardakk", "xxcha", "hacan", "winnu", "sol", "letnev", "jolnar", "l1z1x", "arborec", "muaat", "nekro", "saar", "yin", "yssaril", "cabal", "empyrean", "naaz", "nomad", "titans"] {
+        for faction in ["mentak", "argent", "ghost", "naalu", "sardakk", "xxcha", "hacan", "winnu", "sol", "letnev", "jolnar", "l1z1x", "arborec", "muaat", "nekro", "saar", "yin", "yssaril", "cabal", "empyrean", "naaz", "nomad", "titans", "mahact"] {
             let other = if faction == "letnev" { "sol" } else { "letnev" };
             let mut state = table(&[("a", faction), ("b", other)]);
             crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
@@ -410,10 +415,111 @@ mod tests {
                 }
             }
         }
-        // Residual, counted: the hooks of the activation that ask (Scanlink Drone Network is a Titans starting technology; Mahact's Starlancer and
-        // commander); see `docs/M6_RESUME.md`. Nothing else may bail.
-        failures.retain(|f| !(f.contains("BAIL: a hook of the activation") && (f.starts_with("titans") || f.starts_with("mahact"))));
         assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    fn b() -> PlayerId {
+        PlayerId::new("b")
+    }
+
+    /// Spatial Conduit Cylinders: offered to the active seat after the activation (a unit in the system and one elsewhere); used, the system is
+    /// linked to every system with its units, so the ship in the far corner can move to it.
+    #[test]
+    fn spatial_conduit_cylinders_asks_and_links_in_lockstep() {
+        let (hub, origin, target) = hub();
+        let far = ti4_model::id::SystemId::new(hub.outer.iter().find(|s| **s != origin.as_str() && **s != target.as_str()).cloned().expect("another outer system"));
+        for answer in ["use", "decline"] {
+            let mut state = table(&[("a", "jolnar"), ("b", "hacan")]);
+            state.player_mut(&a()).unwrap().technologies.insert(ti4_model::TechnologyId::new("scc"));
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+            crate::fixtures::put(&mut state, &far, "cruiser", &a(), 1);
+            let mv = id(&origin, 0);
+            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], false);
+            assert!(diffs.is_empty(), "{answer}: {diffs:#?}");
+        }
+    }
+
+    /// The Nullification Field of another seat with a ship in the system ends the active seat's turn; the Minister of Peace's owner may discard
+    /// the law to do the same. The string runs `advance_turn` inline, the native window opens the turn flow's `End` job (compared on the prefix).
+    #[test]
+    fn the_hooks_that_end_the_turn_ask_in_lockstep() {
+        let (hub, origin, target) = hub();
+        for answer in ["use", "decline"] {
+            let mut state = table(&[("a", "sol"), ("b", "xxcha")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+            {
+                let holder = state.player_mut(&b()).unwrap();
+                holder.technologies.insert(ti4_model::TechnologyId::new("nf"));
+                holder.strategic_tokens = 2;
+            }
+            let mv = id(&origin, 0);
+            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], true);
+            assert!(diffs.is_empty(), "nullification field {answer}: {diffs:#?}");
+        }
+        for answer in ["discard", "decline"] {
+            let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+            state.laws.insert("minister_peace".to_owned(), "b".to_owned());
+            let mv = id(&origin, 0);
+            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], true);
+            assert!(diffs.is_empty(), "minister of peace {answer}: {diffs:#?}");
+        }
+    }
+
+    /// The Dominus Orb, held by the active seat while a token of its own pins units elsewhere, is offered after the activation.
+    #[test]
+    fn the_dominus_orb_is_offered_after_the_activation_in_lockstep() {
+        let (hub, origin, target) = hub();
+        for answer in ["purge", "decline"] {
+            let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            state.system_mut(&origin).command_tokens.insert(a());
+            state.player_mut(&a()).unwrap().relics.push(ti4_model::id::RelicId::new("dominusorb"));
+            let mv = id(&origin, 0);
+            let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), answer, &mv], false);
+            assert!(diffs.is_empty(), "{answer}: {diffs:#?}");
+        }
+    }
+
+    /// Mahact's commander lets the seat activate a system that holds its own token; the hook chain returns both tokens and ends the turn.
+    /// The Starlancer of a Mahact seat in the system, with the activator's token in its fleet pool, may end the turn too (the activator gains
+    /// the token into a pool of its choice).
+    #[test]
+    fn the_mahact_hooks_of_the_activation_run_in_lockstep() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "mahact"), ("b", "sol")]);
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mahactcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        state.system_mut(&target).command_tokens.insert(a());
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()], true);
+        assert!(diffs.is_empty(), "commander: {diffs:#?}");
+        for answer in ["use", "decline"] {
+            let mut state = table(&[("a", "sol"), ("b", "mahact")]);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            crate::fixtures::put(&mut state, &target, "mahact_mech", &b(), 1);
+            state.faction_marks.insert(crate::factions::mahact::fleet_mark(&b()), "a".to_owned());
+            let mv = id(&origin, 0);
+            let script: Vec<&str> = if answer == "use" { vec![TACTICAL_ACTION_ID, target.as_str(), "use", "tactic_tokens"] } else { vec![TACTICAL_ACTION_ID, target.as_str(), "decline", &mv] };
+            let diffs = lockstep(state, &hub.galaxy, &script, true);
+            assert!(diffs.is_empty(), "starlancer {answer}: {diffs:#?}");
+        }
+    }
+
+    /// Scanlink Drone Network: the Titans may explore a planet of the activated system that holds their units.
+    #[test]
+    fn scanlink_drone_network_explores_in_lockstep() {
+        let (hub, origin, _) = hub();
+        let system = ti4_model::id::SystemId::new("28");
+        let mut state = table(&[("a", "titans"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &ti4_model::id::PlanetId::new("tequran"), "infantry", &a(), 1);
+        let diffs = lockstep(state.clone(), &hub.galaxy, &[TACTICAL_ACTION_ID, system.as_str(), "tequran"], true);
+        assert!(diffs.is_empty(), "explore: {diffs:#?}");
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, system.as_str(), "decline"], true);
+        assert!(diffs.is_empty(), "decline: {diffs:#?}");
     }
 
     /// E-Res Siphons (automatic, after the activation of a system that holds the holder's ships) and the Sardakk and Winnu marks of the

@@ -20,7 +20,8 @@ pub enum TStage {
     /// A free tactical action (Thunder's Edge Warfare, Z'eu) whose activation of the system has not run yet. LIVE only.
     Free(System),
     /// The activation has happened (`SYSTEM_ACTIVATED` is out): the hook chain of the activation runs before the movement step. LIVE only.
-    Hooks,
+    /// The flag: the system held the seat's own command token before (Mahact's commander: the activation ends the turn).
+    Hooks(bool),
     /// The movement step is over; its close (`MOVEMENT_FINISHED`, the hero's skip, the blockade) runs on the next step. LIVE only:
     /// the string window is gone by then (`finish_tactical_inner` takes it).
     Closing,

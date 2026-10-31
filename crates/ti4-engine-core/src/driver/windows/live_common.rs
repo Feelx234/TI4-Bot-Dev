@@ -44,6 +44,7 @@ pub fn driver_of<M: Window>(window: M, core: &CoreState, env: &Env<'_>) -> Drive
     d.resolver.set_speaker(Some(m.speaker));
     d.resolver.set_seating_order(core.seats().seating_order());
     d.resolver.set_counters(u64::from(m.round), u64::from(m.turn_seq));
+    d.resolver.set_initiative_order(crate::query::seats::initiative_order(core).as_slice());
     d
 }
 

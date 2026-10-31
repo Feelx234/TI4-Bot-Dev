@@ -99,24 +99,6 @@ fn seat_of(core: &CoreState, faction: Faction) -> Option<Seat> {
     seats.next().is_none().then_some(first)
 }
 
-/// Whether the position holds a hook of the activation that this window does not carry (A2b-bail-02: `activation_unported`): a technology
-/// or an ability that asks, pays or ends the turn, a law, a relic, a note that denies the move.
-#[must_use]
-pub fn activation_hook_held(core: &CoreState, _k: &Kernel, seat: Seat) -> bool {
-    use crate::generated::{Agenda, Relic, Technology};
-    let tech = [Technology::SpatialConduitCylinders, Technology::ScanlinkDroneNetwork, Technology::NullificationField];
-    core.players().iter().any(|p| tech.iter().any(|t| p.tech.owned.contains(*t)))
-        || mahact_in_play(core)
-        || laws::active(core, reach::blanked(core), Agenda::MinisterOfPeace)
-        || core.players().by_seat(seat).is_some_and(|p| p.cards.relics.as_slice().contains(&Relic::DominusOrb))
-}
-
-/// Mahact at the table (Starlancer, the commander's re-activation).
-#[must_use]
-pub fn mahact_in_play(core: &CoreState) -> bool {
-    core.players().iter().any(|p| p.faction == Faction::TheMahactGeneSorcerers)
-}
-
 /// The map edits recorded so far (`movement::recorded_edits`): a tile replaced or swapped by an effect.
 #[must_use]
 pub fn map_edits(core: &CoreState) -> usize {

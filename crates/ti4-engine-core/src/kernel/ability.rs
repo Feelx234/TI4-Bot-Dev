@@ -281,6 +281,13 @@ pub struct TacticalCodes {
     pub pre_roll: crate::state::Code,
     /// `faction_technology`: the source of the trade goods E-Res Siphons gains.
     pub faction_technology: crate::state::Code,
+    /// `nullification_field`: the reason of the strategy token the Nullification Field spends.
+    pub nullification_field: crate::state::Code,
+    /// `mahact_mech`: the source of the Starlancer's question.
+    pub starlancer: crate::state::Code,
+    /// The prompt of the Minister of Peace's offer to discard its law, and the law's alias (`minister_peace`).
+    pub peace_prompt: crate::state::Code,
+    pub peace_source: crate::state::Code,
 }
 
 /// The texts the invasion composer puts into the position: the step kinds and causes of its records, the dice groups and the text of every
