@@ -267,6 +267,19 @@ pub struct Codes {
     pub turn: super::turn_codes::TurnCodes,
     /// The texts of the formerly silent abilities (lane G).
     pub silent: SilentCodes,
+    /// The texts of the leader and unit abilities lane G2 ported (`silent::{winnu, ...}`).
+    pub g2: G2Codes,
+}
+
+/// The texts the questions of lane G2's abilities name as their source (`Content::Other`) or compare an event against, interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct G2Codes {
+    /// The unit `winnu_mech` (Reclaimer).
+    pub winnu_mech: crate::state::Code,
+    /// The `source` `muaat` of the trade good Magmus gains.
+    pub muaat: crate::state::Code,
+    /// The leader `cabalagent`, the `source` of the trade goods The Stillness of Stars gains.
+    pub cabal_agent: crate::state::Code,
 }
 
 /// The texts of the questions and gains of the formerly silent abilities (lane G), interned by the adapter like the rest of [`Codes`].

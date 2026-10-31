@@ -31,7 +31,6 @@ pub mod code {
 
 /// The rules of this module, registered after the faction packages.
 pub fn register_abilities(t: &mut AbilityTable) {
-    zeta::register_abilities(t);
     ragh::register_abilities(t);
     tekklar::register_cleanups(t);
     tro_marks::register_abilities(t);
@@ -53,4 +52,9 @@ pub fn register_after_ca_combat(t: &mut AbilityTable) {
     tekklar::register_play(t);
     alastor::register_abilities(t);
     exo2::register_abilities(t);
+}
+
+/// Saar's Scavenger Zeta: the Saar module of the string comes right after Scavenge and before the Winnu's (lane G2's Reclamation).
+pub fn register_saar(t: &mut AbilityTable) {
+    zeta::register_abilities(t);
 }

@@ -25,6 +25,20 @@ pub enum Ask {
     Pillage,
     /// A question of lane G3 (`silent3`).
     T(super::silent3::Ask),
+    /// Reclaimer (the Winnu mech): place a structure on a planet the action took.
+    Reclaimer,
+    /// Hegemonic Trade Policy (Winnu): swap the values of which planet.
+    TradePolicy,
+    /// Sai Seravus (the Ghosts' commander): how many fighters go with the ships that moved through wormholes.
+    CommanderFighters,
+    /// Voidwatch (Empyrean): which promissory note the mover gives.
+    Voidwatch,
+    /// The Stillness of Stars (Cabal): which unit of the opponent's reinforcements is captured.
+    Stillness,
+    /// Garv and Gunn (Naaz): which of the ending player's planets is explored.
+    NaazAgent,
+    /// Ssruu's copy of Garv and Gunn (the planets are named by their names).
+    NaazCopy,
 }
 
 /// One answer.
@@ -39,6 +53,20 @@ pub enum Opt {
     Pillage { commodity: bool, target: Seat },
     /// An answer of lane G3 (`silent3`).
     T(super::silent3::Opt),
+    /// A PDS (`pds`) or a space dock placed by the Reclaimer on `planet` of `system`.
+    Reclaimer { pds: bool, system: System, planet: Planet },
+    /// The planet of `system` whose resource and influence values Hegemonic Trade Policy swaps.
+    Swap { system: System, planet: Planet },
+    /// `count` fighters placed in the space area of `system`.
+    Fighters { count: u8, system: System },
+    /// A promissory note given.
+    Note(crate::state::NoteKey),
+    /// The seat's own Support for the Throne given (the faction it belongs to).
+    Support(crate::generated::Faction),
+    /// A model of `victim`'s reinforcements captured.
+    Capture { unit: crate::generated::Unit, victim: Seat },
+    /// A planet explored.
+    Explore(Planet),
 }
 
 /// The machine identifier of the question.
@@ -52,6 +80,20 @@ pub enum Subtype {
     Pillage,
     /// A subtype of lane G3 (`silent3`).
     T(super::silent3::Subtype),
+    /// `reclaimer`.
+    Reclaimer,
+    /// `htp_planet`.
+    TradePolicy,
+    /// `commander_fighters`.
+    CommanderFighters,
+    /// `voidwatch_note`.
+    Voidwatch,
+    /// `stillness_target`.
+    Stillness,
+    /// `agent_planet`.
+    NaazAgent,
+    /// `borrowed_agent_planet`.
+    NaazCopy,
 }
 
 impl Ask {
@@ -61,6 +103,7 @@ impl Ask {
     pub const fn carries_trigger(&self) -> bool {
         match self {
             Self::Landing(_) | Self::Mitosis | Self::Pillage => true,
+            Self::Reclaimer | Self::TradePolicy | Self::CommanderFighters | Self::Voidwatch | Self::Stillness | Self::NaazAgent | Self::NaazCopy => false,
             Self::T(t) => t.carries_trigger(),
         }
     }

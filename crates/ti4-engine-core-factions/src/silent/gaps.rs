@@ -84,25 +84,11 @@ pub const GAPS: &[Gap] = &[
     // -- abilities
     Gap { kind: AbilityKind::Ability, event: EventKind::MovementFinished, relation: Relation::After, holds: foresight_possible }, // foresight
     Gap { kind: AbilityKind::Ability, event: EventKind::PropagationResearch, relation: Relation::After, holds: |c| faction(c, Faction::TheNekroVirus) }, // propagation
-    Gap { kind: AbilityKind::Ability, event: EventKind::ActionCompleted, relation: Relation::After, holds: downstream }, // reclamation
-    Gap { kind: AbilityKind::Ability, event: EventKind::TurnBegan, relation: Relation::After, holds: downstream }, // reclamation_clear
-    Gap { kind: AbilityKind::Ability, event: EventKind::PlanetControlGained, relation: Relation::After, holds: |c| faction(c, Faction::TheWinnu) }, // reclamation_mark
     // -- leaders
     Gap { kind: AbilityKind::Leader, event: EventKind::UnitAbilityRolled, relation: Relation::When, holds: |c| leader(c, Faction::TheArgentFlight, LeaderType::Commander) }, // argentcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::CommoditiesReplenished, relation: Relation::After, holds: |c| leader(c, Faction::TheVuilraithCabal, LeaderType::Agent) }, // cabalagent
-    Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| leader(c, Faction::TheEmpyrean, LeaderType::Agent) }, // empyreanagent
-    Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| leader(c, Faction::TheEmpyrean, LeaderType::Commander) }, // empyreancommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| leader(c, Faction::TheGhostsOfCreuss, LeaderType::Commander) }, // ghostcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| leader(c, Faction::TheGhostsOfCreuss, LeaderType::Commander) }, // ghostcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::StrategyTokenSpent, relation: Relation::After, holds: |c| leader(c, Faction::TheEmbersOfMuaat, LeaderType::Commander) }, // muaatcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::UnitsProduced, relation: Relation::After, holds: |c| leader(c, Faction::TheEmbersOfMuaat, LeaderType::Commander) }, // muaatcommander_unlock
     Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: downstream }, // muaathero
     Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: downstream }, // muaathero_moved
-    Gap { kind: AbilityKind::Leader, event: EventKind::TurnPassed, relation: Relation::After, holds: |c| leader(c, Faction::TheNaazRokhaAlliance, LeaderType::Agent) }, // naazagent
-    Gap { kind: AbilityKind::Leader, event: EventKind::PlanetControlGained, relation: Relation::After, holds: |c| leader(c, Faction::TheNaazRokhaAlliance, LeaderType::Commander) }, // naazcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::GroundCombatStarted, relation: Relation::After, holds: |c| leader(c, Faction::TheFederationOfSol, LeaderType::Commander) }, // solcommander
     Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::When, holds: |c| leader(c, Faction::TheTitansOfUl, LeaderType::Commander) }, // titanscommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::After, holds: |c| leader(c, Faction::TheWinnu, LeaderType::Agent) }, // winnuagent
     Gap { kind: AbilityKind::Leader, event: EventKind::ActionCompleted, relation: Relation::After, holds: downstream }, // yssarilcommander_clear
     // -- promissory notes (held by any seat)
     Gap { kind: AbilityKind::Promissory, event: EventKind::UnitAbilityRolled, relation: Relation::When, holds: |c| note(c, PromissoryNote::StrikeWingAmbuscade) }, // ambuscade
@@ -110,18 +96,13 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Promissory, event: EventKind::ShipMoved, relation: Relation::After, holds: |c| note(c, PromissoryNote::Stymie) }, // stymie
     // -- technologies
     Gap { kind: AbilityKind::Technology, event: EventKind::ActionCompleted, relation: Relation::After, holds: downstream }, // asn_clear
-    Gap { kind: AbilityKind::Technology, event: EventKind::ProductionUsed, relation: Relation::After, holds: |c| tech(c, Technology::HegemonicTradePolicy) }, // htp
     Gap { kind: AbilityKind::Technology, event: EventKind::GroundCombatStarted, relation: Relation::After, holds: |c| tech(c, Technology::MagenDefenseGridOmegaOmega) }, // md_hit
     Gap { kind: AbilityKind::Technology, event: EventKind::UnitAbilityRolled, relation: Relation::After, holds: |c| tech(c, Technology::StrikeWingAlphaII) }, // swa2
-    Gap { kind: AbilityKind::Technology, event: EventKind::MovementFinished, relation: Relation::After, holds: |c| tech(c, Technology::Voidwatch) }, // vw
     Gap { kind: AbilityKind::Technology, event: EventKind::UnitsProduced, relation: Relation::After, holds: |c| tech(c, Technology::YinSpinnerOmega) }, // yso
     // -- units
     Gap { kind: AbilityKind::Unit, event: EventKind::RelicGained, relation: Relation::After, holds: |c| unit_in_play(c, Faction::TheNaaluCollective, UnitBaseType::Mech) }, // naalu_mech_te
-    Gap { kind: AbilityKind::Unit, event: EventKind::ActionCompleted, relation: Relation::After, holds: |c| unit_in_play(c, Faction::TheWinnu, UnitBaseType::Mech) }, // winnu_mech
     // -- ported by no lane yet
     // -- the copies Ssruu makes of an agent of a seated faction
-    Gap { kind: AbilityKind::Leader, event: EventKind::TurnPassed, relation: Relation::After, holds: |c| copies(c, Faction::TheNaazRokhaAlliance) }, // yssarilagent: naazagent
-    Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::After, holds: |c| copies(c, Faction::TheWinnu) }, // yssarilagent: winnuagent
     // -- the activation abilities lane M6c lists as gaps (its audit); delete the row when the lane ports the rule
     Gap { kind: AbilityKind::Ability, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| faction(c, Faction::TheTitansOfUl) }, // awaken
     Gap { kind: AbilityKind::Unit, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| faction(c, Faction::TheTitansOfUl) }, // titans_flagship
