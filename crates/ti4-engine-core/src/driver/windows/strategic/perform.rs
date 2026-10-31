@@ -166,7 +166,8 @@ pub fn resolved(sx: &mut Sx<'_>, who: Seat, kind: StrategyCardKind) -> Flow {
 /// (the gap is conservative there).
 fn annexable_exists(core: &crate::state::CoreState, who: Seat) -> bool {
     use crate::query::board;
-    let Some(galaxy) = core.galaxy() else { return false };
+    // (A position without the map slice is a game without a galaxy: "in or next to" needs the map.)
+    let Some(galaxy) = core.loaded.has(crate::state::Slice::Map).then(|| core.galaxy()).flatten() else { return false };
     let mine: Vec<System> = board::controlled_planets(core, who).as_slice().iter().map(|(system, _)| *system).collect();
     let mut reachable = mine.clone();
     for system in &mine {

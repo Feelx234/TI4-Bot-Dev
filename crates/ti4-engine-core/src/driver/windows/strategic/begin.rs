@@ -24,6 +24,7 @@ pub fn others_clockwise(core: &CoreState, from: Seat) -> Vec<Seat> {
     let order = core.seats().seating_order();
     match order.iter().position(|s| *s == from) {
         Some(start) => (1..order.len()).map(|step| order[(start + step) % order.len()]).collect(),
+        // mutants:skip: a primary player who is not seated cannot be reached (the dispatch reads the active seat)
         None => order.iter().copied().filter(|s| *s != from).collect(),
     }
 }

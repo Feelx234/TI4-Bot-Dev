@@ -411,3 +411,123 @@ fn a_research_the_string_would_ask_doctor_sucaban_about_is_not_carried() {
     agent(&mut none, LeaderStatus::Readied);
     assert!(!research_asks_more(&none, Seat(1)));
 }
+
+// -- what the windows record, route and refuse (found by the mutation run) -------------------------------------------------------------
+
+#[test]
+fn the_followers_who_may_not_follow_are_written_to_the_payload_when_the_window_asks() {
+    // Construction costs a token for everybody (no seat of the lobby follows it for free): seat 1 has none.
+    let (mut s, k) = Scenario::lobby(4).phase(Phase::Action).active(Some(0)).tokens(1, 0, 0, 0).tokens(2, 3, 3, 2).build();
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Construction);
+    s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Construction, &[Seat(1), Seat(2), Seat(3)], true)));
+    let e = env(&k);
+    let (live, _) = advance_secondary(&mut s, &e, None).unwrap();
+    assert!(matches!(live, Live::Asks(_)));
+    let Some(OpenWindow::StrategySecondary(w)) = s.pending().window(WindowKind::StrategySecondary) else { panic!("open") };
+    assert_eq!((w.next, w.resolved.as_slice()), (1, &[(Seat(1), SecondaryHow::Ineligible)][..]), "the skipped follower is recorded for the next call");
+}
+
+#[test]
+fn a_window_open_beside_a_job_is_the_arms_first() {
+    let (mut s, k) = trade_window([2, 2, 2]);
+    ti4_engine_core::driver::turn::open_job(&mut s, ti4_engine_core::state::TurnJob::Prelude);
+    let e = env(&k);
+    assert_eq!(ask_secondary(&s, &e).unwrap().map(|a| a.choice.actor), Some(first_asked(&s, &e).actor), "the follower is asked, not the job");
+    let (live, _) = advance_secondary(&mut s, &e, None).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "the follower window runs, not the job");
+}
+
+#[test]
+fn only_the_winnu_hero_asks_who_follows() {
+    // The Winnu seat with another hero's card, a seat that is not the Winnu with Mathis Mathinus: no question, the window opens at once.
+    for (faction, leader) in [(Faction::TheWinnu, Leader::HeshAndPrit), (Faction::TheFederationOfSol, Leader::MathisMathinus)] {
+        let (mut s, _) = Scenario::new(&[faction, Faction::TheArborec, Faction::TheXxchaKingdom]).phase(Phase::Action).active(Some(0)).build();
+        s.pending_mut().open(OpenWindow::LeaderStrategy { player: Seat(0), leader, card: StrategyCard::Trade });
+        select_leader_strategy_followers(&mut s);
+        assert!(s.pending().window(WindowKind::LeaderFollowers).is_none(), "{faction:?} with {leader:?}");
+        assert!(s.pending().window(WindowKind::StrategySecondary).is_some());
+    }
+}
+
+#[test]
+fn the_heros_follower_question_is_the_heros_not_optional_and_outside_a_battle() {
+    let (s, k) = hero();
+    let q = ask_leader_followers(&s, &env(&k)).unwrap().unwrap().choice;
+    assert!(!q.ctx.optional && !q.ctx.space_battle && q.ctx.target.is_none() && q.ctx.invasion_seq.is_none());
+    assert_eq!(q.opts.as_slice(), [Opt::Leaders(LOpt::HeroFollower(true)), Opt::Leaders(LOpt::HeroFollower(false))]);
+}
+
+// -- Jae Mir Kan: a waiver the Nomad's suite would hear is not carried -----------------------------------------------------------------
+
+fn jae_mir_kan(nomad: bool) -> (CoreState, Kernel, Seat) {
+    let system = ti4_engine_core_tests::scenario::first_planet().0;
+    let factions: Vec<Faction> = if nomad {
+        vec![Faction::TheFederationOfSol, Faction::TheMahactGeneSorcerers, Faction::TheNomad]
+    } else {
+        vec![Faction::TheFederationOfSol, Faction::TheMahactGeneSorcerers, Faction::TheArborec]
+    };
+    let (mut s, k) = Scenario::new(&factions).phase(Phase::Action).active(Some(0)).command_token(system, 0).build();
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Trade);
+    s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::JaeMirKan, ti4_engine_core::state::LeaderStatus::Readied);
+    s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Trade, &[Seat(1)], true)));
+    let _ = system;
+    (s, k, Seat(1))
+}
+
+#[test]
+fn jae_mir_kan_is_offered_as_a_waiver_and_pays_with_the_primary_players_token() {
+    let (mut s, k, mahact) = jae_mir_kan(false);
+    let e = env(&k);
+    let q = first_asked(&s, &e);
+    assert_eq!(q.actor, mahact);
+    let waiver = q.opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(Faction::TheMahactGeneSorcerers, _)))).expect("Jae Mir Kan is offered");
+    let tokens = s.players().by_seat(mahact).unwrap().econ.strategic_tokens;
+    advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is paid");
+    assert_eq!(s.players().by_seat(mahact).unwrap().econ.strategic_tokens, tokens, "no strategy token is spent");
+    assert_eq!(s.players().by_seat(mahact).unwrap().leaders.status.get(&Leader::JaeMirKan), Some(&ti4_engine_core::state::LeaderStatus::Exhausted), "the agent is exhausted");
+    assert!(kinds(&s).contains(&PlainKind::StrategySecondaryFollowed));
+}
+
+#[test]
+fn a_waiver_a_nomad_would_hear_is_offered_and_stops_the_step_when_it_is_taken() {
+    let (mut s, k, mahact) = jae_mir_kan(true);
+    let e = env(&k);
+    let q = first_asked(&s, &e);
+    let waiver = q.opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered like the string offers it");
+    let held = s.clone();
+    assert_eq!(
+        advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))),
+        Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::TurnGap(ti4_engine_core::kernel::turn_codes::TurnGap::StrategyAbility)))
+    );
+    assert_eq!(s, held, "nothing was paid");
+    assert_eq!(s.players().by_seat(mahact).unwrap().leaders.status.get(&Leader::JaeMirKan), Some(&ti4_engine_core::state::LeaderStatus::Readied));
+}
+
+// -- the redistribution after the free action ------------------------------------------------------------------------------------------
+
+#[test]
+fn the_letnev_fleet_pool_may_be_emptied_after_the_free_action_and_a_seat_without_tokens_is_not_asked() {
+    let (mut s, k) = Scenario::new(&[Faction::TheBaronyOfLetnev, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).tokens(0, 1, 1, 1).build();
+    s.pending_mut().open(OpenWindow::StrategySecondaryAfterTactical(secondary_of(Seat(0), StrategyCard::WarfareThundersEdge, &[Seat(1)], true)));
+    open_after(&mut s);
+    let e = env(&k);
+    let (live, _) = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut s, &e, None).unwrap();
+    let Live::Asks(asking) = live else { panic!("asks") };
+    assert!(asking.choice.opts.iter().any(|o| *o == Opt::Strategy(SOpt::Split { tactic: 3, fleet: 0, strategic: 0 })), "Letnev may empty the fleet pool");
+    // A seat with no command token at all has nothing to redistribute.
+    let (mut none, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).tokens(0, 0, 0, 0).build();
+    none.pending_mut().open(OpenWindow::StrategySecondaryAfterTactical(secondary_of(Seat(0), StrategyCard::WarfareThundersEdge, &[Seat(1)], true)));
+    open_after(&mut none);
+    let (live, _) = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut none, &env(&k), None).unwrap();
+    assert_eq!(live, Live::Done);
+}
+
+#[test]
+fn a_position_without_the_map_slice_names_no_system_for_the_free_action_and_does_not_read_the_map() {
+    // Found by the mutation run (the scratch build keeps the debug assertions): `Galaxy` asserts the map slice is loaded.
+    use ti4_engine_core::driver::windows::strategic::facts::facts_at;
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
+    s.loaded = ti4_engine_core::state::SliceSet(ti4_engine_core::state::SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
+    let facts = facts_at(&s, &k, &Default::default(), None, Seat(0), StrategyCard::WarfareThundersEdge);
+    assert!(facts.free.is_some_and(|f| f.systems().is_empty()), "no map, no system to name");
+}

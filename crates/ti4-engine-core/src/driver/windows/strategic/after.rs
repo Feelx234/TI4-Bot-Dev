@@ -46,6 +46,7 @@ impl AfterRedistribute {
 impl Window for AfterRedistribute {
     type Stage = bool;
 
+    // mutants:skip: the stage is the driver's debug identity of the window; no rule reads it
     fn stage(&self) -> bool {
         self.asked
     }

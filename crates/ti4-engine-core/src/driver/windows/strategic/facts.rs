@@ -134,7 +134,9 @@ pub fn imperial_facts(core: &CoreState, kernel: &Kernel, who: Seat) -> Option<Im
 #[must_use]
 pub fn free_systems(core: &CoreState, source: crate::state::Code) -> Option<FreeSystems> {
     let mut ids: Vec<System> = Vec::new();
-    if let (Some(galaxy), crate::state::Phase::Action) = (core.galaxy(), core.meta().phase) {
+    // (A position without the map slice is a game without a galaxy: the string's `galaxy: None`.)
+    let galaxy = core.loaded.has(crate::state::Slice::Map).then(|| core.galaxy()).flatten();
+    if let (Some(galaxy), crate::state::Phase::Action) = (galaxy, core.meta().phase) {
         ids = galaxy.placed_in_hex_order().filter(|s| !galaxy.is_hyperlane(*s)).collect();
         for (system, _) in core.board().systems() {
             if !galaxy.is_hyperlane(system) && !ids.contains(&system) {

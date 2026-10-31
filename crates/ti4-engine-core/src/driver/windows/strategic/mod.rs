@@ -130,6 +130,7 @@ impl SecondaryWin {
 impl Window for SecondaryWin {
     type Stage = bool;
 
+    // mutants:skip: the stage is the driver's debug identity of the window; no rule reads it
     fn stage(&self) -> bool {
         self.is_complete()
     }
@@ -156,6 +157,7 @@ impl Window for SecondaryWin {
         let Pick::Opt(Opt::Strategy(opt)) = pick else { return Err(Illegal) };
         let f = facts::follower_facts(sx.state, sx.kernel, self.w.primary, self.w.card, who);
         // The question is the follower's: an option it did not offer is refused before anything changes.
+        // mutants:skip: `take_answer` refuses an option the follower was not offered too (this check only comes first)
         if !follow_choice(sx.state, self.w.card, self.w.primary, &f).opts.iter().any(|o| *o == Opt::Strategy(opt)) {
             return Err(Illegal);
         }
@@ -275,6 +277,7 @@ impl LeaderFollowersWin {
 impl Window for LeaderFollowersWin {
     type Stage = usize;
 
+    // mutants:skip: the stage is the driver's debug identity of the window; no rule reads it
     fn stage(&self) -> usize {
         self.w.asks.len()
     }
