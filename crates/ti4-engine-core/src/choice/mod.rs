@@ -24,6 +24,7 @@ use crate::ids::Seat;
 use crate::state::EventKind;
 
 pub mod generic;
+pub mod silent;
 
 macro_rules! areas {
     ($($(#[$m:meta])* $variant:ident($module:ident)),* $(,)?) => {

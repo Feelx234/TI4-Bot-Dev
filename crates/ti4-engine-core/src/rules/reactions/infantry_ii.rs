@@ -34,7 +34,7 @@ pub fn units_on_card(s: &CoreState, who: Seat) -> u32 {
     }
 }
 
-fn set_on_card(s: &mut CoreState, who: Seat, count: u32) {
+pub fn set_on_card(s: &mut CoreState, who: Seat, count: u32) {
     if count == 0 {
         s.marks_mut().tail.edit().remove(&MarkKey::Inf2Card(who));
     } else {

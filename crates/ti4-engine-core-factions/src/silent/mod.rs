@@ -1,0 +1,20 @@
+//! Formerly silent abilities (lane G, `docs/G_SILENT_RESUME.md`): rules the string engine registers (`Ability::new` / `stateful`) that the core table had no
+//! twin for, so a native game would have lacked them without any bail. Slots `40_000..` are this module's; the ids are named in `reactions_core::NAMED`.
+
+pub mod gaps;
+pub mod gift;
+pub mod mitosis;
+pub mod pillage;
+pub mod returns;
+pub mod scavenge;
+
+use ti4_engine_core::kernel::ability::AbilityTable;
+
+/// The rules of this module, registered after the faction packages (only abilities of one window share a bucket).
+pub fn register_abilities(t: &mut AbilityTable) {
+    gift::register_abilities(t);
+    mitosis::register_abilities(t);
+    pillage::register_abilities(t);
+    returns::register_abilities(t);
+    scavenge::register_abilities(t);
+}

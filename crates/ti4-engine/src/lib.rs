@@ -44,6 +44,9 @@ pub mod menu_sources_view;
 #[cfg(all(test, feature = "typed-core"))]
 mod menu_dual_tests;
 pub mod reactions_core;
+pub(crate) mod ability_gaps;
+#[cfg(all(test, feature = "typed-core"))]
+mod ability_audit;
 pub mod diplomacy;
 pub mod draft;
 pub mod entropic_scars;

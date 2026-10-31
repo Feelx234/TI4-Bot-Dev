@@ -90,6 +90,9 @@ pub enum Unknown {
     UnportedProduction(ProductionGap),
     /// The live turn flow cannot follow the string here yet (lane B, `driver::turn`).
     TurnGap(super::turn_codes::TurnGap),
+    /// An ability the string registers and the core table has no rule for, held by a seat at the moment its event is announced (lane G,
+    /// `ti4_engine_core_factions::silent::gaps`): the slot of the listed gap.
+    AbilityGap(Slot),
 }
 
 /// The positions the native production step (`driver::windows::production`) does not run, each a counted bail of the live path. The words are
@@ -262,6 +265,21 @@ pub struct Codes {
     pub production: ProductionCodes,
     /// The texts of the turn flow (lane B).
     pub turn: super::turn_codes::TurnCodes,
+    /// The texts of the formerly silent abilities (lane G).
+    pub silent: SilentCodes,
+}
+
+/// The texts of the questions and gains of the formerly silent abilities (lane G), interned by the adapter like the rest of [`Codes`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SilentCodes {
+    /// The unit alias `lw2`: the source of the Letani Warrior II's landing question.
+    pub lw2: crate::state::Code,
+    /// The `source` `scavenge` of the trade good Scavenge gains.
+    pub scavenge: crate::state::Code,
+    /// The faction ability `mitosis`, the source of Arborec's question.
+    pub mitosis: crate::state::Code,
+    /// The leader `naazagent`, the source of Garv and Gunn's question.
+    pub naaz_agent: crate::state::Code,
 }
 
 /// The `source` texts of `UNITS_PRODUCED`: `ability` for the units an ability produces, `production` for the PRODUCTION of a unit (the adapter's

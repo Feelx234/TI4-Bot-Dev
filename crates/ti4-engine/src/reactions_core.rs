@@ -81,6 +81,15 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cc_ground::borrowed::timing::LETNEV_AGENT, kind: "leader", card: "letnevagent" },
     Named { slot: ti4_engine_core::rules::reactions::INFANTRY_II_ROLLS, kind: "technology", card: "inf2" },
     Named { slot: cabal::REANIMATOR, kind: "unit", card: "cabal_mech" },
+    Named { slot: ti4_engine_core_factions::silent::gift::GIFT, kind: "promissory", card: "gift" },
+    Named { slot: ti4_engine_core_factions::silent::gift::GIFT_RETURN, kind: "promissory", card: "gift_return" },
+    Named { slot: ti4_engine_core_factions::silent::returns::INF2_RETURN, kind: "technology", card: "inf2_return" },
+    Named { slot: ti4_engine_core_factions::silent::returns::WARRIOR_RETURN, kind: "unit", card: "arborec_infantry2_return" },
+    Named { slot: ti4_engine_core_factions::silent::returns::LEGIONNAIRE_RETURN, kind: "unit", card: "mahact_infantry2_return" },
+    Named { slot: ti4_engine_core_factions::silent::scavenge::SCAVENGE, kind: "ability", card: "scavenge" },
+    Named { slot: ti4_engine_core_factions::silent::mitosis::MITOSIS, kind: "ability", card: "mitosis" },
+    Named { slot: ti4_engine_core_factions::silent::pillage::PILLAGE_GAINED, kind: "ability", card: "pillage" },
+    Named { slot: ti4_engine_core_factions::silent::pillage::PILLAGE_TRANSACTION, kind: "ability", card: "pillage" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
     Named { slot: cabal::DEVOUR_GROUND, kind: "ability", card: "devour" },
     Named { slot: cabal::TERROR_SHIPS, kind: "unit", card: "cabal_flagship" },
@@ -172,6 +181,9 @@ pub(crate) fn id_text(r: &Render, spec: &Spec, owner: &str, owner_seat: &str, le
     if is_reaction_slot(spec.slot) {
         return format!("reaction:{owner}:{event}:{rel}");
     }
+    if let Some(gap) = crate::ability_gaps::index_of(spec.slot) {
+        return crate::ability_gaps::display_id(gap, owner);
+    }
     let n = NAMED.iter().find(|n| n.slot == spec.slot).expect("every spec is named");
     format!("{}:{owner}:{}:{event}:{rel}", n.kind, n.card)
 }
@@ -201,6 +213,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::ce_movement::register_late_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_late_abilities(&mut t);
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
+            ti4_engine_core_factions::silent::register_abilities(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             ti4_engine_core_factions::cards::register(&mut t);
             // The links to the areas whose windows an action card runs as children: a play window that follows nested
@@ -548,6 +561,12 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             faction_technology: r.code("faction_technology"),
         };
         table.codes.turn = crate::live::turn::codes(r);
+        table.codes.silent = ti4_engine_core::kernel::ability::SilentCodes {
+            lw2: r.code("lw2"),
+            scavenge: r.code("scavenge"),
+            mitosis: r.code("mitosis"),
+            naaz_agent: r.code("naazagent"),
+        };
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {

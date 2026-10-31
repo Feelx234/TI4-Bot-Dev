@@ -30,6 +30,8 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
     let faction = |who: Seat| core.players().by_seat(who).map_or_else(String::new, |p| crate::generated::IdStr::as_str(p.faction).to_owned());
     let mut table = table();
     set_table_codes(&mut table, r);
+    // The string abilities that have no rule yet: a native game stops (a counted bail) where a seat holds one, it never plays on without it.
+    ti4_engine_core_factions::silent::gaps::register_live(&mut table);
     table.facts.staging = false;
     // The faction units (the form an Assimilate seat places on a planet it takes).
     table.facts.roster = crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), ti4_model::content_types::FULL);

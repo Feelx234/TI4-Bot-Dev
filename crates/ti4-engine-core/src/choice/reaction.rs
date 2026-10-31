@@ -85,6 +85,8 @@ pub enum Ask {
     Indoctrination { planet: crate::generated::Planet },
     /// Terragenesis (Titans), after `planet` was explored: place a sleeper token on it, or move one there.
     Terragenesis { planet: crate::generated::Planet },
+    /// A question of a formerly silent ability (lane G).
+    G(super::silent::Ask),
 }
 
 /// What a Nekro takes of an opponent's technology through an ability.
@@ -124,6 +126,8 @@ pub enum Opt {
     Indoctrinate { base: crate::generated::UnitBaseType, cost: i16, opponent: crate::ids::Seat },
     /// A sleeper token from the supply (`place`), or the one on the planet `from` (`move|{from}`) (Terragenesis).
     Sleeper { from: Option<crate::generated::Planet> },
+    /// An answer of a formerly silent ability (lane G).
+    G(super::silent::Opt),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -147,4 +151,6 @@ pub enum Subtype {
     Indoctrination,
     /// `terragenesis_token`.
     Terragenesis,
+    /// A question of a formerly silent ability (lane G).
+    G(super::silent::Subtype),
 }
