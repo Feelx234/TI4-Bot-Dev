@@ -12,7 +12,7 @@
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::{Faction, Leader, Planet, PromissoryNote, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, AdapterFacts, CondCx, Eff, Slot, Spec, Unknown};
+use ti4_engine_core::kernel::ability::{AbilityTable, AdapterFacts, CondCx, Eff, Runner, Slot, Spec, Unknown};
 use ti4_engine_core::kernel::fx_pay;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::kernel::fx;
