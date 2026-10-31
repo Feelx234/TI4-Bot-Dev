@@ -4129,7 +4129,6 @@ mod window_tests {
     use super::*;
     use crate::choice::{Resolving, Scripted, Table};
     use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
-    use crate::factions::hooks_economy::{EconomyHooks, with_test_hooks};
     use ti4_model::content_types::POK;
 
     fn me() -> PlayerId {

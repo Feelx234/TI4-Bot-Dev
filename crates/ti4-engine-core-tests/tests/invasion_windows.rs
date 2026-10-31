@@ -909,3 +909,72 @@ fn x89_exhausts_each_planet_it_bombards_where_the_planets_turn_begins() {
     rig.run();
     assert!(rig.state.board().planet(p1).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED), "the bombarded planet is exhausted");
 }
+
+// ---- the space cannon defense where the guns are silenced or an attachment fires (package X) ----------------------------
+
+fn defense_in(system: System, planet: Planet, seed: u64, tech: Option<Technology>, attachment: Option<Attachment>, pds: usize) -> Rig<SpaceCannonDefense> {
+    let mut sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).kernel(kernel_all()).map_from(&[system]).control(planet, 1).unit(system, Some(planet), Unit::InfantryI, 0, 4);
+    if pds > 0 {
+        sc = sc.unit(system, Some(planet), Unit::PDSI, 1, pds);
+    }
+    if let Some(t) = tech {
+        sc = sc.tech(0, t);
+    }
+    let (mut s, k) = sc.build();
+    if let Some(a) = attachment {
+        s.board_mut().planet_mut(planet).attach.push(a);
+        s.board_mut().planet_mut(planet).flags.set(ti4_engine_core::state::PlanetFlags::ATTACH_ENTRY, true);
+    }
+    let mut s = s;
+    s.transient_mut().invasion.active = Some(Cow::new(ActiveInvasion { system, invader: Seat(0), seq: 1, phase: Code(1), planet: Some(planet), defender: Some(Seat(1)), ground_round: 0, last_step: None }));
+    let facts = DefFacts { invader: Seat(0), system, planets: vec![planet], announce: true, cause: Code(2), kind: Code(5), planets_key: Code(6), unit_codes: vec![(Unit::PDSI, Code(30))] };
+    Rig::from_parts(s, k, SpaceCannonDefense::new(facts)).seeded(seed)
+}
+
+#[test]
+fn an_entropic_scar_and_l4_disruptors_silence_every_gun_but_the_commitment_is_still_announced() {
+    covers!("rules::invasion::defense::SpaceCannonDefense");
+    let (lemox_sys, lemox) = (System::Lemox, Planet::Lemox);
+    let mut scar = defense_in(lemox_sys, lemox, 3, None, None, 3);
+    scar.run();
+    assert!(scar.is_done() && scar.driver.window.drawn.is_empty(), "no gun fires in an entropic scar");
+    assert_eq!(scar.driver.emitted.first().map(|e| e.kind), Some(EventKind::GroundCommitmentFinished));
+    assert_eq!(scar.state.board().planet(lemox).units.as_slice().iter().filter(|p| p.owner() == Seat(0)).count(), 4, "nobody is hit");
+    assert!(scar.state.ledger().dice.is_empty());
+    // L4 Disruptors on the invader: a plain system's PDS do not fire either; without it they do.
+    let (system, planet) = (sys(), planets().0);
+    let mut l4 = defense_in(system, planet, 3, Some(Technology::L4Disruptors), None, 3);
+    l4.run();
+    assert!(l4.is_done() && l4.driver.window.drawn.is_empty() && l4.state.ledger().dice.is_empty());
+    let mut plain = defense_in(system, planet, 3, None, None, 3);
+    plain.run();
+    assert_eq!(plain.driver.window.drawn.len(), 3, "the same position without L4 Disruptors fires three PDS");
+}
+
+#[test]
+fn an_attachment_that_gives_space_cannon_rolls_for_the_planets_controller_after_the_guns_and_is_not_a_die_of_the_step() {
+    covers!("rules::invasion::defense::SpaceCannonDefense");
+    let (system, planet) = (sys(), planets().0);
+    let mut hits_seen = 0;
+    for seed in 0..40u64 {
+        let mut rig = defense_in(system, planet, seed, None, Some(Attachment::Geoform), 1);
+        rig.run();
+        let cannon = Attachment::Geoform.data().space_cannon.expect("Geoform gives SPACE CANNON");
+        let drawn = rig.driver.window.drawn.clone();
+        assert_eq!(drawn.len(), 2, "the PDS, then the attachment");
+        assert_eq!((drawn[1].0, drawn[1].1.len()), (u32::from(cannon.hits_on), usize::from(cannon.dice)));
+        let total: usize = drawn.iter().map(|(on, f)| f.iter().filter(|x| **x >= *on).count()).sum();
+        hits_seen += total;
+        assert_eq!(rig.state.board().planet(planet).units.as_slice().iter().filter(|p| p.owner() == Seat(0)).count(), 4usize.saturating_sub(total), "seed {seed}");
+        let step = rig.state.transient().invasion.active.as_ref().and_then(|a| a.last_step.clone()).expect("the PDS die is recorded");
+        assert_eq!(step.dice.len(), 1, "only the unit's die is a die of the step");
+        assert_eq!(rig.state.ledger().dice.len(), 2);
+        assert_eq!(rig.state.ledger().dice.iter().filter(|d| d.unit.is_none()).count(), 1, "the attachment's roll names no unit");
+    }
+    assert!(hits_seen > 0);
+    // The invader's own planet does not fire at its owner: the attachment rolls for the controller only.
+    let mut own = defense_in(system, planet, 1, None, Some(Attachment::Geoform), 0);
+    own.state.board_mut().planet_mut(planet).control = Some(Seat(0));
+    own.run();
+    assert!(own.driver.window.drawn.is_empty());
+}

@@ -72,16 +72,6 @@ impl InvasionMachine {
     /// `announce_and_defend`: `GROUND_COMMITMENT_FINISHED`, then the guns of each committed planet roll at the invader's ground forces.
     fn defend(&mut self, sx: &mut Sx<'_>, planets: &[Planet]) -> Result<(), Bail> {
         let (invader, system) = (self.p.invader, self.p.system);
-        let r = rd(sx.state, sx.kernel);
-        if r.scope().system(system).is_some_and(|d| d.has(SystemFlags::SCAR)) {
-            return Err(Why::EntropicScarDefense);
-        }
-        if sx.state.players().by_seat(invader).is_some_and(|p| p.tech.owned.contains(Technology::L4Disruptors)) {
-            return Err(Why::L4Disruptors);
-        }
-        if planets.iter().any(|p| qboard::attachments(sx.state, *p).iter().any(|a| a.data().space_cannon.is_some())) {
-            return Err(Why::AttachmentCannon);
-        }
         let codes = sx.table.codes.invasion;
         let f = DefenseFacts {
             invader,

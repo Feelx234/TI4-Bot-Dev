@@ -38,9 +38,6 @@ pub const fn unported_text(why: ti4_engine_core::kernel::ability::Unported) -> &
     use ti4_engine_core::kernel::ability::Unported as U;
     match why {
         U::NoProgress => "the invasion made no progress (a stage that neither asks nor moves on)",
-        U::EntropicScarDefense => "an entropic scar in the space cannon defense",
-        U::L4Disruptors => "L4 Disruptors in the space cannon defense",
-        U::AttachmentCannon => "an attachment that grants SPACE CANNON in the space cannon defense",
         U::Slumberstate => "Slumberstate Computing (a Thunder's Edge breakthrough)",
         U::RollCannotName => "a pool or unit the ground roll cannot name",
         U::HitsAddedToARoll => "hits added to a ground roll",
@@ -381,6 +378,35 @@ mod tests {
             asked += check(defender, &state, seed, &system, false, prefer(&[]));
         }
         assert!(asked > 6);
+    }
+
+    /// L4 Disruptors silence the PDS against their owner, and an attachment that gives its planet SPACE CANNON (Titans' Geoform) rolls for the
+    /// planet's controller: both in lockstep with the string window (the native defense bailed on them before).
+    #[test]
+    fn the_space_cannon_defense_follows_l4_disruptors_and_attachment_cannons_natively() {
+        use crate::dual::{take_report, with_bail_is_failure};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let mut with_cannon = 0;
+        for seed in 1..=10_u64 {
+            let (mut state, system, planet) = game(&[("a", if seed % 2 == 0 { "letnev" } else { "naalu" }), ("b", "hacan")], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 6);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 2);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &b, 2);
+            if seed % 2 == 0 {
+                state.player_mut(&a).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("l4"));
+            }
+            if seed % 3 != 0 {
+                state.planet_attachments.entry(planet.clone()).or_default().push("titanshero".to_owned());
+                with_cannon += 1;
+            }
+            with_bail_is_failure(true, || check("defense", &state, seed, &system, false, prefer(&[])));
+        }
+        assert!(with_cannon > 5);
+        let _ = take_report();
     }
 
     /// The custodians offer on Mecatol Rex: declined, paid (the payment asks which planets), and the hero's opening at the commit step.

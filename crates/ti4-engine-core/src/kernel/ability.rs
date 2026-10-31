@@ -93,9 +93,6 @@ pub enum Unknown {
 pub enum Unported {
     /// The machine made no progress: a stage that neither asks nor moves on.
     NoProgress,
-    EntropicScarDefense,
-    L4Disruptors,
-    AttachmentCannon,
     Slumberstate,
     RollCannotName,
     HitsAddedToARoll,

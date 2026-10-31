@@ -3451,20 +3451,15 @@ const DEFENSE: Footprint = Footprint::new(
     &[Slice::Players, Slice::Board, Slice::Transient, Slice::Pending, Slice::Rng, Slice::Ledger],
 );
 
-/// Why the position holds something the core window does not carry (`None`: it is carried): entropic scars, L4
-/// Disruptors, a planet attachment that gives SPACE CANNON, test faces or a pending stream restore, a neutral invader.
+/// Why the position holds something the core window does not carry (`None`: it is carried): test faces or a pending stream restore, a neutral
+/// invader, and the Keleres' Custodian's Favour (a dropped faction). (Entropic scars, L4 Disruptors and the SPACE CANNON of an attachment are the
+/// window's since package X.)
 #[must_use]
 pub fn defense_unported(gs: &GameState, content: &ti4_content::ContentStore, sources: ti4_model::content_types::SourceSet, a: &DefenseArgs<'_>) -> Option<&'static str> {
     if !a.reproducible {
         Some("irreproducible dice (test faces or a stream restore)")
     } else if crate::neutral_units::is_neutral(a.invader) {
         Some("neutral invader")
-    } else if !crate::entropic_scars::abilities_usable(content, sources, a.system, Some(a.system)) {
-        Some("entropic scar")
-    } else if crate::technology::has_technology_text(gs, a.invader, "l4") {
-        Some("L4 Disruptors")
-    } else if a.planets.iter().any(|p| !crate::planets::attachment_cannons(gs, content, a.system, p).is_empty()) {
-        Some("attachment cannon")
     } else {
         None
     }
