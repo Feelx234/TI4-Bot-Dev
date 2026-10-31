@@ -38,8 +38,9 @@ mod real {
 
     type Complete<'a> = &'a dyn Fn(&CoreChoice, &CoreState, &mut Choice);
 
+    // (Marks: the command tokens in a Mahact fleet pool are not in the reinforcements, `kernel::fx::tokens_held_by_mahact`.)
     const WARFARE: Footprint =
-        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Players, Slice::Board]);
+        Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks, Slice::Pending], &[Slice::Players, Slice::Board]);
     const DIPLOMACY: Footprint =
         Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Board]);
     const POLITICS: Footprint = Footprint::new(
@@ -131,7 +132,7 @@ mod real {
     /// holds: a question inside a battle or an invasion, diplomacy on, a nested emission, a command token in a
     /// Mahact fleet pool (the reinforcements differ), a seat the tables do not hold.
     pub fn warfare_primary(gs: &mut GameState, player: &PlayerId, script: &Recording) -> Option<CoreWindow<bool>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }
@@ -305,7 +306,7 @@ mod real {
         primary: bool,
         script: &Recording,
     ) -> Option<CoreWindow<bool>> {
-        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)")).or_else(|| (crate::production_view::unported_window(gs, player)).then_some("a table with a seat the production windows do not carry (Naaz, Nomad, Yssaril, Keleres, Deepwrought)")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (crate::production_view::unported_window(gs, player)).then_some("a table with a seat the production windows do not carry (Naaz, Nomad, Yssaril, Keleres, Deepwrought)")) {
             crate::dual::note_bail_here(why);
             return None;
         }
@@ -478,7 +479,7 @@ mod real {
     pub fn warfare_te(gs: &mut GameState, player: &PlayerId, systems: &[String], script: &Recording) -> Option<CoreWindow<Option<String>>> {
         // A command token in a Mahact fleet pool is not in the reinforcements: the core's count of them differs (found by the census of
         // `golden-lent.json`, a Mahact at the table: `details.reinforcements` one too many in 8 games of 19).
-        if let Some(why) = crate::dual_window::outside_why(gs, script).or_else(|| (gs.tokens_held_by_mahact(player) > 0).then_some("a command token in a Mahact fleet pool (the reinforcements differ)")) {
+        if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }
@@ -1108,13 +1109,15 @@ mod tests {
     }
 
     #[test]
-    fn warfare_declines_with_a_token_in_a_mahact_pool() {
+    fn warfare_counts_a_token_in_a_mahact_pool_out_of_the_reinforcements_in_the_core() {
+        // Package W10: the core subtracts the tokens in Mahact fleet pools from the reinforcements (`fx::tokens_held_by_mahact`, read from
+        // the marks); before it the window bailed ("a command token in a Mahact fleet pool (the reinforcements differ)").
         let label = "strategy_cards::warfare_primary";
         let held = |s: &mut GameState| {
             token_in(s, "26");
             s.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
         };
-        assert_eq!(run(label, &F3, held, &["26", "tactic_tokens", "3|3|3"], primary("pok6warfare")), (0, 1));
+        assert_eq!(run(label, &F3, held, &["26", "tactic_tokens", "3|3|3"], primary("pok6warfare")), (1, 0));
     }
 
     #[test]
@@ -1389,7 +1392,7 @@ mod tests {
     }
 
     #[test]
-    fn leadership_carries_an_overpayment_into_the_next_purchase_and_declines_a_mahact_pool() {
+    fn leadership_carries_an_overpayment_into_the_next_purchase_and_follows_a_mahact_pool() {
         let label = "strategy_cards::leadership_primary";
         // Mecatol pays six for a bill of three: the three left pay the next token, "0 more" influence.
         let mecatol = |s: &mut GameState| {
@@ -1401,7 +1404,7 @@ mod tests {
         let held = |s: &mut GameState| {
             s.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
         };
-        assert_eq!(run(label, &F3, held, &["tactic_tokens", "tactic_tokens", "fleet_tokens", "no"], primary("pok1leadership")), (0, 1));
+        assert_eq!(run(label, &F3, held, &["tactic_tokens", "tactic_tokens", "fleet_tokens", "no"], primary("pok1leadership")), (1, 0));
     }
 
     #[test]

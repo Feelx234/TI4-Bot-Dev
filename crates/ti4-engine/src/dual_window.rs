@@ -3252,6 +3252,7 @@ pub fn bombard(
     }
     let cause = r.code("bombardment");
     let mut window = Bombardment::new(invader, system, a.occurrence, a.announce, cause, plan, a.index);
+    window.x89 = holds_x89(gs, a.invader);
     if let Some(c) = a.cursor {
         window = window.at_cursor(
             Cursor {
@@ -3455,11 +3456,15 @@ pub fn ground_roll_unported(gs: &GameState, a: &GroundRollArgs<'_>) -> Option<&'
         Some("irreproducible dice (test faces or a stream restore)")
     } else if crate::neutral_units::is_neutral(a.attacker) || crate::neutral_units::is_neutral(a.defender) {
         Some("neutral side")
-    } else if [a.attacker, a.defender].into_iter().any(|id| gs.player(id).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"x89c4")))) {
-        Some("X-89 Bacterial Weapon")
     } else {
+        // (X-89 Bacterial Weapon doubles the hits in the core window since package W10.)
         None
     }
+}
+
+/// X-89 Bacterial Weapon (the codex printing in play) is held by this player.
+fn holds_x89(gs: &GameState, id: &PlayerId) -> bool {
+    gs.player(id).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"x89c4")))
 }
 
 /// The core half of `InvasionWindow::roll_ground_pair`. `None` for the positions of [`ground_roll_unported`], a pool
@@ -3486,7 +3491,7 @@ pub fn ground_roll(gs: &mut GameState, a: &GroundRollArgs<'_>, rng_before: &crat
     for n in 1..=NAMED {
         names.push(cx.texts.intern(Slice::Transient, &format!("combat value {n}")).why("the text table of the typed state is full")?);
     }
-    let facts = Facts { attacker, defender, system, planet, kind: cx.texts.intern(Slice::Transient, "ground").why("the text table of the typed state is full")?, names, unit_codes };
+    let facts = Facts { attacker, defender, system, planet, kind: cx.texts.intern(Slice::Transient, "ground").why("the text table of the typed state is full")?, names, unit_codes, x89: [holds_x89(gs, a.attacker), holds_x89(gs, a.defender)] };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let mut driver = Driver::new(GroundRoll::new(facts), Resolver::new(&[attacker, defender], Some(attacker)), AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
@@ -3814,8 +3819,6 @@ pub struct RollTailArgs<'a> {
 pub fn roll_tail_unported(gs: &GameState, a: &RollTailArgs<'_>) -> Option<&'static str> {
     if crate::neutral_units::is_neutral(a.invader) || crate::neutral_units::is_neutral(a.defender) {
         Some("neutral side")
-    } else if [a.invader, a.defender].into_iter().any(|id| gs.player(id).is_some_and(|p| p.technologies.contains(ti4_model::id::text(&"x89c4")))) {
-        Some("X-89 Bacterial Weapon")
     } else if gs.faction_marks.contains_key(crate::combat::ROLL_REPLAY_MARK) {
         Some("roll replay mark")
     } else {
@@ -3847,7 +3850,7 @@ pub fn roll_tail(
     let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default()).why("the invasion environment could not be built from the position")?;
-    let facts = Facts { invader, defender, system, planet, rolled: (u32::try_from(a.rolled.0).ok()?, u32::try_from(a.rolled.1).ok()?), bump: a.bump, announce: a.announce };
+    let facts = Facts { invader, defender, system, planet, rolled: (u32::try_from(a.rolled.0).ok()?, u32::try_from(a.rolled.1).ok()?), bump: a.bump, announce: a.announce, x89: [holds_x89(gs, a.invader), holds_x89(gs, a.defender)] };
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let mut driver = Driver::new(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1).with_seeds(seeds);
     // The cards that reroll the staged dice (Fire Team) read the texts of the staged sets.
