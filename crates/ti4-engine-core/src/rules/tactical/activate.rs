@@ -25,7 +25,7 @@ pub(super) fn ask(core: &CoreState, k: &Kernel, seat: Seat) -> Option<Vec<System
 /// Mahact's commander lets the seat activate a system that holds its own command token (`promissory::has_commander_ability(.., "mahactcommander")`).
 #[must_use]
 pub fn holds_leave(core: &CoreState, k: &Kernel, seat: Seat) -> bool {
-    crate::rules::leaders::has_commander_ability_with(core, seat, crate::generated::Leader::IlNaViroset, || k.hooks.direct.mahact_imperia_grants(core, seat, crate::generated::Leader::IlNaViroset))
+    crate::query::leaders::has_commander_ability_with(core, seat, crate::generated::Leader::IlNaViroset, || k.hooks.direct.mahact_imperia_grants(core, seat, crate::generated::Leader::IlNaViroset))
 }
 
 /// The activation: the token, the typed placement event, the notes that return, the typed activation event.

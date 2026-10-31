@@ -107,6 +107,14 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
             }
             None => false,
         },
+        // The tactical action (lane M6/M6b): the payload the legacy window observes (`Activating`, `Moving`, `Loading`) is the native window's own.
+        Arm::Tactical => match windows.iter().find_map(|w| if let Window::Tactical(t) = w { Some(t.clone()) } else { None }) {
+            Some(t) => {
+                ti4_engine_core::kernel::stage::Held::to_pending(&ti4_engine_core::driver::windows::tactical::TacticalAction::new(t), core);
+                true
+            }
+            None => false,
+        },
         // The jobs of the turn flow open themselves (`driver::turn`): they need no window of the legacy game.
         Arm::TurnPrelude | Arm::Phase | Arm::StrategyAnnounce | Arm::Ask => true,
         _ => false,
