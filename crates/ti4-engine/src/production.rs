@@ -1496,10 +1496,51 @@ pub const PRODUCE_ONE_SUBTYPE: &str = "produce_one_unit";
 /// It is appended last, so the ids and positions of the unit options do not move.
 #[allow(
     clippy::too_many_arguments,
-    clippy::too_many_lines,
     reason = "single-unit production needs the complete observed rules position"
 )]
 fn produce_one_from(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    system: &SystemId,
+    source: ProduceOneSource<'_>,
+) -> Result<bool, IllegalChoice> {
+    // The whole production is a run of the core's `ProduceOne` window on `production=dual`: both start from this position (the
+    // permission to pay with influence, if any, is set already) and are compared (questions, answers, state, whether a unit stands).
+    let mut outcome: Result<bool, IllegalChoice> = Ok(false);
+    crate::dual_window!(
+        crate::dual::Area::Production,
+        "production::produce_one",
+        state,
+        |s: &mut GameState| {
+            outcome = produce_one_text(s, content, sources, galaxy, table, player, system, source);
+            crate::dual::Run::new(outcome.as_ref().ok().copied().unwrap_or(false))
+        },
+        |s: &mut GameState, script: &crate::dual_window::Recording| {
+            #[cfg(feature = "typed-core")]
+            {
+                crate::production_window_dual::produce_one(s, content, sources, player, system, source, script)
+            }
+            #[cfg(not(feature = "typed-core"))]
+            {
+                let _ = (s, script);
+                None
+            }
+        }
+    );
+    outcome
+}
+
+/// [`produce_one_from`] on the string engine: the oracle of the dual run.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "single-unit production needs the complete observed rules position"
+)]
+fn produce_one_text(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,

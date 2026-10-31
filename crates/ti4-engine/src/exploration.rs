@@ -3403,6 +3403,74 @@ mod tests {
         );
     }
 
+    /// The single unit of Freelancers is a window of the core (`rules::production::one::ProduceOne`): the question with its reasons
+    /// beside it, the payment (influence pays as resources), the placement. The core half agrees with the string for a decline, a
+    /// destroyer, and a unit the purse cannot pay; and it ran every time.
+    #[test]
+    fn freelancers_run_in_lockstep_with_the_core_one_unit_window() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |goods: i32, answers: &[&str]| {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+            let (system, planet) = crate::fixtures::a_placed_planet();
+            state.system_mut(&system).set_control(planet.clone(), player());
+            let seat = state.player_mut(&player()).unwrap();
+            seat.faction = ti4_model::id::FactionId::new("sol");
+            seat.trade_goods = goods;
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let (capturing, seen) = crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(answers.iter().map(|answer| (*answer).to_owned()))));
+            let mut table = crate::choice::Table::with_default(Box::new(capturing));
+            let mut dice = crate::dice::Dice::new();
+            let mut rng = crate::rng::GameRng::new(0);
+            let mut ctx = crate::choice::Resolving { content: ContentStore::embedded(), sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+            state.exploration_decks.insert("CULTURAL".to_owned(), vec!["frln1".to_owned()]);
+            with_mask(AreaMask::STRING.with(Area::Production, Backend::Dual), || explore_with(&mut state, &mut ctx, &player(), "CULTURAL", Some(&planet)));
+            let n = seen.borrow().len();
+            (state, n)
+        };
+        let before = units_of_player(&holder(5, 0).0);
+        let (state, _) = run(5, &["decline"]);
+        assert_eq!(units_of_player(&state), before);
+        let (state, _) = run(5, &["build|destroyer|1"]);
+        assert_eq!(units_of_player(&state), before + 1);
+        // Nothing but influence to pay with: the units are offered (influence pays as resources) and declined.
+        let (state, _) = run(0, &["decline"]);
+        assert_eq!(units_of_player(&state), before);
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("production::produce_one"), (3, 0), "{r:?}");
+        let _ = take_report();
+    }
+
+    /// A fighter with nothing to carry it stands over the capacity of its system: the string then asks which units go, which the core
+    /// window cannot, so the production is the string's, counted with its reason.
+    #[test]
+    fn a_single_unit_over_the_capacity_of_its_system_is_the_strings() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.system_mut(&system).set_control(planet.clone(), player());
+        state.player_mut(&player()).unwrap().trade_goods = 5;
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(["build|fighter|1", "trade_good", "remove|0"])));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut ctx = crate::choice::Resolving { content: ContentStore::embedded(), sources: POK, dice: &mut dice, rng: &mut rng, table: &mut table, timing: None };
+        state.exploration_decks.insert("CULTURAL".to_owned(), vec!["frln1".to_owned()]);
+        with_mask(AreaMask::STRING.with(Area::Production, Backend::Dual), || explore_with(&mut state, &mut ctx, &player(), "CULTURAL", Some(&planet)));
+        let r = report();
+        assert_eq!(thread_window_counts("production::produce_one"), (0, 1), "{r:?}");
+        assert!(r.windows.keys().any(|k| k.starts_with("production::produce_one [bail: a unit over the fleet supply or the capacity")), "{r:?}");
+        let _ = take_report();
+    }
+
     #[test]
     fn a_mercenary_outfit_may_be_declined() {
         let (mut state, planet) = holder(0, 0);

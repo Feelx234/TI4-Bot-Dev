@@ -277,6 +277,28 @@ fn umbat_needs_the_agent_readied_and_a_muaat_seat() {
 }
 
 #[test]
+fn the_use_a_player_opens_is_given_that_players_facts_even_when_two_players_stand_in_one_system() {
+    covers!("rules::leader_production::Umbat");
+    let [(a, pa), _] = two();
+    // Both seats have a war sun in the same system; each has its own facts (the second a limit of one).
+    let sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
+        .map_from(&[a])
+        .control(pa, 1)
+        .unit(a, None, Unit::WarSun, 0, 1)
+        .unit(a, None, Unit::TheInferno, 1, 1)
+        .goods(0, 6)
+        .goods(1, 6)
+        .tokens(0, 3, 3, 2)
+        .tokens(1, 3, 3, 2);
+    let facts = vec![facts(0, a, 2, Some(4)), ProduceFacts { limit: 1, ..facts(1, a, 2, Some(4)) }];
+    let mut rig = umbat_rig(sc, facts, LeaderStatus::Readied);
+    rig.run();
+    rig.pick_opt(Opt::Leaders(LOpt::Player(Seat(1))));
+    let Ask::Production(PAsk::Choose(ask)) = &rig.asked().ask else { panic!("the production: {:?}", rig.asked().ask) };
+    assert_eq!((rig.asked().actor, ask.limit), (Seat(1), 1), "the facts of the chosen player");
+}
+
+#[test]
 fn umbat_counts_a_flagship_as_well_as_a_war_sun() {
     covers!("rules::leader_production::Umbat");
     let [(a, pa), (b, pb)] = two();

@@ -60,6 +60,19 @@ pub struct ProduceFacts {
     pub buildable: [Option<Unit>; 9],
 }
 
+/// What `Spawn::ProduceOne` (one unit outside a use of PRODUCTION: Chaos Mapping, Freelancers) needs of the position that the core does not
+/// hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OneFacts {
+    /// What the seat may produce at all (`buildable_for`), in option order.
+    pub buildable: [Option<Unit>; 9],
+    /// The fleet limit as the enforcement works it out (`fleet::over_supply`: the unlimited bill, else the limit).
+    pub fleet_limit: i32,
+    /// The interned printed name of the effect and its content alias (`None`: it names itself nowhere).
+    pub name: Option<Code>,
+    pub alias: Option<Code>,
+}
+
 /// The units a finished production made, in order: the unit and the planet it stands on (`None`: the space area).
 pub type Made = SmallList<(Unit, Option<Planet>), 12>;
 
@@ -254,6 +267,9 @@ pub enum Spawn {
     Absorb { who: Seat, producer: Seat, system: System, hits: u16, texts: HitTexts },
     /// `production::window::ProductionWindow` for a production by an ability (`ProductionWindow::for_ability`): reports [`Report::Made`].
     Produce { facts: ProduceFacts },
+    /// `production::one::ProduceOne`: one unit for `who` in `system`; reports [`Report::Left`] when the unit stands over the fleet supply
+    /// or the capacity of its system (the string asks which units go), else [`Report::Nothing`].
+    ProduceOne { who: Seat, system: System, facts: OneFacts },
 }
 
 /// Starts the child window a [`Spawn`] names; `None` for a request the table does not know.

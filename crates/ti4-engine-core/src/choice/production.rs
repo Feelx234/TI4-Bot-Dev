@@ -6,6 +6,7 @@
 
 use crate::generated::{Planet, System, Unit};
 use crate::ids::Seat;
+use crate::state::Code;
 
 /// A currency of a bill or of a planet's face.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -159,6 +160,20 @@ pub struct HeroAsk {
     pub who: Seat,
 }
 
+/// "produce one unit in `system`" (package W12, lane 7: Chaos Mapping, Freelancers, the single units of the Minister of Industry before
+/// its window): a "may" for one unit, outside a use of PRODUCTION. `name` and `alias` are the interned printed name of the effect that
+/// grants it and its content alias (`None`: an effect that names itself nowhere, Chaos Mapping's single unit).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct OneAsk {
+    pub who: Seat,
+    pub system: System,
+    pub name: Option<Code>,
+    pub alias: Option<Code>,
+    /// What the seat may produce at all (`buildable_for`), in option order, and its fleet limit: the position gives the rest.
+    pub buildable: [Option<Unit>; 9],
+    pub fleet_limit: i32,
+}
+
 /// What the area asks. Parameters only; the option list is derived by `rules::production::pay_opts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ask {
@@ -178,6 +193,10 @@ pub enum Ask {
     Hero(HeroAsk),
     /// Xander Alexin Victori III (a Keleres agent): let `payer` spend commodities as trade goods.
     AgentOffer { payer: Seat },
+    /// Produce one unit in a system outside a use of PRODUCTION (`rules::production::one::ProduceOne`).
+    One(OneAsk),
+    /// Where the one unit goes (more than one spot): "place the {unit}".
+    OnePlace { unit: Unit, system: System },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -211,6 +230,8 @@ pub enum Opt {
     Decline,
     /// Use the leader the question offers (the Keleres agent); declining is the generic option.
     Use,
+    /// Produce one `unit` for `shown.worth` (`build|unit|1`).
+    One { unit: Unit, shown: Shown },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -225,4 +246,6 @@ pub enum Subtype {
     HeroFree,
     /// `keleres_agent_commodities`.
     AgentOffer,
+    /// `produce_one_unit` (only for an effect that names itself).
+    One,
 }

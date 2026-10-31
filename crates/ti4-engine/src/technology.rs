@@ -2836,6 +2836,44 @@ mod tests {
         assert_eq!(table.log.records[0].prompt, "Chaos Mapping");
     }
 
+    /// Chaos Mapping's single unit is a window of the core (`rules::production::one::ProduceOne`), compared as the card's start-of-turn
+    /// window runs it on the string engine: a destroyer paid with a trade good, a decline, a system with nothing to build.
+    #[test]
+    fn chaos_mapping_runs_its_single_unit_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let run = |goods: i32, answers: &[&str]| {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+            give(&mut state, &["cm"]);
+            state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("sol");
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            let (system, planet) = crate::fixtures::a_placed_planet();
+            state.system_mut(&system).set_control(planet.clone(), player());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+            state.player_mut(&player()).unwrap().trade_goods = goods;
+            let mut script = vec![system.to_string()];
+            script.extend(answers.iter().map(|a| (*a).to_owned()));
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(script)));
+            with_mask(AreaMask::STRING.with(Area::Production, Backend::Dual), || {
+                start_turn(&mut state, ContentStore::embedded(), POK, None, &mut table, &player()).unwrap();
+            });
+            state
+        };
+        let built = |state: &GameState| {
+            let system = crate::fixtures::a_placed_planet().0;
+            state.system_state(&system).units_of(&player()).iter().any(|unit| unit.type_id.as_str() == "destroyer")
+        };
+        assert!(built(&run(1, &["build|destroyer|1", "trade_good"])));
+        assert!(!built(&run(1, &["decline"])));
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        assert_eq!(thread_window_counts("production::produce_one"), (2, 0), "{r:?}");
+        let _ = take_report();
+    }
+
     /// 68.10 applies to Chaos Mapping's production too: with an enemy ship in the dock's system
     /// the offered builds are ground forces only (68.10a).
     #[test]

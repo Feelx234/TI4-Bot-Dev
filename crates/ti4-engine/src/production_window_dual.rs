@@ -287,3 +287,66 @@ pub fn agent_offer(gs: &mut GameState, payer: &PlayerId, script: &Recording) -> 
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OFFER_FOOTPRINT, script), |core, _| drive(&mut driver, core, kernel, &r, &before, script)).why(NOT_LENDABLE)?.why(DRIVER_REFUSED)?;
     Some(CoreWindow { run: Run::new(driver.window.opened), questions: driven.rendered })
 }
+
+const ONE_FOOTPRINT: Footprint = Footprint {
+    reads: crate::production_view::READS.union(SliceSet::of(&[Slice::Pending])),
+    writes: SliceSet::of(&[Slice::Board, Slice::Players, Slice::Marks, Slice::Pending]),
+};
+
+/// The core half of `production::produce_one_from` (Chaos Mapping's single unit, Freelancers, the single units of the Minister of
+/// Industry before its window): whether a unit stands. `source` is `(content alias, printed name)` of the effect that grants it. The
+/// permission to pay with influence (Freelancers) is the position's, set by the caller before the production. A unit that stands over
+/// the fleet supply or the capacity of its system (the string then asks which units go) is the string's.
+#[must_use]
+pub fn produce_one(
+    gs: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    source: Option<(&str, &str)>,
+    script: &Recording,
+) -> Option<CoreWindow<bool>> {
+    use ti4_engine_core::rules::production::one::{OneFacts, ProduceOne};
+    if let Some(why) = crate::dual_window::outside_why(gs, script) {
+        crate::dual::note_bail_here(why);
+        return None;
+    }
+    if crate::production_view::unported_triggered(gs, player) {
+        crate::dual::note_bail_here("a table whose seats the single-unit production does not carry (Mentak, Naaz, Nomad, Yssaril, Keleres, Deepwrought)");
+        return None;
+    }
+    let buildable = buildable_of(gs, content, sources, player)?;
+    let fleet_limit = if gs.rules_version >= ti4_model::state::RULES_FACTION_BUGFIXES && crate::fleet::is_unlimited(gs, player) {
+        crate::fleet::UNLIMITED_FLEET_BILL
+    } else {
+        i64::from(crate::fleet::limit(gs, content, player)).max(0)
+    };
+    let fleet_limit = i32::try_from(fleet_limit).why("a count beyond 32 bits")?;
+    let (mut cx, r) = tables(gs).why(NO_TABLES)?;
+    let seat = r.seat(player.as_str()).why(NO_SEAT)?;
+    let typed_system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(system.as_str()).why("a system the core tables do not know")?;
+    let facts = OneFacts { buildable, fleet_limit, name: source.map(|(_, name)| r.code(name)), alias: source.map(|(alias, _)| r.code(alias)) };
+    let kernel = crate::production_view::kernel();
+    let mut driver = Driver::new(ProduceOne::new(seat, typed_system, facts), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+    let before_state = gs.clone();
+    let mut staged = Vec::new();
+    let mut rendered = Vec::new();
+    with_core(gs, &mut cx, Sources::default(), nested_fp(ONE_FOOTPRINT, script), |core, _| {
+        let driven = crate::dual_window::drive_positioned(&mut driver, core, kernel, Some(kernel), &r, &before_state, script, &|_, _, _| {});
+        staged = std::mem::take(&mut core.pending_mut().staged);
+        if let Ok(d) = &driven {
+            rendered = d.rendered.clone();
+        }
+        driven.map(|_| ())
+    })
+    .why(NOT_LENDABLE)?
+    .why(DRIVER_REFUSED)?;
+    if driver.window.unsupported {
+        crate::dual::note_bail_here("a unit over the fleet supply or the capacity of its system (the string asks which units go)");
+        return None;
+    }
+    crate::dual_window::apply_staged(gs, &r, &staged).why(STAGED_UNAPPLIED)?;
+    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(EVENT_UNTYPED)?;
+    Some(CoreWindow { run: Run::new(driver.window.made.is_some()).with_events_vec(events), questions: rendered })
+}

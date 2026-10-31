@@ -15,6 +15,7 @@ use crate::rules::explore_windows::Reward;
 use crate::rules::objective_windows::HandLimit;
 use crate::rules::production::pay::PayBill;
 use crate::rules::production::strategy_cards::{Construction, Leadership, Research, TitanBuild};
+use crate::rules::production::one::ProduceOne;
 use crate::rules::production::window::ProductionWindow;
 use crate::rules::strategy_primaries::{DMode, Diplomacy, Politics, WarfarePrimary};
 use crate::rules::strategy_windows::{TradePrimary, TRADE_PRIMARY_GOODS};
@@ -50,6 +51,7 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
         Spawn::Destroy { who, system, card, subtype, cause } => Erased::boxed(Destroy::new(*who, *system, *card, *subtype, *cause), |w| Report::Destroyed(w.destroyed)),
         Spawn::Absorb { who, producer, system, hits, texts } => Erased::boxed(Absorb::new(*who, *producer, *system, *hits, *texts), |_| Report::Nothing),
         Spawn::Produce { facts } => Erased::boxed(ProductionWindow::ability(facts), |w| Report::Made(w.made())),
+        Spawn::ProduceOne { who, system, facts } => Erased::boxed(ProduceOne::new(*who, *system, *facts), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
     })
 }
 
@@ -160,6 +162,7 @@ mod tests {
             Spawn::Trade { who },
             Spawn::Destroy { who, system: crate::generated::System::ALL[0], card: crate::generated::ActionCard::CourageousToTheEnd, subtype: crate::state::Code(0), cause: crate::state::Code(0) },
             Spawn::Absorb { who, producer: who, system: crate::generated::System::ALL[0], hits: 1, texts: crate::kernel::children::HitTexts::default() },
+            Spawn::ProduceOne { who, system: crate::generated::System::ALL[0], facts: crate::kernel::children::OneFacts { buildable: [None; 9], fleet_limit: 8, name: None, alias: None } },
             Spawn::Produce { facts: crate::kernel::children::ProduceFacts { who, system: crate::generated::System::ALL[0], limit: 2, max_unit_cost: Some(4), small_exemptions: 0, discount: 0, fleet_limit: 8, armada: 0, flagship_free: false, buildable: [None; 9] } },
         ];
         for request in &requests {

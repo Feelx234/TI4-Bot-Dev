@@ -51,6 +51,11 @@ impl Family for Fam {
             Ask::SlingShip(_) => "Sling Relay: produce one ship".to_owned(),
             Ask::Economy(e) => format!("Integrated Economy on {} ({} cost left)", planet_id(e.planet), e.budget),
             Ask::Hero(_) => "Harrugh Gefhara: make this use of PRODUCTION free".to_owned(),
+            Ask::One(o) => match o.name {
+                Some(name) => format!("{}: produce one unit in {}", r.code_text(name), <System as IdStr>::as_str(o.system)),
+                None => format!("produce one unit in {}", <System as IdStr>::as_str(o.system)),
+            },
+            Ask::OnePlace { unit, .. } => format!("place the {}", unit_id(*unit)),
         }
     }
 
@@ -64,6 +69,7 @@ impl Family for Fam {
             Subtype::Economy => "integrated_economy".to_owned(),
             Subtype::HeroFree => "leader_hacanhero_free_production".to_owned(),
             Subtype::AgentOffer => "keleres_agent_commodities".to_owned(),
+            Subtype::One => "produce_one_unit".to_owned(),
         }
     }
 
@@ -76,6 +82,7 @@ impl Family for Fam {
             Ask::Choose(c) => return build_option(r, &c, o),
             Ask::Place(p) => return place_option(r, &p, o),
             Ask::SlingSystem(_) | Ask::SlingShip(_) | Ask::Economy(_) | Ask::Hero(_) => return triggered_option(a, o),
+            Ask::One(_) | Ask::OnePlace { .. } => return one_option(a, o),
         };
         match *o {
             Opt::Exhaust { planet, source, shown } => {
@@ -121,6 +128,7 @@ impl Family for Fam {
             | Opt::Economy { .. }
             | Opt::HeroUse
             | Opt::Use
+            | Opt::One { .. }
             | Opt::Decline => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
@@ -136,6 +144,7 @@ impl Family for Fam {
     fn details(r: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
         match a {
             Ask::Choose(c) => choose_details(r, c).unwrap_or_default(),
+            Ask::One(o) => one_details(r, o).unwrap_or_default(),
             _ => serde_json::Map::new(),
         }
     }
@@ -149,6 +158,12 @@ impl Family for Fam {
             Ask::SlingSystem(_) => return Some(Opt::SlingSystem { system: <System as IdStr>::from_id(id)? }),
             Ask::SlingShip(_) => return parse_sling_ship(id),
             Ask::Economy(_) => return parse_economy(id),
+            Ask::One(_) => {
+                // The decline is the generic option, read back by the generic parser.
+                let unit = id.strip_prefix("build|")?.strip_suffix("|1")?;
+                return Some(Opt::One { unit: <Unit as IdStr>::from_id(unit)?, shown: Shown::default() });
+            }
+            Ask::OnePlace { .. } => return parse_one_place(id),
             Ask::Hero(_) => {
                 return match id {
                     "use" => Some(Opt::HeroUse),
@@ -248,6 +263,63 @@ fn triggered_option(a: &Ask, o: &Opt) -> ChoiceOption {
         (Ask::Economy(_), Opt::Stop) => ChoiceOption::labelled("done_producing", crate::choice::DECLINE_KIND, "finish production"),
         _ => unreachable!("an option of a question the area did not put"),
     }
+}
+
+/// The options of the one-unit question and its placement question, as `produce_one_from` builds them.
+fn one_option(a: &Ask, o: &Opt) -> ChoiceOption {
+    match (*a, *o) {
+        (Ask::One(q), Opt::One { unit, shown }) => {
+            let (id, cost) = (unit_id(unit), i64::from(shown.worth));
+            ChoiceOption::labelled(format!("build|{id}|1"), crate::production::PRODUCE_KIND, format!("produce 1x {id} for {cost}"))
+                .with("unit", id)
+                .with("count", 1)
+                .with("cost", cost)
+                .with("system", <System as IdStr>::as_str(q.system))
+        }
+        (Ask::OnePlace { unit, system }, Opt::Place { spot }) => {
+            let text = spot_text(spot);
+            ChoiceOption::labelled(format!("place|{text}"), crate::production::PLACE_KIND, format!("place on {text}"))
+                .with("unit", unit_id(unit))
+                .with("system", <System as IdStr>::as_str(system))
+        }
+        _ => unreachable!("an option of a question the area did not put"),
+    }
+}
+
+/// `place|spot` of the one-unit placement question.
+fn parse_one_place(id: &str) -> Option<Opt> {
+    let at = id.strip_prefix("place|")?;
+    let spot = if at == crate::production::SPACE { Spot::Space } else { Spot::Planet(<Planet as IdStr>::from_id(at)?) };
+    Some(Opt::Place { spot })
+}
+
+/// `details.not_offered` of the one-unit question: the units the seat could build in general but not here, with the first thing in the way.
+fn one_details(r: &Render, o: &ti4_engine_core::choice::production::OneAsk) -> Option<serde_json::Map<String, serde_json::Value>> {
+    use ti4_engine_core::rules::production::one::{Why, sort};
+    let pos = r.position()?;
+    let core: &ti4_engine_core::state::CoreState = &pos.state;
+    let scope = ti4_engine_core::tables::Scope(u32::from(pos.kernel.sources.0));
+    let cx = ti4_engine_core::rules::production::Cx::new(core, pos.kernel, scope, ti4_engine_core::query::reach::blanked(core));
+    let sorted = sort(&cx, o.who, o.system, &o.buildable, o.fleet_limit);
+    let mut map = serde_json::Map::new();
+    if !sorted.not_offered.as_slice().is_empty() {
+        let list: Vec<serde_json::Value> = sorted
+            .not_offered
+            .as_slice()
+            .iter()
+            .map(|(unit, why)| {
+                let reason = match why {
+                    Why::Costs { cost, can_pay } => format!("costs {cost}, you can pay {can_pay}"),
+                    Why::NoPlace => "no place to put it in this system (ground forces need a planet you control)".to_owned(),
+                    Why::FleetFull => "the fleet supply in this system is full".to_owned(),
+                    Why::Empty => "none left in your reinforcements".to_owned(),
+                };
+                serde_json::json!({ "unit": unit_id(*unit), "reason": reason })
+            })
+            .collect();
+        map.insert("not_offered".to_owned(), serde_json::Value::Array(list));
+    }
+    Some(map)
 }
 
 fn unit_id(u: Unit) -> &'static str {

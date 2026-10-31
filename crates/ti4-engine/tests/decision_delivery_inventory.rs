@@ -1266,7 +1266,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "production.rs",
-        function: "produce_one_from",
+        function: "produce_one_text",
         count: 2,
         delivery: Delivery::ObservedHere,
     },
@@ -1757,7 +1757,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("invasion.rs", "drive", 1),
     ("production.rs", "integrated_economy_loop", 1),
     ("production.rs", "pay_with_observation_credit", 1),
-    ("production.rs", "produce_one_from", 2),
+    ("production.rs", "produce_one_text", 2),
     // BF-00b: ability-driven production delivers `ProductionWindow::pending_choice` itself.
     ("production.rs", "produce_by_ability_capped", 1),
     ("production.rs", "resolve_timed", 1),

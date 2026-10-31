@@ -455,6 +455,40 @@ mod tests {
         assert_eq!(s.players().by_seat(A).unwrap().econ.strategic_tokens, 1);
         assert_eq!(count(&s, b, UnitBaseType::Fighter), 0);
         assert_eq!(s.pending().staged.len(), 1, "the spent token is announced at the game step");
+        assert!(s.players().by_seat(A).unwrap().cards.legendary_exhausted.is_empty(), "only the Nucleus spends the planet's card");
+    }
+
+    #[test]
+    fn the_nucleus_declined_leaves_the_planet_card_ready() {
+        let [(a, _), _, _] = systems();
+        let mut s = table();
+        with_war_sun(&mut s, a);
+        s.board_mut().planet_mut(Planet::Avernus).control = Some(A);
+        let mut d = driver(Mode::Nucleus, facts());
+        asked(d.run(&mut s, &kernel()).unwrap());
+        assert_eq!(pick(&mut d, &mut s, Opt::Decline), Status::Done);
+        assert!(!d.window.done);
+        assert!(s.players().by_seat(A).unwrap().cards.legendary_exhausted.is_empty());
+    }
+
+    #[test]
+    fn the_mechs_are_asked_in_system_order_whichever_system_is_the_forges() {
+        let [(a, pa), (b, pb), _] = systems();
+        let mut s = table();
+        tokens(&mut s, 1);
+        with_war_sun(&mut s, b);
+        for (system, planet) in [(a, pa), (b, pb)] {
+            s.board_mut().planet_mut(planet).control = Some(A);
+            fx::place_unit(&mut s, A, system, Some(planet), Unit::EmberColossus);
+        }
+        let mut f = facts();
+        f.near = vec![(b, vec![a])];
+        let mut d = driver(Mode::StarForge, f);
+        asked(d.run(&mut s, &kernel()).unwrap());
+        let q = asked(pick(&mut d, &mut s, Opt::Promissory(POpt::Forge { system: b, fighters: true })));
+        assert_eq!(q.ask, Ask::Promissory(PAsk::EmberColossus { system: a, planet: Some(pa) }), "the neighbour that sorts first is asked first");
+        let q = asked(pick(&mut d, &mut s, Opt::Decline));
+        assert_eq!(q.ask, Ask::Promissory(PAsk::EmberColossus { system: b, planet: Some(pb) }));
     }
 
     #[test]
@@ -553,6 +587,35 @@ mod tests {
         let mut d = driver(Mode::StarForge, f);
         let q = asked(d.run(&mut s, &kernel()).unwrap());
         assert_eq!(q.opts.as_slice(), &[Opt::Promissory(POpt::Forge { system: a, fighters: true }), Opt::Decline], "the fighters only");
+    }
+
+    #[test]
+    fn a_faction_rule_that_bars_the_form_hides_it_and_places_none() {
+        let [(a, _), _, _] = systems();
+        let mut s = table();
+        tokens(&mut s, 1);
+        with_war_sun(&mut s, a);
+        let mut barred = Kernel::plain();
+        barred.hooks.economy.effect_placement_forbidden.push(|_, _, _, u| u.data().base_type == UnitBaseType::Destroyer);
+        assert!(!fx::box_has(&s, &barred, Scope(u32::MAX), A, plain(UnitBaseType::Destroyer)));
+        assert!(fx::box_has(&s, &barred, Scope(u32::MAX), A, plain(UnitBaseType::Fighter)));
+        let mut d = Driver::new(StarForge::new(A, Mode::StarForge, facts()), Resolver::new(&[A, B], Some(A)), AbilityTable::default(), 1);
+        let q = asked(d.run(&mut s, &barred).unwrap());
+        assert_eq!(q.opts.as_slice(), &[Opt::Promissory(POpt::Forge { system: a, fighters: true }), Opt::Decline]);
+        assert_eq!(fx::place_counted(&mut s, &barred, Scope(u32::MAX), A, a, None, Some(plain(UnitBaseType::Destroyer)), 1), 0);
+    }
+
+    #[test]
+    fn units_are_placed_only_as_far_as_the_box_holds() {
+        let [(a, _), (b, _), _] = systems();
+        let mut s = table();
+        for _ in 0..7 {
+            fx::place_unit(&mut s, A, b, None, plain(UnitBaseType::Destroyer));
+        }
+        let placed = fx::place_counted(&mut s, &kernel(), Scope(u32::MAX), A, a, None, Some(plain(UnitBaseType::Destroyer)), 3);
+        assert_eq!(placed, 1, "one of eight is left");
+        assert_eq!(count(&s, a, UnitBaseType::Destroyer), 1);
+        assert_eq!(fx::place_counted(&mut s, &kernel(), Scope(u32::MAX), A, a, None, None, 2), 0, "a form the seat does not place");
     }
 
     #[test]
