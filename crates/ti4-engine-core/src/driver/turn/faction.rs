@@ -57,8 +57,10 @@ fn orbital_drop(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     if window.unsupported {
         return gap_flow(sx, TurnGap::NoLink);
     }
-    // (The token the window spent is announced at once by the string.)
-    if super::component::flush_staged_events(sx) == Flow::Halt {
+    // The token the window spent is announced at once by the string (`hooks_economy::emit`), and only while a seated faction has a module.
+    if !sx.table.facts.staging {
+        let _ = crate::kernel::fx::drain_staged(sx.state);
+    } else if super::component::flush_staged_events(sx) == Flow::Halt {
         return Flow::Halt;
     }
     conclude(sx, who, key, if window.done { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, true)

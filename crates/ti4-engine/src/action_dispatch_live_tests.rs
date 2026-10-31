@@ -147,3 +147,17 @@ fn orbital_drop_chosen_from_the_menu_drops_the_infantry_like_the_string() {
     assert_same(&string, &native);
     assert!(has(&string, "COMPONENT_ACTION_RESOLVED"), "{:?} / {:?}", string.events, taken);
 }
+
+#[test]
+fn orbital_drop_at_a_table_without_a_module_announces_nothing_like_the_string() {
+    // sol, letnev, xxcha, jolnar: no seated faction has a module, so the string's token event is never made.
+    let mut state = action_table(&[("a", "sol"), ("b", "letnev"), ("c", "xxcha"), ("d", "jolnar")]);
+    state.player_mut(&pid("a")).unwrap().strategic_tokens = 2;
+    let state = super::turn_live_tests::based(state);
+    let (string, taken) = string_run_first(&state, &["faction|orbital_drop"], |g| {
+        let _ = g.step();
+    });
+    let native = native_marked(&state, &[(true, Arm::TurnPrelude, None), (false, Arm::Ask, None)], &taken.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_same(&string, &native);
+    assert!(!has(&string, "STRATEGY_TOKEN_SPENT"), "{:?}", string.events);
+}
