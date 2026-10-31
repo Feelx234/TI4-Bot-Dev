@@ -22,6 +22,10 @@ pub struct TurnCodes {
     pub strategy_card: Code,
     /// `starting_technology`: the source of a starting technology question.
     pub starting_technology: Code,
+    /// `transaction`: the source of the trade goods a deal gives (the live trade window).
+    pub transaction: Code,
+    /// `dark_pact`: the source of the trade good Dark Pact gains.
+    pub dark_pact: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.
@@ -58,6 +62,8 @@ pub enum TurnGap {
     EmissionRefused,
     /// A replayed answer was refused by the window it was given to (the question changed between the replays).
     ReplayDiverged,
+    /// A free-form deal names a card, note, planet or fragment kind the typed tables do not know (the string answers with a rejection).
+    TradeTerms,
     /// A commander of a faction whose unlock condition no hook states yet (`commander_unlocked`) could unlock.
     CommanderUnlock,
     /// Plots Within Plots left a plot card to place (the Firmament, a dropped faction).

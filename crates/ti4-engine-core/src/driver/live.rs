@@ -246,6 +246,7 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
         Arm::StrategyAnnounce => Some(super::turn::advance_announce),
         Arm::Phase => Some(super::turn::advance_phase),
         Arm::Ask => Some(super::turn::ask::advance_ask),
+        Arm::Trade => Some(super::windows::trade::advance_trade),
         _ => None,
     }
 }
@@ -259,6 +260,7 @@ pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
         Arm::EventScoring => Some(super::windows::status::ask_event_scoring),
         Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase | Arm::Status => Some(super::turn::ask_job),
         Arm::Ask => Some(super::turn::ask::ask_ask),
+        Arm::Trade => Some(super::windows::trade::ask_trade),
         _ => None,
     }
 }

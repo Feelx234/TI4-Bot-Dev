@@ -21,7 +21,7 @@ use crate::choice::trade::Shape;
 use crate::ids::Seat;
 use crate::query::promissory as qn;
 use crate::query::trade::{NoteFacts, NoteMove, Offer, Terms};
-use crate::state::{CoreState, NoteKey, TransientFlags};
+use crate::state::{CoreState, FreeNote, FreeSpec, FreeTerms, NoteKey, TransientFlags};
 
 /// The answers of the string engine a window needs (see the module docs).
 #[derive(Clone, Copy)]
@@ -511,6 +511,102 @@ pub fn offer_of(core: &CoreState, f: &DealFacts, shape: Shape, proposer: Seat, p
 fn planet_leg(core: &CoreState, giver: Seat, planet: Planet, to: Planet) -> crate::query::trade::PlanetFacts {
     let payable = kenara_planets(core, giver).iter().any(|(p, moves)| *p == planet && moves.contains(&to));
     crate::query::trade::PlanetFacts { payable, mv: Some((planet, to)) }
+}
+
+// -- the facts a live window reads from the position ---------------------------------------------
+
+/// The rank of each note's text `{alias}:` among the notes' (the alias is the id without the generic `<color>_`; the colon makes an alias
+/// that is the prefix of another sort the way the whole id `{alias}:{faction}` does), by the note's integer value. The core never sees the
+/// text; the engine's test (`trade_free_tests`) pins this table to `render::trade::note_id`.
+const NOTE_RANK: [u8; PromissoryNote::COUNT] =
+    [2, 9, 22, 32, 36, 0, 1, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34, 35, 37, 38, 39];
+
+/// `BTreeMap<String, _>` order of note ids, the text of `{alias}:{faction}` ([`DealFacts::note_order`] of a live window). The ids of the
+/// generated tables are sorted in byte order, so a faction compares by its integer value.
+#[must_use]
+pub fn note_order(a: NoteKey, b: NoteKey) -> Ordering {
+    NOTE_RANK[a.note as usize].cmp(&NOTE_RANK[b.note as usize]).then_with(|| a.faction.cmp(&b.faction))
+}
+
+/// `ActionCardId` order: the text of the alias ([`DealFacts::card_order`] of a live window); the generated ids are sorted in byte order.
+#[must_use]
+pub fn card_order(a: ActionCard, b: ActionCard) -> Ordering {
+    a.cmp(&b)
+}
+
+/// `transactions::planet_value`: resources plus influence, at least one (every planet of the generated table is in the content the
+/// string reads, so its fallback of two never applies).
+#[must_use]
+pub fn planet_value(planet: Planet) -> u8 {
+    let data = planet.data();
+    data.resources.saturating_add(data.influence).max(1)
+}
+
+/// The worth of every planet card, indexed by `Planet::index` (`DealFacts::planet_values` of a live window).
+#[must_use]
+pub fn planet_values() -> &'static [u8] {
+    static VALUES: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    VALUES.get_or_init(|| Planet::ALL.iter().map(|p| planet_value(*p)).collect())
+}
+
+/// `promissory::commander_unlocked` for every seat: bit `seat` is set when the seat holds an unlocked leader that is a commander.
+#[must_use]
+pub fn commander_unlocked_mask(core: &CoreState) -> u16 {
+    let mut mask = 0_u16;
+    for p in core.players().iter() {
+        let unlocked = p.leaders.status.iter().any(|(leader, status)| *status == crate::state::LeaderStatus::Unlocked && leader.data().kind == crate::generated::LeaderType::Commander);
+        if unlocked && p.seat.0 < 16 {
+            mask |= 1 << p.seat.0;
+        }
+    }
+    mask
+}
+
+/// One side of a free-form deal as `Terms::worth_to_receiver` and `cost_to_giver` see it.
+fn side_of(t: &FreeTerms) -> Side {
+    Side {
+        goods: t.trade_goods,
+        commodities: t.commodities,
+        fragments: t.fragments.iter().sum(),
+        note: t.note.map(|n| match n {
+            FreeNote::Held(key) => Held::Note(key),
+            FreeNote::Support(_) => Held::Support,
+        }),
+        card: t.action_card.is_some(),
+        secret: t.secret.is_some(),
+        planet: t.planet.map(|(planet, _)| planet_value(planet)),
+    }
+}
+
+/// `(net, their_net)` of a free-form deal, as [`nets`] is for a listed one: what the proposer is better off by, and the partner from
+/// the other chair. The partner's accept option reports `their_net`.
+#[must_use]
+pub fn free_nets(spec: &FreeSpec) -> (f64, f64) {
+    let (given, received) = (side_of(&spec.given), side_of(&spec.received));
+    (received.worth() - given.cost(), given.worth() - received.cost())
+}
+
+/// The facts of the position about one side of a free-form deal (`trade_core::terms`): whether the giver holds the note, whether the
+/// receiver may take it, what moves.
+fn terms_in(core: &CoreState, f: &DealFacts, giver: Seat, receiver: Seat, t: &FreeTerms) -> Terms {
+    Terms {
+        trade_goods: t.trade_goods,
+        commodities: t.commodities,
+        fragments: t.fragments,
+        note: t.note.map(|n| match n {
+            FreeNote::Held(key) => NoteFacts { payable: available_notes(core, f, giver).contains(&key), receivable: qn::may_receive(core, receiver, key.note), mv: Some(NoteMove::Held(key)) },
+            FreeNote::Support(owner) => NoteFacts { payable: available_support(core, giver) == Some(owner), receivable: true, mv: Some(NoteMove::Support(owner)) },
+        }),
+        action_card: t.action_card,
+        secret: t.secret,
+        planet: t.planet.map(|(planet, to)| planet_leg(core, giver, planet, to)),
+    }
+}
+
+/// A free-form deal with the facts of the position (`DealFacts::free` of a live window).
+#[must_use]
+pub fn free_deal(core: &CoreState, f: &DealFacts, proposer: Seat, partner: Seat, spec: &FreeSpec) -> FreeDeal {
+    FreeDeal { given: terms_in(core, f, proposer, partner, &spec.given), received: terms_in(core, f, partner, proposer, &spec.received) }
 }
 
 #[cfg(test)]

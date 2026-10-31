@@ -223,6 +223,14 @@ pub fn gain_trade_goods_announced(s: &mut CoreState, who: Seat, amount: i32, sou
     (gained, (gained > 0).then(|| trade_goods_gained(who, gained, source)))
 }
 
+/// `supply::note_trade_goods_gained`: stage the `TRADE_GOODS_GAINED` of a gain the caller has already made, with the amount the caller
+/// names (no cap is applied). Nothing for `amount <= 0`.
+pub fn stage_gain(s: &mut CoreState, who: Seat, amount: i32, source: Code) {
+    if amount > 0 {
+        stage(s, trade_goods_gained(who, amount, source));
+    }
+}
+
 /// [`gain_trade_goods`] for a site with no resolver: the event is staged.
 pub fn gain_trade_goods_staged(s: &mut CoreState, who: Seat, amount: i32, source: Code) -> i32 {
     let (gained, rec) = gain_trade_goods_announced(s, who, amount, source);

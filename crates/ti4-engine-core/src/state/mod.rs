@@ -49,7 +49,7 @@ pub use map::MapSlice;
 pub use marks::{Family, MarkKey, MarkMap, MarkVal, Marks};
 pub use meta::{Meta, MetaFlags, Phase};
 pub use objectives::{ObjectiveRef, ObjectiveSet, Objectives};
-pub use pending_windows::{LeaderFollowers, StatusReport, Tokens, Trade, Vote, VoteStage, Voting};
+pub use pending_windows::{FreeNote, FreeSpec, FreeTerms, LeaderFollowers, StatusReport, Tokens, Trade, Vote, VoteStage, Voting};
 pub use invasion::Invasion;
 pub use production::ProductionUse;
 pub use pending::{DriverFlags, Nested, NestedOp, Pending, PendingAsk, PendingTag, Scoring, ScoringTiming, Secondary, SecondaryHow, Window, WindowKind};

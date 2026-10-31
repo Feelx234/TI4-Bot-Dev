@@ -13,34 +13,40 @@ use crate::query::promissory as qn;
 use crate::query::trade::{Env, NoteMove, Offer, Terms};
 use crate::state::{CoreState, LedgerReason, NoteKey, TransientFlags, VpRec};
 
-/// The hooks of the A5 table answer the two slots that exist there; the rest is neutral.
+/// The hooks of the A5 table and the abilities of the factions answer what the rules cannot read in the typed state
+/// (`transactions::may_transact`'s `Env` on the live loop's side).
 pub struct KernelEnv<'a> {
     pub core: &'a CoreState,
     pub kernel: &'a Kernel,
 }
 
 impl Env for KernelEnv<'_> {
+    /// I.I.H.Q. Modernization is a Keleres card: the faction is dropped.
     fn has_iihq(&self, _: Seat) -> bool {
         false
     }
+    /// `faction_abilities::ignores_neighbours || promissory::reaches_anyone`: Guild Ships, the module hook, a faceup Trade Convoys.
     fn wide(&self, who: Seat) -> bool {
-        self.kernel.hooks.general.ignores_neighbours(self.core, self.kernel, who)
+        crate::rules::abilities::has(self.core, who, crate::generated::Ability::GuildShips)
+            || self.kernel.hooks.general.ignores_neighbours(self.core, self.kernel, who)
+            || qn::reaches_anyone(self.core, who)
     }
-    fn transaction_reach(&self, _: Seat, _: Seat) -> bool {
-        false
+    /// `hooks_cards::transaction_reach`: Temporal Command Suite's transaction, Deepgloom Executable.
+    fn transaction_reach(&self, a: Seat, b: Seat) -> bool {
+        self.kernel.hooks.cards.transaction_reach(self.core, self.kernel, a, b)
     }
-    fn exempt_from_limit(&self, _: Seat, _: Seat) -> bool {
-        false
+    /// `hooks_cards::transaction_exempt_from_limit`.
+    fn exempt_from_limit(&self, a: Seat, b: Seat) -> bool {
+        self.kernel.hooks.cards.transaction_limit_exempt(self.core, self.kernel, a, b)
     }
+    /// `faction_abilities::trades_action_cards`: Arbiters, or a module hook.
     fn trades_action_cards(&self, who: Seat) -> bool {
-        self.kernel.hooks.general.trades_action_cards(self.core, self.kernel, who)
+        crate::rules::abilities::has(self.core, who, crate::generated::Ability::Arbiters) || self.kernel.hooks.general.trades_action_cards(self.core, self.kernel, who)
     }
     fn black_market(&self) -> bool {
         self.core.transient().misc.flags.has(TransientFlags::BLACK_MARKET)
     }
 }
-
-
 
 /// `transactions::take`: remove what a seat gives away (goods, commodities, fragments, the first
 /// matching action card and secret).
@@ -155,6 +161,30 @@ pub fn exchange(core: &mut CoreState, offer: &Offer) -> Option<()> {
     give(core, offer.partner, &offer.given);
     give(core, offer.proposer, &offer.received);
     Some(())
+}
+
+/// `empyrean_units::dark_pact_gains`, after a transaction resolved: each side that gave the Empyrean exactly its maximum commodity value
+/// while holding a faceup Dark Pact of the Empyrean's gains 1 trade good, and so does the Empyrean. The gains are staged
+/// (`TRADE_GOODS_GAINED`, source `source`), the giver's first.
+pub fn dark_pact_gains(core: &mut CoreState, offer: &Offer, source: crate::state::Code) {
+    let sides = [(offer.proposer, offer.partner, &offer.given), (offer.partner, offer.proposer, &offer.received)];
+    let mut gains: Vec<(Seat, Seat)> = Vec::new();
+    for (giver, receiver, terms) in sides {
+        let (Some(giver_faction), Some(receiver_faction)) = (qn::faction_of(core, giver), qn::faction_of(core, receiver)) else { continue };
+        let key = NoteKey { note: PromissoryNote::DarkPact, faction: receiver_faction };
+        if terms.commodities > 0
+            && giver != receiver
+            && core.cards().promissory.get(&key) == Some(&giver)
+            && core.cards().promissory_faceup.contains_key(&key)
+            && terms.commodities == i32::from(giver_faction.data().commodities)
+        {
+            gains.push((giver, receiver));
+        }
+    }
+    for (giver, receiver) in gains {
+        fx::gain_trade_goods_staged(core, giver, 1, source);
+        fx::gain_trade_goods_staged(core, receiver, 1, source);
+    }
 }
 
 /// `GameState::record_transaction`: LRR 94.1 limits each pair, so both sides remember it.

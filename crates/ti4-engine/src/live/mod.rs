@@ -19,6 +19,7 @@ pub mod details;
 pub mod env;
 pub mod kernel;
 pub mod plays;
+pub mod trade;
 pub mod turn;
 
 use std::collections::VecDeque;
@@ -148,6 +149,9 @@ pub struct StepOut {
 #[must_use]
 pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let (phase, round) = (core.meta().phase, core.meta().round);
+    if matches!(asking.choice.ask, ti4_engine_core::choice::Ask::Trade(_)) {
+        trade::sync(cx.render, asking.at.as_deref().unwrap_or(core));
+    }
     let mut rendered = Typed::new(cx.render, asking.choice.clone(), phase, round).rendered;
     // The display facts read the position the question was put in: a question asked from inside a step (an emission, a job of the turn
     // flow) was put in a position the driver has rolled back since.
@@ -235,7 +239,16 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
         let rendered = render_asking(cx, core, &asking);
         step.asked.push(rendered.clone());
         let id = asker.ask(&Question { asking: &asking, rendered })?;
-        let Some(pick) = pick_of(cx.render, &asking.choice, &id) else { return Err(Stop::Illegal) };
+        // A free-form deal arrives as text: its terms are written to the window before the pick that names them is applied.
+        let named = trade::pick(core, &asking.choice, &id);
+        let pick = match named {
+            Some(Ok(pick)) => pick,
+            Some(Err(why)) => return Err(Stop::Live(LiveError::Unknown(why))),
+            None => match pick_of(cx.render, &asking.choice, &id) {
+                Some(pick) => pick,
+                None => return Err(Stop::Illegal),
+            },
+        };
         let (live, out) = advance(core, cx.env, Some(pick))?;
         merge(&mut step, out);
         match live {
