@@ -153,10 +153,12 @@ mod tests {
 
     /// Run `body` on the core state, the render tables and the string position of a two-seat game (Mentak and Sol have abilities).
     fn on_a_position<T>(body: impl FnOnce(&Render, &GameState, &mut CoreState) -> T) -> T {
-        let mut gs = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "sol")], ti4_model::content_types::POK);
+        let mut gs = crate::fixtures::seated_dealt(&[("a", "mentak"), ("b", "sol")], ti4_model::content_types::POK);
         let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
         let at = gs.clone();
-        with_core(&mut gs, &mut cx, Sources::default(), Footprint::ALL, |core, _| body(&r, &at, core)).expect("lendable")
+        // every slice but the map (which needs the string galaxy); the pending slice is written
+        let reads: Vec<Slice> = Slice::ALL.iter().copied().filter(|s| *s != Slice::Map).collect();
+        with_core(&mut gs, &mut cx, Sources::default(), Footprint::new(&reads, &[Slice::Pending]), |core, _| body(&r, &at, core)).expect("lendable")
     }
 
     #[test]
