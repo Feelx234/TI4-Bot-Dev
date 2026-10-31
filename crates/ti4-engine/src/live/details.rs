@@ -14,6 +14,9 @@ pub fn complete(core: &CoreState, k: &ti4_engine_core::kernel::Kernel, choice: &
     if let Ask::Tactical(_) = choice.ask {
         crate::tactical_live::complete(core, k, choice, rendered);
     }
+    if let Ask::Combat(_) = choice.ask {
+        crate::combat_live::complete(core, k, choice, rendered);
+    }
     if let Ask::Strategy(SAsk::GainPool { left }) = choice.ask {
         pool_details(core, choice, usize::from(left), rendered);
     }

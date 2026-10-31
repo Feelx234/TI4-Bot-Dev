@@ -131,8 +131,7 @@ pub fn head_facts(core: &CoreState, k: &Kernel, codes: &TacticalCodes, seat: Sea
         system,
         // A live driver always carries the timing machinery.
         announce: true,
-        // `supply::staging_enabled`: every faction of the agreed tables has a module.
-        staging: true,
+        staging: crate::driver::windows::combat::staging_enabled(core),
         reaching: REACHING.to_vec(),
         mapped: core.map().galaxy.is_some(),
         kind: codes.space_cannon,

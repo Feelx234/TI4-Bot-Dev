@@ -106,13 +106,15 @@ pub struct Cx<'a> {
     pub env: &'a Env<'a>,
     /// The display facts only the state knows (`Choice.details`), given the core question and the position it is asked in.
     pub complete: &'a dyn Fn(&CoreState, &Kernel, &CoreChoice, &mut Choice),
+    /// The texts of the space combat at the position (`combat_live::combat_texts`), minted before every call: the core holds no text.
+    pub texts: fn(&mut CoreState, &Render) -> ti4_engine_core::kernel::ability::CombatTexts,
 }
 
 impl<'a> Cx<'a> {
     /// The context with the display facts of [`details::complete`] (everything the core can say about its own questions).
     #[must_use]
     pub const fn new(render: &'a Render, env: &'a Env<'a>) -> Self {
-        Self { render, env, complete: &details::complete }
+        Self { render, env, complete: &details::complete, texts: crate::combat_live::combat_texts }
     }
 }
 
@@ -177,6 +179,10 @@ pub fn live_step(core: &mut CoreState, arm: Arm, cx: &Cx<'_>, asker: &mut dyn As
 
 fn live_step_inner(core: &mut CoreState, arm: Arm, cx: &Cx<'_>, asker: &mut dyn Asker) -> Result<StepOut, Stop> {
     let (Some(advance), Some(ask)) = (live_arm(arm), ask_arm_fn(arm)) else { return Err(Stop::NoLiveFn(arm)) };
+    // The environment of this call: the game's, with the texts of the space combat at the position.
+    let mut prepared = cx.env.clone();
+    prepared.table.facts.combat = (cx.texts)(core, cx.render);
+    let env = &prepared;
     let events_from = core.ledger.events.len();
     let mut step = StepOut { finished: false, asked: Vec::new(), out: Out::default(), events_from };
     let mut merge = |step: &mut StepOut, out: Out| {
@@ -184,10 +190,10 @@ fn live_step_inner(core: &mut CoreState, arm: Arm, cx: &Cx<'_>, asker: &mut dyn 
         step.out.opened.extend(out.opened);
     };
     // The arm's pending question; a fresh window (or one about to end) asks nothing yet: run it.
-    let mut asking = match ask(core, cx.env)? {
+    let mut asking = match ask(core, env)? {
         Some(a) => a,
         None => {
-            let (live, out) = advance(core, cx.env, None)?;
+            let (live, out) = advance(core, env, None)?;
             merge(&mut step, out);
             match live {
                 Live::Done => {
@@ -203,7 +209,7 @@ fn live_step_inner(core: &mut CoreState, arm: Arm, cx: &Cx<'_>, asker: &mut dyn 
         step.asked.push(rendered.clone());
         let id = asker.ask(&Question { asking: &asking, rendered })?;
         let Some(pick) = pick_of(cx.render, &asking.choice, &id) else { return Err(Stop::Illegal) };
-        let (live, out) = advance(core, cx.env, Some(pick))?;
+        let (live, out) = advance(core, env, Some(pick))?;
         merge(&mut step, out);
         match live {
             Live::Done => {

@@ -30,7 +30,7 @@ use crate::rules::combat::machine::{Bail, Machine, Stage, Stop};
 use crate::rules::combat::{combatants, ships_of, Rd};
 use crate::state::{AFight, CombatFields, CombatStep, CoreState, HitPhase, Window as OpenWindow, WindowKind};
 
-pub use env::{env_of, sides};
+pub use env::{env_of, sides, staging_enabled};
 
 /// The occurrence the aftermath's entry holds for this fight (0: none yet).
 fn occurrence_of(core: &CoreState) -> u64 {

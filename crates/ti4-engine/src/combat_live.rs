@@ -1,0 +1,340 @@
+//! The engine half of the native aftermath chain and its space combat (lane M5, `docs/M5_RESUME.md`): the texts the core composer needs from
+//! outside (`driver::windows::{chain, combat}` have no text of their own), the words of the positions it does not run, and the lockstep tests
+//! that run a real tactical action twice, once as the string `Game` and once as the native arms (`Arm::Tactical`, `Arm::Aftermath`,
+//! `Arm::EventScoring`) through `live_step`, and compare the questions, the answers, the events and the position.
+
+use ti4_engine_core::generated::Unit;
+use ti4_engine_core::kernel::ability::{AftermathGap, CombatTexts};
+use ti4_engine_core::state::{Code, CoreState, CODE_CAPACITY};
+
+use crate::generated::IdStr;
+use crate::render::Render;
+
+/// The words of a position the native aftermath does not run (`Unknown::UnportedAftermath`).
+#[must_use]
+pub const fn gap_text(why: AftermathGap) -> &'static str {
+    match why {
+        AftermathGap::NoProgress => "the aftermath made no progress (a stage that neither asks nor moves on)",
+        AftermathGap::ProductionStep => "the production step of the aftermath (the production island is not native)",
+        AftermathGap::Negotiating => "the contact pause of the aftermath (structured diplomacy is dropped)",
+        AftermathGap::NoCombatEnv => "a space combat whose environment cannot be built from the position",
+        AftermathGap::CombatUnported => "the space combat machine reached a position it does not carry (cancelled hits, Duranium Armor, Devotion, staged destructions, a retreat the core does not move)",
+        AftermathGap::RollEndsFight => "a roll that ended the fight inside the roll step",
+        AftermathGap::NeutralSide => "a neutral side in the space combat",
+        AftermathGap::EventScoring => "a scoring window that asks for something the core does not offer",
+    }
+}
+
+/// The display facts of a combat question that only the position knows: the sustainers the casualty is chosen from, and the subtype of the
+/// casualty question (its text is a render code the core's `Subtype::Casualty(Code)` cannot carry from a window rebuilt without the adapter).
+pub fn complete(core: &CoreState, k: &ti4_engine_core::kernel::Kernel, choice: &ti4_engine_core::choice::Choice, rendered: &mut crate::choice::Choice) {
+    use ti4_engine_core::choice::combat::Ask as CAsk;
+    let ti4_engine_core::choice::Ask::Combat(ask) = &choice.ask else { return };
+    match ask {
+        CAsk::CancelHit { .. } => {
+            rendered.details.insert("sustainers".to_owned(), crate::core_combat::sustainers_detail(k, core, ask, choice.actor));
+        }
+        CAsk::AssignHit => {
+            if let Some(ctx) = rendered.context.as_mut() {
+                ctx.subtype = "assign_casualty".to_owned();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The most unit types one fight may name (the roll group texts are every subset of them).
+const MAX_TYPES: usize = 10;
+
+/// The texts of the space combat at `core`: the fixed words, and for the unit types that can be named in the fight in `active_space_combat` (the
+/// types present, with the other form of each dual-form unit) their names and every roll group's. State texts go to the position's table, shown
+/// texts to the render table. A fight with more than ten types names none (the machine then stops at a roll it cannot name).
+pub fn combat_texts(core: &mut CoreState, r: &Render) -> CombatTexts {
+    let mut state_code = |core: &mut CoreState, text: &str| -> Code {
+        Code(u16::try_from(core.texts.codes.intern(text.as_bytes(), CODE_CAPACITY).expect("room for the text")).expect("a code fits"))
+    };
+    let mut t = CombatTexts::default();
+    for (slot, text) in t.phases.iter_mut().zip(["pre_roll", "barrage", "resolving_hits", "retreating", "complete"]) {
+        *slot = state_code(core, text);
+    }
+    t.barrage_extra = state_code(core, "extra barrage");
+    t.retreat_cause = state_code(core, "retreat_capacity");
+    t.barrage_extra_shown = r.code("extra barrage");
+    t.barrage_cause = r.code("unit_ability:anti_fighter_barrage");
+    t.barrage_kind = r.code("anti_fighter_barrage");
+    t.roll_cause = r.code("space_combat");
+    t.hacan = r.code("hacan_flagship");
+    t.retreat_event = r.code("retreat_capacity");
+    t.retreat_pool = r.code("reinforcements");
+    t.raid = r.code("raid_formation_damage");
+    t.ac_subtype = r.code("assault_cannon_destroy");
+    t.ac_cause = r.code("technology:assault_cannon");
+    t.ambush = r.code("ambush");
+    t.cause_core = r.code("technology:impulse_core");
+    t.cause_devotion = r.code("faction_ability:devotion");
+    t.casualty = r.code("assign_casualty");
+    t.commander = r.code("letnevcommander");
+    t.opponents = r.code("opponents");
+    for (slot, text) in t.end.iter_mut().zip(["losers", "retreated", "retreat", "draw", "destruction", "round_limit"]) {
+        *slot = r.code(text);
+    }
+    let Some((system, _, _)) = core.transient().combat.active_space_combat else { return t };
+    let mut present: Vec<Unit> = Vec::new();
+    let cell = core.board().sys(system);
+    let mut pieces: Vec<Unit> = cell.units.iter().map(|p| p.kind()).collect();
+    for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
+        pieces.extend(core.board().planet(*planet).units.iter().map(|p| p.kind()));
+    }
+    for u in pieces {
+        if !present.contains(&u) {
+            present.push(u);
+        }
+        if let Some(twin) = ti4_engine_core::query::tech::other_form(u)
+            && !present.contains(&twin)
+        {
+            present.push(twin);
+        }
+    }
+    present.sort_unstable();
+    if present.len() > MAX_TYPES {
+        return t;
+    }
+    for u in &present {
+        let id = IdStr::as_str(*u);
+        t.unit_codes.push((*u, state_code(core, id)));
+        t.shown_codes.push((*u, r.code(id)));
+    }
+    for mask in 1_u32..(1 << present.len()) {
+        let kinds: Vec<Unit> = present.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, u)| *u).collect();
+        let joined = kinds.iter().map(|u| IdStr::as_str(*u)).collect::<Vec<_>>().join("+");
+        t.groups.push((kinds, state_code(core, &joined), r.code(&joined)));
+    }
+    t
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+    use std::rc::Rc;
+
+    use serde_json::{json, Value};
+    use ti4_content::galaxy::Galaxy;
+    use ti4_content::ContentStore;
+    use ti4_engine_core::driver::session::{step_arm, Arm, Facts};
+    use ti4_engine_core::driver::windows::tactical::open_tactical;
+    use ti4_engine_core::state::SliceSet;
+    use ti4_model::content_types::POK;
+    use ti4_model::id::{PlayerId, SystemId};
+    use ti4_model::state::GameState;
+
+    use crate::choice::Choice;
+    use crate::core_sync::codec::rng::TextSeeds;
+    use crate::core_sync::{materialize, Codec, Ctx, Sources};
+    use crate::dual::{diff_json, take_report, with_mask, AreaMask};
+    use crate::game::{Game, TACTICAL_ACTION_ID};
+    use crate::live::{live_step, Cx};
+    use crate::render::Render;
+
+    fn a() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    fn b() -> PlayerId {
+        PlayerId::new("b")
+    }
+
+    /// A seated table of real factions (notes dealt, no units anywhere), in the action phase with `a` to act.
+    fn table(factions: &[(&str, &str)]) -> GameState {
+        let mut state = crate::fixtures::seated_game(factions, POK);
+        crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+        for system in state.board.values_mut() {
+            system.units.clear();
+            system.planet_units.clear();
+        }
+        state.phase = ti4_model::state::Phase::Action;
+        state.active = Some(a());
+        state
+    }
+
+    /// What one side of the lockstep leaves.
+    struct Side {
+        asked: Vec<Choice>,
+        events: Vec<String>,
+        /// The events of the aftermath's own arms, in order (native only): the typed ones the steps emitted, then the plain ones they wrote.
+        after: Vec<String>,
+        state: Value,
+        bail: Option<String>,
+    }
+
+    /// Answers from the script, then the first option (the questions after the script are the same on both sides: the default is deterministic).
+    struct Recorder {
+        queue: Rc<RefCell<VecDeque<String>>>,
+        asked: Rc<RefCell<Vec<Choice>>>,
+    }
+
+    impl crate::choice::Decider for Recorder {
+        fn choose(&mut self, c: &Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            self.asked.borrow_mut().push(c.clone());
+            let Some(id) = self.queue.borrow_mut().pop_front().or_else(|| c.options.first().map(|o| o.id.clone())) else {
+                return Err(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: "<no option>".to_owned(), offered: Vec::new() });
+            };
+            c.options.iter().find(|o| o.id == id).cloned().ok_or(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: id, offered: c.ids().into_iter().map(str::to_owned).collect() })
+        }
+    }
+
+    /// The string run: `script[0]` answers the action menu, the rest the window's questions; steps until the action is over.
+    fn string_run(state: &GameState, galaxy: &Galaxy, script: &[&str]) -> Side {
+        let _ = take_report();
+        let queue = Rc::new(RefCell::new(script.iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let table = crate::choice::Table::with_default(Box::new(Recorder { queue: queue.clone(), asked: asked.clone() }));
+        let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table).with_galaxy(galaxy.clone());
+        with_mask(AreaMask::STRING, || {
+            for i in 0..80 {
+                if game.step().error.is_some() {
+                    break;
+                }
+                // The action is over once the system is no longer active (`close_tactical`).
+                if i > 0 && game.state.active_system.is_none() {
+                    break;
+                }
+            }
+        });
+        let asked: Vec<Choice> = asked.borrow().iter().skip(1).filter(|c| !c.options.is_empty()).cloned().collect();
+        Side { asked, events: game.events.clone(), after: Vec::new(), state: serde_json::to_value(&game.state).expect("serialises"), bail: None }
+    }
+
+    /// Answers from the shared queue, then the first option.
+    struct Shared {
+        queue: Rc<RefCell<VecDeque<String>>>,
+        seen: Rc<RefCell<Vec<Choice>>>,
+    }
+
+    impl crate::live::Asker for Shared {
+        fn ask(&mut self, q: &crate::live::Question<'_>) -> Result<String, crate::live::Stop> {
+            self.seen.borrow_mut().push(q.rendered.clone());
+            Ok(self.queue.borrow_mut().pop_front().unwrap_or_else(|| q.rendered.options.first().map(|o| o.id.clone()).unwrap_or_default()))
+        }
+    }
+
+    /// The native run: the tactical window opens as the menu's answer does, then one `live_step` per step of the arm the position names, until the
+    /// action is over.
+    fn native_run(state: &GameState, galaxy: &Galaxy, rng: &crate::rng::RngPositions, script: &[&str]) -> Side {
+        let mut cx = Ctx::of(state).expect("owners");
+        let render = Render::new(cx.owners.ids().to_vec());
+        let sources = POK;
+        let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(galaxy), rng: Some(rng) }, SliceSet::ALL).expect("the position loads");
+        let seat = render.seat("a").expect("seat a");
+        open_tactical(&mut core, seat);
+        let kernel = crate::live::kernel::kernel_for(sources);
+        let env = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
+        let live = Cx::new(&render, &env);
+        let queue = Rc::new(RefCell::new(script[1..].iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let mut asker = Shared { queue: queue.clone(), seen: seen.clone() };
+        let mut bail = None;
+        let mut after = Vec::new();
+        for _ in 0..120 {
+            let arm = step_arm(&Facts::of_core(&core, false), true);
+            if !matches!(arm, Arm::Tactical | Arm::Aftermath | Arm::EventScoring) {
+                break;
+            }
+            match live_step(&mut core, arm, &live, &mut asker) {
+                Ok(step) => {
+                    if arm != Arm::Tactical {
+                        after.extend(step.out.emitted.iter().filter_map(|e| crate::dual_window::event_of(&render, e)).map(|e| e.event_type));
+                        for line in core.ledger.events.iter().skip(step.events_from) {
+                            if let ti4_engine_core::state::Emit::Plain(rec) = line
+                                && let Some(p) = crate::render::events::pushed_of(&render, &cx, &ti4_engine_core::state::Emit::Plain(*rec))
+                            {
+                                after.push(p.text().to_owned());
+                            }
+                        }
+                    }
+                }
+                Err(crate::live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(why))) => {
+                    bail = Some(match why {
+                        ti4_engine_core::kernel::ability::Unknown::UnportedAftermath(gap) => super::gap_text(gap).to_owned(),
+                        ti4_engine_core::kernel::ability::Unknown::UnportedTactical(gap) => crate::tactical_live::gap_text(gap).to_owned(),
+                        ti4_engine_core::kernel::ability::Unknown::Unported(_) => "the invasion".to_owned(),
+                        other => format!("{other:?}"),
+                    });
+                    break;
+                }
+                Err(e) => panic!("the native step ({arm:?}): {e:?}"),
+            }
+        }
+        let asked = seen.borrow().clone();
+        let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
+        let materialized = materialize::materialize(&core, &cx, state).expect("materializes");
+        let after_events = after;
+        Side { asked, events, after: after_events, state: serde_json::to_value(&materialized).expect("serialises"), bail }
+    }
+
+    fn leaves(label: &str, left: &Value, right: &Value) -> Vec<String> {
+        diff_json(left, right, 60).into_iter().filter(|d| !d.path.contains("#seen:")).take(10).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
+    }
+
+    /// Run both and report every difference of the questions, the events and the position.
+    fn lockstep(state: GameState, galaxy: &Galaxy, script: &[&str]) -> Vec<String> {
+        let _guard = crate::dual::tests::serial();
+        let rng = crate::rng::GameRng::new(state.rng_seed).positions();
+        let s = string_run(&state, galaxy, script);
+        let n = native_run(&state, galaxy, &rng, script);
+        let mut out = Vec::new();
+        if let Some(why) = &n.bail {
+            out.push(format!("BAIL: {why}"));
+            return out;
+        }
+        if s.asked.len() != n.asked.len() {
+            out.push(format!("questions: string {} native {}", s.asked.len(), n.asked.len()));
+        }
+        for (i, (l, r)) in s.asked.iter().zip(&n.asked).enumerate() {
+            for (what, lv, rv) in [
+                ("player", json!(l.player), json!(r.player)),
+                ("prompt", json!(l.prompt), json!(r.prompt)),
+                ("options", json!(l.options), json!(r.options)),
+                ("details", json!(l.details), json!(r.details)),
+                ("context", json!(l.context), json!(r.context)),
+            ] {
+                out.extend(leaves(&format!("question {i} {what}"), &lv, &rv));
+            }
+        }
+        // The events of the aftermath's arms against the string's, restricted to the names the native arms announced (the tactical arm's own
+        // events are compared in `tactical_live`).
+        let names: std::collections::BTreeSet<&str> = n.after.iter().map(String::as_str).collect();
+        let string_after: Vec<&String> = s.events.iter().filter(|e| names.contains(e.as_str())).collect();
+        if string_after.iter().map(|e| e.as_str()).ne(n.after.iter().map(String::as_str)) {
+            out.push(format!("events: string {string_after:?} native {:?}", n.after));
+        }
+        out.extend(leaves("state", &s.state, &n.state));
+        if std::env::var_os("M5_DEBUG").is_some() {
+            eprintln!("STRING EVENTS {:?}\nNATIVE EVENTS {:?}\nAFTER {:?}", s.events, n.events, n.after);
+        }
+        out
+    }
+
+    fn hub() -> (crate::fixtures::Hub, SystemId, SystemId) {
+        let hub = crate::fixtures::plain_hub();
+        let (origin, target) = (SystemId::new(hub.outer[0].clone()), SystemId::new(hub.centre.clone()));
+        (hub, origin, target)
+    }
+
+    fn mv(origin: &SystemId, index: usize) -> String {
+        format!("move|{origin}|{index}")
+    }
+
+    /// A space fight with no decision of the defender: a carrier and a cruiser against a lone cruiser, both sides answering the first option.
+    #[test]
+    fn a_space_fight_runs_native_with_the_questions_and_the_position_of_the_string() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 2);
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "cruiser", &b(), 2);
+        crate::fixtures::put(&mut state, &target, "dreadnought", &b(), 1);
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), &mv(&origin, 0), &mv(&origin, 0), "done_moving"]);
+        assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+}

@@ -26,6 +26,13 @@ pub fn sides(core: &CoreState) -> Option<(System, Seat, Seat)> {
     core.transient().combat.active_space_combat
 }
 
+/// `supply::staging_enabled`: some seated faction has a module in the string (everything but Sol, Hacan, Jol-Nar, L1Z1X, Letnev and Xxcha).
+#[must_use]
+pub fn staging_enabled(core: &CoreState) -> bool {
+    use crate::generated::Faction as F;
+    core.players().iter().any(|p| !matches!(p.faction, F::TheFederationOfSol | F::TheEmiratesOfHacan | F::TheUniversitiesOfJolNar | F::TheL1Z1XMindnet | F::TheBaronyOfLetnev | F::TheXxchaKingdom))
+}
+
 fn owns(core: &CoreState, seat: Seat, tech: Technology) -> bool {
     core.players().by_seat(seat).is_some_and(|p| p.tech.owned.contains(tech))
 }
@@ -69,8 +76,7 @@ pub fn env_of(core: &CoreState, k: &Kernel, t: &CombatTexts, fields: &Fields, oc
         defender,
         system,
         announce: true,
-        // `supply::staging_enabled`: every faction of the agreed tables has a module.
-        staging: true,
+        staging: staging_enabled(core),
         occurrence,
         begin_occurrence,
         phases: t.phases,
