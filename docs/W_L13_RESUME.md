@@ -46,4 +46,7 @@ for X-89 is gone), `tests/combat_fight.rs` (the new `Env` fields).
   time that a seat can score).
 
 ## Checks (cheap only; private target dir `/root/deploytmp/core-w-l13`, `CARGO_BUILD_JOBS=2`)
-See the report of the lane. Not run: golden / wide dual, benches, soak, ratchet, workspace clippy, census.
+* `cargo test -p ti4-engine --lib`: 4889 passed, plain and with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`, the one failing test (`action_cards_b6d_tests::bail_leadership_...`, the Mahact pool now carried) then fixed and re-run with `factions::yin`; `cargo test -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine-core-tests`: all green after the effects.rs unit test followed the lifted gate.
+* `tools/engine_core/check_layers.py core`: 0 violations; `tools/engine_core/lint_core.sh`: 0 hits.
+* Mutation (single-file, scratch worktree `core-w-l13-mut`, runner `/root/deploytmp/core-w-l13-mut/runmut.py`, specs `spec1.py`, `spec2.py`, Haiku runner): 31 mutants of the new core halves; 25 killed at once, 6 survived, 3 closed by new tests (`unsupported |=` of the child use, the winner of Dacxive, the Prophecy threshold), 1 killed by the lib unit test outside the batch's test target (Imperial clamp). Open survivors: Dacxive's `remaining >= 1` (needs an empty box), `x89` in the committed fight's roll tail facts.
+Not run: golden / wide dual, benches, soak, ratchet, workspace clippy, census.
