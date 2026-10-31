@@ -472,6 +472,17 @@ pub fn resolver_of(r: &Render, cfg: &ResolverCfg) -> Option<Resolver> {
 }
 
 impl Follow {
+    /// The follow of a window that ran with no nested activity, for the armed drivers (`window_driver::arm`): the core table with
+    /// the play facts of the position, and the window's own resolver (its seats and clock). The sources are the table's (the game's
+    /// own are not in the state): Thunder's Edge on means the full set. Call [`Follow::arm`] before the first `run`.
+    #[must_use]
+    pub(crate) fn armed(r: &Render, gs: &GameState, resolver: Resolver) -> Self {
+        let sources = if gs.thunders_edge { ti4_model::content_types::FULL } else { ti4_model::content_types::POK };
+        let mut table = table();
+        table.facts.plays = play_facts(r, gs, &sources);
+        Self { table, resolver, sources }
+    }
+
     /// Register the ported abilities of every seat in the resolver, in the string order. Call once, with the
     /// core state of the window, before the first `run`.
     pub fn arm(&mut self, r: &Render, gs: &GameState, core: &CoreState) {

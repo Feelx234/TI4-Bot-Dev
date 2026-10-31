@@ -10,7 +10,6 @@
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine_core::choice::combat::Ask as CAsk;
-use ti4_engine_core::driver::Driver;
 use ti4_engine_core::generated::Unit as CUnit;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::Resolver;
@@ -135,7 +134,7 @@ pub fn space_cannon_offense(
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, Some(active));
-    let mut driver = Driver::new(SpaceCannonOffense::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(SpaceCannonOffense::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy, rng: Some(rng_before) };
@@ -287,7 +286,7 @@ pub fn aftermath_head(
     let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, Some(active));
-    let mut driver = Driver::new(Head::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(Head::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy, rng: Some(rng_before) };
@@ -374,7 +373,7 @@ pub fn enforce_everywhere(gs: &mut GameState, content: &ContentStore, sources: S
     let kernel = crate::core_adapter::kernel_for(sources);
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, seats.first().copied());
-    let mut driver = Driver::new(EnforceAll::new(pairs), resolver, AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(EnforceAll::new(pairs), resolver, AbilityTable::default(), 1);
     let driven = with_core(gs, &mut cx, Sources::default(), crate::tactical_dual::ENFORCE, |core, _| {
         crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &|_, _, _| {})
     });
@@ -428,7 +427,7 @@ pub fn minister_of_war(gs: &mut GameState, script: &Recording) -> Option<CoreWin
     );
     let before = gs.clone();
     let kernel = ti4_engine_core::kernel::Kernel::plain();
-    let mut driver = Driver::new(window, Resolver::new(&[owner], Some(owner)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(window, Resolver::new(&[owner], Some(owner)), AbilityTable::default(), 1);
     let recorded: Vec<_> = script.questions.iter().map(|q| q.choice.details.clone()).collect();
     let asked = std::cell::Cell::new(0_usize);
     let driven = with_core(gs, &mut cx, Sources::default(), MINISTER, |core, _| {
@@ -601,7 +600,7 @@ pub fn fight_over(gs: &mut GameState, content: &ContentStore, sources: SourceSet
         pairs,
     };
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
-    let mut driver = Driver::new(FightOver::new(facts), Resolver::new(&seats, Some(player)), AbilityTable::default(), 1);
+    let mut driver = crate::window_driver::driver_for(FightOver::new(facts), Resolver::new(&seats, Some(player)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(OVER, script), |core, _| {
         let driven = crate::dual_window::drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});

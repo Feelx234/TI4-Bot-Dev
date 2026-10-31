@@ -17,7 +17,6 @@ pub use stub::*;
 #[cfg(feature = "typed-core")]
 mod real {
     use ti4_engine_core::choice::explore::{Opt as EOpt, PayReward, Step};
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::{Attachment, Explore, ExploreType, Planet, PublicObjective, Relic, System, Technology, Wormhole};
     use ti4_engine_core::ids::Seat;
     use ti4_engine_core::kernel::stage::AbilityTable;
@@ -396,7 +395,7 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let mut driver = Driver::new(window(seat, &r).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(window(seat, &r).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
             crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, details)
         })
@@ -476,7 +475,7 @@ mod real {
         let before = gs.clone();
         let kernel = Kernel::plain();
         let seeds = std::rc::Rc::new(crate::dual_window::DiceSeeds(String::new()));
-        let mut driver = Driver::new(
+        let mut driver = crate::window_driver::driver_for(
             Neuraloop::new(seat, revealed).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)),
             Resolver::new(&[seat], Some(seat)),
             AbilityTable::default(),

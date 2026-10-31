@@ -21,7 +21,6 @@ pub struct FlayeshTarget {
 
 #[cfg(feature = "typed-core")]
 mod real {
-    use ti4_engine_core::driver::Driver;
     use ti4_engine_core::generated::{Planet, System, Technology};
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Resolver};
@@ -81,7 +80,7 @@ mod real {
         let kernel = kernel(sources)?;
         let before = gs.clone();
         let mut staged = Vec::new();
-        let mut driver = Driver::new(NekroHero::new(seat, r.code("nekrohero"), planets), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(NekroHero::new(seat, r.code("nekrohero"), planets), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), FLAYESH, |core, _| {
             let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
             staged = std::mem::take(&mut core.pending_mut().staged);
@@ -143,7 +142,7 @@ mod real {
         table.facts.card_groups = crate::reactions_core::card_groups();
         ti4_engine_core::driver::children::register(&mut table);
         let seeds = std::rc::Rc::new(crate::core_sync::codec::rng::TextSeeds::of(&cx));
-        let mut driver = Driver::new(KyverHero::new(seat, limit == plain), Resolver::new(&seats, Some(seat)), table, 1).with_seeds(seeds);
+        let mut driver = crate::window_driver::driver_for(KyverHero::new(seat, limit == plain), Resolver::new(&seats, Some(seat)), table, 1).with_seeds(seeds);
         let mut after = None;
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy: None, rng: Some(rng_before) }, KYVER, |core, _| {
             let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
@@ -226,7 +225,7 @@ mod real {
         let mut table = AbilityTable::default();
         ti4_engine_core::driver::children::register(&mut table);
         let seeds = std::rc::Rc::new(crate::core_sync::codec::rng::TextSeeds::of(&cx));
-        let mut driver = Driver::new(CabalHero::new(seat, true, pieces, stranded), Resolver::new(&seats, Some(seat)), table, 1).with_seeds(seeds);
+        let mut driver = crate::window_driver::driver_for(CabalHero::new(seat, true, pieces, stranded), Resolver::new(&seats, Some(seat)), table, 1).with_seeds(seeds);
         let mut after = None;
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy: None, rng: Some(rng_before) }, CARRION, |core, _| {
             let driven = crate::dual_window::drive(&mut driver, core, kernel, &r, &before, script);
@@ -315,7 +314,7 @@ mod real {
             crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM),
             |core, _| {
                 let facts = perform_facts(core, &before, sources, player, seat, &r);
-                let mut driver = Driver::new(NaazHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
+                let mut driver = crate::window_driver::driver_for(NaazHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
                 let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
                 staged = std::mem::take(&mut core.pending_mut().staged);
                 out = Some((driver.window.used, driver.window.unsupported));
@@ -377,7 +376,7 @@ mod real {
             crate::action_cards_view::PLAY.union(crate::action_cards_view::PERFORM),
             |core, _| {
                 let facts = perform_facts(core, &before, sources, player, seat, &r);
-                let mut driver = Driver::new(WinnuHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
+                let mut driver = crate::window_driver::driver_for(WinnuHero::new(seat, facts, list), Resolver::new(&[seat], Some(seat)), performing_table(), 1);
                 let driven = crate::dual_window::drive_with(&mut driver, core, kernel, &r, &before, script, &details);
                 staged = std::mem::take(&mut core.pending_mut().staged);
                 out = Some((driver.window.chosen, driver.window.tokens.clone(), driver.window.unsupported));
@@ -444,7 +443,7 @@ mod real {
         }
         let before = gs.clone();
         let kernel = crate::core_adapter::kernel_for(sources);
-        let mut driver = Driver::new(ArgentHero::new(seat, MigrationFacts { order, on_map, enterable }), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
+        let mut driver = crate::window_driver::driver_for(ArgentHero::new(seat, MigrationFacts { order, on_map, enterable }), Resolver::new(&seats, Some(seat)), AbilityTable::default(), 1);
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), FLOCK, |core, _| crate::dual_window::drive(&mut driver, core, kernel, &r, &before, script))
             .why(crate::dual::reason::NOT_LENDABLE)?
             .why(crate::dual::reason::DRIVER_REFUSED)?;
