@@ -78,4 +78,19 @@ pub enum TurnGap {
     AgendaQueue,
     /// A secret objective the core cannot judge (Strengthen Bonds, Produce en Masse).
     ScoringSecret,
+    /// The action menu could not be listed or run natively (package KM): see [`MenuGap`].
+    Menu(MenuGap),
+}
+
+/// Why the action menu, or the action chosen from it, is not native for a position (a counted gap, never a silent skip).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuGap {
+    /// An action card the core cannot judge playable (Signal Jamming's systems, or a bill whose facts the core does not hold).
+    ActionCard,
+    /// A faction component action of a module whose listing is not in the core (`ComponentAction::module`).
+    Faction(crate::generated::Faction),
+    /// The option chosen has no native body yet (`code` names which: see `driver::action`).
+    Action(u8),
+    /// An option the live menu never lists was answered.
+    Refused,
 }

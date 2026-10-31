@@ -1,12 +1,13 @@
-//! The dispatch of the answer to the action menu (package D1b2; the `Phase::Action` arm of `Game::apply_choice`): which of the
-//! arms the chosen option takes, and the choice-free writes of the arms that are the core's. Everything an option of a source
-//! that is not ported does is LENT (`Dispatch::Lend`: the reverse lend runs the string body at the label `turn::component`;
-//! documented bail D1b2-bail-04): faction, leader, technology, expedition, relic, exploration, action-card, transaction, contact
-//! and payment options.
+//! The dispatch of the answer to the action menu (package D1b2, KM2; the `Phase::Action` arm of `Game::apply_choice`): which of the
+//! arms the chosen option takes, and the choice-free writes of the arms that are the core's. Every option of the menu has its arm:
+//! the component actions (leader, technology, relic, exploration, action card, faction) are run by `driver::action`, a transaction
+//! opens the trade window, pass/tactical/strategic/end-of-turn are the arms of their lanes. Only the options of dropped content
+//! (contacts, payments, Thunder's Edge's expedition, a legacy id) are [`Dispatch::Refused`]: no live menu lists them.
 
 use crate::choice::turn::Opt;
-use crate::generated::StrategyCard;
+use crate::generated::{Explore, Leader, StrategyCard, Technology};
 use crate::ids::Seat;
+use crate::kernel::hooks::sites::ComponentAction;
 use crate::state::{CoreState, Feat, TransientFlags};
 
 /// The arm an answer of the menu takes.
@@ -22,8 +23,22 @@ pub enum Dispatch {
     EndTurn,
     /// The answer to Minister of War's question: the window it belongs to takes it (not an arm of the menu).
     Token,
-    /// A source the core does not run: the string body runs through the reverse lend.
-    Lend,
+    /// A leader's component action (`leaders::use_leader`); `borrowed`: through Ssruu.
+    Leader { leader: Leader, borrowed: bool },
+    /// A technology's component action (`technology::perform_component`).
+    Technology(Technology),
+    /// A relic action: purging fragments or using a relic (`relics::perform`).
+    Relic,
+    /// An Enigmatic Device exploration card (`exploration::perform_action`).
+    Device(Explore),
+    /// An action card played as a component action (`action_cards::perform`).
+    ActionCard,
+    /// A transaction opens with a neighbour (`transactions::open`).
+    Transaction(Seat),
+    /// A faction's component action (`faction_abilities::perform_component`).
+    Faction(ComponentAction),
+    /// An option the live menu never lists (dropped content or an option only the string reads): refused, never lent.
+    Refused,
 }
 
 /// The arm of the chosen option.
@@ -35,7 +50,15 @@ pub const fn dispatch(opt: Opt) -> Dispatch {
         Opt::Strategic { card, .. } => Dispatch::Strategic(card),
         Opt::EndTurn => Dispatch::EndTurn,
         Opt::Token(_) => Dispatch::Token,
-        Opt::Lent(_) | Opt::Leader(_) | Opt::Borrowed(_) | Opt::Tech(_) => Dispatch::Lend,
+        Opt::Leader(leader) => Dispatch::Leader { leader, borrowed: false },
+        Opt::Borrowed(leader) => Dispatch::Leader { leader, borrowed: true },
+        Opt::Tech(tech) => Dispatch::Technology(tech),
+        Opt::Purge(_) | Opt::UseRelic(_) => Dispatch::Relic,
+        Opt::Device(card) => Dispatch::Device(card),
+        Opt::Play { .. } | Opt::Salvaged(_) => Dispatch::ActionCard,
+        Opt::Open { with, .. } => Dispatch::Transaction(with),
+        Opt::Faction(action) => Dispatch::Faction(action),
+        Opt::Lent(_) => Dispatch::Refused,
     }
 }
 
@@ -82,10 +105,16 @@ mod tests {
         assert_eq!(dispatch(Opt::EndTurn), Dispatch::EndTurn);
         let card = StrategyCard::ALL[0];
         assert_eq!(dispatch(Opt::Strategic { card, bare: true }), Dispatch::Strategic(card));
-        assert_eq!(dispatch(Opt::Lent(Code(3))), Dispatch::Lend);
-        assert_eq!(dispatch(Opt::Leader(crate::generated::Leader::ALL[0])), Dispatch::Lend);
-        assert_eq!(dispatch(Opt::Borrowed(crate::generated::Leader::ALL[0])), Dispatch::Lend);
-        assert_eq!(dispatch(Opt::Tech(crate::generated::Technology::SlingRelay)), Dispatch::Lend);
+        assert_eq!(dispatch(Opt::Lent(Code(3))), Dispatch::Refused);
+        let leader = crate::generated::Leader::ALL[0];
+        assert_eq!(dispatch(Opt::Leader(leader)), Dispatch::Leader { leader, borrowed: false });
+        assert_eq!(dispatch(Opt::Borrowed(leader)), Dispatch::Leader { leader, borrowed: true });
+        assert_eq!(dispatch(Opt::Tech(crate::generated::Technology::SlingRelay)), Dispatch::Technology(crate::generated::Technology::SlingRelay));
+        assert_eq!(dispatch(Opt::Purge(crate::generated::ExploreType::Cultural)), Dispatch::Relic);
+        assert_eq!(dispatch(Opt::UseRelic(crate::generated::Relic::ALL[0])), Dispatch::Relic);
+        assert_eq!(dispatch(Opt::Play { index: 2, card: crate::generated::ActionCard::ALL[0] }), Dispatch::ActionCard);
+        assert_eq!(dispatch(Opt::Salvaged(crate::generated::ActionCard::ALL[0])), Dispatch::ActionCard);
+        assert_eq!(dispatch(Opt::Open { with: Seat(1), faction: crate::generated::Faction::ALL[1] }), Dispatch::Transaction(Seat(1)));
         assert_eq!(dispatch(Opt::Token(crate::generated::System::ALL[0])), Dispatch::Token);
     }
 

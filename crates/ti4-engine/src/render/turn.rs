@@ -1,7 +1,9 @@
 //! Renderer of the `turn` area: `impl Family` for `ti4_engine_core::choice::turn` (prompt, subtype, option, parse) and its
 //! entry in the registry (`render/mod.rs`). The action menu (`Game::turn_options`) and the closing menu (`closing_options`):
-//! the native options are `pass`, `tactical`, the strategic actions, the leaders' component actions and `end_turn`; the options of the sources that are
-//! lent as reads render as a placeholder the adapter replaces with the option the string lists (`lent_options`).
+//! every source of the menu has typed options (package KM0): `pass`, `tactical`, the strategic actions, the transactions, the relics, the
+//! exploration cards, the technologies, the faction and leader component actions, the action cards and `end_turn`. Only the options of
+//! dropped content (contacts, payments, the expedition) and of legacy ids are `Opt::Lent`: they render as a placeholder the dual
+//! replaces with the option the string lists.
 
 use ti4_engine_core::choice::turn::{Ask, Opt, Subtype};
 
@@ -19,6 +21,21 @@ const LEADER_PREFIX: &str = "component|leader|";
 const BORROWED: &str = "yssarilagent|";
 /// The id of a technology's component action (`technology::component_actions`).
 const TECH_PREFIX: &str = "component|tech|";
+
+/// The ids of the relic, exploration, action-card and transaction options (`relics`, `exploration`, `action_cards`, `transactions`).
+const PURGE_PREFIX: &str = "purge|";
+const RELIC_PREFIX: &str = "relic|";
+const DEVICE_PREFIX: &str = "play_area:";
+const PLAY_PREFIX: &str = "action_card|";
+const SALVAGED_PREFIX: &str = "action_card|salvaged|";
+const OPEN_PREFIX: &str = "component|trade|";
+/// The kind of every component action of the sources above (`relics::ACTION_KIND`, `action_cards::ACTION_KIND`).
+const COMPONENT_KIND: &str = "component";
+
+/// The printed name of an action card, or its id.
+fn card_name(card: ti4_engine_core::generated::ActionCard) -> String {
+    crate::action_cards::name_of(ti4_content::ContentStore::embedded(), &ti4_model::id::ActionCardId::new(card.as_str()))
+}
 
 /// The label of a technology's component action: Sling Relay's is the engine's own text.
 fn tech_label(tech: ti4_engine_core::generated::Technology) -> String {
@@ -61,7 +78,7 @@ impl Family for Fam {
         }
     }
 
-    fn option(_: &Render, _: &Ask, o: &Opt) -> ChoiceOption {
+    fn option(r: &Render, _: &Ask, o: &Opt) -> ChoiceOption {
         match o {
             Opt::Pass => ChoiceOption::labelled("pass", ACTION_KIND, "pass"),
             Opt::Tactical => ChoiceOption::labelled(TACTICAL_ACTION_ID, ACTION_KIND, "take a tactical action"),
@@ -80,6 +97,29 @@ impl Family for Fam {
                 "component",
                 format!("Ssruu: use {}'s ability", leader_name(*agent)),
             ),
+            Opt::Purge(kind) => ChoiceOption::labelled(
+                format!("{PURGE_PREFIX}{}", kind.as_str().to_ascii_uppercase()),
+                COMPONENT_KIND,
+                format!("purge 3 {} relic fragments for a relic", kind.as_str().to_ascii_lowercase()),
+            ),
+            Opt::UseRelic(relic) => ChoiceOption::labelled(format!("{RELIC_PREFIX}{}", relic.as_str()), COMPONENT_KIND, format!("use {}", relic.as_str())),
+            Opt::Device(card) => ChoiceOption::labelled(
+                format!("{DEVICE_PREFIX}{}", card.as_str()),
+                COMPONENT_KIND,
+                "Enigmatic Device: spend 6 resources to research a technology",
+            ),
+            Opt::Play { index, card } => ChoiceOption::labelled(format!("{PLAY_PREFIX}{index}"), COMPONENT_KIND, format!("play {}", card_name(*card))),
+            Opt::Salvaged(card) => ChoiceOption::labelled(
+                format!("{SALVAGED_PREFIX}{}", card.as_str()),
+                COMPONENT_KIND,
+                format!("play {} off the salvage yard", card_name(*card)),
+            ),
+            Opt::Open { faction, .. } => ChoiceOption::labelled(
+                format!("{OPEN_PREFIX}{}", faction.as_str()),
+                crate::transactions::OPEN_KIND,
+                format!("open a transaction with {}", faction.as_str()),
+            ),
+            Opt::Faction(action) => super::component::option(r, *action),
             Opt::Token(system) => ChoiceOption::labelled(system.as_str(), "system", format!("retrieve your token from {}", system.as_str())),
         }
     }
@@ -95,6 +135,20 @@ impl Family for Fam {
             _ => {
                 if let Some(tech) = id.strip_prefix(TECH_PREFIX) {
                     return ti4_engine_core::generated::Technology::from_id(tech).map(Opt::Tech);
+                }
+                // The relic, exploration and salvage options name what they act on. (`action_card|<index>`, a transaction and a faction
+                // action name their card or partner only through the position: the option-id fallback of the live loop reads them.)
+                if let Some(kind) = id.strip_prefix(PURGE_PREFIX) {
+                    return ti4_engine_core::generated::ExploreType::ALL.iter().copied().find(|k| k.as_str().eq_ignore_ascii_case(kind)).map(Opt::Purge);
+                }
+                if let Some(relic) = id.strip_prefix(RELIC_PREFIX) {
+                    return ti4_engine_core::generated::Relic::from_id(relic).map(Opt::UseRelic);
+                }
+                if let Some(card) = id.strip_prefix(DEVICE_PREFIX) {
+                    return ti4_engine_core::generated::Explore::from_id(card).map(Opt::Device);
+                }
+                if let Some(card) = id.strip_prefix(SALVAGED_PREFIX) {
+                    return ti4_engine_core::generated::ActionCard::from_id(card).map(Opt::Salvaged);
                 }
                 if let Some(rest) = id.strip_prefix(LEADER_PREFIX) {
                     return match rest.strip_prefix(BORROWED) {

@@ -29,6 +29,7 @@ pub mod generic;
 pub mod agenda;
 pub mod cards;
 pub mod combat;
+pub mod component;
 pub mod diplomacy;
 pub mod events;
 pub mod explore;

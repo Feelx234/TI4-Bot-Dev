@@ -13,16 +13,12 @@ use crate::ids::Seat;
 use crate::kernel::turn_codes::MenuGap;
 use crate::kernel::Kernel;
 use crate::query::economy::Spend;
-use crate::query::trade::{self, Cx as TradeCx, Limits};
 use crate::query::{board, explore as qexplore, reach, relic as qrelic};
 use crate::rules::action_cards as cards;
 use crate::rules::production::strategy_cards::KernelHooks;
 use crate::rules::production::{self as prod, Cx as ProdCx, Extras};
 use crate::state::{CoreState, Slice};
 use crate::tables::Scope;
-
-/// `ti4_model::state::MAX_NEGOTIATIONS_PER_ACTION` and `_PER_ROUND`.
-const LIMITS: Limits = Limits { per_action: 2, per_round: 6 };
 
 /// The six resources of Enigmatic Device (`exploration::ENIGMATIC_DEVICE_COST`, `relics`).
 const DEVICE_COST: i64 = 6;
@@ -98,20 +94,11 @@ pub fn exploration(core: &CoreState, k: &Kernel, who: Seat) -> Vec<Opt> {
     cards.into_iter().map(Opt::Device).collect()
 }
 
-/// The transaction partners (`transactions::available_actions`): none without a map.
+/// The transaction partners (`transactions::available_actions`): none without a map. The partners are the trade island's
+/// (`kernel::trade_env::open_partners_live`: Guild Ships, Trade Convoys, the Arbiters, the limits of 94.1).
 #[must_use]
 pub fn transactions(core: &CoreState, k: &Kernel, who: Seat) -> Vec<Opt> {
-    if !core.loaded.has(Slice::Map) {
-        eprintln!("DBG no map");
-        return Vec::new();
-    }
-    let Some(galaxy) = core.galaxy() else { return Vec::new() };
-    let adj = galaxy.adjacency();
-    let mecatol = if galaxy.coord_of(System::MecatolRex112).is_some() { System::MecatolRex112 } else { System::MecatolRex18 };
-    let env = crate::rules::trade::KernelEnv { core, kernel: k };
-    let cx = TradeCx { core, adj: &adj, mecatol, limits: LIMITS, env: &env };
-    eprintln!("DBG nb {:?} presence {} adjsum {} seats {:?}", trade::neighbours(&cx, who).as_slice(), trade::presence(core, who).len(), (0..230).map(|i| adj.of(crate::ids::system_at(i)).len()).sum::<usize>(), core.seats().seating_order());
-    trade::open_partners(&cx, who)
+    crate::kernel::trade_env::open_partners_live(core, k, who)
         .as_slice()
         .iter()
         .filter_map(|&with| core.players().by_seat(with).map(|p| Opt::Open { with, faction: p.faction }))

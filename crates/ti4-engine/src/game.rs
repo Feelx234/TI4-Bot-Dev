@@ -3104,7 +3104,7 @@ impl<'a> Game<'a> {
         ));
         if dual {
             let failed: Vec<String> = self.failed_component_actions.iter().cloned().collect();
-            crate::menu_dual::check_action_menu(&self.state, self.sources, &parts, self.state.thunders_edge, &failed, &choice);
+            crate::menu_dual::check_action_menu(&self.state, self.sources, self.galaxy.as_ref(), &parts, self.state.thunders_edge, &failed, &choice);
         }
         Some(choice)
     }

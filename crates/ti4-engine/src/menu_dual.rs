@@ -15,8 +15,8 @@ use crate::turn_write::{ClosingEntry, MenuParts};
 
 /// `Game::turn_options`: `parts` the options each source gave, `failed` the component actions that failed this turn, `string`
 /// the question the string built.
-pub fn check_action_menu(state: &GameState, sources: SourceSet, parts: &MenuParts, thunders_edge: bool, failed: &[String], string: &Choice) {
-    real::check_action_menu(state, sources, parts, thunders_edge, failed, string);
+pub fn check_action_menu(state: &GameState, sources: SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>, parts: &MenuParts, thunders_edge: bool, failed: &[String], string: &Choice) {
+    real::check_action_menu(state, sources, galaxy, parts, thunders_edge, failed, string);
 }
 
 /// `Game::closing_options`: `turn` the options of the action menu with their free and pass flags, `expedition` the Thunder's
@@ -29,7 +29,7 @@ pub fn check_closing_menu(state: &GameState, sources: SourceSet, player: &Player
 mod real {
     use super::{Choice, ClosingEntry, GameState, MenuParts, PlayerId, SourceSet};
 
-    pub fn check_action_menu(_: &GameState, _: SourceSet, _: &MenuParts, _: bool, _: &[String], _: &Choice) {}
+    pub fn check_action_menu(_: &GameState, _: SourceSet, _: Option<&ti4_content::galaxy::Galaxy>, _: &MenuParts, _: bool, _: &[String], _: &Choice) {}
     pub fn check_closing_menu(_: &GameState, _: SourceSet, _: &PlayerId, _: bool, _: &[ClosingEntry], _: &[String], _: &Choice) {}
 }
 
@@ -110,7 +110,7 @@ mod real {
         Some(typed.rendered)
     }
 
-    pub fn check_action_menu(state: &GameState, sources: SourceSet, parts: &MenuParts, thunders_edge: bool, failed: &[String], string: &Choice) {
+    pub fn check_action_menu(state: &GameState, sources: SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>, parts: &MenuParts, thunders_edge: bool, failed: &[String], string: &Choice) {
         if backend(Area::Driver) != Backend::Dual {
             return;
         }
@@ -125,7 +125,7 @@ mod real {
         };
         let mut lent = Lent::default();
         // The strategic action and the leaders are listed by the core from the position; the other sources are the string's ids.
-        let native = crate::menu_sources_view::native(state, &mut cx, sources, seat);
+        let native = crate::menu_sources_view::native(state, &mut cx, sources, seat, galaxy);
         if native.is_none() && crate::core_sync::unsupported::find(state).is_none() {
             note_bail(MENU, "the position is not one the core lists the menu sources of");
         }
@@ -137,6 +137,14 @@ mod real {
                     (Some(native), Source::Strategic) => native.strategic.clone(),
                     (Some(native), Source::Leaders) => native.leaders.clone(),
                     (Some(native), Source::Technology) => native.technology.clone(),
+                    (Some(native), Source::Relics) => native.relics.clone(),
+                    (Some(native), Source::Exploration) => native.exploration.clone(),
+                    (Some(native), Source::Transactions) => native.transactions.clone(),
+                    (Some(native), Source::ActionCards) if native.cards.is_some() => native.cards.clone().unwrap_or_default(),
+                    (Some(native), Source::Relics) => native.relics.clone(),
+                    (Some(native), Source::Exploration) => native.exploration.clone(),
+                    (Some(native), Source::Transactions) => native.transactions.clone(),
+                    (Some(native), Source::ActionCards) if native.cards.is_some() => native.cards.clone().unwrap_or_default(),
                     _ => ids.iter().map(|id| lent.typed(state, &active, id)).collect(),
                 };
                 Some((source, options))

@@ -3,7 +3,9 @@
 //! faction and mapped component actions, action cards) are LENT AS READS: their options come as
 //! [`Opt::Lent`], the code of the option the string engine lists, and the adapter renders them from that list.
 
-use crate::generated::{Leader, StrategyCard, System, Technology};
+use crate::generated::{ActionCard, Explore, ExploreType, Faction, Leader, Relic, StrategyCard, System, Technology};
+use crate::ids::Seat;
+use crate::kernel::hooks::sites::ComponentAction;
 use crate::state::Code;
 
 /// What the area asks. Parameters only; the option list is assembled by `driver::menu`.
@@ -47,4 +49,19 @@ pub enum Opt {
     Borrowed(Leader),
     /// A technology's component action: `component|tech|<alias>` (Sling Relay is the one the engine implements).
     Tech(Technology),
+    /// Purge three relic fragments of a trait (frontier fragments stand in) for a relic: `purge|<TRAIT>` (package KM0).
+    Purge(ExploreType),
+    /// Use a relic in the play area: `relic|<alias>`.
+    UseRelic(Relic),
+    /// An Enigmatic Device exploration card in the play area: `play_area:<card>`.
+    Device(Explore),
+    /// An action card of the hand played as a component action: `action_card|<index>` (the card is in the option so the label needs no hand).
+    Play { index: u8, card: ActionCard },
+    /// An action card off the salvage yard (Garbozia): `action_card|salvaged|<alias>`.
+    Salvaged(ActionCard),
+    /// Open a transaction with a neighbour: `component|trade|<faction>`.
+    Open { with: Seat, faction: Faction },
+    /// A faction's own component action (Orbital Drop, Production Biomes, Trade Convoys and the faction modules'): `faction|...`; the ids and
+    /// labels are the renderer's table over `(module, code, arg)`.
+    Faction(ComponentAction),
 }
