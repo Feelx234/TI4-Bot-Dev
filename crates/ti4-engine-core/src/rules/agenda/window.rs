@@ -50,18 +50,53 @@ impl Facts {
     pub const fn new(scope: Scope, blanked: bool) -> Self {
         Self { scope, blanked, pact: [SeatSet::EMPTY; 8] }
     }
+
+    /// The facts the position says: the kernel's source scope, the blanked laws and the Blood Pact partners.
+    #[must_use]
+    pub fn of_core(core: &CoreState, k: &Kernel) -> Self {
+        Self { scope: crate::query::reach::scope_of(k), blanked: crate::query::reach::blanked(core), pact: pact_partners(core) }
+    }
+}
+
+/// `empyrean_units::blood_pact_votes`: a faceup Blood Pact held by a seat other than its owner links the two (each gets
+/// [`BLOOD_PACT_VOTES`] when the other backed the same outcome). The owner is the first seat in seating order that plays the note's faction
+/// (`promissory::seat_of`).
+#[must_use]
+pub fn pact_partners(core: &CoreState) -> [SeatSet; 8] {
+    let mut pact = [SeatSet::EMPTY; 8];
+    for (key, holder) in core.cards().promissory.iter() {
+        if key.note != crate::generated::PromissoryNote::BloodPact || !core.cards().promissory_faceup.contains_key(key) {
+            continue;
+        }
+        let owner = core.seats().seating_order().iter().copied().find(|seat| core.players().by_seat(*seat).is_some_and(|p| p.faction == key.faction));
+        let Some(owner) = owner else { continue };
+        if owner == *holder {
+            continue;
+        }
+        pact[usize::from(holder.0) & 7].insert(owner);
+        pact[usize::from(owner.0) & 7].insert(*holder);
+    }
+    pact
 }
 
 /// The [`Env`] of the vote: the hook table and the commander ability, over the state.
-pub(super) struct KernelEnv<'a> {
-    pub(super) core: &'a CoreState,
-    pub(super) kernel: &'a Kernel,
+pub struct KernelEnv<'a> {
+    pub core: &'a CoreState,
+    pub kernel: &'a Kernel,
+}
+
+/// `VoteWindow::new`'s order for the position (the live path: the Nekro bar, a rider's cost, Argent's first vote, Hack Election's last one).
+#[must_use]
+pub fn voting_order_of(core: &CoreState, k: &Kernel) -> SmallList<Seat, 8> {
+    let env = KernelEnv { core, kernel: k };
+    let facts = Facts::of_core(core, k);
+    super::voting_order(&Cx { core, scope: facts.scope, blanked: facts.blanked, env: &env })
 }
 
 impl Env for KernelEnv<'_> {
-    fn is_nekro(&self, _: Seat) -> bool {
-        // The order the votes are asked in is the adapter's (Nekro's bar is applied there).
-        false
+    fn is_nekro(&self, who: Seat) -> bool {
+        // Galactic Threat: "You cannot vote on agendas" (`factions::nekro::is_nekro`: the seat plays the Nekro Virus).
+        self.core.players().by_seat(who).is_some_and(|p| p.faction == crate::generated::Faction::TheNekroVirus)
     }
     fn elder_qanoj(&self, who: Seat) -> bool {
         leaders::has_commander_ability_in(self.core, who, Leader::ElderQanoj)
@@ -101,6 +136,9 @@ pub struct Vote {
     demanded: Option<(u8, Outcome)>,
     /// Predictive Intelligence holders who cast the 3 extra votes, with the outcome they backed.
     predictive: SmallList<(Seat, Outcome), 8>,
+    /// What each voter cast, in voting order, abstentions included (`None`: abstained). Display only (the string mirrors it to
+    /// `GameState::agenda_casts`); no rule reads it.
+    casts: SmallList<(Seat, Option<Outcome>, i64), 8>,
 }
 
 impl Vote {
@@ -120,7 +158,96 @@ impl Vote {
             obligation: None,
             demanded: None,
             predictive: SmallList::new(),
+            casts: SmallList::new(),
         }
+    }
+
+    // -- the payload of a held vote (`state::Vote`): the machine is rebuilt from it and the position at every live call -----------------
+
+    /// The vote a payload stands for. `facts` are what the position says (`Facts::of_core`); everything else is the payload's.
+    #[must_use]
+    pub fn restore(p: &crate::state::Vote, facts: Facts) -> Self {
+        let mut offered = 0u8;
+        for i in p.recombination_offered.as_slice() {
+            offered |= 1 << (i & 7);
+        }
+        Self {
+            agenda: p.agenda,
+            choices: p.choices.as_slice().iter().copied().collect(),
+            order: p.order.as_slice().iter().copied().collect(),
+            stage: p.stage,
+            counts: p.counts.as_slice().iter().copied().collect(),
+            ballot: p.ballot.as_slice().iter().copied().collect(),
+            facts,
+            spender: p.spender,
+            offered,
+            obligation: p.obligation,
+            demanded: p.demanded,
+            predictive: p.predictive.as_slice().iter().copied().collect(),
+            casts: p.casts.as_slice().iter().copied().collect(),
+        }
+    }
+
+    /// The payload of this vote (the inverse of [`Self::restore`]).
+    #[must_use]
+    pub fn to_payload(&self) -> crate::state::Vote {
+        crate::state::Vote {
+            agenda: self.agenda,
+            choices: self.choices.as_slice().iter().copied().collect(),
+            order: self.order.as_slice().iter().copied().collect(),
+            stage: self.stage,
+            ballot: self.ballot.iter().map(|(s, o)| (*s, *o)).collect(),
+            counts: self.counts.iter().map(|(o, c)| (*o, *c)).collect(),
+            casts: self.casts.as_slice().iter().copied().collect(),
+            spender: self.spender,
+            recombination_offered: (0..8u8).filter(|i| self.offered & (1 << i) != 0).collect(),
+            obligation: self.obligation,
+            demanded: self.demanded,
+            predictive: self.predictive.as_slice().iter().copied().collect(),
+        }
+    }
+
+    /// The agenda voted on (Covert Legislation itself under Covert Legislation).
+    #[must_use]
+    pub const fn agenda(&self) -> Agenda {
+        self.agenda
+    }
+
+    /// The outcomes on offer.
+    #[must_use]
+    pub fn choices(&self) -> &[Outcome] {
+        self.choices.as_slice()
+    }
+
+    /// Who backed what, in seat order.
+    #[must_use]
+    pub fn ballot(&self) -> SmallList<(Seat, Outcome), 8> {
+        self.ballot.iter().map(|(s, o)| (*s, *o)).collect()
+    }
+
+    /// What each voter cast so far, abstentions included.
+    #[must_use]
+    pub fn casts(&self) -> &[(Seat, Option<Outcome>, i64)] {
+        self.casts.as_slice()
+    }
+
+    /// The seats in the order the votes are asked.
+    #[must_use]
+    pub fn order(&self) -> &[Seat] {
+        self.order.as_slice()
+    }
+
+    /// The stage the vote has reached.
+    #[must_use]
+    pub const fn stage_now(&self) -> Stage {
+        self.stage
+    }
+
+    /// Whether the pending question is a voter naming an outcome (or abstaining), as opposed to the planets, trade goods, Genetic
+    /// Recombination or tribute questions after it (`VoteWindow::is_outcome_question`).
+    #[must_use]
+    pub fn is_outcome_question(&self) -> bool {
+        matches!(self.stage, Stage::Outcome(index) if usize::from(index) < self.order.len())
     }
 
     /// Let `seat` spend resources and trade goods as votes (Executive Order).
@@ -211,10 +338,8 @@ impl Vote {
 
     /// `mahact::recombination_holder`: another seat with a ready Genetic Recombination.
     fn holder(core: &CoreState, voter: Seat) -> Option<Seat> {
-        core.players()
-            .iter()
-            .find(|p| p.seat != voter && p.tech.owned.contains(Technology::GeneticRecombination) && !p.tech.exhausted.contains(Technology::GeneticRecombination))
-            .map(|p| p.seat)
+        // The Mahact's own card, or the Nekro's Valefar Assimilator carrying its text.
+        core.players().iter().find(|p| p.seat != voter && crate::query::reach::technology_text_ready(core, p.seat, Technology::GeneticRecombination)).map(|p| p.seat)
     }
 
     fn can_pay(core: &CoreState, voter: Seat) -> bool {
@@ -284,6 +409,40 @@ impl Vote {
         }
     }
 
+    /// Advance past the stages that ask nothing (`VoteWindow::settle`): Genetic Recombination's offer to its holder, the end of the
+    /// ballot (the votes are decided, Predictive Intelligence settled), a planets stage with nothing to exhaust. Stops at a question or
+    /// at the end. [`Self::step`] runs it before it names the question; the live arm runs it when the vote opens.
+    pub fn settle(&mut self, core: &mut CoreState, k: &Kernel) {
+        loop {
+            // Genetic Recombination: "before a player casts votes", once per voter, the holder is asked.
+            if let Stage::Outcome(index) = self.stage
+                && usize::from(index) < self.order.len()
+                && self.offered & (1 << index) == 0
+            {
+                self.offered |= 1 << index;
+                if self.voter(index).is_some_and(|v| Self::holder(core, v).is_some()) {
+                    self.stage = Stage::Recombine(index);
+                    break;
+                }
+            }
+            match self.stage {
+                Stage::Outcome(index) if usize::from(index) >= self.order.len() => {
+                    self.stage = self.close();
+                    self.settle_predictions(core);
+                }
+                Stage::Planets { index, outcome, votes } => {
+                    let empty = self.voter(index).is_none_or(|s| self.offers(core, k, s).is_empty());
+                    if empty {
+                        self.finish_planets(core, k, index, outcome, votes);
+                    } else {
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+    }
+
     fn tied(&self, counts: &SmallList<(Outcome, i64), 16>) -> SmallList<Outcome, 16> {
         match super::tiebreak_candidates(counts.as_slice(), self.choices.as_slice()) {
             Tiebreak::Tied(list) => SmallList::from_slice(list.as_slice()),
@@ -317,6 +476,8 @@ impl Vote {
     fn record(&mut self, core: &CoreState, k: &Kernel, index: u8, outcome: Outcome, votes: i64) {
         let Some(seat) = self.voter(index) else { return };
         if votes <= 0 {
+            // Voted for an outcome but cast nothing: the table is told (display list), nothing is banked.
+            self.abstain(seat);
             return;
         }
         let pact = self.facts.pact[usize::from(seat.0) & 7]
@@ -330,6 +491,12 @@ impl Vote {
             + BLOOD_PACT_VOTES * i64::try_from(pact).unwrap_or(0);
         self.ballot.insert(seat, outcome);
         *self.counts.get_or_insert_with(outcome, || 0) += total;
+        self.casts.push((seat, Some(outcome), total));
+    }
+
+    /// A seat that cast nothing (display list only).
+    fn abstain(&mut self, seat: Seat) {
+        self.casts.push((seat, None, 0));
     }
 
     /// Everyone has voted: decide, or hand it to the speaker.
@@ -376,35 +543,7 @@ impl Window for Vote {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        loop {
-            // Genetic Recombination: "before a player casts votes", once per voter, the holder is asked.
-            if let Stage::Outcome(index) = self.stage
-                && usize::from(index) < self.order.len()
-                && self.offered & (1 << index) == 0
-            {
-                self.offered |= 1 << index;
-                if self.voter(index).is_some_and(|v| Self::holder(sx.state, v).is_some()) {
-                    self.stage = Stage::Recombine(index);
-                    break;
-                }
-            }
-            match self.stage {
-                Stage::Outcome(index) if usize::from(index) >= self.order.len() => {
-                    self.stage = self.close();
-                    self.settle_predictions(sx.state);
-                }
-                Stage::Planets { index, outcome, votes } => {
-                    let empty = self.voter(index).is_none_or(|s| self.offers(sx.state, sx.kernel, s).is_empty());
-                    if empty {
-                        self.finish_planets(sx.state, sx.kernel, index, outcome, votes);
-                    } else {
-                        break;
-                    }
-                }
-                Stage::Done(_) => return Next::Done,
-                _ => break,
-            }
-        }
+        self.settle(sx.state, sx.kernel);
         match self.question(sx.state, sx.kernel) {
             Some(choice) => Next::Continue(choice.ask),
             None => Next::Done,
@@ -426,9 +565,7 @@ impl Window for Vote {
             (Stage::Recombine(index), TopOpt::Agenda(Opt::Demand(outcome))) => {
                 let voter = self.voter(index).ok_or(Illegal)?;
                 let holder = Self::holder(sx.state, voter).ok_or(Illegal)?;
-                if let Some(p) = sx.state.players_mut().by_seat_mut(holder) {
-                    p.tech.exhausted.insert(Technology::GeneticRecombination);
-                }
+                crate::query::reach::exhaust_technology_text(sx.state, holder, Technology::GeneticRecombination);
                 let can_vote = !self.offers(sx.state, sx.kernel, voter).is_empty();
                 let can_pay = Self::can_pay(sx.state, voter);
                 self.stage = Stage::Outcome(index);
@@ -452,7 +589,13 @@ impl Window for Vote {
                 Self::pay_tribute(sx.state, voter);
                 self.stage = Stage::Outcome(index);
             }
-            (Stage::Outcome(index), TopOpt::Decline) => self.stage = Stage::Outcome(index + 1),
+            (Stage::Outcome(index), TopOpt::Decline) => {
+                // 8.14: an abstention casts nothing and is not recorded as a vote (the display list still tells the table).
+                if let Some(seat) = self.voter(index) {
+                    self.abstain(seat);
+                }
+                self.stage = Stage::Outcome(index + 1);
+            }
             (Stage::Outcome(index), TopOpt::Agenda(Opt::Back(outcome, _))) => {
                 self.stage = Stage::Planets { index, outcome, votes: 0 };
             }

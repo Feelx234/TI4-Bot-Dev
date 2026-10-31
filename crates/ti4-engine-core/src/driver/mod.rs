@@ -18,12 +18,16 @@ use crate::kernel::stage::{AbilityTable, Illegal, NestedFacts, Sx, Tape, Window}
 use crate::kernel::{Kernel, Next, Resolver, TimingError};
 use crate::state::{CoreState, EventRec, RngDomain, SeedSource, Window as OpenWindow};
 
+pub mod agenda;
 pub mod aftermath;
 pub mod children;
 pub mod dispatch;
 pub mod kernel_env;
 pub mod live;
 pub mod menu;
+pub mod menu_cards;
+pub mod menu_faction;
+pub mod menu_sources;
 pub mod session;
 pub mod step;
 pub mod tactical_tail;

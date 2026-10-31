@@ -95,8 +95,10 @@ impl abilities::Env for KernelEnv<'_> {
 }
 
 impl strategy::Env for KernelEnv<'_> {
+    /// Masters of Trade (Trade) or a module's hook (`rules::abilities::secondary_is_free`). The hook alone missed Hacan's printed ability.
     fn secondary_is_free(&self, who: Seat, card: Option<StrategyCardKind>) -> bool {
-        self.kernel.hooks.general.secondary_is_free(self.core, self.kernel, who, card)
+        (abilities::has(self.core, who, crate::generated::Ability::MastersOfTrade) && card == Some(StrategyCardKind::Trade))
+            || self.kernel.hooks.general.secondary_is_free(self.core, self.kernel, who, card)
     }
     fn substitutes_primary(&self, who: Seat, card: Option<StrategyCardKind>) -> bool {
         self.kernel.hooks.general.substitutes_primary(self.core, self.kernel, who, card)
@@ -131,6 +133,10 @@ impl leaders::Env for KernelEnv<'_> {
         self.kernel.hooks.direct.bastion_units_resource_bonus(self.core, planet)
     }
     fn mecatol_area(&self) -> Option<SysSet> {
+        // A position without the map slice is a game without a galaxy: the string's `galaxy: None`.
+        if !self.core.loaded.has(crate::state::Slice::Map) {
+            return None;
+        }
         let g = self.core.galaxy()?;
         let mecatol = objectives::mecatol_in_galaxy(self.core);
         let mut set = g.adjacent(mecatol);

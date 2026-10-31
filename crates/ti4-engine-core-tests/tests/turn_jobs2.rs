@@ -25,6 +25,31 @@ fn env(k: &Kernel) -> Env<'_> {
     Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
 }
 
+/// [`env`] whose play facts hold the unit roster (the menu sources and the finish of an action need it).
+fn env_r(k: &Kernel) -> Env<'_> {
+    use ti4_engine_core::kernel::ability::{PlayFacts, PlaysProvider, SharedPlay};
+    let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
+    let mut e = env(k);
+    e.table.facts.plays_provider = Some(PlaysProvider(std::sync::Arc::new(move |core, _| {
+        Some(PlayFacts {
+            scope: 0,
+            blanked: false,
+            action_card: ti4_engine_core::state::Code(0),
+            supply_base: ti4_engine_core::state::Code(0),
+            note_order: |a, b| a.cmp(&b),
+            seats: Vec::new(),
+            name_group: Vec::new(),
+            has_effect: Vec::new(),
+            skimmer: false,
+            roster: Some(roster),
+            rules_version: core.meta().rules_version,
+            tech_order: |a, b| a.cmp(&b),
+            shared: SharedPlay::default(),
+        })
+    })));
+    e
+}
+
 fn gap(why: TurnGap) -> Result<(Live, Out), LiveError> {
     Err(LiveError::Unknown(Unknown::TurnGap(why)))
 }
@@ -38,7 +63,7 @@ fn typed(s: &CoreState, kind: EventKind) -> Vec<ti4_engine_core::state::EventRec
 }
 
 fn finish(s: &mut CoreState, k: &Kernel) -> Result<(Live, Out), LiveError> {
-    advance_job(TurnJob::Finish, s, &env(k), None)
+    advance_job(TurnJob::Finish, s, &env_r(k), None)
 }
 
 // -- the end of an action ---------------------------------------------------------------------------------------------------------
@@ -87,11 +112,17 @@ fn the_cards_shown_for_this_action_stop_being_visible_with_it() {
 #[test]
 fn fleet_logistics_counts_the_action_before_the_menu_is_judged() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::FleetLogistics).build();
-    // The first action: a second one is offered, which the core does not assemble yet.
-    let held = s.clone();
-    assert_eq!(finish(&mut s, &k), gap(TurnGap::MenuSources));
-    assert_eq!(s, held, "the action is not counted in a position the job left");
+    // Nothing to act with: the first action is counted and the turn ends, as no second action is on offer.
+    assert_eq!(finish(&mut s, &k).unwrap().0, Live::Done);
+    assert_eq!(s.meta().active, Some(Seat(1)));
+    // With a strategy card left the first action is followed by the closing menu, counted.
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::FleetLogistics).build();
+    s.players_mut().edit(0).strat.push(ti4_engine_core::generated::StrategyCard::ALL[0]);
+    assert_eq!(finish(&mut s, &k).unwrap().0, Live::Done);
+    assert_eq!((s.meta().active, s.pending().turn_closing, s.pending().actions_this_turn), (Some(Seat(0)), Some(Seat(0)), 1));
+    assert_eq!(plain(&s), [PlainRec::bare(PlainKind::TurnClosing)]);
     // The second action is the last: nothing but "end your turn" is left.
+    s.pending_mut().turn_closing = None;
     s.pending_mut().actions_this_turn = 1;
     assert_eq!(finish(&mut s, &k).unwrap().0, Live::Done);
     assert_eq!(s.meta().active, Some(Seat(1)));
@@ -122,43 +153,55 @@ fn a_turn_that_ends_outside_the_action_phase_asks_no_end_of_turn_windows() {
 
 // -- the closing menu -------------------------------------------------------------------------------------------------------------
 
+fn roster() -> &'static ti4_engine_core::query::tech::UnitRoster {
+    Box::leak(Box::new(ti4_engine_core::query::tech::UnitRoster::default()))
+}
+
 #[test]
 fn the_closing_menu_holds_only_the_end_of_the_turn_when_no_source_can_offer_a_free_option() {
     let (s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
-    assert_eq!(closing::options(&s, &k, Seat(0)), Ok(vec![TuOpt::EndTurn]));
-    // Fleet Logistics: a second action while fewer than two were taken.
+    assert_eq!(closing::options(&s, &k, roster(), Seat(0)), Ok(vec![TuOpt::EndTurn]));
+    // Fleet Logistics: a second action while fewer than two were taken. A seat that holds nothing to act with is offered nothing more
+    // ("pass" is never the second action).
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::FleetLogistics).build();
     s.pending_mut().actions_this_turn = 1;
-    assert_eq!(closing::options(&s, &k, Seat(0)), Err(TurnGap::MenuSources));
+    assert_eq!(closing::options(&s, &k, roster(), Seat(0)), Ok(vec![TuOpt::EndTurn]));
+    // With a strategy card the second action is offered, "end your turn" first.
+    let card = ti4_engine_core::generated::StrategyCard::ALL[0];
+    s.players_mut().edit(0).strat.push(card);
+    assert_eq!(closing::options(&s, &k, roster(), Seat(0)), Ok(vec![TuOpt::EndTurn, TuOpt::Strategic { card, bare: true }]));
     s.pending_mut().actions_this_turn = 2;
-    assert_eq!(closing::options(&s, &k, Seat(0)), Ok(vec![TuOpt::EndTurn]));
+    assert_eq!(closing::options(&s, &k, roster(), Seat(0)), Ok(vec![TuOpt::EndTurn]), "the second action is the last");
 }
 
 #[test]
-fn a_leader_printed_during_the_action_phase_is_a_free_option_the_core_does_not_assemble_yet() {
-    let agent = Leader::ALL.iter().copied().find(|l| l.data().kind == LeaderType::Agent && l.data().window == LeaderWindow::ActionPhase).unwrap();
-    let faction = Faction::ALL.iter().copied().find(|f| ti4_engine_core::query::tech::tag_is(agent.data().faction, *f)).unwrap();
-    let (mut s, k) = Scenario::new(&[faction, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
+fn a_leader_printed_during_the_action_phase_is_a_free_option_of_the_closing_menu() {
+    let agent = Leader::CarthOfGoldenSands;
+    let (mut s, k) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
     s.players_mut().edit(0).leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Readied);
-    assert_eq!(closing::options(&s, &k, Seat(0)), Err(TurnGap::MenuSources));
+    let menu = closing::options(&s, &k, roster(), Seat(0)).expect("the menu");
+    assert!(menu.contains(&TuOpt::Leader(agent)) && menu[0] == TuOpt::EndTurn, "free: it is not an ACTION: {menu:?}");
     s.players_mut().edit(0).leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Exhausted);
-    assert_eq!(closing::options(&s, &k, Seat(0)), Ok(vec![TuOpt::EndTurn]), "an exhausted agent offers nothing");
+    assert!(!closing::options(&s, &k, roster(), Seat(0)).expect("the menu").contains(&TuOpt::Leader(agent)), "an exhausted agent offers nothing");
 }
 
 #[test]
-fn a_seat_with_a_neighbour_on_the_map_could_open_a_transaction() {
+fn a_seat_with_a_neighbour_on_the_map_is_offered_a_transaction_in_the_closing_menu() {
     let (system, _) = ti4_engine_core_tests::scenario::first_planet();
     let (s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).map_ring(1).unit(system, None, Unit::CruiserI, 0, 1).unit(system, None, Unit::CruiserI, 1, 1).build();
-    assert_eq!(closing::options(&s, &k, Seat(0)), Err(TurnGap::MenuSources), "seats that share a system are neighbours");
+    let menu = closing::options(&s, &k, roster(), Seat(0)).expect("the menu");
+    assert_eq!(menu[0], TuOpt::EndTurn);
+    assert!(menu.iter().any(|o| matches!(o, TuOpt::Open { with: Seat(1), .. })), "seats that share a system are neighbours: {menu:?}");
     let (alone, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).map_ring(1).unit(system, None, Unit::CruiserI, 0, 1).build();
-    assert_eq!(closing::options(&alone, &k, Seat(0)), Ok(vec![TuOpt::EndTurn]), "nobody is near");
+    let menu = closing::options(&alone, &k, roster(), Seat(0)).expect("the menu");
+    assert!(!menu.iter().any(|o| matches!(o, TuOpt::Open { .. })), "nobody is near: {menu:?}");
 }
 
 #[test]
 fn the_closing_question_is_asked_of_the_seat_in_it_and_its_end_ends_the_turn() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
     s.pending_mut().turn_closing = Some(Seat(0));
-    let e = env(&k);
+    let e = env_r(&k);
     let q = ask_ask(&s, &e).unwrap().unwrap().choice;
     assert_eq!((q.actor, q.ask, q.opts.as_slice()), (Seat(0), Ask::Turn(TuAsk::Closing { second: false }), &[Opt::Turn(TuOpt::EndTurn)][..]));
     let held = s.clone();
@@ -167,13 +210,17 @@ fn the_closing_question_is_asked_of_the_seat_in_it_and_its_end_ends_the_turn() {
     assert_eq!(s, held);
     assert_eq!(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Turn(TuOpt::EndTurn)))).unwrap().0, Live::Done);
     assert_eq!((s.meta().active, s.pending().turn_closing), (Some(Seat(1)), None));
-    // Where the menu is not assembled yet the question stops with the gap.
+    // Fleet Logistics: the same menu, asked as the second action.
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::FleetLogistics).build();
     s.pending_mut().turn_closing = Some(Seat(0));
-    assert_eq!(ask_ask(&s, &env(&k)).map(|_| ()), Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources))));
-    // An ask arm nobody registered is a gap that names it.
+    let q = ask_ask(&s, &env_r(&k)).unwrap().unwrap().choice;
+    assert_eq!(q.ask, Ask::Turn(TuAsk::Closing { second: true }));
+    // Without the unit roster of the play facts the menu cannot be listed: a counted gap.
+    assert_eq!(ask_ask(&s, &env(&k)).map(|_| ()), Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::NoRoster))));
+    // The action menu of a seat with nothing to act with is the lone pass.
     let (s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
-    assert!(matches!(ask_ask(&s, &env(&k)), Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::AskArm(_))))));
+    let q = ask_ask(&s, &env_r(&k)).unwrap().unwrap().choice;
+    assert_eq!((q.ask, q.opts.as_slice()), (Ask::Turn(TuAsk::ActionMenu), &[Opt::Turn(TuOpt::Pass)][..]));
 }
 
 // -- the fleet sweep's facts -------------------------------------------------------------------------------------------------------
@@ -502,4 +549,16 @@ fn predictive_intelligence_is_a_window_of_the_action_phase_only() {
     assert_eq!(advance_job(TurnJob::End, &mut s, &env(&k), None).unwrap().0, Live::Done, "no restack is asked outside the action phase");
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::PredictiveIntelligence).tokens(0, 2, 2, 2).build();
     assert!(matches!(advance_job(TurnJob::End, &mut s, &env(&k), None).unwrap().0, Live::Asks(_)));
+}
+
+#[test]
+fn choosing_a_transaction_partner_from_the_menu_opens_the_trade_window_and_spends_the_pair() {
+    let (system, _) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).map_ring(1).unit(system, None, Unit::CruiserI, 0, 1).unit(system, None, Unit::CruiserI, 1, 1).build();
+    let e = env_r(&k);
+    let q = ask_ask(&s, &e).unwrap().unwrap().choice;
+    let open = q.opts.as_slice().iter().copied().find(|o| matches!(o, Opt::Turn(TuOpt::Open { with: Seat(1), .. }))).expect("the neighbour is offered");
+    advance_ask(&mut s, &e, Some(Pick::Opt(open))).unwrap();
+    assert!(s.pending().window(ti4_engine_core::state::WindowKind::Trade).is_some(), "the trade window is open");
+    assert!(ti4_engine_core::query::trade::transacted_with(&s, Seat(0), Seat(1)), "94.1: the pair is spent on opening");
 }

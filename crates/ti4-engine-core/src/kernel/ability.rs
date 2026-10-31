@@ -90,6 +90,8 @@ pub enum Unknown {
     UnportedProduction(ProductionGap),
     /// The live turn flow cannot follow the string here yet (lane B, `driver::turn`).
     TurnGap(super::turn_codes::TurnGap),
+    /// The live agenda phase cannot follow the string here yet (lane D, `driver::agenda`).
+    AgendaGap(super::agenda_codes::AgendaGap),
 }
 
 /// The positions the native production step (`driver::windows::production`) does not run, each a counted bail of the live path. The words are
@@ -262,6 +264,8 @@ pub struct Codes {
     pub production: ProductionCodes,
     /// The texts of the turn flow (lane B).
     pub turn: super::turn_codes::TurnCodes,
+    /// The texts of the agenda phase (lane D).
+    pub agenda: super::agenda_codes::AgendaCodes,
 }
 
 /// The `source` texts of `UNITS_PRODUCED`: `ability` for the units an ability produces, `production` for the PRODUCTION of a unit (the adapter's

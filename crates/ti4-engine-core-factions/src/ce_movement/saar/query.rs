@@ -22,6 +22,8 @@ const SOURCE: Source = Source::Faction(Faction::TheClanOfSaar);
 
 /// Fill the slots of this tier.
 pub fn register(t: &mut HookTable) {
+    t.general.commander_unlocked.push(commander_unlocked);
+    t.general.leader_action.push(leader_action);
     t.seam.production_destinations.push(SOURCE, Pass::Add, |q: Q<'_>, site: &DestSite, out| {
         out.extend_from_slice(&commander_docks(q.s, q.k, site.who, site.system, site.base));
     });
@@ -70,6 +72,21 @@ pub fn commander_docks(s: &CoreState, k: &Kernel, who: Seat, _producing: System,
     out
 }
 
+// -- leader hooks (package F2) ----------------------------------------
+
+/// Rowl Sarring, unlock: "Have 3 space docks on the game board." A Floating Factory is a space dock (same base type).
+pub fn commander_unlocked(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::RowlSarring).then(|| ti4_engine_core::query::leader_reads::count_pieces(s, who, |p| p.kind().data().base_type == UnitBaseType::Spacedock) >= 3)
+}
+
+/// Gurno Aggero: a space dock stands and the seat holds the card (any adjacent system is a legal choice) (`saar::leader_action`).
+pub fn leader_action(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) -> Option<bool> {
+    (leader == Leader::GurnoAggero).then(|| {
+        ti4_engine_core::query::leader_reads::count_pieces(s, who, |p| p.kind().data().base_type == UnitBaseType::Spacedock) > 0
+            && ti4_engine_core::query::leaders::status(s, who, leader).is_some()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,6 +125,7 @@ mod tests {
         let mut t = HookTable::new();
         register(&mut t);
         assert_eq!(t.seam.production_destinations.len(), 1);
-        assert_eq!(t.registered(), 2);
+        assert_eq!(t.registered(), 4, "the gather, the legacy slot and the two leader hooks");
+        assert_eq!((t.general.commander_unlocked.len(), t.general.leader_action.len()), (1, 1));
     }
 }

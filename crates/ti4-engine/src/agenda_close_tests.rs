@@ -308,9 +308,9 @@ fn politics_and_keleres_riders_draw_and_pay() {
 }
 
 #[test]
-fn riders_the_core_does_not_pay_have_no_window() {
+fn riders_that_place_run_in_the_core_in_lockstep() {
     for rider in ["const_rider", "diplo_rider", "war_rider"] {
-        let (_, compared, bailed, _) = lockstep(|| {
+        let (_, compared, bailed, diff) = lockstep(|| {
             let mut s = position();
             predict(&mut s, "a", &format!("for|{rider}"));
             // The string asks its research / placement questions with no answers scripted: the table's default.
@@ -318,7 +318,9 @@ fn riders_the_core_does_not_pay_have_no_window() {
             g.put_vote(law_vote("checks", Some("for")));
             let _ = g.close_vote();
         });
-        assert_eq!((compared, bailed), (0, 1), "{rider}");
+        // Lane D: the placement riders are the core's (the place is forced or asked), compared with the string's.
+        assert_eq!((compared, bailed), (1, 0), "{rider}");
+        ok(compared, bailed, &diff);
         // The same rider on a missed prediction pays nothing: the window runs.
         let (_, compared, bailed, diff) = lockstep(|| {
             let mut s = position();

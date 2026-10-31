@@ -144,16 +144,7 @@ pub enum RevealScope {
     Standing,
 }
 
-/// A component action a faction module offers and later claims. The string engine builds
-/// `ChoiceOption`s whose id starts `faction|<alias>|`; the typed form names the module (the offering
-/// faction) and a module-defined code with one argument. The adapter renders the id from a table the
-/// module registers (C shards).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ComponentAction {
-    pub module: Faction,
-    pub code: u16,
-    pub arg: u16,
-}
+pub use crate::choice::turn::ComponentAction;
 
 /// Component actions offered at one point.
 pub type ComponentList = SmallList<ComponentAction, 4>;

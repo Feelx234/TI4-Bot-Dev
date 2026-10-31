@@ -102,12 +102,10 @@ fn a_start_of_turn_the_core_cannot_follow_is_a_counted_gap_and_leaves_the_positi
     let held = s.clone();
     assert_eq!(advance_prelude(&mut s, &env(&k), None), gap(TurnGap::ChaosMapping));
     assert_eq!(s, held);
-    // A locked commander of a faction whose unlock condition no hook states yet.
+    // A locked commander of a faction whose unlock condition is a hook (no gap any more: the hook slots are filled).
     let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).build();
     s.players_mut().edit(0).leaders.status.insert(Leader::ALL.iter().copied().find(|l| l.data().faction == FactionTag::Arborec && l.data().kind == LeaderType::Commander).unwrap(), ti4_engine_core::state::LeaderStatus::Locked);
-    let held = s.clone();
-    assert_eq!(advance_prelude(&mut s, &env(&k), None), gap(TurnGap::CommanderUnlock));
-    assert_eq!(s, held);
+    assert_ne!(advance_prelude(&mut s, &env(&k), None), gap(TurnGap::CommanderUnlock));
 }
 
 // -- the phases -----------------------------------------------------------------------------------------------------------------

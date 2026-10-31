@@ -41,8 +41,17 @@ fn minister_of_war(sx: &mut Sx<'_>) -> Flow {
 
 /// `legendary::end_turn`: the abilities of the legendary planets the seat controls, used at the end of its turn.
 fn legendary(sx: &mut Sx<'_>, active: Seat) -> Flow {
+    legendary_when(sx, active, When::EndOfTurn, &END_OF_TURN)
+}
+
+/// `legendary::pass`: the abilities of the legendary planets used when the seat passes.
+pub(super) fn legendary_pass(sx: &mut Sx<'_>, active: Seat) -> Flow {
+    legendary_when(sx, active, When::Pass, &crate::rules::legendary::WHEN_YOU_PASS)
+}
+
+fn legendary_when(sx: &mut Sx<'_>, active: Seat, when: When, planets: &[crate::generated::Planet]) -> Flow {
     // Nothing to offer, nothing asked and nothing announced: the window does not need the tables of the sources.
-    if !END_OF_TURN.iter().any(|p| explore::legendary_available(sx.state, active, *p)) {
+    if !planets.iter().any(|p| explore::legendary_available(sx.state, active, *p)) {
         return Flow::Done;
     }
     let Some(roster) = sx.table.facts.plays.as_ref().and_then(|p| p.roster) else {
@@ -50,7 +59,7 @@ fn legendary(sx: &mut Sx<'_>, active: Seat) -> Flow {
         return Flow::Halt;
     };
     let drop_unofficial = sx.state.meta().rules_at_least(OFFICIAL_ACTION_DECK);
-    let mut window = Legendary::new(active, When::EndOfTurn, sx.table.codes.turn.legendary, reach::scope_of(sx.kernel), roster, drop_unofficial);
+    let mut window = Legendary::new(active, when, sx.table.codes.turn.legendary, reach::scope_of(sx.kernel), roster, drop_unofficial);
     let flow = run(sx, &mut window);
     if flow == Flow::Done && window.unsupported { // mutants:skip: a draw the table could not judge (no printed names) needs a position the env always has the names for
         gap(sx, TurnGap::LegendaryUnsupported);
@@ -182,14 +191,18 @@ pub fn run_finish(sx: &mut Sx<'_>) -> Flow {
             let p = sx.state.pending_mut();
             p.actions_this_turn = p.actions_this_turn.saturating_add(1);
             p.turn_closing = Some(active);
-            let len = match super::closing::options(sx.state, sx.kernel, active) {
+            let Some(roster) = sx.table.facts.plays.as_ref().and_then(|p| p.roster) else {
+                gap(sx, TurnGap::NoRoster);
+                return Flow::Halt;
+            };
+            let len = match super::closing::options(sx.state, sx.kernel, roster, active) {
                 Ok(options) => options.len(),
                 Err(why) => {
                     gap(sx, why);
                     return Flow::Halt;
                 }
             };
-            if len > 1 { // mutants:skip: `closing::options` yields only "end your turn" until lane F assembles the menu
+            if len > 1 {
                 sx.plain(PlainRec::bare(PlainKind::TurnClosing));
                 return Flow::Done;
             }

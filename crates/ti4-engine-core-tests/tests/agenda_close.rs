@@ -9,7 +9,7 @@ use ti4_engine_core_tests::prelude::*;
 const COUNTS: [(Outcome, i64); 2] = [(Outcome::For, 3), (Outcome::Against, 1)];
 
 fn facts() -> Facts {
-    Facts { trade_rider: Code(1), keleres_rider: Code(2), drop_unofficial: false, blanked: false, hooked: 0, research: None }
+    Facts { trade_rider: Code(1), keleres_rider: Code(2), drop_unofficial: false, blanked: false, hooked: 0, research: None, fleet_pool: Code(3) }
 }
 
 fn law() -> Agenda {

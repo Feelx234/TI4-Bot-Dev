@@ -21,6 +21,7 @@ pub mod ability;
 pub mod children;
 pub mod fx;
 pub mod fx_agenda;
+pub mod fx_cards;
 pub mod fx_explore;
 pub mod fx_ground;
 pub mod fx_move;
@@ -37,8 +38,10 @@ pub mod reaction;
 pub mod resolver;
 pub mod seam;
 pub mod stage;
+pub mod trade_env;
 pub mod trigger;
 pub mod turn_codes;
+pub mod agenda_codes;
 
 pub use hooks::HookTable;
 pub use next::Next;

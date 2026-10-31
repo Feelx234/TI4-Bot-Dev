@@ -118,6 +118,8 @@ pub enum Ask {
     Tiebreak { frame: Frame },
     /// 8.18, an agenda effect that names one player (Seed of an Empire): the speaker picks among the tied.
     NameTied,
+    /// Colonial Redistribution: the controller of the planet names which of the trailing players may settle it.
+    Settler,
     /// Homeland Defense Act, Against: the seat destroys one of its PDS.
     Structure,
     /// `laws::offer_discard`: the owner of `law` may discard it (the caller's `prompt`, interned, is the text).
@@ -128,6 +130,19 @@ pub enum Ask {
     UseOnAgenda { source: UseSource, agenda: Agenda, owner: Seat },
     /// Committee Formation, after the owner discarded the card: which player the agenda elects (no vote follows).
     Committee { agenda: Agenda },
+    /// A correct Construction, Diplomacy or Warfare Rider with several places to choose from: where the reward goes.
+    RiderTarget { rider: Rider },
+}
+
+/// The riders whose payoff is a place the seat picks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Rider {
+    /// A space dock on a planet the seat controls.
+    Construction,
+    /// A command token from every other seat in a system with a planet the seat controls.
+    Diplomacy,
+    /// A dreadnought in a system with a ship of the seat.
+    Warfare,
 }
 
 /// What a [`Ask::UseOnAgenda`] question offers.
@@ -153,7 +168,7 @@ impl Ask {
             | Self::Recombine { frame, .. }
             | Self::Tribute { frame, .. }
             | Self::Tiebreak { frame } => Some(frame),
-            Self::NameTied | Self::Structure | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } | Self::Committee { .. } => None,
+            Self::NameTied | Self::Settler | Self::Structure | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } | Self::Committee { .. } | Self::RiderTarget { .. } => None,
         }
     }
 }
@@ -182,7 +197,7 @@ pub enum Opt {
     TributeVote,
     /// Genetic Recombination: return a fleet token instead.
     TributeToken,
-    /// `NameTied`: this player is the one the agenda names.
+    /// `NameTied` / `Settler`: this player is the one the agenda names.
     Elect(Seat),
     /// `Structure`: the PDS in position `index` of the planet's units (the option id), on this planet.
     Structure { index: u8, planet: Planet, system: System },
@@ -190,6 +205,8 @@ pub enum Opt {
     DiscardLaw,
     /// `UseOnAgenda`: use the card or ability.
     UseCard,
+    /// `RiderTarget`: the system, and for a planet reward the planet in it.
+    Spot { system: System, planet: Option<Planet> },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -203,12 +220,14 @@ pub enum Subtype {
     RecombinationTribute,
     Tiebreak,
     ElectTiebreak,
+    SettleTrailing,
     DefenseStructure,
     OfferDiscardLaw,
     UseQuash,
     UseFavor,
     UseSecret,
     CommitteeElect,
+    RiderTarget(Rider),
 }
 
 impl Ask {
@@ -224,12 +243,14 @@ impl Ask {
             Self::Tribute { .. } => Subtype::RecombinationTribute,
             Self::Tiebreak { .. } => Subtype::Tiebreak,
             Self::NameTied => Subtype::ElectTiebreak,
+            Self::Settler => Subtype::SettleTrailing,
             Self::Structure => Subtype::DefenseStructure,
             Self::DiscardLaw { .. } => Subtype::OfferDiscardLaw,
             Self::UseOnAgenda { source: UseSource::Quash, .. } => Subtype::UseQuash,
             Self::UseOnAgenda { source: UseSource::Favor, .. } => Subtype::UseFavor,
             Self::UseOnAgenda { source: UseSource::Secret, .. } => Subtype::UseSecret,
             Self::Committee { .. } => Subtype::CommitteeElect,
+            Self::RiderTarget { rider } => Subtype::RiderTarget(*rider),
         }
     }
 }

@@ -22,6 +22,12 @@ pub struct TurnCodes {
     pub strategy_card: Code,
     /// `starting_technology`: the source of a starting technology question.
     pub starting_technology: Code,
+    /// `transaction`: the source of the trade goods a deal gives (the live trade window).
+    pub transaction: Code,
+    /// `dark_pact`: the source of the trade good Dark Pact gains.
+    pub dark_pact: Code,
+    /// `tcs`: the source of Temporal Command Suite's question.
+    pub tcs: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.
@@ -58,6 +64,33 @@ pub enum TurnGap {
     EmissionRefused,
     /// A replayed answer was refused by the window it was given to (the question changed between the replays).
     ReplayDiverged,
+    /// A free-form deal names a card, note, planet or fragment kind the typed tables do not know (the string answers with a rejection).
+    TradeTerms,
     /// A commander of a faction whose unlock condition no hook states yet (`commander_unlocked`) could unlock.
     CommanderUnlock,
+    /// Plots Within Plots left a plot card to place (the Firmament, a dropped faction).
+    PlotCard,
+    /// A ship stands in an Entropic Scar (Thunder's Edge: the faction technologies of the status phase).
+    EntropicScar,
+    /// A promissory note's faction is played by two seats, so the note has no one owner to go home to.
+    NoteOwner,
+    /// An event scoring window closed with the agendas of its agenda phase waiting on the stack: the vote is the agenda lane's.
+    AgendaQueue,
+    /// A secret objective the core cannot judge (Strengthen Bonds, Produce en Masse).
+    ScoringSecret,
+    /// The action menu could not be listed or run natively (package KM): see [`MenuGap`].
+    Menu(MenuGap),
+}
+
+/// Why the action menu, or the action chosen from it, is not native for a position (a counted gap, never a silent skip).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuGap {
+    /// An action card the core cannot judge playable (Signal Jamming's systems, or a bill whose facts the core does not hold).
+    ActionCard,
+    /// A faction component action of a module whose listing is not in the core (`ComponentAction::module`).
+    Faction(crate::generated::Faction),
+    /// The option chosen has no native body yet (`code` names which: see `driver::action`).
+    Action(u8),
+    /// An option the live menu never lists was answered.
+    Refused,
 }

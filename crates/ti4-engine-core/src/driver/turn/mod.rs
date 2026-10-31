@@ -11,6 +11,8 @@
 //! an action is opened by whichever arm finished the action ([`open_finish`]; the closing menu's "end your turn" opens
 //! [`TurnJob::End`] itself).
 
+pub mod action;
+pub mod action_menu;
 pub mod ask;
 pub mod closing;
 pub mod draft;
@@ -53,6 +55,12 @@ impl Window for TurnFlowWin {
             TurnJob::Announce => phase::run_announce(sx),
             TurnJob::Reconcile => prelude::run_reconcile(sx),
             TurnJob::Draft(card) => draft::run_draft(sx, card),
+            TurnJob::StatusOpen => crate::driver::windows::status::run_open(sx),
+            TurnJob::StatusBookkeeping => crate::driver::windows::status_bookkeeping::run_bookkeeping(sx),
+            TurnJob::StatusFinish => crate::driver::windows::status_finish::run_finish(sx),
+            TurnJob::AgendaOpen => crate::driver::agenda::flow::run_open(sx),
+            TurnJob::AgendaNext => crate::driver::agenda::flow::run_next(sx),
+            TurnJob::Action(key) => action::run_action(sx, key),
         };
         Next::Done
     }

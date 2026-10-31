@@ -34,6 +34,9 @@ pub fn codes(r: &Render) -> TurnCodes {
         spec_ops: r.code("spec ops II"),
         strategy_card: r.code("strategy_card"),
         starting_technology: r.code("starting_technology"),
+        transaction: r.code("transaction"),
+        dark_pact: r.code("dark_pact"),
+        tcs: r.code("tcs"),
     }
 }
 
@@ -96,7 +99,7 @@ fn starting_tech(core: &CoreState, choice: &CoreChoice, number: u8, of: u8, rule
 }
 
 /// `laws::offer_discard_text`'s display facts for `law`.
-fn discard_law(law: Agenda, effect: &str, rendered: &mut Choice) {
+pub(super) fn discard_law(law: Agenda, effect: &str, rendered: &mut Choice) {
     let alias = IdStr::as_str(law);
     let content = ContentStore::embedded();
     let record = content.get(ContentType::Agendas, alias);

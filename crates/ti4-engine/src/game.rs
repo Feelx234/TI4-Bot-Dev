@@ -50,6 +50,22 @@ mod production_step_tests;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "turn_live_tests.rs"]
 mod turn_live_tests;
+// The lockstep of the action menu and its pass (lane F) against the string's `turn_options` and `apply_choice`.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "action_menu_live_tests.rs"]
+mod action_menu_live_tests;
+// The lockstep of the native status phase (lane C) against the string steps it replaces.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "status_live_tests.rs"]
+mod status_live_tests;
+// The lockstep of the native agenda phase (lane D) against the string steps it replaces.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "agenda_live_tests.rs"]
+mod agenda_live_tests;
+// The lockstep of the native trade island (lane M1) against the string's `step_trade` and the opening of `apply_choice`.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "trade_live_tests.rs"]
+mod trade_live_tests;
 #[cfg(not(feature = "typed-core"))]
 mod d1_pending {
     pub(super) const fn active() -> bool {
@@ -2931,7 +2947,7 @@ impl<'a> Game<'a> {
         ));
         if dual {
             let exp: Vec<String> = expedition.iter().map(|o| o.id.clone()).collect();
-            crate::menu_dual::check_closing_menu(&self.state, player, second_action, &seen, &exp, &choice);
+            crate::menu_dual::check_closing_menu(&self.state, self.sources, player, second_action, &seen, &exp, &choice);
         }
         choice
     }
@@ -3096,7 +3112,7 @@ impl<'a> Game<'a> {
         ));
         if dual {
             let failed: Vec<String> = self.failed_component_actions.iter().cloned().collect();
-            crate::menu_dual::check_action_menu(&self.state, &parts, self.state.thunders_edge, &failed, &choice);
+            crate::menu_dual::check_action_menu(&self.state, self.sources, self.galaxy.as_ref(), &parts, self.state.thunders_edge, &failed, &choice);
         }
         Some(choice)
     }

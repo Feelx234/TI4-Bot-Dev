@@ -25,11 +25,11 @@ use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
 use crate::render::Render;
 
-type Seen = Rc<RefCell<Vec<Choice>>>;
+pub(super) type Seen = Rc<RefCell<Vec<Choice>>>;
 
 /// A table that answers with the next scripted option id and records every question it was asked. A question with no scripted answer
 /// stops the string body (an error report), which is how the harness cuts the block off where the string's step goes on to the menu.
-struct Script {
+pub(super) struct Script {
     ids: VecDeque<String>,
     seen: Seen,
     /// Take the first option when the script has run out (and record it in `taken`), instead of stopping the body.
@@ -47,7 +47,7 @@ impl Decider for Script {
         }) else {
             return Err(IllegalChoice::NoOptions { player: choice.player.clone(), prompt: choice.prompt.clone() });
         };
-        choice.options.iter().find(|o| o.id == id).cloned().ok_or_else(|| panic!("the script answers {id:?}, the question {:?} offers {:?}", choice.prompt, choice.ids()))
+        choice.answer_for(&id).ok_or_else(|| panic!("the script answers {id:?}, the question {:?} offers {:?}", choice.prompt, choice.ids()))
     }
 }
 
@@ -56,18 +56,18 @@ pub fn pid(s: &str) -> PlayerId {
 }
 
 /// What a run left.
-struct Run {
-    questions: Vec<Choice>,
-    events: Vec<String>,
-    state: Value,
-    rng: crate::rng::RngPositions,
+pub(super) struct Run {
+    pub(super) questions: Vec<Choice>,
+    pub(super) events: Vec<String>,
+    pub(super) state: Value,
+    pub(super) rng: crate::rng::RngPositions,
     /// The events effects staged for a later announcement (the string keeps them as `private:#staged:event:*` marks, the core in
     /// `Pending::staged`), by name, in order.
-    staged: Vec<String>,
+    pub(super) staged: Vec<String>,
 }
 
 /// Take the staged-event marks out of a string position: their names, and the position without them.
-fn without_staged(mut state: Value) -> (Value, Vec<String>) {
+pub(super) fn without_staged(mut state: Value) -> (Value, Vec<String>) {
     let mut staged = Vec::new();
     if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
         let keys: Vec<String> = marks.keys().filter(|k| k.starts_with("private:#staged:event:")).cloned().collect();
@@ -81,7 +81,7 @@ fn without_staged(mut state: Value) -> (Value, Vec<String>) {
 }
 
 /// The string body on a copy of `state`, answered by `ids`.
-fn string_run(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Game<'static>)) -> Run {
+pub(super) fn string_run(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Game<'static>)) -> Run {
     let _serial = crate::dual::tests::serial();
     let seen: Seen = Rc::default();
     let table = Table::with_default(Box::new(Script { ids: ids.iter().map(|s| (*s).to_owned()).collect(), seen: seen.clone(), first_after: None }));
@@ -93,7 +93,7 @@ fn string_run(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Gam
 }
 
 /// [`string_run`] that takes the first option of every question after the scripted ones: the answers it took, for the native run.
-fn string_run_first(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Game<'static>)) -> (Run, Vec<String>) {
+pub(super) fn string_run_first(state: &GameState, ids: &[&str], body: impl FnOnce(&mut super::Game<'static>)) -> (Run, Vec<String>) {
     let _serial = crate::dual::tests::serial();
     let seen: Seen = Rc::default();
     let taken: Rc<RefCell<Vec<String>>> = Rc::default();
@@ -114,13 +114,13 @@ fn native_run(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&str]) -
 }
 
 /// The native steps in order (`reconcile` first when asked, as a step does), one asker for all of them.
-fn native_steps(state: &GameState, steps: &[(Arm, Option<TurnJob>)], reconcile: bool, ids: &[&str]) -> Run {
+pub(super) fn native_steps(state: &GameState, steps: &[(Arm, Option<TurnJob>)], reconcile: bool, ids: &[&str]) -> Run {
     let marked: Vec<(bool, Arm, Option<TurnJob>)> = steps.iter().enumerate().map(|(i, (arm, job))| (reconcile && i == 0, *arm, *job)).collect();
     native_marked(state, &marked, ids)
 }
 
 /// Like [`native_steps`], each step saying whether the reconcile hooks run before it (a string step starts with them).
-fn native_marked(state: &GameState, steps: &[(bool, Arm, Option<TurnJob>)], ids: &[&str]) -> Run {
+pub(super) fn native_marked(state: &GameState, steps: &[(bool, Arm, Option<TurnJob>)], ids: &[&str]) -> Run {
     let steps: Vec<(bool, Option<Arm>, Option<TurnJob>)> = steps.iter().map(|(r, a, j)| (*r, Some(*a), *j)).collect();
     native_marked_arms(state, &steps, ids)
 }
@@ -179,7 +179,7 @@ fn shape(c: &Choice) -> Value {
 }
 
 /// Both runs agree on the questions, the events and the position.
-fn assert_same(string: &Run, native: &Run) {
+pub(super) fn assert_same(string: &Run, native: &Run) {
     assert_eq!(string.questions.iter().map(shape).collect::<Vec<_>>(), native.questions.iter().map(shape).collect::<Vec<_>>(), "the questions");
     assert_eq!(string.events, native.events, "the events");
     assert_eq!(string.staged, native.staged, "the events left staged for the next step");
@@ -190,19 +190,19 @@ fn assert_same(string: &Run, native: &Run) {
 
 /// The position a game starts from: what the constructor does to a state (the baselines `announce_gains` keeps) is part of it for both
 /// sides.
-fn based(state: GameState) -> GameState {
+pub(super) fn based(state: GameState) -> GameState {
     super::Game::with_table(state, ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption))).state
 }
 
 /// A table of `seats` in the action phase, seat `a` active, its turn prepared.
-fn action_table(seats: &[(&str, &str)]) -> GameState {
+pub(super) fn action_table(seats: &[(&str, &str)]) -> GameState {
     let mut state = crate::fixtures::seated_dealt(seats, DEFAULT);
     state.phase = ti4_model::state::Phase::Action;
     state.active = Some(pid(seats[0].0));
     based(state)
 }
 
-const THREE: [(&str, &str); 3] = [("a", "sol"), ("b", "hacan"), ("c", "arborec")];
+pub(super) const THREE: [(&str, &str); 3] = [("a", "sol"), ("b", "hacan"), ("c", "arborec")];
 
 #[test]
 fn the_end_of_a_plain_turn_passes_on_like_the_string() {
@@ -549,17 +549,6 @@ fn native_stop_with(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&s
     let held = core.clone();
     let stop = live::live_step(&mut core, arm, &lcx, &mut Scripted::new(ids.iter().copied())).expect_err("the job stops");
     (stop, core == held)
-}
-
-#[test]
-fn fleet_logistics_offers_a_second_action_which_the_core_does_not_assemble_yet() {
-    use ti4_engine_core::kernel::ability::Unknown;
-    use ti4_engine_core::kernel::turn_codes::TurnGap;
-    let mut state = action_table(&THREE);
-    state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("fl"));
-    let (stop, untouched) = native_stop(&state, Arm::Ask, TurnJob::Finish);
-    assert_eq!(stop, crate::live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources))));
-    assert!(untouched, "the gap leaves the position as it was, ACTION_COMPLETED included");
 }
 
 // -- the reconcile hooks and the rest of the end of a turn ---------------------------------------------------------------------

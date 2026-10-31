@@ -195,6 +195,13 @@ impl Pending {
         }
     }
 
+    /// Remember that the menu option with `key` failed this turn (once): the live menu does not offer it again.
+    pub fn note_failed_key(&mut self, key: u32) {
+        if !self.failed_keys.as_slice().contains(&key) {
+            self.failed_keys.push(key);
+        }
+    }
+
     /// The open window of `kind`.
     #[must_use]
     pub fn window(&self, kind: WindowKind) -> Option<&Window> {
@@ -262,6 +269,8 @@ pub struct Pending {
     /// `Game.failed_component_actions`: the component actions that failed this turn (their menu ids, interned), which the turn menu
     /// does not offer again; cleared by `driver::turn_flow::forget_failed_components` when the turn ends and in a hypothetical turn.
     pub failed_component_actions: SmallList<super::Code, 8>,
+    /// The same, as the typed options (`choice::turn::Opt::key`) the live menu filters on; cleared with it.
+    pub failed_keys: SmallList<u32, 8>,
     /// The suspended nested question of the live window (see [`Nested`]); written by `driver::live::advance` only.
     pub nested: Option<Nested>,
 }

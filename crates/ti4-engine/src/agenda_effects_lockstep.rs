@@ -429,14 +429,14 @@ fn irreproducible_dice_have_no_window() {
 }
 
 /// Rearmament For and Swords to Plowshares Against place units through the supply, the unit-form flip and the
-/// faction placement hooks, and Unconventional Measures For draws announced action cards (B9-bail-02).
+/// faction placement hooks, and Colonial Redistribution places an infantry: lane D (KV3) gave them windows, run beside the string
+/// by the live lockstep (`agenda_live_tests`).
 #[test]
-fn the_placing_and_drawing_halves_have_no_window() {
+fn the_placing_halves_have_a_window() {
     let mut state = table();
-    assert!(core_half(&mut state, "rearmament", FOR, &Ballot::default()).is_none());
-    assert!(core_half(&mut state, "plowshares", AGAINST, &Ballot::default()).is_none());
-    // Colonial Redistribution places an infantry through the supply and the faction hooks.
-    assert!(core_half(&mut state, "redistribution", "jord", &Ballot::default()).is_none());
+    assert!(core_half(&mut state, "rearmament", FOR, &Ballot::default()).is_some());
+    assert!(core_half(&mut state, "plowshares", AGAINST, &Ballot::default()).is_some());
+    assert!(core_half(&mut state, "redistribution", "jord", &Ballot::default()).is_some());
     // The halves that are ported answer.
     assert!(core_half(&mut state, "rearmament", AGAINST, &Ballot::default()).is_some());
     assert!(core_half(&mut state, "plowshares", FOR, &Ballot::default()).is_some());

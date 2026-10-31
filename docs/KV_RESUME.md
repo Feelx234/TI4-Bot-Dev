@@ -1,0 +1,95 @@
+# D2 lane D (`core-d2-c1-agenda`): the agenda phase, resume note (2026-10-31)
+
+Branch `core-d2-c1-agenda`, cut from `core-d2-c2-turn` (`fe3e3b85`) and merged with `core-d2-c1-status` (lane C: `EventScoring`, `open_event`, the close
+jobs). Read `docs/KP_RESUME.md` (the jobs of the turn flow, `inline::run`, the tape), `docs/KS_RESUME.md` (the close pattern), `docs/D2_LF_RESUME.md` and
+`docs/D2_LF2_RESUME.md` first. Never pushed; `nightly-fixes-2026-10-26` untouched. Packages KV1-KV3 of `docs/todo/D2-islands-composition.md` (section 6.1).
+
+## What is native
+
+| piece | where | notes |
+|---|---|---|
+| `Arm::Agenda` (KV1) | `driver/agenda/flow.rs::run_open`, job `TurnJob::AgendaOpen` | the `AGENDA_RESOLVED` flag, the two top agendas, then `open_next_vote`: the reveal chain (`rules::agenda::reveal::Reveal`: Quash, Political Favor, Veto, Political Secret, the replacement chain), Committee Formation (`OfferDiscard` + `Committee`), the vote put on the stack; at the end `ready_after_agenda_phase` (Checks and Balances' limit) and `AGENDA_PHASE_RESOLVED` |
+| `Arm::Voting` (KV2) | `driver/agenda/mod.rs::VotingWin` (kind `Voting`, `Held`) | payload = the existing `state::Voting`; `Vote::restore`/`to_payload`/`settle`/`casts` (new, `rules/agenda/window.rs`); every answer is followed by the vote's own settle, the `agenda_casts` mirror and `VOTES_CAST` (once per voter from `RULES_BRIBERY_PER_PLAYER`) through the reaction windows; the voting order is `rules::agenda::voting_order` over a real `KernelEnv` (Nekro's bar, Elder Qanoj, Argent's first vote, Hack Election's last one; `Facts::of_core`: Blood Pact partners from the faceup notes) |
+| the close (KV3) | `driver/agenda/close.rs` | the call that applies the last answer also closes: Covert Legislation's hidden agenda, `Close` (AGENDA_RESOLVED, the cards played into it, log, redirect, correct riders, law), the effect (`Resolve`), the feat `ElectedByAnAgenda`, the agenda-timed scoring window (lane C's `open_event`) with the agendas to come held behind it (`AgendaQueueAfterEventScoring`); a vote that resolved nothing goes straight to the next agenda |
+| `TurnJob::AgendaNext` | `flow::run_next`; lane C's `advance_event_scoring` closes into it when the queue is on the stack | the next reveal and vote after the scoring window (replaces lane C's `TurnGap::AgendaQueue`) |
+| effects now in the core | `rules/agenda/effects/placements.rs`, `driver/agenda/grant.rs` | Swords to Plowshares (Against), Rearmament Agreement (For), Colonial Redistribution (new `Ask::Settler`), Research Grant Reallocation (the relics' technology question composed at the driver level: an area window may not import another) |
+| announcement of an agenda's destroyed ground forces | `driver/agenda/ground.rs`, called by the reconcile (`driver/turn/prelude.rs::announce_staged`) | the staged `PrivateStagedGround` rows with cause `DestroyReason::Agenda` become `GROUND_FORCE_DESTROYED` in the next step's reconcile, before the staged events (the string's order); other causes are still the staging lane's |
+
+State/protocol decisions: the vote and the close stay in ONE held window (`VotingWin`) so the next agenda's vote can replace it inside the step (the driver closes the window kind
+on `Done`, which would pop a window the step had just opened); the vote of the next agenda is asked as the arm's stage question. A question from inside the step (a reaction window,
+a rider's pick) goes to the tape (`driver::turn::inline`), so a caller that returns between questions continues from the position alone (`Pending::nested`).
+
+Registry: `driver/live.rs` `live_arm`/`ask_arm_fn` gained `Agenda` (`agenda::advance_agenda`, `turn::ask_job`) and `Voting` (`agenda::advance_voting`/`ask_voting`). Engine half:
+`live/agenda.rs` (the texts `AgendaCodes`, the whole tally of a long election, the Committee prompt, research labels), `reactions_core::set_table_codes`, `native_subject::open_arm`
+(`Arm::Voting` from the observed window, `Arm::Agenda` opens itself), the lockstep `agenda_live_tests.rs`.
+
+## Found and fixed on the way (each with a test that fails on the old code)
+
+* `driver/windows/scoring.rs` (lane C): an agenda's event window recorded the occurrence a seat used (`scored_feat_occurrences`); only the one-per-player window does (`ScoringWindow::score`). Test: `a_for_against_law_...` / the sweep (position differs).
+* `Tally::MAX` (8): a planet election among more than 8 planets made the vote question `None`; the question keeps the first 8 and `live::agenda::full_tally` rebuilds `details.tally` from the vote on the stack.
+* `KernelEnv::is_nekro` answered `false` ("the adapter applies it"): Galactic Threat now bars the Nekro seat in the core's voting order. Test: `nekro_cannot_vote_on_agendas_...`.
+
+## More native pieces added after the first draft
+
+* The placement riders (Construction, Diplomacy, Warfare) in `rules/agenda/close.rs`: the place is forced when there is one and asked when there are several (new `Ask::RiderTarget`, `Opt::Spot`, rendered byte-exact);
+  the space dock goes where the string puts it (the dock I forms only count as a dock on the planet: the string compares the unit id with `spacedock`, so a planet with a dock II is offered again: parity kept),
+  Diplomacy takes a fleet token from every other seat that has one and stages `COMMAND_TOKEN_PLACED`, Warfare places the dreadnought without a supply check (as the string).
+* Draws with hooks: `driver/windows/hooked_draw.rs` (`HookedDraw`, registered in `driver/children.rs` for `Spawn::DrawCards`): without a hook it is `DrawCards`; with one (Yssaril's Scheming and Crafty, a draw bonus, a changed limit,
+  blank laws) the bonus card joins, `SchemingDiscard` (lane C) comes before the limit and the limit is the faction's. The Politics Rider and Unconventional Measures of a Yssaril seat run natively.
+* The card moves a faction effect staged in a window (a Scheming discard) are announced right after `AGENDA_REVEALED` and `AGENDA_RESOLVED` (`kernel/fx_cards.rs`, as `Live::emit_typed` does).
+* The Technology Rider's research options are labelled with the printed names (`live::agenda::complete`).
+
+## Gaps (counted, never silent): `Unknown::AgendaGap(AgendaGap)` -> `live::<arm> [AgendaGap(..)]`
+
+`kernel/agenda_codes.rs`. Open at the end of this lane:
+
+| gap | when | who closes it |
+|---|---|---|
+| `NoEffect(15)` | Galactic Crisis Pact elected: each seat may perform the secondary of the elected strategy card without a command token (`strategy::crisis_pact_choice`, `strategy_cards::secondary`) | lane E (KX): the per-card secondary windows and `secondary_can_do_something`; one `Kind::Pact` in `rules/agenda/effects` or a driver-level window like `driver/agenda/grant.rs` |
+| `CloseUnsupported` | a correct Technology Rider at a seat the research window does not carry (no unit roster in the table's play facts, `research: None`); any correct rider below `RULES_COMMAND_TOKEN_POOL` (12) or a placement rider below `RULES_TECH_RIDER` (9); `Classified Document Leaks` electing a non-secret | old rules versions: the string path; the roster: the live `Env` must carry `plays` (`env_with_plays`) |
+| `EffectUnsupported(n)` | Plowshares / Rearmament / Redistribution / Grant without the unit roster in the table's play facts | same |
+| `PhaseNotReady`, `RevealFailed`, `CloseFailed`, `ReplayDiverged`, `OpenedWindow`, `EmissionRefused`, `Refused` | defects of the position or the environment; `Refused`: a deck reserve (turn redo, dropped) | n/a |
+
+Not native by decision (the dropped content): the Executive Order, the Keleres agent's goods window, `Arm::AgendaTalks` (structured diplomacy), the Deepwrought oceans, Last Bastion's dock bonus.
+NOT done: the vote of a Valefar Assimilator carrying Genetic Recombination (the holder query of the core reads the owned technology only; the string's `mahact::recombination_holder` also reads the Valefar token): the core would
+ask the wrong seat. Not covered by a scenario either; list it with the Nekro lane.
+
+
+## Lockstep evidence (`ti4-engine/src/agenda_live_tests.rs`, in the lib)
+
+The string `Game::step` and the native arms run side by side on the same position with the same answers (`string_agenda` / `native_agenda`): questions as rendered (prompt, option ids, kinds, labels, details, context), the
+plain and typed events in order, the staged events, the position (`diff_json` of the materialized `GameState`) and the dice streams, from the first agenda step to `AGENDA_PHASE_RESOLVED`.
+
+* a For/Against law with a follow-up agenda; an empty deck; every agenda of the corpus (62 of 63; Galactic Crisis Pact is the counted gap, asserted by its own test) on a table with laws in play, a scored secret and planets, once backing the first option and once voting against;
+* voting order: Nekro (cannot vote), Argent (votes first), a silent table (the speaker decides), a tie, abstentions; Hacan's commander (trade goods as votes), Predictive Intelligence, Genetic Recombination (also carried by a Nekro's Valefar Assimilator), a Blood Pact;
+* every rider (Imperial, Trade, Politics, Leadership, Construction, Diplomacy, Warfare, Technology, Sanction, Assassin) for a plain seat and for a Yssaril seat;
+* Research Grant Reallocation (the corpus-ordered technology list).
+
+Core halves: `ti4-engine-core-tests/tests/agenda_flow.rs` (rebuild from payload, clone mid-window, close, illegal answer, silent table), `agenda_riders.rs`; `driver::agenda` has no inline tests beyond those.
+
+## Checks (cheap), `CARGO_BUILD_JOBS=2`, private target dir `/root/deploytmp/core-d`
+
+* `cargo test -p ti4-engine-core --lib`: 466 passed. `-p ti4-engine-core-tests` (the agenda_*, status_phase, turn_* binaries, incl. the new `agenda_flow` 4 and `agenda_riders` 2): all ok.
+* `cargo test -p ti4-engine --lib` (default areas, whole lib, at the end of the lane): 4984 passed, 0 failed, 7 ignored (2 exploration aids).
+* `cargo test -p ti4-engine-core-bridge --lib`: 74 passed.
+* `tools/engine_core/check_layers.py core`: 469 files, 0 violations. `lint_core.sh`: 471 files, 0 hits.
+* `playthrough_quick.sh --maxsteps 1500` (gate profile, sol, 4 players, seed 1, `te`, `starting_tech`): **island D: 113 counted bails** in 4 causes (`d1::step [bail: voting]` 93, `d1::pending.open/close [bail: Voting]` 8 + 8, and the agenda
+  step), against 114 at the first run of lane A2. The bin still plays the string `Game` under `all=dual` (the wrapper of D2-8 does not call `live_step` yet), so the table counts the dual's own bails of the windows the core cannot follow in
+  the dual, not the native arms: they are proven by the lockstep above. Whole table of that run: M1 108, M2 27, M3 146, M4 71, M5 482, M6 631, B 865, C 192, D 113, E 121, F 8, other 7.
+
+* Mutation (`tools/engine_core/mutants.sh crates/ti4-engine-core/src/driver/agenda`, 102 points, 15 not compilable under the switch; the two test sets, taking the union): first run of the lockstep set 67/90 killed; after the survivor tests
+  (covert legislation, committee formation, the first seat's rider, a grant below version 14, a demilitarized zone) 77/87; the core set (`agenda_flow`, `agenda_riders`: the phase gap, the grant's scope, the staged ground rows' payload,
+  the grant without a roster) kills the rest but two, both marked `// mutants:skip` with their reason (the halted guard of a refused emission, the fallbacks of `state_code`, an unreachable committee owner). Not mutated: `rules/agenda/effects/placements.rs`,
+  `rules/agenda/close.rs` (rider placement), `driver/windows/hooked_draw.rs`, `rules/agenda/window.rs` (restore/casts/pact), `kernel/fx_cards.rs`, `live/agenda.rs`: the lockstep sweeps run them, no mutation batch was run on them.
+
+Tests changed because the behaviour they pinned moved (not loosened): `rules::agenda::close` (the placement riders have a window), `agenda_vote2` (a long election keeps the first eight tally entries), `status_phase` (the queue is taken, no longer a gap), the registry tests (`Agenda`, `Voting` native),
+`agenda_close_tests::riders_that_place_run_in_the_core_in_lockstep`, `agenda_effects_lockstep::the_placing_halves_have_a_window`.
+
+Not run: golden/wide dual sweeps, benches, soak, mutation ratchet, census, workspace clippy, the armed dual, the Z-gate, `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` over the whole lib (not run in this lane).
+
+## Hand-overs
+
+* **Lane E (KX)**: Galactic Crisis Pact (`NoEffect(15)`); the labels of the research options are set in `live::agenda::complete` (the same fix belongs to the Technology primary).
+* **Whoever stages ground destructions** (action cards, technologies): `driver/agenda/ground.rs::announce` only announces `DestroyReason::Agenda`; add the cause code of your reason next to `AgendaCodes::ground_cause`.
+* **The wrapper (D2-8)**: call `live_reconcile` before every `live_step`; the table of a live game must carry `plays` (`env_with_plays`) or the riders/effects that place units stop with a counted gap.
+* `fx_cards::announce_staged_cards` exists in the kernel now; lane C's private copy in `status_finish.rs` can use it.

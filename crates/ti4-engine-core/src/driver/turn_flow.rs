@@ -206,6 +206,7 @@ pub fn end_turn_scratch(core: &mut CoreState) {
 /// step from [`end_turn_scratch`]: the dual lends that one without the `Pending` slice, the live turn-end composer calls both.
 pub fn forget_failed_components(core: &mut CoreState) {
     core.pending_mut().failed_component_actions.clear();
+    core.pending_mut().failed_keys.clear();
 }
 
 /// What the end of a turn announces, in the order the string pushes it. `Passed` is the plain `TURN_PASSED` and the typed event

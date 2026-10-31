@@ -43,6 +43,7 @@ pub mod direct;
 pub mod economy;
 pub mod ground;
 pub mod movement;
+pub mod components;
 pub mod sites;
 pub mod strategy;
 

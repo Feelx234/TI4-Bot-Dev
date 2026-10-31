@@ -730,6 +730,7 @@ pub fn drive_windowed<W: Window>(
                 ti4_engine_core::kernel::ability::Unknown::Unported(why) => crate::invasion_live::unported_text(why),
                 ti4_engine_core::kernel::ability::Unknown::UnportedProduction(why) => crate::production_live::gap_text(why),
                 ti4_engine_core::kernel::ability::Unknown::TurnGap(_) => "a place the live turn flow does not follow",
+                ti4_engine_core::kernel::ability::Unknown::AgendaGap(_) => "a place the live agenda phase does not follow",
             };
             crate::dual::note_bail(LABEL.with(Cell::get), &format!("nested ({why})"));
             return Err(DriverError::NotAsking);
@@ -1352,6 +1353,8 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
         hooked: draw_hooks_on_plain_kernel(gs, &r),
         drop_unofficial: gs.rules_version >= ti4_model::state::RULES_OFFICIAL_ACTION_DECK,
         blanked: crate::laws::blanked(gs),
+        roster: crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), a.sources),
+        redistribution: r.code("redistribution"),
     };
     let window = Resolve::of_facts(agenda, outcome, &facts).why("an agenda whose effect the core has no window for")?;
     if window.draws() && gs.deck_reserve.is_some() {

@@ -1,262 +1,300 @@
-//! The scoring window of a tactical event as ONE window the core drives and holds (lane M5; the string `Game::{open_occurrence_event_scoring,
-//! step_event_scoring, score_step}` over `objectives::ScoringWindow`): after a space cannon offense, a space combat or an invasion step that
-//! recorded a feat, every seat in initiative order may score the secret objectives that feat unlocks. L5: it walks the table with the
-//! [`ScoringBook`] over the offers the position gives ([`CoreOffers`], the core's `secrets::scoreable_event`), asks one seat at a time with a
-//! [`ScoreOne`] child, and keeps the book as the typed payload [`crate::state::Scoring`] on the `Pending` stack.
+//! The scoring windows as HELD windows (package KS1, lane C): the status phase's 81.1 window (`Window::Scoring`, `Arm::Scoring`) and the
+//! windows of an action- or agenda-timed secret (`Window::EventScoring`, `Arm::EventScoring`), `Game::step_scoring`,
+//! `Game::step_event_scoring` and `Game::score_step`.
 //!
-//! The plain events of the string's `step_event_scoring` are written here: `OBJECTIVE_SCORED:{objective}` after a score and `GAME_FINISHED` when
-//! the score ended the game (the window closes then). What the core does not do (the leaders a PUBLIC score unlocks, Yin's staged event, the
-//! Firmament's plots) is not in an event window of the agreed content: a leaked secret scored as a public objective is the one reachable case
-//! and the string's `award_tail` is not run for it (counted in the resume note).
+//! The machine is ONE type over a const flag. Its payload on the stack is the bookkeeping of the window ([`ScoringBook`]: who is asked
+//! next, what each player used, the occurrence the window settles); WHO is asked and WHAT they may score is a function of that book and
+//! the position ([`CoreOffers`], over `Seen`: the same queries the string engine's typed view calls), so `from_pending(to_pending(m))`
+//! is the machine and a clone of the position mid-window continues identically. One question per step, as the string asks; a step that
+//! finds nobody left to ask ends the window (the string's next step is its close, which the arm functions of `status.rs` run).
+//!
+//! What stays out, by decision, as counted gaps (`TurnGap`): Plots Within Plots (the Firmament is dropped, `plot_card` is never set), a
+//! secret the core cannot judge (Strengthen Bonds, Produce en Masse), and a commander of a faction whose unlock hook no module registers
+//! yet (the unlock check after a public score, see `turn::start::unlockable`).
 
-use crate::choice::objectives::{score_choice, Ask as OAsk, Offer};
-use crate::choice::{Ask, Choice, Pick};
+use crate::choice::objectives::{score_choice, Offer};
+use crate::choice::{Choice, Pick};
 use crate::containers::SmallList;
-use crate::generated::SecretObjective;
+use crate::generated::{ObjectivePhase, SecretObjective};
 use crate::ids::Seat;
+use crate::kernel::fx::finish_if_won;
+use crate::kernel::fx_pay::PayEnv;
 use crate::kernel::stage::{Held, Illegal, Sx, Window};
-use crate::kernel::{fx, Kernel, Next};
+use crate::kernel::turn_codes::TurnGap;
+use crate::kernel::{Kernel, Next};
+use crate::query::reach;
+use crate::rules::leaders;
 use crate::rules::objective_windows::ScoreOne;
 use crate::rules::scoring_book::{Asked, Offers, Outcome, ScoringBook};
-use crate::state::{CoreState, Feat, ObjectiveRef, PlainArg, PlainKind, PlainRec, Scoring, ScoringTiming, Window as OpenWindow, WindowKind};
+use crate::seen::Seen;
+use crate::state::{CoreState, ObjectiveRef, PlainArg, PlainKind, PlainRec, Scoring, ScoringTiming, Window as OpenWindow, WindowKind};
 
-/// The feat that unlocks an event-timed secret objective (`secrets::feat_for`, by the card instead of its alias).
-#[must_use]
-pub const fn feat_of(secret: SecretObjective) -> Option<Feat> {
-    Some(match secret {
-        SecretObjective::DestroyTheirGreatestShip => Feat::DestroyedACapitalShip,
-        SecretObjective::MakeAnExampleOfTheirWorld => Feat::BombardedOutTheLastGroundForces,
-        SecretObjective::TurnTheirFleetsToDust => Feat::SpaceCannonTookTheLastNonFighters,
-        SecretObjective::FightWithPrecision => Feat::BarrageTookTheLastFighters,
-        SecretObjective::SparkARebellion => Feat::WonAgainstThePointsLeader,
-        SecretObjective::UnveilFlagship => Feat::WonBesideASurvivingFlagship,
-        SecretObjective::BetrayAFriend => Feat::WonAgainstANoteHolder,
-        SecretObjective::BraveTheVoid => Feat::WonInAnAnomaly,
-        SecretObjective::DarkenTheSkies => Feat::WonInARivalHome,
-        SecretObjective::DemonstrateYourPower => Feat::HeldThreeShipsAfterASpaceCombat,
-        SecretObjective::DriveTheDebate => Feat::ElectedByAnAgenda,
-        SecretObjective::ProveEndurance => Feat::LastToPass,
-        SecretObjective::BecomeAMartyr => Feat::LostAHomePlanet,
-        _ => return None,
-    })
-}
+use super::super::turn::inline::gap;
 
-/// The window an event occurrence opens (`ScoringWindow::for_occurrence` over `initiative_order`): every seat in initiative order, a combat's
-/// occurrence capped at one scoring per player.
-#[must_use]
-pub fn event_scoring_window(core: &CoreState, occurrence: u64, one_per_player: bool) -> OpenWindow {
-    let order: Vec<Seat> = crate::query::seats::initiative_order(core).iter().copied().collect();
-    let book = ScoringBook::new(&order, false, one_per_player, true);
-    OpenWindow::EventScoring(payload_of(&book, ScoringTiming::Action, Some(occurrence), one_per_player))
-}
-
-/// Open the window of `occurrence` on the stack (`open_occurrence_event_scoring`). Returns the window opened.
-pub fn open_event_scoring(core: &mut CoreState, occurrence: u64, one_per_player: bool) -> OpenWindow {
-    let w = event_scoring_window(core, occurrence, one_per_player);
-    core.pending_mut().open(w.clone());
-    w
-}
-
-fn payload_of(book: &ScoringBook, timing: ScoringTiming, occurrence: Option<u64>, one_per_player: bool) -> Scoring {
-    Scoring {
-        pending: book.pending().iter().copied().collect(),
-        public_used: book.public_used(),
-        secret_used: book.secret_used(),
-        plot_card: book.plot_card(),
-        timing,
-        occurrence,
-        one_per_player,
+/// The phase a window's timing scores secrets of.
+const fn phase_of(timing: ScoringTiming) -> ObjectivePhase {
+    match timing {
+        ScoringTiming::Status => ObjectivePhase::Status,
+        ScoringTiming::Action => ObjectivePhase::Action,
+        ScoringTiming::Agenda => ObjectivePhase::Agenda,
     }
 }
 
-/// The lists the position gives for an event window (`secrets::scoreable_event`): the secrets in the hand whose feat was recorded for the
-/// occurrence, then (from rules version 24) the secrets made public that were not scored yet. No publics (an event window never offers one),
-/// no plots (the Firmament is dropped).
+/// The lists the position gives a scoring window: the objectives the core's queries find a seat able to score.
 pub struct CoreOffers<'a> {
-    pub core: &'a CoreState,
-    pub timing: ScoringTiming,
-    pub occurrence: u64,
+    core: &'a CoreState,
+    seen: Seen<'a>,
+    timing: ScoringTiming,
+    occurrence: Option<u64>,
+    /// A list the core cannot give (a secret it cannot judge): the window must stop with a gap.
+    pub unsupported: bool,
 }
 
-impl CoreOffers<'_> {
-    fn phase_matches(&self, secret: SecretObjective) -> bool {
-        use crate::generated::ObjectivePhase as P;
-        matches!((secret.data().phase, self.timing), (P::Action, ScoringTiming::Action) | (P::Agenda, ScoringTiming::Agenda) | (P::Status, ScoringTiming::Status))
-    }
-
-    fn did(&self, seat: Seat, feat: Feat) -> bool {
-        self.core.players().by_seat(seat).is_some_and(|p| p.misc.event_feats.as_slice().contains(&(feat, self.occurrence)))
-    }
-
-    fn scored(&self, seat: Seat, secret: SecretObjective) -> bool {
-        self.core.objectives().scored[usize::from(seat.0)].secret.contains(secret)
+impl<'a> CoreOffers<'a> {
+    #[must_use]
+    pub fn new(core: &'a CoreState, kernel: &'a Kernel, timing: ScoringTiming, occurrence: Option<u64>) -> Self {
+        let seen = Seen::new(core, kernel, Seat(0)).with_blanked(reach::blanked(core)); // mutants:skip: the bound seat is not read by the public accessors used here
+        Self { core, seen, timing, occurrence, unsupported: false }
     }
 }
 
 impl Offers for CoreOffers<'_> {
-    fn publics(&mut self, _: Seat) -> SmallList<ObjectiveRef, 24> {
-        SmallList::new()
+    fn publics(&mut self, seat: Seat) -> SmallList<ObjectiveRef, 24> {
+        self.seen.scoreable_publics(seat).unwrap_or_else(|| {
+            self.unsupported = true;
+            SmallList::new()
+        })
     }
 
     fn secrets(&mut self, seat: Seat) -> SmallList<SecretObjective, 8> {
-        let mut out: SmallList<SecretObjective, 8> = SmallList::new();
-        if self.timing == ScoringTiming::Status {
-            return out;
-        }
-        if let Some(p) = self.core.players().by_seat(seat) {
-            for s in p.cards.secrets.as_slice() {
-                if self.phase_matches(*s) && !self.scored(seat, *s) && feat_of(*s).is_some_and(|f| self.did(seat, f)) && out.len() < 8 {
-                    out.push(*s);
-                }
-            }
-        }
-        // A secret made public keeps its printed timing: an event secret is scored the moment the event happens, once per player.
-        if self.core.meta().rules_at_least(LEAKED_EVENT_SECRET) {
-            for o in self.core.objectives().revealed.as_slice() {
-                let ObjectiveRef::Secret(s) = *o else { continue };
-                if !self.scored(seat, s) && !out.as_slice().contains(&s) && self.phase_matches(s) && feat_of(s).is_some_and(|f| self.did(seat, f)) && out.len() < 8 {
-                    out.push(s);
-                }
-            }
-        }
-        out
+        self.seen.scoreable_secrets(seat, phase_of(self.timing), self.occurrence).unwrap_or_else(|| {
+            self.unsupported = true;
+            SmallList::new()
+        })
     }
 
+    // mutants:skip: an empty list either way (the Firmament is dropped)
     fn plots(&mut self, _: Seat) -> SmallList<(SecretObjective, Seat), 8> {
+        // Plots Within Plots belongs to the Firmament (dropped).
         SmallList::new()
     }
 
     fn scored_at_occurrence(&mut self, seat: Seat) -> bool {
-        self.core.objectives().scored_feats.iter().any(|(s, o)| *s == seat && *o == self.occurrence)
+        self.occurrence.is_some_and(|o| self.core.objectives().scored_feats.iter().any(|f| *f == (seat, o)))
     }
 }
 
-/// `RULES_LEAKED_EVENT_SECRET` (`ti4_model::state`): a secret made public keeps its printed timing from this version.
-const LEAKED_EVENT_SECRET: u32 = 24;
-
-/// The open event scoring window.
-#[derive(Debug, Clone)]
-pub struct EventScoring {
-    pub p: Scoring,
-    /// The score ended the game: the window closes (the string drops it before `GAME_FINISHED`).
-    over: bool,
+/// The scoring window: `EVENT` false is the status window, true an event window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScoringWin<const EVENT: bool> {
+    book: ScoringBook,
+    timing: ScoringTiming,
+    occurrence: Option<u64>,
+    one_per_player: bool,
 }
 
-impl EventScoring {
+/// The status window's machine.
+pub type StatusScoring = ScoringWin<false>;
+/// The machine of an action- or agenda-timed secret's window.
+pub type EventScoring = ScoringWin<true>;
+
+/// Why the window cannot go on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stuck {
+    /// Plots Within Plots left a card to place.
+    PlotCard,
+    /// A secret the core cannot judge.
+    Secret,
+}
+
+impl<const EVENT: bool> ScoringWin<EVENT> {
+    /// A fresh status window over `order` (initiative order, first first): `Game::step_status`.
     #[must_use]
-    pub const fn new(p: Scoring) -> Self {
-        Self { p, over: false }
+    pub fn status(order: &[Seat]) -> StatusScoring {
+        // mutants:skip: the flags of the new book are rebuilt from the payload (`of_payload`) before the window is ever run
+        ScoringWin { book: ScoringBook::new(order, true, false, false), timing: ScoringTiming::Status, occurrence: None, one_per_player: false }
     }
 
-    fn book(&self) -> ScoringBook {
-        ScoringBook::restore(self.p.pending.as_slice(), self.p.public_used, self.p.secret_used, self.p.plot_card, self.p.timing == ScoringTiming::Status, self.p.one_per_player, self.p.occurrence.is_some())
+    /// A fresh event window over `order` for one occurrence (`ScoringWindow::for_occurrence`).
+    #[must_use]
+    pub fn event(order: &[Seat], timing: ScoringTiming, occurrence: u64, one_per_player: bool) -> EventScoring {
+        // mutants:skip: the flags of the new book are rebuilt from the payload (`of_payload`) before the window is ever run
+        ScoringWin { book: ScoringBook::new(order, false, one_per_player, true), timing, occurrence: Some(occurrence), one_per_player }
     }
 
-    fn offers<'a>(&self, core: &'a CoreState) -> CoreOffers<'a> {
-        CoreOffers { core, timing: self.p.timing, occurrence: self.p.occurrence.unwrap_or(0) }
+    /// The bookkeeping.
+    #[must_use]
+    pub const fn book(&self) -> &ScoringBook {
+        &self.book
     }
 
-    /// The seat asked next and what it may score.
-    fn asked(&self, core: &CoreState) -> Option<Asked> {
-        if self.over {
-            return None;
+    fn payload(&self) -> Scoring {
+        Scoring {
+            pending: SmallList::from_slice(self.book.pending()),
+            public_used: self.book.public_used(),
+            secret_used: self.book.secret_used(),
+            plot_card: self.book.plot_card(),
+            timing: self.timing,
+            occurrence: self.occurrence,
+            one_per_player: self.one_per_player,
         }
-        self.book().asked(&mut self.offers(core))
     }
 
-    fn points(core: &CoreState, who: Seat) -> u8 {
-        core.players().by_seat(who).map_or(0, |p| u8::try_from(p.econ.victory_points.max(0)).unwrap_or(u8::MAX))
+    fn of_payload(p: &Scoring) -> Self {
+        let status = p.timing == ScoringTiming::Status;
+        Self {
+            book: ScoringBook::restore(p.pending.as_slice(), p.public_used, p.secret_used, p.plot_card, status, p.one_per_player, p.occurrence.is_some()),
+            timing: p.timing,
+            occurrence: p.occurrence,
+            one_per_player: p.one_per_player,
+        }
+    }
+
+    /// The player the window asks next, or why it cannot say.
+    fn next(&self, core: &CoreState, k: &Kernel) -> Result<Option<Asked>, Stuck> {
+        if self.book.plot_card().is_some() {
+            return Err(Stuck::PlotCard);
+        }
+        let mut offers = CoreOffers::new(core, k, self.timing, self.occurrence);
+        let asked = self.book.asked(&mut offers);
+        if offers.unsupported { Err(Stuck::Secret) } else { Ok(asked) }
+    }
+
+    /// The one-player window over what `asked` may score.
+    fn one(&self, asked: &Asked, k: &Kernel, core: &CoreState) -> ScoreOne {
+        let offers: Vec<Offer> = asked.offers.iter().copied().collect();
+        let env = PayEnv { scope: reach::scope_of(k), blanked: reach::blanked(core) };
+        // Only a window with the one-per-player cap records the occurrence a seat used (`ScoringWindow::score`); an agenda's window does not.
+        ScoreOne::new(asked.seat, !EVENT, &offers, self.occurrence.filter(|_| self.one_per_player)).with_price(env)
     }
 }
 
-impl Window for EventScoring {
-    type Stage = bool;
+impl<const EVENT: bool> Window for ScoringWin<EVENT> {
+    type Stage = usize;
 
-    fn stage(&self) -> bool {
-        self.over
+    // mutants:skip: the stage is a label for the trace; the driver rebuilds the window from the payload and never branches on it
+    fn stage(&self) -> usize {
+        self.book.pending().len()
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
-        match self.asked(sx.state) {
-            Some(asked) => Next::Continue(Ask::Objectives(OAsk::Score { vp: Self::points(sx.state, asked.seat) })),
-            None => Next::Done,
+        if sx.state.meta().finished {
+            return Next::Done;
+        }
+        match self.next(sx.state, sx.kernel) {
+            Err(Stuck::PlotCard) => {
+                gap(sx, TurnGap::PlotCard);
+                Next::Done
+            }
+            Err(Stuck::Secret) => {
+                gap(sx, TurnGap::ScoringSecret);
+                Next::Done
+            }
+            Ok(None) => Next::Done,
+            Ok(Some(asked)) => {
+                let mut one = self.one(&asked, sx.kernel, sx.state);
+                one.step(sx)
+            }
         }
     }
 
-    fn ask_of(&self, s: &CoreState, _: &Kernel) -> Option<Choice> {
-        let asked = self.asked(s)?;
-        Some(score_choice(asked.seat, Self::points(s, asked.seat), self.p.timing == ScoringTiming::Status, asked.offers.as_slice()))
+    fn ask_of(&self, core: &CoreState, k: &Kernel) -> Option<Choice> {
+        if core.meta().finished {
+            return None;
+        }
+        let asked = self.next(core, k).ok()??;
+        // `ScoreOne::ask_of` answers only after its own `step`; the question is the same function of the position.
+        // mutants:skip: the seat asked exists, the default is unreachable
+        let vp = core.players().by_seat(asked.seat).map_or(0, |p| u8::try_from(p.econ.victory_points.max(0)).unwrap_or(u8::MAX));
+        Some(score_choice(asked.seat, vp, !EVENT, asked.offers.as_slice()))
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        let asked = self.asked(sx.state).ok_or(Illegal)?;
-        let offers: Vec<Offer> = asked.offers.as_slice().to_vec();
-        let capped = self.p.occurrence.filter(|_| self.p.one_per_player);
-        let mut one = ScoreOne::new(asked.seat, self.p.timing == ScoringTiming::Status, &offers, capped);
+        let asked = self.next(sx.state, sx.kernel).ok().flatten().ok_or(Illegal)?;
+        let mut one = self.one(&asked, sx.kernel, sx.state);
         let _ = one.step(sx);
-        let revealed_before = |obj: ObjectiveRef, s: &CoreState| s.objectives().revealed.as_slice().contains(&obj);
-        let public_before = one_public_before(&asked, pick, sx.state, revealed_before);
+        let revealed_before: Vec<ObjectiveRef> = sx.state.objectives().revealed.as_slice().to_vec();
         one.answer(sx, pick)?;
-        let outcome = if let Some((_, token, placed)) = one.plotted {
-            Outcome::PlotScored { token, placed }
-        } else if let Some(obj) = one.scored {
-            Outcome::Scored { secret: matches!(obj, ObjectiveRef::Secret(_)) && !public_before }
-        } else {
-            Outcome::Declined
+        let outcome = match one.scored {
+            Some(o) => Outcome::Scored { secret: matches!(o, ObjectiveRef::Secret(_)) && !revealed_before.contains(&o) },
+            None => Outcome::Declined,
         };
-        let mut book = self.book();
-        book.after(&asked, outcome, &mut self.offers(sx.state));
-        self.p = payload_of(&book, self.p.timing, self.p.occurrence, self.p.one_per_player);
-        if let Some(obj) = one.scored {
-            fx::plain(sx.state, PlainRec::one(PlainKind::ObjectiveScored, PlainArg::Obj(obj)));
+        // `objectives::award_tail`: a public score may unlock a hero (51.7); no map, no event.
+        if let Some(o) = one.scored
+            && (revealed_before.contains(&o) || matches!(o, ObjectiveRef::Public(_)))
+        {
+            let Some(unlocking) = super::super::turn::start::unlockable(sx, asked.seat, true) else { return Ok(()) };
+            leaders::unlock(sx.state, asked.seat, unlocking.as_slice());
+        }
+        if let Some(o) = one.scored {
+            sx.plain(PlainRec::one(PlainKind::ObjectiveScored, PlainArg::Obj(o)));
+        }
+        finish_if_won(sx.state);
+        let mut post = CoreOffers::new(sx.state, sx.kernel, self.timing, self.occurrence);
+        self.book.after(&asked, outcome, &mut post);
+        if post.unsupported {
+            gap(sx, TurnGap::ScoringSecret);
         }
         if sx.state.meta().finished {
-            fx::plain(sx.state, PlainRec::bare(PlainKind::GameFinished));
-            self.over = true;
+            sx.plain(PlainRec::bare(PlainKind::GameFinished));
         }
         Ok(())
     }
 }
 
-/// Whether the option picked was an objective that was already on the table (a leaked secret scored as a public objective).
-fn one_public_before(asked: &Asked, pick: Pick, core: &CoreState, revealed: impl Fn(ObjectiveRef, &CoreState) -> bool) -> bool {
-    let _ = asked;
-    match pick {
-        Pick::Opt(crate::choice::Opt::Objectives(crate::choice::objectives::Opt::Score(obj))) => revealed(obj, core),
-        _ => false,
-    }
-}
-
-impl Held for EventScoring {
-    const KIND: WindowKind = WindowKind::EventScoring;
+impl Held for ScoringWin<false> {
+    const KIND: WindowKind = WindowKind::Scoring;
 
     fn from_pending(core: &CoreState, _: &Kernel) -> Option<Self> {
-        let OpenWindow::EventScoring(p) = core.pending().window(WindowKind::EventScoring)? else { return None };
-        Some(Self::new(p.clone()))
+        match core.pending().window(WindowKind::Scoring)? {
+            OpenWindow::Scoring(p) => Some(Self::of_payload(p)),
+            _ => None,
+        }
     }
 
     fn to_pending(&self, core: &mut CoreState) {
-        core.pending_mut().open(OpenWindow::EventScoring(self.p.clone()));
+        core.pending_mut().open(OpenWindow::Scoring(self.payload()));
     }
 }
 
-/// Run the open event scoring window to its next question or its end (the arm's `LiveFn`).
-///
-/// # Errors
-/// See [`crate::driver::live::LiveError`].
-pub fn advance_event_scoring(
-    core: &mut CoreState,
-    env: &crate::driver::live::Env<'_>,
-    answer: Option<Pick>,
-) -> Result<(crate::driver::live::Live, crate::driver::live::Out), crate::driver::live::LiveError> {
-    super::chain::sync_initiative(core);
-    crate::driver::live::advance::<EventScoring>(core, env, answer)
+impl Held for ScoringWin<true> {
+    const KIND: WindowKind = WindowKind::EventScoring;
+
+    fn from_pending(core: &CoreState, _: &Kernel) -> Option<Self> {
+        match core.pending().window(WindowKind::EventScoring)? {
+            OpenWindow::EventScoring(p) => Some(Self::of_payload(p)),
+            _ => None,
+        }
+    }
+
+    fn to_pending(&self, core: &mut CoreState) {
+        core.pending_mut().open(OpenWindow::EventScoring(self.payload()));
+    }
 }
 
-/// The question the open window waits on (the arm's `AskFn`).
-///
-/// # Errors
-/// As [`crate::driver::live::ask`].
-pub fn ask_event_scoring(core: &CoreState, env: &crate::driver::live::Env<'_>) -> Result<Option<crate::driver::live::Asking>, crate::driver::live::LiveError> {
-    crate::driver::live::ask::<EventScoring>(core, env)
+/// Open the window of a secret timed on an event (`Game::open_occurrence_event_scoring`): the rule windows that end an event a secret asks
+/// about (a pass: Prove Endurance; an agenda's close; a combat or an invasion) call it, and the next live call of `Arm::EventScoring`
+/// serves it. `occurrence` is the feat occurrence the window settles (`Meta::feat_occurrence_seq` after `begin_feat_occurrence`).
+pub fn open_event(core: &mut CoreState, timing: ScoringTiming, occurrence: u64, one_per_player: bool) {
+    let order: Vec<Seat> = crate::query::seats::initiative_order(core).iter().copied().collect();
+    EventScoring::event(&order, timing, occurrence, one_per_player).to_pending(core);
+}
+
+/// The feat that unlocks an event-timed secret objective (`secrets::feat_for`): the one table, [`crate::query::objectives::feat_of`].
+pub use crate::query::objectives::feat_of;
+
+/// The window an action-timed event occurrence opens (`ScoringWindow::for_occurrence` over `initiative_order`): every seat in initiative
+/// order, a combat's occurrence capped at one scoring per player. The same machine as the status window's ([`ScoringWin`]); the aftermath
+/// chain (lane M5) parks on it and learns what it opened from this value.
+#[must_use]
+pub fn event_scoring_window(core: &CoreState, occurrence: u64, one_per_player: bool) -> OpenWindow {
+    let order: Vec<Seat> = crate::query::seats::initiative_order(core).iter().copied().collect();
+    OpenWindow::EventScoring(EventScoring::event(&order, ScoringTiming::Action, occurrence, one_per_player).payload())
+}
+
+/// Open the action-timed window of `occurrence` on the stack (`open_occurrence_event_scoring`). Returns the window opened.
+pub fn open_event_scoring(core: &mut CoreState, occurrence: u64, one_per_player: bool) -> OpenWindow {
+    let w = event_scoring_window(core, occurrence, one_per_player);
+    core.pending_mut().open(w.clone());
+    w
 }

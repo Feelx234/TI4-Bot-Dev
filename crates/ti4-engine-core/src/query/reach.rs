@@ -54,6 +54,12 @@ fn live_token(core: &CoreState, seat: Seat, card: Technology) -> Option<Technolo
     core.players().iter().any(|o| o.seat != seat && o.tech.owned.contains(target)).then_some(target)
 }
 
+/// `nekro::assimilators_with_tokens`: how many Valefar Assimilator cards of `seat` have their token on a technology (Nekro Acidos' unlock).
+#[must_use]
+pub fn assimilators_with_tokens(core: &CoreState, seat: Seat) -> usize {
+    ASSIMILATORS.iter().filter(|card| live_token(core, seat, **card).is_some()).count()
+}
+
 /// `technology::has_technology_text`: the technology is owned, or carried by a Valefar Assimilator
 /// (the gate for what a technology's effect does; not ownership for prerequisites).
 #[must_use]
@@ -82,6 +88,37 @@ pub fn flagship_text(core: &CoreState, owner: Seat, unit: Unit, flagship: Unit) 
         MarkVal::Atom(Atom::Faction(f)) => f.data().units.iter().copied().find(|u| u.data().base_type == crate::generated::UnitBaseType::Flagship) == Some(flagship),
         _ => false,
     })
+}
+
+/// `technology::technology_text_ready`: the text of `tech` is usable by `seat` now: the technology owned and ready, or the Valefar
+/// Assimilator carrying it ready (the exhaustion is the carrier's, not the owner's).
+#[must_use]
+pub fn technology_text_ready(core: &CoreState, seat: Seat, tech: Technology) -> bool {
+    let Some(p) = core.players().by_seat(seat) else { return false };
+    if p.tech.owned.contains(tech) {
+        return !p.tech.exhausted.contains(tech);
+    }
+    ASSIMILATORS.iter().copied().find(|card| live_token(core, seat, *card) == Some(tech)).is_some_and(|card| !p.tech.exhausted.contains(card))
+}
+
+/// `technology::exhaust_technology_text`: exhaust the card that carries the text of `tech` for `seat` (the technology itself, or the
+/// Valefar Assimilator carrying it); `false`, changing nothing, when the seat has neither.
+pub fn exhaust_technology_text(core: &mut CoreState, seat: Seat, tech: Technology) -> bool {
+    let carrier = match core.players().by_seat(seat) {
+        Some(p) if p.tech.owned.contains(tech) => tech,
+        Some(_) => match ASSIMILATORS.iter().copied().find(|card| live_token(core, seat, *card) == Some(tech)) {
+            Some(card) => card,
+            None => return false,
+        },
+        None => return false,
+    };
+    match core.players_mut().by_seat_mut(seat) {
+        Some(p) => {
+            p.tech.exhausted.insert(carrier);
+            true
+        }
+        None => false,
+    }
 }
 
 /// The scope of the kernel as the tables' mask.

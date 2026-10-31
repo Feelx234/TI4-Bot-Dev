@@ -111,6 +111,9 @@ fn sync_clock(r: &mut Resolver, core: &CoreState) {
     r.set_speaker(Some(m.speaker));
     r.set_seating_order(core.seats().seating_order());
     r.set_counters(u64::from(m.round), u64::from(m.turn_seq));
+    // The windows of an emission go to the seats in the position's initiative order; a resolver rebuilt from a position that never set
+    // it (the first window of a game) would offer them to the active seat alone (`chain::sync_initiative`, lane M5).
+    r.set_initiative_order(crate::query::seats::initiative_order(core).as_slice());
 }
 
 /// The ability table of one call: the game's table with the play facts of THIS position (a card played inside the window reads what a
@@ -237,18 +240,22 @@ pub type AskFn = fn(&CoreState, &Env<'_>) -> Result<Option<Asking>, LiveError>;
 /// arm HERE, one line in each of the two matches (the only edit this file takes from the lanes), and removes its `Lent::Arm` use.
 #[must_use]
 pub fn live_arm(arm: Arm) -> Option<LiveFn> {
-    use crate::rules::token_gain::TokenGain;
     match arm {
-        Arm::Tokens => Some(advance::<TokenGain>),
+        Arm::Tokens => Some(super::windows::status::advance_tokens),
+        Arm::Status => Some(super::windows::status::advance_status),
+        Arm::Scoring => Some(super::windows::status::advance_scoring),
+        Arm::EventScoring => Some(super::windows::status::advance_event_scoring),
+        Arm::Agenda => Some(super::agenda::advance_agenda),
+        Arm::Voting => Some(super::agenda::advance_voting),
         Arm::Tactical => Some(crate::driver::windows::tactical::advance_tactical),
         Arm::Invasion => Some(crate::driver::windows::invasion::advance_invasion),
         Arm::Production => Some(crate::driver::windows::production::advance_production),
-        Arm::EventScoring => Some(crate::driver::windows::scoring::advance_event_scoring),
         Arm::Aftermath => Some(crate::driver::windows::chain::advance_aftermath),
         Arm::TurnPrelude => Some(super::turn::advance_prelude),
         Arm::StrategyAnnounce => Some(super::turn::advance_announce),
         Arm::Phase => Some(super::turn::advance_phase),
         Arm::Ask => Some(super::turn::ask::advance_ask),
+        Arm::Trade => Some(super::windows::trade::advance_trade),
         _ => None,
     }
 }
@@ -256,16 +263,18 @@ pub fn live_arm(arm: Arm) -> Option<LiveFn> {
 /// The ask counterpart of [`live_arm`] (the two entries of an arm go together).
 #[must_use]
 pub fn ask_arm_fn(arm: Arm) -> Option<AskFn> {
-    use crate::rules::token_gain::TokenGain;
     match arm {
-        Arm::Tokens => Some(ask::<TokenGain>),
+        Arm::Tokens => Some(super::windows::status::ask_tokens),
+        Arm::Scoring => Some(super::windows::status::ask_scoring),
+        Arm::EventScoring => Some(super::windows::status::ask_event_scoring),
+        Arm::Voting => Some(super::agenda::ask_voting),
         Arm::Tactical => Some(crate::driver::windows::tactical::ask_tactical),
         Arm::Invasion => Some(crate::driver::windows::invasion::ask_invasion),
         Arm::Production => Some(crate::driver::windows::production::ask_production),
-        Arm::EventScoring => Some(crate::driver::windows::scoring::ask_event_scoring),
         Arm::Aftermath => Some(crate::driver::windows::chain::ask_aftermath),
-        Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase => Some(super::turn::ask_job),
+        Arm::TurnPrelude | Arm::StrategyAnnounce | Arm::Phase | Arm::Status | Arm::Agenda => Some(super::turn::ask_job),
         Arm::Ask => Some(super::turn::ask::ask_ask),
+        Arm::Trade => Some(super::windows::trade::ask_trade),
         _ => None,
     }
 }
@@ -421,7 +430,7 @@ mod tests {
         assert_eq!(advance::<Toy>(&mut s, &env, Some(pick(9))), Err(LiveError::Illegal), "an ability the window does not offer");
         assert_eq!(s, held);
         assert!(live_arm(Arm::Tokens).is_some() && ask_arm_fn(Arm::Tokens).is_some());
-        assert!(live_arm(Arm::Voting).is_none() && ask_arm_fn(Arm::Voting).is_none(), "an arm no lane has ported stays lent");
+        assert!(live_arm(Arm::Diplomacy).is_none() && ask_arm_fn(Arm::Diplomacy).is_none(), "an arm no lane has ported stays lent");
     }
 
     /// The play facts of a card played inside the window are those of the position the call starts from (`table_at`): the provider is
@@ -493,5 +502,24 @@ mod tests {
         let (live, out) = advance::<Toy>(&mut s, &env, None).unwrap();
         assert_eq!((live, out.emitted.len()), (Live::Done, 1));
         assert!(!is_open::<Toy>(&s));
+    }
+    /// The live resolver is built from the position, initiative order included: in the action phase a window is offered to the active seat first
+    /// and then to the others in initiative order. A resolver that kept the order of the stored `Pending` (empty at the first window of a game)
+    /// offered the window to the active seat alone, so a reaction of any other seat was never asked (found by the Letnev agent in lane M5).
+    #[test]
+    fn a_live_driver_offers_its_windows_in_the_initiative_order_of_the_position() {
+        use crate::state::Phase;
+        let k = Kernel::plain();
+        let env = env(&k);
+        let mut s = position();
+        s.players = Players::from_vec((0..3u8).map(|i| Player::new(Seat(i), Faction::from_index(usize::from(i)).unwrap())).collect());
+        s.meta_mut().phase = Phase::Action;
+        s.meta_mut().active = Some(Seat(2));
+        for (seat, initiative) in [(Seat(2), 1), (Seat(0), 2), (Seat(1), 3)] {
+            s.strategy_mut().initiative_overrides.insert(seat, initiative);
+        }
+        assert!(s.pending().resolver.initiative.is_empty(), "nothing set the order before");
+        let d = driver_of(Toy { emitted: false }, &s, &env);
+        assert_eq!(d.resolver.player_order().as_slice(), &[Seat(2), Seat(0), Seat(1)]);
     }
 }

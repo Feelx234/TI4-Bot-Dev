@@ -9,7 +9,8 @@ use super::{ObjectiveRef, Outcome};
 use crate::choice::strategy::Pool;
 use crate::choice::trade::Shape;
 use crate::containers::SmallList;
-use crate::generated::{Agenda, Planet, StrategyCard, System};
+use super::NoteKey;
+use crate::generated::{ActionCard, Agenda, Faction, Planet, SecretObjective, StrategyCard, System};
 use crate::ids::Seat;
 
 /// Mathis Mathinus (Winnu hero): the hero's owner is asked, seat by seat clockwise, whether that seat may follow the
@@ -117,8 +118,38 @@ pub struct Voting {
     pub queue: SmallList<Agenda, 4>,
 }
 
+/// The promissory-note leg of a free-form deal: a note of the table, or a Support for the Throne of a faction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FreeNote {
+    Held(NoteKey),
+    Support(Faction),
+}
+
+/// One side of a free-form deal in typed form (`transactions::Terms` with the ids resolved): what a seat hands over. Facts of the position
+/// (whether the giver holds a note, whether the receiver may take it) are NOT stored: they are read from the position every time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FreeTerms {
+    pub trade_goods: i32,
+    pub commodities: i32,
+    /// Relic fragments by kind (indexed by `ExploreType as usize`).
+    pub fragments: [i32; 4],
+    pub note: Option<FreeNote>,
+    pub action_card: Option<ActionCard>,
+    pub secret: Option<SecretObjective>,
+    /// The planet whose card changes hands and the planet its giver's units move to (Pride of Kenara).
+    pub planet: Option<(Planet, Planet)>,
+}
+
+/// A deal the proposer named themselves (`Shape::Free`): what the proposer gives and what they receive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FreeSpec {
+    pub given: FreeTerms,
+    pub received: FreeTerms,
+}
+
 /// An open transaction (`transactions::TradeWindow`, LRR 94.1a). The terms of a deal on the table are a function of the
-/// shape and the position (`query::trade_deals::offer_of`), so only the shape is kept.
+/// shape and the position (`query::trade_deals::offer_of`), so only the shape is kept; a free-form deal ([`Shape::Free`]) has no shape
+/// to derive its terms from, so the terms the proposer named are kept in [`Self::free`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Trade {
     pub proposer: Seat,
@@ -127,4 +158,18 @@ pub struct Trade {
     pub rounds_left: u8,
     /// The deal on the table while the partner answers it; `None` while the proposer is choosing.
     pub deal: Option<Shape>,
+    /// The free-form deals `Shape::Free(i)` names: slot 0 is the deal on the table while the partner answers it, slot 1 is the deal the
+    /// proposer has just named (written by the live loop before the pick that names it, folded into slot 0 when the machine takes it).
+    pub free: [Option<FreeSpec>; 2],
+    /// `TRANSACTION_OPENED` was announced (the string announces it in the step that opens the window: a window the live opener wrote
+    /// announces it in its first call).
+    pub announced: bool,
+}
+
+impl Trade {
+    /// A window just opened by `proposer` for `partner`: two proposals to spend, nothing on the table, the opening not announced yet.
+    #[must_use]
+    pub const fn opened(proposer: Seat, partner: Seat) -> Self {
+        Self { proposer, partner, rounds_left: 2, deal: None, free: [None, None], announced: false }
+    }
 }
