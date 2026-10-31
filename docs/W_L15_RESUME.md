@@ -58,4 +58,26 @@ test with bail-as-failure on `(card X)`, and add the card to the `the_b6d_cards_
 
 ## Checks (cheap only; private target `/root/deploytmp/core-w-l15`, `CARGO_BUILD_JOBS=2`, one cargo at a time)
 
-CHECKS_PLACEHOLDER
+Run (all green): `cargo test -p ti4-engine --lib` whole (4896 passed, 4 ignored; lane 11 had not run the whole lib) normal and under
+`TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` (4896 passed); `ti4-engine-core --lib` (452), `ti4-engine-core-factions --lib` (129), the touched
+`ti4-engine-core-tests` files (`w15_scramble_hosts`, `combat_flow`, `action_card_effects`, `combat_barrage`, `combat_cannon`); `check_layers.py core`
+(0 violations); `lint_core.sh` (0 hits).
+
+Mutation checks (scratch worktree `core-w-l15-mut` at `ea28bc90`, target `/root/deploytmp/core-w-l15/mut-target`, runner and specs in
+`/root/deploytmp/core-w-l15/mut/{runmut.py,spec_w15.py,spec_l11.py,spec_fix.py}`, run by a Haiku runner agent): 48 mutants of the new core halves
+(barrage, space cannon offense, `bombard_roll`, `end_announce`, `Play::ability_roll`, `Fx::nested`, `cards::{scramble,redraw}`, the ledger row of
+`play_inline`, `courageous_hit`): 47 killed, 0 survived, 1 compile error (a malformed mutant of mine, rerun fixed in `spec_fix.py`). Lane 11's spec
+rerun on the post-lane-11 code (its survivor tests, which had not been re-measured): 29 killed, 1 survivor (`front.hits > 0` in
+`Machine::neutral_due`, the equivalent mutant lane 11 already named: the flow never returns with a zero front), 1 compile error (a stale mutant
+whose text no longer fits the moved `query::neutral::neutral_casualty`; rerun fixed in `spec_fix.py`). Equivalent or not covered by design:
+the `owner` of the ability-dice ledger row of `play_inline` is not read by the string's comparison (no counterpart), so a mutant of it has no
+test that can see it; the redraw filter `purpose == Reroll` of the hosts' `read_back` is redundant by construction (only the event's cards write rows
+between the mark and the read).
+
+Regression tests that fail on the pre-W15 code (seen failing while the lane was built): the Courageous lockstep failed with the card named as a
+bail (the old `Fx::nested`), then with `nested.ability_dice` `[]` against `[(None, [2, 3])]` (row written by the play window) and with the casualty context
+`<absent>`; the Scramble tests fail with the card unregistered (named bail) and with a no-op card (23 differences); the Cabal composed fight showed
+16 bailed windows before `clear_participation`; the bombardment reroll window test requires one compared `invasion::bombard_rerolls` window, which
+did not exist; the Legionnaire bombardment lockstep test caught a wrong event text of the new window while it was written.
+
+Not run (a full zero-bail playthrough is not possible yet): golden / wide dual sweeps, benches, soak, mutation ratchet, census, workspace clippy.
