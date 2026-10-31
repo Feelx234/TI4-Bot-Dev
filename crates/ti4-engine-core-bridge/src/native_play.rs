@@ -284,6 +284,10 @@ impl NativeGame {
         if game.galaxy().is_none() {
             return Err("the game has no galaxy".to_owned());
         }
+        // Only the latest rules version is supported by the core (user decision): an older game is refused, never played and never counted as a gap.
+        if game.state.rules_version != ti4_model::state::RULES_VERSION {
+            return Err(format!("rules version {} is not the latest ({}): the core supports the latest only", game.state.rules_version, ti4_model::state::RULES_VERSION));
+        }
         let mut cx = Ctx::of(&game.state).map_err(|e| format!("no owners table: {e}"))?;
         let positions = game.rng_positions();
         let core = Codec::load(&mut cx, &game.state, Sources { galaxy: game.galaxy(), rng: Some(&positions) }, slices_for(true))
@@ -905,6 +909,16 @@ mod tests {
         assert_eq!(g.step(), Step::Gap(gap.clone()));
         assert_eq!(g.core, held);
         assert_eq!(g.fingerprint(), played.fingerprint);
+    }
+
+    #[test]
+    fn a_game_below_the_latest_rules_version_is_refused_not_played() {
+        let mut spec = lobby_spec("sol", 4, 1);
+        assert_eq!(spec.rules_version, None, "a lobby game is made at the newest version the build knows");
+        assert_eq!(NativeGame::from_spec(&spec).map(|g| g.core.meta().rules_version), Ok(ti4_model::state::RULES_VERSION));
+        spec.rules_version = Some(ti4_model::state::RULES_VERSION - 1);
+        let refused = NativeGame::from_spec(&spec).err().expect("an old game is refused");
+        assert!(refused.contains("not the latest"), "{refused}");
     }
 
     #[test]
