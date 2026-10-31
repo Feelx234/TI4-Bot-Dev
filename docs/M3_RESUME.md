@@ -70,6 +70,17 @@ from the position; `a_version_zero_game_runs_natively_like_the_string_window` co
 * `ti4-engine-core-tests` `invasion_composer` (5): conquest, a clone mid-window continues identically, payload identity after every question, first-claim bail, hero opening.
 * `M3_DEBUG=1` prints the string and native dice and the questions of each lockstep case.
 
+## Mutation checks (single files of `driver/windows/invasion/`, `tools/engine_core/mutants.sh`, 363 live points)
+
+Run against the engine lockstep tests (`invasion_live`): 205 killed, 158 survived; against the core tests (`invasion_composer`): 102 killed. 145 survive both. The
+first round found a real bug (`publish` ran after the question, not before: fixed + `the_public_boundary_follows_the_stage_the_question_is_asked_in`); comparing events
+found another (the bombardment's `UNIT_ABILITY_ROLLED` named a state-side code). Survivors by function (the positions the tests do not reach): `begin` 13 (bombardment
+dice of a hitting bombardment, held counts), `commit_pool` 12 (temporary space commits, faction candidates: Matriarch, Sardakk commander), `step`/`settle` 15 (the idle guard,
+branches of the chunk loop that need a coexistence or a forced combat), `round_unported` 8 and `copied_round` 5 (the gates: each needs a position with Dacxive, a Thundarian,
+a Ssruu copy), `finish_ground_round` 7, `answer_reaper` 6, `answer_next_combat` 6 and `bomb_window`/`answer_bombard` 7 (coexistence: three seats), `announce_rerolls` 7 (a reroll
+reaction on the bombardment), `return_temp_commits` 5, `publish` 6. Next tests to write: a three-seat coexistence invasion, a Naalu Matriarch commit, a Scramble Frequency
+reaction after a hitting bombardment, one position per gate (each must bail with its `Unported`).
+
 ## Open
 
 1. Exploration of a first claim (above).
