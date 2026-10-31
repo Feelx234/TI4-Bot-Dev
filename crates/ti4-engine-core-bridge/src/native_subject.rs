@@ -606,9 +606,9 @@ mod tests {
     /// is not one of these fails the test; when one is fixed its line must be deleted (the test also demands that every listed one is still seen). Each line is
     /// the words that identify the difference and its consequences in the position.
     ///
-    /// * Arborec's Mitosis ("at the start of the status phase, place 1 infantry from your reinforcements on a planet you control", `arborec/offer.rs` lists it as
-    ///   "points left"): the string asks where, the core asks nothing and the infantry is missing from the board.
-    const KNOWN_SILENT: [&[&str]; 1] = [&["Mitosis", "arborec_infantry"]];
+    /// None is left: Arborec's Mitosis is a rule of the core table now (lane G, `silent::mitosis`), so is Gift of Prescience; the abilities still without a rule are loud
+    /// gaps of the live path (`silent::gaps`).
+    const KNOWN_SILENT: [&[&str]; 0] = [];
 
     /// Whole games with every lobby faction in turn (six tables of four), the turn-flow arms in shadow and a counted bail a failure: no difference but the
     /// known silent ones (kept going: a difference never makes the follower diverge, the follower is a legacy game), and the arms ran.
