@@ -371,6 +371,7 @@ mod tests {
             next: 0,
             resolved: SmallList::new(),
             exhausts_card: true,
+            preview: false,
         }
     }
 

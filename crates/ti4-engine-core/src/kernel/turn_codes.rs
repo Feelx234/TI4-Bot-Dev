@@ -81,8 +81,8 @@ pub enum TurnGap {
     AgendaQueue,
     /// A secret objective the core cannot judge (Strengthen Bonds, Produce en Masse).
     ScoringSecret,
-    /// The ability of a strategy card could not begin at this table (`fx_perform::Began::Unsupported`: a table without the unit roster, a
-    /// research below `RULES_TECH_PAYMENT_CHOICE`, a placement a faction effect changes, a scoreable objective the core cannot name).
+    /// The ability of a strategy card could not begin at this table (`fx_perform::Began::Unsupported`: a table without the unit roster, Doctor Sucaban's offer in a
+    /// research, a placement a faction effect changes, a scoreable objective the core cannot name).
     StrategyAbility,
     /// The table has no link to the window of an ability (`AbilityTable::links`).
     NoLink,

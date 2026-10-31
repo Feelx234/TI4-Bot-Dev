@@ -17,9 +17,6 @@ use crate::kernel::{Kernel, Next};
 use crate::rules::strategy_primaries::{apply_split, sheet_total, splits};
 use crate::state::{CoreState, TurnJob, Window as OpenWindow, WindowKind};
 
-/// `ti4_model::state::RULES_LETNEV_FLEET_POOL`: from this version the Letnev fleet pool may be emptied.
-const RULES_LETNEV_FLEET_POOL: u32 = 4;
-
 /// The redistribution after the free tactical action (`redistribute_around_te_warfare(.., before = false)`): one question, the final split of the
 /// sheet; none for a seat with no command tokens.
 #[derive(Debug, Clone)]
@@ -89,7 +86,8 @@ fn redistribute(sx: &mut Sx<'_>, who: Seat) -> Flow {
     if sx.state.meta().finished {
         return Flow::Done;
     }
-    let zero_floor = sx.state.meta().rules_at_least(RULES_LETNEV_FLEET_POOL);
+    // (Latest rules: the Letnev fleet pool may be emptied.)
+    let zero_floor = true;
     run(sx, &mut AfterRedistribute::new(who, zero_floor))
 }
 

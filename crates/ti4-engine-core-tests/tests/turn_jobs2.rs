@@ -138,7 +138,8 @@ fn the_closing_menu_holds_only_the_end_of_the_turn_when_no_source_can_offer_a_fr
 fn a_leader_printed_during_the_action_phase_is_a_free_option_the_core_does_not_assemble_yet() {
     let agent = Leader::ALL.iter().copied().find(|l| l.data().kind == LeaderType::Agent && l.data().window == LeaderWindow::ActionPhase).unwrap();
     let faction = Faction::ALL.iter().copied().find(|f| ti4_engine_core::query::tech::tag_is(agent.data().faction, *f)).unwrap();
-    let (mut s, k) = Scenario::new(&[faction, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
+    // (One seat: Hacan's Guild Ships would trade with anybody, and a partner is a free option of its own.)
+    let (mut s, k) = Scenario::new(&[faction]).phase(Phase::Action).active(Some(0)).build();
     s.players_mut().edit(0).leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Readied);
     assert_eq!(closing::options(&s, &k, Seat(0)), Err(TurnGap::MenuSources));
     s.players_mut().edit(0).leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Exhausted);

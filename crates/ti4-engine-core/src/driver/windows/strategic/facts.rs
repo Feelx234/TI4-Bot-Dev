@@ -21,18 +21,14 @@ use crate::kernel::hooks::Waiver as HookWaiver;
 use crate::kernel::stage::Sx;
 use crate::kernel::turn_codes::TurnCodes;
 use crate::kernel::{fx, Kernel};
-use crate::query::tech::{generic_unit, UnitRoster};
+use crate::query::tech::UnitRoster;
 use crate::query::{laws, reach};
 use crate::rules::strategy;
 use crate::rules::strategy_secondary::{FollowerFacts, Waiver, WaiverEffect};
 use crate::state::{CoreState, NoteKey, ObjectiveRef};
 
-/// `ti4_model::state::RULES_TECH_PAYMENT_CHOICE`: from this version the Technology ability asks the payment of the research.
-pub const RULES_TECH_PAYMENT_CHOICE: u32 = 6;
-/// `ti4_model::state::RULES_FACTION_BUGFIXES`: from this version a space-only structure (Saar's Floating Factory) is placed in the space area.
-pub const RULES_FACTION_BUGFIXES: u32 = 17;
-/// `ti4_model::state::RULES_WINNU_AGENT_PRODUCTION`.
-pub const RULES_WINNU_AGENT_PRODUCTION: u32 = 26;
+// (Only the latest rules version is supported: the new engine refuses a game below it at load, so no version gate is kept here: the Technology
+// ability asks the payment of the research, a space-only structure is placed in the space area, Berekar Berekon is offered to a use of PRODUCTION.)
 
 // -- the followers -------------------------------------------------------------------------------------------------------------------
 
@@ -88,17 +84,12 @@ pub fn follower_facts(core: &CoreState, kernel: &Kernel, primary: Seat, card: St
 // -- the abilities ----------------------------------------------------------------------------------------------------------------------
 
 /// The unit `who` places for `base` as Construction does (`strategy_cards::construction_placement`): its form of the structure, placed on a
-/// planet, or in the space area when it is a space-only structure from `RULES_FACTION_BUGFIXES` on; `None` where a faction effect forbids it.
+/// planet, or in the space area when it is a space-only structure; `None` where a faction effect forbids it.
 fn placement(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, who: Seat, base: UnitBaseType) -> Placement {
     let scope = reach::scope_of(kernel);
     let unit = placed_unit(core, kernel, scope, roster, who, base)?;
-    let space_only = scope.unit(unit).is_some_and(|d| d.space_only);
-    let (unit, in_space) = if space_only {
-        // (A space-only structure that is not placed in the space area is the generic planet unit.)
-        if core.meta().rules_version >= RULES_FACTION_BUGFIXES { (unit, true) } else { (generic_unit(scope, base)?, false) }
-    } else {
-        (unit, false)
-    };
+    // (A space-only structure, Saar's Floating Factory, is placed as itself in the space area; every other one on the planet.)
+    let in_space = scope.unit(unit).is_some_and(|d| d.space_only);
     if kernel.hooks.economy.effect_placement_forbidden(core, kernel, who, unit) {
         return None;
     }
@@ -159,7 +150,7 @@ pub fn free_systems(core: &CoreState, source: crate::state::Code) -> Option<Free
 #[must_use]
 pub fn te_uses(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, who: Seat, source: crate::state::Code) -> Option<TeUses> {
     let cx = crate::rules::production::Cx::new(core, kernel, reach::scope_of(kernel), reach::blanked(core));
-    let agent_rules = core.meta().rules_version >= RULES_WINNU_AGENT_PRODUCTION;
+    let agent_rules = true;
     let mut uses = Vec::new();
     for (system, _) in core.board().systems() {
         if crate::rules::production::capacity(&cx, who, system) > 0 {
@@ -206,7 +197,7 @@ pub fn facts_at(core: &CoreState, kernel: &Kernel, codes: &TurnCodes, roster: Op
         carried: Carried {
             // (The draw follows the hooks of the faction in the core window: Scheming, Crafty; the Deepgloom Executable is Thunder's Edge.)
             plain_draw: true,
-            research: rules_version >= RULES_TECH_PAYMENT_CHOICE && !research_asks_more(core, who),
+            research: !research_asks_more(core, who),
             payments: true,
             structures: roster.and_then(|roster| structure_facts(core, kernel, roster, who, codes)),
             trade_source: codes.trade_primary,
