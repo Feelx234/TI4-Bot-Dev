@@ -7214,11 +7214,11 @@ mod tests {
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     }
 
-    /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite) hears the Sol agent's exhaustion; the
-    /// core does not announce it, so the window that follows the agent is the string's (`Unknown`), counted under the
-    /// window's label with the Nomad as the reason.
+    /// A Nomad that listens to the exhaustion of an agent (Temporal Command Suite) hears the Sol agent's exhaustion; since W12 the core
+    /// announces it by a staged `AGENT_EXHAUSTED` like `leaders::exhaust` (the Nomad's card answers at the next flush, the string's), so
+    /// the window that follows the agent is compared, not bailed.
     #[test]
-    fn bail_the_sol_agent_with_a_listening_nomad_is_counted() {
+    fn the_sol_agent_with_a_listening_nomad_is_announced_by_the_core_in_lockstep() {
         use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
@@ -7237,7 +7237,8 @@ mod tests {
             run_invasion_first_option(&mut state, 2, &system);
         });
         let r = report();
-        assert!(r.windows.keys().any(|k| k.contains("invasion::begin_ground_round") && k.contains("Nomad Temporal Command Suite")), "{:?}", r.windows);
+        assert!(r.windows.keys().all(|k| !k.contains("Temporal Command Suite")), "{:?}", r.windows);
+        assert!(r.windows.get("invasion::begin_ground_round").is_some_and(|w| w.compared >= 1), "{:?}", r.windows);
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         let _ = take_report();
     }
