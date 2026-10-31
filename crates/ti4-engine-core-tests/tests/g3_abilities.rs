@@ -1072,3 +1072,73 @@ mod status {
         assert!(r.state.marks().tail.get(&MarkKey::SardakkHeroSkip()).is_none());
     }
 }
+
+// -- Scepter of Dominion ---------------------------------------------------------------------------------------------------------
+
+mod scepter {
+    use super::*;
+    use ti4_engine_core::choice::reaction::{Ask as RAsk, Opt as ROpt};
+    use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt};
+    use ti4_engine_core::choice::silent3::{Ask as TAsk, Opt as TOpt};
+    use ti4_engine_core::generated::PromissoryNote;
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::NoteKey;
+
+    const NOTE: NoteKey = NoteKey { note: PromissoryNote::ScepterOfDominion, faction: Faction::TheMahactGeneSorcerers };
+    const FACTIONS: [Faction; 3] = [Faction::TheMahactGeneSorcerers, Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol];
+
+    fn begun() -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::StrategyPhaseBegan, Payload::new())
+    }
+
+    /// Seat 1 holds the Scepter; the Mahact (seat 0) has seat 2's token on its sheet.
+    fn edit(pool: &'static [u8]) -> impl FnOnce(&mut CoreState) {
+        move |s| {
+            s.cards_mut().promissory.edit().insert(NOTE, Seat(1));
+            s.marks_mut().tail.edit().insert(MarkKey::MahactFleet(Seat(0)), MarkVal::List(pool.iter().map(|p| MarkVal::Atom(Atom::Seat(Seat(*p)))).collect()));
+        }
+    }
+
+    fn two_systems() -> (System, System) {
+        let mut plain = ti4_engine_core_tests::scenario::plain_systems().into_iter();
+        (plain.next().unwrap(), plain.next().unwrap())
+    }
+
+    #[test]
+    fn the_holder_chooses_a_system_with_its_units_and_the_pool_owners_place_a_token_there() {
+        covers!("silent::g3::scepter::SCEPTER");
+        let (a, b) = two_systems();
+        let scenario = || Scenario::new(&FACTIONS).unit(a, None, Unit::CruiserI, 1, 1).unit(b, None, Unit::CruiserI, 1, 1);
+        let mut r = rig(scenario(), edit(&[2]), begun());
+        assert_eq!((r.asked().actor, r.asked().ask), (Seat(1), Ask::Reaction(RAsk::G(GAsk::T(TAsk::Scepter)))), "{}", r.transcript());
+        assert_eq!(r.opts().len(), 2);
+        assert!(matches!(r.opts()[0], Opt::Reaction(ROpt::G(GOpt::T(TOpt::Scepter { system, payers }))) if system == a.min(b) && payers[0] == Some(Faction::TheFederationOfSol)));
+        let second = r.opts().iter().position(|o| matches!(o, Opt::Reaction(ROpt::G(GOpt::T(TOpt::Scepter { system, .. }))) if *system == a.max(b))).unwrap();
+        r.pick(second);
+        assert!(r.is_done(), "{}", r.transcript());
+        let chosen = a.max(b);
+        assert!(r.state.board().sys(chosen).cmd.contains(Seat(2)), "the pool's owner placed a token");
+        assert!(!r.state.board().sys(a.min(b)).cmd.contains(Seat(2)));
+        assert_eq!(r.state.cards().promissory.get(&NOTE), Some(&Seat(0)), "back with the Mahact");
+    }
+
+    #[test]
+    fn one_system_is_not_asked_none_still_returns_the_card_and_a_placed_token_or_no_reserve_places_none() {
+        covers!("silent::g3::scepter::SCEPTER");
+        let (a, _) = two_systems();
+        let one = rig(Scenario::new(&FACTIONS).unit(a, None, Unit::CruiserI, 1, 1), edit(&[2, 2]), begun());
+        assert!(one.is_done(), "{}", one.transcript());
+        assert!(one.state.board().sys(a).cmd.contains(Seat(2)));
+        assert_eq!(one.state.cards().promissory.get(&NOTE), Some(&Seat(0)));
+        // No unit outside a home system: the card goes home all the same.
+        let none = rig(Scenario::new(&FACTIONS), edit(&[2]), begun());
+        assert!(none.is_done());
+        assert_eq!(none.state.cards().promissory.get(&NOTE), Some(&Seat(0)));
+        // The holder's own token in the pool does not pay; a token already there does not pay twice.
+        let own = rig(Scenario::new(&FACTIONS).unit(a, None, Unit::CruiserI, 1, 1).command_token(a, 2), edit(&[1, 2]), begun());
+        assert!(!own.state.board().sys(a).cmd.contains(Seat(1)));
+        assert!(own.state.board().sys(a).cmd.contains(Seat(2)));
+        // Nobody holds the note: nothing is asked.
+        assert!(rig(Scenario::new(&FACTIONS).unit(a, None, Unit::CruiserI, 1, 1), |_| {}, begun()).is_done());
+    }
+}

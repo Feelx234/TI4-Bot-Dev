@@ -61,3 +61,47 @@ fn the_nekro_commander_may_draw_a_card_for_a_technology_gained_like_the_string()
         assert_eq!(after.zip(before).map(|(a, b)| a - b), Some(usize::from(answer != "decline")), "{answer}");
     }
 }
+
+// -- Scepter of Dominion ----------------------------------------------------------------------------------------------------------
+
+/// A table at the end of the status phase (the next round begins): seat `a` (Sol) holds the Mahact's Scepter, seat `b` is the Mahact with seat `c`'s token on its command sheet,
+/// and `a` has ships in `count` non-home systems.
+fn scepter_table(count: usize) -> GameState {
+    use ti4_model::id::SystemId;
+    let mut state = super::turn_live_tests::drafted(&[("a", "sol"), ("b", "mahact"), ("c", "hacan")]);
+    state.phase = ti4_model::state::Phase::Status;
+    state.custodians_removed = false;
+    state.promissory_notes.insert("scepter:mahact".to_owned(), super::turn_live_tests::pid("a"));
+    state.faction_marks.insert("mahact:fleet:b".to_owned(), "c".to_owned());
+    let homes: Vec<SystemId> = state.players.iter().filter_map(|p| p.home_system.clone()).collect();
+    let elsewhere: Vec<SystemId> = state.board.keys().chain([SystemId::new("27"), SystemId::new("26"), SystemId::new("25")].iter()).filter(|s| !homes.contains(s)).take(count).cloned().collect();
+    for system in elsewhere {
+        crate::fixtures::put(&mut state, &system, "cruiser", &super::turn_live_tests::pid("a"), 1);
+    }
+    based(state)
+}
+
+/// The phase moves on both sides, `ids` answering the questions.
+fn phase_answering(state: &GameState, ids: &[&str]) -> (super::turn_live_tests::Run, super::turn_live_tests::Run) {
+    let string = super::turn_live_tests::string_run(state, ids, |g| {
+        let result = g.step_phase();
+        assert!(result.error.is_none(), "the phase moves: {:?}", result.error);
+    });
+    let native = super::turn_live_tests::native_steps(state, &[(ti4_engine_core::driver::session::Arm::Phase, None)], false, ids);
+    (string, native)
+}
+
+#[test]
+fn the_scepter_makes_the_token_owners_of_the_mahact_pool_place_a_token_like_the_string() {
+    for count in [0_usize, 1, 2] {
+        let state = scepter_table(count);
+        // The systems the holder has units in (the string's order): the first is the answer when several.
+        let homes: Vec<_> = state.players.iter().filter_map(|p| p.home_system.clone()).collect();
+        let first = state.board.iter().find(|(system, board)| !homes.contains(system) && board.units.iter().any(|u| u.owner.as_str() == "a")).map(|(system, _)| system.to_string());
+        let ids: Vec<&str> = first.iter().filter(|_| count > 1).map(String::as_str).collect();
+        let (string, native) = phase_answering(&state, &ids);
+        assert_same(&string, &native);
+        assert_eq!(string.questions.len(), usize::from(count > 1), "{count} systems");
+        assert!(string.state["promissory_notes"].get("scepter:mahact").is_none_or(|holder| holder != "a"), "{count}: the card is returned");
+    }
+}

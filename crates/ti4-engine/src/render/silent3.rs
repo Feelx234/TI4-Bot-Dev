@@ -14,6 +14,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
     match a {
         Ask::Ragh { planet } => format!("Ragh's Call: where do the Saar ground forces on {} go", planet.as_str()),
         Ask::Bio { so_far } => format!("Bioplasmosis: move an infantry ({so_far} so far)"),
+        Ask::Scepter => "Scepter of Dominion: choose a system".to_owned(),
         Ask::OracleGive => "The Oracle: which promissory note do you give".to_owned(),
         Ask::SulaOpponent => "S'ula Mentarion: choose an opponent".to_owned(),
         Ask::SulaGive { to } => format!("Give {} 1 promissory note from your hand", r.seat_text(*to)),
@@ -30,6 +31,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Alastor => "alastor_participants",
         Subtype::Bio => "bioplasmosis_move",
         Subtype::OracleGive => "give_note",
+        Subtype::Scepter => "scepter_system",
         Subtype::SulaOpponent => "commander_opponent",
         Subtype::SulaGive => "commander_give_note",
         Subtype::SuffiAn => "suffi_an",
@@ -44,6 +46,16 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
     match (a, o) {
         (Ask::Bio { .. }, Opt::Shift { index, from, to }) => {
             ChoiceOption::labelled(format!("move|{index}"), "bioplasmosis", format!("move 1 infantry from {} in {} to {} in {}", from.1.as_str(), from.0.as_str(), to.1.as_str(), to.0.as_str()))
+        }
+        (Ask::Scepter, Opt::Scepter { system, payers }) => {
+            let system = system.as_str();
+            let names: Vec<&str> = payers.iter().flatten().map(|f| f.as_str()).collect();
+            let label = if names.is_empty() {
+                format!("nobody places a command token in {system} (only other players with a token in the Mahact fleet pool place one)")
+            } else {
+                format!("{} {} a command token in {system}", names.join(", "), if names.len() == 1 { "places" } else { "place" })
+            };
+            ChoiceOption::labelled(system, "scepter", label)
         }
         (Ask::OracleGive, Opt::Note(key)) => {
             let note = super::cards::note_text(*key);
@@ -83,7 +95,7 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
         // The ships of the exotrireme questions are matched against the rendered options (the id is an index into the question's list).
         Ask::ExoSelf | Ask::ExoVictim { .. } => None,
         // The answers of these are matched against the rendered options (the id is an index, or the note's text).
-        Ask::Bio { .. } | Ask::OracleGive => None,
+        Ask::Bio { .. } | Ask::OracleGive | Ask::Scepter => None,
         Ask::SulaOpponent => Some(ROpt::G(GOpt::T(Opt::Seat(r.seat(id)?)))),
         // The notes of the hand are matched against the rendered options (the id is the note's text).
         Ask::SulaGive { .. } => None,

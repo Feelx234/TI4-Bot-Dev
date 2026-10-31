@@ -29,7 +29,6 @@ pub(crate) const GAP_IDS: &[&str] = &[
     "leader:*:yssarilcommander_clear:ACTION_COMPLETED:after",
     "promissory:*:ambuscade:UNIT_ABILITY_ROLLED:when",
     "promissory:*:iff:TURN_BEGAN:after",
-    "promissory:*:scepter:STRATEGY_PHASE_BEGAN:after",
     "promissory:*:spynet:TURN_BEGAN:after",
     "promissory:*:stymie:SHIP_MOVED:after",
     "technology:*:asn_clear:ACTION_COMPLETED:after",

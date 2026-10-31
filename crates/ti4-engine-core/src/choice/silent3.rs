@@ -26,6 +26,8 @@ pub enum Ask {
     Bio { so_far: u8 },
     /// The Oracle (Naalu hero): the player says which promissory note of the hand goes to the Naalu.
     OracleGive,
+    /// Scepter of Dominion (Mahact note): the holder chooses a system.
+    Scepter,
 }
 
 /// One answer.
@@ -48,6 +50,8 @@ pub enum Opt {
     Support(Faction),
     /// One infantry moved from `from` to `to` (the option id is `move|{index}`, the index in the list the question was built from).
     Shift { index: u8, from: (System, Planet), to: (System, Planet) },
+    /// A system the Scepter names, with the factions that would place a token there (the label shows them).
+    Scepter { system: System, payers: [Option<Faction>; 5] },
 }
 
 /// The machine identifier of the question.
@@ -71,6 +75,8 @@ pub enum Subtype {
     Bio,
     /// `give_note`.
     OracleGive,
+    /// `scepter_system`.
+    Scepter,
 }
 
 impl Ask {
@@ -80,7 +86,7 @@ impl Ask {
     pub const fn carries_trigger(&self) -> bool {
         match self {
             Self::Ragh { .. } => false,
-            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } | Self::SuffiAn { .. } | Self::SulaOpponent | Self::SulaGive { .. } | Self::Bio { .. } | Self::OracleGive => false,
+            Self::Alastor { .. } | Self::ExoSelf | Self::ExoVictim { .. } | Self::SuffiAn { .. } | Self::SulaOpponent | Self::SulaGive { .. } | Self::Bio { .. } | Self::OracleGive | Self::Scepter => false,
         }
     }
 }

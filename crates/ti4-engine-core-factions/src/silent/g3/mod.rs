@@ -10,6 +10,7 @@ pub mod mentak_commander;
 pub mod nekro_commander;
 pub mod oracle;
 pub mod ragh;
+pub mod scepter;
 pub mod suffi_an;
 pub mod tekklar;
 pub mod tro_marks;
@@ -55,6 +56,7 @@ pub fn register_abilities(t: &mut AbilityTable) {
     tro_marks::register_abilities(t);
     zeu::register_abilities(t);
     oracle::register_abilities(t);
+    scepter::register_abilities(t);
     nekro_commander::register_abilities(t);
     suffi_an::register_abilities(t);
     mentak_commander::register_abilities(t);
