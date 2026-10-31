@@ -141,7 +141,7 @@ fn black_market_forgery_needs_the_note_and_returns_it_to_the_naaz_player_after_t
 // ---- TitanBuild and PayStep -------------------------------------------------------------------
 
 fn structure_facts() -> StructureFacts {
-    StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::SpaceDockI, false)), source: Code(3) }
+    StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::SpaceDockI, false)), source: Code(3), alt: None }
 }
 
 #[test]

@@ -1286,7 +1286,7 @@ fn roster() -> &'static ti4_engine_core::query::tech::UnitRoster {
 }
 
 fn structure_facts() -> ti4_engine_core::kernel::children::StructureFacts {
-    ti4_engine_core::kernel::children::StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::SpaceDockI, false)), source: Code(3) }
+    ti4_engine_core::kernel::children::StructureFacts { pds: Some((Unit::PDSI, false)), dock: Some((Unit::SpaceDockI, false)), source: Code(3), alt: None }
 }
 
 fn capacity_of(state: &ti4_engine_core::state::CoreState, kernel: &ti4_engine_core::kernel::Kernel, system: System) -> i64 {
@@ -1508,7 +1508,7 @@ fn te_construction_facts(system: System, structures: bool) -> PerformFacts {
     }];
     let place = Some((Unit::PDSI, false));
     let dock = Some((Unit::SpaceDockI, false));
-    let structures = structures.then_some(ti4_engine_core::kernel::children::StructureFacts { pds: place, dock, source: Code(5) });
+    let structures = structures.then_some(ti4_engine_core::kernel::children::StructureFacts { pds: place, dock, source: Code(5), alt: None });
     PerformFacts { te_uses: TeUses::new(Code(8), &uses), ..perform_facts(Carried { structures, ..Carried::default() }) }
 }
 
