@@ -19,28 +19,8 @@ pub mod zeta;
 
 use ti4_engine_core::kernel::ability::AbilityTable;
 
-/// The texts the rules of this module name in the context of their questions (`SilentCodes::g3`, interned by the adapter in this order): index with the
-/// constants of `code`. Unused places hold a placeholder.
-pub const CODE_TEXTS: [&str; 16] = [
-    "nekro_flagship",
-    "technology:exo2",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-    "g3_unused",
-];
-
-/// The places of `CODE_TEXTS`.
+/// The places of the texts the rules of this module name in the context of their questions (`SilentCodes::g3`; the adapter interns the texts in this order:
+/// `reactions_core::G3_CODE_TEXTS`). Unused places hold a placeholder.
 pub mod code {
     /// The unit alias `nekro_flagship`: the source of the Alastor's question.
     pub const NEKRO_FLAGSHIP: usize = 0;

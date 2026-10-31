@@ -29,6 +29,9 @@ struct Named {
     card: &'static str,
 }
 
+/// The texts the rules of `silent::g3` name in their questions (`silent::g3::code`, the same places); unused places hold a placeholder.
+const G3_CODE_TEXTS: [&str; 16] = ["nekro_flagship", "technology:exo2", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused"];
+
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cb_economy::argent::timing::AGENT, kind: "leader", card: "argentagent" },
@@ -588,7 +591,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             naaz_agent: r.code("naazagent"),
             ..Default::default()
         };
-        table.codes.silent.g3 = ti4_engine_core_factions::silent::g3::CODE_TEXTS.map(|text| r.code(text));
+        table.codes.silent.g3 = G3_CODE_TEXTS.map(|text| r.code(text));
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {
@@ -702,7 +705,6 @@ mod tests {
     fn bail_every_family_that_stays_in_the_string_is_named() {
         let t = table();
         for id in [
-            "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
             "promissory:letnev:ambuscade:UNIT_ABILITY_ROLLED:when",
             "ability:sol:propagation:SPACE_COMBAT_ENDED:after",
             // The Nomad's tail (package W9): Mercer hangs on the end of a tactical action and asks which ground forces move

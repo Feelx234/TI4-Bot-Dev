@@ -2,7 +2,7 @@
 
 Branch `core-g3-abilities`, cut from `core-g-silent` (`1ef52a35`). Never pushed; the live branch is untouched. Read `docs/G_SILENT_RESUME.md` (the 61 loud rows, the audit, the recipe) first.
 Slots `42_000..` are this lane's rules (`ti4-engine-core-factions/src/silent/g3/`, one file per ability family); the questions are `choice::silent3::{Ask, Opt, Subtype}`
-(variants `T(..)` of `silent::{Ask, Opt, Subtype}`, renderer `ti4-engine/src/render/silent3.rs`); `SilentCodes::g3` / `g3::CODE_TEXTS` hold the interned texts the rules name.
+(variants `T(..)` of `silent::{Ask, Opt, Subtype}`, renderer `ti4-engine/src/render/silent3.rs`); `SilentCodes::g3` holds the interned texts the rules name.
 
 ## Native now (rule + renderer + lockstep against the string + core tests + gap row deleted)
 
@@ -39,7 +39,7 @@ Findings fixed on the way (each guarded by a test that fails before the fix):
 * Slots `42_000..42_017` (`g3/mod.rs` registers them; `NAMED` in `reactions_core.rs` names them; `PAIRS` has `SUFFI_AN_COPY`).
 * Registry order: `reactions_core_g3_tests.rs` (`the_registry_of_the_g3_rules_equals_the_string_one`, an `include!` of `reactions_core::tests`) compares the native registry with the string's for each of the 24 lobby factions as first and as second seat, and the Mentak / Yssaril pair. Three insertion points: `g3::register_first` (before `silent`'s own: Bioplasmosis, the Arborec module comes first), `g3::register_after_ca_combat` (called from `reactions_core::table()` after `ca_combat::register_abilities`: Tekklar's play, the Alastor, Exotrireme II: the Sardakk and Nekro modules sit before the Winnu's), `g3::register_abilities` (the end of `silent`'s). A new rule goes where the test accepts it.
 * New question types: `choice::silent3::{Ask, Opt, Subtype}` (variants `T(..)` of `silent::{Ask, Opt, Subtype}`: one line each in `silent.rs`, `render/silent.rs`), renderer `render/silent3.rs` (unit tests: parse round trips and the words of the questions no lockstep reaches). `carries_trigger` is false for all of them (the lockstep decided: the adapter puts the combat and the invasion into every nested context).
-* `SilentCodes::g3` / `g3::CODE_TEXTS`: interned texts a rule needs (`nekro_flagship`, `technology:exo2`); `reactions_core::set_table_codes` fills them from the same list.
+* `SilentCodes::g3` (places named in `g3::code`, texts in `reactions_core::G3_CODE_TEXTS`: the core holds no text): the interned texts a rule needs (`nekro_flagship`, `technology:exo2`).
 * Lockstep files, each an `include!` into the module that owns the harness (no change of the harness' own tests): `invasion_live_g3_tests.rs` (and `check_ignoring` in `invasion_live.rs`: the native run lists top-level emissions only), `combat_live_g3_tests.rs`, `silent3_live_tests.rs` (a child of `game`), `reactions_core_g3_tests.rs`, `ability_audit_g3_tests.rs` (the events the lane's rules listen to, each with its native emitter or the honest "none": part c of the bail map for these rules).
 * Core tests: `ti4-engine-core-tests/tests/g3_abilities.rs` (38 tests).
 * Lanes that merge: the three engine harnesses (`invasion_live`, `combat_live`, `reactions_core`) gain one `include!` line each; the audit lists shift (`Gap(i)` renumber: `tools` script is `delgap.py` in the run's scratchpad, not committed: delete the row of `GAPS`, the line of `GAP_IDS`, the `ACCOUNTED` entry, renumber later `Gap(i)`).
