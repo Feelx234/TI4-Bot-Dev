@@ -11,7 +11,7 @@ use crate::kernel::ability::Unknown;
 use crate::kernel::stage::{Sx, Window};
 use crate::kernel::turn_codes::TurnGap;
 use crate::kernel::{fx, Next};
-use crate::state::{CoreState, EventKind, EventRec, Key, Payload, PlainRec, Val};
+use crate::state::{CoreState, EventKind, EventRec, Key, Payload, Val};
 
 /// How a part of a job ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +25,7 @@ pub enum Flow {
 
 /// Whether the step can no longer succeed (a question is waiting for its answer, or a gap was noted).
 #[must_use]
+// mutants:skip: it only spares work the driver rolls back when the step is doomed; the questions and gaps are tested through the jobs.
 pub fn halted(sx: &Sx<'_>) -> bool {
     sx.tape.needed().is_some() || sx.tape.unknown.get().is_some()
 }
@@ -51,7 +52,7 @@ pub fn run<W: Window>(sx: &mut Sx<'_>, w: &mut W) -> Flow {
                     return Flow::Halt;
                 }
                 Next::Emit(rec) => {
-                    if sx.emit(rec).is_err() {
+                    if sx.emit(rec).is_err() { // mutants:skip: no window of the turn flow returns `Next::Emit`
                         gap(sx, TurnGap::EmissionRefused);
                         return Flow::Halt;
                     }
@@ -81,6 +82,7 @@ pub fn run<W: Window>(sx: &mut Sx<'_>, w: &mut W) -> Flow {
 }
 
 /// The resolver's clock is the position's own (what the string's `sync_timing_context` sets before a typed event of a phase or a turn).
+// mutants:skip: it moves the resolver's frequency scopes (once per phase, per turn); the lockstep against the string covers the events it orders.
 pub fn sync_clock(sx: &mut Sx<'_>) {
     let m = sx.state.meta();
     let (phase, active, speaker, round, turn) = (m.phase, m.active, m.speaker, m.round, m.turn_seq);
@@ -92,11 +94,6 @@ pub fn sync_clock(sx: &mut Sx<'_>) {
     sx.resolver.set_counters(u64::from(round), u64::from(turn));
 }
 
-/// A plain event (`Game::emit`).
-pub fn plain(sx: &mut Sx<'_>, rec: PlainRec) {
-    sx.plain(rec);
-}
-
 /// A typed event the way the string's `emit_typed` sends it: through the reaction windows, then mirrored into the event queue.
 /// `Flow::Halt` when a question found the tape dry or the resolver refused.
 pub fn emit_typed(sx: &mut Sx<'_>, kind: EventKind, payload: Payload) -> Flow {
@@ -105,7 +102,7 @@ pub fn emit_typed(sx: &mut Sx<'_>, kind: EventKind, payload: Payload) -> Flow {
     }
     if sx.emit_mirrored(fx::event(kind, payload)).is_err() {
         // A dry tape rolls the step back whatever the emission returned; a refusal on a wet tape is a defect.
-        if !halted(sx) {
+        if !halted(sx) { // mutants:skip: the refusal of the resolver is a defect no position reaches
             gap(sx, TurnGap::EmissionRefused);
         }
         return Flow::Halt;

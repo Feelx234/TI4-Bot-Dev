@@ -57,6 +57,16 @@ core listens); Thunder's Edge space-station control is not reconciled (refused).
 * **Lane F**: `closing::options` is the seam of the closing menu; `ask_ask`/`advance_ask` take one arm per source.
 * `Window::TurnFlow` is in `Facts::open` (bit 18): `step_arm` does not look at it, `Arm::Ask` does (a suspended job is served by the arm the step was in).
 
-## Checks (cheap), `CARGO_BUILD_JOBS=2`, private target dir
+## Hook slots (`commander_unlocked`, `leader_action`): NOT done
 
-See the end of this file (filled in at the end of the lane).
+Not started: the 12 in-scope commanders each read a different corner of the position (Arborec: 12 ground forces on planets; Argent: 6 units with barrage, cannon or
+bombardment; Cabal: units in 3 gravity rifts; Empyrean: neighbour of every other seat, needs the map and the trade `Cx`; Ghost: 3 systems with an alpha/beta wormhole and units;
+Mahact: tokens of two other seats in the fleet pool; Mentak: 4 cruisers; Muaat and Winnu: the status the abilities set; Nekro: 3 technologies without the Valefar cards;
+Nomad: one scored objective; Saar: 3 space docks) and each needs a variant on BOTH sides that satisfies and one that misses the condition (the `check_leaders` variants do
+not reach them). The turn flow depends on it only through `TurnGap::CommanderUnlock` (prelude): a locked commander of those factions stops the prelude with a counted gap
+(`start.rs` `COMMANDER_HOOK_MISSING`; the bridge test `the_turn_flow_arms_agree_with_the_legacy_game_for_every_lobby_faction` allows exactly that gap and asserts it is
+still counted). Fill the slots, delete the constant and the allowance.
+
+## Checks (cheap), `CARGO_BUILD_JOBS=2`, private target dir `/root/deploytmp/core-d2-b`
+
+See the end of this file.

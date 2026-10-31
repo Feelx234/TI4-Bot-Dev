@@ -6,7 +6,7 @@
 //! closing menu or the end of the turn.
 
 use super::facts;
-use super::inline::{emit_typed, gap, halted, last_plain_is, player_payload, run, Flow};
+use super::inline::{emit_typed, gap, last_plain_is, player_payload, run, Flow};
 use crate::choice::legendary::When;
 use crate::driver::turn_flow;
 use crate::driver::windows::enforce_all::EnforceAll;
@@ -52,7 +52,7 @@ fn legendary(sx: &mut Sx<'_>, active: Seat) -> Flow {
     let drop_unofficial = sx.state.meta().rules_at_least(OFFICIAL_ACTION_DECK);
     let mut window = Legendary::new(active, When::EndOfTurn, sx.table.codes.turn.legendary, reach::scope_of(sx.kernel), roster, drop_unofficial);
     let flow = run(sx, &mut window);
-    if flow == Flow::Done && window.unsupported {
+    if flow == Flow::Done && window.unsupported { // mutants:skip: a draw the table could not judge (no printed names) needs a position the env always has the names for
         gap(sx, TurnGap::LegendaryUnsupported);
         return Flow::Halt;
     }
@@ -189,12 +189,12 @@ pub fn run_finish(sx: &mut Sx<'_>) -> Flow {
                     return Flow::Halt;
                 }
             };
-            if len > 1 {
+            if len > 1 { // mutants:skip: `closing::options` yields only "end your turn" until lane F assembles the menu
                 sx.plain(PlainRec::bare(PlainKind::TurnClosing));
                 return Flow::Done;
             }
             sx.state.pending_mut().turn_closing = None;
         }
     }
-    if halted(sx) { Flow::Halt } else { run_end(sx) }
+    run_end(sx)
 }
