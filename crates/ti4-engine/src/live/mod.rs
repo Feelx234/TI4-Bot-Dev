@@ -163,6 +163,7 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let position = render::Position { state: std::rc::Rc::new(at.clone()), kernel: kernel::static_of(cx.env.kernel) };
     let mut rendered = Typed::new_at(cx.render, position, asking.choice.clone(), phase, round).rendered;
     (cx.complete)(at, cx.env.kernel, &asking.choice, &mut rendered);
+    details::infiltrate_preview(cx.render, at, cx.env.kernel, cx.env.table.facts.plays_provider.as_ref(), &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
     if let Some((facts, at)) = &asking.nested {

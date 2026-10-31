@@ -82,3 +82,47 @@ fn harness_preview(core: &CoreState, k: &ti4_engine_core::kernel::Kernel, choice
         fizzles: None,
     });
 }
+
+/// `reaction_preview::preview_for`'s "Infiltrate": the window around the gain of a planet offers the card to the gainer when a rival's PDS or space dock
+/// stands on it, and names what would be replaced (display only; the offer is the core's `reaction_slot`, the swaps are `infiltrate_swaps`).
+pub fn infiltrate_preview(r: &crate::render::Render, core: &CoreState, k: &ti4_engine_core::kernel::Kernel, plays: Option<&ti4_engine_core::kernel::ability::PlaysProvider>, choice: &CoreChoice, rendered: &mut Choice) {
+    use ti4_engine_core::generated::ActionCard;
+    let Ask::Reaction(RAsk::Window { event: EventKind::PlanetControlGained, .. }) = choice.ask else { return };
+    let Some(player) = core.players().by_seat(choice.actor) else { return };
+    if !player.cards.hand.as_slice().contains(&ActionCard::Infiltrate) || core.meta().rules_version < ti4_model::state::RULES_INFILTRATE_FIX {
+        return;
+    }
+    let Some((system, planet, gainer, _)) = core.transient().combat.last_control_gained else { return };
+    if gainer != choice.actor {
+        return;
+    }
+    let Some(option) = rendered.options.iter().find(|o| o.id.starts_with("reaction:")).map(|o| o.id.clone()) else { return };
+    let scope = ti4_engine_core::query::reach::scope_of(k);
+    let forbidden = |unit| k.hooks.economy.effect_placement_forbidden(core, k, choice.actor, unit);
+    // The forms the seat would place (the swaps' replacement), as the play facts hand them to the card.
+    let own = plays
+        .and_then(|p| (p.0)(core, k))
+        .and_then(|facts| facts.seats.iter().find(|s| s.who == choice.actor).map(|s| (s.more.pds.0, s.more.spacedock.0)))
+        .unwrap_or((None, None));
+    let swaps = ti4_engine_core::rules::action_cards::infiltrate_swaps(core, scope, choice.actor, planet, own, &forbidden);
+    let mut counts: std::collections::BTreeMap<(ti4_model::id::PlayerId, String), u32> = std::collections::BTreeMap::new();
+    for (piece, _) in swaps.as_slice() {
+        let Some(owner) = r.seats.get(usize::from(piece.owner().0)) else { continue };
+        *counts.entry((ti4_model::id::PlayerId::new(owner.clone()), crate::generated::IdStr::as_str(piece.kind()).to_owned())).or_insert(0) += 1;
+    }
+    let units: Vec<_> = counts.into_iter().map(|((owner, unit_type), count)| crate::decision_context::TriggerUnits { owner, unit_type, count }).collect();
+    let Some(context) = rendered.context.as_mut() else { return };
+    context.previews.push(crate::decision_context::EffectPreview {
+        option,
+        card: "infiltrate".to_owned(),
+        effect: "replace_structures".to_owned(),
+        seats: Vec::new(),
+        system: Some(ti4_model::id::SystemId::new(crate::generated::IdStr::as_str(system))),
+        planets: vec![ti4_model::id::PlanetId::new(crate::generated::IdStr::as_str(planet))],
+        fizzles: units.is_empty().then(|| "nothing_there".to_owned()),
+        units,
+        amount: None,
+        of: None,
+        refs: Vec::new(),
+    });
+}

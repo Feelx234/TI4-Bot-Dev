@@ -224,7 +224,7 @@ mod tests {
         let r_ref = &r;
         with_core(&mut gs, &mut cx, src, FP, |core, _| {
             let kernel = crate::live::kernel::kernel_for(POK);
-            let mut env: Env<'_> = crate::live::env::env_for(r_ref, core, kernel, seeds.clone());
+            let mut env: Env<'_> = crate::live::env::env_with_plays(r_ref, core, kernel, seeds.clone(), POK);
             env.table.codes.invasion = table.codes.invasion;
             if hero {
                 open_at_commit(core, seat, sys, NoteHold::new());
@@ -319,7 +319,11 @@ mod tests {
             eprintln!("QUESTIONS {label}: {:?}", string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>());
         }
         assert_same_questions(&asked, &string.asked);
-        assert_eq!(events, string.events, "{label}: the events the invasion announced");
+        // The announcement of a card declared in a window of the invasion (`ACTION_CARD_PLAYED`, `ACTION_CARD_DISCARDED`) is compared by the card's
+        // effect on the position below (the hand, the structures), not as an event of the invasion.
+        let plays = |e: &(String, std::collections::BTreeMap<String, serde_json::Value>)| e.0 != "ACTION_CARD_PLAYED" && e.0 != "ACTION_CARD_DISCARDED";
+        let (native_events, string_events): (Vec<_>, Vec<_>) = (events.iter().filter(|e| plays(e)).collect(), string.events.iter().filter(|e| plays(e)).collect());
+        assert_eq!(native_events, string_events, "{label}: the events the invasion announced");
         assert_eq!(windows, string.scoring, "{label}: the scoring windows the invasion pauses for");
         assert_eq!(gs.feat_occurrence_seq, string.state.feat_occurrence_seq, "{label}: the feat occurrences");
         assert!(gs.active_invasion.is_none() && string.state.active_invasion.is_none());
@@ -363,6 +367,28 @@ mod tests {
             crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, d);
             check(invader, &state, seed, &system, false, prefer(&[]));
         }
+    }
+
+    /// Infiltrate, held by the invader: when the planet is taken, the native invasion's control step opens the window the card is played in (the play
+    /// facts and the previous owner's structures are the position's), and the previous owner's space dock and PDS become the invader's, as the
+    /// string window does it.
+    #[test]
+    fn infiltrate_is_played_when_the_invader_takes_a_planet_natively_as_the_string_does() {
+        let _guard = crate::dual::tests::serial();
+        let mut played = 0;
+        for (seed, invader) in (1..=6_u64).zip(["hacan", "sol", "naalu", "letnev", "mentak", "sardakk"]) {
+            let (mut state, system, planet) = game(&[("a", invader), ("b", "jolnar")], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 6);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &b, 1);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &b, 1);
+            state.player_mut(&a).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("infiltrate"));
+            let asked = check(invader, &state, seed, &system, false, prefer(&["reaction:", "infiltrate"]));
+            played += usize::from(asked > 0);
+        }
+        assert!(played > 0);
     }
 
     /// Bombardment (dreadnoughts), the space cannon defense of a PDS and a long fight, against several defender factions.
