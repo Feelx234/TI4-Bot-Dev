@@ -168,7 +168,7 @@ fn native_marked_arms(state: &GameState, steps: &[(bool, Option<Arm>, Option<Tur
     Run { questions, events, state, rng, staged }
 }
 
-fn shape(c: &Choice) -> Value {
+pub(super) fn shape(c: &Choice) -> Value {
     serde_json::json!({
         "player": c.player.as_str(),
         "prompt": c.prompt,

@@ -60,6 +60,8 @@ pub enum Ask {
     /// Thunder's Edge Warfare: the final split of the `total` command tokens before the free tactical action, at least
     /// `floor` in the fleet pool.
     TeWarfareRedistribute { total: u8, floor: u8 },
+    /// Thunder's Edge Warfare: the same split after the free tactical action has ended.
+    TeWarfareRedistributeAfter { total: u8, floor: u8 },
     /// Thunder's Edge Warfare: the system of the tactical action without a command token.
     TeWarfareTactical,
     /// "research a technology": the bill in resources (the payload `cost`), the technologies the seat owns
@@ -116,6 +118,8 @@ pub enum Opt {
     /// A token-free way to follow offered by a faction module (`follow|waived|<module>|<waiver>`): the option is the
     /// string module's own (its label is the module's text), interned as an option shape.
     Waive(Code),
+    /// A token-free way to follow offered by a faction module of the core (a hook of the kernel: `Waiver { module, code }`): the module and its code.
+    WaiveBy(crate::generated::Faction, u16),
     /// Enervate: the follower performs the primary ability instead (`follow|enervate_primary`).
     PrimaryInstead,
 }

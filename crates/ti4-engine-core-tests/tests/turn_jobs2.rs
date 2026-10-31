@@ -144,8 +144,8 @@ fn without_map(s: &mut ti4_engine_core::state::CoreState) {
 fn a_leader_printed_during_the_action_phase_is_a_free_option_of_the_closing_menu() {
     let agent = Leader::ALL.iter().copied().find(|l| l.data().kind == LeaderType::Agent && l.data().window == LeaderWindow::ActionPhase).unwrap();
     let faction = Faction::ALL.iter().copied().find(|f| ti4_engine_core::query::tech::tag_is(agent.data().faction, *f)).unwrap();
-    let (mut s, k) = Scenario::new(&[faction, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
-    without_map(&mut s);
+    // (One seat: Hacan's Guild Ships would trade with anybody, and a partner is a free option of its own.)
+    let (mut s, k) = Scenario::new(&[faction]).phase(Phase::Action).active(Some(0)).build();
     s.players_mut().edit(0).leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Readied);
     // The menu lists exactly what the action menu's leaders source lists and calls free: "end your turn" first, then those.
     let free: Vec<TuOpt> = ti4_engine_core::driver::menu_sources::leaders(&s, &k, Seat(0)).into_iter().filter(|o| ti4_engine_core::driver::menu_sources::leader_is_free(*o) == Some(true)).collect();

@@ -97,11 +97,12 @@ impl abilities::Env for KernelEnv<'_> {
 impl strategy::Env for KernelEnv<'_> {
     /// Masters of Trade (Trade) or a module's hook (`rules::abilities::secondary_is_free`). The hook alone missed Hacan's printed ability.
     fn secondary_is_free(&self, who: Seat, card: Option<StrategyCardKind>) -> bool {
-        (abilities::has(self.core, who, crate::generated::Ability::MastersOfTrade) && card == Some(StrategyCardKind::Trade))
-            || self.kernel.hooks.general.secondary_is_free(self.core, self.kernel, who, card)
+        // Hacan's Masters of Trade waive Trade, and the modules' hooks (`faction_abilities::secondary_is_free`).
+        abilities::secondary_is_free(&abilities::Cx { core: self.core, env: self }, who, card)
     }
     fn substitutes_primary(&self, who: Seat, card: Option<StrategyCardKind>) -> bool {
-        self.kernel.hooks.general.substitutes_primary(self.core, self.kernel, who, card)
+        // Jol-Nar's Brilliant substitutes the primary of Technology (`faction_abilities::substitutes_primary`).
+        abilities::substitutes_primary(&abilities::Cx { core: self.core, env: self }, who, card)
     }
     fn leadership_affordable(&self, who: Seat) -> bool {
         self.available(who, Spend::Influence) >= INFLUENCE_PER_TOKEN

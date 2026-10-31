@@ -51,7 +51,7 @@ pub fn splits(total: u8, floor: u8) -> impl Iterator<Item = SOpt> {
 }
 
 /// Set the pools of a seat to a split.
-fn apply_split(core: &mut CoreState, who: Seat, tactic: u8, fleet: u8, strategic: u8) {
+pub(crate) fn apply_split(core: &mut CoreState, who: Seat, tactic: u8, fleet: u8, strategic: u8) {
     if let Some(p) = core.players_mut().by_seat_mut(who) {
         p.econ.tactic_tokens = i16::from(tactic);
         p.econ.fleet_tokens = i16::from(fleet);

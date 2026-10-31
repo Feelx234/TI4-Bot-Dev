@@ -70,6 +70,8 @@ pub enum Ask {
     NaazCard,
     /// Mathis Mathinus (Winnu hero): the strategy card whose primary is performed.
     WinnuCard,
+    /// Mathis Mathinus: may this seat follow the secondary of that card (asked of the hero's owner, one seat at a time).
+    WinnuFollower { follower: crate::ids::Seat },
     /// Mirik Aun Sissiri (Argent hero), Flock Migration: the ship that moves next.
     FlockShip,
     /// Flock Migration: where the ship goes.
@@ -137,6 +139,8 @@ pub enum Opt {
     KyverDiscard,
     /// A strategy card of the hero's choice.
     HeroCard(crate::generated::StrategyCard),
+    /// Mathis Mathinus: the seat may (`true`) or may not follow the secondary.
+    HeroFollower(bool),
     /// Flock Migration: the `index`th ship offered, of this form, standing in this system.
     FlockShip { index: u8, system: crate::generated::System, unit: Unit },
     /// Flock Migration: move the ship to this system.
@@ -174,6 +178,7 @@ pub enum Subtype {
     FlayeshTech,
     KyverFate,
     HeroCard,
+    HeroFollower,
     FlockShip,
     FlockTo,
     FlockCargo,

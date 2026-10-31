@@ -19,3 +19,4 @@ pub mod status_bookkeeping;
 pub mod status_finish;
 pub mod tactical;
 pub mod trade;
+pub mod strategic;

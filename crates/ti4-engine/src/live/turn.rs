@@ -37,6 +37,13 @@ pub fn codes(r: &Render) -> TurnCodes {
         transaction: r.code("transaction"),
         dark_pact: r.code("dark_pact"),
         tcs: r.code("tcs"),
+        strategy_secondary: r.code("strategy_secondary"),
+        trade_primary: r.code("trade_primary"),
+        place_structure: r.code("place_structure"),
+        te6warfare: r.code("te6warfare"),
+        te4construction: r.code("te4construction"),
+        production: r.code("production"),
+        units: r.code("units"),
     }
 }
 

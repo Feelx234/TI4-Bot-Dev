@@ -21,6 +21,7 @@ pub mod env;
 pub mod kernel;
 pub mod plays;
 pub mod trade;
+pub mod strategic;
 pub mod turn;
 
 use std::collections::VecDeque;

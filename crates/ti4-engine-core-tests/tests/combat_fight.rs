@@ -44,6 +44,7 @@ fn env() -> Env {
         staging: false,
         occurrence: 0,
         begin_occurrence: true,
+        show_neutral: false,
         phases: [Code(1), Code(2), Code(3), Code(4), Code(5)],
         opening_unported: false,
         round_seq_listens: false,

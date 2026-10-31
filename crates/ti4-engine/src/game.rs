@@ -63,6 +63,10 @@ mod trade_live_tests;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "agenda_live_tests.rs"]
 mod agenda_live_tests;
+// The lockstep of the native strategic action (lane E) against the string steps it replaces.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "strategic_live_tests.rs"]
+mod strategic_live_tests;
 #[cfg(not(feature = "typed-core"))]
 mod d1_pending {
     pub(super) const fn active() -> bool {
