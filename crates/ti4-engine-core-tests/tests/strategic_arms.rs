@@ -657,6 +657,7 @@ fn war_machines_bonus_does_not_make_the_technology_secondary_affordable() {
         let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).build();
         s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Technology);
         s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.trade_goods = goods;
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = 2;
         if marked {
             let seq = s.meta().activation_seq;
             s.players_mut().by_seat_mut(Seat(1)).unwrap().round_marks.push(RoundKind::WarMachine, seq);
