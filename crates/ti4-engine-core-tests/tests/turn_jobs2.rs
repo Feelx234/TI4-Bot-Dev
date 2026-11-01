@@ -682,7 +682,7 @@ fn roster_env(k: &Kernel) -> Env<'_> {
 /// Seat 0 owns Chaos Mapping and a space dock on a planet it controls in the first plain system (a capacity of 3 and a planet to pay with).
 fn chaos_table(goods: i16) -> (CoreState, Kernel, System) {
     let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
-    let (s, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
+    let (mut s, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
         .phase(Phase::Action)
         .active(Some(0))
         .map_from(&[system])
@@ -692,6 +692,8 @@ fn chaos_table(goods: i16) -> (CoreState, Kernel, System) {
         .goods(0, goods)
         .tokens(0, 3, 3, 2)
         .build();
+    // (A position decoded from the string marks every system the string board has an entry for.)
+    s.board_mut().sys_mut(system).flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
     (s, k, system)
 }
 
