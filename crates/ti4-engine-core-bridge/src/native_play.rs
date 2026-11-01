@@ -940,6 +940,9 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     let asked: Vec<&Asked> = group.iter().flat_map(|p| p.asked.iter()).collect();
     let (info, records, events) = (&run.info, &run.records, &run.events);
     if let Some(error) = &info.error {
+        if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
+            eprintln!("  legacy ERROR after answering {:?}: asked {:?}", asked.iter().map(|a| a.chosen.as_str()).collect::<Vec<_>>(), records.iter().map(|r| (r.player.as_str().to_owned(), r.prompt.clone(), r.chosen.clone())).collect::<Vec<_>>());
+        }
         return Some(diff("legacy", "step.error".to_owned(), "no error".to_owned(), error.clone()));
     }
     if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
