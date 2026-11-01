@@ -493,8 +493,8 @@ fn a_waiver_a_nomad_hears_is_paid_and_stages_the_exhaustion_for_the_suite() {
     // (The Nomad's Temporal Command Suite is told: `exhaust_ready_agent` stages the event the next prelude announces.)
     let staged: Vec<_> = s.pending().staged.iter().filter(|e| e.kind == ti4_engine_core::state::EventKind::AgentExhausted).collect();
     assert_eq!(staged.len(), 1, "{:?}", s.pending().staged);
-    assert_eq!(staged[0].payload.get(ti4_engine_core::state::Key::Leader), Some(&ti4_engine_core::state::Val::Leader(Leader::JaeMirKan)));
-    assert_eq!(staged[0].payload.get(ti4_engine_core::state::Key::Player), Some(&ti4_engine_core::state::Val::Seat(mahact)));
+    assert_eq!(staged[0].payload.get(ti4_engine_core::state::Key::Leader), Some(ti4_engine_core::state::Val::Leader(Leader::JaeMirKan)));
+    assert_eq!(staged[0].payload.get(ti4_engine_core::state::Key::Player), Some(ti4_engine_core::state::Val::Seat(mahact)));
 }
 
 #[test]
