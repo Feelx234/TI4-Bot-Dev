@@ -6,6 +6,7 @@ pub mod cabal;
 pub mod empyrean;
 pub mod ghost;
 pub mod g3;
+pub mod g4;
 pub mod gift;
 pub mod mitosis;
 pub mod muaat;
@@ -34,14 +35,18 @@ pub fn register_abilities(t: &mut AbilityTable) {
     scavenge::register_abilities(t);
     g3::register_saar(t);
     g3::register_abilities(t);
+    g4::register_abilities(t);
     winnu::register_abilities(t);
     sol::register_last(t);
     empyrean::register_last(t);
+    g4::register_last(t);
 }
 
-/// The Empyrean's and the Ghosts' rules (Acamar, Voidwatch, Sai Seravus), before the Muaat module of the string (lane M6d's Nova Seed and war sun record hear
+/// Stymie, the Empyrean's and the Ghosts' rules (Acamar, Voidwatch, Sai Seravus), before the Muaat module of the string (lane M6d's Nova Seed and war sun record hear
 /// `MOVEMENT_FINISHED` and `SHIP_MOVED` too): the string registers the Empyrean, then the Ghosts, then the Muaat.
 pub fn register_before_muaat(t: &mut AbilityTable) {
+    // Arborec's Stymie (`SHIP_MOVED`) comes first of the three: the Arborec module is the first of the string's faction modules.
+    g4::register_first(t);
     empyrean::register_abilities(t);
     ghost::register_abilities(t);
 }

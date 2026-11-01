@@ -19,6 +19,7 @@ mod tests {
         #[allow(dead_code, reason = "no lane is unmerged at the moment (integration 12 merged M6c and M1); a branch that carries a rule not yet merged lists it here")]
         Lane(&'static str),
         /// In scope and not ported: a LOUD gap. The row of `GAPS` (and `GAP_IDS`) makes a native game stop where a seat holds the card.
+        #[allow(dead_code, reason = "no loud gap row is left (integration 13: lane G4 ported the last nine); a lane that lists a gap uses it again")]
         Gap(usize),
     }
 
@@ -54,7 +55,6 @@ mod tests {
 
     const ACCOUNTED: &[(&str, Status)] = &[
         ("ability:*:council_patronage:STRATEGY_PHASE_BEGAN:after", Status::Dropped("a dropped faction")),
-        ("ability:*:foresight:MOVEMENT_FINISHED:after", Status::Gap(0)),
         ("ability:*:incursion:SYSTEM_ACTIVATED:when", Status::Dropped("a dropped faction")),
         ("ability:*:incursion_remove:STATUS_PHASE_ENDED:after", Status::Dropped("a dropped faction")),
         ("ability:*:laws_order:TURN_BEGAN:after", Status::Dropped("a dropped faction")),
@@ -65,7 +65,6 @@ mod tests {
         ("ability:*:plot_seethe:STATUS_PHASE_BEGAN:after", Status::Dropped("a dropped faction")),
         ("ability:*:plot_siphon:COMMODITIES_GAINED:after", Status::Dropped("a dropped faction")),
         ("ability:*:plots_revealed:FACTION_FLIPPED:after", Status::Dropped("a dropped faction")),
-        ("ability:*:propagation:PROPAGATION_RESEARCH:after", Status::Gap(1)),
         ("ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the Winnu mark Reclamation reads)")),
         ("ability:*:sundered:MOVEMENT_FINISHED:after", Status::Dropped("a dropped faction")),
         ("ability:*:survivalinstinct:SYSTEM_ACTIVATED:after", Status::Dropped("a dropped faction")),
@@ -124,7 +123,6 @@ mod tests {
         ("leader:*:ralnelcommander:RETREAT_DECLARED:when", Status::Dropped("a dropped faction")),
         ("leader:*:ralnelhero:PLAYER_PASSED:after", Status::Dropped("a dropped faction")),
         ("leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the T'ro mark of the end of the action)")),
-        ("leader:*:titanscommander:PRODUCTION_USED:when", Status::Gap(2)),
         ("note:*:keleres_rider:AGENDA_REVEALED:after", Status::Dropped("a dropped faction")),
         ("promissory:*:blackops:TRANSACTION_RESOLVED:after", Status::Dropped("a dropped faction")),
         ("promissory:*:malevolency:STATUS_PHASE_ENDED:after", Status::Dropped("a dropped faction")),
@@ -134,11 +132,8 @@ mod tests {
         ("promissory:*:raisethestandard:SPACE_COMBAT_ENDED:after", Status::Dropped("a dropped faction")),
         ("promissory:*:sever_return:STATUS_PHASE_ENDED:after", Status::Dropped("a dropped faction")),
         ("promissory:*:share_knowledge_return:STATUS_PHASE_ENDED:after", Status::Dropped("a dropped faction")),
-        ("promissory:*:spynet:TURN_BEGAN:after", Status::Gap(3)),
-        ("promissory:*:stymie:SHIP_MOVED:after", Status::Gap(4)),
-        ("technology:*:asn_clear:ACTION_COMPLETED:after", Status::Gap(5)),
+        ("technology:*:asn_clear:ACTION_COMPLETED:after", Status::Dropped("a dropped faction (the Keleres technology Agency Supply Network)")),
         ("technology:*:hydrothermal:STATUS_PHASE_BEGAN:after", Status::Dropped("a dropped faction")),
-        ("technology:*:md_hit:GROUND_COMBAT_STARTED:after", Status::Gap(6)),
         ("technology:*:nanomachines:STATUS_PHASE_ENDED:after", Status::Dropped("a dropped faction")),
         ("technology:*:nekroc4y:SHIP_DESTROYED:after", Status::Dropped("unclaimed by any faction (operator ruling 2026-10-07: an obscure variant, \"not part of the game\"; `nekro_units::TECHNOLOGIES`): no seat can gain it")),
         ("technology:*:parasite-firm:STATUS_PHASE_BEGAN:after", Status::Dropped("a dropped faction")),
@@ -148,7 +143,6 @@ mod tests {
         ("technology:*:proxima:GROUND_COMBAT_ROUND_BEGAN:after", Status::Dropped("a dropped faction")),
         ("technology:*:radical:STATUS_PHASE_BEGAN:after", Status::Dropped("a dropped faction")),
         ("technology:*:subatomic:SHIP_DESTROYED:after", Status::Dropped("a dropped faction")),
-        ("technology:*:yso:UNITS_PRODUCED:after", Status::Gap(7)),
         ("unit:*:bastion_mech:GROUND_FORCE_DESTROYED:after", Status::Dropped("a dropped faction")),
         ("unit:*:crimson_destroyer:GROUND_COMBAT_ENDED:after", Status::Dropped("a dropped faction")),
         ("unit:*:crimson_destroyer:SPACE_COMBAT_ENDED:after", Status::Dropped("a dropped faction")),
@@ -156,7 +150,6 @@ mod tests {
         ("unit:*:firmament_flagship:GROUND_COMBAT_ROUND_ENDED:after", Status::Dropped("a dropped faction")),
         ("unit:*:firmament_flagship:SPACE_COMBAT_ROUND_ENDED:after", Status::Dropped("a dropped faction")),
         ("unit:*:keleres_flagship:SYSTEM_ACTIVATED:when", Status::Dropped("a dropped faction")),
-        ("unit:*:naalu_mech_te:RELIC_GAINED:after", Status::Gap(8)),
         ("unit:*:obsidian_mech:FACTION_FLIPPED:after", Status::Dropped("a dropped faction")),
         ("unit:*:ralnel_flagship:FLAGSHIP_RETREATED:when", Status::Dropped("a dropped faction")),
         ("unit:*:ralnel_mech:GROUND_COMBAT_ROUND_ENDED:after", Status::Dropped("a dropped faction")),

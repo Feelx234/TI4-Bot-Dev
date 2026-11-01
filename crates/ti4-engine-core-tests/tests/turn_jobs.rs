@@ -387,7 +387,8 @@ fn a_recorded_map_edit_and_a_pending_propagation_are_counted_gaps() {
     s.marks_mut().tail.edit().insert(MarkKey::NekroPropagation(Seat(0)), MarkVal::Atom(Atom::Num(1)));
     let mut e = env(&k);
     e.table.facts.staging = true;
-    assert_eq!(advance_reconcile(&mut s, &e, None), gap(TurnGap::Propagation));
+    // Propagation is announced as an event of the table (the Nekro rule settles it): the step no longer stops.
+    assert!(advance_reconcile(&mut s, &e, None).is_ok());
 }
 
 #[test]

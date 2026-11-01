@@ -527,8 +527,6 @@ fn native_action(faction: &str, others: [&str; 3], card: &str) -> usize {
     let mut steps = 0;
     let known = |stop: &live::Stop| -> bool {
         match stop {
-            // Nekro's Propagation (a technology gained at the table) is the Nekro lane's counted gap (`docs/KP_RESUME.md`).
-            live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::Propagation))) => true,
             // The closing menu's free options are the menu lane's: the action itself ended.
             live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources))) => true,
             // A loud row of the silent-ability audit (`silent::gaps`, lanes G3 / M6d): a counted gap of the live path, owned by the lane that ports it.

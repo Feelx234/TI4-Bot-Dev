@@ -43,6 +43,7 @@ pub mod reaction;
 pub mod silent;
 pub mod silent3;
 pub mod activation;
+pub mod silent4;
 pub mod relic;
 pub mod strategy;
 pub mod tactical;

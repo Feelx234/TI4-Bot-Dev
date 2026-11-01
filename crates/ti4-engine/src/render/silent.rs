@@ -15,13 +15,14 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
         Ask::Landing(Landing::Legionnaire) => "Crimson Legionnaire II: where in your home system".to_owned(),
         Ask::Mitosis => "Mitosis: place an infantry or replace one with a mech".to_owned(),
         Ask::Pillage => "Pillage: take 1 trade good or commodity".to_owned(),
+        Ask::T(t) => super::silent3::prompt(r, t),
+        Ask::U(u) => super::silent4::prompt(r, u),
         Ask::Reclaimer => "Reclaimer: place a structure".to_owned(),
         Ask::TradePolicy => "Hegemonic Trade Policy: swap which planet's values".to_owned(),
         Ask::CommanderFighters => "Sai Seravus: how many fighters do you place from reinforcements".to_owned(),
         Ask::Voidwatch => "Voidwatch: which promissory note to give".to_owned(),
         Ask::Stillness => "The Stillness of Stars: which unit do you capture".to_owned(),
         Ask::NaazAgent | Ask::NaazCopy => "Garv and Gunn: explore which of your planets".to_owned(),
-        Ask::T(t) => super::silent3::prompt(r, t),
         Ask::ExtraDie(DieSource::Ambuscade) => "ambuscade: choose a unit to roll 1 additional die".to_owned(),
         Ask::ExtraDie(DieSource::Commander) => "argentcommander: choose a unit to roll 1 additional die".to_owned(),
         Ask::StrikeWing => "Strike Wing Alpha II: choose an infantry to destroy".to_owned(),
@@ -34,6 +35,8 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Landing(Landing::Legionnaire) => "legionnaire_return",
         Subtype::Mitosis => "mitosis_place",
         Subtype::Pillage => "pillage_take",
+        Subtype::T(t) => return super::silent3::subtype(t),
+        Subtype::U(u) => return super::silent4::subtype(u),
         Subtype::Reclaimer => "reclaimer",
         Subtype::TradePolicy => "htp_planet",
         Subtype::CommanderFighters => "commander_fighters",
@@ -41,7 +44,6 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Stillness => "stillness_target",
         Subtype::NaazAgent => "agent_planet",
         Subtype::NaazCopy => "borrowed_agent_planet",
-        Subtype::T(t) => return super::silent3::subtype(t),
         Subtype::ExtraDie => "extra_die_unit",
         Subtype::StrikeWing => "swa2_infantry",
     }
@@ -67,6 +69,8 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
             let (kind, word) = if *commodity { ("commodity", "commodity") } else { ("trade_good", "trade good") };
             ChoiceOption::labelled(format!("{kind}|{target}"), "pillage", format!("take 1 {word} from {target}"))
         }
+        (Ask::T(a), Opt::T(o)) => super::silent3::option(r, a, o),
+        (Ask::U(a), Opt::U(o)) => super::silent4::option(r, a, o),
         (Ask::Reclaimer, Opt::Reclaimer { pds, system, planet }) => {
             let (base, word) = if *pds { ("pds", "PDS") } else { ("spacedock", "space dock") };
             ChoiceOption::labelled(format!("{base}|{}|{}", system.as_str(), planet.as_str()), "unit", format!("Reclaimer: place a {word} on {}", planet.as_str()))
@@ -92,7 +96,6 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
             let name = ti4_content::galaxy::planet(content, planet.as_str(), ti4_model::content_types::FULL).and_then(|record| record.name()).unwrap_or(planet.as_str());
             ChoiceOption::labelled(planet.as_str(), "planet", format!("explore {name}"))
         }
-        (Ask::T(a), Opt::T(o)) => super::silent3::option(r, a, o),
         (Ask::ExtraDie(_), Opt::ExtraDie { entry, unit }) => ChoiceOption::labelled(format!("unit|{entry}"), "extra_die", format!("{} rolls 1 additional die", unit.as_str())),
         (Ask::StrikeWing, Opt::Infantry { unit, victim }) => ChoiceOption::labelled(unit.as_str(), "strike_wing_destroy", format!("destroy 1 {} of {}", unit.as_str(), r.seat_text(*victim))),
         _ => panic!("option {o:?} in the question {a:?}"),
@@ -103,6 +106,7 @@ pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
     use ti4_engine_core::generated::{Planet, System};
     match a {
         Ask::T(t) => super::silent3::parse(r, t, id),
+        Ask::U(u) => super::silent4::parse(r, u, id),
         Ask::Landing(_) => <Planet as IdStr>::from_id(id).map(|p| ROpt::G(Opt::Planet(p))),
         Ask::NaazAgent | Ask::NaazCopy => <Planet as IdStr>::from_id(id).map(|p| ROpt::G(Opt::Explore(p))),
         Ask::Pillage => {

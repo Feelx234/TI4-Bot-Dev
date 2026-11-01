@@ -27,11 +27,11 @@ use ti4_engine_core::rules::combat::Rd;
 use ti4_engine_core::state::{CoreState, EventKind, Key, NoteKey, RerollSet, RollPurpose};
 
 /// `technology:*:swa2:UNIT_ABILITY_ROLLED:after`.
-pub const SWA2: Slot = Slot(44_001);
+pub const SWA2: Slot = Slot(46_001);
 /// `promissory:*:ambuscade:UNIT_ABILITY_ROLLED:when`.
-pub const AMBUSCADE: Slot = Slot(44_002);
+pub const AMBUSCADE: Slot = Slot(46_002);
 /// `leader:*:argentcommander:UNIT_ABILITY_ROLLED:when`.
-pub const COMMANDER: Slot = Slot(44_003);
+pub const COMMANDER: Slot = Slot(46_003);
 
 /// The ten-sided die.
 const SIDES: u32 = 10;

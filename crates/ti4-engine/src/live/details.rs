@@ -26,6 +26,8 @@ pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered
         Ask::Reaction(RAsk::Window { event: EventKind::SystemActivated, relation: Relation::After }) => harness_preview(core, kernel, choice, rendered),
         _ => {}
     }
+    // The placement of lane G4's abilities (Yin Spinner, the Naalu mech): the offer card with a caption per spot.
+    crate::render::silent4::complete(choice, rendered);
     super::turn::complete(core, choice, rendered);
     super::menu::complete(core, choice, rendered);
     super::agenda::complete(core, choice, rendered);

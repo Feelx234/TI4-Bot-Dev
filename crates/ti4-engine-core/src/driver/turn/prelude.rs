@@ -71,12 +71,6 @@ fn announce_gains(sx: &mut Sx<'_>) -> Flow {
     if !sx.table.facts.staging {
         return Flow::Done;
     }
-    // Propagation (Nekro): each research replaced by 3 command tokens is announced so the owner can place them; the reaction is the
-    // string's (`factions::nekro::propagation`), not ported.
-    if !sx.kernel.hooks.direct.nekro_pending_propagation(sx.state).is_empty() {
-        gap(sx, TurnGap::Propagation);
-        return Flow::Halt;
-    }
     let mut gained: Vec<(EventKind, Payload)> = Vec::new();
     // Written only after every gain is announced, so a failed emit is seen again next step.
     let mut marks: Vec<(MarkKey, MarkVal)> = Vec::new();
@@ -112,6 +106,11 @@ fn announce_gains(sx: &mut Sx<'_>) -> Flow {
         marks.push((MarkKey::PrivateSeen(Word::Technologies, seat), list(techs.iter().map(|t| Atom::Tech(*t)))));
         marks.push((MarkKey::PrivateSeen(Word::Breakthrough, seat), list(breakthrough.map(Atom::Breakthrough))));
         marks.push((MarkKey::PrivateSeen(Word::Relics, seat), list(relics.iter().map(|r| Atom::Relic(*r)))));
+    }
+    // Propagation (Nekro): each research replaced by 3 command tokens since the last step is announced so the owner can place them
+    // (`factions::nekro`); each announcement settles one (the rule writes the pending count down).
+    for seat in sx.kernel.hooks.direct.nekro_pending_propagation(sx.state).as_slice().to_vec() {
+        gained.push((EventKind::PropagationResearch, Payload::new().with(Key::Player, Val::Seat(seat))));
     }
     for (kind, payload) in gained {
         if emit_typed(sx, kind, payload) == Flow::Halt {

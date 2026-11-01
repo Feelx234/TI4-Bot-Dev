@@ -32,6 +32,10 @@ pub enum Ask {
     Mitosis,
     /// Pillage (Mentak): take 1 trade good or commodity from one of the neighbours the event concerns.
     Pillage,
+    /// A question of lane G3 (`silent3`).
+    T(super::silent3::Ask),
+    /// A question of lane G4 (`silent4`).
+    U(super::silent4::Ask),
     /// Reclaimer (the Winnu mech): place a structure on a planet the action took.
     Reclaimer,
     /// Hegemonic Trade Policy (Winnu): swap the values of which planet.
@@ -46,8 +50,6 @@ pub enum Ask {
     NaazAgent,
     /// Ssruu's copy of Garv and Gunn (the planets are named by their names).
     NaazCopy,
-    /// A question of lane G3 (`silent3`).
-    T(super::silent3::Ask),
     /// Strike Wing Ambuscade or the Argent commander: which of the rolling units rolls 1 additional die.
     ExtraDie(DieSource),
     /// Strike Wing Alpha II: which type of the opponent's infantry in the space area is destroyed.
@@ -64,6 +66,10 @@ pub enum Opt {
     Mitosis { replace: bool, system: System, planet: Option<Planet> },
     /// A trade good (`commodity == false`) or a commodity of `target` taken by Pillage.
     Pillage { commodity: bool, target: Seat },
+    /// An answer of lane G3 (`silent3`).
+    T(super::silent3::Opt),
+    /// An answer of lane G4 (`silent4`).
+    U(super::silent4::Opt),
     /// A PDS (`pds`) or a space dock placed by the Reclaimer on `planet` of `system`.
     Reclaimer { pds: bool, system: System, planet: Planet },
     /// The planet of `system` whose resource and influence values Hegemonic Trade Policy swaps.
@@ -78,8 +84,6 @@ pub enum Opt {
     Capture { unit: crate::generated::Unit, victim: Seat },
     /// A planet explored.
     Explore(Planet),
-    /// An answer of lane G3 (`silent3`).
-    T(super::silent3::Opt),
     /// The unit that rolls an additional die: the staged roll `entry` (the option id is its index), of the type `unit`.
     ExtraDie { entry: u8, unit: Unit },
     /// One infantry of `victim` of this type destroyed.
@@ -95,6 +99,10 @@ pub enum Subtype {
     Mitosis,
     /// `pillage_take`.
     Pillage,
+    /// A subtype of lane G3 (`silent3`).
+    T(super::silent3::Subtype),
+    /// A subtype of lane G4 (`silent4`).
+    U(super::silent4::Subtype),
     /// `reclaimer`.
     Reclaimer,
     /// `htp_planet`.
@@ -109,8 +117,6 @@ pub enum Subtype {
     NaazAgent,
     /// `borrowed_agent_planet`.
     NaazCopy,
-    /// A subtype of lane G3 (`silent3`).
-    T(super::silent3::Subtype),
     /// `extra_die_unit`.
     ExtraDie,
     /// `swa2_infantry`.
@@ -127,6 +133,7 @@ impl Ask {
             Self::ExtraDie(_) | Self::StrikeWing => false,
             Self::Reclaimer | Self::TradePolicy | Self::CommanderFighters | Self::Voidwatch | Self::Stillness | Self::NaazAgent | Self::NaazCopy => false,
             Self::T(t) => t.carries_trigger(),
+            Self::U(u) => u.carries_trigger(),
         }
     }
 }

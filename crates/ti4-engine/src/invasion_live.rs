@@ -277,6 +277,7 @@ mod tests {
     }
 
     include!("invasion_live_g3_tests.rs");
+    include!("invasion_live_g4_tests.rs");
 
     fn assert_same_questions(live: &[Choice], string: &[Choice]) {
         assert_eq!(live.len(), string.len(), "live {:?}\nstring {:?}", live.iter().map(|c| &c.prompt).collect::<Vec<_>>(), string.iter().map(|c| &c.prompt).collect::<Vec<_>>());

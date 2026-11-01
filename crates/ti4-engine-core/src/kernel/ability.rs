@@ -292,6 +292,8 @@ pub struct SilentCodes {
     pub naaz_agent: crate::state::Code,
     /// The texts lane G3's rules name (`reactions_core::G3_CODE_TEXTS`, the places of `ti4_engine_core_factions::silent::g3::code`): the aliases of the questions' sources.
     pub g3: [crate::state::Code; 16],
+    /// The texts lane G4's rules name (`reactions_core::G4_CODE_TEXTS`, the places of `ti4_engine_core_factions::silent::g4::code`).
+    pub g4: [crate::state::Code; 16],
 }
 
 /// The `source` texts of `UNITS_PRODUCED`: `ability` for the units an ability produces, `production` for the PRODUCTION of a unit (the adapter's

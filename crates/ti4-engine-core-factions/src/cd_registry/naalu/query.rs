@@ -7,7 +7,7 @@
 //! | `ground.temporary_space_commit_candidates` | `naalu::matriarch_fighters` | Q | the legacy slot (a gather of pieces) |
 //! | `ground.temporary_ground_force` | `naalu::matriarch_temporary_ground_force` | Q | the legacy slot (the plan's P4 `temporary_ground_force` replacement is the window's) |
 //! | `strategy.secondary_waivers` | `naalu::secondary_waivers` (Mindsieve) | Q | `strategy.secondary_waivers` |
-//! | `cards.may_view_hand` | `naalu::may_view_promissory_hand` (M'aban) | blocked | needs `transactions::are_neighbours` (presence, Keleres Mecatol rule) typed: B4 |
+//! | `cards.may_view_hand` | `naalu::may_view_promissory_hand` (M'aban) | Q | direct (lane G4; the bound seat's view of its neighbours' hidden notes: no consumer in the typed `Seen` yet) |
 //! | `direct.naalu_commander_has_peek` | `naalu::commander_has_peek` | Q | `direct.naalu_commander_has_peek` |
 //! | `strategy.strategy_phase_ended`, `strategy.secondary_waived` | | O | `observe.rs` |
 //! | `timing_abilities`, leaders | | W | B7 |
@@ -38,6 +38,7 @@ pub fn register(t: &mut HookTable) {
     t.ground.temporary_ground_force.push(matriarch_temporary_ground_force);
     t.strategy.secondary_waivers.push(secondary_waivers);
     t.direct.naalu_commander_has_peek.push(commander_has_peek);
+    t.cards.may_view_hand.push(may_view_promissory_hand);
 }
 
 fn is_naalu(s: &CoreState, who: Seat) -> bool {
@@ -136,4 +137,18 @@ pub fn secondary_waivers(
 /// Whether the Naalu seat currently owns its unlocked M'aban commander (or has the ability another way).
 pub fn commander_has_peek(s: &CoreState, who: Seat) -> bool {
     has_commander_ability(s, who, Leader::Maban)
+}
+
+/// M'aban (`naalu::may_view_promissory_hand`, lane G4): "you may look at the promissory notes in your neighbors' hands" -- the live permission follows the viewer's commander rights and the neighbour
+/// status of the two seats (`transactions::are_neighbours`, the presence rule with the Mecatol exception). Only the promissory notes; a standing permission, read from the position every time.
+pub fn may_view_promissory_hand(s: &CoreState, k: &Kernel, viewer: Seat, owner: Seat, kind: ti4_engine_core::kernel::hooks::RevealKind) -> bool {
+    use ti4_engine_core::query::trade;
+    if kind != ti4_engine_core::kernel::hooks::RevealKind::PromissoryNotes || !commander_has_peek(s, viewer) {
+        return false;
+    }
+    let Some(adj) = s.map().adjacency() else { return false };
+    let env = ti4_engine_core::rules::trade::KernelEnv { core: s, kernel: k };
+    // The limits are not read by the neighbour queries.
+    let cx = trade::Cx { core: s, adj, mecatol: ti4_engine_core::query::objectives::mecatol_in_galaxy(s), limits: trade::Limits { per_action: 0, per_round: 0 }, env: &env };
+    trade::are_neighbours(&cx, viewer, owner)
 }

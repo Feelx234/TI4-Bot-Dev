@@ -32,6 +32,9 @@ struct Named {
 /// The texts the rules of `silent::g3` name in their questions (`silent::g3::code`, the same places); unused places hold a placeholder.
 const G3_CODE_TEXTS: [&str; 16] = ["nekro_flagship", "technology:exo2", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused"];
 
+/// The texts the rules of `silent::g4` name (`silent::g4::code`, the same places); unused places hold a placeholder.
+const G4_CODE_TEXTS: [&str; 16] = ["titanscommander", "md", "87", "yso", "naalu_mech_te", "naalu", "strategy", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused", "g4_unused"];
+
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cb_economy::argent::timing::AGENT, kind: "leader", card: "argentagent" },
@@ -160,6 +163,14 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_TURN, kind: "promissory", card: "tekklar_turn" },
     Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::TURN, kind: "leader", card: "sardakkagent_turn" },
     Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::STRATEGIC, kind: "leader", card: "sardakkagent_strategic" },
+    Named { slot: ti4_engine_core_factions::silent::g4::propagation::PROPAGATION, kind: "ability", card: "propagation" },
+    Named { slot: ti4_engine_core_factions::silent::g4::spynet::SPY_NET, kind: "promissory", card: "spynet" },
+    Named { slot: ti4_engine_core_factions::silent::g4::stymie::STYMIE, kind: "promissory", card: "stymie" },
+    Named { slot: ti4_engine_core_factions::silent::g4::magen_hit::MD_HIT, kind: "technology", card: "md_hit" },
+    Named { slot: ti4_engine_core_factions::silent::g4::yin_spinner::YIN_SPINNER, kind: "technology", card: "yso" },
+    Named { slot: ti4_engine_core_factions::silent::g4::iconoclast::ICONOCLAST, kind: "unit", card: "naalu_mech_te" },
+    Named { slot: ti4_engine_core_factions::silent::g4::foresight::FORESIGHT, kind: "ability", card: "foresight" },
+    Named { slot: ti4_engine_core_factions::silent::g4::titans_commander::TUNGSTANTUS, kind: "leader", card: "titanscommander" },
 ];
 
 /// The last segment of a registered id: the relation, except for Salvage Operations' produce half, which the string
@@ -281,6 +292,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core::rules::action_cards::reaction_slot::register(&mut t);
             ti4_engine_core::rules::reactions::register(&mut t);
             ti4_engine_core_factions::magen_defense::register_abilities(&mut t);
+            ti4_engine_core_factions::silent::g4::magen_hit::register_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_abilities(&mut t);
             ti4_engine_core_factions::silent::register_before_movement(&mut t);
             ti4_engine_core_factions::ce_movement::register_abilities(&mut t);
@@ -664,6 +676,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             ..Default::default()
         };
         table.codes.silent.g3 = G3_CODE_TEXTS.map(|text| r.code(text));
+        table.codes.silent.g4 = G4_CODE_TEXTS.map(|text| r.code(text));
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {

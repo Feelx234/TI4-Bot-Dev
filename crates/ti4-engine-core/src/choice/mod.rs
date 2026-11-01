@@ -27,6 +27,7 @@ pub mod generic;
 pub mod silent;
 pub mod silent3;
 pub mod activation;
+pub mod silent4;
 
 macro_rules! areas {
     ($($(#[$m:meta])* $variant:ident($module:ident)),* $(,)?) => {

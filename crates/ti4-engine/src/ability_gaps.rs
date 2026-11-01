@@ -6,15 +6,6 @@ use ti4_engine_core::kernel::ability::Slot;
 
 /// The string ability each row stands for, in the order of the rows.
 pub(crate) const GAP_IDS: &[&str] = &[
-    "ability:*:foresight:MOVEMENT_FINISHED:after",
-    "ability:*:propagation:PROPAGATION_RESEARCH:after",
-    "leader:*:titanscommander:PRODUCTION_USED:when",
-    "promissory:*:spynet:TURN_BEGAN:after",
-    "promissory:*:stymie:SHIP_MOVED:after",
-    "technology:*:asn_clear:ACTION_COMPLETED:after",
-    "technology:*:md_hit:GROUND_COMBAT_STARTED:after",
-    "technology:*:yso:UNITS_PRODUCED:after",
-    "unit:*:naalu_mech_te:RELIC_GAINED:after",
 ];
 
 /// The row a slot belongs to, if it is a gap's.
