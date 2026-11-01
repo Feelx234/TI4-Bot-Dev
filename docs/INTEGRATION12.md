@@ -43,7 +43,7 @@ ti4-replayer, ti4-mlp, ti4-tensor, ti4-advisor) was green after every merge.
 
 | # | Where | What | Fix | Guard |
 |---|---|---|---|---|
-| B1 | slots (merge 3) | **two lanes' rules in one slot.** G2 and G3 both numbered `42_001..42_007`; with `AbilityTable::add`'s duplicate check a `debug_assert` only, the lockstep-profile lib run saw no panic, only seven string abilities that no rule answered (the audit), a wrong emitter table (`slot 42050 .. no entry in G3_EMITTERS`: G2's Stillness fell into G3's range) and two registry tests | G2 moves to `43_000..` | new `reactions_core::tests::no_two_rules_of_the_core_table_share_a_slot` (R: with `RECLAMATION_MARK` back on `42_001` it panics `slot 42001 is registered twice`, see the result in section 7); before it: `ability_audit` (3 tests) and the two registry tests failed on the merge |
+| B1 | slots (merge 3) | **two lanes' rules in one slot.** G2 and G3 both numbered `42_001..42_007`; with `AbilityTable::add`'s duplicate check a `debug_assert` only, the lockstep-profile lib run saw no panic, only seven string abilities that no rule answered (the audit), a wrong emitter table (`slot 42050 .. no entry in G3_EMITTERS`: G2's Stillness fell into G3's range) and two registry tests | G2 moves to `43_000..` | new `reactions_core::tests::no_two_rules_of_the_core_table_share_a_slot` (R: with `RECLAMATION_MARK` back on `42_001` it panics `slot 42001 is registered twice: (Promissory, UnitsCommitted) and (Ability, PlanetControlGained)`); before it: `ability_audit` (3 tests) and the two registry tests failed on the merge |
 | B2 | registry order (merge 4) | Nova Seed (M6d) registered before the Empyrean / Ghost rules of G2 in `MOVEMENT_FINISHED` and `SHIP_MOVED`; So Ata's clear before the Winnu's Reclamation in `ACTION_COMPLETED` (string order: Empyrean, Ghost, Muaat; Winnu ... Yssaril) | `register_before_muaat`, `register_last_abilities` | `reactions_core::tests::{the_native_registry_equals_the_string_one_for_the_ported_abilities, the_registry_of_the_g3_rules_equals_the_string_one}` (R: both failed with "the order of the registry differs at 5 / 46", once per cause) |
 | B3 | a rule ported twice (merge 4) | Sai Seravus, Acamar, Xuange (section 2) | one set | the same registry tests (a second registration shows as an extra entry of the bucket) and the G2 core tests (7) |
 | B4 | the E-to-M6 join, whole game (checks) | none found in the code: H2 did the join; the whole game had no test (section 5) | -- | new `native_play::tests::a_thunders_edge_warfare_primary_plays_its_free_tactical_action_inside_a_whole_native_game` (R: with `begin.rs` turned back into a gap it fails `the Warfare primary of this game begins its free tactical action natively`) |
@@ -51,6 +51,8 @@ ti4-replayer, ti4-mlp, ti4-tensor, ti4-advisor) was green after every merge.
 | B6 | `dual_window::event_of` (merge 5) | the `List::Produced` arm vanished in a clean textual merge (third time since integration 10, B7 there) | restored | the compile (non-exhaustive match) |
 | B7 | `silent::Ask::carries_trigger` (merges 3, 5) | the `match` of G3 met the variants of G2 (merge 3) and of H2 (merge 5) | `false` for the G2 questions and for `ExtraDie` / `StrikeWing`, as their lanes had it (`matches!(.., Landing \| Mitosis \| Pillage)`) | the compile |
 | B8 | unused imports / dead helper after the resolutions (`board`, `Faction`, `Leader`, `TacticalGap`, `Unknown`, `gaps::copies`) | -- | removed | `clippy_core.sh` |
+| B9 | clippy (`clippy_core.sh`) | `g2_abilities`: `assert!(rig(..).is_done() || true, ..)` -- **a vacuous assertion** (clippy: "this boolean expression contains a logic bug"); lane G3's `ragh.rs` very complex type; `native_play::compare_group` used by tests only; an unneeded `mut`; a `to_owned` | the assertion made real (a Naaz seat holding its agent and no Ssruu: its own window is offered, asked of seat 1 -- it passes); the rest cleaned | `clippy_core.sh`; the strengthened assertion |
+| B10 | D4 crate (`tactical_composer::the_tail_of_a_heros_free_action_opens_the_job_after_it_too`, found by the full D4 run) | **two lanes disagree on who opens `Finish` after a plain tactical action**: M6b's tail does (`turn::open_finish` in `tail::run`), H2 removed that and left it to the native loop's `after_arm` (which opens it only when no job is open) and pinned "the tail opens nothing" | the merged tail keeps M6b's call (a caller without the loop gets the end of the action too; `after_arm` skips when a job is open, so both agree); H2's assertion now pins `Some(TurnJob::Finish)` for a plain tail and still `AfterTactical` for a free action | the test itself (R: `left: Some(Finish), right: None` on the merge) |
 
 Not a bug, a trip-wire that fired as written: `native_play::tests::the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_exploration_difference` (integration 11) "fails the day the difference is
 fixed": lane F2c fixed it (the difference was the shadow's, not the game's), so the pin is replaced by F2c's `..._agrees_with_the_legacy_game_up_to_the_gap`.
@@ -66,6 +68,9 @@ fixed": lane F2c fixed it (the difference was the shadow's, not the game's), so 
 | `tactical_live` diff filter | M6d's `without_seen` and `is_turn_flow` added; the blanket `trigger.event_id` filter NOT taken (exact offset kept) | argued in section 2: M6d's harness-only fields; the blanket filter would hide a real id difference |
 | `g2_abilities.rs` `table()` | also calls `silent::register_before_muaat` | the Empyrean and Ghost rules moved to that call (B2) |
 | `turn_jobs2.rs` | H2's generalised free-leader test | H2 found Hacan's Guild Ships made a transaction partner a free option of its own |
+| `tactical_composer.rs` hero's-tail test | a plain tail opens `Finish` (was: nothing) | B10: argued there; no test lost a property |
+| `g2_abilities.rs` | `is_done() \|\| true` -> the window is offered and asked of seat 1 | B9: the old assertion could not fail |
+| `reactions_core.rs` | new test; threshold 150 (the whole table has 176 rules) | B1 |
 
 No assertion was loosened to make a test pass.
 
@@ -100,7 +105,30 @@ The gap matrix over `--factions all --players 3,4,5,6 --seeds 1` (96 games, all 
 
 | faction | 3 players | 4 players | 5 players | 6 players |
 |---|---|---|---|---|
-MATRIX_ROWS
+| sol | 13 PA | 54 SA | 40 SA | 100 L5 |
+| hacan | 96 F11 | 17 SA | 16 PA | 17 L5 |
+| letnev | 13 SA | 77 SA | 27 SA | 19 L5 |
+| xxcha | 14 PA(sec) | 115 SA | 56 L5 | 9 PA |
+| jolnar | 13 PA | 17 PA | 27 L5 | 19 L5 |
+| l1z1x | 13 PA | 17 PA | 12 PA | 19 L5 |
+| arborec | 13 PA | 11 L5 | 40 SA | 44 L5 |
+| mentak | 13 PA | 17 PA | 12 PA | 133 TOK |
+| muaat | 28 F11 | 11 L5 | 40 SA | 44 L5 |
+| naalu | 13 PA | 17 PA | 41 AG | 127 TOK |
+| nekro | 26 L5 | 11 L5 | 13 L5(closing) | 14 L5(closing) |
+| saar | 13 PA | 17 PA | 12 PA | 133 TOK |
+| sardakk | 13 PA | 17 PA | 12 PA | 125 TOK |
+| winnu | 84 TOK | 63 SA | 104 SA | 69 L5 |
+| yin | 13 PA | 17 PA | 12 PA | 133 TOK |
+| yssaril | 13 PA | 17 PA | 85 PA | 46 L5 |
+| ghost | 13 PA | 17 PA | 12 PA | 140 TOK |
+| argent | 27 PA | 26 SA | 33 SA | 107 SA |
+| cabal | 13 PA | 17 PA | 12 PA | 46 L5 |
+| empyrean | 13 PA | 17 PA | 12 PA | 45 L5 |
+| mahact | 47 PA | 17 PA | 28 SA | 92 L5 |
+| naaz | 13 PA | 17 PA | 63 PA | 133 TOK |
+| nomad | 13 PA | 11 T6 | 40 SA | 44 T6 |
+| titans | 13 PA | 17 PA | 12 PA | 133 TOK |
 
 | code | first gap | games | owner |
 |---|---|---|---|
@@ -119,7 +147,24 @@ games that play the whole round 1 into the status phase (9: `tokens`), the trade
 
 ## 7. Checks (cheap), `CARGO_BUILD_JOBS=2`, private target `/root/deploytmp/int12` (profile `lockstep`, `CARGO_PROFILE_DEV_DEBUG=0`, no incremental; deleted at the end)
 
-RESULTS
+| Check | Result |
+|---|---|
+| `cargo check --workspace --all-targets` (without ti4-review, replayer, mlp, tensor, advisor) after every merge | ok |
+| `cargo test -p ti4-engine --lib` plain | **5199 passed**, 7 ignored (integration 11: 5150) |
+| same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` (WHOLE lib) | 5199 passed, 7 ignored |
+| `ti4-engine-core --lib`, `-bridge --lib`, `-factions --lib`, `ti4-rule-bot-typed --lib` | 479, 107, 145, 1 passed |
+| bridge `--test kernel_env --test play_facts --test menu_sources` | 3 + 3 + 2 passed |
+| `check_layers.py core`, `lint_core.sh` | 556 files, 0 violations; 558 files, 0 hits |
+| `tools/engine_core/clippy_core.sh` | ok (core crates 0 warnings; engine 41, baseline 41). The first run found real findings of the lanes (B8, B9) |
+| the D4 crate (`ti4-engine-core-tests`) with the debug flags of `tools/engine_core/d4/run_core_tests.sh` (profile `lockstep`, debug assertions and overflow checks on for the three core crates), built once, in my tree (same private target) | 143 test binaries: 1774 passed, **1 failed** (B10, `tactical_composer`); after the fix the six binaries that could be affected (`tactical_composer g2_abilities g3_abilities silent_abilities strategic_arms turn_jobs2`: 25 + 40 + 10 + 36 + 18 + 26 tests... as listed per binary) are green again (25, 40, 10, 36, 18, 26 tests), so 1775 passed, 0 failed |
+| `native_play.sh --quick` / `--quick --shadow` / `--factions all --players 3,4,5,6 --seeds 1` | section 6 (run on the tip before the clippy / test-only commits; no engine or core code changed since but Ragh's type alias) |
+| the usage: five-hour window 24 % at the start, 37 % at the end | -- |
+
+Where the runs were done: all in this worktree with the private target (no scratch worktree: a second copy of the workspace would have doubled the 2.9 GB target; the runs were background jobs of
+this session, one cargo at a time, not Haiku runners). The target dir and the logs under `/root/deploytmp/int12*` are deleted at the end.
+
+Not run (user rule): `end_of_d1.sh` and its steps (golden / wide dual, `board_equivalence`, `core_sync_gate`, `alpha_roundtrip`, benches, soak, mutation ratchet, census, workspace clippy beyond
+`clippy_core.sh`), `decision_replay`, mutation batches (the new lines of this integration were mutation-checked by hand only for B1 and B4), `TI4_CORE_STRICT=1`, Playwright.
 
 ## 8. Remaining gates, consolidated
 
