@@ -218,7 +218,8 @@ impl Window for TacticalAction {
                     let edits = facts::map_edits(sx.state);
                     let mut m = Machine::closing(seat, Self::leaf_facts(&codes)).live();
                     let _ = m.announce_finished(sx);
-                    if facts::map_edits(sx.state) != edits {
+                    // A tile an ability replaced (Nova Seed) is on the core's map already; a recorded edit the map does not carry yet is replayed.
+                    if facts::map_edits(sx.state) != edits && !crate::kernel::fx_map::replay_map_edits(sx.state) {
                         return Self::bail(sx, TacticalGap::NovaSeed);
                     }
                     let skip = sx.kernel.hooks.general.skip_to_commit(&mut sx.cx(), seat, system).unwrap_or(false);

@@ -28,11 +28,6 @@ fn faction(c: &CondCx<'_>, f: Faction) -> bool {
     c.state.players().by_seat(c.def.owner).is_some_and(|p| p.faction == f)
 }
 
-/// The seat plays Yssaril (Ssruu) and a seat of `lender` is at the table.
-fn copies(c: &CondCx<'_>, lender: Faction) -> bool {
-    faction(c, Faction::TheYssarilTribes) && c.state.players().iter().any(|p| p.faction == lender)
-}
-
 /// The seat plays `f` and its leader of this kind can act: an agent is readied, a commander or a hero is unlocked.
 fn leader(c: &CondCx<'_>, f: Faction, kind: LeaderType) -> bool {
     faction(c, f)
@@ -86,10 +81,7 @@ pub const GAPS: &[Gap] = &[
     Gap { kind: AbilityKind::Ability, event: EventKind::PropagationResearch, relation: Relation::After, holds: |c| faction(c, Faction::TheNekroVirus) }, // propagation
     // -- leaders
     Gap { kind: AbilityKind::Leader, event: EventKind::UnitAbilityRolled, relation: Relation::When, holds: |c| leader(c, Faction::TheArgentFlight, LeaderType::Commander) }, // argentcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::MovementFinished, relation: Relation::After, holds: downstream }, // muaathero
-    Gap { kind: AbilityKind::Leader, event: EventKind::ShipMoved, relation: Relation::After, holds: downstream }, // muaathero_moved
     Gap { kind: AbilityKind::Leader, event: EventKind::ProductionUsed, relation: Relation::When, holds: |c| leader(c, Faction::TheTitansOfUl, LeaderType::Commander) }, // titanscommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::ActionCompleted, relation: Relation::After, holds: downstream }, // yssarilcommander_clear
     // -- promissory notes (held by any seat)
     Gap { kind: AbilityKind::Promissory, event: EventKind::UnitAbilityRolled, relation: Relation::When, holds: |c| note(c, PromissoryNote::StrikeWingAmbuscade) }, // ambuscade
     Gap { kind: AbilityKind::Promissory, event: EventKind::TurnBegan, relation: Relation::After, holds: |c| note(c, PromissoryNote::SpyNet) }, // spynet
@@ -104,13 +96,6 @@ pub const GAPS: &[Gap] = &[
     // -- ported by no lane yet
     // -- the copies Ssruu makes of an agent of a seated faction
     // -- the activation abilities lane M6c lists as gaps (its audit); delete the row when the lane ports the rule
-    Gap { kind: AbilityKind::Ability, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| faction(c, Faction::TheTitansOfUl) }, // awaken
-    Gap { kind: AbilityKind::Unit, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| faction(c, Faction::TheTitansOfUl) }, // titans_flagship
-    Gap { kind: AbilityKind::Leader, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| leader(c, Faction::TheArborec, LeaderType::Commander) }, // arboreccommander
-    Gap { kind: AbilityKind::Unit, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| faction(c, Faction::TheArborec) }, // arborec_flagship
-    Gap { kind: AbilityKind::Leader, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| leader(c, Faction::TheYssarilTribes, LeaderType::Commander) }, // yssarilcommander
-    Gap { kind: AbilityKind::Leader, event: EventKind::SystemActivated, relation: Relation::After, holds: |c| copies(c, Faction::TheL1Z1XMindnet) }, // yssarilagent: l1z1xagent
-    Gap { kind: AbilityKind::Leader, event: EventKind::TacticalActionEnded, relation: Relation::After, holds: |c| leader(c, Faction::TheNomad, LeaderType::Agent) }, // nomadagentmercer
 ];
 
 /// The condition of every row: the seat could use the ability, and the core cannot say whether it is eligible now.

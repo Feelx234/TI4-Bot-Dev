@@ -26,6 +26,7 @@ use crate::state::EventKind;
 pub mod generic;
 pub mod silent;
 pub mod silent3;
+pub mod activation;
 
 macro_rules! areas {
     ($($(#[$m:meta])* $variant:ident($module:ident)),* $(,)?) => {

@@ -14,11 +14,11 @@ pub const fn gap_text(gap: TacticalGap) -> &'static str {
         TacticalGap::NoProgress => "the tactical action made no progress (a stage that neither asks nor moves on)",
         TacticalGap::ActivationHook => "a hook of the activation that the native chain does not carry",
         TacticalGap::NovaSeed => "Nova Seed replaced a tile while the movement step closed",
+        TacticalGap::NovaSeedCargo => "Nova Seed would destroy another player's ground forces carried in the space area (the string announces them with the system in the place of a planet)",
         TacticalGap::CannonHits => "a hit of the space cannon offense that needs a question",
         TacticalGap::ExplorationAtTheEnd => "the Crown of Emphidia or Dark Energy Tap explores at the end of the action (no native planet exploration window yet)",
         TacticalGap::WarfareSecondary => "Thunder's Edge Warfare's follower window waits for the end of the free tactical action",
         TacticalGap::LeaderStrategy => "a hero's strategy primary waits for the end of the free tactical action",
-        TacticalGap::SsruuLends => "an agent that listens to the end of the action would be offered (T'ro, Field Marshal Mercer, or a Yssaril copy by Ssruu): not a rule of the core table yet",
         TacticalGap::NoGalaxy => "the map slice holds no galaxy",
     }
 }
@@ -76,8 +76,6 @@ fn rifts_on(core: &CoreState, k: &Kernel, seat: ti4_engine_core::Seat, path: &[S
     }
 }
 
-/// What a ship hull is keyed by in the `movable` count: its type, whether it is damaged, its origin, and two flags of its movement.
-type HullKey = (Unit, bool, System, bool, bool);
 /// The routes of one option as `tactical::MoveRoute` serialises them (a false flag and an empty list are left out).
 fn route_json(option_id: &str, routes: &[ti4_engine_core::rules::tactical::routes::Route]) -> serde_json::Value {
     let ids = |list: &[System]| list.iter().map(|s| <System as crate::generated::IdStr>::as_str(*s).to_owned()).collect::<Vec<_>>();
@@ -112,6 +110,8 @@ fn route_json(option_id: &str, routes: &[ti4_engine_core::rules::tactical::route
         .collect::<Vec<_>>()
         .into()
 }
+/// What a ship hull is keyed by in the `movable` count: its type, whether it is damaged, its origin, and two flags of its movement.
+type HullKey = (Unit, bool, System, bool, bool);
 
 /// `tactical::preview_moves` and the `movable` count of `movement_options`.
 fn move_details(core: &CoreState, k: &Kernel, seat: ti4_engine_core::Seat, choice: &CoreChoice, rendered: &mut Choice) {
@@ -197,7 +197,7 @@ fn move_details(core: &CoreState, k: &Kernel, seat: ti4_engine_core::Seat, choic
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::rc::Rc;
@@ -330,7 +330,12 @@ mod tests {
                 break;
             }
             match live_step(&mut core, Arm::Tactical, &live, &mut asker) {
-                Ok(step) if step.finished => break,
+                Ok(step) if step.finished => {
+                    if std::env::var_os("M6B_DEBUG").is_some() {
+                        eprintln!("the arm finished: {:?}", core.pending().window(ti4_engine_core::state::WindowKind::Tactical));
+                    }
+                    break;
+                }
                 Ok(_) => {
                     if std::env::var_os("M6B_DEBUG").is_some() {
                         eprintln!("after a step: marks {:?} relics {:?} activation {}", core.players().by_seat(seat).map(|p| p.round_marks.clone()), core.players().by_seat(seat).map(|p| p.cards.relics.clone()), core.meta().activation_seq);
@@ -340,14 +345,38 @@ mod tests {
                     bail = Some(super::gap_text(gap).to_owned());
                     break;
                 }
-                Err(e) => panic!("the native step: {e:?}; asked so far: {:?}; last details {:?}; round marks {:?} activation {}", seen.borrow().iter().map(|c| (c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>(), seen.borrow().last().map(|c| c.details.get("routes").cloned()), core.players().by_seat(seat).map(|p| p.round_marks.clone()), core.meta().activation_seq),
+                Err(e) => panic!("the native step: {e:?} (script {script:?}); asked so far: {:?}; last details {:?}; round marks {:?} activation {}", seen.borrow().iter().map(|c| (c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>(), seen.borrow().last().map(|c| c.details.get("routes").cloned()), core.players().by_seat(seat).map(|p| p.round_marks.clone()), core.meta().activation_seq),
             }
         }
         let asked = seen.borrow().clone();
         let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
+        // A destruction a rule staged names its cause by the renderer's code: the position takes the renderer's table back, as a lend does.
+        adopt_staged_texts(&mut core, &render);
         let after = materialize::materialize(&core, &cx, state).expect("materializes");
         let rng = format!("{:?}", crate::core_sync::codec::rng::positions(&cx, core.rng()).expect("every stream has a text"));
         Side { asked, events, state: serde_json::to_value(&after).expect("serialises"), bail, rng }
+    }
+
+    /// A destruction a rule staged names its cause by the renderer's code (the table's `Codes`); the harness' renderer keeps its own table, so the
+    /// cause is carried over as text into the position's table.
+    pub(crate) fn adopt_staged_texts(core: &mut ti4_engine_core::state::CoreState, render: &Render) {
+        let staged: Vec<_> = core.transient().combat.pending_destructions.as_slice().to_vec();
+        if staged.is_empty() {
+            return;
+        }
+        let shown = render.codes_snapshot();
+        let mut carried = Vec::new();
+        for d in staged {
+            let text = shown.get(u32::from(d.reason.0)).map(<[u8]>::to_vec).unwrap_or_default();
+            let code = core.texts.codes.intern(&text, ti4_engine_core::state::CODE_CAPACITY).expect("room for the text");
+            carried.push(ti4_engine_core::state::PendingDestruction { reason: ti4_engine_core::state::Code(u16::try_from(code).expect("a code fits")), ..d });
+        }
+        core.transient_mut().combat.pending_destructions = carried.into_iter().collect();
+    }
+
+    /// What the string's `finish_action` writes when a script runs the whole action out (the turn flow's, not run here): the next seat's turn.
+    fn is_turn_flow(path: &str) -> bool {
+        ["action_turn", "active", "turn_seq", "feat_occurrence_seq"].iter().any(|field| path == *field || path.ends_with(&format!("/{field}")) || path.ends_with(&format!(".{field}")) || path == format!("state{field}"))
     }
 
     fn leaves(label: &str, left: &Value, right: &Value) -> Vec<String> {
@@ -358,7 +387,24 @@ mod tests {
         // above the native one (`trigger.event_id` of a reaction window), two when it also places frontier tokens first. Exactly that offset is no difference.
         let offset = |d: &crate::dual::JsonDiff| d.path.ends_with("trigger.event_id") && d.left.parse::<i64>().ok().zip(d.right.parse::<i64>().ok()).is_some_and(|(l, r)| (1..=2).contains(&(l - r)));
         // The same step places the frontier tokens of the empty systems (lane X's exploration decks): the token is the prelude's, not the action's.
-        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("frontier_tokens") && !offset(d)).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
+        // A `faction_marks` map left with none of its own rows is no map (the string keeps the `#seen:` rows apart from it).
+        fn without_seen(v: &Value) -> Value {
+            match v {
+                Value::Object(map) => Value::Object(
+                    map.iter()
+                        .filter_map(|(k, v)| {
+                            let v = without_seen(v);
+                            (k != "faction_marks" || v.as_object().is_none_or(|o| !o.is_empty())).then(|| (k.clone(), v))
+                        })
+                        .filter(|(k, _)| !k.contains("#seen:"))
+                        .collect(),
+                ),
+                Value::Array(items) => Value::Array(items.iter().map(without_seen).collect()),
+                other => other.clone(),
+            }
+        }
+        let (left, right) = (&without_seen(left), &without_seen(right));
+        diff_json(left, right, 40).into_iter().filter(|d| !d.path.contains("#seen:") && !d.path.contains("frontier_tokens") && !offset(d) && !is_turn_flow(&d.path)).take(8).map(|d| format!("{label}{} string={} native={}", d.path, d.left, d.right)).collect()
     }
 
     /// Run both and report every difference of the questions, the events (the native ones must be a prefix of the string's when `prefix`) and the position.
@@ -382,7 +428,8 @@ mod tests {
             return out;
         }
         if s.asked.len() != n.asked.len() {
-            out.push(format!("questions: string {} native {}", s.asked.len(), n.asked.len()));
+            let prompts = |side: &Side| side.asked.iter().map(|c| c.prompt.clone()).collect::<Vec<_>>();
+            out.push(format!("questions: string {} native {}; string {:?} native {:?}", s.asked.len(), n.asked.len(), prompts(&s), prompts(&n)));
         }
         for (i, (l, r)) in s.asked.iter().zip(&n.asked).enumerate() {
             for (what, lv, rv) in [
@@ -963,5 +1010,211 @@ mod tests {
         let script = [TACTICAL_ACTION_ID, target.as_str(), &mv, "reaction:sol:SHIP_MOVED:after"];
         let diffs = lockstep(state, &hub.galaxy, &script, false);
         assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    /// A hub whose centre prints at least `planets` planets (the first such plain system), with the planets' ids.
+    fn centre_hub(planets: usize) -> (crate::fixtures::Hub, Vec<ti4_model::id::PlanetId>) {
+        let store = ContentStore::embedded();
+        let all = ti4_content::galaxy::all_systems(store, POK);
+        let (centre, system) = all.iter().find(|(_, s)| !s.is_anomaly() && !s.is_hyperlane() && s.planets().len() >= planets).expect("a system with the planets");
+        let found = system.planets().iter().map(|p| ti4_model::id::PlanetId::new((*p).to_owned())).collect();
+        let mut ids = vec![(*centre).to_owned()];
+        ids.extend(crate::fixtures::plain_systems(12).into_iter().filter(|i| i != centre).take(6));
+        (crate::fixtures::hub_from(&ids), found)
+    }
+
+    /// Awaken (Titans): what each sleeper token in the activated system becomes; Ouranos is then offered over the new PDS.
+    #[test]
+    fn awaken_and_ouranos_ask_in_lockstep() {
+        let (hub, planets) = centre_hub(2);
+        let centre = ti4_model::id::SystemId::new(hub.centre.clone());
+        let ring = ti4_model::id::SystemId::new(hub.outer[1].clone());
+        let (awaken, ouranos) = ("ability:titans:awaken:SYSTEM_ACTIVATED:after", "unit:titans:titans_flagship:SYSTEM_ACTIVATED:after");
+        let sleeper = |state: &mut GameState, planet: &ti4_model::id::PlanetId| {
+            state.faction_marks.insert(format!("titans:sleeper:{planet}"), format!("a|{centre}"));
+        };
+        let mv = id(&ring, 0);
+        let base = || {
+            let mut state = table(&[("a", "titans"), ("b", "sol")]);
+            crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+            state
+        };
+        // One sleeper token: the PDS or the mech and infantry (Hecatoncheires), or neither; then Ouranos over the new PDS.
+        for script in [
+            vec![awaken, "pds", ouranos, mv.as_str()],
+            vec![awaken, "pds", "decline", mv.as_str()],
+            vec![awaken, "mech", mv.as_str()],
+            vec![awaken, "decline", mv.as_str()],
+            vec!["decline", mv.as_str()],
+        ] {
+            let mut state = base();
+            sleeper(&mut state, &planets[0]);
+            let diffs = lockstep(state, &hub.galaxy, &[&[TACTICAL_ACTION_ID, centre.as_str()][..], &script].concat(), false);
+            assert!(diffs.is_empty(), "one token {script:?}: {diffs:#?}");
+        }
+        // Two sleeper tokens: one question each, the second after the first one's plastic is claimed.
+        for script in [
+            vec![awaken, "pds", "pds", "decline", mv.as_str()],
+            vec![awaken, "pds", "mech", "decline", mv.as_str()],
+            vec![awaken, "decline", "pds", "decline", mv.as_str()],
+            vec![awaken, "mech", "decline", mv.as_str()],
+        ] {
+            let mut state = base();
+            sleeper(&mut state, &planets[0]);
+            sleeper(&mut state, &planets[1]);
+            let diffs = lockstep(state, &hub.galaxy, &[&[TACTICAL_ACTION_ID, centre.as_str()][..], &script].concat(), false);
+            assert!(diffs.is_empty(), "two tokens {script:?}: {diffs:#?}");
+        }
+        // Coalescence: the awakened PDS lands beside another player's units.
+        {
+            let mut state = base();
+            sleeper(&mut state, &planets[0]);
+            crate::fixtures::put_on_planet(&mut state, &centre, &planets[0], "infantry", &b(), 1);
+            let script = [TACTICAL_ACTION_ID, centre.as_str(), awaken, "pds", "decline", mv.as_str()];
+            let diffs = lockstep(state, &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "coalescence: {diffs:#?}");
+        }
+        // Ouranos alone: a PDS on one planet (no question), on two planets (which one).
+        for (pds_on, script) in [
+            (1, vec![ouranos, mv.as_str()]),
+            (2, vec![ouranos, planets[1].as_str(), mv.as_str()]),
+            (2, vec![ouranos, planets[0].as_str(), mv.as_str()]),
+        ] {
+            let mut state = base();
+            for planet in &planets[..pds_on] {
+                crate::fixtures::put_on_planet(&mut state, &centre, planet, "pds", &a(), 1);
+            }
+            let diffs = lockstep(state, &hub.galaxy, &[&[TACTICAL_ACTION_ID, centre.as_str()][..], &script].concat(), false);
+            assert!(diffs.is_empty(), "ouranos {pds_on} {script:?}: {diffs:#?}");
+        }
+    }
+
+    /// Duha Menaimon (the Arborec flagship) and Dirzuga Rophal (the commander): a production by an ability in the activated system.
+    #[test]
+    fn the_arborec_flagship_and_commander_produce_in_lockstep() {
+        let probe = table(&[("a", "arborec"), ("b", "sol")]);
+        let home = probe.player(&a()).and_then(|p| p.home_system.clone()).expect("a home system");
+        let mut ids = vec![home.to_string()];
+        ids.extend(crate::fixtures::plain_systems(12).into_iter().filter(|i| i != home.as_str()).take(6));
+        let hub = crate::fixtures::hub_from(&ids);
+        let ring = ti4_model::id::SystemId::new(hub.outer[1].clone());
+        let mv = id(&ring, 0);
+        let mut state = table(&[("a", "arborec"), ("b", "sol")]);
+        // (No note in any hand: the loud gap of Stymie, an unported SHIP_MOVED ability, would stop the move.)
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        crate::fixtures::put(&mut state, &home, "arborec_flagship", &a(), 1);
+        crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+        let flagship = "unit:arborec:arborec_flagship:SYSTEM_ACTIVATED:after";
+        // Nothing built, ships built (payment and placement questions as the string asks them), a decline.
+        for answers in [
+            vec![flagship, "done_producing"],
+            vec![flagship, "build|fighter|2", "done_producing"],
+            vec![flagship, "build|cruiser|1", "done_producing"],
+            vec![flagship, "build|arborec_infantry|2", "done_producing"],
+            vec![flagship, "build|arborec_mech|1", "done_producing"],
+            vec!["decline"],
+        ] {
+            let mut script = vec![TACTICAL_ACTION_ID, home.as_str()];
+            script.extend(answers.iter().copied());
+            script.push(mv.as_str());
+            let diffs = lockstep(state.clone(), &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "flagship {script:?}: {diffs:#?}");
+        }
+        // The commander (b's, unlocked) produces one unit when another player activates a system holding its space dock.
+        let probe = table(&[("a", "sol"), ("b", "arborec")]);
+        let b_home = probe.player(&PlayerId::new("b")).and_then(|p| p.home_system.clone()).expect("a home system");
+        let mut ids = vec![b_home.to_string()];
+        ids.extend(crate::fixtures::plain_systems(12).into_iter().filter(|i| i != b_home.as_str()).take(6));
+        let hub = crate::fixtures::hub_from(&ids);
+        let ring = ti4_model::id::SystemId::new(hub.outer[1].clone());
+        let mut state = table(&[("a", "sol"), ("b", "arborec")]);
+        state.promissory_notes.clear();
+        state.promissory_faceup.clear();
+        state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("arboreccommander"), ti4_model::state::LeaderStatus::Unlocked);
+        let planet = ti4_content::galaxy::all_systems(ContentStore::embedded(), POK).get(b_home.as_str()).and_then(|s| s.planets().first().map(|p| (*p).to_owned())).expect("a planet");
+        crate::fixtures::put_on_planet(&mut state, &b_home, &ti4_model::id::PlanetId::new(planet), "spacedock", &PlayerId::new("b"), 1);
+        crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+        let mv = id(&ring, 0);
+        let commander = "leader:arborec:arboreccommander:SYSTEM_ACTIVATED:after";
+        for answers in [vec![commander, "build|cruiser|1"], vec![commander, "done_producing"], vec![commander, "build|arborec_infantry|1"], vec!["decline"]] {
+            let mut script = vec![TACTICAL_ACTION_ID, b_home.as_str()];
+            script.extend(answers.iter().copied());
+            script.push(mv.as_str());
+            let diffs = lockstep(state.clone(), &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "commander {script:?}: {diffs:#?}");
+        }
+    }
+
+    /// So Ata (the Yssaril commander): what to look at on the activating player, and the reveal mark; the end of the action clears it.
+    #[test]
+    fn so_ata_looks_at_the_activating_players_cards_in_lockstep() {
+        let (hub, origin, target) = hub();
+        let b = PlayerId::new("b");
+        let base = |hand: &[&str], secrets: &[&str], notes: bool| {
+            let mut state = table(&[("a", "sol"), ("b", "yssaril")]);
+            if !notes {
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+            }
+            state.player_mut(&a()).unwrap().action_cards = hand.iter().map(|c| ti4_model::id::ActionCardId::new(*c)).collect();
+            state.player_mut(&a()).unwrap().secret_objectives = secrets.iter().map(|c| ti4_model::id::SecretObjectiveId::new(*c)).collect();
+            state.player_mut(&b).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yssarilcommander"), ti4_model::state::LeaderStatus::Unlocked);
+            crate::fixtures::put(&mut state, &target, "carrier", &b, 1);
+            crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+            state
+        };
+        let (commander, mv) = ("leader:yssaril:yssarilcommander:SYSTEM_ACTIVATED:after", id(&origin, 0));
+        // Only one kind to look at (no question), then the three kinds (a question), then a decline.
+        for (hand, secrets, notes, answers) in [
+            (vec!["abs", "bribery"], vec![], false, vec![commander]),
+            (vec![], vec!["dtgs"], false, vec![commander]),
+            (vec![], vec![], true, vec![commander]),
+            (vec!["abs", "bribery"], vec!["dtgs"], true, vec![commander, "action_cards"]),
+            (vec!["abs"], vec!["dtgs"], true, vec![commander, "promissory_notes"]),
+            (vec!["abs"], vec!["dtgs"], true, vec![commander, "secret_objectives"]),
+            (vec!["abs"], vec!["dtgs"], true, vec!["decline"]),
+        ] {
+            let state = base(&hand, &secrets, notes);
+            let mut script = vec![TACTICAL_ACTION_ID, target.as_str()];
+            script.extend(answers.iter().copied());
+            script.push(mv.as_str());
+            let diffs = lockstep(state, &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "so ata {script:?}: {diffs:#?}");
+        }
+    }
+
+    /// I48S copied through Ssruu: the string asks the activating player which infantry becomes a mech.
+    #[test]
+    fn the_ssruu_copy_of_i48s_asks_the_activating_player_in_lockstep() {
+        let (hub, planets) = centre_hub(2);
+        let centre = ti4_model::id::SystemId::new(hub.centre.clone());
+        let ring = ti4_model::id::SystemId::new(hub.outer[1].clone());
+        let mv = id(&ring, 0);
+        let copy = "leader:ssruu-copy:a:l1z1xagent:b:SYSTEM_ACTIVATED:after";
+        let base = |on: usize| {
+            let mut state = table(&[("a", "yssaril"), ("b", "l1z1x")]);
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yssarilagent"), ti4_model::state::LeaderStatus::Readied);
+            state.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("l1z1xagent"), ti4_model::state::LeaderStatus::Exhausted);
+            for planet in &planets[..on] {
+                crate::fixtures::put_on_planet(&mut state, &centre, planet, "infantry", &a(), 1);
+            }
+            crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+            state
+        };
+        for (on, answers) in [
+            (1, vec![copy]),
+            (2, vec![copy, planets[0].as_str()]),
+            (2, vec![copy, planets[1].as_str()]),
+            (2, vec!["decline"]),
+        ] {
+            let mut script = vec![TACTICAL_ACTION_ID, centre.as_str()];
+            script.extend(answers.iter().copied());
+            script.push(mv.as_str());
+            let diffs = lockstep(base(on), &hub.galaxy, &script, false);
+            assert!(diffs.is_empty(), "ssruu i48s {script:?}: {diffs:#?}");
+        }
     }
 }

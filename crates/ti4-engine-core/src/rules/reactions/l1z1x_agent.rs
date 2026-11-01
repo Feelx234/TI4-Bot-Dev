@@ -28,7 +28,7 @@ fn ready(s: &CoreState, who: Seat) -> bool {
 }
 
 /// The faction mech of `target`, `Ok(None)` for a faction without one, `Err` when the tables hold several.
-fn faction_mech(s: &CoreState, target: Seat) -> Result<Option<Unit>, Unknown> {
+pub fn faction_mech(s: &CoreState, target: Seat) -> Result<Option<Unit>, Unknown> {
     let Some(p) = s.players().by_seat(target) else { return Ok(None) };
     let found: Vec<Unit> = Unit::ALL
         .into_iter()

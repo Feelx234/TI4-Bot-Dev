@@ -35,7 +35,7 @@ use crate::rules::production::triggered::HeroOffer;
 use crate::rules::technology_windows::ProductionUsed;
 use crate::state::{CoreState, EventKind, Key, List, Payload, ProductionUse, UseMode, UsePhase, Val, Window as OpenWindow, WindowKind};
 
-pub use live::{advance_production, ask_production, open_production, UseOpen};
+pub use live::{ability_facts, advance_production, ask_production, can_produce_by_ability, open_production, produce_in, UseOpen};
 
 /// `ti4_model::state::RULES_WINNU_AGENT_PRODUCTION`.
 const RULES_WINNU_AGENT_PRODUCTION: u32 = 26;

@@ -162,7 +162,9 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     if matches!(asking.choice.ask, ti4_engine_core::choice::Ask::Trade(_)) {
         trade::sync(cx.render, at);
     }
-    let position = render::Position { state: std::rc::Rc::new(at.clone()), kernel: kernel::static_of(cx.env.kernel) };
+    // (A use of PRODUCTION an ability runs inside a window is read with the production kernel, whose hooks give the numbers of its options.)
+    let read_with = if matches!(asking.choice.ask, ti4_engine_core::choice::Ask::Production(_)) { crate::production_view::kernel_for_core(cx.env.kernel.sources) } else { kernel::static_of(cx.env.kernel) };
+    let position = render::Position { state: std::rc::Rc::new(at.clone()), kernel: read_with };
     let mut rendered = Typed::new_at(cx.render, position, asking.choice.clone(), phase, round).rendered;
     (cx.complete)(at, cx.env.kernel, &asking.choice, &mut rendered);
     details::infiltrate_preview(cx.render, at, cx.env.kernel, cx.env.table.facts.plays_provider.as_ref(), &asking.choice, &mut rendered);

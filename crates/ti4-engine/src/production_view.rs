@@ -71,6 +71,14 @@ pub(crate) fn kernel_of(sources: SourceSet) -> &'static Kernel {
     })
 }
 
+/// [`kernel_of`] for the scope as the core states it (`Kernel::sources`): the production kernel an ability that produces runs with.
+pub(crate) fn kernel_for_core(sources: ti4_engine_core::kernel::Sources) -> &'static Kernel {
+    static SETS: std::sync::OnceLock<Vec<(u8, ti4_model::content_types::SourceSet)>> = std::sync::OnceLock::new();
+    let sets = SETS.get_or_init(|| (1_u32..128).map(ti4_model::content_types::SourceSet::from_u32_truncated).filter_map(|set| u8::try_from(crate::core_adapter::scope(set).0).ok().map(|bits| (bits, set))).collect());
+    let set = sets.iter().find(|(bits, _)| *bits == sources.0).map_or(ti4_model::content_types::FULL, |(_, set)| *set);
+    kernel_of(set)
+}
+
 /// The kernel of the production reads: the seams of the laws and relics, and the bridge to the legacy
 /// hook slots (empty here), then every faction hook table. Built once.
 pub(crate) fn kernel() -> &'static Kernel {

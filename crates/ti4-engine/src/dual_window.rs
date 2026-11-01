@@ -1042,6 +1042,7 @@ fn with_trigger_of(choice: &CoreChoice) -> bool {
     use ti4_engine_core::choice::reaction::Ask as RAsk;
     match choice.ask {
         ti4_engine_core::choice::Ask::Reaction(RAsk::G(g)) => g.carries_trigger(),
+        ti4_engine_core::choice::Ask::Reaction(RAsk::Act(a)) => a.carries_trigger(),
         ti4_engine_core::choice::Ask::Reaction(a) => !matches!(a, RAsk::Legionnaire { .. } | RAsk::Cavalry | RAsk::Assimilate | RAsk::Watcher { .. } | RAsk::Salvage | RAsk::Indoctrination { .. } | RAsk::IcarusDrive | RAsk::AgentShip { .. } | RAsk::Edict),
         ti4_engine_core::choice::Ask::Cards(ti4_engine_core::choice::cards::Ask::PlayCard { .. }) => true,
         _ => false,

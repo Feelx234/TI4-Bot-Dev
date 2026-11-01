@@ -83,8 +83,6 @@ pub enum Ask {
     /// Indoctrination (Yin), at the start of a ground combat on `planet`: spend influence to replace 1 of the opponent's infantry with 1 infantry
     /// (or, with Moyin's Ashes, a mech) of the Yin.
     Indoctrination { planet: crate::generated::Planet },
-    /// Terragenesis (Titans), after `planet` was explored: place a sleeper token on it, or move one there.
-    Terragenesis { planet: crate::generated::Planet },
     /// Icarus Drive (Ghosts mech), after an activation: remove the mech to place or move a Creuss wormhole token into its system.
     IcarusDrive,
     /// Captain Mendosa (Saar agent; `copy`: Ssruu copying it), after an activation: which of the activator's slower ships takes the move value
@@ -92,8 +90,12 @@ pub enum Ask {
     AgentShip { copy: bool },
     /// Edict (Mahact), "when you win a combat": whose command token goes into the fleet pool when several opponents qualify.
     Edict,
+    /// Terragenesis (Titans), after `planet` was explored: place a sleeper token on it, or move one there.
+    Terragenesis { planet: crate::generated::Planet },
     /// A question of a formerly silent ability (lane G).
     G(super::silent::Ask),
+    /// A question of a tactical-island ability (lane M6d).
+    Act(super::activation::Ask),
 }
 
 /// What a Nekro takes of an opponent's technology through an ability.
@@ -131,16 +133,18 @@ pub enum Opt {
     /// Replace an infantry of `opponent` with a unit of `base` (the infantry or the mech) for `cost` influence (Indoctrination); the option id is
     /// the base type.
     Indoctrinate { base: crate::generated::UnitBaseType, cost: i16, opponent: crate::ids::Seat },
-    /// A sleeper token from the supply (`place`), or the one on the planet `from` (`move|{from}`) (Terragenesis).
-    Sleeper { from: Option<crate::generated::Planet> },
     /// A Creuss token into a system (Icarus Drive); the option id is `{kind}|{system}`.
     Token(crate::generated::Wormhole, crate::generated::System),
     /// A ship that Captain Mendosa raises from move `own` to move `top`, the `n`th of the question (`ship|{n}`).
     Boost { n: u8, system: crate::generated::System, unit: crate::generated::Unit, own: u8, top: u8 },
     /// An opponent whose token Edict takes (the option id is the seat's text).
     Opponent(Seat),
+    /// A sleeper token from the supply (`place`), or the one on the planet `from` (`move|{from}`) (Terragenesis).
+    Sleeper { from: Option<crate::generated::Planet> },
     /// An answer of a formerly silent ability (lane G).
     G(super::silent::Opt),
+    /// An answer of a tactical-island ability (lane M6d).
+    Act(super::activation::Opt),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`): `reaction_{relation}_{EVENT}`.
@@ -162,14 +166,16 @@ pub enum Subtype {
     Salvage,
     /// `indoctrination_replace`.
     Indoctrination,
-    /// `terragenesis_token`.
-    Terragenesis,
     /// `icarus_drive`.
     IcarusDrive,
     /// `agent_ship`.
     AgentShip,
     /// `edict_opponent`.
     Edict,
+    /// `terragenesis_token`.
+    Terragenesis,
     /// A question of a formerly silent ability (lane G).
     G(super::silent::Subtype),
+    /// A question of a tactical-island ability (lane M6d).
+    Act(super::activation::Subtype),
 }

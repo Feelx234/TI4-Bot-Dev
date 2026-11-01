@@ -52,3 +52,57 @@ pub fn ask_production(core: &CoreState, env: &Env<'_>) -> Result<Option<Asking>,
 pub fn advance_production(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
     advance::<ProductionMachine>(core, env, answer)
 }
+
+// -- a use of PRODUCTION by an ability, run inside the effect of a table rule (lane M6d) ---------------------------------------------------
+
+/// The facts of a production by an ability for `who` in `system` with `limit` units, read from the position with the kernel the adapter lent
+/// for payments (the faction hooks of a production). `None`: the adapter lent none, no roster, or a number beyond 32 bits.
+#[must_use]
+pub fn ability_facts(core: &CoreState, host: &crate::kernel::Kernel, facts: &crate::kernel::ability::AdapterFacts, who: Seat, system: System, limit: i32) -> Option<ProduceFacts> {
+    let k = facts.production_kernel_for(host)?;
+    let roster = facts.roster?;
+    let home = crate::rules::production::home::home_facts(core, k, roster, who, system, false)?;
+    Some(ProduceFacts { limit, ..home.produce })
+}
+
+/// Whether a production by an ability of `limit` units in `system` would ask anything now (the string
+/// `ProductionWindow::for_ability(..).pending_choice().is_some()`).
+#[must_use]
+pub fn can_produce_by_ability(core: &CoreState, host: &crate::kernel::Kernel, facts: &crate::kernel::ability::AdapterFacts, who: Seat, system: System, limit: i32) -> bool {
+    use crate::kernel::stage::Window;
+    let Some(pf) = ability_facts(core, host, facts, who, system, limit) else { return false };
+    let Some(k) = facts.production_kernel_for(host) else { return false };
+    ProductionWindow::ability(&pf).ask_of(core, k).is_some()
+}
+
+/// Run a production by an ability as the effect of a table rule: the use of PRODUCTION (`UseOpen::Ability`) stepped inside the effect, its
+/// questions put to the effect's tape, `UNITS_PRODUCED` announced when it made something. `Ok(false)`: the adapter lent no payment kernel or
+/// roster (the effect is reported unknown).
+///
+/// # Errors
+/// Never; the result type is the effect's.
+pub fn produce_in(eff: &mut crate::kernel::ability::Eff<'_, '_>, who: Seat, system: System, limit: i32) -> Result<bool, crate::kernel::resolver::TimingError> {
+    use crate::kernel::stage::Window;
+    use crate::kernel::Next;
+    let Some(pf) = ability_facts(eff.read().0, eff.read().1, eff.adapter_facts(), who, system, limit) else {
+        eff.unknown(crate::kernel::ability::Unknown::MissingFact);
+        return Ok(false);
+    };
+    let Some(k) = eff.adapter_facts().production_kernel_for(eff.kernel()) else { return Ok(false) };
+    let mut window = ProductionWindow::ability(&pf);
+    window.emit_timing = true;
+    let mut machine = ProductionMachine::new(ProductionUse { who, system, mode: UseMode::Ability, phase: UsePhase::Using, window, answered: false });
+    for _ in 0..64 {
+        // (a bound: a use asks one question per build, payment and placement, and the limit is small)
+        let Some(next) = eff.with_pay_sx(|sx| machine.step(sx)) else { return Ok(false) };
+        if !matches!(next, Next::Continue(_)) {
+            break;
+        }
+        let Some(choice) = machine.ask_of(eff.state(), k) else { break };
+        let pick = eff.ask(&choice);
+        if eff.with_pay_sx(|sx| machine.answer(sx, pick)) != Some(Ok(())) {
+            break;
+        }
+    }
+    Ok(true)
+}
