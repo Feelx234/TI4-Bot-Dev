@@ -316,3 +316,46 @@ fn the_ship_systems_beside_an_anomaly_are_named() {
     let no_map = thin::queries::secrets::Position { galaxy: None, ..tp };
     assert_eq!(thin::queries::secrets::ship_systems_beside_anomaly(&no_map), None);
 }
+
+#[test]
+fn a_redacted_view_answers_as_the_legacy_ones_do() {
+    // The host projects progress from the state a seat may see: every other seat's hands are markers (`HIDDEN`), which the typed state cannot
+    // hold as cards. The answers are the viewer's own and must not depend on the markers.
+    let content = content();
+    let mut rows = 0_usize;
+    for pos in positions() {
+        for player in players(&pos.state) {
+            let view = thin::observed::redacted_full_state(&pos.state, &player);
+            let at = |what: &str| format!("{} redacted for {player}: {what}", pos.label);
+            for galaxy in [None, Some(&pos.galaxy)] {
+                let (o, t) = (old::choice::Observed::new(&view, content, pos.sources, galaxy), thin::observed::Observed::new(&view, content, pos.sources, galaxy));
+                for seat in players(&view) {
+                    assert_eq!(o.scoreable_public(&seat), t.scoreable_public(&seat), "{}", at(&format!("scoreable_public({seat})")));
+                    assert_eq!(o.scoreable_secret(&seat), t.scoreable_secret(&seat), "{}", at(&format!("scoreable_secret({seat})")));
+                    assert_eq!(dbg(&o.revealed_objective_progress(&seat)), dbg(&t.revealed_objective_progress(&seat)), "{}", at(&format!("revealed_objective_progress({seat})")));
+                }
+                let op = old::secrets::Position { state: &view, content, sources: pos.sources, player: &player, galaxy, imagined: old::objectives::Imagined::NONE };
+                let tp = thin::queries::secrets::Position { state: &view, content, sources: pos.sources, player: &player, galaxy, imagined: thin::queries::objectives::Imagined::NONE };
+                for secret in &view.player(&player).expect("a seat").secret_objectives {
+                    let a = old::secrets::progress(secret, &op);
+                    assert_eq!(dbg(&a), dbg(&thin::queries::secrets::progress(secret, &tp)), "{}", at(&format!("secrets::progress {secret}")));
+                    rows += usize::from(a.is_some());
+                }
+                let (po, pt) = (
+                    old::objectives::Position::new(&view, content, pos.sources, &player),
+                    thin::queries::objectives::Position::new(&view, content, pos.sources, &player),
+                );
+                let (po, pt) = if let Some(g) = galaxy { (po.with_galaxy(g), pt.with_galaxy(g)) } else { (po, pt) };
+                for alias in &view.revealed_objectives {
+                    assert_eq!(
+                        dbg(&old::objectives::counting_progress(alias, &po)),
+                        dbg(&thin::queries::objectives::counting_progress(alias, &pt)),
+                        "{}",
+                        at(&format!("counting_progress {alias}"))
+                    );
+                }
+            }
+        }
+    }
+    assert!(rows > 5, "only {rows} held secrets compared");
+}

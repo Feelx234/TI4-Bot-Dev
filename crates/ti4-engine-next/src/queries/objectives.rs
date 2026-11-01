@@ -537,6 +537,9 @@ impl ObjView {
     #[must_use]
     pub fn scoreable_secret(&self, player: &PlayerId) -> usize {
         let Some(seen) = self.seen(player) else { return 0 };
+        if self.owned.secrets_masked(player) {
+            return 0;
+        }
         seen.scoreable_secrets(seen.me(), ti4_engine_core::generated::ObjectivePhase::Status, None).map_or(0, |l| l.len())
     }
 
@@ -553,6 +556,9 @@ impl ObjView {
     #[must_use]
     pub fn held_secrets(&self, player: &PlayerId, imagined: &Imagined<'_>) -> Vec<CardProgress> {
         let Some(seen) = self.seen(player) else { return Vec::new() };
+        if self.owned.secrets_masked(player) {
+            return Vec::new();
+        }
         let im = TypedImagined::of(imagined);
         seen.my_secret_progress(im.get()).map(|rows| rows.iter().map(card_of).collect()).unwrap_or_default()
     }

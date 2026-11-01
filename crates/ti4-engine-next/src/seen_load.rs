@@ -37,6 +37,8 @@ pub struct SeenOwned {
     cx: Ctx,
     kernel: &'static Kernel,
     blanked: bool,
+    /// The players whose secret objectives were markers in the position (a redacted view): the core holds placeholders for them.
+    masked: Vec<PlayerId>,
 }
 
 impl SeenOwned {
@@ -55,12 +57,15 @@ impl SeenOwned {
     /// # Errors
     /// [`Unmapped`] for a value the typed state cannot hold.
     pub fn from_parts(state: &ti4_model::state::GameState, sources: ti4_model::content_types::SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>) -> Result<Self, Unmapped> {
+        // A redacted view holds markers where other seats' hands are: they are loaded as placeholders (queries::view::loadable).
+        let (loadable, masked) = crate::queries::view::loadable(state);
+        let state = &*loadable;
         let mut cx = Ctx::of(state)?;
         // A decision asked without a map (some nested windows build their `Observed` without one) loads without the
         // map slice; the movement accessors of the view then answer as the string side does without a galaxy.
         let reads = if galaxy.is_some() { READS } else { SliceSet::of_without(READS, Slice::Map) };
         let core = CoreView::of(state, &mut cx, Sources { galaxy, rng: None }, reads)?.into_state();
-        Ok(Self { core, cx, kernel: kernel_for(sources), blanked: crate::ties::laws::blanked(state) })
+        Ok(Self { core, cx, kernel: kernel_for(sources), blanked: crate::ties::laws::blanked(state), masked })
     }
 
     /// The loaded typed state.
@@ -73,6 +78,12 @@ impl SeenOwned {
     #[must_use]
     pub(crate) const fn kernel(&self) -> &'static Kernel {
         self.kernel
+    }
+
+    /// Whether the secret objectives of `player` were hidden markers in the position (their placeholders must not be read).
+    #[must_use]
+    pub(crate) fn secrets_masked(&self, player: &PlayerId) -> bool {
+        self.masked.contains(player)
     }
 
     /// Whether all laws are blank this turn (Law's Order).

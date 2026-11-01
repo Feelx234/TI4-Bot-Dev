@@ -62,6 +62,7 @@ impl ProdView {
     /// The view of a position; `None` when something is not mapped.
     #[must_use]
     pub fn of(state: &GameState, sources: SourceSet) -> Option<Self> {
+        let state = &*super::view::loadable(state).0;
         let mut cx = Ctx::of(state).ok()?;
         let view = CoreView::of(state, &mut cx, Sources { galaxy: None, rng: None }, READS).ok()?.into_state();
         let blanked = ti4_engine_core::query::reach::blanked(&view);
