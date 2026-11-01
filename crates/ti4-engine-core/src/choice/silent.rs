@@ -103,6 +103,7 @@ impl Ask {
     pub const fn carries_trigger(&self) -> bool {
         match self {
             Self::Landing(_) | Self::Mitosis | Self::Pillage => true,
+            Self::Reclaimer | Self::TradePolicy | Self::CommanderFighters | Self::Voidwatch | Self::Stillness | Self::NaazAgent | Self::NaazCopy => false,
             Self::T(t) => t.carries_trigger(),
         }
     }
