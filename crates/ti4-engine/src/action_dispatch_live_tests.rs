@@ -235,7 +235,7 @@ fn the_codex_chosen_from_the_menu_takes_the_discarded_cards_like_the_string() {
 #[test]
 fn an_action_note_chosen_from_the_menu_goes_faceup_like_the_string() {
     for (note, id, table) in [
-        ("trade_convoys:hacan", "faction|trade_convoys", [("a", "sol"), ("b", "hacan"), ("c", "arborec")]),
+        ("convoys:hacan", "faction|trade_convoys", [("a", "sol"), ("b", "hacan"), ("c", "arborec")]),
         ("blood_pact:empyrean", "faction|empyrean|blood_pact", [("a", "sol"), ("b", "empyrean"), ("c", "arborec")]),
         ("dark_pact:empyrean", "faction|empyrean|dark_pact", [("a", "sol"), ("b", "empyrean"), ("c", "arborec")]),
         ("pop:mentak", "faction|mentak|pop", [("a", "sol"), ("b", "mentak"), ("c", "arborec")]),
