@@ -457,6 +457,14 @@ impl NativeSubject {
     }
 }
 
+/// The position without the marks that hold the events effects staged for the next step's announcement.
+pub(crate) fn without_staged_marks(mut state: Value) -> Value {
+    if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
+        marks.retain(|k, _| !k.starts_with("private:#staged:event:"));
+    }
+    state
+}
+
 // A step that ends the window ALSO runs the close the core does not own yet (the string's remainder of the step: steps 81.6-81.8 after the
 // last token): the legacy step then asked, answered and emitted more than the arm, and changed the position beyond it (the remainder moves
 // the very pools the last token filled). So a step that ends the window is compared on the prefix of the questions and the events only; a
@@ -468,13 +476,13 @@ impl NativeSubject {
 /// tactical and strategic actions and the action cards are the core's (lane F2b).
 fn menu_body_is_lent(id: &str) -> bool {
     (id.starts_with("faction|") && id != "faction|winnu|lgf")
-        || (id.starts_with("component|") && !id.starts_with("component|trade|"))
+        || (id.starts_with("component|") && !id.starts_with("component|trade|") && id != "component|leader|xxchaagent" && id != "component|leader|hacanagent")
         || id.starts_with("relic|")
         || id.starts_with("play_area:")
 }
 
 /// Take the `private:#staged:event:*` marks out of a position: the `type` of each, in key order.
-fn strip_staged(state: &mut Value) -> Vec<String> {
+pub(crate) fn strip_staged(state: &mut Value) -> Vec<String> {
     let mut names = Vec::new();
     if let Some(marks) = state.get_mut("faction_marks").and_then(Value::as_object_mut) {
         let keys: Vec<String> = marks.keys().filter(|k| k.starts_with("private:#staged:event:")).cloned().collect();

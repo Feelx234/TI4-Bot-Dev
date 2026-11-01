@@ -21,6 +21,7 @@ pub mod end;
 pub mod faction;
 pub mod facts;
 pub mod inline;
+pub mod leader;
 pub mod phase;
 pub mod prelude;
 pub mod relic;

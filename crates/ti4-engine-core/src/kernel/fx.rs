@@ -84,6 +84,14 @@ pub fn plain(s: &mut CoreState, rec: PlainRec) {
     s.ledger.events.push(Emit::Plain(rec));
 }
 
+/// Write events a window emitted (`Out::emitted`, the records as they ended) to the emission queue as mirrored ones, in order: the
+/// string's `mirror_timing_log` for a step whose windows return their emissions instead of mirroring them one by one.
+pub fn mirror_recs(s: &mut CoreState, recs: Vec<EventRec>) {
+    for rec in recs {
+        s.ledger.events.push(Emit::Typed(rec));
+    }
+}
+
 /// The cursor of [`mirror_journal`]: how many lines the resolver's trace has now. Take it BEFORE the timing call
 /// whose events are to be mirrored (the string's `let logged = self.timing.log().len()`).
 #[must_use]
