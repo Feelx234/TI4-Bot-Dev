@@ -26,11 +26,11 @@ use std::rc::Rc;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use ti4_engine_legacy::core_sync::codec::rng::TextSeeds;
-use ti4_engine_legacy::core_sync::{materialize, Codec, Ctx, Sources};
+use ti4_engine::core_sync::codec::rng::TextSeeds;
+use ti4_engine::core_sync::{materialize, Codec, Ctx, Sources};
 use ti4_engine_legacy::game::Game;
-use ti4_engine_legacy::live::{self, arms, Asker, Question, Stop};
-use ti4_engine_legacy::render::Render;
+use ti4_engine::live::{self, arms, Asker, Question, Stop};
+use ti4_engine::render::Render;
 use ti4_engine_core::driver::live::{is_open, live_arm, LiveError};
 use ti4_engine_core::driver::session::{live_ask_arm, step_arm, Arm, AskArm, Facts};
 use ti4_engine_core::driver::turn::{self, TurnFlowWin};
@@ -194,7 +194,10 @@ impl Asker for Bot<'_> {
             return Err(Stop::Blocked);
         }
         let place = self.seats.iter().position(|s| s == rendered.player.as_str()).unwrap_or(0);  // mutants:skip (a seat text always found; the fallback place)
-        let (picked, _, _) = ti4_rule_bot::choose_explained(rendered, None, self.seed, place, self.index);
+        // The rule bot is the string bot, which reads the legacy `Choice`: the same wire value, through JSON (the parity of the two types is
+        // `ti4-engine/tests/wire_parity.rs`).
+        let legacy: ti4_engine_legacy::choice::Choice = serde_json::from_value(serde_json::to_value(rendered).expect("a choice serialises")).expect("the legacy type reads the thin one");
+        let (picked, _, _) = ti4_rule_bot::choose_explained(&legacy, None, self.seed, place, self.index);
         self.index += 1;
         let chosen = rendered.options[picked.min(rendered.options.len() - 1)].id.clone();  // mutants:skip (picked is always below the length: the clamp is defensive)
         self.asked.push(Asked {
@@ -466,7 +469,7 @@ impl NativeGame {
             h.update(format!("{}\u{1}{}\u{1}{}", a.player, a.prompt, a.chosen).as_bytes());
             self.chain = hex(&h.finalize());
         }
-        let events = ti4_engine_legacy::render::events::pushed_since(&self.render, &self.cx, &self.core, from)
+        let events = ti4_engine::render::events::pushed_since(&self.render, &self.cx, &self.core, from)
             .map(|lines| lines.into_iter().map(|p| p.text().to_owned()).collect::<Vec<_>>())
             .unwrap_or_else(|| vec!["<a line the tables cannot name>".to_owned()]);
         self.events.extend(events.iter().cloned());
@@ -995,7 +998,7 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
         // compared by name, in order, and kept out of the position (the position carries only what the codec carries).
         let mut legacy_state = legacy.state_json();
         let legacy_staged = crate::native_subject::strip_staged(&mut legacy_state);
-        let native_staged: Vec<String> = native.core.pending().staged.iter().map(|e| ti4_engine_legacy::kernel_sync::text::event_text(&native.render, e.kind)).collect();
+        let native_staged: Vec<String> = native.core.pending().staged.iter().map(|e| ti4_engine::kernel_sync::text::event_text(&native.render, e.kind)).collect();
         if legacy_staged != native_staged {
             return Some(diff("staged", "pending.staged".to_owned(), format!("{native_staged:?}"), format!("{legacy_staged:?}")));
         }
@@ -1077,7 +1080,7 @@ mod tests {
     use ti4_engine_core::ids::Seat;
     use ti4_engine_core::rules::token_gain::TokenGain;
     use ti4_engine_core::state::{StatusReport, Tokens, TurnJob};
-    use ti4_engine_legacy::live::Question;
+    use ti4_engine::live::Question;
 
     use super::*;
 
@@ -1318,7 +1321,8 @@ mod tests {
             for index in 0..6 {
                 let mut bot = Bot { seed: 9, seats: &seats, index, asked: Vec::new() };
                 let id = bot.ask(&Question { asking: &asking, rendered: choice.clone() }).unwrap();
-                let (picked, _, _) = ti4_rule_bot::choose_explained(&choice, None, 9, place, index);
+                let legacy: ti4_engine_legacy::choice::Choice = serde_json::from_value(serde_json::to_value(&choice).unwrap()).unwrap();
+                let (picked, _, _) = ti4_rule_bot::choose_explained(&legacy, None, 9, place, index);
                 assert_eq!(id, choice.options[picked].id, "place {place}, index {index}");
                 assert_eq!(bot.index, index + 1, "one decision more");
                 assert_eq!(bot.asked.len(), 1);
