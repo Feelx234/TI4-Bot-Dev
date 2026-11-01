@@ -27,6 +27,7 @@ pub mod prelude;
 pub mod relic;
 pub mod start;
 pub mod starting;
+pub mod technology;
 
 use crate::choice::{Choice, Pick};
 use crate::driver::live::{advance, ask, is_open, open, Asking, Env, Live, LiveError, Out};

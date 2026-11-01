@@ -477,10 +477,42 @@ pub(crate) fn without_staged_marks(mut state: Value) -> Value {
 /// the leaders, technologies, relics in use, exploration cards and factions. The pass, the opening of a transaction (`component|trade|<faction>`), the
 /// tactical and strategic actions and the action cards are the core's (lane F2b).
 fn menu_body_is_lent(id: &str) -> bool {
-    (id.starts_with("faction|") && id != "faction|winnu|lgf")
-        || (id.starts_with("component|") && !id.starts_with("component|trade|") && id != "component|leader|xxchaagent" && id != "component|leader|hacanagent")
-        || id.starts_with("relic|")
-        || id.starts_with("play_area:")
+    use ti4_engine_core::driver::turn::leader;
+    use ti4_engine::generated::IdStr;
+    use ti4_engine_core::generated::Leader;
+    /// The ids of the faction component actions the core runs (the arms of `driver::turn::faction::run`; keep in step).
+    const ROUTED_FACTION: [&str; 16] = [
+        "faction|winnu|lgf",
+        "faction|orbital_drop",
+        "faction|production_biomes",
+        "faction|trade_convoys",
+        "faction|muaat|nucleus",
+        "faction|muaat|star_forge",
+        "faction|muaat|inferno",
+        "faction|muaat|fires",
+        "faction|mentak|pop",
+        "faction|naaz|fabrication_relic",
+        "faction|naaz|fabrication_token",
+        "faction|naaz|bmf",
+        "faction|yssaril|stall_tactics",
+        "faction|empyrean|blood_pact",
+        "faction|empyrean|dark_pact",
+        "faction|yssaril|mi|",
+    ];
+    if let Some(rest) = id.strip_prefix("component|leader|") {
+        let (borrowed, alias) = rest.strip_prefix("yssarilagent|").map_or((false, rest), |alias| (true, alias));
+        return !Leader::ALL.iter().any(|l| l.as_str() == alias && leader::routed(*l, borrowed));
+    }
+    if id.starts_with("faction|") {
+        return !ROUTED_FACTION.iter().any(|routed| if routed.ends_with('|') { id.starts_with(routed) } else { id == *routed });
+    }
+    if let Some(alias) = id.strip_prefix("component|tech|") {
+        return !ti4_engine_core::generated::Technology::ALL.iter().any(|t| t.as_str() == alias && ti4_engine_core::driver::turn::technology::routed(*t));
+    }
+    if let Some(alias) = id.strip_prefix("relic|") {
+        return !ti4_engine_core::generated::Relic::ALL.iter().any(|r| r.as_str() == alias && ti4_engine_core::driver::turn::relic::routed(*r));
+    }
+    (id.starts_with("component|") && !id.starts_with("component|trade|")) || id.starts_with("play_area:")
 }
 
 /// Take the `private:#staged:event:*` marks out of a position: the `type` of each, in key order.

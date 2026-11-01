@@ -82,6 +82,25 @@ pub enum Verdict {
     Failed { withhold: bool },
 }
 
+/// The verdict of a body that reports whether it resolved. A failed body (withheld from the menu for the rest of the turn) is the defensive twin of the
+/// string's: the menu offers an option only when its body can resolve (`leaders::can_resolve_action`, the windows' own probes), so no position
+/// reaches the `Failed` arm through the menu.
+// mutants:skip
+#[must_use]
+pub const fn verdict(resolved: bool) -> Verdict {
+    if resolved { Verdict::Resolved } else { Verdict::Failed { withhold: true } }
+}
+
+/// [`conclude`] for the faction and leader arms, which announce what the body staged.
+pub fn conclude_announced(sx: &mut Sx<'_>, who: Seat, key: u32, verdict: Verdict) -> Flow {
+    conclude(sx, who, key, verdict, true)
+}
+
+/// [`conclude`] for the technology, relic, device and action-card arms, which announce nothing after the body.
+pub fn conclude_quiet(sx: &mut Sx<'_>, who: Seat, key: u32, verdict: Verdict) -> Flow {
+    conclude(sx, who, key, verdict, false) // mutants:skip: no quiet arm stages a destruction or a card move yet; the flag is the string's arm table
+}
+
 /// Everything after a body (`Game::apply_choice`): what the body staged is announced (`announce`: the faction and leader arms do it, the
 /// technology, relic, device and action-card arms do not), Extreme Duress settles, the verdict is told, and a
 /// resolved action ends (`finish_action`). `key` is the option's key (the failed-action withholding).
@@ -137,7 +156,7 @@ pub fn play_card(sx: &mut Sx<'_>, who: Seat, key: u32, card: crate::generated::A
     }
     // The string mirrors the timing log of the play into its event queue when the call returns.
     fx::mirror_journal(sx.state, sx.resolver, mark);
-    conclude(sx, who, key, if played { Verdict::Resolved } else { Verdict::Failed { withhold: false } }, false)
+    conclude_quiet(sx, who, key, if played { Verdict::Resolved } else { Verdict::Failed { withhold: false } })
 }
 
 /// The events a window staged for the announcement its string twin makes at once (`spend_strategy_token_announced`: Orbital Drop's token), announced
@@ -157,4 +176,16 @@ pub fn flush_staged_events(sx: &mut Sx<'_>) -> Flow {
         }
     }
     if super::inline::halted(sx) { Flow::Halt } else { Flow::Done }
+}
+
+/// The events a window staged, announced at once the way the string does for the spends and gains it announces itself (`hooks_economy::emit`,
+/// `supply::gain_trade_goods_staged` with a resolver in reach), and only while a seated faction has a module: the string's `stage_event` is a no-op
+/// without one, so the staged rows are dropped.
+pub fn announce_events(sx: &mut Sx<'_>) -> Flow {
+    if sx.table.facts.staging {
+        flush_staged_events(sx)
+    } else {
+        let _ = fx::drain_staged(sx.state);
+        Flow::Done
+    }
 }
