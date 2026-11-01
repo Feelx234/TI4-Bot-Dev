@@ -213,15 +213,17 @@ fn jae_mir_kan_while_the_nomad_holds_the_suite_runs_like_the_string_and_tells_th
     let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "decline", "no", "no"]);
     assert_same(&string, &native);
     assert!(has(&string, "STRATEGIC_ACTION_COMPLETE") && has(&string, "STRATEGY_SECONDARY_FOLLOWED"), "{:?}", string.events);
-    assert_eq!(string.staged, ["AGENT_EXHAUSTED"], "the suite is told");
-    assert_eq!(native.staged, string.staged);
+    // (The suite's holder is asked before the next follower, on both sides: the staged event is announced by the next step's reconcile.)
+    let asked: Vec<_> = string.questions.iter().map(|q| q.prompt.as_str()).collect();
+    assert!(asked.contains(&"after AGENT_EXHAUSTED"), "the suite is told: {asked:?}");
+    assert_eq!(native.questions.len(), string.questions.len());
 }
 
 /// A Nomad without the suite hears nothing (the old gate refused the waiver for any Nomad at the table): nothing is staged.
 #[test]
 fn jae_mir_kan_with_a_nomad_that_lacks_the_suite_stages_nothing_like_the_string() {
     let state = jae_mir_kan_table(false);
-    let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "decline", "no", "no"]);
+    let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "no", "no"]);
     assert_same(&string, &native);
     assert!(string.staged.is_empty() && native.staged.is_empty(), "{:?} {:?}", string.staged, native.staged);
 }

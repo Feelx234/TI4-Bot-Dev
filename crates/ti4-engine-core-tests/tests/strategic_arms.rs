@@ -482,6 +482,8 @@ fn jae_mir_kan_is_offered_as_a_waiver_and_pays_with_the_primary_players_token() 
 #[test]
 fn a_waiver_a_nomad_hears_is_paid_and_stages_the_exhaustion_for_the_suite() {
     let (mut s, k, mahact) = jae_mir_kan(true);
+    // (The suite is what listens: the Nomad holds Temporal Command Suite.)
+    s.players_mut().by_seat_mut(Seat(2)).unwrap().tech.owned.insert(ti4_engine_core::generated::Technology::TemporalCommandSuite);
     let e = env(&k);
     let q = first_asked(&s, &e);
     let waiver = q.opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered like the string offers it");
@@ -498,12 +500,15 @@ fn a_waiver_a_nomad_hears_is_paid_and_stages_the_exhaustion_for_the_suite() {
 }
 
 #[test]
-fn a_waiver_without_a_nomad_at_the_table_stages_no_exhaustion() {
-    let (mut s, k, _) = jae_mir_kan(false);
-    let e = env(&k);
-    let waiver = first_asked(&s, &e).opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered");
-    advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("paid");
-    assert!(s.pending().staged.iter().all(|e| e.kind != ti4_engine_core::state::EventKind::AgentExhausted), "{:?}", s.pending().staged);
+fn a_waiver_without_a_nomad_holding_the_suite_stages_no_exhaustion() {
+    // A Nomad at the table without the suite hears nothing and does not stop the step either; with no Nomad at all the same.
+    for nomad in [false, true] {
+        let (mut s, k, _) = jae_mir_kan(nomad);
+        let e = env(&k);
+        let waiver = first_asked(&s, &e).opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered");
+        advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("paid");
+        assert!(s.pending().staged.iter().all(|e| e.kind != ti4_engine_core::state::EventKind::AgentExhausted), "{:?}", s.pending().staged);
+    }
 }
 
 // -- the redistribution after the free action ------------------------------------------------------------------------------------------
