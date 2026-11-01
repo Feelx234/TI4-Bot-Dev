@@ -591,6 +591,9 @@ pub struct CombatTexts {
     pub shown_codes: Vec<(crate::generated::Unit, crate::state::Code)>,
     /// Every roll group: the sorted unit types, the state text (the ids joined with `+`) and the shown text.
     pub groups: Vec<(Vec<crate::generated::Unit>, crate::state::Code, crate::state::Code)>,
+    /// Every unit form on the board with a SPACE CANNON: its state text, the renderer's text (the unit type id, what the string stages a gunner's
+    /// roll under: the label of a reroll question). Set outside a combat too (the offense of the tactical head).
+    pub guns: Vec<(crate::generated::Unit, crate::state::Code, crate::state::Code)>,
     /// The state texts `extra barrage` and `retreat_capacity`; the shown `extra barrage`.
     pub barrage_extra: crate::state::Code,
     pub retreat_cause: crate::state::Code,

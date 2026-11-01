@@ -57,10 +57,12 @@ pub fn settle_extreme_duress(sx: &mut Sx<'_>, who: Seat, strategic: bool) -> Flo
 /// A cause no staged destruction carries: `drain_staged` renames the destructions of a retreat, and a component action has none.
 const NO_RETREAT: (Code, Code) = (Code(u16::MAX), Code(u16::MAX));
 
-/// `announce_staged_destructions` and `announce_staged_cards` after a body: the ground forces and ships an effect destroyed without a resolver
-/// in reach, then the card moves an effect staged.
+/// `announce_staged_destructions` and `announce_staged_cards` after a body: the ground forces, the staged events and the ships an effect destroyed
+/// without a resolver in reach, then the card moves an effect staged.
 pub fn announce_staged(sx: &mut Sx<'_>) -> Flow {
-    if crate::driver::agenda::ground::announce(sx) == Flow::Halt {
+    // `announce_staged_ground_events`: the ground forces and the planet control, then the events resolver-less effects staged (`TRADE_GOODS_GAINED`,
+    // `UNITS_PRODUCED`, `STRATEGY_TOKEN_SPENT`: the string's `supply::try_flush_staged_events`), the same two steps the turn prelude announces.
+    if super::prelude::announce_staged(sx) == Flow::Halt {
         return Flow::Halt;
     }
     if !sx.state.transient().combat.pending_destructions.is_empty() {

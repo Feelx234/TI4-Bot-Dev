@@ -173,6 +173,28 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     for (slot, text) in t.end.iter_mut().zip(["losers", "retreated", "retreat", "draw", "destruction", "round_limit"]) {
         *slot = r.code(text);
     }
+    // The gunners of the space cannon offense (the tactical head runs before any combat is open): the offense stages each roll under its unit's
+    // type id, as the string does.
+    {
+        let mut guns: Vec<Unit> = Vec::new();
+        let systems: Vec<_> = core.board().systems().map(|(system, _)| system).collect();
+        for system in systems {
+            let mut here: Vec<Unit> = core.board().sys(system).units.iter().map(|p| p.kind()).collect();
+            for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
+                here.extend(core.board().planet(*planet).units.iter().map(|p| p.kind()));
+            }
+            for u in here {
+                if u.data().space_cannon.is_some() && !guns.contains(&u) {
+                    guns.push(u);
+                }
+            }
+        }
+        guns.sort_unstable();
+        for u in guns {
+            let id = IdStr::as_str(u);
+            t.guns.push((u, state_code(core, id), r.code(id)));
+        }
+    }
     let mut present: Vec<Unit> = Vec::new();
     let mut pieces: Vec<Unit> = if let Some((system, _, _)) = core.transient().combat.active_space_combat {
         let cell = core.board().sys(system);
