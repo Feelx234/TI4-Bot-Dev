@@ -118,4 +118,34 @@ mod tests {
         assert!(spec.optional && spec.condition.is_some());
         assert_eq!(spec.event, EventKind::GroundForcesBeingProduced);
     }
+
+    /// Lane L: the planets the agent names are the recipient's controlled planets in systems next to the producing one. The adapter's recorded neighbours win; a
+    /// position with a map answers the pair nobody recorded (it was the counted `MissingFact` that stopped the Argent games); with neither the answer is unknown.
+    #[test]
+    fn the_destinations_follow_the_recorded_neighbours_else_the_position_own_map() {
+        use crate::common::testkit::table;
+        use ti4_engine_core::galaxy::CoreGalaxy;
+        use ti4_engine_core::kernel::ability::AdapterFacts;
+        use ti4_engine_core::hex::Hex;
+        static NO_LANES: [Option<&[(u8, u8)]>; System::COUNT] = [None; System::COUNT];
+        let (mut s, k) = table(&[Faction::TheArgentFlight, Faction::TheArborec]);
+        let plain: Vec<System> = System::ALL.iter().copied().filter(|x| !x.data().planets.is_empty() && !x.data().hyperlane && !x.data().home_system).take(3).collect();
+        let (producing, near, far) = (plain[0], plain[1], plain[2]);
+        let f = AdapterFacts::default();
+        assert_eq!(destinations(&s, &k, &f, Seat(1), producing), None, "no recorded neighbours and no map");
+        let mut galaxy = CoreGalaxy::new(&NO_LANES);
+        galaxy.place(producing, Hex::new(0, 0)).unwrap();
+        galaxy.place(near, Hex::new(1, 0)).unwrap();
+        galaxy.place(far, Hex::new(5, 0)).unwrap();
+        galaxy.refresh_lane_links();
+        s.map_mut().set_galaxy(galaxy);
+        for system in [near, far] {
+            s.board_mut().planet_mut(system.data().planets[0]).control = Some(Seat(1));
+        }
+        let next_door: Vec<(System, Planet)> = vec![(near, near.data().planets[0])];
+        assert_eq!(destinations(&s, &k, &f, Seat(1), producing), Some(next_door), "only the planet in the neighbouring system");
+        let mut recorded = AdapterFacts::default();
+        recorded.set_reach(Seat(1), producing, vec![far]);
+        assert_eq!(destinations(&s, &k, &recorded, Seat(1), producing), Some(vec![(far, far.data().planets[0])]), "the adapter's neighbours win");
+    }
 }

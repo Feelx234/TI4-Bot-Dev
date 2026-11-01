@@ -343,7 +343,11 @@ fn letani_miasmiala_chosen_from_the_menu_produces_where_the_ground_forces_stand_
 /// asks it); declining fails the action and the card stays readied.
 #[test]
 fn zeu_chosen_from_the_menu_asks_the_system_and_a_decline_fails_the_action_like_the_string() {
-    let state = leader_table(&[("a", "naalu"), ("b", "sol"), ("c", "hacan")], "naaluagent", LeaderStatus::Readied);
+    let mut state = leader_table(&[("a", "naalu"), ("b", "sol"), ("c", "hacan")], "naaluagent", LeaderStatus::Readied);
+    // (The agent is offered when a system that is no home holds something and not the seat's token.)
+    let mecatol = ti4_model::id::SystemId::new(crate::seating::mecatol_on(&state));
+    crate::fixtures::put(&mut state, &mecatol, "cruiser", &pid("b"), 1);
+    let state = super::turn_live_tests::based(state);
     let run = lockstep(&state, &["component|leader|naaluagent"], "COMPONENT_ACTION_FAILED");
     assert!(!has(&run, "COMPONENT_ACTION_RESOLVED"), "{:?}", run.events);
 }

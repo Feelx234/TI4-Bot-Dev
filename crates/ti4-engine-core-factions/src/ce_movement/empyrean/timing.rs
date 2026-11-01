@@ -47,7 +47,7 @@ fn near(s: &CoreState, f: &AdapterFacts, a: System, b: System) -> Option<bool> {
     if a == b {
         return Some(true);
     }
-    f.adjacent(a, b).or_else(|| board::neighbours(s, a).map(|near| near.contains(b.index())))
+    f.adjacent(a, b).or_else(|| s.loaded.has(ti4_engine_core::state::Slice::Map).then(|| board::neighbours(s, a).map(|near| near.contains(b.index()))).flatten())
 }
 
 /// Whether any of `candidates` is near `system`, asking the pairs in the order `first_is_candidate` says (Dynamo asks

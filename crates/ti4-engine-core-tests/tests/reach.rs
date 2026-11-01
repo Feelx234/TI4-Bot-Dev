@@ -116,3 +116,15 @@ fn law_blanking_is_a_turn_mark_that_counts_only_in_the_action_phase() {
 fn sc_with_tech() -> CoreState {
     row().0.tech(0, Technology::GravityDrive).state()
 }
+
+/// Lane L: `neighbours_of` is the movement adjacency of a seat (`movement::PlayerAdjacency::neighbours`), the systems next to one on the map and none other, in system
+/// order and without the system itself; a position with no map has none (`None`).
+#[test]
+fn the_neighbours_of_a_system_are_the_systems_next_to_it_on_the_map_in_system_order() {
+    let (sc, t) = row();
+    let (s, k) = sc.build();
+    let mut want = vec![t[0], t[2]];
+    want.sort_unstable();
+    assert_eq!(reach::neighbours_of(&s, &k, Seat(0), t[1]), Some(want), "B touches A and C, not D and not itself");
+    assert_eq!(reach::neighbours_of(&s, &k, Seat(1), t[3]), Some(vec![t[2]]), "the end of the row has one neighbour");
+}

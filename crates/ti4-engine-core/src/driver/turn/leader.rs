@@ -163,9 +163,13 @@ fn hero(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, used: bool) -> Flo
 /// question stands with the decline alone when there is none), the card exhausts, Extreme Duress settles, and the free tactical action begins there
 /// (`Game::perform_zeu`; the action's own close ends the turn). A declined question fails the action, which is withheld for the rest of the turn.
 fn zeu(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
-    let leave = crate::rules::tactical::holds_leave(sx.state, sx.kernel, who);
     let homes = |s: System| sx.state.players().iter().any(|p| p.home_system == Some(s));
-    let systems: Vec<System> = crate::query::transit::activatable(sx.state, sx.kernel, who, leave)
+    // (A lend without the map slice -- the lockstep harness's -- has no system to name: the string without a galaxy offers the decline alone, too.)
+    let mapped = sx.state.loaded.has(crate::state::Slice::Map);
+    let leave = mapped && crate::rules::tactical::holds_leave(sx.state, sx.kernel, who);
+    let systems: Vec<System> = mapped
+        .then(|| crate::query::transit::activatable(sx.state, sx.kernel, who, leave))
+        .flatten()
         .unwrap_or_default()
         .into_iter()
         .filter(|s| !board::has_token(sx.state, *s, who) && !homes(*s))

@@ -1071,9 +1071,10 @@ impl Research {
     }
 
     /// `strategy_cards::resolve_research`: the waiver is asked (more than two modules' waivers cannot be put in the question: the run is the
-    /// string's).
+    /// string's). Only the Cabal (Riftmeld) and the Yin (Brother Omar) offer a research waiver, one each, so a third offer is not a position of any
+    /// game: the guard is not a bail anyone reaches (integration 15, lane L), and the question's two places are exact.
     fn start_waiver(&mut self, s: &CoreState, k: &Kernel, t: Technology) {
-        if k.hooks.strategy.research_waiver_offers(s, k, self.who, t).len() > 2 {
+        if k.hooks.strategy.research_waiver_offers(s, k, self.who, t).len() > 2 { // mutants:skip: unreachable, two modules offer a research waiver (Cabal, Yin)
             self.failed = true;
             self.stage = RStage::Done;
             return;

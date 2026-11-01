@@ -237,7 +237,11 @@ fn hero_fight_types(core: &CoreState) -> Vec<Unit> {
     use ti4_engine_core::generated::{Leader, UnitBaseType};
     let Some(active) = core.meta().active else { return Vec::new() };
     let unlocked = core.players().by_seat(active).is_some_and(|p| p.leaders.status.get(&Leader::AiroShirAur) == Some(&ti4_engine_core::state::LeaderStatus::Unlocked));
-    let (true, Some(galaxy)) = (unlocked, core.galaxy()) else { return Vec::new() };
+    // (The galaxy is read only when the map slice is loaded: the lockstep harness lends none.)
+    if !unlocked || !core.loaded.has(ti4_engine_core::state::Slice::Map) {
+        return Vec::new();
+    }
+    let Some(galaxy) = core.galaxy() else { return Vec::new() };
     let ship = |u: Unit| u.data().ship || u.data().base_type == UnitBaseType::Fighter;
     let mut out: Vec<Unit> = Vec::new();
     for (origin, cell) in core.board().systems() {
@@ -697,8 +701,30 @@ mod tests {
         let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
         core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
         let t = super::combat_texts(&mut core, &render);
-        let named: Vec<Unit> = t.unit_codes.iter().map(|(u, _)| *u).collect();
-        assert!(named.contains(&Unit::DestroyerI) && named.contains(&Unit::DestroyerII), "both forms are named: {named:?}");
+        let named: Vec<ti4_engine_core::generated::Unit> = t.unit_codes.iter().map(|(u, _)| *u).collect();
+        assert!(named.contains(&ti4_engine_core::generated::Unit::DestroyerI) && named.contains(&ti4_engine_core::generated::Unit::DestroyerII), "both forms are named: {named:?}");
+    }
+
+    /// Lane L: Airo Shir Aur starts a fight no step has opened yet (`active_space_combat` is written when the card moves the fleet), so the texts of the
+    /// step that uses the card name the types of every pair it can fight in: the ships of the fleet and of the system next to it that holds another seat's
+    /// ships. A seat that does not hold the unlocked hero gets none.
+    #[test]
+    fn the_texts_of_the_step_that_plays_airo_shir_aur_name_the_types_of_the_pairs() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "mahact"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &origin, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "dreadnought", &b(), 1);
+        let texts = |state: &GameState| {
+            let mut cx = Ctx::of(state).expect("owners");
+            let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+            let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+            let t = super::combat_texts(&mut core, &render);
+            t.unit_codes.iter().map(|(u, _)| *u).collect::<Vec<ti4_engine_core::generated::Unit>>()
+        };
+        assert!(texts(&state).is_empty(), "no hero, no fight to prepare");
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mahacthero"), ti4_model::state::LeaderStatus::Unlocked);
+        let named = texts(&state);
+        assert!(named.contains(&ti4_engine_core::generated::Unit::CruiserI) && named.contains(&ti4_engine_core::generated::Unit::DreadnoughtI), "{named:?}");
     }
 
     /// The texts of a combat step are ONE table for the render and the position: the state phases, the unit names and the roll groups (state) and the

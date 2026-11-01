@@ -203,9 +203,7 @@ impl super::ability::Runner for Sx<'_> {
         Sx::ask(self, choice)
     }
 
-    #[track_caller]
     fn unknown(&mut self, why: super::ability::Unknown) {
-        if matches!(why, super::ability::Unknown::MissingFact) && std::env::var_os("TI4_MF").is_some() { eprintln!("MF at {}", std::panic::Location::caller()); } // TEMPDEBUG
         if self.tape.unknown.get().is_none() {
             self.tape.unknown.set(Some(why));
         }
