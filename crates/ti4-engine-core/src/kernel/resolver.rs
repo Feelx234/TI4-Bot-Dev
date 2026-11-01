@@ -813,29 +813,34 @@ impl Resolver {
         Ok(eligible.into_iter().find(|a| a.id == id))
     }
 
-    /// The seats in the order a window offers them: from the speaker in strategy and agenda windows,
-    /// from the active player (in initiative order) otherwise.
+    /// The seats in the order a window offers them: from the speaker, clockwise (the seating order), in strategy and agenda windows; otherwise the
+    /// ACTIVE player first and then the other players in INITIATIVE order (user ruling, `docs/STRING_ENGINE_BUGS.md` S1). The string rotates its
+    /// initiative list to start at the active seat instead (and that list is fixed at `Game::new`); the two agree only when the active seat is the
+    /// first of the others' order or the order is the seating order.
     #[must_use]
     pub fn player_order(&self) -> SmallList<Seat, 8> {
-        let (sequence, first) = if self.phase.uses_speaker_order() {
+        let (sequence, first, rotate) = if self.phase.uses_speaker_order() {
             let sequence = if self.seating_order.is_empty() { &self.initiative_order } else { &self.seating_order };
-            (sequence, self.speaker)
+            (sequence, self.speaker, true)
         } else {
-            (&self.initiative_order, self.active_player)
+            (&self.initiative_order, self.active_player, false)
         };
         let seq = sequence.as_slice();
         let Some(first) = first else {
             return sequence.clone();
         };
-        let Some(index) = seq.iter().position(|p| *p == first) else {
-            let mut order = SmallList::new();
-            order.push(first);
-            for p in seq.iter().filter(|p| **p != first) {
-                order.push(*p);
+        let index = seq.iter().position(|p| *p == first);
+        match index {
+            Some(index) if rotate => seq[index..].iter().chain(&seq[..index]).copied().collect(),
+            _ => {
+                let mut order = SmallList::new();
+                order.push(first);
+                for p in seq.iter().filter(|p| **p != first) {
+                    order.push(*p);
+                }
+                order
             }
-            return order;
-        };
-        seq[index..].iter().chain(&seq[..index]).copied().collect()
+        }
     }
 
     fn scope_key(&self, ability: &AbilityDef, event: &EventRec) -> Option<UsedKey> {

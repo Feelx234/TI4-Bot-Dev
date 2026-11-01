@@ -45,9 +45,10 @@ fn players_are_asked_from_the_speaker_in_the_strategy_and_agenda_phases_and_from
     let mut r = Resolver::new(&[Seat(2), Seat(0), Seat(1)], Some(Seat(0)));
     r.set_seating_order(&[Seat(0), Seat(1), Seat(2)]);
     r.set_speaker(Some(Seat(1)));
-    // Action phase: the initiative order, starting at the active player.
+    // Action phase: the active player first, then the others in INITIATIVE order (user ruling on S1, docs/STRING_ENGINE_BUGS.md; the string rotates
+    // its initiative list from the active seat, which here would give 0, 1, 2).
     r.set_phase(Phase::Action);
-    assert_eq!(r.player_order().as_slice(), &[Seat(0), Seat(1), Seat(2)]);
+    assert_eq!(r.player_order().as_slice(), &[Seat(0), Seat(2), Seat(1)]);
     r.set_active_player(Some(Seat(1)));
     assert_eq!(r.player_order().as_slice(), &[Seat(1), Seat(2), Seat(0)]);
     // Strategy and agenda phases: the seating order, starting at the speaker.
@@ -108,4 +109,18 @@ fn a_checkpoint_restores_the_registry_and_the_usage_exactly() {
     assert!(r.registry().cannots().is_empty());
     assert_eq!(r.used_keys().len(), 1);
     assert_eq!(r.for_event(EventKind::TurnEndedBy, Relation::After).count(), 0);
+}
+
+/// S1 (user ruling): an action-phase window offers the ACTIVE player first and then the other players in initiative order, not the initiative list
+/// rotated from the active seat (the string's order, fixed at `Game::new`). The two differ when the active seat is not first in the list.
+#[test]
+fn an_action_phase_window_offers_the_active_player_first_and_the_others_in_initiative_order() {
+    let mut r = Resolver::new(&[Seat(3), Seat(0), Seat(2), Seat(1)], Some(Seat(2)));
+    r.set_seating_order(&[Seat(0), Seat(1), Seat(2), Seat(3)]);
+    r.set_phase(Phase::Action);
+    assert_eq!(r.player_order().as_slice(), &[Seat(2), Seat(3), Seat(0), Seat(1)], "rotated from the active seat it would be 2, 1, 3, 0");
+    r.set_active_player(Some(Seat(3)));
+    assert_eq!(r.player_order().as_slice(), &[Seat(3), Seat(0), Seat(2), Seat(1)]);
+    r.set_active_player(Some(Seat(1)));
+    assert_eq!(r.player_order().as_slice(), &[Seat(1), Seat(3), Seat(0), Seat(2)]);
 }

@@ -456,6 +456,41 @@ fn the_events_an_earlier_step_of_the_chain_emitted_survive_a_reaction_question_o
     assert!(at(EventKind::InvasionBegan) < at(EventKind::ProductionUsed), "{typed:?}");
 }
 
+/// The string mirrors its timing log into `Game::events`, every `emit` line of it: the event a reaction emits INSIDE another (a card played at
+/// `after PRODUCTION_USED`) follows its parent in the queue. The chain used to mirror the top-level emissions of its sub-windows only, so the card's
+/// event was missing from the aftermath's step (found by `native_play --shadow`, War Machine at `PRODUCTION_USED`: native `INVASION_RESOLVED` where the
+/// string had `ACTION_CARD_PLAYED`, 25 of 96 games).
+#[test]
+fn an_event_a_reaction_emits_inside_another_is_mirrored_after_its_parent_by_the_aftermath_chain() {
+    covers!("driver::windows::chain::AftermathChain");
+    use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind, Relation};
+    use ti4_engine_core::kernel::resolver::AbilityDef;
+    use ti4_engine_core::kernel::stage::{Slot, Spec};
+    use ti4_engine_core::state::{EventKind, Payload};
+    let (mut core, k) = dock_arena();
+    let mut env = env(&k, 3, &[]);
+    let id = AbilityId { kind: AbilityKind::Ability, key: Code(1) };
+    let mut resolver = ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
+    resolver.register([AbilityDef::new(id, Seat(1), EventKind::ProductionUsed, Relation::After).with_optional(true).with_arg(1)]);
+    env.registry = Cow::new(resolver.registry().clone());
+    env.table.add(
+        Spec::new(Slot(1), AbilityKind::Ability, EventKind::ProductionUsed, Relation::After, |e| {
+            e.emit(ti4_engine_core::kernel::fx::event(EventKind::ActionCardPlayed, Payload::new()))?;
+            Ok(())
+        })
+        .optional(),
+    );
+    open_producing(&mut core);
+    let (asked, end) = play(&mut core, &env, &mut |c: &Choice| {
+        if matches!(c.ask, Ask::Reaction(_)) { c.opts.as_slice().iter().position(|o| *o != Opt::Decline).unwrap_or(0) } else { stop_producing(c) }
+    });
+    assert_eq!(end, Ok(()));
+    assert!(asked.iter().any(|c| matches!(c.ask, Ask::Reaction(_))), "the reaction to the use of production is asked");
+    let typed: Vec<EventKind> = core.ledger().events.iter().filter_map(|e| if let Emit::Typed(t) = e { Some(t.kind) } else { None }).collect();
+    let at = |kind| typed.iter().position(|k| *k == kind).unwrap_or_else(|| panic!("{kind:?} in {typed:?}"));
+    assert_eq!(at(EventKind::ActionCardPlayed), at(EventKind::ProductionUsed) + 1, "the card follows its parent: {typed:?}");
+}
+
 /// A unit built in the step is made (and announced) before `PRODUCTION_RESOLVED`; a clone in the middle of the use continues identically.
 #[test]
 fn a_unit_built_in_the_aftermath_production_step_is_announced_before_it_is_resolved() {
