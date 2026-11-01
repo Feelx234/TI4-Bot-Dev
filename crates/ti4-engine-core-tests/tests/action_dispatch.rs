@@ -1147,6 +1147,7 @@ fn the_silver_flame_chosen_from_the_menu_rolls_a_die_and_is_purged_either_way() 
     assert_eq!(s.ledger.dice.len(), dice + 1, "one die rolled");
     let roll = s.ledger.dice.last().unwrap();
     assert_eq!(roll.faces.len(), 1);
+    assert_eq!((roll.owner, roll.rerolled, roll.hits_on), (Some(Seat(0)), 0, None), "a plain die of the seat, never rerolled");
     let ten = roll.faces[0] == 10;
     assert_eq!(p.econ.public_objectives_forbidden, !ten, "anything but a ten bars the seat from public objectives");
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
@@ -1180,6 +1181,7 @@ fn wormhole_generator_chosen_from_the_menu_places_a_token_and_exhausts_the_techn
         .active(Some(0))
         .map_ring(7)
         .unit(ps[1], None, Unit::CruiserI, 1, 1)
+        .unit(ps[2], None, Unit::CruiserI, 0, 1)
         .tech(0, Technology::WormholeGenerator)
         .tokens(0, 3, 3, 2)
         .build();
@@ -1192,6 +1194,7 @@ fn wormhole_generator_chosen_from_the_menu_places_a_token_and_exhausts_the_techn
         _ => None,
     }).collect();
     assert!(!offered.is_empty() && offered.iter().all(|(_, system)| *system != ps[1]), "a rival's ships keep the token out: {offered:?}");
+    assert!(offered.iter().any(|(_, system)| *system == ps[2]), "the seat's own ships do not keep its token out: {offered:?}");
     assert_eq!(offered[0].0, Wormhole::Alpha, "alpha first");
     let want = offered[0];
     pick(&mut s, &e, |o| matches!(o, Opt::Technology(TecOpt::Token(kind, system)) if (*kind, *system) == want)).unwrap();
@@ -1527,4 +1530,242 @@ fn mathis_mathinus_chosen_from_the_menu_performs_the_primary_and_asks_who_may_fo
     assert!(s.pending().window(WindowKind::LeaderStrategy).is_some(), "the hero stays in play while the secondary is followed");
     assert!(s.pending().window(WindowKind::LeaderFollowers).is_some() || s.pending().window(WindowKind::StrategySecondary).is_some());
     assert_eq!(status(&s, 0, Leader::MathisMathinus), Some(LeaderStatus::Unlocked), "not purged yet");
+}
+
+/// Lane F2e (mutation debt): Riftwalker Meian names the systems that hold a wormhole or the seat's units, and never the Creuss systems.
+#[test]
+fn riftwalker_meian_offers_the_wormhole_systems_and_the_seats_units_and_never_the_creuss_systems() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let plain = ti4_engine_core_tests::scenario::plain_systems();
+    let wormhole = *System::ALL.iter().find(|s| {
+        let d = s.data();
+        !d.wormholes.is_empty() && !d.hyperlane && !d.home_system && *s != &System::MalliceLockedNexus && *s != &System::MalliceNexus
+    }).expect("a wormhole system");
+    let creuss = System::CreussGateCreuss;
+    let unit_at = plain[0];
+    let (mut s, k) = Scenario::new(&[Faction::TheGhostsOfCreuss, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[unit_at, wormhole, creuss])
+        .unit(unit_at, None, Unit::CruiserI, 0, 1)
+        .unit(creuss, None, Unit::CruiserI, 0, 1)
+        .tokens(0, 3, 3, 2)
+        .build();
+    touch(&mut s, &[unit_at, creuss, wormhole]);
+    s.players_mut().edit(0).leaders.status.insert(Leader::RiftwalkerMeian, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::RiftwalkerMeian)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)));
+    let q = ask_ask(&mut s, &e).unwrap().unwrap().choice;
+    let offered: Vec<System> = q.opts.as_slice().iter().filter_map(|o| match o {
+        Opt::Leaders(ti4_engine_core::choice::leaders::Opt::System(system)) => Some(*system),
+        _ => None,
+    }).collect();
+    assert!(offered.contains(&wormhole) && offered.contains(&unit_at), "the wormhole system and the system with a unit: {offered:?}");
+    assert!(!offered.contains(&creuss), "the Creuss system is never named: {offered:?}");
+}
+
+/// Lane F2e (mutation debt): the Maw of Worlds offers only technologies of the sources the game plays (a kernel whose scope is the base game only).
+#[test]
+fn the_maw_of_worlds_offers_only_technologies_of_the_sources_in_play() {
+    use ti4_engine_core::generated::{Relic, Source};
+    use ti4_engine_core::kernel::Sources;
+    let mut kernel = ti4_engine_core_tests::kernel_all();
+    kernel.sources = Sources(u8::try_from(ti4_engine_core::tables::source_bit(Source::Base)).expect("a bit of a byte"));
+    let (mut s, k) = relic_table(Relic::MawOfWorlds, |sc| sc.kernel(kernel));
+    let e = env_r(&k);
+    use_relic(&mut s, &e, Relic::MawOfWorlds);
+    let q = ask_ask(&mut s, &e).unwrap().unwrap().choice;
+    let techs: Vec<Technology> = q.opts.as_slice().iter().filter_map(|o| match o {
+        Opt::Relic(ti4_engine_core::choice::relic::Opt::Tech(t)) => Some(*t),
+        _ => None,
+    }).collect();
+    assert!(!techs.is_empty() && techs.iter().all(|t| t.data().source == Source::Base), "only the sources in play: {techs:?}");
+}
+
+/// Lane F2e (mutation debt): It Feeds on Carrion rolls exactly for the ships it names -- another player's non-fighter ship in or next to a system holding a
+/// tear, in a system the board has an entry for -- and not for the seat's own, a fighter, a ship two systems away, or a system without an entry.
+#[test]
+fn it_feeds_on_carrion_rolls_a_die_for_each_named_ship_and_for_no_other() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::{LeaderStatus, RngDomain};
+    let tempesta = ti4_engine_core_tests::scenario::system_of(Planet::Tempesta);
+    let mut ring = vec![tempesta];
+    ring.extend(ti4_engine_core_tests::scenario::plain_systems().into_iter().filter(|s| *s != tempesta).take(12));
+    let dice_after = |valid: &[(System, Unit)], decoys: bool| -> u128 {
+        let mut sc = Scenario::new(&[Faction::TheVuilraithCabal, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+            .phase(Phase::Action)
+            .active(Some(0))
+            .map_from(&ring)
+            .unit(tempesta, Some(Planet::Tempesta), Unit::DimensionalTearI, 0, 1)
+            .tokens(0, 3, 3, 2);
+        for (system, unit) in valid {
+            sc = sc.unit(*system, None, *unit, 1, 1);
+        }
+        if decoys {
+            sc = sc
+                .unit(ring[2], None, Unit::CruiserI, 0, 1) // the seat's own
+                .unit(ring[3], None, Unit::FighterI, 1, 1) // a fighter
+                .unit(ring[9], None, Unit::CruiserI, 1, 1) // two systems away
+                .unit(ring[4], None, Unit::CruiserI, 1, 1); // next to the tear, but no entry on the board
+        }
+        let (mut s, k) = sc.build();
+        let mut touched: Vec<System> = vec![tempesta, ring[1], ring[2], ring[3], ring[9]];
+        touched.dedup();
+        touch(&mut s, &touched);
+        s.players_mut().edit(0).leaders.status.insert(Leader::ItFeedsOnCarrion, LeaderStatus::Unlocked);
+        let e = env_r(&k);
+        let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::ItFeedsOnCarrion)))).unwrap();
+        first_options(&mut s, &e, live, 8);
+        assert_eq!(status(&s, 0, Leader::ItFeedsOnCarrion), Some(LeaderStatus::Purged));
+        s.rng().positions().find(|(d, _)| *d == RngDomain::Dice).map_or(0, |(_, pos)| pos)
+    };
+    let one = [(ring[1], Unit::CruiserI)];
+    let two = [(ring[1], Unit::CruiserI), (tempesta, Unit::DestroyerI)];
+    assert!(dice_after(&one, false) > 0, "a ship next to the tear rolls");
+    assert_eq!(dice_after(&one, true), dice_after(&one, false), "the decoys roll nothing");
+    assert!(dice_after(&two, false) > dice_after(&one, false), "a ship in the tear's own system rolls too");
+    assert_eq!(dice_after(&two, true), dice_after(&two, false));
+}
+
+/// Lane F2e (mutation debt): UNIT.DSGN.FLAYESH names only planets in systems that hold a unit of the seat (a unit on the planet is enough), and the
+/// planets of other systems with a specialty keep their units.
+#[test]
+fn flayesh_leaves_the_planets_of_systems_without_a_unit_of_the_seat_alone() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let mut specialty: Vec<Planet> = Planet::ALL.iter().copied().filter(|p| !p.data().specialties.is_empty() && p.data().system.is_some() && !p.data().legendary).collect();
+    specialty.sort_by_key(|p| p.data().system.map(System::index));
+    specialty.dedup_by_key(|p| p.data().system);
+    let (decoy, target) = (specialty[0], *specialty.last().expect("two specialty planets"));
+    let (decoy_system, target_system) = (decoy.data().system.expect("on a tile"), target.data().system.expect("on a tile"));
+    assert_ne!(decoy_system, target_system);
+    let (mut s, k) = Scenario::new(&[Faction::TheNekroVirus, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[decoy_system, target_system])
+        .unit(target_system, Some(target), Unit::InfantryI, 0, 1)
+        .unit(target_system, Some(target), Unit::InfantryI, 1, 2)
+        .unit(decoy_system, Some(decoy), Unit::InfantryI, 1, 1)
+        .tokens(0, 3, 3, 2)
+        .build();
+    touch(&mut s, &[decoy_system, target_system]);
+    s.players_mut().edit(0).leaders.status.insert(Leader::UNITDSGNFLAYESH, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::UNITDSGNFLAYESH)))).unwrap();
+    first_options(&mut s, &e, live, 6);
+    let on = |planet: Planet, seat: u8| ti4_engine_core::query::board::planet_units(&s, planet).iter().filter(|p| p.owner() == Seat(seat)).count();
+    assert_eq!(on(target, 1), 0, "the planet next to the seat's unit was devoured");
+    assert_eq!(on(decoy, 1), 1, "the planet of a system without a unit of the seat was not");
+}
+
+/// Lane F2e (mutation debt): Hesh and Prit still gains the relic when no strategy card stands on the board (nothing to perform).
+#[test]
+fn hesh_and_prit_with_no_strategy_card_on_the_board_still_gains_the_relic() {
+    use ti4_engine_core::generated::{Leader, Relic};
+    use ti4_engine_core::state::LeaderStatus;
+    let (mut s, k) = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).tokens(0, 3, 3, 2).build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::HeshAndPrit, LeaderStatus::Unlocked);
+    s.decks_mut().relic = ti4_engine_core::Deck::new(vec![Relic::DynamisCore]);
+    let e = env_r(&k);
+    pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::HeshAndPrit)))).unwrap();
+    assert!(s.players().by_seat(Seat(0)).unwrap().cards.relics.as_slice().contains(&Relic::DynamisCore), "the relic is gained");
+    assert_eq!(status(&s, 0, Leader::HeshAndPrit), Some(LeaderStatus::Purged));
+}
+
+/// Lane F2e (mutation debt): Conservator Procyon puts a frontier token in a planetless system of the sources in play and in none that holds a planet or is a
+/// hyperlane tile.
+#[test]
+fn conservator_procyon_places_tokens_only_in_planetless_systems_that_are_no_hyperlanes() {
+    use ti4_engine_core::generated::{Leader, Source};
+    use ti4_engine_core::kernel::Sources;
+    use ti4_engine_core::state::LeaderStatus;
+    let inside = ti4_engine_core_tests::scenario::plain_systems().into_iter().find(|s| s.data().planets.iter().all(|p| p.data().source == Source::Base)).expect("a system with base planets");
+    let empty = *System::ALL.iter().find(|s| {
+        let d = s.data();
+        d.planets.is_empty() && !d.hyperlane && !d.home_system && !(d.anomalies.asteroid_field || d.anomalies.gravity_rift || d.anomalies.nebula || d.anomalies.supernova || d.anomalies.scar)
+    }).expect("a planetless system");
+    let lane = *System::ALL.iter().find(|s| s.data().hyperlane).expect("a hyperlane tile");
+    // A system whose planets all come from an expansion the kernel does not play counts as planetless.
+    let outside = *System::ALL.iter().find(|s| {
+        let d = s.data();
+        **s != inside && !d.planets.is_empty() && !d.hyperlane && !d.home_system && d.planets.iter().all(|p| p.data().source != Source::Base)
+    }).expect("a system with expansion planets only");
+    let mut kernel = ti4_engine_core_tests::kernel_all();
+    kernel.sources = Sources(u8::try_from(ti4_engine_core::tables::source_bit(Source::Base)).expect("a bit of a byte"));
+    let (mut s, k) = Scenario::new(&[Faction::TheEmpyrean, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .kernel(kernel)
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[inside, empty, lane, outside])
+        .unit(empty, None, Unit::CruiserI, 0, 1)
+        .tokens(0, 3, 3, 2)
+        .build();
+    touch(&mut s, &[empty]);
+    s.decks_mut().explore[ti4_engine_core::generated::ExploreType::Frontier as usize].set(vec![ti4_engine_core::generated::Explore::UnknownRelicFragment1]);
+    s.decks_mut().explore_present |= 1 << ti4_engine_core::generated::ExploreType::Frontier as u8;
+    s.players_mut().edit(0).leaders.status.insert(Leader::ConservatorProcyon, LeaderStatus::Unlocked);
+    let mut e = env_r(&k);
+    let table = ti4_engine_core_tests::windows::explore_table();
+    e.table.facts.explore_words = table.facts.explore_words;
+    e.table.codes.explore = table.codes.explore;
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::ConservatorProcyon)))).unwrap();
+    first_options(&mut s, &e, live, 6);
+    let frontier = &s.explore().frontier;
+    assert!(!frontier.contains(inside), "a system with a planet gets no token");
+    assert!(!frontier.contains(lane), "a hyperlane tile gets no token");
+    assert!(frontier.contains(outside), "planets of an expansion not in play do not count");
+}
+
+/// Letani Miasmiala at an Arborec table with a dock and a purse, building `times` of `unit`; `setup` edits the position before the use.
+fn miasmiala_builds(unit: Unit, times: usize, setup: impl FnOnce(&mut CoreState)) -> CoreState {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(1)
+        .control(planet, 0)
+        .unit(system, Some(planet), Unit::InfantryI, 0, 1)
+        .unit(system, Some(planet), Unit::SpaceDockI, 0, 1)
+        .goods(0, 30)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::LetaniMiasmiala, LeaderStatus::Unlocked);
+    setup(&mut s);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::LetaniMiasmiala)))).unwrap();
+    build_only(&mut s, &e, live, unit, times);
+    s
+}
+
+/// Lane F2e (mutation debt): Hacan's Auto-Factories pays a fleet token for three ships that are no fighters, and for nothing else.
+#[test]
+fn auto_factories_pays_only_for_three_non_fighter_ships_of_its_holder() {
+    use ti4_engine_core::generated::Breakthrough;
+    let fleet = |s: &CoreState| s.players().by_seat(Seat(0)).unwrap().econ.fleet_tokens;
+    let with = |s: &mut CoreState| s.players_mut().edit(0).cards.breakthrough = Some(Breakthrough::AutoFactories);
+    let base = miasmiala_builds(Unit::DestroyerI, 0, |_| {});
+    let start = fleet(&base);
+    assert_eq!(fleet(&miasmiala_builds(Unit::DestroyerI, 2, with)), start, "two ships are not three");
+    assert_eq!(fleet(&miasmiala_builds(Unit::DestroyerI, 3, |_| {})), start, "no breakthrough, no token");
+    assert_eq!(fleet(&miasmiala_builds(Unit::FighterI, 3, with)), start, "fighters are not counted");
+    assert_eq!(fleet(&miasmiala_builds(Unit::DestroyerI, 3, with)), start + 1, "three ships pay one token");
+}
+
+/// Lane F2e (mutation debt): a use of PRODUCTION discards the Prophecy of Ixth of its holder unless two fighters were made; another seat's law stays.
+#[test]
+fn a_leaders_production_discards_the_holders_prophecy_of_ixth_unless_two_fighters_were_made() {
+    use ti4_engine_core::generated::Agenda;
+    use ti4_engine_core::state::Outcome;
+    let holds = |s: &CoreState| s.agenda().laws.contains_key(&Agenda::ProphecyOfIxth);
+    let law = |holder: u8| move |s: &mut CoreState| {
+        s.agenda_mut().laws.insert(Agenda::ProphecyOfIxth, Outcome::Seat(Seat(holder)));
+    };
+    // (A build of fighters comes in a pair.)
+    assert!(holds(&miasmiala_builds(Unit::FighterI, 1, law(0))), "two fighters keep the law");
+    assert!(!holds(&miasmiala_builds(Unit::DestroyerI, 1, law(0))), "a ship that is no fighter discards it");
+    assert!(holds(&miasmiala_builds(Unit::DestroyerI, 1, law(1))), "the law of another seat stays");
 }

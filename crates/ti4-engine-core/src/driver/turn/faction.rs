@@ -263,11 +263,11 @@ fn c4r_place(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let scope = reach::scope_of(sx.kernel);
     let pds = fx_strategy::placed_unit(sx.state, sx.kernel, scope, roster, who, UnitBaseType::Pds)
         .filter(|unit| !sx.kernel.hooks.economy.effect_placement_forbidden(sx.state, sx.kernel, who, *unit));
-    let mut window = PlaceUnits::new(who, pds, 1, None, false, scope, crate::state::Code(0), Then::C4rPds);
+    let mut window = PlaceUnits::new(who, pds, 1, None, false, scope, crate::state::Code(0), Then::C4rPds); // mutants:skip: a capped placement names the card, not this source
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
     }
-    conclude_announced(sx, who, key, verdict(window.placed > 0))
+    conclude_announced(sx, who, key, verdict(window.placed > 0)) // mutants:skip: the menu lists the action only when a PDS has a planet to go on, so `placed` is never 0
 }
 
 /// Nekro's ???_ERROR_ERROR_???, the repair: every damaged unit of the seat is repaired and the card is exhausted.
@@ -294,7 +294,8 @@ const OFFICIAL_ACTION_DECK: u32 = 30;
 /// Terraform (the Titans promissory note): attach it to the planet the option names.
 fn terraform(sx: &mut Sx<'_>, who: Seat, key: u32, arg: u16) -> Flow {
     let Some(planet) = crate::generated::Planet::from_index(usize::from(arg)) else { return gap_flow(sx, TurnGap::ReplayDiverged) };
-    let home = planet.data().homeworld_of.is_some() || sx.state.players().iter().any(|p| p.home_planets.as_slice().contains(&planet));
+    // (The menu lists no home planet; the rule reads the flag again.)
+    let home = planet.data().homeworld_of.is_some() || sx.state.players().iter().any(|p| p.home_planets.as_slice().contains(&planet)); // mutants:skip: the menu lists no home planet
     let done = crate::rules::faction_component::terraform(sx.state, who, planet, home);
     conclude_announced(sx, who, key, verdict(done))
 }

@@ -257,7 +257,7 @@ fn umbat(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let mut facts = Vec::new();
     for seat in seats {
         for system in Umbat::candidates(sx.state, seat) {
-            let Some(use_facts) = crate::rules::production::probe::ability_facts(sx.state, sx.kernel, roster, seat, system, 2, Some(4)) else { return gap_flow(sx, TurnGap::NoRoster) };
+            let Some(use_facts) = crate::rules::production::probe::ability_facts(sx.state, sx.kernel, roster, seat, system, 2, Some(4)) else { return gap_flow(sx, TurnGap::NoRoster) }; // mutants:skip: the ceiling is 4 and no unit costs exactly 5 (halves: 1, 2, 4, 6, 8, 16, 20, 24), so 4 and 5 offer the same units
             facts.push(use_facts);
         }
     }

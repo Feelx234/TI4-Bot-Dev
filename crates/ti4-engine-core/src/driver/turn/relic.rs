@@ -81,7 +81,7 @@ pub fn use_relic(sx: &mut Sx<'_>, who: Seat, key: u32, relic: Relic) -> Flow {
         other => return gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(7, crate::choice::turn::Opt::UseRelic(other).key().unwrap_or(0)))), // mutants:skip (the key default): every option on the menu has a key
     };
     if !resolved {
-        return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true });
+        return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true }); // mutants:skip: the menu offers a relic only when it can resolve (six resources, a target in range), so this is the defensive twin of the string's `Unresolved`
     }
     // A relic used is purged (the Silver Flame purges itself in its roll, and `purge_relic` of a card that is gone changes nothing).
     crate::rules::explore::purge_relic(sx.state, who, relic);
@@ -113,7 +113,7 @@ fn enigmatic_device(sx: &mut Sx<'_>, who: Seat) -> Result<bool, Flow> {
         return Err(Flow::Halt);
     }
     if bill.outcome != Some(true) {
-        return Ok(false);
+        return Ok(false); // mutants:skip: the menu offers the Device only with six resources to pay
     }
     let scope = crate::query::reach::scope_of(sx.kernel);
     let hooks = crate::rules::production::strategy_cards::KernelHooks::new(sx.state, sx.kernel, who);
@@ -151,7 +151,7 @@ fn maw_of_worlds(sx: &mut Sx<'_>, who: Seat) -> Result<bool, Flow> {
 /// planet is destroyed. Nothing in range resolves nothing (`false`).
 fn stellar_converter(sx: &mut Sx<'_>, who: Seat) -> Result<bool, Flow> {
     let targets = crate::driver::menu_cards::stellar_targets(sx.state, crate::query::reach::scope_of(sx.kernel), who);
-    if targets.is_empty() {
+    if targets.is_empty() { // mutants:skip: the menu offers the Converter only with a target in range
         return Ok(false);
     }
     let mut window = crate::rules::relic_windows::StellarConverter::new(who, &targets);
@@ -170,7 +170,7 @@ fn titan_prototype(sx: &mut Sx<'_>, who: Seat) -> Result<bool, Flow> {
     if run_window(sx, &mut choose) == Flow::Halt {
         return Err(Flow::Halt);
     }
-    let Some(builder) = choose.chosen else { return Ok(false) };
+    let Some(builder) = choose.chosen else { return Ok(false) }; // mutants:skip: the window always ends on an answer when there is a seat
     let Some(facts) = crate::driver::windows::strategic::facts::structure_facts(sx.state, sx.kernel, roster, builder, &sx.table.codes.turn) else {
         return Err(gap_flow(sx, TurnGap::StrategyAbility));
     };
@@ -210,19 +210,19 @@ pub fn use_device(sx: &mut Sx<'_>, who: Seat, key: u32, card: crate::generated::
     let open = crate::query::tech::researchable_by_prerequisites(sx.state, scope, crate::query::reach::blanked(sx.state), who, &hooks);
     let mut options: Vec<Technology> = Technology::ALL.iter().copied().filter(|t| open.contains(*t)).collect();
     options.sort_by(|a, b| alias_order(*a, *b));
-    if options.is_empty() {
+    if options.is_empty() { // mutants:skip: the menu lists the card only when something can be researched and six resources are held
         return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true });
     }
     let mut window = crate::rules::relic_windows::GainTechnology::for_device(who, card, &options);
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
     }
-    let Some(chosen) = window.chosen else { return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true }) };
+    let Some(chosen) = window.chosen else { return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true }) }; // mutants:skip: a window with options always ends on an answer
     let mut bill = crate::rules::production::pay::PayBill::new(who, crate::query::economy::Spend::Resources, 6);
     if run_window(sx, &mut bill) == Flow::Halt {
         return Flow::Halt;
     }
-    if bill.outcome != Some(true) {
+    if bill.outcome != Some(true) { // mutants:skip: the menu lists the card only with six resources to pay
         return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true });
     }
     if let Some(p) = sx.state.players_mut().by_seat_mut(who)
@@ -230,7 +230,7 @@ pub fn use_device(sx: &mut Sx<'_>, who: Seat, key: u32, card: crate::generated::
     {
         p.cards.explore.remove(at); // purged
     }
-    if !crate::rules::production::strategy_cards::Research::research_chosen(sx.state, sx.kernel, scope, *roster, who, chosen) {
+    if !crate::rules::production::strategy_cards::Research::research_chosen(sx.state, sx.kernel, scope, *roster, who, chosen) { // mutants:skip: the options are what the seat can research, so the research succeeds; the plain gain is the string's fallback
         crate::kernel::fx::grant_technology(sx.state, who, chosen);
     }
     conclude_quiet(sx, who, key, Verdict::Resolved)

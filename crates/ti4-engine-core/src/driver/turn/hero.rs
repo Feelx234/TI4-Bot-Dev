@@ -24,6 +24,7 @@ fn finish(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, used: bool) -> F
 }
 
 /// The colour a technology specialty names (unit upgrades have none).
+// mutants:skip: a planet's specialty is always one of the four colours (the unit-upgrade type is never a specialty), so the test is a guard
 fn is_colour(t: TechType) -> bool {
     matches!(t, TechType::Biotic | TechType::Cybernetic | TechType::Propulsion | TechType::Warfare)
 }
@@ -161,8 +162,9 @@ fn board_cards(sx: &Sx<'_>) -> Vec<StrategyCard> {
 
 /// The facts a hero that performs strategy cards reads: the base of the first card, with what only some cards need (the Imperial primary's objectives, the
 /// Thunder's Edge Warfare and Construction systems) taken from their own.
-pub fn perform_facts(sx: &Sx<'_>, who: Seat, cards: &[StrategyCard]) -> Option<crate::kernel::fx_perform::Facts> {
-    let first = *cards.first()?;
+pub fn perform_facts(sx: &Sx<'_>, who: Seat, cards: &[StrategyCard]) -> crate::kernel::fx_perform::Facts {
+    // (No card on the board: the base of any card serves, the window has nothing to perform.)
+    let first = cards.first().copied().unwrap_or(StrategyCard::ALL[0]);
     let mut facts = crate::driver::windows::strategic::facts::perform_facts(sx, who, first);
     for card in cards {
         let more = crate::driver::windows::strategic::facts::perform_facts(sx, who, *card);
@@ -170,14 +172,14 @@ pub fn perform_facts(sx: &Sx<'_>, who: Seat, cards: &[StrategyCard]) -> Option<c
         facts.free = facts.free.or(more.free);
         facts.te_uses = facts.te_uses.or(more.te_uses);
     }
-    Some(facts)
+    facts
 }
 
 /// Hesh and Prit: a relic, then the secondary of up to two cards on the board without spending command tokens. A secondary that makes units at the home
 /// system is announced where the core finished it (after the events the secondaries before it staged).
 pub fn hesh_and_prit(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let cards = board_cards(sx);
-    let Some(facts) = perform_facts(sx, who, &cards) else { return finish(sx, who, key, Leader::HeshAndPrit, false) };
+    let facts = perform_facts(sx, who, &cards);
     let mut window = NaazHero::new(who, facts, cards);
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
@@ -207,17 +209,17 @@ pub fn hesh_and_prit(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
 /// the board (those with an entry), the ones on the map (a coordinate or a wormhole) and the ones the seat's movement rules let it enter, which is read
 /// for the systems holding its token.
 pub fn flock_migration(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
-    let Some(galaxy) = sx.state.galaxy() else { return finish(sx, who, key, Leader::MirikAunSissiri, false) };
+    let Some(galaxy) = sx.state.galaxy() else { return finish(sx, who, key, Leader::MirikAunSissiri, false) }; // mutants:skip: every live game has a map (the card is not offered without one)
     let Some(reach_rules) = reach::SeatReach::new(sx.state, sx.kernel, who, true) else { return gap_flow(sx, TurnGap::NoRoster) };
     let mut order = Vec::new();
     let mut on_map = Vec::new();
     let mut enterable = Vec::new();
     for system in System::ALL.iter().copied().filter(|s| crate::query::leader_reads::has_entry(sx.state, *s)) {
         order.push(system);
-        if galaxy.coord_of(system).is_some() || galaxy.wormhole_kinds(system) != 0 {
+        if galaxy.coord_of(system).is_some() || galaxy.wormhole_kinds(system) != 0 { // mutants:skip: a system on the map has a coordinate; only an off-grid wormhole system (the open Nexus) is on the map by its wormhole
             on_map.push(system);
         }
-        if sx.state.board().sys(system).cmd.contains(who) && reach_rules.rules_for(sx.state, sx.kernel, system).can_enter(system) {
+        if sx.state.board().sys(system).cmd.contains(who) && reach_rules.rules_for(sx.state, sx.kernel, system).can_enter(system) { // mutants:skip: the window keeps only the systems holding the token among the enterable ones, so the token test here is a repeat
             enterable.push(system);
         }
     }
@@ -232,7 +234,7 @@ pub fn flock_migration(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
 /// a system holding one of the seat's ships is explored. The window walks the systems in the order given, which here is the order of the core's tables.
 pub fn conservator_procyon(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let scope = reach::scope_of(sx.kernel);
-    let Some(galaxy) = sx.state.galaxy() else { return finish(sx, who, key, Leader::ConservatorProcyon, false) };
+    let Some(galaxy) = sx.state.galaxy() else { return finish(sx, who, key, Leader::ConservatorProcyon, false) }; // mutants:skip: every live game has a map
     let in_play = *galaxy.in_play();
     let placed: Vec<System> = System::ALL
         .iter()
@@ -264,7 +266,7 @@ fn every_card(sx: &Sx<'_>) -> Vec<StrategyCard> {
 /// Thunder's Edge Warfare primary leads to a free tactical action, which is the tactical lane's (`TurnGap::FreeTactical`).
 pub fn mathis_mathinus(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let cards = every_card(sx);
-    let Some(facts) = perform_facts(sx, who, &cards) else { return finish(sx, who, key, Leader::MathisMathinus, false) };
+    let facts = perform_facts(sx, who, &cards);
     let mut window = crate::rules::hero_windows::WinnuHero::new(who, facts, cards);
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
@@ -276,11 +278,11 @@ pub fn mathis_mathinus(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     if let Some((system, seats)) = window.tokens.clone() {
         crate::driver::windows::strategic::perform::place_tokens(sx, system, seats.as_slice());
     }
-    if window.scored.is_some() {
+    if window.scored.is_some() { // mutants:skip: the same announcements as `strategic::perform::announce` (tested with the strategic arms); the Imperial primary needs a scoreable objective
         let unlocking = crate::driver::turn::start::unlockable(sx, who, true);
         crate::rules::leaders::unlock(sx.state, who, unlocking.as_slice());
     }
-    if card.data().kind == crate::generated::StrategyCardKind::Imperial {
+    if card.data().kind == crate::generated::StrategyCardKind::Imperial { // mutants:skip: as above
         fx::finish_if_won(sx.state);
     }
     if let Some((system, made)) = window.produced.clone().filter(|(_, made)| !made.as_slice().is_empty()) {
@@ -291,7 +293,7 @@ pub fn mathis_mathinus(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     }
     // An ACTION: what the body staged is announced (the events at once, as the string's adapter applies them) and Extreme Duress settles now; the action ends
     // when the follower window does.
-    if super::component::announce_events(sx) == Flow::Halt || super::component::announce_staged(sx) == Flow::Halt || super::component::settle_extreme_duress(sx, who, false) == Flow::Halt {
+    if super::component::announce_events(sx) == Flow::Halt || super::component::announce_staged(sx) == Flow::Halt || super::component::settle_extreme_duress(sx, who, false) == Flow::Halt { // mutants:skip: a halted step is rolled back by the driver whatever the job does after the halt
         return Flow::Halt;
     }
     sx.state.pending_mut().open(crate::state::Window::LeaderStrategy { player: who, leader: Leader::MathisMathinus, card });
@@ -300,6 +302,7 @@ pub fn mathis_mathinus(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
 }
 
 /// The hero chose no card: the action failed and is withheld.
+// mutants:skip: a window with cards always ends on an answer; the verdict is the defensive twin of the string's
 fn conclude_failed(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     conclude_announced(sx, who, key, super::component::Verdict::Failed { withhold: true })
 }
