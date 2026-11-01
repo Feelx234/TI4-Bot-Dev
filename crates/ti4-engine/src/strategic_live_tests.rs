@@ -228,6 +228,35 @@ fn jae_mir_kan_with_a_nomad_that_lacks_the_suite_stages_nothing_like_the_string(
     assert!(string.staged.is_empty() && native.staged.is_empty(), "{:?} {:?}", string.staged, native.staged);
 }
 
+/// The string ends the action in a step of its own when the followers left after the last answer are skipped: the reconcile that starts that step
+/// announces the staged `STRATEGY_TOKEN_SPENT` before `STRATEGIC_ACTION_COMPLETE` (the "close order" difference of the shadow, 27 games of int. 13).
+#[test]
+fn the_token_a_follower_spent_is_announced_before_the_action_completes_when_the_rest_are_skipped_like_the_string() {
+    let mut state = table_for("pok5trade");
+    for p in ["c", "d"] {
+        state.player_mut(&pid(p)).unwrap().strategic_tokens = 0;
+    }
+    let (string, native) = both(&based(state), "pok5trade", &["yes"]);
+    assert_same(&string, &native);
+    let at = |e: &str| string.events.iter().position(|x| x == e).unwrap_or_else(|| panic!("{e}: {:?}", string.events));
+    assert!(at("STRATEGY_TOKEN_SPENT") < at("STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
+}
+
+/// The same close with the Nomad's suite listening: the question of the suite comes before the action completes, as the string asks it.
+#[test]
+fn jae_mir_kan_as_the_last_follower_asks_the_suite_before_the_action_completes_like_the_string() {
+    let mut state = jae_mir_kan_table(true);
+    for p in ["c", "d"] {
+        state.player_mut(&pid(p)).unwrap().strategic_tokens = 0;
+    }
+    let (string, native) = both(&based(state), "pok5trade", &["follow|waived|0|agent|18", "decline"]);
+    assert_same(&string, &native);
+    let asked: Vec<_> = string.questions.iter().map(|q| q.prompt.as_str()).collect();
+    assert!(asked.contains(&"after AGENT_EXHAUSTED"), "{asked:?}");
+    let at = |e: &str| string.events.iter().position(|x| x == e).unwrap_or_else(|| panic!("{e}: {:?}", string.events));
+    assert!(at("STRATEGY_SECONDARY_FOLLOWED") < at("STRATEGIC_ACTION_COMPLETE"));
+}
+
 #[test]
 fn nobody_who_can_follow_ends_the_action_without_a_question_like_the_string() {
     let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "yssaril"), ("c", "arborec"), ("d", "letnev")], DEFAULT);

@@ -499,6 +499,39 @@ fn a_waiver_a_nomad_hears_is_paid_and_stages_the_exhaustion_for_the_suite() {
     assert_eq!(staged[0].payload.get(ti4_engine_core::state::Key::Player), Some(ti4_engine_core::state::Val::Seat(mahact)));
 }
 
+/// The followers left after the last answer are skipped in the step that completes the action; that step starts with the reconcile, so what the answer
+/// staged is announced before `STRATEGIC_ACTION_COMPLETE` (found by the shadow of games with a Mahact seat).
+#[test]
+fn what_the_last_answer_staged_is_announced_before_the_action_completes_when_the_rest_are_skipped() {
+    use ti4_engine_core::state::{Emit, EventKind};
+    let (mut s, k, mahact) = jae_mir_kan(true);
+    s.players_mut().by_seat_mut(Seat(2)).unwrap().tech.owned.insert(ti4_engine_core::generated::Technology::TemporalCommandSuite);
+    // (Seat 1 is the Mahact follower; the seat after it, the Nomad, has no token and is skipped.)
+    s.players_mut().by_seat_mut(Seat(2)).unwrap().econ.strategic_tokens = 0;
+    s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Trade, &[Seat(1), Seat(2)], true)));
+    let e = env(&k);
+    let waiver = first_asked(&s, &e).opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered");
+    // The suite's holder is asked BEFORE the action completes (the step that completes it starts with the reconcile)...
+    let (live, _) = advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is taken");
+    let Live::Asks(asking) = live else { panic!("the Nomad is asked about the suite: {live:?}") };
+    assert_eq!(asking.choice.actor, Seat(2), "the Nomad");
+    assert!(!kinds(&s).contains(&PlainKind::StrategicActionComplete), "not complete before the suite answered");
+    // ...and declining it lets the action complete after the exhaustion.
+    let decline = *asking.choice.opts.iter().last().expect("options");
+    advance_secondary(&mut s, &e, Some(Pick::Opt(decline))).expect("the suite declined");
+    let _ = mahact;
+    let order: Vec<&str> = s
+        .ledger
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            Emit::Typed(t) if t.kind == EventKind::AgentExhausted => Some("exhausted"),
+            _ => e.plain().and_then(|p| (p.kind == PlainKind::StrategicActionComplete).then_some("complete")),
+        })
+        .collect();
+    assert_eq!(order, ["exhausted", "complete"], "the suite hears the exhaustion before the action completes: {order:?}");
+}
+
 #[test]
 fn a_waiver_without_a_nomad_holding_the_suite_stages_no_exhaustion() {
     // A Nomad at the table without the suite hears nothing and does not stop the step either; with no Nomad at all the same.
