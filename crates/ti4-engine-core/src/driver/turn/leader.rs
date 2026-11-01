@@ -144,8 +144,9 @@ fn xxcha_agent(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: b
 
 /// Carth of Golden Sands: gain 2 commodities or replenish another player's. "During the action phase" is not an ACTION (OP-07).
 fn carth(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool) -> Flow {
-    let agreement = sx.table.codes.explore.filled.then_some(sx.table.codes.explore.trade_agreement);
-    let mut window = agreement.map_or_else(|| HacanAgent::new(who), |source| HacanAgent::with_source(who, source));
+    // The replenish is announced as the string does (a Cabal's `COMMODITIES_REPLENISHED`, a Trade Agreement's gain): the source is the interned
+    // `trade_agreement` of the table's non-supply gains.
+    let mut window = HacanAgent::with_source(who, sx.table.codes.not_from_supply[3]);
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
     }

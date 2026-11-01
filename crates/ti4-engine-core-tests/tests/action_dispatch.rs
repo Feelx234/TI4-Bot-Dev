@@ -408,8 +408,8 @@ impl ti4_engine_core::kernel::stage::Window for Announces {
         None
     }
 
-    fn answer(&mut self, _: &mut ti4_engine_core::kernel::stage::Sx<'_>, _: Pick) -> Result<(), ti4_engine_core::choice::Illegal> {
-        Err(ti4_engine_core::choice::Illegal)
+    fn answer(&mut self, _: &mut ti4_engine_core::kernel::stage::Sx<'_>, _: Pick) -> Result<(), ti4_engine_core::kernel::stage::Illegal> {
+        Err(ti4_engine_core::kernel::stage::Illegal)
     }
 }
 
@@ -424,5 +424,35 @@ fn a_ship_destruction_an_effect_staged_is_announced_after_the_body_of_a_componen
     rig.run();
     assert!(rig.state.transient().combat.pending_destructions.is_empty(), "the staged destruction was taken");
     assert_eq!(rig.state.transient().combat.last_ship_destroyed, Some((system, Seat(1), Unit::CruiserI)));
-    assert_eq!(typed(&rig.state, EventKind::ShipDestroyed), 1, "announced once");
+    assert_eq!(rig.driver.emitted.iter().filter(|e| e.kind == EventKind::ShipDestroyed).count(), 1, "announced once");
+}
+
+/// Lane F2d: Sling Relay chosen from the menu runs the core's `SlingRelay` window (the dock system, the ship, the payment), places the ship, exhausts the
+/// technology and ends the action.
+#[test]
+fn sling_relay_chosen_from_the_menu_produces_a_ship_exhausts_the_technology_and_ends_the_action() {
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan, Faction::TheArborec])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system])
+        .control(planet, 0)
+        .unit(system, Some(planet), Unit::SpaceDockI, 0, 1)
+        .tech(0, Technology::SlingRelay)
+        .tokens(0, 3, 3, 2)
+        .build();
+    let e = env_r(&k);
+    let ships = |s: &CoreState| s.board().sys(system).units.as_slice().iter().filter(|u| u.owner() == Seat(0)).count();
+    let before = ships(&s);
+    let (mut live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Tech(Technology::SlingRelay)))).unwrap();
+    // The window asks the ship and the payment; the first option of each is taken until the use ends.
+    for _ in 0..8 {
+        if !matches!(live, Live::Asks(_)) {
+            break;
+        }
+        live = pick(&mut s, &e, |_| true).unwrap().0;
+    }
+    assert_eq!(ships(&s), before + 1, "a ship was produced at the dock");
+    assert!(s.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::SlingRelay), "the technology is exhausted");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
 }

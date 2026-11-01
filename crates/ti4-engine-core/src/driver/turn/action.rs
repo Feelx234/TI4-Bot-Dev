@@ -61,6 +61,7 @@ pub fn run_action(sx: &mut Sx<'_>, key: u32) -> Flow {
         },
         Dispatch::Faction(action) => super::faction::run(sx, active, key, action),
         Dispatch::Leader { leader, borrowed } => super::leader::run(sx, active, key, leader, borrowed),
+        Dispatch::Technology(tech) => super::technology::run(sx, active, key, tech),
         Dispatch::ActionCard => match opt {
             Opt::Play { index, card } => component::play_card(sx, active, key, card, Some(index)),
             Opt::Salvaged(card) => component::play_card(sx, active, key, card, None),

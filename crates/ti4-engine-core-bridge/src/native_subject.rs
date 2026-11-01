@@ -515,6 +515,9 @@ fn menu_body_is_lent(id: &str) -> bool {
     if id.starts_with("faction|") {
         return !ROUTED_FACTION.iter().any(|routed| if routed.ends_with('|') { id.starts_with(routed) } else { id == *routed });
     }
+    if let Some(alias) = id.strip_prefix("component|tech|") {
+        return !ti4_engine_core::generated::Technology::ALL.iter().any(|t| t.as_str() == alias && ti4_engine_core::driver::turn::technology::routed(*t));
+    }
     if let Some(alias) = id.strip_prefix("relic|") {
         return !ti4_engine_core::generated::Relic::ALL.iter().any(|r| r.as_str() == alias && ti4_engine_core::driver::turn::relic::routed(*r));
     }
